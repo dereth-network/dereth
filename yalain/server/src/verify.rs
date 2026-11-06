@@ -4,24 +4,22 @@
 //!
 //! - **The verification** goes to `POST /v1/servers/<slug>/verify` with the token and who typed
 //!   it. The hub holds the call while it challenges the world's game port; the world waits for
-//!   it at most [`VERIFY_TIMEOUT`]. Its answer comes back on a later pass, as the line
-//!   `yalain_federation` words it, for whoever typed it.
+//!   it at most `dereth_network_link::verify::VERIFY_TIMEOUT`. Its answer comes back on a later
+//!   pass, as the line `yalain_federation` words it, for whoever typed it.
 //! - **The answer to the hub's challenge** goes to `POST /v1/servers/<slug>/verify/answer` with
 //!   the nonce, from whatever address the world's calls leave by. Nothing goes back over UDP.
 //!
 //! Nothing here logs the key or the token.
 
 use std::sync::mpsc::{self, Receiver, Sender};
+#[cfg(test)]
 use std::time::Duration;
 
-use yalain_federation::{answer_line, unreachable_line, ChallengeAnswer, VerifyRequest, NOT_SENT};
+use dereth_network_link::verify::{send_answer, send_verification, Verification};
+use yalain_federation::{ChallengeAnswer, VerifyRequest, KEY_UNKNOWN, NOT_SENT};
 
-/// How long a verification waits for the hub: it holds the call while it looks the world's host
-/// up and waits for the answer to its challenge.
-pub const VERIFY_TIMEOUT: Duration = Duration::from_secs(60);
-
-/// The most of the hub's answer read.
-const MAX_BODY: u64 = 64 * 1024;
+/// What the world's calls to the hub's verification routes name themselves.
+const USER_AGENT: &str = concat!("yalain/", env!("CARGO_PKG_VERSION"));
 
 /// The hub's answer to one verification: whom to show it to (a character of this world by id, or
 /// the console when none), and the line.
@@ -60,7 +58,14 @@ impl Verifier {
         let spawned = std::thread::Builder::new()
             .name("hub-verify".into())
             .spawn(move || {
-                let line = send_verification(&url, &key, &r);
+                let line = send_verification(&Verification {
+                    url: &url,
+                    key: &key,
+                    token: &r.token,
+                    by: &r.by,
+                    user_agent: USER_AGENT,
+                    key_unknown: KEY_UNKNOWN,
+                });
                 let _ = tx.send((r.who, line));
             });
         if spawned.is_err() {
@@ -74,15 +79,17 @@ impl Verifier {
         let (url, key) = (self.answer_url.clone(), self.key.clone());
         let spawned = std::thread::Builder::new()
             .name("hub-answer".into())
-            .spawn(move || match send_answer(&url, &key, &a.nonce) {
-                Ok(200) => tracing::info!("Dereth Network: answered the hub's challenge"),
-                Ok(status) => tracing::info!(
+            .spawn(
+                move || match send_answer(&url, &key, &a.nonce, USER_AGENT) {
+                    Ok(200) => tracing::info!("Dereth Network: answered the hub's challenge"),
+                    Ok(status) => tracing::info!(
                     "Dereth Network: the hub did not take the answer to its challenge ({status})"
                 ),
-                Err(e) => tracing::warn!(
-                    "Dereth Network: the answer to the hub's challenge could not be sent: {e}"
-                ),
-            });
+                    Err(e) => tracing::warn!(
+                        "Dereth Network: the answer to the hub's challenge could not be sent: {e}"
+                    ),
+                },
+            );
         if spawned.is_err() {
             tracing::warn!("Dereth Network: the answer to the hub's challenge could not be sent");
         }
@@ -102,54 +109,4 @@ impl Verifier {
             Err(_) => false,
         }
     }
-}
-
-/// The agent the world's calls to the verification routes go through: no redirects, and the
-/// hub's status taken as it is.
-fn agent() -> ureq::Agent {
-    ureq::Agent::config_builder()
-        .user_agent(concat!("yalain/", env!("CARGO_PKG_VERSION")))
-        .timeout_global(Some(VERIFY_TIMEOUT))
-        .http_status_as_error(false)
-        .max_redirects(0)
-        .build()
-        .into()
-}
-
-/// Sends one verification to the hub and says how it went, as the line to show.
-fn send_verification(url: &str, key: &str, r: &VerifyRequest) -> String {
-    let body = serde_json::json!({ "token": r.token, "by": r.by }).to_string();
-    match agent()
-        .post(url)
-        .header("Authorization", &format!("Bearer {key}"))
-        .header("Content-Type", "application/json")
-        .send(body.as_str())
-    {
-        Ok(mut resp) => {
-            let status = resp.status().as_u16();
-            let text = resp
-                .body_mut()
-                .with_config()
-                .limit(MAX_BODY)
-                .read_to_string()
-                .unwrap_or_default();
-            answer_line(status, &text)
-        }
-        Err(e) => unreachable_line(&e.to_string()),
-    }
-}
-
-/// Posts a challenge's nonce (32 hex digits) to the hub's answer route: the hub's status.
-///
-/// # Errors
-/// The hub could not be reached.
-fn send_answer(url: &str, key: &str, nonce: &str) -> Result<u16, String> {
-    let body = serde_json::json!({ "nonce": nonce }).to_string();
-    agent()
-        .post(url)
-        .header("Authorization", &format!("Bearer {key}"))
-        .header("Content-Type", "application/json")
-        .send(body.as_str())
-        .map(|r| r.status().as_u16())
-        .map_err(|e| e.to_string())
 }

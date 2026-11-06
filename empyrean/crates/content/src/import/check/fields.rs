@@ -19,6 +19,9 @@ use empyrean_entity::enums::{
 };
 
 use super::TableDiff;
+use crate::loot::{GroupedTreasureDeath, SourceLootPolicy};
+use crate::models::world::RecipeVitalRequirement;
+
 use crate::error::PackError;
 use crate::models::world::{
     CookBook, Encounter, Event, HousePortal, LandblockInstance, PointsOfInterest, Quest, Recipe,
@@ -129,6 +132,9 @@ fn fields_of(t: TableId, key: u64, p: &Pack) -> Result<Fields, PackError> {
         }
         TableId::COOK_BOOK => grouped::<CookBook>(p, t, key, |c| format!("recipe {}", c.recipe_id)),
         TableId::RECIPE => one::<Recipe>(p, t, key),
+        TableId::GROUPED_TREASURE => one::<GroupedTreasureDeath>(p, t, key),
+        TableId::LOOT_POLICY => one::<SourceLootPolicy>(p, t, key),
+        TableId::RECIPE_VITAL => one::<RecipeVitalRequirement>(p, t, key),
         TableId::EVENT => one::<Event>(p, t, key),
         TableId::HOUSE_PORTAL => one::<HousePortal>(p, t, key),
         TableId::POINTS_OF_INTEREST => one::<PointsOfInterest>(p, t, key),

@@ -22,6 +22,7 @@ fn caster() -> GameState {
         name: "Tester".into(),
         combat_mode: MAGIC,
         spells: vec![Spell {
+            charge: None,
             id: FLAME_BOLT,
             name: "Flame Bolt I".into(),
             school: 1,

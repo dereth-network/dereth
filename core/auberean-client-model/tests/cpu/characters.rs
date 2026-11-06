@@ -135,3 +135,56 @@ fn a_new_list_allows_five_characters() {
     assert_eq!(list.slots, 5);
     assert_eq!(list.status, 0);
 }
+
+/// A deleted character brought back: the answer that it is made again takes its grey off in the
+/// list, where it stays one row.
+///
+/// Behaviour: model.characters.a-character-brought-back-loses-its-grey
+#[test]
+fn a_character_brought_back_loses_its_grey() {
+    let mut m = Model::new();
+    let at = |message| Item {
+        blob_id: 0,
+        message,
+    };
+    let greyed = CharacterIdentity {
+        id: 7,
+        seconds_greyed_out: 3600,
+        ..CharacterIdentity::default()
+    };
+    let list = CharacterList {
+        slots: 5,
+        characters: vec![greyed.clone()],
+        ..CharacterList::default()
+    };
+    m.apply(&at(ServerMessage::CharacterList(list)));
+    m.apply(&at(ServerMessage::CharacterCreated(CharacterCreated {
+        response: CharacterCreated::OK,
+        identity: CharacterIdentity {
+            seconds_greyed_out: 0,
+            ..greyed
+        },
+        result: 0,
+    })));
+    let list = m.characters.as_ref().expect("the list");
+    assert_eq!(list.characters.len(), 1);
+    assert_eq!(list.characters[0].seconds_greyed_out, 0);
+}
+
+/// A character refused keeps the error the server gave, for the creation screen to say why.
+///
+/// Behaviour: model.characters.a-refused-character-keeps-the-servers-error
+#[test]
+fn a_refused_character_keeps_the_servers_error() {
+    let mut m = Model::new();
+    let refused = CharacterCreated {
+        response: 5,
+        identity: CharacterIdentity::default(),
+        result: 0xC74A,
+    };
+    m.apply(&Item {
+        blob_id: 0,
+        message: ServerMessage::CharacterCreated(refused),
+    });
+    assert_eq!(m.creation, Some((5, 0, 1, 0xC74A)));
+}

@@ -30,3 +30,38 @@ fn each_refusal_reason_leads_to_its_screen() {
     );
     assert_eq!(character_error(4), Some((gone, "ID_CHAR_ERROR_LOGOFF")));
 }
+
+/// How long a character stays deleted reads nothing for a row past the number the account may have
+/// (when it may have any), and a row holding the invalid id has no character.
+///
+/// Behaviour: ui.charselect.a-row-past-the-accounts-limit-is-not-a-deleted-one
+#[test]
+fn a_row_past_the_accounts_limit_is_not_a_deleted_one() {
+    use auberean_ui_game::pregame::{Character, CharacterSet, INVALID_ID};
+    let c = |id, greyed| Character {
+        id,
+        name: "Firstlight".into(),
+        greyed,
+    };
+    let set = |slots| CharacterSet {
+        characters: vec![c(1, 60), c(2, 60), c(INVALID_ID, 60)],
+        slots,
+        account: "tester".into(),
+    };
+    let two = set(2);
+    assert_eq!(two.greyed_out_for(1), 60);
+    assert_eq!(two.greyed_out_for(2), 0, "past the limit");
+    assert_eq!(two.greyed_out_for(9), 0);
+    let one = set(1);
+    assert_eq!(one.greyed_out_for(0), 60);
+    assert_eq!(one.greyed_out_for(1), 0);
+    assert_eq!(one.identity(1).map(|c| c.id), Some(2), "still listed");
+    for no_limit in [0, -1] {
+        assert_eq!(set(no_limit).greyed_out_for(1), 60, "no limit");
+        assert_eq!(set(no_limit).greyed_out_for(2), 0, "the invalid id");
+    }
+    assert!(
+        set(3).identity(2).is_none(),
+        "the invalid id is no character"
+    );
+}

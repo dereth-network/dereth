@@ -12,6 +12,7 @@
 //! above as a fog kind is, blended between the two depths about the viewer's ([`water_fog`]).
 
 use auberean_assets::region::{BlockMap, Combine, FogAndLight, FogDesc, FogType, WaterLight};
+use auberean_primitives::math::Rgba;
 use auberean_primitives::Vec3;
 
 use crate::color::Color;
@@ -59,18 +60,16 @@ fn combine_color(c: &Combine, a: Color, b: Color) -> Color {
 // D2-10870
 fn day_light_color(l: &DayLight) -> Color {
     let (d, a) = (l.direct_color, l.ambient_color);
-    let mut c = Color::new(
-        d.r * l.direct_brightness + a.r * l.ambient_brightness,
-        d.g * l.direct_brightness + a.g * l.ambient_brightness,
-        d.b * l.direct_brightness + a.b * l.ambient_brightness,
-        d.a,
-    );
-    let valid = [c.r, c.g, c.b, c.a].iter().all(|v| (0.0..=1.0).contains(v));
-    let m = c.r.max(c.g).max(c.b);
-    if !valid && m != 0.0 {
-        c = Color::new(c.r / m, c.g / m, c.b / m, c.a);
+    let mut c = Rgba {
+        r: d.r * l.direct_brightness + a.r * l.ambient_brightness,
+        g: d.g * l.direct_brightness + a.g * l.ambient_brightness,
+        b: d.b * l.direct_brightness + a.b * l.ambient_brightness,
+        a: d.a,
+    };
+    if !c.is_valid() {
+        c.normalize();
     }
-    c
+    Color::new(c.r, c.g, c.b, c.a)
 }
 
 /// A corner's kind combined with the day: the combines are ambient brightness, ambient color,
@@ -161,7 +160,7 @@ pub fn block_light(
 /// last alone. Each is combined with `light` as a fog kind is, and the two are blended by where
 /// the depth lies between theirs (the shallower's share growing as the depth nears its own); the
 /// fog's alpha is the deeper's. An empty table leaves the light as it is.
-// D2-10872
+// D2-10872, D2-07527, D2-12555, D2-12560
 #[must_use]
 pub fn water_fog(light: &DayLight, table: &[WaterLight], depth: f32) -> DayLight {
     let Some(last) = table.len().checked_sub(1) else {

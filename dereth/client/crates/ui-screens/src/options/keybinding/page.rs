@@ -94,9 +94,28 @@ pub struct KeyBindingPage {
     /// this page had computed would still pass.
     pub header_elements: Vec<ElemHandle>,
     file_dialog: Option<FileDialogState>,
+    /// The systems the world has: a key for what it lacks is not listed. `None` lists every row.
+    era: Option<dereth_primitives::EraFeatures>,
+    /// Whether the rows were built for other systems than [`Self::era`] says.
+    era_changed: bool,
+    /// Whether the rows have been built at all.
+    rows_built: bool,
 }
 
 impl KeyBindingPage {
+    /// The systems the world has, once the world says or they change.
+    pub fn set_era(&mut self, features: dereth_primitives::EraFeatures) {
+        if self.era != Some(features) {
+            self.era = Some(features);
+            self.era_changed = self.rows_built;
+        }
+    }
+
+    /// Whether the rows must be built again for the world's systems; asking answers once.
+    pub fn take_era_change(&mut self) -> bool {
+        std::mem::take(&mut self.era_changed)
+    }
+
     /// The mouse-turning settings' key half, offered to every row: the two camera-zoom rows take
     /// the mouse wheel and the rest do nothing. Returns the chat lines the two print.
     pub fn set_mouse_turning_defaults(
@@ -504,6 +523,8 @@ impl KeyBindingPage {
         for (_, lb) in &mut self.list_boxes {
             lb.flush(ui);
         }
+        self.rows_built = true;
+        self.era_changed = false;
         self.rows.clear();
         self.headers = 0;
         self.failures = 0;
@@ -524,7 +545,7 @@ impl KeyBindingPage {
                 continue;
             };
             let class = presentation::modern_class(map, action).unwrap_or(v.action_class);
-            if !row.shown(Interface::Modern) {
+            if !row.listed(Interface::Modern, self.era.as_ref()) {
                 continue;
             }
             let ci = match groups.iter().position(|(c, _)| *c == class) {

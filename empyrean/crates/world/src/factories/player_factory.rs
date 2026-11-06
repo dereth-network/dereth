@@ -18,6 +18,8 @@
 //! (`Player(Weenie, ObjectGuid, uint accountId)`) makes the `Character`, the vitals and attributes
 //! (starting at max) and `IsOlthoiPlayer`.
 
+mod launch_starters;
+
 use std::sync::Arc;
 
 use dereth_primitives::ContainerEra;
@@ -60,6 +62,8 @@ pub enum CreateResult {
     /// Not ACE's: a template number outside the heritage's list (a fix, V243). The handler answers it
     /// `Corrupt`, as every other failure but the skills mismatch.
     InvalidTemplate,
+    /// Required starter content is missing or cannot fit in the new inventory (V467).
+    StarterProvisioningFailed,
 }
 
 impl CreateResult {
@@ -74,6 +78,7 @@ impl CreateResult {
             CreateResult::FailedToSpecializeSkill => "FailedToSpecializeSkill",
             CreateResult::ClientServerSkillsMismatch => "ClientServerSkillsMismatch",
             CreateResult::InvalidTemplate => "InvalidTemplate",
+            CreateResult::StarterProvisioningFailed => "StarterProvisioningFailed",
         }
     }
 }
@@ -651,6 +656,12 @@ pub fn create(
             }
         }
 
+        // DIVERGE: without the carry-over (`EraFeatures::creation_credit_carry_over`, V461) the
+        // credits left once every purchase has succeeded are lost.
+        if !w.era.features.creation_credit_carry_over {
+            p.player.set_property(PropertyInt::AvailableSkillCredits, 0);
+        }
+
         // DIVERGE: an era without the heritage weapon masteries (`EraFeatures::weapon_masteries`)
         // or the innate augmentations (`EraFeatures::innate_augmentations`) sets neither
         // (ClassicACE's `Create` outside its end-of-retail ruleset).
@@ -675,6 +686,14 @@ pub fn create(
             .biota
             .get_skill(Skill::DualWield)
             .is_some_and(|s| s.sac > SkillAdvancementClass::Untrained);
+
+        // DIVERGE: Launch provisions its basic kit whatever is trained (V467).
+        if w.era.starter_gear == empyrean_common::era::StarterGearSet::Launch {
+            if let Err(reason) = launch_starters::grant(w, &mut p, account_id) {
+                log::error!("Launch starter provisioning failed: {reason}");
+                return (CreateResult::StarterProvisioningFailed, p);
+            }
+        }
 
         // grant starter items based on skills
         // DIVERGE: the era's starter-gear table (`EraRules::starter_gear`; ClassicACE's
@@ -775,6 +794,10 @@ pub fn create(
 
     // DIVERGE: the era's rule (`World.era`) chooses the start position; end of retail is ACE's.
     let (location, instantiation, recalls_disabled) = match w.era.start_positions {
+        StartPositions::AtCharGenLocation => {
+            let location = char_gen_location(starter_area);
+            (location, location, false)
+        }
         StartPositions::FromCharGen => {
             let (location, instantiation) = char_gen_start(w, starter_area);
             (location, instantiation, true)
@@ -835,17 +858,13 @@ pub fn create(
     (CreateResult::Success, p)
 }
 
-/// ACE's start: the starter area's first location, and the town's "Free Ride" spell (or, for the
-/// Olthoi lair, the location itself) as the instantiation point.
-fn char_gen_start(
-    w: &World,
-    starter_area: &dereth_assets::tables::StarterArea,
-) -> (Position, Position) {
+/// The first location of the selected character-generation area.
+fn char_gen_location(starter_area: &dereth_assets::tables::StarterArea) -> Position {
     let loc = starter_area
         .locations
         .first()
         .unwrap_or_else(|| throw(&AceThrow::IndexOutOfRange(0)));
-    let location = Position::from_components(
+    Position::from_components(
         loc.cell.0,
         loc.frame.origin.x,
         loc.frame.origin.y,
@@ -855,7 +874,16 @@ fn char_gen_start(
         loc.frame.rotation.z,
         loc.frame.rotation.w,
         false,
-    );
+    )
+}
+
+/// ACE's start: the starter area's first location, and the town's "Free Ride" spell (or, for the
+/// Olthoi lair, the location itself) as the instantiation point.
+fn char_gen_start(
+    w: &World,
+    starter_area: &dereth_assets::tables::StarterArea,
+) -> (Position, Position) {
+    let location = char_gen_location(starter_area);
 
     let mut instantiation = Position::from_components(
         0xA9B4_0019,
@@ -1081,7 +1109,9 @@ pub fn create_iou(w: &mut World, missing_weenie_id: u32) -> Option<WorldObject> 
         empyrean_common::brand::PRODUCT,
         Some("prewritten"),
         false,
-        &format!("{missing_weenie_id}\n\nSorry but the database does not have a weenie for weenieClassId #{missing_weenie_id} so in lieu of that here is an IOU for that item."),
+        &format!(
+            "{missing_weenie_id}\n\nSorry but the database does not have a weenie for weenieClassId #{missing_weenie_id} so in lieu of that here is an IOU for that item."
+        ),
     );
     iou.set_bonded(Some(BondedStatus::Bonded));
     iou.set_attuned(Some(AttunedStatus::Attuned));

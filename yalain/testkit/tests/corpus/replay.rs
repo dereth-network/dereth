@@ -188,8 +188,9 @@ fn replay(con: &Connection, session: i64) -> Option<Outcome> {
             id: c.id,
             account: account.id,
             name: c.name.text(),
-            race: 0,
-            sex: 0,
+            // A list names no race: any real one enters, as the recorded characters did.
+            race: 1,
+            sex: yalain_world::chargen::MALE,
             class: 0,
             implement: 0,
             start_area: 0,
@@ -298,6 +299,9 @@ fn replay(con: &Connection, session: i64) -> Option<Outcome> {
             }
         }
     }
+
+    // A log-off last in the recording: its character's leaving takes this long.
+    h.run_to(yalain_net::LocalTime(h.now.0 + 25.0));
 
     let forward: HashMap<u64, u64> = ids.clone();
     let map = move |id: u64| forward.get(&id).copied().unwrap_or(id);
@@ -594,4 +598,160 @@ fn every_recorded_2017_data_request_is_answered_as_the_recorded_server_answered_
          {served} served compressed or not as recorded",
         asked.len()
     );
+}
+
+struct Dice(u64);
+
+impl Dice {
+    fn next(&mut self) -> u64 {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        self.0
+    }
+
+    fn below(&mut self, n: usize) -> usize {
+        usize::try_from(self.next() % (n.max(1) as u64)).unwrap_or(0)
+    }
+}
+
+/// A few recorded messages of each kind the 2017 clients sent: for a call, of each function.
+fn recorded_shapes() -> Vec<(u16, Vec<u8>)> {
+    let con = open(&auberean_testkit::data::require_capture_index());
+    let mut st = con
+        .prepare(
+            "SELECT m.queue, m.mtype, m.raw FROM message m JOIN session s USING (session_id) \
+             JOIN capture c USING (capture_id) WHERE m.status = 'ac2' AND m.dir = 'c2s' \
+             AND c.file LIKE '2017-%' ORDER BY m.message_id",
+        )
+        .expect("prepares");
+    let mut seen: BTreeMap<(i64, u32), u32> = BTreeMap::new();
+    let mut out = Vec::new();
+    let mut rows = st.query([]).expect("runs");
+    while let Some(r) = rows.next().expect("a row") {
+        let (queue, mtype, raw): (i64, i64, Vec<u8>) = (
+            r.get(0).expect("q"),
+            r.get(1).expect("t"),
+            r.get(2).expect("raw"),
+        );
+        let f = raw
+            .get(4..8)
+            .map_or(0, |b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]));
+        let n = seen.entry((mtype, f)).or_default();
+        *n += 1;
+        if *n <= 4 {
+            out.push((u16::try_from(queue).unwrap_or(0), raw));
+        }
+    }
+    out
+}
+
+fn bite(d: &mut Dice, bytes: &mut Vec<u8>) {
+    match d.below(4) {
+        0 => {
+            let cut = d.below(bytes.len() + 1);
+            bytes.truncate(cut);
+        }
+        1 => {
+            for _ in 0..1 + d.below(5) {
+                let at = d.below(bytes.len().max(1));
+                if let Some(b) = bytes.get_mut(at) {
+                    *b ^= 1 << d.below(8);
+                }
+            }
+        }
+        2 => {
+            let at = d.below(bytes.len().max(1));
+            for k in 0..4 {
+                if let Some(b) = bytes.get_mut(at + k) {
+                    *b = 0xFF;
+                }
+            }
+        }
+        _ => {
+            for _ in 0..d.below(32) {
+                #[allow(clippy::cast_possible_truncation)]
+                bytes.push(d.next() as u8);
+            }
+        }
+    }
+}
+
+/// Bitten recorded messages read as an error or as something: never a panic, or a hang, in the
+/// parser or in the world.
+/// Behaviour: server.lying-client.recorded-messages-bitten-do-no-harm
+#[test]
+fn every_kind_of_recorded_message_bitten_panics_nothing() {
+    let shapes = recorded_shapes();
+    assert!(shapes.len() > 100, "{} kinds of message", shapes.len());
+    let mut d = Dice(0x5EED_5000);
+    // The parser alone, many times over.
+    let mut read = 0usize;
+    for _ in 0..40 {
+        for (queue, raw) in &shapes {
+            let mut b = raw.clone();
+            bite(&mut d, &mut b);
+            if let Ok(auberean_protocol::ClientBlob::Message(
+                auberean_protocol::ClientMessage::ServerCall(c),
+            )) = auberean_protocol::ClientBlob::decode(*queue, &b)
+            {
+                read += 1;
+                let _ = yalain_world::calls::values(&c.args.0);
+                let _ = yalain_world::uploads::values(&c.args.0);
+            }
+        }
+    }
+    assert!(read > 1000, "{read} bitten calls still read as calls");
+    // And into a world, a player in it.
+    let mut h = Harness::new();
+    let (a, me) = h.player_in_world("one", "Liar");
+    for (queue, raw) in shapes.iter().cycle().take(6000) {
+        let mut b = raw.clone();
+        bite(&mut d, &mut b);
+        h.bots[a].send_bytes(true, *queue, b);
+        h.run(1);
+    }
+    let t = h.now.0 + 30.0;
+    h.run_to(yalain_net::LocalTime(t));
+    assert!(h.server.players.len() <= 1, "{me:#x} is one player");
+}
+
+/// Every recorded client's messages, by when each was sent, fall inside a limit a tenth of the
+/// server's: the limit is well above anything recorded.
+/// Behaviour: server.operator.a-flood-of-calls-is-dropped
+#[test]
+fn no_recorded_2017_client_comes_near_the_limit_on_calls() {
+    use yalain_net::LocalTime;
+    use yalain_world::call_limit::{Bucket, BURST, PER_SECOND};
+    let path = auberean_testkit::data::require_capture_index();
+    let con = open(&path);
+    let mut stmt = con
+        .prepare(
+            "SELECT m.session_id, m.t FROM message m JOIN session s USING (session_id) \
+             JOIN capture c USING (capture_id) \
+             WHERE m.status = 'ac2' AND m.dir = 'c2s' AND c.file LIKE '2017-%' \
+             ORDER BY m.session_id, m.t",
+        )
+        .expect("prepares");
+    let mut rows = stmt.query([]).expect("runs");
+    let (mut session, mut bucket, mut messages, mut sessions) = (None, None, 0u64, 0u64);
+    let mut refused = 0u64;
+    while let Some(r) = rows.next().expect("a row") {
+        let id: i64 = r.get(0).expect("a session");
+        let t = LocalTime(r.get(1).expect("a time"));
+        if session != Some(id) {
+            session = Some(id);
+            sessions += 1;
+            bucket = Some(Bucket::with(BURST / 10.0, PER_SECOND / 10.0, t));
+        }
+        messages += 1;
+        if !bucket.as_mut().expect("begun").allow(t) {
+            refused += 1;
+        }
+    }
+    println!(
+        "{messages} client messages of {sessions} connections; {refused} past a tenth of the limit"
+    );
+    assert!(sessions > 1000 && messages > 1_000_000);
+    assert_eq!(refused, 0);
 }

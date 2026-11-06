@@ -109,7 +109,7 @@ fn frame_of(corners: [([f32; 3], [f32; 2]); 4], camera: Camera) -> Frame {
     quad.indices = Arc::new(vec![0, 1, 2, 1, 3, 2]);
     quad.transform = Mat4::IDENTITY;
     quad.layer = shown(&base.layer);
-    let mut frame = builder.parts_frame(&[], Vec::new(), camera, DayLight::DEFAULT);
+    let mut frame = builder.parts_frame(&[], Vec::new(), camera, DayLight::DEFAULT, None);
     frame.objects = vec![quad];
     frame
 }
@@ -141,6 +141,7 @@ fn wall() -> Frame {
             fov_y: 60.0,
             near: 0.1,
             far: 500.0,
+            roll: 0.0,
             orthographic: None,
         },
     )
@@ -187,6 +188,7 @@ fn floor() -> Frame {
             fov_y: 60.0,
             near: 0.1,
             far: 1000.0,
+            roll: 0.0,
             orthographic: None,
         },
     )
@@ -223,6 +225,7 @@ fn trilinear_filtering_blends_between_a_textures_levels() {
     let mut started_off = renderer();
     let off = between(&mut started_off, false);
     let later = between(&mut started_off, true);
+    drop(started_off);
     let on = between(&mut renderer(), true);
     assert!(off < 0.01, "nearest level only: {off}");
     assert!(later < 0.01, "kept from the first frame: {later}");

@@ -105,10 +105,14 @@ members = [
     # The web client: the SDK in a browser's Web Worker. Its browser half compiles only for
     # wasm32-unknown-unknown; the host build checks and tests the rest.
     "dereth/web",
+    # What the web client keeps in browser storage for the game and the launcher alike, and the
+    # web front page's launcher, a small WebAssembly module of its own.
+    "dereth/web/store",
+    "dereth/web/front",
     # The launcher's knowledge: worlds, clients, data sets, accounts, its folders and its update.
-    # The launcher's window, the Tauri app in dereth/launcher, is a workspace of its own (it is no
+    # The launcher's window, the Tauri app in launcher, is a workspace of its own (it is no
     # member here), so that nothing here ever builds a web view or needs WebKitGTK.
-    "dereth/launcher/crates/launch",
+    "launcher/crates/launch",
     # Test support only: the behaviour scenarios. Nothing in any crate's `src/` or in `tools/`
     # depends on it, and it is a member so that `cargo check --workspace --all-targets` covers it.
     "dereth/testkit",
@@ -147,6 +151,7 @@ members = [
     "empyrean/crates/command",
     "empyrean/server",
     "empyrean/import",
+    "empyrean/relay",
     "empyrean/testkit",
     # network/: the Dereth Network, the link between worlds: its protocol (MIT), a world's end of
     # the link (MIT), its hub (AGPL-3.0-only, `network/hub/LICENSE`) and its conformance suite
@@ -157,18 +162,27 @@ members = [
     "network/link",
     "network/hub",
     "network/conformance",
+    # server-update/: the updater both game servers (Empyrean and Yalain) run (MIT), which each
+    # gives its own name, releases, databases and world data.
+    "server-update",
+    # server-websocket/: the WebSocket endpoint both game servers (Empyrean and Yalain) run (MIT):
+    # its settings, and the listener each gives its own ports.
+    "server-websocket",
     # auberean/: Auberean, the Asheron's Call 2 client (MIT): what a frame draws with no device
     # and the wgpu device (auberean/client/crates/), the offline world viewer, the headless client
     # on the SDK alone, and the test kit with the behaviour registry. Its core is under core/.
     "auberean/client/crates/audio",
     "auberean/client/crates/draw",
     "auberean/client/crates/gpu",
+    "auberean/client/crates/present",
     "auberean/client/crates/scene",
     "auberean/client/crates/shell",
     "auberean/client",
     "auberean/client/crates/ui",
     "auberean/client/crates/ui-game",
     "auberean/client/crates/interface",
+    # The client in a browser's Web Worker: its browser half compiles only for WebAssembly.
+    "auberean/web",
     "auberean/viewer",
     "auberean/headless",
     # The friends library the retail client loads in place of its original, shipped built for
@@ -230,7 +244,7 @@ dereth-headless = { path = "dereth/headless" }
 dereth-gltf = { path = "core/gltf" }
 dereth-input = { path = "dereth/client/crates/input" }
 dereth-landscape = { path = "core/landscape" }
-dereth-launch = { path = "dereth/launcher/crates/launch" }
+dereth-launch = { path = "launcher/crates/launch" }
 dereth-navigation = { path = "core/navigation" }
 dereth-pack = { path = "core/pack" }
 dereth-pcap = { path = "tools/pcap" }
@@ -261,6 +275,7 @@ dereth-ui-screens = { path = "dereth/client/crates/ui-screens" }
 dereth-ui-kit = { path = "dereth/client/crates/ui-kit" }
 dereth-horizon = { path = "dereth/client/crates/horizon" }
 dereth-web = { path = "dereth/web" }
+dereth-web-store = { path = "dereth/web/store" }
 dereth-web-dev = { path = "tools/web-dev" }
 dereth-web-relay = { path = "tools/web-relay" }
 dereth-world-data = { path = "core/world-data" }
@@ -272,6 +287,7 @@ empyrean-dat = { path = "empyrean/crates/dat" }
 empyrean-entity = { path = "empyrean/crates/entity" }
 empyrean-import = { path = "empyrean/import" }
 empyrean-net = { path = "empyrean/crates/net" }
+empyrean-relay = { path = "empyrean/relay" }
 empyrean-server = { path = "empyrean/server" }
 empyrean-store = { path = "empyrean/crates/store" }
 empyrean-tables = { path = "empyrean/crates/tables" }
@@ -281,6 +297,8 @@ dereth-network-protocol = { path = "network/protocol" }
 dereth-network-link = { path = "network/link" }
 dereth-network-hub = { path = "network/hub" }
 dereth-network-conformance = { path = "network/conformance" }
+dereth-server-update = { path = "server-update" }
+dereth-server-websocket = { path = "server-websocket" }
 xtask = { path = "tools/xtask" }
 # Auberean (the Asheron's Call 2 client and its core), Yalain (its server), Athenaeum (its world
 # builder).
@@ -297,6 +315,7 @@ auberean-draw = { path = "auberean/client/crates/draw" }
 auberean-friends = { path = "core/auberean-friends" }
 auberean-glue = { path = "core/auberean-glue" }
 auberean-gpu = { path = "auberean/client/crates/gpu" }
+auberean-present = { path = "auberean/client/crates/present" }
 auberean-scene = { path = "auberean/client/crates/scene" }
 auberean-shell = { path = "auberean/client/crates/shell" }
 auberean-ui = { path = "auberean/client/crates/ui" }

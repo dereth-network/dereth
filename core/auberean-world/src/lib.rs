@@ -41,6 +41,7 @@ pub mod look;
 pub mod math;
 pub mod noise;
 pub mod place;
+pub mod property;
 pub mod random;
 pub mod records;
 pub mod scenery;

@@ -22,6 +22,7 @@ fn hall() -> Harness {
             object: None,
             template: 0x4700_3183,
             description: Description {
+                name_text: None,
                 package: 0x103E,
                 look: 0x1F00_0100,
                 enter_fx: 0,

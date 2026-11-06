@@ -2,15 +2,20 @@
 //! its command line too, answering its status endpoint. Each step waits for the endpoint's
 //! answer, with a time limit only against a hang. Fixture: the built executable, the install, the
 //! authored world and a configuration file in a scratch folder.
+//!
+//! A world whose release of the world database is not in the cache, as after a rebuild that moved
+//! this build's pin, fetches it as it starts, or says it could not and does not start. Fixture: a
+//! cache of its own in a scratch folder, and a local folder as the source, so nothing is downloaded.
 
 use std::io::{Read as _, Write as _};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream, UdpSocket};
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::{Command, Output, Stdio};
 use std::time::Instant;
 
 use yalain_testkit::authored;
 use yalain_testkit::session::{self as play};
+use yalain_world_db::release::PINNED_TAG;
 
 use crate::session::{must, scratch, serving, Loopback, LIFE};
 
@@ -18,7 +23,7 @@ use crate::session::{must, scratch, serving, Loopback, LIFE};
 const STATUS_AT: &str = "status endpoint listening on http://127.0.0.1:";
 
 /// The status endpoint's port, from the log.
-fn status_port(dir: &Path) -> u16 {
+pub(crate) fn status_port(dir: &Path) -> u16 {
     let log = std::fs::read_to_string(dir.join("server.log")).unwrap_or_default();
     log.lines()
         .find_map(|l| {
@@ -29,7 +34,7 @@ fn status_port(dir: &Path) -> u16 {
 }
 
 /// `/status`'s body once the endpoint answers.
-fn status(port: u16, dir: &Path) -> serde_json::Value {
+pub(crate) fn status(port: u16, dir: &Path) -> serde_json::Value {
     let until = Instant::now() + crate::network::HANG;
     loop {
         if let Ok(mut s) = TcpStream::connect((Ipv4Addr::LOCALHOST, port)) {
@@ -131,4 +136,135 @@ fn the_server_takes_its_settings_from_its_config_file_and_answers_its_status_end
         log.contains("server.landblock_preloading: Empyrean's setting"),
         "{log}"
     );
+}
+
+/// The executable set up from a file whose `[server.websocket]` cannot be served stops at its start
+/// with exit code 1 and says why: a plain listener off loopback (the section's own default),
+/// half a certificate and a certificate that will not read. It reads nothing of the install first.
+/// Behaviour: server.operator.websocket-settings-refused-as-empyreans
+#[test]
+fn a_websocket_setting_that_cannot_be_served_stops_the_server_at_its_start() {
+    let dir = scratch("yalain-live-websocket-refused");
+    for (keys, says) in [
+        ("", "plain ws://"),
+        ("tls_certificate = \"c.pem\"", "set together"),
+        ("listen = \"nowhere\"", "is not an ip:port"),
+    ] {
+        std::fs::write(
+            dir.join("yalain.toml"),
+            format!("[server.websocket]\nenabled = true\n{keys}\n"),
+        )
+        .expect("the configuration file");
+        let out = Command::new(env!("CARGO_BIN_EXE_yalain"))
+            .current_dir(&dir)
+            .stdin(Stdio::null())
+            .output()
+            .expect("the server runs");
+        let said = format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert_eq!(out.status.code(), Some(1), "{keys}: {said}");
+        assert!(said.contains(says), "{keys}: {said}");
+    }
+}
+
+/// The executable, with a cache of its own in `dir` on any system, reading releases from `source`.
+fn yalain_with_its_own_cache(dir: &Path, source: &Path) -> Command {
+    let cache = dir.join("cache");
+    let mut command = Command::new(env!("CARGO_BIN_EXE_yalain"));
+    command
+        .env("XDG_CACHE_HOME", &cache)
+        .env("LOCALAPPDATA", &cache)
+        .env("HOME", &cache)
+        .env("YALAIN_WORLD_URL", source)
+        .current_dir(dir)
+        .stdin(Stdio::null());
+    command
+}
+
+fn said_by(out: &Output) -> String {
+    format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    )
+}
+
+/// A world lying over a release the cache lacks fetches it from its source, with the hash beside
+/// the archive, and serves it.
+/// Behaviour: server.world.a-world-fetches-its-release-as-it-starts
+#[test]
+fn a_world_over_a_release_not_in_the_cache_fetches_it_and_starts() {
+    let dir = scratch("world-fetch");
+    let source = dir.join("source");
+    let out = yalain_with_its_own_cache(&dir, &source)
+        .args(["world", "release"])
+        .arg(authored::database_dir())
+        .args(["--tag", "v0.0.9", "--out"])
+        .arg(&source)
+        .output()
+        .expect("it runs");
+    assert!(out.status.success(), "{}", said_by(&out));
+    let world = dir.join("world");
+    std::fs::create_dir_all(&world).expect("a folder");
+    std::fs::write(
+        world.join("world.toml"),
+        "format_version = 1\nkey = \"over-the-hall\"\ngame = \"ac2\"\nera = \"eor\"\npacks = []\n\n\
+         [base]\ndb = \"test-hall\"\nversion = \"v0.0.9\"\n",
+    )
+    .expect("written");
+
+    let install = auberean_dat::testing::require_target_install();
+    let (_, server, ()) = serving(&dir, |login| {
+        let log = std::fs::File::create(dir.join("server.log")).expect("the server's log");
+        let child = yalain_with_its_own_cache(&dir, &source)
+            .arg("--dats")
+            .arg(&install)
+            .args(["--memory", "--login-port", &login.to_string()])
+            .args(["--world-port", &(login + 2).to_string()])
+            .arg("--world-db")
+            .arg(&world)
+            .args(["--seconds", &LIFE.to_string()])
+            .stdout(log.try_clone().expect("the log twice"))
+            .stderr(log)
+            .spawn()
+            .expect("the server starts");
+        (child, ())
+    });
+    drop(server);
+    let log = std::fs::read_to_string(dir.join("server.log")).expect("the log");
+    assert!(
+        log.contains("needs the world database v0.0.9") && log.contains("matches"),
+        "{log}"
+    );
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// A world on this build's pin, with the release neither in the cache nor to be had, does not
+/// start: it says so, and leaves no store behind it.
+/// Behaviour: server.world.a-world-that-cannot-fetch-its-release-does-not-start
+#[test]
+fn a_world_on_a_pin_it_cannot_fetch_says_so_and_does_not_start() {
+    let dir = scratch("world-fetch-none");
+    let store = dir.join("store.sqlite");
+    let out = yalain_with_its_own_cache(&dir, &dir.join("no-such-folder"))
+        .arg("--dats")
+        .arg(auberean_dat::testing::require_target_install())
+        .arg("--data")
+        .arg(&store)
+        .args(["--seconds", &LIFE.to_string()])
+        .output()
+        .expect("it runs");
+    let text = said_by(&out);
+    assert_eq!(out.status.code(), Some(1), "{text}");
+    assert!(
+        text.contains(&format!("could not download {PINNED_TAG}"))
+            && text.contains("Nothing was changed")
+            && text.contains("yalain world fetch"),
+        "{text}"
+    );
+    assert!(!store.exists(), "no store made");
+    std::fs::remove_dir_all(&dir).ok();
 }

@@ -54,6 +54,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "parts.body.a-body-that-turns-freely-takes-its-end-facing-first",
+        says: "A body whose setup lets it turn freely, or with no part group, goes into a move \
+               having taken its end facing; one whose setup does not turns along the way.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PHYS-FREE-TURN"),
+        station: "auberean-physics::cpu::contact::objects::a_body_that_turns_freely_takes_its_end_facing_first",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "parts.bones.the-nearest-bone-and-the-bones-as-points",
         says: "The bone nearest a frame (by the bones' origins) gives its index and the turn from \
                the bone's rotation to the frame's, at the bone's origin; the bones as points (place \
@@ -146,6 +155,16 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-PARTS-BOX"),
         station: "auberean-physics::cpu::contact::objects::the_box_around_what_is_drawn_takes_in_every_part",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "parts.holding.a-carried-system-follows-the-first-groups-bone",
+        says: "A particle system carried at a holding location follows the first part group's \
+               bone of the location's number, whichever group names the location, and no bone \
+               when that group has none of that number; with no such location, its first bone.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PARTS-CARRIED-BONE"),
+        station: "auberean-animation::dat::holding::a_carried_system_follows_the_first_groups_bone_whichever_group_names_the_place",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "parts.holding.the-human-male-holds-things-where-its-setups-say",

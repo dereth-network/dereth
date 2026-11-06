@@ -20,6 +20,8 @@ pub struct Image {
     pub width: u32,
     pub height: u32,
     pub bgra: Vec<u8>,
+    /// It holds alpha alone, its colors made up.
+    pub alpha_only: bool,
 }
 
 impl Image {
@@ -169,6 +171,7 @@ pub fn expand(p: &Picture) -> Option<Image> {
                     .iter()
                     .flat_map(|c| [c[0], c[1], c[2], 0xFF])
                     .collect(),
+                alpha_only: false,
             });
         }
         _ if p.format == 0x32 => b.get(..n)?.iter().flat_map(|&l| [l, l, l, 0xFF]).collect(),
@@ -178,6 +181,7 @@ pub fn expand(p: &Picture) -> Option<Image> {
         width: w,
         height: h,
         bgra,
+        alpha_only: matches!(PixelFormatId::from_raw(p.format), PixelFormatId::A8),
     })
 }
 

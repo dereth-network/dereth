@@ -11,7 +11,7 @@
 //! and a test on virtual time. It builds for `wasm32-unknown-unknown`.
 //!
 //! **Specified in** `docs/network/`. The modules follow the specification's pages:
-//! [`address`] (`Name@world`), [`settings`] (whether a character is on the network, and a world's
+//! [`address`] (`Name@world`), [`answers`] and [`verification`] (the lines a world shows for the hub's answers), [`settings`] (whether a character is on the network, and a world's
 //! federation flag), [`game`] (which game a world runs), [`heartbeat`] (the status a world posts
 //! over HTTP), [`text`] (what every receiving world does to a remote line), [`standin`] (the ids
 //! remote correspondents are shown under), [`limits`] (rate limits), [`person`] (the person
@@ -25,6 +25,7 @@
 //! world's game port when its host asks the hub to try it from outside).
 
 pub mod address;
+pub mod answers;
 pub mod challenge;
 pub mod directory;
 pub mod game;
@@ -38,6 +39,7 @@ pub mod say;
 pub mod settings;
 pub mod standin;
 pub mod text;
+pub mod verification;
 pub mod web;
 pub mod wire;
 

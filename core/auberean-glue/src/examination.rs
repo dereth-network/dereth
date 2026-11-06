@@ -110,7 +110,6 @@ impl Node {
     }
 
     /// The 64-bit number of a 64-bit line, else 0.
-    // D2-12184
     #[must_use]
     pub fn long_int(&self) -> u64 {
         if self.kind == kind::LONG {
@@ -363,7 +362,7 @@ impl Profile {
     }
 
     /// The packed form.
-    // D2-12190, D2-12214
+    // D2-12190, D2-12214, D2-12215
     #[must_use]
     #[allow(clippy::cast_possible_truncation)]
     pub fn pack(&self) -> Vec<u8> {

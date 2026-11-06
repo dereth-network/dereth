@@ -394,7 +394,8 @@ fn a_torchs_pool_brightens_the_land() {
 
 /// Outdoors, the lights objects carry light the objects near them beside the sun: the town's
 /// torches at night, their lights taken in by the objects placed about them, leave the frame
-/// brighter in many places and darker in none, and a human standing by a torch is brighter with it.
+/// brighter in more places than darker (a normal map they reach is lit from them in place of the
+/// sun), and a human standing by a torch is brighter with it.
 ///
 /// Behaviour: draw.effects.carried-lights-light-what-stands-near-them-outdoors
 #[test]
@@ -493,8 +494,83 @@ fn carried_lights_light_what_stands_near_them_outdoors() {
     let (brighter, darker) = count(&bright.rgba, &dark.rgba);
     println!("the objects: {brighter} pixels brighter, {darker} darker");
     assert!(brighter > 100, "{brighter} pixels brighter");
-    assert_eq!(darker, 0);
+    assert!(
+        darker < brighter,
+        "{brighter} pixels brighter, {darker} darker"
+    );
     let (brighter, darker) = count(&by.rgba, &alone.rgba);
     println!("the human: {brighter} pixels brighter, {darker} darker");
     assert!(brighter > 50, "{brighter} pixels brighter");
+}
+
+/// A body standing on the land takes the sun's shadow map about its spot in its light: over the
+/// camp's own spots it is darkened where a shadow falls, never brightened, and whole off the map.
+///
+/// Behaviour: draw.world.a-body-takes-the-sun-shadow-about-its-spot
+#[test]
+fn a_body_takes_the_sun_shadow_about_its_spot() {
+    use auberean_draw::scene::{Camera, SceneBuilder, Spot};
+    use auberean_primitives::Vec3;
+    use auberean_world::math::Mat4;
+    let r = &crate::common::install().records;
+    let region = r.region().expect("the region");
+    let mut builder = SceneBuilder::new(r, &region);
+    let camp = Spot {
+        block: (0xC1, 0x56),
+        position: Vec3::new(122.842, 89.758, 81.6),
+        heading: 90.0,
+        pitch: 5.0,
+        time_of_day: 0.45,
+        day: None,
+    };
+    let mut frame = builder.frame(&camp, 60.0);
+    assert!(frame.shadow.is_some(), "the camp's sun casts shadows");
+    frame.water.clear();
+    frame.shore.clear();
+    frame.foam.clear();
+    frame.terrain.clear();
+    frame.sky_before.clear();
+    frame.sky_after.clear();
+    frame.clouds = None;
+    frame.camera = Camera {
+        position: Vec3::new(60.0, 60.0, 500.0),
+        heading: 0.0,
+        pitch: 0.0,
+        fov_y: 60.0,
+        near: 0.1,
+        far: 2000.0,
+        roll: 0.0,
+        orthographic: None,
+    };
+    let mut wall = crate::fade::wall(10.0, 0.5, false, 10.0);
+    wall.transform = Mat4::translation(Vec3::new(60.0, 60.0, 500.0));
+    wall.visible = None;
+    let mut device = renderer();
+    let mut at = |device: &mut auberean_gpu::Renderer, ground: Option<Vec3>| {
+        frame.objects = vec![auberean_draw::scene::ObjectBatch {
+            posed: None,
+            played: None,
+            ground,
+            ..wall.clone()
+        }];
+        crate::fade::middle(device, &frame)
+    };
+    let whole = at(&mut device, None);
+    let off = at(&mut device, Some(Vec3::new(-20000.0, -20000.0, 80.0)));
+    assert_eq!(off, whole, "off the map");
+    let (mut least, mut most) = (255u8, 0u8);
+    for i in 0..8 {
+        for j in 0..8 {
+            let spot = Vec3::new(i as f32 * 20.0 + 5.0, j as f32 * 20.0 + 5.0, 80.0);
+            let v = at(&mut device, Some(spot));
+            least = least.min(v);
+            most = most.max(v);
+        }
+    }
+    println!("whole {whole}, over the camp {least}..{most}");
+    assert!(most <= whole, "{most} over {whole}");
+    assert!(
+        f32::from(least) < 0.95 * f32::from(whole),
+        "{least} against {whole}"
+    );
 }

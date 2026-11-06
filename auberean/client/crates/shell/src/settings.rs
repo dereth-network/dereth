@@ -19,10 +19,112 @@ pub struct Settings {
     pub window: (u32, u32),
     /// Full screen, or a window.
     pub full_screen: bool,
+    /// In full screen, a third buffer to draw into.
+    pub triple_buffering: bool,
+    /// In full screen, each picture waits for the display's refresh.
+    pub sync_to_display: bool,
+    /// The edges smoothed.
+    pub antialiasing: bool,
+    /// The land's squares blend their corners' grounds.
+    pub terrain_blending: bool,
     /// The files the key maps are kept in.
     pub key_files: crate::keys::KeyFiles,
     /// The text read, for writing back what this program does not use.
     profile: Profile,
+}
+
+/// How the game is shown on the screen, as the rendering preferences ask.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Presentation {
+    /// The size of the picture in full screen, the window's drawing area otherwise, in pixels.
+    pub size: (u32, u32),
+    /// Full screen, or a window.
+    pub full_screen: bool,
+    /// In full screen, a third buffer to draw into.
+    pub triple_buffering: bool,
+    /// In full screen, each picture waits for the display's refresh.
+    pub sync_to_display: bool,
+    /// The edges smoothed.
+    pub antialiasing: bool,
+}
+
+impl Presentation {
+    /// The size of the picture shown in a window of this size: in full screen the size asked for,
+    /// scaled to the monitor, otherwise the window's own.
+    #[must_use]
+    pub const fn drawn_in(&self, window: (u32, u32)) -> (u32, u32) {
+        if self.full_screen {
+            self.size
+        } else {
+            window
+        }
+    }
+
+    /// Where a picture of size `drawn` shows in a window of size `window`, in the window's pixels
+    /// (left, top, width, height): in full screen as large as it goes at its own shape in the
+    /// middle, black bars around it; a window it fills.
+    #[must_use]
+    pub fn shown_in(&self, drawn: (u32, u32), window: (u32, u32)) -> [f32; 4] {
+        if self.full_screen {
+            crate::interface::fitted(drawn, window)
+        } else {
+            #[allow(clippy::cast_precision_loss)]
+            [0.0, 0.0, window.0 as f32, window.1 as f32]
+        }
+    }
+}
+
+/// A window's size in the screen's pixels as the pixels of the picture it shows, at this many screen
+/// pixels to one of the picture's.
+#[must_use]
+pub fn in_picture_pixels(window: (u32, u32), scale: f64) -> (u32, u32) {
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let along = |w: u32| (f64::from(w) / scale).round().max(1.0) as u32;
+    (along(window.0), along(window.1))
+}
+
+/// A point of a window as the point of the picture of size `picture` that shows in part `shown` of
+/// it ([`Presentation::shown_in`]). A point on a bar is off the picture.
+#[must_use]
+pub fn on_picture(point: (f32, f32), shown: [f32; 4], picture: (u32, u32)) -> (f32, f32) {
+    #[allow(clippy::cast_precision_loss)]
+    let along = |p: f32, at: f32, size: f32, to: u32| {
+        if size > 0.0 {
+            (p - at) * to as f32 / size
+        } else {
+            p - at
+        }
+    };
+    (
+        along(point.0, shown[0], shown[2], picture.0),
+        along(point.1, shown[1], shown[3], picture.1),
+    )
+}
+
+/// A point off the picture, on a bar, as the nearest point of it, and whether it was on the picture.
+#[must_use]
+pub fn held_to_picture(point: (f32, f32), picture: (u32, u32)) -> ((f32, f32), bool) {
+    #[allow(clippy::cast_precision_loss)]
+    let along = |p: f32, size: u32| p.clamp(0.0, size.max(1) as f32 - 1.0);
+    let held = (along(point.0, picture.0), along(point.1, picture.1));
+    #[allow(clippy::cast_precision_loss)]
+    let on = point.0 >= 0.0
+        && point.1 >= 0.0
+        && point.0 < picture.0 as f32
+        && point.1 < picture.1 as f32;
+    (held, on)
+}
+
+/// A point of the picture of size `picture` as the point of the window where it shows: the other
+/// way from [`on_picture`].
+#[must_use]
+pub fn on_window(point: (f32, f32), shown: [f32; 4], picture: (u32, u32)) -> (f32, f32) {
+    #[allow(clippy::cast_precision_loss)]
+    let along = |p: f32, at: f32, size: f32, from: u32| at + p * size / from.max(1) as f32;
+    (
+        along(point.0, shown[0], shown[2], picture.0),
+        along(point.1, shown[1], shown[3], picture.1),
+    )
 }
 
 impl Default for Settings {
@@ -32,6 +134,10 @@ impl Default for Settings {
             graphics: None,
             window: (1280, 960),
             full_screen: false,
+            triple_buffering: false,
+            sync_to_display: true,
+            antialiasing: true,
+            terrain_blending: true,
             key_files: crate::keys::KeyFiles::default(),
             profile: Profile::default(),
         }
@@ -54,10 +160,15 @@ const AVATAR: (&str, &str) = ("Avatar", "AvatarVisibleInFirstPerson");
 const LOOK_AROUND: (&str, &str) = ("Avatar", "AvatarLookAround");
 const LOOK_AT_CAMERA: (&str, &str) = ("Avatar", "AvatarLookAtCamera");
 const LOOK_AT_SELECTION: (&str, &str) = ("Avatar", "AvatarLookAtSelection");
+const HOVER_TRANSPARENCY: (&str, &str) = ("Avatar", "AvatarHoverTransparency");
 /// The display's size, its width above its height in one number, and full screen; an earlier
 /// version of this program kept the size as two numbers of its own, still read.
+const TERRAIN_BLENDING: &str = "LandscapeTerrainBlending";
 const DISPLAY_RESOLUTION: (&str, &str) = ("Rendering", "DisplayResolution");
 const FULL_SCREEN: (&str, &str) = ("Rendering", "FullScreen");
+const TRIPLE_BUFFERING: (&str, &str) = ("Rendering", "TripleBuffering");
+const SYNC_TO_DISPLAY: (&str, &str) = ("Rendering", "SyncToDisplayRefresh");
+const ANTIALIASING: (&str, &str) = ("Rendering", "Antialiasing");
 const WIDTH: (&str, &str) = ("Display", "WindowWidth");
 /// The graphics preferences' section; each preference is named by its label less the labels'
 /// common start, a choice's value by its level's.
@@ -113,6 +224,15 @@ impl Settings {
         self.graphics.clone().unwrap_or_else(Graphics::first_run)
     }
 
+    /// The screen's brightness: the preference kept, or none, which leaves the picture as it stands.
+    #[must_use]
+    pub fn screen_brightness(&self) -> f32 {
+        self.graphics
+            .as_ref()
+            .and_then(|g| g.get(auberean_draw::quality::key::SCREEN_BRIGHTNESS))
+            .unwrap_or(0.0)
+    }
+
     /// Read settings from their text.
     #[must_use]
     pub fn read(text: &str) -> Self {
@@ -145,6 +265,7 @@ impl Settings {
         c.look_around = flag(LOOK_AROUND, c.look_around);
         c.look_at_camera = flag(LOOK_AT_CAMERA, c.look_at_camera);
         c.look_at_selection = flag(LOOK_AT_SELECTION, c.look_at_selection);
+        c.avatar_hover_transparency = flag(HOVER_TRANSPARENCY, c.avatar_hover_transparency);
         // A choice by its name, or by its number.
         let avatar = get(AVATAR.0, AVATAR.1).and_then(|v| {
             [
@@ -179,6 +300,9 @@ impl Settings {
             }
         }
         s.full_screen = flag(FULL_SCREEN, s.full_screen);
+        s.triple_buffering = flag(TRIPLE_BUFFERING, s.triple_buffering);
+        s.sync_to_display = flag(SYNC_TO_DISPLAY, s.sync_to_display);
+        s.antialiasing = flag(ANTIALIASING, s.antialiasing);
         // The key maps' files: any name kept, else the default.
         let file = |o: (&str, &str), d: &mut String| {
             if let Some(v) = get(o.0, o.1) {
@@ -213,6 +337,10 @@ impl Settings {
                 any |= graphics.set(p.key, x);
             }
         }
+        // D2-10525
+        if let Some(on) = get(GRAPHICS, TERRAIN_BLENDING).and_then(|v| flag_value(v.trim())) {
+            s.terrain_blending = on;
+        }
         // A kept overall quality (1 to 5) sets its own preferences over those read.
         if let Some(q) = get(GRAPHICS, OVERALL_NAME).and_then(|v| v.trim().parse::<u32>().ok()) {
             if (1..=HIGHEST).contains(&q) {
@@ -222,6 +350,27 @@ impl Settings {
         }
         s.graphics = any.then_some(graphics);
         s
+    }
+
+    /// How the game is shown on the screen now.
+    #[must_use]
+    pub const fn presentation(&self) -> Presentation {
+        Presentation {
+            size: self.window,
+            full_screen: self.full_screen,
+            triple_buffering: self.triple_buffering,
+            sync_to_display: self.sync_to_display,
+            antialiasing: self.antialiasing,
+        }
+    }
+
+    /// The game shown on the screen another way, from now on.
+    pub const fn set_presentation(&mut self, p: &Presentation) {
+        self.window = p.size;
+        self.full_screen = p.full_screen;
+        self.triple_buffering = p.triple_buffering;
+        self.sync_to_display = p.sync_to_display;
+        self.antialiasing = p.antialiasing;
     }
 
     /// The preferences file as read (and kept since).
@@ -268,17 +417,34 @@ impl Settings {
                 b(c.look_at_selection),
             ),
             (
+                HOVER_TRANSPARENCY.0,
+                HOVER_TRANSPARENCY.1,
+                b(c.avatar_hover_transparency),
+            ),
+            (
                 DISPLAY_RESOLUTION.0,
                 DISPLAY_RESOLUTION.1,
                 (self.window.0 << 16 | self.window.1 & 0xFFFF).to_string(),
             ),
             (FULL_SCREEN.0, FULL_SCREEN.1, b(self.full_screen)),
+            (
+                TRIPLE_BUFFERING.0,
+                TRIPLE_BUFFERING.1,
+                b(self.triple_buffering),
+            ),
+            (
+                SYNC_TO_DISPLAY.0,
+                SYNC_TO_DISPLAY.1,
+                b(self.sync_to_display),
+            ),
+            (ANTIALIASING.0, ANTIALIASING.1, b(self.antialiasing)),
             (KEY_NORMAL.0, KEY_NORMAL.1, self.key_files.normal.clone()),
             (KEY_SHIFT.0, KEY_SHIFT.1, self.key_files.shift.clone()),
             (KEY_CONTROL.0, KEY_CONTROL.1, self.key_files.control.clone()),
         ];
         let mut ours = ours;
         if let Some(g) = &self.graphics {
+            // D2-16063
             ours.push((GRAPHICS, OVERALL_NAME, g.overall().to_string()));
             for p in &PREFERENCES {
                 let Some(v) = g.get(p.key) else {

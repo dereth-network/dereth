@@ -79,6 +79,10 @@ fn action_of(m: &Msg) -> Option<Vec<Action>> {
         ClientMessage::DeleteCharacter(d) => vec![Action::DeleteCharacter {
             character: d.character,
         }],
+        ClientMessage::RestoreCharacter(r) => vec![Action::RestoreCharacter {
+            character: r.character,
+            name: String::from_utf16_lossy(&r.name.0),
+        }],
         ClientMessage::Chat(c) => vec![Action::Chat(c.0)],
         ClientMessage::ServerCall(c) => vec![Action::ServerCall {
             function: c.function.0,
@@ -110,6 +114,7 @@ fn action_of(m: &Msg) -> Option<Vec<Action>> {
         }
         ClientMessage::DataHeld(_)
         | ClientMessage::DownloadEnds(_)
+        | ClientMessage::OverlayHeld(_)
         | ClientMessage::SceneRenderingComplete(_)
         | ClientMessage::ForceCreate(_) => return None,
     })
@@ -129,6 +134,7 @@ pub fn account_of(script: &Script) -> Vec<u8> {
         ) {
             (true, Some(ClientMessage::PlayCharacter(p))) => Some(p.account.0),
             (true, Some(ClientMessage::DeleteCharacter(d))) => Some(d.account.0),
+            (true, Some(ClientMessage::RestoreCharacter(r))) => Some(r.account.0),
             (true, Some(ClientMessage::CreateCharacter(c))) => Some(c.account.0),
             _ => None,
         };

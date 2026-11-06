@@ -365,13 +365,13 @@ fn a_release_that_is_not_what_it_declares_is_refused() {
 /// mirror of the releases API names the repository by its last two path segments.
 #[test]
 fn the_release_source_is_the_builds_repository_or_a_configured_mirror() {
-    let own = Source::configured("").unwrap();
-    assert_eq!(own, Source::this_build().unwrap());
+    let own = source::configured("").unwrap();
+    assert_eq!(own, source::this_build().unwrap());
     assert!(own.api.starts_with("https://api.github.com/repos/"));
-    let github = Source::configured("https://github.com/someone/fork/").unwrap();
+    let github = source::configured("https://github.com/someone/fork/").unwrap();
     assert_eq!(github.api, "https://api.github.com/repos/someone/fork");
     assert_eq!(github.repo, "someone/fork");
-    let mirror = Source::configured("http://127.0.0.1:8080/api/repos/someone/fork").unwrap();
+    let mirror = source::configured("http://127.0.0.1:8080/api/repos/someone/fork").unwrap();
     assert_eq!(mirror.api, "http://127.0.0.1:8080/api/repos/someone/fork");
     assert_eq!(mirror.repo, "someone/fork");
     for bad in [
@@ -379,7 +379,7 @@ fn the_release_source_is_the_builds_repository_or_a_configured_mirror() {
         "https://example.org/someone/fork",
         "ftp://x/repos/a/b",
     ] {
-        assert!(Source::configured(bad).is_err(), "{bad}");
+        assert!(source::configured(bad).is_err(), "{bad}");
     }
 }
 

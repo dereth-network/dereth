@@ -78,12 +78,6 @@ impl QualifiedIds {
         self.set.insert(QualifiedId::new(id, kind))
     }
 
-    /// Add every id of another set.
-    // D2-12837
-    pub fn add_all(&mut self, other: &QualifiedIds) {
-        self.set.extend(other.set.iter().copied());
-    }
-
     /// Add each id of a list that is not 0, its type divined.
     // D2-12839
     pub fn add_ids(&mut self, ids: &[u32]) {

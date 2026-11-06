@@ -51,7 +51,7 @@ The server reads no environment variables. Everything is set in `empyrean.toml`.
 ## empyrean-import
 
 ```
-empyrean-import fetch [--world patches|16py] [--version <n> | --latest] [--dir <folder>]
+empyrean-import fetch [--era launch|infiltration|eor | --world patches|16py|ac1999] [--version <n> | --latest] [--dir <folder>]
                       [--pack [--out <world.pack>] [--report <report.json>]]
 empyrean-import --sql <dump.sql> [--patches <dir|file>]... [--json <dir|file>]...
                 [--now <YYYY-MM-DD HH:MM:SS>] [--era eor|infiltration]
@@ -180,7 +180,8 @@ replaces; Empyrean's own are marked `(Empyrean only)`. The main ones:
 | `[dat_overlay]` | off | A world's own data files, served to Dereth clients as an overlay, with patching rates. |
 | `[status]` | on | The status ping on the game port, which launchers use, and its rate limits. |
 | `[federation]` | off | The link to the Dereth Network, for cross-world tells, friends and chat. |
-| `[era]` | `profile = "eor"` | The era and its systems (above). |
+| `[era]` | `profile = "eor"` | The era and its systems (above). `max_characters_per_account` sets the characters an account may hold. |
+| `[portal_storms]` | off | Moving players out of a crowded landblock, to the middle of a neighboring one. |
 
 ACE settings Empyrean doesn't have still load, and each is logged once as not read:
 `[server.threading]`, `server.mods_directory`, `server.world_database_precaching`, the `[mysql.*]`

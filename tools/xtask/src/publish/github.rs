@@ -380,6 +380,87 @@ impl<'t> GitHub<'t> {
         Err(format!("{tag} is a tag of a tag of a tag: too deep"))
     }
 
+    /// The commit `branch`'s head is.
+    pub fn head_commit(&mut self, branch: &str) -> Result<String, String> {
+        let v = self.json(
+            Method::Get,
+            self.repo_url(&format!("/commits/{}", query_value(branch))),
+            None,
+            &[200],
+        )?;
+        v["sha"]
+            .as_str()
+            .map(str::to_owned)
+            .ok_or_else(|| format!("{branch}'s head names no commit"))
+    }
+
+    /// The tags naming `commit`.
+    pub fn tags_at(&mut self, commit: &str) -> Result<Vec<String>, String> {
+        let mut out = Vec::new();
+        for page in 1.. {
+            let v = self.json(
+                Method::Get,
+                self.repo_url(&format!(
+                    "/git/matching-refs/tags/?per_page=100&page={page}"
+                )),
+                None,
+                &[200],
+            )?;
+            let refs = v.as_array().ok_or("the tag list is not a list")?;
+            for r in refs {
+                let Some(tag) = r["ref"].as_str().and_then(|n| n.strip_prefix("refs/tags/")) else {
+                    continue;
+                };
+                // An annotated tag names a tag object, which names the commit.
+                let names_it = match r["object"]["type"].as_str() {
+                    Some("commit") => r["object"]["sha"].as_str() == Some(commit),
+                    _ => self.tag_commit(tag)?.as_deref() == Some(commit),
+                };
+                if names_it {
+                    out.push(tag.to_owned());
+                }
+            }
+            if refs.len() < 100 {
+                break;
+            }
+        }
+        Ok(out)
+    }
+
+    /// The workflows that `tag`'s push ran whose latest run failed, each with its name and address.
+    /// A failed run that was run again counts only by the later run.
+    pub fn failed_runs(&mut self, tag: &str) -> Result<Vec<String>, String> {
+        let v = self.json(
+            Method::Get,
+            self.repo_url(&format!(
+                "/actions/runs?event=push&branch={}&per_page=100",
+                query_value(tag)
+            )),
+            None,
+            &[200],
+        )?;
+        let mut seen = Vec::new();
+        let mut failed = Vec::new();
+        // The newest run comes first.
+        for run in v["workflow_runs"].as_array().into_iter().flatten() {
+            let name = run["name"].as_str().unwrap_or("a workflow");
+            if seen.contains(&name) {
+                continue;
+            }
+            seen.push(name);
+            if matches!(
+                run["conclusion"].as_str(),
+                Some("failure" | "cancelled" | "timed_out" | "startup_failure")
+            ) {
+                failed.push(format!(
+                    "{name}: {}",
+                    run["html_url"].as_str().unwrap_or_default()
+                ));
+            }
+        }
+        Ok(failed)
+    }
+
     /// Whether `commit` is on `branch` (the branch holds it).
     pub fn on_branch(&mut self, commit: &str, branch: &str) -> Result<bool, String> {
         let v = self.json(

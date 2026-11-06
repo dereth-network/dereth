@@ -33,6 +33,7 @@ pub mod export;
 pub mod extensions;
 pub mod gdle;
 pub mod import;
+pub mod loot;
 pub mod models;
 pub mod overlay;
 pub mod pack;

@@ -9,6 +9,7 @@ use auberean_physics::body::Body;
 use auberean_physics::land::{Block, Land};
 use auberean_physics::solid::Ethereality;
 use auberean_physics::world::{World, WorldObject, MOVER_ETHEREAL, STATIC_ETHEREAL};
+use dereth_primitives::Vec3;
 
 use crate::contact::objects::{at, body, post, run_north, GROUND_Z};
 
@@ -186,6 +187,172 @@ fn a_body_and_what_it_runs_into_both_keep_the_touch() {
             .any(|c| c.object == 0x51 && c.begin),
         "the touch begins: {reports:?}"
     );
+}
+
+/// A body that does not report its collisions keeps the touch and says nothing of it, and when it
+/// starts reporting again the touch begins.
+///
+/// Behaviour: collision.solid.a-body-that-does-not-report-keeps-its-touches-unsaid
+#[test]
+fn a_body_that_does_not_report_keeps_its_touches_unsaid() {
+    let land = crate::contact::objects::land();
+    let mut world = World::new();
+    let mut standing = body(70.0, 80.0);
+    world.insert_body(&land, 0x51, &mut standing);
+    let mut runner = body(70.0, 70.0);
+    let r = world.insert_body(&land, 0x50, &mut runner);
+    runner.set_report_collisions(false);
+    run_north(&mut runner, &land, &mut world, 40);
+    assert!(
+        world
+            .collisions(r)
+            .is_some_and(|c| c.contacts.contains_key(&0x51)),
+        "the runner keeps the touch"
+    );
+    world.report_collisions(r, false);
+    assert!(world.take_reports(r).is_empty(), "and says nothing of it");
+    runner.set_report_collisions(true);
+    run_north(&mut runner, &land, &mut world, 1);
+    world.report_collisions(r, false);
+    let begun = world
+        .take_reports(r)
+        .iter()
+        .flat_map(|p| p.records.iter())
+        .any(|c| c.object == 0x51 && c.begin);
+    assert!(begun, "reporting again, the touch begins");
+}
+
+/// What a falling body reports of its move, stopped during the move or not.
+fn reported_normal(stopped: bool) -> Option<Vec3> {
+    use dereth_physics::transition::Transition;
+    let land = crate::contact::objects::land();
+    let mut world = World::new();
+    let mut falling = body(70.0, 70.0);
+    let key = world.insert_body(&land, 0x50, &mut falling);
+    falling.velocity = Vec3::new(0.0, 0.0, -6.0);
+    let mut t = Transition {
+        kill_velocity: stopped,
+        ..Transition::default()
+    };
+    t.collision_info.collision_normal_valid = true;
+    t.collision_info.collision_normal = Vec3::new(0.0, 0.0, 1.0);
+    falling.handle_all_collisions(&land, &mut world, key, &t, false);
+    world.report_collisions(key, false);
+    world
+        .take_reports(key)
+        .iter()
+        .find_map(|r| r.collided())
+        .map(|(normal, _)| normal)
+}
+
+/// A fall stopped during the move (a landing that could not be kept) reports no impact, since the
+/// body has no speed left when it tells of the move; one that kept its speed does.
+///
+/// Behaviour: collision.body.a-fall-stopped-during-the-move-reports-no-impact
+#[test]
+fn a_fall_stopped_during_the_move_reports_no_impact() {
+    assert_eq!(reported_normal(false), Some(Vec3::new(0.0, 0.0, 1.0)));
+    assert_eq!(reported_normal(true), None);
+}
+
+/// An object whose description pushes moves what touches it: a body run into a post that pushes
+/// east is carried east for as long as it touches, and one that touches the same post with no
+/// push is not.
+///
+/// Behaviour: collision.solid.what-a-body-touches-pushes-it
+#[test]
+fn what_a_body_touches_pushes_it() {
+    use auberean_assets::property::{Property, PropertyCollection, PropertyGroup, PropertyValue};
+    use auberean_physics::collision::manager::push;
+    let list = PropertyList::from_descriptors(vec![(
+        push::VELOCITY,
+        PropertyDescriptor {
+            value_kind: 0x4000_0004,
+            group: 0x4000_000D,
+            data: 0,
+            report: 0,
+            required: false,
+        },
+    )]);
+    let run = |pushes: bool| {
+        let land = crate::contact::objects::land();
+        let mut world = World::new();
+        world.set_property_list(list.clone());
+        let at_post = world.insert(
+            &land,
+            0x77,
+            &WorldObject {
+                shape: post(),
+                position: at(70.0, 75.0),
+                is_static: true,
+                passable: false,
+            },
+        );
+        if pushes {
+            let mut p = Property::named(&list, push::VELOCITY).expect("in the list");
+            p.value = PropertyValue::Vector(auberean_primitives::Vec3::new(4.0, 0.0, 0.0));
+            let mut g = PropertyGroup::new(p.group);
+            g.properties.push(p);
+            let groups = vec![g];
+            assert!(world.apply_property_collection(at_post, &PropertyCollection { groups }));
+        }
+        let mut runner = body(70.0, 70.0);
+        world.insert_body(&land, 0x50, &mut runner);
+        run_north(&mut runner, &land, &mut world, 40);
+        runner.position.frame.origin.x
+    };
+    assert!(
+        (run(false) - 70.0).abs() < 0.5,
+        "no push, it stays on its line"
+    );
+    assert!(run(true) > 71.0, "pushed east: {}", run(true));
+}
+
+/// The slowest impact a body reports is the one its speed and jump scales set, once it has moved:
+/// its collisions hear it from the body.
+///
+/// Behaviour: collision.solid.a-bodys-collisions-take-its-slowest-impact
+#[test]
+fn a_bodys_collisions_take_its_slowest_impact() {
+    let land = crate::contact::objects::land();
+    let mut world = World::new();
+    let mut runner = body(70.0, 70.0);
+    let key = world.insert_body(&land, 0x50, &mut runner);
+    runner.set_velocity_scale(2.0);
+    runner.set_jump_scale(3.0);
+    let (xy, z) = runner.min_reported_impact();
+    assert!(xy >= 0.1 && z >= 0.1);
+    run_north(&mut runner, &land, &mut world, 1);
+    let current = &world.collisions(key).expect("kept").current;
+    assert_eq!((current.min_impact_xy, current.min_impact_z), (xy, z));
+}
+
+/// In a cell's collision list what stands still comes first, in the order it came, then what moves:
+/// so an object standing still put in beside a body already there is still met first.
+///
+/// Behaviour: collision.solid.what-stands-still-is-met-before-what-moves
+#[test]
+fn what_stands_still_is_met_before_what_moves() {
+    let land = crate::contact::objects::land();
+    let mut world = World::new();
+    let mut runner = body(70.0, 70.0);
+    let r = world.insert_body(&land, 0x50, &mut runner);
+    let cell = world.position(r).expect("placed").cell;
+    let stand = |world: &mut World, id, y| {
+        world.insert(
+            &land,
+            id,
+            &WorldObject {
+                shape: post(),
+                position: at(70.0, y),
+                is_static: true,
+                passable: false,
+            },
+        );
+    };
+    stand(&mut world, 0x77, 71.0);
+    stand(&mut world, 0x78, 72.0);
+    assert_eq!(world.collision_list(cell), vec![0x77, 0x78, 0x50]);
 }
 
 /// Two bodies agree whether a touch between them is passed through, whichever keeps it: either
@@ -564,6 +731,7 @@ fn an_objects_drawing_properties_say_how_it_is_drawn() {
         PropertyCollection { groups: vec![g] }
     };
     assert!(!world.graphics_state(key, graphics::VOLUME_SHADOW));
+    assert!(world.graphics_state(key, graphics::TAKES_LAND_SHADOW));
     assert_eq!(world.game_draw(key), None);
     assert!(world.apply_property_collection(
         key,
@@ -590,6 +758,7 @@ fn an_objects_drawing_properties_say_how_it_is_drawn() {
     ));
     assert!(!world.graphics_state(key, graphics::VOLUME_SHADOW));
     assert!(world.graphics_state(key, graphics::TRANSLUCENT | graphics::LANDSCAPE_SHADOW));
+    assert!(world.graphics_state(key, graphics::TAKES_LAND_SHADOW));
     assert!(!world.apply_property_collection(key, &drawn(&[(INDOOR_SHADOW_CAST, true)])));
 }
 
@@ -866,7 +1035,7 @@ fn a_placed_object_takes_its_drawing_properties_from_its_entities() {
     // made from the outer entity: the inner one's volume stands, its landscape shadow is cleared
     assert_eq!(
         entity_graphics_state(&placed(OUTER, &[]), &lookup),
-        graphics::VOLUME_SHADOW
+        graphics::NEW | graphics::VOLUME_SHADOW
     );
     // its own word last
     assert_eq!(
@@ -874,12 +1043,15 @@ fn a_placed_object_takes_its_drawing_properties_from_its_entities() {
             &placed(OUTER, &[(render::VOLUME_SHADOW_CAST, false)]),
             &lookup
         ),
-        0
+        graphics::NEW
     );
     assert_eq!(
         entity_graphics_state(&placed(INNER, &[]), &lookup),
-        graphics::VOLUME_SHADOW | graphics::LANDSCAPE_SHADOW
+        graphics::NEW | graphics::VOLUME_SHADOW | graphics::LANDSCAPE_SHADOW
     );
     // made from a visual description alone, nothing said
-    assert_eq!(entity_graphics_state(&placed(0x1F00_0010, &[]), &lookup), 0);
+    assert_eq!(
+        entity_graphics_state(&placed(0x1F00_0010, &[]), &lookup),
+        graphics::NEW
+    );
 }

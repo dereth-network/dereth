@@ -1,0 +1,31 @@
+[package]
+name = "dereth-server-update"
+description = "A game server's updater: finding, checking and installing its own releases within what its operator allows, and undoing one that does not come up."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+# The releases API and the downloads over HTTPS, with rustls's bundled roots; the archives (.zip on
+# Windows, .tar.gz elsewhere); their checksums; and the JSON of `release.json`, the releases API and
+# the updater's record.
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+zip = { version = "8", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+flate2.workspace = true
+sha2.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+
+[features]
+# A stand-in for a repository's releases, for a server's updater tests.
+testing = []
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+cast_possible_truncation = "warn"

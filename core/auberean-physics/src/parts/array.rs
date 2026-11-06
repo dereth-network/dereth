@@ -172,7 +172,6 @@ impl PartArray {
     }
 
     /// The setup's spheres become `spheres`, for every array of the setup; false without a setup.
-    // D2-06605, D2-12872, D2-06465
     pub fn set_spheres(&mut self, spheres: &[Sphere]) -> bool {
         let Some(setup) = &self.setup else {
             return false;

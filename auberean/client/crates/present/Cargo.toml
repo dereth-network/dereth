@@ -1,0 +1,22 @@
+[package]
+name = "auberean-present"
+description = "Putting a frame on a surface a host made, a window's or a browser canvas's."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+autotests = false
+
+[dependencies]
+auberean-draw.workspace = true
+auberean-gpu.workspace = true
+auberean-shell.workspace = true
+bytemuck = { version = "1", features = ["derive"] }
+png.workspace = true
+pollster.workspace = true
+tracing.workspace = true
+wgpu = "30"
+
+[lints]
+workspace = true

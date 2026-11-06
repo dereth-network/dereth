@@ -165,9 +165,8 @@ fn a_lit_particle_inside_is_lit_by_the_lights_kept_where_its_system_stands() {
     assert!(reds.iter().min() != reds.iter().max(), "{reds:?}");
 }
 
-/// A light whose intensity moves (a torch that flickers by noise) lights what stands near it, and
-/// the rooms that keep it, as its intensity stands at the moment: its draws' colors change from
-/// one moment to the next, every draw it lights shines with the same intensity in a frame, and its
+/// A light whose intensity moves (a torch that flickers by noise) lights what stands near it as its
+/// intensity stands at the moment: its draws' colors change from one moment to the next, every draw it lights shines with the same intensity in a frame, and its
 /// noise rolls the client's generator once a frame however many draws it lights.
 ///
 /// Behaviour: draw.inside.a-flickering-light-lights-its-draws-as-it-stands-at-the-moment
@@ -203,15 +202,15 @@ fn a_flickering_light_lights_its_draws_as_it_stands_at_the_moment() {
         day: None,
     };
     let (frame, _) = builder.inside_frame(&spot, 60.0, block, cell);
-    // the room it stands in keeps it, and is lit by it as it stands at the moment too
+    // the room's own mesh holds it in its vertices as baked, and does not keep it
     assert!(
-        frame.objects.iter().any(|b| {
+        !frame.objects.iter().any(|b| {
             matches!(b.cull, auberean_draw::scene::Cull::Cell(_))
                 && b.points.lights[..b.points.count]
                     .iter()
                     .any(|l| l.flicker.is_some_and(|f| f.key == key))
         }),
-        "a room lit by the flickering light"
+        "a room's own mesh takes the sky lights alone"
     );
     let lit_by = |f: &auberean_draw::scene::Frame| -> Vec<Color> {
         f.objects

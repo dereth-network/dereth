@@ -10,6 +10,8 @@ use auberean_primitives::{DataId, Vec3};
 use crate::common::need_records;
 
 const HUMAN_MALE: DataId = DataId(0x1F00_0023);
+/// A behavior table other than the human male's.
+const OTHER_TABLE: DataId = DataId(0x4400_0015);
 
 /// The human male puts together from its visual description: the body group with its 41-bone
 /// skeleton and a head hung from the body's head connection; its behavior table plays moving in
@@ -268,4 +270,54 @@ fn the_human_male_changes_mode_along_its_table() {
     assert!(arrived, "whoever asked hears the body is there");
     assert_eq!(body.mode, target.mode);
     assert!(steps > 0, "the change blends over frames");
+}
+
+/// A behavior table the look changes to while a behavior locks the player's actions drops that
+/// behavior and asks nothing of the lock: only a locking behavior's own end lets go, so the next
+/// one to end releases it.
+///
+/// Behaviour: animation.body.a-new-behavior-table-leaves-an-action-lock-set
+#[test]
+fn a_new_behavior_table_leaves_an_action_lock_set() {
+    use auberean_animation::host::Event;
+    use auberean_animation::track::Params;
+    use auberean_world::look::{Desc, LookRecords, ObjectLook};
+    let locks = |b: &mut Body| {
+        let events = b.take_events();
+        (
+            events.iter().any(|e| matches!(e, Event::LockInput)),
+            events.iter().any(|e| matches!(e, Event::UnlockInput)),
+        )
+    };
+    let locking = Params {
+        behavior: MOVE,
+        lock_actions: true,
+        ..Params::default()
+    };
+    let w = need_records!();
+    let recs = CachedRecords::new(w);
+    let mut body = Body::assemble(&recs, HUMAN_MALE).expect("the human male");
+    body.is_player = true;
+    locks(&mut body);
+    assert!(body.do_behavior(&recs, &locking), "it plays");
+    assert_eq!(locks(&mut body), (true, false), "and locks");
+    let v = recs.visual(HUMAN_MALE).expect("its description");
+    let mut look = ObjectLook::new(&Desc::from_stored(&v))
+        .total(&recs)
+        .expect("the total");
+    assert_ne!(look.behavior_table, OTHER_TABLE);
+    look.behavior_table = OTHER_TABLE;
+    assert!(body.compare_and_modify(&recs, &look), "brought up to date");
+    let still = body
+        .modes
+        .from
+        .as_ref()
+        .and_then(|t| t.track(MOVE))
+        .is_some_and(|t| t.params.lock_actions);
+    assert!(!still, "the locking behavior went with the old table");
+    assert_eq!(locks(&mut body), (false, false), "and the lock stays");
+    assert!(body.do_behavior(&recs, &locking), "the next one plays");
+    assert_eq!(locks(&mut body), (true, false), "and locks");
+    body.stop_behavior(&recs, MOVE);
+    assert_eq!(locks(&mut body), (false, true), "its end lets go");
 }

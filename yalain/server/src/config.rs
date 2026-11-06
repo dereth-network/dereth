@@ -31,6 +31,10 @@ enum Takes {
     Flag(&'static str),
     /// `false` gives the option, which takes no value (a setting on by default turned off).
     Unless(&'static str),
+    /// A string given as the option's value even when it is empty, which a setting's checks read.
+    Text(&'static str),
+    /// A whole number, or a string holding one, given as the option's value.
+    Whole(&'static str),
     /// A list, the option given once for each item.
     Many(&'static str),
     /// A list of paths.
@@ -51,6 +55,18 @@ enum Takes {
 /// Every key a file may give, by its section and name, and what it gives.
 const KEYS: &[(&str, &str, Takes)] = &[
     ("server", "world_name", Takes::Value("--world-name")),
+    ("server", "update", Takes::Value("--update")),
+    (
+        "server",
+        "update_check_hours",
+        Takes::Value("--update-check-hours"),
+    ),
+    (
+        "server",
+        "update_warning_seconds",
+        Takes::Value("--update-warning-seconds"),
+    ),
+    ("server", "update_source", Takes::Value("--update-source")),
     ("server", "dat_files_directory", Takes::Install),
     ("server", "message_of_the_day", Takes::Value("--motd")),
     ("server", "world_database_path", Takes::WorldDatabase),
@@ -65,6 +81,7 @@ const KEYS: &[(&str, &str, Takes)] = &[
         "player_save_interval",
         Takes::Value("--save-interval"),
     ),
+    ("server", "watchdog_seconds", Takes::Value("--watchdog")),
     ("server", "log_level", Takes::LogLevel),
     ("server", "status_address", Takes::Value("--status")),
     (
@@ -106,6 +123,57 @@ const KEYS: &[(&str, &str, Takes)] = &[
         Takes::Many("--unlimited-sessions-from"),
     ),
     (
+        "server.network",
+        "download_bytes_per_second",
+        Takes::Whole("--download-rate"),
+    ),
+    ("server.websocket", "enabled", Takes::Flag("--websocket")),
+    (
+        "server.websocket",
+        "listen",
+        Takes::Text("--websocket-listen"),
+    ),
+    (
+        "server.websocket",
+        "tls_certificate",
+        Takes::Path("--websocket-tls-certificate"),
+    ),
+    (
+        "server.websocket",
+        "tls_private_key",
+        Takes::Path("--websocket-tls-private-key"),
+    ),
+    (
+        "server.websocket",
+        "behind_tls_proxy",
+        Takes::Flag("--websocket-behind-tls-proxy"),
+    ),
+    (
+        "server.websocket",
+        "trusted_proxies",
+        Takes::Many("--websocket-trusted-proxy"),
+    ),
+    (
+        "server.websocket",
+        "allowed_origins",
+        Takes::Many("--websocket-allowed-origin"),
+    ),
+    (
+        "server.websocket",
+        "maximum_connections_per_ip_address",
+        Takes::Whole("--websocket-max-per-address"),
+    ),
+    (
+        "server.websocket",
+        "idle_timeout",
+        Takes::Whole("--websocket-idle-timeout"),
+    ),
+    (
+        "server.websocket",
+        "public_url",
+        Takes::Text("--websocket-public-url"),
+    ),
+    (
         "server.accounts",
         "allow_auto_account_creation",
         Takes::Unless("--listed-accounts"),
@@ -116,6 +184,17 @@ const KEYS: &[(&str, &str, Takes)] = &[
         Takes::Value("--secret-cost"),
     ),
     ("server.accounts", "accounts", Takes::Many("--add-account")),
+    ("server.accounts", "admins", Takes::Many("--admin")),
+    (
+        "server.accounts",
+        "serve_admin_library",
+        Takes::Flag("--serve-admin-library"),
+    ),
+    (
+        "server.accounts",
+        "admin_commands",
+        Takes::Many("--admin-command"),
+    ),
     (
         "server.accounts",
         "banned_names_path",
@@ -137,6 +216,22 @@ const KEYS: &[(&str, &str, Takes)] = &[
         "replies_per_second",
         Takes::Value("--status-ping-replies"),
     ),
+    ("dat_overlay", "path", Takes::Path("--dat-overlay")),
+    (
+        "dat_overlay",
+        "patching",
+        Takes::Unless("--no-dat-overlay-patching"),
+    ),
+    (
+        "dat_overlay",
+        "records_per_minute",
+        Takes::Whole("--dat-overlay-records-per-minute"),
+    ),
+    (
+        "ddd",
+        "enable_dat_patching",
+        Takes::Flag("--enable-dat-patching"),
+    ),
     ("database", "shard_db_path", Takes::Path("--data")),
     ("database", "in_memory", Takes::Flag("--memory")),
     ("federation", "enabled", Takes::Hub),
@@ -144,6 +239,12 @@ const KEYS: &[(&str, &str, Takes)] = &[
     ("federation", "hub_url", Takes::Hub),
     ("federation", "slug", Takes::Hub),
     ("federation", "key_file", Takes::Hub),
+    ("federation", "global_room", Takes::Hub),
+    (
+        "federation",
+        "min_character_age_seconds",
+        Takes::Value("--min-character-age"),
+    ),
     ("testing", "add_characters", Takes::Many("--add-character")),
     ("testing", "place_characters", Takes::Many("--place")),
     ("testing", "character_money", Takes::Many("--money")),
@@ -175,12 +276,7 @@ pub const EMPYREAN_ONLY: &[&str] = &[
     "server.interactive_console",
     "server.admin_channel",
     "server.source_url",
-    "server.update",
-    "server.update_check_hours",
-    "server.update_warning_seconds",
-    "server.update_source",
     "server.preloaded_landblocks",
-    "server.websocket",
     "server.network.default_session_timeout",
     "server.accounts.override_character_permissions",
     "server.accounts.default_access_level",
@@ -188,17 +284,18 @@ pub const EMPYREAN_ONLY: &[&str] = &[
     "server.accounts.allow_character_import",
     "database.auth_db_path",
     "offline",
-    "ddd",
-    "dat_overlay",
+    "dat_overlay.bytes_per_second",
     "federation.store_path",
-    "federation.min_character_age_seconds",
     "era",
 ];
 
 /// The sections [`KEYS`] holds keys of.
 const SECTIONS: &[&str] = &[
+    "dat_overlay",
+    "ddd",
     "server",
     "server.network",
+    "server.websocket",
     "server.accounts",
     "status",
     "database",
@@ -289,6 +386,18 @@ impl Reading<'_> {
                 if !text.is_empty() {
                     self.give(option, Some(text));
                 }
+            }
+            Takes::Text(option) => {
+                let text = text_of(key, v)?;
+                self.give(option, Some(text));
+            }
+            Takes::Whole(option) => {
+                let text = match v {
+                    toml::Value::Integer(n) => n.to_string(),
+                    toml::Value::String(s) => s.clone(),
+                    _ => return Err(format!("{key}: a whole number")),
+                };
+                self.give(option, Some(text));
             }
             Takes::Path(option) => {
                 let text = text_of(key, v)?;
@@ -398,6 +507,11 @@ fn hub(r: &mut Reading<'_>, section: &toml::Table) -> Result<(), String> {
     r.give("--hub-key-file", Some(path));
     if enabled {
         r.give("--federation", None);
+        // Empty is a value here: it carries the Global room in no room.
+        if section.contains_key("global_room") {
+            let room = text("global_room", "")?;
+            r.give("--global-room", Some(room));
+        }
     }
     Ok(())
 }
@@ -501,6 +615,9 @@ mod tests {
             [server.accounts]
             allow_auto_account_creation = false
             accounts = ["a:one", "b:two"]
+            admins = ["a"]
+            serve_admin_library = true
+            admin_commands = ["ban:moderators"]
             banned_names_path = "/etc/yalain/banned.txt"
 
             [database]
@@ -510,7 +627,9 @@ mod tests {
             [era]
             profile = "eor"
         "#;
-        let (args, warnings) = arguments(text, folder).expect("reads");
+        let (args, mut warnings) = arguments(text, folder).expect("reads");
+        // Their order is the table's, which a build's features can change.
+        warnings.sort();
         assert_eq!(
             warnings,
             [
@@ -536,6 +655,8 @@ mod tests {
             ["--motd", "Welcome.\nBe kind."],
             ["--add-account", "a:one"],
             ["--add-account", "b:two"],
+            ["--admin", "a"],
+            ["--admin-command", "ban:moderators"],
             ["--banned-names", "/etc/yalain/banned.txt"],
             ["--data", data.as_str()],
         ] {
@@ -566,6 +687,7 @@ mod tests {
         assert_eq!(o.max_sessions, 40);
         assert_eq!(o.motd, "Welcome.\nBe kind.");
         assert!(o.memory && o.listed && !o.referral);
+        assert!(o.serve_admin_library);
         assert_eq!(o.add_accounts.len(), 3, "the file's and the command line's");
         assert_eq!(o.dats.as_deref(), Some(folder.join("ac2").as_path()));
 
@@ -589,7 +711,12 @@ mod tests {
         // Every option a key gives is one the command line takes.
         for (_, _, takes) in KEYS {
             let a = match takes {
-                Takes::Value(o) | Takes::Path(o) | Takes::Many(o) | Takes::ManyPaths(o) => {
+                Takes::Value(o)
+                | Takes::Text(o)
+                | Takes::Whole(o)
+                | Takes::Path(o)
+                | Takes::Many(o)
+                | Takes::ManyPaths(o) => {
                     vec![(*o).to_owned(), "1".into()]
                 }
                 Takes::Flag(o) | Takes::Unless(o) => vec![(*o).to_owned()],
@@ -686,6 +813,188 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// `[server.websocket]` takes each of Empyrean's keys by its name, into the settings Empyrean's
+    /// own read: a key both lists share, off unless enabled, Empyrean's defaults when left out, a
+    /// relative certificate from the file's folder, and no warning.
+    /// Behaviour: server.operator.websocket-settings-read-as-empyreans
+    #[test]
+    fn the_websocket_section_takes_empyreans_keys_into_empyreans_settings() {
+        use dereth_server_websocket::settings::{WebSocketSettings, KEYS};
+        let shared: Vec<&str> = KEYS.to_vec();
+        let ours: Vec<&str> = super::KEYS
+            .iter()
+            .filter(|(section, ..)| *section == "server.websocket")
+            .map(|(_, key, _)| *key)
+            .collect();
+        assert_eq!(ours, shared, "the keys, in the shared order");
+        assert!(!EMPYREAN_ONLY.contains(&"server.websocket"));
+
+        let folder = Path::new("/srv/yalain");
+        let o = crate::parse_from(Vec::<String>::new()).expect("parses");
+        assert_eq!(o.websocket, WebSocketSettings::default(), "the defaults");
+        let (args, warnings) = arguments("[server.websocket]\n", folder).expect("reads");
+        assert!(
+            args.is_empty() && warnings.is_empty(),
+            "{args:?} {warnings:?}"
+        );
+
+        let text = r#"
+            [server.websocket]
+            enabled = true
+            listen = "10.0.0.5:9180"
+            tls_certificate = "cert.pem"
+            tls_private_key = "/etc/yalain/key.pem"
+            behind_tls_proxy = true
+            trusted_proxies = ["10.0.0.1", "10.0.0.2"]
+            allowed_origins = ["https://play.example.org"]
+            maximum_connections_per_ip_address = -1
+            idle_timeout = "90"
+            public_url = "wss://play.example.org/ws"
+        "#;
+        let (args, warnings) = arguments(text, folder).expect("reads");
+        assert!(warnings.is_empty(), "{warnings:?}");
+        let o = crate::parse_from(args).expect("parses");
+        assert_eq!(
+            o.websocket,
+            WebSocketSettings {
+                enabled: true,
+                listen: "10.0.0.5:9180".to_owned(),
+                tls_certificate: folder.join("cert.pem").to_string_lossy().into_owned(),
+                tls_private_key: "/etc/yalain/key.pem".to_owned(),
+                behind_tls_proxy: true,
+                trusted_proxies: vec!["10.0.0.1".to_owned(), "10.0.0.2".to_owned()],
+                allowed_origins: vec!["https://play.example.org".to_owned()],
+                maximum_connections_per_ip_address: -1,
+                idle_timeout: 90,
+                public_url: "wss://play.example.org/ws".to_owned(),
+            }
+        );
+        assert!(
+            arguments("[server.websocket]\nidle_timeout = 1.5\n", folder).is_err(),
+            "a whole number"
+        );
+        assert!(
+            arguments("[server.websocket]\nenabled = 1\n", folder).is_err(),
+            "a flag takes true or false"
+        );
+    }
+
+    /// The server stops at its start, in Empyrean's words, for each setting Empyrean's refuses,
+    /// while the endpoint is on: a plain listener off loopback, half a certificate, an address that
+    /// is none, and a proxy that is no address. Off, none is read.
+    /// Behaviour: server.operator.websocket-settings-refused-as-empyreans
+    #[test]
+    fn a_websocket_setting_empyrean_refuses_stops_the_server_at_its_start() {
+        let folder = Path::new("/srv/yalain");
+        let started = |keys: &str| {
+            let text = format!("[server.websocket]\n{keys}\n");
+            crate::parse_from(arguments(&text, folder).expect("reads").0)
+        };
+        let refusal = |keys: &str| started(&format!("enabled = true\n{keys}")).err();
+        let plain = refusal("listen = \"0.0.0.0:9443\"").expect("refused");
+        assert!(
+            plain.contains("plain ws://") && plain.contains("0.0.0.0:9443"),
+            "{plain}"
+        );
+        assert!(
+            refusal("").is_some(),
+            "the default listen address is not loopback"
+        );
+        let half = refusal("listen = \"0.0.0.0:9443\"\ntls_certificate = \"cert.pem\"");
+        assert!(half.expect("refused").contains("set together"));
+        let half = refusal("listen = \"127.0.0.1:9180\"\ntls_private_key = \"key.pem\"");
+        assert!(half.expect("refused").contains("set together"));
+        let listen = refusal("listen = \"localhost:9443\"").expect("refused");
+        assert!(listen.contains("is not an ip:port"), "{listen}");
+        let empty = refusal("listen = \"\"").expect("refused");
+        assert!(empty.contains("is not an ip:port"), "{empty}");
+        let proxy = refusal("listen = \"127.0.0.1:9180\"\ntrusted_proxies = [\"nginx\"]");
+        assert!(proxy.expect("refused").contains("not an IP address"));
+
+        for allowed in [
+            "listen = \"127.0.0.1:9180\"",
+            "listen = \"[::1]:9180\"",
+            "listen = \"0.0.0.0:9443\"\nbehind_tls_proxy = true",
+            "listen = \"0.0.0.0:9443\"\ntls_certificate = \"c\"\ntls_private_key = \"k\"",
+        ] {
+            let got = started(&format!("enabled = true\n{allowed}"));
+            assert!(got.is_ok(), "{allowed}: {:?}", got.err());
+        }
+        assert!(
+            started("listen = \"0.0.0.0:9443\"").is_ok(),
+            "off, a listener is not checked"
+        );
+    }
+
+    /// `federation.min_character_age_seconds` is Empyrean's key, and reaches the server as its
+    /// option.
+    /// Behaviour: server.network.too-new-sends-nothing
+    #[test]
+    fn empyreans_least_age_key_reaches_the_server() {
+        let (args, warnings) = arguments(
+            "[federation]\nmin_character_age_seconds = 600\n",
+            Path::new("."),
+        )
+        .expect("reads");
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert!(args.windows(2).any(|w| w == ["--min-character-age", "600"]));
+    }
+
+    /// `federation.global_room` is Empyrean's key, in Empyrean's form: it reaches the server as
+    /// named, empty included, left out the world carries the Global room in General, and anything
+    /// but the four rooms and empty stops the server. A world only listed reads none of it.
+    /// Behaviour: server.operator.global-room-setting
+    #[test]
+    fn the_global_room_setting_takes_the_four_rooms_or_empty_and_refuses_anything_else() {
+        let dir = std::env::temp_dir().join(format!("yalain-config-room-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a folder");
+        std::fs::write(
+            dir.join("network.key"),
+            format!("drth_{}\n", "a".repeat(43)),
+        )
+        .expect("the key");
+        let linked = |room: &str| {
+            format!("[federation]\nenabled = true\nslug = \"dawnsong\"\nglobal_room = \"{room}\"\n")
+        };
+        let settings = |text: &str| -> Result<yalain_federation::Settings, String> {
+            let (args, warnings) = arguments(text, &dir)?;
+            assert_eq!(warnings, Vec::<String>::new());
+            let o = crate::parse_from(args)?;
+            crate::network::settings(
+                o.hub.as_ref().expect("a hub"),
+                None,
+                o.global_room.as_deref(),
+            )
+        };
+
+        let unset = settings("[federation]\nenabled = true\nslug = \"dawnsong\"\n").expect("reads");
+        assert_eq!(unset.global_room, Some("general"), "the default, and on");
+        assert!(!unset.global_room_named);
+        for room in ["general", "trade", "lfg", "roleplay"] {
+            let s = settings(&linked(room)).expect(room);
+            assert_eq!(s.global_room, Some(room));
+            assert!(s.global_room_named);
+        }
+        let upper = settings(&linked(" Roleplay ")).expect("any case");
+        assert_eq!(upper.global_room, Some("roleplay"));
+        let empty = settings(&linked("")).expect("empty");
+        assert_eq!(empty.global_room, None, "no room");
+        assert!(empty.global_room_named);
+
+        for bad in ["off", "pvp", "global", "society"] {
+            let why = settings(&linked(bad)).expect_err(bad);
+            assert!(why.starts_with("federation.global_room"), "{why}");
+        }
+
+        let (args, _) = arguments(
+            "[federation]\nlisted = true\nslug = \"dawnsong\"\nglobal_room = \"pvp\"\n",
+            &dir,
+        )
+        .expect("reads");
+        assert!(!args.contains(&"--global-room".to_owned()), "{args:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// The example file shipped beside the server reads with no warning, every key in it
     /// uncommented, and names every key a file takes.
     /// Behaviour: server.operator.config-file-sets-every-option
@@ -720,6 +1029,31 @@ mod tests {
             );
         }
         assert!(args.contains(&"--max-sessions".to_owned()));
+    }
+
+    /// `[server.network] download_bytes_per_second` sets the rate of large downloads, retail's when
+    /// it is not given; a rate no download does well at stops the server at its start.
+    /// Behaviour: server.net.large-message-rate-setting
+    #[test]
+    fn the_download_rate_setting_takes_a_rate_and_refuses_one_out_of_bounds() {
+        let folder = Path::new("/srv");
+        let rate = |n: u64| {
+            let text = format!("[server.network]\ndownload_bytes_per_second = {n}\n");
+            crate::parse_from(arguments(&text, folder).expect("reads").0).map(|o| o.download_rate)
+        };
+        assert_eq!(rate(4096), Ok(4096));
+        assert_eq!(rate(262_144), Ok(262_144));
+        assert_eq!(
+            crate::parse_from(Vec::<String>::new())
+                .expect("parses")
+                .download_rate,
+            65_536
+        );
+        for refused in [0, 4095, 262_145] {
+            let e = rate(refused).expect_err("refused");
+            assert!(e.contains("--download-rate"), "{e}");
+        }
+        assert!(rate(1 << 40).is_err(), "more than a rate can be");
     }
 
     /// `--config` names the file and is taken out of the arguments; without it, `yalain.toml` in

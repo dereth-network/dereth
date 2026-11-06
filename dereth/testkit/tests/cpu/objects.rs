@@ -472,10 +472,55 @@ pub fn an_unreceived_message_names_itself_once() {
         quiet &= dropped::announcements().is_empty() && !dropped::unreceived(opcode);
     }
 
+    // The world-object queue: `Effects_PlayerTeleport 0xF751` is taken up beside the object stream,
+    // so it is no gap there, and the state that takes it up does take it up...
+    dropped::clear();
+    let teleport = SessionEvent::WorldObject {
+        opcode: Opcode::EFFECTS_PLAYER_TELEPORT,
+        body: dereth_protocol::write_body(&dereth_protocol::objects::EffectsPlayerTeleport {
+            teleport_sequence: 7,
+        })
+        .expect("the message encodes"),
+    };
+    let mut c = HeadlessClient::model();
+    c.when(Inbound::event(SessionEvent::PlayerCreated(MOVER)));
+    c.when(Inbound::event(teleport.clone()));
+    let mut receiver = dereth_client_runtime::teleport::Teleport::new();
+    receiver.apply_events(&[SessionEvent::PlayerCreated(MOVER)]);
+    receiver.step_world_view(false);
+    let settled = !receiver.teleport_in_progress();
+    receiver.apply_events(&[teleport]);
+    let teleport_is_received = dropped::announcements().is_empty()
+        && !dropped::unreceived(Opcode::EFFECTS_PLAYER_TELEPORT)
+        && c.view().objects().stats.unhandled == 0
+        && settled
+        && receiver.teleport_in_progress();
+
+    // ...while a message nothing takes up is still named, at that queue.
+    dropped::clear();
+    c.when(Inbound::event(SessionEvent::WorldObject {
+        opcode: NOWHERE,
+        body: vec![0; 8],
+    }));
+    let lines = dropped::announcements();
+    let a_real_gap_is_named = lines.len() == 1
+        && lines[0].contains("0xEA61")
+        && lines[0].contains("smartbox")
+        && dropped::unreceived(NOWHERE);
+
     let mut c = HeadlessClient::model();
     c.assert_behaviour(
         "diagnostics.unreceived-message.names-itself-once-with-its-site",
-        move |_| starts_empty && one_line && both_sites && no_spam && per_message && quiet,
+        move |_| {
+            starts_empty
+                && one_line
+                && both_sites
+                && no_spam
+                && per_message
+                && quiet
+                && teleport_is_received
+                && a_real_gap_is_named
+        },
     );
 }
 

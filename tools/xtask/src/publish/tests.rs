@@ -51,6 +51,8 @@ struct FakeGitHub {
     writes: Vec<String>,
     /// Whether assets carry GitHub's `digest` (they do since 2025; older ones do not).
     no_digests: bool,
+    /// tag -> its push's workflow runs, newest first.
+    runs: BTreeMap<String, Vec<Value>>,
 }
 
 fn percent_decode(s: &str) -> String {
@@ -184,7 +186,7 @@ impl Transport for FakeGitHub {
             return ok(201, &v);
         }
         let path = r.url.strip_prefix(&api_prefix).expect("this repository");
-        let (path, _query) = path.split_once('?').unwrap_or((path, ""));
+        let (path, query) = path.split_once('?').unwrap_or((path, ""));
         let parts: Vec<&str> = path.split('/').filter(|p| !p.is_empty()).collect();
         match (r.method, parts.as_slice()) {
             (Method::Get, []) => ok(200, &json!({"full_name": REPO})),
@@ -193,6 +195,31 @@ impl Transport for FakeGitHub {
                 Some(sha) => ok(200, &json!({"object": {"type": "commit", "sha": sha}})),
                 None => ok(404, &json!({"message": "Not Found"})),
             },
+            (Method::Get, ["commits", "main"]) => {
+                ok(200, &json!({ "sha": self.main.last().expect("a head") }))
+            }
+            (Method::Get, ["git", "matching-refs", "tags"]) => {
+                let page: Vec<Value> = if r.url.contains("page=1") {
+                    self.tags
+                        .iter()
+                        .map(|(t, sha)| {
+                            json!({"ref": format!("refs/tags/{t}"),
+                                   "object": {"type": "commit", "sha": sha}})
+                        })
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+                ok(200, &Value::Array(page))
+            }
+            (Method::Get, ["actions", "runs"]) => {
+                let branch = query
+                    .split('&')
+                    .find_map(|p| p.strip_prefix("branch="))
+                    .expect("a branch");
+                let runs = self.runs.get(&percent_decode(branch)).cloned();
+                ok(200, &json!({ "workflow_runs": runs.unwrap_or_default() }))
+            }
             (Method::Get, ["compare", range]) => {
                 let (sha, _) = range.split_once("...").expect("a range");
                 let status = if self.main.iter().any(|c| c == sha) {
@@ -572,7 +599,7 @@ fn the_merged_sha256sums_and_manifest_cover_every_machines_files() {
     let mut fake = FakeGitHub::with_tag(&tag);
     let machines: [&[&str]; 3] = [
         &["x86_64-pc-windows-msvc"],
-        &["aarch64-apple-darwin", "x86_64-apple-darwin"],
+        &["aarch64-apple-darwin"],
         &["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"],
     ];
     let mut archives = Vec::new();
@@ -667,13 +694,12 @@ fn the_finish_lists_every_missing_file_by_name_and_writes_nothing() {
         "x86_64-unknown-linux-gnu",
         "aarch64-unknown-linux-gnu",
         "aarch64-apple-darwin",
-        "x86_64-apple-darwin",
     ] {
         let file = format!("empyrean-{v}-{triple}.tar.gz");
         assert!(e.contains(&format!("{file} (a release file)")), "{e}");
         assert!(e.contains(&format!("{file}.manifest (its lines")), "{e}");
     }
-    assert!(e.contains("lacks 8 of the files"), "{e}");
+    assert!(e.contains("lacks 6 of the files"), "{e}");
     assert!(!e.contains("windows"), "{e}");
     assert_eq!(fake.writes.len(), writes);
 }
@@ -698,7 +724,6 @@ fn a_launcher_without_its_update_signature_is_missing_from_the_release() {
         lacking,
         [
             "latest-darwin-aarch64.json (its platform's update signature, uploaded with the launcher)",
-            "latest-darwin-x86_64.json (its platform's update signature, uploaded with the launcher)",
             "latest-linux-x86_64.json (its platform's update signature, uploaded with the launcher)",
             "latest-windows-x86_64.json (its platform's update signature, uploaded with the launcher)",
         ]
@@ -761,14 +786,14 @@ fn publish_finished(kind: Kind, version: &str) -> FakeRelease {
     fake.release(&kind.tag(version)).clone()
 }
 
-/// A final Dereth or Empyrean release is published as the repository's "Latest"; a pre-release
-/// is published as one and never "Latest"; the web client's and Lyceum's releases are never
-/// "Latest".
+/// Only a final Dereth release is published as the repository's "Latest"; a pre-release is
+/// published as one and never "Latest"; Empyrean's, the web client's and Lyceum's releases are
+/// never "Latest".
 #[test]
 fn published_releases_follow_the_pre_release_and_latest_rules() {
     for (kind, version, pre, latest) in [
         (Kind::Dereth, "0.2.0", false, "true"),
-        (Kind::Empyrean, "0.2.0", false, "true"),
+        (Kind::Empyrean, "0.2.0", false, "false"),
         (Kind::Web, "0.2.0", false, "false"),
         (Kind::Lyceum, "0.2.0", false, "false"),
         (Kind::Dereth, "0.2.0-rc.1", true, "false"),
@@ -997,7 +1022,7 @@ fn the_token_is_never_shown() {
 /// A query value keeps only the unreserved characters.
 #[test]
 fn labels_and_names_are_percent_encoded_in_the_upload_address() {
-    let label = "Dereth · macOS Intel (x)";
+    let label = "Dereth · macOS Apple silicon (x)";
     let encoded = github::query_value(label);
     assert!(encoded.starts_with("Dereth%20"), "{encoded}");
     assert!(
@@ -1008,7 +1033,406 @@ fn labels_and_names_are_percent_encoded_in_the_upload_address() {
     );
     assert_eq!(percent_decode(&encoded), label);
     assert_eq!(
-        github::query_value("Dereth-0.2.0-macos-x86_64.app.tar.gz"),
-        "Dereth-0.2.0-macos-x86_64.app.tar.gz"
+        github::query_value("Dereth-0.2.0-macos-aarch64.app.tar.gz"),
+        "Dereth-0.2.0-macos-aarch64.app.tar.gz"
     );
+}
+
+// ---------------------------------------------------------------- publish drafts
+
+/// A draft of `tag` on `fake`, holding `files` and a `SHA256SUMS` listing `listed`.
+fn add_draft(fake: &mut FakeGitHub, tag: &str, files: &[&str], listed: &[&str]) {
+    let id = fake.id();
+    let mut assets: Vec<FakeAsset> = Vec::new();
+    for name in files {
+        let asset_id = fake.id();
+        assets.push(FakeAsset {
+            id: asset_id,
+            name: (*name).to_owned(),
+            label: String::new(),
+            state: "uploaded".to_owned(),
+            bytes: name.as_bytes().to_vec(),
+        });
+    }
+    if !listed.is_empty() {
+        let sums: String = listed
+            .iter()
+            .map(|n| format!("{}  {n}\n", "a".repeat(64)))
+            .collect();
+        let asset_id = fake.id();
+        assets.push(FakeAsset {
+            id: asset_id,
+            name: "SHA256SUMS".to_owned(),
+            label: String::new(),
+            state: "uploaded".to_owned(),
+            bytes: sums.into_bytes(),
+        });
+    }
+    fake.releases.push(FakeRelease {
+        id,
+        tag: tag.to_owned(),
+        name: tag.to_owned(),
+        body: String::new(),
+        draft: true,
+        prerelease: false,
+        make_latest: None,
+        assets,
+    });
+    fake.tags.insert(tag.to_owned(), COMMIT.to_owned());
+}
+
+fn whole_draft(fake: &mut FakeGitHub, tag: &str) {
+    add_draft(fake, tag, &["a.tar.gz"], &["a.tar.gz"]);
+}
+
+fn draft_flag(fake: &FakeGitHub, tag: &str) -> (bool, Option<String>) {
+    let r = fake
+        .releases
+        .iter()
+        .find(|r| r.tag == tag)
+        .expect("release");
+    (r.draft, r.make_latest.clone())
+}
+
+/// Only our products' tags are taken, and a word that is neither one nor an option is refused.
+#[test]
+fn drafts_takes_our_products_tags_and_refuses_anything_else() {
+    let args = |a: &[&str]| a.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+    let o = drafts::parse(&args(&["yalain-v0.1.2", "--wait", "--yes"])).expect("parses");
+    assert_eq!(o.tags, ["yalain-v0.1.2"]);
+    assert!(o.wait && o.yes);
+    assert!(drafts::parse(&args(&["some-other-v1.0.0"])).is_err());
+    assert!(drafts::parse(&args(&["dereth-vnot"])).is_err());
+    assert_eq!(
+        drafts::product("dereth-web-v0.4.9").map(|p| p.1),
+        Some("0.4.9")
+    );
+    assert_eq!(
+        drafts::product("network-ace-v0.2.0").map(|p| p.1),
+        Some("0.2.0")
+    );
+    assert_eq!(drafts::product("v1.0.0"), None);
+}
+
+/// Only Dereth's final release becomes Latest; every other product and every pre-release is
+/// published without it.
+#[test]
+fn drafts_makes_only_dereths_final_release_latest() {
+    let mut fake = FakeGitHub::with_tag("dereth-v0.5.0");
+    whole_draft(&mut fake, "dereth-v0.5.0");
+    whole_draft(&mut fake, "dereth-web-v0.5.0");
+    whole_draft(&mut fake, "empyrean-v0.4.0");
+    whole_draft(&mut fake, "yalain-v0.2.0");
+    whole_draft(&mut fake, "dereth-v0.6.0-rc.1");
+    let mut gh = GitHub::new(&mut fake, REPO, true);
+    drafts::pass(&mut gh, &[], true).expect("published");
+    assert_eq!(
+        draft_flag(&fake, "dereth-v0.5.0"),
+        (false, Some("true".to_owned()))
+    );
+    for tag in [
+        "dereth-web-v0.5.0",
+        "empyrean-v0.4.0",
+        "yalain-v0.2.0",
+        "dereth-v0.6.0-rc.1",
+    ] {
+        assert_eq!(
+            draft_flag(&fake, tag),
+            (false, Some("false".to_owned())),
+            "{tag}"
+        );
+    }
+    let rc = fake.releases.iter().find(|r| r.tag == "dereth-v0.6.0-rc.1");
+    assert!(rc.expect("the rc").prerelease);
+}
+
+/// A draft that isn't whole stays a draft, and a draft of anything else is left alone.
+#[test]
+fn drafts_leaves_a_draft_that_is_not_whole_and_one_not_ours() {
+    let mut fake = FakeGitHub::with_tag("dereth-v0.5.0");
+    add_draft(&mut fake, "dereth-v0.5.0", &["a.tar.gz"], &[]);
+    add_draft(
+        &mut fake,
+        "empyrean-v0.4.0",
+        &["a.tar.gz"],
+        &["a.tar.gz", "b.tar.gz"],
+    );
+    add_draft(&mut fake, "lyceum-v0.3.0", &["a.tar.gz"], &["a.tar.gz"]);
+    fake.releases
+        .iter_mut()
+        .find(|r| r.tag == "lyceum-v0.3.0")
+        .expect("lyceum")
+        .assets[0]
+        .state = "starter".to_owned();
+    whole_draft(&mut fake, "something-else-v1.0.0");
+    let mut gh = GitHub::new(&mut fake, REPO, true);
+    drafts::pass(&mut gh, &[], true).expect("runs");
+    assert!(fake.writes.is_empty(), "{:?}", fake.writes);
+}
+
+/// Without --yes nothing changes; with tags named, only those are published.
+#[test]
+fn drafts_changes_nothing_in_a_dry_run_and_only_what_is_named() {
+    let mut fake = FakeGitHub::with_tag("dereth-v0.5.0");
+    whole_draft(&mut fake, "dereth-v0.5.0");
+    whole_draft(&mut fake, "empyrean-v0.4.0");
+    let mut dry = GitHub::new(&mut fake, REPO, false);
+    drafts::pass(&mut dry, &[], false).expect("a dry run");
+    assert!(fake.writes.is_empty());
+    let mut gh = GitHub::new(&mut fake, REPO, true);
+    drafts::pass(&mut gh, &["empyrean-v0.4.0".to_owned()], true).expect("published");
+    assert!(draft_flag(&fake, "dereth-v0.5.0").0, "not named");
+    assert!(!draft_flag(&fake, "empyrean-v0.4.0").0);
+}
+
+/// --wait stays until a tag's draft appears and is published.
+#[test]
+fn drafts_wait_stays_until_the_tag_is_drafted_and_published() {
+    let mut fake = FakeGitHub::with_tag("dereth-v0.5.0");
+    let tags = ["dereth-v0.5.0".to_owned()];
+    // The first look finds no draft; the pause stands in for the minute in which it appears.
+    let mut looks = 0;
+    let shared = std::cell::RefCell::new(&mut fake);
+    struct Shared<'a, 'b>(&'a std::cell::RefCell<&'b mut FakeGitHub>);
+    impl Transport for Shared<'_, '_> {
+        fn send(&mut self, r: &HttpRequest<'_>) -> Result<HttpResponse, String> {
+            self.0.borrow_mut().send(r)
+        }
+    }
+    let mut transport = Shared(&shared);
+    let mut gh = GitHub::new(&mut transport, REPO, true);
+    drafts::watch(&mut gh, &tags, &mut || {
+        looks += 1;
+        whole_draft(&mut shared.borrow_mut(), "dereth-v0.5.0");
+    })
+    .expect("published");
+    assert_eq!(looks, 1);
+    assert_eq!(
+        draft_flag(&fake, "dereth-v0.5.0"),
+        (false, Some("true".to_owned()))
+    );
+}
+
+/// --wait gives up on a tag whose workflow failed and names it, while finishing the others; a
+/// failed run that was run again counts by the later run.
+#[test]
+fn drafts_wait_names_a_failed_workflow_instead_of_waiting_on_it_forever() {
+    let mut fake = FakeGitHub::with_tag("dereth-v0.5.0");
+    whole_draft(&mut fake, "dereth-v0.5.0");
+    fake.tags
+        .insert("yalain-v0.2.0".to_owned(), COMMIT.to_owned());
+    fake.runs.insert(
+        "yalain-v0.2.0".to_owned(),
+        vec![
+            json!({"name": "Release Yalain", "status": "completed", "conclusion": "failure",
+                    "html_url": "https://example.test/run/1"}),
+        ],
+    );
+    let tags = ["dereth-v0.5.0".to_owned(), "yalain-v0.2.0".to_owned()];
+    let mut gh = GitHub::new(&mut fake, REPO, true);
+    let e = drafts::watch(&mut gh, &tags, &mut || {
+        panic!("nothing is left to wait for")
+    })
+    .expect_err("a workflow failed");
+    assert!(
+        e.contains("yalain-v0.2.0: Release Yalain: https://example.test/run/1"),
+        "{e}"
+    );
+    assert!(
+        !draft_flag(&fake, "dereth-v0.5.0").0,
+        "the other is published"
+    );
+
+    fake.runs.insert(
+        "yalain-v0.2.0".to_owned(),
+        vec![
+            json!({"name": "Release Yalain", "status": "in_progress", "conclusion": null}),
+            json!({"name": "Release Yalain", "status": "completed", "conclusion": "failure"}),
+        ],
+    );
+    let mut gh = GitHub::new(&mut fake, REPO, false);
+    assert!(gh.failed_runs("yalain-v0.2.0").expect("reads").is_empty());
+}
+
+/// --wait stops after its last look and says what it was still waiting for.
+#[test]
+fn drafts_wait_stops_at_its_limit_and_says_what_was_left() {
+    let mut fake = FakeGitHub::with_tag("dereth-v0.5.0");
+    let tags = ["dereth-v0.5.0".to_owned()];
+    let mut gh = GitHub::new(&mut fake, REPO, true);
+    let mut pauses = 0;
+    let e = drafts::watch(&mut gh, &tags, &mut || pauses += 1).expect_err("never published");
+    assert_eq!(pauses, drafts::MAX_POLLS);
+    assert!(e.contains("dereth-v0.5.0: still not published"), "{e}");
+}
+
+/// With no tags named, --wait waits for our products' tags on main's head; none there is refused,
+/// as is a named tag that isn't on GitHub.
+#[test]
+fn drafts_wait_finds_the_tags_on_mains_head() {
+    let mut fake = FakeGitHub::with_tag("dereth-v0.5.0");
+    fake.tags
+        .insert("empyrean-v0.4.0".to_owned(), COMMIT.to_owned());
+    fake.tags
+        .insert("something-else-v1.0.0".to_owned(), COMMIT.to_owned());
+    fake.tags
+        .insert("yalain-v0.1.0".to_owned(), "older".to_owned());
+    let mut gh = GitHub::new(&mut fake, REPO, false);
+    assert_eq!(
+        drafts::tags_to_wait_for(&mut gh, &[]).expect("found"),
+        ["dereth-v0.5.0", "empyrean-v0.4.0"]
+    );
+    let named = ["lyceum-v9.9.9".to_owned()];
+    assert!(drafts::tags_to_wait_for(&mut gh, &named).is_err());
+    fake.tags.clear();
+    let mut gh = GitHub::new(&mut fake, REPO, false);
+    assert!(drafts::tags_to_wait_for(&mut gh, &[]).is_err());
+}
+
+// ---------------------------------------------------------------- fetching a named release
+
+/// A draft for `tag` whose checksums are true of its files.
+fn checked_draft(fake: &mut FakeGitHub, tag: &str, files: &[(&str, &[u8])]) {
+    let names: Vec<&str> = files.iter().map(|(n, _)| *n).collect();
+    add_draft(fake, tag, &names, &[]);
+    let id = fake.id();
+    let release = fake
+        .releases
+        .iter_mut()
+        .find(|r| r.tag == tag)
+        .expect("the draft");
+    for (name, bytes) in files {
+        release
+            .assets
+            .iter_mut()
+            .find(|a| a.name == *name)
+            .expect("the asset")
+            .bytes = bytes.to_vec();
+    }
+    let sums: String = files
+        .iter()
+        .map(|(n, b)| format!("{}  {n}\n", sha256_hex(b)))
+        .collect();
+    release.assets.push(FakeAsset {
+        id,
+        name: "SHA256SUMS".to_owned(),
+        label: String::new(),
+        state: "uploaded".to_owned(),
+        bytes: sums.into_bytes(),
+    });
+}
+
+/// A draft's files are readable: a game's package runs before anything is published, since the
+/// launcher goes first only at the publishing step.
+#[test]
+fn a_named_release_is_fetched_while_still_a_draft_with_its_checksums() {
+    let temp = temp("fetch-1");
+    let mut fake = FakeGitHub::default();
+    checked_draft(
+        &mut fake,
+        "launcher-v0.5.0",
+        &[("a.tar.gz", b"the launcher")],
+    );
+    let mut gh = GitHub::new(&mut fake, REPO, false);
+    fetch_release::fetch(&mut gh, "launcher-v0.5.0", temp.as_path(), None).expect("fetched");
+    assert_eq!(
+        std::fs::read(temp.as_path().join("a.tar.gz")).unwrap(),
+        b"the launcher"
+    );
+    assert!(temp.as_path().join("SHA256SUMS").is_file());
+    assert!(fake.writes.is_empty(), "{:?}", fake.writes);
+}
+
+/// With a newer and an older release there, a tree that names one that isn't made gets neither.
+#[test]
+fn another_release_is_never_taken_in_place_of_the_one_named() {
+    let temp = temp("fetch-2");
+    let mut fake = FakeGitHub::default();
+    checked_draft(&mut fake, "launcher-v0.4.9", &[("old.tar.gz", b"older")]);
+    checked_draft(&mut fake, "launcher-v0.6.0", &[("new.tar.gz", b"newer")]);
+    let mut gh = GitHub::new(&mut fake, REPO, false);
+    let why = fetch_release::fetch(&mut gh, "launcher-v0.5.0", temp.as_path(), None).unwrap_err();
+    assert!(why.contains("launcher-v0.5.0"), "{why}");
+    assert!(why.contains("no other is used"), "{why}");
+    assert_eq!(std::fs::read_dir(temp.as_path()).unwrap().count(), 0);
+}
+
+/// Waiting looks again until the workflow has uploaded the whole release, not just part of it.
+#[test]
+fn waiting_stays_until_the_named_release_is_whole() {
+    let temp = temp("fetch-3");
+    let fake = std::cell::RefCell::new(FakeGitHub::default());
+    // Asked once a look, through a transport that adds the release at the third.
+    struct Late<'a>(&'a std::cell::RefCell<FakeGitHub>);
+    impl Transport for Late<'_> {
+        fn send(&mut self, r: &HttpRequest<'_>) -> Result<HttpResponse, String> {
+            self.0.borrow_mut().send(r)
+        }
+    }
+    let mut transport = Late(&fake);
+    let mut gh = GitHub::new(&mut transport, REPO, false);
+    let mut looks = 0;
+    let mut pause = || {
+        looks += 1;
+        let mut fake = fake.borrow_mut();
+        match looks {
+            // A draft with one file up, and no checksums yet.
+            1 => add_draft(&mut fake, "launcher-v0.5.0", &["a.tar.gz"], &[]),
+            2 => {
+                fake.releases.clear();
+                checked_draft(&mut fake, "launcher-v0.5.0", &[("a.tar.gz", b"whole")]);
+            }
+            _ => panic!("kept looking"),
+        }
+    };
+    let pause: &mut dyn FnMut() = &mut pause;
+    fetch_release::fetch(&mut gh, "launcher-v0.5.0", temp.as_path(), Some(pause)).expect("fetched");
+    assert_eq!(
+        std::fs::read(temp.as_path().join("a.tar.gz")).unwrap(),
+        b"whole"
+    );
+}
+
+/// Waiting has an end, and failing there names the release; nothing is left to be mistaken for it.
+#[test]
+fn waiting_for_a_release_that_never_comes_fails_naming_it() {
+    let temp = temp("fetch-4");
+    let mut fake = FakeGitHub::default();
+    let mut gh = GitHub::new(&mut fake, REPO, false);
+    let mut pauses = 0u32;
+    let mut pause = || pauses += 1;
+    let pause: &mut dyn FnMut() = &mut pause;
+    let why =
+        fetch_release::fetch(&mut gh, "launcher-v0.5.0", temp.as_path(), Some(pause)).unwrap_err();
+    assert!(why.contains("launcher-v0.5.0"), "{why}");
+    assert_eq!(pauses, fetch_release::MAX_POLLS - 1);
+}
+
+/// A file changed after its checksums were written isn't written to the folder as if it were good.
+#[test]
+fn a_fetched_file_that_does_not_match_its_checksums_fails_the_fetch() {
+    let temp = temp("fetch-5");
+    let mut fake = FakeGitHub::default();
+    checked_draft(&mut fake, "launcher-v0.5.0", &[("a.tar.gz", b"as listed")]);
+    fake.releases[0]
+        .assets
+        .iter_mut()
+        .find(|a| a.name == "a.tar.gz")
+        .expect("the file")
+        .bytes = b"something else".to_vec();
+    let mut gh = GitHub::new(&mut fake, REPO, false);
+    let why = fetch_release::fetch(&mut gh, "launcher-v0.5.0", temp.as_path(), None).unwrap_err();
+    assert!(why.contains("a.tar.gz"), "{why}");
+    assert!(!temp.as_path().join("a.tar.gz").exists());
+}
+
+/// A name in the checksums with a folder in it can't write outside the folder it's fetched to.
+#[test]
+fn a_checksums_line_with_a_folder_in_its_name_is_refused() {
+    let temp = temp("fetch-6");
+    let mut fake = FakeGitHub::default();
+    checked_draft(&mut fake, "launcher-v0.5.0", &[("../a.tar.gz", b"bytes")]);
+    let mut gh = GitHub::new(&mut fake, REPO, false);
+    let why = fetch_release::fetch(&mut gh, "launcher-v0.5.0", temp.as_path(), None).unwrap_err();
+    assert!(why.contains("isn't a file name"), "{why}");
 }

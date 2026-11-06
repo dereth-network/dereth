@@ -7,14 +7,19 @@
 //!
 //! **Tell.** A tell reaches the player of that name (with or without its grammar mark, in any
 //! case) as the teller's tell, with the teller's world name; the teller is shown "You tell ...";
-//! a name no player in the world has is answered "... is unavailable". A player who ignores the
-//! teller on its friends service ([`Server::ignoring`]) never hears it.
+//! a name no player in the world has is answered "... is unavailable", and kept for the world's
+//! friends service ([`Server::unheard_tells`]), which sends it on when the name is an away, linked
+//! character's. A player who ignores the teller on its friends service ([`Server::ignoring`]) never
+//! hears it.
 //!
 //! **The Dereth Network's command.** A line said as `@dn ...`, aloud or into a room, is heard by
 //! nobody: it is kept for the world's friends service ([`Server::network_commands`]), which
 //! answers it. Its one word for the operator, `@dn verify <token>`, is an admin's: kept marked as
 //! an admin's from an admin's account, refused from staff below it as any command beyond their
 //! level is, and from a player's account kept as any other of its words.
+//!
+//! **How long a line may be.** A line longer than [`MOST_TALK_BYTES`] goes nowhere, and the speaker
+//! is told. A retail client's lines all fit: it takes 512 characters at its chat entry.
 //!
 //! **Gags and admins.** A gagged player ([`crate::admin`]) says, tells, emotes and speaks into a
 //! room to nobody, and is told it is gagged. A line an admin says as one of the admin commands is
@@ -32,6 +37,13 @@
 //! The rooms a client may use are the channels the world sends it as it enters, and the rooms of
 //! its kingdom, allegiance and fellowship. A line to any other room, or from a client not in the
 //! world, is answered with a refusal and reaches nobody.
+//!
+//! **Rooms admins made.** A line to one reaches its members ([`crate::admin_calls`]) and no one else.
+//!
+//! **The Dereth Network's rooms.** A line in a room every player has (General, Trade, PvP) is also
+//! kept for the world's link ([`Server::room_lines`]), which passes it on when the room carries the
+//! network's lines. A line from another world reaches the players in the room as the room's own line
+//! ([`hear_from_afar`]), and `@dng` says a line as the client would ([`say_in_room`]).
 
 use auberean_protocol::login::ChatPacket;
 use auberean_protocol::physics::ObjectEvent;
@@ -41,6 +53,7 @@ use auberean_protocol::{queue, ServerMessage};
 use auberean_script::args::Arg;
 use auberean_script::library::Elem;
 use auberean_script::native_object::{Item, NativeObject, TextInfo, Variable, VariableValue};
+use auberean_script::wire::Out;
 use yalain_net::{BlobKind, ConnId, ServerNet};
 use yalain_store::Store;
 
@@ -171,19 +184,33 @@ fn send_to_knowers<S: Store>(
 }
 
 /// The Dereth Network's command, said in chat (the client handles every `/` command itself):
-/// a line that is `@dn`, or begins with `@dn ` (in any case). Its words after `@dn`.
+/// a line that is `@dn` or `@derethnetwork` (the same command spelled out), or begins with one and
+/// a space (in any case). Its words after that.
 #[must_use]
 pub fn network_words(text: &str) -> Option<&str> {
+    command_words(text, "@dn").or_else(|| command_words(text, "@derethnetwork"))
+}
+
+/// The words after `command` in a line that is it or begins with it and a space, in any case.
+fn command_words<'a>(text: &'a str, command: &str) -> Option<&'a str> {
     let t = text.trim_start();
-    let head = t.get(..3)?;
-    if !head.eq_ignore_ascii_case("@dn") {
+    let head = t.get(..command.len())?;
+    if !head.eq_ignore_ascii_case(command) {
         return None;
     }
-    let rest = &t[3..];
+    let rest = &t[command.len()..];
     if rest.is_empty() {
         return Some("");
     }
     rest.starts_with(char::is_whitespace).then(|| rest.trim())
+}
+
+/// The words the network's command is given by a line said: `@dng <text>` is `@dn global <text>`
+/// made short.
+fn said_network_words(text: &str) -> Option<String> {
+    network_words(text).map(str::to_owned).or_else(|| {
+        command_words(text, "@dng").map(|rest| format!("global {rest}").trim_end().to_owned())
+    })
 }
 
 /// The Dereth Network's command, said by a player in the world: heard by nobody, and answered by
@@ -196,12 +223,14 @@ pub struct NetworkCommand {
     pub name: String,
     /// The words after `@dn`.
     pub words: String,
-    /// The speaker's account is an admin's: `@dn verify` is its to give.
+    /// The speaker's account is an admin's: the operator's words are its to give.
     pub admin: bool,
 }
 
-/// The network's word for the operator, `@dn verify <token>`: an admin's.
+/// The network's words for the operator, `@dn verify <token>` and `@dn admin ...`: an admin's.
 pub const VERIFY: &str = "verify";
+/// See [`VERIFY`].
+pub const ADMIN: &str = "admin";
 
 /// Whether the words after `@dn` begin with `verify` (in any case).
 #[must_use]
@@ -212,47 +241,62 @@ pub fn is_verify(words: &str) -> bool {
         .is_some_and(|w| w.eq_ignore_ascii_case(VERIFY))
 }
 
-/// Keeps a line said as the network's command for the friends service: true when it was one.
-/// `@dn verify` from staff below an admin is refused here, as any command beyond their level.
-fn network_command<S: Store>(
-    s: &mut Server<S>,
-    net: &mut ServerNet,
-    world: ConnId,
-    text: &str,
-) -> bool {
-    let Some(words) = network_words(text) else {
+/// Whether the words after `@dn` begin with `admin` (in any case).
+#[must_use]
+pub fn is_admin_word(words: &str) -> bool {
+    words
+        .split_whitespace()
+        .next()
+        .is_some_and(|w| w.eq_ignore_ascii_case(ADMIN))
+}
+
+/// Keeps a line said as the network's command for the friends service: true when it was one. The
+/// operator's words from a player's account are logged and go on as the friends service's, which
+/// reads them as no word it knows.
+fn network_command<S: Store>(s: &mut Server<S>, world: ConnId, text: &str) -> bool {
+    let Some(words) = said_network_words(text) else {
         return false;
     };
     let Some(p) = s.players.get(&world) else {
         return true;
     };
-    let access = s
-        .sessions
-        .get(&p.login)
-        .map_or(crate::admin::Access::Player, |x| {
-            crate::admin::Access::from_number(x.account.access)
-        });
-    if is_verify(words)
-        && access > crate::admin::Access::Player
-        && access < crate::admin::Access::Admin
-    {
-        tracing::info!(character = %p.name, %access, "refused: dn verify is an admin's");
-        crate::login::notice(
-            net,
-            world,
-            &crate::admin::beyond(crate::admin::Access::Admin),
-        );
-        return true;
+    let admin = s.sessions.get(&p.login).is_some_and(|x| x.account.admin);
+    if !admin && (is_verify(&words) || is_admin_word(&words)) {
+        tracing::warn!(character = %p.name, "refused: the network's operator words need an admin's account");
     }
     let command = NetworkCommand {
         world,
         character: p.character,
         name: p.name.clone(),
-        words: words.to_owned(),
-        admin: access == crate::admin::Access::Admin,
+        words,
+        admin,
     };
     s.network_commands.push(command);
     true
+}
+
+/// The most a line of talk may carry, in bytes of its call or its room packet: it goes to everyone
+/// near or in the room, and what is over a message's pace would hold back all that follows it. The
+/// client's chat entry takes 512 characters; markup escaped doubles them, and an alias can stand for
+/// as many again, which is 2,048 characters of two bytes, and the rest is what carries them. The
+/// largest recorded are far inside it: 244 bytes of 167 sayings, 492 of 79 tells, 556 of 1,316 room
+/// lines.
+pub const MOST_TALK_BYTES: usize = 5 * 1024;
+
+/// What a player is told of a line past [`MOST_TALK_BYTES`].
+pub const TOO_LONG: &str = "That is too long to say.";
+
+/// Is this function a line of talk with words in it?
+#[must_use]
+pub const fn carries_words(function: u32) -> bool {
+    use crate::requests::function::{SAY, TELL, TYPED_EMOTE};
+    matches!(function, SAY | TELL | TYPED_EMOTE)
+}
+
+/// A line past [`MOST_TALK_BYTES`]: nobody hears it, and its speaker is told.
+pub fn too_long<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
+    s.unhandled.note("a line of talk too long");
+    crate::login::notice(net, world, TOO_LONG);
 }
 
 /// A player says something: it and every client that knows it hear it. The network's command and
@@ -271,11 +315,11 @@ pub fn say<S: Store>(
         .and_then(|t| t.literal)
         .map(|l| String::from_utf16_lossy(&l));
     if let Some(t) = said {
-        if crate::admin::said(s, net, world, &t, clock) || network_command(s, net, world, &t) {
+        if crate::admin::said(s, net, world, &t, clock) || network_command(s, world, &t) {
             return;
         }
     }
-    if crate::admin::refuse_gagged(s, net, world) {
+    if refuses_talk(s, net, world) {
         return;
     }
     let Some(p) = s.players.get(&world) else {
@@ -308,7 +352,8 @@ pub fn text_arg(t: TextInfo) -> Arg {
     Arg::Object(b.graph())
 }
 
-/// A name as a player types it: the name alone, without the grammar mark, in lower case.
+/// A name as a player types it, without the grammar mark, in lower case: a character's name, or its
+/// name and suffix as a client shows it ([`crate::presence::player_named_for`] reads either).
 #[must_use]
 pub fn bare_name(typed: &str) -> String {
     typed
@@ -337,6 +382,17 @@ pub fn show_text(kind: u32, text: TextInfo) -> ServerMessage {
     .expect("a string reference packs")
 }
 
+/// A tell that reached no player in the world.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnheardTell {
+    /// The teller's id and name.
+    pub character: u64,
+    pub name: String,
+    /// The name it was told to, in small letters, without its grammar mark.
+    pub tellee: String,
+    pub text: String,
+}
+
 /// A player tells another something.
 pub fn tell<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v: &[Value]) {
     let (Some(Value::Int(flags)), Some(words), Some(tellee)) = (
@@ -347,7 +403,7 @@ pub fn tell<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v: 
         s.unhandled.note("a tell that does not read");
         return;
     };
-    if crate::admin::refuse_gagged(s, net, world) {
+    if refuses_talk(s, net, world) {
         return;
     }
     let Some(teller) = s.players.get(&world) else {
@@ -356,12 +412,14 @@ pub fn tell<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v: 
     let wanted = bare_name(&String::from_utf16_lossy(
         tellee.literal.as_deref().unwrap_or_default(),
     ));
-    let target = s
-        .players
-        .iter()
-        .find(|(_, q)| q.name.to_lowercase() == wanted)
-        .map(|(c, _)| *c);
-    let Some(target) = target else {
+    let Some(target) = crate::presence::player_named_for(s, world, &wanted) else {
+        let unheard = UnheardTell {
+            character: teller.character,
+            name: teller.name.clone(),
+            tellee: wanted,
+            text: String::from_utf16_lossy(words.literal.as_deref().unwrap_or_default()),
+        };
+        s.unheard_tells.push(unheard);
         unavailable(net, world, tellee);
         return;
     };
@@ -433,7 +491,7 @@ pub fn emote<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v:
         s.unhandled.note(format!("emote {id:#010x}"));
         return;
     };
-    if crate::admin::refuse_gagged(s, net, world) {
+    if refuses_talk(s, net, world) {
         return;
     }
     s.next_context = s.next_context.wrapping_add(1);
@@ -473,10 +531,45 @@ pub fn emote<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v:
     send_to_knowers(s, net, world, id, BlobKind::VISUAL, &m);
 }
 
+/// What a player is told when its lines come past how fast one may talk.
+pub const TOO_FAST: &str = "You are talking too fast.";
+
+/// How many seconds apart at least a player is told it is talking too fast.
+const TOO_FAST_EVERY: f64 = 5.0;
+
+/// May this player's line of talk not go on: it is gagged, or past how fast one may talk? Each is
+/// told the player, the second at most every few seconds.
+#[must_use]
+pub fn refuses_talk<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) -> bool {
+    if crate::admin::refuse_gagged(s, net, world) {
+        return true;
+    }
+    let now = s.saves.now;
+    let Some(p) = s.players.get_mut(&world) else {
+        return false;
+    };
+    let (bucket, told) = p.talk.get_or_insert_with(|| {
+        let bucket = crate::call_limit::Bucket::with(
+            crate::call_limit::TALK_BURST,
+            crate::call_limit::TALK_PER_SECOND,
+            now,
+        );
+        (bucket, None)
+    });
+    if bucket.allow(now) {
+        return false;
+    }
+    if told.is_none_or(|at| now.0 - at >= TOO_FAST_EVERY) {
+        *told = Some(now.0);
+        crate::login::notice(net, world, TOO_FAST);
+    }
+    true
+}
+
 /// The script type of a string.
 const STRING: u16 = 0x76;
 
-fn string_arg(text: &str) -> Arg {
+pub(crate) fn string_arg(text: &str) -> Arg {
     let mut b = Builder::new();
     b.native(STRING, NativeObject::Text(text.encode_utf16().collect()));
     Arg::Object(b.graph())
@@ -512,7 +605,7 @@ pub fn typed_emote<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: Conn
         s.unhandled.note("a typed emote that does not read");
         return;
     };
-    if crate::admin::refuse_gagged(s, net, world) {
+    if refuses_talk(s, net, world) {
         return;
     }
     let Some(p) = s.players.get(&world) else {
@@ -605,6 +698,14 @@ pub const NEW_CHANNELS: [Channel; 4] = [
         name: "Faction Neutral ",
     },
 ];
+
+/// The room of the PvP channel, which the network's `lfg` and `roleplay` mean on this game: it
+/// carried no line in any recorded session.
+pub const PVP_ROOM: u32 = NEW_CHANNELS[0].room;
+/// The room of the General channel.
+pub const GENERAL_ROOM: u32 = NEW_CHANNELS[1].room;
+/// The room of the first Trade channel.
+pub const TRADE_ROOM: u32 = NEW_CHANNELS[2].room;
 
 /// Tags the script machine gives a channel's slots: 2 for a whole number, 4 for one set from an
 /// enumeration or a truth value (as the 2017 server's slots carried them).
@@ -818,6 +919,155 @@ fn send_chat(net: &mut ServerNet, login: ConnId, packet: Vec<u8>) {
     );
 }
 
+/// What a speaker's client says about it with a line, as the service passes it on: the note's
+/// version 1, a zero word, the chat flags (0 for everything a world says itself) and the speaker's
+/// meta letters.
+#[must_use]
+pub fn speaker_note(meta_letters: &str) -> Vec<u8> {
+    let letters: Vec<u16> = meta_letters.encode_utf16().collect();
+    let mut w = Out::new();
+    w.u16(1);
+    w.u16(0);
+    w.u32(0);
+    w.wide(&letters);
+    w.buf
+}
+
+/// The meta letters of a character of this name and sex: `M` or `F`, and `v` when the name starts
+/// with a vowel.
+#[must_use]
+pub fn meta_letters(name: &str, sex: u32) -> String {
+    let written = player::world_name(name, sex);
+    written
+        .rsplit_once('[')
+        .map(|(_, letters)| letters.trim_end_matches(']').to_owned())
+        .unwrap_or_default()
+}
+
+/// A line a character said in a room every player has, kept for the world's link.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RoomSaid {
+    pub character: u64,
+    pub name: String,
+    pub room: u32,
+    pub text: String,
+}
+
+/// A line that may go: back to its sender as the room's line, then (for a line the client asked to
+/// send) as the answer to its request, and to every other player the room reaches (`members`, or
+/// everyone in the world). A line in a room everyone has is kept for the world's link.
+fn relay<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    login: ConnId,
+    name: &str,
+    line: &RoomLine,
+    members: Option<&[u64]>,
+    answered: bool,
+) {
+    let event = |l: ConnId| room_event(service_word(l), line.room, name, &line.text, &line.extra);
+    send_chat(net, login, event(login));
+    if answered {
+        send_chat(
+            net,
+            login,
+            room_response(service_word(login), line.context, 0),
+        );
+    }
+    let others: Vec<ConnId> = s
+        .sessions
+        .iter()
+        .filter(|(c, x)| match x.stage {
+            Stage::InWorld { character, .. } => {
+                **c != login && members.is_none_or(|m| m.contains(&character))
+            }
+            _ => false,
+        })
+        .map(|(c, _)| *c)
+        .collect();
+    for l in others {
+        send_chat(net, l, event(l));
+    }
+    if members.is_none() {
+        let character = s.sessions.get(&login).and_then(|x| match x.stage {
+            Stage::InWorld { character, .. } => Some(character),
+            _ => None,
+        });
+        if let Some(character) = character {
+            s.room_lines.push(RoomSaid {
+                character,
+                name: name.to_owned(),
+                room: line.room,
+                text: String::from_utf16_lossy(&line.text),
+            });
+        }
+    }
+}
+
+/// `character` says `text` in `room` as its client would, from wherever it was talking: the room's
+/// line back to it and to the others, and on to the world's link. A gagged character is told it may
+/// not talk, and nobody hears it. No request of the client's is answered, since it made none.
+pub fn say_in_room<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    character: u64,
+    room: u32,
+    text: &str,
+) {
+    let Some((world, login, name, sex)) = s
+        .players
+        .iter()
+        .find(|(_, p)| p.character == character)
+        .map(|(w, p)| (*w, p.login, p.name.clone(), p.sex))
+    else {
+        return;
+    };
+    if refuses_talk(s, net, world) {
+        return;
+    }
+    let line = RoomLine {
+        context: 0,
+        room,
+        text: text.encode_utf16().collect(),
+        extra: speaker_note(&meta_letters(&name, sex)),
+    };
+    relay(s, net, login, &name, &line, None, false);
+}
+
+/// A line from elsewhere reaches every player in the world `hears` lets hear it, by id and name, as
+/// the room's own line under the name given. It has no meta letters, since the world knows none for
+/// its speaker.
+pub fn hear_from_afar<S: Store>(
+    s: &Server<S>,
+    net: &mut ServerNet,
+    room: u32,
+    name: &str,
+    text: &str,
+    hears: impl Fn(u64, &str) -> bool,
+) {
+    let text: Vec<u16> = text.encode_utf16().collect();
+    let note = speaker_note("");
+    let listeners: Vec<ConnId> = s
+        .sessions
+        .iter()
+        .filter_map(|(login, x)| match x.stage {
+            Stage::InWorld { character, world } => s
+                .players
+                .get(&world)
+                .filter(|p| hears(character, &p.name))
+                .map(|_| *login),
+            _ => None,
+        })
+        .collect();
+    for l in listeners {
+        send_chat(
+            net,
+            l,
+            room_event(service_word(l), room, name, &text, &note),
+        );
+    }
+}
+
 /// A client's packet to the chat service, on its login connection.
 pub fn service<S: Store>(
     s: &mut Server<S>,
@@ -846,6 +1096,11 @@ pub fn service<S: Store>(
         refuse(net);
         return;
     };
+    if packet.len() > MOST_TALK_BYTES {
+        s.unhandled.note("a line of talk too long");
+        refuse(net);
+        return;
+    }
     let world = s.sessions.get(&login).and_then(|x| match x.stage {
         Stage::InWorld { world, .. } => Some(world),
         _ => None,
@@ -855,14 +1110,31 @@ pub fn service<S: Store>(
     if let Some(world) = world {
         let text = String::from_utf16_lossy(&line.text);
         if crate::admin::said(s, net, world, &text, clock)
-            || network_command(s, net, world, &text)
-            || crate::admin::refuse_gagged(s, net, world)
+            || network_command(s, world, &text)
+            || refuses_talk(s, net, world)
         {
             send_chat(
                 net,
                 login,
                 room_response(service_word(login), line.context, 0),
             );
+            return;
+        }
+    }
+    // A room admins made: to its members, as an admin's answer, or nowhere.
+    if let Some(world) = world {
+        let text = String::from_utf16_lossy(&line.text);
+        if let Some(went) = crate::admin_calls::rooms::said(s, net, world, line.room, &name, &text)
+        {
+            if went {
+                send_chat(
+                    net,
+                    login,
+                    room_response(service_word(login), line.context, 0),
+                );
+            } else {
+                refuse(net);
+            }
             return;
         }
     }
@@ -884,25 +1156,5 @@ pub fn service<S: Store>(
             return;
         }
     }
-    let event = |l: ConnId| room_event(service_word(l), line.room, &name, &line.text, &line.extra);
-    send_chat(net, login, event(login));
-    send_chat(
-        net,
-        login,
-        room_response(service_word(login), line.context, 0),
-    );
-    let others: Vec<ConnId> = s
-        .sessions
-        .iter()
-        .filter(|(c, x)| match x.stage {
-            Stage::InWorld { character, .. } => {
-                **c != login && members.as_ref().is_none_or(|m| m.contains(&character))
-            }
-            _ => false,
-        })
-        .map(|(c, _)| *c)
-        .collect();
-    for l in others {
-        send_chat(net, l, event(l));
-    }
+    relay(s, net, login, &name, &line, members.as_deref(), true);
 }

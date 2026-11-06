@@ -20,7 +20,7 @@
 //! struck object for its duration, rising three of its own heights over its life (above the
 //! selection's name, meters and marks when the object is the selection), moved off the other
 //! damage texts as names are moved off names; hidden in portal space, where it does not age, and
-//! for an object not in the world. (Its scale and its fading out are not drawn.)
+//! for an object not in the world. It is drawn at its scale and fades out over its life.
 
 use std::any::Any;
 use std::collections::VecDeque;
@@ -89,11 +89,14 @@ pub struct DamageBlob {
 
 /// A damage text shown: its element, when it began (the interface's clock), how long it lasts,
 /// and the object it rises over.
+// D2-02105
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DamageText {
     pub element: Handle,
     pub start: f64,
     pub duration: f64,
+    /// How large it is drawn.
+    pub scale: f32,
     pub object: u64,
 }
 
@@ -102,6 +105,7 @@ pub const SELECTION_WITH_NUMBERS: u32 = 0x4000_0001;
 
 /// A rectangle of the screen with its edges inclusive.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+// D2-02058
 pub struct Box2D {
     pub x0: i32,
     pub y0: i32,
@@ -130,6 +134,70 @@ impl Box2D {
             return false;
         }
         self.x0 <= other.x1 && self.x1 >= other.x0 && self.y0 <= other.y1 && self.y1 >= other.y0
+    }
+
+    /// Where two boxes overlap, when they do.
+    // D2-09620
+    #[must_use]
+    pub fn intersection(&self, other: &Self) -> Option<Self> {
+        let b = Self {
+            x0: self.x0.max(other.x0),
+            y0: self.y0.max(other.y0),
+            x1: self.x1.min(other.x1),
+            y1: self.y1.min(other.y1),
+        };
+        (b.x1 >= b.x0 && b.y1 >= b.y0).then_some(b)
+    }
+
+    /// Whether `other` lies wholly inside this box.
+    // D2-11193
+    #[must_use]
+    pub const fn includes(&self, other: &Self) -> bool {
+        self.x0 <= other.x0 && other.x1 <= self.x1 && self.y0 <= other.y0 && other.y1 <= self.y1
+    }
+
+    /// What is left of this box with `other` taken out, as up to four boxes: the part left of it
+    /// and the part right of it at this box's whole height, then below and above it between them.
+    /// Nothing when the two do not overlap.
+    // D2-11229
+    #[must_use]
+    pub fn subtract(&self, other: &Self) -> Vec<Self> {
+        let mut left = Vec::new();
+        if !self.collide(other) {
+            return left;
+        }
+        let (mut x0, mut x1) = (self.x0, self.x1);
+        if x0 <= other.x0 {
+            left.push(Self {
+                x1: other.x0 - 1,
+                ..*self
+            });
+            x0 = other.x0;
+        }
+        if other.x1 <= x1 {
+            left.push(Self {
+                x0: other.x1 + 1,
+                ..*self
+            });
+            x1 = other.x1;
+        }
+        if self.y0 <= other.y0 {
+            left.push(Self {
+                x0,
+                x1,
+                y0: self.y0,
+                y1: other.y0 - 1,
+            });
+        }
+        if other.y1 <= self.y1 {
+            left.push(Self {
+                x0,
+                x1,
+                y0: other.y1 + 1,
+                y1: self.y1,
+            });
+        }
+        left
     }
 }
 
@@ -419,11 +487,13 @@ impl Names {
             ui.resize_to(e, w, h);
         }
         ui.set_text(e, &b.text);
+        ui.set_object_scale(e, b.scale);
         ui.set_visible(e, false);
         self.damage.push(DamageText {
             element: e,
             start: ui.now(),
             duration: f64::from(b.duration),
+            scale: b.scale,
             object,
         });
         self.place_all(ui, world, &mut Vec::new());
@@ -471,6 +541,8 @@ impl Names {
             }
             kept.push(d);
             let (tw, th) = Self::size_of(ui, Some(d.element));
+            #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+            let (tw, th) = ((tw as f32 * d.scale) as i32, (th as f32 * d.scale) as i32); // LINT-OK: a size in pixels cuts its fraction
             let rise = dereth_primitives::num::to_i32_f64(f64::from(self.floaty_travel * th) * age);
             let mut above = rise;
             if d.object == self.selection {
@@ -513,7 +585,9 @@ impl Names {
                 continue;
             }
             placed.push(b);
-            ui.move_to(d.element, b.x0, b.y0);
+            #[allow(clippy::cast_possible_truncation)] // a share of 1
+            ui.set_object_alpha(d.element, (1.0 - age) as f32);
+            ui.move_picture(d.element, b.x0, b.y0);
             ui.set_visible(d.element, true);
         }
         self.damage = kept;
@@ -681,7 +755,7 @@ impl Names {
     /// The box an object fills on the screen (clip square: x and y from -1 to 1), its recent
     /// boxes averaged; and whether any corner of it is on the screen. `None` when it is not
     /// drawn or the world has no camera yet.
-    // D2-02108, D2-13233, D2-13225, D2-08173, D2-08174, D2-08175
+    // D2-02108, D2-13233, D2-06337, D2-13225, D2-08173, D2-08174, D2-08175
     fn object_to_window(
         world: &World,
         t: &Thing,
@@ -797,7 +871,7 @@ impl Names {
         ui.set_visible(o, true);
         hide.off_screen = false;
         ui.set_rotation(o, angle + tilt);
-        ui.move_to(o, px, py);
+        ui.move_picture(o, px, py);
         self.reticle_box = Box2D::sized(px, py, ow, oh);
     }
 
@@ -826,7 +900,7 @@ impl Names {
         let far = self.max_selection_distance;
         #[allow(clippy::cast_precision_loss)]
         if ((far * far) as f32) < y * y + x * x {
-            out.push(Request::Select(0));
+            out.push(Request::SetSelection(0));
             return;
         }
         let (w, h) = ui.display();
@@ -879,7 +953,7 @@ impl Names {
             if let Some(m) = self.reticle[i] {
                 ui.set_visible(m, true);
                 ui.set_rotation(m, turn);
-                ui.move_to(m, xs[i], ys[i]);
+                ui.move_picture(m, xs[i], ys[i]);
             }
             step += 90;
         }
@@ -905,14 +979,14 @@ impl Names {
             let stuff_y = name_y + nh;
             box_x0 = box_x0.min(stuff_x);
             box_x1 = box_x1.max(stuff_x + rw - 1);
-            ui.move_to(stuff, stuff_x, stuff_y);
+            ui.move_picture(stuff, stuff_x, stuff_y);
             ui.set_visible(stuff, true);
             hide.stuff = false;
         }
         self.reticle_box.x0 = box_x0;
         self.reticle_box.x1 = box_x1;
         self.reticle_box.y0 = name_y;
-        ui.move_to(name, name_x, name_y);
+        ui.move_picture(name, name_x, name_y);
         ui.set_visible(name, true);
         hide.name = false;
         hide.reticle = false;
@@ -972,44 +1046,47 @@ impl Names {
         };
         let mut names = std::mem::take(&mut self.names);
         for n in &mut names {
-            ui.set_visible(n.element, false);
-            if in_portal || n.object == self.selection {
-                continue;
-            }
-            let Some(t) = world.thing(n.object) else {
-                continue;
-            };
-            let [x, y, _] = t.from_player;
-            if x * x + y * y > range_sq {
-                continue;
-            }
-            let (nw, nh) = Self::size_of(ui, Some(n.element));
-            let Some((cx, cy)) = self.calc_screen_position(ui, world, t, &mut n.history, nh) else {
-                continue;
-            };
-            let x0 = dereth_primitives::num::to_i32_f64(f64::from(cx) - f64::from(nw) * 0.5);
-            let mut b = Box2D::sized(x0, cy, nw, nh);
-            let mut ways = 0xF;
-            let mut off = false;
-            for _ in 0..self.max_attempts {
-                if !screen.collide(&b) {
-                    off = true;
-                    break;
+            let shown = 'place: {
+                if in_portal || n.object == self.selection {
+                    break 'place false;
                 }
-                let Some(i) = place_here(&b, &placed) else {
-                    break;
+                let Some(t) = world.thing(n.object) else {
+                    break 'place false;
                 };
-                make_new_data(&mut b, &placed[i], &mut ways);
-                if ways == 0 {
-                    ways = 0xF;
+                let [x, y, _] = t.from_player;
+                if x * x + y * y > range_sq {
+                    break 'place false;
                 }
-            }
-            if off {
-                continue;
-            }
-            placed.push(b);
-            ui.move_to(n.element, b.x0, b.y0);
-            ui.set_visible(n.element, true);
+                let (nw, nh) = Self::size_of(ui, Some(n.element));
+                let Some((cx, cy)) = self.calc_screen_position(ui, world, t, &mut n.history, nh)
+                else {
+                    break 'place false;
+                };
+                let x0 = dereth_primitives::num::to_i32_f64(f64::from(cx) - f64::from(nw) * 0.5);
+                let mut b = Box2D::sized(x0, cy, nw, nh);
+                let mut ways = 0xF;
+                let mut off = false;
+                for _ in 0..self.max_attempts {
+                    if !screen.collide(&b) {
+                        off = true;
+                        break;
+                    }
+                    let Some(i) = place_here(&b, &placed) else {
+                        break;
+                    };
+                    make_new_data(&mut b, &placed[i], &mut ways);
+                    if ways == 0 {
+                        ways = 0xF;
+                    }
+                }
+                if off {
+                    break 'place false;
+                }
+                placed.push(b);
+                ui.move_picture(n.element, b.x0, b.y0);
+                true
+            };
+            ui.set_visible(n.element, shown);
         }
         self.names = names;
     }
@@ -1017,7 +1094,7 @@ impl Names {
     /// The names' frame: the selection's marks placed, then the names over heads.
     // D2-02126
     pub fn place_all(&mut self, ui: &mut Ui, world: &World, out: &mut Vec<Request>) {
-        let in_portal = world.portal_space;
+        let in_portal = world.portal_drawn;
         self.update_reticle(ui, world, in_portal, out);
         self.update_damage(ui, world, in_portal);
         if self.showing_names {
@@ -1050,7 +1127,7 @@ impl Names {
                     .and_then(|n| n.instance_id_attr(name::OBJECT_ID))
                     .unwrap_or(0);
                 if id != 0 && world.player != 0 {
-                    out.push(Request::Select(id));
+                    out.push(Request::SetSelection(id));
                 }
             }
             Mail::Global {
@@ -1089,9 +1166,12 @@ impl Names {
             {
                 self.reload_options(ui, world);
             }
+            // An item changing (a stack's count among others) names it anew, as a new look does.
             // D2-02061
-            notice::ITEM_UPDATE if n.about == Some(self.selection) => {
-                self.check_name(ui, world);
+            notice::ITEM_UPDATE => {
+                if let Some(o) = n.about {
+                    self.change_radar_look(ui, world, o);
+                }
             }
             notice::DO_3D_DAMAGE => {
                 if let (Some(o), Some(Some(Record::DamageText(b)))) = (n.about, n.records.first()) {
@@ -1208,6 +1288,11 @@ impl Child for Names {
         if world.selection != self.selection {
             self.selection_changed(ui, world);
         }
+        // An item chosen in the pack has its name once it lies in the world.
+        // D2-02063
+        if !self.has_name && world.thing(self.selection).is_some() {
+            self.check_name(ui, world);
+        }
         for m in std::mem::take(&mut self.mail) {
             self.hear(ui, world, &m, out);
         }
@@ -1234,5 +1319,31 @@ impl Child for Names {
 
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
+    }
+}
+
+#[cfg(test)]
+mod box_tests {
+    //! Behaviour: none (a box's sums, held to hand-worked values)
+    use super::Box2D;
+
+    const fn b(x0: i32, y0: i32, x1: i32, y1: i32) -> Box2D {
+        Box2D { x0, y0, x1, y1 }
+    }
+
+    #[test]
+    fn boxes_overlap_include_and_subtract() {
+        let big = b(0, 0, 9, 9);
+        let inner = b(3, 4, 5, 6);
+        assert_eq!(big.intersection(&b(5, 5, 20, 20)), Some(b(5, 5, 9, 9)));
+        assert_eq!(big.intersection(&b(10, 0, 20, 9)), None);
+        assert!(big.includes(&inner));
+        assert!(!inner.includes(&big));
+        assert!(!big.includes(&b(5, 5, 10, 6)));
+        assert_eq!(
+            big.subtract(&inner),
+            vec![b(0, 0, 2, 9), b(6, 0, 9, 9), b(3, 0, 5, 3), b(3, 7, 5, 9),]
+        );
+        assert_eq!(big.subtract(&b(20, 20, 30, 30)), Vec::new());
     }
 }

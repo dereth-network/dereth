@@ -477,7 +477,7 @@ impl Radar {
                     out.push(Request::KeepOptions);
                 } else if element == name::BASE_FIELD && what == msg::MOUSE_PRESS_TOP {
                     if self.last_under_mouse != 0 && world.player != 0 {
-                        out.push(Request::Select(self.last_under_mouse));
+                        out.push(Request::SetSelection(self.last_under_mouse));
                     }
                 } else if element == name::BASE_FIELD && what == msg::LOCATION_CHANGED {
                     crate::gameplay::GamePlay::save_locations_changed(out);
@@ -489,6 +489,8 @@ impl Radar {
                 if let (Some(root), Some(heading)) = (self.root, self.heading) {
                     let (ax, ay) = ui.object_origin(root).unwrap_or((0, 0));
                     ui.move_to(heading, self.offset.0 + ax, self.offset.1 + ay);
+                    let shown = ui.shown(root);
+                    self.show(ui, shown, out);
                 }
             }
             Mail::Global {

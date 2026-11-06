@@ -79,8 +79,8 @@ mod name {
     pub const LOCATION_CHANGED: Token = Token::of("location_changed");
 }
 
-/// The bit of the player's options that shows the pet panel.
-pub const SHOW_PET_UI: u32 = 0x1_0000;
+/// The bit of the player's options that hides the pet panel: a cleared profile shows it.
+pub const HIDE_PET_UI: u32 = 0x1_0000;
 
 /// How long between asking again for the modes the pets have not taken, and how long a pet
 /// shows unsafe after an attack, in seconds.
@@ -156,6 +156,7 @@ pub fn shown_name(name: &str) -> String {
 }
 
 /// A pet as the panel keeps it.
+// D2-02373
 #[derive(Clone, Debug, PartialEq)]
 struct PetInfo {
     name: String,
@@ -238,7 +239,7 @@ impl Pets {
 
     /// The panel's look: with pets and the option on, shown, as tall as its rows, its buttons lit;
     /// else its no-pets look, hidden, the buttons ghosted.
-    // D2-02371
+    // D2-02371, D2-02372
     fn update_state(&mut self, ui: &mut Ui, out: &mut Vec<Request>) {
         let Some(r) = self.root else { return };
         let n = self.pets.len();
@@ -436,7 +437,7 @@ impl Pets {
         else {
             return;
         };
-        out.push(Request::Select(pet));
+        out.push(Request::SetSelection(pet));
         if button != button_id::RIGHT {
             return;
         }
@@ -486,7 +487,7 @@ impl Pets {
         else {
             return;
         };
-        let Some(mode) = self.pets.get(&pet).map(|p| p.mode) else {
+        let Some(mode) = self.pets.get(&pet).map(|p| p.next_mode) else {
             return;
         };
         let to = if next {
@@ -626,7 +627,7 @@ impl Child for Pets {
     /// The player's options: whether they show the panel (its state again when that changed).
     fn update(&mut self, ui: &mut Ui, view: &View<'_>, out: &mut Vec<Request>) {
         let Some(o) = view.options else { return };
-        let on = o.bits & SHOW_PET_UI != 0;
+        let on = o.bits & HIDE_PET_UI == 0;
         if on != self.show_option {
             self.show_option = on;
             self.update_state(ui, out);

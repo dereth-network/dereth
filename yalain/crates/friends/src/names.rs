@@ -5,6 +5,10 @@
 //! its network address. A character of this world is written back as `Name@` and the world's
 //! name exactly as its login names it, so that the client recognizes its own world; another
 //! world's as its address.
+//!
+//! A name may be one in the world as a client shows it, with its suffix ([`Service::set_suffixed`]):
+//! the client's own add button and a tell by the name it shows send that. The character is meant,
+//! and its own name wins, as in the world's chat.
 
 use dereth_network_protocol::address::is_character_name;
 use dereth_network_protocol::Address;
@@ -18,7 +22,9 @@ pub enum Target {
     Local(String),
     /// Another world's character.
     Remote(Address),
-    /// No address: two separators, a name half that is no name, or a channel.
+    /// A channel, by its address: told and squelched as a character is, never a friend.
+    Channel(Address),
+    /// No address: two separators, or a name half that is no name.
     NoSuchUser,
 }
 
@@ -26,13 +32,42 @@ pub enum Target {
 /// address.
 pub(crate) fn read_entry(entry: &str) -> Target {
     if entry.contains('@') {
-        match Address::parse(entry) {
-            Ok(a) if !a.is_channel() => Target::Remote(a),
-            _ => Target::NoSuchUser,
-        }
+        by_address(entry)
     } else {
         Target::Local(entry.to_owned())
     }
+}
+
+/// A list's entry for a character of this world under its old name (`from`, in small letters) now
+/// names it `new` (`to`, in small letters), keeping its place; a list that held both holds it once.
+pub(crate) fn rename(list: &mut Vec<String>, from: &str, to: &str, new: &str) {
+    if !list.iter().any(|e| e.to_lowercase() == from) {
+        return;
+    }
+    list.retain(|e| e.to_lowercase() != to);
+    for e in list.iter_mut().filter(|e| e.to_lowercase() == from) {
+        new.clone_into(e);
+    }
+}
+
+/// What an address names.
+fn by_address(address: &str) -> Target {
+    match Address::parse(address) {
+        Ok(a) if a.is_channel() => Target::Channel(a),
+        Ok(a) => Target::Remote(a),
+        Err(_) => Target::NoSuchUser,
+    }
+}
+
+/// The entry an ignored list keeps for a whole world (`@dn squelch`): no name half, so that it reads
+/// as no address, and the client is not shown it.
+pub(crate) fn world_entry(world: &str) -> String {
+    format!("@{world}")
+}
+
+/// Whether an entry of an ignored list is a whole world's.
+pub(crate) fn is_world_entry(entry: &str) -> bool {
+    entry.starts_with('@')
 }
 
 impl Service {
@@ -53,16 +88,19 @@ impl Service {
             }
         };
         if local {
+            let lower = name.to_lowercase();
+            if !self.here.contains_key(&lower) {
+                if let Some(own) = self.suffixed.get(&lower) {
+                    return Target::Local(own.clone());
+                }
+            }
             return if is_character_name(name) {
                 Target::Local(name.to_owned())
             } else {
                 Target::NoSuchUser
             };
         }
-        match Address::parse(user) {
-            Ok(a) if !a.is_channel() => Target::Remote(a),
-            _ => Target::NoSuchUser,
-        }
+        by_address(user)
     }
 
     /// A character of this world as the client is shown it.

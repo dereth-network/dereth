@@ -75,6 +75,8 @@ impl Target {
 /// The era whose world database the world's content goes over.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Era {
+    /// Launch, November 1999. Export is not supported yet.
+    Launch,
     /// The end of retail.
     #[default]
     Eor,
@@ -83,10 +85,11 @@ pub enum Era {
 }
 
 impl Era {
-    /// The era a word names: `eor` or `infiltration`.
+    /// The era a word names: `launch`, `infiltration` or `eor`.
     #[must_use]
     pub fn parse(word: &str) -> Option<Self> {
         match word.to_ascii_lowercase().as_str() {
+            "launch" => Some(Self::Launch),
             "eor" => Some(Self::Eor),
             "infiltration" => Some(Self::Infiltration),
             _ => None,
@@ -97,6 +100,7 @@ impl Era {
     #[must_use]
     pub const fn word(self) -> &'static str {
         match self {
+            Self::Launch => "launch",
             Self::Eor => "eor",
             Self::Infiltration => "infiltration",
         }
@@ -110,24 +114,39 @@ impl Era {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
-        if name.starts_with(Self::Infiltration.dump_prefix()) {
+        if Self::Infiltration
+            .dump_prefix()
+            .is_some_and(|prefix| name.starts_with(prefix))
+        {
             Self::Infiltration
         } else {
             Self::Eor
         }
     }
 
-    /// The start of the names of this era's world database dumps.
-    const fn dump_prefix(self) -> &'static str {
+    /// The start of the names of this era's supported world database dumps.
+    const fn dump_prefix(self) -> Option<&'static str> {
         match self {
-            Self::Eor => "ACE-World-Database-v",
-            Self::Infiltration => "ACE-World-16PY-db-v",
+            Self::Launch => None,
+            Self::Eor => Some("ACE-World-Database-v"),
+            Self::Infiltration => Some("ACE-World-16PY-db-v"),
         }
+    }
+
+    /// Reject eras whose export pipeline is not implemented, before any writes or imports.
+    fn require_export_support(self) -> Result<(), Error> {
+        if self == Self::Launch {
+            return Err(Error::Refused(
+                "Launch world export is not supported yet".into(),
+            ));
+        }
+        Ok(())
     }
 
     /// The world, as a sentence names it.
     const fn world(self) -> &'static str {
         match self {
+            Self::Launch => "the Launch world (November 1999)",
             Self::Eor => "the end-of-retail world",
             Self::Infiltration => "the Infiltration world (February 2005)",
         }
@@ -137,6 +156,7 @@ impl Era {
     #[must_use]
     pub const fn id(self) -> dereth_primitives::EraId {
         match self {
+            Self::Launch => dereth_primitives::EraId::Launch,
             Self::Eor => dereth_primitives::EraId::Eor,
             Self::Infiltration => dereth_primitives::EraId::Infiltration,
         }
@@ -146,6 +166,7 @@ impl Era {
     #[must_use]
     pub const fn of(era: dereth_primitives::EraId) -> Self {
         match era {
+            dereth_primitives::EraId::Launch => Self::Launch,
             dereth_primitives::EraId::Eor => Self::Eor,
             dereth_primitives::EraId::Infiltration => Self::Infiltration,
         }
@@ -154,6 +175,7 @@ impl Era {
     /// The data files the era's world is drawn from, as a README names them.
     const fn data_files(self) -> &'static str {
         match self {
+            Self::Launch => "the Launch data files, portal.dat and cell.dat",
             Self::Eor => "the end-of-retail data files",
             Self::Infiltration => "the Infiltration data files, portal.dat and cell.dat",
         }
@@ -241,6 +263,7 @@ pub struct Exported {
 /// An export folder that holds something else; the build's errors; and the bake's and the import
 /// tool's.
 pub fn export(world: &Path, dats: &Path, opts: &Options<'_>) -> Result<Exported, Error> {
+    opts.era.require_export_support()?;
     let w = crate::world::World::read(world)?;
     refuse_era(w.era, opts)?;
     refuse_inputs(opts)?;
@@ -278,9 +301,9 @@ pub fn export_compiled(
     result
 }
 
-/// Refuse inputs the export cannot read, before anything is written: GDLE's `quests.json`
-/// named and not there.
+/// Refuse unsupported eras and inputs the export cannot read, before anything is written.
 fn refuse_inputs(opts: &Options<'_>) -> Result<(), Error> {
+    opts.era.require_export_support()?;
     match opts.gdle_quests {
         Some(q) if opts.target == Target::Gdle && !q.is_file() => Err(Error::Refused(format!(
             "{} is not a file; name GDLE's quests.json",
@@ -300,6 +323,7 @@ fn same_dir(a: &Path, b: &Path) -> bool {
 /// Refuse an export a world built on `era` cannot have: its content over another era's world
 /// database, or the baked data files of an era a bake does not write.
 fn refuse_era(era: dereth_primitives::EraId, opts: &Options<'_>) -> Result<(), Error> {
+    Era::of(era).require_export_support()?;
     let named = crate::dats::era_name(era);
     if opts.era.id() != era {
         return Err(Error::Refused(format!(
@@ -538,10 +562,11 @@ pub fn newest_database(dir: &Path) -> Option<PathBuf> {
 /// The newest world database of `era` in `dir`.
 #[must_use]
 pub fn newest_database_for(dir: &Path, era: Era) -> Option<PathBuf> {
+    let prefix = era.dump_prefix()?;
     let mut best: Option<((u32, u32, u32), PathBuf)> = None;
     for e in std::fs::read_dir(dir).ok()?.flatten() {
         let name = e.file_name().to_string_lossy().into_owned();
-        let Some(key) = dump_version(&name, era.dump_prefix()) else {
+        let Some(key) = dump_version(&name, prefix) else {
             continue;
         };
         if best.as_ref().is_none_or(|(k, _)| key > *k) {
@@ -554,6 +579,7 @@ pub fn newest_database_for(dir: &Path, era: Era) -> Option<PathBuf> {
 /// The world database the content goes over: the one named, else the era's newest in the import
 /// tool's cache, fetched by the tool when there is none.
 fn world_database(importer: &dyn Importer, opts: &Options<'_>) -> Result<PathBuf, Error> {
+    opts.era.require_export_support()?;
     if let Some(path) = opts.world_sql {
         let era = Era::of_database(path);
         if era != opts.era {
@@ -982,6 +1008,7 @@ Dereth players: Empyrean sends a Dereth client the overlay when it connects.
         era = era.word(),
         data_files = era.data_files(),
         retail = match era {
+            Era::Launch => "Launch world export is not supported yet.".to_owned(),
             Era::Eor => format!(
                 "{RETAIL_PLAYERS} Empyrean can patch their own files instead: set\n\
                  enable_dat_patching = true under [ddd]."
@@ -1137,6 +1164,91 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn launch_keeps_its_identity_without_using_a_later_world_database() {
+        assert_eq!(Era::parse("Launch"), Some(Era::Launch));
+        assert_eq!(Era::Launch.word(), "launch");
+        assert_eq!(Era::Launch.id(), dereth_primitives::EraId::Launch);
+        assert_eq!(Era::of(dereth_primitives::EraId::Launch), Era::Launch);
+        let dir = scratch("launch-database");
+        for dump in [
+            "ACE-World-Database-v0.9.295.sql",
+            "ACE-World-16PY-db-v0.8.8.sql",
+        ] {
+            std::fs::write(dir.join(dump), b"-- dump").unwrap();
+        }
+        assert_eq!(newest_database_for(&dir, Era::Launch), None);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn launch_exports_are_refused_before_writes_or_imports_for_every_target() {
+        let dir = scratch("launch-refused");
+        let world = dir.join("world.toml");
+        let missing = dir.join("missing");
+        let recorder = Recorder::default();
+        for existing in [false, true] {
+            let out = dir.join(if existing { "existing" } else { "new" });
+            if existing {
+                std::fs::create_dir(&out).unwrap();
+                std::fs::write(out.join(MARKER), b"previous export").unwrap();
+                std::fs::write(out.join("keep"), b"keep this export").unwrap();
+            }
+            let refused = |result: Result<Exported, Error>| {
+                let error = result.unwrap_err().to_string();
+                assert!(
+                    error.contains("Launch world export is not supported yet"),
+                    "{error}"
+                );
+                if existing {
+                    assert_eq!(std::fs::read(out.join(MARKER)).unwrap(), b"previous export");
+                    assert_eq!(
+                        std::fs::read(out.join("keep")).unwrap(),
+                        b"keep this export"
+                    );
+                    assert_eq!(std::fs::read_dir(&out).unwrap().count(), 2);
+                } else {
+                    assert!(!out.exists(), "nothing is written");
+                }
+                assert!(recorder.runs.borrow().is_empty(), "no importer is called");
+            };
+            for target in Target::ALL {
+                let mut opts = Options {
+                    target,
+                    out: &out,
+                    era: Era::Launch,
+                    world_sql: None,
+                    importer: Some(&recorder),
+                    gdle_quests: Some(&missing),
+                };
+                refused(export_compiled(
+                    &missing,
+                    &BTreeMap::new(),
+                    "w",
+                    &missing,
+                    &opts,
+                ));
+                assert!(world_database(&recorder, &opts).is_err());
+                for (source, requested) in [
+                    (Era::Launch, Era::Launch),
+                    (Era::Launch, Era::Eor),
+                    (Era::Launch, Era::Infiltration),
+                    (Era::Eor, Era::Launch),
+                    (Era::Infiltration, Era::Launch),
+                ] {
+                    std::fs::write(
+                        &world,
+                        format!("key = \"w\"\nera = \"{}\"\n", source.word()),
+                    )
+                    .unwrap();
+                    opts.era = requested;
+                    refused(export(&world, &missing, &opts));
+                }
+            }
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// A world built on Infiltration's files is exported over that era's world database and for

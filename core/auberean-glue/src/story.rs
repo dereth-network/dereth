@@ -42,13 +42,18 @@ const SCENE_INFO_LIST: u32 = 0xA4;
 /// The enumeration scenes are named in.
 const SCENE_ENUMERATION: u32 = 0x4100_0019;
 
+/// The enumeration acts are named in.
+const ACT_ENUMERATION: u32 = 0x4100_0018;
+
 /// This module's natives: package, number, function.
 const NATIVES: &[(u32, u32, NativeFn)] = &[
     (ACT_INFO, 0x01, act_init),
     (ACT_INFO, 0x02, act_add_scene),
     (ACT_INFO, 0x03, act_id),
+    (ACT_INFO, 0x04, act_dump),
     (ACT_INFO_LIST, 0x01, acts_insert_sort),
     (ACT_INFO_LIST, 0x02, acts_pop_front),
+    (KEYFRAME, 0x01, key_dump),
     (KEYFRAME, 0x02, key_clear),
     (KEYFRAME, 0x03, key_scene),
     (KEYFRAME, 0x04, key_set_scene),
@@ -69,6 +74,7 @@ const NATIVES: &[(u32, u32, NativeFn)] = &[
     (KEYFRAME, 0x13, key_set_movie),
     (KEYFRAME, 0x14, key_duration),
     (KEYFRAME, 0x15, key_set_duration),
+    (SCENE_INFO, 0x01, scene_dump),
     (SCENE_INFO, 0x02, scene_records),
     (SCENE_INFO, 0x04, scene_clear),
     (SCENE_INFO, 0x05, scene_id),
@@ -669,4 +675,144 @@ pub fn acts_of(o: &NativeObject) -> Vec<ActInfo> {
         NativeObject::Acts(v) => v,
         _ => Vec::new(),
     }
+}
+
+/// A number as the C library's `%e` writes it: six decimals and an exponent of at least three
+/// digits, with its sign.
+fn scientific(x: f64) -> String {
+    if !x.is_finite() {
+        return crate::text::fixed(x);
+    }
+    let s = format!("{x:.6e}");
+    let (mantissa, exponent) = s.split_once('e').unwrap_or((&s, "0"));
+    let (sign, digits) = exponent
+        .strip_prefix('-')
+        .map_or(('+', exponent), |d| ('-', d));
+    format!("{mantissa}e{sign}{digits:0>3}")
+}
+
+/// A keyframe as text: its number and duration, then each track it defines.
+// D2-12340
+fn keyframe_text(c: &mut Call<'_>, k: &Keyframe) -> String {
+    let mut s = format!(
+        "    Keyframe: {}\n     --Duration: {} secs\n",
+        k.number,
+        scientific(f64::from_bits(k.duration))
+    );
+    for (bit, label, id) in [
+        (track::VIDEO, "Video", k.video),
+        (track::AUDIO, "Audio", k.audio),
+        (track::VOICE, "Voice", k.voice),
+    ] {
+        if k.tracks & bit != 0 {
+            s.push_str(&format!("     --{label} Track: 0x{id:08X}.\n"));
+        }
+    }
+    if k.tracks & track::SUBTITLE != 0 {
+        let line = crate::text::log_line(c, &k.subtitle);
+        s.push_str(&format!("     --Text Track: {line}.\n"));
+    }
+    if k.tracks & track::MOVIE != 0 {
+        let movie = String::from_utf16_lossy(&k.movie);
+        s.push_str(&format!("     --Text Track: {movie}.\n"));
+    }
+    s.push_str("    --------\n");
+    s
+}
+
+/// A scene as text: its id and name, its act by number and name, whether it is hidden and
+/// playable, then its steps.
+// D2-12301
+fn scene_text(c: &mut Call<'_>, scene: &SceneInfo) -> String {
+    let name = crate::text::log_line(c, &scene.name);
+    let act = c
+        .host
+        .database()
+        .and_then(|db| db.enumeration_name(ACT_ENUMERATION, scene.act))
+        .unwrap_or_default();
+    let mut s = format!(
+        "\n-- scene contains: --\n  SceneID: 0x{:08X}.\n  Scene Name: {name}.\n  Parent Act ID: \
+         0x{:08X} ({act}).\n  Scene Number: {}.\n  Scene is {}hidden (locked).\n  Scene is \
+         {}playable.\n\n",
+        scene.id,
+        scene.act,
+        scene.number,
+        if scene.hidden != 0 { "" } else { "not " },
+        if scene.playable != 0 { "" } else { "not " },
+    );
+    for k in &scene.keyframes {
+        s.push_str(&keyframe_text(c, k));
+    }
+    s.push_str("-----------------------\n");
+    s
+}
+
+/// An act's scenes as text: each under a heading numbered from 1, or a line saying it has none.
+// D2-12313
+fn act_scenes_text(c: &mut Call<'_>, act: &ActInfo) -> String {
+    if act.scenes.is_empty() {
+        return "    < This Act has no scenes > \n".to_owned();
+    }
+    let mut s = String::new();
+    for (i, scene) in act.scenes.iter().enumerate() {
+        s.push_str(&format!(
+            "    ----------------\n    -- Scene {} --\n    ----------------{}\n",
+            i + 1,
+            scene_text(c, scene)
+        ));
+    }
+    s
+}
+
+/// A keyframe as text, as a new string at `fp[-2]`.
+// D2-01612
+fn key_dump(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let r = c.receiver()?;
+    let NativeObject::Keyframe(k) = c.vm.heap.native(r)? else {
+        return Err(Stop::Host("not a keyframe".into()));
+    };
+    let k = k.clone();
+    let text = keyframe_text(c, &k);
+    let id = crate::machine::new_text_in(c, text.encode_utf16().collect());
+    c.write(-2, id, tag::REFERENCE)?;
+    Ok(Status::Success)
+}
+
+/// A scene as text, as a new string at `fp[-2]`.
+// D2-01644
+fn scene_dump(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let r = c.receiver()?;
+    let NativeObject::Scene(scene) = c.vm.heap.native(r)? else {
+        return Err(Stop::Host("not a scene".into()));
+    };
+    let scene = scene.clone();
+    let text = scene_text(c, &scene);
+    let id = crate::machine::new_text_in(c, text.encode_utf16().collect());
+    c.write(-2, id, tag::REFERENCE)?;
+    Ok(Status::Success)
+}
+
+/// An act as text, as a new string at `fp[-2]`.
+// D2-01575, D2-12317
+fn act_dump(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let r = c.receiver()?;
+    let NativeObject::Act(a) = c.vm.heap.native(r)? else {
+        return Err(Stop::Host("not an act".into()));
+    };
+    let a = a.clone();
+    let name = crate::text::log_line(c, &a.name);
+    let scenes = act_scenes_text(c, &a);
+    let text = format!(
+        "\n-- act contains: --\n  Act ID: 0x{:08X}.\n  Act Name: {name}.\n  Act Number: {}.\n  \
+         Act is {}visible.\n  Act is {}playable.\n  Scene list contains {} items:\n{scenes}\n\
+         -----------------------\n",
+        a.id,
+        a.number,
+        if a.visible != 0 { "" } else { "not " },
+        if a.playable != 0 { "" } else { "not " },
+        a.scenes.len(),
+    );
+    let id = crate::machine::new_text_in(c, text.encode_utf16().collect());
+    c.write(-2, id, tag::REFERENCE)?;
+    Ok(Status::Success)
 }

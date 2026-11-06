@@ -5,7 +5,9 @@ use std::net::{Ipv4Addr, SocketAddr};
 
 use auberean_client_net::LocalTime;
 use auberean_client_runtime::{Client, ClientData, ClientSettings, SessionEnd};
-use auberean_protocol::login::Empty;
+use auberean_protocol::login::{Empty, PlayerObject};
+use auberean_protocol::physics::CreateObject;
+use auberean_protocol::quality::PrivateQuality;
 use auberean_protocol::ServerMessage;
 use auberean_testkit::double::script::{ConnSpec, Event as Row, Msg, Script};
 use auberean_testkit::double::ServerDouble;
@@ -104,6 +106,65 @@ impl Run {
         }
         done(&self.client)
     }
+}
+
+/// A private message of a type the client does not know, coming after the one stamped next to it,
+/// comes from the network through to the private stream and lets that one take effect.
+///
+/// Behaviour: model.events.a-private-message-that-does-not-read-holds-nothing-back
+#[test]
+fn a_private_message_the_client_cannot_read_holds_up_nothing_after_it() {
+    const PLAYER: u64 = 0x2130_0000_0000_0001;
+    const QUALITY: u32 = 280;
+    let msg = |t: f64, kind: u64, stamp: u64, raw: Vec<u8>| Row::Msg {
+        t,
+        msg: Msg {
+            conn: 0,
+            c2s: false,
+            queue: 1,
+            blob_id: (kind << 56) | (stamp << 32) | (0x10 * stamp),
+            mtype: u32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]]),
+            raw,
+        },
+    };
+    let update = |value| {
+        ServerMessage::UpdateInt(PrivateQuality {
+            quality: QUALITY,
+            value,
+        })
+        .encode()
+    };
+    let made = CreateObject {
+        id: PLAYER,
+        ..CreateObject::default()
+    };
+    let end = Row::End {
+        t: 60.0,
+        conn: 0,
+        c2s: false,
+    };
+    let mut s = script(0.0, end.clone());
+    s.events = vec![
+        msg(
+            0.2,
+            3,
+            0,
+            ServerMessage::PlayerObject(PlayerObject {
+                id: PLAYER,
+                region: 1,
+            })
+            .encode(),
+        ),
+        msg(0.3, 3, 0, ServerMessage::CreateObject(made).encode()),
+        msg(0.4, 1, 1, update(1)),
+        msg(0.5, 1, 3, update(3)),
+        msg(0.6, 1, 2, 0x0001_FFF1u32.to_le_bytes().to_vec()),
+        end,
+    ];
+    s.check().expect("a well-formed script");
+    let mut r = Run::new(s);
+    r.until(3.0, |_| false);
+    assert_eq!(r.client.int_quality(PLAYER, QUALITY), Some(3));
 }
 
 /// The server ending the login connection (the client answers its goodbye) ends the session: the

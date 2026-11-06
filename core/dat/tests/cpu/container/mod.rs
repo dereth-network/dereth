@@ -1,3 +1,4 @@
+mod chain_reads;
 mod client_layer;
 mod concurrent_positional_reads;
 mod custom_layout;

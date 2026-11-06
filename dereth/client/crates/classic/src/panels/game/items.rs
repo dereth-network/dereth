@@ -39,8 +39,8 @@ fn accessories(game: &dyn GameView) -> Vec<usize> {
     let features = game.era_features();
     let sigils = game.aetheria_slots();
     [
-        features.cloaks,
-        features.trinkets,
+        crate::panels::accessory_surface(0).is_some_and(|s| s.offered(features)),
+        crate::panels::accessory_surface(1).is_some_and(|s| s.offered(features)),
         sigils & 1 != 0,
         sigils & 2 != 0,
         sigils & 4 != 0,
@@ -587,7 +587,42 @@ impl Inventory {
         None
     }
 }
+/// What an empty place on the paper doll takes.
+fn empty_slot_hover(mask: u32) -> Option<Hover> {
+    Hover::line(match mask {
+        loc::NECK_WEAR => "Drag neckwear here to wear them",
+        loc::WRIST_WEAR_LEFT | loc::WRIST_WEAR_RIGHT => "Drag bracelets here to wear them",
+        loc::FINGER_WEAR_LEFT | loc::FINGER_WEAR_RIGHT => "Drag rings here to wear them",
+        loc::WEAPON_READY_SLOT => "Drag weapons here to wield them",
+        loc::MISSILE_AMMO => "Drag missile ammunition here to wield it",
+        loc::SHIELD => "Drag shields here to wield them",
+        _ => return None,
+    })
+}
+/// What an empty slot of someone else's container, or a side pack, says of itself.
+fn empty_slot_of_container(g: &dyn GameView, object: ObjectId, kind: &str) -> Option<Hover> {
+    Hover::line(format!(
+        "Empty {kind} slot in {}",
+        g.name(object).unwrap_or_default()
+    ))
+}
 impl Panel for Inventory {
+    fn hover(&self, at: HoverPoint<'_>, c: &Context<'_>) -> Option<Hover> {
+        let g = c.game;
+        match at.id {
+            "paperdoll" => Hover::line("Drag clothing and armor here to wear them"),
+            "items" if at.item.is_none() => match self.container(g) {
+                Some(pack) if Some(pack) != g.player() => empty_slot_of_container(g, pack, "item"),
+                _ => Hover::line("Drag items here to carry them"),
+            },
+            "containers" if at.item.is_none() => Hover::line("Drag containers here to carry them"),
+            id if at.item.is_none() => {
+                let i: usize = id.strip_prefix("equip:")?.parse().ok()?;
+                empty_slot_hover(EQUIPMENT.get(i)?.3)
+            }
+            _ => None,
+        }
+    }
     fn resize(&mut self, _width: u32, height: u32) {
         self.height = Some(height.max(362));
     }
@@ -983,6 +1018,18 @@ pub struct ExternalContainer {
     width: u32,
 }
 impl Panel for ExternalContainer {
+    fn hover(&self, at: HoverPoint<'_>, c: &Context<'_>) -> Option<Hover> {
+        let object = self.object?;
+        match at.id {
+            "containers" if at.item.is_none() => {
+                empty_slot_of_container(c.game, object, "container")
+            }
+            "items" if at.item.is_none() => {
+                empty_slot_of_container(c.game, self.child.unwrap_or(object), "item")
+            }
+            _ => None,
+        }
+    }
     fn resize(&mut self, width: u32, _: u32) {
         self.width = width;
     }

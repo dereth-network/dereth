@@ -478,7 +478,12 @@ impl Windows {
         }
     }
 
+    /// Open window `id`. A window of a system the world lacks stays shut, whichever key, button
+    /// or notice from the game asks.
     pub fn open(&mut self, id: WindowId, now: f64) {
+        if !self.offers(id) {
+            return;
+        }
         let s = self.states.entry(id).or_default();
         if !s.open {
             s.open = true;
@@ -774,6 +779,8 @@ impl Windows {
         state: &GameState,
         out: &mut Outcome,
     ) {
+        // Before anything the game holds open asks for its window.
+        self.world.features = state.in_world.then_some(state.world_services.features);
         self.follow_examine(ctx, state, out);
         self.follow_loot(ctx, state, out);
         self.follow_container_selection(state, out);
@@ -1063,11 +1070,7 @@ impl Windows {
         // The cloak and the trinket only where the world has them.
         let top: Vec<&(&str, u32)> = TOP_SLOTS
             .iter()
-            .filter(|(_, mask)| match *mask {
-                dereth_rules::slots::loc::CLOAK => features.cloaks,
-                dereth_rules::slots::loc::TRINKET_ONE => features.trinkets,
-                _ => true,
-            })
+            .filter(|(_, mask)| world::doll_slot_surface(*mask).is_none_or(|s| s.offered(features)))
             .collect();
         let centred_row = |n: usize, gap: f32| {
             #[allow(clippy::cast_precision_loss)]
@@ -1832,9 +1835,21 @@ impl Windows {
                         out.requests.push(UiRequest::SetPlayerOption(o.option, on));
                     }
                     let text = Rect::new(cb.right() + 10.0 * k, y, area.w - 60.0 * k, row_h);
-                    p.text_in(&label, text, Align::Left, &o.label);
+                    // The fellowship's option names luminance only on a world that has it.
+                    let caption = if o.option
+                        == dereth_client_contract::view::PlayerOption::FellowshipShareXP
+                    {
+                        dereth_client_contract::era::fellowship_share_caption(
+                            state.era.unwrap_or_default(),
+                        )
+                        .fallback
+                        .to_owned()
+                    } else {
+                        o.label.clone()
+                    };
+                    p.text_in(&label, text, Align::Left, &caption);
                     if ctx.input.hover(&text) && !o.help.is_empty() {
-                        self.tip = Some((o.label.clone(), vec![o.help.clone()]));
+                        self.tip = Some((caption, vec![o.help.clone()]));
                     }
                 }
                 y += row_h;

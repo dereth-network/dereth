@@ -17,9 +17,10 @@ pub trait GameView: std::fmt::Debug {
         )
     }
     fn era_ui(&self) -> crate::era::EraUiFacts {
-        crate::era::EraUiFacts::for_profile(
-            self.era().map_or(dereth_primitives::EraId::Eor, |e| e.era),
-        )
+        self.era()
+            .map_or_else(crate::era::EraUiFacts::default, |e| {
+                crate::era::EraUiFacts::for_world(e.era, e.features())
+            })
     }
     fn aetheria_slots(&self) -> u8 {
         let unlocks = self
@@ -123,6 +124,10 @@ pub trait GameView: std::fmt::Debug {
     }
     /// The vitae multiplier, with `< 1.0` meaning a penalty is active.
     fn vitae(&self) -> Option<f32> {
+        None
+    }
+    /// The player's charge on a spell, 0.5 to 1.0, on a world with charges. `None` elsewhere.
+    fn spell_charge(&self, _spell: u32) -> Option<f32> {
         None
     }
     /// The three vitae-display inputs, or `None` when no player description is
@@ -1252,6 +1257,11 @@ pub trait GameView: std::fmt::Debug {
     /// because with `UNDEF` all four buttons are hidden and the toolbar has a hole in it.
     fn combat_mode(&self) -> u32 {
         crate::combat_mode::NONCOMBAT
+    }
+
+    /// The mode the combat button would enter from peace, for what is in hand.
+    fn default_combat_mode(&self) -> u32 {
+        crate::combat_mode::MELEE
     }
 
     /// The player module's advanced-combat-UI option — bit 12 of the first player-option word.
