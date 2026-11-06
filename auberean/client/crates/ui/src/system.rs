@@ -757,7 +757,7 @@ impl Ui {
         self.flush_pending();
         // What each kind does when it is made (a field is made as any element is, remembering no
         // state of its own).
-        // D2-11271, D2-11263, D2-11493, D2-11497
+        // D2-11271, D2-11263, D2-11492, D2-11493, D2-11497
         if kind == crate::token::kind::BUTTON {
             self.button_created(h);
         } else if kind == crate::token::kind::DRAGBAR {
