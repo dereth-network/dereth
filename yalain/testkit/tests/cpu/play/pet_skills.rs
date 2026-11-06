@@ -1,15 +1,16 @@
-//! What a pet's skills do beyond its blows: the aura a spirit holds. Fixture: a summoning skill, a
-//! pet effect and a template whose skills name an aura, shaped as the data defines them, the numbers
-//! made up; a player who trained it, and the test world's beetles.
+//! What a pet's skills do beyond its blows: the aura a spirit holds, what a strike leaves on the
+//! creature it reaches, and a hive firing what makes another pet. Fixture: a summoning skill, a pet
+//! effect and a template whose skills name an aura, target effects or a summoning, shaped as the
+//! data defines them, the numbers made up; a player who trained it, and the test world's beetles.
 
-use auberean_protocol::queue;
+use auberean_protocol::{queue, ServerMessage};
 use auberean_script::args::Arg;
 use yalain_content::{PetKind, Prop, Props};
 use yalain_testkit::play::server_call;
 use yalain_testkit::{test_template, Harness};
 use yalain_world::calls::Value;
 use yalain_world::effect_defs::{Aura, EffectDef, Kind, Scale, HARMFUL};
-use yalain_world::effects::function as effect_fn;
+use yalain_world::effects::{self, function as effect_fn, On};
 use yalain_world::fellowship::{Fellow, Fellowship, Vitals};
 use yalain_world::pets::function;
 use yalain_world::player::quality;
@@ -24,9 +25,14 @@ const PET_EFFECT: u32 = 0x7000_1FD4;
 const PET_TEMPLATE: u32 = 0x4700_0857;
 const AURA: u32 = 0x7000_1FB5;
 const PULSED: u32 = 0x7000_1FB6;
+const SLOW: u32 = 0x7000_1FBB;
+const BURN: u32 = 0x7000_06C4;
+const MADE_EFFECT: u32 = 0x7000_1FAE;
+const MADE_TEMPLATE: u32 = 0x4700_0856;
 const MELEE: u32 = 1845;
 const SWORD: u32 = 0x4700_051C;
 const USE_SKILL: u32 = 0x8204_000B;
+const BEETLE: u32 = yalain_testkit::TEST_CREATURE;
 
 fn def(state: u32, kind: Kind) -> EffectDef {
     EffectDef {
@@ -356,4 +362,251 @@ fn a_pets_aura_puts_nothing_harmful_on_its_owner() {
     summon(&mut h, b);
     h.step_by(1.0);
     assert!(pulsed_on(&mut h, me).is_empty());
+}
+
+/// A striking skill that leaves effects, at a reach of its own.
+fn strike_skill(effects: Vec<u32>) -> Usage {
+    Usage {
+        min_range: -1.0,
+        max_range: 2.0,
+        valid_targets: 0x30_0980,
+        behavior_other: [0x4100_0077; 3],
+        target_effects: effects,
+        hooks: vec![Hook {
+            flags: 8216,
+            chance: 1.0,
+            radius: 2.0,
+            ..Hook::default()
+        }],
+        ..Usage::default()
+    }
+}
+
+/// What a strike leaves in the tests: a slowing that lasts, and a burning that takes health.
+fn with_left_effects(h: &mut Harness) {
+    let slow = EffectDef {
+        duration: Scale(vec![(0.0, 30.0)]),
+        external_flags: 0xA,
+        internal_flags: 0x340_0743,
+        eq_class: 53,
+        ..def(
+            SLOW,
+            Kind::Numeric {
+                flags: 0xA,
+                stats: vec![0x3_0129],
+                magnitude: Scale(vec![(1.0, 0.9), (50.0, 0.6)]),
+            },
+        )
+    };
+    h.server.effect_table.effects.insert(SLOW, slow);
+    let burn = EffectDef {
+        duration: Scale(vec![(0.0, 10.0)]),
+        external_flags: 0x11,
+        internal_flags: 0x2340_0713,
+        eq_class: 48,
+        ..def(
+            BURN,
+            Kind::VitalOverTime {
+                flags: 0x11,
+                per_second: Scale(vec![(1.0, -1.0), (150.0, -75.0)]),
+            },
+        )
+    };
+    h.server.effect_table.effects.insert(BURN, burn);
+}
+
+fn beetle(h: &Harness) -> u64 {
+    h.server
+        .things
+        .by_id
+        .values()
+        .find(|t| t.template == BEETLE && t.alive())
+        .map(|t| t.id)
+        .expect("a beetle")
+}
+
+/// Put a creature beside a player, slow to die and not fighting.
+fn beside(h: &mut Harness, id: u64, me: u64) {
+    let at = player(h, me).position;
+    if let Some(t) = h.server.things.get_mut(id) {
+        let mut to = at;
+        to.origin[0] += 2.0;
+        t.at = Some(to);
+        t.max_health = 100_000;
+        t.health = 100_000;
+        if let Some(c) = t.creature.as_mut() {
+            c.home = to;
+            c.stats.attacks_first = false;
+            c.stats.max_health = 100_000;
+            c.wander_to = None;
+            c.stats.movement.wander_chance = 0.0;
+        }
+    }
+}
+
+fn order_attack(h: &mut Harness, b: usize, target: u64) {
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(function::ATTACK, &[Arg::LongInt(target)]),
+    );
+    h.run(5);
+}
+
+/// A pet's strike that reaches a creature leaves its skill's target effects on it, cast by the pet
+/// at its level.
+/// Behaviour: server.pets.strikes-leave-their-effects
+#[test]
+fn a_pets_strike_leaves_its_skills_target_effects_on_the_creature() {
+    let mut h = Harness::new();
+    with_pet(&mut h, 1, 1096, Some(strike_skill(vec![SLOW])));
+    with_left_effects(&mut h);
+    let (b, me) = summoner(&mut h);
+    let pet = summon(&mut h, b);
+    let target = beetle(&h);
+    beside(&mut h, target, me);
+    order_attack(&mut h, b, target);
+    let mut held = Vec::new();
+    for _ in 0..40 {
+        h.step_by(0.25);
+        held = effects::records_of(&h.server, On::Creature(target)).to_vec();
+        if held.iter().any(|e| e.state == SLOW) {
+            break;
+        }
+    }
+    let e = held.iter().find(|e| e.state == SLOW).expect("left on it");
+    assert_eq!(e.caster, pet, "cast by the pet");
+    let level = h
+        .server
+        .things
+        .get(pet)
+        .and_then(|t| t.creature.as_ref())
+        .map(|c| c.stats.level)
+        .expect("a pet");
+    #[allow(clippy::cast_precision_loss)]
+    let at = level as f32;
+    assert!((e.spellcraft - at).abs() < f32::EPSILON, "at its level");
+}
+
+/// What a pet's strike leaves that takes health counts as its owner's, as its blows do: the creature
+/// remembers the owner's harm, and the health taken is the pet's part of the kill. Its strikes keep
+/// one running on the creature rather than adding one each.
+/// Behaviour: server.pets.left-harm-is-its-owners
+#[test]
+fn harm_a_pets_strike_leaves_counts_as_its_owners() {
+    let mut h = Harness::new();
+    with_pet(&mut h, 1, 1096, Some(strike_skill(vec![BURN])));
+    with_left_effects(&mut h);
+    let (b, me) = summoner(&mut h);
+    let pet = summon(&mut h, b);
+    let target = beetle(&h);
+    beside(&mut h, target, me);
+    order_attack(&mut h, b, target);
+    for _ in 0..30 {
+        h.step_by(1.0);
+    }
+    let held = effects::records_of(&h.server, On::Creature(target)).to_vec();
+    let burning = held.iter().filter(|e| e.state == BURN && e.caster == pet);
+    assert_eq!(burning.count(), 1, "its strikes keep one running");
+    let c = h
+        .server
+        .things
+        .get(target)
+        .and_then(|t| t.creature.as_ref())
+        .expect("a creature");
+    assert!(c.damage_by.iter().any(|(by, n)| *by == me && *n > 0));
+    assert!(
+        c.damage_by.iter().all(|(by, _)| *by != pet),
+        "its harm is its owner's: {:?}",
+        c.damage_by
+    );
+    assert!(c.taken_by.iter().any(|(by, n)| *by == pet && *n > 0));
+}
+
+/// A pet's skill that makes another pet: with a kind of it known it fires at what it takes on, the
+/// pet made its owner's, beside the creature and going after it; with none it does nothing.
+/// Behaviour: server.pets.fires-what-makes-a-pet
+#[test]
+fn a_hive_fires_wasps_at_a_creature_and_with_no_row_stands_idle() {
+    let hive = Usage {
+        min_range: -1.0,
+        max_range: 30.0,
+        recovery: 8.0,
+        valid_targets: 0x30_0980,
+        target_effects: vec![MADE_EFFECT],
+        hooks: vec![Hook {
+            flags: 8217,
+            chance: 1.0,
+            radius: 30.0,
+            ..Hook::default()
+        }],
+        ..Usage::default()
+    };
+    let mut h = Harness::new();
+    with_pet(&mut h, 1, 32, Some(hive));
+    let made = def(
+        MADE_EFFECT,
+        Kind::Pet {
+            class: 0x2000,
+            lifetime: Scale(vec![(0.0, 30.0)]),
+        },
+    );
+    h.server.effect_table.effects.insert(MADE_EFFECT, made);
+    let mut props = Props::default();
+    props
+        .set("GameplayStatistics_MaxHealth", Prop::Int(100))
+        .set("NPC_StartingSkill1", Prop::Word(MELEE))
+        .set("NPC_StartingSkill1Level", Prop::Int(0))
+        .set("NPC_StartingSkill1_IsBase", Prop::Bool(true));
+    h.server
+        .catalog
+        .insert(test_template(MADE_TEMPLATE, 0x1169, props));
+    let (b, me) = summoner(&mut h);
+    let hive_pet = summon(&mut h, b);
+    let target = beetle(&h);
+    beside(&mut h, target, me);
+    // No row yet: it stands idle, and says nothing.
+    let from = h.bots[b].inbox.len();
+    order_attack(&mut h, b, target);
+    for _ in 0..10 {
+        h.step_by(1.0);
+    }
+    assert_eq!(h.server.pets.of(me), vec![hive_pet]);
+    assert!(
+        h.world_messages(b, from)
+            .iter()
+            .all(|m| !matches!(m, ServerMessage::CreateObject(_))),
+        "nothing made"
+    );
+    // With a row, it fires.
+    h.server.pets.read_rows(
+        [PetKind::new(MADE_EFFECT, MADE_TEMPLATE, 0, &[])],
+        std::iter::empty(),
+    );
+    order_attack(&mut h, b, target);
+    for _ in 0..3 {
+        h.step_by(1.0);
+    }
+    let made: Vec<u64> = h
+        .server
+        .pets
+        .of(me)
+        .into_iter()
+        .filter(|p| *p != hive_pet)
+        .collect();
+    assert_eq!(made.len(), 1, "a wasp");
+    let c = h
+        .server
+        .things
+        .get(made[0])
+        .and_then(|t| t.creature.as_ref())
+        .expect("a pet");
+    assert_eq!(c.target, Some(target), "going after what it was fired at");
+    // Not again until its skill's own wait is up.
+    h.step_by(1.0);
+    assert_eq!(h.server.pets.of(me).len(), 2, "one per its wait");
+    for _ in 0..9 {
+        h.step_by(1.0);
+    }
+    assert!(h.server.pets.of(me).len() >= 3, "and again after it");
 }

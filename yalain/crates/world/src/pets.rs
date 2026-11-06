@@ -44,7 +44,10 @@
 //! it. A pet that goes into a fight while still on its way to its owner is told its kind's own
 //! speed as it does. In a fight it closes to its attacks' reach and attacks about once a second. A
 //! creature a pet strikes fights the pet: at once when it fought nothing, and turning from another
-//! three times in five.
+//! three times in five. What its skill puts on a target goes on what its strike reaches, cast by the
+//! pet at its level, on a creature its owner may harm and on nothing else; of a change over time its
+//! strikes keep one running. A skill with no blow that makes another pet it fires at what it takes
+//! on, at the skill's own pace, while its owner may have more.
 //!
 //! **The end**: killed, ordered to die, or with its owner's death (in the owner's death tick), the
 //! pet is taken off its owner's list and falls as a creature does, in one tick (its physics type
@@ -1714,13 +1717,43 @@ fn unbidden<S: Store>(s: &Server<S>, pet: &Pet, at: &StoredPosition) -> Option<u
     None
 }
 
-/// How far a pet's attacks reach: its missile's range, else a melee reach.
+/// How far a pet's attacks reach: its missile's range, what it fires at, else a melee reach.
 fn reach_of<S: Store>(s: &Server<S>, id: u64) -> f32 {
+    let fired = fires(s, id).map_or(0.0, |f| f.reach);
     attacks(s, id)
         .iter()
         .filter(|a| a.missile)
         .map(|a| a.max_range)
-        .fold(crate::ai::MELEE_REACH, f32::max)
+        .fold(crate::ai::MELEE_REACH.max(fired), f32::max)
+}
+
+/// A skill a pet fires rather than strikes with: no blow of its own, its target effects making
+/// another pet the world knows the kind of beside what it is fired at.
+#[derive(Debug, Clone, Copy)]
+struct Fires {
+    skill: u32,
+    reach: f32,
+    every: f64,
+}
+
+/// What a pet fires, when its template's skills name something it does.
+fn fires<S: Store>(s: &Server<S>, id: u64) -> Option<Fires> {
+    let stats = &s.things.get(id)?.creature.as_ref()?.stats;
+    stats.skills.iter().find_map(|(skill, _)| {
+        let d = s.skill_table.skills.get(skill)?;
+        let u = d.usage.as_ref()?;
+        let makes = u.target_effects.iter().any(|e| {
+            matches!(
+                s.effect_table.get(*e).map(|x| &x.kind),
+                Some(crate::effect_defs::Kind::Pet { .. })
+            ) && s.pets.kind_of(*e).is_some()
+        });
+        (makes && u.behavior_other[0] == 0).then_some(Fires {
+            skill: *skill,
+            reach: u.max_range,
+            every: f64::from(u.recovery),
+        })
+    })
 }
 
 /// The owner of a pet hurt a creature: its supporting pets take it on (2017: they joined at the
@@ -1761,6 +1794,20 @@ fn fight<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, target: u64,
         return;
     };
     let d = crate::presence::distance(&at, &there).unwrap_or(f32::MAX);
+    if let Some(f) = fires(s, id) {
+        let due = s
+            .things
+            .get(id)
+            .and_then(|t| t.creature.as_ref())
+            .is_some_and(|c| clock.local.0 >= c.next_attack);
+        if due && d <= f.reach {
+            if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
+                c.next_attack = clock.local.0 + f.every;
+            }
+            leaves(s, net, id, target, f.skill, clock);
+        }
+        return;
+    }
     let attacks = attacks(s, id);
     let missile = attacks.iter().find(|a| a.missile).copied();
     let melee = attacks.iter().find(|a| !a.missile).copied();
@@ -1811,6 +1858,7 @@ fn fight<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, target: u64,
     } else {
         strike(s, net, id, target, skill, &kind, clock);
         if kind.taunts {
+            leaves(s, net, id, target, skill.skill, clock);
             taunted(s, net, target, id, clock);
         }
     }
@@ -2083,6 +2131,7 @@ fn never_attacks<S: Store>(s: &Server<S>, id: u64) -> bool {
         return false;
     };
     !stats.skills.is_empty()
+        && fires(s, id).is_none()
         && stats.skills.iter().all(|(skill, rating)| {
             crate::missiles::attack_skill(&s.skill_table, *skill, *rating).is_none()
         })
@@ -2180,7 +2229,95 @@ fn struck_by_pet<S: Store>(
         return;
     };
     crate::combat::hurt_creature_by_skill(s, net, target, (owner, by, skill), damage, clock);
+    leaves(s, net, by, target, skill, clock);
     turn_on_pet(s, net, target, by, clock);
+}
+
+/// What a pet's strike leaves on the creature it reached: each of its skill's target effects, cast by
+/// the pet at its level; one that summons makes its pet beside the creature, to go after it, unless
+/// its owner has as many as it may. Only on a creature its owner may harm, and never on a pet or a
+/// player.
+fn leaves<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    pet: u64,
+    target: u64,
+    skill: u32,
+    clock: Clock,
+) {
+    let Some(owner) = s.pets.by_id.get(&pet).map(|p| p.owner) else {
+        return;
+    };
+    let Some(world) = conn_of(s, owner) else {
+        return;
+    };
+    let Some(there) = s
+        .things
+        .get(target)
+        .filter(|t| t.alive() && t.creature.is_some() && !s.pets.is_pet(target))
+        .and_then(|t| t.at)
+    else {
+        return;
+    };
+    if crate::combat::may_attack_thing(s, world, target).is_err() {
+        return;
+    }
+    let Some(u) = s
+        .skill_table
+        .skills
+        .get(&skill)
+        .and_then(|d| d.usage.clone())
+    else {
+        return;
+    };
+    #[allow(clippy::cast_precision_loss)]
+    let level = s
+        .things
+        .get(pet)
+        .and_then(|t| t.creature.as_ref())
+        .map_or(1.0, |c| c.stats.level as f32);
+    for state in &u.target_effects {
+        let summons = matches!(
+            s.effect_table.get(*state).map(|d| &d.kind),
+            Some(crate::effect_defs::Kind::Pet { .. })
+        );
+        if summons {
+            if !too_many(s, owner, skill, &[*state]) {
+                let aim = (Some(there), Some(target));
+                crate::skill_use::summon_from(s, net, world, (&u, *state), level, aim, clock);
+            }
+            continue;
+        }
+        if piles_up(s, pet, target, *state) {
+            continue;
+        }
+        let cast = crate::effects::Cast {
+            caster: pet,
+            spellcraft: level,
+            ..crate::effects::Cast::default()
+        };
+        crate::effects::apply_on(
+            s,
+            net,
+            crate::effects::On::Creature(target),
+            *state,
+            cast,
+            clock,
+        );
+    }
+}
+
+/// Would this effect pile up on a creature: a change over time that the pet's last strike left, still
+/// running? A pet's strikes keep one running rather than adding one each (2017: the Rift's fire at
+/// the rate of one, whatever it landed in that time: a median 24 a second from strikes 0.94 s apart
+/// at about level 49, where each of 10 s adds that rate).
+fn piles_up<S: Store>(s: &Server<S>, pet: u64, target: u64, state: u32) -> bool {
+    matches!(
+        s.effect_table.get(state).map(|d| &d.kind),
+        Some(crate::effect_defs::Kind::VitalOverTime { .. })
+    ) && crate::effects::records_of(s, crate::effects::On::Creature(target))
+        .iter()
+        .any(|e| e.state == state && e.caster == pet)
 }
 
 /// A creature a pet struck or taunted fights the pet: at once when it fights nothing, turning from

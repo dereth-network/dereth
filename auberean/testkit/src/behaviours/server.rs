@@ -8676,6 +8676,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.pets.fires-what-makes-a-pet",
+        says: "A pet whose skill has no blow and makes another pet fires it at what it takes on, at the \
+               skill's own pace, the pet made its owner's and going after the creature; with no row for \
+               what it makes it stands idle and says nothing.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-PETS-FIRES"),
+        station: "yalain-testkit::cpu::play::pet_skills::a_hive_fires_wasps_at_a_creature_and_with_no_row_stands_idle",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.pets.follow",
         says: "A pet not fighting plans its way to its owner every three seconds, stopping three \
                meters short with its speed told, and one more than 100 m away is put beside its \
@@ -8710,6 +8720,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-PETS-LOGOFF"),
         station: "yalain-testkit::cpu::play::pets::an_owner_leaving_the_world_takes_its_pets_out_of_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.pets.left-harm-is-its-owners",
+        says: "What a pet's strike leaves that takes health counts as its owner's, the pet's part of \
+               the kill, told as the pet's; its strikes keep one change over time running rather than \
+               adding one each.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PETS-LEFT-HARM"),
+        station: "yalain-testkit::cpu::play::pet_skills::harm_a_pets_strike_leaves_counts_as_its_owners",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -8846,6 +8866,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-PETS-LANDING"),
         station: "yalain-testkit::cpu::play::pets::a_creatures_strike_hurts_a_pet_when_its_blow_lands",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.pets.strikes-leave-their-effects",
+        says: "A pet's strike that reaches a creature leaves its skill's target effects on it, cast by \
+               the pet at its level.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PETS-LEFT"),
+        station: "yalain-testkit::cpu::play::pet_skills::a_pets_strike_leaves_its_skills_target_effects_on_the_creature",
         tier: Tier::Cpu,
     },
     behaviour! {

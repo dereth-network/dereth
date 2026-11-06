@@ -2478,7 +2478,7 @@ fn summons_at<S: Store>(
 }
 
 /// A pet a skill's target effect names appears now, the skill's own icon on it.
-fn summon_from<S: Store>(
+pub(crate) fn summon_from<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     world: ConnId,

@@ -1000,7 +1000,9 @@ pub(crate) fn creature_health<S: Store>(
         return;
     }
     if amount < 0 {
-        crate::combat::hurt_creature(s, net, id, caster, -amount, clock);
+        // A pet's effect hurts as its owner's, as its strike does.
+        let by = s.pets.by_id.get(&caster).map_or(caster, |p| p.owner);
+        crate::combat::hurt_creature_as(s, net, id, (by, caster), -amount, clock);
         return;
     }
     let Some(t) = s.things.get_mut(id) else {
