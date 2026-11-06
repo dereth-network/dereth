@@ -36,6 +36,7 @@ fn object(id: u64, template: u32, kind: Kind, origin: [f32; 3]) -> ContentObject
         object: Some(id),
         template,
         description: Description {
+            name_text: None,
             package: 0x103E,
             look: 0x1F00_0100,
             enter_fx: 0,
@@ -105,6 +106,8 @@ fn step(quest: u32, needs: u32, trigger: Trigger, update: Update) -> Step {
         effects_last: false,
         wants: None,
         fellows: false,
+        levels: None,
+        xp_share: 0.0,
         to: None,
     }
 }
@@ -227,6 +230,7 @@ fn an_item_used_on_an_object_takes_the_player_and_moves_the_quest_on_arrival() {
             )
         }],
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let (b, me) = h.player_in_world("one", "Elara");
     at_phase(&mut h, HALL_QUEST, 6);
@@ -313,6 +317,7 @@ fn one_use_completes_a_quest_and_gives_the_next_that_requires_it() {
             ),
         ],
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let (b, me) = h.player_in_world("one", "Elara");
     at_phase(&mut h, NEXT_QUEST, 1);
@@ -419,6 +424,7 @@ fn a_completion_adds_its_points_to_the_rating_every_time_whatever_the_level() {
         quests: vec![def],
         steps: Vec::new(),
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let (_, me) = h.player_in_world("one", "Elara");
     let world = conn_of(&h, me);
@@ -469,6 +475,7 @@ fn a_hidden_quests_completion_pays_with_no_text() {
         ],
         steps: Vec::new(),
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let (b, me) = h.player_in_world("one", "Elara");
     let world = conn_of(&h, me);
@@ -618,6 +625,7 @@ fn completing_a_quest_that_pays_a_share_adds_it_to_the_players_experience() {
             Update::Complete,
         )],
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let (b, me) = h.player_in_world("one", "Elara");
     at_phase(&mut h, HALL_QUEST, 1);
@@ -664,6 +672,7 @@ fn a_step_for_some_races_runs_only_for_a_player_of_one_of_them() {
             },
         ],
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let (_b, _me) = h.player_in_world("one", "Elara");
     let world = *h.server.players.keys().next().expect("a player");
@@ -693,6 +702,7 @@ fn explorer_world(quests: Vec<QuestDef>, steps: Vec<Step>) -> Harness {
         quests,
         steps,
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     h
 }
@@ -1171,4 +1181,151 @@ fn a_step_may_fail_its_quest_and_it_may_then_be_given_again() {
     let from = use_explorer(&mut h, b, me);
     assert_eq!(updates(&h, b, from), vec![0x1000_0000], "given again");
     assert_eq!(held(&h, HALL_QUEST), Some((status::UNDERWAY, 1)));
+}
+
+/// A player of this level, in a world holding these steps.
+fn stepping(steps: Vec<Step>, level: i32) -> Harness {
+    let mut h = Harness::new();
+    h.server.levels = level_costs(&[(1, 1_000), (30, 100_000)]);
+    let mut q = quest(HALL_QUEST, 0, -999);
+    q.retry = 0.0;
+    let mut other = quest(HALL_QUEST + 1, 0, -999);
+    other.retry = 0.0;
+    h.server.quests = QuestTable {
+        quests: vec![q, other],
+        steps,
+        gives: Vec::new(),
+        rooms: Vec::new(),
+    };
+    let _ = h.player_in_world("one", "Elara");
+    h.run(5);
+    for p in h.server.players.values_mut() {
+        yalain_world::quals::set_int(&mut p.qualities, yalain_world::progress::q::LEVEL, level);
+    }
+    h
+}
+
+fn use_person(h: &mut Harness) {
+    let world = *h.server.players.keys().next().expect("in the world");
+    let clock = h.clock();
+    yalain_world::quests::triggered(
+        &mut h.server,
+        &mut h.net,
+        world,
+        Trigger::Use(EXPLORER_TEMPLATE),
+        None,
+        clock,
+    );
+}
+
+fn phases(h: &Harness) -> Vec<(u32, u32)> {
+    let p = h.server.players.values().next().expect("in the world");
+    p.play.quests.iter().map(|q| (q.quest, q.phase)).collect()
+}
+
+/// A person's quests by level: a player of a level is given the one for that level.
+/// Behaviour: server.quests.step-levels
+#[test]
+fn a_step_for_some_levels_runs_for_those_alone() {
+    let band = |q: u32, levels: (i32, i32)| Step {
+        levels: Some(levels),
+        ..step(q, 0, Trigger::Use(EXPLORER_TEMPLATE), Update::Bestow)
+    };
+    let given = |level: i32| {
+        let mut h = stepping(
+            vec![band(HALL_QUEST, (20, 24)), band(HALL_QUEST + 1, (25, 29))],
+            level,
+        );
+        use_person(&mut h);
+        phases(&h)
+    };
+    assert_eq!(given(19), vec![], "under the least");
+    assert_eq!(given(20), vec![(HALL_QUEST, 1)]);
+    assert_eq!(given(24), vec![(HALL_QUEST, 1)]);
+    assert_eq!(given(25), vec![(HALL_QUEST + 1, 1)]);
+    assert_eq!(given(30), vec![], "over the most");
+}
+
+/// A step that moves no quest gives what it gives and leaves the quest as it was.
+/// Behaviour: server.quests.step-levels
+#[test]
+fn a_step_that_moves_no_quest_gives_its_item() {
+    let mut h = stepping(
+        vec![Step {
+            gives: vec![TEST_ITEM],
+            ..step(
+                HALL_QUEST,
+                0,
+                Trigger::Use(EXPLORER_TEMPLATE),
+                Update::Nothing,
+            )
+        }],
+        25,
+    );
+    h.server.catalog = test_catalog();
+    let world = *h.server.players.keys().next().expect("in the world");
+    assert!(!yalain_world::inventory::holds(&h.server, world, TEST_ITEM));
+    use_person(&mut h);
+    assert!(yalain_world::inventory::holds(&h.server, world, TEST_ITEM));
+    assert_eq!(phases(&h), vec![], "no quest moved");
+}
+
+/// A person's gift kept to one in a wait by a quest done at once: it gives one at a use, none again
+/// until the quest's wait is over, however little of it the player keeps.
+/// Behaviour: server.quests.practice-gems
+#[test]
+fn a_gift_a_quest_done_at_once_keeps_comes_once_in_its_wait() {
+    let mut h = stepping(
+        vec![Step {
+            gives: vec![TEST_ITEM],
+            ..step(
+                HALL_QUEST,
+                0,
+                Trigger::Use(EXPLORER_TEMPLATE),
+                Update::Complete,
+            )
+        }],
+        25,
+    );
+    h.server.catalog = test_catalog();
+    h.server.quests.quests[0].retry = 604_800.0;
+    let items = |h: &Harness| {
+        let p = h.server.players.values().next().expect("in the world");
+        p.play.items.len()
+    };
+    let before = items(&h);
+    use_person(&mut h);
+    assert_eq!(items(&h), before + 1, "the first");
+    let p = h.server.players.values().next().expect("in the world");
+    assert_eq!(p.play.quests[0].status, status::COMPLETED);
+    use_person(&mut h);
+    assert_eq!(items(&h), before + 1, "none in the wait");
+    let long_ago = h.server.players.values_mut().next().expect("in the world");
+    long_ago.play.quests[0].updated -= 604_801;
+    long_ago.play.quests[0].started -= 604_801;
+    use_person(&mut h);
+    assert_eq!(items(&h), before + 2, "another after it");
+}
+
+/// A step that fails its quest pays a share of what the player's level takes.
+/// Behaviour: server.quests.step-share
+#[test]
+fn a_failing_step_pays_its_share_of_the_level() {
+    let mut h = stepping(
+        vec![Step {
+            xp_share: 0.14,
+            ..step(HALL_QUEST, 4, Trigger::Use(EXPLORER_TEMPLATE), Update::Fail)
+        }],
+        30,
+    );
+    at_phase(&mut h, HALL_QUEST, 4);
+    let total = |h: &Harness| {
+        let p = h.server.players.values().next().expect("in the world");
+        yalain_world::quals::long(&p.qualities, yalain_world::progress::q::TOTAL_XP).unwrap_or(0)
+    };
+    let before = total(&h);
+    use_person(&mut h);
+    assert_eq!(total(&h) - before, 14_000);
+    let p = h.server.players.values().next().expect("in the world");
+    assert_eq!(p.play.quests[0].status, status::FAILED);
 }

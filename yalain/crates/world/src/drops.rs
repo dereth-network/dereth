@@ -16,7 +16,7 @@ use auberean_protocol::quality::VisualQuality;
 use auberean_protocol::types::{BehaviorParams, ObjectStamp};
 use auberean_protocol::ServerMessage;
 use dereth_primitives::num::math;
-use yalain_net::{BlobKind, ConnId, ServerNet};
+use yalain_net::{ConnId, ServerNet};
 use yalain_store::{Store, StoredPosition};
 
 use crate::calls::{Node, Value};
@@ -189,7 +189,8 @@ fn put_down<S: Store>(
     let busy = s
         .timers
         .iter()
-        .any(|(_, t)| matches!(t, Timer::PutDown { world: w, .. } if *w == world));
+        .any(|(_, t)| matches!(t, Timer::PutDown { world: w, .. } if *w == world))
+        || crate::places::pack_spoken_for(s, world);
     let Some(p) = s.players.get(&world) else {
         return;
     };
@@ -210,7 +211,7 @@ fn put_down<S: Store>(
         refuse(net, world, &m, status::CANNOT_PLACE_IN_WORLD);
         return;
     };
-    if crate::inventory::attunable(&s.catalog, t.template) {
+    if crate::inventory::attuned_now(s, t) {
         refuse(net, world, &m, status::ATTUNED);
         return;
     }
@@ -264,7 +265,7 @@ fn put_down<S: Store>(
         quality: q::CONTAINER,
         value: 0,
     });
-    crate::presence::to_thing_knowers(s, net, m.item, BlobKind::VISUAL, &left);
+    crate::inventory::to_holder(s, net, world, m.item, &left);
     if let Some(t) = s.things.get_mut(m.item) {
         t.container = None;
     }

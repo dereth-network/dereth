@@ -82,7 +82,7 @@ use yalain_content::quests::{Need, QuestDef, Step, Trigger, Update};
 use yalain_content::QuestTable;
 use yalain_content::Words;
 use yalain_net::{ConnId, ServerNet};
-use yalain_store::Store;
+use yalain_store::{Store, StoredPosition};
 
 use crate::graph::Builder;
 use crate::levels::LevelTable;
@@ -461,7 +461,7 @@ pub fn tell<S: Store>(
     net: &mut ServerNet,
     world: ConnId,
     teller: u64,
-    teller_name: Option<(u32, u32)>,
+    teller_name: TextInfo,
     line: &Words,
 ) {
     let Some(p) = s.players.get(&world) else {
@@ -473,7 +473,7 @@ pub fn tell<S: Store>(
         &[
             Arg::Int(0),
             crate::chat::text_arg(msg),
-            crate::chat::text_arg(teller_name.map_or_else(TextInfo::default, progress::text)),
+            crate::chat::text_arg(teller_name),
             Arg::LongInt(teller),
         ],
     )
@@ -511,13 +511,20 @@ pub fn may_run_now<S: Store>(s: &Server<S>, world: ConnId, st: &Step, now_unix: 
 
 /// Is the player of the level a step that gives a quest needs (the quest's least level)?
 fn level_allows<S: Store>(s: &Server<S>, world: ConnId, st: &Step) -> bool {
+    let Some(level) = s
+        .players
+        .get(&world)
+        .map(|p| crate::examine::level_of(&p.qualities))
+    else {
+        return false;
+    };
+    if st.levels.is_some_and(|(a, b)| level < a || level > b) {
+        return false;
+    }
     if st.needs != 0 || st.update != Update::Bestow {
         return true;
     }
-    let least = s.quests.quest(st.quest).map_or(0, |d| d.min_level);
-    s.players
-        .get(&world)
-        .is_some_and(|p| crate::examine::level_of(&p.qualities) >= least)
+    level >= s.quests.quest(st.quest).map_or(0, |d| d.min_level)
 }
 
 /// May a step run for a player now, its quest's least level aside.
@@ -705,9 +712,9 @@ fn run_triggered<S: Store>(
         Trigger::Use(_) => givings(s, trigger),
         _ => Vec::new(),
     };
-    // A step that leads somewhere is run by a use of a person or an object; an item's use on one is
-    // the trip's first, its update on arrival.
-    let leads_on = matches!(trigger, Trigger::Use(_)) && who.is_some();
+    // A step that leads somewhere is run by a use of a person or an object, or a kill; an item's use
+    // on one is the trip's first, its update on arrival.
+    let leads_on = matches!(trigger, Trigger::Use(_) | Trigger::Kill(_)) && who.is_some();
     loop {
         // Reckoned at each step: one given (now under way) blocks the rest.
         let blocked = several.len() >= 2 && person_blocks(s, world, &several, clock.unix);
@@ -736,9 +743,28 @@ fn run_triggered<S: Store>(
             step = may[i].clone();
         }
         moved.push(step.quest);
+        let trip = s.players.get(&world).and_then(|p| p.trip.as_ref());
+        if trip.is_some_and(|t| t.step.as_ref().is_some_and(|c| c.quest == step.quest)) {
+            // Its trip carries this quest's move: that comes on landing, and only that.
+            continue;
+        }
+        let free = trip.is_none();
+        let sent = step.to.zip(who);
+        if let (true, Some((place, (by, _))), Trigger::Kill(_)) = (free, sent, trigger) {
+            // A kill's step goes with the trip, its update told on landing (2017: 47 of 47 Gauntlet
+            // kills, in portal space's exit's tick; the trip within 0.1 s of the death, 42 of 42
+            // whose death was seen).
+            let place = room_for(s, place);
+            crate::places::sends_on(s, world, by, place, Some(step), clock);
+            continue;
+        }
         let received = run_with(s, net, world, &step, who, given, clock);
-        if let (Some(place), Some((by, _))) = (step.to, who) {
-            crate::places::sends_on(s, world, by, place, clock);
+        if let Some((place, (by, _))) = sent {
+            // One already on its way goes nowhere, whichever room.
+            if s.players.get(&world).is_some_and(|p| p.trip.is_none()) {
+                let place = room_for(s, place);
+                crate::places::sends_on(s, world, by, place, None, clock);
+            }
         }
         // The item given is kept by the first step that takes it.
         if given.is_some_and(|g| step.takes.contains(&g.template)) {
@@ -749,6 +775,73 @@ fn run_triggered<S: Store>(
             took(s, net, world, template, clock);
         }
     }
+}
+
+/// How far from where it lands a player may be and still be in that room, in meters.
+const ROOM_REACH: f32 = 80.0;
+
+/// The room of a row of like rooms a player is sent to, where a step leads to one of them: at random
+/// among those with no player and a creature standing, else with no player, else any (2017's
+/// landings fell across 3 to 6 rooms a row; how they were chosen isn't recorded, so the order is
+/// ours). A player is in the room whose landing is nearest it, within reach. A place in no row is
+/// that place.
+pub(crate) fn room_for<S: Store>(
+    s: &mut Server<S>,
+    place: yalain_content::quests::Place,
+) -> yalain_content::quests::Place {
+    let Some(row) = s
+        .quests
+        .rooms
+        .iter()
+        .find(|row| row.iter().any(|r| r.place == place))
+    else {
+        return place;
+    };
+    let at = |p: yalain_content::quests::Place| StoredPosition {
+        cell: p.cell,
+        origin: p.origin,
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    let taken: Vec<bool> = {
+        let mut taken = vec![false; row.len()];
+        for p in s.players.values() {
+            let nearest = row
+                .iter()
+                .enumerate()
+                .filter_map(|(i, r)| {
+                    crate::presence::distance(&at(r.place), &p.position)
+                        .filter(|d| *d <= ROOM_REACH)
+                        .map(|d| (i, d))
+                })
+                .min_by(|a, b| a.1.total_cmp(&b.1));
+            if let Some((i, _)) = nearest {
+                taken[i] = true;
+            }
+        }
+        taken
+    };
+    let mut standing = vec![false; row.len()];
+    for t in s.things.by_id.values() {
+        if t.creature.is_none() || !t.alive() {
+            continue;
+        }
+        let at = t.at.map(|a| a.cell);
+        if let Some(i) = row.iter().position(|r| Some(r.holds) == at) {
+            standing[i] = true;
+        }
+    }
+    let rank = |i: usize| match (taken[i], standing[i]) {
+        (false, true) => 2,
+        (false, false) => 1,
+        (true, _) => 0,
+    };
+    let best = (0..row.len()).map(rank).max().unwrap_or(0);
+    let among: Vec<yalain_content::quests::Place> = (0..row.len())
+        .filter(|i| rank(*i) == best)
+        .map(|i| row[i].place)
+        .collect();
+    let i = s.rng.below(among.len());
+    among[i]
 }
 
 /// What a quest effect does to its quest.
@@ -859,11 +952,14 @@ pub fn killed<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     killer: ConnId,
-    template: u32,
+    (creature, template): (u64, u32),
     effects: &[String],
     clock: Clock,
 ) {
-    let moved = moved_by(s, net, killer, Trigger::Kill(template), clock);
+    let mut moved = Vec::new();
+    let who = Some((creature, None));
+    let trigger = Trigger::Kill(template);
+    run_triggered(s, net, killer, trigger, who, None, clock, &mut moved);
     let named: Vec<QuestEffect> = effects
         .iter()
         .filter_map(|n| effect_named(n, |q| s.quest_ids.get(q).copied()))
@@ -882,6 +978,15 @@ pub fn killed<S: Store>(
             }
         }
     }
+}
+
+/// What a template's properties name for its use by what it does to a quest, by name.
+#[must_use]
+pub fn named_for_use<S: Store>(s: &Server<S>, props: &yalain_content::Props) -> Vec<QuestEffect> {
+    (1..=8)
+        .filter_map(|i| props.text(&format!("{}{i}", crate::item_use::USED.0)))
+        .filter_map(|n| effect_named(n, |q| s.quest_ids.get(q).copied()))
+        .collect()
 }
 
 /// The world connections of a player's fellows in the world.
@@ -1204,7 +1309,10 @@ fn run_with<S: Store>(
 ) -> Vec<u32> {
     if let Some((teller, name)) = who {
         if let Some(line) = &step.tell {
-            tell(s, net, world, teller, name, line);
+            let told = crate::presence::content_by_id(&s.content.objects, teller)
+                .map(|i| crate::talk::content_speaker(s, i).told_as())
+                .unwrap_or_else(|| name.map_or_else(TextInfo::default, progress::text));
+            tell(s, net, world, teller, told, line);
         }
         if let Some(i) = crate::presence::content_by_id(&s.content.objects, teller) {
             let template = s.content.objects[i].template;
@@ -1259,6 +1367,16 @@ fn run_with<S: Store>(
     } else {
         step_effects(s, net, world, step, who, clock);
         apply(s, net, world, step.quest, step.update, step.xp, clock);
+    }
+    if step.xp_share > 0.0 {
+        let level = s
+            .players
+            .get(&world)
+            .map_or(1, |p| crate::examine::level_of(&p.qualities));
+        let paid = share_of(&s.levels, step.xp_share, level);
+        if paid > 0 {
+            progress::award(s, net, world, paid, Award::Step);
+        }
     }
     if step.fellows {
         for_fellows(s, net, world, step, clock);
@@ -1342,6 +1460,16 @@ pub fn completion_xp(xp: u64, challenge: i32, level: i32) -> u64 {
     xp * share / 100
 }
 
+/// A share of what a level takes to reach the next, rounded down.
+#[allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
+fn share_of(levels: &LevelTable, share: f32, level: i32) -> u64 {
+    (f64::from(share) * levels.to_next(level).unwrap_or(0) as f64) as u64
+}
+
 /// The experience a quest's completion pays a player of a level. A quest may pay a share of what
 /// the player's level takes to reach the next, rounded down, with its limits (2017: 13 of 13
 /// completions of such quests whose player's level was known, exactly, each kind of limit among them);
@@ -1356,17 +1484,9 @@ pub fn completion_xp(xp: u64, challenge: i32, level: i32) -> u64 {
 pub fn completion_pay(levels: &LevelTable, def: &QuestDef, level: i32) -> u64 {
     let pay = &def.pay;
     let amount = if pay.share > 0.0 {
-        #[allow(
-            clippy::cast_precision_loss,
-            clippy::cast_possible_truncation,
-            clippy::cast_sign_loss
-        )]
-        let share_of = |share: f32, level: i32| -> u64 {
-            (f64::from(share) * levels.to_next(level).unwrap_or(0) as f64) as u64
-        };
-        let mut paid = share_of(pay.share, level);
+        let mut paid = share_of(levels, pay.share, level);
         if let Some((share, at)) = pay.most_at_level {
-            paid = paid.min(share_of(share, at));
+            paid = paid.min(share_of(levels, share, at));
         }
         if pay.most > 0 {
             paid = paid.min(pay.most);
@@ -1408,6 +1528,7 @@ pub fn apply<S: Store>(
             fail(s, net, world, quest, clock);
             return;
         }
+        Update::Nothing => return,
     };
     // A subquest of a quest the player has at the phase it belongs to: its move is told as that
     // quest's.
@@ -1475,7 +1596,7 @@ pub fn apply<S: Store>(
             update::COMPLETE
         }
         // Gone by above.
-        Update::Fail => return,
+        Update::Fail | Update::Nothing => return,
     };
     let phase = st.phase;
     // A phase done by subquests gives them with it, under way at their first phase.

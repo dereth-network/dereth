@@ -299,19 +299,60 @@ fn to_i64(text: &[u16]) -> u64 {
     fmt::wide::to_int64(text, 0).0.cast_unsigned()
 }
 
-/// A float as the C library reads one (the longest leading part that is a number).
+/// A float as the C library reads one: white space passed over, then the longest leading part
+/// that is a number (see [`reads_as_whole_double`]). There is no infinity or not-a-number to
+/// read, and an exponent may be written with `d`.
 fn to_float(text: &[u16]) -> f64 {
-    let s: String = char::decode_utf16(text.iter().copied())
-        .map(|r| r.unwrap_or('\u{fffd}'))
-        .collect();
-    let t = s.trim_start();
-    let mut best = 0.0;
-    for (end, _) in t.char_indices().chain(core::iter::once((t.len(), ' '))) {
-        if let Ok(v) = t[..end].parse::<f64>() {
-            best = v;
+    let at = |i: usize| {
+        text.get(i)
+            .copied()
+            .filter(|&u| u != 0)
+            .and_then(number_char)
+    };
+    let mut i = 0;
+    while text.get(i).is_some_and(|&u| crt_space(u)) {
+        i += 1;
+    }
+    let mut number = String::new();
+    if let Some(sign @ (b'+' | b'-')) = at(i) {
+        number.push(char::from(sign));
+        i += 1;
+    }
+    let (mut point, mut any) = (false, false);
+    loop {
+        match at(i) {
+            Some(b'.') if !point => {
+                point = true;
+                number.push('.');
+            }
+            Some(d) if d.is_ascii_digit() => {
+                any = true;
+                number.push(char::from(d));
+            }
+            _ => break,
+        }
+        i += 1;
+    }
+    if !any {
+        return 0.0;
+    }
+    if matches!(at(i), Some(b'e' | b'E' | b'd' | b'D')) {
+        let mut j = i + 1;
+        let mut exponent = String::from("e");
+        if let Some(sign @ (b'+' | b'-')) = at(j) {
+            exponent.push(char::from(sign));
+            j += 1;
+        }
+        let digits = exponent.len();
+        while let Some(d) = at(j).filter(u8::is_ascii_digit) {
+            exponent.push(char::from(d));
+            j += 1;
+        }
+        if exponent.len() > digits {
+            number.push_str(&exponent);
         }
     }
-    best
+    number.parse().unwrap_or(0.0)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -679,22 +720,22 @@ fn parse_float(c: &mut Call<'_>) -> Result<Status, Stop> {
     Ok(Status::Success)
 }
 
-/// Upper-case the string's ASCII letters, in place.
+/// Upper-case the string's letters in place, as the C library does in the English locale, up
+/// to its first zero.
 // D2-09602
 fn upper(c: &mut Call<'_>) -> Result<Status, Stop> {
-    for u in text_or_crash!(c).iter_mut() {
-        if (u16::from(b'a')..=u16::from(b'z')).contains(u) {
-            *u -= 32;
-        }
+    for u in text_or_crash!(c).iter_mut().take_while(|u| **u != 0) {
+        *u = fmt::crt::to_upper(*u);
     }
     Ok(Status::Success)
 }
 
-/// Lower-case the string's ASCII letters, in place.
+/// Lower-case the string's letters in place, as the C library does in the English locale, up
+/// to its first zero.
 // D2-09601
 fn lower(c: &mut Call<'_>) -> Result<Status, Stop> {
-    for u in text_or_crash!(c).iter_mut() {
-        *u = fold(*u);
+    for u in text_or_crash!(c).iter_mut().take_while(|u| **u != 0) {
+        *u = fmt::crt::to_lower(*u);
     }
     Ok(Status::Success)
 }

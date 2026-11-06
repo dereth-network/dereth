@@ -261,6 +261,34 @@ fn bodies_in_one_world_meet_each_other() {
     assert!(further > farthest + 2.0, "the way is open: {further}");
 }
 
+/// A body keeping in step with another meets only objects that can move: it stops at a body that
+/// can and passes one that is still, which stops a body not keeping in step.
+///
+/// Behaviour: collision.objects.a-body-in-step-passes-what-cannot-move
+#[test]
+fn a_body_in_step_passes_a_body_that_cannot_move() {
+    let run = |mobile: bool, in_step: bool| {
+        let land = land();
+        let mut world = World::new();
+        let mut standing = body(70.0, 80.0);
+        let key = world.insert_body(&land, 0x50, &mut standing);
+        world.set_passable(key, false);
+        standing.set_mobile(mobile);
+        standing.tick_in(&land, &mut world, 0.1);
+        let mut runner = body(70.0, 70.0);
+        runner.set_synchronize_transition(in_step);
+        run_north(&mut runner, &land, &mut world, 40)
+    };
+    let stopped = 80.0 - 0.96 + 0.01;
+    assert!(run(true, false) <= stopped, "a body stops it");
+    assert!(run(false, false) <= stopped, "a still body stops it");
+    assert!(
+        run(true, true) <= stopped,
+        "in step, one that can move stops it"
+    );
+    assert!(run(false, true) > 80.0, "in step, it passes a still one");
+}
+
 /// An object outside stands in every land cell the box around it reaches: a post at the corner
 /// of four land cells is in all four, one in the middle of a cell only in that one.
 ///

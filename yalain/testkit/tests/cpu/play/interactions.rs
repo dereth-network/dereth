@@ -70,6 +70,7 @@ fn hall() -> Harness {
             object: Some(STOCKPILE),
             template: STOCKPILE_TEMPLATE,
             description: Description {
+                name_text: None,
                 package: 0x1A01,
                 look: 0x1F00_0ED5,
                 enter_fx: 0,
@@ -168,6 +169,8 @@ fn hall() -> Harness {
         effects_last: false,
         wants: None,
         fellows: true,
+        levels: None,
+        xp_share: 0.0,
     });
     h
 }
@@ -386,6 +389,8 @@ fn an_item_used_on_an_object_while_its_step_waits_for_another_phase_is_answered_
         effects_last: false,
         wants: None,
         fellows: false,
+        levels: None,
+        xp_share: 0.0,
     });
     let (a, me, world, glyph) = holding(&mut h, "one", GLYPH_TEMPLATE);
     h.server

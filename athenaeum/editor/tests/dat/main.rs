@@ -18,7 +18,7 @@ use auberean_dat::testing::{require_install, TARGET};
 use dereth_builder::camera::FlyCamera;
 use dereth_primitives::Vec3;
 use winit::keyboard::KeyCode;
-use yalain_world_db::release::{cache_dir_for, Host, PINNED_TAG};
+use yalain_world_db::release::{pinned_in_cache, PINNED_TAG};
 use yalain_world_db::rows::Row;
 
 /// The variable naming a world database checkout for the tests.
@@ -32,14 +32,11 @@ fn database() -> PathBuf {
     if let Some(v) = std::env::var_os(WORLD_DB_VAR).filter(|v| !v.is_empty()) {
         return PathBuf::from(v);
     }
-    let cached =
-        cache_dir_for(Host::current(), |n| std::env::var_os(n)).map(|c| c.join(PINNED_TAG));
-    match cached {
-        Some(d) if d.join("world.toml").is_file() => d,
-        _ => panic!(
-            "no world database: set {WORLD_DB_VAR} to a checkout, or fetch the pinned release ({PINNED_TAG}) with `yalain world fetch`"
-        ),
-    }
+    pinned_in_cache().unwrap_or_else(|why| {
+        panic!(
+            "no world database: {why}. Set {WORLD_DB_VAR} to a checkout, or fetch the pinned release ({PINNED_TAG}) with `yalain world fetch`"
+        )
+    })
 }
 
 /// An editor on a new, empty world of the test's own, its camera over the town looking north. What
@@ -1125,4 +1122,110 @@ fn the_map_shows_the_world_and_marks_this_worlds_rows() {
     assert_eq!(lb, TOWN);
     e.go_to(lb, at);
     assert!((e.view().eye[0] - g[0]).abs() < 1.0, "a click goes there");
+}
+
+/// The camera high over a spot where the land grows plenty, looking down.
+fn over_trees(e: &mut Editor<'_>) -> [f32; 3] {
+    let g = view::global(0xB590, [75.0, 45.0, 0.0]);
+    let z = e.scene.ground(g[0], g[1]).expect("ground");
+    e.camera.position = Vec3::new(g[0], g[1] - 5.0, z + 60.0);
+    e.camera.pitch = -1.45;
+    e.camera.yaw = 0.0;
+    e.size = (1600, 900);
+    [g[0], g[1], z]
+}
+
+/// A clearing drawn on the ground by dragging is a row, and what the land grows goes from the
+/// editor's own view at once; undone, it comes back. A rectangle is drawn corner to corner.
+#[test]
+fn a_clearing_drawn_on_the_ground_clears_the_view_and_undo_brings_it_back() {
+    let mut e = editor("clearing");
+    let g = over_trees(&mut e);
+    let grown = |e: &mut Editor<'_>| e.frame().counts.scenery;
+    let before = grown(&mut e);
+    assert!(before > 0, "the land grows here");
+
+    e.new_kind = NewKind::Clearing;
+    e.tool = Tool::Place;
+    let from = pixel(&e, g);
+    let to = pixel(&e, [g[0] + 30.0, g[1], g[2]]);
+    frame(
+        &mut e,
+        &ViewInput {
+            pointer: from,
+            ..ViewInput::default()
+        },
+    );
+    drag(&mut e, from, to, false);
+    assert_eq!(e.tool, Tool::Select, "drawn, the tool is put down");
+    let item = e.selected.clone().expect("the new row is selected");
+    assert!(item.starts_with("clearing clearing-1@"), "{item}");
+    let Row::Clearing(c) = &e.session.entry(&item).expect("the row").row.row else {
+        panic!("a clearing");
+    };
+    let radius = c.radius.expect("round");
+    assert!((radius - 30.0).abs() < 8.0, "dragged about 30 m: {radius}");
+    let cleared = grown(&mut e);
+    assert!(cleared < before, "{cleared} of {before}");
+
+    e.session.undo();
+    assert_eq!(grown(&mut e), before, "undone, it all grows again");
+
+    // A rectangle, corner to corner, its middle where the drag's is.
+    e.new_kind = NewKind::Clearing;
+    e.clearing_rectangle = true;
+    e.tool = Tool::Place;
+    let corner = pixel(&e, [g[0] - 20.0, g[1] - 10.0, g[2]]);
+    let other = pixel(&e, [g[0] + 20.0, g[1] + 10.0, g[2]]);
+    frame(
+        &mut e,
+        &ViewInput {
+            pointer: corner,
+            ..ViewInput::default()
+        },
+    );
+    drag(&mut e, corner, other, false);
+    let item = e.selected.clone().expect("the new row is selected");
+    let Row::Clearing(c) = &e.session.entry(&item).expect("the row").row.row else {
+        panic!("a clearing");
+    };
+    let [x, y] = c.size.expect("a rectangle");
+    assert!((x - 40.0).abs() < 8.0 && (y - 20.0).abs() < 8.0, "{x} {y}");
+    assert_eq!(c.heading, Some(0.0));
+    assert!(grown(&mut e) < before);
+}
+
+/// Escape while drawing drops the drawing and keeps the tool in hand.
+#[test]
+fn escape_drops_a_clearing_being_drawn_and_keeps_the_tool() {
+    let mut e = editor("clearing-escape");
+    let g = over_trees(&mut e);
+    e.new_kind = NewKind::Clearing;
+    e.tool = Tool::Place;
+    let from = pixel(&e, g);
+    let down = ViewInput {
+        pointer: from,
+        left_pressed: true,
+        left_down: true,
+        ..ViewInput::default()
+    };
+    frame(
+        &mut e,
+        &ViewInput {
+            pointer: from,
+            ..ViewInput::default()
+        },
+    );
+    frame(&mut e, &down);
+    key(&mut e, KeyCode::Escape, false);
+    assert_eq!(e.tool, Tool::Place);
+    frame(
+        &mut e,
+        &ViewInput {
+            pointer: from,
+            left_released: true,
+            ..ViewInput::default()
+        },
+    );
+    assert!(e.session.clearings().is_empty());
 }

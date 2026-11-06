@@ -984,6 +984,64 @@ fn a_template_attunable_by_its_script_says_so() {
     assert!(!yalain_world::inventory::attunable(&catalog, 0x4700_051C));
 }
 
+/// An item a recipe attuned stays with its owner as an attunable template's does; one bound by use
+/// is put down.
+/// Behaviour: server.craft.made-item-attuned
+#[test]
+fn an_item_a_recipe_attuned_is_refused_its_drop_and_a_bound_one_is_not() {
+    let (mut h, b, me, _w, item) = two_players_and_an_item();
+    let world = world_of(&h, me);
+    h.server.things.get_mut(item).expect("the item").own.attuned = true;
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(true, queue::WEENIE, &put_down(me, item, 0));
+    h.run(4);
+    let refused = answers(&h, b, from);
+    assert_eq!(refused.len(), 1, "answered at once");
+    assert_eq!(refused[0][40].1, status::ATTUNED);
+    let t = h.server.things.get_mut(item).expect("the item");
+    t.own.attuned = false;
+    t.own.bound_to = me;
+    h.bots[b].send(true, queue::WEENIE, &put_down(me, item, 0));
+    h.run(steps(2.5));
+    let p = &h.server.players[&world];
+    assert!(p.play.items.iter().all(|i| i.id != item), "put down");
+}
+
+/// An item under an effect that attunes it is refused its drop as an attuned one is, and goes down
+/// when the effect has run out.
+/// Behaviour: server.inventory.an-item-under-an-attuning-effect-stays
+#[test]
+fn an_item_under_an_attuning_effect_is_refused_its_drop_until_it_ends() {
+    const STATE: u32 = 0x7000_7A02;
+    let (mut h, b, me, _w, item) = two_players_and_an_item();
+    let world = world_of(&h, me);
+    h.server
+        .effect_table
+        .effects
+        .insert(STATE, yalain_testkit::attuning_effect(STATE));
+    let until = h.server.game_now + 100.0;
+    h.server.things.get_mut(item).expect("the item").timed.push(
+        yalain_world::things::TimedEffect {
+            state: STATE,
+            spellcraft: 1.0,
+            until,
+        },
+    );
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(true, queue::WEENIE, &put_down(me, item, 0));
+    h.run(4);
+    let refused = answers(&h, b, from);
+    assert_eq!(refused[0][40].1, status::ATTUNED);
+    let p = &h.server.players[&world];
+    assert!(p.play.items.iter().any(|i| i.id == item), "kept");
+    h.advance(101.0);
+    h.run(1);
+    h.bots[b].send(true, queue::WEENIE, &put_down(me, item, 0));
+    h.run(steps(2.5));
+    let p = &h.server.players[&world];
+    assert!(p.play.items.iter().all(|i| i.id != item), "put down");
+}
+
 /// An attunable item stays with its owner: asked to put it down, the server refuses at once, plays
 /// nothing, and the item stays in the pack. So its taking can't be repeated to move a quest again.
 /// Behaviour: server.inventory.an-attunable-item-is-not-put-down

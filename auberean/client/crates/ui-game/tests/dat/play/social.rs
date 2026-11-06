@@ -379,7 +379,7 @@ fn a_fellows_row_follows_its_notices_and_keys_select_fellows() {
     ui.key(fellows::action::SELECT_FELLOW_1, true);
     let out = tick(&mut ui, &mut p, &mut t, &w, &[]);
     ui.key(fellows::action::SELECT_FELLOW_1, false);
-    assert!(out.contains(&Request::Select(OTHER)), "{out:?}");
+    assert!(out.contains(&Request::SetSelection(OTHER)), "{out:?}");
 }
 
 /// Someone offering the player a place is asked about; yes takes it, no turns it down.

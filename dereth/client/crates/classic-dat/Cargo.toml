@@ -33,3 +33,4 @@ path = "tests/cpu/main.rs"
 [[test]]
 name = "dat"
 path = "tests/dat/main.rs"
+required-features = ["retail-dats"]

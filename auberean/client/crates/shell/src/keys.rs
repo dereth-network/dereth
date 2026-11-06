@@ -334,6 +334,27 @@ impl Keys {
         ok
     }
 
+    /// The player's maps as a preset puts them (keys alone, with Shift, with Ctrl) bound from now
+    /// on: the three front maps taken off and these pushed, their files left as they are.
+    // D2-01769
+    pub fn bind(&mut self, maps: [&[(u32, u32)]; 3]) {
+        for _ in 0..3 {
+            self.stack.pop();
+        }
+        for (bindings, meta) in maps.iter().zip([0, LEFT_SHIFT, LEFT_CTRL]) {
+            let mut m = KeyMap::default();
+            for &(input, action) in *bindings {
+                let name = self
+                    .records
+                    .action_name(action)
+                    .unwrap_or_default()
+                    .to_owned();
+                m.add_action(action, input, &name);
+            }
+            self.stack.push(m, meta);
+        }
+    }
+
     /// An interface action a key names with these modifier bits held in the player's maps (not
     /// the base map): the action's value, which the interface hears.
     #[must_use]

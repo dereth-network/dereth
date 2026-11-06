@@ -580,3 +580,89 @@ fn a_cut_with_no_place_in_the_pack_is_refused_and_leaves_the_corpse_to_butcher()
     assert_eq!(use_answers(&h, b, from).first().map(|a| a.0), Some(0));
     assert_eq!(held(&h, BONE), 1);
 }
+
+/// The knife stays in the pack while it cuts: asking to put it down is refused and the cut goes on.
+/// One gone from the pack by the end all the same cuts nothing, pays nothing and leaves the corpse.
+/// Behaviour: server.craft.a-knife-stays-while-it-cuts
+#[test]
+fn a_knife_is_not_put_down_while_it_cuts_and_one_gone_pays_nothing() {
+    use yalain_world::inventory::{move_graph, Move};
+    let bone = |h: &Harness, world| {
+        h.server.players[&world]
+            .play
+            .items
+            .iter()
+            .filter(|i| i.template == BONE)
+            .count()
+    };
+    let (mut h, b, me, world, knife, corpse) = at_a_corpse();
+    butcher(&mut h, b, me, knife, corpse, 0.5);
+    let down = Move {
+        move_type: yalain_world::drops::DROP,
+        merge: true,
+        unlock: true,
+        check_take: true,
+        all_taken: true,
+        grab: true,
+        contain: true,
+        auto_merge: true,
+        from: me,
+        actual_from: me,
+        item: knife,
+        split_item: knife,
+        quantity: 1,
+        quantity_left: 1,
+        ..Move::default()
+    };
+    let call = server_call(
+        yalain_world::drops::function::MOVE_ITEM,
+        &[move_graph(&down)],
+    );
+    h.bots[b].send(true, queue::WEENIE, &call);
+    h.run(4);
+    let t = h.now.0 + butchery::WORK_SECONDS + 0.5;
+    while h.now.0 < t {
+        h.step();
+    }
+    let held = |h: &Harness| {
+        h.server.players[&world]
+            .play
+            .items
+            .iter()
+            .any(|i| i.id == knife)
+    };
+    assert!(held(&h), "still in the pack");
+    assert_eq!(bone(&h, world), 1, "and it cut");
+    // The lock on the pack is over with the cut.
+    assert!(!yalain_world::places::pack_spoken_for(&h.server, world));
+
+    let (mut h, b, me, world, knife, corpse) = at_a_corpse();
+    butcher(&mut h, b, me, knife, corpse, 0.5);
+    h.server
+        .players
+        .get_mut(&world)
+        .expect("in")
+        .play
+        .items
+        .retain(|i| i.id != knife);
+    let from = h.bots[b].inbox.len();
+    let t = h.now.0 + butchery::WORK_SECONDS + 0.5;
+    while h.now.0 < t {
+        h.step();
+    }
+    assert_eq!(bone(&h, world), 0, "paid nothing");
+    assert_eq!(
+        use_answers(&h, b, from).last().map(|a| a.0),
+        Some(refusal::EMPTY),
+        "answered"
+    );
+    assert!(
+        !h.server
+            .things
+            .get(corpse)
+            .and_then(|t| t.corpse.as_ref())
+            .expect("the corpse")
+            .butchered,
+        "the corpse is left"
+    );
+}

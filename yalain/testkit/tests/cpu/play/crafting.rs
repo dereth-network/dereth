@@ -610,6 +610,7 @@ fn a_step_with_its_effects_last_tells_the_update_before_the_recipe() {
             }],
             steps: Vec::new(),
             gives: Vec::new(),
+            rooms: Vec::new(),
         };
         let step = Step {
             quest: QUEST,
@@ -629,6 +630,8 @@ fn a_step_with_its_effects_last_tells_the_update_before_the_recipe() {
             effects_last: last,
             wants: None,
             fellows: false,
+            levels: None,
+            xp_share: 0.0,
             to: None,
         };
         let from = h.bots[b].inbox.len();
@@ -844,6 +847,48 @@ fn a_made_item_its_recipe_binds_is_marked_to_bind_when_used_in_combat() {
     }
 }
 
+/// A made item its recipe's outcome attunes (on its ordinal, the spinner within the action's range)
+/// is attuned to whoever holds it; outside the range it is not, and it may be put down.
+/// Behaviour: server.craft.made-item-attuned
+#[test]
+fn a_made_item_its_recipe_attunes_is_attuned_when_the_spinner_is_in_range() {
+    use yalain_world::craft::Action;
+    for (spinners, attuned) in [((1, 100), true), ((20, 100), false)] {
+        let (mut h, b, _, world) = in_world();
+        if h.server.catalog.get(yalain_testkit::KNIFE).is_none() {
+            h.server.catalog.insert(yalain_testkit::test_template(
+                yalain_testkit::KNIFE,
+                0x200,
+                yalain_content::Props::default(),
+            ));
+        }
+        if let Some(r) = h.server.crafting.recipes.get_mut(&KNIFE_RECIPE) {
+            for o in r.checks.iter_mut().flat_map(|c| c.outcomes.iter_mut()) {
+                o.actions.push(Action::Attune {
+                    ordinal: 10_001,
+                    spinners,
+                });
+            }
+        }
+        execute_at(&mut h, b, KNIFE_RECIPE, &[], 17);
+        h.run(4);
+        wait(&mut h, 9.0);
+        let knife = h.server.players[&world]
+            .play
+            .items
+            .iter()
+            .find(|i| i.template == yalain_testkit::KNIFE)
+            .map(|i| i.id)
+            .expect("the knife made");
+        let t = h.server.things.get(knife).expect("made");
+        assert_eq!(t.own.attuned, attuned, "spinners {spinners:?}");
+        assert_eq!(
+            yalain_world::inventory::attuned(&h.server.catalog, t),
+            attuned
+        );
+    }
+}
+
 /// A made item carries the effects its recipe's outcome gives it for whoever wears or wields it, at
 /// the spinner the player chose (through the recipe's level table): wielded, the knife puts its
 /// bonus on its holder at that spellcraft.
@@ -1043,6 +1088,7 @@ fn a_recipe_asking_for_a_target_is_made_at_one_of_its_own_and_nowhere_else() {
         object: Some(id),
         template,
         description: yalain_content::Description {
+            name_text: None,
             package: 0x103E,
             look: 0x1F00_0100,
             enter_fx: 0,
@@ -1152,9 +1198,12 @@ fn a_quest_given_runs_the_step_waiting_on_it_and_one_withheld_runs_none() {
                 effects_last: true,
                 wants: None,
                 fellows: false,
+                levels: None,
+                xp_share: 0.0,
                 to: None,
             }],
             gives: Vec::new(),
+            rooms: Vec::new(),
         };
         if paid {
             let p = h.server.players.get_mut(&world).expect("in the world");
@@ -3202,4 +3251,90 @@ fn a_product_with_no_place_in_the_pack_is_refused_at_the_result_and_uses_nothing
     wait(&mut h, 8.0);
     assert_eq!(craft_answers(&h, b, from), [0]);
     assert!(of(&h, MINES_SWORD).is_some(), "made");
+}
+
+/// A recipe costs money: a maker without it is refused at once with the client's own word for it,
+/// and nothing is made, used up or paid.
+/// Behaviour: server.craft.a-recipe-wants-its-cost
+#[test]
+fn a_recipe_whose_cost_its_maker_lacks_is_refused_and_makes_nothing() {
+    let (mut h, b, me, world) = in_world();
+    let iron = with_recipe_and_iron(&mut h, world, me, 20);
+    if let Some(r) = h.server.crafting.recipes.get_mut(&MINES_RECIPE) {
+        r.cost = 500;
+    }
+    let money = |h: &Harness| yalain_world::store::money(&h.server.players[&world].qualities);
+    if let Some(p) = h.server.players.get_mut(&world) {
+        yalain_world::quals::set_int(&mut p.qualities, yalain_world::store::MONEY, 499);
+    }
+    let from = execute(&mut h, b, MINES_RECIPE, &[(1, iron)]);
+    h.run(4);
+    assert_eq!(answer(&h, b, from), Some(error::NO_MONEY), "at once");
+    wait(&mut h, 12.0);
+    assert_eq!(held(&h, world, MINES_SWORD), 0, "nothing made");
+    assert_eq!(held(&h, world, IRON), 20, "nothing used up");
+    assert_eq!(money(&h), 499);
+    // With it, the recipe is made and paid for.
+    if let Some(p) = h.server.players.get_mut(&world) {
+        yalain_world::quals::set_int(&mut p.qualities, yalain_world::store::MONEY, 501);
+    }
+    let from = execute(&mut h, b, MINES_RECIPE, &[(1, iron)]);
+    wait(&mut h, 12.0);
+    assert_eq!(answer(&h, b, from), Some(0));
+    assert_eq!(held(&h, world, MINES_SWORD), 1);
+    assert_eq!(money(&h), 1);
+}
+
+/// Money spent while a recipe is being made: its cost is asked for again as it comes due, so what
+/// was spent can't pay for it too.
+/// Behaviour: server.craft.a-recipe-wants-its-cost-at-its-end
+#[test]
+fn money_spent_during_a_making_leaves_it_refused_at_its_end() {
+    let (mut h, b, me, world) = in_world();
+    let iron = with_recipe_and_iron(&mut h, world, me, 20);
+    if let Some(r) = h.server.crafting.recipes.get_mut(&MINES_RECIPE) {
+        r.cost = 500;
+    }
+    if let Some(p) = h.server.players.get_mut(&world) {
+        yalain_world::quals::set_int(&mut p.qualities, yalain_world::store::MONEY, 500);
+    }
+    let from = execute(&mut h, b, MINES_RECIPE, &[(1, iron)]);
+    wait(&mut h, 1.0);
+    assert_eq!(answer(&h, b, from), None, "under way");
+    if let Some(p) = h.server.players.get_mut(&world) {
+        yalain_world::quals::set_int(&mut p.qualities, yalain_world::store::MONEY, 10);
+    }
+    wait(&mut h, 12.0);
+    assert_eq!(answer(&h, b, from), Some(error::NO_MONEY));
+    assert_eq!(held(&h, world, MINES_SWORD), 0);
+    assert_eq!(held(&h, world, IRON), 20);
+    assert_eq!(
+        yalain_world::store::money(&h.server.players[&world].qualities),
+        10
+    );
+}
+
+/// A dead player, or one in portal space, is too busy to craft.
+/// Behaviour: server.craft.none-from-death-or-portal-space
+#[test]
+fn a_recipe_is_refused_to_the_dead_and_in_portal_space() {
+    let (mut h, b, me, world) = in_world();
+    let iron = with_recipe_and_iron(&mut h, world, me, 20);
+    if let Some(p) = h.server.players.get_mut(&world) {
+        yalain_world::quals::set_int(&mut p.qualities, 258, 0);
+    }
+    let from = execute(&mut h, b, MINES_RECIPE, &[(1, iron)]);
+    wait(&mut h, 12.0);
+    assert_eq!(answer(&h, b, from), Some(error::TOO_BUSY));
+    assert_eq!(held(&h, world, MINES_SWORD), 0);
+    if let Some(p) = h.server.players.get_mut(&world) {
+        yalain_world::quals::set_int(&mut p.qualities, 258, 100);
+    }
+    let clock = h.clock();
+    let to = h.server.players[&world].position;
+    yalain_world::places::resurrection_trip(&mut h.server, &mut h.net, world, to, clock);
+    let from = execute(&mut h, b, MINES_RECIPE, &[(1, iron)]);
+    h.run(4);
+    assert_eq!(answer(&h, b, from), Some(error::TOO_BUSY));
+    assert_eq!(held(&h, world, IRON), 20);
 }

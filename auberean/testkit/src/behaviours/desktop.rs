@@ -51,6 +51,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "desktop.bodies.a-behaviors-target-and-clone-go-to-its-effects",
+        says: "A behavior that names a target and a look to clone gives them to the body, and the effects its animation and script set off aim there: they hide the item and take a clone of it up. The clone has no place of its own, so the entry that lets go leaves it held; as the effect ends the item shows again and the clone fades out in the hand and goes three seconds later.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-FX-BEHAVIOR-AIM"),
+        station: "auberean-shell::dat::session::a_behaviors_target_and_clone_go_to_its_effects",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.bodies.a-body-does-the-rest-of-what-the-server-asks",
         says: "A body keeps a global and a terrain modifier, clears the terrain modifiers, is moved \n               by a push toward an object, and flies when a missile is launched.",
         since: RETAIL,
@@ -130,6 +138,14 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-DESKTOP-FROZEN"),
         station: "auberean-scene::corpus::physics_object::a_frozen_body_and_figure_stand_still",
         tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "desktop.bodies.a-frozen-body-drops-behaviors-and-modes",
+        says: "A body whose animation is frozen, as it is through a portal, plays no behavior and takes no mode, and neither waits for the thaw.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-FROZEN-BODY"),
+        station: "auberean-shell::dat::session::a_frozen_body_drops_behaviors_and_modes",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "desktop.bodies.a-held-object-takes-the-profile-its-qualities-give",
@@ -235,6 +251,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-DESC-MISSILE"),
         station: "auberean-shell::dat::session::an_object_takes_up_its_stamps_and_flight_from_its_description",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.bodies.an-objects-startup-effects-make-their-objects",
+        says: "An object whose look's startup effects name a look to make has those objects from the end of its making, each hanging from it at the entry's holding location or bone. They go when the effect or the object does.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-FX-STARTUP-OBJECTS"),
+        station: "auberean-shell::dat::session::an_objects_startup_effects_make_their_objects",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -366,6 +390,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "desktop.bodies.what-a-body-holds-is-drawn-with-it",
+        says: "An object a body holds is drawn from where the holder is drawn between its ticks, at the scale the holder's whole scale and child scale give it. One told to fade with no delay goes at once, before the fade shows.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-TEMPORARY-HELD-DRAWN"),
+        station: "auberean-shell::dat::session::what_a_body_holds_is_drawn_with_it",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.bodies.what-the-scripts-ask-of-a-body-is-carried-out",
         says: "What the scripts ask of a body is carried out the next frame, in order: its speed \
                and acceleration scales, drawn cloaked (and so not drawn), reporting and ignoring \
@@ -405,6 +437,22 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.camera.a-glide-turns-the-whole-view",
+        says: "A glide between two views turns the camera's whole frame, not the way it looks: on the way it swings round and leans, where a turn of the look alone would dip through the ground.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CAMERA-GLIDE-TURN"),
+        station: "auberean-scene::cpu::camera::a_glide_turns_the_whole_view_rather_than_its_look",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.camera.a-new-default-distance-or-tilt-applies-at-once",
+        says: "A new default camera distance or tilt takes the camera there at once; another option, or the same ones again, leaves it where it was put.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CAMERA-PREFS-LIVE"),
+        station: "auberean-scene::cpu::camera::a_new_default_distance_or_tilt_applies_at_once",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "desktop.camera.a-shake-moves-the-camera-by-the-clients-noise",
         says: "A shake under way moves the camera by the client's own noise (fractional Brownian \
                motion of three octaves over its gradient noise, sixty times the shake's seconds \
@@ -423,6 +471,14 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-DESKTOP-CAMERA-SLOPE"),
         station: "auberean-scene::cpu::camera::align_to_slope_follows_the_climb",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.camera.an-effect-asked-again-does-not-start-its-camera-part-again",
+        says: "An effect asked again while it still plays does not start its camera part again.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-FX-CAMERA-ONCE"),
+        station: "auberean-shell::dat::session::an_effect_asked_again_does_not_start_its_camera_part_again",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "desktop.camera.auto-distance-pulls-a-close-camera-back-while-running",
@@ -517,6 +573,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "desktop.camera.objects-dont-stop-a-camera-on-a-bone",
+        says: "Only the walls and the ground stop a camera in the map view or looking at a bone; otherwise objects stop it too.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CAMERA-ENV-ONLY"),
+        station: "auberean-scene::cpu::camera::objects_dont_stop_a_camera_looking_at_a_bone",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "desktop.camera.outdoors-the-cameras-own-object-keeps-it-off-the-land",
         says: "Outdoors the camera stands where its own object finds room at the end of its line of sight: its sphere, a quarter of a meter, keeps it off the land and off what it does not pass through.",
         since: RETAIL,
@@ -598,6 +662,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-CAMERA-SHAKE-NOISE"),
         station: "auberean-scene::cpu::camera::the_shakes_noise_is_the_clients",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.camera.the-view-leans-as-its-frame-does",
+        says: "The view leans as the camera's frame does, riding a bone or part way through a glide; the view of a frame with no lean stands level.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CAMERA-LEAN"),
+        station: "auberean-scene::cpu::camera::the_view_leans_as_its_frame_does",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -752,6 +824,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.controls.a-move-of-the-bodys-own-ends-the-latched-run",
+        says: "A latched run ends once the player's body is making a move on its own, walking up to                what it uses or a move the server ordered, so it does not run on when the move is done.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-INPUT-MOVE-ENDS-RUN-LOCK"),
+        station: "auberean-shell::dat::session::a_move_ordered_ends_the_latched_run",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.controls.a-movement-key-begins-its-action-once",
         says: "A movement key pressed begins its action of the key map once: forward, backward, \
                the strafes, the turns (strafes in mouse look, where the left button runs), the \
@@ -759,6 +839,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DESKTOP-MOVEMENT-KEYS"),
         station: "auberean-shell::dat::controls::a_movement_key_begins_its_action_once",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.controls.a-teleport-ends-the-latched-run",
+        says: "A latched run ends when the server moves the player with a new teleport stamp, so it does not run on from where it arrives.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-TELEPORT-RUN-LOCK"),
+        station: "auberean-shell::dat::session::a_teleport_ends_the_latched_run",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -827,6 +915,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.input.a-click-that-brings-the-window-forward-is-not-heard",
+        says: "A window coming active has the devices from its next frame: a button pressed before                then is not heard, nor is that press's release.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-INPUT-FOCUS-CLICK"),
+        station: "auberean-shell::cpu::input_manager::a_click_that_brings_the_window_forward_is_not_heard",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "desktop.input.an-inactive-window-hears-no-device",
         says: "While the window is not the active one nothing hears a press or a release, the wheel, \
                mouse motion or the pointer; where the pointer went is heard when the window is \
@@ -853,6 +949,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-INPUT-SHELL-GATE"),
         station: "auberean-shell::dat::session::the_shell_passes_events_through_the_gate",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.interface.a-body-past-its-visible-distance-keeps-its-box",
+        says: "A body past its visible distance is not drawn but keeps the box what marks it stands on: the selection's name, marks and meters go on showing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-FAR-MARKS"),
+        station: "auberean-interface::dat::screens::a_body_past_its_visible_distance_keeps_its_box",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -955,6 +1059,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-CGAME4-SERVER-GONE-SCREEN"),
         station: "auberean-interface::dat::screens::a_world_server_gone_ends_the_session_on_the_disconnected_screen",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.interface.a-story-is-played-before-what-the-server-said-after-it",
+        says: "A story takes effect as it arrives, before what the server said after it: a killing arrow's hit, told by its target with its death right behind, writes its line and raises its number, while the same hit told on a target already dead shows neither.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-STORY-ORDER"),
+        station: "auberean-interface::dat::screens::a_killing_arrows_hit_is_shown_before_the_target_is_dead",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -1132,6 +1244,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.interface.the-screenshot-key-asks-for-a-screenshot",
+        says: "The key the player's key map names for screenshots asks for one when it is let go, once; the keys the map gives other jobs do not.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-SCREENSHOT-KEY"),
+        station: "auberean-interface::dat::screens::the_screenshot_key_asks_for_a_screenshot",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.interface.what-a-body-holds-is-picked-and-selected-as-itself",
         says: "What a body holds (a wielded bow) is drawn with its holder and a click on it \
                selects it as itself, its name and marks shown where it is drawn; a double press \
@@ -1167,6 +1287,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-KEYS-PRESS-PAIRS"),
         station: "auberean-shell::cpu::keys::a_key_let_go_ends_the_action_its_press_began",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.keys.a-preset-binds-and-writes-nothing",
+        says: "A key map preset is bound at once and written to no file until Apply, so Undo does not take it back.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-KEYBOARD-PRESET-LIVE"),
+        station: "auberean-shell::cpu::keys::a_preset_binds_and_writes_nothing",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -1227,6 +1355,14 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-KEYS-STACK"),
         station: "auberean-shell::cpu::keys::the_front_map_that_binds_an_input_with_its_modifiers_held_names_its_action",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.looks.a-bodys-systems-draw-at-its-whole-scale",
+        says: "The particle systems an object's effects carry draw at the object's whole scale, its                look's times its own, not its look's alone: a gateway sign's haze stays a thin rim                at its foot.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-SYSTEM-WHOLE-SCALE"),
+        station: "auberean-scene::corpus::combat::a_bodys_systems_draw_at_its_whole_scale",
+        tier: Tier::Corpus,
     },
     behaviour! {
         id: "desktop.looks.an-effects-appearance-dresses-the-body-it-plays-on",
@@ -1317,6 +1453,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-PROFILE-SCALE"),
         station: "auberean-scene::cpu::others::a_still_body_is_solid_at_its_whole_scale",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.others.an-animations-jump-lifts-another-body",
+        says: "A jump another body's animation reaches wakes that body and lifts it, with no                position sent; its hooks are still heard.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-OTHERS-ANIM-JUMP"),
+        station: "auberean-scene::cpu::others::an_animations_jump_lifts_another_body",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -1488,7 +1632,8 @@ pub static ROWS: &[Behaviour] = &[
         says: "The lights the bodies' own effects place join the frame's lights with those of the \
                objects placed with the world: a light played on another human stands with it at its \
                effect's offset for as long as the effect says (as long as the human, or a few \
-               seconds); with light source effects off, no effect places one.",
+               seconds), at the body's opacity; with light source effects off, no effect places \
+               one.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SCENE-BODY-EFFECT-LIGHTS"),
         station: "auberean-shell::dat::session::the_bodies_effects_place_lights_among_the_frames",
@@ -1527,14 +1672,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
-        id: "desktop.settings.full-screen-fills-the-monitor-at-the-size-asked-for",
+        id: "desktop.settings.full-screen-keeps-the-pictures-shape-at-the-size-asked-for",
         says: "Full screen leaves the monitor's display mode alone: the picture is drawn at the \
-               display's size and scaled to fill the monitor, and the pointer lands on the same \
-               place in the picture.",
+               display's size and scaled as large as its shape goes in the middle of the monitor, \
+               black bars around it, and the pointer lands on the same place in the picture; on a \
+               bar it is held to the picture's edge and a press there is not heard.",
         since: THIS_CLIENT,
-        divergence: "CD2-full-screen-is-borderless",
+        divergence: "CD2-full-screen-keeps-its-shape",
         evidence: Evidence::Private("AC2-EVID-FULL-SCREEN-BORDERLESS"),
-        station: "auberean-shell::cpu::settings::full_screen_fills_the_monitor_at_the_size_asked_for",
+        station: "auberean-shell::cpu::settings::full_screen_keeps_the_pictures_shape_at_the_size_asked_for",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -1575,6 +1721,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DESKTOP-DISPLAY-PREFS"),
         station: "auberean-shell::cpu::settings::the_display_and_values_read_as_the_client_writes_them",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.settings.the-lands-blending-is-read-from-the-file-and-the-line",
+        says: "The land's blending is on unless the preferences file or the command line turns it off, the line's say going over the file's.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-LANDSCAPE-BLENDING-PREF"),
+        station: "auberean-shell::cpu::settings::the_lands_blending_is_read_from_the_file_and_the_line",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -1814,6 +1968,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.world.a-body-drawn-has-a-place-on-the-screen",
+        says: "A body drawn in front of the camera has a place on the screen, the middle of \
+               its box; one behind the camera or not drawn has none.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WORLD-BODY-ON-SCREEN"),
+        station: "auberean-scene::cpu::seen::a_body_drawn_has_a_place_on_the_screen",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "desktop.world.a-landblock-the-server-sends-is-made-into-the-land",
         says: "A landblock the files lack is asked of the server when the cells' rings reach it; \
                the one it sends is read by the world as the files' own and made into the land the \
@@ -1869,6 +2032,14 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-WORLD-PRESS-BOX"),
         station: "auberean-scene::cpu::seen::a_press_finds_a_box_only_with_a_corner_on_the_screen",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.world.a-server-object-that-says-so-casts-on-the-land",
+        says: "An object the server made standing outdoors in the detailed blocks prints on the sun's shadow map when its drawing properties say it casts on the land. It prints as it stands when the light ticks and stays that way until the next tick.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-LAND-CASTERS-DYNAMIC"),
+        station: "auberean-shell::dat::session::a_server_object_that_says_so_casts_on_the_land",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "desktop.world.an-effects-decal-is-laid-where-its-object-stands",

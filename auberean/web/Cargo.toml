@@ -1,7 +1,7 @@
 [package]
 name = "auberean-web"
 description = "Auberean in a web browser: the client application in a Web Worker, reading the player's data files on the player's own machine and reaching the server over one WebSocket."
-version = "0.1.3" # Auberean's own version, shared by the client and the headless client (not the workspace's)
+version = "0.1.4" # Auberean's own version, shared by the client and the headless client (not the workspace's)
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

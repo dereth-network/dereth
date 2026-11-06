@@ -1,5 +1,6 @@
-//! The worlds a launcher shows: the world list's, then the servers the player added, each as
-//! it last said of itself (its status, or its heartbeat to the hub).
+//! The worlds a launcher shows: the world list's, then the servers the player added, then those
+//! played through a relay if the player turned them on, each as it last said of itself (its
+//! status, or its heartbeat to the hub).
 //!
 //! Every front end over this crate (the launcher's window, a web page) shows a world this way, so
 //! a world reads the same in each.
@@ -9,11 +10,13 @@ use crate::state::LauncherState;
 use crate::status::LiveStatus;
 use crate::world::{AccountModel, Emulator, EraState, Told, World, WorldState};
 
-/// Every world: the list's, then the servers the player added, as their rows say.
+/// Every world: the list's, then the servers the player added, as their rows say, then those
+/// played through a relay ([`crate::relayed`]).
 pub fn all<'a>(list: &'a [World], state: &'a LauncherState) -> impl Iterator<Item = World> + 'a {
     list.iter()
         .cloned()
         .chain(state.custom_worlds.iter().map(|c| c.to_world()))
+        .chain(crate::relayed::worlds(state))
 }
 
 /// Whether a server the player added (`added`, as shown) is a world of the list (`listed`, as
@@ -479,7 +482,7 @@ mod tests {
                 "--era",
                 "infiltration",
                 "--era-features",
-                "4:0002deffffffff00"
+                "5:0002def7fefff700"
             ]
         );
         assert_eq!(
@@ -526,7 +529,7 @@ mod tests {
                 "--era",
                 "infiltration",
                 "--era-features",
-                "4:0000dfffffffff00",
+                "5:0000dff7fefff700",
                 "--logon-version",
                 "1802",
                 "--world-profile",

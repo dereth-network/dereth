@@ -19,6 +19,11 @@ pre-release leaves it for the final release, and its notes show it as it is);
   number over TCP (`[dat_overlay] bulk_port` to change it, `bulk = false` to turn it off); a client
   that cannot reach it is patched as before.
 
+## 0.3.10 (2026-11-05)
+- New relay that lets Dereth play an ac1999 server.
+- Fixed idle WebSocket connections shutting out browser players.
+- Infiltration worlds now leave out what came after February 2005.
+
 ## 0.3.9 (2026-11-05)
 
 - Fixed a crash wielding an item that requires a skill the character doesn't have.

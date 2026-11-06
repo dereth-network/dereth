@@ -316,3 +316,66 @@ fn what_a_physics_object_is_asked_goes_to_its_body_in_order() {
         Status::Crash
     );
 }
+
+/// An object's position is its own: another object's cell and place while it is in the world, the
+/// player's body for the player, and the zero position for one with no place.
+///
+/// Behaviour: script.model.an-objects-position-is-its-own
+#[test]
+fn an_objects_position_is_its_own() {
+    const INTERFACE: u32 = 0x7F;
+    let mut b = Bench::new();
+    b.host.model.player = Some(ITEM);
+    b.host.my_position = Some((0x0202_0002, [7.0, 8.0, 9.0], [1.0, 0.0, 0.0, 0.0]));
+    b.host.model.object_mut(HOLDER).unwrap().place = Some(Place {
+        cell: 0x0101_0001,
+        origin: Vec3::new(1.0, 2.0, 3.0),
+        heading_motion: 0,
+        position_stamp: 1,
+        teleport_stamp: 1,
+        force_position_stamp: 1,
+        time: 0.0,
+        flags: 0,
+        velocity: Vec3::new(0.0, 0.0, 0.0),
+    });
+    b.host.model.object_mut(HOLDER).unwrap().in_world = true;
+    let position = |b: &mut Bench, receiver: u32| {
+        let (status, slots) = b.call(INTERFACE, 0x42, receiver, &[], 1);
+        assert_eq!(status, Status::Success);
+        match b.vm.heap.native(slots[0].0).expect("a position") {
+            NativeObject::Position { cell, frame } => {
+                (*cell, [frame[0], frame[1], frame[2]].map(f32::from_bits))
+            }
+            other => panic!("{other:?}"),
+        }
+    };
+    assert_eq!(
+        position(&mut b, HOLDER_REF),
+        (0x0101_0001, [1.0, 2.0, 3.0]),
+        "another's own"
+    );
+    assert_eq!(
+        position(&mut b, ITEM_REF),
+        (0x0202_0002, [7.0, 8.0, 9.0]),
+        "the player's"
+    );
+    assert_eq!(position(&mut b, ABSENT_REF), (0, [0.0; 3]), "no place");
+}
+
+/// An object in a pack has a body as one in the world does: what its scripts set of it as it is
+/// made stays for when it comes out. One the client was not sent has none.
+///
+/// Behaviour: script.model.an-object-in-a-pack-keeps-what-its-scripts-set-of-its-body
+#[test]
+fn an_object_in_a_pack_keeps_what_its_scripts_set_of_its_body() {
+    let mut b = Bench::new();
+    b.host.model.object_mut(ITEM).unwrap().in_world = false;
+    let scale = (2.0_f32.to_bits(), tag::MIXED);
+    b.call(PHYSICS_OBJECT, 0x07, ITEM_REF, &[scale], 0);
+    assert_eq!(b.host.bodies[&ITEM].jump_scale, Some(2.0));
+    b.call(PHYSICS_OBJECT, 0x07, ABSENT_REF, &[scale], 0);
+    assert!(
+        !b.host.bodies.contains_key(&ABSENT),
+        "no body, nothing kept"
+    );
+}

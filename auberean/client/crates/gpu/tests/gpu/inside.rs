@@ -140,3 +140,51 @@ fn the_fog_paints_the_background_where_rooms_are_left_out() {
     assert!(fog_colored(&fogged) > 500);
     assert_eq!(fog_colored(&clear), 0);
 }
+
+/// The fog's veil over the sky is drawn with the sky: in rooms with no view out it paints nothing,
+/// however heavy the fog outside, where the walk lets the background show.
+///
+/// Behaviour: draw.inside.no-sky-drawn-no-veil-over-it
+#[test]
+fn rooms_with_no_view_out_show_no_veil_of_the_fog_outside() {
+    let r = &install().records;
+    let region = r.region().expect("the region");
+    let mut builder = SceneBuilder::new(r, &region);
+    let block = (0x69, 0x67);
+    let spot = Spot {
+        block,
+        position: Vec3::new(109.75, 112.97, 100.8),
+        heading: 0.0,
+        pitch: 0.0,
+        time_of_day: 0.5,
+        day: None,
+    };
+    let (mut frame, _) = builder.inside_frame(&spot, 60.0, block, 0x0100);
+    let mut rooms = (*frame.rooms.clone().expect("the rooms")).clone();
+    rooms.fog_color = [0.0, 0.0, 0.0, 1.0];
+    for (low, room) in &mut rooms.cells {
+        if *low != rooms.root {
+            room.fog_cut = Some(0.0);
+        }
+    }
+    frame.rooms = Some(std::sync::Arc::new(rooms));
+    frame.look_in = Default::default();
+    frame.objects.retain(|b| matches!(b.cull, Cull::Cell(_)));
+    let mut light = frame.outside.unwrap_or(frame.light);
+    light.fog_sky = 0.9;
+    light.fog_color = Color::new(0.0, 1.0, 0.0, 1.0);
+    frame.outside = Some(light);
+    frame.light.fog_sky = 0.9;
+    frame.light.fog_color = Color::new(0.0, 1.0, 0.0, 1.0);
+    let mut device = renderer();
+    let mut load = |id: u32| auberean_draw::picture::load(r, id);
+    let p = checked(&mut device, |d| {
+        d.render(&frame, 320, 240, &mut load).expect("read back")
+    });
+    let veiled = p
+        .rgba
+        .chunks(4)
+        .filter(|c| c[1] > 100 && c[0] < 40 && c[2] < 40)
+        .count();
+    assert_eq!(veiled, 0, "pixels veiled in the fog outside");
+}

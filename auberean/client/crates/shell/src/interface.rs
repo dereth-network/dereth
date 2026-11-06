@@ -62,6 +62,8 @@ pub enum Request {
     OpenAssistancePage,
     /// Close the program.
     Quit,
+    /// Save a screenshot of this frame.
+    Screenshot,
     /// Set the camera: the interface's camera panel decides mouse look and first person, and
     /// zooms by the wheel over the world.
     Camera(CameraRequest),
@@ -83,6 +85,8 @@ pub enum Request {
     /// The key maps the player applied on the key map screen, each a list of an input and its
     /// action (keys alone, with Shift, with Ctrl): written to their files and bound from now on.
     KeyMaps([Vec<(u32, u32)>; 3]),
+    /// The player's three key maps bound from now on, their files left as they are.
+    BindKeyMaps([Vec<(u32, u32)>; 3]),
     /// Show the game on the screen this way from now on.
     Presentation(crate::settings::Presentation),
     /// Preferences to keep in the preferences file now: each one's section, key and value as the

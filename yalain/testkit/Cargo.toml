@@ -1,7 +1,7 @@
 [package]
 name = "yalain-testkit"
 description = "A whole server on a virtual clock and an in-memory network, with clients that speak the wire: for the server's tests and the replay of recorded logins."
-version = "0.2.0" # Yalain's own version, shared by every yalain-* crate (not the workspace's)
+version = "0.2.1" # Yalain's own version, shared by every yalain-* crate (not the workspace's)
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -19,6 +19,7 @@ retail-dats = [
     "dep:auberean-client-sdk",
     "dep:auberean-dat",
     "dep:auberean-script",
+    "dep:dereth-dat",
     "dep:yalain-world-db",
 ]
 # Tier switch: selects the `network` test binary, the Dereth Network end to end on loopback: the

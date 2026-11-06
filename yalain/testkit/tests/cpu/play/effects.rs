@@ -540,6 +540,8 @@ fn a_quest_steps_effects_come_after_its_gifts_and_before_its_update() {
         effects_last: false,
         wants: None,
         fellows: false,
+        levels: None,
+        xp_share: 0.0,
         to: None,
     };
     let world = *h

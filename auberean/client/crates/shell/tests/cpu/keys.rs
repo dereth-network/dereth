@@ -357,3 +357,19 @@ fn applying_writes_the_three_files_and_binds_them() {
     assert_eq!(keys.stack, before);
     let _ = LEFT_SHIFT;
 }
+
+/// A preset's maps are bound at once and written to no file.
+///
+/// Behaviour: desktop.keys.a-preset-binds-and-writes-nothing
+#[test]
+fn a_preset_binds_and_writes_nothing() {
+    let mut host = TestHost::default();
+    let mut keys = start(&mut host);
+    let files = host.files.clone();
+    let w = Key::W.input_word();
+    keys.bind([&[(w, BACKWARD)], &[(w, FORWARD)], &[]]);
+    assert_eq!(keys.stack.action(w, 0), Some(BACKWARD));
+    assert_eq!(keys.stack.action(w, META_SHIFT), Some(FORWARD));
+    assert_eq!(keys.stack.layers().len(), 4, "in place of the three");
+    assert_eq!(host.files, files, "nothing written");
+}

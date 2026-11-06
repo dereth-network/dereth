@@ -132,8 +132,7 @@ pub fn show_name<S: yalain_store::Store>(
         value: shown,
     });
     let me = p.character;
-    crate::progress::private(net, world, &m);
-    crate::places::to_knowers(s, net, me, &m);
+    crate::places::to_all_knowing(s, net, me, &m);
 }
 
 /// Make a player's encoded qualities name the admin template's record, or the player's.
@@ -371,6 +370,10 @@ pub fn content_object(id: u64, o: &yalain_content::ContentObject) -> CreateObjec
             table_id,
             ..StringInfo::default()
         };
+    }
+    if let Some(n) = &d.name_text {
+        weenie.mask |= WeenieDesc::NAME;
+        weenie.name = StringInfo::literal(n);
     }
     let at = placement(&StoredPosition {
         cell: o.cell,

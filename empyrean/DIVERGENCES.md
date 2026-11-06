@@ -487,8 +487,8 @@ the evidence behind each row. Edit the register, not this file.
 | V480 | era | In Launch, allegiances have no message of the day or broadcasts, as before June 2001. | `empyrean-testkit::all::interactions::launch_gates::allegiance_administration::*` |
 | V481 | era | In Launch, an oath of allegiance binds at once, without asking the patron, as before March 2002. | `empyrean-testkit::all::social::allegiance::a_launch_oath_binds_without_asking_the_patron` |
 | V482 | era | In Launch, no one can be booted from an allegiance, as before April 2002. | `empyrean-testkit::all::interactions::launch_gates::allegiance_administration::*` |
-| V483 | era | In Launch, allegiances have no officers, locks or bans, as before May 2004. | `empyrean-testkit::all::interactions::launch_gates::allegiance_administration::*` |
-| V484 | era | In Launch, allegiances cannot be named. | `empyrean-testkit::all::interactions::launch_gates::allegiance_administration::*` |
+| V483 | era | In Launch, allegiances have no officers or bans, as before May 2004; before May 2006 they have no officer titles, lock or gag. | `empyrean-testkit::all::interactions::launch_gates::allegiance_administration::*` |
+| V484 | era | Before May 2006, allegiances cannot be named. | `empyrean-testkit::all::interactions::launch_gates::allegiance_administration::*` |
 | V485 | era | In Launch, every fellowship shares experience, as before December 2000. | `empyrean-testkit::all::interactions::launch_gates::fellowships_appraisal_and_notes::a_launch_fellowship_shares_experience_whatever_its_founder_asks` |
 | V486 | era | In Launch, a trade note sells at 10% over its value and cashes in full only at the vendor that sold it. | `empyrean-testkit::all::interactions::launch_gates::fellowships_appraisal_and_notes::a_launch_trade_note_cashes_in_full_only_at_its_issuer` |
 | V487 | era | In Launch, appraising a guarded item takes the appraisal skill for its kind, as before May 2002. | `empyrean-testkit::all::interactions::launch_gates::fellowships_appraisal_and_notes::a_launch_appraisal_of_a_guarded_item_needs_the_skill` |

@@ -123,6 +123,31 @@ fn an_action_ramps_in_plays_once_and_ends() {
     assert!(tr.start_idle, "the idles start again");
 }
 
+/// What an object does of itself is not told to the network, so a description that does not list
+/// it leaves it alone; what it was asked to do is.
+///
+/// Behaviour: animation.behaviors.what-an-object-does-of-itself-is-not-the-networks
+#[test]
+fn a_behavior_an_object_does_of_itself_is_not_among_those_told_to_the_network() {
+    let t = table();
+    let mut o = object();
+    let mut tr = Behaviors::new();
+    tr.init(&t, E, M, None, &mut o);
+    assert!(tr.do_autonomous_behavior(&t, ACTION, &mut o));
+    tr.update(&t, 0.1, &mut o);
+    assert!(tr.track(ACTION).is_some_and(|t| t.weight > 0.0), "it plays");
+    assert!(
+        tr.network_params().iter().all(|p| p.behavior != ACTION),
+        "done of itself"
+    );
+    assert!(tr.do_behavior(&t, &Params::behavior(OTHER), &mut o));
+    tr.update(&t, 0.1, &mut o);
+    assert!(
+        tr.network_params().iter().any(|p| p.behavior == OTHER),
+        "asked for"
+    );
+}
+
 /// Playing a behavior on a layer another holds stops the holder (whoever waits on it hears it was
 /// stopped) and takes the layer; a behavior already playing is refused.
 ///

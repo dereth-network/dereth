@@ -347,6 +347,7 @@ pub fn effect_shown(
                 .spellcraft_shown
                 .then_some(dereth_primitives::num::to_i32(spellcraft)),
             amount: None,
+            ends: None,
         });
     };
     let at = magnitude.at(spellcraft).unwrap_or(0.0);
@@ -367,6 +368,7 @@ pub fn effect_shown(
         table: shown.table,
         spellcraft: None,
         amount: Some(amount),
+        ends: None,
     })
 }
 
@@ -378,12 +380,12 @@ pub fn show<S: yalain_store::Store>(
     v: &mut crate::profile::ItemView,
 ) {
     use crate::profile::When;
+    v.binds = t.binds_on_use;
     if let Some(m) = t.own.made {
         apply_to_view(&m, &t.facts, v);
         if let (Some(now), Some(d)) = (t.durability, v.durability.as_mut()) {
             d.0 = i32::try_from(now).unwrap_or(i32::MAX);
         }
-        v.binds = t.binds_on_use;
         if m.craft_needed.is_some() {
             let worn: Vec<crate::effect_defs::EffectDef> = t
                 .bonuses
@@ -452,8 +454,7 @@ pub fn apply_to_view(m: &Made, facts: &yalain_content::Facts, v: &mut crate::pro
     v.vigor_changed = m.vigor_changed;
     if let (Some(w), Some(delay), Some(vigor)) = (m.damage, m.delay, m.vigor) {
         v.weapon = Some((w.0, w.1, delay, vigor));
-        // A shield's stats are its weapon's, with its rating, under their own heading.
-        if v.armor.take().is_some() {
+        if v.shield.is_some() {
             v.shield = m.armor;
         }
     } else if let (Some(rating), Some(delay)) = (m.armor, m.delay) {

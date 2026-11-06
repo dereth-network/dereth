@@ -216,6 +216,57 @@ fn a_creatures_body_is_its_looks_setups() {
     );
 }
 
+/// A taunt reads at the low end of the range its data gives: Growl a twentieth of a creature's
+/// health, Ruse's and Taunt Force's a hundredth, Challenge's 0.15, Cragstone's Rebuke a quarter;
+/// a detaunt the same below nothing, Blinding Arrow's and Challenge's own.
+/// Behaviour: server.creatures.a-taunt-counts-at-the-draw
+#[test]
+fn a_taunt_reads_at_the_low_end_of_its_share_of_a_creatures_health() {
+    let p = Portal::open();
+    let wanted = [
+        (0x7000_090D, 0.05),
+        (0x7000_1FE3, 0.05),
+        (0x7000_07C9, 0.01),
+        (0x7000_1EDB, 0.01),
+        (0x7000_0872, 0.15),
+        (0x7000_1F3E, 0.25),
+        (0x7000_1F55, -0.10),
+        (0x7000_1F7A, -0.05),
+    ];
+    let t = p.effects(&wanted.map(|w| w.0));
+    for (state, share) in wanted {
+        match t.get(state).map(|d| &d.kind) {
+            Some(Kind::Taunt(s)) => assert!((s - share).abs() < 1e-6, "{state:08X}: {s}"),
+            other => panic!("{state:08X}: {other:?}"),
+        }
+    }
+}
+
+/// A recipe's attune outcome reads with the ordinal it names and its spinners: Armor Dyeing attunes
+/// what it dyes at any spinner of its own, the Atlan Bow its product at 45 to 85.
+/// Behaviour: server.craft.made-item-attuned
+#[test]
+fn a_recipes_attune_outcome_reads_with_its_ordinal_and_spinners() {
+    let p = Portal::open();
+    let c = p.crafting(&[], &[0x6F00_56B2, 0x6F00_1CB2]);
+    let attunes = |recipe: u32| -> Vec<(u32, (u32, u32))> {
+        c.recipes[&recipe]
+            .checks
+            .iter()
+            .flat_map(|k| k.outcomes.iter())
+            .flat_map(|o| o.actions.iter())
+            .filter_map(|a| match a {
+                Action::Attune { ordinal, spinners } => Some((*ordinal, *spinners)),
+                _ => None,
+            })
+            .collect()
+    };
+    let dyeing = attunes(0x6F00_56B2);
+    assert!(!dyeing.is_empty() && dyeing.iter().all(|a| *a == (1, (1, 150))));
+    let bow = attunes(0x6F00_1CB2);
+    assert!(bow.contains(&(10_001, (45, 85))), "{bow:?}");
+}
+
 /// The Small Sword reads as the data defines it: a spinner from 1 to 100, needing the crafting
 /// workshop's effect; at item level 1 only its iron is asked for, 26 of it, used up by its action's
 /// table; coal comes in at 20 and steel at 35, in their tables' amounts.
@@ -426,7 +477,11 @@ fn the_summoning_skills_pets_read_as_the_data_defines_them() {
         panic!("not a pet: {lasher:?}")
     };
     assert_eq!((*class, lifetime.is_empty()), (16, true));
-    for k in yalain_world::pets::KINDS {
+    // A mercenary's kind is known by its contract: no effect of the data summons it.
+    for k in yalain_world::pets::KINDS
+        .into_iter()
+        .filter(|k| !yalain_world::pets::is_contract(k.effect))
+    {
         assert!(
             matches!(t.get(k.effect).map(|d| &d.kind), Some(Kind::Pet { .. })),
             "{:08X}",
@@ -559,6 +614,25 @@ fn the_effects_items_put_on_their_wearers_read_from_their_names() {
         [0x6F00_1F3D, 0x6F00_1961, 0x6F00_1964].map(|s| d(s).categories()),
         [1, 9, 19]
     );
+}
+
+/// The items naming a concealing effect whose class is read from its words name those states: the
+/// fanatics' disguise, the badges of the two sides; the amulet of safe passage's name resolves to
+/// nothing, so it puts nothing on.
+/// Behaviour: server.creatures.an-effects-words-name-its-class
+#[test]
+fn the_items_of_the_effects_named_for_a_class_name_their_states() {
+    let p = Portal::open();
+    let states = |l: Option<&Vec<yalain_world::item_use::UsageEffect>>| -> Vec<u32> {
+        l.map(|l| l.iter().map(|e| e.state).collect())
+            .unwrap_or_default()
+    };
+    let used = p.item_uses(&[0x4700_1281, 0x4700_1518, 0x4700_1516]);
+    assert_eq!(states(used.get(&0x4700_1281)), [0x6F00_19F1]);
+    assert_eq!(states(used.get(&0x4700_1518)), [0x6F00_1C77]);
+    assert_eq!(states(used.get(&0x4700_1516)), [0x6F00_1C78]);
+    let worn = p.worn_effects(&[0x4700_1668]);
+    assert!(states(worn.get(&0x4700_1668)).is_empty());
 }
 
 /// The counters read with the effect each answers with, and its chance; the wards with what they
@@ -878,8 +952,8 @@ fn immolation_and_bladeskin_put_their_effects_on_their_user() {
 }
 
 /// Plan B, Immolation and Taunt Force answer what comes at them, of any class and always: Plan B and
-/// Immolation with fire over time. Taunt Force has no time to last and its Challenge does nothing
-/// here.
+/// Immolation with fire over time. Taunt Force has no time to last, so its Challenge doesn't come;
+/// the Challenge itself is a taunt.
 /// Behaviour: server.effects.replies-read
 #[test]
 fn the_effects_that_answer_what_comes_at_them_read_as_the_data_defines_them() {
@@ -905,10 +979,7 @@ fn the_effects_that_answer_what_comes_at_them_read_as_the_data_defines_them() {
             Kind::VitalOverTime { .. }
         ));
     }
-    assert!(matches!(
-        t.get(0x7000_1EDB).expect("read").kind,
-        Kind::Other
-    ));
+    assert_eq!(t.get(0x7000_1EDB).expect("read").kind, Kind::Taunt(0.01));
 }
 
 /// A recipe that binds its product names it by the product's ordinal over the whole spinner range
@@ -1463,4 +1534,176 @@ fn immolation_turns_an_alchemists_basic_attacks_fiery() {
     assert!(rating(&h) >= plain + 40.0, "{plain} to {}", rating(&h));
     apply(&mut h, DARK_SIDE);
     assert_eq!(told(&mut h), [1374, 1375, 1376]);
+}
+
+/// The Illuminated Drudge's curse as the install says: it lasts four hours and moves no quest; the
+/// other death effect of the template moves a quest.
+/// Behaviour: server.creatures.death-effect-on-killer
+#[test]
+fn the_illuminated_drudges_curse_lasts_four_hours() {
+    let p = Portal::open();
+    let drudge = 0x4700_2340;
+    let named = p.death_effects(&[drudge]);
+    let states: Vec<u32> = named[&drudge].iter().map(|e| e.state).collect();
+    let table = p.effects(&states);
+    let lasting: Vec<f32> = states
+        .iter()
+        .filter_map(|s| table.get(*s))
+        .filter(|d| d.lasts() && !matches!(d.kind, Kind::Quest { .. }))
+        .map(|d| d.duration.at(1.0).expect("a duration"))
+        .collect();
+    assert_eq!(lasting, vec![14_400.0], "{states:08X?}");
+}
+
+/// A template that names nothing itself has what its class's code says: boots their armor, delay
+/// and race; a weapon its damage, variance, speed and vigor; both their value.
+/// Behaviour: server.items.class-properties
+#[test]
+fn a_template_with_no_properties_has_what_its_class_says() {
+    let p = Portal::open();
+    let boots = p.template(0x4700_0D69).props;
+    assert_eq!(boots.int("Item_ArmorLevel"), Some(10));
+    assert_eq!(boots.int("Item_CombatDelay"), Some(4));
+    assert_eq!(boots.word("Usage_RequiredRace"), Some(1));
+    assert_eq!(boots.int("Item_Value"), Some(10), "the armor classes' base");
+    let starter = p.template(0x4700_051B).props;
+    assert_eq!(starter.int("Weapon_Damage"), Some(9));
+    assert!((starter.float("Weapon_Variance").expect("a variance") - 0.24).abs() < 1e-6);
+    assert_eq!(starter.int("Weapon_Speed"), Some(70));
+    assert_eq!(starter.int("Item_Value"), Some(1));
+    let named = p.template(0x4700_14D0).props;
+    assert_eq!(named.int("Weapon_Damage"), Some(240));
+    assert_eq!(named.int("Item_Value"), Some(50));
+    assert_eq!(
+        p.template(0x4700_2FD2).props.int("Item_ArmorLevel"),
+        None,
+        "a person's class says none"
+    );
+}
+
+/// A class's own value stands, though it be nothing and its base sets one; a class that sets none
+/// takes its base's.
+/// Behaviour: server.items.class-properties
+#[test]
+fn a_classs_value_is_its_own_though_it_be_nothing_else_its_bases() {
+    let p = Portal::open();
+    let lib = p.library();
+    let of = |name: &str| {
+        let package = lib.package_id(name).expect("a package");
+        yalain_world_db::install::class_properties(&lib, package)
+            .into_iter()
+            .find(|(n, _)| *n == "Item_Value")
+            .map(|(_, v)| v)
+    };
+    use yalain_content::Prop;
+    assert_eq!(of("DrumTumerokStarter"), Some(Prop::Int(1)), "its own");
+    assert_eq!(
+        of("PotionTrainingHallHealing"),
+        Some(Prop::Int(10)),
+        "its base's"
+    );
+    assert_eq!(
+        of("DoctrineDominion"),
+        Some(Prop::Int(0)),
+        "nothing, its own"
+    );
+}
+
+/// Each glyph is named, though its entity says nothing and only its qualities record does, as each
+/// key's answer asks of it; and so is a piece of treasure kept the same way.
+/// Behaviour: server.places.a-keys-answer-names-it
+#[test]
+fn a_glyph_and_treasure_are_named_though_only_their_qualities_say() {
+    let p = Portal::open();
+    for (t, _) in yalain_world::usable::vaults::GLYPH_KEYS {
+        assert!(p.template(t).facts.name.is_some(), "{t:#x}");
+    }
+    assert_eq!(
+        p.template(0x4700_10A2).facts.name.map(|n| n.0),
+        Some(0xA860_7CEC)
+    );
+}
+
+/// A template whose least level is only its class's isn't one that sets it, as one whose entity says.
+/// Behaviour: server.loot.treasure-own-properties-over-a-class
+#[test]
+fn only_a_templates_own_entity_sets_its_least_level() {
+    let p = Portal::open();
+    for t in [0x4700_1DA1, 0x4700_0E9C] {
+        let template = p.template(t);
+        assert!(template.props.int("Usage_MinLevel").is_some(), "{t:#x}");
+        assert!(!template.props.sets_least_level(), "{t:#x}");
+    }
+    assert!(p.template(0x4700_2117).props.sets_least_level());
+}
+
+/// A corpse's armor and weapon of such templates are treasure of the creature's level: a least level
+/// of its own, and numbers by it; made anew, any other keeps the least level its class says.
+/// Behaviour: server.loot.treasure-own-properties-over-a-class
+#[test]
+fn a_corpses_armor_and_weapon_of_a_class_with_a_least_level_are_made_by_the_creatures_level() {
+    use yalain_testkit::Harness;
+    use yalain_world::things::Mode;
+    let p = Portal::open();
+    for t in [0x4700_1DA1, 0x4700_0E9C] {
+        let template = p.template(t);
+        let mut h = Harness::new();
+        h.add_creatures(1);
+        h.server
+            .treasure
+            .equipment
+            .insert(template.description.package);
+        h.server.catalog.insert(template.clone());
+        for profile in &mut h.server.loot.profiles {
+            profile.items = vec![(t, 1)];
+            profile.counts = vec![0.0, 1.0];
+        }
+        let (_, me) = h.player_in_world("one", "Kestrel");
+        h.run(20);
+        let beetle = h
+            .server
+            .things
+            .by_id
+            .values()
+            .find(|x| x.creature.as_ref().is_some_and(|c| c.mode != Mode::Dead))
+            .map(|x| x.id)
+            .expect("a beetle");
+        let clock = h.clock();
+        yalain_world::combat::hurt_creature(
+            &mut h.server,
+            &mut h.net,
+            beetle,
+            me,
+            1_000_000,
+            clock,
+        );
+        assert!(
+            h.run_until(200, |h| h
+                .server
+                .things
+                .by_id
+                .values()
+                .any(|x| x.template == t)),
+            "{t:#x} dropped"
+        );
+        let own = h
+            .server
+            .things
+            .by_id
+            .values()
+            .find(|x| x.template == t)
+            .expect("in the corpse")
+            .own;
+        let least = own.min_level.expect("its own least level");
+        assert!((2..=5).contains(&least), "{t:#x} at level 2: {least}");
+        assert!(own.made.is_some(), "{t:#x} has numbers of its level");
+        let plain = yalain_world::inventory::make_item(&mut h.server, t, 1, 0).expect("made");
+        let thing = h.server.things.get(plain).expect("made");
+        assert_eq!(thing.own.min_level, None);
+        let view = yalain_world::requests::item_view(&h.server, thing);
+        assert_eq!(
+            i64::from(view.min_level),
+            template.props.int("Usage_MinLevel").expect("the class's")
+        );
+    }
 }

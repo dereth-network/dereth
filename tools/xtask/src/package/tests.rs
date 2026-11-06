@@ -36,6 +36,7 @@ fn the_allowlist_is_the_binaries_the_documents_and_the_notices() {
             "SETUP.md",
             "THIRD-PARTY-LICENSES.html",
             "empyrean-import",
+            "empyrean-relay",
             "empyrean-server",
             "empyrean.toml.example",
         ]
@@ -43,6 +44,7 @@ fn the_allowlist_is_the_binaries_the_documents_and_the_notices() {
     let windows = allowlist(target(WINDOWS));
     assert!(windows.contains(&"empyrean-server.exe".to_owned()));
     assert!(windows.contains(&"empyrean-import.exe".to_owned()));
+    assert!(windows.contains(&"empyrean-relay.exe".to_owned()));
     assert!(!windows.contains(&"empyrean-server".to_owned()));
 }
 

@@ -84,6 +84,9 @@ pub struct Creature {
     pub unreached: Vec<u64>,
     /// This fight it stands and shoots (else it closes in and strikes).
     pub ranged: bool,
+    /// It is running at a player, and goes on to where it stops once within reach: where the player
+    /// was at its last step.
+    pub closing: Option<StoredPosition>,
     /// The specials it used lately, each with when it may be used again (world seconds).
     pub barred: Vec<(u32, f64)>,
     /// When it next looks about for a player to attack (once a second, at its own moment).
@@ -96,6 +99,9 @@ pub struct Creature {
     pub opening: Option<f64>,
     /// The harm players did it lately: when (world seconds), who (character id), how much.
     pub harm: Vec<(f64, u64, i64)>,
+    /// What taunts did to its mind lately: when (world seconds), who (character id), how much, in
+    /// harm's terms (less than nothing for a detaunt).
+    pub taunts: Vec<(f64, u64, i64)>,
     /// The attack (its due time) at which it last thought again about whom it fights.
     pub considered: f64,
     /// Since when (world seconds) it has fought its present target.
@@ -155,6 +161,16 @@ pub struct Node {
     /// It stands in the world for anyone to mine (a vein), not summoned: its units are drawn for
     /// each miner, and a while after it goes a new one stands where it stood.
     pub public: bool,
+}
+
+/// An effect a skill put on an item for a while.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TimedEffect {
+    /// What it is (its saved state), and the spellcraft it was cast at.
+    pub state: u32,
+    pub spellcraft: f32,
+    /// When it runs out (game time).
+    pub until: f64,
 }
 
 /// One thing.
@@ -226,6 +242,8 @@ pub struct Thing {
     pub own: crate::treasure::Own,
     /// Its own permanent effects (a made item's): each saved state and the spellcraft it is at.
     pub enchantments: Vec<(u32, f32)>,
+    /// The effects skills put on it for a while, at most one of each.
+    pub timed: Vec<TimedEffect>,
     /// It is a bow, made strung.
     pub strung: bool,
 }
@@ -276,6 +294,7 @@ impl Thing {
             binds_on_use: false,
             own: crate::treasure::Own::default(),
             enchantments: Vec::new(),
+            timed: Vec::new(),
             strung: crate::skill_use::is_bow(t),
         }
     }

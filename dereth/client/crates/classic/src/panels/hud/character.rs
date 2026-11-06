@@ -364,11 +364,23 @@ mod tests {
             "Strength augmentations: 2\n",
             "without luminance the header goes and the augmentations stay"
         );
+        let mut with_augmentations = world(EraId::Infiltration, None);
+        with_augmentations
+            .era
+            .as_mut()
+            .expect("the world has an era")
+            .announced_features
+            .set("augmentations", true);
         assert_eq!(
-            augmentation_text(&world(EraId::Infiltration, None), &Rows),
+            augmentation_text(&with_augmentations, &Rows),
             "Strength augmentations: 2
 ",
-            "an era with augmentations to buy keeps what was bought"
+            "a world with augmentations to buy keeps what was bought"
+        );
+        assert_eq!(
+            augmentation_text(&world(EraId::Infiltration, None), &Rows),
+            "",
+            "an era before augmentations shows no section"
         );
         assert_eq!(
             augmentation_text(&world(EraId::Launch, None), &Rows),

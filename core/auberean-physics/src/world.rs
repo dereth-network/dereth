@@ -71,6 +71,10 @@ struct Entry {
     shape: Arc<Shape>,
     cells: Vec<CellId>,
     is_static: bool,
+    /// It can be moved: a body's state says so, and all others can.
+    mobile: bool,
+    /// It reports its collisions: a body's state says so, and all others do.
+    reporting: bool,
     /// The host says bodies pass through it.
     passable: bool,
     /// The physics types it is.
@@ -350,6 +354,8 @@ impl World {
                 shape: Arc::clone(shape),
                 cells: Vec::new(),
                 is_static: object.is_static,
+                mobile: true,
+                reporting: true,
                 passable: object.passable,
                 physics_type: PhysicsTypes::default(),
                 collisions: None,
@@ -474,6 +480,20 @@ impl World {
     pub fn set_passable(&mut self, key: BodyKey, passable: bool) {
         if let Some(e) = self.entries.get_mut(&key) {
             e.passable = passable;
+        }
+    }
+
+    /// Whether entry `key` can be moved.
+    pub fn set_mobile(&mut self, key: BodyKey, mobile: bool) {
+        if let Some(e) = self.entries.get_mut(&key) {
+            e.mobile = mobile;
+        }
+    }
+
+    /// Whether entry `key` reports its collisions.
+    pub fn set_reporting(&mut self, key: BodyKey, on: bool) {
+        if let Some(e) = self.entries.get_mut(&key) {
+            e.reporting = on;
         }
     }
 
@@ -977,6 +997,8 @@ impl World {
                         shape: Arc::new(shape),
                         cells: reached,
                         is_static: true,
+                        mobile: true,
+                        reporting: true,
                         passable: false,
                         physics_type: PhysicsTypes::default(),
                         collisions: None,
@@ -1150,7 +1172,8 @@ impl ObjectCollisions for View<'_> {
     /// tested, the pair passing through each other making it an obstruction that does not block.
     /// A missile that goes off near this object hits it, without its shape, anywhere within its
     /// reach of it. A hit (not stepping down) is recorded; one passed through does not stop the
-    /// move, and when it is scenery the mover takes on its physics types.
+    /// move, and when it is scenery the mover takes on its physics types. An object with a physics
+    /// tree at an uneven scale is never met at all.
     // D2-06214
     fn find_obj_collisions(
         &self,
@@ -1169,6 +1192,9 @@ impl ObjectCollisions for View<'_> {
         let (Some(e), Some(o)) = (self.entries.get(&key), ctx.objects.get(other)) else {
             return TransitionState::Ok;
         };
+        if o.state.has_physics_bsp() && crate::object::uneven(e.tree_scale) {
+            return TransitionState::Ok;
+        }
         let this = party(self.entries, key).unwrap_or(Party {
             id: 0,
             physics_type: PhysicsTypes::default(),
@@ -1178,7 +1204,7 @@ impl ObjectCollisions for View<'_> {
         let mut by_temporary = false;
         let inter =
             e.passable || solid::interpermeable(&this, mover.as_ref(), false, &mut by_temporary);
-        let moves = !e.is_static;
+        let moves = !e.is_static && e.mobile;
         if self.synchronized && !moves {
             return TransitionState::Ok;
         }
@@ -1353,8 +1379,12 @@ impl CollisionHost for Host<'_> {
             e.terrain = Some(terrain);
         }
     }
+    // D2-06292
     fn reports_collisions(&self) -> bool {
-        true
+        self.world
+            .entries
+            .get(&self.key)
+            .is_none_or(|e| e.reporting)
     }
     fn physics_material(&self, id: u32) -> Option<PhysicsMaterial> {
         self.world.materials.get(&id).cloned()

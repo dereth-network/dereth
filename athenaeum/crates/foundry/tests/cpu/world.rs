@@ -25,6 +25,14 @@ fn write_all(dir: &std::path::Path, files: &yalain_world_db::Files) {
 }
 
 #[test]
+fn a_base_that_names_no_release_is_refused() {
+    for tag in ["../v0.1.0", "..", "v0.1.0/../../x", "v1"] {
+        let why = world::base_dir(Some(tag), None).expect_err(tag);
+        assert!(why.contains("is not a release"), "{why}");
+    }
+}
+
+#[test]
 fn a_new_worlds_key_is_made_from_its_folders_name() {
     assert_eq!(key_from("My World"), "my-world");
     assert_eq!(key_from("Arwic (fill) 2"), "arwic-fill-2");
@@ -47,7 +55,7 @@ fn a_new_world_lies_over_the_database_with_an_empty_pack_to_fill() {
     // Its repository keeps out what playing and building it leaves beside it.
     let ignored = std::fs::read_to_string(dir.join(".gitignore")).unwrap();
     let lines: Vec<&str> = ignored.lines().filter(|l| !l.starts_with('#')).collect();
-    assert_eq!(lines, [".playtest/", "build/"]);
+    assert_eq!(lines, [".playtest/", "build/", "overlay/"]);
     let opened = world::open(&dir, Some(&base_dir)).unwrap();
     assert_eq!(opened.base_dir.as_deref(), Some(base_dir.as_path()));
     assert!(opened.check().is_empty(), "{:?}", opened.check());

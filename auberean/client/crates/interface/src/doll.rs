@@ -54,15 +54,43 @@ pub fn framing(height: f32, race: Option<i32>, portrait: bool) -> (f32, f32) {
     }
 }
 
-/// The viewports showing the player's figure, and the figure's drawn height for the look it was
-/// last worked out for.
+/// The viewports showing the player's figure, the figure's drawn height for the look it was last
+/// worked out for, and the look it shows: it follows the player's only on foot.
 #[derive(Debug, Default)]
 pub struct Dolls {
     shown: Vec<(Handle, bool)>,
     framed: Option<(Desc, f32)>,
+    mounted: bool,
+    kept: Option<(u64, Desc)>,
 }
 
 impl Dolls {
+    /// The player got on a mount, or off it. Its look while mounted is the mount with the rider
+    /// on it, which these figures do not take up.
+    // D2-02904, D2-02323
+    pub fn set_mounted(&mut self, mounted: bool) {
+        self.mounted = mounted;
+    }
+
+    /// The look these figures show of `player`, who looks like `now`: the first the character
+    /// had, then each it has while on foot. A new character starts again, on foot.
+    // D2-02910, D2-02331
+    fn follow(&mut self, player: u64, now: Desc) -> Desc {
+        match &mut self.kept {
+            Some((id, look)) if *id == player => {
+                if !self.mounted {
+                    *look = now;
+                }
+                look.clone()
+            }
+            kept => {
+                self.mounted = false;
+                *kept = Some((player, now.clone()));
+                now
+            }
+        }
+    }
+
     /// A viewport shows the player's figure from now on (`portrait`: its head and shoulders).
     // D2-02906, D2-02329
     pub fn show(&mut self, viewport: Handle, portrait: bool) {
@@ -87,7 +115,7 @@ impl Dolls {
         let player = client.model.player.and_then(|p| client.model.object(p))?;
         let race = description::int(&player.weenie, RACE)
             .or_else(|| player.qualities.ints.get(&RACE).copied());
-        let look = look_of(records, &player.visual);
+        let look = self.follow(player.id, look_of(records, &player.visual));
         if self.framed.as_ref().is_none_or(|(d, _)| *d != look) {
             let height = figure_box(records, &look).map_or(0.0, |(lo, hi)| hi.z - lo.z);
             self.framed = Some((look.clone(), height));

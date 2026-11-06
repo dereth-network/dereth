@@ -11,11 +11,17 @@
 //! ends the portal effect.
 //!
 //! **Moving.** The client reports where its player is; the server takes it (the client decides
-//! for now), sends the player its own position back, and creates the objects that come into range
-//! as it crosses landblocks. Turning the head is sent back the same way.
+//! within what a body can do), sends the player its own position back, and creates the objects that
+//! come into range as it crosses landblocks. Turning the head is sent back the same way.
+//!
+//! **A place too far.** A report that goes further than a body could have since the last ones takes
+//! the player nowhere: the server moves its force-position stamp on and tells the player where it
+//! stands, and its client goes back there (2017: 608 such corrections in 1,806,692 reports, the next
+//! report from the corrected place, at its stamp, in 515). Reports that have not heard of the new
+//! stamp are not taken. A land cell its point does not lie in is no place at all.
 //!
 //! **Options.** The client sends its options as they change; the server keeps them for the next
-//! session start.
+//! session start, up to what a character keeps ([`crate::options`]).
 //!
 //! **Logging off.** A character whose player logs off stays in the world, its movement frozen,
 //! for about nineteen seconds: it glows at once (the portal effect, for all who see it), plays its
@@ -80,13 +86,20 @@ pub struct Player {
     pub position_stamp: u16,
     /// The teleport stamp: moved on each time the server puts the player somewhere.
     pub teleport_stamp: u16,
-    /// The force-position stamp.
+    /// The force-position stamp: moved on each time the server refuses a place the player reported.
     pub force_position_stamp: u16,
+    /// How far its reports may yet take it.
+    pub travel: Travel,
+    /// When it was last told where it stands after a place it reported was refused.
+    pub told_back: f64,
     pub position: StoredPosition,
     /// Its heading and asked motion as last reported.
     pub heading_motion: u32,
     pub position_stream: u32,
     pub head_stream: u32,
+    /// When its place last brought its view up to date, and whether its place has moved it since.
+    pub view_brought: f64,
+    pub view_owed: bool,
     /// The objects and players its client has been told of, by id.
     pub known: BTreeMap<u64, Seen>,
     pub options: Options,
@@ -119,6 +132,8 @@ pub struct Player {
     pub play: crate::state::PlayState,
     /// The store it is in: the storekeeper, the store, the first sale of the page shown.
     pub shopping: Option<(u64, u32, u32)>,
+    /// The rows of market pages its connection may yet have ([`crate::market`]).
+    pub page_rows: Option<crate::call_limit::Bucket>,
     /// Its attack run, while it attacks.
     pub attacking: Option<crate::combat::Run>,
     /// Its death, until it is resurrected.
@@ -145,6 +160,8 @@ pub struct Player {
     pub queued: Option<crate::skill_use::Request>,
     /// A special waiting for its attack run's next swing.
     pub in_run: Option<crate::skill_use::Request>,
+    /// How fast it may talk, once it has, and when it was last told it is past that.
+    pub talk: Option<(crate::call_limit::Bucket, Option<f64>)>,
     /// When it last used each skill (game time), from which the skill's recovery counts.
     pub last_used: std::collections::HashMap<u32, f64>,
     /// Another player it is walked to, and what for.
@@ -408,7 +425,7 @@ pub fn enter<S: Store>(
     let conflict = crate::kingdoms::status_at(&s.content.conflict, position.cell);
     crate::kingdoms::entering(&mut st.qualities, conflict, new_character);
     s.saves.hold(character, st.clone());
-    let options = Options::from_packed(&st.options).map_err(|e| {
+    let mut options = Options::from_packed(&st.options).map_err(|e| {
         tracing::error!(
             id = format_args!("{character:#x}"),
             "{}: a new character's options do not read: {e}",
@@ -416,6 +433,16 @@ pub fn enter<S: Store>(
         );
         CharacterRefused::CORRUPT_CHARACTER
     })?;
+    let left_out = options.keep_within_bounds();
+    if left_out.any() {
+        tracing::warn!(
+            id = format_args!("{character:#x}"),
+            aliases = left_out.aliases,
+            parts = left_out.parts,
+            "{}: options past what a character keeps were left out as it entered",
+            c.name
+        );
+    }
     // The template follows the account's flag at every entry: an admin character of an account no
     // longer an admin's enters as a player.
     let admin_character = c.entity_did == player::ADMIN_ENTITY
@@ -440,6 +467,10 @@ pub fn enter<S: Store>(
         position_stamp: 1,
         teleport_stamp: 0,
         force_position_stamp: 0,
+        travel: Travel::default(),
+        told_back: f64::NEG_INFINITY,
+        view_brought: f64::NEG_INFINITY,
+        view_owed: false,
         heading_motion: u32::from(heading_of_rotation(position.rotation)) << 24 | IDLE_MOTION,
         position,
         position_stream: net.new_stream(world).unwrap_or(0),
@@ -461,6 +492,7 @@ pub fn enter<S: Store>(
         places: st.places.clone(),
         play,
         shopping: None,
+        page_rows: None,
         attacking: None,
         dying: None,
         open_container: None,
@@ -476,6 +508,7 @@ pub fn enter<S: Store>(
         queued: None,
         in_run: None,
         last_used: std::collections::HashMap::new(),
+        talk: None,
         approaching: None,
         shard_protection: None,
         riding: None,
@@ -782,6 +815,8 @@ pub fn leave<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
         crate::plants::owner_leaves(s, net, id);
         crate::drops::left(s, world);
         crate::gives::left(s, net, world);
+        crate::usable::chests::left(s, net, world);
+        crate::usable::vaults::left(s, world);
     }
     if let Some(p) = s.players.remove(&world) {
         presence::depart(s, net, &p);
@@ -1034,6 +1069,14 @@ pub fn message<S: Store>(
             return;
         }
     };
+    // Far behind in what it has been sent: its reports still count, what it asks for waits.
+    if matches!(
+        m,
+        ClientMessage::ServerCall(_) | ClientMessage::ForceCreate(_)
+    ) && net.large_waiting_on(world, queue::EVENT) >= crate::call_limit::MOST_BEHIND
+    {
+        return;
+    }
     let Some(mut p) = s.players.remove(&world) else {
         s.unhandled.note(format!(
             "world message {:#x} before the character entered",
@@ -1060,9 +1103,12 @@ pub fn message<S: Store>(
                     },
                     action: Word(ARRIVAL_FX),
                 });
-                send(net, world, BlobKind::VISUAL, &stop);
-                // The things of the other cells of an interior, held back until now.
+                let id = p.character;
                 s.players.insert(world, p);
+                // For all who see it, whose next visual message waits on this stamp (2017: 7,175
+                // of the 8,186 of these a client took were about someone else).
+                crate::combat::to_all_seeing(s, net, id, &stop);
+                // The things of the other cells of an interior, held back until now.
                 presence::refresh(s, net, world);
                 // Arrived: the status of where it now is.
                 return crate::kingdoms::check(s, net, world);
@@ -1113,6 +1159,58 @@ pub const fn motion(sideways: u8, forward: u8, vertical: u8) -> u32 {
 /// The asked motion of a player standing still: every motion byte at its middle.
 pub const IDLE_MOTION: u32 = motion(127, 127, 127);
 
+/// How many meters of a player's reports go unquestioned at once, and how fast more come, in meters
+/// a second. Of 1,825,084 recorded reports, one needed more: 1,422 m after 252 s unheard. No 5 s of
+/// recorded play covered more than 42 m a second.
+pub const TRAVEL_HELD: f32 = 500.0;
+pub const TRAVEL_SPEED: f32 = 60.0;
+/// How long a client that has not heard where it stands goes before it is told again, in seconds.
+pub const TOLD_BACK_AGAIN: f64 = 1.0;
+
+/// How far a player's reports may yet take it, and when that was last reckoned.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Travel {
+    meters: f32,
+    at: f64,
+}
+
+impl Default for Travel {
+    fn default() -> Self {
+        Self {
+            meters: TRAVEL_HELD,
+            at: f64::NEG_INFINITY,
+        }
+    }
+}
+
+impl Travel {
+    /// A report would take the player this far, at this time: whether it may. A place it may not
+    /// reach takes nothing from what it holds.
+    #[allow(clippy::cast_possible_truncation)]
+    pub fn spend(&mut self, meters: f32, now: f64) -> bool {
+        let gained = (now - self.at).max(0.0) * f64::from(TRAVEL_SPEED);
+        self.meters = (f64::from(self.meters) + gained).min(f64::from(TRAVEL_HELD)) as f32;
+        self.at = now;
+        if meters > self.meters {
+            return false;
+        }
+        self.meters -= meters;
+        true
+    }
+}
+
+/// Is this land cell the one a point of its landblock lies in? All 1,503,957 reports recorded on the
+/// land were.
+#[must_use]
+pub fn land_cell_holds(cell: u32, point: [f32; 2]) -> bool {
+    let side = crate::spawn::BLOCK_SIDE;
+    if !(0.0..=side).contains(&point[0]) || !(0.0..=side).contains(&point[1]) {
+        return false;
+    }
+    let inside = |v: f32| v.min(side - 0.001);
+    crate::spawn::outdoor(cell >> 16, inside(point[0]), inside(point[1])).0 == cell
+}
+
 fn moved<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -1124,7 +1222,10 @@ fn moved<S: Store>(
     let on_land = [c.origin.x, c.origin.y, c.origin.z]
         .iter()
         .all(|v| v.abs() <= crate::spawn::LAND_SIDE);
-    if c.cell == 0 || !on_land {
+    let on_its_cell = !s.cfg.holds_reports
+        || presence::indoors(c.cell)
+        || land_cell_holds(c.cell, [c.origin.x, c.origin.y]);
+    if c.cell == 0 || !on_land || !on_its_cell {
         s.unhandled.note("a position that is no place");
         return;
     }
@@ -1141,6 +1242,39 @@ fn moved<S: Store>(
             "a place reported with an old teleport stamp"
         );
         return;
+    }
+    if c.force_position_stamp != p.force_position_stamp {
+        // Reported from before the server last refused a place: the client has not heard yet, and
+        // what told it may have been lost on the way.
+        if clock.local.0 - p.told_back >= TOLD_BACK_AGAIN {
+            p.told_back = clock.local.0;
+            let m = p.next_position(time, ON_GROUND);
+            let told = ServerMessage::Position(m).encode();
+            net.send_ephemeral(world, queue::EVENT, p.position_stream, told);
+        }
+        return;
+    }
+    if s.cfg.holds_reports && !p.admin_character {
+        let reported = StoredPosition {
+            cell: c.cell,
+            origin: [c.origin.x, c.origin.y, c.origin.z],
+            rotation: p.position.rotation,
+        };
+        let (dx, dy, dz) = crate::ai::offset(&p.position, &reported);
+        let far = (dx * dx + dy * dy + dz * dz).sqrt();
+        if !p.travel.spend(far, clock.local.0) {
+            tracing::debug!(
+                ?world,
+                far,
+                "a place too far: the player is told where it stands"
+            );
+            p.force_position_stamp = p.force_position_stamp.wrapping_add(1);
+            p.told_back = clock.local.0;
+            let m = p.next_position(time, ON_GROUND);
+            let told = ServerMessage::Position(m).encode();
+            net.send_ephemeral(world, queue::EVENT, p.position_stream, told);
+            return;
+        }
     }
     if c.cell != p.position.cell {
         tracing::debug!(
@@ -1171,7 +1305,7 @@ fn moved<S: Store>(
         || presence::land_cell(c.cell, [c.origin.x, c.origin.y, c.origin.z])
             != presence::land_cell(before.cell, before.origin);
     if moved_view {
-        presence::refresh(s, net, world);
+        presence::view_moved(s, net, world, clock);
     }
     if c.cell >> 16 != before.cell >> 16 {
         crate::kingdoms::check(s, net, world);
@@ -1194,6 +1328,9 @@ fn moved<S: Store>(
 
 /// Keep an option the client sends. Returns whether the call was one the server keeps.
 fn kept_call(p: &mut Player, function: u32, args: &[u8]) -> bool {
+    if args.len() > crate::options::MOST_PART_BYTES {
+        return false;
+    }
     let Ok(v) = uploads::values(args) else {
         return false;
     };

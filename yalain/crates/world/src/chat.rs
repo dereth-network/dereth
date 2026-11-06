@@ -18,6 +18,9 @@
 //! an admin's from an admin's account, refused from staff below it as any command beyond their
 //! level is, and from a player's account kept as any other of its words.
 //!
+//! **How long a line may be.** A line longer than [`MOST_TALK_BYTES`] goes nowhere, and the speaker
+//! is told. A retail client's lines all fit: it takes 512 characters at its chat entry.
+//!
 //! **Gags and admins.** A gagged player ([`crate::admin`]) says, tells, emotes and speaks into a
 //! room to nobody, and is told it is gagged. A line an admin says as one of the admin commands is
 //! heard by nobody, and answered.
@@ -272,6 +275,30 @@ fn network_command<S: Store>(s: &mut Server<S>, world: ConnId, text: &str) -> bo
     true
 }
 
+/// The most a line of talk may carry, in bytes of its call or its room packet: it goes to everyone
+/// near or in the room, and what is over a message's pace would hold back all that follows it. The
+/// client's chat entry takes 512 characters; markup escaped doubles them, and an alias can stand for
+/// as many again, which is 2,048 characters of two bytes, and the rest is what carries them. The
+/// largest recorded are far inside it: 244 bytes of 167 sayings, 492 of 79 tells, 556 of 1,316 room
+/// lines.
+pub const MOST_TALK_BYTES: usize = 5 * 1024;
+
+/// What a player is told of a line past [`MOST_TALK_BYTES`].
+pub const TOO_LONG: &str = "That is too long to say.";
+
+/// Is this function a line of talk with words in it?
+#[must_use]
+pub const fn carries_words(function: u32) -> bool {
+    use crate::requests::function::{SAY, TELL, TYPED_EMOTE};
+    matches!(function, SAY | TELL | TYPED_EMOTE)
+}
+
+/// A line past [`MOST_TALK_BYTES`]: nobody hears it, and its speaker is told.
+pub fn too_long<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
+    s.unhandled.note("a line of talk too long");
+    crate::login::notice(net, world, TOO_LONG);
+}
+
 /// A player says something: it and every client that knows it hear it. The network's command and
 /// an admin's command ([`crate::admin`]) are heard by nobody; a gagged player is told it may not
 /// talk, and nobody hears it.
@@ -292,7 +319,7 @@ pub fn say<S: Store>(
             return;
         }
     }
-    if crate::admin::refuse_gagged(s, net, world) {
+    if refuses_talk(s, net, world) {
         return;
     }
     let Some(p) = s.players.get(&world) else {
@@ -376,7 +403,7 @@ pub fn tell<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v: 
         s.unhandled.note("a tell that does not read");
         return;
     };
-    if crate::admin::refuse_gagged(s, net, world) {
+    if refuses_talk(s, net, world) {
         return;
     }
     let Some(teller) = s.players.get(&world) else {
@@ -464,7 +491,7 @@ pub fn emote<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v:
         s.unhandled.note(format!("emote {id:#010x}"));
         return;
     };
-    if crate::admin::refuse_gagged(s, net, world) {
+    if refuses_talk(s, net, world) {
         return;
     }
     s.next_context = s.next_context.wrapping_add(1);
@@ -502,6 +529,41 @@ pub fn emote<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v:
     .encode();
     let id = p.character;
     send_to_knowers(s, net, world, id, BlobKind::VISUAL, &m);
+}
+
+/// What a player is told when its lines come past how fast one may talk.
+pub const TOO_FAST: &str = "You are talking too fast.";
+
+/// How many seconds apart at least a player is told it is talking too fast.
+const TOO_FAST_EVERY: f64 = 5.0;
+
+/// May this player's line of talk not go on: it is gagged, or past how fast one may talk? Each is
+/// told the player, the second at most every few seconds.
+#[must_use]
+pub fn refuses_talk<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) -> bool {
+    if crate::admin::refuse_gagged(s, net, world) {
+        return true;
+    }
+    let now = s.saves.now;
+    let Some(p) = s.players.get_mut(&world) else {
+        return false;
+    };
+    let (bucket, told) = p.talk.get_or_insert_with(|| {
+        let bucket = crate::call_limit::Bucket::with(
+            crate::call_limit::TALK_BURST,
+            crate::call_limit::TALK_PER_SECOND,
+            now,
+        );
+        (bucket, None)
+    });
+    if bucket.allow(now) {
+        return false;
+    }
+    if told.is_none_or(|at| now.0 - at >= TOO_FAST_EVERY) {
+        *told = Some(now.0);
+        crate::login::notice(net, world, TOO_FAST);
+    }
+    true
 }
 
 /// The script type of a string.
@@ -543,7 +605,7 @@ pub fn typed_emote<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: Conn
         s.unhandled.note("a typed emote that does not read");
         return;
     };
-    if crate::admin::refuse_gagged(s, net, world) {
+    if refuses_talk(s, net, world) {
         return;
     }
     let Some(p) = s.players.get(&world) else {
@@ -960,7 +1022,7 @@ pub fn say_in_room<S: Store>(
     else {
         return;
     };
-    if crate::admin::refuse_gagged(s, net, world) {
+    if refuses_talk(s, net, world) {
         return;
     }
     let line = RoomLine {
@@ -1034,6 +1096,11 @@ pub fn service<S: Store>(
         refuse(net);
         return;
     };
+    if packet.len() > MOST_TALK_BYTES {
+        s.unhandled.note("a line of talk too long");
+        refuse(net);
+        return;
+    }
     let world = s.sessions.get(&login).and_then(|x| match x.stage {
         Stage::InWorld { world, .. } => Some(world),
         _ => None,
@@ -1044,7 +1111,7 @@ pub fn service<S: Store>(
         let text = String::from_utf16_lossy(&line.text);
         if crate::admin::said(s, net, world, &text, clock)
             || network_command(s, world, &text)
-            || crate::admin::refuse_gagged(s, net, world)
+            || refuses_talk(s, net, world)
         {
             send_chat(
                 net,

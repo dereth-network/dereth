@@ -148,6 +148,7 @@ pub fn solid(w: u32, h: u32, bgra: [u8; 4]) -> Arc<Image> {
         width: w,
         height: h,
         bgra: bgra.repeat((w * h) as usize),
+        alpha_only: false,
     })
 }
 

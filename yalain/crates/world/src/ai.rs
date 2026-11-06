@@ -17,6 +17,10 @@
 //!   scale (2017's measured speed), facing it, its place sent to the clients that see it every
 //!   world step (no movement order: 2017 sent creatures none); within reach it strikes as often as
 //!   its attacks allow.
+//! - **Concealing effects.** A record on a player can change what creatures of a class make of it:
+//!   one that spares it doesn't take it on, come to its kin's fight with it, or turn to it, unless
+//!   it has hurt the creature; one that hates it is taken on even by a creature that never attacks
+//!   first ([`regard`]).
 //! - **Giving up.** When the player has been beyond its perception radius for a second (2017's gave
 //!   up a median 1.17 s after the player left the radius, at a distance beyond it about the same
 //!   for every radius), or is gone, it takes its peaceful mode and runs home; it is not made whole
@@ -103,6 +107,85 @@ pub const WALK_SPEED: f32 = 3.1;
 pub const PATROL_WALK_SPEED: f32 = 1.62;
 pub const PATROL_WALKING: u32 = crate::world::motion(0x80, 0xBF, 0x7F);
 
+/// What a concealing effect makes creatures of a class make of its holder.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Regard {
+    /// They don't take it on unless it hurts them.
+    Spares,
+    /// They take it on, even those that never attack first.
+    Hates,
+}
+
+/// The concealing effects whose reach is known: each one's saved states, the class of creature it
+/// is for (none: every creature; an effect for two classes has a row for each) and what they make of
+/// its holder. The install says so of those with a state and its copy. The amulet of peace's
+/// description names its moarsmen (2017: under it, 0 of 8 moarsmen within 20 m came at the player;
+/// without it, 24 of 140 came at it first).
+///
+/// The last rows are read from words alone: the fanatics, the slave spawn, the Archon forces and
+/// those loyal to Aerfalle and Geraine, whose classes hold those names and hardly any other. No
+/// recording shows any of them held. The other effects of the kind do nothing: one names
+/// no one, one names people who share their class with others, one is a guard's mark too seldom
+/// recorded to read, and under the rabbits' disguise those that attack first went on doing so (5 of
+/// 5).
+const CONCEALING: [(u32, Option<u32>, Regard); 27] = [
+    (0x6F00_1C46, Some(0x17), Regard::Spares),
+    (0x6F00_1D4A, Some(0x1D), Regard::Spares),
+    (0x7000_0701, Some(0x1D), Regard::Spares),
+    (0x6F00_1EEB, Some(0x0E), Regard::Spares),
+    (0x7000_0713, Some(0x0E), Regard::Spares),
+    (0x6F00_0DC9, Some(0x3C), Regard::Spares),
+    (0x7000_1D76, Some(0x3C), Regard::Spares),
+    (0x6F00_1D4C, Some(0x16), Regard::Hates),
+    (0x7000_0703, Some(0x16), Regard::Hates),
+    (0x6F00_1EE8, Some(0x0E), Regard::Hates),
+    (0x7000_0710, Some(0x0E), Regard::Hates),
+    (0x6F00_1D2E, Some(0x6F), Regard::Hates),
+    (0x7000_1DAE, Some(0x6F), Regard::Hates),
+    (0x6F00_20BC, Some(0x06), Regard::Hates),
+    (0x7000_1EB8, Some(0x06), Regard::Hates),
+    (0x6F00_0D8C, None, Regard::Hates),
+    (0x7000_1CB3, None, Regard::Hates),
+    (0x6F00_19F1, Some(0x59), Regard::Spares),
+    (0x6F00_1C48, Some(0x78), Regard::Hates),
+    (0x6F00_1C77, Some(0x46), Regard::Hates),
+    (0x6F00_1C77, Some(0x43), Regard::Hates),
+    (0x6F00_1C78, Some(0x45), Regard::Hates),
+    (0x6F00_1C78, Some(0x44), Regard::Hates),
+    (0x6F00_2049, Some(0x46), Regard::Spares),
+    (0x6F00_2049, Some(0x43), Regard::Spares),
+    (0x6F00_204B, Some(0x45), Regard::Spares),
+    (0x6F00_204B, Some(0x44), Regard::Spares),
+];
+
+/// What a creature of a class makes of a player, by the concealing effects it holds; hate over
+/// sparing, where it holds both.
+#[must_use]
+pub fn regard(p: &crate::world::Player, class: Option<u32>) -> Option<Regard> {
+    let mut found = None;
+    for e in &p.play.effects {
+        let rows = CONCEALING.iter().filter(|(state, ..)| *state == e.state);
+        for (_, of, how) in rows {
+            if of.is_none() || *of == class {
+                if *how == Regard::Hates {
+                    return Some(Regard::Hates);
+                }
+                found = Some(*how);
+            }
+        }
+    }
+    found
+}
+
+/// A creature's class of behavior.
+fn class_of<S: Store>(s: &Server<S>, id: u64) -> Option<u32> {
+    let t = s.things.get(id)?;
+    s.catalog
+        .get(t.template)?
+        .props
+        .word(yalain_content::props::creature_property::SUPER_CLASS)
+}
+
 /// How long a player must have been beyond a creature's perception radius for it to give up, in
 /// seconds (2017: a median 1.17 s, the bulk from 0.8 to 1.6).
 pub const GIVE_UP_AFTER: f64 = 1.0;
@@ -142,12 +225,87 @@ pub fn joins_chance(table: Option<u32>) -> f32 {
     }
 }
 
-/// How close a creature must be to strike with a melee attack, in meters (center to center).
+/// How close a creature fighting a pet must be to strike it, how near a shooter lets a player come
+/// before it fights hand to hand, and what a turret's reach is at least, in meters (center to
+/// center).
 pub const MELEE_REACH: f32 = 2.5;
+
+/// How far past its body's radius a creature running at a player who stands stops, in meters. 2017:
+/// over 415 swings by a creature standing at a player standing, the median 0.71 whatever the body; a
+/// run's first swing at one, 340 swings, median 0.91.
+pub const STOPS_PAST_BODY: f32 = 0.7;
+
+/// How far past its body's radius a creature running at a player on the move stops, in meters. 2017:
+/// over 267 swings by a creature that had been moving, at a player going under 4 m/s, the medians
+/// 1.85 to 2.42 as the player goes faster.
+pub const STOPS_PAST_BODY_MOVING: f32 = 2.0;
+
+/// How far past its body's radius a creature's melee swing reaches, in meters: within it, a creature
+/// standing stays where it is and swings. 2017: 407 of those 415 swings came from under 3.0, and a
+/// player walking saw the same edge (p90 3.12).
+pub const REACHES_PAST_BODY: f32 = 3.0;
+
+/// How far a player can shift between two of a creature's steps and still count as standing, in
+/// meters.
+const PLAYER_STANDS: f32 = 0.05;
 
 /// How long a creature remembers the harm a player did it when it thinks again about whom it
 /// fights, in seconds.
 pub const HARM_REMEMBERED: f64 = 10.0;
+
+/// How much more a skill's harm counts when a creature thinks again about whom it fights, in percent
+/// of the harm. This server's own stand-in, not a recorded rule: the numbers are the skills' own
+/// taunt bonuses and damage-notice figures, read at one point to one percent, and a later scale is
+/// one line to change.
+pub const HARM_COUNTS_PER_POINT: f64 = 1.0;
+const HARM_POINTS: [(u32, f64); 26] = [
+    // Taunt bonuses.
+    (326, -1.0),
+    (701, 1.0),
+    (706, 1.0),
+    (838, 2.0),
+    (840, 2.0),
+    (852, 1.0),
+    (854, 1.0),
+    (856, 1.0),
+    (857, 1.5),
+    (867, 2.0),
+    (1076, 3.5),
+    (1221, 1.0),
+    (1377, 1.0),
+    (1433, -0.5),
+    (1434, -0.5),
+    (2189, 5.0),
+    (2190, 5.0),
+    (2191, 5.0),
+    (2192, 5.0),
+    (2193, 5.0),
+    // Damage-notice figures.
+    (322, 0.5),
+    (331, 0.5),
+    (333, 0.5),
+    (334, 0.5),
+    (860, 0.5),
+    (861, 0.5),
+];
+
+/// The harm that counts at a creature's draw when a skill does this much damage.
+#[must_use]
+pub fn harm_noticed(skill: u32, damage: i32) -> i64 {
+    let points = HARM_POINTS
+        .iter()
+        .find(|(s, _)| *s == skill)
+        .map_or(0.0, |(_, p)| *p);
+    let counted = f64::from(damage) * (1.0 + points * HARM_COUNTS_PER_POINT / 100.0);
+    #[allow(clippy::cast_possible_truncation)]
+    let rounded = counted.round() as i64;
+    rounded
+}
+
+/// How long a taunt counts when a creature thinks again about whom it fights, in seconds (2017:
+/// one player's 1,041 taunts of two skills: turned on 130 of 630 attacks within this after one, 2
+/// of 72 in the 25 s after that).
+pub const TAUNT_REMEMBERED: f64 = 20.0;
 
 /// The chance, at one of its attacks, that a creature players have hurt lately draws its target
 /// again by their harm: while it has fought its target less than [`HELD_LONG`] seconds, and after
@@ -218,9 +376,21 @@ pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
 
 /// The player a creature notices: the nearest within its perception that is in the world, out of
 /// portal space, alive and not under lifestone protection.
-fn notice<S: Store>(s: &Server<S>, at: &StoredPosition, radius: f32) -> Option<u64> {
+fn notice<S: Store>(
+    s: &Server<S>,
+    at: &StoredPosition,
+    radius: f32,
+    class: Option<u32>,
+    attacks_first: bool,
+) -> Option<u64> {
     notices_among(s, at, radius, |p| {
-        fightable(p) && p.admin.attackable == Attackable::Normal
+        fightable(p)
+            && p.admin.attackable == Attackable::Normal
+            && match regard(p, class) {
+                Some(Regard::Spares) => false,
+                Some(Regard::Hates) => true,
+                None => attacks_first,
+            }
     })
 }
 
@@ -248,7 +418,7 @@ pub fn notices_among<S: Store>(
 #[doc(hidden)]
 #[must_use]
 pub fn notices<S: Store>(s: &Server<S>, at: &StoredPosition, radius: f32) -> Option<u64> {
-    notice(s, at, radius)
+    notice(s, at, radius, None, true)
 }
 
 /// A creature's attack comes when it is due, not at the world's next step, for one that attacks
@@ -308,10 +478,19 @@ fn attacks_from_here<S: Store>(s: &Server<S>, t: &crate::things::Thing, now: f64
     let Some(p) = s.players.values().find(|p| p.character == target) else {
         return false;
     };
+    let reach = body_radius_of(s, t.id) + REACHES_PAST_BODY;
     presence::distance(&at, &p.position).is_some_and(|d| {
-        d <= MELEE_REACH
+        (d <= reach && c.closing.is_none())
             || (c.ranged && d <= crate::missiles::MISSILE_RANGE)
             || c.stats.turns_only()
+    })
+}
+
+/// A creature's body's radius.
+fn body_radius_of<S: Store>(s: &Server<S>, id: u64) -> f32 {
+    s.things.get(id).map_or(0.0, |t| {
+        let scale = t.creature.as_ref().map_or(1.0, |c| c.stats.scale);
+        crate::walls::body_radius(s.walls.as_ref(), t.template, scale)
     })
 }
 
@@ -356,8 +535,12 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock, 
                     if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
                         c.joining = None;
                     }
+                    let class = class_of(s, id);
                     let here = s.players.values().any(|q| {
-                        q.character == p && !crate::combat::is_dead(q) && q.trip.is_none()
+                        q.character == p
+                            && !crate::combat::is_dead(q)
+                            && q.trip.is_none()
+                            && regard(q, class) != Some(Regard::Spares)
                     });
                     if here {
                         engage(s, net, id, p, clock);
@@ -365,11 +548,11 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock, 
                     }
                 }
             }
-            if attacks_first && now >= next_look {
+            if now >= next_look {
                 if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
                     c.next_look = now + LOOK_EVERY;
                 }
-                if let Some(p) = notice(s, &at, perception) {
+                if let Some(p) = notice(s, &at, perception, class_of(s, id), attacks_first) {
                     go_after(s, net, id, p, clock);
                     return;
                 }
@@ -447,16 +630,54 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock, 
                     face(s, net, id, &place, clock);
                     crate::missiles::shoot(s, net, id, conn, clock);
                 }
-            } else if d.is_some_and(|d| d > MELEE_REACH) {
-                step_toward(s, net, id, &place, run, MELEE_REACH * 0.8, RUNNING, clock);
-                cannot_reach(s, id, target);
             } else {
-                // A target in melee reach is struck, for the rest of the fight.
-                if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
+                // Beyond its reach it runs at the player, and goes on to where it stops even once
+                // within reach; one that got there, or never had to run, stands for as long as the
+                // player stays within reach.
+                let radius = body_radius_of(s, id);
+                let reach = radius + REACHES_PAST_BODY;
+                let d = d.unwrap_or(f32::MAX);
+                let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) else {
+                    return;
+                };
+                let was = c.closing;
+                // A player on the move it stops further from, and swings at on the run.
+                let moved = was.is_some_and(|was| {
+                    presence::distance(&was, &place).is_none_or(|m| m > PLAYER_STANDS)
+                });
+                let stop = radius
+                    + if moved {
+                        STOPS_PAST_BODY_MOVING
+                    } else {
+                        STOPS_PAST_BODY
+                    };
+                let (dx, dy, _) = offset(&at, &place);
+                let there = (dx * dx + dy * dy).sqrt() <= stop + 0.01;
+                if d > reach || (was.is_some() && !there) {
+                    c.closing = Some(place);
+                } else {
+                    c.closing = None;
+                }
+                let runs = c.closing.is_some();
+                if d <= reach {
+                    // A target in melee reach is struck, for the rest of the fight.
                     c.ranged = false;
                 }
-                face(s, net, id, &place, clock);
-                crate::combat::creature_strikes(s, net, id, conn, clock);
+                if runs {
+                    let step = step_toward(s, net, id, &place, run, stop, RUNNING, clock);
+                    cannot_reach(s, id, target);
+                    // Within reach and held up, it comes no nearer: it stands and strikes from there.
+                    if step == Step::Blocked && d <= reach {
+                        if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
+                            c.closing = None;
+                        }
+                    }
+                } else {
+                    face(s, net, id, &place, clock);
+                }
+                if d <= reach && (!runs || moved) {
+                    crate::combat::creature_strikes(s, net, id, conn, clock);
+                }
             }
         }
         Mode::Returning => {
@@ -568,9 +789,38 @@ fn fightable(p: &crate::world::Player) -> bool {
         && p.admin.attackable != Attackable::Super
 }
 
+/// A taunt lands on a creature: for a while it counts for its caster as harm done, a share of the
+/// creature's whole health, or against it when below 0. It never forces a turn (2017: right after
+/// a taunt, turned on at 26%, under the draw's own chance).
+pub(crate) fn taunted<S: Store>(s: &mut Server<S>, id: u64, by: u64, share: f32, now: f64) {
+    let Some(t) = s.things.get_mut(id) else {
+        return;
+    };
+    let whole = t.max_health;
+    let Some(c) = t.creature.as_mut() else {
+        return;
+    };
+    c.taunts
+        .retain(|(when, _, _)| now - when < TAUNT_REMEMBERED);
+    let amount = (f64::from(share) * f64::from(whole)).round();
+    #[allow(clippy::cast_possible_truncation)]
+    c.taunts.push((now, by, amount as i64));
+}
+
+/// [`reconsider`] for tests: the creature thinks again now, where it stands.
+#[doc(hidden)]
+pub fn reconsider_for_test<S: Store>(s: &mut Server<S>, id: u64, now: f64) {
+    if let Some((at, perception)) = s.things.get(id).and_then(|t| {
+        let c = t.creature.as_ref()?;
+        Some((t.at?, perception_of(c)))
+    }) {
+        reconsider(s, id, &at, perception, now);
+    }
+}
+
 /// At one of its attacks (once for each), a creature fighting a player may draw its target again:
-/// by the harm players did it over the last ten seconds and their nearness while some did, else
-/// toward another player within its perception now and then.
+/// by the harm players did it over the last ten seconds, the taunts of the last twenty and their
+/// nearness while some did, else toward another player within its perception now and then.
 fn reconsider<S: Store>(
     s: &mut Server<S>,
     id: u64,
@@ -588,22 +838,27 @@ fn reconsider<S: Store>(
     let Some(target) = c.target else { return };
     let held_long = now - c.target_since >= HELD_LONG;
     let mut harm: Vec<(u64, i64)> = Vec::new();
-    for (when, who, h) in &c.harm {
-        if now - when >= HARM_REMEMBERED {
-            continue;
-        }
+    let harms = c.harm.iter().filter(|e| now - e.0 < HARM_REMEMBERED);
+    let taunts = c.taunts.iter().filter(|e| now - e.0 < TAUNT_REMEMBERED);
+    for (_, who, h) in harms.chain(taunts) {
         match harm.iter_mut().find(|(p, _)| p == who) {
             Some(e) => e.1 += h,
             None => harm.push((*who, *h)),
         }
     }
-    // The players it may fight, with how far each is.
+    // The players it may fight, with how far each is: it passes over one it spares that hasn't
+    // hurt it.
+    let class = class_of(s, id);
     let near: Vec<(u64, f32)> = s
         .players
         .values()
-        .filter(|p| fightable(p))
-        .filter_map(|p| presence::distance(at, &p.position).map(|d| (p.character, d)))
-        .filter(|(_, d)| *d <= perception)
+        .filter_map(|p| presence::distance(at, &p.position).map(|d| (p, d)))
+        .filter(|(p, d)| *d <= perception && fightable(p))
+        .filter(|(p, _)| {
+            regard(p, class) != Some(Regard::Spares)
+                || harm.iter().any(|(q, h)| *q == p.character && *h > 0)
+        })
+        .map(|(p, d)| (p.character, d))
         .collect();
     let harmers: Vec<(u64, f32, f64)> = harm
         .iter()
@@ -769,7 +1024,7 @@ fn rouse_turrets<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, cloc
         })
         .collect();
     for (turret, there, reach) in near {
-        if let Some(p) = notice(s, &there, reach) {
+        if let Some(p) = notice(s, &there, reach, class_of(s, turret), true) {
             engage(s, net, turret, p, clock);
         }
     }
@@ -827,6 +1082,7 @@ fn engage<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, player: u64
     c.lost_since = None;
     c.joining = None;
     c.target = Some(player);
+    c.closing = None;
     let here = s.things.get(id).and_then(|t| t.at);
     let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) else {
         return;
@@ -923,6 +1179,7 @@ fn arrive_home<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock:
         c.damage_by.clear();
         c.taken_by.clear();
         c.harm.clear();
+        c.taunts.clear();
         c.unreached.clear();
         if let Some(p) = c.patrol.as_mut() {
             p.left_at = None;
@@ -1509,10 +1766,18 @@ fn stride_to<S: Store>(
         return Some((*at, 0.0, 0));
     }
     let go = go.min(len);
-    let stepped = s
-        .walls
-        .as_mut()?
-        .step(template, scale, at, [dx / len * go, dy / len * go])?;
+    let fighting = s
+        .things
+        .get(id)
+        .and_then(|t| t.creature.as_ref())
+        .is_some_and(|c| c.mode == Mode::Chasing);
+    let walls = s.walls.as_mut()?;
+    let d = [dx / len * go, dy / len * go];
+    let stepped = if fighting {
+        walls.step_fighting(template, scale, at, d)?
+    } else {
+        walls.step(template, scale, at, d)?
+    };
     let h = heading_toward(dx, dy);
     let next = StoredPosition {
         rotation: crate::world::rotation_of_heading(h),

@@ -372,6 +372,8 @@ fn a_map_found_at_its_place_moves_on_the_quest_it_is_part_of() {
         effects_last: false,
         wants: None,
         fellows: false,
+        levels: None,
+        xp_share: 0.0,
     });
     let (b, me, world, map) = with_map(&mut h);
     h.server

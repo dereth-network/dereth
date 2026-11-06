@@ -54,6 +54,9 @@ pub fn uses_checkout(development: bool, args: &[String]) -> bool {
 /// The folder in the person's Documents that Lyceum's new worlds go in.
 pub const WORLDS_FOLDER: &str = "Lyceum";
 
+/// The relay's program, in Empyrean's package beside the server.
+const RELAY_PROGRAM: &str = "empyrean-relay";
+
 /// How long a list of releases is reused before GitHub is asked again.
 const LIST_KEPT: Duration = dereth_launch::releases::LIST_KEPT;
 
@@ -1451,6 +1454,29 @@ pub fn program_of(shared: &Shared, product: Product) -> Option<PathBuf> {
     program(&lock(shared), product)
 }
 
+/// The relay's program, which comes with Empyrean: this checkout's build in a development build
+/// that has one, else the one beside the downloaded server. An older Empyrean has none.
+pub fn relay_program(shared: &Shared) -> Option<PathBuf> {
+    let store = lock(shared);
+    relay_program_in(
+        &store.builds,
+        store
+            .entries
+            .iter()
+            .find(|e| e.view.product == Product::Empyrean)
+            .and_then(|e| e.view.installed.as_ref())
+            .map(|i| i.executable.as_path()),
+    )
+}
+
+fn relay_program_in(builds: &[PathBuf], server: Option<&Path>) -> Option<PathBuf> {
+    newest_build(builds, RELAY_PROGRAM).or_else(|| {
+        server
+            .map(|s| s.with_file_name(program_file(RELAY_PROGRAM)))
+            .filter(|p| p.is_file())
+    })
+}
+
 /// The `lyceum` command beside the editor in use.
 fn lyceum_command(store: &Store) -> Result<PathBuf, String> {
     let editor = program(store, Product::Lyceum).ok_or("Download Lyceum first.")?;
@@ -2152,6 +2178,32 @@ mod tests {
         .unwrap();
         zip.write_all(b"synthetic executable").unwrap();
         zip.finish().unwrap().into_inner()
+    }
+
+    #[test]
+    fn the_relay_is_this_checkouts_build_else_the_one_beside_the_downloaded_server() {
+        let dir = std::env::temp_dir().join(format!("relay-program-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (built, downloaded) = (dir.join("built"), dir.join("downloaded"));
+        std::fs::create_dir_all(&built).unwrap();
+        std::fs::create_dir_all(&downloaded).unwrap();
+        let server = downloaded.join(program_file("empyrean-server"));
+        let beside = downloaded.join(program_file(RELAY_PROGRAM));
+        assert_eq!(
+            relay_program_in(&[], Some(&server)),
+            None,
+            "an older Empyrean has none"
+        );
+        std::fs::write(&beside, "relay").unwrap();
+        assert_eq!(relay_program_in(&[], Some(&server)), Some(beside.clone()));
+        assert_eq!(relay_program_in(&[], None), None, "no Empyrean, no relay");
+        let ours = built.join(program_file(RELAY_PROGRAM));
+        std::fs::write(&ours, "relay").unwrap();
+        assert_eq!(
+            relay_program_in(std::slice::from_ref(&built), Some(&server)),
+            Some(ours)
+        );
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

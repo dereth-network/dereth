@@ -258,7 +258,33 @@ pub fn spawn<S: Store>(s: &mut Server<S>, i: usize, now: f64) -> Option<u64> {
         .as_ref()
         .filter(|r| !r.waypoints.is_empty())
         .map(|r| crate::ai::Patrol::new(r.clone(), camp.moves.start, camp.moves.backward));
-    let (at, heading) = place(s, &camp, i);
+    let (mut at, heading) = place(s, &camp, i);
+    // A spot is where one was seen; on open ground one that flies appears at its height.
+    if camp.spots.is_empty() {
+        let hover = s.walls.as_ref().and_then(|w| w.hover_at_rest(template.id));
+        at.origin[2] += hover.unwrap_or(0.0);
+    }
+    Some(make(
+        s,
+        &template,
+        stats,
+        (at, heading),
+        Some(i),
+        patrol,
+        now,
+    ))
+}
+
+/// Make a creature of a template at a place, facing a way, for a camp if it has one.
+pub fn make<S: Store>(
+    s: &mut Server<S>,
+    template: &yalain_content::Template,
+    stats: yalain_content::CreatureStats,
+    (at, heading): (StoredPosition, u8),
+    camp: Option<usize>,
+    patrol: Option<crate::ai::Patrol>,
+    now: f64,
+) -> u64 {
     let max_health = if s.rng.chance(HEALTH_EXACT) {
         stats.max_health
     } else {
@@ -270,7 +296,7 @@ pub fn spawn<S: Store>(s: &mut Server<S>, i: usize, now: f64) -> Option<u64> {
         h.max(1)
     };
     let id = s.things.new_id();
-    let mut t = Thing::of(id, &template, Kind::Creature);
+    let mut t = Thing::of(id, template, Kind::Creature);
     t.at = Some(at);
     t.heading_motion = u32::from(heading) << 24 | crate::world::IDLE_MOTION;
     t.max_health = max_health;
@@ -281,7 +307,7 @@ pub fn spawn<S: Store>(s: &mut Server<S>, i: usize, now: f64) -> Option<u64> {
     let next_idle = crate::ai::first_idle(s, &stats, now);
     t.creature = Some(Creature {
         stats,
-        camp: Some(i),
+        camp,
         home: at,
         mode: Mode::Idle,
         target: None,
@@ -296,12 +322,14 @@ pub fn spawn<S: Store>(s: &mut Server<S>, i: usize, now: f64) -> Option<u64> {
         taken_by: Vec::new(),
         unreached: Vec::new(),
         ranged: false,
+        closing: None,
         barred: Vec::new(),
         next_look: now + f64::from(s.rng.unit()),
         lost_since: None,
         joining: None,
         opening: None,
         harm: Vec::new(),
+        taunts: Vec::new(),
         considered: f64::NEG_INFINITY,
         target_since: 0.0,
         kin_helped: None,
@@ -312,7 +340,7 @@ pub fn spawn<S: Store>(s: &mut Server<S>, i: usize, now: f64) -> Option<u64> {
     });
     s.things.insert(t);
     crate::arms::arm(s, id);
-    Some(id)
+    id
 }
 
 /// How near two places must be, in meters, to be one spot.

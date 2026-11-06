@@ -12,7 +12,7 @@
 //! The loop puts the latest [`Snapshot`] in with [`Endpoint::set`]; a thread of its own answers
 //! the requests from it, one at a time.
 
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read as _, Write};
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex, PoisonError};
@@ -150,9 +150,16 @@ impl Endpoint {
     }
 }
 
+/// How long a request may take to arrive, and to be taken, on the endpoint's one thread.
+const REQUEST_WAIT: Duration = Duration::from_secs(2);
+/// The most of a request read: its line and its headers.
+const MOST_REQUEST_BYTES: u64 = 2048;
+
 /// Answer one request.
 fn answer(stream: TcpStream, s: &Snapshot, allowed_origins: &[String]) -> std::io::Result<()> {
-    let mut reader = BufReader::new(stream.try_clone()?);
+    stream.set_read_timeout(Some(REQUEST_WAIT))?;
+    stream.set_write_timeout(Some(REQUEST_WAIT))?;
+    let mut reader = BufReader::new(stream.try_clone()?.take(MOST_REQUEST_BYTES));
     let mut request = String::new();
     reader.read_line(&mut request)?;
     // The headers, up to the blank line; only the page's origin is read.
@@ -196,10 +203,39 @@ mod tests {
 
     fn get(at: SocketAddr, path: &str) -> String {
         let mut s = TcpStream::connect(at).expect("connects");
+        s.set_read_timeout(Some(Duration::from_secs(60)))
+            .expect("set");
         write!(s, "GET {path} HTTP/1.1\r\nHost: x\r\n\r\n").expect("sent");
         let mut text = String::new();
         s.read_to_string(&mut text).expect("an answer");
         text
+    }
+
+    /// A connection that says nothing, or never ends its line, holds the endpoint no longer than its
+    /// wait, and keeps no more than a request's worth: the next request is answered.
+    /// Behaviour: server.operator.status-endpoint
+    #[test]
+    fn a_silent_connection_or_an_endless_line_does_not_hold_up_the_next_request() {
+        let e = Endpoint::start(
+            "127.0.0.1:0".parse().expect("an address"),
+            Snapshot::default(),
+            Vec::new(),
+        )
+        .expect("starts");
+        let silent = TcpStream::connect(e.addr()).expect("connects");
+        let mut endless = TcpStream::connect(e.addr()).expect("connects");
+        endless
+            .set_write_timeout(Some(Duration::from_secs(60)))
+            .expect("set");
+        // Past what it keeps, the endpoint is done with it, and sending to it fails.
+        let cut_off = (0..20_000).any(|_| endless.write_all(&[b'a'; 8192]).is_err());
+        assert!(cut_off, "160 MB taken of one line");
+        assert!(
+            get(e.addr(), "/health").ends_with("ok"),
+            "the next is answered"
+        );
+        drop(silent);
+        e.stop();
     }
 
     /// The status endpoint answers `/health` with ok, `/status` and `/v1/world` with the world's

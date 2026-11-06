@@ -272,7 +272,7 @@ impl Body {
     /// to the game's default mode.
     // D2-06223, D2-06340
     pub fn unset_parent(&mut self) {
-        if self.parent == 0 {
+        if !self.has_parent {
             return;
         }
         self.notices.push(Notice::RemoveChild {

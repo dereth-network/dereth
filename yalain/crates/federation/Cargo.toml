@@ -1,7 +1,7 @@
 [package]
 name = "yalain-federation"
 description = "The world's half of the Dereth Network's link, sans-IO: what an Asheron's Call 2 world says to the hub and does with what the hub says, so that its players reach characters on other worlds, of either game."
-version = "0.2.0" # Yalain's own version, shared by every yalain-* crate (not the workspace's)
+version = "0.2.1" # Yalain's own version, shared by every yalain-* crate (not the workspace's)
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

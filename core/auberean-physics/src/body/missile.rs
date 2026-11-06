@@ -30,7 +30,7 @@ pub struct Seen {
     pub position: Position,
     pub heading: Heading,
     pub velocity: Vec3,
-    /// It moves.
+    /// Its body is not static.
     pub dynamic: bool,
     /// It is itself a guided missile.
     pub guided: bool,
@@ -116,16 +116,11 @@ impl ObjectTable {
         );
     }
 
-    /// Notes an object that does not move, standing at `at`, `height` tall at scale `scale`, a
-    /// player or creature or not.
-    pub fn note_still(
-        &mut self,
-        id: u64,
-        at: Position,
-        height: f32,
-        scale: Vec3,
-        player_or_creature: bool,
-    ) {
+    /// Notes body `body` as object `id`, one that stands where it is put at scale `scale` rather
+    /// than moving as a body, a player or creature or not. Standing still does not make it static:
+    /// that is its state's to say.
+    pub fn note_still(&mut self, id: u64, body: &Body, scale: Vec3, player_or_creature: bool) {
+        let at = body.position;
         self.seen.insert(
             id,
             (
@@ -133,11 +128,11 @@ impl ObjectTable {
                     position: at,
                     heading: geom::frame_heading(&at.frame),
                     velocity: Vec3::ZERO,
-                    dynamic: false,
-                    guided: false,
+                    dynamic: !body.is_static(),
+                    guided: body.missile.is_some(),
                     player_or_creature,
                 },
-                height,
+                body.height(),
                 scale,
             ),
         );

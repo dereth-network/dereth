@@ -191,7 +191,7 @@ fn a_failed_random_source_gives_no_handshake_and_no_number_of_its_own() {
     let (_, cookie) = referred(&mut net, client);
     set(true);
     assert!(world_handshake(&mut net, client, cookie).is_none());
-    assert_eq!(net.connection_count(), 1, "the login alone");
+    assert_eq!(net.handshakes_waiting(), 0, "nothing waits");
     set(false);
     assert!(
         world_handshake(&mut net, client, cookie).is_some(),
@@ -199,8 +199,8 @@ fn a_failed_random_source_gives_no_handshake_and_no_number_of_its_own() {
     );
 }
 
-/// A referral's cookie is good once. A resend while its handshake waits makes no second connection
-/// and leaves the handshake good; a world login with it after that, from the client's address (a
+/// A referral's cookie is good once. A resend while its handshake waits is answered with that same
+/// handshake; a world login with it after that, from the client's address (a
 /// resend that arrived late) or another port or address behind it, makes no connection and ends
 /// nothing.
 /// Behaviour: server.net.referral-cookie-used-once
@@ -211,17 +211,20 @@ fn a_referrals_cookie_lets_in_one_world_connection_and_a_resend_changes_nothing(
     let (login, cookie) = referred(&mut net, client);
 
     let first = world_handshake(&mut net, client, cookie).expect("let in");
-    assert_eq!(net.connection_count(), 2, "the login and the world");
-    assert!(
-        world_handshake(&mut net, client, cookie).is_none(),
-        "a resend while the handshake waits: the handshake goes on its own clock"
+    assert_eq!(net.connection_count(), 1, "the login, the world's waiting");
+    let later = LocalTime(NOW.0 + 1.0);
+    net.on_datagram(Port::WORLD_EVEN, client, &world_login(cookie), later);
+    assert_eq!(
+        handshake(&net.take_datagrams()).map(|h| h.cookie),
+        Some(first.cookie),
+        "a resend while the handshake waits is answered with the same handshake"
     );
-    assert_eq!(net.connection_count(), 2);
+    assert_eq!(net.handshakes_waiting(), 1);
     assert!(
         world_handshake(&mut net, addr("198.51.100.7:50001"), cookie).is_none(),
         "the same address, another port, while the handshake waits"
     );
-    assert_eq!(net.connection_count(), 2);
+    assert_eq!(net.handshakes_waiting(), 1);
 
     net.on_datagram(
         Port::WORLD_ODD,

@@ -168,6 +168,67 @@ fn a_stale_leaving_or_holding_changes_nothing() {
     assert!(m.object(thing).and_then(|o| o.parent).is_none(), "later");
 }
 
+/// A creation of an object the client still has, after it left the world, puts it back in the
+/// world where the creation says it stands: a player who went on ahead through a door is there when
+/// the client arrives.
+///
+/// Behaviour: model.state.a-creation-brings-back-an-object-that-left
+#[test]
+fn a_creation_brings_back_an_object_that_left() {
+    use auberean_protocol::physics::{Leave, ObjectEvent};
+    use auberean_protocol::types::{ObjectStamp, PhysicsDesc, Placement};
+    let mut m = Model::default();
+    let other = 0x2130_0000_0000_0007;
+    let mut c = crate::create(other, 1, 1);
+    c.physics.bits |= PhysicsDesc::POSITION;
+    c.physics.position = Placement {
+        cell: 0x7D64_0021,
+        ..Placement::default()
+    };
+    c.physics.stamps = [4, 5, 6, 7];
+    m.apply(&item(3, 0, ServerMessage::CreateObject(c.clone())));
+    m.apply(&item(
+        2,
+        0,
+        ServerMessage::ObjectLeaves(ObjectEvent {
+            sender: ObjectStamp {
+                id: other,
+                instance_stamp: 1,
+                other_stamp: 0,
+            },
+            action: Leave { stamp: 5 },
+        }),
+    ));
+    let gone = m.object(other).expect("kept");
+    assert!(!gone.in_world && gone.place.is_none());
+
+    // The same incarnation made again in a room, where it arrived meanwhile.
+    c.physics.position.cell = 0x0BF1_0100;
+    c.physics.stamps = [6, 6, 6, 7];
+    m.apply(&item(3, 0, ServerMessage::CreateObject(c.clone())));
+    let back = m.object(other).expect("kept");
+    assert!(back.in_world);
+    assert_eq!(back.place.map(|p| p.cell), Some(0x0BF1_0100));
+    assert_eq!(back.creations, 2);
+
+    // A description with no place says nothing about that: it stays out.
+    m.apply(&item(
+        2,
+        0,
+        ServerMessage::ObjectLeaves(ObjectEvent {
+            sender: ObjectStamp {
+                id: other,
+                instance_stamp: 1,
+                other_stamp: 0,
+            },
+            action: Leave { stamp: 7 },
+        }),
+    ));
+    c.physics.position.cell = 0;
+    m.apply(&item(3, 0, ServerMessage::CreateObject(c)));
+    assert!(!m.object(other).expect("kept").in_world);
+}
+
 /// An object made already held takes the position stamp its description gives, as one in the world
 /// does: a let-go older than that changes nothing, and a later one lets it go.
 ///

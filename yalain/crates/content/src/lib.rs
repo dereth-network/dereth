@@ -42,7 +42,7 @@ pub mod treasure_words;
 pub mod worn_table;
 
 pub use locks::{Lock, LockTable};
-pub use loot::{LootProfile, LootTable};
+pub use loot::{ChestTreasure, LootProfile, LootTable};
 pub use movement::{CampMoves, Movement, MovementOverrides, MovementType, Route};
 pub use props::{CreatureStats, Prop, Props};
 pub use quests::QuestTable;
@@ -87,6 +87,21 @@ pub struct ButcheryYields {
 pub struct WeaponRule {
     pub two_share: Option<f32>,
     pub stance: Option<u32>,
+}
+
+/// What a creature's death effect makes around its killer, in place of what the install can say.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DeathSpawn {
+    /// The template of what it makes.
+    pub template: u32,
+    /// How many it tries to make.
+    pub count: u32,
+    /// The chance that each is made.
+    pub chance: f32,
+    /// Where each is made, in meters from the killer, as the killer faces.
+    pub offset: [f32; 2],
+    /// How long each stands, in seconds, where it doesn't stay until killed.
+    pub lasts: Option<f32>,
 }
 
 /// The templates the world makes objects of, by id, and the names of the generator profiles
@@ -171,6 +186,8 @@ pub struct Description {
     /// objects of one template each their own way (a portal by where it leads), so a name comes
     /// with a placement, not from the template.
     pub name: Option<(u32, u32)>,
+    /// The name it is shown with, as literal text, in place of its template's.
+    pub name_text: Option<String>,
     /// The physics type, the movement ethereality and the placement ethereality, each as its low
     /// and high word.
     pub numbers: [i32; 6],
@@ -378,6 +395,20 @@ pub fn facts(template: u32, entity: &dyn Fn(u32) -> Option<Entity>, ids: &FactId
         }
     }
     f
+}
+
+impl Facts {
+    /// With the name its properties hold where its chain of entities says none: some item templates
+    /// keep theirs only in their qualities record.
+    #[must_use]
+    pub fn named_by(mut self, props: &Props) -> Self {
+        if self.name.is_none() {
+            if let Some(Prop::Str(string, table)) = props.get("Name") {
+                self.name = Some((*string, *table));
+            }
+        }
+        self
+    }
 }
 
 /// One object of the pack: what it is and where it stands.
@@ -638,6 +669,7 @@ pub fn describe(
         let _ = write!(source, ", qualities {:08X}", qualities_id(template));
     }
     Ok(Description {
+        name_text: None,
         package,
         look,
         enter_fx: enter_fx.unwrap_or(0),
@@ -674,9 +706,10 @@ pub const COLUMNS: [&str; NCOLS] = [
     "facts",
     "route",
     "gate",
+    "name_text",
 ];
 
-const NCOLS: usize = 24;
+const NCOLS: usize = 25;
 
 fn hex32(s: &str) -> Result<u32, String> {
     u32::from_str_radix(s, 16).map_err(|e| format!("{s}: {e}"))
@@ -696,7 +729,7 @@ impl ContentPack {
             let d = &o.description;
             let _ = writeln!(
                 out,
-                "{}\t{:08X}\t{:08X}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:X}\t{:08X}\t{:08X}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                "{}\t{:08X}\t{:08X}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:X}\t{:08X}\t{:08X}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
                 o.object.map(|i| format!("{i:016X}")).unwrap_or_default(),
                 o.template,
                 o.cell,
@@ -721,6 +754,7 @@ impl ContentPack {
                 o.facts.to_text(),
                 o.walks.as_ref().map(crate::movement::CampMoves::route_text).unwrap_or_default(),
                 o.gate.map(|g| g.to_text()).unwrap_or_default(),
+                d.name_text.as_deref().unwrap_or_default().replace(['\t', '\n'], " "),
             );
         }
         out
@@ -737,8 +771,8 @@ impl ContentPack {
                 continue;
             }
             let c: Vec<&str> = line.split('\t').collect();
-            // A pack written before destinations, facts, routes and gates had fewer columns.
-            if !(NCOLS - 4..=NCOLS).contains(&c.len()) {
+            // A pack written before destinations, facts, routes, gates and names had fewer columns.
+            if !(NCOLS - 5..=NCOLS).contains(&c.len()) {
                 return Err(format!("line {}: {} columns, not {NCOLS}", n + 1, c.len()));
             }
             let at = |e: String| format!("line {}: {e}", n + 1);
@@ -784,6 +818,7 @@ impl ContentPack {
                 kind: Kind::from_word(c[10]).ok_or_else(|| at(format!("kind {}", c[10])))?,
                 label: c[11].to_string(),
                 description: Description {
+                    name_text: c.get(24).filter(|n| !n.is_empty()).map(|n| (*n).to_owned()),
                     package: hex32(c[12]).map_err(at)?,
                     look: hex32(c[13]).map_err(at)?,
                     enter_fx: hex32(c[14]).map_err(at)?,

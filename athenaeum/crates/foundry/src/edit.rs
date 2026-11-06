@@ -31,7 +31,7 @@ use toml_edit::{ArrayOfTables, DocumentMut, Item, Table, Value};
 use yalain_world_db::compile::outdoor_cell;
 use yalain_world_db::layer::{self, Base};
 use yalain_world_db::merge::item_key;
-use yalain_world_db::rows::{At, Camp, Located, Object, ObjectKind, Place, Prov, Row};
+use yalain_world_db::rows::{At, Camp, Clearing, Located, Object, ObjectKind, Place, Prov, Row};
 use yalain_world_db::{Files, Problem};
 
 use crate::toml as rowtoml;
@@ -76,6 +76,7 @@ impl Entry {
             Row::Object(o) => o.at,
             Row::Camp(c) => c.at,
             Row::Place(p) => p.at,
+            Row::Clearing(c) => c.at,
             _ => At {
                 x: 0.0,
                 y: 0.0,
@@ -102,6 +103,8 @@ pub enum NewKind {
     Camp,
     /// A destination.
     Place,
+    /// Ground kept free of what the land grows.
+    Clearing,
 }
 
 impl NewKind {
@@ -113,8 +116,24 @@ impl NewKind {
             Self::Static => "static",
             Self::Camp => "camp",
             Self::Place => "place",
+            Self::Clearing => "clearing",
         }
     }
+
+    /// Whether it is made of a template.
+    #[must_use]
+    pub const fn has_template(self) -> bool {
+        !matches!(self, Self::Place | Self::Clearing)
+    }
+}
+
+/// A clearing's shape.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ClearingShape {
+    /// A circle, meters.
+    Round { radius: f32 },
+    /// A rectangle along its own axes, meters, turned clockwise from north, degrees.
+    Rectangle { size: [f32; 2], heading: f32 },
 }
 
 /// A row to place: what (a template; unused for a place), where and facing which way.
@@ -127,6 +146,9 @@ pub struct NewRow {
     /// Degrees clockwise from north.
     pub heading: f32,
 }
+
+/// A clearing's radius when one is placed with no shape drawn, meters.
+pub const NEW_CLEARING: f32 = 15.0;
 
 /// A camp's numbers when one is placed: a radius, how many it keeps alive, and how long a
 /// replacement takes (the median respawn the recordings measured).
@@ -156,6 +178,9 @@ pub struct Session {
     problems: Vec<Problem>,
     warnings: Vec<Problem>,
     revision: u64,
+    /// The world's key, and which entries are its clearings.
+    key: String,
+    clearings: Vec<usize>,
 }
 
 impl std::fmt::Debug for Session {
@@ -256,6 +281,8 @@ impl Session {
             problems: Vec::new(),
             warnings: Vec::new(),
             revision: 0,
+            key: String::new(),
+            clearings: Vec::new(),
         };
         s.refresh();
         Ok(s)
@@ -438,7 +465,9 @@ impl Session {
         let mut warnings = Vec::new();
         let mut taken: BTreeSet<String> = self.base_items.keys().cloned().collect();
         let mut removed = Vec::new();
+        let mut keyed = None;
         if let Some(db) = db {
+            keyed = Some(db.world.key.clone());
             self.world_packs = db.packs.iter().map(|p| p.name.clone()).collect();
             taken.extend(db.rows().filter_map(item_key));
             if problems.is_empty() {
@@ -473,7 +502,10 @@ impl Session {
                 }
             }
             for l in rows {
-                if !matches!(l.row, Row::Object(_) | Row::Camp(_) | Row::Place(_)) {
+                if !matches!(
+                    l.row,
+                    Row::Object(_) | Row::Camp(_) | Row::Place(_) | Row::Clearing(_)
+                ) {
                     continue;
                 }
                 let Some(item) = item_key(&l) else { continue };
@@ -504,11 +536,41 @@ impl Session {
             .enumerate()
             .map(|(i, e)| (e.item.clone(), i))
             .collect();
+        self.clearings = entries
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| matches!(e.row.row, Row::Clearing(_)))
+            .map(|(i, _)| i)
+            .collect();
+        if let Some(key) = keyed {
+            self.key = key;
+        }
         self.entries = entries;
         self.taken = taken;
         self.removed = removed;
         self.problems = problems;
         self.warnings = warnings;
+    }
+
+    /// The world's key.
+    #[must_use]
+    pub fn key(&self) -> &str {
+        &self.key
+    }
+
+    /// The world's clearings as they stand, each with the landblock it is written in.
+    #[must_use]
+    pub fn clearings(&self) -> Vec<(&Clearing, u16)> {
+        self.clearings
+            .iter()
+            .filter_map(|i| {
+                let e = self.entries.get(*i)?;
+                match &e.row.row {
+                    Row::Clearing(c) => Some((c, e.row.landblock?)),
+                    _ => None,
+                }
+            })
+            .collect()
     }
 
     /// The file a landblock's rows are written in, in the target.
@@ -559,6 +621,12 @@ impl Session {
             z: Some(new.at[2]),
         };
         let p = Prov::AUTHORED;
+        if new.kind == NewKind::Clearing {
+            let round = ClearingShape::Round {
+                radius: NEW_CLEARING,
+            };
+            return self.place_clearing(lb, [new.at[0], new.at[1]], round);
+        }
         let (kind, file, table, item) = match new.kind {
             NewKind::Person | NewKind::Static => {
                 let key = self.free_key(new.kind.word(), |k| ItemKey::Object {
@@ -650,16 +718,83 @@ impl Session {
                     heading: Some(new.heading.rem_euclid(360.0)),
                     named_by: Vec::new(),
                     destination: None,
+                    row: None,
+                    holds: None,
                     prov: p.clone(),
                 };
                 let item = ItemKey::Place { key: key.clone() };
                 ("place", self.places_file(), rowtoml::place(&pl, &p), item)
             }
+            NewKind::Clearing => unreachable!("placed above"),
         };
         let mut doc = self.doc(&file)?;
         push_row(&mut doc, kind, table);
         self.commit(vec![(file, Some(doc.to_string()))]);
         Ok(item.to_string())
+    }
+
+    /// Keep a spot of a landblock free of what the land grows. Answers the new row's item.
+    ///
+    /// # Errors
+    /// The target's file for it is not TOML.
+    pub fn place_clearing(
+        &mut self,
+        landblock: u16,
+        at: [f32; 2],
+        shape: ClearingShape,
+    ) -> Result<String, String> {
+        let named = |k: &str| ItemKey::Clearing {
+            key: k.into(),
+            landblock,
+        };
+        let key = self.free_key("clearing", named);
+        let item = named(&key);
+        let (radius, size, heading) = shape_fields(shape);
+        let table = rowtoml::clearing(
+            &Clearing {
+                key,
+                at: At {
+                    x: at[0],
+                    y: at[1],
+                    z: None,
+                },
+                heading,
+                radius,
+                size,
+                prov: Prov::AUTHORED,
+            },
+            &Prov::AUTHORED,
+        );
+        let file = self.landblock_file(landblock);
+        let mut doc = self.doc(&file)?;
+        push_row(&mut doc, "clearing", table);
+        self.commit(vec![(file, Some(doc.to_string()))]);
+        Ok(item.to_string())
+    }
+
+    /// Give a clearing another shape, as one step.
+    ///
+    /// # Errors
+    /// No such row, a row of another pack, or a file that is not TOML.
+    pub fn shape_clearing(&mut self, item: &str, shape: ClearingShape) -> Result<String, String> {
+        let (radius, size, heading) = shape_fields(shape);
+        self.change(item, |t| {
+            for field in ["radius", "size", "heading"] {
+                t.remove(field);
+            }
+            if let Some(r) = radius {
+                t.insert("radius", Item::Value(rowtoml::number(r)));
+            }
+            if let Some([x, y]) = size {
+                let v = format!("[{}, {}]", rowtoml::number_text(x), rowtoml::number_text(y));
+                if let Ok(v) = v.parse::<Value>() {
+                    t.insert("size", Item::Value(v));
+                }
+            }
+            if let Some(h) = heading {
+                t.insert("heading", Item::Value(rowtoml::number(h)));
+            }
+        })
     }
 
     /// The row of `item` as a table to write in the target, with what to change in which files
@@ -706,6 +841,7 @@ impl Session {
                         &p,
                     ),
                     Row::Place(pl) => rowtoml::place(pl, &p),
+                    Row::Clearing(c) => rowtoml::clearing(c, &p),
                     _ => return Err(format!("{item}: not a placed row")),
                 }
             }
@@ -900,11 +1036,7 @@ impl Session {
         cell: Option<u32>,
     ) -> Result<String, String> {
         let (e, mut table) = self.editable(item)?;
-        let point = At {
-            x: at[0],
-            y: at[1],
-            z: Some(at[2]),
-        };
+        let point = placed_point(&e.row.row, at);
         table.insert("at", Item::Value(rowtoml::point(point)));
         // A land cell follows the point; an interior cell is kept.
         let outdoor = |t: &Table| {
@@ -934,20 +1066,17 @@ impl Session {
                 key: k.into(),
                 landblock,
             },
+            "clearing" => ItemKey::Clearing {
+                key: k.into(),
+                landblock,
+            },
             _ => ItemKey::Object {
                 key: k.into(),
                 landblock,
             },
         };
         if self.taken.contains(&named(&key).to_string()) {
-            key = self.free_key(
-                if kind == "camp" {
-                    "camp"
-                } else {
-                    word_of(&e.row.row)
-                },
-                named,
-            );
+            key = self.free_key(word_of(&e.row.row), named);
             table.insert("key", Item::Value(Value::from(key.as_str())));
         }
         let old = self.landblock_file(from);
@@ -1031,6 +1160,15 @@ impl Session {
                 let i = named(&key);
                 (key, i)
             }
+            Row::Clearing(_) => {
+                let named = |k: &str| ItemKey::Clearing {
+                    key: k.into(),
+                    landblock,
+                };
+                let key = self.free_key(word, named);
+                let i = named(&key);
+                (key, i)
+            }
             _ => {
                 let named = |k: &str| ItemKey::Object {
                     key: k.into(),
@@ -1045,11 +1183,7 @@ impl Session {
         table.remove("id");
         table.insert(
             "at",
-            Item::Value(rowtoml::point(At {
-                x: at[0],
-                y: at[1],
-                z: Some(at[2]),
-            })),
+            Item::Value(rowtoml::point(placed_point(&e.row.row, at))),
         );
         // A land cell follows the point; an interior cell is kept unless the copy goes elsewhere.
         let interior = table
@@ -1120,6 +1254,7 @@ impl Session {
             Some(ItemKey::Object { key, .. }) => ("object", key.clone()),
             Some(ItemKey::Camp { key, .. }) => ("camp", key.clone()),
             Some(ItemKey::Place { key }) => ("place", key.clone()),
+            Some(ItemKey::Clearing { key, .. }) => ("clearing", key.clone()),
             _ => return Err(format!("{item}: not a placed row")),
         };
         let own = self
@@ -1154,7 +1289,30 @@ fn key_of(row: &Row) -> String {
         Row::Object(o) => o.key.clone(),
         Row::Camp(c) => c.key.clone(),
         Row::Place(p) => p.key.clone(),
+        Row::Clearing(c) => c.key.clone(),
         _ => String::new(),
+    }
+}
+
+/// A clearing shape's fields: its radius, its size and its heading.
+fn shape_fields(shape: ClearingShape) -> (Option<f32>, Option<[f32; 2]>, Option<f32>) {
+    match shape {
+        ClearingShape::Round { radius } => (Some(radius), None, None),
+        ClearingShape::Rectangle { size, heading } => {
+            (None, Some(size), Some(heading.rem_euclid(360.0)))
+        }
+    }
+}
+
+/// A point a row is put at: a clearing lies on the ground, whatever the height.
+const fn placed_point(row: &Row, at: [f32; 3]) -> At {
+    At {
+        x: at[0],
+        y: at[1],
+        z: match row {
+            Row::Clearing(_) => None,
+            _ => Some(at[2]),
+        },
     }
 }
 
@@ -1164,6 +1322,7 @@ fn word_of(row: &Row) -> &'static str {
         Row::Object(o) if o.kind == ObjectKind::Npc => "person",
         Row::Object(_) => "static",
         Row::Camp(_) => "camp",
+        Row::Clearing(_) => "clearing",
         _ => "place",
     }
 }

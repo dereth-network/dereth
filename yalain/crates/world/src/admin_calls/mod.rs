@@ -193,8 +193,7 @@ pub(crate) fn revoke<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: Co
             p,
             auberean_protocol::physics::Scale(AdminState::default().run),
         ));
-        progress::private(net, world, &m);
-        crate::places::to_knowers(s, net, me, &m);
+        crate::places::to_all_knowing(s, net, me, &m);
     }
     if suffixed {
         crate::player::show_name(s, net, world);

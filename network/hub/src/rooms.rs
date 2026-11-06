@@ -15,14 +15,18 @@
 //!   that room becomes its Global room's mirror if it has none, and is taken away otherwise; either
 //!   way the log says so, and a registry event records it, by the hub. A room that stops carrying
 //!   the Global room is an ordinary own room again, mirrored nowhere until its operator mirrors it.
+//! - **One room, one mirror.** Where a world's game calls two of the link's names alike
+//!   ([`same_room`], Asheron's Call 2's `lfg` and `roleplay`), they are one room to all of this: a
+//!   second mirror of it is refused (`same_room`), and either name carrying the Global room
+//!   carries it for both.
 
-use dereth_network_protocol::rooms::{is_global_room, own_room_titles, OFF, OWN_ROOMS};
+use dereth_network_protocol::rooms::{is_global_room, own_room_titles, same_room, OFF, OWN_ROOMS};
 use dereth_network_protocol::wire::GLOBAL_ROOM;
 use rusqlite::{params, OptionalExtension};
 use serde_json::{json, Value};
 
 use crate::operators::{Operator, Role};
-use crate::registry::{iso, Registry, RegistryError};
+use crate::registry::{game_of, iso, Registry, RegistryError, Row};
 use crate::server::{log, Shared};
 
 /// The schema the rooms add to the registry (its version 9): where each world carries the Global
@@ -59,6 +63,16 @@ fn carries_global(room: &str) -> RegistryError {
     }
 }
 
+/// A second mirror of a room its world's game has one of, under two of the link's names.
+fn mirrored_as(room: &str, other: &str) -> RegistryError {
+    RegistryError {
+        reason: Some("same_room"),
+        ..RegistryError::conflict(format!(
+            "{room} and {other} are one room on this world, and it is mirrored as {other}: stop that mirror first"
+        ))
+    }
+}
+
 impl Registry {
     /// Where the world with registry id `server_id` carries the Global room: one of its own rooms,
     /// or `off`; none while the hub holds none for it.
@@ -85,14 +99,28 @@ impl Registry {
         self.global_room_of(&row.id)
     }
 
-    /// Whether `room` of the world `server_id` may not be mirrored as its own: it carries the
-    /// Global room there.
+    /// Whether `room` of the world `row` may not be mirrored as its own: it carries the Global
+    /// room there, or the world mirrors it under another of the link's names.
     ///
     /// # Errors
-    /// 409 (`carries_global`) when it does; database errors.
-    pub(crate) fn check_own_room(&self, server_id: &str, room: &str) -> Result<(), RegistryError> {
-        if room != GLOBAL_ROOM && self.global_room_of(server_id)?.as_deref() == Some(room) {
+    /// 409 (`carries_global`, `same_room`) when so; database errors.
+    pub(crate) fn check_own_room(&self, row: &Row, room: &str) -> Result<(), RegistryError> {
+        if room == GLOBAL_ROOM {
+            return Ok(());
+        }
+        let game = game_of(&row.registry);
+        if self
+            .global_room_of(&row.id)?
+            .is_some_and(|global| same_room(game, &global, room))
+        {
             return Err(carries_global(room));
+        }
+        if let Some(other) = self
+            .mirrors_of(Some(&row.id))?
+            .iter()
+            .find(|m| m.room != room && same_room(game, &m.room, room))
+        {
+            return Err(mirrored_as(room, &other.room));
         }
         Ok(())
     }
@@ -100,8 +128,8 @@ impl Registry {
     /// The world `slug` carries the Global room in `room` (one of its own rooms, or `off`) from
     /// now on, at `actor`'s asking (an operator's id, or [`BY_WORLD`]); with `seed`, only while the
     /// hub holds none for it. A change is a registry event of the world's, and the world's mirror
-    /// of the room that now carries the Global room becomes its Global room's mirror, if it has
-    /// none, or goes.
+    /// of the room that now carries the Global room, under either of its names where it has two,
+    /// becomes its Global room's mirror, if it has none, or goes.
     ///
     /// # Errors
     /// 400 for a room that is none of the world's own nor `off`; 404 for no such world; 409 for a
@@ -147,66 +175,71 @@ impl Registry {
                 if seed { " (as its settings said)" } else { "" }
             ),
         );
-        let mirrors = room != OFF && self.mirror_follows(&row.id, slug, room)?;
+        let mirrors = room != OFF && self.mirror_follows(&row, room)?;
         Ok(GlobalSet {
             changed: true,
             mirrors,
         })
     }
 
-    /// The world `server_id`'s mirror of `room`, which now carries the Global room there, becomes
-    /// its Global room's mirror if it has none, and goes otherwise. Whether it had one.
-    fn mirror_follows(
-        &self,
-        server_id: &str,
-        slug: &str,
-        room: &str,
-    ) -> Result<bool, RegistryError> {
+    /// The world `row`'s mirror of `carrying`, which now carries the Global room there, or of the
+    /// room's other name where it has two, becomes its Global room's mirror if it has none, and
+    /// goes otherwise. Whether it had one.
+    fn mirror_follows(&self, row: &Row, carrying: &str) -> Result<bool, RegistryError> {
+        let (server_id, slug) = (row.id.as_str(), row.slug.as_str());
+        let game = game_of(&row.registry);
         let mirrors = self.mirrors_of(Some(server_id))?;
-        let Some(own) = mirrors.iter().find(|m| m.room == room) else {
-            return Ok(false);
-        };
-        if mirrors.iter().any(|m| m.room == GLOBAL_ROOM) {
-            self.db.execute(
-                "DELETE FROM discord_mirrors WHERE server_id = ?1 AND room = ?2",
-                params![server_id, room],
-            )?;
-            self.event_by(
-                server_id,
-                "discord-mirror",
-                Some(BY_HUB),
-                &json!({ "room": room, "mirrored": false, "carriesGlobal": true }),
-            )?;
-            log(
-                "info",
-                &format!(
-                    "{slug}'s mirror of {room} into the Discord channel {} is taken away: {room} carries the Global room there now, which it mirrors already",
-                    own.placement.channel
-                ),
-            );
-        } else {
-            self.db.execute(
-                "UPDATE discord_mirrors SET room = ?3 WHERE server_id = ?1 AND room = ?2",
-                params![server_id, room, GLOBAL_ROOM],
-            )?;
-            let p = &own.placement;
-            let mut details = json!({
-                "room": GLOBAL_ROOM, "mirrored": true, "channel": p.channel, "server": p.server,
-                "through": p.through(), "was": room,
-            });
-            if let Some(hook) = &p.hook {
-                details["webhook"] = json!(hook.id);
+        let mut global_mirrored = mirrors.iter().any(|m| m.room == GLOBAL_ROOM);
+        let mut followed = false;
+        for own in mirrors
+            .iter()
+            .filter(|m| same_room(game, &m.room, carrying))
+        {
+            let room = own.room.as_str();
+            followed = true;
+            if global_mirrored {
+                self.db.execute(
+                    "DELETE FROM discord_mirrors WHERE server_id = ?1 AND room = ?2",
+                    params![server_id, room],
+                )?;
+                self.event_by(
+                    server_id,
+                    "discord-mirror",
+                    Some(BY_HUB),
+                    &json!({ "room": room, "mirrored": false, "carriesGlobal": true }),
+                )?;
+                log(
+                    "info",
+                    &format!(
+                        "{slug}'s mirror of {room} into the Discord channel {} is taken away: {room} carries the Global room there now, which it mirrors already",
+                        own.placement.channel
+                    ),
+                );
+            } else {
+                global_mirrored = true;
+                self.db.execute(
+                    "UPDATE discord_mirrors SET room = ?3 WHERE server_id = ?1 AND room = ?2",
+                    params![server_id, room, GLOBAL_ROOM],
+                )?;
+                let p = &own.placement;
+                let mut details = json!({
+                    "room": GLOBAL_ROOM, "mirrored": true, "channel": p.channel, "server": p.server,
+                    "through": p.through(), "was": room,
+                });
+                if let Some(hook) = &p.hook {
+                    details["webhook"] = json!(hook.id);
+                }
+                self.event_by(server_id, "discord-mirror", Some(BY_HUB), &details)?;
+                log(
+                    "info",
+                    &format!(
+                        "{slug}'s mirror of {room} into the Discord channel {} mirrors the Global room now: {room} carries it there",
+                        p.channel
+                    ),
+                );
             }
-            self.event_by(server_id, "discord-mirror", Some(BY_HUB), &details)?;
-            log(
-                "info",
-                &format!(
-                    "{slug}'s mirror of {room} into the Discord channel {} mirrors the Global room now: {room} carries it there",
-                    p.channel
-                ),
-            );
         }
-        Ok(true)
+        Ok(followed)
     }
 }
 
@@ -300,6 +333,17 @@ mod tests {
         r.register(&registration).expect("registered");
         r.set_federation("coldeve", Federation::On).expect("on");
         r
+    }
+
+    /// Registers `shardfall`, a world of the second game.
+    fn ac2_world(r: &Registry) {
+        let shard = crate::registry::Registration::from_json(&json!({
+            "slug": "shardfall", "name": "Shardfall", "ruleset": "PvE", "game": "auberean",
+            "endpoint": { "mode": "manual", "address": "192.0.2.2", "port": 9000 },
+            "emulator": { "family": "Yalain" },
+        }))
+        .expect("a registration");
+        r.register(&shard).expect("registered");
     }
 
     fn rooms_mirrored(r: &Registry) -> Vec<(String, String)> {
@@ -447,22 +491,112 @@ mod tests {
         assert_eq!(rooms_mirrored(&r), [("global".to_owned(), "71".to_owned())]);
     }
 
+    /// Spec: hub: on a world whose game calls `lfg` and `roleplay` alike they are one room: a second
+    /// mirror of it is refused, and Global carried under either name refuses a mirror of the other.
+    /// On a world of the first game they stay two rooms.
+    #[test]
+    fn a_room_with_two_names_takes_one_mirror() {
+        let r = registry();
+        ac2_world(&r);
+        let bot = |channel: &str| Placement::bot(channel, "500");
+
+        r.set_mirror(Some("shardfall"), "lfg", &bot("81"), Some("op_1"))
+            .expect("mirrored");
+        let second = r
+            .set_mirror(Some("shardfall"), "roleplay", &bot("82"), Some("op_1"))
+            .expect_err("one room, one mirror");
+        assert_eq!((second.status, second.reason), (409, Some("same_room")));
+        r.set_mirror(Some("shardfall"), "lfg", &bot("83"), Some("op_1"))
+            .expect("the mirror it has may move");
+
+        r.set_mirror(Some("coldeve"), "lfg", &bot("91"), Some("op_1"))
+            .expect("mirrored");
+        r.set_mirror(Some("coldeve"), "roleplay", &bot("92"), Some("op_1"))
+            .expect("two rooms on a world of the first game");
+
+        assert!(r
+            .drop_mirror(Some("shardfall"), "lfg", Some("op_1"))
+            .expect("stopped"));
+        r.set_global_room("shardfall", "roleplay", false, "op_1")
+            .expect("set");
+        let carried = r
+            .set_mirror(Some("shardfall"), "lfg", &bot("84"), Some("op_1"))
+            .expect_err("Global is in that room");
+        assert_eq!(
+            (carried.status, carried.reason),
+            (409, Some("carries_global"))
+        );
+    }
+
+    /// Spec: hub: Global moved onto either name of a room with two takes the room's mirror, which
+    /// becomes the Global room's or goes; mirrors made under both names before the hub refused
+    /// them go the same way, one kept.
+    #[test]
+    fn global_moved_onto_either_name_of_a_room_with_two_takes_its_mirrors() {
+        let r = registry();
+        ac2_world(&r);
+        let bot = |channel: &str| Placement::bot(channel, "500");
+        let row = r.row("shardfall").expect("read").expect("there");
+        let mirrors = |r: &Registry| -> Vec<(String, String)> {
+            r.mirrors_of(Some(&row.id))
+                .expect("read")
+                .into_iter()
+                .map(|m| (m.room, m.placement.channel))
+                .collect()
+        };
+
+        r.set_mirror(Some("shardfall"), "lfg", &bot("81"), Some("op_1"))
+            .expect("mirrored");
+        assert_eq!(
+            r.set_global_room("shardfall", "roleplay", false, "op_1"),
+            Ok(GlobalSet {
+                changed: true,
+                mirrors: true
+            })
+        );
+        assert_eq!(mirrors(&r), [("global".to_owned(), "81".to_owned())]);
+
+        // Both names mirrored, as the hub once allowed.
+        r.set_global_room("shardfall", "off", false, "op_1")
+            .expect("set");
+        r.drop_mirror(Some("shardfall"), "global", Some("op_1"))
+            .expect("stopped");
+        for (room, channel) in [("lfg", "85"), ("roleplay", "86")] {
+            r.db.execute(
+                "INSERT INTO discord_mirrors(server_id, room, channel_id, guild_id, set_at)
+                 VALUES (?1, ?2, ?3, '500', 'then')",
+                params![row.id, room, channel],
+            )
+            .expect("a row from before");
+        }
+        assert_eq!(
+            r.set_global_room("shardfall", "lfg", false, "op_1"),
+            Ok(GlobalSet {
+                changed: true,
+                mirrors: true
+            })
+        );
+        let left = mirrors(&r);
+        assert_eq!(left.len(), 1, "{left:?}");
+        assert_eq!(left[0].0, "global");
+    }
+
     /// Spec: hub: the room that carries a world's Global room is not one of its own rooms, so a
     /// mirror of it is refused with a reason that says to mirror Global instead.
     #[test]
     fn the_room_carrying_global_is_refused_as_an_own_rooms_mirror() {
         let r = registry();
-        let id = r.row("coldeve").expect("read").expect("the world").id;
-        assert_eq!(r.check_own_room(&id, "roleplay"), Ok(()), "none held yet");
+        let row = r.row("coldeve").expect("read").expect("the world");
+        assert_eq!(r.check_own_room(&row, "roleplay"), Ok(()), "none held yet");
         r.set_global_room("coldeve", "roleplay", false, "op_1")
             .expect("set");
-        let refused = r.check_own_room(&id, "roleplay").expect_err("refused");
+        let refused = r.check_own_room(&row, "roleplay").expect_err("refused");
         assert_eq!(
             (refused.status, refused.reason),
             (409, Some("carries_global"))
         );
         assert!(refused.message.contains("mirror the Global room instead"));
-        assert_eq!(r.check_own_room(&id, "general"), Ok(()));
-        assert_eq!(r.check_own_room(&id, "global"), Ok(()));
+        assert_eq!(r.check_own_room(&row, "general"), Ok(()));
+        assert_eq!(r.check_own_room(&row, "global"), Ok(()));
     }
 }

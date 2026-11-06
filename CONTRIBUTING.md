@@ -9,6 +9,7 @@ games:
 |---|---|---|---|
 | While working, before each commit | `cargo xtask check` | nothing | 1-2 minutes |
 | Before pushing or opening a PR | `cargo xtask ci tier0` | nothing | about 3 minutes |
+| When a test might lean on data you have | `cargo xtask ci no-data` | nothing | a few minutes |
 | With the retail data | `cargo xtask ci tier1` | the dats, `world.pack` and ACE's world dump; Asheron's Call 2's data files and capture index (below) | about 20 minutes |
 | On hardware | `cargo xtask ci tier2` | a graphics device and the dats | -- |
 
@@ -26,7 +27,13 @@ is `ci tier1 --game auberean`.
   comment and test lints, the seams, the crate headers.
 - **`ci tier0` is exactly what CI runs. Run it before you push.** It builds everything, runs every
   test that needs no game data, clippy with every warning an error (over the tests that need the
-  game data too: clippy only reads them), every rule and the documentation check.
+  game data too: clippy only reads them), every rule and the documentation check. CI runs the build,
+  the tests and clippy on every system and the rules and the documentation check once, on Linux;
+  `--only build,test,clippy,docs,rules` runs those parts alone. So documentation on code only Windows
+  or macOS compiles is checked when you run `ci tier0` on that system, not by GitHub's CI.
+- **`ci no-data`** runs the tests as CI runs them on a machine with your data: every variable naming
+  data emptied, an empty per-user cache and `--no-fail-fast`, then a list of everything that failed.
+  A test that reaches for data it did not declare passes for you and fails here.
 - **`ci tier1`** runs every crate's data tier and the server's real-content tests, then
   Asheron's Call 2's crates' tests and its data tiers. A game whose data is not found reports its
   rows as NO-ORACLE and the run fails; the other game's rows still run. Without one game's data,
@@ -46,7 +53,8 @@ for investigating one failure. A hand-typed command takes the same profile:
 `cargo test --profile test-release -p <crate>`.
 
 A crate's integration tests are one binary per tier (`cpu`, `dat`, `gpu`); [README.md](README.md#test-tiers)
-explains them.
+explains them. A `dat`, `corpus`, `gpu` or `live` target declares `required-features` (`cargo xtask
+tier-targets` checks), so a workspace test run on a machine without its data leaves it out.
 
 **Your own retail data.** The game's data files and `world.pack` are never part of this repository
 and never shipped with it; the tests that need them read your copies through variables that only

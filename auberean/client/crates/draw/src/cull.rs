@@ -144,9 +144,9 @@ impl Frustum {
     #[must_use]
     pub fn of_camera(camera: &Camera, aspect: f32) -> Self {
         let (h, p) = (camera.heading.to_radians(), camera.pitch.to_radians());
-        let forward = V::new(sinf(h) * cosf(p), cosf(h) * cosf(p), sinf(p));
-        let right = unit(cross(forward, V::new(0.0, 0.0, 1.0)));
-        let up = cross(right, forward);
+        let forward = Vec3::new(sinf(h) * cosf(p), cosf(h) * cosf(p), sinf(p));
+        let (right, up) = crate::scene::view_axes(forward, camera.roll);
+        let (right, forward, up) = (v(right), v(forward), v(up));
         Self::camera(
             v(camera.position),
             right,

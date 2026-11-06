@@ -33,6 +33,7 @@ fn item(name: &str) -> ItemFacts {
         had: true,
         worn: false,
         melts_at_once: false,
+        offered_name: None,
         data_id: 0,
     }
 }
@@ -423,4 +424,25 @@ fn the_spinner_writes_a_changed_value_unsigned() {
         "{out:?}"
     );
     assert_eq!(shown(&w), "010", "the value read is the value taken");
+}
+
+/// The making's end reads the recipe as it stands that very frame, so the last charge used closes
+/// the panel though the answer came with the notice, even with an answer for another spinner
+/// value in.
+///
+/// Behaviour: ui.craft.the-makings-end-reads-the-charges-of-that-frame
+#[test]
+fn the_makings_end_reads_the_charges_of_that_frame() {
+    let mut w = World::new();
+    w.craft.opened = Some(recipe_at(1));
+    w.tick(&[]);
+    w.tick(&[said(notice::OPEN_INGREDIENT_PANEL, vec![RECIPE])]);
+    let field = w.el("RealIngredientField");
+    assert!(w.ui.shown(field), "open");
+    let mut done = recipe_at(2);
+    done.charges = 0;
+    w.craft.version = 2;
+    w.craft.opened = Some(done);
+    w.tick(&[said(notice::EXECUTE_CRAFT_DONE, vec![RECIPE, 0])]);
+    assert!(!w.ui.shown(field), "closed by the charges just answered");
 }

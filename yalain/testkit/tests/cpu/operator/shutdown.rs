@@ -430,3 +430,57 @@ fn stopping_now_shows_the_last_line_and_lets_the_server_stop_at_once() {
     );
     assert_eq!(h.server.shutdown, Shutdown::Done);
 }
+
+/// A world that runs no pass for the limit's looks is stopped once, from where it was.
+/// Behaviour: server.operator.a-world-that-runs-no-pass-is-stopped
+#[test]
+fn a_world_that_runs_no_pass_for_the_limit_is_stopped_once() {
+    use yalain_world::guard::{watch, Part, Passes};
+    let passes = Passes::default();
+    passes.pass();
+    passes.at(Part::World);
+    let mut looks = 0;
+    let mut stopped = Vec::new();
+    assert!(watch(&passes, 5, || looks += 1, |part| stopped.push(part)));
+    assert_eq!(stopped, [Part::World], "stopped once, from where it was");
+    assert_eq!(looks, 5, "after the limit, its first look seeing the count");
+}
+
+/// A world that runs a pass between any two looks is never stopped, however many looks go by, and
+/// its passes being over ends the watch.
+/// Behaviour: server.operator.a-world-that-runs-no-pass-is-stopped
+#[test]
+fn a_world_still_running_passes_is_not_stopped_and_its_end_ends_the_watch() {
+    use yalain_world::guard::{watch, Passes};
+    let passes = Passes::default();
+    let mut looks = 0;
+    let mut stopped = false;
+    let ended = watch(
+        &passes,
+        2,
+        || {
+            looks += 1;
+            passes.pass();
+            if looks == 1_000 {
+                passes.over();
+            }
+        },
+        |_| stopped = true,
+    );
+    assert!(!ended && !stopped, "never stopped");
+    assert_eq!(looks, 1_000);
+}
+
+/// A limit of nothing never stops the world, and a pass after looks with none starts the count again.
+/// Behaviour: server.operator.a-world-that-runs-no-pass-is-stopped
+#[test]
+fn a_limit_of_nothing_never_trips_and_a_pass_starts_the_count_again() {
+    use yalain_world::guard::PassWatch;
+    let mut never = PassWatch::new(0);
+    assert!((0..1_000).all(|_| !never.look(7)));
+    let mut w = PassWatch::new(3);
+    assert!(!w.look(1) && !w.look(1) && !w.look(1), "two looks still");
+    assert!(!w.look(2), "a pass");
+    assert!(!w.look(2) && !w.look(2), "two looks still");
+    assert!(w.look(2), "the third");
+}

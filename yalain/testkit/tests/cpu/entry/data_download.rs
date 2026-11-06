@@ -9,7 +9,8 @@ use auberean_dat::DatKind;
 use auberean_protocol::login::{DataRecord, DataRefused, DataRequest};
 use auberean_protocol::{queue, ClientMessage, ServerMessage};
 use yalain_testkit::Harness;
-use yalain_world::download::{CELL_FILE, ENGLISH_FILE, PORTAL_FILE};
+use yalain_world::download::{DataFiles, CELL_FILE, ENGLISH_FILE, PORTAL_FILE};
+use yalain_world::reload::WorldTables;
 
 use super::character_select::{at_character_list, STEPS};
 
@@ -307,5 +308,103 @@ fn what_a_connection_has_waiting_to_be_sent_has_a_limit() {
     assert!(
         h.net.large_waiting(conn) <= waiting,
         "nothing more is queued"
+    );
+}
+
+/// Files with a world's overlay over them, which holds a word on every record they have.
+#[derive(Debug)]
+struct Overlaid(BTreeMap<(DatKind, u32), Vec<u8>>);
+
+impl DataFiles for Overlaid {
+    fn read(&self, file: DatKind, id: u32) -> Option<Vec<u8>> {
+        self.0.read(file, id)
+    }
+
+    fn very_long(&self) -> Vec<(DatKind, u32)> {
+        self.0.very_long()
+    }
+
+    fn overlaid(&self, _file: DatKind, _id: u32) -> bool {
+        true
+    }
+}
+
+/// The record a client gets when it asks for `id` of a kind that lives in the language's file.
+fn answer(h: &mut Harness, id: u32) -> Vec<u8> {
+    let b = at_character_list(h, "one");
+    let from = h.bots[b].inbox.len();
+    asked(h, b, [id]);
+    h.run(10);
+    let d = h.bots[b].inbox[from..]
+        .iter()
+        .find_map(|r| match r.message() {
+            Some(ServerMessage::DataRecord(d)) => Some(d),
+            _ => None,
+        })
+        .expect("it is answered");
+    let mut back = Vec::new();
+    if d.size == 0 {
+        back = d.bytes;
+    } else {
+        flate2::read::ZlibDecoder::new(&d.bytes[..])
+            .read_to_end(&mut back)
+            .expect("inflates");
+    }
+    back
+}
+
+/// A reload that opened the files again answers from them from then on, and a very long record a
+/// world's overlay holds is read for each answer: compressed before the world ran, it would still
+/// be answered as it was.
+/// Behaviour: server.data.a-reload-answers-from-the-overlay-as-it-now-is
+#[test]
+fn a_reload_answers_from_the_overlay_as_it_now_is() {
+    let (id, n) = (0x2500_0000, yalain_world::download::PREPARED_FROM);
+    let of = |fill: u8| {
+        let mut v = plain(id, n);
+        v[n - 1] = fill;
+        let mut f = BTreeMap::new();
+        f.insert((DatKind::Local, id), v);
+        f
+    };
+    let mut h = Harness::new();
+    h.server.data = Some(Box::new(Overlaid(of(1))));
+    yalain_world::download::prepare(&mut h.server);
+    assert_eq!(answer(&mut h, id)[n - 1], 1, "the overlay as it was");
+    assert!(
+        h.server.downloads.compressed > 0,
+        "nothing was kept for it before the world ran"
+    );
+
+    let t = WorldTables {
+        files: Some(Box::new(Overlaid(of(2)))),
+        ..WorldTables::default()
+    };
+    let clock = h.clock();
+    h.server.reload(&mut h.net, clock, t);
+    assert_eq!(answer(&mut h, id)[n - 1], 2, "the overlay as it now is");
+}
+
+/// What a world's overlay holds no word on stays compressed from before the world ran, whatever a
+/// reload opens: the install's files don't change.
+/// Behaviour: server.data.a-reload-answers-from-the-overlay-as-it-now-is
+#[test]
+fn a_very_long_record_no_overlay_holds_stays_compressed_over_a_reload() {
+    let (id, n) = (0x2500_0000, yalain_world::download::PREPARED_FROM);
+    let mut f = BTreeMap::new();
+    f.insert((DatKind::Local, id), plain(id, n));
+    let mut h = Harness::new();
+    h.server.data = Some(Box::new(f.clone()));
+    yalain_world::download::prepare(&mut h.server);
+    let t = WorldTables {
+        files: Some(Box::new(f)),
+        ..WorldTables::default()
+    };
+    let clock = h.clock();
+    h.server.reload(&mut h.net, clock, t);
+    assert_eq!(answer(&mut h, id).len(), n);
+    assert_eq!(
+        h.server.downloads.compressed, 0,
+        "nothing compressed in a pass"
     );
 }

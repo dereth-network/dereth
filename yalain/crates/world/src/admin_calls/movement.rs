@@ -332,8 +332,7 @@ fn run<S: Store>(cx: &mut Cx<'_, S>, a: &Args<'_>) -> Vec<String> {
     };
     let m = ServerMessage::VelocityScale(places::player_event(p, Scale(by)));
     let me = p.character;
-    progress::private(cx.net, cx.world, &m);
-    places::to_knowers(cx.s, cx.net, me, &m);
+    places::to_all_knowing(cx.s, cx.net, me, &m);
     vec![format!("Your run speed is scaled by {by}.")]
 }
 
@@ -442,6 +441,7 @@ fn impulse<S: Store>(cx: &mut Cx<'_, S>, a: &Args<'_>) -> Vec<String> {
     let Some(p) = cx.s.players.get_mut(&cx.world) else {
         return Vec::new();
     };
+    let me = p.character;
     let m = ServerMessage::Push(places::player_event(
         p,
         Impulse {
@@ -449,7 +449,7 @@ fn impulse<S: Store>(cx: &mut Cx<'_, S>, a: &Args<'_>) -> Vec<String> {
             contact,
         },
     ));
-    progress::private(cx.net, cx.world, &m);
+    places::to_all_knowing(cx.s, cx.net, me, &m);
     vec![format!("You are pushed by ({x}, {y}, {z}).")]
 }
 
@@ -483,7 +483,8 @@ fn pushed<S: Store>(cx: &mut Cx<'_, S>, a: &Args<'_>, from: bool) -> Vec<String>
         },
     ));
     let name = p.name.clone();
-    progress::private(cx.net, moved, &m);
+    let id = p.character;
+    places::to_all_knowing(cx.s, cx.net, id, &m);
     vec![format!("{name} is pushed.")]
 }
 

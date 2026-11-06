@@ -647,9 +647,21 @@ pub enum Ticket {
     Banned,
 }
 
-/// Check a friends ticket by the login's rule ([`crate::login::admits`]): a banned account's is
-/// refused as banned, and only once its secret matched.
-pub fn ticket<S: Store>(s: &mut Server<S>, name: &str, secret: &[u8], now: i64) -> Ticket {
+/// Check a friends ticket by the login's rule ([`crate::login::admits`]), from an address as the
+/// login keeps it ([`crate::login::address_key`]): a banned account's is refused as banned, and only
+/// once its secret matched. It counts among the secrets checked as a login does: its host checks
+/// one only when [`crate::login::secret_check_due`] says.
+pub fn ticket<S: Store>(
+    s: &mut Server<S>,
+    name: &str,
+    secret: &[u8],
+    address: &str,
+    now: i64,
+) -> Ticket {
+    if !crate::login::may_check_secret(s, address, name) {
+        return Ticket::Refused;
+    }
+    crate::login::secret_checked(s);
     match crate::login::admits(
         s.cfg.accounts,
         s.cfg.secret_cost,
@@ -950,11 +962,7 @@ fn set_character_admin<S: Store>(
         return Err(format!("Character {name} does not exist."));
     }
     if admin {
-        let account = s
-            .store
-            .accounts()
-            .ok()
-            .and_then(|all| all.into_iter().find(|a| a.id == c.account));
+        let account = s.store.account(c.account).ok().flatten();
         if !account.is_some_and(|a| a.admin) {
             return Err(format!(
                 "{}'s account is not an admin's: set-accountadmin first.",
@@ -1220,6 +1228,20 @@ pub(crate) fn end_login<S: Store>(
         table_id: STRINGS,
         ..StringInfo::default()
     }));
+    net.send(login, queue::EVENT, BlobKind::LOGIN, m.encode());
+    s.after(clock, BOOT_CLOSE_AFTER, Timer::Close { conn: login });
+}
+
+/// End a login with the server's own words: the message that ends it, the connection closed a
+/// moment later.
+pub(crate) fn end_login_saying<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    login: ConnId,
+    words: &str,
+    clock: Clock,
+) {
+    let m = ServerMessage::AccountBooted(Text(StringInfo::literal(words)));
     net.send(login, queue::EVENT, BlobKind::LOGIN, m.encode());
     s.after(clock, BOOT_CLOSE_AFTER, Timer::Close { conn: login });
 }

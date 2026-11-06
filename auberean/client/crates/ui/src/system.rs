@@ -173,6 +173,8 @@ pub struct Node {
     pub alpha_picture: Option<u32>,
     /// A top-level element is drawn as a whole at this alpha (its fades set it).
     pub object_alpha: f32,
+    /// A top-level element is drawn as a whole at this size, from its top-left corner.
+    pub object_scale: f32,
     /// A top-level element: drawn as a whole, and able to run transitions.
     pub owns_object: bool,
     /// Its transitions under way.
@@ -482,6 +484,15 @@ impl Ui {
         self.revision += 1;
     }
 
+    /// How the child named `child` of an element's state `state` follows its parent's size,
+    /// from its next placing on, for a panel that corrects its layout.
+    pub fn set_child_edges(&mut self, h: Handle, state: Token, child: Token, edges: [u8; 4]) {
+        let Some(n) = self.node(h) else { return };
+        let (desc, refdesc) = (n.desc, n.refdesc);
+        self.lib.set_child_edges(desc, state, child, edges);
+        self.lib.set_child_edges(refdesc, state, child, edges);
+    }
+
     /// Load a layout record by id (once); `None` if the install lacks it.
     pub fn load_layout(&mut self, id: u32) -> Option<LayoutIx> {
         if let Some(ix) = self.lib.layout_by_id(id) {
@@ -503,6 +514,15 @@ impl Ui {
 
     pub(crate) fn node_mut(&mut self, h: Handle) -> Option<&mut Node> {
         self.revision += 1;
+        if self.generations.get(h.index as usize) != Some(&h.generation) {
+            return None;
+        }
+        self.nodes.get_mut(h.index as usize)?.as_mut()
+    }
+
+    /// An element, to change what isn't drawn: the caller says when something is
+    /// ([`Self::touch`]).
+    pub(crate) fn node_mut_undrawn(&mut self, h: Handle) -> Option<&mut Node> {
         if self.generations.get(h.index as usize) != Some(&h.generation) {
             return None;
         }
@@ -707,6 +727,7 @@ impl Ui {
             alpha: -1.0,
             alpha_picture: None,
             object_alpha: 1.0,
+            object_scale: 1.0,
             owns_object,
             transitions: crate::media::RunningList::default(),
             pending_state: Token(0),
@@ -715,7 +736,7 @@ impl Ui {
             default_location: None,
             lists: crate::types::listbox::ListKinds::default(),
             text_state: (kind == crate::token::kind::TEXT)
-                .then(|| Box::new(crate::types::text::TextState::default())),
+                .then(|| crate::types::text::TextState::starting(&**self.assets())),
             tooltip_text: None,
             tooltip_info: None,
             rotation: 0,
@@ -756,6 +777,14 @@ impl Ui {
         }
         if self.is_activatable(h) {
             self.register_activatable(h);
+        }
+        // Being made is its first showing: one that takes the keyboard on showing takes it.
+        // D2-11248, D2-11360
+        let takes = self
+            .node(h)
+            .is_some_and(|n| n.bool_attr(attr::ACTIVATE_ON_SHOW));
+        if takes && !self.mgr.use_down {
+            self.activate_element(h);
         }
         Some(h)
     }
@@ -1032,12 +1061,20 @@ impl Ui {
     /// Set an attribute, with what the element's kind does when it changes.
     // D2-11378, D2-11379, D2-11380, D2-11381, D2-11382, D2-11384, D2-11385, D2-11386
     pub fn set_attr(&mut self, h: Handle, a: Token, v: Value) {
-        let Some(n) = self.node_mut(h) else { return };
+        let Some(n) = self.node(h) else { return };
         let key = (a, v.table());
         let changed = n.attrs.get(&key) != Some(&v);
-        n.attrs.insert(key, v.clone());
         let k = n.kind;
         let ready = n.ready;
+        if changed {
+            if let Some(n) = self.node_mut_undrawn(h) {
+                n.attrs.insert(key, v.clone());
+            }
+            // A meter's position is drawn by its fills, which say when they move.
+            if k != kind::METER || a != attr::POSITION {
+                self.touch();
+            }
+        }
         if k == kind::TEXT {
             self.text_attr(h, a, &v, changed);
         }
@@ -1106,11 +1143,15 @@ impl Ui {
     pub fn set_visible(&mut self, h: Handle, v: bool) {
         let Some(n) = self.node(h) else { return };
         let parent_shown = n.parent.is_none_or(|p| self.shown(p));
-        let before = parent_shown && n.visible;
-        if let Some(n) = self.node_mut(h) {
-            n.visible = v;
+        let was = n.visible;
+        let before = parent_shown && was;
+        if was != v {
+            if let Some(n) = self.node_mut(h) {
+                n.visible = v;
+            }
         }
         self.changing_element_visibility();
+        self.close_hidden_menus(h);
         let after = parent_shown && v;
         if before == after || !self.node(h).is_some_and(|n| n.ready) {
             return;
@@ -1131,6 +1172,19 @@ impl Ui {
         }
     }
 
+    /// Each open menu in an element, itself included, closes if it no longer shows.
+    // D2-11171
+    fn close_hidden_menus(&mut self, h: Handle) {
+        let Some(n) = self.node(h) else { return };
+        let kids = n.children.clone();
+        if n.kind == crate::token::kind::MENU {
+            self.menu_visibility_changed(h);
+        }
+        for k in kids {
+            self.close_hidden_menus(k);
+        }
+    }
+
     /// Turn a top-level element's drawn object about its middle: the turn in the screen's plane,
     /// whole degrees, as the original's rotate values are kept.
     // D2-10440, D2-10429
@@ -1140,6 +1194,22 @@ impl Ui {
             if let Some(n) = self.node_mut(h) {
                 n.rotation = turn;
             }
+        }
+    }
+
+    /// Draw a top-level element as a whole at this alpha.
+    // D2-10436
+    pub fn set_object_alpha(&mut self, h: Handle, alpha: f32) {
+        if let Some(n) = self.node_mut(h) {
+            n.object_alpha = alpha;
+        }
+    }
+
+    /// Draw a top-level element as a whole at this size, from its top-left corner.
+    // D2-10433
+    pub fn set_object_scale(&mut self, h: Handle, scale: f32) {
+        if let Some(n) = self.node_mut(h) {
+            n.object_scale = scale;
         }
     }
 
@@ -1494,18 +1564,15 @@ impl Ui {
         let (w, hh) = n.clamp_size(x1 - x0 + 1, y1 - y0 + 1);
         x1 = x0 + w - 1;
         y1 = y0 + hh - 1;
-        // A top-level element reaching past the screen's right or bottom edge is moved back onto
-        // it, when it fits.
-        if n.parent.is_none() {
+        // A top-level element is kept on the screen, as any move does: never past its left or top
+        // edge, and moved back from its right and bottom ones.
+        // D2-11356
+        if n.owns_object {
             let (w, h) = (x1 - x0 + 1, y1 - y0 + 1);
-            if x1 >= self.display.0 && w <= self.display.0 {
-                x0 = self.display.0 - w;
-                x1 = self.display.0 - 1;
-            }
-            if y1 >= self.display.1 && h <= self.display.1 {
-                y0 = self.display.1 - h;
-                y1 = self.display.1 - 1;
-            }
+            x0 = x0.max(0).min(self.display.0 - w);
+            x1 = x0 + w - 1;
+            y0 = y0.max(0).min(self.display.1 - h);
+            y1 = y0 + h - 1;
         }
         let old_z = n.z;
         let parent = n.parent;

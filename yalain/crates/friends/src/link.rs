@@ -121,6 +121,28 @@ impl Friends for Service {
                 .any(|w| w.name.eq_ignore_ascii_case(name))
     }
 
+    fn in_sight(&self, name: &str) -> bool {
+        self.present(name).is_some()
+            || self
+                .in_world
+                .values()
+                .any(|w| w.name.eq_ignore_ascii_case(name) && !self.hidden.contains(&w.character))
+    }
+
+    fn everyone_in_sight(&self) -> Vec<String> {
+        let mut names = self.everyone_present();
+        names.extend(
+            self.in_world
+                .values()
+                .filter(|w| {
+                    !self.hidden.contains(&w.character)
+                        && !self.here.contains_key(&w.name.to_lowercase())
+                })
+                .map(|w| w.name.clone()),
+        );
+        names
+    }
+
     fn show_line(&mut self, character: u64, line: &str) {
         self.line(character, line);
     }

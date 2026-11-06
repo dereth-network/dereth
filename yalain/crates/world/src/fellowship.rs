@@ -403,10 +403,16 @@ fn id_of(v: &[Value]) -> u64 {
         .unwrap_or(0)
 }
 
-/// Is a fellowship's name made of letters, spaces, apostrophes and hyphens?
+/// The longest fellowship name, in characters: all the client's chat entry takes. The longest of
+/// the 37 recorded is 18.
+pub const MOST_NAME_CHARS: usize = 512;
+
+/// Is a fellowship's name made of letters, spaces, apostrophes and hyphens, and no longer than one
+/// typed at the chat entry can be?
 #[must_use]
 pub fn name_ok(name: &str) -> bool {
     !name.trim().is_empty()
+        && name.chars().count() <= MOST_NAME_CHARS
         && name
             .chars()
             .all(|c| c.is_ascii_alphabetic() || matches!(c, ' ' | '\'' | '-'))
@@ -611,7 +617,8 @@ pub fn accept<S: Store>(
     let Some(i) = s.fellowships.of(leader) else {
         return;
     };
-    if s.fellowships.list[i].fellows.len() >= MOST {
+    // The place was its leader's to offer: one who has since gone over to another's offers nothing.
+    if s.fellowships.list[i].leader != leader || s.fellowships.list[i].fellows.len() >= MOST {
         return;
     }
     let now = net.game_time(clock.local);

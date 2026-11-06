@@ -168,3 +168,142 @@ impl Checker {
         self.breaches.values().sum()
     }
 }
+
+/// The messages whose second stamp is not a visual one: a position's and a containing's own counts.
+const fn stampless(m: &ServerMessage) -> bool {
+    matches!(
+        m,
+        ServerMessage::Position(_)
+            | ServerMessage::PositionCell(_)
+            | ServerMessage::Contain(_)
+            | ServerMessage::ForgetObject(_)
+    )
+}
+
+/// A message waiting for a visual stamp that has not come: the client holds it, and all of that
+/// object's later visual messages behind it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Held {
+    pub object: u64,
+    /// The last stamp the client took for the object.
+    pub current: u16,
+    /// The stamp the waiting message carries.
+    pub stamp: u16,
+    /// Its kind ([`kind`]).
+    pub kind: String,
+}
+
+#[derive(Debug, Default)]
+struct VisualBook {
+    /// The connection has been told of the object; until then its messages wait for that.
+    made: bool,
+    current: u16,
+    held: Vec<(u16, String)>,
+}
+
+/// One connection's visual messages taken as the client takes them: per object and incarnation,
+/// each stamp must be the one after the last, and a message about an object not yet made waits for
+/// it. Those still waiting for a making are not counted ([`Checker`] answers for those).
+#[derive(Debug, Default)]
+pub struct VisualOrder {
+    books: BTreeMap<(u64, u16), VisualBook>,
+    /// How many messages came at a stamp the client had already passed, by kind: it drops them.
+    pub dropped: BTreeMap<String, usize>,
+    misrouted: Vec<String>,
+}
+
+impl VisualOrder {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Take the next message on the world connection, with its blob id.
+    pub fn see(&mut self, blob_id: u64, raw: &[u8]) {
+        let read = ServerMessage::decode(raw).ok();
+        if let Some(ServerMessage::CreateObject(o)) = &read {
+            let book = self
+                .books
+                .entry((o.id, o.physics.instance_stamp))
+                .or_default();
+            let stamp = o.physics.visual_ordering_stamp;
+            if !book.made || newer(stamp, book.current) {
+                book.current = stamp;
+            }
+            book.made = true;
+            self.flush((o.id, o.physics.instance_stamp));
+            return;
+        }
+        if let Some(ServerMessage::ForgetObject(o)) = &read {
+            self.books.remove(&(o.0.id, o.0.instance_stamp));
+            return;
+        }
+        let visual = (blob_id >> 56) & 0x1F == 2;
+        if let Some(m) = read.as_ref().filter(|m| !stampless(m)) {
+            let stamp = object_named(m).map(|o| o.other_stamp);
+            // Private, its stamp counts for nothing, and the next one waits for it; visual with no
+            // stamp, the client drops it.
+            if (!visual && (blob_id >> 56) & 0x1F == 1 && stamp.is_some_and(|s| s != 0))
+                || (visual && stamp == Some(0))
+            {
+                self.misrouted.push(kind(m));
+            }
+        }
+        if !visual || raw.len() < 16 {
+            return;
+        }
+        let word = |at: usize| u16::from_le_bytes([raw[at], raw[at + 1]]);
+        let Ok(id) = <[u8; 8]>::try_from(&raw[4..12]) else {
+            return;
+        };
+        let key = (u64::from_le_bytes(id), word(12));
+        let name = read.as_ref().map_or_else(|| "unread".to_owned(), kind);
+        self.books
+            .entry(key)
+            .or_default()
+            .held
+            .push((word(14), name));
+        self.flush(key);
+    }
+
+    fn flush(&mut self, key: (u64, u16)) {
+        let Some(book) = self.books.get_mut(&key).filter(|b| b.made) else {
+            return;
+        };
+        loop {
+            let want = book.current.wrapping_add(1);
+            if let Some(at) = book.held.iter().position(|(s, _)| *s == want) {
+                book.held.remove(at);
+                book.current = want;
+            } else if let Some(at) = book.held.iter().position(|(s, _)| !newer(*s, want)) {
+                let (_, name) = book.held.remove(at);
+                *self.dropped.entry(name).or_default() += 1;
+            } else {
+                return;
+            }
+        }
+    }
+
+    /// The messages that came as the wrong kind for what they carry.
+    #[must_use]
+    pub fn misrouted(&self) -> Vec<String> {
+        self.misrouted.clone()
+    }
+
+    /// What is waiting now for a stamp that has not come.
+    #[must_use]
+    pub fn held(&self) -> Vec<Held> {
+        self.books
+            .iter()
+            .filter(|(_, b)| b.made)
+            .flat_map(|((object, _), b)| {
+                b.held.iter().map(|(stamp, kind)| Held {
+                    object: *object,
+                    current: b.current,
+                    stamp: *stamp,
+                    kind: kind.clone(),
+                })
+            })
+            .collect()
+    }
+}

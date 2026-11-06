@@ -409,10 +409,12 @@ const BE_OFFERED: u32 = 0x8215_0044;
 #[derive(Default, Debug)]
 struct Offers {
     captures: u64,
-    /// The partner's offers, those the client was sent, those shown with their name and icon.
+    /// The partner's offers, those the client was sent, those shown with their name and icon, and
+    /// those named for the number offered.
     offered: u64,
     sent: u64,
     shown: u64,
+    named: u64,
     /// Offers sent but not shown, and a few of them.
     hidden: u64,
     hiddens: Vec<(i64, u64)>,
@@ -502,6 +504,13 @@ fn a_trade_partners_offer_is_shown_with_its_name_and_icon() {
                     .items
                     .get(item)
                     .is_some_and(|f| f.icon != 0 && !f.name.is_empty());
+                let named = c
+                    .inventory()
+                    .items
+                    .get(item)
+                    .and_then(|f| f.offered_name.as_ref())
+                    .is_some_and(|n| !n.is_empty());
+                t.named += u64::from(named);
                 if shown {
                     t.shown += 1;
                 } else {
@@ -517,6 +526,7 @@ fn a_trade_partners_offer_is_shown_with_its_name_and_icon() {
     eprintln!("{t:?}");
     assert!(t.sent >= 100, "{t:?}");
     assert_eq!(t.hidden, 0, "{t:?}");
+    assert_eq!(t.named, t.sent, "{t:?}");
 }
 
 /// The player's own request selecting an object.
@@ -708,4 +718,121 @@ fn every_recorded_newer_incarnation_replaces_the_old_one() {
     assert_eq!(replaced, made);
     assert_eq!(replaced, 3_756);
     assert_eq!(kept, replaced);
+}
+
+/// The answer to a move, and what its description says: the item and the kind of move.
+const MOVE_ITEM_DONE: u32 = 0x820E_005E;
+
+/// The item and the kind of a move, from its answer's arguments.
+fn moved(args: &[u8], library: &auberean_script::Library) -> Option<(u64, u32)> {
+    let values = auberean_script::args::decode(args, library).ok()?;
+    let auberean_script::args::Arg::Object(g) = values.first()? else {
+        return None;
+    };
+    let auberean_script::graph::Body::Object(o) = &g.entries.first()?.body else {
+        return None;
+    };
+    let long = u64::from(*o.slots.get(45)?) << 32 | u64::from(*o.slots.get(44)?);
+    Some((long, *o.slots.get(12)?))
+}
+
+/// A move by which a person gives the player something.
+const GIVEN: u32 = 36;
+
+/// A gift whose object came in the frame of the answer to its move is called "the item" in the line
+/// about it: the object is not there yet for that answer to name. One the client has had since an
+/// earlier frame is named. Each recorded gift whose answer came first is fed the other way round,
+/// as a transport may put them.
+///
+/// Behaviour: script.model.a-gift-whose-object-came-first-says-the-item
+#[test]
+fn a_gift_whose_object_came_first_says_the_item() {
+    let data = data().expect("the September 2013 install opens");
+    let library = &data.scripts.as_ref().expect("the scripts").1.library;
+    let index = auberean_testkit::data::require_capture_index();
+    let mut gifted = std::collections::BTreeSet::new();
+    captures::messages(&index, &[captures::carrier::TO_PLAYER], &[2017], |m| {
+        let gift = m.script_call().is_some_and(|s| {
+            s.function == MOVE_ITEM_DONE && moved(&s.args, library).is_some_and(|(_, k)| k == GIVEN)
+        });
+        if gift {
+            gifted.insert(m.capture);
+        }
+    })
+    .expect("the index reads");
+    let types: Vec<u32> = (0x1_0000..0x1_0100)
+        .filter(|t| ServerMessage::is_known_type(*t))
+        .chain([PLAY_CHARACTER])
+        .collect();
+    // Lines about an object that came this frame and about one had before: those saying "the
+    // item", and those naming it.
+    let mut new = (0u64, 0u64);
+    let mut had = (0u64, 0u64);
+    for capture in gifted {
+        let mut c = client(&data);
+        let mut frame = f64::NEG_INFINITY;
+        let mut waiting: std::collections::BTreeMap<u64, (u64, ServerMessage)> =
+            std::collections::BTreeMap::new();
+        captures::capture_by_id_in_time_order(&index, &types, capture, |m| {
+            if m.time > frame {
+                frame = m.time;
+                c.set_time(LocalTime(m.time));
+                c.upkeep();
+            }
+            if !m.to_client {
+                if let Ok(ClientMessage::PlayCharacter(p)) = ClientMessage::decode(&m.raw) {
+                    c.act(Action::PlayCharacter {
+                        character: p.character,
+                    });
+                }
+                return;
+            }
+            let given = m
+                .script_call()
+                .filter(|s| s.function == MOVE_ITEM_DONE)
+                .and_then(|s| moved(&s.args, library))
+                .filter(|(_, kind)| *kind == GIVEN)
+                .map(|(item, _)| item);
+            let Ok(msg) = ServerMessage::decode(&m.raw) else {
+                return;
+            };
+            if let Some(item) = given.filter(|item| c.model.object(*item).is_none()) {
+                waiting.insert(item, (m.blob_id, msg));
+                return;
+            }
+            let answer = match &msg {
+                ServerMessage::CreateObject(o) => waiting.remove(&o.id),
+                _ => None,
+            };
+            c.take_message(m.blob_id, msg);
+            let tally = if answer.is_some() {
+                &mut new
+            } else if given.is_some() {
+                &mut had
+            } else {
+                c.shown.clear();
+                c.notices.clear();
+                return;
+            };
+            if let Some((blob, answer)) = answer {
+                c.shown.clear();
+                c.take_message(blob, answer);
+            }
+            for s in std::mem::take(&mut c.shown) {
+                let text = c.write_text(&s.text).unwrap_or_default();
+                if text.starts_with("You received the item ") {
+                    tally.0 += 1;
+                } else if text.starts_with("You received ") {
+                    tally.1 += 1;
+                }
+            }
+            c.notices.clear();
+        })
+        .expect("the capture reads");
+    }
+    eprintln!("came this frame {new:?}, had before {had:?} (the item, named)");
+    assert!(new.0 >= 20, "{new:?}");
+    assert_eq!(new.1, 0, "{new:?}");
+    assert!(had.1 >= 20, "{had:?}");
+    assert_eq!(had.0, 0, "{had:?}");
 }

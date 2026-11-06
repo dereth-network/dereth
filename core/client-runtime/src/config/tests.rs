@@ -317,7 +317,7 @@ fn the_era_features_switch_names_the_servers_systems() {
 #[test]
 fn the_era_features_switch_takes_the_bitfield() {
     use dereth_primitives::{EraFeatures, EraId};
-    let c = parse(&["--era-features", "4:0002deffffffff00"]).expect("parses");
+    let c = parse(&["--era-features", "5:0002deffffffff00"]).expect("parses");
     let f = c.era_features.apply(EraFeatures::NONE);
     assert!(f.aetheria && !f.trade && f.housing && f.chess && !f.ratings);
     assert!(f.pk_lite && f.lifestone_recall && f.item_enchantment_redirection);
@@ -339,7 +339,7 @@ fn the_era_features_switch_takes_the_bitfield() {
         EraFeatures::count_at_version(1)
     );
     assert_eq!(old.era_features.get("pk_lite"), None, "left to the era");
-    let newer = parse(&["--era-features", "99:ffff5fffffffff02"]).expect("parses");
+    let newer = parse(&["--era-features", "99:ffff5fffffffff32"]).expect("parses");
     assert_eq!(
         newer.era_features.apply(EraFeatures::NONE),
         EraId::Eor.features()

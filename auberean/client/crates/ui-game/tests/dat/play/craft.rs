@@ -251,3 +251,134 @@ fn the_crafting_page_goes_from_craft_skills_to_categories_to_recipes() {
     w.click(back);
     assert_eq!(state(&w.ui, page), Token::of("craftskillcategoryview"));
 }
+
+/// An element's place on the page: its top and bottom against the page's top.
+fn on_page(ui: &Ui, page: Handle, name: &str) -> (i32, i32) {
+    let top = ui.screen_rect(page).expect("placed").y0;
+    let r = ui.screen_rect(find(ui, name)).expect("placed");
+    (r.y0 - top, r.y1 - top)
+}
+
+/// The page's bottom against its top.
+fn page_bottom(ui: &Ui, page: Handle) -> i32 {
+    let r = ui.screen_rect(page).expect("placed");
+    r.y1 - r.y0
+}
+
+/// The skill window on a screen of a size, the crafting tab up, down at a craft skill's categories.
+fn categories_at(width: i32, height: i32) -> (World, Handle) {
+    let mut w = World::new();
+    w.craft = Some(facts());
+    w.ui.refresh(width, height);
+    w.key(tb::SKILL_PANEL);
+    let tab =
+        w.ui.element(Token::of("CraftTab"))
+            .expect("the crafting tab");
+    press(&mut w, tab, false);
+    let page = w.ui.element(Token::of("CraftPage")).expect("the page");
+    let skills = rows(&w.ui, "CraftSkillList");
+    let forward =
+        w.ui.child_recursive(skills[0], Token::of("ForwardButton"))
+            .expect("forward");
+    w.click(forward);
+    assert_eq!(state(&w.ui, page), Token::of("craftskillcategoryview"));
+    (w, page)
+}
+
+/// At a window height of 768 and below the page is its layout's size and everything on it stands
+/// where the layout puts it, in a craft skill's categories and a category's recipes.
+///
+/// Behaviour: ui.craft.the-page-stands-as-laid-out-up-to-a-height-of-768
+#[test]
+fn the_page_stands_as_laid_out_up_to_a_height_of_768() {
+    for (width, height) in [(1024, 768), (1024, 700), (800, 600), (640, 480)] {
+        let (mut w, page) = categories_at(width, height);
+        let at = format!("{width}x{height}");
+        let bottom = page_bottom(&w.ui, page);
+        assert_eq!(bottom, 363, "{at}");
+        for (head, list) in [
+            ("CraftSkillCategoryHeader", "CraftSkillCategoryList"),
+            ("RecipeHeader", "RecipeList"),
+        ] {
+            assert_eq!(on_page(&w.ui, page, head), (20, 49), "{at} {head}");
+            assert_eq!(on_page(&w.ui, page, list), (50, 262), "{at} {list}");
+            assert_eq!(
+                on_page(&w.ui, page, "SelectedCraftSkill"),
+                (267, 346),
+                "{at} {head}"
+            );
+            if head != "RecipeHeader" {
+                let weapons = rows(&w.ui, list)[0];
+                let forward =
+                    w.ui.child_recursive(weapons, Token::of("ForwardButton"))
+                        .expect("forward");
+                w.click(forward);
+            }
+        }
+    }
+}
+
+/// On a window taller than 768 the head of a craft skill's categories and of a category's recipes
+/// keeps its height, the display goes down with the page's foot and the list takes the rest: the
+/// three never overlap, and a press on a row reaches the row, not the head, at every size.
+///
+/// Behaviour: ui.craft.a-tall-window-grows-the-list-and-not-the-head
+#[test]
+fn a_tall_window_grows_the_list_and_not_the_head() {
+    for (width, height) in [
+        (1024, 769),
+        (1280, 960),
+        (1280, 1004),
+        (1600, 1180),
+        (2560, 1440),
+    ] {
+        let (mut w, page) = categories_at(width, height);
+        let at = format!("{width}x{height}");
+        let bottom = page_bottom(&w.ui, page);
+        let grown = bottom - 363;
+        assert!(grown > 0, "{at}: the page grew with the window");
+        for (head, list) in [
+            ("CraftSkillCategoryHeader", "CraftSkillCategoryList"),
+            ("RecipeHeader", "RecipeList"),
+        ] {
+            assert_eq!(on_page(&w.ui, page, head), (20, 49), "{at} {head}");
+            assert_eq!(on_page(&w.ui, page, list), (50, 262 + grown), "{at} {list}");
+            assert_eq!(
+                on_page(&w.ui, page, "SelectedCraftSkill"),
+                (267 + grown, 346 + grown),
+                "{at} {head}"
+            );
+            let row = rows(&w.ui, list)[0];
+            let out = press(&mut w, row, false);
+            assert!(
+                out.iter().any(|r| matches!(
+                    r,
+                    Request::Examine(Examination { kind, .. })
+                        if *kind == examine::CATEGORY || *kind == examine::RECIPE
+                )),
+                "{at} {list}: the row hears the press: {out:?}"
+            );
+            let button = if head == "RecipeHeader" {
+                "RecipeButton"
+            } else {
+                "ForwardButton"
+            };
+            let forward =
+                w.ui.child_recursive(row, Token::of(button))
+                    .expect("the row's button");
+            let out = w.click(forward);
+            if head == "RecipeHeader" {
+                assert!(
+                    out.contains(&Request::Craft(CraftRequest::Open(SWORD))),
+                    "{at}: the row's button opens its recipe: {out:?}"
+                );
+            } else {
+                assert_eq!(
+                    state(&w.ui, page),
+                    Token::of("recipeview"),
+                    "{at}: the row's button goes a view deeper"
+                );
+            }
+        }
+    }
+}
