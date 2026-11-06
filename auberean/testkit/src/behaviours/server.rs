@@ -9273,6 +9273,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.lifestones-by-their-class",
+        says: "Whatever derives from the script library's lifestone is one: the two placed rows only \
+               their class says so of bind their users, and other kinds are not lifestones.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-LIFESTONES-BY-CLASS"),
+        station: "yalain-testkit::dat::interactions::a_placed_lifestone_of_the_lifestone_class_binds_its_user",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.places.locked-chest-refuses",
         says: "A locked chest refuses a plain use: its opening answered locked, the chest flashing, the use \
                not answered.",

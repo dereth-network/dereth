@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Two more lifestones bind you.
 - New Empyreans and Drudges start with their weapons.
 - Consignments can be restocked.
 - A deleted character's sales leave the broker when it's gone.

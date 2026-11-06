@@ -404,6 +404,8 @@ pub struct Server<S: Store> {
     /// The packages of the world's people and objects that answer a use as a person does (those
     /// derived from the script library's person), and of its faction shrines.
     pub person_packages: std::collections::HashSet<u32>,
+    /// The script packages of the world's lifestones.
+    pub lifestone_packages: std::collections::HashSet<u32>,
     /// The portal storms of crowded landblocks.
     pub storms: storms::Storms,
     pub shrine_packages: std::collections::HashSet<u32>,
@@ -762,6 +764,7 @@ impl<S: Store> Server<S> {
             examine_waits: HashSet::new(),
             walk_in_packages: std::collections::HashSet::new(),
             person_packages: std::collections::HashSet::new(),
+            lifestone_packages: std::collections::HashSet::new(),
             storms: storms::Storms::default(),
             shrine_packages: std::collections::HashSet::new(),
             shrine_kingdoms: HashMap::new(),

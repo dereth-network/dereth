@@ -819,6 +819,7 @@ struct Play {
     brokers: std::collections::BTreeMap<u32, yalain_world::market::Broker>,
     walk_in: std::collections::HashSet<u32>,
     persons: std::collections::HashSet<u32>,
+    lifestones: std::collections::HashSet<u32>,
     shrines: std::collections::HashSet<u32>,
     shrine_kingdoms: std::collections::HashMap<u32, u32>,
     cannot_use: std::collections::HashSet<u32>,
@@ -1019,6 +1020,7 @@ fn run<S: Store>(
     server.brokers = play.brokers;
     server.walk_in_packages = play.walk_in;
     server.person_packages = play.persons;
+    server.lifestone_packages = play.lifestones;
     server.shrine_packages = play.shrines;
     server.shrine_kingdoms = play.shrine_kingdoms;
     server.cannot_use_packages = play.cannot_use;
@@ -1863,6 +1865,8 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         let walk_in = data::walk_in_packages(portal, &content)?;
         let persons =
             data::packages_deriving_from(portal, &content, &yalain_world::places::PERSONS)?;
+        let lifestones =
+            data::packages_deriving_from(portal, &content, &[yalain_world::places::LIFESTONE])?;
         let shrines = data::packages_deriving_from(
             portal,
             &content,
@@ -1947,6 +1951,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             brokers,
             walk_in,
             persons,
+            lifestones,
             shrines,
             shrine_kingdoms,
             cannot_use,
@@ -2009,6 +2014,7 @@ fn reload_world(
             brokers: p.brokers,
             walk_in: p.walk_in,
             persons: p.persons,
+            lifestones: p.lifestones,
             shrines: p.shrines,
             cannot_use: p.cannot_use,
             doors: p.doors,

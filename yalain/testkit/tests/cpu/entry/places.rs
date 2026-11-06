@@ -8,7 +8,7 @@ use yalain_content::{ContentObject, ContentPack, Description, Facts, Kind, Place
 use yalain_testkit::play::server_call;
 use yalain_testkit::Harness;
 use yalain_world::graph::{Builder, Slot};
-use yalain_world::places::{function as trip, fx, LIFESTONES};
+use yalain_world::places::{function as trip, fx};
 use yalain_world::requests::function;
 use yalain_world::session::function::{MOVEMENT_FROZEN, SHOW_TEXT};
 use yalain_world::skill_use::LIFESTONE_RECALL;
@@ -157,8 +157,9 @@ fn a_portal_takes_the_player_through_portal_space_to_its_destination() {
 #[test]
 fn a_lifestone_binds_and_the_recall_takes_the_player_back_where_it_bound() {
     let mut h = Harness::new();
+    h.server.lifestone_packages.insert(0x1A00);
     h.server.content = ContentPack {
-        objects: vec![object(STONE, LIFESTONES[0], [60.0, 241.0, -44.6], None)],
+        objects: vec![object(STONE, 0x4700_113A, [60.0, 241.0, -44.6], None)],
         ..ContentPack::default()
     };
     let (a, ida) = h.player_in_world("one", "Elara");
@@ -295,14 +296,21 @@ fn a_use_in_portal_space_is_refused_as_actions_locked() {
     assert_eq!(answers, [1029], "refused: actions locked");
 }
 
-/// Every kind of lifestone binds: the Lugian's, the Tumerok's and the plain one are answered as
-/// the human's is, the use made and the player told it is bound.
+/// Every kind of lifestone binds: the Lugian's, the Tumerok's, the plain one and any other of the
+/// kind are answered as the human's is, the use made and the player told it is bound.
 /// Behaviour: server.places.every-lifestone-binds
 #[test]
 fn every_kind_of_lifestone_binds_the_player() {
-    // The human's, the Lugian's, the Tumerok's, the plain one.
-    for template in [0x4700_113A, 0x4700_113D, 0x4700_1143, 0x4700_113B] {
+    // The human's, the Lugian's, the Tumerok's, the plain one, another of the human's.
+    for template in [
+        0x4700_113A,
+        0x4700_113D,
+        0x4700_1143,
+        0x4700_113B,
+        0x4700_1138,
+    ] {
         let mut h = Harness::new();
+        h.server.lifestone_packages.insert(0x1A00);
         h.server.content = ContentPack {
             objects: vec![object(STONE, template, [60.0, 241.0, -44.6], None)],
             ..ContentPack::default()
@@ -352,8 +360,9 @@ fn every_kind_of_lifestone_binds_the_player() {
 #[test]
 fn binding_plays_the_players_behavior_for_about_a_second() {
     let mut h = Harness::new();
+    h.server.lifestone_packages.insert(0x1A00);
     h.server.content = ContentPack {
-        objects: vec![object(STONE, LIFESTONES[0], [60.0, 241.0, -44.6], None)],
+        objects: vec![object(STONE, 0x4700_113A, [60.0, 241.0, -44.6], None)],
         ..ContentPack::default()
     };
     let (a, ida) = h.player_in_world("one", "Elara");

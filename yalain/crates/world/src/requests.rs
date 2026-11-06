@@ -604,7 +604,7 @@ fn profile_bytes<S: Store>(
                 f,
             ),
             yalain_content::Kind::Static => {
-                let lifestone = crate::places::LIFESTONES.contains(&o.template);
+                let lifestone = crate::places::is_lifestone(s, o.description.package);
                 let recall = if lifestone {
                     profile::line::LIFESTONE_RECALL
                 } else {

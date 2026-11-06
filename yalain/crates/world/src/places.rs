@@ -114,9 +114,16 @@ pub const HELD_ANSWERED: [(&str, u32, u32); 3] = [
 pub const TEACHING_STONE: u32 = 0x1352;
 pub const FORCE_EXAMINE: u32 = 0x8212_0026;
 
-/// The lifestone templates: the human's, the Lugian's, the Tumerok's and the plain one (2017
-/// answered a use of each alike: bound, with the same text and behaviors).
-pub const LIFESTONES: [u32; 4] = [0x4700_113A, 0x4700_113D, 0x4700_1143, 0x4700_113B];
+/// The script library's lifestone: whatever derives from it is one (2017 answered a use of the
+/// human's, the Lugian's, the Tumerok's and the plain one alike: bound, with the same text and
+/// behaviors).
+pub const LIFESTONE: &str = "Lifestone";
+
+/// Is an object of this script package a lifestone?
+#[must_use]
+pub fn is_lifestone<S: Store>(s: &Server<S>, package: u32) -> bool {
+    s.lifestone_packages.contains(&package)
+}
 
 /// How close a player must be to use a portal and a lifestone, in meters.
 pub const PORTAL_REACH: f32 = 5.0;
@@ -515,7 +522,11 @@ fn is_person<S: Store>(s: &Server<S>, template: u32) -> bool {
             .steps
             .iter()
             .any(|st| st.trigger == yalain_content::quests::Trigger::Use(template))
-        || (crate::talk::talks_when_used(s, template) && !LIFESTONES.contains(&template))
+        || (crate::talk::talks_when_used(s, template)
+            && !s
+                .catalog
+                .get(template)
+                .is_some_and(|t| is_lifestone(s, t.description.package)))
 }
 
 /// Is a content object one a player talks to: a person, never a portal. A placed person or object
@@ -884,7 +895,7 @@ pub fn use_object<S: Store>(
         }
         return;
     }
-    let lifestone = LIFESTONES.contains(&o.template);
+    let lifestone = is_lifestone(s, o.description.package);
     let person = talks_to(s, o);
     let broker = crate::market::broker(s, o.template).is_some();
     // An object for monarchs alone is refused at once, wherever the player stands, whatever else it
@@ -1468,7 +1479,7 @@ fn walk_refusal_flags<S: Store>(s: &Server<S>, u: &Use) -> u32 {
     }
     let place = presence::content_by_id(&s.content.objects, walk_goal(u)).is_some_and(|i| {
         let o = &s.content.objects[i];
-        LIFESTONES.contains(&o.template) || o.destination.is_some() || o.gate.is_some()
+        is_lifestone(s, o.description.package) || o.destination.is_some() || o.gate.is_some()
     });
     if place {
         USE_FLAGS_BOUND
@@ -1598,7 +1609,7 @@ fn carry_out<S: Store>(
         crate::usable::shrines::at_shrine(s, net, world, &u, o.description.package, clock);
         return;
     }
-    if LIFESTONES.contains(&o.template) {
+    if is_lifestone(s, o.description.package) {
         bind(s, net, world, &u, &o, clock);
         return;
     }
@@ -2148,7 +2159,7 @@ pub fn resurrection_place_of<S: Store>(
     s.content
         .objects
         .iter()
-        .filter(|o| LIFESTONES.contains(&o.template))
+        .filter(|o| is_lifestone(s, o.description.package))
         .filter_map(|o| reach(&fell, o.cell, o.origin).map(|d| (d, o)))
         .min_by(|a, b| a.0.total_cmp(&b.0))
         .map_or(fell, |(_, o)| beside(o.cell, o.origin, &fell))
