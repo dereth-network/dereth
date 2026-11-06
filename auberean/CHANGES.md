@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that a player would notice. 
 not how it was done.
 
 ## Unreleased
+- Fixed other players staying on the ground when they jump.
 - Examining a recipe shows its time and difficulty lines again.
 - Fixed an effect's bar running out too slowly after a missed pulse.
 - Fixed screenshots overwriting the ones from earlier sessions.

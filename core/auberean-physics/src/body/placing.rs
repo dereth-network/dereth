@@ -150,6 +150,14 @@ impl Body {
         self.placing = Some((p, was));
     }
 
+    /// The body leaves the ground: when it was just set in a place not yet placed, what comes of
+    /// that place is to stand under it.
+    pub(super) fn note_leaving_while_placing(&mut self) {
+        if self.placing.is_some() && self.left_while_placing.is_none() {
+            self.left_while_placing = Some(self.contact);
+        }
+    }
+
     /// The place set since the last step is placed: the body takes a free spot nearby and touches
     /// only what is there, and with no room goes back where it stood.
     // D2-06369
@@ -159,10 +167,19 @@ impl Body {
         };
         // Placed through the entry this step moves it by, in the world it steps in.
         let entry = self.key.replace(key);
-        // What was asked of the body after it was set there stands.
+        // What was asked of the body after it was set there stands: its speed, and a jump or a
+        // push that took it off the ground, which comes after the place and isn't a landing.
         let velocity = self.velocity;
+        let left = self.left_while_placing.take();
+        if let Some(touching) = left {
+            self.contact = touching;
+        }
         if self.set_position_simple(land, world, p, true) != error::OK {
             self.position = was;
+        }
+        if left.is_some() {
+            self.contact = false;
+            self.do_element(crate::motion::AIR);
         }
         self.velocity = velocity;
         self.key = entry;

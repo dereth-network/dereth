@@ -141,8 +141,9 @@ pub trait Owner {
     fn apply_impulse(&mut self, v: Vec3) -> bool;
     /// Puts the body at a place at once.
     fn blip_to(&mut self, p: Position);
-    /// Jumps if it can, with the velocity it was given; whether it jumped.
-    fn jump_logic(&mut self) -> bool;
+    /// Jumps if it can, with the velocity it was given, up at `impulse` (the interpreter's jump
+    /// impulse of walking on the earth); whether it jumped.
+    fn jump_logic(&mut self, impulse: f32) -> bool;
 }
 
 /// A body's motion interpreter.

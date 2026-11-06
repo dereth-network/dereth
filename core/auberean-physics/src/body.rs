@@ -362,6 +362,8 @@ pub struct Body {
     /// A place set at once from where the world can't be reached, to be placed by the next step,
     /// with where the body stood before it.
     placing: Option<(Position, Position)>,
+    /// Whether the body touched something when it left the ground after being set in that place.
+    left_while_placing: Option<bool>,
     /// Its entry in the world it ticks in ([`Body::tick_in`]).
     pub(crate) key: Option<BodyKey>,
     /// Where it was last put that is to count as its placement.
@@ -489,6 +491,7 @@ impl Body {
             world: World::new(),
             own_key: None,
             placing: None,
+            left_while_placing: None,
             key: None,
             placement: None,
             parts: None,
@@ -1161,6 +1164,7 @@ impl Owner for Body {
     }
     // D2-06123
     fn apply_impulse(&mut self, v: Vec3) -> bool {
+        self.note_leaving_while_placing();
         self.contact = false;
         self.do_element(AIR);
         self.velocity = v;
@@ -1171,8 +1175,8 @@ impl Owner for Body {
         self.position = p;
         self.heading = geom::frame_heading(&p.frame).degrees();
     }
-    fn jump_logic(&mut self) -> bool {
-        Body::jump_logic(self)
+    fn jump_logic(&mut self, impulse: f32) -> bool {
+        self.jump_logic_at(impulse)
     }
 }
 

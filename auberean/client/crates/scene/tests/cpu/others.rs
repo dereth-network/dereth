@@ -817,3 +817,106 @@ fn a_body_put_where_it_could_not_follow_falls() {
     let z = b.body.position.frame.origin.z;
     assert!((z - GROUND_Z).abs() < 1e-3, "on the ground: {z}");
 }
+
+/// A position at (70, 70) facing north that carries a jump, up at the player races' impulse.
+fn jump_at(time: f64, stamp: u16) -> Place {
+    let mut j = place(70.0, 70.0, 0.0, 0.0, time, stamp);
+    j.flags |= auberean_client_sdk::protocol::physics::position_flags::JUMP;
+    j.velocity = Vec3::new(0.0, 0.0, 6.26);
+    j
+}
+
+/// A jump sent for another body that has stood long enough lifts it at once, along the arc a body
+/// jumping in place follows: heights over the ground each 0.1 s tick, the same as the final client
+/// draws for such a body. It keeps its heading, and the reports of the jumper in the air don't
+/// pull it off the arc. It lands where it rose.
+///
+/// Behaviour: desktop.others.a-jump-sent-for-another-body-lifts-it
+#[test]
+fn a_jump_sent_for_another_body_lifts_it() {
+    const ARC: [f32; 12] = [
+        0.577, 1.056, 1.437, 1.720, 1.905, 1.991, 1.980, 1.871, 1.663, 1.358, 0.955, 0.453,
+    ];
+    let land = world();
+    let mut w = World::new();
+    let start = place(70.0, 70.0, 0.0, 0.0, 0.0, 1);
+    let mut b = OtherBody::new(7, config(), position_of(&start), 0.0, (1, 0));
+    // Time on the ground runs only while the body's movement does.
+    b.body.time_on_ground = 2.0;
+    let mut now = 1.0;
+    b.tick(&land, &mut w, &mut NoObjects, now);
+    assert!(b.body.contact, "it stands on the ground");
+
+    assert_eq!(
+        b.receive(&jump_at(now, 2), None, true, &land, &mut w),
+        Received::Taken
+    );
+    let mut stamp = 3;
+    for (i, want) in ARC.iter().enumerate() {
+        now += 0.1;
+        b.tick(&land, &mut w, &mut NoObjects, now);
+        let up = b.body.position.frame.origin.z - GROUND_Z;
+        assert!((up - want).abs() < 0.005, "tick {i}: {up}, not {want}");
+        assert!(!b.body.contact, "tick {i}: off the ground");
+        assert!(
+            b.body.heading.abs() < 0.5,
+            "tick {i}: turned to {}",
+            b.body.heading
+        );
+        if i % 2 == 1 {
+            let mut air = place(70.0, 70.0, 0.0, 0.0, now, stamp);
+            air.origin.z = GROUND_Z + want;
+            b.receive(&air, None, true, &land, &mut w);
+            stamp += 1;
+        }
+    }
+    now += 0.1;
+    b.tick(&land, &mut w, &mut NoObjects, now);
+    assert!(b.body.contact, "down again");
+    assert!((b.body.position.frame.origin.z - GROUND_Z).abs() < 0.001);
+    assert!((b.body.position.frame.origin.x - 70.0).abs() < 0.01);
+    assert!((b.body.position.frame.origin.y - 70.0).abs() < 0.01);
+}
+
+/// A jump sent for a body with under half a second on the ground, counting only the ticks its
+/// movement ran, does not lift it. It stays on the ground, as it does in the final client. Those
+/// ticks then count, so the next jump sent lifts it.
+///
+/// Behaviour: desktop.others.a-jump-too-soon-does-not-lift-another-body
+#[test]
+fn a_jump_too_soon_does_not_lift_another_body() {
+    let land = world();
+    let mut w = World::new();
+    let start = place(70.0, 70.0, 0.0, 0.0, 0.0, 1);
+    let mut b = OtherBody::new(7, config(), position_of(&start), 0.0, (1, 0));
+    let mut now = 1.0;
+    b.tick(&land, &mut w, &mut NoObjects, now);
+
+    b.receive(&jump_at(now, 2), None, true, &land, &mut w);
+    let mut stamp = 3;
+    for i in 0..20 {
+        now += 0.1;
+        b.tick(&land, &mut w, &mut NoObjects, now);
+        assert!(b.body.contact, "tick {i}: on the ground");
+        assert!((b.body.position.frame.origin.z - GROUND_Z).abs() < 0.001);
+        if i % 2 == 1 && i < 14 {
+            // The jumper rises and falls in its reports; this body only turns to follow.
+            let mut air = place(70.0, 70.0, 0.0, 0.0, now, stamp);
+            air.origin.z = GROUND_Z + 1.5;
+            b.receive(&air, None, true, &land, &mut w);
+            stamp += 1;
+        }
+    }
+    assert!(
+        b.body.time_on_ground >= 0.5,
+        "following counted as standing"
+    );
+
+    b.receive(&jump_at(now, stamp), None, true, &land, &mut w);
+    for _ in 0..5 {
+        now += 0.1;
+        b.tick(&land, &mut w, &mut NoObjects, now);
+    }
+    assert!(!b.body.contact, "the next one lifts it");
+    assert!(b.body.position.frame.origin.z - GROUND_Z > 1.5);
+}

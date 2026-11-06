@@ -1453,6 +1453,22 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.others.a-jump-sent-for-another-body-lifts-it",
+        says: "A position carrying a jump lifts another body that has stood long enough, at the                jump impulse along the arc of a jump, keeping its heading; reports from the air                don't pull it off the arc.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-OTHERS-SENT-JUMP"),
+        station: "auberean-scene::cpu::others::a_jump_sent_for_another_body_lifts_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.others.a-jump-too-soon-does-not-lift-another-body",
+        says: "A position carrying a jump leaves a body with under half a second on the ground,                counting only ticks its movement ran, on the ground; it follows what comes next,                and the time that takes counts for the next jump.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-OTHERS-JUMP-TOO-SOON"),
+        station: "auberean-scene::cpu::others::a_jump_too_soon_does_not_lift_another_body",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "desktop.others.a-moving-body-past-the-range-stops-until-a-position-comes",
         says: "A moving body checks the player's range as it moves. Over 96 meters away it stops \
                where it is, its sounds silent, until a position for it comes; a body that can't \
