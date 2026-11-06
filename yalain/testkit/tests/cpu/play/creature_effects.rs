@@ -471,3 +471,69 @@ fn a_dead_creatures_damage_over_time_runs_on_and_changes_nothing() {
         "and change nothing"
     );
 }
+
+/// One caster's records of one effect on a creature stop at the most it holds, as on a player: the
+/// oldest goes, and nothing is left waiting for its end or its next tick.
+/// Behaviour: server.effects.one-caster-of-one-effect-stops-at-a-limit
+#[test]
+fn records_on_a_creature_stop_at_the_limit_with_nothing_left_waiting() {
+    let (mut h, _, me, beetles) = beside_beetles(1);
+    let beetle = beetles[0];
+    if let Some(t) = h.server.things.get_mut(beetle) {
+        t.max_health = 100_000;
+        t.health = 100_000;
+    }
+    let cast = effects::Cast {
+        caster: me,
+        spellcraft: 1.0,
+        ..effects::Cast::default()
+    };
+    let on = On::Creature(beetle);
+    let put = |h: &mut Harness| {
+        let clock = h.clock();
+        effects::apply_on(
+            &mut h.server,
+            &mut h.net,
+            on,
+            CHARGED_AIR_EFFECT,
+            cast,
+            clock,
+        );
+    };
+    for _ in 0..effects::MOST_OF_ONE_EFFECT {
+        put(&mut h);
+    }
+    let waiting = |h: &Harness| {
+        h.server
+            .timers
+            .iter()
+            .filter(|(_, t)| {
+                matches!(t,
+                yalain_world::Timer::CreatureEffectEnds { creature, .. }
+                | yalain_world::Timer::CreatureEffectTick { creature, .. }
+                if *creature == beetle)
+            })
+            .count()
+    };
+    let before = waiting(&h);
+    let first = effects::records_of(&h.server, on)[0].eid;
+    put(&mut h);
+    let held = effects::records_of(&h.server, on);
+    assert_eq!(held.len(), effects::MOST_OF_ONE_EFFECT);
+    assert!(held.iter().all(|e| e.eid != first), "the oldest went");
+    assert_eq!(waiting(&h), before, "nothing of it waits");
+    // A crowd may stack on a creature past what a player holds: none of it goes.
+    let crowd = effects::MOST_FROM_OTHERS + 10;
+    for caster in 0..crowd {
+        let by = effects::Cast {
+            caster: 0x2130_0000_0001_0000 + u64::try_from(caster).expect("few"),
+            ..cast
+        };
+        let clock = h.clock();
+        effects::apply_on(&mut h.server, &mut h.net, on, CHARGED_AIR_EFFECT, by, clock);
+    }
+    assert_eq!(
+        effects::records_of(&h.server, on).len(),
+        effects::MOST_OF_ONE_EFFECT + crowd
+    );
+}

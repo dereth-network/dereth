@@ -12,7 +12,8 @@
 //! sessions.
 //!
 //! **A record** stays on its own clock: a new one never replaces or refreshes an older one, each
-//! running out at its cast time plus its timeout, when its client is told it is gone. Records of a
+//! running out at its cast time plus its timeout, when its client is told it is gone, up to the
+//! most one target holds ([`MOST_OF_ONE_EFFECT`], [`MOST_FROM_OTHERS`]). Records of a
 //! class compete: the one of highest priority (then spellcraft, then the later) is the class's top
 //! effect, and only top effects change the qualities. A player's client changes its qualities
 //! itself from the records; the server sends no quality for it, except its speed (velocity and
@@ -133,6 +134,17 @@ pub const AURAS_PULSE_AFTER_RETURN: f64 = 3.0;
 pub const CREATURE_TICK_FIRST: f64 = 10.4;
 pub const CREATURE_TICK_LEAST: f64 = 5.6;
 pub const CREATURE_TICK_MOST: f64 = 11.3;
+
+/// The most timed records of one effect from one caster one target holds: past it its oldest goes.
+/// Ours: 2017's most on a player was 11, and the most a change over time that harms or heals can come
+/// to by its duration over its recovery is 30.
+pub const MOST_OF_ONE_EFFECT: usize = 32;
+
+/// The most timed records from others a player holds, each kept in its save: past it the oldest of
+/// whoever holds the most goes, so one who stacks them makes room from its own. Ours: 2017's most was
+/// 74, from 8 casters; 104 on one player, its own too. A creature keeps nothing, and a crowd may
+/// stack on it.
+pub const MOST_FROM_OTHERS: usize = 256;
 
 /// The private effect a combination found on its target plays for its caster.
 pub const COMBO_FX: u32 = 0x4100_051A;
@@ -1172,10 +1184,85 @@ pub(crate) fn add_quietly<S: Store>(
         };
         s.after(clock, wait, timer);
     }
+    make_room(s, net, on, &e);
     if let On::Player(world) = on {
         crate::world::keep_player(s, world);
     }
     Some(eid)
+}
+
+/// Is a record of those that run out, which a target's bounds count? An item's and an aura's last
+/// while what holds them does.
+const fn counted(e: &EffectState) -> bool {
+    e.flags & record_flag::INFINITE == 0
+}
+
+/// The record a target holds too many of now, if it does: the oldest of this one's effect from its
+/// caster, else the oldest of whoever holds the most from others. Records are held oldest first.
+fn one_too_many(records: &[EffectState], holder: Option<u64>, new: &EffectState) -> Option<u32> {
+    let mut same = records
+        .iter()
+        .filter(|e| counted(e) && e.state == new.state && e.caster == new.caster);
+    if same.clone().count() > MOST_OF_ONE_EFFECT {
+        return same.next().map(|e| e.eid);
+    }
+    let holder = holder?;
+    let others = || records.iter().filter(|e| counted(e) && e.caster != holder);
+    if others().count() <= MOST_FROM_OTHERS {
+        return None;
+    }
+    let mut held: HashMap<u64, usize> = HashMap::new();
+    for e in others() {
+        *held.entry(e.caster).or_default() += 1;
+    }
+    let most = held.values().copied().max()?;
+    others()
+        .find(|e| held.get(&e.caster) == Some(&most))
+        .map(|e| e.eid)
+}
+
+/// A target takes a new record: one too many of what it holds goes, its end no longer due.
+fn make_room<S: Store>(s: &mut Server<S>, net: &mut ServerNet, on: On, new: &EffectState) {
+    if !counted(new) {
+        return;
+    }
+    let holder = match on {
+        On::Player(world) => s.players.get(&world).map(|p| p.character),
+        On::Creature(_) => None,
+    };
+    let Some(eid) = one_too_many(records_of(s, on), holder, new) else {
+        return;
+    };
+    remove_on(s, net, on, eid);
+    s.timers.retain(|(_, t)| match (t, on) {
+        (
+            Timer::EffectEnds { world, eid: e } | Timer::EffectTick { world, eid: e, .. },
+            On::Player(w),
+        ) => *world != w || *e != eid,
+        (
+            Timer::CreatureEffectEnds { creature, eid: e }
+            | Timer::CreatureEffectTick {
+                creature, eid: e, ..
+            },
+            On::Creature(c),
+        ) => *creature != c || *e != eid,
+        _ => true,
+    });
+}
+
+/// A character's records as it comes back: no more of them than a target holds, for a save from
+/// before there was a limit. Oldest first, as they are held.
+pub fn bound_kept(play: &mut crate::state::PlayState, holder: u64) {
+    let mut held = Vec::new();
+    for e in std::mem::take(&mut play.effects) {
+        held.push(e);
+        if counted(&e) {
+            if let Some(eid) = one_too_many(&held, Some(holder), &e) {
+                held.retain(|r| r.eid != eid);
+            }
+        }
+    }
+    play.effects = held;
 }
 
 /// Schedule a record's end, from the time now (a player's game time, a creature's world time).

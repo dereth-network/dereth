@@ -3231,6 +3231,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.effects.one-caster-of-one-effect-stops-at-a-limit",
+        says: "One caster's timed records of one effect on one target stack up to a limit; past it the oldest goes, its client told.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-RECORDS-BOUND-ONE"),
+        station: "yalain-testkit::cpu::play::effects::one_casters_records_of_one_effect_stop_at_the_limit_the_oldest_going",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.effects.over-time",
         says: "An effect that changes health over time does so every few seconds, by its rate \
                times the seconds since its last change, each change told by the healed one before \
@@ -3295,6 +3303,22 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-RECALL-EFFECTS"),
         station: "yalain-testkit::dat::effects::the_recalls_read_where_they_go",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.effects.records-bounded-as-a-character-enters",
+        says: "A character kept with more records than a target holds comes back with as many as it may, the newest.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-RECORDS-BOUND-ENTRY"),
+        station: "yalain-testkit::cpu::play::effects::a_character_kept_with_too_many_records_comes_back_with_the_newest",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.effects.records-from-others-stop-at-a-limit",
+        says: "A player holds timed records from others up to a limit; past it the oldest of whoever holds the most goes. Its own and what it wears aren't counted.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-RECORDS-BOUND-OTHERS"),
+        station: "yalain-testkit::cpu::play::effects::records_from_others_stop_at_the_limit_from_whoever_holds_the_most",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "server.effects.records-stack",

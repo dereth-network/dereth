@@ -667,6 +667,7 @@ pub fn enter<S: Store>(
     let game_epoch = game_now - clock.unix as f64;
     // The effects that ran out while the character was away are gone before its session starts.
     crate::effects::prune(&mut p.play, game_now);
+    crate::effects::bound_kept(&mut p.play, p.character);
     // So have the quests with no time left when it left; the others' time stood still.
     #[allow(clippy::cast_possible_truncation)]
     let away_s = away as i64;

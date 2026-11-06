@@ -15,6 +15,7 @@ what they see, not how it was done.
 - A creature's lingering damage, or your own harm, now kills you at no health.
 - A stop now cancels a skill you're still walking to use.
 - Tells to other worlds no longer wait long behind other players' requests.
+- Fixed players being able to keep others out of the world.
 
 ## 0.2.1 (2026-11-05)
 - Fixed sold consignments still showing as in stock.
