@@ -14,6 +14,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 - Launch is no longer marked experimental.
+- Relay: shooting from too far now says Out of Range in the chat.
 - Relay: the character page shows an ac1999 character's heritage.
 - Relay: the sky and calendar now follow the ac1999 world's clock.
 - Launch: spells ask for the tapers of the player's own account.

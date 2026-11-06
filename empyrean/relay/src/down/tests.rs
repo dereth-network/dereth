@@ -522,11 +522,43 @@ fn a_status_text_and_an_attempt_failed_become_their_later_events() {
     let mut d = entered();
     let (_, body) = unwrapped(&one(&mut d, &words(0x001C, &[0x1D])));
     assert_eq!(body, words(0x028A, &[0x1D]));
+}
+
+/// `0x0016`: the status text ac1999 sends flat, as its missile refusal does.
+fn status_text(line: &str) -> Vec<u8> {
     let mut w = Writer::new();
     w.u32(0x0016);
-    w.pstring("Careful").unwrap();
-    let (_, body) = unwrapped(&one(&mut d, &w.into_inner()));
-    assert_eq!(body[..4], 0x02EBu32.to_le_bytes());
+    w.pstring(line).unwrap();
+    w.into_inner()
+}
+
+#[test]
+fn a_status_text_is_the_transient_line_and_a_line_in_the_chat() {
+    let mut d = entered();
+    let sent = later(d.message(&status_text("Out of Range!")));
+    assert_eq!(sent.len(), 2);
+
+    let (_, strip) = unwrapped(&sent[0]);
+    assert_eq!(strip[..4], 0x02EBu32.to_le_bytes());
+    let transient =
+        read_checked::<dereth_protocol::comms::CommunicationTransientString>(&strip).unwrap();
+    assert_eq!(transient.text, "Out of Range!");
+
+    assert_eq!(sent[1].data[..4], 0xF7E0u32.to_le_bytes());
+    let line = read_checked::<CommunicationTextboxString>(&sent[1].data).unwrap();
+    assert_eq!(line.text, "Out of Range!");
+    // Type 0x1A is the one type the main chat window's default filter leaves out.
+    assert_eq!(line.text_type, SYSTEM_TEXT);
+    assert_ne!(line.text_type, 0x1A);
+}
+
+#[test]
+fn a_missile_refused_for_range_ends_the_attack_with_its_code_and_says_why() {
+    let mut d = entered();
+    let said = later(d.message(&status_text("Out of Range!")));
+    assert_eq!(said.len(), 2);
+    let attack_done = words(0x01A7, &[0x0550]);
+    assert_eq!(unwrapped(&one(&mut d, &attack_done)).1, attack_done);
 }
 
 #[test]
