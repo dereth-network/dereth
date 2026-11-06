@@ -15,6 +15,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ## Unreleased
 
 - /clouds sets the clouds of the Remastered sky this client draws: how much of the sky they cover, how fast they drift, how high, thick and large they are, how they are lit and how they shade the land, until /clouds reset.
+
 ## 0.4.14 (2026-11-05)
 
 ## 0.4.13 (2026-11-05)
