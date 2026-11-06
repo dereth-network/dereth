@@ -145,6 +145,57 @@ fn a_full_screen_the_window_system_made_is_not_the_size_it_reopens_at() {
     );
 }
 
+/// A window that goes by points and a picture that goes by pixels: the size it reopens at is the
+/// window's own, not the picture's.
+///
+/// Behaviour: presentation.window.a-mac-window-counts-its-size-in-points
+#[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads the retail dats: --features retail-dats"
+)]
+fn a_window_drawn_at_its_own_pixels_reopens_at_its_points() {
+    struct TwicePoints(Window);
+    impl crate::platform::window::WindowHost for TwicePoints {
+        fn client_size(&self) -> (u32, u32) {
+            self.0.client_size()
+        }
+        fn screen_metrics(
+            &self,
+            frame: (i32, i32, i32),
+        ) -> dereth_client_contract::window::ScreenMetrics {
+            self.0.screen_metrics(frame)
+        }
+        fn player_sizes_window(&self) -> bool {
+            self.0.player_sizes_window()
+        }
+        fn full_screen_of_its_own(&self) -> bool {
+            self.0.full_screen_of_its_own()
+        }
+        fn window_size_of(&self, (width, height): (u32, u32)) -> (u32, u32) {
+            (width / 2, height / 2)
+        }
+    }
+    let mut a = app();
+    a.window = Box::new(TwicePoints(Window {
+        granted: Rc::new(Cell::new((1000, 700))),
+        requests: Rc::default(),
+        player_sizes: true,
+        full_screen_of_its_own: Rc::default(),
+    }));
+    resized(&mut a, 2200, 1500);
+    assert_eq!(
+        a.present.size(),
+        (2200, 1500),
+        "the picture follows the pixels"
+    );
+    assert_eq!(
+        a.windowed_size,
+        Some((1100, 750)),
+        "the window keeps its points"
+    );
+}
+
 /// Behaviour: presentation.window.a-dragged-size-lasts-the-run
 #[test]
 #[cfg_attr(

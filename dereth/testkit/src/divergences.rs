@@ -495,9 +495,10 @@ pub static DIVERGENCES: &[Divergence] = &[
         id: "CD-mac-window-goes-by-points",
         title: "On macOS a window's size is in points",
         change: "On macOS the size of the client's window and the pointer's place in it are in \
-                 points, and the picture is drawn at that size and scaled to fill the window, so \
-                 a Retina screen shows it as large as any other; full screen is drawn at the \
-                 monitor's own pixels. The final client ran only where a window's size is in the \
+                 points, and the picture of the interfaces with a fixed size is drawn at that size \
+                 and scaled to fill the window, so a Retina screen shows it as large as any other; \
+                 Horizon, which sizes itself, is drawn at the window's own pixels, or the render \
+                 scale's share of them. The final client ran only where a window's size is in the \
                  screen's pixels.",
         why: "A resolution in the screen's pixels is half as wide and half as tall on a Retina \
               screen, which makes the login window very small.",

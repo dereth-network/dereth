@@ -180,7 +180,7 @@ impl<S: Shell> App<S> {
             && !was_full
             && (self.cfg.width, self.cfg.height) == self.applied_resolution
         {
-            (self.cfg.width, self.cfg.height) = self.present.size();
+            (self.cfg.width, self.cfg.height) = self.window.window_size_of(self.present.size());
         }
         self.applied_full_screen = full;
         self.applied_resolution = (self.cfg.width, self.cfg.height);
@@ -297,7 +297,7 @@ impl<S: Shell> App<S> {
             && !self.use_forced_resolution
             && !self.window.full_screen_of_its_own()
         {
-            self.windowed_size = Some(size);
+            self.windowed_size = Some(self.window.window_size_of(size));
         }
     }
 
@@ -337,7 +337,7 @@ impl<S: Shell> App<S> {
         self.set_display_resolution(packed);
         if !effect.resize {
             // A host failure reconciles the requested shadow without another native resize.
-            self.applied_resolution = self.present.size();
+            self.applied_resolution = self.window.window_size_of(self.present.size());
         }
     }
 
@@ -500,7 +500,7 @@ impl<S: Shell> App<S> {
         if (p.width, p.height) == (self.cfg.width, self.cfg.height) {
             // A dragged window is not at this size yet: the event loop's poll asks for it.
             if self.window.player_sizes_window() && !self.applied_full_screen {
-                self.applied_resolution = self.present.size();
+                self.applied_resolution = self.window.window_size_of(self.present.size());
             }
             return false;
         }
@@ -565,7 +565,7 @@ impl<S: Shell> App<S> {
         if !self.device_is_initialized() {
             return;
         }
-        let live = self.present.size();
+        let live = self.window.window_size_of(self.present.size());
         let want = if force {
             // /`Height` against the forced pair.
             if live == (width, height) {

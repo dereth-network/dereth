@@ -514,7 +514,7 @@ impl DesktopWindow {
             let size = window.inner_size();
             let middle = (f64::from(size.width / 2), f64::from(size.height / 2));
             // The hold is the window system's business: its own pixels from here on.
-            let units = self.units.at(window.fullscreen().is_some());
+            let units = self.units.view();
             let at = units.pixels(at, window.scale_factor());
             let (put_back, now) = PutBack::new(at, middle, at_once);
             window.set_cursor_visible(false);
@@ -557,7 +557,7 @@ impl DesktopWindow {
         if self.hold.replace(Hold::Free) == Hold::Free {
             return;
         }
-        let units = self.units.at(self.window.fullscreen().is_some());
+        let units = self.units.view();
         let at = at.map(|at| units.pixels(at, self.window.scale_factor()));
         let put = |at: Option<(f64, f64)>| {
             if let Some((x, y)) = at {
@@ -631,8 +631,8 @@ pub struct WinitWindow {
     pins_size_limits: bool,
     /// The windowed size last asked for, and what is left of its second ask.
     held: HeldSize,
-    /// The render scale last seen.
-    share: std::cell::Cell<u32>,
+    /// What the client last drew in.
+    view: std::cell::Cell<ClientUnits>,
     /// Whether the client was last told the window is the active one.
     focused: std::cell::Cell<bool>,
     /// Whether this is a window the player sizes, down to a login size, and the size it closed
@@ -667,19 +667,21 @@ impl ClientUnits {
         }
     }
 
-    /// What the client counts in with the window full screen or not: a window goes by points,
-    /// but the picture of a full screen is drawn at the render scale's share of the monitor's own
-    /// pixels.
-    fn at(self, full_screen: bool) -> Self {
-        self.at_share(
-            full_screen,
-            dereth_client_contract::options::render_scale::percent(),
+    /// What the client draws and takes the pointer in, whichever interface shows: a window goes by
+    /// points, but Horizon, which sizes itself to what it is given, is drawn at the render scale's
+    /// share of the window's own pixels. The other interfaces' pictures are a fixed number of
+    /// pixels, which would come out too small to read.
+    fn view(self) -> Self {
+        use dereth_client_contract::options::{interface::Interface, render_scale};
+        self.view_of(
+            Interface::chosen() == Interface::Horizon,
+            render_scale::percent(),
         )
     }
 
-    const fn at_share(self, full_screen: bool, percent: u32) -> Self {
+    const fn view_of(self, sizes_itself: bool, percent: u32) -> Self {
         match self {
-            Self::Points if full_screen => Self::Share(percent),
+            Self::Points if sizes_itself => Self::Share(percent),
             other => other,
         }
     }
@@ -688,11 +690,7 @@ impl ClientUnits {
     fn size(self, (width, height): (u32, u32)) -> winit::dpi::Size {
         match self {
             Self::Pixels => winit::dpi::PhysicalSize::new(width, height).into(),
-            Self::Points => winit::dpi::LogicalSize::new(width, height).into(),
-            Self::Share(percent) => {
-                let whole = |v: u32| v.saturating_mul(100) / percent.max(1);
-                winit::dpi::PhysicalSize::new(whole(width), whole(height)).into()
-            }
+            Self::Points | Self::Share(_) => winit::dpi::LogicalSize::new(width, height).into(),
         }
     }
 
@@ -1126,7 +1124,7 @@ pub fn open_window(
         held,
         player_sizes: look.resizable && look.login_size.is_some(),
         drags: std::cell::Cell::new(look.resizable),
-        share: std::cell::Cell::new(100),
+        view: std::cell::Cell::new(ClientUnits::of(look)),
         focused: std::cell::Cell::new(false),
     };
     if let Some(handle) = opened.raw_handle() {
@@ -1280,7 +1278,7 @@ fn route_window_event(
     mut event: winit::event::WindowEvent,
 ) {
     let (requested, full_screen) = presentation;
-    let units = units.at(window.fullscreen().is_some());
+    let units = units.view();
     if let winit::event::WindowEvent::ScaleFactorChanged {
         inner_size_writer, ..
     } = &mut event
@@ -1369,6 +1367,15 @@ impl WindowHost for WinitWindow {
         true
     }
 
+    fn window_size_of(&self, client: (u32, u32)) -> (u32, u32) {
+        if self.shared.units == ClientUnits::Points {
+            let window = &self.shared.window;
+            ClientUnits::Points.client_size(window.inner_size(), window.scale_factor())
+        } else {
+            client
+        }
+    }
+
     fn has_window(&self) -> bool {
         true
     }
@@ -1438,7 +1445,7 @@ impl WindowHost for WinitWindow {
         let window = &self.shared.window;
         self.shared
             .units
-            .at(window.fullscreen().is_some())
+            .view()
             .client_size(window.inner_size(), window.scale_factor())
     }
 
@@ -1587,10 +1594,10 @@ impl WindowHost for WinitWindow {
             self.focused.set(told);
             queue.extend(tell.map(HostEvent::Focused));
         }
-        // A new render scale, full screen, changes what the client draws at with no word from the
+        // A new render scale or interface changes what the client draws at with no word from the
         // window system.
-        let share = dereth_client_contract::options::render_scale::percent();
-        if self.share.replace(share) != share && self.shared.window.fullscreen().is_some() {
+        let view = self.shared.units.view();
+        if self.view.replace(view) != view {
             let (width, height) = self.client_size();
             coalesce_resized(&mut queue, width, height);
         }
@@ -2263,10 +2270,15 @@ mod tests {
         );
 
         let points = ClientUnits::Points;
-        // Full screen is the monitor's own pixels, at the render scale's share of them.
-        assert_eq!(points.at_share(false, 50), ClientUnits::Points);
-        assert_eq!(points.at_share(true, 100), ClientUnits::Share(100));
-        assert_eq!(ClientUnits::Pixels.at_share(true, 50), ClientUnits::Pixels);
+        // Horizon is drawn at the window's own pixels, at the render scale's share of them.
+        assert_eq!(points.view_of(false, 50), ClientUnits::Points);
+        assert_eq!(points.view_of(true, 100), ClientUnits::Share(100));
+        assert_eq!(ClientUnits::Pixels.view_of(true, 50), ClientUnits::Pixels);
+        assert_eq!(
+            ClientUnits::Share(100).size((800, 600)),
+            Size::Logical(LogicalSize::new(800.0, 600.0)),
+            "the window is asked for in points whatever it is drawn at"
+        );
         let native = PhysicalSize::new(6720, 2836);
         assert_eq!(
             ClientUnits::Share(100).client_size(native, 2.0),

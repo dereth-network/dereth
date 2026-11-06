@@ -157,6 +157,13 @@ pub trait WindowHost {
         false
     }
 
+    /// The window's own size, as it is asked for and kept, for a `client` size as
+    /// [`Self::client_size`] says it. They differ where the window goes by one unit and the picture
+    /// by another.
+    fn window_size_of(&self, client: (u32, u32)) -> (u32, u32) {
+        client
+    }
+
     /// Ask for a client rectangle and answer with the one the window system granted.
     fn request_inner_size(&self, width: u32, height: u32) -> (u32, u32) {
         (width, height)

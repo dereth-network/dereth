@@ -1,5 +1,6 @@
 //! The render scale: the share of its screen's own pixels the client draws while it fills the
-//! screen. Fewer pixels draw faster, and the picture, enlarged to fill the screen, looks softer.
+//! screen, or on a Mac whenever Horizon shows. Fewer pixels draw faster, and the picture, enlarged
+//! to fill the screen, looks softer.
 //!
 //! It is this client's own option, not a retail one, and only a host that can draw the game at
 //! fewer pixels than its screen and enlarge the picture offers it: the browser, whose page is the
