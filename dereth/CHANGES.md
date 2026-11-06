@@ -17,6 +17,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Horizon: two settings under Display: Status Bar Colors gives the health, stamina and mana bars the
   original game's red, amber and blue, and unticking Large Status Bar Numbers draws their numbers
   smaller, clear of the bars' titles.
+
 ## 0.4.14 (2026-11-05)
 
 ## 0.4.13 (2026-11-05)
