@@ -491,12 +491,19 @@ impl Gpu {
                 let mut device: Option<ID3D12Device> = None;
                 // SAFETY: the adapter outlives the call; `device` is an out-parameter that is only
                 // read on success.
-                if unsafe { D3D12CreateDevice(&adapter, D3D_FEATURE_LEVEL_11_0, &mut device) }
-                    .is_ok()
-                {
-                    if let Some(d) = device {
-                        return Ok((d, AdapterKind::Hardware, adapter_description(&desc)));
+                let made =
+                    unsafe { D3D12CreateDevice(&adapter, D3D_FEATURE_LEVEL_11_0, &mut device) };
+                if let Err(e) = &made {
+                    if stops_at_a_refusal(desc.VendorId) {
+                        return Err(RenderError::Device(format!(
+                            "{} refused a device, and a test build doesn't fall to the software \
+                             rasterizer: {e}",
+                            adapter_description(&desc)
+                        )));
                     }
+                }
+                if let (true, Some(d)) = (made.is_ok(), device) {
+                    return Ok((d, AdapterKind::Hardware, adapter_description(&desc)));
                 }
             }
         }
@@ -2783,6 +2790,15 @@ thread_local! {
     static REQUIRE_SOFTWARE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
+/// Whether a device refused by the adapter of vendor `vendor` ends the search. In a test build it
+/// does for a real GPU: going on to the software rasterizer would run a test tier several times
+/// slower with every core busy, and hide why. Microsoft's own adapters are a machine with no GPU,
+/// which the software rasterizer is there for. Outside a test build a player still gets a picture.
+fn stops_at_a_refusal(vendor: u32) -> bool {
+    const MICROSOFT: u32 = 0x1414;
+    cfg!(any(test, feature = "test-support")) && vendor != MICROSOFT
+}
+
 /// Whether the calling test asked for the software rasteriser explicitly. Test devices otherwise
 /// prefer the hardware GPU; outside tests this is always false.
 fn test_requires_software() -> bool {
@@ -3382,6 +3398,14 @@ mod tests {
             gpu.release_texture(s);
         }
         gpu.wait_idle().expect("idle");
+    }
+
+    /// A test build stops at a real GPU's refusal, and goes on from a machine's basic adapter.
+    #[test]
+    fn a_test_build_stops_at_a_real_gpus_refusal_and_not_at_a_basic_adapters() {
+        assert!(stops_at_a_refusal(0x10DE));
+        assert!(stops_at_a_refusal(0x1002));
+        assert!(!stops_at_a_refusal(0x1414));
     }
 
     /// Every catalogue row constructs a pipeline state D3D12 accepts.

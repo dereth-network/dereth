@@ -424,6 +424,11 @@ async fn offscreen_adapter(
 /// graphics API the instance may use and looks at its adapters (on Windows, Direct3D 12 beside the
 /// Vulkan the device is made on); done for every device while other tests' devices draw on
 /// parallel threads, that has hung the process in the drivers.
+///
+/// Direct3D 12 stays out of it unless `WGPU_BACKEND` asks for it. A build with debug assertions has
+/// `wgpu` validate, which on Direct3D 12 turns on the debug layer for the whole process, and where
+/// the system has that layer a Direct3D 12 device made after that, by this device's own backend, is
+/// refused with `DXGI_ERROR_DEVICE_RESET` once one before it has drawn.
 #[cfg(all(any(test, feature = "test-support"), not(target_arch = "wasm32")))]
 async fn offscreen_adapter(
     software: bool,
@@ -433,7 +438,10 @@ async fn offscreen_adapter(
         [std::sync::OnceLock::new(), std::sync::OnceLock::new()];
     FOUND[usize::from(software)]
         .get_or_init(|| {
-            let (desc, compiler) = compiler::native_instance();
+            let (mut desc, compiler) = compiler::native_instance();
+            if std::env::var_os("WGPU_BACKEND").is_none() {
+                desc.backends.remove(wgpu::Backends::DX12);
+            }
             let instance = wgpu::Instance::new(desc);
             pollster::block_on(adapter_for(&instance, None, software)).map(|a| (a, compiler))
         })
