@@ -332,7 +332,7 @@ fn a_locked_corpse_nobody_touches_leaves_the_world_on_time() {
         .get(corpse)
         .and_then(|t| t.corpse.as_ref())
         .map_or(0.0, |c| c.expires);
-    assert!(expires - h.now.0 <= death::ROTS_UNTOUCHED);
+    assert!(expires - h.now.0 <= yalain_content::CorpseRot::CREATURE.untouched);
     h.advance(expires - h.now.0 + 1.0);
     h.run(10);
     assert!(h.server.things.get(corpse).is_none(), "gone");

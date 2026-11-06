@@ -1285,6 +1285,112 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "server.corpse.a-players-lasts-a-minute",
+        says: "A player's corpse lasts its minute, opened and closed empty or not.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CORPSE-ROT-PLAYER"),
+        station: "yalain-testkit::cpu::play::corpse_rot::a_players_corpse_closed_empty_still_lasts_its_minute",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.corpse.a-profile-that-drew-nothing-lasts",
+        says: "A creature with a loot profile that happened to leave nothing leaves a corpse that lasts \
+               as any corpse does.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CORPSE-ROT-DREW-NOTHING"),
+        station: "yalain-testkit::cpu::play::corpse_rot::a_corpse_whose_loot_profile_drew_nothing_lasts_as_any_corpse_does",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.corpse.closed-by-its-templates-times",
+        says: "A corpse closed with items left goes after its template's time for that, and closed \
+               empty after its time for that.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CORPSE-ROT-CLOSED"),
+        station: "yalain-testkit::cpu::play::corpse_rot::a_corpse_closed_goes_by_its_templates_times_for_what_it_holds",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.corpse.closed-past-its-time",
+        says: "A corpse left open past its time and then closed goes at the next look, not after a \
+               closing's time.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CORPSE-ROT-CLOSED-LATE"),
+        station: "yalain-testkit::cpu::play::corpse_rot::a_corpse_closed_past_its_time_goes_at_the_next_look_and_not_a_closings_time_later",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.corpse.closing-never-lengthens",
+        says: "Closing a corpse never makes it last longer than it would have.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CORPSE-ROT-NEVER-LONGER"),
+        station: "yalain-testkit::cpu::play::corpse_rot::closing_a_corpse_never_makes_it_last_longer",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.corpse.lasts-its-templates-time",
+        says: "A corpse nobody touches lasts its creature's template's time from its making.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CORPSE-ROT-TEMPLATE"),
+        station: "yalain-testkit::cpu::play::corpse_rot::a_corpse_nobody_touches_lasts_its_templates_time",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.corpse.one-holding-a-drop-lasts",
+        says: "The corpse of a creature with no loot profile whose own drop came to something lasts as \
+               any corpse does.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CORPSE-ROT-HOLDS-DROP"),
+        station: "yalain-testkit::cpu::play::corpse_rot::a_corpse_holding_a_drop_lasts_as_any_corpse_does_with_no_loot_profile",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.corpse.one-that-can-hold-nothing-goes-soon",
+        says: "The corpse of a creature with no loot profile that left nothing goes as one closed empty \
+               does, from its making.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CORPSE-ROT-HOLDS-NOTHING"),
+        station: "yalain-testkit::cpu::play::corpse_rot::a_corpse_that_can_hold_nothing_goes_after_the_time_for_an_empty_one",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.corpse.opening-keeps-the-short-time",
+        says: "Opened and closed before its short time is up, a corpse that can hold nothing goes when \
+               it would have.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CORPSE-ROT-OPENED-SHORT"),
+        station: "yalain-testkit::cpu::play::corpse_rot::opening_a_corpse_that_holds_nothing_keeps_its_short_time",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.corpse.recorded-times",
+        says: "Corpses nobody opened in the recordings lasted what their creatures' templates give: \
+               those of creatures with a loot profile the time for one untouched, those of creatures \
+               with none the time for an empty one.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CORPSE-ROT-RECORDED"),
+        station: "yalain-testkit::corpus::examine::corpses_nobody_opened_lasted_their_templates_times_in_2017",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.corpse.rot-times-from-the-install",
+        says: "A corpse's times are its template's over its class's, read from the install's code and \
+               data.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CORPSE-ROT-INSTALL"),
+        station: "yalain-testkit::dat::effects::a_corpses_times_are_its_templates_over_its_classes",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.corpse.stays-while-open",
+        says: "A corpse does not leave while it is open, however long; it goes at the first look after \
+               it is closed, a look each time an empty one's time goes by.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CORPSE-ROT-HELD-OPEN"),
+        station: "yalain-testkit::cpu::play::corpse_rot::a_corpse_stays_while_it_is_open_and_goes_at_the_next_look_after_it_is_closed",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.a-knife-stays-while-it-cuts",
         says: "A knife at work on a corpse stays in the pack until the cut is over: it isn't put down, \
                sold or traded. One gone by the end all the same pays nothing and leaves the corpse.",

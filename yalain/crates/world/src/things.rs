@@ -134,6 +134,8 @@ pub struct Corpse {
     pub killer_level: i32,
     /// When it leaves the world (world seconds).
     pub expires: f64,
+    /// How long it lasts.
+    pub rot: yalain_content::CorpseRot,
     /// The fellow a fellowship's turn or draw gave it to (its character id; 0 when none).
     pub claimant: u64,
     /// When the rights to loot it end, whoever has opened it (world seconds; 0 when it has none).

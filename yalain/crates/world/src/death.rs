@@ -27,8 +27,12 @@
 //! profile's count says (counting the drops and extras already in). Each item drawn carries what
 //! the creature's level gives it of its own ([`crate::treasure`]).
 //!
-//! **A corpse leaves the world** three minutes after it appeared if nobody touched it, fifteen
-//! seconds after it was closed empty, a minute after it was closed with items left.
+//! **A corpse leaves the world** by its creature's template's times, for most creatures these: three
+//! minutes after it appeared, or fifteen seconds if it can hold nothing (the creature has no loot
+//! profile and left nothing); fifteen seconds after it was closed empty, a minute after it was
+//! closed with items left, if that is sooner. One still open when its time comes stays, looked at
+//! again each time an empty one's time goes by, and goes at the first such look after it is closed.
+//! A player's lasts a minute whatever is done to it.
 //!
 //! **Who may loot it** ([`may_loot`]): its killer and, in a fellowship that shares loot, the killer's
 //! fellows as they stand at that moment. The first to open it ends the rights, as does two minutes
@@ -104,11 +108,6 @@ pub mod look {
 /// When the corpse appears after the death, and the creature leaves after it, in seconds.
 pub const CORPSE_AFTER: f64 = 2.0;
 pub const LEAVES_AFTER: f64 = 3.0;
-
-/// How long a corpse lasts: untouched, closed empty, closed with items left, in seconds.
-pub const ROTS_UNTOUCHED: f64 = 180.0;
-pub const ROTS_EMPTY: f64 = 15.0;
-pub const ROTS_LEFT: f64 = 60.0;
 
 /// How long after a death its corpse is kept for those with a right to it, in seconds.
 pub const LOOT_LOCK: f64 = 120.0;
@@ -614,10 +613,17 @@ pub fn corpse_appears<S: Store>(
     corpse.instance = 0;
     corpse.visual = 10;
     let loot = roll_loot(s, &dead);
-    let (level, quality) = dead
-        .creature
-        .as_ref()
-        .map_or((0, None), |c| (c.stats.level, c.stats.loot_quality));
+    let (level, quality, rot, has_profile) = dead.creature.as_ref().map_or(
+        (0, None, yalain_content::CorpseRot::default(), false),
+        |c| {
+            (
+                c.stats.level,
+                c.stats.loot_quality,
+                c.stats.rot,
+                c.stats.loot_profile.is_some(),
+            )
+        },
+    );
     let mut contents = Vec::new();
     for (template, value) in loot {
         if let Some(item) = crate::inventory::make_item(s, template, 1, value) {
@@ -636,6 +642,12 @@ pub fn corpse_appears<S: Store>(
         .values()
         .find(|p| p.character == killer)
         .map_or(0, |p| crate::examine::level_of(&p.qualities));
+    // One that can hold nothing goes as a corpse closed empty does.
+    let lasts = if contents.is_empty() && !has_profile {
+        rot.empty
+    } else {
+        rot.untouched
+    };
     let group = dead.facts.group;
     let claimant = s.fellowships.of(killer).map_or(0, |i| {
         let Server {
@@ -647,7 +659,8 @@ pub fn corpse_appears<S: Store>(
         killer,
         originator: creature,
         contents,
-        expires: clock.local.0 + ROTS_UNTOUCHED,
+        expires: clock.local.0 + lasts,
+        rot,
         creature: dead.template,
         butchered: false,
         killer_level,
@@ -849,28 +862,37 @@ pub fn vanish<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64) {
     }
 }
 
-/// A corpse has been closed: it goes soon, sooner when it is empty.
+/// A corpse has been closed: it goes soon, sooner when it is empty, never later than it would have.
 pub fn closed<S: Store>(s: &mut Server<S>, corpse: u64) {
     let now = s.last_step.map_or(0.0, |t| t.0);
     if let Some(c) = s.things.get_mut(corpse).and_then(|t| t.corpse.as_mut()) {
         let after = if c.contents.is_empty() {
-            ROTS_EMPTY
+            c.rot.empty
         } else {
-            ROTS_LEFT
+            c.rot.items_left
         };
         c.expires = c.expires.min(now + after);
     }
 }
 
-/// Corpses whose time is up leave the world.
+/// Corpses whose time is up leave the world; one that is open is looked at again later.
 pub fn expire_corpses<S: Store>(s: &mut Server<S>, net: &mut ServerNet, now: f64) {
-    let due: Vec<u64> = s
-        .things
-        .by_id
+    let open: Vec<u64> = s
+        .players
         .values()
-        .filter(|t| t.corpse.as_ref().is_some_and(|c| c.expires <= now))
-        .map(|t| t.id)
+        .filter_map(|p| p.open_container)
         .collect();
+    let mut due = Vec::new();
+    for t in s.things.by_id.values_mut() {
+        let Some(c) = t.corpse.as_mut().filter(|c| c.expires <= now) else {
+            continue;
+        };
+        if open.contains(&t.id) {
+            c.expires = now.max(c.expires + c.rot.empty);
+        } else {
+            due.push(t.id);
+        }
+    }
     for id in due {
         vanish(s, net, id);
     }
@@ -914,9 +936,8 @@ pub mod player_look {
 }
 
 /// When a player's corpse is made after its death (2017: 10.07 s for a human or tumerok body; a
-/// lugian's in most poses 5.09 s), and how long it lasts.
+/// lugian's in most poses 5.09 s).
 pub const PLAYER_CORPSE_AFTER: f64 = 10.07;
-pub const PLAYER_CORPSE_ROTS: f64 = 60.0;
 
 /// The vitae a resurrection takes, and the share of health and vigor a player returns with (2017:
 /// 191 of 191 resurrections took 5; 202 of 202 returned at 0.75 of the greatest health).
@@ -1211,7 +1232,8 @@ pub fn player_corpse<S: Store>(
         killer: d.killer.unwrap_or(0),
         originator: character,
         contents: Vec::new(),
-        expires: clock.local.0 + PLAYER_CORPSE_ROTS,
+        expires: clock.local.0 + yalain_content::CorpseRot::PLAYER.untouched,
+        rot: yalain_content::CorpseRot::PLAYER,
         creature: 0,
         butchered: false,
         killer_level: 0,

@@ -1750,3 +1750,37 @@ fn a_corpses_armor_and_weapon_of_a_class_with_a_least_level_are_made_by_the_crea
         );
     }
 }
+
+fn corpse_rot_of(p: &yalain_testkit::authored::Portal, template: u32) -> yalain_content::CorpseRot {
+    yalain_content::CorpseRot::from_props(&p.template(template).props)
+}
+
+/// A creature, a pet and a talking creature's corpses take their classes' times, written in the
+/// install's code; a template that sets its own takes those, and its class's for what it leaves out.
+/// Behaviour: server.corpse.rot-times-from-the-install
+#[test]
+fn a_corpses_times_are_its_templates_over_its_classes() {
+    let p = yalain_testkit::authored::Portal::open();
+    let times = |r: yalain_content::CorpseRot| (r.untouched, r.items_left, r.empty);
+    for ordinary in [0x4700_2AF6, 0x4700_083D, 0x4700_21BA] {
+        let props = p.template(ordinary).props;
+        assert_eq!(
+            (
+                props.float("NPC_BaseRotTime"),
+                props.float("NPC_MaxAcceleratedRotTime"),
+                props.float("NPC_MinAcceleratedRotTime"),
+            ),
+            (Some(180.0), Some(60.0), Some(15.0)),
+            "{ordinary:08X}"
+        );
+        assert_eq!(times(corpse_rot_of(&p, ordinary)), (180.0, 60.0, 15.0));
+    }
+    for (template, want) in [
+        (0x4700_3440, (180.0, 2.0, 1.0)),
+        (0x4700_26C2, (180.0, 180.0, 180.0)),
+        (0x4700_26C9, (180.0, 1790.0, 1790.0)),
+        (0x4700_26DA, (15.0, 60.0, 15.0)),
+    ] {
+        assert_eq!(times(corpse_rot_of(&p, template)), want, "{template:08X}");
+    }
+}

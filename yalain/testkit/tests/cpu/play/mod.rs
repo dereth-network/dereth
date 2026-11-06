@@ -14,6 +14,7 @@ mod combinations;
 mod concealing;
 mod conservation;
 mod corpse_rights;
+mod corpse_rot;
 mod crafting;
 mod creature_effects;
 mod creature_tactics;

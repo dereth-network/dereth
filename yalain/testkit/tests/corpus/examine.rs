@@ -1864,3 +1864,109 @@ fn corpse_profiles_are_built_as_2017_built_them() {
     assert!(seen >= 13_000, "the recordings hold them: {seen}");
     assert!(exact * 1000 >= seen * 995, "{exact} of {seen}");
 }
+
+#[derive(Default)]
+struct CorpseTold {
+    born: f64,
+    creature: u64,
+    touched: bool,
+    gone: Option<f64>,
+}
+
+/// A corpse's life in one session, where it was told appearing and leaving and nobody opened it.
+fn corpse_lives(con: &Connection, session: i64) -> Vec<(u32, f64)> {
+    let mut st = con
+        .prepare(
+            "SELECT t, raw FROM message WHERE session_id = ?1 AND dir = 's2c' AND status = 'ac2'
+             AND mtype IN (65624, 65727, 65644, 65652) ORDER BY idx",
+        )
+        .expect("prepares");
+    let mut rows = st.query([session]).expect("runs");
+    let mut templates: HashMap<u64, u32> = HashMap::new();
+    let mut corpses: HashMap<u64, CorpseTold> = HashMap::new();
+    while let Some(row) = rows.next().expect("a row") {
+        let t: f64 = row.get(0).expect("t");
+        let raw: Vec<u8> = row.get(1).expect("raw");
+        match ServerMessage::decode(&raw) {
+            Ok(ServerMessage::CreateObject(c)) => {
+                let template = c.weenie.entity_did;
+                templates.insert(c.id, template);
+                if template == yalain_world::death::CORPSE_TEMPLATE {
+                    corpses.entry(c.id).or_default().born = t;
+                }
+            }
+            Ok(ServerMessage::ObjectLeaves(e)) => {
+                if let Some(c) = corpses.get_mut(&e.sender.id) {
+                    c.gone.get_or_insert(t);
+                }
+            }
+            Ok(ServerMessage::UpdateInstanceIdVisual(v))
+                if v.quality == yalain_world::death::q::ORIGINATOR =>
+            {
+                if let Some(c) = corpses.get_mut(&v.object.id) {
+                    c.creature = v.value;
+                }
+            }
+            Ok(ServerMessage::UpdateBoolVisual(v))
+                if v.quality == yalain_world::inventory::q::OPEN =>
+            {
+                if let Some(c) = corpses.get_mut(&v.object.id) {
+                    c.touched = true;
+                }
+            }
+            _ => {}
+        }
+    }
+    corpses
+        .values()
+        .filter(|c| !c.touched)
+        .filter_map(|c| Some((*templates.get(&c.creature)?, c.gone? - c.born)))
+        .collect()
+}
+
+/// Corpses nobody opened: of creatures with a loot profile they last the time for one untouched,
+/// of those with none the time for an empty one, whatever that creature's template makes it.
+/// Those that left a client's sight sooner count as neither. (No profile: 1,096 of 1,159. A
+/// profile: 706 at the time for one untouched, 11 at the time for an empty one.)
+/// Behaviour: server.corpse.recorded-times
+#[test]
+fn corpses_nobody_opened_lasted_their_templates_times_in_2017() {
+    let path = auberean_testkit::data::require_capture_index();
+    let con = open(&path);
+    let sessions: Vec<i64> = con
+        .prepare(
+            "SELECT DISTINCT s.session_id FROM session s JOIN capture c USING (capture_id)
+             WHERE s.game = 'ac2' AND c.file LIKE '2017-%'",
+        )
+        .expect("prepares")
+        .query_map([], |r| r.get(0))
+        .expect("runs")
+        .map(|r| r.expect("a session"))
+        .collect();
+    let p = yalain_testkit::authored::Portal::open();
+    let mut of: HashMap<u32, (bool, yalain_content::CorpseRot)> = HashMap::new();
+    let (mut soon, mut soon_all, mut long, mut long_at_short) = (0, 0, 0, 0);
+    for session in sessions {
+        for (template, life) in corpse_lives(&con, session) {
+            let (profile, rot) = *of.entry(template).or_insert_with(|| {
+                let props = p.template(template).props;
+                (
+                    props.word("NPC_DeathLootProfile").is_some(),
+                    yalain_content::CorpseRot::from_props(&props),
+                )
+            });
+            let near = |want: f64| (life - want).abs() < 1.0;
+            if profile {
+                long += i32::from(near(rot.untouched));
+                long_at_short += i32::from(near(rot.empty));
+            } else {
+                soon_all += 1;
+                soon += i32::from(near(rot.empty));
+            }
+        }
+    }
+    assert!(soon * 100 >= soon_all * 90, "{soon} of {soon_all}");
+    assert!(soon > 500, "{soon}");
+    assert!(long > 500, "{long}");
+    assert!(long_at_short * 50 <= long, "{long_at_short} against {long}");
+}
