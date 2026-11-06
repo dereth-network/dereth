@@ -31,7 +31,6 @@ pub fn read_vec3(r: &mut Reader<'_>) -> Result<Vec3> {
     Ok(Vec3::new(r.f32()?, r.f32()?, r.f32()?))
 }
 
-/// A place: its cell, its origin, its rotation (w, x, y, z).
 // D2-13185
 pub fn write_position(w: &mut Writer, p: &Position) {
     w.u32(p.cell.0);
@@ -76,7 +75,6 @@ pub fn write_frame(w: &mut Writer, f: &Frame) {
 pub const BBOX_SIZE: usize = 24;
 
 /// A box: its least corner, then its greatest.
-// D2-13223, D2-02068
 pub fn write_bbox(w: &mut Writer, b: &BBox) {
     write_vec3(w, b.min);
     write_vec3(w, b.max);
@@ -84,7 +82,6 @@ pub fn write_bbox(w: &mut Writer, b: &BBox) {
 
 /// A physics polygon's binary size: its id, its corner count and its corners' vertex numbers (16
 /// bits each), brought to a multiple of four bytes.
-// D2-04169
 #[must_use]
 pub fn polygon_size(p: &auberean_assets::mesh::MeshPolygon) -> usize {
     (p.vertices.len() * 2 + 4).next_multiple_of(4)
@@ -92,7 +89,6 @@ pub fn polygon_size(p: &auberean_assets::mesh::MeshPolygon) -> usize {
 
 /// A physics polygon: its id, its corner count, its corners' vertex numbers, zeros to the next
 /// multiple of four bytes of the stream.
-// D2-04170
 pub fn write_polygon(w: &mut Writer, p: &auberean_assets::mesh::MeshPolygon) {
     w.u16(p.id);
     #[allow(clippy::cast_possible_truncation)]

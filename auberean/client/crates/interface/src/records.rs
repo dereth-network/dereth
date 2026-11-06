@@ -386,7 +386,7 @@ fn request(r: &Request) -> ExamRequest {
 }
 
 /// A profile's lines as the examination window lays them out: a string reference written by
-/// the window, an icon by its first picture.
+/// the window, an icon by its layers' pictures and colors.
 fn profile(p: &Profile) -> Shown {
     Shown {
         request: request(&Request::unpack(&p.request)),
@@ -405,7 +405,7 @@ fn lines(p: &Profile) -> Vec<Line> {
             value: n.value,
             time: n.time,
             text: (n.kind == kind::STRING).then(|| from_script(&n.text)),
-            icon: n.icon.first().map_or(0, |l| l[0]),
+            icon: n.icon.iter().map(|l| (l[1], l[2])).collect(),
             effect: Vec::new(),
         })
         .collect()

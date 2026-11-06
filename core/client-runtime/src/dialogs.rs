@@ -125,6 +125,8 @@ enum Rule {
     FellowshipRequest { context_id: u32 },
     /// `@die`: a yes dies.
     Die,
+    /// `@lifestone` where it is a death: a yes sends the lifestone event, which kills.
+    LifestoneDeath,
     /// The mini-game's resign question: answered either way to the panel.
     MiniGameQuit,
     /// The house panel's buy or rent question: answered either way to the panel.
@@ -460,6 +462,16 @@ impl DialogService {
                 (None, None),
             );
         }
+        // **`@lifestone`** where it kills asks the same way, its Yes sending the lifestone event.
+        for prompt in interaction.take_lifestone_death_confirmations() {
+            self.ask(
+                &mut *ui,
+                Rule::LifestoneDeath,
+                Prompt::Text(prompt.to_string()),
+                (false, false, false),
+                (None, None),
+            );
+        }
         // **`@house abandon`**'s two stages keep no slot either.
         for prompt in interaction.take_house_abandon_first() {
             self.ask(
@@ -563,6 +575,7 @@ impl DialogService {
                 interaction.confirm_allegiance(world, action, target);
             }
             Rule::Die if yes => interaction.confirm_die(world),
+            Rule::LifestoneDeath if yes => interaction.confirm_lifestone_death(world),
             Rule::MiniGameQuit => match answered {
                 Some(confirmed) => ui.deliver(UiRequest::MiniGameQuitAnswer(confirmed)),
                 None => world.minigame.cancel_resign_dialog(),
@@ -591,6 +604,7 @@ impl DialogService {
             | Rule::CloseVendor
             | Rule::Allegiance { .. }
             | Rule::Die
+            | Rule::LifestoneDeath
             | Rule::HouseAbandonFirst
             | Rule::HouseAbandonSecond
             | Rule::OpenLink(_)

@@ -60,6 +60,77 @@ fn entries(zip: &[u8]) -> Vec<(String, u16, u16, u16)> {
     out
 }
 
+/// A folder under a release's name is taken for that release only when its files are the archive's:
+/// another's, or one with a file changed or missing, is refused in words naming both hashes.
+/// Behaviour: server.world-db.release-folder-holds-to-its-archive-hash
+#[test]
+fn a_folder_of_other_files_does_not_pass_for_a_release() {
+    let zip = build(&fixture(false), "v0.3.0");
+    let sha = release::sha256_hex(&zip);
+    let files = release::read_stored(&zip).expect("its files");
+    let dir = std::env::temp_dir().join(format!("yalain-release-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(release::holds_archive(&dir, &sha)
+        .expect_err("nothing there")
+        .contains("holds no world"));
+    for (name, text) in &files {
+        let p = dir.join(name);
+        std::fs::create_dir_all(p.parent().expect("a folder")).expect("made");
+        std::fs::write(&p, text).expect("written");
+    }
+    assert_eq!(release::holds_archive(&dir, &sha), Ok(()));
+    std::fs::write(dir.join("world.toml"), "changed").expect("written");
+    let why = release::holds_archive(&dir, &sha).expect_err("another's");
+    assert!(
+        why.contains("is not that release") && why.contains(&sha),
+        "{why}"
+    );
+    std::fs::write(dir.join("world.toml"), &files["world.toml"]).expect("written");
+    assert_eq!(release::holds_archive(&dir, &sha), Ok(()));
+    let pack = files.keys().find(|k| k.contains('/')).expect("a pack file");
+    std::fs::remove_file(dir.join(pack)).expect("removed");
+    assert!(release::holds_archive(&dir, &sha).is_err());
+    std::fs::remove_file(dir.join("manifest.json")).expect("removed");
+    assert!(release::holds_archive(&dir, &sha)
+        .expect_err("no manifest")
+        .contains("not a release's folder"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A release's folder, as a fetch unpacks it, hashes to its archive's SHA-256, one file changed or
+/// missing does not; and the archive's bytes for given files stay as they are, as every pinned
+/// hash depends on it.
+/// Behaviour: server.world-db.release-folder-holds-to-its-archive-hash
+#[test]
+fn a_release_folder_hashes_to_its_archive_and_the_archive_format_holds() {
+    let zip = build(&fixture(false), "v0.3.0");
+    let sha = release::sha256_hex(&zip);
+    let files = release::read_stored(&zip).expect("its files");
+    assert_eq!(release::unpacked_sha256(&files).as_deref(), Some(&*sha));
+    let mut changed = files.clone();
+    changed.insert("world.toml".into(), "changed".into());
+    assert_ne!(release::unpacked_sha256(&changed).as_deref(), Some(&*sha));
+    let mut missing = files.clone();
+    let pack = missing
+        .keys()
+        .find(|k| k.contains('/'))
+        .cloned()
+        .expect("a pack file");
+    missing.remove(&pack);
+    assert_ne!(release::unpacked_sha256(&missing).as_deref(), Some(&*sha));
+    let mut no_manifest = files;
+    no_manifest.remove("manifest.json");
+    assert_eq!(release::unpacked_sha256(&no_manifest), None);
+
+    let mut little = Files::new();
+    little.insert("world.toml".into(), "key = \"w\"\n".into());
+    little.insert("p/pack.toml".into(), "name = \"p\"\n".into());
+    assert_eq!(
+        release::sha256_hex(&release::archive(&little, "{}\n")),
+        "cd3587cf7fbff3f203fc746fa75ab6e5d36b627ba920b653cef734272288de22"
+    );
+}
+
 /// Behaviour: server.world-db.release-the-same-bytes-for-the-same-files
 #[test]
 fn a_release_built_twice_from_the_same_files_is_the_same_bytes() {

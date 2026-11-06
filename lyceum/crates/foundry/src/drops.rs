@@ -1127,7 +1127,7 @@ impl Session {
         let c = self.compiled();
         let read = |id: u32| compile::read_under(c, self.base(), ModernDat::Cell, id);
         let era = self.base().era;
-        let read_t = |site: Site| Template::read(&read, site, region, era).map_err(&refuse);
+        let read_t = |site: Site| Template::read(&read, site, region, era).map_err(refuse);
         // The set's sites: its partners stand in the example's landblock, each in its place.
         let lead = read_t(chosen.example)?;
         let find_partner = |lb: u16, from: &Frame, p: &buildings::Partner| -> Option<Site> {

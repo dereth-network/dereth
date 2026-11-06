@@ -7,6 +7,18 @@ pub struct EraUiFacts {
     pub void_magic: bool,
     pub spell_level_eight: bool,
     pub spell_favorite_tabs: usize,
+    /// Whether a scroll bar with nothing to scroll still draws its thumb.
+    pub idle_scroll_thumb: bool,
+    /// One panel of the spells in effect on a character, rather than beneficial and harmful apart.
+    pub one_effects_panel: bool,
+    /// The interface's words are the 1999 client's where a later client changed them.
+    pub launch_wording: bool,
+    /// The map opens only outdoors.
+    pub map_outdoors_only: bool,
+    /// The spellbook filters its rows by school and level.
+    pub spell_filter_panel: bool,
+    /// The combat panel carries the camera's option to keep the target in view.
+    pub combat_keep_in_view: bool,
 }
 impl Default for EraUiFacts {
     fn default() -> Self {
@@ -21,13 +33,46 @@ impl EraUiFacts {
                 void_magic: true,
                 spell_level_eight: true,
                 spell_favorite_tabs: 8,
+                idle_scroll_thumb: true,
+                one_effects_panel: false,
+                launch_wording: false,
+                map_outdoors_only: false,
+                spell_filter_panel: true,
+                combat_keep_in_view: true,
+            },
+            EraId::Launch => Self {
+                void_magic: false,
+                spell_level_eight: false,
+                spell_favorite_tabs: 7,
+                idle_scroll_thumb: false,
+                one_effects_panel: true,
+                launch_wording: true,
+                map_outdoors_only: true,
+                spell_filter_panel: false,
+                combat_keep_in_view: false,
             },
             EraId::Infiltration => Self {
                 void_magic: false,
                 spell_level_eight: false,
                 spell_favorite_tabs: 7,
+                idle_scroll_thumb: true,
+                one_effects_panel: false,
+                launch_wording: false,
+                map_outdoors_only: false,
+                spell_filter_panel: true,
+                combat_keep_in_view: false,
             },
         }
+    }
+    /// The facts for a world of `profile` playing `features`: a world without the spellcasting
+    /// panel's tabs (before May 2000) has one bar of favorites.
+    #[must_use]
+    pub const fn for_world(profile: EraId, features: EraFeatures) -> Self {
+        let mut facts = Self::for_profile(profile);
+        if !features.spell_tabs {
+            facts.spell_favorite_tabs = 1;
+        }
+        facts
     }
     /// Whether an authored spell-filter control is available on this world.
     #[must_use]
@@ -66,6 +111,92 @@ pub const fn aetheria_slots(features: EraFeatures, unlocks: i32) -> u8 {
     } else {
         0
     }
+}
+
+/// A window, page, tab or slot that belongs to one system of the world. Every interface asks this
+/// one question, so a world without the system loses it the same way in each; each interface maps
+/// its own windows to a surface and refuses to open what is not offered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum EraSurface {
+    /// The window holding the journal and the contracts: offered with either.
+    QuestWindow,
+    /// The journal's pages.
+    Journal,
+    /// The contracts held.
+    Contracts,
+    /// The character titles.
+    Titles,
+    /// The house, its purchase and its maintenance.
+    House,
+    /// The chess board.
+    Chess,
+    /// Secure trade.
+    Trade,
+    /// The salvage window a tinkering tool opens.
+    Salvage,
+    /// The Create Spell page.
+    SpellResearch,
+    /// The paper doll's cloak slot.
+    CloakSlot,
+    /// The paper doll's trinket slot.
+    TrinketSlot,
+}
+
+impl EraSurface {
+    /// Every surface.
+    pub const ALL: [Self; 11] = [
+        Self::QuestWindow,
+        Self::Journal,
+        Self::Contracts,
+        Self::Titles,
+        Self::House,
+        Self::Chess,
+        Self::Trade,
+        Self::Salvage,
+        Self::SpellResearch,
+        Self::CloakSlot,
+        Self::TrinketSlot,
+    ];
+
+    /// Whether a world playing `features` has this surface.
+    #[must_use]
+    pub const fn offered(self, features: EraFeatures) -> bool {
+        match self {
+            Self::QuestWindow => quest_page(features, None).is_some(),
+            Self::Journal => features.journal,
+            Self::Contracts => features.contracts,
+            Self::Titles => features.titles,
+            Self::House => features.housing,
+            Self::Chess => features.chess,
+            Self::Trade => features.trade,
+            Self::Salvage => features.tinkering,
+            Self::SpellResearch => features.spell_research,
+            Self::CloakSlot => features.cloaks,
+            Self::TrinketSlot => features.trinkets,
+        }
+    }
+
+    /// Whether a world is known to lack this surface: a world whose era is not known has
+    /// everything.
+    #[must_use]
+    pub const fn refused(self, features: Option<EraFeatures>) -> bool {
+        match features {
+            Some(features) => !self.offered(features),
+            None => false,
+        }
+    }
+}
+
+/// The warning before creating a character with skill credits unspent, on a world where they are
+/// lost when the character enters it.
+pub const LOST_SKILL_CREDITS_WARNING: &str =
+    "You have not spent all your Training Credits. If you \
+     don't spend them during character creation, you will lose them. Create this character anyway?";
+
+/// Whether creating a character with `remaining` skill credits unspent loses them.
+#[must_use]
+pub const fn loses_skill_credits(features: EraFeatures, remaining: i32) -> bool {
+    !features.creation_credit_carry_over && remaining > 0
 }
 
 /// A complete localized caption with an English fallback.
@@ -146,6 +277,34 @@ mod tests {
         assert_eq!(EmptyGameView.aetheria_slots(), 0);
     }
 
+    /// Behaviour: presentation.era.endurance-information-follows-the-world-profile
+    /// The Endurance information follows the announced systems, not the era's name, and survives
+    /// a snapshot.
+    #[test]
+    fn launch_endurance_information_follows_the_announced_systems_and_survives_snapshots() {
+        for profile in EraId::ALL {
+            let mut w = world(profile);
+            w.era.world_dats = ContainerEra::Modern;
+            let on = w.era_features().endurance_benefits;
+            assert_eq!(on, profile != EraId::Launch);
+            assert_eq!(
+                GameSnapshot::from_view(&w)
+                    .era_features()
+                    .endurance_benefits,
+                on
+            );
+            w.era.announced_features.set("endurance_benefits", !on);
+            assert_eq!(w.era_features().endurance_benefits, !on, "{profile}");
+            assert_eq!(
+                GameSnapshot::from_view(&w)
+                    .era_features()
+                    .endurance_benefits,
+                !on
+            );
+        }
+        assert!(EmptyGameView.era_features().endurance_benefits);
+    }
+
     /// Behaviour: presentation.era.shared-facts-follow-the-world-profile
     #[test]
     fn profile_facts_ignore_container_format_and_skill_loading() {
@@ -156,7 +315,13 @@ mod tests {
             EraUiFacts {
                 void_magic: false,
                 spell_level_eight: false,
-                spell_favorite_tabs: 7
+                spell_favorite_tabs: 7,
+                idle_scroll_thumb: true,
+                one_effects_panel: false,
+                launch_wording: false,
+                map_outdoors_only: false,
+                spell_filter_panel: true,
+                combat_keep_in_view: false,
             }
         );
         let mut late = world(EraId::Eor);
@@ -166,7 +331,13 @@ mod tests {
             EraUiFacts {
                 void_magic: true,
                 spell_level_eight: true,
-                spell_favorite_tabs: 8
+                spell_favorite_tabs: 8,
+                idle_scroll_thumb: true,
+                one_effects_panel: false,
+                launch_wording: false,
+                map_outdoors_only: false,
+                spell_filter_panel: true,
+                combat_keep_in_view: true,
             }
         );
         late.era.announced_features.set("luminance", false);
@@ -177,12 +348,35 @@ mod tests {
     }
 
     /// Behaviour: presentation.era.shared-facts-follow-the-world-profile
+    /// A world without the spellcasting panel's tabs keeps one bar of favorites, from its
+    /// announced systems: a Launch world that announces the tabs has seven, and a snapshot keeps
+    /// the count.
+    #[test]
+    fn a_world_without_spell_tabs_has_one_bar_of_favorites() {
+        let mut w = world(EraId::Launch);
+        assert_eq!(w.era_ui().spell_favorite_tabs, 1);
+        assert_eq!(GameSnapshot::from_view(&w).era_ui().spell_favorite_tabs, 1);
+        w.era.announced_features.set("spell_tabs", true);
+        assert_eq!(w.era_ui().spell_favorite_tabs, 7);
+        assert_eq!(GameSnapshot::from_view(&w).era_ui().spell_favorite_tabs, 7);
+        let mut late = world(EraId::Eor);
+        late.era.announced_features.set("spell_tabs", false);
+        assert_eq!(late.era_ui().spell_favorite_tabs, 1);
+    }
+
+    /// Behaviour: presentation.era.shared-facts-follow-the-world-profile
     #[test]
     fn magic_controls_read_independent_facts() {
         let facts = EraUiFacts {
             void_magic: false,
             spell_level_eight: true,
             spell_favorite_tabs: 7,
+            idle_scroll_thumb: true,
+            one_effects_panel: false,
+            launch_wording: false,
+            map_outdoors_only: false,
+            spell_filter_panel: true,
+            combat_keep_in_view: false,
         };
         assert!(!facts.spell_filter(0x2000));
         assert!(facts.spell_filter(0x800));
@@ -222,6 +416,65 @@ mod tests {
         }
     }
 
+    /// Behaviour: presentation.era.a-surface-follows-its-own-system
+    /// Each surface follows its own flag alone, and a world whose era is not known has everything.
+    #[test]
+    fn each_surface_follows_its_own_system_and_an_unknown_world_has_everything() {
+        fn lacking(surface: EraSurface) -> EraFeatures {
+            let mut f = EraFeatures::ALL;
+            match surface {
+                EraSurface::QuestWindow => {
+                    f.journal = false;
+                    f.contracts = false;
+                }
+                EraSurface::Journal => f.journal = false,
+                EraSurface::Contracts => f.contracts = false,
+                EraSurface::Titles => f.titles = false,
+                EraSurface::House => f.housing = false,
+                EraSurface::Chess => f.chess = false,
+                EraSurface::Trade => f.trade = false,
+                EraSurface::Salvage => f.tinkering = false,
+                EraSurface::SpellResearch => f.spell_research = false,
+                EraSurface::CloakSlot => f.cloaks = false,
+                EraSurface::TrinketSlot => f.trinkets = false,
+            }
+            f
+        }
+        for surface in EraSurface::ALL {
+            assert!(surface.offered(EraFeatures::ALL), "{surface:?}");
+            assert!(!surface.refused(Some(EraFeatures::ALL)), "{surface:?}");
+            assert!(!surface.refused(None), "{surface:?}");
+            assert!(!surface.offered(lacking(surface)), "{surface:?}");
+            assert!(surface.refused(Some(lacking(surface))), "{surface:?}");
+            for other in EraSurface::ALL {
+                let shares_a_flag = matches!(
+                    (surface, other),
+                    (EraSurface::QuestWindow, _) | (_, EraSurface::QuestWindow)
+                );
+                if other != surface && !shares_a_flag {
+                    assert!(
+                        other.offered(lacking(surface)),
+                        "{other:?} without {surface:?}"
+                    );
+                }
+            }
+        }
+        let mut one = lacking(EraSurface::Journal);
+        assert!(EraSurface::QuestWindow.offered(one), "contracts alone");
+        one.contracts = false;
+        assert!(!EraSurface::QuestWindow.offered(one));
+    }
+
+    /// Behaviour: presentation.era.unspent-skill-credits-warn-where-they-are-lost
+    #[test]
+    fn only_a_world_without_the_carry_over_warns_of_lost_skill_credits() {
+        let mut f = EraFeatures::ALL;
+        assert!(!loses_skill_credits(f, 3));
+        f.creation_credit_carry_over = false;
+        assert!(loses_skill_credits(f, 3));
+        assert!(!loses_skill_credits(f, 0));
+    }
+
     /// Behaviour: presentation.era.aetheria-slots-follow-character-unlocks
     #[test]
     fn aetheria_slots_use_only_the_three_unlock_bits() {
@@ -256,6 +509,12 @@ mod tests {
                 void_magic: false,
                 spell_level_eight: true,
                 spell_favorite_tabs: 7,
+                idle_scroll_thumb: true,
+                one_effects_panel: false,
+                launch_wording: false,
+                map_outdoors_only: false,
+                spell_filter_panel: true,
+                combat_keep_in_view: false,
             }),
             ..Default::default()
         };

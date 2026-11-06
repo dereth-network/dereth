@@ -35,6 +35,12 @@ impl Rig for FigureRig<'_, '_> {
     fn water_height(&self) -> Option<f32> {
         self.water
     }
+    fn holding_bone(&self, kind: u32) -> Option<Mat4> {
+        self.figure?.carried_bone(self.anims, kind)
+    }
+    fn has_figure(&self) -> bool {
+        self.figure.is_some()
+    }
 }
 
 /// One body's effects, and those asked of it not yet played: an effect and its strength, or none
@@ -48,9 +54,16 @@ pub(crate) struct BodyFx {
     pub id: u64,
     /// The sounds its effects played or stopped, not yet taken.
     pub sounds: Vec<FxSound>,
+    /// The sliders its effects moved on what it holds too, not yet passed on.
+    pub child_sliders: Vec<auberean_draw::effects::FxSlider>,
 }
 
 impl BodyFx {
+    /// The effects playing that did not begin with the object.
+    pub(crate) fn current_fx(&self) -> Vec<(u32, f32)> {
+        self.fx.current_fx()
+    }
+
     /// The effects of a body of look `look`, or none when its look carries no effects; their
     /// random choices roll the client's one generator.
     pub(crate) fn of_look(look: &Look) -> Option<Self> {
@@ -60,6 +73,7 @@ impl BodyFx {
             asked: Vec::new(),
             id: 0,
             sounds: Vec::new(),
+            child_sliders: Vec::new(),
         })
     }
 
@@ -93,16 +107,15 @@ impl BodyFx {
         mut figure: Option<&mut Figure>,
         dress: Option<&mut ObjectLook>,
     ) -> Option<Look> {
-        let home = match self.home {
-            Some(h) => h,
-            None => {
-                let h = block_of_global(at);
-                self.home = Some(h);
-                self.fx
-                    .start(systems, records, h, &place_in(at, heading, h), scale, now);
-                h
-            }
-        };
+        let home = self.home_at(
+            systems,
+            records,
+            anims,
+            (at, heading, scale),
+            now,
+            water,
+            figure.as_deref(),
+        );
         let place = place_in(at, heading, home);
         let spot = FxSpot {
             home,
@@ -110,33 +123,26 @@ impl BodyFx {
             scale,
             now,
         };
-        for (effect, play) in std::mem::take(&mut self.asked) {
-            match play {
-                Some(intensity) => {
-                    let rig = FigureRig {
-                        figure: figure.as_deref(),
-                        anims,
-                        water,
-                    };
-                    let (_, scripts) = self
-                        .fx
-                        .do_fx(systems, records, effect, intensity, &spot, who, &rig);
-                    if let Some(f) = figure.as_deref_mut() {
-                        for s in scripts {
-                            f.do_fx_script(anims, s);
-                        }
-                    }
-                }
-                None => {
-                    self.fx.stop_fx(records, effect, false);
-                }
-            }
-        }
+        self.play_asked(systems, records, anims, &spot, who, water, &mut figure);
         self.fx.use_time(records, now);
         self.fx.let_go_of_spent_lights(now);
-        self.fx.think(systems, home, &place, scale, light, now);
+        let rig = FigureRig {
+            figure: figure.as_deref(),
+            anims,
+            water,
+        };
+        self.fx
+            .think_on(systems, home, &place, scale, light, now, &rig);
         let asked = self.fx.take_appearance();
         self.sounds.extend(self.fx.take_sounds());
+        let sliders = self.fx.take_sliders();
+        self.child_sliders
+            .extend(sliders.iter().filter(|s| s.children).copied());
+        if let Some(f) = figure.as_deref_mut() {
+            for s in sliders {
+                f.sliders.do_slider(0, s.slider, s.value, s.time);
+            }
+        }
         let (total, changes) = lay_appearance(anims, dress?, &asked)?;
         tracing::debug!(?asked, changes, "the effects changed a body's look");
         if let Some(f) = figure {
@@ -150,21 +156,132 @@ impl BodyFx {
         Some(total)
     }
 
+    /// The block whose frame its effects stand in; the first time, the body standing at `stands`
+    /// (where, facing, scale), that of its place, and its startup effects begin.
+    #[allow(clippy::too_many_arguments)]
+    fn home_at(
+        &mut self,
+        systems: &ParticleSystems,
+        records: &WorldRecords,
+        anims: &CachedRecords<'_>,
+        stands: (Vec3, f32, Vec3),
+        now: f64,
+        water: Option<f32>,
+        figure: Option<&Figure>,
+    ) -> (i32, i32) {
+        if let Some(h) = self.home {
+            return h;
+        }
+        let (at, heading, scale) = stands;
+        let h = block_of_global(at);
+        self.home = Some(h);
+        let rig = FigureRig {
+            figure,
+            anims,
+            water,
+        };
+        self.fx.start_on(
+            systems,
+            records,
+            h,
+            &place_in(at, heading, h),
+            scale,
+            now,
+            &rig,
+        );
+        h
+    }
+
+    /// The effects asked are played or stopped, as they are asked: the systems they set going wait
+    /// to run until they are next drawn.
+    #[allow(clippy::too_many_arguments)]
+    fn play_asked(
+        &mut self,
+        systems: &ParticleSystems,
+        records: &WorldRecords,
+        anims: &CachedRecords<'_>,
+        spot: &FxSpot,
+        who: FxWho,
+        water: Option<f32>,
+        figure: &mut Option<&mut Figure>,
+    ) {
+        for (effect, play) in std::mem::take(&mut self.asked) {
+            match play {
+                Some(intensity) => {
+                    let rig = FigureRig {
+                        figure: figure.as_deref(),
+                        anims,
+                        water,
+                    };
+                    let (_, scripts) = self
+                        .fx
+                        .do_fx(systems, records, effect, intensity, spot, who, &rig);
+                    if let Some(f) = figure.as_deref_mut() {
+                        for s in scripts {
+                            f.do_fx_script(anims, s);
+                        }
+                    }
+                }
+                None => {
+                    self.fx.stop_fx(records, effect, false);
+                }
+            }
+        }
+    }
+
+    /// A frame the body is not drawn in (portal space's): the effects asked still play, standing
+    /// at `at`.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn play_undrawn(
+        &mut self,
+        systems: &ParticleSystems,
+        records: &WorldRecords,
+        anims: &CachedRecords<'_>,
+        at: Vec3,
+        heading: f32,
+        scale: Vec3,
+        now: f64,
+        who: FxWho,
+        water: Option<f32>,
+        figure: Option<&mut Figure>,
+    ) {
+        let mut figure = figure;
+        let home = self.home_at(
+            systems,
+            records,
+            anims,
+            (at, heading, scale),
+            now,
+            water,
+            figure.as_deref(),
+        );
+        let place = place_in(at, heading, home);
+        let spot = FxSpot {
+            home,
+            place,
+            scale,
+            now,
+        };
+        self.play_asked(systems, records, anims, &spot, who, water, &mut figure);
+    }
+
     /// The lights its effects placed on the body, as they stand `now` with the body at `at` (on
-    /// the one grid) facing `heading` in cell `cell`; none before it has stood anywhere.
+    /// the one grid) facing `heading` in cell `cell`, at the body's `opacity`; none before it has
+    /// stood anywhere.
     pub(crate) fn lights(
         &self,
         at: Vec3,
         heading: f32,
         cell: u32,
         now: f64,
+        opacity: f32,
     ) -> Vec<(auberean_draw::effects::PlacedLight, (i32, i32))> {
         let Some(home) = self.home else {
             return Vec::new();
         };
         let place = place_in(at, heading, home);
         self.fx
-            .lights_now(&place, cell, now, 1.0)
+            .lights_now(&place, cell, now, opacity)
             .into_iter()
             .map(|l| (l, home))
             .collect()

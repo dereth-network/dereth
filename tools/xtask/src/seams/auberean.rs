@@ -16,7 +16,8 @@
 //! 5. **The action seam.** The contract, the runtime, the SDK and the headless client name no key,
 //!    mouse button or window message ([`DEVICE_NAMES`]): a front end turns its device into actions.
 //! 6. **Four parts.** The client's crates use the core, their own and [`CLIENT_MAY_USE`]; the
-//!    server's the core, their own and [`SERVER_MAY_USE`] (the network's protocol and its link);
+//!    server's the core, their own and [`SERVER_MAY_USE`] (the network's protocol and its link, and
+//!    the game servers' WebSocket endpoint);
 //!    the world builder's the core, its own and
 //!    [`ATHENAEUM_MAY_USE`] (the world's drawing and the world database, never the server's game,
 //!    network, store or program: it runs Yalain as a program); a core crate's
@@ -130,14 +131,20 @@ pub const DEVICE_NAMES: &[&str] = &[
     "dereth_input",
 ];
 
-/// The first game's client crates the second's client may use: the picture codecs, and the sound
-/// device.
-pub const CLIENT_MAY_USE: &[&str] = &["dereth-render-cpu", "dereth-audio-out"];
+/// The first game's client crates the second's client may use: the picture codecs, the sound
+/// device, and the operating system's error box.
+pub const CLIENT_MAY_USE: &[&str] = &["dereth-render-cpu", "dereth-audio-out", "dereth-console"];
 
 /// The crates outside the four parts the server may use: the Dereth Network's protocol and a
 /// world's end of its link, which name no game (the network is self-contained), so that the server
-/// speaks the network with the code every world shares rather than a copy of its own.
-pub const SERVER_MAY_USE: &[&str] = &["dereth-network-protocol", "dereth-network-link"];
+/// speaks the network with the code every world shares rather than a copy of its own; and the
+/// WebSocket endpoint and the updater both game servers run, which name no game either.
+pub const SERVER_MAY_USE: &[&str] = &[
+    "dereth-network-protocol",
+    "dereth-network-link",
+    "dereth-server-update",
+    "dereth-server-websocket",
+];
 
 /// The client's and the server's crates the world builder may use: the world's frame and its
 /// device, which it draws the world with, and the world database and the server's tables, which
@@ -195,8 +202,8 @@ pub const EXECUTABLES: &[&str] = &[
 
 /// The libraries that are the outermost Rust of their process, loaded by a program that is not
 /// ours, so that each installs its own log subscriber as an executable does: the friends service's
-/// library for the retail client, when it is built.
-pub const OUTERMOST: &[&str] = &["auberean-friends-dll"];
+/// library for the retail client, when it is built, and the client's module in a browser.
+pub const OUTERMOST: &[&str] = &["auberean-friends-dll", "auberean-web"];
 
 /// The test kits: test support, which only tests may name.
 const TEST_KITS: &[&str] = &["auberean-testkit", "yalain-testkit"];
@@ -874,7 +881,7 @@ mod tests {
             w.push(pkg(name, dir, &[(dep, false)], false));
             part_violations(&w)
         };
-        let launch = "dereth/launcher/crates/launch";
+        let launch = "launcher/crates/launch";
         assert!(with("dereth-launch", launch, "auberean-friends").is_empty());
         assert!(with("dereth-launch", launch, "auberean-dat")[0]
             .contains("dereth-launch depends on `auberean-dat`"));

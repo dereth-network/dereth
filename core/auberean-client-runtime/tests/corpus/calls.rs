@@ -9,16 +9,17 @@ use auberean_client_contract::Action;
 use auberean_client_net::LocalTime;
 use auberean_client_runtime::data::{DataFiles, ENGLISH};
 use auberean_client_runtime::{
-    link_scripts, CallResult, CallTally, Client, ClientData, ClientSettings,
+    link_scripts, link_scripts_noting, CallResult, CallTally, Client, ClientData, ClientSettings,
 };
 use auberean_dat::locate::{install_dats, DatName};
-use auberean_dat::testing::require_target_install;
+use auberean_dat::testing::{open_wrong_once, require_target_install};
 use auberean_dat::DatFile;
 use auberean_protocol::{ClientMessage, ServerMessage};
 use auberean_testkit::captures;
 
 /// The client's entering the world, which the event queue's holding rule turns on.
 pub(crate) const PLAY_CHARACTER: u32 = 0x1002B;
+const CLIENT_POSITION: u32 = 0x1008E;
 
 /// The server's script-call carriers: to the player, to an object in a cell, to an object by its
 /// visual, and the alternate form to the player.
@@ -502,8 +503,8 @@ const BASIC_ATTACK: u32 = 0x20;
 /// text to the panels); a hit on the player by a skill asks the attacker's scripts whether the
 /// skill harms; a hook that makes missiles asks the attacker's body's scripts for the missile of
 /// every hook that fires one, and a hook that fires one asks for its own. Every call runs to its
-/// end: at least 1,558,000 hooks' effects, 795,000 hits' damage (183,000 combat lines, 736,000
-/// floating texts), 59,000 questions of harm (43,000 harmful) and 327,000 missiles, each made from
+/// end: at least 1,558,000 hooks' effects, 795,000 hits' damage (183,000 combat lines, 703,000
+/// floating texts, another's hit only within range of where the player walked), 59,000 questions of harm (43,000 harmful) and 327,000 missiles, each made from
 /// a record, aimed at an object and passing through physics types the property list names.
 ///
 /// Behaviour: script.model.every-recorded-story-hook-runs-against-the-scripts
@@ -517,6 +518,8 @@ fn every_recorded_story_hook_runs_against_the_attackers_and_targets_scripts() {
         .filter(|t| ServerMessage::is_known_type(*t))
         .collect();
     types.push(PLAY_CHARACTER);
+    // Where the player walked: another's hit shows its floating text only within range of them.
+    types.push(CLIENT_POSITION);
     let (mut effects, mut damage, mut harm, mut missile) = (
         HookTally::default(),
         HookTally::default(),
@@ -546,10 +549,15 @@ fn every_recorded_story_hook_runs_against_the_attackers_and_targets_scripts() {
             c.upkeep();
         }
         if !m.to_client {
-            if let Ok(ClientMessage::PlayCharacter(p)) = ClientMessage::decode(&m.raw) {
-                c.act(Action::PlayCharacter {
+            match ClientMessage::decode(&m.raw) {
+                Ok(ClientMessage::PlayCharacter(p)) => c.act(Action::PlayCharacter {
                     character: p.character,
-                });
+                }),
+                Ok(ClientMessage::Position(p)) => {
+                    let heading = c.body.heading;
+                    c.body.place(p.cell, p.origin, heading);
+                }
+                _ => {}
             }
             return;
         }
@@ -688,7 +696,7 @@ fn every_recorded_story_hook_runs_against_the_attackers_and_targets_scripts() {
     // What the hits showed: effects, the combat lines, the floating texts, the skills that harm.
     assert!(shown_fx >= 512_000, "{shown_fx}");
     assert!(lines >= 183_000, "{lines}");
-    assert!(floating >= 736_000, "{floating}");
+    assert!(floating >= 703_000, "{floating}");
     assert!(harmful >= 43_000, "{harmful}");
     // What the missiles were.
     for (what, n, floor) in [
@@ -765,6 +773,40 @@ fn every_recorded_player_creation_puts_the_world_in_its_region() {
 
 /// The region record every world of the install starts from.
 const REGION_RECORD: u32 = 0x0F00_0000;
+
+/// The data names one region: its mapping has the one row and the portal file the one region
+/// record. A player's creation naming any other number changes nothing: the world stays in no
+/// region, or in the one it has, and the scene is not asked to take anything up.
+///
+/// Behaviour: model.world.a-region-the-data-does-not-name-is-not-taken-up
+#[test]
+fn a_region_the_data_does_not_name_is_not_taken_up() {
+    use auberean_client_runtime::world::REGION_MAPPING;
+    use auberean_protocol::login::PlayerObject;
+    let data = data().expect("the September 2013 install opens");
+    let mut c = client(&data);
+    {
+        let db = c.data_download().cache().database();
+        assert_eq!(db.data_id_by_enum(1, REGION_MAPPING), REGION_RECORD);
+        assert_eq!(db.data_id_by_enum(2, REGION_MAPPING), 0);
+    }
+    let portal = &data.files.files[0];
+    assert_eq!(portal.entries_in(0x0F00_0000, 0x0FFF_FFFF).count(), 1);
+    // Out of the world: taken at once however often it comes.
+    let enters = |c: &mut Client, region| {
+        c.take_message(
+            (3 << 56) | 0x2000_0000_0000_0000,
+            ServerMessage::PlayerObject(PlayerObject {
+                id: 0x2130_0000_0000_0001,
+                region,
+            }),
+        );
+        (c.world.region(), c.world.take_region_change())
+    };
+    assert_eq!(enters(&mut c, 2), (0, None));
+    assert_eq!(enters(&mut c, 1), (1, Some(REGION_RECORD)));
+    assert_eq!(enters(&mut c, 2), (1, None));
+}
 
 /// Records asked for, by type and id, each with when it was first asked.
 type Asks = std::collections::BTreeMap<(u32, u32), f64>;
@@ -885,4 +927,137 @@ fn every_created_objects_saved_state_names_its_records_and_asks_for_none_the_rec
     for kind in named_kinds {
         assert_eq!(count(&ours, kind), 0, "{:#x}: {ours:x?}", kind.0);
     }
+}
+
+/// The world's region runs by its sky's calendar: the end-of-retail region's days and years; a
+/// number with no region keeps the clock it had, or one with no calendar.
+///
+/// Behaviour: world.calendar.a-region-runs-by-its-skys-calendar
+#[test]
+fn a_region_runs_by_its_skys_calendar() {
+    use auberean_client_runtime::game_time::region_clock;
+    let data = data().expect("the September 2013 install opens");
+    let c = client(&data);
+    let cache = c.data_download().cache();
+    let clock = region_clock(cache, 1, None);
+    assert_eq!(
+        (clock.day_length_seconds(), clock.days_per_year()),
+        (7347.0, 360)
+    );
+    let none = region_clock(cache, 0x7FFF_FFFF, None);
+    assert_eq!(none.days_per_year(), 1, "no calendar: one long day");
+    let kept = region_clock(cache, 0x7FFF_FFFF, Some(clock));
+    assert_eq!(kept.days_per_year(), 360, "the clock it had");
+}
+
+/// The enumerations the qualities are named by are there in the end-of-retail data and hold no
+/// names, so a dump lists each value under an empty name, as the client does on that data.
+///
+/// Behaviour: script.model.the-end-of-retail-data-names-no-quality
+#[test]
+fn the_end_of_retail_data_names_no_quality() {
+    let data = data().expect("the September 2013 install opens");
+    let c = client(&data);
+    let db = c.data_download().cache().database();
+    for e in [
+        0x4000_001F,
+        0x4000_0020,
+        0x4000_0021,
+        0x4000_0022,
+        0x4000_0023,
+        0x4000_0024,
+        0x4000_0025,
+        0x4000_0026,
+        0x4000_0046,
+        0x4000_0050,
+    ] {
+        let did = db.data_id_by_enum(e, auberean_assets::database::ENUM_MAP_MAPPING);
+        assert_ne!(did, 0, "{e:#x} has its record");
+        assert_eq!(db.enum_map_len(did), 0, "{e:#x} holds no names");
+    }
+}
+
+/// A script library read wrong once, over a file that did not change, is read again and links.
+/// Behaviour: data.read.script-library-reads-are-checked
+#[test]
+fn a_script_library_read_wrong_once_is_read_again_and_links() {
+    let dir = require_target_install();
+    let found = install_dats(&dir).expect("the install");
+    let (_, p) = found
+        .iter()
+        .find(|(n, _)| *n == DatName::Portal)
+        .expect("a portal file");
+    let portal = open_wrong_once(p, auberean_script::library::RECORD);
+    let mut told = false;
+    link_scripts_noting(&portal, |_| told = true).expect("the second read links");
+    assert!(told, "the host is told it took a second read");
+}
+
+/// A collision handed to the scripts of what is in a recorded world runs to its end: in the
+/// script library the interface's collision function is answered by a function that only says
+/// it was handled, so nothing reads a collision's environment properties, and nothing stops.
+///
+/// Behaviour: script.model.a-collision-ends-in-the-scripts-without-reading-the-profile
+#[test]
+fn a_collision_handed_to_recorded_objects_scripts_runs_to_its_end() {
+    use auberean_physics::collision::CollisionReport;
+    use auberean_physics::pack::{Pack, Writer};
+
+    let data = data().expect("the September 2013 install opens");
+    let index = auberean_testkit::data::require_capture_index();
+    let mut types: Vec<u32> = (0x1_0000..0x1_0100)
+        .filter(|t| ServerMessage::is_known_type(*t))
+        .collect();
+    types.push(PLAY_CHARACTER);
+    let mut capture = -1;
+    let mut c = client(&data);
+    let mut ids = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    let mut ran = 0u32;
+    captures::messages_in_time_order(&index, &types, &[2013, 2017], |m| {
+        if m.capture != capture {
+            capture = m.capture;
+            c = client(&data);
+            seen.clear();
+        }
+        if ran >= 400 {
+            return;
+        }
+        if !m.to_client {
+            if let Ok(ClientMessage::PlayCharacter(p)) = ClientMessage::decode(&m.raw) {
+                c.act(Action::PlayCharacter {
+                    character: p.character,
+                });
+            }
+            return;
+        }
+        let Ok(msg) = ServerMessage::decode(&m.raw) else {
+            return;
+        };
+        c.take_message(m.blob_id, msg);
+        c.model
+            .player
+            .filter(|_| ran < 400)
+            .into_iter()
+            .for_each(|_| {
+                ids.clear();
+                ids.extend(c.model.objects().map(|o| o.id).filter(|i| seen.insert(*i)));
+            });
+        for id in ids.drain(..) {
+            let report = CollisionReport {
+                impact_speed: 3.0,
+                ..CollisionReport::default()
+            };
+            let mut w = Writer::new();
+            report.pack(&mut w);
+            let r = c.handle_collision(id, w.finish());
+            assert!(
+                matches!(r, Some(CallResult::Completed | CallResult::NoReceiver)),
+                "object {id:#x}: {r:?}"
+            );
+            ran += u32::from(matches!(r, Some(CallResult::Completed)));
+        }
+    })
+    .expect("the index reads");
+    assert!(ran >= 100, "only {ran} collisions ran to their end");
 }

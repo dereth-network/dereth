@@ -6,8 +6,9 @@
 //! out. **Putting it away**: the item is contained in the pack again, the answer, the item
 //! detached, the weapon sheathed, the wielder cleared.
 //!
-//! The starting weapons' hands and slots are 2017's (a sword: the primary hand, one slot; a bow
-//! and a stave: both hands); any other item is wielded as a sword is.
+//! A thing's hands and slots are its template's: the places it may go and prefers, those it rules
+//! out, where it hangs (2017: 808 of 808 answers for a thing in a hand said what its template
+//! does); a template that does not say is wielded as a sword is.
 //!
 //! **Wearing** armor, clothing or jewelry (an item whose template names places on the body):
 //! the item goes to the place it prefers, or another of its places that is free, taking off
@@ -62,6 +63,18 @@ pub const EQUIP_PROFILE: (u16, usize) = (0x1F5, 7);
 /// bound to you when used in combat. ...", shown by the client as a message of its own.
 pub const DISPLAY_MESSAGE: u32 = 0x8212_0024;
 pub const BINDS_WARNING: (u32, u32) = (0xD71B_6077, 0x2500_04A9);
+
+/// An item bound, to its holder: "By using it, you have bound #1 to you. It can no longer be
+/// equipped by anyone else, and cannot be sold in shops.", and the variable that names it.
+pub const BOUND_TEXT: (u32, u32) = (0xF696_A984, 0x2500_0014);
+const BOUND_TEXT_ITEM: u32 = 0x9352_2CD0;
+
+/// The status of an item bound to another player: the client writes why.
+pub const BOUND_TO_ANOTHER: u32 = 10074;
+
+/// The chance that a blow struck with what a player holds binds it, marked to (one in about ten:
+/// 2, 5, 11 and 12 attacks before each of the 4 weapons bound in view).
+pub const SWING_BINDS: f32 = 0.1;
 
 /// The slider of a player's weapon being drawn.
 pub const WEAPON_DRAWN: u32 = 0x4000_001F;
@@ -144,11 +157,38 @@ pub fn fit_of(props: &yalain_content::Props) -> Option<Fit> {
     })
 }
 
-/// The appearance an item of these properties gives a wearer of this race and sex (its template
-/// names one per race and sex), with the garment shown and the item's own appearance value (one
-/// its template sets).
+/// The appearance modifiers a dye sets to its value: an item's color (2017: 32 of 32 armor pieces
+/// dyed held the three at the plant's value when next made).
+pub const DYE_KEYS: [u32; 3] = [2, 14, 0x4100_0004];
+
+/// The appearance table a dye writes to: an item's table for lying in a pack, else its first for
+/// being worn (2017: 32 of 32 armor pieces dyed).
 #[must_use]
-pub fn worn_look(props: &yalain_content::Props, race: u32, sex: u32) -> Option<(u32, Table<f32>)> {
+pub fn dye_table(props: &yalain_content::Props) -> Option<u32> {
+    props
+        .word("Item_PileAppearance")
+        .or_else(|| props.word("Item_WornAppearanceFile1"))
+}
+
+/// What a kept item carries of its own.
+#[must_use]
+pub fn own_kept(kept: &[crate::state::ItemState], item: u64) -> crate::treasure::Own {
+    kept.iter()
+        .find(|k| k.id == item)
+        .map(|k| k.own)
+        .unwrap_or_default()
+}
+
+/// The appearance an item of these properties gives a wearer of this race and sex (its template
+/// names one per race and sex), with the garment shown, the item's own appearance value (one its
+/// template sets), what it drew of its look, and the color a dye gave it.
+#[must_use]
+pub fn worn_look(
+    props: &yalain_content::Props,
+    race: u32,
+    sex: u32,
+    own: &crate::treasure::Own,
+) -> Option<(u32, Table<f32>)> {
     let file = (1..=16).find_map(|n| {
         let file = props.word(&format!("Item_WornAppearanceFile{n}"))?;
         let r = props.word(&format!("Item_WornAppearanceRace{n}"))?;
@@ -163,6 +203,16 @@ pub fn worn_look(props: &yalain_content::Props, race: u32, sex: u32) -> Option<(
         if key != SHOWN {
             values.push((key, v));
         }
+    }
+    if let Some(look) = own.look {
+        for (key, value) in look.keys() {
+            values.retain(|(k, _)| *k != key);
+            values.push((key, value));
+        }
+    }
+    if let Some((_, d)) = own.dye {
+        values.retain(|(k, _)| !DYE_KEYS.contains(k));
+        values.extend(DYE_KEYS.map(|k| (k, d)));
     }
     values.sort_by_key(|(k, _)| *k);
     Some((file, Table::from_inserted(SMALL, values)))
@@ -202,6 +252,7 @@ pub fn dressed(
     base: &VisualDesc,
     catalog: &yalain_content::Catalog,
     items: &[crate::state::Held],
+    kept: &[crate::state::ItemState],
     race: u32,
     sex: u32,
 ) -> VisualDesc {
@@ -214,7 +265,7 @@ pub fn dressed(
     for h in worn {
         if let Some((table, values)) = catalog
             .get(h.template)
-            .and_then(|t| worn_look(&t.props, race, sex))
+            .and_then(|t| worn_look(&t.props, race, sex, &own_kept(kept, h.id)))
         {
             put_on(&mut look, table, values);
         }
@@ -222,12 +273,14 @@ pub fn dressed(
     look
 }
 
-/// How a weapon is held: its two parenting places, the hand slots it takes and those it rules
-/// out, the answer's control flags.
+/// How a weapon is held: its two parenting places, the hands it may go to and prefers, the hand
+/// slots it takes in the hand it prefers and those it rules out, the answer's control flags.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Hold {
     pub primary: u32,
     pub secondary: u32,
+    pub valid: u32,
+    pub preferred: u32,
     pub taken: u32,
     pub precluded: u32,
     pub flags: u32,
@@ -237,30 +290,63 @@ pub struct Hold {
 pub const SWORD: Hold = Hold {
     primary: 1,
     secondary: 0x4000_0006,
+    valid: 192,
+    preferred: 64,
     taken: 64,
     precluded: 0,
-    flags: 206,
+    flags: flags::WIELDED,
 };
 
-/// How the starting weapons are held (the human's bow and stave take both hands).
+/// How a thing is held, as its template says: where it may go and hangs, what it rules out; a
+/// weapon (a template with a stance) answered as wielded, anything else (a shield, a tool) as
+/// worn; hung from the place 1 where it names none (2017: 808 of 808 answers). A template that
+/// names no hand is held as the starting weapons are: the human's bow and stave in both hands,
+/// anything else as a sword.
 #[must_use]
-pub fn hold_of(template: u32) -> Hold {
-    match template {
-        0x4700_051B => Hold {
-            primary: 2,
-            secondary: 1,
-            taken: 192,
-            precluded: 128,
-            flags: 206,
+pub fn hold_of(catalog: &yalain_content::Catalog, template: u32) -> Hold {
+    let Some((props, valid)) = catalog.get(template).and_then(|t| {
+        t.props
+            .word("Item_ValidInventoryLocations")
+            .map(|v| (&t.props, v & (PRIMARY_HAND | OFF_HAND)))
+            .filter(|(_, v)| *v != 0)
+    }) else {
+        return match template {
+            0x4700_051B => Hold {
+                primary: 2,
+                secondary: 1,
+                valid: 64,
+                taken: 192,
+                precluded: 128,
+                ..SWORD
+            },
+            0x4700_051D => Hold {
+                primary: 1,
+                secondary: 2,
+                valid: 64,
+                taken: 192,
+                precluded: 128,
+                ..SWORD
+            },
+            _ => SWORD,
+        };
+    };
+    let preferred = props
+        .word("Item_PreferredInventoryLocation")
+        .filter(|p| p & valid != 0)
+        .unwrap_or(valid.isolate_lowest_one());
+    let precluded = props.word("Item_PrecludedInventoryLocations").unwrap_or(0);
+    Hold {
+        primary: props.word("Item_PrimaryParentingLocation").unwrap_or(1),
+        secondary: props.word("Item_SecondaryParentingLocation").unwrap_or(1),
+        valid,
+        preferred,
+        taken: preferred | precluded,
+        precluded,
+        flags: if props.word("Weapon_SingleWeaponStance").is_some() {
+            flags::WIELDED
+        } else {
+            flags::WORN
         },
-        0x4700_051D => Hold {
-            primary: 1,
-            secondary: 2,
-            taken: 192,
-            precluded: 128,
-            flags: 206,
-        },
-        _ => SWORD,
     }
 }
 
@@ -365,6 +451,9 @@ fn refused<S: Store>(
     clock: Clock,
 ) -> Option<u32> {
     let p = s.players.get(&world)?;
+    if crate::item_use::not_monarch(s, world, props) {
+        return Some(crate::item_use::refusal::MONARCH_ONLY);
+    }
     if props
         .word("Usage_RequiredRace")
         .is_some_and(|races| races != 0 && races & p.race == 0)
@@ -410,7 +499,7 @@ pub fn arcane_lore_of<S: Store>(s: &Server<S>, p: &crate::world::Player) -> i32 
             let d = s.skill_table.skills.get(&h.skill)?;
             (d.category == crate::skills::ARCANE_LORE_CATEGORY).then(|| {
                 #[allow(clippy::cast_precision_loss)]
-                let rating = s.skill_table.rating(&skills, h.skill) as f32;
+                let rating = crate::skill_use::effective_rating(s, p, &skills, h.skill) as f32;
                 dereth_primitives::num::to_i32(rating * d.attribute_mod)
             })
         })
@@ -427,6 +516,10 @@ fn refused_item<S: Store>(
 ) -> Option<u32> {
     let t = s.catalog.get(h.template)?;
     let own = s.things.get(h.id).map(|i| i.own).unwrap_or_default();
+    let me = s.players.get(&world).map_or(0, |p| p.character);
+    if own.bound_to != 0 && own.bound_to != me {
+        return Some(BOUND_TO_ANOTHER);
+    }
     refused(s, world, &t.props, own, clock)
 }
 
@@ -456,7 +549,20 @@ pub fn use_held<S: Store>(
     let fit = s.catalog.get(h.template).and_then(|t| fit_of(&t.props));
     match (h.location, fit) {
         (0, Some(fit)) => wear(s, net, world, item, fit, None, flags::WORN, clock),
-        (0, None) => wield(s, net, world, item, PRIMARY_HAND, None, clock),
+        (0, None) if !wields_by_use(s, h.template) => {
+            let no = crate::places::use_refused(
+                u,
+                0,
+                Some(crate::places::USE_FLAGS_PACK),
+                0.0,
+                crate::places::USE_STATUS_IN_USE,
+            );
+            progress::private(net, world, &no);
+        }
+        (0, None) => {
+            let hand = hand_of_use(s, item, h.template);
+            wield(s, net, world, item, hand, None, clock);
+        }
         (at, _) if at & BODY_PLACES != 0 => {
             take_off(s, net, world, item, false);
         }
@@ -465,7 +571,7 @@ pub fn use_held<S: Store>(
 }
 
 /// The player's look sent to everyone who sees it (a rider's, on its mount).
-fn show_look<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
+pub(crate) fn show_look<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
     if s.players.get(&world).is_some_and(crate::mounts::mounted) {
         crate::mounts::look_changed(s, net, world);
         return;
@@ -537,8 +643,8 @@ fn wear<S: Store>(
     let look = s
         .things
         .get(item)
-        .and_then(|t| s.catalog.get(t.template))
-        .and_then(|t| worn_look(&t.props, race, sex));
+        .and_then(|t| s.catalog.get(t.template).map(|p| (p, t.own)))
+        .and_then(|(t, own)| worn_look(&t.props, race, sex, &own));
     // Its effects come on just before the answer.
     effects_on(s, net, world, item, clock);
     let binds_on_use = binds_on_use(s, item);
@@ -594,7 +700,7 @@ fn wear<S: Store>(
         (q::CONTAINER, player),
     ] {
         let m = iid_update(s, item, quality, value);
-        net.send(world, queue::EVENT, BlobKind::VISUAL, m.encode());
+        crate::inventory::to_holder(s, net, world, item, &m);
     }
     if let Some(t) = s.things.get_mut(item) {
         t.wielded = Some((player, location));
@@ -661,6 +767,7 @@ fn take_off_to<S: Store>(
     made_room: bool,
     slot: u32,
 ) -> bool {
+    let slot = crate::inventory::named_slot(slot);
     let Some(p) = s.players.get(&world) else {
         return false;
     };
@@ -708,7 +815,7 @@ fn take_off_to<S: Store>(
     let look = s
         .catalog
         .get(h.template)
-        .and_then(|t| worn_look(&t.props, race, sex));
+        .and_then(|t| worn_look(&t.props, race, sex, &crate::treasure::Own::default()));
     if let Some(p) = s.players.get_mut(&world) {
         crate::inventory::insert_at(&mut p.play.items, slot);
         if let Some(h) = p.play.items.iter_mut().find(|h| h.id == item) {
@@ -723,7 +830,7 @@ fn take_off_to<S: Store>(
         show_look(s, net, world);
     }
     let m = iid_update(s, item, q::EQUIPPER, 0);
-    net.send(world, queue::EVENT, BlobKind::VISUAL, m.encode());
+    crate::inventory::to_holder(s, net, world, item, &m);
     if let Some(t) = s.things.get_mut(item) {
         t.wielded = None;
         t.container = Some((player, slot));
@@ -744,9 +851,34 @@ fn player_stamp<S: Store>(s: &mut Server<S>, world: ConnId) -> Option<(u64, Obje
     ))
 }
 
-/// Wield an item of the pack in a hand: by its use (the primary hand, whatever is in the hands put
-/// back at the pack's end first), or by a directive naming the hand (whatever is in the way put
-/// back where the item was in the pack, the answer naming it).
+/// The hand a use puts a thing in: the one it was last held in, else the one it prefers, whatever
+/// the other hand holds (2017, 213 uses of one-handed weapons: 58 of 58 last in the off hand went
+/// there, 138 of 138 last in the primary hand went there, 17 of 17 never seen held to the primary
+/// hand; so a second weapon reaches the off hand by a directive, not by a use).
+fn hand_of_use<S: Store>(s: &Server<S>, item: u64, template: u32) -> u32 {
+    let hold = hold_of(&s.catalog, template);
+    s.things
+        .get(item)
+        .map(|t| t.own.hand)
+        .filter(|hand| hold.valid & hand != 0)
+        .unwrap_or(hold.preferred)
+}
+
+/// Is a use of this template from the pack a wielding: does it name a hand, or is it known as something
+/// wielded? (2017: of 931 uses of items in the pack naming no place, none was wielded, nor of 10,433 of
+/// anything naming none. A thing with no use of its own is refused: 7 of the 7 such uses of
+/// motes and broken medallions.)
+fn wields_by_use<S: Store>(s: &Server<S>, template: u32) -> bool {
+    crate::skill_use::implement_of(&s.catalog, template).is_some()
+        || s.catalog.get(template).is_some_and(|t| {
+            t.props
+                .word("Item_ValidInventoryLocations")
+                .is_some_and(|v| v & (PRIMARY_HAND | OFF_HAND) != 0)
+        })
+}
+
+/// Wield an item of the pack in a hand, by its use or by a directive naming the hand: whatever is in
+/// the way put back where the item was in the pack, the answer naming it (2017: 380 of 380).
 fn wield<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -759,11 +891,14 @@ fn wield<S: Store>(
     let Some(template) = s.things.get(item).map(|t| t.template) else {
         return;
     };
-    let mut hold = hold_of(template);
-    if location == OFF_HAND {
-        hold.taken = OFF_HAND;
-        hold.precluded = 0;
-    }
+    let mut hold = hold_of(&s.catalog, template);
+    // A hand it may not go to is its preferred one.
+    let location = if hold.valid & location == 0 {
+        hold.preferred
+    } else {
+        location
+    };
+    hold.taken = location | hold.precluded;
     if let Some(f) = directed {
         hold.flags = f;
     }
@@ -777,7 +912,7 @@ fn wield<S: Store>(
                 .items
                 .iter()
                 .filter(|h| h.location != 0 && h.location & BODY_PLACES == 0)
-                .filter(|h| directed.is_none() || h.location & wanted != 0)
+                .filter(|h| h.location & wanted != 0)
                 .map(|h| (h.id, h.location))
                 .collect()
         })
@@ -789,12 +924,10 @@ fn wield<S: Store>(
         .map_or(0, |h| h.slot);
     let mut blocking = (0, 0);
     for (w, at) in wielded {
-        put_away(s, net, world, w, true, directed.map(|_| (from_slot, 1.0)));
-        if directed.is_some() {
-            blocking = (w, at & !hold.precluded);
-        }
+        put_away(s, net, world, w, true, Some((from_slot, 1.0)));
+        blocking = (w, at & !hold.precluded);
     }
-    let Some((player, stamp)) = player_stamp(s, world) else {
+    let Some(player) = s.players.get(&world).map(|p| p.character) else {
         return;
     };
     let slot = s
@@ -812,8 +945,8 @@ fn wield<S: Store>(
             item,
             player,
             fit: Fit {
-                valid: PRIMARY_HAND | if location == OFF_HAND { OFF_HAND } else { 0 },
-                preferred: PRIMARY_HAND,
+                valid: hold.valid,
+                preferred: hold.preferred,
                 primary: hold.primary,
                 secondary: hold.secondary,
                 ..Fit::default()
@@ -834,8 +967,12 @@ fn wield<S: Store>(
     if binds_on_use(s, item) {
         progress::private(net, world, &binds_warning());
     }
-    // The weapon drawn: only for the primary hand.
+    // The weapon drawn: only for the primary hand, and only it takes a stamp: the client waits for
+    // each stamp in turn before it plays what comes after.
     if location == PRIMARY_HAND {
+        let Some((_, stamp)) = player_stamp(s, world) else {
+            return;
+        };
         let drawn = ServerMessage::MoveSlider(ObjectEvent {
             sender: stamp,
             action: Slide {
@@ -860,8 +997,9 @@ fn wield<S: Store>(
             net.send(*c, queue::EVENT, BlobKind::VISUAL, m.clone());
         }
     }
-    // It hangs from its primary place in its preferred hand, else from its secondary.
-    let hang = if location == PRIMARY_HAND {
+    // It hangs from its primary place in its preferred hand, else from its secondary (2017: 504 of
+    // 504 and 63 of 63).
+    let hang = if location == hold.preferred {
         hold.primary
     } else {
         hold.secondary
@@ -871,7 +1009,7 @@ fn wield<S: Store>(
         net.send_ephemeral(world, queue::EVENT, stream, attach.clone());
     }
     for (c, _) in watching.iter().filter(|(_, knows)| *knows) {
-        net.send(*c, queue::EVENT, BlobKind::VISUAL, attach.clone());
+        crate::presence::on_its_stream(s, net, *c, item, attach.clone());
     }
     if let Some(p) = s.players.get_mut(&world) {
         if let Some(h) = p.play.items.iter_mut().find(|h| h.id == item) {
@@ -884,11 +1022,9 @@ fn wield<S: Store>(
         t.wielded = Some((player, location));
     }
     let instance = s.players.get(&world).map_or(0, |p| p.instance);
-    if let Some(made) = s
-        .things
-        .get(item)
-        .map(|t| ServerMessage::CreateObject(crate::inventory::held_create(t, instance)))
-    {
+    if let Some(made) = s.things.get(item).map(|t| {
+        ServerMessage::CreateObject(crate::inventory::held_create(&s.catalog, t, instance))
+    }) {
         for (c, _) in watching.iter().filter(|(_, knows)| !*knows) {
             crate::presence::make_for(s, net, *c, item, &made);
         }
@@ -942,7 +1078,7 @@ fn put_away<S: Store>(
     let Some(template) = s.things.get(item).map(|t| t.template) else {
         return;
     };
-    let mut hold = hold_of(template);
+    let mut hold = hold_of(&s.catalog, template);
     let held_at = s
         .players
         .get(&world)
@@ -957,12 +1093,13 @@ fn put_away<S: Store>(
     } else {
         PRIMARY_HAND
     };
-    let Some((player, stamp)) = player_stamp(s, world) else {
+    hold.taken = location | hold.precluded;
+    let Some(player) = s.players.get(&world).map(|p| p.character) else {
         return;
     };
     // Back at the pack's end, where the client puts it, or at the slot named.
     let slot = match to {
-        Some((slot, _)) => slot,
+        Some((slot, _)) => crate::inventory::named_slot(slot),
         None => s
             .players
             .get(&world)
@@ -1009,6 +1146,9 @@ fn put_away<S: Store>(
     effects::stop_fx(s, net, world, &stopped);
     // The weapon slider: only for the primary hand.
     if location == PRIMARY_HAND {
+        let Some((_, stamp)) = player_stamp(s, world) else {
+            return;
+        };
         let sheathed = ServerMessage::MoveSlider(ObjectEvent {
             sender: stamp,
             action: Slide {
@@ -1019,9 +1159,11 @@ fn put_away<S: Store>(
         });
         to_all_seeing(s, net, player, &sheathed);
     }
-    let m = iid_update(s, item, q::EQUIPPER, 0);
-    net.send(world, queue::EVENT, BlobKind::VISUAL, m.encode());
-    // Those who see it see the item let go of: the holder lets go of the item.
+    let m = iid_update(s, item, q::EQUIPPER, 0).encode();
+    net.send(world, queue::EVENT, BlobKind::VISUAL, m.clone());
+    // Those who see it see the item let go of: the holder lets go of the item, and those who know
+    // the item are told it has no holder (2017: 543 of 659 of the next visual messages about an item
+    // after its holder let go of it took the next stamp, those read holding no wearer).
     let player_stamp = s.players.get(&world).map(crate::world::Player::stamp);
     let item_stamp = s.things.get(item).map(|t| ObjectStamp {
         id: item,
@@ -1037,14 +1179,15 @@ fn put_away<S: Store>(
             action: child,
         })
         .encode();
-        for (c, _) in crate::presence::watching(s, world, player, item) {
-            net.send(c, queue::EVENT, BlobKind::VISUAL, gone.clone());
+        for (c, knows) in crate::presence::watching(s, world, player, item) {
+            net.send(c, queue::EVENT, BlobKind::UNORDERED, gone.clone());
+            if knows {
+                net.send(c, queue::EVENT, BlobKind::VISUAL, m.clone());
+            }
         }
     }
     if let Some(p) = s.players.get_mut(&world) {
-        if to.is_some() {
-            crate::inventory::insert_at(&mut p.play.items, slot);
-        }
+        crate::inventory::insert_at(&mut p.play.items, slot);
         if let Some(h) = p.play.items.iter_mut().find(|h| h.id == item) {
             h.location = 0;
             h.slot = slot;
@@ -1053,6 +1196,7 @@ fn put_away<S: Store>(
     if let Some(t) = s.things.get_mut(item) {
         t.wielded = None;
         t.container = Some((player, slot));
+        t.own.hand = location;
     }
     crate::world::keep_player(s, world);
 }
@@ -1098,10 +1242,10 @@ pub fn directive_equip<S: Store>(
     if let Some(why) = refused_item(s, world, &h, clock) {
         // Answered as the equipping it asked for, with the refusal for its status.
         let player = s.players.get(&world).map_or(0, |p| p.character);
-        let hold = hold_of(h.template);
+        let hold = hold_of(&s.catalog, h.template);
         let fit = fit.unwrap_or(Fit {
-            valid: PRIMARY_HAND,
-            preferred: PRIMARY_HAND,
+            valid: hold.valid,
+            preferred: hold.preferred,
             primary: hold.primary,
             secondary: hold.secondary,
             ..Fit::default()
@@ -1193,10 +1337,33 @@ pub fn binds_warning() -> ServerMessage {
     .expect("a string reference packs")
 }
 
-/// A player fights (attacks, or is hit): what it wears and wields that binds when used in combat
-/// is bound to it, with nothing said (2017: the 2 marked items fought with were equipped unmarked
-/// after, 54 and 133 attacks between; 10 of 10 not fought with kept the mark).
-pub fn in_combat<S: Store>(s: &mut Server<S>, world: ConnId) {
+/// A player is hit: the blow lands on one piece of what it wears, and that piece binds if it is
+/// marked to (2017: 30 of 30 armor pieces told within 1.1 s after a hit taken; each of the 5 sets
+/// in view told its first piece on its first hit, the next ones in 2.0, 2.8 and 3.6 hits, the
+/// pieces in no fixed order. Which piece a blow lands on is not told, so a piece at even odds).
+pub fn hit_taken<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
+    let Some(p) = s.players.get(&world) else {
+        return;
+    };
+    let worn: Vec<u64> = p
+        .play
+        .items
+        .iter()
+        .filter(|h| h.location & BODY_PLACES != 0)
+        .map(|h| h.id)
+        .collect();
+    // No dice for a player with nothing left to bind.
+    if !worn.iter().any(|id| binds_on_use(s, *id)) {
+        return;
+    }
+    let piece = worn[s.rng.below(worn.len())];
+    if binds_on_use(s, piece) {
+        bind(s, net, world, piece);
+    }
+}
+
+/// A player's blow lands: what it holds that is marked to bind may bind.
+pub fn blow_landed<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
     let Some(p) = s.players.get(&world) else {
         return;
     };
@@ -1204,12 +1371,38 @@ pub fn in_combat<S: Store>(s: &mut Server<S>, world: ConnId) {
         .play
         .items
         .iter()
-        .filter(|h| h.location != 0)
+        .filter(|h| h.location != 0 && h.location & BODY_PLACES == 0)
         .map(|h| h.id)
         .collect();
     for id in held {
-        if let Some(t) = s.things.get_mut(id) {
-            t.binds_on_use = false;
+        if binds_on_use(s, id) && s.rng.chance(SWING_BINDS) {
+            bind(s, net, world, id);
         }
     }
+}
+
+/// An item binds to its holder, and the holder is told.
+fn bind<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, item: u64) {
+    let Some(me) = s.players.get(&world).map(|p| p.character) else {
+        return;
+    };
+    let Some(t) = s.things.get_mut(item) else {
+        return;
+    };
+    t.binds_on_use = false;
+    t.own.bound_to = me;
+    let (template, made) = (t.template, t.own.made);
+    let Some(entry) = s.catalog.get(template) else {
+        return;
+    };
+    let name = made.map_or_else(
+        || crate::profile::item_name(&entry.facts),
+        |m| crate::profile::made_name(&entry.facts, m.prefix),
+    );
+    let told = progress::text_with(BOUND_TEXT, vec![progress::nested(BOUND_TEXT_ITEM, name)]);
+    progress::private(
+        net,
+        world,
+        &crate::chat::show_text(crate::social::NOTICE, told),
+    );
 }

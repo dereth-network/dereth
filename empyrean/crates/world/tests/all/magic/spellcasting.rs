@@ -23,6 +23,7 @@ use empyrean_content::models::world::Weenie as ContentWeenie;
 use empyrean_content::MemContent;
 use empyrean_dat::file_types::spell_table::compute_hash;
 use empyrean_dat::FakeDats;
+use empyrean_entity::enums::TransferFlags;
 use empyrean_entity::enums::{
     CombatMode, DamageType, ItemType, MagicSchool, MotionCommand as Mc, MotionStance, PhysicsState,
     PositionType, PropertyAttribute, PropertyAttribute2nd, PropertyBool, PropertyDataId,
@@ -49,12 +50,16 @@ use empyrean_world::network::motion::movement_data::Motion;
 use empyrean_world::physics::phys_ext;
 use empyrean_world::world_objects::entity::creature_attribute::CreatureAttribute;
 use empyrean_world::world_objects::entity::creature_vital::CreatureVital;
+use empyrean_world::world_objects::spell_potency;
 use empyrean_world::world_objects::world_object::WorldObject;
+use empyrean_world::world_objects::world_object_magic;
 use empyrean_world::world_objects::{
     container, creature_combat, player_magic, player_spells, spell_projectile,
 };
 use empyrean_world::World;
 use serde_json::Value;
+
+mod launch_component_burn;
 
 // ------------------------------------------------------------------------------------ vectors
 
@@ -96,7 +101,7 @@ fn spell_base_default() -> SpellBase {
         base_range_constant: 0.0,
         base_range_mod: 0.0,
         power: 0,
-        spell_economy_mod: 0.0,
+        spell_economy_mod: 1.0,
         formula_version: 0,
         component_loss: 0.0,
         meta_spell_type: 0,
@@ -131,6 +136,7 @@ fn power_spell(school: i32, power: u32) -> Spell {
         ..DbSpell::default()
     };
     let mut spell = Spell {
+        rules_category: None,
         spell_base: Some(base),
         spell: Some(Arc::new(db)),
         formula: None,
@@ -274,6 +280,8 @@ const CORPSE_WCID: u32 = 21;
 const STRENGTH_SELF: u32 = 1;
 /// Flame Bolt I: a war bolt (30 fire damage, power 10).
 const FLAME_BOLT: u32 = 2;
+const HEAL_OTHER: u32 = 20;
+const DRAIN_HEALTH: u32 = 21;
 /// Force Bolt: a war bolt that kills (500 damage).
 const FORCE_BOLT: u32 = 3;
 /// Strength Self II: the buff at power 100 (the fizzle test casts it with skill 100: chance 0.5).
@@ -360,6 +368,39 @@ fn defs() -> Vec<Def> {
             flags: 0,
             power: 10,
             db: bolt(30),
+        },
+        Def {
+            id: HEAL_OTHER,
+            name: "A Heal",
+            school: MagicSchool::LifeMagic,
+            meta: SpellType::Boost,
+            flags: BENEFICIAL,
+            power: 1,
+            db: DbSpell {
+                boost: Some(40),
+                boost_variance: Some(0),
+                damage_type: Some(DamageType::Health.0),
+                ..DbSpell::default()
+            },
+        },
+        Def {
+            id: DRAIN_HEALTH,
+            name: "A Drain",
+            school: MagicSchool::LifeMagic,
+            meta: SpellType::Transfer,
+            flags: 0,
+            power: 1,
+            db: DbSpell {
+                source: Some(i32::from(PropertyAttribute2nd::Health.0)),
+                destination: Some(i32::from(PropertyAttribute2nd::Health.0)),
+                proportion: Some(0.1),
+                loss_percent: Some(0.0),
+                transfer_bitfield: Some(
+                    (TransferFlags::TargetSource.0 | TransferFlags::CasterDestination.0)
+                        .cast_unsigned(),
+                ),
+                ..DbSpell::default()
+            },
         },
     ]
 }
@@ -846,6 +887,124 @@ fn registry_ids(w: &World, g: ObjectGuid) -> Vec<i32> {
 /// A recognized research formula follows target checks before learning. A successful cast
 /// acknowledges both newly learned and already-known spells; a refusal teaches nothing.
 /// Divergence: V432
+/// A world whose one spell is an item enchantment aimed by its formula's mask, as a spell table that
+/// names no target types gives it, with a caster and a piece of food in the pack.
+fn item_spell_world() -> (H, ObjectGuid, ObjectGuid) {
+    let mut definition = defs().remove(0);
+    definition.flags = BENEFICIAL;
+    definition.school = MagicSchool::ItemEnchantment;
+    let mask = dereth_rules::weenie::item_type::ITEM_ENCHANTABLE_TARGET;
+    let mut h = H::with_dats(dats_with(vec![definition], mask));
+    let mut features = h.w.era.features;
+    features.spell_research = true;
+    h.w.era = empyrean_common::era::with_features(h.w.era, features);
+    h.player(100.0, 100.0);
+    let items = h.give_components();
+    let (caster, food) = (items[0], items[1]);
+    let o = h.w.objects.get_mut(PLAYER).unwrap();
+    o.set_property(
+        empyrean_entity::enums::PropertyBool::SafeSpellComponents,
+        true,
+    );
+    h.w.objects
+        .get_mut(caster)
+        .unwrap()
+        .set_property(PropertyInt::ItemType, ItemType::Caster.0.cast_signed());
+    h.w.objects
+        .get_mut(food)
+        .unwrap()
+        .set_property(PropertyInt::ItemType, ItemType::Food.0.cast_signed());
+    (h, caster, food)
+}
+
+/// Runs until the cast has ended, and the sends it made.
+fn cast_to_its_end(h: &mut H) -> Vec<Sent> {
+    assert!(
+        h.run_until(6.0, |h| !player_magic::fields(&h.w, PLAYER)
+            .magic_state
+            .is_casting
+            && !player_magic::is_busy(&h.w, PLAYER)),
+        "the cast ended"
+    );
+    sent()
+}
+
+/// Divergence: V494
+#[test]
+fn an_item_spell_tested_on_what_its_formula_admits_ends_and_the_player_can_cast_again() {
+    use empyrean_world::world_objects::spell_research::handle_test_spell_formula;
+    let (mut h, caster, _) = item_spell_world();
+    start_capture();
+    handle_test_spell_formula(&mut h.w, PLAYER, &FORMULA, caster.full());
+    assert!(
+        player_magic::fields(&h.w, PLAYER).magic_state.is_casting,
+        "a caster is one of the types the formula admits"
+    );
+    let got = cast_to_its_end(&mut h);
+    assert_eq!(
+        events(&got, EV_USE_DONE),
+        [0],
+        "the cast told the client it ended"
+    );
+    let motions = got.iter().filter(|s| s.op == 0xF74C).count();
+    assert!(
+        motions >= 2,
+        "the gesture and the return to ready: {motions}"
+    );
+
+    start_capture();
+    handle_test_spell_formula(&mut h.w, PLAYER, &FORMULA, caster.full());
+    assert!(
+        player_magic::fields(&h.w, PLAYER).magic_state.is_casting,
+        "the player acts again"
+    );
+}
+
+/// Divergence: V494
+#[test]
+fn an_item_spell_aimed_at_what_its_formula_excludes_is_refused_before_any_windup() {
+    use empyrean_world::world_objects::spell_research::handle_test_spell_formula;
+    let (mut h, caster, food) = item_spell_world();
+
+    start_capture();
+    handle_test_spell_formula(&mut h.w, PLAYER, &FORMULA, food.full());
+    let got = sent();
+    assert_eq!(
+        events(&got, EV_USE_DONE),
+        [WeenieError::IncorrectTargetType.0.cast_unsigned()],
+        "the test of the formula is refused"
+    );
+    assert!(!got.iter().any(|s| s.op == 0xF74C), "no gesture");
+    assert!(!player_magic::fields(&h.w, PLAYER).magic_state.is_casting);
+
+    start_capture();
+    player_magic::handle_action_cast_targeted_spell(
+        &mut h.w,
+        PLAYER,
+        food.full(),
+        STRENGTH_SELF,
+        None,
+    );
+    let got = sent();
+    assert_eq!(events(&got, EV_USE_DONE).len(), 1, "the refused cast ended");
+    assert!(!got.iter().any(|s| s.op == 0xF74C), "no gesture");
+    assert!(!player_magic::fields(&h.w, PLAYER).magic_state.is_casting);
+    assert!(!player_magic::is_busy(&h.w, PLAYER));
+
+    start_capture();
+    player_magic::handle_action_cast_targeted_spell(
+        &mut h.w,
+        PLAYER,
+        caster.full(),
+        STRENGTH_SELF,
+        None,
+    );
+    assert!(
+        player_magic::fields(&h.w, PLAYER).magic_state.is_casting,
+        "the player acts again, at a target the formula admits"
+    );
+}
+
 #[test]
 fn research_teaches_only_after_a_successful_cast_and_acknowledges_known_success() {
     use empyrean_world::world_objects::spell_research::handle_test_spell_formula;
@@ -1182,6 +1341,471 @@ fn a_self_buff_lands_as_an_enchantment_and_the_client_gets_the_registry_message(
 /// component for burning (`Spell.TryBurnComponents`: 0.5 each here), consumes the burned ones from
 /// the pack (last first) and says which, then plays Fizzle and sends YourSpellFizzled. The draws
 /// are pinned by replaying the seed: one for the fizzle, then one per component.
+/// A world with charges, and a player whose charge on a spell is `charge`.
+fn charge_world(spell: u32, charge: f32) -> H {
+    let mut h = H::new();
+    let mut features = h.w.era.features;
+    features.spell_charge = true;
+    h.w.era = empyrean_common::era::with_features(h.w.era, features);
+    h.player(100.0, 100.0);
+    let _ = h.give_components();
+    set_charge(&mut h, spell, charge);
+    let _ = take_local();
+    h
+}
+
+fn set_charge(h: &mut H, spell: u32, charge: f32) {
+    *h.w.objects
+        .get_mut(PLAYER)
+        .unwrap()
+        .biota
+        .properties_spell_book
+        .as_mut()
+        .unwrap()
+        .get_mut(&i32::try_from(spell).unwrap())
+        .unwrap() = charge;
+    spell_potency::on_enter_world(&mut h.w, PLAYER);
+}
+
+fn charge_of(h: &H, spell: u32) -> f32 {
+    spell_potency::current_charge(&h.w, PLAYER, spell).expect("a known spell")
+}
+
+/// Divergence: V502
+#[test]
+fn a_successful_cast_spends_its_spells_charge_tells_the_client_and_lasts_by_it() {
+    let mut h = charge_world(STRENGTH_SELF, 0.8);
+    start_capture();
+    player_magic::handle_action_cast_targeted_spell(
+        &mut h.w,
+        PLAYER,
+        PLAYER.full(),
+        STRENGTH_SELF,
+        None,
+    );
+    assert!(h.run_until(0.5, |h| !registry_ids(&h.w, PLAYER).is_empty()));
+    let got = sent();
+    assert_eq!(events(&got, 0x02C1), [STRENGTH_SELF], "the client follows");
+    let registry = h.w.objects.get(PLAYER).unwrap();
+    let entry = &registry
+        .biota
+        .properties_enchantment_registry
+        .as_ref()
+        .unwrap()[0];
+    assert!(
+        (entry.duration - 1800.0 * 0.8).abs() < 10.0,
+        "by the charge before the cast: {}",
+        entry.duration
+    );
+    let after = charge_of(&h, STRENGTH_SELF);
+    assert!((0.73..0.75).contains(&after), "0.8 x 0.92: {after}");
+}
+
+/// A world with the spell economy.
+fn economy_world() -> H {
+    let mut h = H::new();
+    let mut features = h.w.era.features;
+    features.spell_economy = true;
+    h.w.era = empyrean_common::era::with_features(h.w.era, features);
+    h.player(100.0, 100.0);
+    let _ = h.give_components();
+    let _ = take_local();
+    h
+}
+
+/// Divergence: V503
+#[test]
+fn a_successful_cast_spends_the_worlds_value_and_says_how_strong_the_magic_felt() {
+    let mut h = economy_world();
+    let now = h.w.now.unix_time;
+    assert!(
+        (h.w.spell_economy.value(STRENGTH_SELF, now) - 1.25).abs() < 1e-6,
+        "at rest"
+    );
+    start_capture();
+    player_magic::handle_action_cast_targeted_spell(
+        &mut h.w,
+        PLAYER,
+        PLAYER.full(),
+        STRENGTH_SELF,
+        None,
+    );
+    assert!(h.run_until(0.5, |h| !registry_ids(&h.w, PLAYER).is_empty()));
+    let got = sent();
+    let lines: Vec<_> = got.iter().filter_map(|s| s.text.as_deref()).collect();
+    assert!(
+        lines.contains(&"The magic blazes within you!"),
+        "the value the cast used: {lines:?}"
+    );
+    let entry =
+        &h.w.objects
+            .get(PLAYER)
+            .unwrap()
+            .biota
+            .properties_enchantment_registry
+            .as_ref()
+            .unwrap()[0];
+    assert!(
+        (entry.duration - 1800.0 * 1.25).abs() < 1e-3,
+        "the band's top"
+    );
+    assert!(
+        h.w.spell_economy.value(STRENGTH_SELF, h.w.now.unix_time) < 1.25,
+        "spent"
+    );
+}
+
+/// Divergence: V503
+#[test]
+fn a_fizzle_spends_nothing_of_the_worlds_value_and_says_nothing_of_it() {
+    let mut h = economy_world();
+    h.set_skill(Skill::CreatureEnchantment, 0);
+    start_capture();
+    player_magic::handle_action_cast_targeted_spell(
+        &mut h.w,
+        PLAYER,
+        PLAYER.full(),
+        STRENGTH_SELF,
+        None,
+    );
+    assert!(h.run_until(6.0, |h| !player_magic::fields(&h.w, PLAYER)
+        .magic_state
+        .is_casting));
+    let got = sent();
+    assert!(!got
+        .iter()
+        .filter_map(|s| s.text.as_deref())
+        .any(|t| t.starts_with("The magic")));
+    assert!((h.w.spell_economy.value(STRENGTH_SELF, h.w.now.unix_time) - 1.25).abs() < 1e-6);
+}
+
+/// Divergence: V503
+#[test]
+fn a_spells_value_is_shared_among_the_players_stays_in_its_band_and_recovers_over_hours() {
+    use empyrean_world::world_objects::spell_economy::{line, SpellEconomy};
+    let mut e = SpellEconomy::default();
+    e.spend(1, 1.0, 1, 0.0);
+    assert!((e.value(1, 0.0) - 1.245).abs() < 1e-6);
+    e.spend(2, 1.0, 10, 0.0);
+    assert!((e.value(2, 0.0) - 1.2495).abs() < 1e-6, "shared among ten");
+    for _ in 0..1000 {
+        e.spend(3, 1.0, 1, 0.0);
+    }
+    assert!((e.value(3, 0.0) - 0.75).abs() < 1e-6, "the floor");
+    assert!(
+        (e.value(3, 4.0 * 3600.0) - 1.0).abs() < 1e-3,
+        "half the range in four hours"
+    );
+    assert!(
+        (e.value(3, 8.0 * 3600.0) - 1.25).abs() < 1e-3,
+        "all of it in eight"
+    );
+
+    assert_eq!(line(1.25), "The magic blazes within you!");
+    assert_eq!(line(1.20), "The magic blazes within you!");
+    assert_eq!(line(1.19), "The magic rushes mightily within you.");
+    assert_eq!(line(1.10), "The magic rushes mightily within you.");
+    assert_eq!(line(1.0), "The magic courses strongly within you.");
+    assert_eq!(line(0.90), "The magic courses strongly within you.");
+    assert_eq!(line(0.85), "The magic surges within you.");
+    assert_eq!(line(0.79), "The magic flows within you.");
+}
+
+/// Divergence: V502
+#[test]
+fn a_fizzle_spends_no_charge_and_says_nothing_of_it() {
+    let mut h = charge_world(STRENGTH_SELF, 0.8);
+    h.set_skill(Skill::CreatureEnchantment, 0);
+    start_capture();
+    player_magic::handle_action_cast_targeted_spell(
+        &mut h.w,
+        PLAYER,
+        PLAYER.full(),
+        STRENGTH_SELF,
+        None,
+    );
+    assert!(h.run_until(6.0, |h| !player_magic::fields(&h.w, PLAYER)
+        .magic_state
+        .is_casting));
+    assert!(registry_ids(&h.w, PLAYER).is_empty(), "it fizzled");
+    assert!(events(&sent(), 0x02C1).is_empty());
+    assert!(charge_of(&h, STRENGTH_SELF) >= 0.8);
+}
+
+/// Divergence: V502
+#[test]
+fn a_world_without_charges_spends_none_and_casts_at_full_worth() {
+    let mut h = H::new();
+    h.player(100.0, 100.0);
+    let _ = h.give_components();
+    start_capture();
+    player_magic::handle_action_cast_targeted_spell(
+        &mut h.w,
+        PLAYER,
+        PLAYER.full(),
+        STRENGTH_SELF,
+        None,
+    );
+    assert!(h.run_until(0.5, |h| !registry_ids(&h.w, PLAYER).is_empty()));
+    assert!(events(&sent(), 0x02C1).is_empty());
+    assert_eq!(spell_potency::capture(&h.w, PLAYER, STRENGTH_SELF), None);
+    let o = h.w.objects.get(PLAYER).unwrap();
+    let book = o.biota.properties_spell_book.as_ref().unwrap();
+    assert_eq!(book.get(&i32::try_from(STRENGTH_SELF).unwrap()), Some(&2.0));
+    let entry = &o.biota.properties_enchantment_registry.as_ref().unwrap()[0];
+    assert!((entry.duration - 1800.0).abs() < 1e-6);
+}
+
+/// Divergence: V502
+#[test]
+fn charge_regains_only_while_the_character_is_in_the_world() {
+    let mut h = charge_world(STRENGTH_SELF, 0.6);
+    h.w.now.unix_time += 12.0;
+    let online = charge_of(&h, STRENGTH_SELF);
+    assert!((online - 0.7).abs() < 1e-3, "12 seconds' worth: {online}");
+    empyrean_world::world_objects::player_database::set_properties_at_log_out(&mut h.w, PLAYER);
+
+    h.w.now.unix_time += 1000.0;
+    spell_potency::on_enter_world(&mut h.w, PLAYER);
+    let back = charge_of(&h, STRENGTH_SELF);
+    assert!((back - online).abs() < 1e-3, "frozen while away: {back}");
+}
+
+/// Divergence: V502
+#[test]
+fn a_casts_worth_keeps_its_duration_in_the_band_and_its_drain_at_the_spells_own() {
+    use empyrean_world::world_objects::spell_potency::SpellPotency;
+    let worth = |charge, economy| SpellPotency { charge, economy };
+    assert!((worth(0.5, 1.0).duration(100.0) - 75.0).abs() < 1e-6);
+    assert!((worth(1.0, 1.25).duration(100.0) - 125.0).abs() < 1e-6);
+    assert!(
+        (worth(1.0, 1.25).magnitude(100.0) - 125.0).abs() < 1e-6,
+        "no band on damage"
+    );
+    assert!((worth(1.0, 1.25).transfer_drain(100.0) - 100.0).abs() < 1e-6);
+    assert!((worth(0.5, 1.0).transfer_drain(100.0) - 50.0).abs() < 1e-6);
+    assert!(
+        (worth(0.5, 1.0).duration(-1.0) + 1.0).abs() < 1e-6,
+        "while equipped"
+    );
+}
+
+/// Divergence: V502
+#[test]
+fn a_spell_built_into_an_item_spends_no_charge_and_goes_at_full_worth() {
+    let mut h = charge_world(STRENGTH_SELF, 0.6);
+    let wand = h.give_components()[0];
+    h.w.objects
+        .get_mut(wand)
+        .unwrap()
+        .set_property(empyrean_entity::enums::PropertyDataId::Spell, STRENGTH_SELF);
+    start_capture();
+    let spell = Spell::new(&h.w, STRENGTH_SELF, true);
+    let here = player_magic::physics_position(&h.w, PLAYER);
+    player_magic::fields_mut(&mut h.w, PLAYER).start_pos = Some(here);
+    player_magic::do_cast_spell_inner(
+        &mut h.w,
+        PLAYER,
+        &spell,
+        Some(wand),
+        0,
+        Some(PLAYER),
+        player_magic::CastingPreCheckStatus::Success,
+        false,
+    );
+    assert!(!registry_ids(&h.w, PLAYER).is_empty(), "it lands");
+    assert!(events(&sent(), 0x02C1).is_empty(), "no spend to follow");
+    let o = h.w.objects.get(PLAYER).unwrap();
+    let entry = &o.biota.properties_enchantment_registry.as_ref().unwrap()[0];
+    assert!(
+        (entry.duration - 1800.0).abs() < 1e-3,
+        "the item's: {}",
+        entry.duration
+    );
+    let stored = o.biota.properties_spell_book.as_ref().unwrap();
+    let stored = stored.get(&i32::try_from(STRENGTH_SELF).unwrap()).copied();
+    assert_eq!(stored, Some(0.6), "the character's charge is not touched");
+}
+
+/// A creature's cast has no worth of its own: nothing sets one.
+/// Divergence: V502
+#[test]
+fn a_cast_not_made_from_a_players_spellbook_is_at_full_worth() {
+    let mut h = charge_world(STRENGTH_SELF, 0.6);
+    h.target(100.0, 101.0);
+    assert_eq!(h.w.cast_potency, None);
+    let spell = Spell::new(&h.w, STRENGTH_SELF, true);
+    h.w.objects
+        .get_mut(MONSTER)
+        .unwrap()
+        .biota
+        .properties_enchantment_registry = Some(Vec::new());
+    let _ = world_object_magic::handle_cast_spell(
+        &mut h.w,
+        MONSTER,
+        &spell,
+        Some(MONSTER),
+        None,
+        Some(MONSTER),
+        false,
+        false,
+        false,
+    );
+    let o = h.w.objects.get(MONSTER).unwrap();
+    let entry = &o.biota.properties_enchantment_registry.as_ref().unwrap()[0];
+    assert!((entry.duration - 1800.0).abs() < 1e-3, "{}", entry.duration);
+    let stored = h.w.objects.get(PLAYER).unwrap();
+    let stored = stored.biota.properties_spell_book.as_ref().unwrap();
+    let stored = stored.get(&i32::try_from(STRENGTH_SELF).unwrap()).copied();
+    assert_eq!(stored, Some(0.6));
+}
+
+/// A world with the life spells, and a player and creature to cast them between.
+fn life_spell_world(id: u32) -> (H, Spell) {
+    let mut h = H::new();
+    h.player(100.0, 100.0);
+    h.target(100.0, 101.0);
+    let spell = Spell::new(&h.w, id, true);
+    (h, spell)
+}
+
+/// Lowers a vital to `to`.
+fn lower(h: &mut H, g: ObjectGuid, v: PropertyAttribute2nd, to: u32) {
+    let current = h.vital(g, v);
+    let vital =
+        h.w.objects
+            .get(g)
+            .unwrap()
+            .vitals()
+            .get(&v)
+            .cloned()
+            .unwrap();
+    let _ = empyrean_world::world_objects::creature_vitals::update_vital_delta(
+        &mut h.w,
+        g,
+        vital,
+        i32::try_from(to).unwrap() - i32::try_from(current).unwrap(),
+    );
+}
+
+/// Divergence: V502
+#[test]
+fn a_boost_heals_by_the_casts_worth() {
+    use empyrean_world::world_objects::spell_potency::SpellPotency;
+    let healed = |charge: Option<f32>| {
+        let (mut h, spell) = life_spell_world(HEAL_OTHER);
+        lower(&mut h, PLAYER, PropertyAttribute2nd::MaxHealth, 1);
+        h.w.cast_potency = charge.map(|charge| SpellPotency {
+            charge,
+            economy: 1.0,
+        });
+        world_object_magic::handle_cast_spell_boost(&mut h.w, PLAYER, &spell, Some(PLAYER));
+        h.vital(PLAYER, PropertyAttribute2nd::MaxHealth)
+    };
+    let full = healed(None) - 1;
+    let half = healed(Some(0.5)) - 1;
+    assert!(full > 0);
+    assert_eq!(half, full / 2, "{half} of {full}");
+}
+
+/// Divergence: V502
+#[test]
+fn a_transfer_gives_by_the_casts_worth_and_takes_no_more_than_the_spells_own() {
+    use empyrean_world::world_objects::spell_potency::SpellPotency;
+    let transfer = |charge: f32, economy: f32| {
+        let (mut h, spell) = life_spell_world(DRAIN_HEALTH);
+        lower(&mut h, PLAYER, PropertyAttribute2nd::MaxHealth, 1);
+        let before = h.vital(MONSTER, PropertyAttribute2nd::MaxHealth);
+        h.w.cast_potency = Some(SpellPotency { charge, economy });
+        world_object_magic::handle_cast_spell_transfer(&mut h.w, PLAYER, &spell, Some(MONSTER));
+        (
+            before - h.vital(MONSTER, PropertyAttribute2nd::MaxHealth),
+            h.vital(PLAYER, PropertyAttribute2nd::MaxHealth) - 1,
+        )
+    };
+    let (took_full, gave_full) = transfer(1.0, 1.0);
+    assert!(took_full > 0 && gave_full > 0);
+    let (took_half, _) = transfer(0.5, 1.0);
+    assert!(
+        took_half * 2 <= took_full + 1 && took_half * 2 + 1 >= took_full,
+        "{took_half} of {took_full}"
+    );
+    let (took_more, gave_more) = transfer(1.0, 1.25);
+    assert_eq!(
+        took_more, took_full,
+        "what it takes is capped at the spell's own"
+    );
+    assert!(gave_more >= gave_full, "what it gives is not");
+}
+
+/// Divergence: V502
+#[test]
+fn a_bolt_carries_the_worth_of_the_cast_that_launched_it_and_does_damage_by_it() {
+    let mut h = charge_world(FLAME_BOLT, 0.5);
+    h.target(100.0, 110.0);
+    h.w.objects
+        .get_mut(PLAYER)
+        .unwrap()
+        .set_spell_components_required(false);
+    start_capture();
+    player_magic::handle_action_cast_targeted_spell(
+        &mut h.w,
+        PLAYER,
+        MONSTER.full(),
+        FLAME_BOLT,
+        None,
+    );
+    let projectiles = |w: &World| {
+        let lb = w
+            .landblock_manager
+            .landblocks
+            .get(LandblockId::new(LB | 0xFFFF))
+            .expect("the landblock");
+        lb.get_all_world_objects_for_diagnostics()
+            .into_iter()
+            .filter(|&g| {
+                w.objects
+                    .get(g)
+                    .is_some_and(WorldObject::is_spell_projectile)
+            })
+            .collect::<Vec<_>>()
+    };
+    assert!(h.run_until(1.0, |h| !projectiles(&h.w).is_empty()));
+    let sp = projectiles(&h.w)[0];
+    let potency = spell_projectile::fields(&h.w, sp)
+        .potency
+        .expect("the cast's");
+    assert!(
+        (potency.charge - 0.5).abs() < 0.01,
+        "before the cast spent it"
+    );
+    assert!(
+        charge_of(&h, FLAME_BOLT) >= 0.5,
+        "no lower than the least a charge can be"
+    );
+
+    let hit = |h: &mut H| {
+        ThreadSafeRandom::seed(11);
+        let (mut critical, mut defended, mut overpower) = (false, false, false);
+        spell_projectile::calculate_damage(
+            &mut h.w,
+            sp,
+            Some(PLAYER),
+            MONSTER,
+            &mut critical,
+            &mut defended,
+            &mut overpower,
+        )
+    };
+    let by_charge = hit(&mut h).expect("it hits");
+    spell_projectile::fields_mut(&mut h.w, sp).potency = None;
+    let in_full = hit(&mut h).expect("it hits");
+    assert!(
+        (by_charge - in_full * potency.charge).abs() < 0.5,
+        "{by_charge} against {in_full}"
+    );
+}
+
 #[test]
 fn a_fizzle_burns_components_per_aces_roll() {
     let mut h = H::new();
@@ -2235,6 +2859,183 @@ fn an_era_halves_a_creatures_war_projectile() {
     assert!(halved > 0, "some creature bolt landed without a critical");
 }
 
+mod launch_projectiles {
+    //! Divergence: V464
+    //! Synthetic War, Life and Void projectiles with fixed base damage and forced critical odds.
+    //! The production damage path runs for players and monsters without physics or live traffic.
+    use super::*;
+    use empyrean_common::era::EraId;
+    use empyrean_world::world_objects::world_object::ProjectileLinks;
+
+    const PROJECTILE: ObjectGuid = ObjectGuid::new(0x7000_0040);
+    const WAND: ObjectGuid = ObjectGuid::new(0x7000_0041);
+
+    fn fixture(school: MagicSchool, critical: bool) -> H {
+        let mut h = H::new();
+        h.player(100.0, 100.0);
+        h.creature(Class::Creature, MONSTER, "Caster", 100.0, 110.0);
+        h.set_skill(Skill::VoidMagic, 200);
+        let mut spell = Spell::new(&h.w, FLAME_BOLT, true);
+        let base = spell.spell_base.as_mut().unwrap();
+        base.school = school.0.cast_unsigned();
+        base.power = i32::MAX;
+        if school == MagicSchool::LifeMagic {
+            base.meta_spell_type = SpellType::LifeProjectile.0.cast_unsigned();
+        }
+        let db = Arc::make_mut(spell.spell.as_mut().unwrap());
+        db.base_intensity = Some(40);
+        db.variance = Some(0);
+        db.damage_ratio = Some(0.5);
+        let mut wand = WorldObject::allocate(Class::Caster);
+        wand.guid = WAND;
+        wand.set_property(
+            PropertyFloat::CriticalFrequency,
+            if critical { 1.0 } else { 0.0 },
+        );
+        h.w.objects.insert(wand).unwrap();
+        let mut projectile = WorldObject::allocate(Class::SpellProjectile);
+        projectile.guid = PROJECTILE;
+        projectile.projectile = Some(ProjectileLinks {
+            launcher: Some(WAND),
+            ..ProjectileLinks::default()
+        });
+        h.w.objects.insert(projectile).unwrap();
+        let fields = spell_projectile::fields_mut(&mut h.w, PROJECTILE);
+        fields.spell = Some(spell);
+        fields.life_projectile_damage = 80;
+        h
+    }
+
+    fn hit(h: &mut H, era: EraId, player: bool) -> (f32, bool, bool) {
+        h.w.era = era.rules();
+        ThreadSafeRandom::seed(7);
+        let (source, target) = if player {
+            (PLAYER, MONSTER)
+        } else {
+            (MONSTER, PLAYER)
+        };
+        let (mut critical, mut defended, mut overpower) = (false, false, false);
+        let damage = spell_projectile::calculate_damage(
+            &mut h.w,
+            PROJECTILE,
+            Some(source),
+            target,
+            &mut critical,
+            &mut defended,
+            &mut overpower,
+        )
+        .expect("an unresistable projectile hits");
+        assert!(!overpower);
+        (damage, critical, defended)
+    }
+
+    fn power(h: &mut H, value: u32) {
+        spell_projectile::fields_mut(&mut h.w, PROJECTILE)
+            .spell
+            .as_mut()
+            .unwrap()
+            .spell_base
+            .as_mut()
+            .unwrap()
+            .power = i32::try_from(value).unwrap();
+    }
+
+    fn skill(h: &mut H, school: MagicSchool) -> u32 {
+        let skill =
+            h.w.objects
+                .get_mut(PLAYER)
+                .unwrap()
+                .get_creature_skill_school(school)
+                .unwrap();
+        skill.current(&mut h.w, PLAYER)
+    }
+
+    #[test]
+    fn launch_war_and_life_projectiles_cannot_crit_from_players_or_monsters() {
+        for school in [MagicSchool::WarMagic, MagicSchool::LifeMagic] {
+            let mut h = fixture(school, true);
+            for player in [true, false] {
+                assert_eq!(hit(&mut h, EraId::Launch, player), (40.0, false, false));
+                assert_eq!(hit(&mut h, EraId::Eor, player), (60.0, true, false));
+                let older = if !player && school == MagicSchool::WarMagic {
+                    40.0
+                } else {
+                    60.0
+                };
+                assert_eq!(
+                    hit(&mut h, EraId::Infiltration, player),
+                    (older, true, false)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn launch_war_damage_has_no_skill_bonus_below_at_or_above_spell_power() {
+        let mut h = fixture(MagicSchool::WarMagic, false);
+        let current = skill(&mut h, MagicSchool::WarMagic);
+        assert!(current >= 100);
+        for (spell_power, bonus) in [(current + 1, 0.0), (current, 0.0), (current - 100, 4.0)] {
+            power(&mut h, spell_power);
+            assert_eq!(hit(&mut h, EraId::Launch, true), (40.0, false, false));
+            for era in [EraId::Eor, EraId::Infiltration] {
+                assert_eq!(hit(&mut h, era, true), (40.0 + bonus, false, false));
+            }
+            for (era, base) in [
+                (EraId::Launch, 40.0),
+                (EraId::Eor, 40.0),
+                (EraId::Infiltration, 20.0),
+            ] {
+                assert_eq!(hit(&mut h, era, false), (base, false, false));
+            }
+        }
+    }
+
+    #[test]
+    fn original_school_gates_leave_void_projectile_criticals_and_skill_bonus_unchanged() {
+        let mut h = fixture(MagicSchool::VoidMagic, true);
+        let current = skill(&mut h, MagicSchool::VoidMagic);
+        power(&mut h, current - 100);
+        for era in [EraId::Launch, EraId::Eor, EraId::Infiltration] {
+            assert_eq!(hit(&mut h, era, true), (64.0, true, false));
+        }
+        for (era, damage) in [
+            (EraId::Launch, 60.0),
+            (EraId::Eor, 60.0),
+            (EraId::Infiltration, 40.0),
+        ] {
+            assert_eq!(hit(&mut h, era, false), (damage, true, false));
+        }
+    }
+
+    #[test]
+    fn original_school_gates_leave_void_damage_over_time_and_direct_curse_unchanged() {
+        let mut h = fixture(MagicSchool::VoidMagic, false);
+        let current = skill(&mut h, MagicSchool::VoidMagic);
+        power(&mut h, current - 100);
+        let mut spell = spell_projectile::fields(&h.w, PROJECTILE)
+            .spell
+            .clone()
+            .unwrap();
+        spell.spell_base.as_mut().unwrap().category = SpellCategory::NetherDamageOverTimeRaising.0;
+        Arc::make_mut(spell.spell.as_mut().unwrap()).dot_duration = Some(30.0);
+        for (projectiles, player_damage) in [(1, 44.0), (0, 40.0)] {
+            Arc::make_mut(spell.spell.as_mut().unwrap()).num_projectiles = Some(projectiles);
+            for era in [EraId::Launch, EraId::Eor, EraId::Infiltration] {
+                h.w.era = era.rules();
+                for (source, target, expected) in
+                    [(PLAYER, MONSTER, player_damage), (MONSTER, PLAYER, 40.0)]
+                {
+                    let damage = empyrean_world::world_objects::world_object_magic::calculate_dot_enchantment_stat_mod_value(
+                        &mut h.w, source, &spell, Some(target), None, 40.0,
+                    );
+                    assert_eq!(damage, expected);
+                }
+            }
+        }
+    }
+}
+
 // ------------------------------------------------------------------ real content (component weenies)
 
 #[cfg(feature = "real-content")]
@@ -2369,4 +3170,145 @@ mod real_content_components {
         assert_eq!(spell_of_formula(&w, "probe", &gap), None);
         assert_eq!(spell_of_formula(&w, "probe", &[0; 8]), None);
     }
+}
+
+/// Divergence: V465
+#[test]
+fn launch_lifestone_flags_do_not_resist_spells_or_stop_projectile_damage() {
+    use empyrean_common::era::EraId;
+    use empyrean_entity::enums::SpellFlags;
+    use empyrean_world::world_objects::{player_death, world_object_magic};
+    for era in [EraId::Launch, EraId::Eor, EraId::Infiltration] {
+        let mut h = H::new();
+        h.player(100.0, 100.0);
+        h.target(100.0, 110.0);
+        h.w.era = era.rules();
+        h.w.objects.get_mut(MONSTER).unwrap().biota.properties_skill =
+            Some(DotNetDict::from_iter([(
+                Skill::WarMagic,
+                PropertiesSkill {
+                    init_level: 1000,
+                    sac: SkillAdvancementClass::Trained,
+                    ..PropertiesSkill::default()
+                },
+            )]));
+        let mut spell = Spell::new(&h.w, FLAME_BOLT, true);
+        spell.spell_base.as_mut().unwrap().bitfield = SpellFlags::Resistable.0.cast_unsigned();
+        ThreadSafeRandom::seed(7);
+        assert!(!world_object_magic::try_resist_spell(
+            &mut h.w,
+            MONSTER,
+            Some(PLAYER),
+            &spell,
+            None,
+            true
+        ));
+        let player = h.w.objects.get_mut(PLAYER).unwrap();
+        player.set_under_lifestone_protection(true);
+        player.set_lifestone_protection_timestamp(Some(9.0));
+        ThreadSafeRandom::seed(7);
+        assert_eq!(
+            world_object_magic::try_resist_spell(
+                &mut h.w,
+                MONSTER,
+                Some(PLAYER),
+                &spell,
+                None,
+                true
+            ),
+            era != EraId::Launch
+        );
+        let guid = ObjectGuid::new(0x7000_0042);
+        let mut projectile = WorldObject::allocate(Class::SpellProjectile);
+        projectile.guid = guid;
+        h.w.objects.insert(projectile).unwrap();
+        spell_projectile::fields_mut(&mut h.w, guid).spell = Some(spell);
+        let (mut critical, mut defended, mut overpower) = (false, false, false);
+        ThreadSafeRandom::seed(7);
+        let damage = spell_projectile::calculate_damage(
+            &mut h.w,
+            guid,
+            Some(MONSTER),
+            PLAYER,
+            &mut critical,
+            &mut defended,
+            &mut overpower,
+        );
+        assert_eq!(
+            damage,
+            if era == EraId::Launch {
+                Some(30.0)
+            } else {
+                None
+            }
+        );
+        assert_eq!(
+            player_death::under_lifestone_protection(&h.w, PLAYER),
+            era != EraId::Launch
+        );
+    }
+}
+
+/// Divergence: V504
+/// Over the threshold, a landblock's tick warns its players, then moves the one longest there to
+/// the next landblock over. Off by default: no threshold, no messages.
+#[test]
+fn a_crowded_landblocks_tick_warns_its_players_and_moves_the_one_longest_there() {
+    use empyrean_common::master_configuration::PortalStormConfiguration;
+    use empyrean_world::world_objects::portal_storm;
+    let mut h = H::new();
+    h.player(100.0, 100.0);
+    // The crowd is counted from the list the landblock gives; only the player has a session.
+    h.target(100.0, 110.0);
+    let block =
+        h.w.objects
+            .get(PLAYER)
+            .unwrap()
+            .location()
+            .unwrap()
+            .landblock_id();
+    let id = LandblockId::new(block.raw() | 0xFFFF);
+    let players = [PLAYER, MONSTER];
+
+    start_capture();
+    portal_storm::tick(&mut h.w, id, &players, 1.0);
+    assert!(sent().is_empty(), "off by default");
+
+    h.w.portal_storm_config = PortalStormConfiguration {
+        threshold: 1,
+        brew_seconds: 60,
+        imminent_seconds: 60,
+    };
+    // One player, under the threshold, who is there first.
+    portal_storm::tick(&mut h.w, id, &players[..1], 1.5);
+    assert!(sent().is_empty(), "no crowd");
+    portal_storm::tick(&mut h.w, id, &players, 2.6);
+    assert_eq!(events(&sent(), 0x02C9).len(), 1, "brewing");
+    portal_storm::tick(&mut h.w, id, &players[..1], 3.7);
+    assert_eq!(
+        events(&sent(), 0x02CC).len(),
+        1,
+        "subsided: the crowd thinned"
+    );
+    portal_storm::tick(&mut h.w, id, &players, 4.8);
+    assert_eq!(events(&sent(), 0x02C9).len(), 1, "brewing again");
+    portal_storm::tick(&mut h.w, id, &players, 65.0);
+    assert_eq!(events(&sent(), 0x02CA).len(), 1, "imminent");
+    let from = h.w.objects.get(PLAYER).unwrap().location().unwrap();
+    portal_storm::tick(&mut h.w, id, &players, 125.5);
+    let got = sent();
+    assert_eq!(
+        events(&got, 0x02CB).len(),
+        1,
+        "the player longest there is told"
+    );
+    assert!(
+        h.w.objects.get(PLAYER).unwrap().wo.world_object.teleporting,
+        "and goes by the real teleport"
+    );
+    assert_eq!(from.landblock_id(), block, "where it started");
+
+    // The crowd thins, and the storm settles.
+    portal_storm::tick(&mut h.w, id, &players[..1], 127.0);
+    assert_eq!(h.w.portal_storms[&id].stage, portal_storm::Stage::Calm);
 }

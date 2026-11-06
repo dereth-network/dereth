@@ -6,6 +6,7 @@
 //! The sphere and the cylinder are the shared ones; what this world does with them is here.
 
 use dereth_primitives::num::math;
+// D2-03796, D2-15597
 pub use dereth_primitives::shape::{CylSphere, Sphere};
 use dereth_primitives::{Position, Vec3};
 

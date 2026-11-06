@@ -472,6 +472,17 @@ impl WorldState {
         )
     }
 
+    /// [`Self::play_script_type`] for a script the client names itself, in the later numbering: it
+    /// plays the row the world's files give that script. What the server sends is played as sent.
+    pub fn play_own_script(&mut self, id: ObjectId, later: u32, intensity: f32) -> bool {
+        let era = self
+            .anim_assets
+            .as_ref()
+            .map_or(dereth_primitives::ContainerEra::Modern, |a| a.store().era());
+        dereth_world_data::effect_numbering::script_in_files(era, later)
+            .is_some_and(|script| self.play_script_type(id, script, intensity))
+    }
+
     /// Dispatch a script id — the scene half of the `0xF754` Effects_PlayScriptID message,
     /// which names the `PhysicsScript` outright and so consults no table.
     pub fn play_script_id(&mut self, id: ObjectId, script: DataId) -> bool {

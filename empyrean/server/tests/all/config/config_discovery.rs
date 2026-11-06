@@ -606,3 +606,15 @@ fn relative_paths_resolve_beside_the_config_file_not_the_working_directory() {
     let _ = std::fs::remove_dir_all(&conf);
     let _ = std::fs::remove_dir_all(&cwd);
 }
+
+/// Divergence: V496
+#[test]
+fn the_configuration_file_sets_the_characters_an_account_may_hold() {
+    let parsed =
+        config_file::parse("[era]\nprofile = \"launch\"\nmax_characters_per_account = 7\n")
+            .expect("parses");
+    assert!(parsed.unknown_keys.is_empty());
+    assert_eq!(parsed.config.era.max_characters_per_account, Some(7));
+    let parsed = config_file::parse("[era]\nprofile = \"launch\"\n").expect("parses");
+    assert_eq!(parsed.config.era.max_characters_per_account, None);
+}

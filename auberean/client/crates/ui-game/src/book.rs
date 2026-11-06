@@ -177,7 +177,8 @@ impl Book {
             .unwrap_or(0.0);
         #[allow(clippy::cast_precision_loss)]
         let x = self.last.wrapping_sub(1) as f32 * pos;
-        let frac = f64::from(x) - f64::from(x).floor();
+        let wide = f64::from(self.last.wrapping_sub(1) as f32) * f64::from(pos);
+        let frac = f64::from(x) - wide.floor();
         let page = if frac > 0.5 { x + 2.0 } else { x + 1.0 };
         self.current = dereth_primitives::num::to_i32(page).cast_unsigned();
     }
@@ -238,7 +239,7 @@ impl Book {
         for e in [t, h] {
             let height = ui.node(e).map_or(0, |n| n.rect.height());
             let page = self.current.cast_signed() - 1;
-            ui.set_view_y(e, (height + 1) * page);
+            ui.set_view_y(e, height * page);
         }
     }
 

@@ -1381,3 +1381,36 @@ fn always_turn_starts_a_turn_while_an_action_animates() {
         "with AlwaysTurn the turn is under way: {h}"
     );
 }
+
+/// Divergence: V495
+#[test]
+fn a_character_logs_out_with_the_lifestone_gesture_on_a_table_without_a_logout_gesture() {
+    use empyrean_entity::enums::MotionCommand;
+    use empyrean_world::world_objects::player::logout_motion;
+    const OLD_TABLE: u32 = 0x0900_0777;
+    const LATER_TABLE: u32 = 0x0900_0778;
+
+    let table = |id: u32, motions: &[MotionCommand]| {
+        let mut t = motion_table();
+        t.id = DataId(id);
+        let link = t.links.get_mut(&key(READY)).expect("the way out of ready");
+        link.extend(
+            motions
+                .iter()
+                .map(|m| data(m.0, vec![anim(ACTION_ANIM)], None, None)),
+        );
+        t
+    };
+    let dats = empyrean_testkit::dats::with_stat_tables(FakeDats::new())
+        .with_portal(OLD_TABLE, table(OLD_TABLE, &[MotionCommand::Sanctuary]))
+        .with_portal(
+            LATER_TABLE,
+            table(
+                LATER_TABLE,
+                &[MotionCommand::Sanctuary, MotionCommand::LogOut],
+            ),
+        );
+    let w = world_on(dats);
+    assert_eq!(logout_motion(&w, OLD_TABLE), MotionCommand::Sanctuary);
+    assert_eq!(logout_motion(&w, LATER_TABLE), MotionCommand::LogOut);
+}

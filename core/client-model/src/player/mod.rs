@@ -84,6 +84,9 @@ pub enum OptionSideEffect {
 /// The player system plus the player module.
 #[derive(Debug, Clone, Default)]
 pub struct PlayerSystem {
+    /// The systems the world has. Where it has no auto-accept the option is hidden, and its saved
+    /// value does not answer to the option it excludes.
+    pub era_features: dereth_primitives::EraFeatures,
     /// The module's own `PlayerModule` — the blob the server sent, **kept**.
     ///
     /// The client has exactly one of these: the module *is* a `PlayerModule` plus a dirty
@@ -139,6 +142,7 @@ impl PlayerSystem {
     #[must_use]
     pub fn new() -> Self {
         Self {
+            era_features: dereth_primitives::EraFeatures::default(),
             module: None,
             account: String::new(),
             options: Options::default(),
@@ -237,7 +241,9 @@ impl PlayerSystem {
         }
         let mut change = match ordinal {
             // Clear auto-accept through its setter → changed hook for `0x12`: its sends come first.
-            option::IGNORE_FELLOWSHIP_REQUESTS if value => {
+            option::IGNORE_FELLOWSHIP_REQUESTS
+                if value && self.era_features.fellowship_auto_accept =>
+            {
                 self.set_option(option::FELLOWSHIP_AUTO_ACCEPT_REQUESTS, false, now)
             }
             // Clear ignore through its setter → changed hook for `2`.

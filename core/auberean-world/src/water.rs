@@ -37,6 +37,8 @@ pub struct BlockWater {
     pub tile_width: f32,
     pub poly_width: f32,
     pub color: Color32,
+    /// What a body in it touches.
+    pub physics_material: DataId,
 }
 
 /// A block map's value at block `(x, y)`, or its first value off the map.
@@ -100,6 +102,8 @@ impl WaterSet {
             tile_width: t.tile_width,
             poly_width: t.poly_width,
             color: t.color,
+            // D2-07529
+            physics_material: t.physics_material,
         })
     }
 }

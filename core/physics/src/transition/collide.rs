@@ -761,6 +761,10 @@ pub fn env_find_env_collisions(
     };
     if result != TransitionState::Ok && !t.object_info.has(ObjectInfoState::CONTACT) {
         t.collision_info.collided_with_environment = true;
+        if t.rules.env_collision_normal_up && !t.collision_info.collision_normal_valid {
+            t.collision_info
+                .set_collision_normal(Vec3::new(0.0, 0.0, 1.0));
+        }
     }
     result
 }

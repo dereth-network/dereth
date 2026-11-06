@@ -322,7 +322,7 @@ impl Field for MovementParams {
         })
     }
 
-    // D2-04063
+    // D2-04063, D2-04064
     fn write(&self, w: &mut Writer) {
         let flags = self.flags;
         w.u32(flags);
@@ -866,6 +866,12 @@ impl PhysicsDesc {
     pub const TARGET: u32 = 0x400;
     pub const TARGET_POSITION: u32 = 0x800;
     pub const TARGET_OFFSET: u32 = 0x1000;
+    /// The offset from the target it aims at grows with the target's scale.
+    pub const TARGET_SCALED: u32 = 0x4000;
+    /// It flies as a missile now.
+    pub const MISSILE_MOVING: u32 = 0x8_0000;
+    /// It is lit as a missile.
+    pub const MISSILE_ACTIVATED: u32 = 0x10_0000;
     pub const POSITION: u32 = 0x8000;
     pub const ANIM_FRAME: u32 = 0x2_0000;
     pub const EXTERNAL_ACCELERATION: u32 = 0x40_0000;

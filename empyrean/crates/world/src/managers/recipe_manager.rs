@@ -383,8 +383,22 @@ pub fn use_object_on_target(
         });
     } else {
         let r = Arc::clone(&recipe);
+        let required = w.content.get_recipe_vital_requirement(recipe.id);
         action_chain.add_action(Actor::Object(player), move |w| {
-            handle_recipe(w, player, source, target, &r, percent_success)
+            // DIVERGE: V463 — a delayed craft must not mix costs and vital rules from different content.
+            let current = w.content.get_recipe_vital_requirement(r.id);
+            if (required.is_some() || current.is_some())
+                && (required != current
+                    || w.content.get_recipe(r.id).as_deref() != Some(r.as_ref()))
+            {
+                crate::world_objects::player_networking::send_weenie_error(
+                    w,
+                    player,
+                    WeenieError::YouDoNotPassCraftingRequirements,
+                );
+            } else {
+                handle_recipe(w, player, source, target, &r, percent_success);
+            }
         });
 
         action_chain.add_action(Actor::Object(player), move |w| {
@@ -1110,6 +1124,23 @@ pub fn verify_requirements(
 ) -> bool {
     if !verify_use(w, player, source, target) {
         return false;
+    }
+
+    // DIVERGE (V463): content may require current vitals before any craft attempt or consumption.
+    if let Some(required) = w.content.get_recipe_vital_requirement(recipe.id) {
+        for (vital, minimum) in [
+            (PropertyAttribute2nd::Health, required.health),
+            (PropertyAttribute2nd::Stamina, required.stamina),
+            (PropertyAttribute2nd::Mana, required.mana),
+        ] {
+            if minimum != 0
+                && obj(w, player)
+                    .get_creature_vital(vital)
+                    .is_none_or(|current| current.current(obj(w, player)) < minimum)
+            {
+                return false;
+            }
+        }
     }
 
     if !verify_requirements_of(w, recipe, player, target, RequirementType::Target) {

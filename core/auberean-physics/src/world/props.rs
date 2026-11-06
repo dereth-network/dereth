@@ -50,6 +50,12 @@ pub mod graphics {
     pub const LANDSCAPE_SHADOW: u32 = 0x2;
     /// It is drawn with the objects seen through.
     pub const TRANSLUCENT: u32 = 0x4;
+    /// Outdoors and not seen through, it takes the land's shadow where it stands. No drawing
+    /// property says otherwise; only the sky's own objects, which are no object of the world, are
+    /// without it.
+    pub const TAKES_LAND_SHADOW: u32 = 0x8;
+    /// The state every object starts with.
+    pub const NEW: u32 = TAKES_LAND_SHADOW;
 }
 
 /// The bit of the graphics state a drawing property that is a truth value sets or clears.
@@ -89,10 +95,12 @@ pub fn entity_graphics_state(e: &Entity, entity: EntityLookup<'_>) -> u32 {
         .chain(own)
         .flatten()
         .flat_map(PropertyCollection::iter)
-        .fold(0, |state, p| match (graphics_bit(p.id), &p.value) {
-            (Some(bit), PropertyValue::Bool(true)) => state | bit,
-            (Some(bit), PropertyValue::Bool(false)) => state & !bit,
-            _ => state,
+        .fold(graphics::NEW, |state, p| {
+            match (graphics_bit(p.id), &p.value) {
+                (Some(bit), PropertyValue::Bool(true)) => state | bit,
+                (Some(bit), PropertyValue::Bool(false)) => state & !bit,
+                _ => state,
+            }
         })
 }
 
@@ -143,7 +151,7 @@ impl World {
     /// A drawing property: kept as the entry's own; a truth value among those saying how the
     /// object is drawn sets or clears its bit of the graphics state, or (not drawn in the game)
     /// whether it is drawn in the game. True when it set something.
-    // D2-06038
+    // D2-06038, D2-06015
     pub fn apply_render_property(&mut self, key: BodyKey, p: &Property) -> bool {
         self.keep_property(key, p);
         let PropertyValue::Bool(on) = p.value else {

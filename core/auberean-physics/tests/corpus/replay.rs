@@ -456,3 +456,97 @@ fn a_body_driven_by_recorded_reports_indoors_reaches_the_next_report() {
     // 92.4% on the same ground, 96.2% heading the reported way.
     judge(&replay(true), 4_000, [0.80, 0.99, 0.90, 0.90]);
 }
+
+/// No recorded player stands outdoors on a block the world's map says may not be walked on:
+/// the 2017 sessions' reports from the land cover thousands of blocks, and every one is on a block
+/// the map lets a body walk on, though the map shuts more blocks than it opens.
+///
+/// Behaviour: motion.corpus.no-recorded-player-stands-on-a-block-the-map-shuts
+#[test]
+fn no_recorded_player_stands_on_a_block_the_map_shuts() {
+    let (_records, region) = world().expect("the September 2013 install's world opens");
+    let index = auberean_testkit::data::require_capture_index();
+    let (mut reports, mut shut) = (0u64, 0u64);
+    let mut blocks = std::collections::BTreeSet::new();
+    auberean_testkit::captures::messages(&index, &[CLIENT_POSITION], &[2017], |m| {
+        if m.to_client {
+            return;
+        }
+        let Ok(ClientMessage::Position(b)) = ClientMessage::decode(&m.raw) else {
+            return;
+        };
+        if b.cell & 0xFFFF >= 0x100 {
+            return;
+        }
+        let (x, y) = (b.cell >> 24, (b.cell >> 16) & 0xFF);
+        reports += 1;
+        blocks.insert((x, y));
+        if !region.passable(x, y) {
+            shut += 1;
+        }
+    })
+    .expect("the capture index reads");
+    assert_eq!(shut, 0);
+    assert!(reports > 1_000_000, "{reports} reports");
+    assert!(blocks.len() > 3_000, "{} blocks", blocks.len());
+    let mut shut_blocks = 0;
+    for x in 0..255 {
+        for y in 0..255 {
+            if !region.passable(x, y) {
+                shut_blocks += 1;
+            }
+        }
+    }
+    assert!(shut_blocks > 30_000, "{shut_blocks} blocks the map shuts");
+}
+
+/// Falling in the rooms of block `0x0497` whose own properties make gravity 3 m/s2, recorded
+/// players fall at 3 m/s2, not the world's 9.8: in the 2017 sessions, between reports 0.05 to 0.45 s
+/// apart, of a player going down faster at the second, half of the accelerations lie within 0.5 of
+/// 3, in over a thousand samples from those rooms.
+///
+/// Behaviour: motion.corpus.recorded-players-fall-by-a-rooms-own-gravity
+#[test]
+fn recorded_players_fall_by_a_rooms_own_gravity() {
+    let index = auberean_testkit::data::require_capture_index();
+    let in_rooms = |c: u32| c >> 16 == 0x0497 && (0x0195..=0x01DC).contains(&(c & 0xFFFF));
+    let mut session = -1i64;
+    let mut last: Vec<ClientPosition> = Vec::new();
+    let mut seen = Vec::new();
+    auberean_testkit::captures::messages(&index, &[CLIENT_POSITION], &[2017], |m| {
+        if m.to_client {
+            return;
+        }
+        let Ok(ClientMessage::Position(b)) = ClientMessage::decode(&m.raw) else {
+            return;
+        };
+        if m.session != session {
+            session = m.session;
+            last.clear();
+        }
+        last.push(b);
+        let n = last.len();
+        if n < 3 {
+            return;
+        }
+        let (a, b, c) = (last[n - 3], last[n - 2], last[n - 1]);
+        let (d1, d2) = (b.time - a.time, c.time - b.time);
+        if !(0.05..0.45).contains(&d1) || !(0.05..0.45).contains(&d2) || !in_rooms(a.cell) {
+            return;
+        }
+        #[allow(clippy::cast_possible_truncation)]
+        let (v1, v2) = (
+            (b.origin.z - a.origin.z) / d1 as f32,
+            (c.origin.z - b.origin.z) / d2 as f32,
+        );
+        if v1 < -0.3 && v2 < v1 {
+            #[allow(clippy::cast_possible_truncation)]
+            seen.push((v2 - v1) / ((d1 + d2) as f32 * 0.5));
+        }
+    })
+    .expect("the capture index reads");
+    seen.sort_by(f32::total_cmp);
+    assert!(seen.len() > 1_000, "{} samples", seen.len());
+    let (q1, q3) = (seen[seen.len() / 4], seen[seen.len() * 3 / 4]);
+    assert!(q1 > -3.5 && q3 < -2.5, "the middle half: {q1} to {q3}");
+}

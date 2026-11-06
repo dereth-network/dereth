@@ -118,6 +118,8 @@ pub struct Object {
     pub at: At,
     pub rotation: Option<[f32; 4]>,
     pub heading: Option<f32>,
+    /// How large it stands, in place of the scale its template gives.
+    pub scale: Option<f32>,
     pub name: Option<StrRef>,
     pub name_text: Option<String>,
     pub to: Option<String>,
@@ -206,6 +208,9 @@ pub struct Loot {
     pub counts: Vec<f32>,
     pub items: Vec<(u32, u32)>,
     pub extras: Vec<(u32, f32)>,
+    /// A chest's: the level its draw is treasure of, and the worth each piece draws from.
+    pub level: Option<i32>,
+    pub value: Vec<u32>,
     pub prov: Prov,
 }
 
@@ -242,8 +247,26 @@ pub struct Quest {
     pub state: Option<u32>,
     pub challenge: Option<i32>,
     pub duration: Option<f64>,
+    /// The one phase its duration runs in, from when that phase comes; left out, all of them from
+    /// its giving.
+    pub timed_phase: Option<u32>,
     pub retry: Option<f64>,
     pub xp: Option<u64>,
+    /// In place of an amount, the share of what the player's level takes to reach the next that its
+    /// completion pays; left out, as the quest's setup in the install says.
+    pub xp_share: Option<f64>,
+    /// The level at and above which that share pays no more.
+    pub xp_share_level: Option<i32>,
+    /// The least a row's share pays.
+    pub xp_least: Option<u64>,
+    /// The most a row's share pays.
+    pub xp_most: Option<u64>,
+    /// Its amount is paid whole, whatever its challenge against the player's level; left out, as
+    /// the quest's setup in the install says.
+    pub xp_whole: Option<bool>,
+    /// What its completion adds to the player's quest rating; left out, as the quest's setup in the
+    /// install says.
+    pub qp: Option<u32>,
     pub cancellable: Option<bool>,
     /// Whether the quest is shown to its player; left out, a quest is shown when its definition
     /// has a description.
@@ -254,6 +277,9 @@ pub struct Quest {
     pub fails_on_death: Option<bool>,
     /// Whether it is given only once.
     pub once: Option<bool>,
+    /// Whether a kill's move on it reaches the killer's fellows; left out, as the quest's setup in
+    /// the install says.
+    pub fellows: Option<bool>,
     pub prov: Prov,
 }
 
@@ -269,13 +295,15 @@ pub enum Trigger {
     Take(u32),
     Kill(u32),
     Done(u32),
+    Given(u32),
 }
 
-/// What a step requires of another quest: under way at a phase, or done.
+/// What a step requires of another quest: under way at a phase, done, or free to be given.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Need {
     Phase(u32),
     Done,
+    Free,
 }
 
 /// The update a step makes.
@@ -284,6 +312,9 @@ pub enum Update {
     Bestow,
     Advance,
     Complete,
+    Fail,
+    /// Moves it nowhere: the step only says, gives and sends.
+    Nothing,
 }
 
 /// `[[step]]`: what moves a quest on.
@@ -316,6 +347,37 @@ pub struct Step {
     pub effects_last: bool,
     /// Its update is made for each of the player's fellows as well.
     pub fellows: bool,
+    /// For a give, exactly how many of the item it wants (none: whatever is given).
+    pub wants: Option<u32>,
+    /// The least and the most level it is for, either left out for no such limit.
+    pub least_level: Option<i32>,
+    pub most_level: Option<i32>,
+    /// It pays this share of what the player's level takes to reach the next, whole.
+    pub xp_share: Option<f64>,
+    pub prov: Prov,
+}
+
+/// `[[give]]`: what a person or an object does with an item given it that moves no quest.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Give {
+    pub key: String,
+    /// The template of the person or the object given to.
+    pub to: u32,
+    /// The template of the item given (none: any item).
+    pub item: Option<u32>,
+    /// Exactly how many of the item it wants (none: whatever is given).
+    pub wants: Option<u32>,
+    /// The items it gives back in its place.
+    pub gives: Vec<u32>,
+    /// How many of each item given, in order (1 when left out).
+    pub counts: Vec<u32>,
+    /// The effects it puts on the player (their saved states), and a text shown after them.
+    pub effects: Vec<u32>,
+    pub text: Option<StrRef>,
+    /// What the person or the object plays as it takes the item.
+    pub fx: Option<u32>,
+    /// The quests it requires.
+    pub requires: Vec<(u32, Need)>,
     pub prov: Prov,
 }
 
@@ -352,6 +414,9 @@ pub struct Place {
     pub heading: Option<f32>,
     pub named_by: Vec<u32>,
     pub destination: Option<String>,
+    /// The row of like rooms it is one of, and the cell its creature stands in.
+    pub row: Option<String>,
+    pub holds: Option<u32>,
     pub prov: Prov,
 }
 
@@ -365,6 +430,7 @@ pub enum Row {
     Sale(Sale),
     Quest(Quest),
     Step(Step),
+    Give(Give),
     Place(Place),
     Talk(Talk),
     /// `[[remove]]`: items a pack takes away, each in the one form the build's report names it.
@@ -374,8 +440,23 @@ pub enum Row {
     Scene(Scene),
     Shard(Shard),
     Weapon(Weapon),
+    DeathSpawn(DeathSpawn),
     Route(Route),
     Area(Area),
+    Clearing(Clearing),
+}
+
+/// `[[clearing]]`: ground in a landblock kept free of what the land grows: a circle of `radius`
+/// meters, or a rectangle `size` meters along its own axes turned by `heading`. The world builder
+/// builds it into the client's data; the server has no use for it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Clearing {
+    pub key: String,
+    pub at: At,
+    pub heading: Option<f32>,
+    pub radius: Option<f32>,
+    pub size: Option<[f32; 2]>,
+    pub prov: Prov,
 }
 
 /// `[[area]]`: the kind of player conflict a landblock allows (a landblock no row names is a
@@ -384,6 +465,20 @@ pub enum Row {
 pub struct Area {
     pub landblock: u16,
     pub conflict: yalain_content::Conflict,
+    pub prov: Prov,
+}
+
+/// `[[death_spawn]]`: what a creature's death effect makes around its killer.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DeathSpawn {
+    /// The death effect, as a creature's template names it.
+    pub effect: String,
+    pub template: u32,
+    pub count: u32,
+    pub chance: f32,
+    pub offset: At,
+    /// How long each stands, in seconds; it stays until killed when left out.
+    pub lasts: Option<f32>,
     pub prov: Prov,
 }
 
@@ -443,6 +538,8 @@ pub struct Scene {
 pub struct Shard {
     pub object: u64,
     pub scene: u32,
+    /// The quest it completes for the player as it comes out, if any.
+    pub quest: Option<u32>,
     pub prov: Prov,
 }
 
@@ -475,6 +572,7 @@ impl Row {
             Self::Sale(_) => "sale",
             Self::Quest(_) => "quest",
             Self::Step(_) => "step",
+            Self::Give(_) => "give",
             Self::Place(_) => "place",
             Self::Talk(_) => "talk",
             Self::Remove(_) => "remove",
@@ -483,8 +581,10 @@ impl Row {
             Self::Scene(_) => "scene",
             Self::Shard(_) => "shard",
             Self::Weapon(_) => "weapon",
+            Self::DeathSpawn(_) => "death_spawn",
             Self::Route(_) => "route",
             Self::Area(_) => "area",
+            Self::Clearing(_) => "clearing",
         }
     }
 
@@ -499,6 +599,7 @@ impl Row {
             Self::Sale(r) => Some(&r.prov),
             Self::Quest(r) => Some(&r.prov),
             Self::Step(r) => Some(&r.prov),
+            Self::Give(r) => Some(&r.prov),
             Self::Place(r) => Some(&r.prov),
             Self::Talk(r) => Some(&r.prov),
             Self::Craft(r) => Some(&r.prov),
@@ -506,21 +607,41 @@ impl Row {
             Self::Scene(r) => Some(&r.prov),
             Self::Shard(r) => Some(&r.prov),
             Self::Weapon(r) => Some(&r.prov),
+            Self::DeathSpawn(r) => Some(&r.prov),
             Self::Route(r) => Some(&r.prov),
             Self::Area(r) => Some(&r.prov),
+            Self::Clearing(r) => Some(&r.prov),
             Self::Remove(_) => None,
         }
     }
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 17] = [
-    "object", "camp", "loot", "keeper", "sale", "quest", "step", "place", "talk", "remove",
-    "craft", "butchery", "scene", "shard", "weapon", "route", "area",
+pub const KINDS: [&str; 20] = [
+    "object",
+    "camp",
+    "loot",
+    "keeper",
+    "sale",
+    "quest",
+    "step",
+    "give",
+    "place",
+    "talk",
+    "remove",
+    "craft",
+    "butchery",
+    "scene",
+    "shard",
+    "weapon",
+    "route",
+    "area",
+    "clearing",
+    "death_spawn",
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 17] = [
+pub const FIELDS: [(&str, &[&str]); 20] = [
     (
         "object",
         &[
@@ -532,6 +653,7 @@ pub const FIELDS: [(&str, &[&str]); 17] = [
             "at",
             "rotation",
             "heading",
+            "scale",
             "name",
             "name_text",
             "to",
@@ -583,6 +705,8 @@ pub const FIELDS: [(&str, &[&str]); 17] = [
             "counts",
             "items",
             "extras",
+            "level",
+            "value",
             "prov",
         ],
     ),
@@ -613,13 +737,21 @@ pub const FIELDS: [(&str, &[&str]); 17] = [
             "state",
             "challenge",
             "duration",
+            "timed_phase",
             "retry",
             "xp",
+            "xp_share",
+            "xp_share_level",
+            "xp_least",
+            "xp_most",
+            "xp_whole",
+            "qp",
             "cancellable",
             "visible",
             "min_level",
             "fails_on_death",
             "once",
+            "fellows",
             "prov",
         ],
     ),
@@ -645,6 +777,17 @@ pub const FIELDS: [(&str, &[&str]); 17] = [
             "races",
             "effects_last",
             "fellows",
+            "wants",
+            "least_level",
+            "most_level",
+            "xp_share",
+            "prov",
+        ],
+    ),
+    (
+        "give",
+        &[
+            "key", "to", "item", "wants", "gives", "counts", "effects", "text", "fx", "requires",
             "prov",
         ],
     ),
@@ -658,6 +801,8 @@ pub const FIELDS: [(&str, &[&str]); 17] = [
             "heading",
             "named_by",
             "destination",
+            "row",
+            "holds",
             "prov",
         ],
     ),
@@ -701,7 +846,7 @@ pub const FIELDS: [(&str, &[&str]); 17] = [
             "prov",
         ],
     ),
-    ("shard", &["object", "scene", "prov"]),
+    ("shard", &["object", "scene", "quest", "prov"]),
     (
         "weapon",
         &["name", "template", "two_share", "stance", "prov"],
@@ -711,6 +856,16 @@ pub const FIELDS: [(&str, &[&str]); 17] = [
         &["key", "waypoints", "shape", "gait", "speed", "rest", "prov"],
     ),
     ("area", &["landblock", "conflict", "prov"]),
+    (
+        "clearing",
+        &["key", "at", "heading", "radius", "size", "prov"],
+    ),
+    (
+        "death_spawn",
+        &[
+            "effect", "template", "count", "chance", "offset", "lasts", "prov",
+        ],
+    ),
 ];
 
 /// A shared-format error as a problem at its file and line.
@@ -926,7 +1081,7 @@ fn read_rows(
             ));
             continue;
         }
-        if matches!(kind.as_str(), "object" | "camp") && landblock.is_none() {
+        if matches!(kind.as_str(), "object" | "camp" | "clearing") && landblock.is_none() {
             problems.push(Problem::new(
                 path,
                 0,
@@ -960,8 +1115,56 @@ fn read_rows(
     }
 }
 
+/// The most a clearing's `radius` or `size` may be, in meters: a block and a half.
+const CLEARING_MOST: f32 = 240.0;
+
 fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
     Some(match kind {
+        "clearing" => {
+            let key = f.req_symbol("key")?;
+            let at = f.req_at("at")?;
+            if !(0.0..160.0).contains(&at.x) || !(0.0..160.0).contains(&at.y) {
+                f.bad(
+                    "at",
+                    "x and y are meters in the landblock, from 0 up to 160",
+                );
+                return None;
+            }
+            let heading = f.float("heading").map(to_f32);
+            let radius = f.float("radius").map(to_f32);
+            let size = match f.t.contains_key("size") {
+                true => {
+                    let v = f.req_floats("size")?;
+                    let [x, y] = v[..] else {
+                        f.bad("size", "two numbers, [x, y] in meters");
+                        return None;
+                    };
+                    Some([x, y])
+                }
+                false => None,
+            };
+            let fits = |n: f32| n > 0.0 && n <= CLEARING_MOST;
+            let good = match (radius, size) {
+                (Some(r), None) => fits(r),
+                (None, Some([x, y])) => fits(x) && fits(y),
+                _ => false,
+            };
+            if !good {
+                f.bad(
+                    "radius",
+                    "a clearing is a radius or a size of two numbers, not both, above 0 and at most 240 meters",
+                );
+                return None;
+            }
+            Row::Clearing(Clearing {
+                key,
+                at,
+                heading,
+                radius,
+                size,
+                prov: f.req_prov()?,
+            })
+        }
         "object" => {
             let route_backward = f.route_direction()?;
             let kind = match f.req_str("kind")?.as_str() {
@@ -981,6 +1184,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 at: f.req_at("at")?,
                 rotation: f.quat("rotation"),
                 heading: f.float("heading").map(to_f32),
+                scale: f.float("scale").map(to_f32),
                 name: f.strref("name"),
                 name_text: f.text("name_text"),
                 to: f.symbol("to"),
@@ -1025,6 +1229,8 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
             counts: f.req_floats("counts")?,
             items: f.weighted("items"),
             extras: f.chances("extras"),
+            level: f.int("level").and_then(|v| i32::try_from(v).ok()),
+            value: f.ids("value"),
             prov: f.req_prov()?,
         }),
         "keeper" => Row::Keeper(Keeper {
@@ -1052,13 +1258,21 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
             state: f.id("state"),
             challenge: f.int("challenge").and_then(|v| i32::try_from(v).ok()),
             duration: f.float("duration"),
+            timed_phase: f.int("timed_phase").and_then(|v| u32::try_from(v).ok()),
             retry: f.float("retry"),
             xp: f.int("xp").and_then(|v| u64::try_from(v).ok()),
+            xp_share: f.float("xp_share"),
+            xp_share_level: f.int("xp_share_level").and_then(|v| i32::try_from(v).ok()),
+            xp_least: f.int("xp_least").and_then(|v| u64::try_from(v).ok()),
+            xp_most: f.int("xp_most").and_then(|v| u64::try_from(v).ok()),
+            xp_whole: f.bool("xp_whole"),
+            qp: f.int("qp").and_then(|v| u32::try_from(v).ok()),
             cancellable: f.bool("cancellable"),
             visible: f.bool("visible"),
             min_level: f.int("min_level").and_then(|v| i32::try_from(v).ok()),
             fails_on_death: f.bool("fails_on_death"),
             once: f.bool("once"),
+            fellows: f.bool("fellows"),
             prov: f.req_prov()?,
         }),
         "step" => {
@@ -1067,10 +1281,12 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 "bestow" => Update::Bestow,
                 "advance" => Update::Advance,
                 "complete" => Update::Complete,
+                "fail" => Update::Fail,
+                "none" => Update::Nothing,
                 other => {
                     f.bad(
                         "update",
-                        &format!("{other:?} is not bestow, advance or complete"),
+                        &format!("{other:?} is not bestow, advance, complete, fail or none"),
                     );
                     return None;
                 }
@@ -1095,9 +1311,26 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 races: f.ids("races"),
                 effects_last: f.bool("effects_last").unwrap_or(false),
                 fellows: f.bool("fellows").unwrap_or(false),
+                wants: f.u32("wants"),
+                least_level: f.int("least_level").and_then(|v| i32::try_from(v).ok()),
+                most_level: f.int("most_level").and_then(|v| i32::try_from(v).ok()),
+                xp_share: f.float("xp_share"),
                 prov: f.req_prov()?,
             })
         }
+        "give" => Row::Give(Give {
+            key: f.req_symbol("key")?,
+            to: f.req_id("to")?,
+            item: f.id("item"),
+            wants: f.u32("wants"),
+            gives: f.ids("gives"),
+            counts: f.ids("counts"),
+            effects: f.ids("effects"),
+            text: f.strref("text"),
+            fx: f.id("fx"),
+            requires: f.requires("requires"),
+            prov: f.req_prov()?,
+        }),
         "talk" => {
             let how = match f.word("how", How::from_word, "tell, say, emote or broadcast") {
                 Some(Some(h)) => h,
@@ -1149,6 +1382,8 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
             heading: f.float("heading").map(to_f32),
             named_by: f.ids("named_by"),
             destination: f.ident("destination"),
+            row: f.symbol("row"),
+            holds: f.id("holds"),
             prov: f.req_prov()?,
         }),
         "craft" => {
@@ -1200,6 +1435,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
         "shard" => Row::Shard(Shard {
             object: f.id64("object")?,
             scene: f.req_id("scene")?,
+            quest: f.id("quest"),
             prov: f.req_prov()?,
         }),
         "weapon" => {
@@ -1217,6 +1453,34 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 template: f.req_id("template")?,
                 two_share,
                 stance: f.id("stance"),
+                prov: f.req_prov()?,
+            })
+        }
+        "death_spawn" => {
+            if f.get("effect").is_none() {
+                return f.missing("effect");
+            }
+            let effect = f.ident("effect")?;
+            let chance = f.float("chance").map_or(1.0, to_f32);
+            if !(0.0..=1.0).contains(&chance) {
+                f.bad("chance", "a share is a number from 0 to 1");
+                return None;
+            }
+            let lasts = f.float("lasts").map(to_f32);
+            if lasts.is_some_and(|t| t <= 0.0) {
+                f.bad("lasts", "a time is a number of seconds above 0");
+                return None;
+            }
+            Row::DeathSpawn(DeathSpawn {
+                effect,
+                template: f.req_id("template")?,
+                count: f
+                    .int("count")
+                    .and_then(|v| u32::try_from(v).ok())
+                    .unwrap_or(1),
+                chance,
+                offset: f.req_at("offset")?,
+                lasts,
                 prov: f.req_prov()?,
             })
         }
@@ -1788,7 +2052,7 @@ impl<'a> Fields<'a> {
         }
         self.typed(
             name,
-            "one of { use = T }, { use = ITEM, on = TARGET }, { give = ITEM, to = TARGET }, { arrive = T }, { take = T }, { kill = T }, { done = Q }",
+            "one of { use = T }, { use = ITEM, on = TARGET }, { give = ITEM, to = TARGET }, { arrive = T }, { take = T }, { kill = T }, { done = Q }, { given = Q }",
             |v| {
                 let t = v.as_table()?;
                 if let (2, Some(item), Some(on)) = (t.len(), t.get("use"), t.get("on")) {
@@ -1808,6 +2072,7 @@ impl<'a> Fields<'a> {
                     "take" => Some(Trigger::Take(tpl)),
                     "kill" => Some(Trigger::Kill(tpl)),
                     "done" => Some(Trigger::Done(tpl)),
+                    "given" => Some(Trigger::Given(tpl)),
                     _ => None,
                 }
             },
@@ -1842,13 +2107,14 @@ impl<'a> Fields<'a> {
     fn requires(&mut self, name: &str) -> Vec<(u32, Need)> {
         self.list_of(
             name,
-            "a list of { quest, phase } or { quest, done = true }",
-            &["quest", "phase", "done"],
+            "a list of { quest, phase }, { quest, done = true } or { quest, free = true }",
+            &["quest", "phase", "done", "free"],
             |t| {
                 let quest = as_u32(t.get("quest")?)?;
-                let need = match (t.get("phase"), t.get("done")) {
-                    (Some(p), None) => Need::Phase(as_u32(p)?),
-                    (None, Some(d)) if d.as_bool() == Some(true) => Need::Done,
+                let need = match (t.get("phase"), t.get("done"), t.get("free")) {
+                    (Some(p), None, None) => Need::Phase(as_u32(p)?),
+                    (None, Some(d), None) if d.as_bool() == Some(true) => Need::Done,
+                    (None, None, Some(f)) if f.as_bool() == Some(true) => Need::Free,
                     _ => return None,
                 };
                 Some((quest, need))

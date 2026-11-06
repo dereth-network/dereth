@@ -333,6 +333,7 @@ impl Federation {
             store.set_world_record(RECORD, &self.directory.record())?;
             self.directory.dirty = false;
         }
+        self.keep_rooms(store)?;
         Ok(())
     }
 
@@ -361,6 +362,28 @@ impl Federation {
         }
         if let Some(who) = who.or_else(|| self.own_address(name)) {
             self.directory.owe_removal(who);
+        }
+    }
+
+    /// A character on the network took a new name: the old one is taken out of the directory, at
+    /// once, and the new one is listed as one put on the network is, its page not shown. Held out,
+    /// it stays so under the new name.
+    pub(crate) fn listing_renamed(&mut self, id: u64, old: &str, new: &str) {
+        let (from, to) = (old.to_lowercase(), new.to_lowercase());
+        let held_out = self.directory.held_out.contains(&from);
+        self.listing_off(old);
+        let d = &mut self.directory;
+        for (name, _) in &mut d.notices {
+            if name.eq_ignore_ascii_case(old) {
+                new.clone_into(name);
+            }
+        }
+        if held_out {
+            d.held_out.insert(to);
+        } else if self.enabled() {
+            self.directory
+                .wanted
+                .insert(to, (id, new.to_owned(), false));
         }
     }
 

@@ -25,6 +25,7 @@ pub mod dispatch;
 pub mod federation;
 pub mod object_store;
 pub mod sessions;
+pub mod source_loot;
 pub mod world;
 
 pub use object_store::ObjectStore;

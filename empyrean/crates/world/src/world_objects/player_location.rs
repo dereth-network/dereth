@@ -393,6 +393,12 @@ pub fn handle_action_tele_to_house(w: &mut World, this: ObjectGuid) {
 /// Handles teleporting a player to the lifestone (/ls or /lifestone command): half the mana, the
 /// lifestone recall animation, then the teleport to `Sanctuary`.
 pub fn handle_action_tele_to_lifestone(w: &mut World, this: ObjectGuid) {
+    // DIVERGE: before `@lifestone` became a recall (`EraFeatures::lifestone_recall`, V472) it
+    // killed the character, at once, as `@die` later did.
+    if !w.era.features.lifestone_recall {
+        crate::world_objects::player_death::die_by_lifestone_command(w, this);
+        return;
+    }
     if !recall_checks(w, this, false) {
         return;
     }
@@ -454,6 +460,15 @@ pub fn motion_marketplace_recall() -> Motion {
 /// The marketplace recall: a fixed 14 s delay (retail's animation is shorter than the table's
 /// 18.4 s), then the teleport to the marketplace drop.
 pub fn handle_action_tele_to_market_place(w: &mut World, this: ObjectGuid) {
+    // DIVERGE: `EraFeatures::marketplace_recall` (V461).
+    if !crate::world_objects::era_gates::has(
+        w,
+        this,
+        w.era.features.marketplace_recall,
+        "Marketplace recall",
+    ) {
+        return;
+    }
     if !recall_checks(w, this, true) {
         return;
     }
@@ -471,6 +486,10 @@ pub fn handle_action_tele_to_market_place(w: &mut World, this: ObjectGuid) {
 
     // TODO: (OptimShi): Actual animation length is longer than in retail. 18.4s
     recall_chain(w, this, 14.0, move |w: &mut World| {
+        // DIVERGE: `EraFeatures::marketplace_recall` (V461), again at the teleport.
+        if !w.era.features.marketplace_recall {
+            return;
+        }
         let drop = marketplace_drop(w);
         teleport(w, this, &drop, false);
     });
@@ -679,6 +698,16 @@ pub fn pk_arena_locs(w: &World) -> Vec<Position> {
 pub fn handle_action_tele_to_pk_arena(w: &mut World, this: ObjectGuid) {
     //Console.WriteLine($"{Name}.HandleActionTeleToPkArena()");
 
+    // DIVERGE: `EraFeatures::pk_arena_recalls` (V472).
+    if !crate::world_objects::era_gates::has(
+        w,
+        this,
+        w.era.features.pk_arena_recalls,
+        "PK arena recalls",
+    ) {
+        return;
+    }
+
     if w.objects
         .get(this)
         .expect("ACE: this is null")
@@ -774,6 +803,12 @@ pub fn pkl_arena_locs(w: &World) -> Vec<Position> {
 // ACE: Player.HandleActionTeleToPklArena
 pub fn handle_action_tele_to_pkl_arena(w: &mut World, this: ObjectGuid) {
     //Console.WriteLine($"{Name}.HandleActionTeleToPkLiteArena()");
+
+    // DIVERGE: `EraFeatures::pk_arena_recalls` and `EraFeatures::pk_lite` (V472).
+    let available = w.era.features.pk_arena_recalls && w.era.features.pk_lite;
+    if !crate::world_objects::era_gates::has(w, this, available, "PK Lite arena recall") {
+        return;
+    }
 
     if is_olthoi_player(w, this) {
         send_weenie_error(w, this, WeenieError::OlthoiCanOnlyRecallToLifestone);

@@ -83,27 +83,9 @@ pub fn formula_is_legal(w: &World, components: &[u32]) -> bool {
         })
 }
 
-/// The target type a formula aims at by its own components, as the research-era client read it:
-/// from the slot before the first empty one at or past the fifth, for a formula of at least five.
-#[must_use]
-pub fn formula_target_type(components: &[u32]) -> u32 {
-    let mut slots = [0u32; 8];
-    for (slot, c) in slots.iter_mut().zip(components) {
-        *slot = *c;
-    }
-    if slots[..5].contains(&0) {
-        return 0;
-    }
-    let mut i = 5;
-    while i < 8 && slots[i] != 0 {
-        i += 1;
-    }
-    dereth_rules::weenie::spell_target_type_of_component(slots[i - 1])
-}
-
 /// Whether a formula aimed at `mask` may be tested on `target`: the type check the research-era
-/// client made before a cast. No type wants no target; a weapon, armour, clothing or caster
-/// enchantment may be aimed at a creature, which carries it.
+/// client made before a cast. No type wants no target; on a world that redirects item enchantments,
+/// a weapon, armour, clothing or caster enchantment may be aimed at a creature, which carries it.
 fn target_fits_mask(w: &World, player: ObjectGuid, target: ObjectGuid, mask: u32) -> bool {
     /// The item types an enchantment aimed at a creature is redirected from: melee and missile
     /// weapons, armour, clothing, casters.
@@ -116,10 +98,11 @@ fn target_fits_mask(w: &World, player: ObjectGuid, target: ObjectGuid, mask: u32
     let Some(o) = w.objects.get(target) else {
         return false;
     };
+    let redirects = w.era.features.item_enchantment_redirection;
     if target == player {
-        return mask & (REDIRECTED | CREATURE) != 0;
+        return mask & CREATURE != 0 || (redirects && mask & REDIRECTED != 0);
     }
-    o.item_type().0 & mask != 0 || (mask & REDIRECTED != 0 && o.is_creature())
+    o.item_type().0 & mask != 0 || (redirects && mask & REDIRECTED != 0 && o.is_creature())
 }
 
 /// The test: refuse it on a world without spell research, then judge it as the module says.
@@ -150,7 +133,7 @@ pub fn handle_test_spell_formula(
         player_use::send_use_done_event(w, player, WeenieError::IncorrectTargetType);
     };
     let Some(spell_id) = spell_of_formula(w, &account, components) else {
-        let mask = formula_target_type(components);
+        let mask = dereth_rules::weenie::formula_target_type(components);
         if mask != 0 && !target_fits_mask(w, player, ObjectGuid::new(target_guid), mask) {
             refuse(w);
             return;
@@ -192,12 +175,20 @@ pub(crate) fn complete_successful_cast(w: &mut World, player: ObjectGuid, spell_
     state.research_spell = None;
     if !player_spells::spell_is_known(w, player, spell_id) {
         player_spells::learn_spell_with_networking(w, player, spell_id, true);
-    } else if let Some(session) = crate::managers::player_manager::player_session(w, player) {
-        use crate::network::game_event::events::game_event_magic_update_spell::game_event_magic_update_spell;
-        use crate::network::game_event::game_event_message::session_data;
-        use crate::network::game_messages::game_message::enqueue_send;
-        let spell = u16::try_from(spell_id).expect("a research spell fits its update message");
-        let message = game_event_magic_update_spell(session_data(w, session), spell, 0);
-        enqueue_send(w, session, message);
+    } else {
+        send_spell_update(w, player, spell_id);
     }
+}
+
+/// `Magic_UpdateSpell` for a spell: a new one for the client, or one it knows that was cast.
+pub(crate) fn send_spell_update(w: &mut World, player: ObjectGuid, spell_id: u32) {
+    use crate::network::game_event::events::game_event_magic_update_spell::game_event_magic_update_spell;
+    use crate::network::game_event::game_event_message::session_data;
+    use crate::network::game_messages::game_message::enqueue_send;
+    let Some(session) = crate::managers::player_manager::player_session(w, player) else {
+        return;
+    };
+    let spell = u16::try_from(spell_id).expect("a spell id fits its update message");
+    let message = game_event_magic_update_spell(session_data(w, session), spell, 0);
+    enqueue_send(w, session, message);
 }

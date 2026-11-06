@@ -47,7 +47,9 @@ impl RecordType {
     pub const MUSIC: Self = Self(0x40000029);
     pub const ID_MAP: Self = Self(0x4000002A);
     pub const SOUND_ENVIRONMENT: Self = Self(0x4000002B);
+    // D2-16808
     pub const SOUND_INFO: Self = Self(0x4000002C);
+    // D2-16801
     pub const MUSIC_INFO: Self = Self(0x4000002D);
     pub const MATERIAL: Self = Self(0x4000002E);
     pub const SCRIPT_STATE: Self = Self(0x4000002F);
@@ -170,17 +172,6 @@ impl RecordType {
     #[must_use]
     pub fn recycles_free_records(self) -> bool {
         self == Self::LANDBLOCK
-    }
-
-    /// The bytes a record's header takes: its id, and its category word when the type has one.
-    // D2-12691
-    #[must_use]
-    pub fn header_size(self) -> usize {
-        if self.is_categorized() {
-            8
-        } else {
-            4
-        }
     }
 
     /// A short name: the extension without its dot, or a name for the types registered without

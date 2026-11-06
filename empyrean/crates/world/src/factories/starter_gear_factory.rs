@@ -106,7 +106,10 @@ static INFILTRATION_CONFIG: StarterGearConfiguration = StarterGearConfiguration 
 pub fn get_starter_gear_configuration_for(
     set: empyrean_common::era::StarterGearSet,
 ) -> &'static StarterGearConfiguration {
+    static EMPTY: StarterGearConfiguration = StarterGearConfiguration { skills: &[] };
     match set {
+        // Launch supplies are assigned by PlayerFactory from skills and spell formulas.
+        empyrean_common::era::StarterGearSet::Launch => &EMPTY,
         empyrean_common::era::StarterGearSet::EndOfRetail => &CONFIG,
         empyrean_common::era::StarterGearSet::Infiltration => &INFILTRATION_CONFIG,
     }

@@ -199,3 +199,316 @@ fn our_clients_kept_window_places_come_back_on_the_next_entry() {
     ok(play::enter(&mut s, me));
     assert_eq!(kept(&mut s).location(RADAR.0, RADAR.1), Some(place));
 }
+
+/// Our client changes an option in play and logs off without sending it: it is gone at the next
+/// entry. It changes it again and the play screen's end sends the options before the log off: its
+/// scripts answer the option as changed at the next entry.
+/// Behaviour: session.server.our-clients-options-sent-at-log-off-come-back-on-the-next-entry
+#[test]
+fn our_clients_options_sent_at_log_off_come_back_on_the_next_entry() {
+    use auberean_client_sdk::contract::PlayerOption;
+    use auberean_client_sdk::runtime::interface::function;
+    use auberean_client_sdk::Action;
+    const OPTION: PlayerOption = PlayerOption::ShortcutHeight;
+    fn shown(s: &mut InProcess) -> u32 {
+        for _ in 0..20_000 {
+            if let Some(v) = s.client().option(OPTION).filter(|v| *v != 0) {
+                return v;
+            }
+            s.step();
+        }
+        panic!("the scripts never answered the option");
+    }
+    let mut s = InProcess::new();
+    ok(play::character_list(&mut s));
+    let me = ok(play::create(&mut s, "Aubrey"));
+    ok(play::enter(&mut s, me));
+    let first = shown(&mut s);
+    let other = first + 1;
+
+    s.client().set_option(OPTION, other);
+    assert_eq!(shown(&mut s), other, "the scripts keep it for now");
+    ok(play::log_off(&mut s));
+    ok(play::enter(&mut s, me));
+    assert_eq!(shown(&mut s), first, "not sent, not kept");
+
+    s.client().set_option(OPTION, other);
+    s.client().act(Action::KeepOptions);
+    ok(play::log_off(&mut s));
+    ok(play::enter(&mut s, me));
+    assert_eq!(shown(&mut s), other, "sent, kept");
+
+    // The radar's button: the change, then the options sent, in one step.
+    let coordinates = |s: &mut InProcess| {
+        s.client()
+            .interface(function::GET_SHOW_RADAR_COORDS, &[])
+            .map(|(_, v)| v)
+    };
+    let before = coordinates(&mut s).expect("answered");
+    s.client()
+        .act(Action::ShowRadarCoordinates { on: before == 0 });
+    s.client().act(Action::KeepOptions);
+    ok(play::log_off(&mut s));
+    ok(play::enter(&mut s, me));
+    shown(&mut s);
+    assert_ne!(coordinates(&mut s), Some(before), "the change is kept");
+}
+
+/// A character that logged off with a quest under way enters again: the whole-list notice the
+/// scripts send the journal at the session's start carries the quest, as the journal asks for it.
+/// Behaviour: session.server.a-character-entering-again-gives-the-journal-its-quests
+#[test]
+fn a_character_entering_again_gives_the_journal_its_quests() {
+    use auberean_script::native_object::NativeObject;
+    use yalain_content::quests::QuestDef;
+    use yalain_content::QuestTable;
+    use yalain_world::state::QuestState;
+    const QUEST: u32 = 0x4000_0088;
+    const UNDER_WAY: u32 = 0x1000_0000;
+    /// The journal's notice, and how it says the whole list is to be read.
+    const UPDATE_QUESTS: u32 = 0x008E << 16 | 0x0001;
+    const WHOLE_LIST: u32 = 0x4000_0002;
+    let mut s = InProcess::new();
+    s.h.server.quests = QuestTable {
+        quests: vec![QuestDef {
+            id: QUEST,
+            name: (0xA860_7CEC, 0x2500_17EE),
+            description: (0x6C45_9364, 0x2500_17EE),
+            icon: 0x4100_034B,
+            play_fx: true,
+            journals: vec![(1, 0x2500_17EE)],
+            challenge: -999,
+            duration: 0.0,
+            timed_phase: 0,
+            retry: 0.0,
+            xp: 0,
+            cancellable: false,
+            placed: "authored for a test".into(),
+            hidden: false,
+            effects: Vec::new(),
+            subquests: Vec::new(),
+            min_level: 0,
+            fails_on_death: false,
+            once: false,
+            fellows: yalain_content::quests::Fellows::default(),
+            last_waits: false,
+            hero_only: false,
+            pay: yalain_content::quests::CompletionPay::default(),
+            required: None,
+        }],
+        steps: Vec::new(),
+        gives: Vec::new(),
+        rooms: Vec::new(),
+    };
+    ok(play::character_list(&mut s));
+    let me = ok(play::create(&mut s, "Aubrey"));
+    ok(play::enter(&mut s, me));
+    let p = s.h.server.players.values_mut().next().expect("the player");
+    p.play.quests.push(QuestState {
+        quest: QUEST,
+        status: UNDER_WAY,
+        phase: 1,
+        started: 1,
+        updated: 1,
+    });
+    ok(play::log_off(&mut s));
+    s.client().notices.clear();
+    ok(play::enter(&mut s, me));
+    let whole = s
+        .client_ref()
+        .notices
+        .iter()
+        .find(|n| n.native == UPDATE_QUESTS && n.words.first() == Some(&WHOLE_LIST))
+        .expect("the session's start tells the journal to read its list");
+    let listed: Vec<u32> = whole
+        .objects
+        .iter()
+        .flatten()
+        .filter_map(|o| match o {
+            NativeObject::QuestList(l) => Some(l.iter().map(|q| q.id)),
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    assert_eq!(
+        listed,
+        [QUEST],
+        "the notice carries the quest the player holds"
+    );
+}
+
+/// Moccasins looted from a corpse and used from the pack go on the feet, the weapon staying in the
+/// hand. These moccasins' template keeps its places only in its qualities record, and an item
+/// without places is wielded as a sword is.
+///
+/// Behaviour: session.server.a-looted-item-with-its-places-in-its-qualities-goes-where-they-say
+#[test]
+fn looted_moccasins_used_go_on_the_feet_and_the_weapon_stays_in_hand() {
+    use yalain_testkit::authored::Portal;
+    /// Initiate Moccasins.
+    const MOCCASINS: u32 = 0x4700_0E0C;
+    /// The inventory's notice of an item's change, how it says an item was put on, and the feet.
+    const CHANGED: u32 = 0x008B << 16 | 0x0001;
+    const PUT_ON: u32 = 0x4000_0002;
+    const FEET: u32 = 0x10;
+    let mut s = InProcess::new();
+    // Tumerok's by their class, on a character of any race here.
+    let mut moccasins = Portal::open().template(MOCCASINS);
+    moccasins
+        .props
+        .set("Usage_RequiredRace", yalain_content::Prop::Word(0));
+    s.h.server.catalog.insert(moccasins);
+    for profile in &mut s.h.server.loot.profiles {
+        profile.items = vec![(MOCCASINS, 1)];
+    }
+    ok(play::character_list(&mut s));
+    let me = ok(play::create(&mut s, "Aubrey"));
+    ok(play::enter(&mut s, me));
+    ok(play::see(&mut s, &[authored::SENTINEL]));
+    let held = ok(play::wield(&mut s, authored::SWORD));
+    s.client()
+        .act(auberean_client_sdk::Action::Select { target: 0 });
+    s.client().act(auberean_client_sdk::Action::Examination {
+        tabs: Some(play::TABS),
+    });
+    let sentinel = play::find(s.client_ref(), authored::SENTINEL).expect("a sentinel");
+    let at = sentinel.place.expect("placed").origin;
+    ok(play::walk_to(&mut s, [at.x, at.y, at.z], 1.5));
+    ok(play::select_and_examine(&mut s, sentinel.id).map(|_| ()));
+    ok(play::attack_until_dead(&mut s, sentinel.id));
+    let (_, item) = ok(play::open_corpse(&mut s));
+    ok(play::take(&mut s, item));
+    s.client().notices.clear();
+    play::use_object(&mut s, item);
+    play::wait(&mut s, 4.0);
+    let put_on: Vec<Vec<u32>> = s
+        .client_ref()
+        .notices
+        .iter()
+        .filter(|n| n.native == CHANGED && n.words.first() == Some(&PUT_ON))
+        .map(|n| n.words.clone())
+        .collect();
+    let at = |w: &Vec<u32>| w.last().copied();
+    assert!(
+        put_on.len() == 1 && at(&put_on[0]) == Some(FEET),
+        "on the feet: {put_on:x?}"
+    );
+    let weapon = s.client_ref().model.object(held).expect("the sword");
+    assert!(weapon.wielder.is_some(), "the sword still in hand");
+}
+
+/// An item whose template names itself only in its qualities record is named and described in its
+/// profile from there, in its own table.
+///
+/// Behaviour: session.server.a-looted-item-with-its-places-in-its-qualities-goes-where-they-say
+#[test]
+fn an_item_named_only_in_its_qualities_has_its_name_and_description() {
+    use yalain_content::Prop;
+    use yalain_testkit::authored::Portal;
+    /// Initiate Moccasins, and the table holding their text.
+    const MOCCASINS: u32 = 0x4700_0E0C;
+    const TABLE: u32 = 0x2500_1907;
+    let t = Portal::open().template(MOCCASINS);
+    let line = yalain_world::profile::item_line::NAME;
+    assert_eq!(t.props.get("Name"), Some(&Prop::Str(line, TABLE)));
+    let line = yalain_world::profile::item_line::DESCRIPTION;
+    assert_eq!(t.props.get("Description"), Some(&Prop::Str(line, TABLE)));
+}
+
+/// A player killed asks to be brought back, as death's dialog does, and lives: the player's scripts
+/// hear it.
+///
+/// Behaviour: session.server.a-dead-player-comes-back-by-the-dialogs-ask
+#[test]
+fn a_dead_player_asks_and_comes_back() {
+    use auberean_client_sdk::Action;
+    const STARTING_WEAPON: u32 = 0x4700_051C;
+    /// The player died (1) or lives again (0).
+    const DEATH: u32 = 0x0085 << 16 | 0x0008;
+    let mut s = InProcess::new();
+    ok(play::character_list(&mut s));
+    let me = ok(play::create(&mut s, "Aubrey"));
+    ok(play::enter(&mut s, me));
+    ok(play::see(&mut s, &[authored::SENTINEL]));
+    ok(play::wield(&mut s, STARTING_WEAPON).map(|_| ()));
+    s.client().act(Action::Select { target: 0 });
+    s.client().act(Action::Examination {
+        tabs: Some(play::TABS),
+    });
+    let sentinel = play::find(s.client_ref(), authored::SENTINEL).expect("a sentinel");
+    let at = sentinel.place.expect("placed").origin;
+    ok(play::walk_to(&mut s, [at.x, at.y, at.z], 1.5));
+    ok(play::select_and_examine(&mut s, sentinel.id).map(|_| ()));
+    // A sentinel that does not fall, and a player that does at its first blow.
+    s.h.server
+        .things
+        .get_mut(sentinel.id)
+        .expect("the sentinel")
+        .health = 100_000;
+    let player = s.h.server.players.values_mut().next().expect("the player");
+    yalain_world::quals::set_int(
+        &mut player.qualities,
+        yalain_world::player::quality::HEALTH,
+        1,
+    );
+    let fight = play::attack_until_dead(&mut s, sentinel.id);
+    assert!(fight.is_err(), "the player falls first");
+    // Dead, and its corpse on the ground: death's dialog waits on the player.
+    ok(play::until(&mut s, 30.0, "told it died", |c| {
+        c.notices
+            .iter()
+            .any(|n| n.native == DEATH && n.words.first() == Some(&1))
+    }));
+    play::wait(&mut s, 15.0);
+    s.client().notices.clear();
+    s.client().act(Action::Resurrect);
+    play::wait(&mut s, 15.0);
+    let back = s
+        .client_ref()
+        .notices
+        .iter()
+        .any(|n| n.native == DEATH && n.words.first() == Some(&0));
+    assert!(back, "told it lives again");
+}
+
+/// A person hands over an item the client has not been told of yet: the move's answer comes first,
+/// so the client's own line for it says "the item", not its name, as retail's does.
+/// Behaviour: server.gives.a-gift-is-answered-before-its-object
+#[test]
+fn a_gift_from_a_person_is_called_the_item_by_the_clients_line() {
+    use auberean_script::native_object::VariableValue;
+    const RECEIVED: u32 = 0x4CF8_CDB5;
+    const ITEM: u32 = 0xD0DC_9036;
+    let mut s = InProcess::new();
+    ok(play::character_list(&mut s));
+    let me = ok(play::create(&mut s, "Aubrey"));
+    ok(play::enter(&mut s, me));
+    ok(play::see(&mut s, &[authored::GUARD]));
+    let guard = play::find(s.client_ref(), authored::GUARD).expect("the guard");
+    let world = *s.h.server.players.keys().next().expect("the player");
+    yalain_world::inventory::give_from(
+        &mut s.h.server,
+        &mut s.h.net,
+        world,
+        authored::SWORD,
+        1,
+        guard.id,
+    );
+    play::wait(&mut s, 1.0);
+    let lines = &s.client_ref().shown;
+    let ids: Vec<(u32, u32)> = lines.iter().map(|l| (l.kind, l.text.string_id)).collect();
+    let line = lines
+        .iter()
+        .find(|l| l.text.string_id == RECEIVED)
+        .unwrap_or_else(|| panic!("its line for what it received: {ids:x?}"));
+    let named: Vec<u32> = line
+        .text
+        .variables
+        .iter()
+        .filter_map(|v| match &v.value {
+            VariableValue::Nested(t) => Some(t.string_id),
+            _ => None,
+        })
+        .collect();
+    assert!(named.contains(&ITEM), "{named:x?}");
+}

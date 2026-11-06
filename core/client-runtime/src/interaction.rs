@@ -582,6 +582,8 @@ pub struct Interaction {
     /// A `Vec` for `pending_vendor_close_confirmations`' reason, and the only chat command in
     /// retail that opens a dialog of its own.
     pending_die_confirmations: Vec<&'static str>,
+    /// `@lifestone`'s death question, on a world where `@lifestone` kills.
+    pending_lifestone_death_confirmations: Vec<&'static str>,
     /// The web addresses clicked in chat lines, each waiting for the dialog service to ask the
     /// player whether to open it.
     pending_link_confirmations: Vec<String>,
@@ -1170,7 +1172,7 @@ pub const PLAYER_OPTION_ACTIONS: [(u32, usize); 51] = [
     (0x1000_0080, option::FELLOWSHIP_SHARE_XP), // FellowshipShareXP
     (0x1000_0081, option::ACCEPT_LOOT_PERMITS), // AcceptLootPermits
     (0x1000_0082, option::FELLOWSHIP_SHARE_LOOT), // FellowshipShareLoot
-    (0x1000_0083, option::FELLOWSHIP_AUTO_ACCEPT_REQUESTS), // FellowshipAutoAcceptRequests
+    (0x1000_0083, option::FELLOWSHIP_AUTO_ACCEPT_REQUESTS), // Auto-accept fellowship requests
     (0x1000_0085, option::COORDINATES_ON_RADAR), // CoordinatesOnRadar
     (0x1000_0086, option::SPELL_DURATION),     // SpellDuration
     (0x1000_0087, option::DISABLE_HOUSE_RESTRICTION_EFFECTS), // DisableHouseRestrictionEffects
@@ -1184,7 +1186,7 @@ pub const PLAYER_OPTION_ACTIONS: [(u32, usize); 51] = [
     (0x1000_008F, option::DISPLAY_CHESS_RANK),                     // DisplayChessRank
     (0x1000_0090, option::DISPLAY_FISHING_SKILL),                  // DisplayFishingSkill
     (0x1000_0091, option::DISPLAY_NUMBER_DEATHS),                  // DisplayNumberDeaths
-    (0x1000_0092, option::DISPLAY_TIME_STAMPS),                    // DisplayTimeStamps
+    (0x1000_0092, option::DISPLAY_TIME_STAMPS),                    // Chat timestamps
     (0x1000_0093, option::SALVAGE_MULTIPLE),                       // SalvageMultiple
     (0x1000_010E, option::HEAR_GENERAL_CHAT),                      // HearGeneralChat
     (0x1000_010F, option::HEAR_TRADE_CHAT),                        // HearTradeChat
@@ -1214,6 +1216,18 @@ pub fn player_option_action(id: u32) -> Option<usize> {
         .iter()
         .find(|(a, _)| *a == id)
         .map(|(_, o)| *o)
+}
+
+/// Whether the world has the system the option `ordinal` belongs to: the Character Options page's
+/// answer for its row.
+#[must_use]
+pub fn option_offered(ordinal: usize, features: &dereth_primitives::era::EraFeatures) -> bool {
+    use dereth_client_contract::{options::sheet, PlayerOption};
+    PlayerOption::ALL
+        .into_iter()
+        .find(|o| crate::hud::option_ordinal(*o) == ordinal)
+        .and_then(sheet::row_of_option)
+        .is_none_or(|row| row.needs.met(Some(features)))
 }
 
 /// The height an attack key attacks at: `CombatLowAttack` and `CombatAimLow` low, the medium and

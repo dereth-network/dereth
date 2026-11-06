@@ -3,7 +3,7 @@
 use auberean_script::args::{self, Arg};
 use auberean_script::graph::{field, Body, Entry, Graph, PackedObject};
 use auberean_script::heap::Heap;
-use auberean_script::native_object::{NativeObject, BUCKET_SIZES};
+use auberean_script::native_object::{native_type, NativeObject, BUCKET_SIZES};
 use auberean_script::opcode::op;
 use auberean_script::value::tag;
 
@@ -590,4 +590,17 @@ fn a_library_is_taken_only_when_it_names_the_machine_version_the_client_runs() {
     );
     let refused = with(&[("$wcc", "12")]).unwrap_err();
     assert!(refused.0.contains("version is 12"), "{refused:?}");
+}
+
+/// **A new icon description has no layers: it packs as a count of zero**, so an object holding one
+/// can be copied and sent.
+///
+/// Behaviour: script.natives.a-new-icon-packs-a-count-of-nothing
+#[test]
+fn a_new_icon_description_packs_a_count_of_nothing() {
+    let l = lib();
+    let icon = NativeObject::new(&l, native_type::ICON_DESC);
+    let mut w = auberean_script::wire::Out::new();
+    icon.write(&mut w).expect("a new icon description packs");
+    assert_eq!(w.buf, vec![0; 4]);
 }

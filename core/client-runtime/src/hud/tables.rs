@@ -77,6 +77,8 @@ impl Hud {
         // (the same shortcut `GENDER_ENUM_MAPPER` and `panels::statmgmt::STRING_TABLE` take). So
         // the mapper is found by **matching**, not by a hard-coded id: every `0x27xxxxxx` is
         // decoded and the one whose keys overlap the `SpellComponentTable`'s SCIDs most is taken.
+        // A short table overlaps several mappers alike: of those, the one with the most entries is
+        // the components' own ([`better_component_mapper`]).
         //
         // That is deliberately an instrument that can prove it looked: `component_mapper_scan`
         // records how many mappers were examined and how many entries matched, so an empty
@@ -370,7 +372,10 @@ impl Hud {
                     .iter()
                     .filter(|(k, _)| table.components.contains_key(k))
                     .count();
-            if hits > best.as_ref().map_or(0, |(n, _)| *n) {
+            if better_component_mapper(
+                (hits, m.0.enum_to_id.len()),
+                best.as_ref().map(|(n, pairs)| (*n, pairs.len())),
+            ) {
                 best = Some((hits, m.0.enum_to_id.clone()));
             }
         }
@@ -423,7 +428,8 @@ impl Hud {
             return Vec::new();
         };
         let count =
-            dereth_client_contract::era::EraUiFacts::for_profile(self.era.era).spell_favorite_tabs;
+            dereth_client_contract::era::EraUiFacts::for_world(self.era.era, self.era.features())
+                .spell_favorite_tabs;
         world
             .player_system
             .spell_tabs
@@ -552,6 +558,17 @@ pub(super) fn level_xp(
 
 /// The spell-component panel's component walk, as a snapshot.
 ///
+/// Whether a mapper with `(hits, entries)` beats the best so far. The world's component table can be
+/// shorter than the files' mapper: the 74 components of 1999 overlap 74 keys of an unrelated
+/// 78-entry mapper as fully as those of the 164-entry mapper that names their classes, and only
+/// the entries tell them apart.
+pub(super) fn better_component_mapper(
+    candidate: (usize, usize),
+    best: Option<(usize, usize)>,
+) -> bool {
+    candidate.0 > 0 && best.is_none_or(|b| candidate > b)
+}
+
 /// Seven component categories in their defined order, each already sorted by display name and
 /// joined to the desired component level for each `wcid`.
 ///

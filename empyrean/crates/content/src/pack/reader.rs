@@ -189,6 +189,23 @@ impl Pack {
             tables.push(e);
         }
         c.expect_end()?;
+        let grouped = tables
+            .iter()
+            .any(|t| t.table_id == TableId::GROUPED_TREASURE.0);
+        let policy = tables.iter().any(|t| t.table_id == TableId::LOOT_POLICY.0);
+        if grouped != policy || policy != (header.flags & format::FLAG_SOURCE_LOOT != 0) {
+            return Err(PackError::InvalidLoot(
+                "source loot capability/table mismatch".into(),
+            ));
+        }
+        let has_vitals = tables.iter().any(|t| t.table_id == TableId::RECIPE_VITAL.0);
+        if has_vitals != (header.flags & format::FLAG_RECIPE_VITALS != 0) {
+            return Err(PackError::HeaderField {
+                field: "recipe vital table capability",
+                expected: u64::from(has_vitals),
+                found: u64::from(header.flags & format::FLAG_RECIPE_VITALS != 0),
+            });
+        }
         if total != header.index_count {
             return Err(PackError::HeaderField {
                 field: "index_count vs sum of record_count",
@@ -198,13 +215,34 @@ impl Pack {
         }
         let index_span = span(header.index_off, index_bytes)?;
         let blob_span = span(header.blob_off, header.blob_len)?;
-        Ok(Self {
+        let result = Self {
             data,
             header,
             tables,
             index_span,
             blob_span,
-        })
+        };
+        if policy {
+            if result.count(TableId::LOOT_POLICY) != 1
+                || result
+                    .get::<crate::loot::SourceLootPolicy>(TableId::LOOT_POLICY, 1)?
+                    .is_none()
+            {
+                return Err(PackError::InvalidLoot(
+                    "source loot requires singleton policy 1".into(),
+                ));
+            }
+            for (key, row) in
+                result.all::<crate::loot::GroupedTreasureDeath>(TableId::GROUPED_TREASURE)?
+            {
+                if key != u64::from(row.treasure_type) {
+                    return Err(PackError::InvalidLoot(
+                        "grouped treasure key mismatch".into(),
+                    ));
+                }
+            }
+        }
+        Ok(result)
     }
 
     #[must_use]

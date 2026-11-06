@@ -20,6 +20,7 @@ use std::collections::BTreeMap;
 use auberean_animation::body::Body as Figure;
 use auberean_animation::host::Completion;
 use auberean_animation::CachedRecords;
+use auberean_assets::fx::AppearanceKey;
 use auberean_client_sdk::protocol::types::VisualDesc as WireVisual;
 use auberean_client_sdk::Client;
 use auberean_draw::body::BodyDrawer;
@@ -31,7 +32,7 @@ use auberean_physics::missile::{MissileParameters, MissileTargetingParameters};
 use auberean_physics::motion::values::default_values;
 use auberean_physics::world::NoGameObjects;
 use auberean_primitives::{DataId, Quat, Vec3};
-use auberean_world::look::{Look, ObjectLook};
+use auberean_world::look::{Desc, Look, ObjectLook};
 use auberean_world::math::Mat4;
 use auberean_world::place::PlaceRecords;
 use auberean_world::records::WorldRecords;
@@ -39,8 +40,12 @@ use dereth_primitives::Position;
 
 use crate::{Scene, BLOCK_LENGTH};
 
+/// The part group an appearance laid over an effect's clone goes to.
+const CLONE_APPEARANCE_GROUP: u32 = 0x4000_0002;
 /// How long a fading object takes to fade out, and the opacity it fades to, seconds.
 pub const FADE_TIME: f64 = 0.5;
+/// How long after a behavior asks that its object go it goes, hidden until then, seconds.
+pub(crate) const REMOVED_GONE: f64 = 3.0;
 
 /// One object the client made.
 pub(crate) struct Temporary {
@@ -53,6 +58,9 @@ pub(crate) struct Temporary {
     pub figure: Option<Figure>,
     pub body: Body,
     pub scale: Vec3,
+    /// Whether it has stood in the world, and so has a place of its own: what is only ever held
+    /// has none.
+    pub stood: bool,
     /// The holder and the holding location it is taken up at, while it is held.
     pub holder: Option<(u64, u32)>,
     /// When its timeout passes (the client's time), when it has one.
@@ -124,6 +132,19 @@ fn body_of(id: u64, figure: Option<&Figure>, scale: f32, at: Position) -> Body {
 }
 
 impl Temporaries {
+    /// The decals the bodies' effects laid since last asked, each with where its body stands.
+    pub(crate) fn take_decals(
+        &mut self,
+        out: &mut Vec<(Position, auberean_draw::effects::FxDecal)>,
+    ) {
+        for b in self.made.values_mut() {
+            if let Some(fx) = b.effects.as_mut() {
+                let place = b.body.position;
+                out.extend(fx.fx.take_decals().into_iter().map(|d| (place, d)));
+            }
+        }
+    }
+
     /// The sounds every body's effects played or stopped since last taken, each with its object.
     pub(crate) fn take_sounds(&mut self, out: &mut Vec<(u64, auberean_draw::effects::FxSound)>) {
         for fx in self.made.values_mut().filter_map(|b| b.effects.as_mut()) {
@@ -223,6 +244,7 @@ impl Temporaries {
                 dress: None,
                 placed_at: None,
                 figure,
+                stood: false,
                 body,
                 scale: look.scale,
                 holder: None,
@@ -254,13 +276,51 @@ impl Temporaries {
         t.body.child_scale = look.child_scale;
     }
 
+    /// Object `id` takes `values` of appearance table `apr` over its look.
+    // D2-06907
+    pub(crate) fn add_appearance(
+        &mut self,
+        records: &WorldRecords,
+        anims: &CachedRecords<'_>,
+        id: u64,
+        apr: u32,
+        values: &[(u32, f32)],
+    ) {
+        let Some(t) = self.made.get_mut(&id) else {
+            return;
+        };
+        let mut parent = DataId(t.data_id);
+        if parent.0 >> 24 == 0x47 {
+            parent = records
+                .entity(parent)
+                .and_then(|e| e.object)
+                .map_or(DataId::NONE, DataId);
+        }
+        let dress = t.dress.get_or_insert_with(|| {
+            ObjectLook::new(&Desc {
+                parent,
+                ..Desc::default()
+            })
+        });
+        for &(key, scalar) in values {
+            let value = AppearanceKey { key, scalar };
+            let _ = dress
+                .local
+                .add_appearance_key(anims, CLONE_APPEARANCE_GROUP, apr, value);
+        }
+        let Ok(look) = dress.total(anims) else {
+            return;
+        };
+        crate::takes_look(anims, &mut t.figure, &mut t.effects, Some(&look), id);
+    }
+
     /// Removes object `id` at once.
     pub(crate) fn remove(&mut self, id: u64) -> Option<Temporary> {
         self.made.remove(&id)
     }
 
-    /// Fades object `id` out over half a second and removes it `delay` seconds from `now` (the
-    /// fade's time when 0).
+    /// Fades object `id` out over `fade` seconds and removes it `delay` seconds from `now`: with no
+    /// delay it goes at once, before the fade shows.
     // D2-05707
     pub(crate) fn fade_and_remove(&mut self, id: u64, now: f64, fade: f64, delay: f64) {
         let Some(t) = self.made.get_mut(&id) else {
@@ -270,13 +330,40 @@ impl Temporaries {
             #[allow(clippy::cast_possible_truncation)]
             f.sliders.do_slider(0, FADE_SLIDER, 0.0, fade as f32);
         }
-        let at = now + if delay == 0.0 { fade } else { delay };
+        let at = now + delay;
         t.removal = Some(t.removal.map_or(at, |r| r.min(at)));
     }
 
+    /// What every object's figure asked beyond its animation since last taken, with its id. A
+    /// behavior that destroys its object as it ends hides it at once, and it goes three seconds on.
+    // D2-06097
+    pub(crate) fn take_figure_events(
+        &mut self,
+        now: f64,
+    ) -> Vec<(u64, auberean_animation::host::Event)> {
+        use auberean_animation::host::Event;
+        let mut out = Vec::new();
+        let mut removed = Vec::new();
+        for (id, t) in &mut self.made {
+            if let Some(f) = &mut t.figure {
+                for e in f.take_events() {
+                    if e == Event::Remove {
+                        removed.push(*id);
+                    } else {
+                        out.push((*id, e));
+                    }
+                }
+            }
+        }
+        for id in removed {
+            self.fade_and_remove(id, now, 0.0, REMOVED_GONE);
+        }
+        out
+    }
+
     /// The objects whose timeout has passed by `now` fade out; those whose time to go has come are
-    /// removed (their ids given back).
-    pub(crate) fn use_time(&mut self, now: f64) -> Vec<u64> {
+    /// removed (their ids given back, with their holders).
+    pub(crate) fn use_time(&mut self, now: f64) -> Vec<(u64, Option<u64>)> {
         let due: Vec<u64> = self
             .made
             .iter()
@@ -292,13 +379,13 @@ impl Temporaries {
             );
             self.fade_and_remove(id, now, FADE_TIME, FADE_TIME);
         }
-        let gone: Vec<u64> = self
+        let gone: Vec<(u64, Option<u64>)> = self
             .made
             .iter()
             .filter(|(_, t)| t.removal.is_some_and(|r| r <= now))
-            .map(|(id, _)| *id)
+            .map(|(id, t)| (*id, t.holder.map(|(h, _)| h)))
             .collect();
-        for id in &gone {
+        for (id, _) in &gone {
             self.made.remove(id);
         }
         gone
@@ -332,6 +419,7 @@ impl Temporaries {
             let g = crate::figures::global(at.cell.0, Vec3::new(o.x, o.y, o.z));
             let rel = Vec3::new(g.x - ox, g.y - oy, g.z);
             let q = at.frame.rotation;
+            // D2-05981
             let place = Mat4::from_parts(
                 rel,
                 Quat {
@@ -342,9 +430,12 @@ impl Temporaries {
                 },
                 Vec3::new(scale.x, scale.y, scale.z),
             );
-            let poses = f.pose(anims);
             let start = out.len();
-            out.extend(drawer.batches(records, f, &poses, &place));
+            if crate::figures::is_visible(f) {
+                let poses = f.pose(anims);
+                drawer.next_body(false);
+                out.extend(drawer.batches(records, f, &poses, &place));
+            }
             let heading = auberean_physics::geom::frame_heading(&at.frame).degrees();
             noted.push((*id, start..out.len(), rel, heading));
         }
@@ -398,9 +489,25 @@ impl Scene<'_> {
             if let Some(k) = t.body.key() {
                 self.table.remove(k);
             }
+            self.holder_lets_go(t.holder.map(|(h, _)| h), id);
             self.stories.remove(&id);
             client.model.deallocate_temporary_id(id);
             client.queue.remove_object(id);
+        }
+    }
+
+    /// A holder takes an object the client made off its list as the object goes, so that the id,
+    /// when used again, is not taken for it.
+    pub(crate) fn holder_lets_go(&mut self, holder: Option<u64>, id: u64) {
+        let Some(holder) = holder else {
+            return;
+        };
+        let body = match self.player.as_mut() {
+            Some(p) if p.id == holder => Some(&mut p.body),
+            _ => self.others.holder_mut(holder).map(|(b, _)| b),
+        };
+        if let Some(b) = body {
+            b.remove_child(id);
         }
     }
 
@@ -454,6 +561,45 @@ impl Scene<'_> {
             .missile_initialize(&self.land, &mut self.table, &mut self.objects, p, t);
     }
 
+    /// Object `id` (one an effect made) hangs from object `holder` at holding location `location`
+    /// (none: at the bone of kind `bone`), `offset` from there: it is no longer to be destroyed.
+    // D2-05997
+    pub(crate) fn fx_hold_temporary(
+        &mut self,
+        client: &mut Client,
+        id: u64,
+        holder: u64,
+        (location, bone): (u32, u32),
+        offset: dereth_primitives::Vec3,
+        remove_rotation: bool,
+    ) {
+        let Some(t) = self.temporaries.get_mut(id) else {
+            return;
+        };
+        let holder_body = match self.player.as_mut() {
+            Some(p) if p.id == holder => &mut p.body,
+            _ => match self.others.holder_mut(holder) {
+                Some((b, _)) => b,
+                None => return,
+            },
+        };
+        let taken = auberean_physics::body::parent::fx_set_parent(
+            &mut t.body,
+            holder_body,
+            location,
+            bone,
+            offset,
+            remove_rotation,
+            &self.land,
+            &mut self.table,
+            &mut self.objects,
+        );
+        if taken {
+            t.holder = Some((holder, if location != 0 { location } else { bone }));
+            client.queue.remove_object_to_be_destroyed(id);
+        }
+    }
+
     /// Object `id` (one the client made) is taken up by `holder`'s body at holding location
     /// `location`.
     // D2-06146
@@ -461,6 +607,7 @@ impl Scene<'_> {
         let Some(t) = self.temporaries.get_mut(id) else {
             return;
         };
+        t.stood |= t.body.in_world;
         let (holder_body, holder_figure) = match self.player.as_mut() {
             Some(p) if p.id == holder => (&mut p.body, &p.figure),
             _ => match self.others.holder_mut(holder) {
@@ -519,10 +666,11 @@ impl Scene<'_> {
         heard: &mut Vec<(u64, Vec<Completion>, Vec<u32>)>,
     ) {
         let now = client.local_time();
-        for id in self.temporaries.use_time(now) {
+        for (id, holder) in self.temporaries.use_time(now) {
             if let Some(k) = self.table.find(id) {
                 self.table.remove(k);
             }
+            self.holder_lets_go(holder, id);
             self.stories.remove(&id);
             client.model.deallocate_temporary_id(id);
             client.queue.remove_object(id);
@@ -537,6 +685,26 @@ impl Scene<'_> {
             .collect();
         for id in gone {
             self.destroy_temporary(client, id);
+        }
+        // Past the player's range, an object the client made goes, as its movement finds it there.
+        // D2-06102
+        if let Some(me) = self.player.as_ref().map(|p| p.body.position) {
+            let far: Vec<u64> = self
+                .temporaries
+                .ids()
+                .into_iter()
+                .map(|(id, _)| id)
+                .filter(|id| {
+                    self.temporaries.get(*id).is_some_and(|t| {
+                        t.body.movement_checks_range()
+                            && !t.body.has_parent
+                            && crate::others::out_of_physics_range(&me, &t.body.position)
+                    })
+                })
+                .collect();
+            for id in far {
+                self.destroy_temporary(client, id);
+            }
         }
         let game_now = client.game_time();
         for (id, holder) in self.temporaries.ids() {
@@ -562,6 +730,7 @@ impl Scene<'_> {
                 continue;
             };
             let was_in_world = t.body.in_world;
+            t.stood |= was_in_world;
             let was_active = t.body.missile.as_deref().is_some_and(|g| g.activated);
             // Held, it is put in the world where it hangs now.
             let hung_at = t.body.has_parent.then_some(t.body.position);
@@ -639,7 +808,7 @@ impl Scene<'_> {
             Notice::FadeOut { fade, delay } => {
                 tracing::debug!(
                     id = format_args!("{id:#x}"),
-                    "an object the client made fades out: it struck something"
+                    "an object the client made fades out"
                 );
                 self.temporaries.fade_and_remove(id, now, fade, delay);
             }
@@ -693,6 +862,18 @@ impl Scene<'_> {
 
     /// Where object `id` hangs from holder `holder`'s body as it stands now, when it is taken up.
     fn hanging_place(&self, id: u64, holder: u64) -> Option<Position> {
+        self.hanging(id, holder, None).map(|(at, _)| at)
+    }
+
+    /// Where object `id` hangs from `holder` and what the holder gives its scale: from where the
+    /// holder is drawn `alpha` of a tick past its last, or from where it stands.
+    // D2-06182
+    fn hanging(
+        &self,
+        id: u64,
+        holder: u64,
+        alpha: Option<f32>,
+    ) -> Option<(Position, (dereth_primitives::Vec3, f32))> {
         let (hb, hf) = match &self.player {
             Some(p) if p.id == holder => (&p.body, &p.figure),
             _ => {
@@ -706,13 +887,26 @@ impl Scene<'_> {
             .and_then(|c| c.children.iter().find(|c| c.id == id))?;
         let m = crate::held::hanging(hf, &self.anims, info);
         let whole = hb.total_scale(None);
-        Some(Body::child_place(&hb.position, whole, info, m.as_ref()))
+        let at = alpha.map_or(hb.position, |a| hb.drawn(a).0);
+        Some((
+            Body::child_place(&at, whole, info, m.as_ref()),
+            (whole, hb.child_scale),
+        ))
+    }
+
+    /// How much of an object the client made shows, 0 to 1, when it has a figure.
+    #[must_use]
+    pub fn temporary_opacity(&self, id: u64) -> Option<f32> {
+        let f = self.temporaries.get(id)?.figure.as_ref()?;
+        Some(f.sliders.current(FADE_SLIDER).clamp(0.0, 1.0))
     }
 
     /// The objects the client made as they are drawn this frame `alpha` of a tick past their last:
     /// each with where it stands and its scale. One held by the player is left out when the player
     /// is not drawn.
-    pub(crate) fn temporaries_placed(
+    // D2-06149, D2-06182
+    #[must_use]
+    pub fn temporaries_placed(
         &self,
         alpha: f32,
         player_drawn: bool,
@@ -727,13 +921,14 @@ impl Scene<'_> {
                     if !player_drawn && self.player.as_ref().is_some_and(|p| p.id == h) {
                         continue;
                     }
-                    self.hanging_place(id, h)
+                    self.hanging(id, h, Some(alpha))
+                        .map(|(at, given)| (at, t.body.total_scale(Some(given))))
                 }
-                None if t.body.in_world => Some(t.body.drawn(alpha).0),
+                None if t.body.in_world => Some((t.body.drawn(alpha).0, t.body.total_scale(None))),
                 None => None,
             };
-            if let Some(at) = place {
-                out.push((id, at, t.body.total_scale(None)));
+            if let Some((at, scale)) = place {
+                out.push((id, at, scale));
             }
         }
         out

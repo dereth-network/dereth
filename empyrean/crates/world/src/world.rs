@@ -108,6 +108,17 @@ pub struct World {
     /// Not ACE: the rules of the era the world plays (`[era] profile`). `World::new` reads the
     /// configuration's era (end of retail before one is loaded); a test sets its own.
     pub era: &'static empyrean_common::era::EraRules,
+    /// Not ACE: `[portal_storms]`.
+    pub portal_storm_config: empyrean_common::master_configuration::PortalStormConfiguration,
+    /// Not ACE: each landblock's portal storm, while it has one.
+    pub portal_storms: std::collections::HashMap<
+        empyrean_entity::LandblockId,
+        crate::world_objects::portal_storm::Storm,
+    >,
+    /// Not ACE: the world-wide value on each spell, on a world with a spell economy.
+    pub spell_economy: crate::world_objects::spell_economy::SpellEconomy,
+    /// Not ACE: what the player's spellbook cast being resolved right now is worth.
+    pub cast_potency: Option<crate::world_objects::spell_potency::SpellPotency>,
     /// Not ACE: the Dereth Network's world half (off until the host configures it).
     pub federation: crate::federation::FederationState,
 }
@@ -205,6 +216,11 @@ impl World {
             shard: ShardHandle::synchronous(Box::new(MemShard::new()), Arc::clone(&clock)),
             auth: AuthHandle::new(Box::new(MemAuth::new(AccountDefaults::default(), clock))),
             era: empyrean_common::era::current(),
+            portal_storm_config: empyrean_common::config_manager::ConfigManager::try_config()
+                .map_or_else(Default::default, |c| c.portal_storms),
+            portal_storms: std::collections::HashMap::new(),
+            spell_economy: Default::default(),
+            cast_potency: None,
             federation: crate::federation::FederationState::default(),
         }
     }

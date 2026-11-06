@@ -1,7 +1,6 @@
-//! Layouts written back as the records store them, their sizes, the records they name, and the
-//! media items as they start.
+//! Layouts written back as the records store them, their sizes and the records they name.
 
-use auberean_primitives::{scramble, DataId};
+use auberean_primitives::scramble;
 
 use crate::ui::{
     Attribute, AttributeValue, Element, ElementState, Media, Transition, TransitionChange, UiLayout,
@@ -136,56 +135,6 @@ impl Attribute {
 }
 
 impl Media {
-    /// A media item of a kind as made before it is read: every field 0, an animation without
-    /// frames, a video without a file.
-    // D2-11093, D2-11107, D2-11115, D2-11120, D2-11125, D2-11128, D2-11132, D2-11136, D2-11139
-    // D2-11143, D2-11148
-    #[must_use]
-    pub fn of_kind(kind: u32) -> Option<Self> {
-        Some(match kind {
-            1 => Self::Animation {
-                duration: 0.0,
-                draw_mode: 0,
-                x: 0,
-                y: 0,
-                frames: Vec::new(),
-            },
-            2 => Self::Pause { min: 0.0, max: 0.0 },
-            3 => Self::Image {
-                picture: DataId(0),
-                draw_mode: 0,
-                x: 0,
-                y: 0,
-            },
-            4 => Self::Alpha {
-                picture: DataId(0),
-                x: 0,
-                y: 0,
-            },
-            5 => Self::Sound { sound: DataId(0) },
-            6 => Self::Jump {
-                index: 0,
-                probability: 0.0,
-            },
-            7 => Self::Message {
-                message: 0,
-                probability: 0.0,
-            },
-            8 => Self::State { state: 0 },
-            9 => Self::Video {
-                x: 0,
-                y: 0,
-                file: String::new(),
-            },
-            10 => Self::Cursor {
-                picture: DataId(0),
-                x: 0,
-                y: 0,
-            },
-            _ => return None,
-        })
-    }
-
     /// The item's kind number.
     #[must_use]
     pub const fn kind(&self) -> u32 {

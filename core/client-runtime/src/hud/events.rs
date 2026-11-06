@@ -159,6 +159,15 @@ impl Hud {
                     // `UiSystem::now` carries a note about precisely this mistake one
                     // layer down: "Passing a zero here instead ... makes every one of them expire
                     // on its first tick".
+                    if let Some(book) = d.qualities.spell_book.as_ref() {
+                        let now = self.now.0;
+                        self.spell_charges.seed(
+                            book.entries.iter().map(|(spell, page)| {
+                                (*spell, page.legacy.map(|(charge, _)| charge))
+                            }),
+                            now,
+                        );
+                    }
                     let dids = world.apply_player_desc_qualities(&d.qualities, self.now);
                     self.player_desc_received = true;
                     if crate::trace::raise() {
@@ -2138,6 +2147,10 @@ impl Hud {
         let newly_learned = !book.contains_key(&spell_id);
         book.entry(spell_id).or_insert_with(Default::default);
         world.research_spell_update(spell_id, newly_learned);
+        if self.era.features().spell_charge {
+            let now = self.now.0;
+            self.spell_charges.on_update(spell_id, newly_learned, now);
+        }
         self.spells = self.build_spells(world);
     }
 

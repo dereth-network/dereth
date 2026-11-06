@@ -6,19 +6,12 @@ name: Release Auberean
 # by hand (workflow_dispatch) is a dry run: the same builds and checks, the release files kept as a
 # workflow artifact for 7 days, nothing published.
 #
-# The launcher is Dereth's own, at its own version: every job runs `cargo xtask package auberean`,
-# which builds the launcher exactly as `cargo xtask package dereth` does (the same configuration
-# and environment, from this commit, with Dereth's client and tool as that build's inputs and
-# MoltenVK on macOS), then takes Dereth's client out and puts the Auberean client and
-# launcher-defaults.json beside the launcher. The defaults file opens a first run in Auberean's
-# realm and takes the launcher's updates from the newest published `auberean-v<version>` release's
-# latest.json, whose version names the launcher and the client it carries
-# (`<launcher>+auberean.<client>`). A launcher never updates to an older launcher than itself
-# (auberean/RELEASING.md).
-#
-# The launcher carries the retail client's friends library (auberean_friends.dll) beside it, as in
-# Dereth's release: one Windows job builds it (`cargo xtask package friends-dll`) and every
-# system's job takes that same file.
+# The launcher isn't built here. A package holds the launcher version in the tree, from that
+# launcher-v release's files: the job named launcher waits for exactly that release and fails if it
+# isn't there in time, never taking another. Every job runs `cargo xtask package auberean`, which
+# puts the Auberean client and launcher-defaults.json beside it. The defaults file opens a first run
+# in Auberean's realm and names the client the launcher keeps up to date. The latest.json names the
+# launcher it holds, for installs from before the launcher had releases of its own.
 #
 # The release's description starts with its notes, which `cargo xtask release-notes auberean`
 # writes from the tagged tree: the release's section of auberean/CHANGES.md, then the client's
@@ -38,12 +31,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # The build tools, pinned: the same as Dereth's release, so the launcher is built the same way.
+  # The build tools, pinned: the same as Dereth's release.
   CARGO_ABOUT_VERSION: 0.9.2
-  TAURI_CLI_VERSION: 2.12.0
-  # MoltenVK, which the launcher's macOS build takes in as Dereth's does: pinned by its checksum.
-  MOLTENVK_URL: https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.2/MoltenVK-macos.tar
-  MOLTENVK_SHA256: f95765a6229cb7b915990a2890ce12ebe36a730b021545d3d52ae69ce4c4024e
   # The Linux AppImage's packer and the runtime it embeds, pinned by their checksums: the launcher's
   # AppImage is unpacked and packed again with the client in it.
   APPIMAGETOOL_URL: https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage
@@ -88,7 +77,7 @@ jobs:
           else
             version=$(cargo xtask version auberean)
           fi
-          launcher=$(cargo xtask version dereth)
+          launcher=$(cargo xtask version launcher)
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "launcher=$launcher" >> "$GITHUB_OUTPUT"
           echo "Auberean $version, with the launcher $launcher"
@@ -110,38 +99,47 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  friends-library:
-    name: the retail client's friends library
-    # Built once, on Windows (the only host that links a 32-bit Windows DLL), and given to every
-    # system's package job: each package carries the same file beside the launcher.
-    runs-on: windows-latest
-    timeout-minutes: 60
-    defaults:
-      run:
-        shell: bash
+  launcher:
+    name: the launcher release this tree names
+    # A game's package holds the launcher version in the tree, and no other. A tag waits here for
+    # that release, which the launcher's own workflow may still be making; a dry run looks once.
+    # Reading a draft takes write access, so this job has it and does nothing else with it.
+    needs: version
+    runs-on: ubuntu-latest
+    timeout-minutes: 220
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-          fetch-depth: 0
-      - name: Install the workspace Rust version and the retail client's target
+      - name: Install the workspace Rust version
+        shell: bash
         run: |
           toolchain=$(sed -n 's/^rust-version *= *"\([^"]*\)".*/\1/p' Cargo.toml)
           test -n "$toolchain"
-          rustup toolchain install "$toolchain" --profile minimal --target i686-pc-windows-msvc
+          rustup toolchain install "$toolchain" --profile minimal
           rustup override set "$toolchain"
-      - name: cargo xtask package friends-dll
-        run: cargo xtask package friends-dll --out friends-library
+      - name: cargo xtask package launcher --fetch
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            cargo xtask package launcher --fetch launcher-release --wait
+          else
+            cargo xtask package launcher --fetch launcher-release
+          fi
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: friends-library-auberean
-          path: friends-library/auberean_friends.dll
+          name: launcher-release-auberean
+          path: launcher-release/
           if-no-files-found: error
           retention-days: 7
 
   package:
     name: package (${{ matrix.target }})
-    needs: [version, friends-library]
+    needs: [version, launcher]
     strategy:
       fail-fast: false
       matrix:
@@ -150,7 +148,6 @@ jobs:
           # Ubuntu 22.04's glibc (2.35) is the oldest a Linux release runs on.
           - { target: x86_64-unknown-linux-gnu, os: ubuntu-22.04 }
           - { target: aarch64-apple-darwin, os: macos-latest }
-          - { target: x86_64-apple-darwin, os: macos-latest }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 180
     defaults:
@@ -188,29 +185,20 @@ jobs:
       - name: Fetch locked dependencies
         run: |
           cargo fetch --locked
-          cargo fetch --locked --manifest-path dereth/launcher/Cargo.toml
-      - name: Install cargo-about and the Tauri CLI
-        run: |
-          cargo install --locked "cargo-about@$CARGO_ABOUT_VERSION" --features cli
-          cargo install --locked "tauri-cli@$TAURI_CLI_VERSION"
-      - name: Fetch MoltenVK (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          curl -fsSL -o "$RUNNER_TEMP/MoltenVK-macos.tar" "$MOLTENVK_URL"
-          echo "$MOLTENVK_SHA256  $RUNNER_TEMP/MoltenVK-macos.tar" | shasum -a 256 -c -
-          tar -xf "$RUNNER_TEMP/MoltenVK-macos.tar" -C "$RUNNER_TEMP"
-          echo "DERETH_MOLTENVK_DIR=$RUNNER_TEMP/MoltenVK" >> "$GITHUB_ENV"
+          cargo fetch --locked --manifest-path launcher/Cargo.toml
+      - name: Install cargo-about
+        run: cargo install --locked "cargo-about@$CARGO_ABOUT_VERSION" --features cli
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: friends-library-auberean
-          path: friends-library
+          name: launcher-release-auberean
+          path: launcher-release
       - name: cargo xtask package auberean
         env:
           # The launcher's update-signing key, the same as Dereth's release signs with. Without it
           # the files are built unsigned and no latest.json is written, which a tag refuses below.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: cargo xtask package auberean --target ${{ matrix.target }} --out dist --friends-dll friends-library/auberean_friends.dll
+        run: cargo xtask package auberean --target ${{ matrix.target }} --out dist --launcher launcher-release
       - name: A release is signed
         if: github.ref_type == 'tag'
         run: |
@@ -226,15 +214,6 @@ jobs:
         run: |
           mkdir smoke
           run() { "$@"; }
-          case "$TARGET" in
-            x86_64-apple-darwin)
-              if arch -x86_64 /usr/bin/true 2> /dev/null; then
-                run() { arch -x86_64 "$@"; }
-              else
-                echo "::notice::no Rosetta on this runner: $TARGET is checked by its headers only"
-                exit 0
-              fi ;;
-          esac
           case "$TARGET" in
             *windows*)
               (cd smoke && 7z x "../dist/auberean-$VERSION-windows-x86_64.zip" > /dev/null)
@@ -274,8 +253,8 @@ jobs:
           grep -q '"updates": "auberean"' "$defaults"
           # Dereth's client is fetched when it is wanted, not carried.
           test ! -e "$dereth_client"
-          # The retail client's friends library is beside the launcher: the one built for this release.
-          cmp "$library" "friends-library/auberean_friends.dll"
+          # The retail client's friends library came with the launcher.
+          test -s "$library"
           echo "::notice::the launcher has no headless mode, so its window is not opened here"
       - name: Keep this target's files (the index is written by the gather job)
         run: rm -f dist/SHA256SUMS dist/MANIFEST.txt dist/release.json dist/latest.json
@@ -361,12 +340,12 @@ jobs:
 
           ## Downloads
 
-          Auberean $VERSION, with the Dereth Network launcher $LAUNCHER, for Windows (10 or newer, x86-64), macOS (11 or newer, Apple silicon and Intel) and Linux (x86-64, glibc 2.35 or newer: Ubuntu 22.04 and later).
+          Auberean $VERSION, with the Dereth Network launcher $LAUNCHER, for Windows (10 or newer, x86-64), macOS (11 or newer, Apple silicon) and Linux (x86-64, glibc 2.35 or newer: Ubuntu 22.04 and later).
 
           | system | download | |
           |---|---|---|
           | Windows | \`auberean-$VERSION-windows-x86_64.zip\` | unzip anywhere and run \`dereth.exe\`; no installer |
-          | macOS | \`Auberean-$VERSION-macos-aarch64.app.tar.gz\` (Apple silicon), \`-x86_64\` (Intel) | unpack and move \`Dereth.app\` to Applications |
+          | macOS | \`Auberean-$VERSION-macos-aarch64.app.tar.gz\` (Apple silicon) | unpack and move \`Dereth.app\` to Applications |
           | Linux | \`Auberean-$VERSION-linux-x86_64.AppImage\` | mark it executable and run it |
 
           The launcher opens in Auberean's realm and keeps itself and the client up to date from this repository's newest Auberean release. It is the same launcher as Dereth's: Dereth's realm is one click away, and its client, Yalain and Athenaeum download when you first want them.
@@ -395,7 +374,6 @@ jobs:
               "Auberean-$VERSION-"*)
                 case "${f#"Auberean-$VERSION-"}" in
                   macos-aarch64.app.tar.gz) label="Auberean · macOS Apple silicon" ;;
-                  macos-x86_64.app.tar.gz) label="Auberean · macOS Intel" ;;
                   linux-x86_64.AppImage) label="Auberean · Linux x86-64 AppImage (glibc 2.35+)" ;;
                 esac ;;
             esac

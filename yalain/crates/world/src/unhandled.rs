@@ -3,6 +3,13 @@
 
 use std::collections::BTreeMap;
 
+/// The most kinds kept: a client can name as many as it likes (a function id, say), and each costs
+/// memory and a line of the log. Past this they are counted under [`TOO_MANY`].
+pub const MOST_KINDS: usize = 1024;
+
+/// What every kind past [`MOST_KINDS`] counts as.
+pub const TOO_MANY: &str = "more kinds than are kept";
+
 /// The count of each unhandled request.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Unhandled {
@@ -12,7 +19,10 @@ pub struct Unhandled {
 impl Unhandled {
     /// Note one request the server does not handle.
     pub fn note(&mut self, what: impl Into<String>) {
-        let what = what.into();
+        let mut what = what.into();
+        if self.counts.len() >= MOST_KINDS && !self.counts.contains_key(&what) {
+            TOO_MANY.clone_into(&mut what);
+        }
         let n = self.counts.entry(what.clone()).or_default();
         if *n == 0 {
             tracing::info!(%what, "not handled yet");

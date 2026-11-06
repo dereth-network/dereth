@@ -2,7 +2,8 @@
 //! server-only decoders.
 //!
 //! **Depends on** `empyrean-common`, `empyrean-entity` and the shared readers it is built on
-//! (`dereth-primitives`, `dereth-dat`, `dereth-assets`, `dereth-physics`, `dereth-world-data`).
+//! (`dereth-primitives`, `dereth-dat`, `dereth-assets`, `dereth-physics`, `dereth-rules`,
+//! `dereth-world-data`).
 //! **Used by** the gameplay crate (`empyrean-world`), the commands (`empyrean-command`), the server
 //! (`empyrean-server`) and the test kit (`empyrean-testkit`).
 //!

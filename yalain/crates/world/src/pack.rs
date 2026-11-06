@@ -6,13 +6,14 @@
 //! slot, that segment closing up, and goes in at the slot named, the items there moving up one;
 //! the move is answered with the slot the server held it at and the slot one before the target
 //! when it came from an earlier slot (else the target), and its container is cleared and set
-//! again. Part of a stack moved splits off as a new stack at the slot; an item moved onto a stack
-//! of its kind with room joins it. Asked while another action is under way, it is refused and
+//! again. Part of a stack moved splits off as a new stack at the slot, holding all the old one
+//! held; an item moved onto a stack of its kind with its numbers and room joins it, and one with
+//! other numbers goes in beside it. Asked while another action is under way, it is refused and
 //! nothing moves.
 //!
-//! **The money bag.** An item of the pack dragged to the money bag is sold for its value: the
-//! player is told how much gold was added, its money goes up, and the item is destroyed (part of a
-//! stack: the stack goes down). Asked while busy, it is refused with a text.
+//! **The money bag.** An item of the pack dragged to the money bag is sold for its value, for each
+//! piece sold: the player is told how much gold was added, its money goes up, and the item is
+//! destroyed (part of a stack: the stack goes down). Asked while busy, it is refused with a text.
 //!
 //! **Out of the money bag.** Coins dragged out of the money bag come into the pack as a stack of
 //! that many, and the money goes down by as many.
@@ -65,7 +66,7 @@ pub mod status {
 }
 
 /// "Adding %1 pieces of Gold.", the gold as its variable, shown as plain text; "You are too busy
-/// to do that.", shown as an error.
+/// to do that." and "That item cannot be transformed into money.", shown as errors.
 pub mod text {
     pub const ADDING_GOLD: (u32, u32) = (0x7D58_FE6D, 0x2500_05E4);
     pub const GOLD: u32 = 0xBB3E_745B;
@@ -73,6 +74,7 @@ pub mod text {
     pub const ADDING_SHOWN_AS: u32 = 8;
     pub const TOO_BUSY: (u32, u32) = (0x31AA_76FF, 0x2500_05E4);
     pub const TOO_BUSY_SHOWN_AS: u32 = 1;
+    pub const NO_WORTH: (u32, u32) = (0xD4B3_FC38, 0x2500_05E4);
 }
 
 /// The script package of a take-all's description and its slots.
@@ -96,14 +98,20 @@ fn item_slot(slot: u32) -> i32 {
 }
 
 /// The container of an item changed in its holder's sight: cleared, then the player.
-fn contained_again<S: Store>(s: &mut Server<S>, net: &mut ServerNet, item: u64, player: u64) {
+fn contained_again<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    item: u64,
+    player: u64,
+) {
     for value in [0, player] {
         let m = ServerMessage::UpdateInstanceIdVisual(VisualQuality {
             object: inv::visual(s, item),
             quality: q::CONTAINER,
             value,
         });
-        inv::to_knowers(s, net, item, &m);
+        inv::to_holder(s, net, world, item, &m);
     }
 }
 
@@ -114,7 +122,7 @@ fn quantity_shown<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnI
         quality: crate::craft::QUANTITY,
         value: i32::try_from(n).unwrap_or(i32::MAX),
     });
-    progress::private(net, world, &m);
+    inv::to_holder(s, net, world, item, &m);
 }
 
 fn destroyed<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, item: u64) {
@@ -133,7 +141,8 @@ fn destroyed<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, it
 /// The slot an item moved to goes in at: the slot named, no further than just past its segment's
 /// items. `None` when the segment has no room.
 fn place_for(held: &[Held], target: u32) -> Option<u32> {
-    let segment = inv::segment_of(target);
+    // A client's slot past the bags is just past the last bag's items.
+    let segment = inv::segment_of(target.min(inv::PACK_ROOM - 1));
     let n = inv::segment_counts(held)[segment];
     if n >= inv::SEGMENTS[segment] {
         return None;
@@ -141,12 +150,13 @@ fn place_for(held: &[Held], target: u32) -> Option<u32> {
     Some(target.min(inv::segment_start(segment) + n))
 }
 
-/// The stack an item moved to a slot would join: the item there, of the same template, one that
-/// stacks, with room for `quantity` more.
+/// The stack an item moved to a slot would join: the item there, of the same template and the same
+/// numbers, one that stacks, with room for `quantity` more.
 fn stack_at<S: Store>(
     s: &Server<S>,
     held: &[Held],
     slot: u32,
+    moved: u64,
     template: u32,
     quantity: u32,
 ) -> Option<u64> {
@@ -160,6 +170,7 @@ fn stack_at<S: Store>(
         .filter(|h| {
             most > 1
                 && h.template == template
+                && inv::same_numbers(s, h.id, moved)
                 && i64::from(h.quantity.max(1)) + i64::from(quantity) <= most
         })
         .map(|h| h.id)
@@ -224,7 +235,7 @@ pub fn reorganize<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnI
     // The item leaves its slot, its segment closing up.
     held.retain(|x| x.id != h.id);
     inv::close_up(&mut held);
-    if let Some(stack) = stack_at(s, &held, target, h.template, moved) {
+    if let Some(stack) = stack_at(s, &held, target, h.id, h.template, moved) {
         let m = Move {
             merge: true,
             merge_slot: -1,
@@ -269,7 +280,7 @@ pub fn reorganize<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnI
     if let Some(t) = s.things.get_mut(h.id) {
         t.container = Some((player, slot));
     }
-    contained_again(s, net, h.id, player);
+    contained_again(s, net, world, h.id, player);
     finish(s, world, held);
 }
 
@@ -293,7 +304,7 @@ fn split<S: Store>(
         progress::private(net, world, &reorganize_done(&m));
         return;
     };
-    let Some(new) = inv::make_item(s, h.template, moved, 0) else {
+    let Some(new) = inv::split_off(s, h.id, moved) else {
         return;
     };
     let player = answer.target;
@@ -406,11 +417,13 @@ pub fn to_money_bag<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: Con
     into_money_bag(s, net, world, h, quantity, &done);
 }
 
-/// What so many of an item bring into the money bag: a treasure item its own value, coins one each
-/// (2017: 3 of 3 coins dragged, 15 of 15 used), any other its template's for each one.
+/// What so many of an item bring into the money bag: each piece its own value when it has one,
+/// coins one each (2017: 3 of 3 coins dragged, 15 of 15 used), any other its template's. (No stack
+/// with a value of its own was recorded, 0 of 2,228 examined; each piece paying is this server's
+/// choice, so that selling a stack whole or piece by piece pays the same.)
 fn worth<S: Store>(s: &Server<S>, template: u32, own_value: u32, n: u32) -> u32 {
     if own_value > 0 {
-        own_value
+        own_value.saturating_mul(n)
     } else if template == COINS {
         n
     } else {
@@ -420,7 +433,7 @@ fn worth<S: Store>(s: &Server<S>, template: u32, own_value: u32, n: u32) -> u32 
 
 /// So many of an item of the pack go into the money bag: "Adding %1 pieces of Gold.", the money
 /// up by their worth, the stack down by as many or the item gone, then `done` answered (with the
-/// item when some is left, else none).
+/// item when some is left, else none). An item worth nothing stays, refused.
 fn into_money_bag<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -435,6 +448,15 @@ fn into_money_bag<S: Store>(
     };
     let sold = quantity.clamp(1, have);
     let gold = worth(s, h.template, own_value, sold);
+    // An item of no worth is refused and kept, as a client refuses it (2017: none of 753 sold for
+    // nothing).
+    if gold == 0 {
+        let refused =
+            crate::chat::show_text(text::TOO_BUSY_SHOWN_AS, progress::text(text::NO_WORTH));
+        progress::private(net, world, &refused);
+        progress::private(net, world, &done(item));
+        return;
+    }
     let added = crate::chat::show_text(
         text::ADDING_SHOWN_AS,
         progress::text_with(
@@ -533,6 +555,14 @@ pub fn from_money_bag<S: Store>(
         return;
     };
     if quantity == 0 || quantity > money {
+        return;
+    }
+    // Into a full pack, or from a player busy or dead, it is not answered either.
+    let full = s
+        .players
+        .get(&world)
+        .is_none_or(|p| inv::pack_full(&p.play.items));
+    if full || crate::places::actions_locked(s, world) {
         return;
     }
     if inv::give(s, net, world, COINS, quantity).is_none() {
@@ -721,7 +751,7 @@ pub fn took_all<S: Store>(
             split_quantity: quantity,
             ..Move::default()
         };
-        if let Some((stack, _, had)) = inv::stack_for(s, world, template, quantity) {
+        if let Some((stack, _, had)) = inv::stack_for(s, world, item, quantity) {
             let m = Move {
                 merge: true,
                 merge_slot: -1,
@@ -781,20 +811,13 @@ pub fn took_all<S: Store>(
                 ..m
             };
             progress::private(net, world, &move_done(&m));
-            contained_again(s, net, item, player);
+            contained_again(s, net, world, item, player);
         }
         taken.push(item);
         if let Some(c) = s.things.get_mut(container).and_then(|t| t.corpse.as_mut()) {
             c.contents.retain(|x| *x != item);
         }
-        crate::quests::triggered(
-            s,
-            net,
-            world,
-            yalain_content::quests::Trigger::Take(template),
-            None,
-            clock,
-        );
+        crate::quests::took(s, net, world, template, clock);
     }
     let done = take_all_done(0, last_error, container, &taken, &left, player);
     progress::private(net, world, &done);

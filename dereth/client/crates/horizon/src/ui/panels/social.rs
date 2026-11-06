@@ -219,7 +219,11 @@ impl Windows {
                 ),
             ];
             let bw = (body.w - 5.0 * 6.0 * k) / 6.0;
-            for (i, (label, enabled, request)) in buttons.into_iter().enumerate() {
+            // A world without open fellowships has no such button.
+            let shown = buttons.into_iter().filter(|(label, ..)| {
+                state.era.is_none_or(|f| f.fellowship_open) || !matches!(*label, "Open" | "Close")
+            });
+            for (i, (label, enabled, request)) in shown.enumerate() {
                 #[allow(clippy::cast_precision_loss)]
                 let r = Rect::new(body.x + i as f32 * (bw + 6.0 * k), foot, bw, BUTTON_H * k);
                 if kit::button(p, ctx, r, label, enabled) {
@@ -479,7 +483,12 @@ impl Windows {
             ),
             (PlayerOption::IgnoreFellowshipRequests, "Ignore invitations"),
         ];
-        for (i, (o, label)) in options.into_iter().enumerate() {
+        // A box for what the world lacks is left out, as on the options page.
+        let shown = options.into_iter().filter(|(o, _)| {
+            dereth_client_contract::options::sheet::row_of_option(*o)
+                .is_none_or(|row| row.needs.met(state.era.as_ref()))
+        });
+        for (i, (o, label)) in shown.enumerate() {
             let (col, row) = (i % 2, i / 2);
             #[allow(clippy::cast_precision_loss)]
             let r = Rect::new(
@@ -633,8 +642,7 @@ impl Windows {
         let swear_to = state
             .target
             .as_ref()
-            .filter(|t| t.relation == Relation::Player)
-            .filter(|t| a.patron.as_ref().is_none_or(|pa| pa.id != t.id))
+            .filter(|t| state.swear_target == Some(t.id))
             .map(|t| (t.id, t.name.clone()));
         let vassal = selected.and_then(|id| a.vassals.iter().find(|v| v.id == id));
         let bw = (body.w - 12.0 * k) / 3.0;
@@ -643,7 +651,7 @@ impl Windows {
             ctx,
             Rect::new(body.x, foot, bw, 28.0 * k),
             "Swear",
-            swear_to.is_some() && a.patron.is_none(),
+            swear_to.is_some(),
         );
         let brk = kit::button(
             p,
@@ -694,10 +702,12 @@ impl Windows {
             }
         }
         if ctx.input.hover(&Rect::new(body.x, foot, bw, 28.0 * k)) && swear_to.is_none() {
-            self.tip = Some((
-                "Swear".into(),
-                vec!["Select the player to swear allegiance to.".into()],
-            ));
+            let why = if state.short_of_oath_experience {
+                "You don't have enough available xp to swear Allegiance."
+            } else {
+                "Select the player to swear allegiance to."
+            };
+            self.tip = Some(("Swear".into(), vec![why.into()]));
         }
     }
 

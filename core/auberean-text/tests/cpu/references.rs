@@ -183,10 +183,9 @@ fn a_text_variable_is_an_escaped_literal_and_replaces_one_of_its_id() {
     hello.add_variable_narrow(10, b"caf\xE9 \x80");
     assert_eq!(get(&mut hello, &mut src), "Hello, caf\u{e9} \u{20ac}!");
     assert_eq!(hello.variables.len(), 1);
-    let mut copy = StringInfo::entry(T1, 1);
-    copy.copy_variables(&hello);
+    let mut copy = hello.clone();
     assert_eq!(get(&mut copy, &mut src), "Hello, caf\u{e9} \u{20ac}!");
-    copy.clear_variables();
+    copy.variables.clear();
     assert!(copy.variables.is_empty());
 }
 
@@ -260,4 +259,22 @@ fn a_reference_names_the_private_tables_its_entries_use() {
     assert_eq!(raw(1), (Code::Success, "Hello, !".to_owned()));
     assert_eq!(raw(2), (Code::Success, "Private".to_owned()));
     assert_eq!(raw(99).0, Code::MissingString);
+}
+
+/// A number that cannot be written (here with too many decimals) still sets its variable, to
+/// nothing, so the line around it is written without it.
+///
+/// Behaviour: text.references.a-number-that-cannot-be-written-is-blank
+#[test]
+fn a_number_that_cannot_be_written_is_blank_in_its_line() {
+    let mut src = tables();
+    let mut hello = with(
+        StringInfo::entry(T1, 1),
+        10,
+        Value::Float {
+            value: 1.0,
+            decimals: 21,
+        },
+    );
+    assert_eq!(get(&mut hello, &mut src), "Hello, !");
 }
