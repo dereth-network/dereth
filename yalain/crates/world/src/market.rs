@@ -44,6 +44,13 @@
 //! a stop or a crash can't touch it. The item stays with its broker, whole, for as long as it takes
 //! its seller to collect it, with room in the pack as any collection needs.
 //!
+//! **Restocking**: more of what a consignment holds, put up with it at its price. The client's window
+//! offers it for any consignment not sold out, and asks once it has said what it will cost: a hundredth
+//! of what those would fetch, at least 1, as a sale. They must be of the sale's template and numbers,
+//! and with what is left make less than a full stack. What is left and what comes make one sale, on
+//! sale from now, an expired one too. Anything else is refused, nothing taken and nothing moved. This
+//! rests on the client's code and its script library: no recording has one.
+//!
 //! **A seller that is gone.** A character deleted keeps what it has with brokers through the hour it
 //! may come back in, on sale as before. When it is gone, that goes with it as its pack does: what is
 //! unsold leaves its store and the world, and the price of what it sold and did not collect is paid
@@ -75,6 +82,7 @@ pub mod function {
     pub const LEAVE_CONSIGNMENT: u32 = 0x9B5E_002A;
     pub const SELL: u32 = 0x9B5E_0028;
     pub const COLLECT: u32 = 0x9B5E_003F;
+    pub const RESTOCK: u32 = 0x9B5E_0016;
     pub const SALES: u32 = 0x9B5E_0009;
     /// The server's.
     pub const ENTER_CATALOG: u32 = 0x9B5E_0052;
@@ -1116,6 +1124,148 @@ pub fn sell<S: Store>(
         sold: 0,
         entered: net.game_time(clock.local),
     });
+    keep(s);
+    progress::private(net, world, &reminders(s, me, keeper, br));
+    let m = consignment_message(s, function::UPDATE_CONSIGNMENT, me, keeper);
+    progress::private(net, world, &m);
+    crate::world::keep_player(s, world);
+}
+
+/// More of a consignment's item put up with it, for the charge a sale of those would take.
+pub fn restock<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    v: &[Value],
+    clock: Clock,
+) {
+    if !ensure(s) {
+        return;
+    }
+    // The values come last parameter first: the sale, how many, the item, the keeper.
+    let w = ints(v);
+    let (Some(keeper), Some(item)) = (long_of(v, 1), long_of(v, 0)) else {
+        return;
+    };
+    let (sale, quantity) = match w.as_slice() {
+        [sale, quantity] => (*sale, *quantity),
+        _ => return,
+    };
+    let Some(br) = broker_of(s, keeper) else {
+        return;
+    };
+    if !near(s, world, keeper) {
+        return;
+    }
+    let refuse = |net: &mut ServerNet, error: u32| {
+        progress::private(
+            net,
+            world,
+            &call(store::function::REQUEST_DONE, &[Arg::Int(error)]),
+        );
+    };
+    let Some(p) = s.players.get(&world) else {
+        return;
+    };
+    let me = p.character;
+    let money = store::money(&p.qualities);
+    let held = p
+        .play
+        .items
+        .iter()
+        .find(|h| h.id == item && h.location == 0)
+        .copied();
+    let row = s
+        .market
+        .list
+        .iter()
+        .position(|c| c.sale == sale && c.owner == me && c.keeper == keeper && c.in_stock());
+    let (Some(held), Some(row)) = (held, row) else {
+        return refuse(net, store::error::SALE_REFUSED);
+    };
+    let c = s.market.list[row];
+    let left = c.offered - c.sold;
+    let most = s
+        .catalog
+        .get(c.template)
+        .and_then(|t| t.props.int("Item_MaxStackSize"))
+        .unwrap_or(0);
+    if crate::places::pack_spoken_for(s, world)
+        || quantity == 0
+        || quantity > held.quantity.max(1)
+        || held.template != c.template
+        || !inventory::same_numbers(s, item, c.item)
+        || i64::from(left) + i64::from(quantity) >= most
+    {
+        return refuse(net, store::error::SALE_REFUSED);
+    }
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let charge = ((f64::from(quantity) * f64::from(c.price) * CHARGE).ceil() as u32).max(1);
+    if money < charge {
+        return refuse(net, store::error::NOT_ENOUGH_COIN);
+    }
+    let all_taken = quantity >= held.quantity.max(1);
+    let Some(p) = s.players.get_mut(&world) else {
+        return;
+    };
+    let left_money = money - charge;
+    crate::quals::set_int(&mut p.qualities, store::MONEY, left_money.cast_signed());
+    progress::send_int(net, world, store::MONEY, left_money.cast_signed());
+    if all_taken {
+        p.play.items.retain(|h| h.id != item);
+        inventory::close_up(&mut p.play.items);
+    } else if let Some(h) = p.play.items.iter_mut().find(|h| h.id == item) {
+        h.quantity -= quantity;
+    }
+    if let Some(t) = s.things.get_mut(c.item) {
+        t.quantity = left + quantity;
+    }
+    if !all_taken {
+        if let Some(t) = s.things.get_mut(item) {
+            t.quantity -= quantity;
+        }
+    }
+    s.market.list[row].offered += quantity;
+    s.market.list[row].entered = net.game_time(clock.local);
+    let m = Move {
+        move_type: MOVE_IN,
+        item,
+        split_item: c.item,
+        quantity,
+        from: me,
+        actual_from: me,
+        actual_from_slot: i32::try_from(held.slot).unwrap_or(-1),
+        target: keeper,
+        actual_target: keeper,
+        target_slot: 1,
+        actual_target_slot: 1,
+        merge_container: keeper,
+        merge_slot: 1,
+        all_taken,
+        unlock: true,
+        no_anim: true,
+        grab: true,
+        quiet: true,
+        no_move: true,
+        contain: true,
+        auto_merge: true,
+        template: held.template,
+        split_quantity: quantity,
+        ..Move::default()
+    };
+    progress::private(net, world, &inventory::move_done(&m));
+    if all_taken {
+        // What was its own stack is the sale's now.
+        crate::death::vanish(s, net, item);
+    } else if s.things.get(item).is_some() {
+        let told = s.things.get(item).map_or(0, |t| t.quantity);
+        let m = ServerMessage::UpdateIntVisual(auberean_protocol::quality::VisualQuality {
+            object: inventory::visual(s, item),
+            quality: crate::craft::QUANTITY,
+            value: i32::try_from(told).unwrap_or(i32::MAX),
+        });
+        inventory::to_holder(s, net, world, item, &m);
+    }
     keep(s);
     progress::private(net, world, &reminders(s, me, keeper, br));
     let m = consignment_message(s, function::UPDATE_CONSIGNMENT, me, keeper);

@@ -639,6 +639,29 @@ fn step(s: &mut Script) -> String {
                 None => "nothing on sale".into(),
             }
         }
+        21 if s.dice.below(2) == 0 => {
+            let mine: Vec<u32> =
+                s.h.server
+                    .market
+                    .list
+                    .iter()
+                    .filter(|c| c.owner == me)
+                    .map(|c| c.sale)
+                    .collect();
+            let (Some(sale), Some((gem, n))) = (s.dice.pick(&mine), s.dice.pick(&gems_of(s, w)))
+            else {
+                return "nothing to restock".into();
+            };
+            let q = 1 + u32::try_from(s.dice.below(n as usize)).unwrap_or(0);
+            let args = [
+                Arg::Int(sale),
+                Arg::Int(q),
+                Arg::LongInt(gem),
+                Arg::LongInt(BROKER),
+            ];
+            ask(s, b, market::function::RESTOCK, &args);
+            format!("{me:#x} restocks {sale} with {q} of {gem:#x}")
+        }
         21 => {
             let mine: Vec<u32> =
                 s.h.server

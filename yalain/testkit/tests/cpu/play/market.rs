@@ -2109,3 +2109,246 @@ fn a_character_deleted_keeps_its_consignments_until_it_is_gone() {
     assert!(h.server.market.list.is_empty(), "its sale with it");
     assert!(h.server.things.get(item).is_none());
 }
+
+/// The most of a gem to a stack in these tests of restocking.
+const FULL_STACK: i64 = 20;
+
+/// A world where gems stack, a seller holding a stack of 12 and 500 money, of which 7 are put up at
+/// 10 each (a charge of 1): its id, its stack, the sale and its item.
+fn a_sale_to_restock() -> (Harness, (usize, u64), u64, u32, u64) {
+    let mut h = world();
+    let mut stacks = Props::default();
+    stacks.set("Item_MaxStackSize", yalain_content::Prop::Int(FULL_STACK));
+    h.server.catalog.insert(test_template(GEM, 0x1067, stacks));
+    let (a, ida) = h.player_in_world("one", "Seller");
+    at_the_broker(&mut h, ida);
+    money(&mut h, ida, 500);
+    let stack = hold_gems(&mut h, ida, 12);
+    h.ask(
+        a,
+        function::SELL,
+        &[
+            Arg::Int(STORE),
+            Arg::Int(10),
+            Arg::Int(7),
+            Arg::LongInt(stack),
+            Arg::LongInt(BROKER),
+        ],
+        10,
+    );
+    let c = h.server.market.list[0];
+    assert_eq!((c.offered, money_of(&h, ida)), (7, 499));
+    (h, (a, ida), stack, c.sale, c.item)
+}
+
+fn hold_gems(h: &mut Harness, id: u64, n: u32) -> u64 {
+    let gems = yalain_world::inventory::make_item(&mut h.server, GEM, n, 0).expect("made");
+    let p = h
+        .server
+        .players
+        .values_mut()
+        .find(|p| p.character == id)
+        .expect("in the world");
+    let slot = u32::try_from(p.play.items.len()).unwrap_or(0);
+    p.play.items.push(yalain_world::state::Held {
+        id: gems,
+        template: GEM,
+        slot,
+        location: 0,
+        quantity: n,
+    });
+    gems
+}
+
+fn money_of(h: &Harness, id: u64) -> u32 {
+    let p = h
+        .server
+        .players
+        .values()
+        .find(|p| p.character == id)
+        .expect("in the world");
+    yalain_world::store::money(&p.qualities)
+}
+
+fn held_quantity(h: &Harness, id: u64, item: u64) -> Option<u32> {
+    let p = h
+        .server
+        .players
+        .values()
+        .find(|p| p.character == id)
+        .expect("in the world");
+    p.play
+        .items
+        .iter()
+        .find(|i| i.id == item)
+        .map(|i| i.quantity)
+}
+
+fn restock(h: &mut Harness, a: usize, sale: u32, quantity: u32, item: u64) {
+    h.ask(
+        a,
+        function::RESTOCK,
+        &[
+            Arg::Int(sale),
+            Arg::Int(quantity),
+            Arg::LongInt(item),
+            Arg::LongInt(BROKER),
+        ],
+        10,
+    );
+}
+
+/// Part of a stack restocks a sale: the charge a sale of those would take, the pieces gone from the
+/// stack and on sale at the sale's price, its time on sale from now; bought, the whole of it is paid
+/// for and comes whole; the seller collects all of it.
+/// Behaviour: server.market.a-restock-joins-the-sale
+#[test]
+fn a_restock_takes_its_charge_and_joins_the_sale_which_sells_and_pays_whole() {
+    let (mut h, (a, ida), stack, sale, item) = a_sale_to_restock();
+    h.server.market.list[0].entered -= 100.0;
+    let was = h.server.market.list[0].entered;
+    restock(&mut h, a, sale, 3, stack);
+    let c = h.server.market.list[0];
+    assert_eq!(c.offered, 10);
+    assert!(c.entered > was, "its time starts again");
+    assert_eq!(held_quantity(&h, ida, stack), Some(2));
+    assert_eq!(h.server.things.get(stack).map(|t| t.quantity), Some(2));
+    assert_eq!(h.server.things.get(item).map(|t| t.quantity), Some(10));
+    assert_eq!(
+        money_of(&h, ida),
+        499 - 1,
+        "a hundredth of 3 at 10, rounded up"
+    );
+
+    let (b, idb) = h.player_in_world("two", "Buyer");
+    at_the_broker(&mut h, idb);
+    money(&mut h, idb, 500);
+    buy(&mut h, b, idb, item);
+    assert_eq!(money_of(&h, idb), 500 - 100);
+    assert_eq!(held_quantity(&h, idb, item), Some(10));
+    h.ask(
+        a,
+        function::COLLECT,
+        &[Arg::Int(1), Arg::Int(sale), Arg::LongInt(BROKER)],
+        10,
+    );
+    assert_eq!(money_of(&h, ida), 498 + 100);
+    assert!(h.server.market.list.is_empty());
+}
+
+/// A whole stack restocks a sale: it is gone from the pack and the world, and the sale holds it, also
+/// after a restart.
+/// Behaviour: server.market.a-restock-joins-the-sale
+#[test]
+fn a_whole_stack_restocking_a_sale_leaves_the_pack_and_stays_on_sale_across_a_restart() {
+    let (mut h, (a, ida), stack, sale, item) = a_sale_to_restock();
+    restock(&mut h, a, sale, 5, stack);
+    assert_eq!(held_quantity(&h, ida, stack), None);
+    assert!(h.server.things.get(stack).is_none());
+    assert_eq!(h.server.market.list[0].offered, 12);
+    restart_the_market(&mut h, item);
+    assert_eq!(h.server.market.list[0].offered, 12);
+    assert_eq!(h.server.things.get(item).map(|t| t.quantity), Some(12));
+}
+
+/// An expired sale restocked is on sale again from now, all of it.
+/// Behaviour: server.market.a-restock-joins-the-sale
+#[test]
+fn an_expired_sale_restocked_is_on_sale_again() {
+    let (mut h, (a, _), stack, sale, _) = a_sale_to_restock();
+    let now = h.server.game_now;
+    h.server.market.list[0].entered = now - yalain_world::market::ON_SALE_SECONDS - 1.0;
+    assert!(h.server.market.list[0].expired(now));
+    restock(&mut h, a, sale, 1, stack);
+    let c = h.server.market.list[0];
+    assert_eq!(c.offered, 8);
+    assert!(c.on_sale(h.server.game_now));
+}
+
+/// Restocks that are refused: nothing moved and nothing charged, for one sold out (its item is its
+/// buyer's), another's sale, another template, other numbers, more than is held, none, a full stack,
+/// a bound stack, too little money and out of reach.
+/// Behaviour: server.market.a-restock-moves-nothing-when-refused
+#[test]
+fn a_restock_refused_moves_nothing_and_charges_nothing() {
+    let unchanged = |h: &Harness, ida: u64, stack: u64, item: u64, held: u32, m: u32| {
+        assert_eq!(held_quantity(h, ida, stack), Some(held), "the stack");
+        assert_eq!(h.server.things.get(stack).map(|t| t.quantity), Some(held));
+        assert_eq!(h.server.market.list[0].offered, 7, "the sale");
+        assert_eq!(h.server.things.get(item).map(|t| t.quantity), Some(7));
+        assert_eq!(money_of(h, ida), m, "the money");
+    };
+
+    // Too many, none, and a sale that isn't there.
+    let (mut h, (a, ida), stack, sale, item) = a_sale_to_restock();
+    restock(&mut h, a, sale, 6, stack);
+    unchanged(&h, ida, stack, item, 5, 499);
+    restock(&mut h, a, sale, 0, stack);
+    unchanged(&h, ida, stack, item, 5, 499);
+    restock(&mut h, a, sale + 1, 1, stack);
+    unchanged(&h, ida, stack, item, 5, 499);
+
+    // A full stack: what is left and what comes must make less than one.
+    let more = hold_gems(&mut h, ida, FULL_STACK.try_into().expect("small"));
+    restock(&mut h, a, sale, 13, more);
+    assert_eq!(held_quantity(&h, ida, more), Some(20));
+    unchanged(&h, ida, stack, item, 5, 499);
+
+    // Other numbers: its own value.
+    let value = h.server.things.get(item).map_or(0, |t| t.value);
+    if let Some(t) = h.server.things.get_mut(stack) {
+        t.value = 77;
+    }
+    restock(&mut h, a, sale, 1, stack);
+    unchanged(&h, ida, stack, item, 5, 499);
+    if let Some(t) = h.server.things.get_mut(stack) {
+        t.value = value;
+    }
+
+    // Bound by use.
+    if let Some(t) = h.server.things.get_mut(stack) {
+        t.own.bound_to = ida;
+    }
+    restock(&mut h, a, sale, 1, stack);
+    unchanged(&h, ida, stack, item, 5, 499);
+    if let Some(t) = h.server.things.get_mut(stack) {
+        t.own.bound_to = 0;
+    }
+
+    // Too little money.
+    money(&mut h, ida, 0);
+    restock(&mut h, a, sale, 1, stack);
+    unchanged(&h, ida, stack, item, 5, 0);
+    money(&mut h, ida, 499);
+
+    // Out of reach.
+    let p = h
+        .server
+        .players
+        .values_mut()
+        .find(|p| p.character == ida)
+        .expect("in the world");
+    p.position.origin[0] += 50.0;
+    restock(&mut h, a, sale, 1, stack);
+    unchanged(&h, ida, stack, item, 5, 499);
+    at_the_broker(&mut h, ida);
+
+    // Another's sale.
+    let (b, idb) = h.player_in_world("two", "Other");
+    at_the_broker(&mut h, idb);
+    money(&mut h, idb, 500);
+    let theirs = hold_gems(&mut h, idb, 2);
+    restock(&mut h, b, sale, 1, theirs);
+    assert_eq!(held_quantity(&h, idb, theirs), Some(2));
+    assert_eq!(money_of(&h, idb), 500);
+    unchanged(&h, ida, stack, item, 5, 499);
+
+    // Sold out: the item is its buyer's, and gets no more.
+    buy(&mut h, b, idb, item);
+    assert_eq!(held_quantity(&h, idb, item), Some(7));
+    restock(&mut h, a, sale, 1, stack);
+    assert_eq!(held_quantity(&h, ida, stack), Some(5));
+    assert_eq!(held_quantity(&h, idb, item), Some(7));
+    assert_eq!(h.server.things.get(item).map(|t| t.quantity), Some(7));
+    assert_eq!(money_of(&h, ida), 499);
+}

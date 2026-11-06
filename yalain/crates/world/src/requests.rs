@@ -103,6 +103,7 @@ pub fn call<S: Store>(
         }
         crate::market::function::SELL => crate::market::sell(s, net, world, &values, clock),
         crate::market::function::COLLECT => crate::market::collect(s, net, world, &values),
+        crate::market::function::RESTOCK => crate::market::restock(s, net, world, &values, clock),
         // Leaving a catalog or the consignments is not answered.
         crate::market::function::LEAVE_CATALOG | crate::market::function::LEAVE_CONSIGNMENT => {
             crate::market::left_consignments(s, world);

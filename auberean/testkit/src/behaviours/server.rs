@@ -6407,6 +6407,26 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.market.a-restock-joins-the-sale",
+        says: "More of a consignment's item put up with it take a hundredth of what they would fetch, \
+               at least 1; they join the sale at its price, which is on sale from now, an expired one \
+               too, and sells and pays whole.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MARKET-RESTOCK"),
+        station: "yalain-testkit::cpu::play::market::a_restock_takes_its_charge_and_joins_the_sale_which_sells_and_pays_whole",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.market.a-restock-moves-nothing-when-refused",
+        says: "A restock of a sold out sale, another's sale, other numbers, more than is held or than \
+               makes less than a full stack, a bound stack, without the money or out of reach moves \
+               nothing and charges nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MARKET-RESTOCK-REFUSED"),
+        station: "yalain-testkit::cpu::play::market::a_restock_refused_moves_nothing_and_charges_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.market.a-sale-past-its-time-is-not-sold",
         says: "A consignment unsold eleven days after it went up leaves its store and can't be \
                bought; its seller's lists mark it expired and a seller in the world is told. It \
