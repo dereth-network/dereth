@@ -291,6 +291,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.admin.ethereality-values",
+        says: "The ethereality command's words have the names and values the administrators' own \
+               data of the time gives them, sent on the wire as they are.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-ETHEREALITY-VALUES"),
+        station: "yalain-testkit::cpu::operator::admin_calls::the_ethereality_words_have_the_values_of_the_administrators_data",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.admin.every-call-answers-an-admin",
         says: "Every call of the admin family answers an admin character whatever comes with it: none stops \
                the server or needs its values.",
@@ -311,8 +320,7 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "server.admin.library-carries-the-ethereality-words",
         says: "With the admin library goes the record of the ethereality command's words, which no \
-               install holds, so a retail client finds a value for each and sends the command. The \
-               values are this server's own; what the original numbered them is not held.",
+               install holds, so a retail client finds a value for each and sends the command.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-ETHEREALITY-WORDS"),
         station: "yalain-testkit::cpu::operator::admin_calls::the_library_carries_the_words_of_the_ethereality_command",
@@ -322,11 +330,11 @@ pub static ROWS: &[Behaviour] = &[
         id: "server.admin.library-names-the-log-type",
         says: "With the admin library goes the record of the log type's names, which no install holds, \
                so an admin's answer shows under a name and not an empty []. A client holding the \
-               iteration before is sent that record alone, not the library again. The one name is \
-               chosen: what the original listed is not held.",
+               iteration before is sent only what changed since, not the library again. The one name \
+               is chosen: the rest of what the original listed is not used.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-LOG-TYPE"),
-        station: "yalain-testkit::cpu::operator::admin_calls::the_library_names_the_log_type_and_a_client_holding_the_last_gets_only_that",
+        station: "yalain-testkit::cpu::operator::admin_calls::the_library_names_the_log_type_and_a_client_holding_the_last_gets_only_the_corrected_words",
         tier: Tier::Cpu,
     },
     behaviour! {

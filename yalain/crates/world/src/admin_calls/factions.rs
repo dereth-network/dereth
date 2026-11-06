@@ -30,13 +30,13 @@ pub enum Ethereality {
     Super,
 }
 
-/// The values of the enumeration of `/ethereality`, which no install holds: a client names them as
-/// this server does ([`Ethereality`]), and a retail client is served their record
-/// ([`crate::admin_library`]).
+/// The values of the enumeration of `/ethereality`, which no retail install holds: the ones the
+/// administrators' own data gave them, sent on the wire as they are. A retail client is served
+/// their record ([`crate::admin_library`]).
 pub mod ethereal_value {
-    pub const NORMAL: u32 = 1;
-    pub const ADMIN: u32 = 2;
-    pub const SUPER: u32 = 3;
+    pub const SUPER: u32 = 0x4000_0001;
+    pub const NORMAL: u32 = 0x4000_0002;
+    pub const ADMIN: u32 = 0x4000_0003;
 }
 
 /// The movement ethereality of an override: every physics type for `Super`; for `Admin` the bits of
