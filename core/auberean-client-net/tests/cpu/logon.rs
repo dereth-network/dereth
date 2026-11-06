@@ -2,6 +2,7 @@
 
 use auberean_client_net::logon::{Logon, KEY_BLOB_HEADER, KEY_LEN};
 use auberean_primitives::scramble;
+use dereth_transport::conn::NetAuthType;
 use yalain_net::login::parse_login;
 
 fn logon() -> Logon {
@@ -11,6 +12,23 @@ fn logon() -> Logon {
         timestamp: 1_485_419_089,
         session_key: [0x5A; KEY_LEN],
     }
+}
+
+/// With no ticket the login is an account login: the account and the session-key blob, nothing in
+/// the ticket's place.
+///
+/// Behaviour: session.logon.no-ticket-is-an-account-login
+#[test]
+fn a_login_with_no_ticket_is_an_account_login() {
+    let auth = Logon {
+        ticket: Vec::new(),
+        ..logon()
+    }
+    .authenticator();
+    assert_eq!(auth.auth_type, NetAuthType::Account);
+    assert!(auth.extra_data.is_empty());
+    assert!(!auth.crypto_data.is_empty());
+    assert_eq!(logon().authenticator().auth_type, NetAuthType::GlsTicket);
 }
 
 /// The login carries the September 2013 client's version and a ticket login with flags 1, the

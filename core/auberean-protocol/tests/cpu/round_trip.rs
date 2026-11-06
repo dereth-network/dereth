@@ -583,6 +583,11 @@ fn client_messages() -> Vec<ClientMessage> {
             account: NarrowString::from("tester"),
             character: 3,
         }),
+        C::RestoreCharacter(RestoreCharacter {
+            character: 3,
+            name: WideString::from("Babyfare"),
+            account: NarrowString::from("tester"),
+        }),
         C::CreateCharacter(CreateCharacter {
             account: NarrowString::from("tester"),
             name: WideString::from("Babyfare"),

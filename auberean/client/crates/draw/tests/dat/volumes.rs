@@ -6,6 +6,7 @@ use auberean_animation::body::Body as Figure;
 use auberean_animation::CachedRecords;
 use auberean_assets::property::{PropertyList, PropertyValue};
 use auberean_draw::body::BodyDrawer;
+use auberean_draw::scene::ObjectBatch;
 use auberean_draw::volume::{VolumeMaker, VolumeRoom};
 use auberean_physics::world::render::VOLUME_SHADOW_CAST;
 use auberean_primitives::{DataId, Vec3};
@@ -453,4 +454,118 @@ fn a_draws_step_goes_by_its_object() {
         assert_eq!(step(&|b| b.seen_through = true), Pass::Translucent);
         assert_eq!(step(&|b| b.cull = Cull::Cell(0x100)), Pass::Cells);
     }
+}
+
+/// A body degrades with its distance from the camera, as a placed object does: nearby every part
+/// draws at its fullest, whole; at the edge of its setup's visible distance it fades; past it, it
+/// is gone; drawn in by a scale it is gone sooner. In a scene of the interface (no camera) it never
+/// degrades.
+///
+/// Behaviour: draw.mesh.a-body-degrades-with-its-distance-from-the-camera
+#[test]
+fn a_body_degrades_with_its_distance_from_the_camera() {
+    let r = &install().records;
+    let recs = CachedRecords::new(r);
+    let figure = Figure::assemble(&recs, HUMAN_MALE).expect("the human male");
+    let poses = figure.pose(&recs);
+    let visible = figure
+        .parts
+        .iter()
+        .map(|p| p.setup.detail[2].visible.max(20.0))
+        .fold(0.0_f32, f32::max);
+    assert!(visible > 40.0, "{visible}");
+    let at = |d: f32, scale: f32| {
+        let mut drawer = BodyDrawer::default();
+        drawer.eye = Some(Vec3::ZERO);
+        drawer.still_scale = scale;
+        drawer.next_body(false);
+        let place = Mat4::from_parts(
+            Vec3::new(0.0, d, 0.0),
+            auberean_primitives::Quat::IDENTITY,
+            Vec3::new(1.0, 1.0, 1.0),
+        );
+        drawer.batches(r, &figure, &poses, &place)
+    };
+    let near = at(1.0, 1.0);
+    assert!(!near.is_empty());
+    assert!(near.iter().all(|b| b.tint.a == 1.0 && !b.far));
+    let whole: usize = BodyDrawer::default()
+        .batches(r, &figure, &poses, &Mat4::IDENTITY)
+        .iter()
+        .map(|b| b.indices.len())
+        .sum();
+    assert_eq!(near.iter().map(|b| b.indices.len()).sum::<usize>(), whole);
+    let edge = at(visible * 0.97, 1.0);
+    assert!(
+        !edge.is_empty() && edge.iter().all(|b| b.tint.a < 1.0 && b.far),
+        "fading at the edge"
+    );
+    assert!(at(visible + 1.0, 1.0).is_empty(), "gone past it");
+    assert!(at(visible * 0.6, 0.4).is_empty(), "sooner, drawn in");
+    let far_off = BodyDrawer::default().batches(
+        r,
+        &figure,
+        &poses,
+        &Mat4::from_parts(
+            Vec3::new(0.0, visible * 10.0, 0.0),
+            auberean_primitives::Quat::IDENTITY,
+            Vec3::new(1.0, 1.0, 1.0),
+        ),
+    );
+    assert!(!far_off.is_empty(), "never with no camera");
+}
+
+/// With a water's reflection in the frame a body is drawn twice where the reflection's choice of
+/// level differs from the frame's (it takes the distances at 40%, so its detail falls sooner): one
+/// set for the frame alone, one for the reflection alone. Close to the camera both choose the same,
+/// and past its reach in the reflection only the frame shows it.
+///
+/// Behaviour: draw.mesh.the-waters-reflection-sees-a-body-at-its-own-level-of-detail
+#[test]
+fn the_waters_reflection_sees_a_body_at_its_own_level_of_detail() {
+    let r = &install().records;
+    let recs = CachedRecords::new(r);
+    let figure = Figure::assemble(&recs, HUMAN_MALE).expect("the human male");
+    let poses = figure.pose(&recs);
+    let at = |d: f32, reflecting: bool| {
+        let mut drawer = BodyDrawer::default();
+        drawer.eye = Some(Vec3::ZERO);
+        drawer.reflecting = reflecting;
+        drawer.next_body(false);
+        let place = Mat4::from_parts(
+            Vec3::new(0.0, d, 0.0),
+            auberean_primitives::Quat::IDENTITY,
+            Vec3::new(1.0, 1.0, 1.0),
+        );
+        drawer.batches(r, &figure, &poses, &place)
+    };
+    let triangles = |b: &[ObjectBatch], pick: &dyn Fn(&ObjectBatch) -> bool| -> usize {
+        b.iter().filter(|x| pick(x)).map(|x| x.indices.len()).sum()
+    };
+    let shown = |x: &ObjectBatch| x.shown();
+    let mirrored = |x: &ObjectBatch| x.reflected(Vec3::ZERO);
+    let visible = figure
+        .parts
+        .iter()
+        .map(|p| p.setup.detail[2].visible.max(20.0))
+        .fold(0.0_f32, f32::max);
+    // Near: both the same.
+    let near = at(1.0, true);
+    assert_eq!(triangles(&near, &shown), triangles(&near, &mirrored));
+    // Not in a frame without a reflection: one set.
+    let plain = at(visible * 0.3, false);
+    let both = at(visible * 0.3, true);
+    assert_eq!(triangles(&plain, &shown), triangles(&both, &shown));
+    let (frame, there) = (triangles(&both, &shown), triangles(&both, &mirrored));
+    println!("at 30% of its reach: {frame} indices in the frame, {there} in the reflection");
+    assert!(there < frame, "less detail in the reflection");
+    assert!(there > 0, "still in its reach");
+    // Past its reach there.
+    let far = at(visible * 0.5, true);
+    assert!(triangles(&far, &shown) > 0);
+    assert_eq!(
+        triangles(&far, &mirrored),
+        0,
+        "out of the reflection's reach"
+    );
 }

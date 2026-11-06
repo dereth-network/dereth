@@ -12,6 +12,11 @@ refuses a release with nothing here ([`RELEASING.md`](RELEASING.md)).
 
 ## Unreleased
 
+## 0.2.3 (2026-11-05)
+
+- Export reports Launch worlds as unsupported before changing the output folder.
+- macOS: Intel Macs are no longer supported; Apple silicon only.
+
 ## 0.2.2 (2026-10-28)
 
 - Moving code; no material changes

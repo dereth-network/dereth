@@ -8,6 +8,16 @@ use dereth_client_contract::requests::Outbox;
 use dereth_client_runtime::{hud::HudPanels, present::Presentation, shell::Shell};
 use dereth_primitives::num::to_i32_f64;
 
+/// The line a character reads on entering the world.
+const WELCOME: &str = "Welcome to Asheron's Call";
+
+/// Adds the welcome to the chat log, once, when one is due.
+fn deliver_welcome(due: &mut bool, chat: &mut Vec<(u32, String)>) {
+    if std::mem::take(due) {
+        chat.push((0, WELCOME.to_owned()));
+    }
+}
+
 /// The front-end context the shared runtime hands the classic interface at each step.
 pub type Cx<'a, S> = dereth_client_runtime::ui_context::UiContext<'a, S>;
 
@@ -68,6 +78,9 @@ pub trait Clipboard {
 
 pub struct ClassicUi {
     pub quit_requested: bool,
+    /// What the control under the pointer says of itself, read each frame.
+    hovered_control: Option<crate::panels::Hover>,
+    encumbrance: crate::world_overlay::EncumbranceNotice,
     game_status_area: bool,
     /// Which kinds of message the chat window shows: the main chat window's filter, which the
     /// Chat Options page sets.
@@ -154,6 +167,8 @@ pub struct ClassicUi {
     canvas: Option<Canvas>,
     screen: Screen,
     last_in_world: bool,
+    /// A character has just entered the world and has yet to be welcomed.
+    welcome_due: bool,
     /// When Configure Keyboard asked to leave the world for the key page, until the world is
     /// left.
     keyboard_on_leaving: Option<f64>,
@@ -216,6 +231,8 @@ impl ClassicUi {
         let previews = crate::previews::Previews::default();
         Self {
             quit_requested: false,
+            hovered_control: None,
+            encumbrance: Default::default(),
             game_status_area: false,
             chat_filter: dereth_client_contract::options::sheet::MAIN_WINDOW_DEFAULT_FILTER,
             examine_seen: None,
@@ -286,6 +303,7 @@ impl ClassicUi {
                 commands: vec![],
             },
             last_in_world: false,
+            welcome_due: false,
             keyboard_on_leaving: None,
             disconnect_seen: None,
             errors: vec![],
@@ -1462,6 +1480,7 @@ impl ClassicUi {
             self.classic.abuse_response=match code {
                 0x4b8=>Some("No character by that name exists. Please check your spelling and try again.".into()),
                 0x4b9=>Some("You may not complain about yourself. You have only yourself to blame.".into()),
+                0x4ba if cx.hud().view(cx.objects()).era_ui().launch_wording =>Some("Your complaint has been registered.\nThanks for bringing it to our attention.".into()),
                 0x4ba=>Some("Your complaint has been received.\nCommunication from the implicated party is being logged for later review by admins.\n\nThank you.".into()),
                 _=>None,
             };
@@ -2000,12 +2019,18 @@ impl ClassicUi {
                 self.desktop.requests.push(request);
             }
         }
+        deliver_welcome(&mut self.welcome_due, &mut self.classic.chat);
         let map_allowed = self.map_allowed(cx);
         let pointer = cx
             .last_cursor()
             .map(|(x, y)| (to_i32_f64(x), to_i32_f64(y)));
         {
             let view = cx.hud().view(cx.objects());
+            if let Some(bindings) = &mut self.bindings {
+                if bindings.set_era(view.era_features()) {
+                    self.keyboard = bindings.snapshot();
+                }
+            }
             let context = Context {
                 resources: &self.resources,
                 layout: self.desktop.layout(),
@@ -2047,6 +2072,7 @@ impl ClassicUi {
                 } else if self.desktop.is_open("book") {
                     self.desktop.remove_visual("book", &context);
                 }
+                self.desktop.close_what_the_world_lacks(&context);
                 open_house_profile(&mut self.desktop, &mut self.house_profile_seen, &context);
                 let salvage = context.game.salvage_list();
                 match (
@@ -2106,12 +2132,24 @@ impl ClassicUi {
                 // The side panel shows the inventory when a character enters the world.
                 if in_world {
                     self.desktop.open("inventory", &context);
+                    self.welcome_due = true;
                 }
                 self.last_in_world = in_world;
             }
             self.desktop.drag_over(pointer, &context);
             self.desktop.tick_controls(now.0, &context);
             self.desktop.tick(&context);
+            self.hovered_control = pointer.and_then(|(x, y)| {
+                let hover = self.desktop.hover_at(x, y, &context);
+                let over_a_panel = self.desktop.pointer_over_panel(x, y);
+                hover.filter(|_| over_a_panel)
+            });
+            if self.last_in_world {
+                let load = context.game.load().unwrap_or(0.0);
+                if let Some(line) = self.encumbrance.line(load, now.0) {
+                    self.overlay.message(line, false, false, now.0);
+                }
+            }
             // The combat bar shows in melee and missile combat, unless the "advanced combat
             // interface" character option hides it.
             let advanced_combat = self.classic.advanced_combat_ui();
@@ -2601,23 +2639,38 @@ impl ClassicUi {
         }
         if self.last_in_world {
             self.overlay.sync_selection(cx.model().selected, now);
+            // Display Tooltips off: no name or hint of what is under the pointer.
+            let tooltips = cx
+                .model()
+                .player_system
+                .options
+                .get(dereth_client_model::player::option::SHOW_TOOLTIPS);
             let found = cx
                 .last_cursor()
-                .filter(|(x, y)| {
-                    let (x, y) = (to_i32_f64(*x), to_i32_f64(*y));
-                    self.desktop.game_rect().contains(x, y)
-                        && !self.desktop.pointer_over_panel(x, y)
+                .and_then(|(x, y)| {
+                    let (x, y) = (to_i32_f64(x), to_i32_f64(y));
+                    if self.desktop.pointer_over_panel(x, y) {
+                        // An item in a window names itself as it does in the world.
+                        self.desktop.item_at(x, y)
+                    } else {
+                        self.desktop
+                            .game_rect()
+                            .contains(x, y)
+                            .then(|| cx.found_object())
+                    }
                 })
-                .map(|_| cx.found_object())
                 .filter(|id| id.0 != 0)
-                // Display Tooltips off: no name or hint of what is under the pointer.
-                .filter(|_| {
-                    cx.model()
-                        .player_system
-                        .options
-                        .get(dereth_client_model::player::option::SHOW_TOOLTIPS)
-                });
-            self.overlay.hover(cx.model(), found, now);
+                .filter(|_| tooltips);
+            let control = self.hovered_control.clone().filter(|_| tooltips);
+            // The lines go from one hover to the next, so what is leaving goes first.
+            if control.is_none() {
+                self.overlay.hover_control(None, now);
+            }
+            self.overlay
+                .hover(cx.model(), found.filter(|_| control.is_none()), now);
+            if control.is_some() {
+                self.overlay.hover_control(control, now);
+            }
             self.overlay.tick(now);
         }
         for change in self.overlay.drain_lighting() {
@@ -3069,6 +3122,14 @@ mod click_and_chat_tests {
         assert_eq!((over.action, over.start), (8, false));
         assert_eq!(over.over, Some(CLASSIC_WINDOW));
         assert_eq!(right_release(250, 200, false).over, None);
+    }
+    #[test]
+    fn a_character_is_welcomed_once_on_entering_the_world() {
+        let mut due = true;
+        let mut chat = vec![];
+        deliver_welcome(&mut due, &mut chat);
+        deliver_welcome(&mut due, &mut chat);
+        assert_eq!(chat, vec![(0, "Welcome to Asheron's Call".to_owned())]);
     }
     #[test]
     fn a_trailing_line_break_adds_no_empty_chat_line() {

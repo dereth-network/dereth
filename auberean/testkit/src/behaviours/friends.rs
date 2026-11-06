@@ -198,6 +198,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "friends.layer.the-client-ending-finishes-with-its-ticket",
+        says: "The client ending finishes with a ticket it presented while the service is up, \
+               once; the layer ending closes the stream with a goodbye, dials no more and hears \
+               nothing more.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-FRIENDS-CLIENT-ENDING"),
+        station: "auberean-client-runtime::cpu::friends::the_client_ending_finishes_with_its_ticket",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "friends.layer.the-own-worlds-name-is-added-and-taken-off-exactly",
         says: "The world's name from the login is added, after an at sign, to a name with none, \
                and taken off a name whose part from the at sign on is exactly an at sign and the \

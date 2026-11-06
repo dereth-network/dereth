@@ -77,6 +77,26 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "motion.collision.a-body-knows-the-ground-and-water-it-touches",
+        says: "What a body stands on names a physics material of the world's: the ground's \
+               by the vertex nearest it, a road's on a road, and a lake's block names its \
+               water's.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-MOTION-GROUND-MATERIAL"),
+        station: "auberean-physics::dat::walk::a_body_knows_the_ground_and_water_it_touches",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "motion.collision.a-body-stops-at-the-edge-of-a-block-it-may-not-walk-on",
+        says: "A body running at a block the world's map shuts is turned back at the edge of the \
+               land cell it would enter, told it collided along that axis, and never reaches the \
+               block.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-MOTION-BLOCK-PASSABILITY"),
+        station: "auberean-physics::cpu::contact::collision::a_body_stops_at_the_edge_of_a_block_it_may_not_walk_on",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "motion.corpus.a-body-driven-by-recorded-reports-indoors-reaches-the-next-report",
         says: "A body put at a report of a recorded steady run in the rooms of an interior and \
                moved as it asks, at its full speed, reaches the next report over the rooms' floors, \
@@ -100,12 +120,39 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "motion.corpus.no-recorded-player-stands-on-a-block-the-map-shuts",
+        says: "Every 2017 report from the land, over 1.4 million on over 3,000 blocks, is on a \
+               block the world's passability map lets a body walk on, though the map shuts most \
+               of the world.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-MOTION-MAP-CORPUS"),
+        station: "auberean-physics::corpus::replay::no_recorded_player_stands_on_a_block_the_map_shuts",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "motion.corpus.recorded-players-fall-by-a-rooms-own-gravity",
+        says: "Falling in the rooms whose own properties make gravity 3 m/s2, the 2017 sessions' players fall at 3 m/s2: \
+               the middle half of over a thousand accelerations lies within 0.5 of it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-MOTION-ROOM-GRAVITY-CORPUS"),
+        station: "auberean-physics::corpus::replay::recorded_players_fall_by_a_rooms_own_gravity",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "motion.drag.a-body-on-dragging-ground-slows-by-its-drag",
         says: "On ground whose motion values have drag, a body nothing pushes keeps one less the \
                drag of its velocity each second, decayed tick by tick.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-DRAG"),
         station: "auberean-physics::cpu::motion::steering::a_body_on_dragging_ground_slows_by_its_drag",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "motion.draw.a-body-drawn-between-ticks-keeps-its-whole-rotation",
+        says: "A body drawn between ticks keeps its frame's whole rotation: one pitched along its path, as a missile is, stays pitched.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAWN-WHOLE-ROTATION"),
+        station: "auberean-physics::cpu::motion::moving::a_body_drawn_between_ticks_keeps_its_whole_rotation",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -142,6 +189,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "motion.element.a-body-with-a-figure-is-in-the-element-its-figure-stands-in",
+        says: "A body with a figure stays in its old element through the step that takes the figure \
+               to the new one, while the element it is going to leads.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PHYS-ELEMENT-FIGURE"),
+        station: "auberean-physics::cpu::motion::element::a_body_with_a_figure_is_in_the_element_its_figure_stands_in",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "motion.element.a-fall-toward-deep-water-asks-for-the-air-mode",
         says: "A body falling faster than 2 m/s toward water nearer than the ground and more than \
                2 m below its water line asks its animation for the air's mode (unless swimming is \
@@ -160,6 +216,15 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-PHYS-ELEMENT-ANIMATION"),
         station: "auberean-physics::cpu::motion::element::a_new_element_goes_to_the_animation",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "motion.element.a-player-on-a-deep-bed-floats-up-and-the-camera-with-it",
+        says: "A player put on the bed of deep water rises and floats with its water line at the \
+               surface, and the camera looking up from under it stands where it wants.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CLIENT-FLOATS-IN-DEEP-WATER"),
+        station: "auberean-physics::dat::camera::a_player_on_a_deep_bed_floats_up_and_the_camera_looks_up_from_under_it",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "motion.element.a-sent-hover-height-is-ignored",
@@ -302,6 +367,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "motion.interior.a-body-falls-by-the-gravity-where-it-is",
+        says: "A body falls by the gravity where it is: a room's own properties may set it (3 m/s2 in some, 1 m/s2 \
+               upward in others), and the region lays it over the land, block by block (9.8039 m/s2 nearly \
+               everywhere, 0.157 in the low blocks).",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-MOTION-MATERIAL-GRAVITY"),
+        station: "auberean-physics::dat::interior::a_body_falls_by_the_gravity_where_it_is",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "motion.interior.a-body-moved-by-hand-meets-the-walls",
         says: "A body a host moves by hand, a step at a time with no motion of its own, goes \
                through the transition as a tick's move does: it keeps to the floor, passes \
@@ -309,6 +384,16 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-MOTION-BY-HAND"),
         station: "auberean-physics::dat::interior::a_body_moved_by_hand_meets_the_walls",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "motion.interior.a-body-stands-and-runs-in-a-room-with-no-doorways",
+        says: "A body stands in a cell with no doorways and runs on its floor as retail's players \
+               did: the training ground's second area, from where the menhir portal puts a player \
+               up the room's length, on the heights a 2017 session reported.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-MOTION-CLOSED-ROOM"),
+        station: "auberean-physics::dat::interior::a_body_stands_and_runs_in_a_room_with_no_doorways",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -329,6 +414,24 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MOTION-INTERIOR-SOLIDS"),
         station: "auberean-physics::dat::interior::a_body_steps_onto_what_stands_in_the_cells",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "motion.interior.a-cell-with-no-collision-tree-is-open-air",
+        says: "A cell whose mesh has no collision tree is open air, not a missing cell: the great \
+               caverns' 13 cells are all built with their doorways, and a body in one falls \
+               through the air and on through the doorway in its floor.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-MOTION-OPEN-AIR-CELL"),
+        station: "auberean-physics::dat::interior::a_cell_with_no_collision_tree_is_open_air",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "motion.interior.a-room-names-the-material-of-its-floor",
+        says: "A body on an interior floor touches the physics material the cell's own properties                name; a cell that names none gives none.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CELL-FLOOR-MATERIAL"),
+        station: "auberean-physics::dat::walk::a_room_names_the_material_of_its_floor",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -368,6 +471,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MOTION-JUMP"),
         station: "auberean-physics::cpu::motion::moving::a_jump_follows_its_arc_and_waits_to_repeat",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "motion.jump.a-jump-stops-the-behaviors-a-move-cancels",
+        says: "A jump stops the behaviors a move cancels; a jump the body may not make stops                nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-MOTION-JUMP-CANCELS"),
+        station: "auberean-physics::cpu::motion::moving::a_jump_stops_the_behaviors_a_move_cancels",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -502,6 +613,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "motion.sound.what-silences-a-bodys-sounds",
+        says: "The sounds a body makes are silent while a static body's cell is among the free \
+               blocks; while a moving body is out of the world with no parent, or more than 96 \
+               meters from the player; while the parent of a held body is silent; and while any \
+               other body is out of both the world and the workspace.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-MOTION-SOUND-SILENT"),
+        station: "auberean-physics::cpu::motion::sound::a_moving_body_is_silent_out_of_the_world_or_out_of_range",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "motion.stamps.a-newer-stamp-is-kept-and-an-older-one-refused",
         says: "A body keeps one stamp per kind of update the server sends it; an update is newer \
                when its stamp is ahead of the kept one by less than half the range (stamps count \
@@ -528,8 +650,8 @@ pub static ROWS: &[Behaviour] = &[
         says: "A teleport beginning stops a body following sent positions and unconstrains it, \
                drops its target, tells its watchers it teleported (status 3) and moves its \
                teleport stamp on; the server's leave-world with a newer position stamp makes a \
-               body that is not the player's let go of its holder and leave the world, and an \
-               older stamp does nothing.",
+               body that is not the player's let go of its holder and leave the world, which ends \
+               its tether, and an older stamp does nothing.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-TELEPORT-LEAVE"),
         station: "auberean-physics::cpu::motion::moving::a_teleport_tells_watchers_and_a_newer_leave_world_takes_a_body_out",
@@ -555,6 +677,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "motion.turn.a-headings-rotation-comes-through-a-move-unchanged",
+        says: "The rotation a heading gives a body is one a move leaves bit for bit, so a body \
+               pressed against something knows it did not move.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PHYS-ROTATION-KEPT"),
+        station: "auberean-physics::cpu::motion::steering::a_headings_rotation_comes_through_a_move_unchanged",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "motion.turn.a-motion-with-a-heading-moves-and-turns-to-it",
         says: "A motion asked of a body with a heading wakes its movement, asks the motion of its \
                interpreter and turns it to the heading (a turn-to made a 255th of a turn, not \
@@ -562,6 +693,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-DO-MOTION"),
         station: "auberean-physics::cpu::motion::moving::a_motion_with_a_heading_moves_and_turns_to_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "motion.turn.a-placed-body-turns-to-a-255th-of-a-turn",
+        says: "A body placed turns at once on its next tick to the placement's heading, fallen to \
+               a 255th of a turn.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PHYS-PLACED-TURN"),
+        station: "auberean-physics::cpu::motion::steering::a_placed_body_turns_to_a_255th_of_a_turn",
         tier: Tier::Cpu,
     },
     behaviour! {

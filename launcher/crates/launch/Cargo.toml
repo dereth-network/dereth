@@ -1,0 +1,72 @@
+[package]
+name = "dereth-launch"
+description = "What the Dereth launcher knows, with no window, no renderer and no operating system in it."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+# The main workspace, named, because the launcher app's own workspace (`launcher`) is the
+# nearer one on disk.
+workspace = "../../.."
+
+# The world record, reading a dat's iterations, identifying a client install, the pre-launch check,
+# the command lines, the state file, the launcher's folders, its own update's file swap and the
+# signed registry. The launcher window (`launcher`, a workspace of its own) is one
+# front end over it; a web or phone world picker, or the game client's own, would be another.
+[dependencies]
+# The state file and the registry are JSON documents with a dozen record types between them. Deriving
+# their readers is less code, and less wrong, than walking `serde_json::Value` by hand for each.
+serde.workspace = true
+serde_json.workspace = true
+# Identifying a client install is hashing its files, and a hash the launcher computed itself is the
+# only kind worth comparing against a published manifest.
+sha2.workspace = true
+# The registry snapshot is signed. Verification only: the launcher never holds a signing key, so
+# the crate's key-generation half (and its random-number dependency) is left out.
+ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
+# A dat's identity and iteration count, read through the data-file crate's own container reader,
+# which knows both layouts: the files from before Throne of Destiny and the later ones.
+dereth-dat.workspace = true
+# Plugin packages the launcher installs: their zips and manifests, read as the client reads them,
+# and the lists plugin sources publish.
+dereth-plugin-package.workspace = true
+# The API version of the client the launcher starts, which a plugin's release must not exceed, and
+# plugins' versions in SemVer's order.
+dereth-plugin-api.workspace = true
+# Plugins in folders on this computer, found in a folder as the author's tool finds a repository's.
+dereth-plugin-template.workspace = true
+# The server-tracker login that asks a server whether it is up is an ordinary first packet; the
+# transport crate builds and parses it.
+dereth-transport.workspace = true
+# The eras a world can play and the systems each has: the client's own table, so the launcher
+# offers exactly the eras and systems the client reads from `--era` and `--era-features`.
+dereth-primitives.workspace = true
+# The interface the Dereth client starts in, read from and written to the client's preferences
+# file with the client's own reader and writer, so the launcher's question and the client agree.
+dereth-client-contract.workspace = true
+# A pad's state as the client reads it, so the launcher's page takes a pad as the client does.
+dereth-input.workspace = true
+# An Empyrean server's configuration, read to find where it keeps its things.
+toml.workspace = true
+# Asheron's Call 2's friends stream, with no I/O: the probe that asks a world whether it serves it
+# (the stream's own greeting and its answer), and the friends ticket, written as the stream writes it.
+auberean-friends.workspace = true
+
+[dev-dependencies]
+# Where the tests find the retail dats, when a run has them: one test reads their iterations.
+dereth-dat = { workspace = true, features = ["test-support"] }
+# The command line the launcher builds is read back by the Dereth client's own parser into the
+# client's era view: one test follows a world's announced era and systems that far.
+dereth-client-runtime.workspace = true
+# The known worlds' profiles must be ones the client compiles.
+dereth-rules.workspace = true
+# The hub's copy of the two probes must be the launcher's, byte for byte.
+dereth-network-protocol.workspace = true
+
+[features]
+# Builders for synthetic dats and installs, for other crates' tests. Never in a release build.
+testing = []
+
+[lints]
+workspace = true

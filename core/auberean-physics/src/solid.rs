@@ -124,6 +124,17 @@ pub struct Ethereality {
 }
 
 impl Ethereality {
+    /// The masks a description's numbers give, `number` answering for each number's bit.
+    #[must_use]
+    pub fn of_numbers(number: impl Fn(u32) -> Option<i32>) -> Self {
+        let mask = |low, high| Self::mask(number(low), number(high));
+        Self {
+            physics_type: mask(0x8000, 0x1_0000),
+            movement: mask(0x2_0000, 0x4_0000),
+            placement: mask(0x8_0000, 0x10_0000),
+        }
+    }
+
     /// One mask from a description's two halves (low, high); 0 when either is missing.
     #[must_use]
     pub fn mask(low: Option<i32>, high: Option<i32>) -> u64 {

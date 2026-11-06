@@ -87,7 +87,7 @@ impl PartRecords for WorldRecords {
     }
 
     fn has_material(&self, id: DataId) -> bool {
-        self.bytes(id.0).is_some()
+        self.holds(id.0)
     }
 }
 
@@ -174,11 +174,8 @@ impl PartRecords for CachedParts<'_> {
         PartRecords::has_material(self.records, id)
     }
     fn part_mesh(&self, id: DataId) -> Option<PartMesh> {
-        if let Some(m) = self.trees.borrow().part_mesh(id.0) {
-            return m;
-        }
-        let m = PartMesh::read(self, id);
-        self.trees.borrow_mut().keep_part_mesh(id.0, m.clone());
-        m
+        self.trees
+            .borrow_mut()
+            .part_mesh(id.0, |m| self.records.get::<Mesh>(m))
     }
 }

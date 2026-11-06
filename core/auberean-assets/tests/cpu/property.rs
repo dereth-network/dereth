@@ -74,7 +74,7 @@ fn a_new_value_is_false_zero_white_empty_or_unset_by_its_type() {
 
 /// Behaviour: data.property-value.compare-within-a-tolerance
 #[test]
-fn vectors_and_waveforms_compare_within_two_ten_thousandths_and_floats_exactly() {
+fn vectors_and_waveforms_compare_within_a_tolerance_floats_exactly_and_strings_ignoring_case() {
     let v = |x: f32| PropertyValue::Vector(Vec3 { x, y: 0.0, z: 0.0 });
     assert!(v(1.0).same(&v(1.000_15)));
     assert!(!v(1.0).same(&v(1.000_3)));
@@ -88,6 +88,9 @@ fn vectors_and_waveforms_compare_within_two_ten_thousandths_and_floats_exactly()
     assert!(w(0.5).same(&w(0.5001)));
     assert!(!w(0.5).same(&w(0.501)));
     assert!(!PropertyValue::Integer(1).same(&PropertyValue::Enum(1)));
+    let s = |t: &str| PropertyValue::String(t.into());
+    assert!(s("Oak").same(&s("oAK")), "strings ignore case");
+    assert!(!s("oak").same(&s("ash")));
 }
 
 /// Behaviour: data.property-value.as-text

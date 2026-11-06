@@ -18,7 +18,6 @@ fn n(x: f64) -> f32 {
 }
 
 /// A position: `frame` in `cell`'s landblock. A copy of a position is its cell and frame.
-// D2-02557, D2-00145, D2-01287
 #[must_use]
 pub fn position_at(cell: CellId, frame: Frame) -> Position {
     Position::new(cell, frame)
@@ -32,21 +31,18 @@ pub fn nowhere() -> Position {
 }
 
 /// The heading the position faces.
-// D2-02015
 #[must_use]
 pub fn position_heading(p: &Position) -> Heading {
     frame_heading(&p.frame)
 }
 
 /// Faces the position toward a heading, keeping its tilt.
-// D2-05828
 pub fn set_position_heading(p: &mut Position, h: Heading) {
     set_heading(&mut p.frame, h);
 }
 
 /// Whether two positions differ: another cell, or an origin or rotation part more than 0.0002
 /// off.
-// D2-10639
 #[must_use]
 pub fn positions_differ(a: &Position, b: &Position) -> bool {
     let near = |x: f32, y: f32| (x - y).abs() < super::EPS;
@@ -63,7 +59,6 @@ pub fn positions_differ(a: &Position, b: &Position) -> bool {
 
 /// Brings the position into the land cell its origin lies over, the origin carried into that
 /// cell's landblock; false (and cell 0) off the map.
-// D2-03472
 pub fn adjust_position_to_outside(p: &mut Position) -> bool {
     cells::adjust_to_outside(&mut p.cell, &mut p.frame.origin)
 }
@@ -81,7 +76,6 @@ pub fn outside_cell(p: &Position) -> CellId {
 }
 
 /// `other`'s origin in the landblock frame of `p`'s cell.
-// D2-13658
 #[must_use]
 pub fn origin_in_block_of(p: &Position, other: &Position) -> Vec3 {
     let b = block_offset(p.cell, other.cell);
@@ -90,7 +84,6 @@ pub fn origin_in_block_of(p: &Position, other: &Position) -> Vec3 {
 }
 
 /// How far `other` lies above the level from `p`, in degrees; 0 for one closer than 0.0002.
-// D2-13182
 #[must_use]
 pub fn pitch_to(p: &Position, other: &Position) -> f32 {
     let o = offset(p, other);
@@ -133,7 +126,6 @@ pub mod quadrant {
 
 /// Where `other`'s origin lies around `p`, seen in `p`'s frame: left or right, front or back, and
 /// in which third of `height` it stands (under a third low, under two thirds medium, else high).
-// D2-13183
 #[must_use]
 pub fn quadrant_of(p: &Position, height: f32, other: &Position) -> u32 {
     let v = point_local_to_local(p, other, Vec3::ZERO);
@@ -166,7 +158,6 @@ pub struct PositionOffset {
 
 impl PositionOffset {
     /// The cell and origin of `p`.
-    // D2-13391, D2-13390
     #[must_use]
     pub fn from_position(p: &Position) -> Self {
         Self {

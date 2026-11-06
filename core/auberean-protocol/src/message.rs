@@ -9,8 +9,8 @@ use alloc::vec::Vec;
 use crate::login::{
     CharacterCreated, CharacterDeleted, CharacterList, CharacterNames, CharacterRef,
     CharacterRefused, ChatPacket, CreateCharacter, DataHeld, DataQuery, DataRecord, DataRefused,
-    DataRequest, DeleteCharacter, DownloadBegins, Empty, Notice, PlayCharacter, PlayerObject,
-    PlayerQualities, Text, Value,
+    DataRequest, DeleteCharacter, DownloadBegins, Empty, Notice, OverlayBases, OverlayHeld,
+    PlayCharacter, PlayerObject, PlayerQualities, RestoreCharacter, Text, Value,
 };
 use crate::physics::{
     Attach, ClientPosition, CreateObject, Fx, HeadDirection, Impulse, Leave, Missile, MoveOrder,
@@ -103,6 +103,8 @@ messages! {
         DataPatchTimePending(Value) = 0x10039,
         DownloadBegins(DownloadBegins) = 0x1003A,
         DownloadEnds(Empty) = 0x1003B,
+        // This client's and this server's own, past every type the original knew.
+        OverlayBases(OverlayBases) = 0x0F00_0002,
         // Entering the world.
         PlayerObject(PlayerObject) = 0x10060,
         PlayerQualities(PlayerQualities) = 0x10068,
@@ -184,6 +186,9 @@ messages! {
         DataRequest(DataRequest) = 0x10034,
         DataHeld(DataHeld) = 0x10038,
         DownloadEnds(Empty) = 0x1003B,
+        // This client's own, past every type the original knew.
+        OverlayHeld(OverlayHeld) = 0x0F00_0001,
+        RestoreCharacter(RestoreCharacter) = 0x10051,
         ServerCall(ServerCall) = 0x10053,
         Position(ClientPosition) = 0x1008E,
         ForceCreate(Target) = 0x1008F,

@@ -18,6 +18,7 @@ use empyrean_common::dotnet::DotNetDateTime;
 use empyrean_common::era::EraId;
 
 use crate::error::ImportError;
+use crate::loot::{GroupedTreasureDeath, SourceLootPolicy};
 use crate::models::world::*;
 use crate::pack::{BuildStats, PackWriter, TableId};
 use crate::records::WeenieIndex;
@@ -36,12 +37,16 @@ pub struct WorldContent {
     /// `recipe` is `None`: the recipe is its own table, joined at query time as EF's `Include` does.
     pub cook_books: Vec<CookBook>,
     pub recipes: Vec<Recipe>,
+    /// Optional current-vital preconditions; absent in ordinary ACE content.
+    pub recipe_vital_requirements: Vec<RecipeVitalRequirement>,
     pub events: Vec<Event>,
     pub house_portals: Vec<HousePortal>,
     pub points_of_interest: Vec<PointsOfInterest>,
     pub quests: Vec<Quest>,
     pub spells: Vec<Spell>,
     pub treasure_death: Vec<TreasureDeath>,
+    pub grouped_treasure: Vec<GroupedTreasureDeath>,
+    pub loot_policies: Vec<SourceLootPolicy>,
     pub treasure_gem_count: Vec<TreasureGemCount>,
     pub treasure_material_base: Vec<TreasureMaterialBase>,
     pub treasure_material_color: Vec<TreasureMaterialColor>,
@@ -85,9 +90,38 @@ fn grouped<T: Clone>(rows: &[T], key: impl Fn(&T) -> u64) -> BTreeMap<u64, Vec<T
 impl WorldContent {
     /// Lay the content out as a pack in memory. The table layout is [`TableId`]'s documentation.
     pub fn to_pack(&self, dataset_id: [u8; 16]) -> Result<(Vec<u8>, BuildStats), ImportError> {
+        if self.loot_policies.len() > 1
+            || (!self.grouped_treasure.is_empty() && self.loot_policies.len() != 1)
+        {
+            return Err(ImportError::Refused(vec![
+                "grouped treasure requires one source policy".into(),
+            ]));
+        }
+        for p in &self.loot_policies {
+            p.validate().map_err(|e| ImportError::Refused(vec![e]))?;
+        }
+        for g in &self.grouped_treasure {
+            g.validate().map_err(|e| ImportError::Refused(vec![e]))?;
+            if self
+                .treasure_death
+                .iter()
+                .any(|a| a.treasure_type == g.treasure_type)
+            {
+                return Err(ImportError::Refused(vec![
+                    "ambiguous ACE/source death treasure".into(),
+                ]));
+            }
+        }
         let mut w = PackWriter::new(dataset_id, IMPORTER_VERSION).era(self.era);
         for &t in TableId::ALL {
-            w.declare(t);
+            if matches!(t, TableId::GROUPED_TREASURE | TableId::LOOT_POLICY)
+                && self.loot_policies.is_empty()
+            {
+                continue;
+            }
+            if t != TableId::RECIPE_VITAL || !self.recipe_vital_requirements.is_empty() {
+                w.declare(t);
+            }
         }
         for x in &self.weenies {
             w.add(TableId::WEENIE, u64::from(x.class_id), x)?;
@@ -125,12 +159,17 @@ impl WorldContent {
             };
         }
         by_id!(self.recipes, TableId::RECIPE);
+        by_id!(self.recipe_vital_requirements, TableId::RECIPE_VITAL);
         by_id!(self.events, TableId::EVENT);
         by_id!(self.house_portals, TableId::HOUSE_PORTAL);
         by_id!(self.points_of_interest, TableId::POINTS_OF_INTEREST);
         by_id!(self.quests, TableId::QUEST);
         by_id!(self.spells, TableId::SPELL);
         by_id!(self.treasure_death, TableId::TREASURE_DEATH);
+        for r in &self.grouped_treasure {
+            w.add(TableId::GROUPED_TREASURE, u64::from(r.treasure_type), r)?;
+        }
+        by_id!(self.loot_policies, TableId::LOOT_POLICY);
         by_id!(self.treasure_gem_count, TableId::TREASURE_GEM_COUNT);
         by_id!(self.treasure_material_base, TableId::TREASURE_MATERIAL_BASE);
         by_id!(
@@ -212,7 +251,12 @@ pub fn import_for<R: Read>(dump: R, era: EraId) -> Result<(Vec<u8>, Imported), I
     let missing_tables: Vec<&'static str> = world_rows::WORLD_TABLES
         .iter()
         .copied()
-        .filter(|t| !rows.declared.iter().any(|d| d == t))
+        .filter(|t| {
+            !matches!(
+                *t,
+                "recipe_requirements_vital" | "empyrean_grouped_treasure" | "empyrean_loot_policy"
+            ) && !rows.declared.iter().any(|d| d == t)
+        })
         .collect();
     let counts = rows.counts();
     let unknown_tables = std::mem::take(&mut rows.unknown_tables);
@@ -299,7 +343,12 @@ pub fn build_from_for<R: Read>(
     let missing_tables: Vec<&'static str> = world_rows::WORLD_TABLES
         .iter()
         .copied()
-        .filter(|t| !rows.declared.iter().any(|d| d == t))
+        .filter(|t| {
+            !matches!(
+                *t,
+                "recipe_requirements_vital" | "empyrean_grouped_treasure" | "empyrean_loot_policy"
+            ) && !rows.declared.iter().any(|d| d == t)
+        })
         .collect();
     let counts = rows.counts();
     let unknown_tables = std::mem::take(&mut rows.unknown_tables);

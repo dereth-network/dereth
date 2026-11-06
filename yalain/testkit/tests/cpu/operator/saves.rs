@@ -127,7 +127,7 @@ fn characters_due_together_are_kept_one_a_tick_at_the_operators_interval() {
         set_level(&mut h, id, 5);
     }
     let clock = h.clock();
-    assert_eq!(saves::save_world(&mut h.server, clock), 3);
+    assert_eq!(saves::save_world(&mut h.server, clock), Ok(3));
     for id in ids {
         assert_eq!(kept_level(&mut h, id), Some(5), "save-world keeps everyone");
         set_level(&mut h, id, 7);
@@ -151,5 +151,48 @@ fn characters_due_together_are_kept_one_a_tick_at_the_operators_interval() {
         by_tick,
         vec![1, 2, 3, 3],
         "one a tick, from the interval on"
+    );
+}
+
+/// The time a character spends in the world is kept with it and goes on from there at its next
+/// entry, and it is too new for the network until that time reaches what the operator asks, in the
+/// world or out of it. With nothing asked no one is.
+/// Behaviour: server.network.too-new-is-time-in-the-world
+#[test]
+fn time_in_the_world_is_kept_and_a_character_ages_past_the_networks_limit() {
+    use yalain_world::saves::{save_world, too_new, too_new_in_world};
+    use yalain_world::state::PlayState;
+    let mut h = Harness::new();
+    let (_, me) = h.player_in_world("one", "Elara");
+    assert!(!too_new(&mut h.server, me), "nothing asked");
+    h.server.cfg.min_character_age_seconds = 600;
+    assert!(too_new(&mut h.server, me));
+    assert!(too_new_in_world(&h.server).contains("elara"));
+    h.advance(100.0);
+    let clock = h.clock();
+    save_world(&mut h.server, clock).expect("kept");
+    let kept = |h: &mut Harness| {
+        let w = h
+            .server
+            .store
+            .world_state(me)
+            .expect("reads")
+            .expect("kept");
+        PlayState::from_bytes(&w.play)
+            .expect("reads")
+            .played_seconds
+    };
+    let first = kept(&mut h);
+    assert!((99..=102).contains(&first), "{first}");
+    h.advance(600.0);
+    h.step();
+    assert!(!too_new(&mut h.server, me), "old enough");
+    assert!(too_new_in_world(&h.server).is_empty());
+    let clock = h.clock();
+    save_world(&mut h.server, clock).expect("kept");
+    let second = kept(&mut h);
+    assert!(
+        (699..=702).contains(&second),
+        "from the same entry: {second}"
     );
 }

@@ -15,8 +15,9 @@
 //! session's phase asks for them: the character list when the account's characters are listed,
 //! the play screen when the player enters the world, back to the list when the character logs off.
 //! The screens before the world are laid out on a 1024 by 768 screen whatever the window's size,
-//! as the client sets its display to 1024 by 768 for them, and their pictures fill the window; the
-//! play screen sets the display to the window's own size:
+//! as the client sets its display to 1024 by 768 for them, and show as large as the window lets
+//! them at those proportions, in its middle; the play screen sets the display to the window's own
+//! size:
 //!
 //! - **the character list**: its list from the server's; Create leads through the three creation
 //!   screens (the avatar, its appearance, the name) and the character is made with the server;
@@ -44,6 +45,7 @@
 //! [`auberean_shell::interface::Game`] and draws into pictures the host shows.
 
 mod chat;
+pub mod data;
 pub mod doll;
 pub mod hall;
 mod map;
@@ -104,6 +106,9 @@ pub const PREGAME: (u32, u32) = (1024, 768);
 /// The Delete key's code as a text element takes it.
 const DELETE_KEY: u16 = 0x2E;
 
+/// How many pictures are kept to be drawn on again.
+const RETIRED_PICTURES: usize = 6;
+
 /// The action the player's keys bind the right button to (looking with the mouse while held): an
 /// interface key.
 const MOUSE_LOOK_KEY: u32 = camera::action::INSTANT_MOUSE_LOOK;
@@ -125,10 +130,13 @@ pub struct Avatar {
 
 /// What lives across the flow's screens: what the play screen is given this frame, and what it
 /// asks.
+// D2-11874, D2-11865
 #[derive(Debug, Default)]
 struct Shared {
     /// The player is in the world.
     in_world: bool,
+    /// How many times the player's body has come to be placed with its cells loaded.
+    arrivals: u32,
     /// The window's size (the play screen's display).
     window: (u32, u32),
     vitals: Option<[u32; 4]>,
@@ -136,6 +144,8 @@ struct Shared {
     lines: Vec<(u32, String)>,
     /// For each of `lines`, the string reference it was written from, when it came as one.
     line_infos: Vec<Option<auberean_client_sdk::text::StringInfo>>,
+    /// How many of `lines` came before the scripts said the options changed, if they did.
+    lines_before_options: usize,
     /// The chat's part of the player's options, as last read, and a new player's.
     chat: Option<ChatSettings>,
     chat_defaults: Option<ChatSettings>,
@@ -169,11 +179,14 @@ struct Shared {
     options: Option<auberean_ui_game::options::Values>,
     /// The client's own preferences as last listed, for the options window.
     preferences: Option<auberean_ui_game::options::client::Listing>,
+    /// The client's own preferences it changed itself since the last frame.
+    preferences_changed: Vec<auberean_ui_game::options::helper::Change>,
     shift: bool,
     /// What the map draws on (made once from the region), and the game's date and time.
     atlas: Option<std::sync::Arc<auberean_ui_game::map::Atlas>>,
     clock: Option<auberean_ui_game::map::Clock>,
     /// The program is ending.
+    // D2-01656
     shutting_down: bool,
     /// What the play screen asked.
     out: Vec<gameplay::Request>,
@@ -199,6 +212,8 @@ impl FlowScreen<Shared> for ModeScreen {
 struct PlayScreen {
     play: GamePlay,
     logged_in: bool,
+    /// The arrivals the play screen has heard of.
+    arrivals: u32,
 }
 
 impl FlowScreen<Shared> for PlayScreen {
@@ -210,13 +225,21 @@ impl FlowScreen<Shared> for PlayScreen {
     fn update(&mut self, ui: &mut Ui, data: &mut Shared) {
         if data.in_world && !self.logged_in {
             self.logged_in = true;
+            // D2-03994
             self.play.login_finished(ui, &mut data.out);
+        }
+        // The player arrived last frame, before what the scripts said this frame.
+        if data.arrivals != self.arrivals {
+            self.arrivals = data.arrivals;
+            // D2-01944
+            self.play.player_ready_to_enter_world(ui, &mut data.out);
         }
         let view = View {
             vitals: data.vitals,
             place: data.place.as_deref(),
             lines: &data.lines,
             line_infos: &data.line_infos,
+            lines_before_options: data.lines_before_options,
             chat: data.chat.as_ref(),
             chat_defaults: data.chat_defaults.as_ref(),
             shortcuts: data.shortcuts.as_ref(),
@@ -229,6 +252,7 @@ impl FlowScreen<Shared> for PlayScreen {
             inventory: data.inventory.as_ref(),
             options: data.options,
             preferences: data.preferences.as_ref(),
+            preferences_changed: &data.preferences_changed,
             shift: data.shift,
             skills: data.skills.as_ref(),
             acts: data.acts.as_ref().map(|(_, a)| a.as_slice()),
@@ -339,6 +363,7 @@ fn facts(
                         had: i.had,
                         worn: i.worn,
                         melts_at_once: i.melts_at_once,
+                        offered_name: i.offered_name.clone(),
                         data_id: model.object(*id).map_or(0, |o| o.weenie.entity_did),
                     },
                 )
@@ -348,6 +373,7 @@ fn facts(
         coin_stack: inv.coin_stack,
         no_melt_question: inv.no_melt_question,
         selection: inv.selection,
+        amount_name: inv.amount_name.clone(),
         picked: None,
         screen: std::collections::BTreeMap::new(),
     }
@@ -460,7 +486,8 @@ fn inventory_action(r: inventory::Request) -> Option<Action> {
             container,
             open: false,
         },
-        I::Select(target) => Action::Select { target },
+        I::Select(target) => Action::SetSelection { target },
+        I::NameAmount { item, quantity } => Action::NameAmount { item, quantity },
         r @ (I::Help { .. } | I::Pick | I::PickWorld | I::ShowDoll { .. }) => {
             tracing::debug!(?r, "not carried out yet");
             return None;
@@ -490,6 +517,7 @@ fn make_play(ui: &mut Ui, data: &mut Shared) -> Option<Box<dyn FlowScreen<Shared
     Some(Box::new(PlayScreen {
         play,
         logged_in: false,
+        arrivals: 0,
     }))
 }
 
@@ -531,11 +559,19 @@ pub struct Retail {
     /// How many of the session's data download events the connecting screen was told.
     ddd_told: usize,
     pointer: (i32, i32),
+    /// Behaviors the figures of the screen's scene are to begin, and the frames until those asked
+    /// show as played.
+    behaviors: Vec<(usize, u32)>,
+    behaviors_begin: u8,
     behind: Option<Arc<Canvas>>,
     middle: Option<Arc<Canvas>>,
     front: Option<Arc<Canvas>>,
     drawn: Option<(u64, (i32, i32))>,
     canvases: u64,
+    /// The pictures last drawn, until no one holds them and they can be drawn on again.
+    retired: Vec<Arc<Canvas>>,
+    /// The layers elements are drawn into on their way to a picture.
+    layers: draw::Layers,
     /// What keys asked for, carried out at the next update.
     pending: Vec<Request>,
     /// The client's random numbers (creation's choices, the media's rolls), shared with the
@@ -552,9 +588,15 @@ pub struct Retail {
     cursor: Option<Arc<CursorImage>>,
     /// Shift and Ctrl held.
     mods: (bool, bool),
+    /// The modifier keys held: left Shift 1, right Shift 2, left Ctrl 4, right Ctrl 8.
+    held_mods: u8,
     /// Each key held for a play action: the modifier bits it was pressed with (its release ends
     /// the action its press began).
     play_keys: std::collections::HashMap<u32, u32>,
+    /// The keys and pointer buttons the elements have heard held: let go when the window goes
+    /// inactive.
+    held_keys: std::collections::BTreeSet<u32>,
+    held_buttons: std::collections::BTreeSet<u32>,
     /// How many entry refusals the screens have shown.
     refusals: u32,
     /// The client's own error lines for the chat windows, shown at the next frame.
@@ -647,11 +689,15 @@ impl Retail {
             failure_told: false,
             ddd_told: 0,
             pointer: (0, 0),
+            behaviors: Vec::new(),
+            behaviors_begin: 0,
             behind: None,
             middle: None,
             front: None,
             drawn: None,
             canvases: 0,
+            retired: Vec::new(),
+            layers: draw::Layers::default(),
             pending: Vec::new(),
             random: auberean_world::chargen::Random::default(),
             creation: None,
@@ -660,7 +706,10 @@ impl Retail {
             zoomed: false,
             cursor: None,
             mods: (false, false),
+            held_mods: 0,
             play_keys: std::collections::HashMap::new(),
+            held_keys: std::collections::BTreeSet::new(),
+            held_buttons: std::collections::BTreeSet::new(),
             refusals: 0,
             errors: Vec::new(),
             chat: chat::ChatClient::default(),
@@ -692,6 +741,34 @@ impl Retail {
     #[must_use]
     pub fn with_auto(mut self, auto: DevLogin) -> Self {
         self.auto = Some(auto);
+        self
+    }
+
+    /// The gore level and blood color the command line forces (0: the language's).
+    #[must_use]
+    pub fn with_forced_gore(mut self, gore: u32, blood: u32) -> Self {
+        self.preferences.force_tops(gore, blood);
+        self
+    }
+
+    /// The characters the command line named: the one to play and the one to make and play. The
+    /// first the account's list has goes into the world as soon as the list comes.
+    #[must_use]
+    pub fn with_start_character(mut self, user: Option<&str>, create: Option<&str>) -> Self {
+        let pre = &mut self.flow.flow.data.pre;
+        user.unwrap_or_default()
+            .clone_into(&mut pre.start_character);
+        create
+            .unwrap_or_default()
+            .clone_into(&mut pre.create_character);
+        self
+    }
+
+    /// The creation screen offers the administrator's button; the server decides whether the
+    /// account may have such a character.
+    #[must_use]
+    pub fn with_admin_client(mut self, on: bool) -> Self {
+        self.flow.flow.data.pre.admin_client = on;
         self
     }
 
@@ -761,6 +838,12 @@ impl Retail {
         self.flow.flow.mode()
     }
 
+    /// The world as the panels last heard it, while the player is in one.
+    #[must_use]
+    pub fn world(&self) -> Option<&auberean_ui_game::world::World> {
+        self.flow.flow.data().world.as_ref()
+    }
+
     /// The play screen, while it is up.
     #[must_use]
     pub fn play(&self) -> Option<&GamePlay> {
@@ -826,8 +909,10 @@ impl Retail {
     /// What the play screen is given this frame: the player's vitals, the radar's place line, the
     /// chat window's lines (the scripts' and the client's own errors), the scripts' notices.
     fn feed(&mut self, game: &Game<'_>) {
+        let window = self.scale();
         let d = &mut self.flow.flow.data;
         d.in_world = game.phase == Phase::World;
+        d.arrivals = game.arrivals;
         d.window = game.size;
         d.lines.clear();
         d.line_infos.clear();
@@ -852,10 +937,23 @@ impl Retail {
             d.lines.push((chat_panel::text_type::ERROR, e));
             d.line_infos.push(None);
         }
+        let own_lines = d.lines.len();
         for s in game.shown {
             d.lines.push((s.kind, s.text.clone()));
             d.line_infos.push(s.info.clone());
         }
+        let player_id = game.client.and_then(|c| c.model.player);
+        let options_said = game.notices.iter().position(|n| {
+            (n.native == chat_panel::notice::RELOAD_CHAT_SETTINGS
+                || n.native == gameplay::notice::RELOAD_OPTIONS)
+                && (n.about.is_none() || n.about == player_id)
+        });
+        d.lines_before_options = own_lines
+            + game
+                .shown
+                .iter()
+                .take_while(|s| options_said.is_none_or(|at| s.notices_before <= at))
+                .count();
         d.chat = self.chat.settings().cloned();
         if d.chat_defaults.is_none() {
             d.chat_defaults = Some(chat::defaults());
@@ -890,7 +988,6 @@ impl Retail {
                 span: h.span,
                 since_heard: h.since_heard,
             });
-        let player_id = game.client.and_then(|c| c.model.player);
         // An object's radar look (and with it its name) changed: the gathered world reads them
         // again before the next frame, so the panels hear it then, with the world that has them.
         let held = std::mem::take(&mut self.held_looks);
@@ -913,6 +1010,12 @@ impl Retail {
                 .filter(|n| n.about.is_none() || n.about == player_id)
                 .cloned(),
         );
+        for n in game.notices {
+            if n.native == gameplay::notice::UPDATE_MOUNT_STATE && n.about == player_id {
+                self.dolls
+                    .set_mounted(n.words.first().is_some_and(|w| *w != 0));
+            }
+        }
         self.held_looks = looks
             .into_iter()
             .map(|n| gameplay::Notice {
@@ -964,6 +1067,27 @@ impl Retail {
             }
             if let Some(f) = d.inventory.as_mut() {
                 f.picked = self.world_found;
+                // Where the containers opening stand on the screen, for their windows to open
+                // over them.
+                f.screen.clear();
+                let (w, h) = (game.size.0 as f32, game.size.1 as f32);
+                for o in d
+                    .everyone
+                    .iter()
+                    .filter(|n| n.native == inventory::notice::CONTAINER_STATE_UPDATE)
+                    .filter_map(|n| n.about)
+                {
+                    if let Some((x, y)) = game.seen.place_on_screen(o, w, h) {
+                        let (left, top, scale) = window;
+                        f.screen.insert(
+                            o,
+                            (
+                                to_i32(((x - left) / scale).floor()),
+                                to_i32(((y - top) / scale).floor()),
+                            ),
+                        );
+                    }
+                }
             }
             if d.skills
                 .as_ref()
@@ -1034,7 +1158,7 @@ impl Retail {
         }
         d.clock = game
             .client
-            .and_then(|c| map::clock(game.world, c.game_time()));
+            .and_then(|c| map::clock(game.world, c.world_time()));
         match self.gather.world(game, &write, &**ui.assets()) {
             Some((w, gone)) => {
                 d.world = Some(w);
@@ -1047,9 +1171,15 @@ impl Retail {
         }
     }
 
+    /// How many pixels at the screen's top and foot the panels there cover.
+    #[must_use]
+    pub fn preclude(&self) -> (i32, i32) {
+        self.flow.flow.data.preclude
+    }
+
     /// What the play screen asked, carried out as the client's actions, the camera's settings and
-    /// the flow's screens; what has no counterpart yet is logged.
-    fn carry_out(&mut self, out: Vec<gameplay::Request>, requests: &mut Vec<Request>) {
+    /// the flow's screens. Every kind of request has its arm.
+    pub fn carry_out(&mut self, out: Vec<gameplay::Request>, requests: &mut Vec<Request>) {
         use gameplay::Request as R;
         for r in out {
             match r {
@@ -1091,6 +1221,9 @@ impl Retail {
                     tracing::debug!(target = format_args!("{target:#x}"), "select");
                     requests.push(Request::Act(Action::Select { target }));
                 }
+                R::SetSelection(target) => {
+                    requests.push(Request::Act(Action::SetSelection { target }));
+                }
                 // The play screen's display is the window's own size.
                 #[allow(clippy::cast_precision_loss)]
                 R::Pick { x, y } => requests.push(Request::PickWorld {
@@ -1100,17 +1233,25 @@ impl Retail {
                 R::CeaseAttack(id) => self.gather.asks.push(world::Ask::CeaseAttack(id)),
                 R::PrecludeFromBottom(n) => self.flow.flow.data.preclude.1 = n,
                 R::ShowCoordinates(on) => {
-                    self.gather.asks.push(world::Ask::ShowCoordinates(on));
+                    requests.push(Request::Act(Action::ShowRadarCoordinates { on }));
+                    self.gather.options_changed();
                     self.options.stale = true;
                 }
                 R::ShowNames(on) => {
                     self.gather.asks.push(world::Ask::ShowNames(on));
-                    self.options.stale = true;
+                    self.options.quiet = true;
                 }
                 R::Options(r) => match options::action(&r) {
                     Some(a) => {
                         requests.push(Request::Act(a));
-                        self.options.stale = true;
+                        // The bar's rows set by hand: the page set its own row already.
+                        // D2-02831
+                        let told = !matches!(
+                            r,
+                            auberean_ui_game::options::Request::Set { tell: false, .. }
+                        );
+                        self.options.stale |= told;
+                        self.options.quiet |= !told;
                     }
                     None => match &r {
                         auberean_ui_game::options::Request::Preferences(p) => {
@@ -1121,13 +1262,23 @@ impl Retail {
                             if let Some(o) = self.preferences.take_camera() {
                                 requests.push(Request::Camera(CameraRequest::Options(o)));
                             }
+                            if let Some(p) = self.preferences.take_presentation() {
+                                requests.push(Request::Presentation(p));
+                            }
                             if let Some(kept) = self.preferences.take_kept() {
                                 requests.push(Request::KeepPreferences(kept));
                             }
                         }
-                        _ => tracing::debug!(?r, "not carried out yet"),
+                        auberean_ui_game::options::Request::AssistanceSite => {
+                            requests.push(Request::OpenAssistancePage);
+                        }
+                        o @ auberean_ui_game::options::Request::Assistance { .. } => {
+                            tracing::debug!(?o, "no assistance service yet");
+                        }
+                        auberean_ui_game::options::Request::Set { .. } => {}
                     },
                 },
+                R::KeepOptions => requests.push(Request::Act(Action::KeepOptions)),
                 R::LogOff => requests.push(Request::Act(Action::LogOff)),
                 R::Quit => requests.push(Request::Quit),
                 R::CharacterSelection => self.go(mode::CHARACTER_SELECTION),
@@ -1140,6 +1291,8 @@ impl Retail {
                     }
                 }
                 R::PutBackLocations { reloaded } => self.places.put_back(reloaded),
+                R::SaveLayout { name } => self.places.save_layout(name),
+                R::LoadLayout { name } => self.places.load_layout(name),
                 R::Dialog(d) => {
                     let parent = self.play().map(GamePlay::frame);
                     self.dialogs
@@ -1302,14 +1455,37 @@ impl Retail {
                         data_id: e.data_id,
                         selection: e.selection,
                     }));
-                    // The examination panel opens: the client's own notice to the panels.
-                    self.said.push(gameplay::Notice {
-                        native: auberean_ui_game::inventory::notice::OPEN_EXAMINATION,
-                        ..gameplay::Notice::default()
-                    });
                 }
                 R::Social(r) => requests.push(Request::Act(map::social_action(r))),
-                r => tracing::debug!(?r, "not carried out yet"),
+                R::Resurrect => requests.push(Request::Act(Action::Resurrect)),
+                R::DeclineResurrection => {
+                    requests.push(Request::Act(Action::DeclineResurrection));
+                }
+                R::Dismount => requests.push(Request::Act(Action::Dismount)),
+                R::Confirm { objects, value } => {
+                    requests.push(Request::Act(Action::ApplyTotem {
+                        target: objects[0],
+                        source: objects[1],
+                        effect: value,
+                    }));
+                }
+                R::GrooveLevel(level) => requests.push(Request::Sound(
+                    auberean_shell::interface::SoundOrder::Groove(level),
+                )),
+                // The examination panel opens on the selection: the client's own notice.
+                R::OpenExaminationPanel => self.said.push(gameplay::Notice {
+                    native: auberean_ui_game::inventory::notice::OPEN_EXAMINATION,
+                    ..gameplay::Notice::default()
+                }),
+                R::ShowWorld(on) => requests.push(Request::ShowWorld(on)),
+                R::PortalScenePlaying(on) => requests.push(Request::PortalScenePlaying(on)),
+                R::PrecludeFromTop(n) => self.flow.flow.data.preclude.0 = n,
+                // The play screen takes these itself, before they would come here.
+                R::Notice(_) | R::ShortcutRows(_) => {}
+                // Windows of their own, not made yet.
+                r @ (R::Help { .. } | R::PluginManager { .. }) => {
+                    tracing::debug!(?r, "no window for this yet");
+                }
             }
         }
     }
@@ -1369,24 +1545,24 @@ impl Retail {
 
     /// The window's pixels per pixel of the screen.
     #[allow(clippy::cast_precision_loss)]
-    fn scale(&self) -> (f32, f32) {
+    fn scale(&self) -> (f32, f32, f32) {
         let size = self.size();
-        let (w, h) = (size.0.max(1) as f32, size.1.max(1) as f32);
-        (self.window.0 as f32 / w, self.window.1 as f32 / h)
+        let [left, top, width, _] = auberean_shell::interface::fitted(size, self.window);
+        (left, top, width / size.0.max(1) as f32)
     }
 
     /// The host's input method follows the entry that has it on: the part of the entry that
     /// shows, in the window's pixels, told to the host when it changes (none once it is off).
     fn follow_input_method(&mut self, requests: &mut Vec<Request>) {
-        let (sx, sy) = self.scale();
+        let (left, top, scale) = self.scale();
         let area = self.ui.ime().map(|ime| {
             let r = ime.area;
             #[allow(clippy::cast_precision_loss)]
             let (x0, y0, x1, y1) = (
-                to_i32((r.x0 as f32 * sx).floor()),
-                to_i32((r.y0 as f32 * sy).floor()),
-                to_i32((r.x1 as f32 * sx).ceil()),
-                to_i32((r.y1 as f32 * sy).ceil()),
+                to_i32((left + r.x0 as f32 * scale).floor()),
+                to_i32((top + r.y0 as f32 * scale).floor()),
+                to_i32((left + r.x1 as f32 * scale).ceil()),
+                to_i32((top + r.y1 as f32 * scale).ceil()),
             );
             InputArea {
                 x: x0,
@@ -1403,8 +1579,11 @@ impl Retail {
 
     /// A point of the window in the screen's pixels.
     fn to_screen(&self, x: f32, y: f32) -> (i32, i32) {
-        let (sx, sy) = self.scale();
-        (to_i32((x / sx).floor()), to_i32((y / sy).floor()))
+        let (left, top, scale) = self.scale();
+        (
+            to_i32(((x - left) / scale).floor()),
+            to_i32(((y - top) / scale).floor()),
+        )
     }
 
     /// The cursor the interface shows, as a picture for the host.
@@ -1470,6 +1649,7 @@ impl Retail {
 
     /// Redraw the pictures when the tree changed.
     fn redraw(&mut self) {
+        self.ui.lay_out_text_shown();
         let key = (self.ui.revision(), self.ui.display());
         if self.drawn == Some(key) {
             return;
@@ -1479,9 +1659,31 @@ impl Retail {
         let size = self.size();
         let scene_z = self.scene_depth();
         let view_z = self.view_depth();
+        // The pictures no one holds any more are drawn on again.
+        let (idle, held): (Vec<_>, Vec<_>) = std::mem::take(&mut self.retired)
+            .into_iter()
+            .partition(|c| Arc::strong_count(c) == 1);
+        self.retired = held;
+        let mut spare: Vec<Vec<u8>> = idle
+            .into_iter()
+            .filter_map(Arc::into_inner)
+            .map(|c| c.bgra)
+            .collect();
+        self.retired.extend(self.behind.take());
+        self.retired.extend(self.middle.take());
+        self.retired.extend(self.front.take());
+        self.retired.truncate(RETIRED_PICTURES);
+        let bytes = usize::try_from(w.max(0) * h.max(0)).unwrap_or(0) * 4;
         let mut picture = |keep: &dyn Fn(i32) -> bool| {
-            let mut s = Surface::new(w, h);
-            draw::draw_layers_where(&self.ui, &mut s, keep);
+            let mut s = match spare.pop().filter(|b| b.len() == bytes) {
+                Some(bgra) => Surface {
+                    width: w,
+                    height: h,
+                    bgra,
+                },
+                None => Surface::new(w, h),
+            };
+            draw::draw_layers_with(&self.ui, &mut s, keep, &mut self.layers);
             self.canvases += 1;
             Arc::new(Canvas {
                 width: size.0,
@@ -1490,8 +1692,6 @@ impl Retail {
                 revision: self.canvases,
             })
         };
-        self.behind = None;
-        self.middle = None;
         match (scene_z, view_z) {
             (Some(z), _) => {
                 self.behind = Some(picture(&|d| d > z));
@@ -1519,7 +1719,41 @@ impl Retail {
     /// An interface key pressed or let go: the element with the keyboard first, else every
     /// screen that hears keys. Returns whether an element took it.
     fn interface_key(&mut self, key: u32, down: bool) -> bool {
+        if down {
+            self.held_keys.insert(key);
+        } else {
+            self.held_keys.remove(&key);
+        }
         self.ui.key(key, down)
+    }
+
+    /// A pointer button pressed or let go, as the elements hear it.
+    fn interface_button(&mut self, button: u32, down: bool) -> bool {
+        if down {
+            self.held_buttons.insert(button);
+        } else {
+            self.held_buttons.remove(&button);
+        }
+        self.ui.pointer_button(button, down)
+    }
+
+    /// The window went inactive: every key and button the elements hold is let go, as its release
+    /// would be, since no release comes while the window is inactive; Shift and Ctrl read as up
+    /// until pressed again.
+    // D2-03459
+    fn let_go(&mut self) {
+        for key in std::mem::take(&mut self.held_keys) {
+            self.ui.key(key, false);
+        }
+        for button in std::mem::take(&mut self.held_buttons) {
+            self.ui.pointer_button(button, false);
+        }
+        self.play_keys.clear();
+        self.left_to_world = false;
+        self.mods = (false, false);
+        self.held_mods = 0;
+        self.ui.set_modifiers(false, false);
+        self.ui.set_alt(false);
     }
 
     /// The left button pressed or let go, as the interface hears it: a press within the double
@@ -1557,6 +1791,16 @@ impl Retail {
 
     /// The interface action a key pressed or let go names in the player's key maps, with Shift
     /// and Ctrl as held at its press.
+    /// A modifier key pressed or let go: Shift and Ctrl hold while either of their keys does.
+    fn hold_modifier(&mut self, bit: u8, down: bool) {
+        self.held_mods = if down {
+            self.held_mods | bit
+        } else {
+            self.held_mods & !bit
+        };
+        self.mods = (self.held_mods & 3 != 0, self.held_mods & 12 != 0);
+    }
+
     fn play_action(
         &mut self,
         keys: &auberean_shell::keys::Keys,
@@ -1864,10 +2108,9 @@ impl Interface for Retail {
                     Button::Right => button_id::RIGHT,
                     Button::Middle => button_id::MIDDLE,
                 };
-                let took = self.ui.pointer_button(id, *down);
+                let took = self.interface_button(id, *down);
                 if *down && *button == Button::Left && pregame {
-                    let (shift, ctrl) = self.mods;
-                    self.key_for_keyboard(pregame::LEFT_BUTTON_WORD, shift, ctrl);
+                    self.key_for_keyboard(pregame::LEFT_BUTTON_WORD, self.held_mods);
                 }
                 // The left button runs forward in mouse look: the world's controls see it too,
                 // even when it lands on the field over the world (or on a panel under a pointer
@@ -1914,17 +2157,20 @@ impl Interface for Retail {
                 took || pregame
             }
             Event::Key { key, down, .. } => {
-                // Shift and Ctrl as the text elements read them; Delete reaches the entry with the
+                // Shift, Ctrl and Alt as the interface reads them; Delete reaches the entry with the
                 // keyboard as the key it is.
                 match key {
-                    Key::ShiftLeft | Key::ShiftRight => self.mods.0 = *down,
-                    Key::ControlLeft | Key::ControlRight => self.mods.1 = *down,
+                    Key::ShiftLeft => self.hold_modifier(1, *down),
+                    Key::ShiftRight => self.hold_modifier(2, *down),
+                    Key::ControlLeft => self.hold_modifier(4, *down),
+                    Key::ControlRight => self.hold_modifier(8, *down),
+                    Key::AltLeft | Key::AltRight => self.ui.set_alt(*down),
                     _ => {}
                 }
                 self.ui.set_modifiers(self.mods.0, self.mods.1);
                 if *down && pregame {
                     let w = pregame::input_word(*key);
-                    self.key_for_keyboard(w, self.mods.0, self.mods.1);
+                    self.key_for_keyboard(w, self.held_mods);
                 }
                 if *down && *key == Key::Delete && self.ui.character_input(0, DELETE_KEY) {
                     return true;
@@ -1936,7 +2182,7 @@ impl Interface for Retail {
                         if *down && selection::key::wants_targets(a) {
                             self.gather.want_targets = true;
                         }
-                        self.ui.key(a, *down);
+                        self.interface_key(a, *down);
                         return true;
                     }
                 }
@@ -1967,13 +2213,20 @@ impl Interface for Retail {
                 let took = self.play_key(*key);
                 took || used || held
             }
-            _ => pregame,
+            Event::Focus(false) => {
+                self.let_go();
+                pregame
+            }
+            Event::Focus(true) | Event::Motion { .. } | Event::Resized { .. } | Event::Close => {
+                pregame
+            }
         }
     }
 
     fn update(&mut self, game: &Game<'_>, requests: &mut Vec<Request>) {
         if game.size.0 > 0 && game.size.1 > 0 {
             self.window = game.size;
+            self.preferences.follow_window(game.size);
         }
         self.follow_window();
         self.ui.use_time(game.now);
@@ -1986,11 +2239,24 @@ impl Interface for Retail {
         self.keep_keys(game);
         self.dialog_notices();
         for e in self.flow.tick(&mut self.ui) {
-            tracing::debug!(?e, "not carried out yet");
+            match e {
+                auberean_ui_game::flow::Event::Screenshot => {
+                    requests.push(Request::Screenshot);
+                }
+            }
         }
         let out = std::mem::take(&mut self.flow.flow.data.out);
         self.carry_out(out, requests);
         self.carry_out_pregame(requests);
+        // The effects' preferences changed or applied (and, first, as read).
+        if let Some(c) = self.preferences.take_channels() {
+            requests.push(Request::FxChannels(c));
+        }
+        // The tooltip preferences applied (and, first, their values as read).
+        let (delay, enable) = self.preferences.take_tooltips();
+        if delay.is_some() || enable.is_some() {
+            self.ui.set_tooltip_preferences(delay, enable);
+        }
         // The sound preferences changed or applied (and, first, their values as read).
         for (key, value, applied) in self.preferences.take_sound() {
             requests.push(Request::Sound(
@@ -2118,7 +2384,11 @@ impl Interface for Retail {
         self.gather.prepare(client, &notices);
         self.chat.prepare(client);
         let play = self.play().map(GamePlay::frame);
-        self.places.prepare(client, &mut self.ui, play);
+        if self.places.prepare(client, &mut self.ui, play) {
+            if let Some(c) = chat_of(&mut self.flow) {
+                c.show_newest_lines(&mut self.ui);
+            }
+        }
         // A line naming no command: the client's error line that says so.
         for _ in 0..self.chat.take_unknown() {
             let line = self
@@ -2144,10 +2414,15 @@ impl Interface for Retail {
         if d.preferences.as_ref().map(|l| l.serial) != listed.map(|l| l.serial) {
             d.preferences = listed.cloned();
         }
+        d.preferences_changed = self.preferences.take_changed();
     }
 
     fn wants_pointer(&self, game: &Game<'_>) -> bool {
         game.phase != Phase::World || self.typing()
+    }
+
+    fn text_mode(&self) -> bool {
+        self.typing()
     }
 
     fn set_preferences(
@@ -2162,6 +2437,17 @@ impl Interface for Retail {
         self.preferences.set(graphics);
     }
 
+    fn set_presentation(&mut self, modes: &[(u32, u32)], settings: &auberean_shell::Settings) {
+        self.preferences.set_presentation(modes, settings);
+    }
+
+    fn toggle_full_screen(&mut self, requests: &mut Vec<Request>) {
+        self.preferences.toggle_full_screen();
+        if let Some(p) = self.preferences.take_presentation() {
+            requests.push(Request::Presentation(p));
+        }
+    }
+
     fn set_random(&mut self, random: &auberean_world::chargen::Random) {
         self.random = random.clone();
         let media = random.clone();
@@ -2169,16 +2455,21 @@ impl Interface for Retail {
     }
 }
 
-/// The character the chosen avatar makes: the player's entity, the race's start area, class and
-/// implement, the race and sex, and every physique value in the order the table lays them out.
+/// The character the chosen avatar makes: the player's entity (an administrator's when asked), the
+/// race's start area, class and implement, the race and sex, and every physique value in the order
+/// the table lays them out.
 // D2-11920
-fn new_character(name: &str, c: &hall::Creation) -> Option<auberean_client_sdk::NewCharacter> {
+fn new_character(
+    name: &str,
+    admin: bool,
+    c: &hall::Creation,
+) -> Option<auberean_client_sdk::NewCharacter> {
     use auberean_client_sdk::protocol::table::{Table, SMALL};
     let (avatar, _) = c.chosen()?;
     let (class, implement, start_area) = avatar.class_implement_start()?;
     Some(auberean_client_sdk::NewCharacter {
         name: name.encode_utf16().collect(),
-        entity: auberean_world::chargen::PLAYER_ENTITY,
+        entity: auberean_world::chargen::avatar_entity(admin),
         start_area,
         race: avatar.race,
         sex: avatar.sex,

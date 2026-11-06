@@ -81,7 +81,7 @@ impl Body {
     /// Its whole scale: its look's, times its own, times, while something holds it and it is not
     /// flying as a missile, `holder`: the holder's whole scale and the scale the holder's look
     /// gives what it holds.
-    // D2-06149
+    // D2-06149, D2-06188
     #[must_use]
     pub fn total_scale(&self, holder: Option<(Vec3, f32)>) -> Vec3 {
         let (l, o) = (self.look_scale, self.object_scale);
@@ -138,7 +138,6 @@ impl Body {
     }
 
     /// The object at the top of what holds it: what holds it, else itself.
-    // D2-05967
     #[must_use]
     pub const fn top_level_object(&self) -> u64 {
         if self.has_parent {
@@ -150,7 +149,6 @@ impl Body {
 
     /// Where it stands for its cell: its first collision sphere's center carried into its
     /// landblock (its own place when it has no sphere), turned as it is.
-    // D2-05964
     #[must_use]
     pub fn cell_position(&self) -> Position {
         let mut p = self.position;
@@ -161,7 +159,6 @@ impl Body {
     }
 
     /// Its cell becomes `cell` (handed to its part group too, which keeps nothing of it).
-    // D2-05968
     pub fn set_cell_id(&mut self, cell: CellId) {
         self.position.cell = cell;
         if let Some(g) = self.parts.as_deref_mut() {

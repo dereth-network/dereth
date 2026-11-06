@@ -1,10 +1,11 @@
 //! The classic interface's pages for the systems the game gained after its 2005 redesign: the
 //! character's titles, the contract tracker and the journal. Each is drawn in the classic side
-//! pages' style (their background, title bar and rows) and shows only what the world's era has: a
-//! world without titles, contracts or the journal shows a page that says so.
+//! pages' style (their background, title bar and rows). A world without one of them never opens
+//! its page ([`crate::desktop::Desktop::open`]).
 use super::super::*;
 use super::common::*;
 use crate::int::i32_from;
+use dereth_client_contract::era::EraSurface;
 
 /// The page's list of rows: 32 pixels each, under the title bar.
 const ROW: i32 = 32;
@@ -95,11 +96,8 @@ fn sorted_titles(game: &dyn GameView) -> (u32, Vec<(u32, String)>) {
     (t.display, dereth_presentation::stats::title_rows(&t.titles))
 }
 
-pub(super) fn era_has(
-    game: &dyn GameView,
-    which: fn(&dereth_primitives::era::EraFeatures) -> bool,
-) -> bool {
-    which(&game.era_features())
+pub(super) fn offered(game: &dyn GameView, surface: EraSurface) -> bool {
+    surface.offered(game.era_features())
 }
 
 impl Panel for Titles {
@@ -119,17 +117,7 @@ impl Panel for Titles {
 impl Titles {
     /// The page under its top row of `f`, `h` tall.
     pub(super) fn body(&self, f: &mut PanelFrame, h: i32, c: &Context<'_>) {
-        if !era_has(c.game, |e| e.titles) {
-            text(
-                f,
-                rect(10, TOP + 10, 280, 40),
-                "This world has no titles.",
-                "16-7",
-                CREAM,
-                0,
-                true,
-                None,
-            );
+        if !offered(c.game, EraSurface::Titles) {
             return;
         }
         let (display, titles) = sorted_titles(c.game);
@@ -224,17 +212,7 @@ impl Panel for Contracts {
 impl Contracts {
     /// The page under its top row of `f`, `h` tall.
     fn body(&self, f: &mut PanelFrame, h: i32, c: &Context<'_>) {
-        if !era_has(c.game, |e| e.contracts) {
-            text(
-                f,
-                rect(10, TOP + 10, 280, 40),
-                "This world has no contracts.",
-                "16-7",
-                CREAM,
-                0,
-                true,
-                None,
-            );
+        if !offered(c.game, EraSurface::Contracts) {
             return;
         }
         let contracts = c.game.contracts();
@@ -376,10 +354,10 @@ impl Default for Journal {
 /// them, then the journal's page and its page list.
 fn quest_tabs(game: &dyn GameView) -> Vec<(&'static str, &'static str, QuestTab)> {
     let mut tabs = vec![];
-    if era_has(game, |e| e.contracts) {
+    if offered(game, EraSurface::Contracts) {
         tabs.push(("tab-contracts", "Contracts", QuestTab::Contracts));
     }
-    if game.era_features().journal {
+    if offered(game, EraSurface::Journal) {
         tabs.push(("tab-journal", "Journal", QuestTab::Journal));
         tabs.push(("tab-pages", "Page List", QuestTab::Pages));
     }
@@ -657,11 +635,6 @@ impl Panel for Journal {
         "journal"
     }
     fn frame(&self, c: &Context<'_>) -> PanelFrame {
-        if dereth_client_contract::era::quest_page(c.game.era_features(), None).is_none() {
-            let (mut f, h) = page(c, "Journal");
-            self.body(&mut f, h, c);
-            return f;
-        }
         let (mut f, h) = bare_page(c);
         let tabs = quest_tabs(c.game);
         let shown = self.shown_tab(c.game);
@@ -679,8 +652,7 @@ impl Panel for Journal {
         f
     }
     fn event(&mut self, e: ControlEvent, c: &Context<'_>) -> Vec<PanelAction> {
-        let available =
-            dereth_client_contract::era::quest_page(c.game.era_features(), None).is_some();
+        let available = offered(c.game, EraSurface::QuestWindow);
         self.tab = available.then(|| self.shown_tab(c.game));
         if available {
             let tabs = quest_tabs(c.game);
@@ -711,7 +683,7 @@ impl Panel for Journal {
             match self.shown_tab(c.game) {
                 QuestTab::Contracts => {
                     // The journal is read while its window is up on any tab.
-                    let mut out = if c.game.era_features().journal {
+                    let mut out = if offered(c.game, EraSurface::Journal) {
                         self.load(c.game)
                     } else {
                         vec![]
@@ -730,17 +702,7 @@ impl Panel for Journal {
 impl Journal {
     /// The page under its top row of `f`, `h` tall.
     fn body(&self, f: &mut PanelFrame, h: i32, c: &Context<'_>) {
-        if !era_has(c.game, |e| e.journal) {
-            text(
-                f,
-                rect(10, TOP + 10, 280, 40),
-                "This world has no journal.",
-                "16-7",
-                CREAM,
-                0,
-                true,
-                None,
-            );
+        if !offered(c.game, EraSurface::Journal) {
             return;
         }
         let Some(p) = self.page() else {
@@ -877,7 +839,7 @@ impl Journal {
     }
     fn body_event(&mut self, e: ControlEvent, c: &Context<'_>) -> Vec<PanelAction> {
         self.load(c.game);
-        if !era_has(c.game, |e| e.journal) {
+        if !offered(c.game, EraSurface::Journal) {
             return vec![];
         }
         let action = match e {
@@ -1193,7 +1155,7 @@ mod tests {
     }
 
     #[test]
-    fn a_world_without_the_journal_says_so() {
+    fn a_world_without_the_journal_draws_no_pages() {
         let scratch =
             dereth_dat::testing::ScratchDir::new("journal-none").expect("journal directory");
         let mut era = dereth_client_contract::EraView::default();
@@ -1209,7 +1171,7 @@ mod tests {
             drive(&mut j, ControlEvent::Tick, c);
             let f = j.frame(c);
             assert!(!f.controls.iter().any(|k| k.id == "label"));
-            assert!(format!("{f:?}").contains("This world has no journal."));
+            assert!(!format!("{f:?}").contains("This world has no"));
         });
     }
 

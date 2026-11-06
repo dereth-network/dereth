@@ -127,21 +127,58 @@ pub enum Needs {
     Titles,
     /// Secure trade.
     Trade,
+    /// Salvaging and the tinkering recipes.
+    Tinkering,
+    /// Chess on the game boards.
+    Chess,
+    /// Corpse-looting permissions.
+    CorpsePermissions,
+    /// A fellowship founder's choice of sharing experience.
+    FellowshipOptions,
+    /// A fellowship's sharing of loot.
+    FellowshipShareLoot,
+    /// Accepting fellowship invitations at once.
+    FellowshipAutoAccept,
+    /// The allegiance chat room.
+    AllegianceChat,
+    /// The game's own chat rooms.
+    GlobalChatRooms,
+    /// The journal.
+    Journal,
+    /// The contracts.
+    Contracts,
+    /// The Create Spell page.
+    SpellResearch,
+    /// The spellcasting panel's tabs of favorites.
+    SpellTabs,
 }
 
 impl Needs {
     /// Whether a world with `features` has what the row needs. A world whose era is not known
-    /// has everything.
+    /// has everything. The answer for a system with a window is that window's own.
     #[must_use]
     pub fn met(self, features: Option<&dereth_primitives::EraFeatures>) -> bool {
-        let Some(f) = features else { return true };
+        use crate::era::EraSurface as S;
+        let Some(&f) = features else { return true };
         match self {
             Self::Nothing => true,
-            Self::Housing => f.housing,
+            Self::Housing => S::House.offered(f),
             Self::Rares => f.pre_order_items_and_rares,
-            Self::Cloaks => f.cloaks,
-            Self::Titles => f.titles,
-            Self::Trade => f.trade,
+            Self::Cloaks => S::CloakSlot.offered(f),
+            Self::Titles => S::Titles.offered(f),
+            Self::Trade => S::Trade.offered(f),
+            Self::Tinkering => S::Salvage.offered(f),
+            Self::Chess => S::Chess.offered(f),
+            Self::CorpsePermissions => f.corpse_permissions,
+            Self::FellowshipOptions => f.fellowship_options,
+            Self::FellowshipShareLoot => f.fellowship_share_loot,
+            Self::FellowshipAutoAccept => f.fellowship_auto_accept,
+            Self::AllegianceChat => f.allegiance_chat,
+            Self::GlobalChatRooms => f.global_chat_rooms,
+            Self::Journal => S::Journal.offered(f),
+            Self::Contracts => S::Contracts.offered(f),
+            Self::SpellResearch => S::SpellResearch.offered(f),
+            Self::SpellTabs => f.spell_tabs,
         }
     }
 }
@@ -415,7 +452,10 @@ const CHARACTER: [Heading; 7] = [
                     row("Automatically Create Shortcuts", Value::Bit { mask: 1 }),
                 ),
             ),
-            opt("Salvage Multiple Materials at Once", P::SalvageMultiple),
+            needs(
+                Needs::Tinkering,
+                opt("Salvage Multiple Materials at Once", P::SalvageMultiple),
+            ),
             opt(
                 "Use Main Pack as Default for Picking Up Items",
                 P::MainPackPreferred,
@@ -473,17 +513,35 @@ const CHARACTER: [Heading; 7] = [
             ),
             opt("Display Timestamps", P::DisplayTimeStamps),
             opt("Filter Language", P::FilterLanguage),
-            opt_c(
-                "Listen to Allegiance Chat",
-                P::HearAllegianceChat,
-                "Global Allegiance Chat",
-                false,
+            needs(
+                Needs::AllegianceChat,
+                opt_c(
+                    "Listen to Allegiance Chat",
+                    P::HearAllegianceChat,
+                    "Global Allegiance Chat",
+                    false,
+                ),
             ),
-            opt("Listen to General Chat", P::HearGeneralChat),
-            opt("Listen to Trade Chat", P::HearTradeChat),
-            opt("Listen to LFG Chat", P::HearLFGChat),
-            opt("Listen to Roleplay Chat", P::HearRoleplayChat),
-            opt("Listen to Society Chat", P::HearSocietyChat),
+            needs(
+                Needs::GlobalChatRooms,
+                opt("Listen to General Chat", P::HearGeneralChat),
+            ),
+            needs(
+                Needs::GlobalChatRooms,
+                opt("Listen to Trade Chat", P::HearTradeChat),
+            ),
+            needs(
+                Needs::GlobalChatRooms,
+                opt("Listen to LFG Chat", P::HearLFGChat),
+            ),
+            needs(
+                Needs::GlobalChatRooms,
+                opt("Listen to Roleplay Chat", P::HearRoleplayChat),
+            ),
+            needs(
+                Needs::GlobalChatRooms,
+                opt("Listen to Society Chat", P::HearSocietyChat),
+            ),
             opt("Listen to PK Death Messages", P::HearPKDeaths),
         ],
     },
@@ -510,11 +568,20 @@ const CHARACTER: [Heading; 7] = [
                 "Show Allegiance Logons",
                 P::DisplayAllegianceLogonNotifications,
             ),
-            opt("Share Fellowship Experience", P::FellowshipShareXP),
-            opt("Share Fellowship Loot", P::FellowshipShareLoot),
-            opt(
-                "Automatically Accept Fellowship Requests",
-                P::FellowshipAutoAcceptRequests,
+            needs(
+                Needs::FellowshipOptions,
+                opt("Share Fellowship Experience", P::FellowshipShareXP),
+            ),
+            needs(
+                Needs::FellowshipShareLoot,
+                opt("Share Fellowship Loot", P::FellowshipShareLoot),
+            ),
+            needs(
+                Needs::FellowshipAutoAccept,
+                opt(
+                    "Automatically Accept Fellowship Requests",
+                    P::FellowshipAutoAcceptRequests,
+                ),
             ),
         ],
     },
@@ -522,15 +589,24 @@ const CHARACTER: [Heading; 7] = [
         title: "Other Players",
         text: Text::preference("ID_CharacterOption_OtherPlayers_Section", "Other Players"),
         rows: &[
-            opt("Accept Corpse-Looting Permissions", P::AcceptLootPermits),
+            needs(
+                Needs::CorpsePermissions,
+                opt("Accept Corpse-Looting Permissions", P::AcceptLootPermits),
+            ),
             opt("Attempt to Deceive Other Players", P::UseDeception),
             opt("Let Other Players Give You Items", P::AllowGive),
-            opt("Ignore All Trade Requests", P::IgnoreTradeRequests),
-            opt_c(
-                "Drag Item to Player Opens Trade",
-                P::DragItemOnPlayerOpensSecureTrade,
-                "Drag item to player opens Secure Trade",
-                false,
+            needs(
+                Needs::Trade,
+                opt("Ignore All Trade Requests", P::IgnoreTradeRequests),
+            ),
+            needs(
+                Needs::Trade,
+                opt_c(
+                    "Drag Item to Player Opens Trade",
+                    P::DragItemOnPlayerOpensSecureTrade,
+                    "Drag item to player opens Secure Trade",
+                    false,
+                ),
             ),
             opt("Show Your Helm or Head Gear", P::ShowHelm),
             needs(Needs::Cloaks, opt("Show Your Cloak", P::ShowCloak)),
@@ -547,11 +623,14 @@ const CHARACTER: [Heading; 7] = [
                 false,
             ),
             opt_c("Age", P::DisplayAge, "Allow others to see your Age", false),
-            opt_c(
-                "Chess Rank",
-                P::DisplayChessRank,
-                "Allow others to see your Chess Rank",
-                false,
+            needs(
+                Needs::Chess,
+                opt_c(
+                    "Chess Rank",
+                    P::DisplayChessRank,
+                    "Allow others to see your Chess Rank",
+                    false,
+                ),
             ),
             opt_c(
                 "Fishing Skill",
@@ -637,6 +716,10 @@ const fn filter_rows<const N: usize>(window: u32, from: usize) -> [Row; N] {
     while i < N {
         let (caption, mask) = FILTER_GROUPS[from + i];
         out[i] = row(caption, Value::Filter { window, mask });
+        // General, Trade, LFG, Roleplay and Society are the rooms' lines.
+        if mask >= 0x0800_0000 {
+            out[i].needs = Needs::GlobalChatRooms;
+        }
         i += 1;
     }
     out
@@ -1013,7 +1096,7 @@ const CLIENT_SHARED: [Heading; 5] = [
             only(
                 Shown::Only(Interface::Classic),
                 pref(
-                    "Right-click Mouselook",
+                    "Right-click mouselook",
                     Value::Check(crate::options::classic::RIGHT_CLICK_MOUSE_LOOK),
                     Bool(true),
                 ),
@@ -1311,6 +1394,55 @@ mod tests {
             .unwrap()
             .needs
             .met(Some(&f)));
+    }
+
+    /// Behaviour: presentation.era.option-rows-follow-the-worlds-systems
+    /// An option for a system the world lacks is left out, each by its own system; a world whose
+    /// era is not known has every row.
+    #[test]
+    fn an_option_row_follows_the_system_it_belongs_to() {
+        use dereth_primitives::EraFeatures as F;
+        let without = |f: fn(&mut F)| {
+            let mut features = F::ALL;
+            f(&mut features);
+            features
+        };
+        for (option, off) in [
+            (P::SalvageMultiple, without(|f| f.tinkering = false)),
+            (P::DisplayChessRank, without(|f| f.chess = false)),
+            (
+                P::AcceptLootPermits,
+                without(|f| f.corpse_permissions = false),
+            ),
+            (
+                P::FellowshipShareXP,
+                without(|f| f.fellowship_options = false),
+            ),
+            (P::IgnoreTradeRequests, without(|f| f.trade = false)),
+            (
+                P::FellowshipShareLoot,
+                without(|f| f.fellowship_share_loot = false),
+            ),
+            (
+                P::FellowshipAutoAcceptRequests,
+                without(|f| f.fellowship_auto_accept = false),
+            ),
+            (
+                P::HearAllegianceChat,
+                without(|f| f.allegiance_chat = false),
+            ),
+            (P::HearGeneralChat, without(|f| f.global_chat_rooms = false)),
+            (P::HearSocietyChat, without(|f| f.global_chat_rooms = false)),
+            (
+                P::DragItemOnPlayerOpensSecureTrade,
+                without(|f| f.trade = false),
+            ),
+        ] {
+            let needs = row_of_option(option).unwrap().needs;
+            assert!(needs.met(Some(&F::ALL)), "{option:?}");
+            assert!(!needs.met(Some(&off)), "{option:?}");
+            assert!(needs.met(None), "{option:?}");
+        }
     }
 
     /// The experimental rendering effects' boxes are on the Horizon interface's Client page

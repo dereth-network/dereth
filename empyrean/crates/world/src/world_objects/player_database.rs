@@ -50,6 +50,7 @@ pub fn player_save_interval_secs(w: &World) -> i64 {
 /// `LogoffTimestamp`, and the loyalty and leadership offline players use for passup rates.
 // ACE: Player.SetPropertiesAtLogOut
 pub fn set_properties_at_log_out(w: &mut World, this: ObjectGuid) {
+    crate::world_objects::spell_potency::settle_charges(w, this);
     let now = w.now.unix_time;
     let Some(o) = w.objects.get_mut(this) else {
         return;

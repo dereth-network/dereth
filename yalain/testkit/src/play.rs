@@ -40,6 +40,18 @@ impl<S: Store> Harness<S> {
         b
     }
 
+    /// A client logged in, its data not yet told: the character list waits for that.
+    pub fn logging_in(&mut self, account: &str) -> usize {
+        let b = self.add_bot();
+        let now = self.now;
+        self.bots[b].log_in(account, b"ticket", now);
+        assert!(self.run_until(STEPS, |h| h.bots[b]
+            .messages(false)
+            .iter()
+            .any(|m| matches!(m, ServerMessage::DataQuery(_)))));
+        b
+    }
+
     /// Create a human man with this name; returns its id.
     pub fn create_character(&mut self, b: usize, account: &str, name: &str) -> u64 {
         let before = self.bots[b].inbox.len();

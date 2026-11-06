@@ -124,3 +124,436 @@ fn the_recall_skills_read_as_the_lifestones() {
         );
     }
 }
+
+/// What a landed special's effect takes from a creature's armor counts in the next hit, on the whole
+/// server with the install's own skills: Rend Armor at rating 50 takes 150, and Expose at rating 40
+/// then does the weapon's roll plus its 60, less the 173 of armor and with the 150 back, within 269
+/// to 347 for a weapon of 232 to 310; 119 to 197 with no Rend Armor before it (2017, that weapon and
+/// armor with one such effect held: a median 288).
+/// Behaviour: server.creatures.armor-debuff-in-a-special
+#[test]
+fn a_special_after_rend_armor_does_what_it_took_from_the_creature() {
+    use auberean_protocol::{queue, ServerMessage};
+    use auberean_script::args::Arg;
+    use yalain_content::{Prop, Props};
+    use yalain_testkit::play::server_call;
+    use yalain_testkit::{Harness, TEST_CREATURE};
+    use yalain_world::skill_use::function;
+    use yalain_world::state::SkillState;
+    const REND_ARMOR: u32 = 766;
+    const EXPOSE: u32 = 757;
+    const WEAPON: u32 = 0x4700_07A3;
+    let portal = Portal::open();
+    let skills = portal.skills();
+    let mut states: Vec<u32> = [REND_ARMOR, EXPOSE]
+        .iter()
+        .flat_map(|k| {
+            skills.skills[k]
+                .usage
+                .as_ref()
+                .expect("used")
+                .target_effects
+                .clone()
+        })
+        .collect();
+    states.sort_unstable();
+    let effects = portal.effects(&states);
+    let fights = |rend_first: bool| -> Vec<i32> {
+        let mut out = Vec::new();
+        for seed in 1..40u64 {
+            let mut h = Harness::new();
+            h.add_creatures(1);
+            h.server.skill_table = skills.clone();
+            h.server.effect_table = effects.clone();
+            h.server.rng = yalain_world::rng::Rng::new(seed);
+            let (b, me) = h.player_in_world("one", "Elara");
+            h.bots[b].send(
+                true,
+                queue::WEENIE,
+                &auberean_protocol::ClientMessage::SceneRenderingComplete(
+                    auberean_protocol::login::Empty,
+                ),
+            );
+            h.run(5);
+            let mut p = Props::default();
+            p.set("Weapon_Damage", Prop::Int(310))
+                .set("Weapon_Variance", Prop::Float(0.25));
+            h.server
+                .catalog
+                .insert(yalain_testkit::test_template(WEAPON, 0x1067, p));
+            h.server
+                .catalog
+                .implements
+                .insert(WEAPON, yalain_world::skill_use::implement::BOW);
+            h.arm(b, me, WEAPON);
+            for (skill, rating) in [(REND_ARMOR, 50), (EXPOSE, 40)] {
+                let d = h
+                    .server
+                    .skill_table
+                    .skills
+                    .get_mut(&skill)
+                    .expect("a skill");
+                d.parents.clear();
+                d.prereqs.clear();
+                let u = d.usage.as_mut().expect("used");
+                u.implements_right = -1;
+                u.implements_left = -1;
+                u.vigor_add = 0.0;
+                u.vigor_mult = 0.0;
+                u.min_vigor = 0.0;
+                u.min_range = -1.0;
+                u.max_range = 1000.0;
+                u.ui_flags &= !yalain_world::skill_use::ui_flag::MOVE_TO;
+                let p = h.server.players.values_mut().next().expect("in the world");
+                p.play.skills.push(SkillState {
+                    skill,
+                    // Its experience's level, none reaching 1, comes on top.
+                    granted: rating - 1,
+                    mask: 1,
+                    cost: 0,
+                    children: 0,
+                    dependents: 0,
+                    spent: 0,
+                });
+            }
+            let foe = h
+                .world_messages(b, 0)
+                .iter()
+                .find_map(|m| match m {
+                    ServerMessage::CreateObject(o) if o.weenie.entity_did == TEST_CREATURE => {
+                        Some(o.id)
+                    }
+                    _ => None,
+                })
+                .expect("the camp's creature");
+            {
+                let t = h.server.things.get_mut(foe).expect("the creature");
+                t.max_health = 10_000_000;
+                t.health = 10_000_000;
+                let c = t.creature.as_mut().expect("a creature");
+                c.stats.armor = 173;
+                c.stats.fights = false;
+            }
+            let hit = |h: &mut Harness, id: u32, skill: u32| -> Option<i32> {
+                let from = h.bots[b].inbox.len();
+                h.bots[b].send(
+                    true,
+                    queue::WEENIE,
+                    &server_call(
+                        function::USE,
+                        &[Arg::Int(id), Arg::Int(skill), Arg::LongInt(foe)],
+                    ),
+                );
+                h.run(240);
+                h.world_messages(b, from).iter().find_map(|m| {
+                    let ServerMessage::DoStory(e) = m else {
+                        return None;
+                    };
+                    e.action.hooks.iter().find_map(|k| {
+                        (e.action.skill == skill && k.numbers[0] == 0x4000_0008 && k.numbers[3] < 0)
+                            .then_some(-k.numbers[3])
+                    })
+                })
+            };
+            if rend_first {
+                let mut landed = false;
+                for id in 10..30 {
+                    if hit(&mut h, id, REND_ARMOR).is_some() {
+                        landed = true;
+                        break;
+                    }
+                }
+                assert!(landed, "Rend Armor landed");
+                assert_eq!(yalain_world::combat::armor_taken(&h.server, foe), 150);
+            } else {
+                assert_eq!(yalain_world::combat::armor_taken(&h.server, foe), 0);
+            }
+            if let Some(d) = hit(&mut h, 40, EXPOSE) {
+                out.push(d);
+            }
+        }
+        out
+    };
+    let after = fights(true);
+    let alone = fights(false);
+    assert!(
+        after.len() >= 10 && alone.len() >= 10,
+        "{} {}",
+        after.len(),
+        alone.len()
+    );
+    assert!(after.iter().all(|d| (269..=347).contains(d)), "{after:?}");
+    assert!(alone.iter().all(|d| (119..=197).contains(d)), "{alone:?}");
+}
+
+/// The items whose classes name a quest for taking them read with it: a piece of the Broth, for its
+/// own quest at the step it asks; a thing with no such quest reads none.
+/// Behaviour: server.content.take-gates-of-classes
+#[test]
+fn an_item_whose_class_names_a_quest_for_taking_reads_with_it() {
+    let p = Portal::open();
+    let t = p.template(0x4700_0609);
+    assert_eq!(
+        t.props.word("Usage_RequiredQuest_ForTaking"),
+        Some(0x4000_0024)
+    );
+    assert_eq!(
+        t.props.word("Usage_RequiredQuestStatus_ForTaking"),
+        Some(0x1000_0002)
+    );
+    let medallion = p.template(0x4700_08CF);
+    assert_eq!(medallion.props.word("Usage_RequiredQuest_ForTaking"), None);
+}
+
+/// Three skills' definitions say how much faster they go: Sinew Snap 1.6, the two drudges' 1.4; no
+/// other's does.
+/// Behaviour: server.specials.combat-speed-read
+#[test]
+fn only_three_skills_say_they_go_faster() {
+    let portal = Portal::open();
+    let skills = portal.skills();
+    let mut said: Vec<(u32, f32)> = skills
+        .skills
+        .values()
+        .filter_map(|d| Some((d.id, d.usage.as_ref()?.combat_speed?)))
+        .collect();
+    said.sort_by_key(|x| x.0);
+    assert_eq!(said, [(994, 1.6), (2088, 1.4), (2113, 1.4)]);
+}
+
+/// An alchemist's basic attacks are told apart by what they name: its plain ones bar the dark side
+/// and Immolation, its melee ones require the first and bar the second, and each has a fiery kind
+/// that requires Immolation; all name Fire Breath to be trained.
+/// Behaviour: server.weapons.basic-attacks-read-what-they-want
+#[test]
+fn an_alchemists_basic_attacks_name_what_they_want_and_what_bars_them() {
+    const DARK_SIDE: u32 = 0x7000_1F43;
+    const IMMOLATION: u32 = 0x7000_1F51;
+    const FIRE_BREATH: u32 = 189;
+    let skills = Portal::open().skills();
+    let usage = |k: u32| skills.skills[&k].usage.as_ref().expect("used");
+    for plain in [804, 805, 806] {
+        let u = usage(plain);
+        assert!(u.required_effects.is_empty());
+        assert!(u.barring_effects.contains(&DARK_SIDE) && u.barring_effects.contains(&IMMOLATION));
+        assert_eq!(u.use_prereqs, [(FIRE_BREATH, 0)]);
+    }
+    for melee in [953, 954, 955] {
+        let u = usage(melee);
+        assert_eq!(u.required_effects, [DARK_SIDE]);
+        assert!(u.barring_effects.contains(&IMMOLATION));
+    }
+    for fiery in [1371, 1372, 1373] {
+        let u = usage(fiery);
+        assert_eq!(u.required_effects, [IMMOLATION]);
+        assert!(u.barring_effects.contains(&DARK_SIDE));
+    }
+    for fiery_melee in [1374, 1375, 1376] {
+        assert_eq!(usage(fiery_melee).required_effects, [DARK_SIDE, IMMOLATION]);
+    }
+}
+
+/// A fresh character of any race holds basic attacks it may swing, wanting no effect and no skill it
+/// lacks; a fresh human, some for each of its starting weapons.
+/// Behaviour: server.weapons.basic-attacks-read-what-they-want
+#[test]
+fn a_new_characters_basic_attacks_want_nothing_it_lacks() {
+    use auberean_assets::script::ScriptState;
+    use auberean_script::graph::Graph;
+    let p = Portal::open();
+    let lib = p.library();
+    let skills = p.skills();
+    let bytes = p.dat.read(0x7000_0390).expect("character generation data");
+    let st: ScriptState = auberean_assets::decode(0x7000_0390, &bytes, &p.ctx).expect("reads");
+    let g = Graph::decode(&st.graph, &lib).expect("its graph reads");
+    let rules = yalain_world::start::StartRules::from_matrix(&lib, &g).expect("the rules read");
+    assert!(rules.skills.len() >= 3);
+    for (race, list) in &rules.skills {
+        let held: Vec<u32> = list.iter().map(|x| x.0).collect();
+        let usable: Vec<u32> = held
+            .iter()
+            .copied()
+            .filter(|k| {
+                let Some(d) = skills.skills.get(k) else {
+                    return false;
+                };
+                let Some(u) = d.usage.as_ref() else {
+                    return false;
+                };
+                d.auto_attack
+                    && u.required_effects.is_empty()
+                    && u.use_prereqs.iter().all(|(n, _)| held.contains(n))
+            })
+            .collect();
+        assert!(
+            !usable.is_empty(),
+            "race {race} starts with nothing to swing"
+        );
+        if *race == 1 {
+            use yalain_world::skill_use::implement as im;
+            for weapon in [im::SWORD, im::BOW, im::STAVE] {
+                assert!(
+                    usable.iter().any(|k| {
+                        let u = skills.skills[k].usage.as_ref().expect("used");
+                        u.implements_right.cast_unsigned() & weapon != 0
+                    }),
+                    "no human basic attack for {weapon:#x}"
+                );
+            }
+        }
+    }
+}
+
+/// The skills aimed at items read with what they take: a shield of the user's, a weapon in hand; their
+/// effects raise a rating and a damage by the amounts 2017's profiles show (a shield's rating 40 and
+/// damage 61 at spellcraft 30, a weapon's rating 67 at 48 and 70 at 51), for half an hour, and a second
+/// effect on each attunes the item for as long.
+/// Behaviour: server.skills.a-skill-aimed-at-an-item-lands-on-it
+#[test]
+fn the_skills_aimed_at_items_read_with_what_they_take_and_do() {
+    use yalain_world::made::stat;
+    use yalain_world::skill_use::{aims_at_item, object_kind, target_bit};
+    let portal = Portal::open();
+    let t = portal.skills();
+    let e = portal.effects(&[
+        0x7000_07D3,
+        0x7000_1F3A,
+        0x7000_1F7C,
+        0x7000_1F7D,
+        0x6F00_0039,
+    ]);
+    let at = |state: u32, spellcraft: f32, want: u32| {
+        e.get(state)
+            .expect("known")
+            .changes(spellcraft)
+            .iter()
+            .filter(|(s, m, _)| *s == want && !*m)
+            .map(|(_, _, by)| *by)
+            .sum::<f32>()
+            .floor()
+    };
+    let emblem = t.skills[&148].usage.clone().expect("used");
+    assert!(aims_at_item(&emblem));
+    assert_ne!(emblem.valid_targets & target_bit::OWN_ITEM, 0);
+    assert_eq!(emblem.valid_object_kinds, vec![object_kind::SHIELD]);
+    assert_eq!(emblem.target_effects, vec![0x7000_07D3, 0x7000_1F3A]);
+    assert_eq!(at(0x7000_07D3, 30.0, stat::ARMOR), 40.0);
+    assert_eq!(at(0x7000_07D3, 30.0, stat::DAMAGE), 61.0);
+    let galvanize = t.skills[&1259].usage.clone().expect("used");
+    assert_ne!(galvanize.valid_targets & target_bit::ITEM_IN_HAND, 0);
+    assert_eq!(galvanize.valid_object_kinds, vec![object_kind::WEAPON]);
+    assert_eq!(galvanize.target_effects, vec![0x7000_1F7C, 0x7000_1F7D]);
+    assert_eq!(at(0x7000_1F7C, 48.0, stat::ARMOR), 67.0);
+    assert_eq!(at(0x7000_1F7C, 51.0, stat::ARMOR), 70.0);
+    let board = t.skills[&2160].usage.clone().expect("used");
+    assert_eq!(board.valid_object_kinds, vec![object_kind::WEAPON]);
+    assert_eq!(board.target_effects, vec![0x6F00_0039]);
+    for state in [0x7000_07D3, 0x7000_1F7C, 0x7000_1F3A, 0x7000_1F7D] {
+        assert_eq!(e.get(state).expect("known").duration.at(30.0), Some(1800.0));
+    }
+    for state in [0x7000_1F3A, 0x7000_1F7D] {
+        assert_eq!(e.get(state).expect("known").eq_class, 114);
+    }
+    // What a skill names a weapon or a shield by is the class what a hand holds is known by.
+    let lib = portal.library();
+    let of = |class: &str, base: &str| {
+        lib.derives_from(
+            lib.package_id(class).expect("the class"),
+            lib.package_id(base).expect("its base"),
+        )
+    };
+    for (class, kind) in yalain_world::skill_use::IMPLEMENT_CLASSES {
+        use yalain_world::skill_use::implement::{NONE, SHIELD};
+        assert_eq!(of(class, "Shield"), kind == SHIELD, "{class}");
+        // A lute is a weapon by its class that a hand holds as nothing; it alone is told apart.
+        if class != "LuteTemplate" {
+            assert_eq!(
+                of(class, "Weapon"),
+                kind != SHIELD && kind != NONE,
+                "{class}"
+            );
+        }
+    }
+}
+
+/// No skill aimed at a weapon can come to a lute: each asks its user's right hand to hold something,
+/// and a lute, which is held as nothing, goes in the right hand and nowhere else.
+/// Behaviour: server.skills.a-skill-aimed-at-an-item-refused
+#[test]
+fn no_skill_aimed_at_a_weapon_can_come_to_a_lute() {
+    use yalain_world::skill_use::{implement, object_kind};
+    const RIGHT_HAND: u32 = 64;
+    let p = Portal::open();
+    let aimed: Vec<_> = p
+        .skills()
+        .skills
+        .values()
+        .filter_map(|d| d.usage.clone())
+        .filter(|u| u.valid_object_kinds.contains(&object_kind::WEAPON))
+        .collect();
+    assert_eq!(aimed.len(), 2);
+    for u in &aimed {
+        assert_eq!(u.implements_right.cast_unsigned() & implement::NONE, 0);
+    }
+    // Each of the kinds of lute and flute 2017 examined.
+    for id in [
+        0x4700_065B,
+        0x4700_065D,
+        0x4700_065E,
+        0x4700_065F,
+        0x4700_0660,
+        0x4700_0661,
+        0x4700_0662,
+        0x4700_0663,
+        0x4700_0664,
+        0x4700_0673,
+        0x4700_0674,
+        0x4700_1148,
+        0x4700_114B,
+        0x4700_1A3A,
+    ] {
+        assert!(p.derives(id, &["LuteTemplate"]), "{id:#x}");
+        assert_eq!(
+            p.template(id).props.word("Item_ValidInventoryLocations"),
+            Some(RIGHT_HAND),
+            "{id:#x}"
+        );
+    }
+}
+
+/// Each contract is a template whose acquiring hires, and its mercenary a template that makes a pet;
+/// no pet a skill summons is of a mercenary's class, and what a mercenary tends with heals.
+/// Behaviour: server.pets.a-contract-hires-a-mercenary
+#[test]
+fn the_contracts_and_their_mercenaries_read_from_the_data() {
+    use yalain_world::effect_defs::Kind;
+    use yalain_world::pets::{kind_of, mercenary};
+    let portal = Portal::open();
+    for contract in [mercenary::CRAFTER, mercenary::KEEPER, mercenary::MEDIC] {
+        let t = portal.template(contract);
+        assert!(yalain_world::quests::acquiring_does_more_than_quests(
+            &t.props
+        ));
+        let pet = portal.template(kind_of(contract).expect("a kind").template);
+        let stats = yalain_content::CreatureStats::from_props(&pet.props).expect("a pet");
+        assert_eq!(stats.max_health, 150);
+    }
+    let table = portal.skills();
+    let summons: Vec<u32> = table
+        .skills
+        .values()
+        .filter_map(|d| d.usage.as_ref())
+        .flat_map(|u| u.user_effects.iter().copied())
+        .collect();
+    let effects = portal.effects(&summons);
+    for d in effects.effects.values() {
+        if let Kind::Pet { class, .. } = d.kind {
+            assert_eq!(class & mercenary::CLASS, 0, "{:08X}", d.state);
+        }
+    }
+    let heal = portal.effects(&[mercenary::TEND_EFFECT]);
+    assert!(matches!(
+        heal.get(mercenary::TEND_EFFECT).expect("known").kind,
+        Kind::InstantVital { .. }
+    ));
+}

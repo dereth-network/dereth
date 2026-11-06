@@ -21,6 +21,9 @@ pub mod anim_assets;
 /// numbering as they are loaded.
 pub mod command_numbering;
 
+/// The data files' physics script and sound numbers against the later files'.
+pub mod effect_numbering;
+
 /// The interior cells of a landblock, converted for physics, and the static objects baked into them.
 pub mod env_cells;
 

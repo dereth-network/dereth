@@ -238,6 +238,48 @@ fn quest(id: u32, st: u32, given: f64, name: &str) -> Quest {
     }
 }
 
+/// A message or a question goes up with its button holding the keyboard, so the use key answers it;
+/// a dialog with no such button leaves the keyboard alone.
+///
+/// Behaviour: ui.dialogs.the-use-key-answers-a-dialog-as-it-goes-up
+#[test]
+fn the_use_key_answers_a_dialog_as_it_goes_up() {
+    use auberean_ui::types::key_id;
+    let mut w = World::new();
+    let parent = Some(w.play.frame());
+    let mut n = Vec::new();
+    let message = dialog::new_context();
+    w.dialogs.make_dialog(
+        &mut w.ui,
+        parent,
+        &request(message, kind::MESSAGE, "Read me.", false),
+        &mut n,
+    );
+    assert_eq!(w.dialogs.up(), Some(message));
+    assert_eq!(
+        w.ui.active(),
+        Some(w.button("OkButton")),
+        "the button holds it"
+    );
+    w.ui.key(key_id::USE, true);
+    w.ui.key(key_id::USE, false);
+    w.tick(&[]);
+    assert_eq!(w.dialogs.up(), None, "the use key read the message");
+
+    let question = dialog::new_context();
+    w.dialogs.make_dialog(
+        &mut w.ui,
+        parent,
+        &request(question, kind::CONFIRMATION, "Sure?", false),
+        &mut n,
+    );
+    assert_eq!(w.ui.active(), Some(w.button("YesButton")), "yes holds it");
+    w.ui.key(key_id::USE, true);
+    w.ui.key(key_id::USE, false);
+    w.tick(&[]);
+    assert_eq!(w.dialogs.up(), None, "the use key answered yes");
+}
+
 /// The dialogs' answers reach the panel that asked: death's dialog brings the player back; a
 /// question of the player's scripts answered yes is answered with what it carried, no not at all;
 /// the journal's question whether to give a quest up, answered yes, gives it up. While a dialog
@@ -288,24 +330,22 @@ fn the_answers_reach_the_panel_that_asked() {
     w.tick(&[alive]);
     assert!(w.play.shown(&w.ui));
 
-    // A question of the scripts: yes answers with what it carried.
-    let mut out = Vec::new();
-    w.play
-        .make_confirmation_dialog("Accept?".into(), [7, 8], [9, 10], 11, &mut out);
-    for r in out {
-        if let Request::Dialog(d) = r {
-            let parent = Some(w.play.frame());
-            w.dialogs
-                .make_dialog(&mut w.ui, parent, &(&d).into(), &mut w.said);
-        }
-    }
+    // The server's question whether an effect may go on: yes answers with what it carried.
+    let question = Notice {
+        native: notice::SHOULD_APPLY_TOTEM,
+        about: Some(1),
+        words: vec![0, 7, 0, 8, 11],
+        records: vec![Some(Record::Text(auberean_text::StringInfo::literal(
+            "Accept?",
+        )))],
+    };
+    w.tick(&[question]);
     w.tick(&[]);
     assert_eq!(w.text("QuestionText"), "Accept?");
     let out = w.click(w.button("YesButton"));
     assert!(
         out.contains(&Request::Confirm {
             objects: [7, 8],
-            tokens: [9, 10],
             value: 11,
         }),
         "{out:?}"
@@ -465,5 +505,36 @@ fn a_message_the_scripts_ask_for_first_goes_up_at_once() {
         w.text("TextField"),
         "Waits",
         "the displaced one comes back first"
+    );
+}
+
+/// Someone offering to bring the player back asks the question, naming them, in place of death's
+/// own dialog; an offer with no name reads as no offer.
+///
+/// Behaviour: ui.dialogs.an-offer-to-bring-the-player-back-asks-by-name
+#[test]
+fn an_offer_to_bring_the_player_back_asks_by_name() {
+    let mut w = World::new();
+    let offer = |name: &str| Notice {
+        native: notice::RESURRECTION_REQUESTED_BY_OTHER,
+        records: vec![Some(Record::Text(StringInfo::literal(name)))],
+        ..Notice::default()
+    };
+    let out = w.tick(&[offer("Asher")]);
+    let asked: Vec<_> = out
+        .iter()
+        .filter_map(|r| match r {
+            Request::Dialog(d) => Some(d),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(asked.len(), 1, "{out:?}");
+    assert_eq!(asked[0].kind, kind::CONFIRMATION);
+    assert!(asked[0].text.contains("Asher"), "{:?}", asked[0].text);
+    let out = w.tick(&[offer("")]);
+    assert!(
+        out.iter()
+            .any(|r| matches!(r, Request::Dialog(d) if d.kind == kind::RESURRECT)),
+        "{out:?}"
     );
 }

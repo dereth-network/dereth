@@ -28,6 +28,7 @@ fn object(id: u64, template: u32, package: u32, destination: Option<Place>) -> C
         object: Some(id),
         template,
         description: Description {
+            name_text: None,
             package,
             look: 0x1F00_0ED5,
             enter_fx: 0,

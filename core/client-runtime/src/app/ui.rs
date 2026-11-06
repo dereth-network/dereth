@@ -14,6 +14,10 @@ impl<S: Shell> App<S> {
         self.actions.begin_frame();
         // The world's systems, as the requests the interaction layer runs this frame see them.
         self.interaction.era_features = self.hud.era.features();
+        self.objects
+            .world
+            .set_era_features(self.interaction.era_features);
+        self.host_state.era_features = self.interaction.era_features;
         self.duties.teleport_ticked = false;
         self.duties.hud_synced = false;
         self.duties.portal_driven = false;
@@ -154,6 +158,10 @@ impl<S: Shell> App<S> {
         chat_focus: &mut dyn FnMut(&mut dereth_client_model::chat::ChatState),
     ) -> Vec<dereth_client_contract::UiRequest> {
         use dereth_client_contract::UiRequest;
+        self.interaction.era_features = self.hud.era.features();
+        self.objects
+            .world
+            .set_era_features(self.interaction.era_features);
         match request {
             UiRequest::BarberLocalEffect(script) => {
                 if let Some(mut scene) = self.present.scene_mut(self.world.as_mut()) {

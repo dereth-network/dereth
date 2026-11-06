@@ -15,6 +15,7 @@
 //! turning this frame), and the body's instance, teleport, forced-position and move-to stamps.
 
 use auberean_client_contract::Motion;
+use auberean_physics::geom::Heading;
 use auberean_primitives::Vec3;
 use auberean_protocol::physics::ClientPosition;
 use dereth_primitives::num::math;
@@ -56,14 +57,24 @@ pub struct Body {
     pub instance_stamp: u16,
     pub teleport_stamp: u16,
     pub force_position_stamp: u16,
+    /// The stamp of the last position of the player's own the server sent.
+    pub position_stamp: u16,
     /// The stamp of the last move the server ordered the body to make.
     pub move_to_stamp: u16,
     /// Movement frozen by the server's scripts.
     pub frozen: bool,
     /// Moved by the host's own physics ([`Body::follow`]): the body takes no step of its own.
     pub driven: bool,
+    /// The host's physics has not yet found room for the body where the server put it: it is out
+    /// of the world, and nothing is reported of it.
+    pub out_of_world: bool,
+    /// Where the body is turning to, when it is turning.
+    turning_to: Option<f32>,
     placed: bool,
     placements: u32,
+    impulses: u32,
+    forced_moves: u32,
+    impulse: Vec3,
     times_jumped: u32,
     jumps_reported: u32,
     jump_velocity: Vec3,
@@ -88,6 +99,13 @@ pub fn motion_byte(v: f32) -> u32 {
     b.min(255)
 }
 
+/// Whether stamp `b` is newer than stamp `a`, the stamps counting round through 65536.
+// D2-05665
+#[must_use]
+pub fn is_newer(a: u16, b: u16) -> bool {
+    a != b && b.wrapping_sub(a) < 0x8000
+}
+
 impl Body {
     /// The server put the body somewhere.
     pub fn place(&mut self, cell: u32, origin: Vec3, heading: f32) {
@@ -105,12 +123,44 @@ impl Body {
         self.placements
     }
 
+    /// The server threw the body: it leaves the ground at this velocity.
+    pub fn throw(&mut self, velocity: Vec3) {
+        self.impulse = velocity;
+        self.impulses = self.impulses.wrapping_add(1);
+    }
+
+    /// How many times the server has thrown the body, and the last velocity: a host that moves the
+    /// body with its own physics applies it whenever the count changes.
+    #[must_use]
+    pub fn thrown(&self) -> (u32, Vec3) {
+        (self.impulses, self.impulse)
+    }
+
+    /// The server forced the body's place with a newer stamp.
+    pub fn force_moved(&mut self) {
+        self.forced_moves = self.forced_moves.wrapping_add(1);
+    }
+
+    /// How many times the server has forced the body's place: a host with a camera turns it on
+    /// whenever this changes.
+    #[must_use]
+    pub fn forced_moves(&self) -> u32 {
+        self.forced_moves
+    }
+
     /// Where the host's physics has the body now (its cell, its place in the cell's landblock and
     /// its heading): what the next report carries.
     pub fn follow(&mut self, cell: u32, origin: Vec3, heading: f32) {
         self.cell = cell;
         self.origin = origin;
         self.heading = heading;
+    }
+
+    /// Where the host's physics has the body turning to, if it is: the next report says that in
+    /// place of where it faces now.
+    // D2-07037
+    pub fn turning_to(&mut self, heading: Option<f32>) {
+        self.turning_to = heading;
     }
 
     /// Whether the body has a place yet.
@@ -157,10 +207,10 @@ impl Body {
     }
 
     /// Whether the client sends a report this frame.
-    // D2-09635
+    // D2-09635, D2-09636
     #[must_use]
     pub fn should_report(&self, now: f64) -> bool {
-        if !self.placed {
+        if !self.placed || self.out_of_world {
             return false;
         }
         if self.times_jumped > self.jumps_reported {
@@ -181,13 +231,14 @@ impl Body {
             || (self.origin.x - last.origin.x).abs() >= EPSILON
             || (self.origin.y - last.origin.y).abs() >= EPSILON
             || (self.origin.z - last.origin.z).abs() >= EPSILON;
-        moved || (self.heading - last.heading).abs() >= EPSILON
+        moved || !Heading::new(self.heading).equals(Heading::new(last.heading))
     }
 
     /// The report, as sent now; the body remembers it.
-    // D2-15433, D2-09636
+    // D2-15433, D2-09636, D2-13126
     pub fn report(&mut self, now: f64, game_time: f64) -> ClientPosition {
         let m = self.motion();
+        let heading = self.turning_to.unwrap_or(self.heading);
         let mut flags = 0;
         if self.asked.active {
             flags |= MOVING;
@@ -201,7 +252,7 @@ impl Body {
         self.last = Some(Reported {
             cell: self.cell,
             origin: self.origin,
-            heading: self.heading,
+            heading,
             motion: m,
         });
         self.last_time = now;
@@ -209,7 +260,7 @@ impl Body {
             time: game_time,
             cell: self.cell,
             origin: self.origin,
-            heading_motion: heading_byte(self.heading) << 24
+            heading_motion: heading_byte(heading) << 24
                 | motion_byte(m[0]) << 16
                 | motion_byte(m[1]) << 8
                 | motion_byte(m[2]),

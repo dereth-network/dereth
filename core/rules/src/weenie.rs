@@ -118,6 +118,29 @@ pub const fn spell_target_type_of_component(component: u32) -> u32 {
     }
 }
 
+/// The target type a **decrypted** formula names by its own components, or 0 unless its first five
+/// slots are filled.
+///
+/// The target component is the last filled slot of the run that starts at slot 5: the walk goes up
+/// from slot 5 while the slot is non-zero, stopping at slot 8, and takes the slot before the one it
+/// stopped at. A formula with only its five required slots therefore aims with slot 4, and a full
+/// eight-slot formula with slot 7. That component is mapped by [`spell_target_type_of_component`].
+#[must_use]
+pub fn formula_target_type(components: &[u32]) -> u32 {
+    let mut slots = [0u32; 8];
+    for (slot, c) in slots.iter_mut().zip(components) {
+        *slot = *c;
+    }
+    if slots[..5].contains(&0) {
+        return item_type::UNDEF;
+    }
+    let mut i = 5;
+    while i < 8 && slots[i] != 0 {
+        i += 1;
+    }
+    spell_target_type_of_component(slots[i - 1])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -144,5 +167,22 @@ mod tests {
         for c in [0, 0x30, 0x3A, 0x3F, 0xBD, 0xBF, 0xFFFF_FFFF] {
             assert_eq!(spell_target_type_of_component(c), 0, "component {c:#x}");
         }
+    }
+
+    /// Oracle: the shape of a formula decides which slot aims it.
+    #[test]
+    fn a_formula_aims_with_the_last_slot_of_the_run_from_its_sixth() {
+        assert_eq!(
+            formula_target_type(&[1, 2, 3, 4, 0x39]),
+            item_type::ITEM_ENCHANTABLE_TARGET,
+            "five slots"
+        );
+        assert_eq!(
+            formula_target_type(&[1, 2, 3, 4, 0x39, 0x3B, 0, 0]),
+            item_type::PORTAL_MAGIC_TARGET,
+            "six slots"
+        );
+        assert_eq!(formula_target_type(&[1, 2, 3, 0, 0x39]), 0, "a gap");
+        assert_eq!(formula_target_type(&[1, 2, 3]), 0, "too short");
     }
 }

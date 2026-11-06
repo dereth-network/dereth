@@ -15,10 +15,10 @@ use empyrean_common::dotnet::{DotNetDict, DotNetHashSet};
 use empyrean_common::thread_safe_random::ThreadSafeRandom;
 use empyrean_common::vectors::{self, f64_of, u64_of, Case};
 use empyrean_content::models::world::{
-    Recipe, RecipeMod, RecipeModsBool, RecipeModsDID, RecipeModsFloat, RecipeModsIID,
+    CookBook, Recipe, RecipeMod, RecipeModsBool, RecipeModsDID, RecipeModsFloat, RecipeModsIID,
     RecipeModsInt, RecipeModsString, RecipeRequirementsBool, RecipeRequirementsDID,
     RecipeRequirementsFloat, RecipeRequirementsIID, RecipeRequirementsInt,
-    RecipeRequirementsString, Weenie as ContentWeenie,
+    RecipeRequirementsString, RecipeVitalRequirement, Weenie as ContentWeenie,
 };
 use empyrean_content::MemContent;
 use empyrean_dat::dat_manager::file_id;
@@ -1072,7 +1072,11 @@ fn flow_content() -> MemContent {
 
 /// A world on `flow_content` with a player (Strength 100) whose session is SESSION.
 fn flow_world() -> (World, ObjectGuid) {
-    let mut w = world_on(flow_content());
+    flow_world_on(flow_content())
+}
+
+fn flow_world_on(content: MemContent) -> (World, ObjectGuid) {
+    let mut w = world_on(content);
     let weenie = w.content.get_cached_weenie(HUMAN).expect("player weenie");
     let mut o = CtorEnv::with_world(&w, |env| {
         empyrean_world::world_objects::player::player_from_weenie(
@@ -1391,4 +1395,305 @@ fn create_destroy_items_follows_the_recipe_chances() {
     );
     // the source's removal and burden, its destroy message, then the recipe's message
     assert_eq!(sent_kinds(), [0x0024, 0x02CD, 0xF7E0, 0xF7E0]);
+}
+
+fn vital_recipe_flow(
+    with_requirement: bool,
+) -> (World, ObjectGuid, ObjectGuid, ObjectGuid, Recipe) {
+    let recipe = Recipe {
+        id: 42,
+        success_destroy_source_chance: 1.0,
+        success_destroy_source_amount: 1,
+        success_destroy_target_chance: 1.0,
+        success_destroy_target_amount: 1,
+        fail_destroy_source_chance: 1.0,
+        fail_destroy_source_amount: 1,
+        fail_destroy_target_chance: 1.0,
+        fail_destroy_target_amount: 1,
+        recipe_mod: vec![RecipeMod {
+            id: 1,
+            recipe_id: 42,
+            executes_on_success: true,
+            health: -10,
+            stamina: -20,
+            mana: -30,
+            ..RecipeMod::default()
+        }],
+        ..Recipe::default()
+    };
+    let required = with_requirement.then_some(RecipeVitalRequirement {
+        id: recipe.id,
+        health: 10,
+        stamina: 20,
+        mana: 30,
+    });
+    let content = vital_recipe_content(&recipe, required);
+    let (mut w, player) = flow_world_on(content);
+    let source = give(&mut w, player, COAT);
+    let target = give(&mut w, player, SHIRT);
+    set_recipe_vitals(&mut w, player, [50, 60, 70]);
+    (w, player, source, target, recipe)
+}
+
+fn vital_recipe_content(recipe: &Recipe, required: Option<RecipeVitalRequirement>) -> MemContent {
+    let mut content = flow_content().recipe(recipe.clone()).cook_book(CookBook {
+        id: 1,
+        recipe_id: recipe.id,
+        source_wcid: COAT,
+        target_wcid: SHIRT,
+        ..CookBook::default()
+    });
+    if let Some(required) = required {
+        content = content.recipe_vital_requirement(required);
+    }
+    content
+}
+
+fn set_recipe_vitals(w: &mut World, player: ObjectGuid, current: [u32; 3]) {
+    let o = w.objects.get_mut(player).expect("player");
+    o.biota
+        .properties_attribute_2nd
+        .get_or_insert_with(Default::default);
+    for (kind, value) in [
+        PropertyAttribute2nd::MaxHealth,
+        PropertyAttribute2nd::MaxStamina,
+        PropertyAttribute2nd::MaxMana,
+    ]
+    .into_iter()
+    .zip(current)
+    {
+        let vital = CreatureVital::new(o, kind);
+        o.vitals_mut().insert(kind, vital);
+        vital.set_starting_value(o, 100);
+        vital.set_current(o, value);
+    }
+}
+
+fn recipe_vitals(w: &World, player: ObjectGuid) -> [u32; 3] {
+    let o = w.objects.get(player).expect("player");
+    [
+        PropertyAttribute2nd::Health,
+        PropertyAttribute2nd::Stamina,
+        PropertyAttribute2nd::Mana,
+    ]
+    .map(|kind| o.get_creature_vital(kind).expect("vital").current(o))
+}
+
+/// Divergence: V463
+/// Each current-vital threshold is inclusive; checking it spends neither vitals nor ingredients.
+#[test]
+fn recipe_vital_thresholds_accept_exact_values_and_reject_each_shortfall() {
+    let (mut w, player, source, target, recipe) = vital_recipe_flow(true);
+    let inventory = container::inventory_values(&w, player);
+    let thresholds = [10, 20, 30];
+    set_recipe_vitals(&mut w, player, thresholds);
+    assert!(rm::verify_requirements(
+        &mut w, &recipe, player, source, target
+    ));
+    assert_eq!(recipe_vitals(&w, player), thresholds);
+
+    for deficient in 0..3 {
+        let mut current = thresholds;
+        current[deficient] -= 1;
+        set_recipe_vitals(&mut w, player, current);
+        assert!(
+            !rm::verify_requirements(&mut w, &recipe, player, source, target),
+            "vital {deficient} is below its threshold"
+        );
+        assert_eq!(recipe_vitals(&w, player), current);
+        assert_eq!(container::inventory_values(&w, player), inventory);
+        assert!(w.objects.get(source).is_some() && w.objects.get(target).is_some());
+    }
+}
+
+/// Divergence: V463
+/// A vital lost after the initial check cancels completion before RNG, consumption or vital costs.
+#[test]
+fn recipe_completion_rechecks_depleted_vitals_without_spending_resources() {
+    for deficient in 0..3 {
+        let (mut w, player, source, target, recipe) = vital_recipe_flow(true);
+        assert!(rm::verify_requirements(
+            &mut w, &recipe, player, source, target
+        ));
+        let inventory = container::inventory_values(&w, player);
+        let mut depleted = [50, 60, 70];
+        depleted[deficient] = [9, 19, 29][deficient];
+        set_recipe_vitals(&mut w, player, depleted);
+        ThreadSafeRandom::seed(42);
+        let next_draw = post();
+        ThreadSafeRandom::seed(42);
+
+        rm::handle_recipe(&mut w, player, source, target, &recipe, 1.0);
+
+        assert_eq!(post(), next_draw, "rejection must precede the success roll");
+        assert_eq!(recipe_vitals(&w, player), depleted);
+        assert_eq!(container::inventory_values(&w, player), inventory);
+        assert!(w.objects.get(source).is_some() && w.objects.get(target).is_some());
+    }
+}
+
+/// Divergence: V463
+/// Initial and completion checks do not charge costs; a successful recipe applies its mod once.
+#[test]
+fn successful_recipe_charges_vital_costs_once() {
+    let (mut w, player, source, target, recipe) = vital_recipe_flow(true);
+    assert!(rm::verify_requirements(
+        &mut w, &recipe, player, source, target
+    ));
+    assert_eq!(recipe_vitals(&w, player), [50, 60, 70]);
+    ThreadSafeRandom::seed(42);
+
+    rm::handle_recipe(&mut w, player, source, target, &recipe, 1.0);
+
+    assert_eq!(recipe_vitals(&w, player), [40, 40, 40]);
+    assert!(w.objects.get(source).is_none() && w.objects.get(target).is_none());
+}
+
+/// Divergence: V463
+/// A permitted attempt can fail and consume ingredients without applying success-only vital costs.
+#[test]
+fn failed_recipe_does_not_charge_success_only_vital_costs() {
+    let (mut w, player, source, target, recipe) = vital_recipe_flow(true);
+    assert!(rm::verify_requirements(
+        &mut w, &recipe, player, source, target
+    ));
+    ThreadSafeRandom::seed(42);
+
+    rm::handle_recipe(&mut w, player, source, target, &recipe, 0.0);
+
+    assert_eq!(recipe_vitals(&w, player), [50, 60, 70]);
+    assert!(w.objects.get(source).is_none() && w.objects.get(target).is_none());
+}
+
+/// Divergence: V463
+/// Without extension content, legacy recipes retain their unchecked, clamped vital modifications.
+#[test]
+fn recipe_without_vital_requirements_preserves_legacy_behavior() {
+    let (mut w, player, source, target, recipe) = vital_recipe_flow(false);
+    set_recipe_vitals(&mut w, player, [20, 1, 1]);
+    assert!(w.content.get_recipe_vital_requirement(recipe.id).is_none());
+    assert!(rm::verify_requirements(
+        &mut w, &recipe, player, source, target
+    ));
+    ThreadSafeRandom::seed(42);
+
+    rm::handle_recipe(&mut w, player, source, target, &recipe, 1.0);
+
+    assert_eq!(recipe_vitals(&w, player), [10, 0, 0]);
+    assert!(w.objects.get(source).is_none() && w.objects.get(target).is_none());
+}
+
+fn queue_vital_recipe(w: &mut World, player: ObjectGuid, source: ObjectGuid, target: ObjectGuid) {
+    use empyrean_entity::enums::{CombatMode, MotionCommand, MotionStance};
+    use empyrean_world::entity::actions::i_actor::{action_queue_mut, Actor};
+    use empyrean_world::network::motion::movement_data::Motion;
+
+    empyrean_world::world_objects::creature_combat::set_combat_mode_field(
+        w,
+        player,
+        CombatMode::NonCombat,
+    );
+    w.objects
+        .get_mut(player)
+        .expect("player")
+        .wo
+        .world_object_properties
+        .current_motion_state = Some(Motion::new(
+        MotionStance::NonCombat,
+        MotionCommand::Ready,
+        1.0,
+    ));
+    // Confirmation skips the animation delay; completion still runs on the player's queue.
+    assert!(action_queue_mut(w, Actor::Object(player))
+        .expect("player queue")
+        .is_empty());
+    rm::use_object_on_target(w, player, source, target, true);
+    assert_eq!(
+        action_queue_mut(w, Actor::Object(player))
+            .expect("player queue")
+            .len(),
+        1,
+        "the craft completion is queued"
+    );
+    assert!(w.objects.get(player).unwrap().wo.world_object.is_busy);
+}
+
+fn complete_queued_vital_recipe(w: &mut World, player: ObjectGuid) {
+    use empyrean_world::entity::actions::action_queue::run_actions;
+    use empyrean_world::entity::actions::i_actor::{action_queue_mut, Actor};
+
+    // The first action completes or rejects the craft; its successor releases the busy flag.
+    run_actions(w, Actor::Object(player));
+    run_actions(w, Actor::Object(player));
+    let queue = action_queue_mut(w, Actor::Object(player)).expect("player queue");
+    assert_eq!(queue.act_exceptions(), 0, "a caught panic is not a refusal");
+    assert!(queue.is_empty());
+    assert!(!w.objects.get(player).unwrap().wo.world_object.is_busy);
+}
+
+/// Divergence: V463
+/// Queued crafting rejects changed or removed vital requirements even when the recipe is identical.
+#[test]
+fn queued_recipe_rejects_changed_or_removed_vital_requirements() {
+    for remove in [false, true] {
+        let (mut w, player, source, target, recipe) = vital_recipe_flow(true);
+        let inventory = container::inventory_values(&w, player);
+        queue_vital_recipe(&mut w, player, source, target);
+        let changed = (!remove).then_some(RecipeVitalRequirement {
+            id: recipe.id,
+            health: 1,
+            stamina: 1,
+            mana: 1,
+        });
+        w.content = Arc::new(vital_recipe_content(&recipe, changed));
+        assert_eq!(w.content.get_recipe(recipe.id).as_deref(), Some(&recipe));
+        ThreadSafeRandom::seed(42);
+        let next_draw = post();
+        ThreadSafeRandom::seed(42);
+
+        complete_queued_vital_recipe(&mut w, player);
+
+        assert_eq!(post(), next_draw, "stale content is rejected before RNG");
+        assert_eq!(recipe_vitals(&w, player), [50, 60, 70]);
+        assert_eq!(container::inventory_values(&w, player), inventory);
+        assert!(w.objects.get(source).is_some() && w.objects.get(target).is_some());
+    }
+}
+
+/// Divergence: V463
+/// Queued crafting rejects changed recipe costs even when its vital requirements are unchanged.
+#[test]
+fn queued_recipe_rejects_changed_costs_with_unchanged_vital_requirements() {
+    let (mut w, player, source, target, recipe) = vital_recipe_flow(true);
+    let inventory = container::inventory_values(&w, player);
+    let required = w.content.get_recipe_vital_requirement(recipe.id);
+    queue_vital_recipe(&mut w, player, source, target);
+    let mut changed = recipe.clone();
+    changed.recipe_mod[0].health = -5;
+    w.content = Arc::new(vital_recipe_content(&changed, required.clone()));
+    assert_eq!(w.content.get_recipe_vital_requirement(recipe.id), required);
+    ThreadSafeRandom::seed(42);
+    let next_draw = post();
+    ThreadSafeRandom::seed(42);
+
+    complete_queued_vital_recipe(&mut w, player);
+
+    assert_eq!(post(), next_draw, "stale costs are rejected before RNG");
+    assert_eq!(recipe_vitals(&w, player), [50, 60, 70]);
+    assert_eq!(container::inventory_values(&w, player), inventory);
+    assert!(w.objects.get(source).is_some() && w.objects.get(target).is_some());
+}
+
+/// Divergence: V463
+/// Unchanged content completes through the same queue and applies each vital cost exactly once.
+#[test]
+fn queued_recipe_with_unchanged_vital_rules_completes() {
+    let (mut w, player, source, target, _) = vital_recipe_flow(true);
+    queue_vital_recipe(&mut w, player, source, target);
+    ThreadSafeRandom::seed(42);
+
+    complete_queued_vital_recipe(&mut w, player);
+
+    assert_eq!(recipe_vitals(&w, player), [40, 40, 40]);
+    assert!(w.objects.get(source).is_none() && w.objects.get(target).is_none());
 }

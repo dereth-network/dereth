@@ -315,8 +315,7 @@ impl Selection {
         let mut best = 0u64;
         for pass in 0..2 {
             for t in &world.things {
-                // What a body holds has no place of its own to be near.
-                if t.id == current || t.id == me || !t.selectable || t.held {
+                if t.id == current || t.id == me || !t.selectable {
                     continue;
                 }
                 if !kind_answers(t.kind, key) {

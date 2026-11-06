@@ -41,7 +41,7 @@ lists every option; `yalain --version` says which build it is.
 |---|---|---|
 | [`server/`](server/) | `yalain` | the `yalain` program: settings, the data it reads at start, the sockets and the loop |
 | [`crates/world/`](crates/world/) | `yalain-world` | the game: its state and rules, sans-IO |
-| [`crates/net/`](crates/net/) | `yalain-net` | the server's connections over the shared transport, sans-IO, with an in-memory network and UDP |
+| [`crates/net/`](crates/net/) | `yalain-net` | the server's connections over the shared transport, sans-IO, with an in-memory network, UDP and the WebSocket endpoint |
 | [`crates/store/`](crates/store/) | `yalain-store` | accounts and characters, in SQLite or in memory |
 | [`crates/content/`](crates/content/) | `yalain-content` | the tables the world plays from: objects, camps, loot, stores, quests, what people say |
 | [`crates/world-db/`](crates/world-db/) | `yalain-world-db` | the world database: read, checked, merged and compiled into those tables |

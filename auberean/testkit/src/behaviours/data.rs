@@ -66,6 +66,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "data.block-property.a-color-blends-between-the-corners",
+        says: "A color property laid over blocks blends channel by channel between the block's four \
+               corners, alpha among them; a corner of another type gives no value.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-BLOCK-PROPERTY-COLOR"),
+        station: "auberean-physics::cpu::geometry::material::a_color_laid_over_blocks_blends_between_the_corners",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "data.cache.a-created-objects-state-names-its-records",
         says: "Every saved state a created object's records bring, or name in turn, is asked by the \
                player's scripts which records it needs, and each answer runs to its end. Given the \
@@ -76,6 +85,16 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-CACHE-STATE-RECORDS-REPLAY"),
         station: "auberean-client-runtime::corpus::calls::every_created_objects_saved_state_names_its_records_and_asks_for_none_the_recorded_clients_did_not",
         tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "data.cache.a-qualities-record-that-comes-later-is-read",
+        says: "Our choice: a qualities record no file holds answers nothing until the server sends \
+               it, then is read through the one cache, also by an object made before it came. \
+               Retail's lookup remembers no miss; what its older objects do is not known.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-CACHE-QUALITIES-LATER"),
+        station: "auberean-client-runtime::cpu::world::cache::a_qualities_record_the_server_sends_later_is_read_by_an_object_made_before_it",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "data.cache.an-objects-creation-asks-for-its-records",
@@ -135,6 +154,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-CACHE-READS"),
         station: "auberean-assets::cpu::requests::a_record_stored_for_the_session_is_read_by_a_database_over_the_stores",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "data.cache.scripts-find-an-object-after-the-next-upkeep",
+        says: "Scripts look for an object in vain from its creation until the next upkeep.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CACHE-BEING-MADE"),
+        station: "auberean-client-runtime::cpu::world::cache::scripts_find_an_object_after_the_next_upkeep",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -223,6 +250,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "data.database.an-enum-map-names-its-base-record",
+        says: "An enum map names its base map's record among the records it needs, and one with no \
+               base names none.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DB-ENUM-MAP-BASE"),
+        station: "auberean-assets::cpu::requests::an_enum_map_names_its_base_record",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "data.database.data-graph",
         says: "A record that loads goes into an installed data graph as a node with an edge to each \
                record it needs; a cell file's record, or one of 24 types \
@@ -241,6 +277,14 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-DAT-ENUM-MAP-BASE"),
         station: "auberean-assets::dat::game::database::an_enum_map_holds_its_own_names_then_its_base_maps",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.database.every-cached-type-has-a-decoder",
+        says: "Every record type the client's cache start makes an object cache for has a decoder.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DATA-CACHE-TYPES"),
+        station: "auberean-assets::cpu::cache::every_record_type_the_client_makes_a_cache_for_has_a_decoder",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "data.database.free-list-keeps-released-records",
@@ -346,6 +390,15 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-DISK-LOOK"),
         station: "auberean-dat::cpu::disk::a_file_is_looked_for_in_its_folder_the_working_folder_the_variable_and_the_registry",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "data.disk.a-file-of-another-game-version-is-not-opened",
+        says: "A data file whose game version isn't the one the client reads (3, and 0 for a cell \
+               file) counts as not there: with no portal or cell file nothing opens.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DATA-GAME-VERSION"),
+        station: "auberean-interface::dat::data::a_file_of_another_game_version_is_not_opened",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "data.disk.a-file-without-a-version-list-is-closed",
@@ -460,6 +513,25 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "data.download.leaving-the-server-resets-the-cache",
+        says: "Leaving the server resets the data cache: the download is idle whatever it was doing, \
+               and every batch and kept get is let go.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CACHE-RESET-ON-DISCONNECT"),
+        station: "auberean-client-runtime::cpu::world::cache::leaving_the_server_resets_the_data_cache",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "data.download.lists-a-servers-library-as-held",
+        says: "Asked which data it holds, the client lists the iterations of a server's library for its \
+               portal file beside those the file has had, every time, and no other file's list changes.",
+        since: THIS_CLIENT,
+        divergence: "CD2-lists-iterations-it-need-not-hold",
+        evidence: Evidence::Private("AC2-EVID-DDD-LISTS-SERVER-LIBRARY"),
+        station: "auberean-client-runtime::cpu::world::download::the_portal_file_is_listed_as_holding_a_servers_library",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "data.download.records-stored-and-checked-off",
         says: "Each downloaded record is stored in its file and checked off; records that came before the \
                download began are checked off when it begins; a file whose records have all come, or \
@@ -563,6 +635,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-FILE-NAMES-EMPTY"),
         station: "auberean-assets::cpu::names::the_clients_table_of_file_names_starts_empty_and_answers_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "data.file-names.the-scripts-ask-the-clients-table",
+        says: "A script's question about a file's id or name goes to the client's table of file names, \
+               started with its data cache, which answers from nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-FILE-NAMES-TABLE"),
+        station: "auberean-client-runtime::cpu::scripts::names::the_scripts_ask_the_clients_table_of_file_names",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -733,6 +814,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "data.landblock-info.every-record-packs-back-to-its-bytes",
+        says: "Every landblock and every landblock's record of its placed objects, read and written \
+               again, are their own bytes.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-LANDBLOCK-PACKS-BACK"),
+        station: "auberean-assets::dat::world::landblock::every_landblock_and_landblock_info_packs_back_to_its_bytes",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "data.landblock.every-record-decodes",
         says: "Every landblock reads as 17 by 17 height bytes and 17 by 17 vertex words.",
         since: RETAIL,
@@ -776,6 +866,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DAT-LIGHT-INFO"),
         station: "auberean-assets::dat::world::landblock::every_light_info_decodes_exactly",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.light-info.lit-vertices-unpack-to-their-count-and-pack-back",
+        says: "A lit cell's packed vertices unpack to as many numbers as it says, and those numbers \
+               pack back to the same words.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CQUALITY-LIT-LISTS"),
+        station: "auberean-assets::dat::world::landblock::every_lit_list_unpacks_to_its_count_and_packs_back",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -908,6 +1007,69 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "data.overlay.checks-its-files-against-what-it-is-told",
+        says: "Told the records a world's overlay was made over, the client holding them goes on                and one holding others stops, saying why.",
+        since: THIS_CLIENT,
+        divergence: "CD2-world-overlay",
+        evidence: Evidence::Private("AC2-EVID-OVERLAY-CHECKS-RECORDS"),
+        station: "auberean-client-runtime::cpu::world::download::a_client_told_records_it_doesnt_hold_stops_saying_why",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "data.overlay.none-reads-the-files",
+        says: "A file with no overlay over it is read as it always was, in a folder that holds one                over another file too.",
+        since: THIS_CLIENT,
+        divergence: "CD2-world-overlay",
+        evidence: Evidence::Private("AC2-EVID-OVERLAY-NONE"),
+        station: "auberean-dat::cpu::overlay::a_file_with_no_overlay_over_it_reads_as_it_did",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "data.overlay.over-the-retail-files",
+        says: "Laid over the end-of-retail cell file, an overlay replaces, adds and deletes records                and leaves every other record and the file's data versions as they were.",
+        since: THIS_CLIENT,
+        divergence: "CD2-world-overlay",
+        evidence: Evidence::Private("AC2-EVID-OVERLAY-RETAIL-FILES"),
+        station: "auberean-dat::dat::overlay::a_world_replaces_and_deletes_records_of_the_retail_cell_file",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.overlay.reads-agree",
+        says: "A record a world's overlay replaces, adds or deletes reads the same by id and through                the stores the data cache reads, and the file underneath is unchanged.",
+        since: THIS_CLIENT,
+        divergence: "CD2-world-overlay",
+        evidence: Evidence::Private("AC2-EVID-OVERLAY-READS-AGREE"),
+        station: "auberean-dat::cpu::overlay::a_record_the_overlay_changes_reads_the_same_by_both_ways_of_reading",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "data.overlay.refused-when-not-for-these-files",
+        says: "An overlay made against other files is refused, the same records in another order                being the same files; so is a folder with no overlay in it or one holding the                install's own files.",
+        since: THIS_CLIENT,
+        divergence: "CD2-world-overlay",
+        evidence: Evidence::Private("AC2-EVID-OVERLAY-REFUSED"),
+        station: "auberean-dat::cpu::overlay::a_folder_not_for_these_files_is_refused_and_never_read",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "data.overlay.revisions-are-data-versions",
+        says: "An overlay's revisions are among the data versions of the file it lies over, as read                by id and as the stores report them to a server.",
+        since: THIS_CLIENT,
+        divergence: "CD2-world-overlay",
+        evidence: Evidence::Private("AC2-EVID-OVERLAY-REVISIONS"),
+        station: "auberean-dat::cpu::overlay::a_revision_of_the_overlay_is_among_the_data_versions_the_client_reports",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "data.overlay.says-it-keeps-them",
+        says: "Asked what it holds, the client first says it takes a world's records and names its                files by their layouts, in a message of its own that a server not knowing it skips. It takes no ordering \n               stamp, so what follows carries the stamps a retail client's would.",
+        since: THIS_CLIENT,
+        divergence: "CD2-world-overlay",
+        evidence: Evidence::Private("AC2-EVID-OVERLAY-SAYS-IT-KEEPS"),
+        station: "auberean-client-runtime::cpu::world::download::asked_what_it_holds_the_client_first_says_it_keeps_overlays_and_names_its_files",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "data.particles.every-record-decodes",
         says: "Every particle system reads as its limits and timing, its emitters with their \
                waveforms and keyframes, and the material it draws with.",
@@ -994,11 +1156,11 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "data.property-value.compare-within-a-tolerance",
         says: "Vectors, colors, waveforms and positions compare equal within two ten-thousandths a \
-               component; floats, integers, strings and ids compare exactly; values of different \
-               types never compare equal.",
+               component; strings ignore case; floats, integers and ids compare exactly; values of \
+               different types never compare equal.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PROPERTY-VALUE-COMPARE"),
-        station: "auberean-assets::cpu::property::vectors_and_waveforms_compare_within_two_ten_thousandths_and_floats_exactly",
+        station: "auberean-assets::cpu::property::vectors_and_waveforms_compare_within_a_tolerance_floats_exactly_and_strings_ignoring_case",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -1059,6 +1221,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "data.quality-filter.packs-back-to-its-own-bytes",
+        says: "A quality filter written out is its id and its table as read, the bytes it was \
+               read from.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CQUALITY-FILTER-PACK"),
+        station: "auberean-assets::dat::game::script::every_quality_filter_packs_back_to_its_own_bytes",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "data.read.failed-records-are-checked-and-read-again",
         says: "A record that fails to read or decode is checked against its file: a file that changed \
                since it was opened is reported as changed; over one that did not, the record is read \
@@ -1067,6 +1238,15 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-READ-RETRY"),
         station: "auberean-dat::cpu::checked::a_record_read_wrong_once_over_an_unchanged_file_is_read_again",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "data.read.script-library-reads-are-checked",
+        says: "The client and the world builder read the script library as the server does: a library \
+               read wrong once, over a file that did not change, is read again.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-READ-LIBRARY"),
+        station: "auberean-client-runtime::corpus::calls::a_script_library_read_wrong_once_is_read_again_and_links",
+        tier: Tier::Corpus,
     },
     behaviour! {
         id: "data.read.short-reads-are-reported",
@@ -1080,8 +1260,8 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "data.records.encode-to-their-own-bytes",
         says: "Every property list, physics material, entity, enum map, id map, string table, \
-               string state, landblock's placed objects, light record, interior cell and saved \
-               script state, read and written again, gives back exactly the bytes it was read from.",
+               string state, landblock's placed objects, light record, interior cell, scene description \
+               and saved script state, read and written again, gives back exactly the bytes it was read from.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DAT-ENCODE"),
         station: "auberean-assets::dat::game::encode::every_record_with_a_writer_writes_back_to_its_own_bytes",
@@ -1226,6 +1406,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "data.run-length.a-run-unpacks-to-its-rising-numbers",
+        says: "A run-length list keeps a run of two or more rising numbers as its first number with \
+               the top bit set and its length; the largest number and a form past the limit are \
+               refused.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CQUALITY-RUN-LENGTH"),
+        station: "auberean-assets::cpu::rle::a_run_unpacks_to_its_rising_numbers_and_packs_back",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "data.scene-desc.every-record-decodes",
         says: "The region's scenery reads as a version stored before the id and, per kind of \
                scenery, an index, a sound and the scenes it chooses among with their frequencies.",
@@ -1333,6 +1523,16 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-DAT-SOUND-INFO"),
         station: "auberean-assets::dat::game::sound::every_sound_info_decodes_exactly",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.sound-info.new-settings-and-what-they-need",
+        says: "A new sound setting has no flags, no random pitch (each end -1) and fades from a \
+               distance of 1, a new music setting fades from 1 too; each tests any of a mask's flags \
+               and needs its wave or music.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SOUND-INFO-NEW"),
+        station: "auberean-assets::cpu::records::new_sound_and_music_settings_and_what_they_need",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "data.string-download.a-dropped-download-lets-its-batch-go",
@@ -1523,6 +1723,15 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-DAT-TEXTURE"),
         station: "auberean-assets::dat::look::picture::every_texture_decodes_exactly",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "data.tree.a-paths-folder-runs-to-its-last-separator",
+        says: "A path's folder runs up to and including its last backslash, slash or colon, and is \
+               empty without one.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CQUALITY-DIRECTORY"),
+        station: "auberean-dat::cpu::tree::a_paths_folder_runs_to_its_last_separator",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "data.types.every-record-has-a-type",

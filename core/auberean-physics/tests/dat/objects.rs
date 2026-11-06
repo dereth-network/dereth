@@ -12,12 +12,13 @@ use auberean_assets::entity::Entity;
 use auberean_physics::body::flags;
 use auberean_physics::body::profile::{Profile, ProfileQualities};
 use auberean_physics::interior::add_block_cells;
-use auberean_physics::land::{build, land_cell_id, Land, Solid};
+use auberean_physics::land::{build, build_near, land_cell_id, Land, NearBlocks, Solid};
 use auberean_physics::mesh::Trees;
 use auberean_physics::motion::params::MovementParameters;
 use auberean_physics::motion::MotionInput;
 use auberean_physics::object::Shape;
 use auberean_physics::parts::{PartArray, PartGroup};
+use auberean_physics::solid::Ethereality;
 use auberean_physics::world::{World, WorldObject};
 use auberean_primitives::DataId;
 use auberean_world::look::{Group, Look};
@@ -322,6 +323,59 @@ fn the_halls_dais_holds_a_body_where_the_client_holds_it() {
     );
 }
 
+/// How far east a body of these masks gets across the ground of block 0x7D93 from west of a tall
+/// tree-shaped wall marked for creatures to pass.
+fn east_of_the_marked_wall(w: &crate::common::World, masks: Ethereality) -> f32 {
+    let mut trees = Trees::default();
+    let land = Land::new();
+    land.add_block(&w.records, &w.region, &mut trees, 0x7D, 0x93);
+    let cell = land_cell_id(0x7D, 0x93, 2, 2);
+    let start = Position::new(
+        cell,
+        Frame::new(Vec3::new(69.8, 56.1, 127.49), Quat::IDENTITY),
+    );
+    let mut world = World::new();
+    world.set_property_list(
+        w.records
+            .get::<auberean_assets::property::PropertyList>(0x3400_0000)
+            .expect("the list"),
+    );
+    let mut b = body(w, start, 90.0);
+    let key = world.insert_body(&land, 0, &mut b);
+    world.set_ethereality(key, masks);
+    let leg = Vec3::new(0.09, 0.08, 0.0);
+    for _ in 0..100 {
+        b.contact = true;
+        b.on_walkable = true;
+        b.velocity = Vec3::ZERO;
+        b.move_through(&land, &mut world, leg, 90.0);
+    }
+    b.position.frame.origin.x
+}
+
+/// Tree-shaped scenery placed outside asks what a mover passes through: marked for creatures to
+/// pass, it lets a body of a creature's masks by and holds up one of a player's.
+///
+/// Behaviour: collision.solid.outdoor-tree-scenery-asks-what-a-mover-passes
+#[test]
+fn outdoor_tree_scenery_lets_by_only_those_that_pass_through_its_mark() {
+    let w = need_world!();
+    let creature = Ethereality {
+        physics_type: 0x40_0020,
+        movement: 0x4220_0010,
+        placement: 0x42A0_0090,
+    };
+    let player = Ethereality {
+        physics_type: 0x0480_0020,
+        movement: 0x3E20_0010,
+        placement: 0,
+    };
+    let through = east_of_the_marked_wall(w, creature);
+    let held = east_of_the_marked_wall(w, player);
+    assert!(through > 76.0, "through the wall: {through}");
+    assert!(held < 75.0, "held at the wall: {held}");
+}
+
 /// What the hall's cells place that collides only through its setup's cylinders is solid too: a
 /// body running north from beside the start stops short of the one standing 8.6 m away (2.15 m
 /// in radius, 1.25 its scale), and runs through where it stands once the cells place nothing.
@@ -490,15 +544,14 @@ fn the_halls_objects_parts_collide_as_their_shapes_do() {
     assert!(with_trees > 0 && met > 0 && met < tried);
 }
 
-/// An object placed at a scale along each axis collides at it: the one block 0xAE5C places at
+/// A tree tested at a scale along each axis reaches that far: the one block 0xAE5C places at
 /// (127.6, 115.8), four times its length, its width and six tenths its height, meets a sphere
 /// placed 16 m from its middle along its length but none 17 m out, and one 4.5 m across but none
-/// 5.5 m across (tested at its height's scale alone it reached 2.5 m along); a body dropped on it
-/// 10 m along its length lands on its top, over 9 m above where it stands.
+/// 5.5 m across (tested at its height's scale alone it reached 2.5 m along).
 ///
-/// Behaviour: collision.objects.an-object-placed-at-a-scale-along-each-axis-collides-at-it
+/// Behaviour: collision.objects.a-tree-tested-at-a-scale-along-each-axis-reaches-that-far
 #[test]
-fn an_object_placed_at_a_scale_along_each_axis_collides_at_it() {
+fn a_tree_tested_at_a_scale_along_each_axis_reaches_that_far() {
     let w = need_world!();
     let mut trees = Trees::default();
     let block = build(&w.records, &w.region, &mut trees, 0xAE, 0x5C).expect("block 0xAE5C");
@@ -533,20 +586,75 @@ fn an_object_placed_at_a_scale_along_each_axis_collides_at_it() {
     assert!(meets(0.0, 4.5, axes) && !meets(0.0, 5.5, axes), "across");
     let height_alone = TreeScale::Uniform(solid.scale.z);
     assert!(meets(2.0, 0.0, height_alone) && !meets(3.0, 0.0, height_alone));
+}
 
+/// The land of the blocks around one, as the land's solids and ground stand for a body.
+fn land_around(w: &crate::common::World, x: u8, y: u8) -> Land {
+    let mut trees = Trees::default();
     let land = Land::new();
-    for x in 0xADu8..=0xAF {
-        for y in 0x5Bu8..=0x5D {
-            land.add_block(&w.records, &w.region, &mut trees, x, y);
+    for bx in x - 1..=x + 1 {
+        for by in y - 1..=y + 1 {
+            land.add_block(&w.records, &w.region, &mut trees, bx, by);
         }
     }
-    let p = Vec3::new(o.x + 10.0, o.y, o.z + 12.0);
+    land
+}
+
+/// An object with a physics tree at an uneven scale is walked through, and nothing stands on it,
+/// as the retail client walked: a body running south under the arch of the one block 0xAE5C places
+/// at (127.6, 115.8) comes out past it, one running north at the wall section block 0x85BB places
+/// at (72.2, 135.4), a tenth taller than its look, comes out past that. Evenly scaled objects still
+/// stop a body: running south from east of the arch it stands short of the arch's foot.
+///
+/// Behaviour: collision.objects.an-object-with-a-tree-at-an-uneven-scale-is-walked-through
+#[test]
+fn an_object_with_a_tree_at_an_uneven_scale_is_walked_through() {
+    let w = need_world!();
+    let land = land_around(w, 0xAE, 0x5C);
+    let at = |x, y, z| {
+        Position::new(
+            land_cell_id(0xAE, 0x5C, 5, 5),
+            Frame::new(Vec3::new(x, y, z), Quat::IDENTITY),
+        )
+    };
+    let mut world = World::new();
+    let through = run(&land, &mut world, at(126.0, 123.5, 91.5), 180.0);
+    let end = through[through.len() - 1];
+    assert!(end.y < 112.0, "through the arch: {end:?}");
+
+    let mut world = World::new();
+    let held = run(&land, &mut world, at(135.0, 126.0, 92.5), 180.0);
+    let end = held[held.len() - 1];
+    assert!(end.y > 120.0, "held by what is evenly scaled: {end:?}");
+
+    let land = land_around(w, 0x85, 0xBB);
     let start = Position::new(
-        land_cell_id(0xAE, 0x5C, 6, 5),
-        Frame::new(p, Quat::IDENTITY),
+        land_cell_id(0x85, 0xBB, 2, 5),
+        Frame::new(Vec3::new(71.2, 130.0, 153.0), Quat::IDENTITY),
     );
     let mut world = World::new();
-    let mut b = body(w, start, 90.0);
+    let through = run(&land, &mut world, start, 0.0);
+    let end = through[through.len() - 1];
+    assert!(end.y > 138.0, "through the wall: {end:?}");
+}
+
+/// An object a cell places with a physics tree at an uneven scale holds nothing up: a body dropped
+/// on the flat one that cell 0x03C6011D places at (153, -15, 77.2), 6 x 6 x 0.1, falls past it to
+/// the cell's floor, where a body is at 77.9 against 78.46 on its top.
+///
+/// Behaviour: collision.objects.a-cells-object-at-an-uneven-scale-holds-nothing-up
+#[test]
+fn a_cells_object_at_an_uneven_scale_holds_nothing_up() {
+    let w = need_world!();
+    let land = Land::new();
+    let mut trees = Trees::default();
+    add_block_cells(&land, &w.records, &mut trees, 0x03, 0xC6);
+    let start = Position::new(
+        CellId(0x03C6_011D),
+        Frame::new(Vec3::new(153.0, -15.0, 79.2), Quat::IDENTITY),
+    );
+    let mut world = World::new();
+    let mut b = body(w, start, 0.0);
     world.insert_body(&land, 0x5000_0001, &mut b);
     b.contact = false;
     b.on_walkable = false;
@@ -555,8 +663,8 @@ fn an_object_placed_at_a_scale_along_each_axis_collides_at_it() {
     }
     let landed = b.position.frame.origin;
     assert!(
-        b.contact && b.on_walkable && landed.z > o.z + 9.0,
-        "on its top: {landed:?}"
+        b.contact && b.on_walkable && landed.z < 78.0,
+        "below it: {landed:?}"
     );
 }
 
@@ -793,4 +901,39 @@ fn the_worlds_records_keep_one_loaded_setup() {
         (read.step_down_height, read.spheres.len()),
         (before + 1.0, 0)
     );
+}
+
+/// Blocks built along the columns from the landblocks kept near them come out as those built
+/// alone, and what is kept is only the columns beside the one being built.
+///
+/// Behaviour: server.operator.start-reads-each-landblock-once
+#[test]
+fn blocks_built_from_the_landblocks_kept_near_them_are_as_those_built_alone() {
+    let w = need_world!();
+    let (mut alone, mut along) = (Trees::default(), Trees::default());
+    let mut near = NearBlocks::default();
+    for (x, y) in [(0x75, 0xB9), (0x75, 0xBA), (0x76, 0xB9)] {
+        let a = build(&w.records, &w.region, &mut alone, x, y).expect("a block");
+        let b = build_near(&w.records, &w.region, &mut along, &mut near, x, y).expect("a block");
+        assert_eq!(a.geometry.vertices.len(), b.geometry.vertices.len());
+        let heights = |k: &auberean_physics::land::Block| -> Vec<u32> {
+            k.geometry.vertices.iter().map(|v| v.z.to_bits()).collect()
+        };
+        assert_eq!(heights(&a), heights(&b));
+        assert_eq!(a.solids.len(), b.solids.len());
+        assert_eq!(a.objects.len(), b.objects.len());
+        let materials = |k: &auberean_physics::land::Block, i: usize, j: usize| {
+            k.materials.as_ref().map(|m| m.vertices.ground[9 * i + j])
+        };
+        for (i, j) in [(0, 0), (4, 4), (8, 8)] {
+            assert_eq!(materials(&a, i, j), materials(&b, i, j));
+        }
+    }
+    assert_eq!(
+        near.kept(),
+        11,
+        "the columns beside the last built: 4, 4 and 3 blocks"
+    );
+    build_near(&w.records, &w.region, &mut along, &mut near, 0x80, 0xB9).expect("a block");
+    assert_eq!(near.kept(), 9, "a far column forgets the others");
 }

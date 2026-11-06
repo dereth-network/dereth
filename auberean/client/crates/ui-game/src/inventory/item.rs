@@ -163,7 +163,10 @@ impl ItemCell {
         let tooltip;
         let look;
         if let Some(it) = known {
-            tooltip = it.name.clone();
+            tooltip = match (self.quantity, &it.offered_name) {
+                (Some(_), Some(offered)) => offered.clone(),
+                _ => it.name.clone(),
+            };
             if it.icon_layers.is_empty() {
                 ui.set_image(icon, it.icon, 0);
             } else {

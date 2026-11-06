@@ -21,6 +21,8 @@ pub enum Action {
     CreateCharacter(NewCharacter),
     /// Delete a character.
     DeleteCharacter { character: u64 },
+    /// Bring back a deleted character still greyed out.
+    RestoreCharacter { character: u64, name: String },
     /// A chat service packet (the chat service's own bytes).
     Chat(Vec<u8>),
     /// A call into the server's scripts, its arguments packed, sent as it is.
@@ -31,6 +33,11 @@ pub enum Action {
     /// scripts take the selection, examine it while the examination panel is open, and the player
     /// looks at it.
     Select { target: u64 },
+    /// Select an object (or nothing, 0) from a panel: the player's scripts take the selection,
+    /// and the player's head stays as it is.
+    SetSelection { target: u64 },
+    /// Ask the scripts what an item is called for a number of it; the inventory then says.
+    NameAmount { item: u64, quantity: u32 },
     /// Use what is selected: a double click on it, or the use key.
     UseSelected,
     /// Use what a toolbar slot holds (a skill or an attack on the selection, an item, a line of
@@ -75,6 +82,20 @@ pub enum Action {
     Examination { tabs: Option<u32> },
     /// Give up a quest under way.
     CancelQuest { quest: u32 },
+    /// Be brought back to life.
+    Resurrect,
+    /// Turn down someone's offer to bring the player back to life.
+    DeclineResurrection,
+    /// Get down from a mount.
+    Dismount,
+    /// Send the player's options to the server to keep.
+    KeepOptions,
+    /// Yes: the effect the server asked about may go on, from `source` to `target`.
+    ApplyTotem {
+        target: u64,
+        source: u64,
+        effect: u32,
+    },
     /// Ask something of a skill, as the skill window does.
     Skill(SkillAction),
     /// Ask something of crafting, as the crafting page and the ingredient panel do.
@@ -123,6 +144,8 @@ pub enum Action {
         changes: Vec<(PlayerOption, u32)>,
         tell: bool,
     },
+    /// Show or hide the map coordinates on the radar, as its button does.
+    ShowRadarCoordinates { on: bool },
     /// Ask something of the player's fellowship or allegiance, as the social window does.
     Social(SocialAction),
     /// Play an emote: a string reference (its string and its string table).

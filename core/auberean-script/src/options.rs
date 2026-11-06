@@ -265,6 +265,7 @@ pub struct GameplayOptions {
 
 impl Default for GameplayOptions {
     /// A new profile, as the engine makes one (less the chat's defaults, see above).
+    // D2-12006, D2-11996
     fn default() -> Self {
         Self {
             aliases: Table {

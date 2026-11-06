@@ -19,8 +19,8 @@ use empyrean_common::dotnet::{math, to_string, CsCast, Vector3};
 use empyrean_common::thread_safe_random::ThreadSafeRandom;
 use empyrean_entity::enums::properties::PropertyBool;
 use empyrean_entity::enums::{
-    ChatMessageType, CombatMode, DamageType, PhysicsState, PlayScript, ResistanceType, Skill,
-    SkillAdvancementClass, SpellCategory, SpellType, WeenieErrorWithString,
+    ChatMessageType, CombatMode, DamageType, MagicSchool, PhysicsState, PlayScript, ResistanceType,
+    Skill, SkillAdvancementClass, SpellCategory, SpellType, WeenieErrorWithString,
 };
 use empyrean_entity::{ObjectGuid, Position};
 use empyrean_net::SessionId;
@@ -54,6 +54,8 @@ use crate::World;
 /// Non-property fields declared in `SpellProjectile.cs`.
 #[derive(Debug, Default)]
 pub struct SpellProjectileFields {
+    /// Not ACE: what the cast that launched this was worth.
+    pub potency: Option<crate::world_objects::spell_potency::SpellPotency>,
     // ACE: SpellProjectile.Spell
     pub spell: Option<Spell>,
     // ACE: SpellProjectile.SpellType
@@ -748,7 +750,7 @@ pub fn calculate_damage(
 
     // check lifestone protection
     if let Some(target_player) = target_player {
-        if obj(w, target_player).under_lifestone_protection() {
+        if crate::world_objects::player_death::under_lifestone_protection(w, target_player) {
             if let Some(source_player) = source_player {
                 let msg = format!(
                     "The Lifestone's magic protects {} from the attack!",
@@ -815,19 +817,35 @@ pub fn calculate_damage(
     });
     let attack_skill: Option<SkillOf> = attack_skill.flatten();
 
-    // critical hit
-    let critical_chance = match source_creature {
-        Some(sc) => weapon::get_weapon_magic_crit_frequency(w, weapon, sc, attack_skill, target),
-        // with no weapon ACE answers the default before reading the (null) wielder
-        None if weapon.is_none() => {
-            weapon::get_weapon_magic_crit_frequency(w, None, target, None, target)
-        }
-        None => {
-            panic!("ACE: GetWeaponMagicCritFrequency with a null wielder (NullReferenceException)")
+    // DIVERGE: without `EraFeatures::war_and_life_projectile_criticals` (V464) War and Life
+    // projectiles have no critical roll or bonus.
+    let criticals = w.era.features.war_and_life_projectile_criticals
+        || !matches!(
+            spell.school(),
+            MagicSchool::WarMagic | MagicSchool::LifeMagic
+        );
+    let critical_chance = if !criticals {
+        *critical_hit = false;
+        *crit_defended = false;
+        0.0
+    } else {
+        match source_creature {
+            Some(sc) => {
+                weapon::get_weapon_magic_crit_frequency(w, weapon, sc, attack_skill, target)
+            }
+            // with no weapon ACE answers the default before reading the (null) wielder
+            None if weapon.is_none() => {
+                weapon::get_weapon_magic_crit_frequency(w, None, target, None, target)
+            }
+            None => {
+                panic!(
+                    "ACE: GetWeaponMagicCritFrequency with a null wielder (NullReferenceException)"
+                )
+            }
         }
     };
 
-    if ThreadSafeRandom::next_float(0.0, 1.0) < f64::from(critical_chance) {
+    if criticals && ThreadSafeRandom::next_float(0.0, 1.0) < f64::from(critical_chance) {
         if let Some(target_player) = target_player {
             let aug = obj(w, target_player).augmentation_critical_defense();
             if aug > 0 {
@@ -979,7 +997,11 @@ pub fn calculate_damage(
         /* War Magic skill-based damage bonus
          * http://acpedia.org/wiki/Announcements_-_2002/08_-_Atonement#Letter_to_the_Players
          */
-        if let Some(source_player) = source_player {
+        // DIVERGE: `EraFeatures::war_magic_skill_damage_bonus` (V464) gates only the War Magic
+        // bonus; later schools keep theirs.
+        if let Some(source_player) = source_player.filter(|_| {
+            w.era.features.war_magic_skill_damage_bonus || spell.school() != MagicSchool::WarMagic
+        }) {
             let magic_skill = {
                 let skill = w
                     .objects
@@ -1091,6 +1113,11 @@ pub fn calculate_damage(
     {
         show_info(w, target, &info);
     }
+    // DIVERGE: V502, unclamped: the cast's worth can take damage out of the spell's stated range.
+    #[allow(clippy::cast_possible_truncation)]
+    let final_damage = fields(w, this).potency.map_or(final_damage, |p| {
+        p.magnitude(f64::from(final_damage)) as f32
+    });
     Some(final_damage)
 }
 

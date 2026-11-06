@@ -1,6 +1,6 @@
 //! What upgrading to a Yalain release involves: the `upgrade` object of its `release.json`, which
-//! a launcher hosting a world reads before it installs the release, as Empyrean's
-//! ([`super::declaration`]).
+//! the server's updater and a launcher hosting a world read before they install the release, as
+//! Empyrean's ([`super::declaration`]).
 //!
 //! Derived from the code, at the release's commit and at the previous release's tag:
 //!

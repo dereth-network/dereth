@@ -1,0 +1,20 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "icon": [
+      "icons/Network.icns",
+      "icons/icon.png",
+      "icons/icon.ico"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "11.0",
+      "files": {
+        "Resources/Assets.car": "icons/layered/Assets.car",
+        "Resources/clients/Dereth/Assets.car": "icons/clients/Dereth/Assets.car",
+        "Resources/clients/Dereth/Dereth.icns": "icons/clients/Dereth/Dereth.icns",
+        "Resources/clients/Auberean/Assets.car": "icons/clients/Auberean/Assets.car",
+        "Resources/clients/Auberean/Auberean.icns": "icons/clients/Auberean/Auberean.icns"
+      }
+    }
+  }
+}
