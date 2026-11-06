@@ -61,6 +61,7 @@ mod recalls;
 mod regeneration;
 mod reported_places;
 mod resting;
+mod resurrections;
 mod rules;
 mod sequences;
 mod skills;

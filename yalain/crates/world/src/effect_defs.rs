@@ -15,7 +15,8 @@
 //! teleport, which sends its target to its place when its time is up; a recall, which is its
 //! skill's ([`crate::skill_use`]): to a place its user keeps (a link), to one of a list of named
 //! places, or to its allegiance's hall; a taunt, which changes a creature's mind about its caster
-//! once ([`crate::ai`]), by the low end of the range its data gives over spellcraft.
+//! once ([`crate::ai`]), by the low end of the range its data gives over spellcraft; a resurrection,
+//! which offers a dead player a return ([`crate::resurrections`]).
 //!
 //! **A combination** looks for the target's effects of its types (or classes): found, it adds its
 //! effect for that case at the cast's spellcraft adjusted by its own amount, gives its user the
@@ -297,6 +298,9 @@ pub enum Kind {
     Combo(Box<Combo>),
     /// Held by its user while it is on, putting its pulsed effects on the players around it.
     Aura(Aura),
+    /// Offers the dead player whose corpse it is aimed at a return ([`crate::resurrections`]): the
+    /// share of its greatest focus kept at a spellcraft, and the look of its getting up.
+    Resurrect { focus: Scale, fx: u32 },
     /// Summons a pet of a class, which leaves the world after its lifetime at a spellcraft (none:
     /// it stays).
     Pet { class: u32, lifetime: Scale },
@@ -520,6 +524,11 @@ impl EffectDef {
         let number = |name: &str| nav.number(o, name).unwrap_or(0.0);
         let kind = if let Some(ward) = ward_of(state).or_else(|| immunity_of(state)) {
             ward
+        } else if is("ResurrectEffect") {
+            Kind::Resurrect {
+                focus: scale("m_magData"),
+                fx: word("m_rezFX").unwrap_or(0),
+            }
         } else if is("AITauntDetauntEffect") {
             match word("m_flags").unwrap_or(0) & TAUNT_KIND {
                 taunt_kind::TAUNT => Kind::Taunt(number("m_fMinFractionalMod")),

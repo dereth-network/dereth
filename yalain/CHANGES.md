@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Resurrection skills work: the dead can accept and get up where they fell.
 - Two more lifestones bind you.
 - New Empyreans and Drudges start with their weapons.
 - Consignments can be restocked.

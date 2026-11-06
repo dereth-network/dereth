@@ -192,6 +192,7 @@ pub fn call<S: Store>(
         crate::skills::function::UNTRAIN => crate::skills::untrain(s, net, world, &values, clock),
         crate::skills::function::UNTRAIN_CANCEL => crate::skills::cancel_untraining(s, net, world),
         crate::death::player_fn::RESURRECT => crate::death::resurrect(s, net, world, clock),
+        crate::resurrections::function::DECLINE => crate::resurrections::declined(s, world),
         crate::skills::function::RAISE => crate::skills::raise(s, net, world, &values, clock),
         crate::pets::function::ATTACK
         | crate::pets::function::RETURN

@@ -140,6 +140,8 @@ pub struct Player {
     pub attacking: Option<crate::combat::Run>,
     /// Its death, until it is resurrected.
     pub dying: Option<crate::death::Dying>,
+    /// An offer of a return that stands on it while it is dead.
+    pub offer: Option<crate::resurrections::Offer>,
     /// The container it has open.
     pub open_container: Option<u64>,
     /// When its vitals last regenerated, and when they next do (world seconds; 0 before its first
@@ -506,6 +508,7 @@ pub fn enter<S: Store>(
         page_rows: None,
         attacking: None,
         dying: None,
+        offer: None,
         open_container: None,
         last_regen: 0.0,
         next_regen: 0.0,

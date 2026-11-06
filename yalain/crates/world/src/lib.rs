@@ -121,6 +121,7 @@ pub mod reach;
 pub mod regen;
 pub mod reload;
 pub mod requests;
+pub mod resurrections;
 pub mod rng;
 pub mod rules;
 pub mod saves;
@@ -569,6 +570,8 @@ pub enum Timer {
     AuraPulse { world: ConnId, eid: u32 },
     /// Back from a resurrection, the auras it held pulse again.
     AurasPulseAgain { world: ConnId },
+    /// A player another raised may move.
+    RaisedMoves { world: ConnId },
     /// The next step of a player's craft.
     Craft { world: ConnId, step: craft::Step },
     /// A player's day of craft experience may be over.
@@ -951,6 +954,7 @@ impl<S: Store> Server<S> {
                     since,
                 } => effects::creature_tick(self, net, creature, eid, since, clock),
                 Timer::AuraPulse { world, eid } => effects::pulse(self, net, world, eid, clock),
+                Timer::RaisedMoves { world } => resurrections::raised_moves(self, net, world),
                 Timer::AurasPulseAgain { world } => {
                     effects::auras_pulse_again(self, net, world, clock);
                 }

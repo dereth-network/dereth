@@ -459,6 +459,8 @@ pub enum Aim {
     Item(u64),
     /// A pet of its user's.
     Pet(u64),
+    /// The corpse of a dead player.
+    Corpse(u64),
 }
 
 /// A use under way.
@@ -886,6 +888,9 @@ pub fn helpful(u: &Usage) -> bool {
 #[must_use]
 pub fn aim_of<S: Store>(s: &Server<S>, world: ConnId, r: Request, u: &Usage) -> Aim {
     let me = s.players.get(&world).map_or(0, |p| p.character);
+    if crate::resurrections::raises(s, u) {
+        return Aim::Corpse(r.target);
+    }
     if aims_at_item(u) {
         return Aim::Item(item_aim(s, me, u, r.target).unwrap_or(0));
     }
@@ -1159,6 +1164,17 @@ fn check<S: Store>(
     }
     match aim_of(s, world, r, &u) {
         Aim::Me | Aim::Item(_) => {}
+        Aim::Corpse(corpse) => {
+            if crate::resurrections::may_be_offered(s, corpse).is_none() {
+                return Err(refusal::TARGET_GONE);
+            }
+            let Some(at) = s.things.get(corpse).and_then(|t| t.at) else {
+                return Err(refusal::TARGET_GONE);
+            };
+            if crate::presence::distance(&p.position, &at).is_none_or(|d| d > u.max_range) {
+                return Err(refusal::TOO_FAR);
+            }
+        }
         Aim::Pet(pet) => {
             let held = s
                 .pets
@@ -1893,7 +1909,7 @@ fn story<S: Store>(
     let rating = rating_of(s, world, r.skill);
     let held = wielded(s, me);
     let on_self = aim == Aim::Me;
-    let on_item = matches!(aim, Aim::Item(_) | Aim::Pet(_));
+    let on_item = matches!(aim, Aim::Item(_) | Aim::Pet(_) | Aim::Corpse(_));
     let target = aimed_at(aim).unwrap_or(me);
     // A strike that walks the player to its target does not reach from afar: wait for the player
     // to come into reach.
@@ -1978,7 +1994,7 @@ fn story<S: Store>(
     pay(s, net, world, &u);
     // The outcome of its damaging hook (a strike's at once; a missile's as it arrives).
     let target_thing = match aim {
-        Aim::Item(_) | Aim::Pet(_) => None,
+        Aim::Item(_) | Aim::Pet(_) | Aim::Corpse(_) => None,
         // Another player: its level, no armor.
         Aim::Player(c, _) if !helpful(&u) => s
             .players
@@ -2202,7 +2218,7 @@ fn landings_of<S: Store>(
             .players
             .get(&c)
             .map(|p| (p.position, crate::reach::PLAYER)),
-        Aim::Me | Aim::Item(_) | Aim::Pet(_) => s
+        Aim::Me | Aim::Item(_) | Aim::Pet(_) | Aim::Corpse(_) => s
             .players
             .get(&world)
             .map(|p| (p.position, crate::reach::PLAYER)),
@@ -2280,7 +2296,9 @@ fn position_of<S: Store>(s: &Server<S>, aim: Aim, target: u64) -> Option<StoredP
 pub const fn aimed_at(aim: Aim) -> Option<u64> {
     match aim {
         Aim::Me => None,
-        Aim::Player(_, id) | Aim::Thing(id) | Aim::Item(id) | Aim::Pet(id) => Some(id),
+        Aim::Player(_, id) | Aim::Thing(id) | Aim::Item(id) | Aim::Pet(id) | Aim::Corpse(id) => {
+            Some(id)
+        }
     }
 }
 
@@ -2320,6 +2338,10 @@ fn hook<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: 
         Aim::Me => world,
         Aim::Player(c, _) => c,
         Aim::Thing(_) => return,
+        Aim::Corpse(corpse) => {
+            crate::resurrections::offers(s, net, world, corpse, &u, spellcraft);
+            return;
+        }
         Aim::Item(item) => {
             lands_on_item(s, net, world, &u, item, spellcraft, clock);
             return;

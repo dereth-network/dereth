@@ -1311,6 +1311,8 @@ pub fn sent_back<S: Store>(
         .get(&world)
         .is_some_and(|p| p.trip.is_none() && p.dying.is_some_and(|d| d.corpse == Some(corpse)));
     if waiting {
+        // Sent back to its lifestone: an offer it left unanswered is not taken up for it.
+        crate::resurrections::declined(s, world);
         resurrect(s, net, world, clock);
     }
 }
@@ -1330,6 +1332,10 @@ pub fn resurrect<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId
             .note("a resurrection asked for by a player not dead");
         return;
     }
+    if let Some(offer) = s.players.get_mut(&world).and_then(|p| p.offer.take()) {
+        crate::resurrections::rises(s, net, world, offer, clock);
+        return;
+    }
     let to = crate::places::resurrection_place(s, world);
     // What a death ends goes first, then it is protected for three minutes, before portal space.
     let stop = crate::effects::resurrected(s, net, world);
@@ -1338,9 +1344,9 @@ pub fn resurrect<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId
     crate::places::resurrection_trip(s, net, world, to, clock);
 }
 
-/// For everyone who sees it, a player coming back is set standing at peace, the appearances of what
-/// its death ended stop, and it glows (2017: in that order, 172 of 227 requests).
-fn resurrection_look<S: Store>(
+/// For everyone who sees it, a player coming back is set standing at peace and the appearances of
+/// what its death ended stop.
+pub(crate) fn stands_at_peace<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     world: ConnId,
@@ -1356,9 +1362,21 @@ fn resurrection_look<S: Store>(
     });
     to_all_seeing(s, net, id, &peace);
     crate::effects::stop_fx(s, net, world, stop);
+}
+
+/// For everyone who sees it, a player coming back is set standing at peace, the appearances of what
+/// its death ended stop, and it glows (2017: in that order, 172 of 227 requests).
+fn resurrection_look<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    stop: &[u32],
+) {
+    stands_at_peace(s, net, world, stop);
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
+    let id = p.character;
     let fx = ServerMessage::DoFx(ObjectEvent {
         sender: player_stamp(p),
         action: auberean_protocol::physics::Fx {
@@ -1414,7 +1432,20 @@ pub fn tap_vitae<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId
 /// Out of portal space after a resurrection, before the player is placed: its vitae, health and
 /// vigor, and alive as far as its client knows.
 pub fn returns<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
+    returns_keeping(s, net, world, 0.0);
+}
+
+/// As [`returns`], keeping this share of its greatest focus above what it would come back with.
+pub(crate) fn returns_keeping<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    kept_focus: f32,
+) {
     let costs = s.vitae_costs.clone();
+    let most_focus = s.players.get(&world).map_or(0, |p| {
+        crate::focus::back_with(crate::focus::greatest(s, p), kept_focus)
+    });
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
@@ -1440,7 +1471,7 @@ pub fn returns<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) 
     quals::set_int(&mut p.qualities, crate::player::quality::VIGOR, vigor);
     progress::send_int(net, world, crate::player::quality::HEALTH, health);
     progress::send_int(net, world, crate::player::quality::VIGOR, vigor);
-    crate::focus::resurrected(p, net, world);
+    crate::focus::resurrected(p, net, world, most_focus);
     progress::private(
         net,
         world,
@@ -1451,6 +1482,16 @@ pub fn returns<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) 
 /// Placed after a resurrection: for everyone who sees it, the player is alive, wounded as its
 /// health shows, selectable, playing its return.
 pub fn returned<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
+    returned_with(s, net, world, None);
+}
+
+/// As [`returned`], with this look just before its return plays.
+pub(crate) fn returned_with<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    look: Option<u32>,
+) {
     s.next_context = s.next_context.wrapping_add(1);
     let context = s.next_context;
     let Some(p) = s.players.get_mut(&world) else {
@@ -1492,7 +1533,15 @@ pub fn returned<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId)
         sender: player_stamp(p),
         action: b,
     });
-    for m in [alive, wounded, selectable, revive] {
+    for m in [alive, wounded, selectable] {
         to_all_seeing(s, net, id, &m);
     }
+    if let (Some(fx), Some(p)) = (look, s.players.get_mut(&world)) {
+        let m = ServerMessage::DoFx(ObjectEvent {
+            sender: player_stamp(p),
+            action: auberean_protocol::physics::Fx { fx, scalar: 1.0 },
+        });
+        to_all_seeing(s, net, id, &m);
+    }
+    to_all_seeing(s, net, id, &revive);
 }

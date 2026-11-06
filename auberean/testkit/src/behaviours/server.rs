@@ -4140,6 +4140,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.focus.resurrection-skill",
+        says: "A return by a resurrecting skill leaves focus of no more than ten and its share of the \
+               greatest, up to the next whole point.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-FOCUS-REZ-SKILL"),
+        station: "yalain-testkit::cpu::play::resurrections::a_resurrection_skill_keeps_ten_and_its_share_of_the_greatest_focus",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.focus.unlevelled-fellow-keeps-focus",
         says: "The focus of a part earned by a fellow not of a level to share is its own, whole, and no \
                one else's.",
@@ -10941,6 +10950,62 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-CHECKER-STAMPS"),
         station: "yalain-testkit::cpu::play::rules::the_checker_orders_stamps_as_the_client_does",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.resurrection.left-unanswered",
+        says: "A player left dead with an offer unanswered is sent back to its lifestone as ever: \
+               nobody is got up where it fell who never agreed.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-REZ-UNANSWERED"),
+        station: "yalain-testkit::cpu::play::resurrections::an_offer_left_unanswered_is_not_taken_up_for_a_player_sent_back",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.resurrection.offered",
+        says: "A use of a resurrecting skill at a dead player's corpse offers it a return: from whom, \
+               at the share the skill's effect gives at its rating, with its look. Nothing else happens \
+               until it answers.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-REZ-OFFER"),
+        station: "yalain-testkit::cpu::play::resurrections::a_use_at_a_dead_players_corpse_offers_it_a_return_and_nothing_more",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.resurrection.outlasts-who-offered",
+        says: "An offer needs nothing more from who made it: it can be taken up after they have gone.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-REZ-OUTLASTS"),
+        station: "yalain-testkit::cpu::play::resurrections::an_offer_can_be_taken_up_after_who_offered_it_has_gone",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.resurrection.rises-where-it-fell",
+        says: "A player taking up an offer gets up in that tick where it fell, with no trip and no \
+               protection, with a lifestone return's vitae, health and vigor; its corpse stays to rot, \
+               and nothing it held moves.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-REZ-RISES"),
+        station: "yalain-testkit::cpu::play::resurrections::a_player_taking_an_offer_up_gets_up_where_it_fell_holding_what_it_held",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.resurrection.turned-down",
+        says: "An offer turned down is gone: the player stays dead, and its own request takes it to its \
+               lifestone.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-REZ-DECLINE"),
+        station: "yalain-testkit::cpu::play::resurrections::a_player_turning_an_offer_down_stays_dead_and_goes_to_its_lifestone_when_it_asks",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.resurrection.who-can-be-offered",
+        says: "A corpse refuses a resurrecting skill when its player can't be offered a return: back \
+               already, gone from the world, dead again since, with an offer standing, or no player's \
+               at all; beyond the skill's range too.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-REZ-WHO"),
+        station: "yalain-testkit::cpu::play::resurrections::a_corpse_refuses_the_skill_when_its_player_cannot_be_offered_a_return",
         tier: Tier::Cpu,
     },
     behaviour! {
