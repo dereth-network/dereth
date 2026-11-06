@@ -25,7 +25,8 @@ auberean-shell.workspace = true
 auberean-ui.workspace = true
 auberean-ui-game.workspace = true
 # The client: its model (the character list, the player and its qualities) and its actions.
-auberean-client-sdk.workspace = true
+# The `fs` feature names an install's data files.
+auberean-client-sdk = { workspace = true, features = ["fs"] }
 # Float-to-integer conversion, the same on every host.
 dereth-primitives.workspace = true
 # The requests the screens' and panels' sounds become.

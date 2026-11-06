@@ -14,6 +14,8 @@ use auberean_shell::keys::{KeyFiles, KeyRecords, Keys};
 const WALK: f32 = 0.339;
 /// The base map's interface action for the Up arrow.
 const UP_KEY: u32 = 0x4000_0015;
+/// An action the interface class holds: the same arrow key.
+const HELD_INTERFACE: u32 = UP_KEY;
 
 /// The keys a player with no key map file starts with.
 fn keys() -> &'static Keys {
@@ -297,4 +299,181 @@ fn select_use_and_letting_go_on_focus_loss() {
     down(&mut c, Key::W);
     event(&mut c, &Event::Focus(false));
     assert_eq!(c.intent(keys()).forward, 0.0);
+}
+
+/// Mouse look switching lets the actions in force go while a text entry has the keys, and leaves
+/// them when none does.
+///
+/// Behaviour: desktop.controls.mouse-look-switching-while-typing-lets-actions-go
+#[test]
+fn mouse_look_switching_while_a_text_entry_has_the_keys_lets_actions_go() {
+    const FORWARD: u32 = 0x4000_0020;
+    let mut c = controls();
+    c.action_handler(keys(), FORWARD, 1.0, 2, 0x8200_040C);
+    c.mouse_look_switched(keys());
+    assert!(c.action_down(FORWARD), "no text entry: it stays");
+    c.set_text_mode(keys(), true);
+    c.action_handler(keys(), FORWARD, 1.0, 2, 0x8200_040C);
+    assert!(c.action_down(FORWARD), "begun with the entry up");
+    c.mouse_look_switched(keys());
+    assert!(!c.action_down(FORWARD), "let go");
+}
+
+/// A text entry taking the keys lets a held key's action go, as the key's release would, and leaves
+/// a latched run, a single press for this frame and what the modifier and interface classes hold;
+/// the key's release later finds nothing, a press after the entry gives the keys back works, and a
+/// held mouse button is no key: its action stays until its release.
+///
+/// Behaviour: desktop.controls.text-mode-lets-held-actions-go
+#[test]
+fn a_text_entry_taking_the_keys_lets_held_actions_go_and_leaves_a_run_and_a_press() {
+    let mut c = controls();
+    down(&mut c, Key::W);
+    down(&mut c, Key::Z);
+    assert_eq!(c.intent(keys()).sideways, -1.0, "strafing");
+    c.set_text_mode(keys(), true);
+    let i = c.intent(keys());
+    assert_eq!((i.forward, i.sideways), (0.0, 0.0), "held keys let go");
+    assert!(c.actions().is_empty(), "{:?}", c.actions());
+    up(&mut c, Key::W);
+    up(&mut c, Key::Z);
+    c.set_text_mode(keys(), false);
+    assert_eq!(
+        c.intent(keys()).forward,
+        0.0,
+        "giving the keys back starts nothing"
+    );
+    down(&mut c, Key::W);
+    assert_eq!(c.intent(keys()).forward, 1.0, "the next press runs");
+    up(&mut c, Key::W);
+
+    down(&mut c, Key::Q);
+    up(&mut c, Key::Q);
+    down(&mut c, Key::Space);
+    c.set_text_mode(keys(), true);
+    let i = c.intent(keys());
+    assert_eq!(i.forward, 1.0, "a latched run stays");
+    assert!(i.jump, "a single press stays for its frame");
+    c.set_text_mode(keys(), false);
+    up(&mut c, Key::Space);
+    down(&mut c, Key::W);
+    up(&mut c, Key::W);
+
+    c.action_handler(keys(), HELD_INTERFACE, 1.0, INTERFACE, HELD_INTERFACE);
+    assert!(c.action_down(HELD_INTERFACE), "in force");
+    c.set_text_mode(keys(), true);
+    assert!(c.action_down(HELD_INTERFACE), "the interface class's stays");
+    event(&mut c, &Event::Focus(false));
+    assert!(
+        !c.action_down(HELD_INTERFACE),
+        "the window's keyboard gone takes it"
+    );
+    c.set_text_mode(keys(), false);
+
+    // A mouse button is no key: its action, of the interface class, stays until its own release.
+    event(
+        &mut c,
+        &Event::Button {
+            button: Button::Left,
+            down: true,
+        },
+    );
+    let held: Vec<u32> = c.actions().iter().map(|a| a.action).collect();
+    assert!(!held.is_empty(), "the left button holds an action");
+    c.set_text_mode(keys(), true);
+    for a in &held {
+        assert!(c.action_down(*a), "{a:#x} stays");
+    }
+    event(
+        &mut c,
+        &Event::Button {
+            button: Button::Left,
+            down: false,
+        },
+    );
+    assert!(c.actions().is_empty(), "its release ends it");
+}
+
+/// An action of the behavior class has the player play its behavior as it begins: the data's one
+/// such action, which no default key names and which lasts one press, so never stops it. One held
+/// has it stopped as it ends.
+///
+/// Behaviour: desktop.controls.a-behavior-action-plays-and-stops-its-behavior
+#[test]
+fn a_behavior_action_plays_and_stops_its_behavior() {
+    use auberean_assets::ui::ActionEntry;
+    use auberean_shell::controls::{class, toggle};
+    const ACTION: u32 = 0x8000_0001;
+    const BEHAVIOR: u32 = 0x4100_0007;
+    let mut c = controls();
+    c.action_handler(keys(), ACTION, 1.0, 1, 7);
+    assert_eq!(c.intent(keys()).behaviors, [(BEHAVIOR, true)]);
+    assert!(c.intent(keys()).behaviors.is_empty(), "once");
+
+    const HELD: u32 = 0x8000_0002;
+    let mut records = keys().records.clone();
+    records.action_map.toggles.push((HELD, toggle::HELD));
+    records.action_map.actions.push(ActionEntry {
+        action: HELD,
+        modifiers: 0,
+        class: class::BEHAVIOR,
+        value: BEHAVIOR,
+        extent: 1.0,
+    });
+    let held = Keys::start(
+        records,
+        KeyFiles::default(),
+        &mut HostFiles(&mut TestHost::default()),
+    );
+    let mut c = controls();
+    c.action_handler(&held, HELD, 1.0, 1, 7);
+    assert_eq!(c.intent(&held).behaviors, [(BEHAVIOR, true)]);
+    c.action_handler(&held, HELD, 0.0, 1, 7);
+    assert_eq!(c.intent(&held).behaviors, [(BEHAVIOR, false)]);
+}
+
+/// The action map's rows for modifier bit 8 give movement values no other row gives, yet no modifier
+/// action sets that bit: with every modifier key held the bits are Shift, Ctrl and Alt alone, and
+/// each movement action keeps its ordinary value.
+///
+/// Behaviour: desktop.controls.no-modifier-key-reaches-the-rows-for-bit-eight
+#[test]
+fn no_modifier_key_reaches_the_rows_for_bit_eight() {
+    const MOVEMENT_CLASS: u32 = 0x4000_0001;
+    const MODIFIER_CLASS: u32 = 0x4000_0005;
+    let map = &keys().records.action_map;
+    let hidden: Vec<(u32, u32)> = map
+        .actions
+        .iter()
+        .filter(|e| e.modifiers == 8)
+        .map(|e| (e.action, e.value))
+        .collect();
+    assert_eq!(
+        hidden,
+        vec![
+            (0x4000_0021, 0x4000_0009),
+            (0x4000_0022, 0x4000_000C),
+            (0x4000_0023, 0x4000_000D),
+            (0x4000_0024, 0x4000_000B),
+            (0x4000_0025, 0x4000_000A),
+        ],
+    );
+    let bits = map
+        .actions
+        .iter()
+        .filter(|e| e.class == MODIFIER_CLASS)
+        .fold(0, |m, e| m | e.value);
+    assert_eq!(bits, 7, "the modifier actions set Shift, Ctrl and Alt");
+    let mut c = controls();
+    for key in [Key::ShiftLeft, Key::ControlLeft, Key::AltLeft] {
+        down(&mut c, key);
+    }
+    let held = c.modifier_bitfield(keys());
+    assert_eq!(held & 8, 0, "held: {held:#x}");
+    assert_ne!(held, 0, "the keys took");
+    for (action, value) in hidden {
+        let v = keys().records.values(action, held).expect("its values");
+        assert_eq!(v.class, MOVEMENT_CLASS);
+        assert_ne!(v.value, value, "{action:#x}");
+    }
 }

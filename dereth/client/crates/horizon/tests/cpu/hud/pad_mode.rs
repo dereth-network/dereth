@@ -970,3 +970,31 @@ fn the_spellbook_s_plugins_page_offers_each_plugin_command_to_the_cross_hotbars(
         Some(CrossBind::Command(PluginCommand::of("test.looter", "loot")))
     );
 }
+
+/// Behaviour: presentation.era.every-interface-refuses-what-the-world-lacks
+/// A world with neither the journal nor contracts has no Journal entry on the pad's menu, and the
+/// entries under it still open their own windows.
+#[test]
+fn the_pad_s_menu_leaves_out_the_journal_on_a_world_without_it() {
+    let mut state = in_world();
+    state.world_services.features.journal = false;
+    state.world_services.features.contracts = false;
+    let mut h = Harness::new(Default::default());
+    h.input.pad.menu = true;
+    h.frame(&state);
+    h.frame(&state);
+    let snap = h.input.nav.last.clone();
+    let top = snap.layers.len();
+    let mut buttons: Vec<Rect> = snap
+        .targets
+        .iter()
+        .filter(|t| t.layer == top && t.rect.w > 100.0)
+        .map(|t| t.rect)
+        .collect();
+    buttons.sort_by(|a, b| a.y.total_cmp(&b.y));
+    assert_eq!(buttons.len(), 9, "one entry fewer");
+    // The sixth entry is now the Map.
+    click_at(&mut h, &state, centre(buttons[5]));
+    assert!(h.ui.windows.is_open(WindowId::Map));
+    assert!(!h.ui.windows.is_open(WindowId::Journal));
+}

@@ -1,0 +1,21 @@
+[package]
+name = "dereth-web-store"
+description = "What the web client keeps in browser storage for the game and the launcher alike: the client's own files and a world's overlay."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+autotests = false
+
+[dependencies]
+dereth-client-contract.workspace = true
+dereth-client-runtime.workspace = true
+dereth-dat.workspace = true
+dereth-primitives.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "=0.2.127"
+
+[lints]
+workspace = true

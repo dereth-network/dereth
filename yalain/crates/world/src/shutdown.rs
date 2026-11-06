@@ -19,10 +19,10 @@
 //! However the server stops, every character still in the world is kept first, as when its client
 //! goes away ([`save_everyone`]).
 
-use auberean_protocol::login::Notice;
+use auberean_protocol::login::{CharacterRefused, Notice};
 use auberean_protocol::text::{StringInfo, Variable, VariableValue};
 use auberean_protocol::{queue, ServerMessage};
-use yalain_net::{BlobKind, ServerNet};
+use yalain_net::{BlobKind, LocalTime, ServerNet};
 use yalain_store::Store;
 
 use crate::{Clock, Server, Timer};
@@ -122,6 +122,22 @@ pub fn begin<S: Store>(
     true
 }
 
+/// Begin the countdown an update warns players with, `seconds` long from now on, as an operator who
+/// set the interval and began a shutdown would. Nothing if a countdown is already running or done;
+/// returns whether it began.
+pub fn begin_warning<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    clock: Clock,
+    seconds: u32,
+) -> bool {
+    if s.shutdown != Shutdown::No {
+        return false;
+    }
+    s.cfg.shutdown_seconds = seconds.min(MAX_SECONDS);
+    begin(s, net, clock, None)
+}
+
 /// Show the operator's message, if there is one, and the countdown's first line, with `left`
 /// seconds left.
 fn count_down<S: Store>(
@@ -214,11 +230,26 @@ pub(crate) fn ends<S: Store>(s: &mut Server<S>) {
 
 /// The server is stopping, at the countdown's end or at once: every character still in the world
 /// leaves it as one whose client went away does, and is kept, so nothing it did is lost. Returns
-/// how many left.
+/// how many left. What the store did not take stays held ([`crate::saves::write_out`] tries again).
 pub fn save_everyone<S: Store>(s: &mut Server<S>, net: &mut ServerNet) -> usize {
+    if s.panicked.is_some() {
+        return 0;
+    }
     let worlds = in_world(s);
     for world in &worlds {
         crate::world::leave(s, net, *world);
     }
+    let _ = crate::saves::write_out(s);
     worlds.len()
+}
+
+/// The server is stopping on its operator's word: everyone is kept ([`save_everyone`]) and let go,
+/// each client told it was logged off. Returns how many left the world. A world that panicked has
+/// let go of everyone already.
+pub fn stopping<S: Store>(s: &mut Server<S>, net: &mut ServerNet, now: LocalTime) -> usize {
+    let left = save_everyone(s, net);
+    if s.panicked.is_none() {
+        crate::login::let_everyone_go(s, net, CharacterRefused::LOGGED_OFF, now);
+    }
+    left
 }

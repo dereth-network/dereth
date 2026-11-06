@@ -29,6 +29,12 @@
 //!
 //! **A corpse leaves the world** three minutes after it appeared if nobody touched it, fifteen
 //! seconds after it was closed empty, a minute after it was closed with items left.
+//!
+//! **A character that leaves the world dead** comes back as it next enters, with no box and nothing
+//! to ask for ([`back_after_entry`]).
+//!
+//! **A player left dead** with its box up is resurrected ten minutes after it was told it was dead,
+//! as if it had asked ([`sent_back`]). This rests on one recording.
 
 use auberean_protocol::physics::{CreateObject, Leave, ObjectEvent, ObjectOnly, Slide, Word};
 use auberean_protocol::quality::VisualQuality;
@@ -40,7 +46,6 @@ use auberean_protocol::types::{
 use auberean_protocol::{queue, ServerMessage};
 use auberean_script::args::Arg;
 use auberean_script::native_object::TextInfo;
-use yalain_content::quests::Trigger;
 use yalain_net::{BlobKind, ConnId, ServerNet};
 use yalain_store::Store;
 
@@ -165,6 +170,7 @@ pub fn creature_dies<S: Store>(
     let unfair = c.unreached.contains(&killer);
     let parts = std::mem::take(&mut c.taken_by);
     let unreached = c.unreached.clone();
+    let death_effects = c.stats.death_effects.clone();
     let (template, level, death_xp, death_focus, camp, name, group) = (
         t.template,
         c.stats.level,
@@ -190,7 +196,8 @@ pub fn creature_dies<S: Store>(
         progress::killed(net, world, name);
         // A killer the creature could not reach moves no quest on.
         if !unfair {
-            crate::quests::triggered(s, net, world, Trigger::Kill(template), None, clock);
+            crate::quests::killed(s, net, world, (id, template), &death_effects, clock);
+            crate::death_spawn::killed(s, net, world, id, template, &death_effects, clock);
         }
     }
     if let Some(w) = blow_fellow {
@@ -854,6 +861,15 @@ pub const PLAYER_CORPSE_ROTS: f64 = 60.0;
 pub const VITAE_LOST: f32 = 5.0;
 pub const RETURNS_WITH: f32 = 0.75;
 
+/// How long a player may sit dead with its box up, in seconds, before the server resurrects it as if
+/// it had asked (2017: one recording, 599.99 s after it was told it was dead, with no request; the
+/// longest wait of the 227 that asked was 251.3 s).
+pub const SENT_BACK_AFTER: f64 = 600.0;
+
+/// How long after its description a character that left the world dead comes back (2017: 1.43 s,
+/// 1 of 1).
+pub const BACK_AFTER_ENTRY: f64 = 1.43;
+
 /// The vitae cost table's saved state.
 pub const VITAE_COSTS: u32 = 0x7000_1BE6;
 
@@ -960,6 +976,7 @@ pub fn player_dies<S: Store>(
         return;
     }
     let me = p.character;
+    crate::places::walk_cut_short(s, net, world);
     crate::fellowship::died(s, net, me);
     // A skill's use under way is cut short (2017: the use over, the move interrupted).
     crate::skill_use::interrupt(
@@ -1110,6 +1127,7 @@ pub fn player_corpse<S: Store>(
             .unwrap_or_else(|| yalain_content::Template {
                 id: CORPSE_TEMPLATE,
                 description: yalain_content::Description {
+                    name_text: None,
                     package: CORPSE_PACKAGE,
                     look: 0,
                     enter_fx: 0,
@@ -1186,10 +1204,33 @@ pub fn player_corpse<S: Store>(
     for m in block {
         to_all_seeing(s, net, id, &m);
     }
+    s.after(
+        clock,
+        SENT_BACK_AFTER,
+        Timer::SentBack { world, corpse: id },
+    );
 }
 
-/// A dead player's client asks to be resurrected (only once its corpse is made): protected (see
-/// `effects`); for everyone who sees it, set standing at peace at once (2017: the mode set 223 of 227
+/// Ten minutes after a player's client was told it was dead: still dead of the same death, it is
+/// resurrected as if it had asked.
+pub fn sent_back<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    corpse: u64,
+    clock: Clock,
+) {
+    let waiting = s
+        .players
+        .get(&world)
+        .is_some_and(|p| p.trip.is_none() && p.dying.is_some_and(|d| d.corpse == Some(corpse)));
+    if waiting {
+        resurrect(s, net, world, clock);
+    }
+}
+
+/// A dead player's client asks to be resurrected (only once its corpse is made): what its death
+/// ended taken off, protected (see `effects`); for everyone who sees it, set standing at peace at once (2017: the mode set 223 of 227
 /// resurrections, played 0), the resurrection's effect and, into portal space, the arrival's (219 of
 /// 227, in that order 216); a second and a half later it is back at the
 /// lifestone it is bound to (or, never bound, the nearest lifestone the world has, else where it
@@ -1204,8 +1245,21 @@ pub fn resurrect<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId
         return;
     }
     let to = crate::places::resurrection_place(s, world);
-    // Protected for three minutes, the protection added before portal space.
+    // What a death ends goes first, then it is protected for three minutes, before portal space.
+    let stop = crate::effects::resurrected(s, net, world);
     crate::effects::protect(s, net, world, clock);
+    resurrection_look(s, net, world, &stop);
+    crate::places::resurrection_trip(s, net, world, to, clock);
+}
+
+/// For everyone who sees it, a player coming back is set standing at peace, the appearances of what
+/// its death ended stop, and it glows (2017: in that order, 172 of 227 requests).
+fn resurrection_look<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    stop: &[u32],
+) {
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
@@ -1214,6 +1268,11 @@ pub fn resurrect<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId
         sender: player_stamp(p),
         action: auberean_protocol::physics::Word(crate::combat::mode::PEACE),
     });
+    to_all_seeing(s, net, id, &peace);
+    crate::effects::stop_fx(s, net, world, stop);
+    let Some(p) = s.players.get_mut(&world) else {
+        return;
+    };
     let fx = ServerMessage::DoFx(ObjectEvent {
         sender: player_stamp(p),
         action: auberean_protocol::physics::Fx {
@@ -1221,9 +1280,29 @@ pub fn resurrect<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId
             scalar: 1.0,
         },
     });
-    to_all_seeing(s, net, id, &peace);
     to_all_seeing(s, net, id, &fx);
-    crate::places::resurrection_trip(s, net, world, to, clock);
+}
+
+/// A character that left the world dead, entered where it returns to and at no health, comes back
+/// where it stands: what its death ends taken off, protected, its vitae, health and vigor, alive as
+/// far as its client knows, standing, glowing, playing its return. Its client was never told it was
+/// dead, so no box is up and it asks for nothing. Our choice, on one recording: the one such entry
+/// of 434, of a character that died during its own log-off, 1.43 s after its description and at the
+/// place of its two resurrections before. Logging off with the box up, a client gone while dead and
+/// a restart while dead are unrecorded, and take the same way. It is kept at once, so a server that
+/// stops now does not take its vitae again.
+pub fn back_after_entry<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    clock: Clock,
+) {
+    let stop = crate::effects::resurrected(s, net, world);
+    crate::effects::protect(s, net, world, clock);
+    returns(s, net, world);
+    resurrection_look(s, net, world, &stop);
+    returned(s, net, world);
+    crate::world::keep_player(s, world);
 }
 
 /// A share of a player's vitae is taken (a person's tap of it): its vitae is that share of what it

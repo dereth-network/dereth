@@ -37,13 +37,6 @@ pub fn trigger(effect: u32, time: f32, intensity: f32, play: bool) -> Trigger {
     }
 }
 
-/// The trigger every field of which is at its default.
-// D2-05149
-#[must_use]
-pub fn default_trigger() -> Trigger {
-    trigger(0, 0.0, 1.0, true)
-}
-
 /// Two effect triggers are the same when their effect, time and probability are.
 // D2-15216
 #[must_use]

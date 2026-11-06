@@ -171,7 +171,6 @@ shared_file_types!(
     assets::Setup,
     assets::SkillTable,
     assets::SoundTable,
-    assets::SpellTable,
     assets::StringTable,
     assets::Surface,
     assets::SurfaceTexture,
@@ -179,6 +178,18 @@ shared_file_types!(
     assets::Wave,
     assets::XpTable,
 );
+
+impl DatFileType for assets::SpellTable {
+    fn unpack(file_id: u32, bytes: &[u8]) -> Result<Self, UnpackError> {
+        Ok(<Self as Decode>::decode_payload(DataId(file_id), bytes)?)
+    }
+    fn unpack_in(era: ContainerEra, file_id: u32, bytes: &[u8]) -> Result<Self, UnpackError> {
+        let mut table = <Self as Decode>::decode_payload_in(era, DataId(file_id), bytes)?;
+        crate::file_types::spell_table::fill_target_types_from_formulas(&mut table);
+        crate::file_types::spell_table::renumber_effects(&mut table, era);
+        Ok(table)
+    }
+}
 
 type Slot = Arc<OnceLock<Option<CachedObject>>>;
 

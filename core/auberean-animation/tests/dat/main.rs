@@ -6,3 +6,4 @@ mod common;
 mod holding;
 mod records;
 mod setups;
+mod tables;

@@ -5,13 +5,17 @@
 //! ends when the hub answers, with the line the teller is shown. A tell from another world is
 //! shown to a present character on the network, after its ignore list and the operator's blocks,
 //! within the pace that world is held to for it, and answered at once.
+//!
+//! A tell to an away, linked character of this world goes to the hub too, so that it may reach its
+//! player's Discord ([`Federation::away_linked`]); the hub's answer to it ends it as for any
+//! character not online. The player's reply comes back as a tell from that character's own address.
 
 use dereth_network_protocol::text::{sanitize_line, sanitize_name, MAX_TEXT_CHARS};
 use dereth_network_protocol::{Address, Message, Outcome};
 
 use crate::{
     Ended, Federation, Friends, LinkState, Pending, State, TellEnd, TellId, AWAY_TEXT,
-    DO_NOT_DISTURB_TEXT, NOT_ON, TOO_QUICKLY, UNAVAILABLE, WORLD_OFF,
+    DO_NOT_DISTURB_TEXT, NOT_ON, TOO_NEW, TOO_QUICKLY, UNAVAILABLE, WORLD_OFF,
 };
 
 /// What a teller is told when a limit the whole world shares held its tell back (the hub's, or
@@ -57,9 +61,11 @@ fn answered(to: &Address, outcome: Outcome, message: Option<&str>) -> TellEnd {
         Outcome::Delivered | Outcome::Ok => (Ended::Delivered, None),
         Outcome::Afk => (Ended::Away, Some(away_line(to, message))),
         Outcome::Squelched => (Ended::Squelched, None),
-        // A channel is not a family this world carries: its answers end a tell as an unknown
-        // name's does.
-        Outcome::Offline | Outcome::NotMember => (Ended::Offline, None),
+        Outcome::Offline => (Ended::Offline, None),
+        Outcome::NotMember => (
+            Ended::NotMember,
+            Some(format!("You are not a member of {to}.")),
+        ),
         Outcome::Unavailable => (Ended::Unavailable, Some(cannot_reach(to))),
         Outcome::NotOnNetwork => (
             Ended::NotOnNetwork,
@@ -81,13 +87,29 @@ fn refused(ended: Ended, line: Option<&str>) -> TellEnd {
 }
 
 impl Federation {
-    /// A present character's tell to another world's character, `tell` being the friends
-    /// service's mark for it. It ends through [`Friends::tell_ended`]: at once when it is refused
+    /// The address of the character of this world named `name`, when a tell to it from `teller`
+    /// goes to the hub: the link is up, the teller is on the network, and the character is not in
+    /// the world but is on the network and asked for its link, so the tell may reach its player's
+    /// Discord. `None` for any other, whose tell stays the world's own.
+    #[must_use]
+    pub fn away_linked(&self, friends: &impl Friends, teller: &str, name: &str) -> Option<Address> {
+        if !self.enabled() || self.link != LinkState::Up || !self.is_on(teller) {
+            return None;
+        }
+        let on = self.on.get(&name.to_lowercase())?;
+        if !self.asked_link.contains(&on.id) || friends.in_world(&on.name) {
+            return None;
+        }
+        self.own_address(&on.name)
+    }
+
+    /// A present character's tell to another world's character, or to an away, linked character of
+    /// this world, `tell` being the friends service's mark for it. It ends through [`Friends::tell_ended`]: at once when it is refused
     /// here, else when the hub answers, or when it is given up on ([`Federation::tick`]).
     ///
     /// Refused here: from a world off the network; from a character off the network; to a
-    /// world or character the operator blocks, or a channel (not shown, as an unknown name);
-    /// past the teller's own pace. The text is cut to what a link message carries.
+    /// world or character the operator blocks (not shown, as an unknown name); from a character
+    /// younger than the operator asks; past the teller's own pace. The text is cut to what a link message carries.
     pub fn tell(
         &mut self,
         friends: &mut impl Friends,
@@ -105,8 +127,15 @@ impl Federation {
             friends.tell_ended(tell, refused(Ended::NotOn, Some(NOT_ON)));
             return;
         };
-        if to.world() == self.settings.slug || to.is_channel() || self.blocked(to) {
+        let own_world = to.world() == self.settings.slug;
+        if (own_world && self.away_linked(&*friends, &name, to.name()).is_none())
+            || self.blocked(to)
+        {
             friends.tell_ended(tell, refused(Ended::Offline, None));
+            return;
+        }
+        if self.too_new(&name) {
+            friends.tell_ended(tell, refused(Ended::TooNew, Some(TOO_NEW)));
             return;
         }
         let Some(own) = self.own_address(&name) else {
@@ -125,7 +154,7 @@ impl Federation {
         }
         // Whether the teller lists the recipient: worlds of the first version let a character
         // take tells from its friends alone, and read it.
-        let friend = friends.remote_friends(&name).iter().any(|f| f.same(to));
+        let friend = self.remote_of(&*friends, &name).iter().any(|f| f.same(to));
         let id = self.fresh_id('t');
         self.pending.insert(
             id.clone(),
@@ -224,9 +253,17 @@ impl Federation {
             );
             return;
         }
-        // A tell from this world's own address speaks for a character the hub could only have
-        // heard of from this world: none of this world's characters answers from elsewhere.
-        if origin == self.settings.slug {
+        // A tell from this world's own address is a reply from elsewhere, or it is refused: its
+        // teller must be one of this world's characters not in the world, on the network and linked
+        // by itself, so that only its player can have answered, from their Discord.
+        let own_teller = origin == self.settings.slug;
+        if own_teller
+            && (friends.in_world(from.name())
+                || !self
+                    .on
+                    .get(&from.name().to_lowercase())
+                    .is_some_and(|o| self.asked_link.contains(&o.id)))
+        {
             self.answer(t, &origin, id, Outcome::Offline, None);
             return;
         }
@@ -249,7 +286,9 @@ impl Federation {
             self.answer(t, &origin, id, Outcome::Offline, None);
             return;
         }
-        if friends.ignores(&target.name, from) {
+        if friends.ignores(&target.name, from)
+            || (own_teller && friends.ignores_here(&target.name, from.name()))
+        {
             self.answer(t, &origin, id, Outcome::Squelched, None);
             return;
         }

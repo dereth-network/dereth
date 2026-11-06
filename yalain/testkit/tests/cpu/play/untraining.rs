@@ -154,3 +154,142 @@ fn an_untraining_under_way_cancelled_keeps_the_skill() {
         .iter()
         .all(|m| !matches!(m, ServerMessage::UpdateTimestamp(_))));
 }
+
+/// A second skill, a child of [`SKILL`], and what each may be asked: a player that trained both.
+fn with_a_child() -> (Harness, usize, yalain_net::ConnId) {
+    let (mut h, b, world) = trained(0);
+    h.server.skill_table.skills.insert(
+        CHILD,
+        SkillDef {
+            id: CHILD,
+            name: (0xA860_7CEC, 0x2500_085B),
+            cost: COST,
+            flags: 0x1,
+            parents: vec![(SKILL, 0)],
+            ..SkillDef::default()
+        },
+    );
+    let p = h.server.players.get_mut(&world).expect("in");
+    p.play.credits = 10;
+    h.ask(b, function::TRAIN, &[Arg::Int(CHILD)], 5);
+    let p = &h.server.players[&world];
+    assert!(p.play.skills.iter().any(|s| s.skill == CHILD), "trained");
+    assert_eq!(
+        p.play
+            .skills
+            .iter()
+            .find(|s| s.skill == SKILL)
+            .map(|s| s.children),
+        Some(1)
+    );
+    (h, b, world)
+}
+
+/// A child of the skill being asked of, trained by the test.
+const CHILD: u32 = 16;
+
+/// A parent whose child is trained stays: the skill and its credits are as they were, so a child
+/// can't be had for its own cost alone. The child goes first, then the parent.
+/// Behaviour: server.skills.untrain-leaves-a-trained-child
+#[test]
+fn a_skill_with_a_trained_child_is_not_untrained_until_the_child_is() {
+    let (mut h, b, world) = with_a_child();
+    let credits = h.server.players[&world].play.credits;
+    let from = ask(&mut h, b, function::UNTRAIN, &[Arg::Int(SKILL)]);
+    assert!(texts(&h, b, from).is_empty());
+    assert!(holds(&h, world));
+    assert_eq!(h.server.players[&world].play.credits, credits);
+    ask(&mut h, b, function::UNTRAIN, &[Arg::Int(CHILD)]);
+    let from = ask(&mut h, b, function::UNTRAIN, &[Arg::Int(SKILL)]);
+    assert_eq!(texts(&h, b, from), [untraining::UNTRAINED]);
+    assert!(!holds(&h, world));
+    assert_eq!(h.server.players[&world].play.credits, credits + 2 * COST);
+}
+
+/// A skill a trained skill names as its prerequisite stays until that one goes.
+/// Behaviour: server.skills.untrain-leaves-a-trained-dependent
+#[test]
+fn a_skill_a_trained_skill_depends_on_is_not_untrained() {
+    let (mut h, b, world) = trained(0);
+    h.server.players.get_mut(&world).expect("in").play.skills[0].dependents = 1;
+    let credits = h.server.players[&world].play.credits;
+    let from = ask(&mut h, b, function::UNTRAIN, &[Arg::Int(SKILL)]);
+    assert!(texts(&h, b, from).is_empty());
+    assert!(holds(&h, world));
+    assert_eq!(h.server.players[&world].play.credits, credits);
+}
+
+/// A skill not the player's to untrain stays, whichever says so: its definition, or its holder's
+/// record of it.
+/// Behaviour: server.skills.untrain-only-whats-the-players
+#[test]
+fn a_skill_not_the_players_to_untrain_stays() {
+    let (mut h, b, world) = trained(0);
+    h.server
+        .skill_table
+        .skills
+        .get_mut(&SKILL)
+        .expect("defined")
+        .flags = 0;
+    let from = ask(&mut h, b, function::UNTRAIN, &[Arg::Int(SKILL)]);
+    assert!(texts(&h, b, from).is_empty(), "by its definition");
+    assert!(holds(&h, world));
+    h.server
+        .skill_table
+        .skills
+        .get_mut(&SKILL)
+        .expect("defined")
+        .flags = 0x1;
+    h.server.players.get_mut(&world).expect("in").play.skills[0].mask = 0x1;
+    let from = ask(&mut h, b, function::UNTRAIN, &[Arg::Int(SKILL)]);
+    assert!(texts(&h, b, from).is_empty(), "by its record");
+    assert!(holds(&h, world));
+}
+
+/// A skill being untrained takes no more experience, and no skill is trained on it: what it holds
+/// is what comes back.
+/// Behaviour: server.skills.untraining-holds-its-skill
+#[test]
+fn a_skill_being_untrained_is_not_raised_and_nothing_is_trained_on_it() {
+    let (mut h, b, world) = trained(500);
+    h.server.skill_table.skills.insert(
+        CHILD,
+        SkillDef {
+            id: CHILD,
+            name: (0xA860_7CEC, 0x2500_085B),
+            cost: COST,
+            flags: 0x1,
+            parents: vec![(SKILL, 0)],
+            ..SkillDef::default()
+        },
+    );
+    h.server.skill_table.tables.insert(0, vec![0, 600, 1200]);
+    h.server
+        .skill_table
+        .skills
+        .get_mut(&SKILL)
+        .expect("defined")
+        .cap = 50;
+    let p = h.server.players.get_mut(&world).expect("in");
+    yalain_world::quals::set_long(&mut p.qualities, AVAILABLE_XP, 10_000);
+    p.play.credits = 10;
+    ask(&mut h, b, function::UNTRAIN, &[Arg::Int(SKILL)]);
+    ask(&mut h, b, function::RAISE, &[Arg::Int(SKILL)]);
+    let p = &h.server.players[&world];
+    assert_eq!(
+        p.play
+            .skills
+            .iter()
+            .find(|s| s.skill == SKILL)
+            .map(|s| s.spent),
+        Some(500)
+    );
+    assert_eq!(
+        yalain_world::quals::long(&p.qualities, AVAILABLE_XP),
+        Some(10_000)
+    );
+    ask(&mut h, b, function::TRAIN, &[Arg::Int(CHILD)]);
+    let p = &h.server.players[&world];
+    assert!(!p.play.skills.iter().any(|s| s.skill == CHILD));
+    assert_eq!(p.play.credits, 10);
+}

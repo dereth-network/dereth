@@ -5,7 +5,7 @@ client's:
 
 | tag | workflow | version from | release files |
 |---|---|---|---|
-| `network-hub-v<version>` | `.github/workflows/release-network-hub.yml` | `network/hub/Cargo.toml` | the hub for Linux (x86-64 and arm64, glibc 2.28+), Windows and macOS (Apple silicon and Intel), each with its licences, `README.md`, `DEPLOY.md` and `THIRD-PARTY-LICENSES.html`; the container image for `linux/amd64` and `linux/arm64` as an OCI archive; `SHA256SUMS` |
+| `network-hub-v<version>` | `.github/workflows/release-network-hub.yml` | `network/hub/Cargo.toml` | the hub for Linux (x86-64 and arm64, glibc 2.28+), Windows and macOS (Apple silicon), each with its licences, `README.md`, `DEPLOY.md` and `THIRD-PARTY-LICENSES.html`; the container image for `linux/amd64` and `linux/arm64` as an OCI archive; `SHA256SUMS` |
 | `network-ace-v<version>` | `.github/workflows/release-network-ace.yml` | `network/ace-mod/Dereth.Network/Meta.json` (`Version`), which `Dereth.Network.csproj`'s `<Version>` must equal | `Dereth.Network-<version>.zip` (the `Dereth.Network` mod folder); `SHA256SUMS` |
 
 ## Cutting a release
@@ -115,10 +115,11 @@ cargo xtask preflight finish                  # the final builds in the dev worl
 
 - **`preflight`** works out the products the branch changed since `main` and the release each takes,
   and says why (the hub's is a minor release when its registry's schema moves; Empyrean's when a
-  patch would be refused; Dereth's for the web client's changes too, since the web client carries
-  Dereth's version; Lyceum's for changes under `lyceum/`, which no dev world runs, so it is
+  patch would be refused; Dereth's for the web client's changes too, Asheron's Call 2's in it and
+  the launcher's page and art included, since its one release carries both games at Dereth's
+  version; Lyceum's for changes under `lyceum/`, which no dev world runs, so it is
   released by `ship` and built by its own workflow). A product is built from what its release
-  ships (Empyrean's server and import tool; Dereth's client, web client and launcher; the hub)
+  ships (Empyrean's server and import tool; Dereth's client and web client; the launcher; the hub)
   and the crates those depend on, vendored ones included, but not the ones only their tests
   use. A change to `Cargo.lock` or the launcher's lock counts only for a product built from a
   crate that moved in it, and the plan names those crates. A Lyceum release with no highlights in

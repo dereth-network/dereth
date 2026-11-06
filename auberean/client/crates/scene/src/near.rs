@@ -58,6 +58,8 @@ pub(crate) struct NearBlocks {
     last_cell: u32,
     /// The blocks let go of since last taken.
     released: Vec<(u8, u8)>,
+    /// The blocks handed out to the window since last asked.
+    handed_out: Vec<(u8, u8)>,
     /// When each block of the window was handed out (made, or found again among the free
     /// blocks), by block.
     stamps: HashMap<(u8, u8), f64>,
@@ -81,6 +83,7 @@ impl Default for NearBlocks {
             free: VecDeque::new(),
             last_cell: 0,
             released: Vec::new(),
+            handed_out: Vec::new(),
             stamps: HashMap::new(),
         };
         n.init_free_blocks();
@@ -126,10 +129,14 @@ impl NearBlocks {
         self.init_free_blocks();
     }
 
-    /// The blocks let go of since last asked, oldest first: the objects standing in their cells
-    /// are to leave the world.
+    /// The blocks let go of since last asked.
     pub(crate) fn take_released(&mut self) -> Vec<(u8, u8)> {
         std::mem::take(&mut self.released)
+    }
+
+    /// The blocks handed out to the window since last asked.
+    pub(crate) fn take_handed_out(&mut self) -> Vec<(u8, u8)> {
+        std::mem::take(&mut self.handed_out)
     }
 
     /// The blocks the window holds.
@@ -150,6 +157,7 @@ impl NearBlocks {
 
     /// A block let go of: no longer found, its land kept at the end of the free blocks.
     // D2-10785
+    // D2-03634
     fn release_block(&mut self, land: &Land, block: (u8, u8)) {
         self.released.push(block);
         self.stamps.remove(&block);
@@ -174,6 +182,7 @@ impl NearBlocks {
                 // D2-03633
                 m.land.recover_block(b);
                 self.stamps.insert((x, y), m.now);
+                self.handed_out.push((x, y));
                 return Some((x, y));
             }
         }
@@ -187,6 +196,7 @@ impl NearBlocks {
             auberean_physics::interior::add_block_cells(m.land, m.records, m.trees, x, y);
         }
         self.stamps.insert((x, y), m.now);
+        self.handed_out.push((x, y));
         Some((x, y))
     }
 

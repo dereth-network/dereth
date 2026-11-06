@@ -104,7 +104,7 @@ impl Dialect for Ac2 {
     const ITEM_FORMS: &'static str = "object <key>@<XXYY>, camp <key>@<XXYY>, place <key>, \
          loot <value>, keeper <template>, sale <store> <ordinal>, quest <id>, \
          step <quest> <key>, talk <key>, weapon <name>, route <key>, area <XXYY>, \
-         or landblock <XXYY>";
+         clearing <key>@<XXYY>, or landblock <XXYY>";
     const NAMES_BASE: bool = true;
     type Kind = Kind;
     type Era = Era;
@@ -145,6 +145,8 @@ pub enum Item {
     Quest { id: u32 },
     /// A step of a quest, by the quest and the step's key.
     Step { quest: u32, key: String },
+    /// A give that moves no quest, by its key.
+    Give { key: String },
     /// A line a person says, by its key.
     Talk { key: String },
     /// A craft skill or a recipe a new character starts with, by its data id.
@@ -157,10 +159,14 @@ pub enum Item {
     Shard { object: u64 },
     /// The template of a weapon creatures wield, by the name their templates give it.
     Weapon { name: String },
+    /// What a creature's death effect makes around its killer, by the effect's name.
+    DeathSpawn { effect: String },
     /// A route creatures walk at rest, by its key.
     Route { key: String },
     /// The kind of player conflict a landblock allows, by the landblock.
     Area { landblock: u16 },
+    /// Ground kept free of what the land grows, by its key in its landblock.
+    Clearing { key: String, landblock: u16 },
 }
 
 impl Item {
@@ -176,6 +182,10 @@ impl Item {
             ["camp", placed] => {
                 let (key, landblock) = placed_key(placed)?;
                 Self::Camp { key, landblock }
+            }
+            ["clearing", placed] => {
+                let (key, landblock) = placed_key(placed)?;
+                Self::Clearing { key, landblock }
             }
             ["place", key] => Self::Place { key: symbol(key)? },
             ["loot", v] => Self::Loot {
@@ -193,6 +203,7 @@ impl Item {
                 quest: number(q)?,
                 key: symbol(key)?,
             },
+            ["give", key] => Self::Give { key: symbol(key)? },
             ["talk", key] => Self::Talk { key: symbol(key)? },
             ["craft", id] => Self::Craft { id: number(id)? },
             ["butchery", p] => Self::Butchery {
@@ -204,6 +215,9 @@ impl Item {
             },
             ["weapon", name] => Self::Weapon {
                 name: identifier(name)?,
+            },
+            ["death_spawn", effect] => Self::DeathSpawn {
+                effect: identifier(effect)?,
             },
             ["route", key] => Self::Route { key: symbol(key)? },
             ["area", lb] => Self::Area {
@@ -235,14 +249,17 @@ impl fmt::Display for Item {
             Self::Sale { store, ordinal } => write!(f, "sale {store:#010x} {ordinal}"),
             Self::Quest { id } => write!(f, "quest {id:#010x}"),
             Self::Step { quest, key } => write!(f, "step {quest:#010x} {key}"),
+            Self::Give { key } => write!(f, "give {key}"),
             Self::Talk { key } => write!(f, "talk {key}"),
             Self::Craft { id } => write!(f, "craft {id:#010x}"),
             Self::Butchery { profile } => write!(f, "butchery {profile:#010x}"),
             Self::Scene { id } => write!(f, "scene {id:#010x}"),
             Self::Shard { object } => write!(f, "shard {object:#018x}"),
             Self::Weapon { name } => write!(f, "weapon {name}"),
+            Self::DeathSpawn { effect } => write!(f, "death_spawn {effect}"),
             Self::Route { key } => write!(f, "route {key}"),
             Self::Area { landblock } => write!(f, "area {landblock:04X}"),
+            Self::Clearing { key, landblock } => write!(f, "clearing {key}@{landblock:04X}"),
         }
     }
 }

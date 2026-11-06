@@ -513,6 +513,9 @@ fn key_bindings(
         }
         KeyBindingsCall::Drive { events, verdicts } => {
             let Some(m) = input else { return false };
+            if s.key_bindings.take_era_change() {
+                s.key_bindings.init_options(cx.ui, m);
+            }
             let (e, v) = s.drive_key_bindings(cx.ui, m);
             *events = e;
             *verdicts = v;

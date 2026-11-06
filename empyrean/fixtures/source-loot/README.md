@@ -1,0 +1,1 @@
+Original synthetic loot inputs for V466 tests. No historical probabilities or extracted game assets. The zero file hashes are fixture sentinels; production conversion hashes the committed source files.

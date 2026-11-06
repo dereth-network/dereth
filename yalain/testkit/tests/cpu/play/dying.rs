@@ -2,6 +2,7 @@
 //! vitae.
 
 use auberean_protocol::{queue, ServerMessage};
+use yalain_store::Store;
 use yalain_testkit::play::server_call;
 use yalain_testkit::Harness;
 use yalain_world::calls::{self, Value};
@@ -386,7 +387,7 @@ fn resurrected(h: &mut Harness) -> (usize, u64, u32, usize) {
     assert_eq!(slots[23], (0x02, *eid), "its id in the record");
     let state = v[0]
         .entry(slots[14].1)
-        .map(|n| matches!(n, yalain_world::calls::Node::Other));
+        .map(|n| matches!(n, yalain_world::calls::Node::Singleton(_)));
     assert_eq!(state, Some(true), "the effect a saved state's singleton");
     let raw = h.bots[b].inbox[from..]
         .iter()
@@ -476,4 +477,694 @@ fn attacking_ends_a_lifestone_protection() {
     );
     wait(&mut h, 1.0);
     assert!(ended(&h, b, from, eid, me), "ended by the attack");
+}
+
+const HEALTH: u32 = 258;
+const VITAE: u32 = 286;
+const LEVEL: u32 = 302;
+/// More steps than a leaving takes.
+const STEPS_TO_LEAVE: usize = 2000;
+
+/// The bound lifestone of the tests that return to one.
+fn a_lifestone() -> yalain_store::StoredPosition {
+    yalain_store::StoredPosition {
+        cell: 0x0102_0003,
+        origin: [12.5, 34.5, 2.0],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    }
+}
+
+/// A player of level 30 (so a resurrection costs it vitae), bound to [`a_lifestone`], dead with its
+/// corpse made and its box up: where a client may ask to be resurrected and has not.
+fn dead_with_its_box_up(h: &mut Harness) -> (usize, u64) {
+    let (b, me) = about_to_die(h);
+    for p in h.server.players.values_mut() {
+        yalain_world::quals::set_int(&mut p.qualities, LEVEL, 30);
+        p.places
+            .push((yalain_world::places::kind::LIFESTONE, a_lifestone()));
+    }
+    let from = h.bots[b].inbox.len();
+    let _ = run_to_death(h, b, from);
+    wait(h, 11.0);
+    assert!(
+        calls_of(h, b, from).contains(&(DEATH_STATE, vec![Value::Int(1)])),
+        "its box is up"
+    );
+    (b, me)
+}
+
+fn log_off(h: &mut Harness, b: usize, id: u64) {
+    let before = h.bots[b].inbox.len();
+    h.bots[b].send(
+        false,
+        queue::LOGON,
+        &auberean_protocol::ClientMessage::LogOff(auberean_protocol::login::CharacterRef {
+            character: id,
+        }),
+    );
+    assert!(h.run_until(STEPS_TO_LEAVE, |h| h.bots[b].inbox[before..]
+        .iter()
+        .any(|r| matches!(r.message(), Some(ServerMessage::CharacterList(_))))));
+}
+
+/// What an entry since `from` has to show of a character that left the world dead, once it has
+/// come back: told it enters at no health, never told it is dead, nor of a death, nor to ask; then
+/// its health and vigor, alive, standing and glowing where it entered, the place it returns to,
+/// its vitae five less and three quarters of its health, protected, its actions no longer refused.
+fn came_back_alive(h: &mut Harness, b: usize, me: u64, from: usize) {
+    let messages = h.world_messages(b, from);
+    let described = messages.iter().find_map(|m| match m {
+        ServerMessage::PlayerQualities(q) => q.0.ints.get(HEALTH).copied(),
+        _ => None,
+    });
+    assert_eq!(described, Some(0), "it enters at no health");
+    wait(h, 2.0);
+    let calls = calls_of(h, b, from);
+    assert!(
+        !calls.iter().any(|(f, _)| *f == DEATH_MESSAGE),
+        "no death told"
+    );
+    let states: Vec<&Vec<Value>> = calls
+        .iter()
+        .filter(|(f, _)| *f == DEATH_STATE)
+        .map(|(_, v)| v)
+        .collect();
+    assert_eq!(states, vec![&vec![Value::Int(0)]], "alive, never dead");
+    assert_eq!(
+        calls.iter().filter(|(f, _)| *f == ADD_EFFECT).count(),
+        1,
+        "protected"
+    );
+    let messages = h.world_messages(b, from);
+    let look: Vec<(&str, u32)> = messages
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::SetMode(e) if e.sender.id == me => Some(("set", e.action.0)),
+            ServerMessage::DoFx(e) if e.sender.id == me && e.action.fx == GLOW => {
+                Some(("effect", e.action.fx))
+            }
+            ServerMessage::UpdateBoolVisual(q) if q.object.id == me && q.quality == DEAD => {
+                Some(("dead", u32::from(q.value != 0)))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        look,
+        vec![("set", 0x4000_0001), ("effect", GLOW), ("dead", 0)],
+        "set standing, glowing, alive"
+    );
+    let p = h
+        .server
+        .players
+        .values()
+        .find(|p| p.character == me)
+        .expect("in the world");
+    assert!(p.trip.is_none(), "not through portal space");
+    assert!(p.dying.is_none(), "no longer dying");
+    assert_eq!(p.position.cell, a_lifestone().cell, "at its lifestone");
+    assert_eq!(p.position.origin, a_lifestone().origin);
+    let max = yalain_world::quals::int(&p.qualities, 263).unwrap_or(100);
+    assert_eq!(
+        yalain_world::quals::float(&p.qualities, VITAE),
+        Some(95.0),
+        "five vitae less"
+    );
+    #[allow(
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss
+    )]
+    let back = ((max as f32 * 0.95).floor() * 0.75) as i32;
+    assert_eq!(
+        yalain_world::quals::int(&p.qualities, HEALTH),
+        Some(back),
+        "three quarters of its health at that vitae"
+    );
+    let kept = h
+        .server
+        .store
+        .world_state(me)
+        .expect("reads")
+        .expect("kept");
+    assert_eq!(
+        yalain_world::quals::int(&kept.qualities, HEALTH),
+        Some(back),
+        "kept as it comes back, so a stop now does not take its vitae again"
+    );
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .expect("in the world")
+        .0;
+    assert!(
+        !yalain_world::places::actions_locked(&h.server, world),
+        "its actions are no longer refused"
+    );
+}
+
+/// A character that logs off dead, its box up, comes back alive by itself: at its lifestone, the
+/// entry at no health, a moment later its vitae five less, three quarters of its health and vigor,
+/// protected and playing its return, and no box and nothing to ask for.
+/// Behaviour: server.death.back-at-entry
+#[test]
+fn a_character_that_logged_off_dead_comes_back_alive_at_its_lifestone() {
+    let mut h = Harness::new();
+    let (b, me) = dead_with_its_box_up(&mut h);
+    log_off(&mut h, b, me);
+    let from = h.bots[b].inbox.len();
+    h.enter_world(b, "one", me);
+    came_back_alive(&mut h, b, me, from);
+}
+
+/// A character whose client went away while it was dead comes back as one that logged off dead.
+/// Behaviour: server.death.back-at-entry
+#[test]
+fn a_character_whose_client_went_away_dead_comes_back_alive_at_its_lifestone() {
+    let mut h = Harness::new();
+    let (b, me) = dead_with_its_box_up(&mut h);
+    h.bots[b].leave();
+    assert!(
+        h.run_until(STEPS_TO_LEAVE, |h| h.server.players.is_empty()),
+        "it lingers and leaves"
+    );
+    let again = h.at_character_list("one");
+    let from = h.bots[again].inbox.len();
+    h.enter_world(again, "one", me);
+    came_back_alive(&mut h, again, me, from);
+}
+
+/// A character in the world dead as the server stops comes back as one that logged off dead when
+/// the server is up again.
+/// Behaviour: server.death.back-at-entry
+#[test]
+fn a_character_dead_at_a_server_restart_comes_back_alive_at_its_lifestone() {
+    let mut h = Harness::new();
+    let (_, me) = dead_with_its_box_up(&mut h);
+    assert_eq!(
+        yalain_world::shutdown::save_everyone(&mut h.server, &mut h.net),
+        1
+    );
+    let store = std::mem::take(&mut h.server.store);
+    let mut h = Harness::with(
+        yalain_world::ServerConfig::default(),
+        store,
+        yalain_testkit::test_rules(),
+    );
+    let b = h.at_character_list("one");
+    let from = h.bots[b].inbox.len();
+    h.enter_world(b, "one", me);
+    came_back_alive(&mut h, b, me, from);
+}
+
+/// A character kept dead by an older server, its place and everything else as it left them, needs
+/// nothing done to what is kept: its next entry brings it back.
+/// Behaviour: server.death.back-at-entry
+#[test]
+fn a_character_already_kept_dead_comes_out_of_it_at_its_next_entry() {
+    let mut h = Harness::new();
+    let (b, me) = h.player_in_world("one", "Elara");
+    scene_drawn(&mut h, b);
+    for p in h.server.players.values_mut() {
+        yalain_world::quals::set_int(&mut p.qualities, LEVEL, 30);
+        p.places
+            .push((yalain_world::places::kind::LIFESTONE, a_lifestone()));
+    }
+    log_off(&mut h, b, me);
+    let mut kept = h
+        .server
+        .store
+        .world_state(me)
+        .expect("reads")
+        .expect("kept");
+    yalain_world::quals::set_int(&mut kept.qualities, HEALTH, 0);
+    h.server.store.set_world_state(me, &kept).expect("kept");
+    let from = h.bots[b].inbox.len();
+    h.enter_world(b, "one", me);
+    came_back_alive(&mut h, b, me, from);
+}
+
+/// A character that was never bound comes back beside the nearest lifestone, as a resurrection
+/// would take it: where it fell when the world has none near.
+/// Behaviour: server.death.back-at-entry
+#[test]
+fn a_character_never_bound_comes_back_where_it_fell_with_no_lifestone_near() {
+    let mut h = Harness::new();
+    let (b, me) = about_to_die(&mut h);
+    let from = h.bots[b].inbox.len();
+    let _ = run_to_death(&mut h, b, from);
+    let fell = h
+        .server
+        .players
+        .values()
+        .next()
+        .expect("the player")
+        .position;
+    wait(&mut h, 11.0);
+    log_off(&mut h, b, me);
+    h.enter_world(b, "one", me);
+    wait(&mut h, 2.0);
+    let p = h.server.players.values().next().expect("the player");
+    assert!(p.dying.is_none(), "alive");
+    assert_eq!(p.position.cell, fell.cell);
+    assert_eq!(p.position.origin, fell.origin);
+    assert!(yalain_world::quals::int(&p.qualities, HEALTH).unwrap_or(0) > 0);
+}
+
+/// A character alive at its entry is not brought back: nothing of a return is sent.
+/// Behaviour: server.death.back-at-entry
+#[test]
+fn a_character_alive_at_its_entry_is_not_brought_back() {
+    let mut h = Harness::new();
+    let (b, me) = h.player_in_world("one", "Elara");
+    scene_drawn(&mut h, b);
+    log_off(&mut h, b, me);
+    let from = h.bots[b].inbox.len();
+    h.enter_world(b, "one", me);
+    wait(&mut h, 2.0);
+    assert!(
+        !calls_of(&h, b, from).iter().any(|(f, _)| *f == DEATH_STATE),
+        "no death state"
+    );
+    assert!(
+        !calls_of(&h, b, from).iter().any(|(f, _)| *f == ADD_EFFECT),
+        "not protected"
+    );
+}
+
+/// A creature's blow: its story first, and only as the blow reaches the player, most of a second
+/// later, its health at none and the kill text, in that order, so the client has written the hit
+/// before it writes the kill.
+/// Behaviour: server.death.blow-before-kill-text
+#[test]
+fn a_creatures_killing_blow_is_told_before_the_health_and_the_kill_text() {
+    let mut h = Harness::new();
+    let (b, me) = about_to_die(&mut h);
+    let from = h.bots[b].inbox.len();
+    let told = |m: &ServerMessage| {
+        matches!(m, ServerMessage::DoStory(e) if e.action.hooks.iter().any(|k| k.target == me
+            && k.bits == yalain_world::combat::hook::HIT))
+    };
+    assert!(
+        h.run_until(4000, |h| h.world_messages(b, from).iter().any(told)),
+        "the creature lands a blow"
+    );
+    let struck = h.now.0;
+    let at_none = |m: &ServerMessage| matches!(m, ServerMessage::UpdateInt(q) if q.quality == HEALTH && q.value == 0);
+    assert!(
+        !h.world_messages(b, from).iter().any(at_none),
+        "not hurt as it is told"
+    );
+    assert!(
+        h.run_until(4000, |h| h.world_messages(b, from).iter().any(at_none)),
+        "the blow reaches it"
+    );
+    let gap = h.now.0 - struck;
+    assert!(
+        (0.4..1.1).contains(&gap),
+        "the blow reached it {gap:.2} s after its story"
+    );
+    let _ = run_to_death(&mut h, b, from);
+    let messages = h.world_messages(b, from);
+    let at = |pick: &dyn Fn(&ServerMessage) -> bool| messages.iter().position(pick);
+    let kill_text =
+        at(&|m| matches!(m, ServerMessage::PlayerCall(c) if c.function.0 == DEATH_MESSAGE));
+    assert!(at(&told) < at(&at_none), "the story before the health");
+    assert!(at(&at_none) < kill_text, "the health before the kill text");
+}
+
+/// A blow told at a player who has since gone into portal space does not reach it.
+/// Behaviour: server.death.blow-before-kill-text
+#[test]
+fn a_blow_at_a_player_gone_into_portal_space_does_not_hurt_it() {
+    let mut h = Harness::new();
+    let (b, me) = h.player_in_world("one", "Elara");
+    scene_drawn(&mut h, b);
+    let world = *h.server.players.keys().next().expect("the player");
+    let clock = h.clock();
+    let to = a_lifestone();
+    yalain_world::places::resurrection_trip(&mut h.server, &mut h.net, world, to, clock);
+    let before = yalain_world::quals::int(&h.server.players[&world].qualities, HEALTH);
+    yalain_world::combat::creature_strike_lands(
+        &mut h.server,
+        &mut h.net,
+        me,
+        world,
+        yalain_world::effects::Harm::plain(5),
+        clock,
+    );
+    assert_eq!(
+        yalain_world::quals::int(&h.server.players[&world].qualities, HEALTH),
+        before
+    );
+}
+
+/// A second blow told before the first killed the player does nothing when it reaches it: the
+/// player does not die again.
+/// Behaviour: server.death.blow-before-kill-text
+#[test]
+fn a_blow_at_a_player_already_dead_does_nothing() {
+    let mut h = Harness::new();
+    let (b, me) = h.player_in_world("one", "Elara");
+    scene_drawn(&mut h, b);
+    let world = *h.server.players.keys().next().expect("the player");
+    for p in h.server.players.values_mut() {
+        yalain_world::quals::set_int(&mut p.qualities, HEALTH, 0);
+    }
+    let clock = h.clock();
+    yalain_world::combat::creature_strike_lands(
+        &mut h.server,
+        &mut h.net,
+        me,
+        world,
+        yalain_world::effects::Harm::plain(5),
+        clock,
+    );
+    assert!(h.server.players[&world].dying.is_none(), "no second death");
+}
+
+/// A player alive and in the world is hurt by a blow that reaches it: the same call's other side.
+/// Behaviour: server.death.blow-before-kill-text
+#[test]
+fn a_blow_that_reaches_a_player_hurts_it_by_its_damage() {
+    let mut h = Harness::new();
+    let (b, me) = h.player_in_world("one", "Elara");
+    scene_drawn(&mut h, b);
+    let world = *h.server.players.keys().next().expect("the player");
+    let clock = h.clock();
+    let before = yalain_world::quals::int(&h.server.players[&world].qualities, HEALTH).unwrap_or(0);
+    yalain_world::combat::creature_strike_lands(
+        &mut h.server,
+        &mut h.net,
+        me,
+        world,
+        yalain_world::effects::Harm::plain(5),
+        clock,
+    );
+    assert_eq!(
+        yalain_world::quals::int(&h.server.players[&world].qualities, HEALTH),
+        Some(before - 5)
+    );
+}
+
+/// When a blow reaches its target by what it is: a creature's basic attacks, the specials measured
+/// by their own, another special at the share of a player's strike.
+/// Behaviour: server.death.blow-before-kill-text
+#[test]
+fn a_creatures_strike_reaches_its_target_by_its_skill() {
+    use yalain_world::combat::creature_hit_seconds as at;
+    assert!((at(1845, 0, false) - 0.778).abs() < 1e-9);
+    assert!((at(1035, 0, true) - 0.524).abs() < 1e-9);
+    assert!((at(462, 0, true) - 1.198).abs() < 1e-9);
+    assert!((at(981, 0, true) - 1.207).abs() < 1e-9);
+    assert!((at(1801, 0, true) - 2.066).abs() < 1e-9);
+    assert!((at(7, 0, true) - 0.71 * 1.6).abs() < 1e-9);
+    assert!((at(7, 0x4100_0077, true) - 0.71 * 1.444).abs() < 1e-9);
+}
+
+/// A record of an effect on a player, by hand.
+fn record_on(h: &mut Harness, state: u32, flags: u32, timeout: f32) -> u32 {
+    let cast = h.net.game_time(h.now);
+    let p = h.server.players.values_mut().next().expect("the player");
+    let eid = yalain_world::effects::next_eid(p);
+    p.play.effects.push(yalain_world::state::EffectState {
+        eid,
+        state,
+        cast,
+        timeout,
+        caster: 0,
+        spellcraft: 10.0,
+        pk: false,
+        acting: 0,
+        skill: 0,
+        item: 0,
+        flags,
+        categories: 1,
+    });
+    eid
+}
+
+fn records_held(h: &Harness) -> Vec<u32> {
+    let p = h.server.players.values().next().expect("the player");
+    p.play.effects.iter().map(|e| e.eid).collect()
+}
+
+fn word(v: &Value) -> u32 {
+    let Value::Int(i) = v else {
+        panic!("a word: {v:?}")
+    };
+    *i
+}
+
+/// As a resurrection is asked for, the records whose effects a death ends are taken off, and only
+/// then is the protection added; a worn item's record and one a death does not end stay. For all
+/// who see it, it is set standing, what its death ended stops showing, and it glows.
+/// Behaviour: server.death.resurrection-ends-effects
+#[test]
+fn a_resurrection_takes_off_what_a_death_ends_and_keeps_the_rest() {
+    use yalain_testkit::{COURAGE_EFFECT, DASH_EFFECT, EASE_SUFFERING_EFFECT};
+    use yalain_world::effects::{function as effect_fn, TIMED, WORN};
+    let mut h = Harness::new();
+    let (b, me) = about_to_die(&mut h);
+    let dash = record_on(&mut h, DASH_EFFECT, TIMED, 3000.0);
+    let worn = record_on(&mut h, EASE_SUFFERING_EFFECT, WORN, f32::MAX);
+    let courage = record_on(&mut h, COURAGE_EFFECT, TIMED, 3000.0);
+    let from = h.bots[b].inbox.len();
+    let _ = run_to_death(&mut h, b, from);
+    wait(&mut h, 11.0);
+    assert_eq!(
+        records_held(&h),
+        vec![dash, worn, courage],
+        "a death itself takes nothing off"
+    );
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(true, queue::WEENIE, &server_call(RESURRECT, &[]));
+    h.run(3);
+    let told: Vec<(u32, Vec<Value>)> = calls_of(&h, b, from)
+        .into_iter()
+        .filter(|(f, _)| *f == effect_fn::REMOVE || *f == effect_fn::ADD)
+        .collect();
+    assert_eq!(told.len(), 2, "one record off, the protection on: {told:?}");
+    assert_eq!(told[0].0, effect_fn::REMOVE);
+    assert_eq!(word(&told[0].1[0]), dash);
+    assert_eq!(told[1].0, effect_fn::ADD);
+    assert_eq!(records_held(&h), vec![worn, courage]);
+    let look: Vec<(&str, u32)> = h
+        .world_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::SetMode(e) if e.sender.id == me => Some(("set", e.action.0)),
+            ServerMessage::StopFx(e) if e.sender.id == me => Some(("stop", e.action.0)),
+            ServerMessage::DoFx(e) if e.sender.id == me => Some(("effect", e.action.fx)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        look,
+        vec![
+            ("set", 0x4000_0001),
+            ("stop", 0x4100_04CB),
+            ("effect", 0x4100_000F),
+            ("effect", 0x4100_0010)
+        ]
+    );
+}
+
+/// A character that left the world dead loses what its death ends as it comes back, before its
+/// protection, as one resurrected by asking does.
+/// Behaviour: server.death.resurrection-ends-effects
+#[test]
+fn a_character_coming_back_at_its_entry_loses_what_a_death_ends() {
+    use yalain_testkit::{COURAGE_EFFECT, DASH_EFFECT};
+    use yalain_world::effects::{function as effect_fn, TIMED};
+    let mut h = Harness::new();
+    let (b, me) = dead_with_its_box_up(&mut h);
+    let dash = record_on(&mut h, DASH_EFFECT, TIMED, 3000.0);
+    let courage = record_on(&mut h, COURAGE_EFFECT, TIMED, 3000.0);
+    log_off(&mut h, b, me);
+    let from = h.bots[b].inbox.len();
+    h.enter_world(b, "one", me);
+    wait(&mut h, 2.0);
+    let told: Vec<u32> = calls_of(&h, b, from)
+        .into_iter()
+        .filter(|(f, _)| *f == effect_fn::REMOVE || *f == effect_fn::ADD)
+        .map(|(f, _)| f)
+        .collect();
+    assert_eq!(told, vec![effect_fn::REMOVE, effect_fn::ADD]);
+    assert_eq!(records_held(&h), vec![courage], "not {dash}");
+}
+
+/// A player that sits dead with its box up and asks for nothing is sent back ten minutes after it
+/// was told it was dead, as if it had asked: not before, then alive at its lifestone, protected.
+/// Behaviour: server.death.sent-back-after-ten-minutes
+#[test]
+fn a_player_left_dead_ten_minutes_is_sent_back() {
+    let mut h = Harness::new();
+    let (b, _) = dead_with_its_box_up(&mut h);
+    let from = h.bots[b].inbox.len();
+    wait(&mut h, 595.0);
+    assert!(
+        h.server.players.values().all(|p| p.dying.is_some()),
+        "still dead"
+    );
+    assert!(calls_of(&h, b, from).iter().all(|(f, _)| *f != DEATH_STATE));
+    wait(&mut h, 8.0);
+    let calls = calls_of(&h, b, from);
+    assert_eq!(
+        calls
+            .iter()
+            .filter(|(f, _)| *f == DEATH_STATE)
+            .map(|(_, v)| v.clone())
+            .collect::<Vec<_>>(),
+        vec![vec![Value::Int(0)]],
+        "alive again"
+    );
+    assert_eq!(
+        calls.iter().filter(|(f, _)| *f == ADD_EFFECT).count(),
+        1,
+        "protected"
+    );
+    let p = h.server.players.values().next().expect("the player");
+    assert!(p.dying.is_none());
+    assert_eq!(p.position.cell, a_lifestone().cell, "at its lifestone");
+}
+
+/// A player that asked and died again is not sent back by its first death's ten minutes: the second
+/// death has its own.
+/// Behaviour: server.death.sent-back-after-ten-minutes
+#[test]
+fn a_second_death_is_not_cut_short_by_the_firsts_ten_minutes() {
+    let mut h = Harness::new();
+    let (b, _) = dead_with_its_box_up(&mut h);
+    let world = *h.server.players.keys().next().expect("the player");
+    let first = h.server.players[&world]
+        .dying
+        .and_then(|d| d.corpse)
+        .expect("its corpse");
+    h.bots[b].send(true, queue::WEENIE, &server_call(RESURRECT, &[]));
+    wait(&mut h, 2.0);
+    assert!(h.server.players[&world].dying.is_none());
+    let clock = h.clock();
+    yalain_world::death::player_dies(&mut h.server, &mut h.net, world, None, clock);
+    wait(&mut h, 11.0);
+    let second = h.server.players[&world]
+        .dying
+        .and_then(|d| d.corpse)
+        .expect("a new corpse");
+    assert_ne!(first, second);
+    let clock = h.clock();
+    yalain_world::death::sent_back(&mut h.server, &mut h.net, world, first, clock);
+    assert!(h.server.players[&world].trip.is_none(), "the first's: no");
+    yalain_world::death::sent_back(&mut h.server, &mut h.net, world, second, clock);
+    assert!(h.server.players[&world].trip.is_some(), "its own: yes");
+}
+
+/// A corpse 100 m off that the player has set out for: its walk, under way.
+fn walking_to_a_corpse(h: &mut Harness, b: usize, me: u64, world: yalain_net::ConnId) -> u64 {
+    let beetle = h
+        .server
+        .catalog
+        .get(yalain_testkit::TEST_CREATURE)
+        .cloned()
+        .expect("the beetle");
+    let mut at = h.server.players[&world].position;
+    at.origin[0] += 100.0;
+    let id = h.server.things.new_id();
+    let mut corpse =
+        yalain_world::things::Thing::of(id, &beetle, yalain_world::things::Kind::Corpse);
+    corpse.at = Some(at);
+    corpse.corpse = Some(yalain_world::things::Corpse {
+        killer: me,
+        originator: 0,
+        contents: Vec::new(),
+        expires: f64::MAX,
+        creature: yalain_testkit::TEST_CREATURE,
+        butchered: false,
+        killer_level: 0,
+    });
+    h.server.things.insert(corpse);
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(0x8216_0016, &[yalain_testkit::play::use_of(id, me)]),
+    );
+    h.run(4);
+    assert!(h.server.players[&world].walking_to.is_some(), "on its way");
+    id
+}
+
+/// A player that dies on its way to something is on its way no longer: its use is answered, and back
+/// from the dead it may use things again without first moving by hand.
+/// Behaviour: server.places.a-walk-ends-with-a-trip-or-a-death
+#[test]
+fn a_death_ends_a_walk_and_leaves_no_use_refused_after_it() {
+    let mut h = Harness::new();
+    let (b, me) = about_to_die(&mut h);
+    let world = *h.server.players.keys().next().expect("the player");
+    walking_to_a_corpse(&mut h, b, me, world);
+    let from = h.bots[b].inbox.len();
+    let clock = h.clock();
+    yalain_world::death::player_dies(&mut h.server, &mut h.net, world, None, clock);
+    h.run(2);
+    assert!(h.server.players[&world].walking_to.is_none(), "no longer");
+    assert!(
+        calls_of(&h, b, from)
+            .iter()
+            .any(|(f, _)| *f == yalain_world::places::function::USE_DONE),
+        "its use is answered"
+    );
+    wait(&mut h, 11.0);
+    h.bots[b].send(true, queue::WEENIE, &server_call(RESURRECT, &[]));
+    wait(&mut h, 3.0);
+    assert!(h.server.players[&world].dying.is_none(), "back");
+    assert!(
+        !yalain_world::places::actions_locked(&h.server, world),
+        "and free to use things"
+    );
+}
+
+/// A dead player swings at nothing: a run asked for is refused as its other uses are, the creature
+/// beside it isn't hurt, and it pays nothing.
+/// Behaviour: server.death.dead-player-starts-no-attack
+#[test]
+fn a_dead_player_starts_no_attack_run() {
+    let mut h = Harness::new();
+    let (b, me) = dead_with_its_box_up(&mut h);
+    h.arm(b, me, 0x4700_051C);
+    let creature = h
+        .server
+        .things
+        .placed()
+        .find(|t| t.alive())
+        .map(|t| (t.id, t.health))
+        .expect("a creature");
+    let from = h.bots[b].inbox.len();
+    let start = yalain_world::combat::function::START_ATTACK;
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(start, &[auberean_script::args::Arg::LongInt(creature.0)]),
+    );
+    wait(&mut h, 8.0);
+    let p = h
+        .server
+        .players
+        .values()
+        .find(|p| p.character == me)
+        .expect("in");
+    assert!(p.attacking.is_none(), "no run");
+    assert_eq!(
+        h.server.things.get(creature.0).map(|t| t.health),
+        Some(creature.1),
+        "not struck"
+    );
+    assert!(
+        calls_of(&h, b, from).contains(&(
+            yalain_world::combat::function::BASIC_ATTACKS_FAILED,
+            vec![Value::Int(yalain_world::skill_use::refusal::DEAD)]
+        )),
+        "told why"
+    );
 }

@@ -14,7 +14,7 @@
 
 use std::path::{Path, PathBuf};
 
-use athenaeum_foundry::{build, facts, new, world};
+use athenaeum_foundry::{build, facts, new, overlay, world};
 use yalain_world_db::report;
 
 /// The options after a command's first argument.
@@ -82,6 +82,15 @@ fn build_cmd(dir: &str, o: &Options) -> Result<(), String> {
     let t = build::compile_world(&opened, &install)?;
     let out = o.out.clone().unwrap_or_else(|| opened.dir.join("build"));
     build::write(&t, &out)?;
+    let (folder, overlay) = overlay::write(&opened, dats, &opened.dir)?;
+    if overlay.blocks > 0 {
+        println!(
+            "overlay: {} landblocks, {} vertices -> {}",
+            overlay.blocks,
+            overlay.vertices,
+            folder.display()
+        );
+    }
     for w in &t.warnings {
         println!("  {w}");
     }

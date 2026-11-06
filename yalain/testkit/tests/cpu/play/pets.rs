@@ -37,7 +37,7 @@ const USE_REFUSED: u32 = 0x8204_001A;
 const LASHER_NUMBERS: [i32; 6] = [0x80_0000 | 0x20, 0, 0x0220_0010, 0, 0x42A0_0090, 0];
 
 /// Nature's Aid, its pet effect and the Lasher, as the data defines them.
-fn with_natures_aid(h: &mut Harness) {
+pub(super) fn with_natures_aid(h: &mut Harness) {
     let usage = Usage {
         min_range: -1.0,
         max_range: 1.0,
@@ -358,6 +358,63 @@ fn a_pet_renamed_is_named_in_the_written_form_and_the_same_name_shows_nothing_ne
     assert!(!shown(&h, from), "the same name: nothing shown");
 }
 
+/// A name past the longest, or holding a digit or a mark, is refused with the client's own words and
+/// changes nothing; the longest a name may be, an accented letter and a space are taken, and shown.
+/// Behaviour: server.pets.a-name-can-be-refused
+#[test]
+fn a_pet_name_too_long_or_not_allowed_is_refused_and_the_pet_keeps_its_name() {
+    let mut h = Harness::new();
+    let (b, _, pet) = with_lasher(&mut h);
+    let name = |n: &str| {
+        let mut g = yalain_world::graph::Builder::new();
+        #[allow(clippy::cast_possible_truncation)]
+        g.native(
+            auberean_script::native_object::native_type::WP_STRING as u16,
+            auberean_script::native_object::NativeObject::Text(n.encode_utf16().collect()),
+        );
+        Arg::Object(g.graph())
+    };
+    let shown = |h: &Harness, from: usize| {
+        h.world_messages(b, from).iter().any(|m| {
+            matches!(m, ServerMessage::UpdateStringInfoVisual(q)
+                if q.object.id == pet && q.quality == pets::NAME_QUALITY)
+        })
+    };
+    let ok = "q".repeat(26);
+    let long = "q".repeat(27);
+    for (typed, refused) in [
+        (ok.as_str(), None),
+        ("bärbel", None),
+        ("pet eins", None),
+        (long.as_str(), Some(pets::text::NAME_TOO_LONG)),
+        ("pet1", Some(pets::text::NAME_NOT_ALLOWED)),
+        ("2", Some(pets::text::NAME_NOT_ALLOWED)),
+        ("<b>x", Some(pets::text::NAME_NOT_ALLOWED)),
+        ("   ", Some(pets::text::NAME_NOT_ALLOWED)),
+    ] {
+        let from = order(&mut h, b, function::NAME, &[name(typed), Arg::LongInt(pet)]);
+        let answered = h.functions(b, from).contains(&function::UPDATE_NAME);
+        let told = h.texts(b, from);
+        match refused {
+            None => {
+                assert!(answered, "{typed:?} taken");
+                assert!(shown(&h, from), "{typed:?} shown");
+                assert!(told.is_empty(), "{typed:?} refused: {told:?}");
+            }
+            Some(why) => {
+                assert!(!answered, "{typed:?} not taken");
+                assert!(!shown(&h, from), "{typed:?} not shown");
+                assert_eq!(told, vec![(1, why.0)], "{typed:?}");
+            }
+        }
+    }
+    assert_eq!(
+        h.server.pets.by_id[&pet].name.as_deref(),
+        Some("Pet Eins"),
+        "the last name it took"
+    );
+}
+
 /// A pet ordered to die (0: all) is taken off its owner's list and falls as a creature does, in
 /// one tick; its corpse comes after, and its body leaves the world.
 /// Behaviour: server.pets.ordered-to-die
@@ -489,6 +546,78 @@ fn a_pet_takes_on_what_its_owner_attacks_and_the_creature_fights_the_pet() {
     );
 }
 
+/// A creature's strike at a pet comes when it is due, not at the world's next step: each gap is the
+/// strike's own, within the harness's step.
+/// Behaviour: server.creatures.attacks-when-due
+#[test]
+fn a_creatures_strike_at_a_pet_comes_when_it_is_due_not_at_the_worlds_next_step() {
+    let mut h = Harness::new();
+    let (b, me, pet) = with_lasher(&mut h);
+    let beetle = beetle(&mut h);
+    let at = h
+        .server
+        .things
+        .get(beetle)
+        .and_then(|t| t.at)
+        .expect("placed");
+    // The owner just beyond what the beetle notices, so it stays on the pet.
+    let conn = conn_of(&h, me);
+    if let Some(p) = h.server.players.get_mut(&conn) {
+        p.position = at;
+        p.position.origin[0] += 2.0;
+    }
+    if let Some(t) = h.server.things.get_mut(pet) {
+        t.at = Some(at);
+        t.max_health = 10_000_000;
+        t.health = 10_000_000;
+    }
+    let now = h.now.0;
+    if let Some(c) = h
+        .server
+        .things
+        .get_mut(beetle)
+        .and_then(|t| t.creature.as_mut())
+    {
+        c.mode = yalain_world::things::Mode::Chasing;
+        c.target = Some(pet);
+        c.next_attack = now;
+        c.stats.movement.perception = 1.0;
+    }
+    let from = h.bots[b].inbox.len();
+    let mut seen: Vec<(f64, u32)> = Vec::new();
+    let mut told = 0;
+    for _ in 0..1500 {
+        h.step();
+        assert_eq!(target_of(&h, beetle), Some(pet), "it stays on the pet");
+        let strikes: Vec<u32> = h
+            .world_messages(b, from)
+            .iter()
+            .filter_map(|m| match m {
+                ServerMessage::DoStory(e)
+                    if e.action.attacker == beetle
+                        && e.action.hooks.iter().any(|k| k.target == pet) =>
+                {
+                    Some(e.action.skill)
+                }
+                _ => None,
+            })
+            .collect();
+        if strikes.len() > told {
+            seen.push((h.now.0, *strikes.last().expect("told")));
+            told = strikes.len();
+        }
+    }
+    assert!(seen.len() > 10, "{} strikes", seen.len());
+    for pair in seen.windows(2) {
+        let gap = pair[1].0 - pair[0].0;
+        let due = yalain_world::combat::strike_gap(pair[0].1);
+        assert!(
+            (gap - due).abs() <= 0.051 + 0.001,
+            "a gap of {gap:.3} where {due:.3} was due"
+        );
+    }
+}
+
 /// A pet ordered to attack goes after the target, with no answer; a target more than 32 m from
 /// the owner is refused with its text and no pet goes.
 /// Behaviour: server.pets.attack-order
@@ -596,6 +725,8 @@ fn a_pet_fights_back_only_in_a_mode_that_defends_itself() {
             None,
             clock,
         );
+        // Its blow reaches the pet.
+        h.run(20);
     };
     let landed = |h: &Harness| {
         h.server
@@ -631,6 +762,256 @@ fn a_pet_fights_back_only_in_a_mode_that_defends_itself() {
     }
     h.run(2);
     assert!(h.functions(b, from).contains(&function::REMOVE));
+}
+
+/// A creature's strike takes a pet's health as the blow reaches it, not with its story.
+/// Behaviour: server.pets.strikes-land-late
+#[test]
+fn a_creatures_strike_hurts_a_pet_when_its_blow_lands() {
+    let mut h = Harness::new();
+    let (_, _, pet) = with_lasher(&mut h);
+    let beetle = beetle(&mut h);
+    let whole = h.server.things.get(pet).map_or(0, |t| t.health);
+    let mut landed_after = None;
+    for _ in 0..200 {
+        if let Some(c) = h
+            .server
+            .things
+            .get_mut(beetle)
+            .and_then(|t| t.creature.as_mut())
+        {
+            c.next_attack = 0.0;
+        }
+        let clock = h.clock();
+        yalain_world::combat::thing_strikes_thing(
+            &mut h.server,
+            &mut h.net,
+            beetle,
+            pet,
+            None,
+            clock,
+        );
+        assert_eq!(
+            h.server.things.get(pet).map_or(0, |t| t.health),
+            whole,
+            "not in the story's tick"
+        );
+        let at = h.now.0;
+        for _ in 0..30 {
+            h.step();
+            if h.server.things.get(pet).is_some_and(|t| t.health < whole) {
+                landed_after = Some(h.now.0 - at);
+                break;
+            }
+        }
+        if landed_after.is_some() {
+            break;
+        }
+    }
+    // 0.696 s over a time scale of 1.296 give or take a tenth.
+    let after = landed_after.expect("a strike landed");
+    assert!((0.45..0.65).contains(&after), "{after}");
+}
+
+/// The pet is ordered at a beetle: steps until its first story there is seen, and returns when.
+fn pet_strike_seen(h: &mut Harness, b: usize, pet: u64, beetle: u64) -> f64 {
+    let from = h.bots[b].inbox.len();
+    let told = |h: &Harness| {
+        h.world_messages(b, from).iter().any(|m| {
+            matches!(m, ServerMessage::DoStory(e) if e.action.attacker == pet
+                && e.action.hooks.iter().any(|k| k.target == beetle))
+        })
+    };
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(function::ATTACK, &[Arg::LongInt(beetle)]),
+    );
+    assert!(h.run_until(400, told), "the pet strikes");
+    h.now.0
+}
+
+/// A pet's strike takes a creature's health as its blow reaches it, not with its story.
+/// Behaviour: server.pets.strikes-land-late
+#[test]
+fn a_pets_strike_hurts_a_creature_when_its_blow_lands() {
+    let mut h = Harness::new();
+    let (b, _, pet) = with_lasher(&mut h);
+    let beetle = beetle(&mut h);
+    let whole = h.server.things.get(beetle).map_or(0, |t| t.health);
+    let mut told = pet_strike_seen(&mut h, b, pet, beetle);
+    assert_eq!(
+        h.server.things.get(beetle).map_or(0, |t| t.health),
+        whole,
+        "not with its story"
+    );
+    let mut seen = h.bots[b].inbox.len();
+    let mut after = None;
+    for _ in 0..2000 {
+        h.step();
+        let another = h.world_messages(b, seen).iter().any(|m| {
+            matches!(m, ServerMessage::DoStory(e) if e.action.attacker == pet
+                && e.action.hooks.iter().any(|k| k.target == beetle))
+        });
+        seen = h.bots[b].inbox.len();
+        if h.server
+            .things
+            .get(beetle)
+            .is_some_and(|t| t.health < whole)
+        {
+            after = Some(h.now.0 - told);
+            break;
+        }
+        if another {
+            told = h.now.0;
+        }
+    }
+    // 0.717 s over a time scale of 1.296 give or take a tenth, a step or two of the wire aside.
+    let after = after.expect("a strike landed");
+    assert!((0.35..0.65).contains(&after), "{after}");
+}
+
+/// A pet's strike carries the basic-attack flag by its skill, whichever pet swings it.
+/// Behaviour: server.pets.strike-flag-by-skill
+#[test]
+fn a_pets_strike_carries_the_basic_flag_by_its_skill() {
+    for (skill, bits) in [
+        (490, 0x36),
+        (491, 0x36),
+        (1098, 0x36),
+        (848, 0x16),
+        (865, 0x16),
+    ] {
+        let mut h = Harness::new();
+        let (b, _, pet) = with_lasher(&mut h);
+        let beetle = beetle(&mut h);
+        h.server.skill_table.skills.insert(
+            skill,
+            yalain_world::skills::SkillDef {
+                id: skill,
+                usage: Some(yalain_world::skills::Usage {
+                    behavior_other: [0x4100_0077; 3],
+                    max_range: 2.0,
+                    hooks: vec![yalain_world::skills::Hook {
+                        flags: 0x2002,
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        );
+        if let Some(c) = h
+            .server
+            .things
+            .get_mut(pet)
+            .and_then(|t| t.creature.as_mut())
+        {
+            c.stats.skills = vec![(skill, 1)];
+        }
+        let from = h.bots[b].inbox.len();
+        pet_strike_seen(&mut h, b, pet, beetle);
+        let told = h
+            .world_messages(b, from)
+            .iter()
+            .find_map(|m| match m {
+                ServerMessage::DoStory(e) if e.action.attacker == pet => Some(e.action.clone()),
+                _ => None,
+            })
+            .expect("its story");
+        assert_eq!((told.skill, told.bits), (skill, bits));
+    }
+}
+
+/// A pet striking a creature that sends harm back loses what it told.
+/// Behaviour: server.effects.watcher-sends-back
+#[test]
+fn a_pet_striking_a_holder_of_what_sends_harm_back_loses_it() {
+    use yalain_world::effect_defs::{EffectDef, Kind, Scale, Share, Watcher};
+    use yalain_world::effects::{self, Cast, On};
+    const WATCHER: u32 = 0x6F00_7321;
+    let mut h = Harness::new();
+    let (b, _, pet) = with_lasher(&mut h);
+    let beetle = beetle(&mut h);
+    h.server.effect_table.effects.insert(
+        WATCHER,
+        EffectDef {
+            state: WATCHER,
+            kind: Kind::Watcher(Box::new(Watcher {
+                sends_back: Share {
+                    chance: 1.0,
+                    amount: Scale(vec![(0.0, 0.01)]),
+                    spread: 0.0,
+                },
+                against_a_player: 1.0,
+                shares: true,
+                watches: true,
+                ..Watcher::default()
+            })),
+            duration: Scale(vec![(0.0, 100_000.0)]),
+            priority: Scale::default(),
+            fx: 0,
+            external_flags: 0,
+            internal_flags: 0x1100_0003,
+            enum_value: 0,
+            eq_class: 43,
+            name: None,
+        },
+    );
+    let clock = h.clock();
+    effects::apply_on(
+        &mut h.server,
+        &mut h.net,
+        On::Creature(beetle),
+        WATCHER,
+        Cast::default(),
+        clock,
+    );
+    // It never strikes the pet itself: all the pet loses is what comes back.
+    if let Some(c) = h
+        .server
+        .things
+        .get_mut(beetle)
+        .and_then(|t| t.creature.as_mut())
+    {
+        c.stats.fights = false;
+    }
+    let keep = h.server.things.get(pet).map_or(0, |t| t.health);
+    let from = h.bots[b].inbox.len();
+    pet_strike_seen(&mut h, b, pet, beetle);
+    let lost = h.run_until(2000, |h| {
+        h.server.things.get(pet).map_or(0, |t| t.health) < keep
+    });
+    assert!(lost, "it loses what came back");
+    let told = h.world_messages(b, from).iter().any(|m| {
+        matches!(m, ServerMessage::DoStory(e) if e.action.attacker == pet
+            && e.action.hooks.iter().any(|k| k.target == beetle && k.bits & 0x1000 != 0 && k.numbers[4] < 0))
+    });
+    assert!(told, "it is told");
+}
+
+/// A creature dead by the time a pet's blow reaches it is not hurt by it.
+/// Behaviour: server.pets.strikes-land-late
+#[test]
+fn a_pets_strike_reaching_a_creature_dead_by_then_does_nothing() {
+    let mut h = Harness::new();
+    let (_, me, pet) = with_lasher(&mut h);
+    let beetle = beetle(&mut h);
+    let clock = h.clock();
+    yalain_world::combat::hurt_creature(&mut h.server, &mut h.net, beetle, me, 1_000_000, clock);
+    let hurt = h.server.things.get(beetle).map(|t| t.last_hurt);
+    assert!(hurt.is_some());
+    h.step();
+    let clock = h.clock();
+    yalain_world::combat::thing_strike_lands(
+        &mut h.server,
+        &mut h.net,
+        (pet, 0),
+        beetle,
+        yalain_world::effects::Harm::plain(5),
+        clock,
+    );
+    assert_eq!(h.server.things.get(beetle).map(|t| t.last_hurt), hurt);
 }
 
 /// An owner's death takes its pets in its death tick: each taken off the list.
@@ -786,6 +1167,7 @@ fn a_pet_goes_with_its_owner_through_a_portal() {
             object: Some(PORTAL),
             template: 0x4700_1154,
             description: yalain_content::Description {
+                name_text: None,
                 package: 0x1A00,
                 look: 0x1F00_0ED5,
                 enter_fx: 0,
@@ -1107,4 +1489,110 @@ fn a_dead_lasher_keeps_its_kingdom_in_its_dead_physics_type() {
         })
         .collect();
     assert_eq!(physics, [0x1080_0030]);
+}
+
+/// Another player's pet goes as its owner: while the owner may not be harmed, a pet's order at it is
+/// refused and its owner's own blow is too, and it takes nothing; where the two may fight, it can be
+/// fought.
+/// Behaviour: server.pets.another-players-pet-goes-as-its-owner
+#[test]
+fn another_players_pet_takes_no_harm_while_its_owner_may_not_be_harmed() {
+    let mut h = Harness::new();
+    with_natures_aid(&mut h);
+    let (a, me) = ranger(&mut h, "one", "Kestrel");
+    let (b, _) = ranger(&mut h, "two", "Merrow");
+    let pet_of_client = |h: &mut Harness, c: usize| {
+        let from = summon(h, c, 1);
+        h.calls(c, from)
+            .iter()
+            .find(|(f, _)| *f == function::ADD)
+            .and_then(|(_, v)| pet_of(v))
+            .expect("a pet added")
+    };
+    let mine = pet_of_client(&mut h, a);
+    let theirs = pet_of_client(&mut h, b);
+    let health = |h: &Harness, id: u64| h.server.things.get(id).map_or(0, |t| t.health);
+    let refused = |h: &Harness, from: usize| {
+        h.functions(a, from)
+            .contains(&yalain_world::combat::function::BASIC_ATTACKS_FAILED)
+    };
+    let whole = health(&h, theirs);
+    let from = order(&mut h, a, function::ATTACK, &[Arg::LongInt(theirs)]);
+    assert!(refused(&h, from), "the order refused");
+    h.run(400);
+    assert_eq!(health(&h, theirs), whole, "its pet leaves it alone");
+    let c = h.server.things.get(mine).and_then(|t| t.creature.as_ref());
+    assert_ne!(
+        c.and_then(|c| c.target),
+        Some(theirs),
+        "and is not after it"
+    );
+    let start = yalain_world::combat::function::START_ATTACK;
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .expect("in")
+        .0;
+    let from = h.bots[a].inbox.len();
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &server_call(start, &[Arg::LongInt(theirs)]),
+    );
+    h.run(4);
+    assert!(refused(&h, from), "its owner's own blow refused at once");
+    assert!(
+        h.server.players[&world].attacking.is_none(),
+        "no attack begun"
+    );
+    h.run(400);
+    assert_eq!(health(&h, theirs), whole, "nor does its owner touch it");
+    // Its owner's blows stop as soon as the two may no longer fight.
+    for p in h.server.players.values_mut() {
+        p.conflict = 4;
+    }
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &server_call(start, &[Arg::LongInt(theirs)]),
+    );
+    h.run(4);
+    assert!(
+        h.server.players[&world].attacking.is_some(),
+        "an attack begun"
+    );
+    for p in h.server.players.values_mut() {
+        p.conflict = 1;
+    }
+    let from = h.bots[a].inbox.len();
+    h.run(40);
+    assert!(refused(&h, from), "its next blow refused");
+    assert!(
+        h.server.players[&world].attacking.is_none(),
+        "the attack ended"
+    );
+    if let Some(t) = h.server.things.get_mut(theirs) {
+        t.health = whole;
+    }
+    // Where all may fight, it is fought.
+    for p in h.server.players.values_mut() {
+        p.conflict = 4;
+    }
+    let from = order(&mut h, a, function::ATTACK, &[Arg::LongInt(theirs)]);
+    assert!(!refused(&h, from), "the order taken");
+    h.run(400);
+    assert!(health(&h, theirs) < whole, "and it is hurt");
+    // Peace again: the pet already after it stops.
+    for p in h.server.players.values_mut() {
+        p.conflict = 1;
+    }
+    h.run(100);
+    let c = h.server.things.get(mine).and_then(|t| t.creature.as_ref());
+    assert_ne!(
+        c.and_then(|c| c.target),
+        Some(theirs),
+        "peace ends the fight"
+    );
 }

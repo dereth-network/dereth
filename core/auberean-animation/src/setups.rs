@@ -20,20 +20,6 @@ const PLACE_BUCKETS: u32 = 4;
 /// How far a kind is shifted before it is folded into its bucket.
 const KIND_SHIFT: u32 = 8;
 
-/// A bone's type (its id in the setup); 0 for a bone past the setup's.
-// D2-12875
-#[must_use]
-pub fn bone_type(setup: &Setup, bone: usize) -> u32 {
-    setup.bones.get(bone).map_or(0, |b| b.id)
-}
-
-/// Whether a bone is of a type.
-// D2-12874
-#[must_use]
-pub fn is_bone_type(setup: &Setup, bone: usize, kind: u32) -> bool {
-    setup.bones.get(bone).is_some_and(|b| b.id == kind)
-}
-
 /// A bone's parent; `u32::MAX` for a root or a setup without bones.
 // D2-03464
 #[must_use]
@@ -117,23 +103,8 @@ pub fn sub_ids(setup: &Setup) -> Vec<DataId> {
     setup.meshes.clone()
 }
 
-/// The detail distances of a setup not read from the data: for each of the three levels, seen to
-/// 300, degraded from 1, ideally at 8, at most at 20, high detail to 6, medium to 12.
-// D2-12870
-#[must_use]
-pub fn default_detail() -> [DetailDistances; 3] {
-    [DetailDistances {
-        visible: 300.0,
-        near_degrade: 1.0,
-        ideal_degrade: 8.0,
-        far_degrade: 20.0,
-        high_detail: 6.0,
-        medium_detail: 12.0,
-    }; 3]
-}
-
 /// A pose packed: its kind, its bone count, each bone's transform.
-// D2-12866
+// D2-12866, D2-13261
 fn pack_pose(w: &mut Writer, p: &Pose) {
     w.u32(p.kind);
     w.list(&p.bones, |w, b| {
@@ -226,7 +197,7 @@ pub fn pack(id: u32, setup: &Setup) -> Vec<u8> {
 }
 
 /// The size of a setup's packed form, in bytes.
-// D2-12898
+// D2-12898, D2-13260
 #[must_use]
 pub fn pack_size(setup: &Setup) -> usize {
     let transform = 40;

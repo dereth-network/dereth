@@ -470,53 +470,7 @@ pub(super) fn leave_channel(w: &mut World, player: ObjectGuid, name: &str) {
     request(w, player, ChannelOp::Leave, name, None);
 }
 
-/// The line a channel request's answer shows.
-#[must_use]
-pub fn channel_line(
-    op: ChannelOp,
-    outcome: ChannelOutcome,
-    channel: &str,
-    who: Option<&Address>,
-    members: &[Address],
-    channels: &[String],
-) -> String {
-    let address = format!("{channel}@channel");
-    let names = |names: Vec<String>| names.join(", ");
-    match (outcome, op) {
-        (ChannelOutcome::Ok, ChannelOp::List) if channels.is_empty() => {
-            "You are in no channel.".to_owned()
-        }
-        (ChannelOutcome::Ok, ChannelOp::List) => format!(
-            "Your channels: {}.",
-            names(channels.iter().map(|c| format!("{c}@channel")).collect())
-        ),
-        (ChannelOutcome::Ok, ChannelOp::Members) => format!(
-            "Members of {address}: {}.",
-            names(members.iter().map(ToString::to_string).collect())
-        ),
-        (ChannelOutcome::Ok, ChannelOp::Create) => format!(
-            "You have made the channel {address}. Invite someone with @dn channel invite {channel} Name@world."
-        ),
-        (ChannelOutcome::Ok, ChannelOp::Invite) => format!(
-            "{} is invited to {address}.",
-            who.map_or_else(|| "That character".to_owned(), ToString::to_string)
-        ),
-        (ChannelOutcome::Ok, ChannelOp::Join) => {
-            format!("You have joined {address}. Talk in it with @tell {address}, text.")
-        }
-        (ChannelOutcome::Ok, ChannelOp::Leave) => format!("You have left {address}."),
-        (ChannelOutcome::Exists, _) => format!("{address} already exists."),
-        (ChannelOutcome::NoChannel, _) => format!("There is no channel {address}."),
-        (ChannelOutcome::NotMember, _) => format!("You are not a member of {address}."),
-        (ChannelOutcome::NotInvited, _) => format!("You have not been invited to {address}."),
-        (ChannelOutcome::AlreadyMember, _) => {
-            format!("That character is already a member of {address}.")
-        }
-        (ChannelOutcome::Refused, _) => {
-            format!("The Dereth Network refused that for {address}.")
-        }
-    }
-}
+pub use dereth_network_protocol::answers::channel_line;
 
 /// The answer to a channel request.
 pub(super) fn on_channel_result(

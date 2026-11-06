@@ -75,6 +75,169 @@ const TRIANGLES: [u32; 3] = [0x0600_1116, 0x0600_1117, 0x0600_1118];
 /// The feather icon the quill is shaped from: 32 pixels square on black.
 const FEATHER: u32 = 0x0600_216B;
 
+/// How a picture the earliest files do not hold is made from what they do. Every one is asked for
+/// by the id the later files use, so a portal that holds that id shows its own.
+#[derive(Clone, Copy, Debug)]
+enum StandIn {
+    /// Another picture whole: the picture a world drawn from those files has for the job.
+    Same(u32),
+    /// Another picture with red and blue swapped.
+    Swapped(u32),
+    /// The middle of another picture.
+    Cut { from: u32, width: u32, height: u32 },
+    /// Another picture's top and bottom rows, for a shorter control of the same art.
+    Squashed { from: u32, height: u32 },
+    /// Another picture repeated across the size.
+    Ground { from: u32, width: u32, height: u32 },
+    /// The classic slot frame with nothing in it.
+    EmptySlot,
+}
+
+/// The height of the social window's short buttons.
+const SHORT_BUTTON: u32 = 27;
+
+const STAND_INS: [(u32, StandIn); 24] = {
+    use StandIn::{Cut, EmptySlot, Ground, Same, Squashed, Swapped};
+    const fn bar(from: u32) -> StandIn {
+        Cut {
+            from,
+            width: 93,
+            height: 16,
+        }
+    }
+    const fn short(from: u32) -> StandIn {
+        Squashed {
+            from,
+            height: SHORT_BUTTON,
+        }
+    }
+    [
+        // The character screen's left panel: that screen's own picture in those files.
+        (crate::art::CHARACTER_PANEL, Same(0x0600_1239)),
+        // The fellowship's bars: the middle of the vitals' own bars, full and empty.
+        (0x0600_251C, bar(0x0600_1132)),
+        (0x0600_251D, bar(0x0600_1140)),
+        (0x0600_251E, bar(0x0600_1135)),
+        (0x0600_251F, bar(0x0600_1143)),
+        (0x0600_2520, bar(0x0600_1138)),
+        (0x0600_2521, bar(0x0600_1146)),
+        // The selection's mana: the selection's health bar, blue where it is red.
+        (0x0600_22D5, Same(0x0600_193E)),
+        (0x0600_22D6, Swapped(0x0600_193F)),
+        // The harmful effects' lamp: the beneficial lamp's star in red.
+        (0x0600_2629, Swapped(0x0600_1111)),
+        // The ground under the spellbook's filters: the page's own.
+        (
+            0x0600_2722,
+            Ground {
+                from: 0x0600_1398,
+                width: 300,
+                height: 113,
+            },
+        ),
+        // A green selection's marks: the bright green ones.
+        (0x0600_262F, Same(0x0600_19D3)),
+        (0x0600_2630, Same(0x0600_19DC)),
+        // The social window's short buttons: the theme buttons those files have, cut to the row.
+        (0x0600_2D3C, short(0x0600_1207)),
+        (0x0600_2D3D, short(0x0600_1208)),
+        (0x0600_2D3B, short(0x0600_120A)),
+        (0x0600_2D39, short(0x0600_1206)),
+        (0x0600_2D38, short(0x0600_1209)),
+        (0x0600_2D3A, short(0x0600_1205)),
+        // The paper doll's shirt and pants slots, which have no outline there.
+        (0x0600_32C5, EmptySlot),
+        (0x0600_32C4, EmptySlot),
+        // The item effects past the ninth: the first effect's surface.
+        (0x0600_33C2, Same(0x0600_11CA)),
+        (0x0600_33C3, Same(0x0600_11CA)),
+        (0x0600_33C4, Same(0x0600_11CA)),
+    ]
+};
+
+/// Whether `id` is a picture this module makes for a portal that does not hold it, from another.
+#[must_use]
+pub fn is_stand_in(id: u32) -> bool {
+    STAND_INS.iter().any(|(s, _)| *s == id)
+}
+
+fn stand_in(recipe: StandIn, portal: &dyn Fn(u32) -> Option<Image>) -> Option<Image> {
+    Some(match recipe {
+        StandIn::Same(from) => portal(from)?,
+        StandIn::Swapped(from) => {
+            let mut image = portal(from)?;
+            for pixel in image.rgba.as_chunks_mut::<4>().0 {
+                pixel.swap(0, 2);
+            }
+            image
+        }
+        StandIn::Cut {
+            from,
+            width,
+            height,
+        } => {
+            let source = portal(from)?;
+            let (dx, dy) = (
+                source.width.saturating_sub(width) / 2,
+                source.height.saturating_sub(height) / 2,
+            );
+            crop_rows(&source, dx, width, &mut (dy..dy + height))
+        }
+        StandIn::Squashed { from, height } => {
+            let source = portal(from)?;
+            let top = height / 2;
+            let bottom = height - top;
+            let rows = (0..top).chain(source.height.saturating_sub(bottom)..source.height);
+            crop_rows(&source, 0, source.width, &mut rows.into_iter())
+        }
+        StandIn::Ground {
+            from,
+            width,
+            height,
+        } => {
+            let source = portal(from)?;
+            let mut rgba = Vec::with_capacity((width * height * 4) as usize);
+            for y in 0..height {
+                for x in 0..width {
+                    let [r, g, b] = pixel(&source, x % source.width, y % source.height);
+                    rgba.extend_from_slice(&[r, g, b, 0xFF]);
+                }
+            }
+            Image {
+                width,
+                height,
+                rgba,
+            }
+        }
+        StandIn::EmptySlot => slot(
+            &portal(SLOT_FRAME)?,
+            &Image {
+                width: 1,
+                height: 1,
+                rgba: vec![0, 0, 0, 0xFF],
+            },
+        ),
+    })
+}
+
+/// The rows `rows` of `source`, `width` pixels each from `left`.
+fn crop_rows(source: &Image, left: u32, width: u32, rows: &mut dyn Iterator<Item = u32>) -> Image {
+    let mut rgba = Vec::new();
+    let mut height = 0;
+    for y in rows {
+        for x in left..left + width {
+            let [r, g, b] = pixel(source, x.min(source.width - 1), y.min(source.height - 1));
+            rgba.extend_from_slice(&[r, g, b, 0xFF]);
+        }
+        height += 1;
+    }
+    Image {
+        width,
+        height,
+        rgba,
+    }
+}
+
 /// The id of toolbar picture `id` cut to `width` pixels; `id` itself for a picture that is not
 /// one of the toolbar's.
 #[must_use]
@@ -94,11 +257,15 @@ pub fn is_composed(id: u32) -> bool {
         || JOURNAL_BUTTON.contains(&id)
         || [CLOAK_SLOT, TRINKET_SLOT].contains(&id)
         || SIGIL_SLOTS.contains(&id)
+        || is_stand_in(id)
 }
 
 /// Compose image `id` from the portal images `portal` returns; `None` for an id this module does
 /// not know or a piece the portal lacks.
 pub fn compose(id: u32, portal: &dyn Fn(u32) -> Option<Image>) -> Option<Image> {
+    if let Some((_, recipe)) = STAND_INS.iter().find(|(s, _)| *s == id) {
+        return stand_in(*recipe, portal);
+    }
     if let Some(variant) = JOURNAL_BUTTON.iter().position(|j| *j == id) {
         // The normal picture's triangle is green; the lit and pressed ones' red.
         let mut image = blank(&portal(TRIANGLES[variant])?, usize::from(variant == 0));

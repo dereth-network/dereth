@@ -311,3 +311,202 @@ fn a_quest_record_is_filled_whole_and_read_field_by_field() {
         );
     }
 }
+
+/// The quest and story records written out for an admin, each dump called as the machine calls it.
+mod dumps {
+    use auberean_script::native_object::{native_type, NativeObject, QuestInfo, TextInfo};
+    use auberean_script::story::{track, ActInfo, Keyframe, SceneInfo};
+    use auberean_script::Status;
+
+    use crate::call::Bench;
+
+    const ACT_INFO: u32 = 0x9C;
+    const KEYFRAME: u32 = 0x9F;
+    const QUEST_INFO: u32 = 0xA0;
+    const QUEST_INFO_LIST: u32 = 0xA1;
+    const SCENE_INFO: u32 = 0xA3;
+
+    const UNDER_WAY: u32 = 0x1000_0000;
+    const COMPLETED: u32 = 0x3000_0000;
+
+    fn dump(b: &mut Bench, package: u32, number: u32, receiver: u32) -> String {
+        let (status, r) = b.call(package, number, receiver, &[], 1);
+        assert_eq!(status, Status::Success);
+        String::from_utf16_lossy(&b.text_of(r[0].0))
+    }
+
+    fn literal(s: &str) -> TextInfo {
+        TextInfo {
+            has_literal: 1,
+            literal: Some(s.encode_utf16().collect()),
+            ..TextInfo::default()
+        }
+    }
+
+    fn quest(status: u32) -> QuestInfo {
+        QuestInfo {
+            id: 0x4000_0123,
+            name: TextInfo::default(),
+            description: TextInfo::default(),
+            icon: 0,
+            challenge: 7,
+            status,
+            phase: 3,
+            journal: TextInfo::default(),
+            bestowed: 1.5f64.to_bits(),
+            done: 2.5f64.to_bits(),
+            expires: 0,
+            maxed_out: 0,
+            seconds_remaining: 60.0f64.to_bits(),
+            seconds_until_retry: 90.0f64.to_bits(),
+            plays_fx: 0,
+            cancellable: 1,
+        }
+    }
+
+    const QUEST_HEAD: &str = "\n-- quest contains: --\n  QuestID: 0x40000123.\n  Quest Status: \
+                              0x10000000.\n  Current Phase: 3.\n  Challenge Level: .\n  Bestowal \
+                              Timestamp: 1.500000.\n";
+
+    /// **A quest dumps as the client writes it**: under way, the time left and the cancel line only
+    /// when it runs out; otherwise when it was done and the time before it may be taken again, and
+    /// whether it may be taken no more. The client's formats for the challenge and the cancel line
+    /// take no value: the first shows none, the second the letter. A list numbers its quests from 1.
+    ///
+    /// Behaviour: script.glue.a-quest-dumps-as-the-client-writes-it
+    #[test]
+    fn a_quest_dumps_as_the_client_writes_it() {
+        let mut b = Bench::new();
+        let plain = b.object(
+            native_type::QUEST_INFO,
+            NativeObject::Quest(Box::new(quest(UNDER_WAY))),
+        );
+        assert_eq!(
+            dump(&mut b, QUEST_INFO, 4, plain),
+            format!("{QUEST_HEAD}-----------------------\n")
+        );
+        let timed = b.object(
+            native_type::QUEST_INFO,
+            NativeObject::Quest(Box::new(QuestInfo {
+                expires: 1,
+                ..quest(UNDER_WAY)
+            })),
+        );
+        assert_eq!(
+            dump(&mut b, QUEST_INFO, 4, timed),
+            format!(
+                "{QUEST_HEAD}    Seconds remaining: 60.000000.\n    Can Be Cancelled: b.\n\
+                 -----------------------\n"
+            )
+        );
+        let done = QuestInfo {
+            maxed_out: 1,
+            ..quest(COMPLETED)
+        };
+        let done_text = "\n-- quest contains: --\n  QuestID: 0x40000123.\n  Quest Status: \
+                         0x30000000.\n  Current Phase: 3.\n  Challenge Level: .\n  Bestowal \
+                         Timestamp: 1.500000.\n  Finished Timestamp: 2.500000.\n  Seconds until \
+                         retry: 90.000000.\n  Quest is maxed out.\n-----------------------\n";
+        let r = b.object(
+            native_type::QUEST_INFO,
+            NativeObject::Quest(Box::new(done.clone())),
+        );
+        assert_eq!(dump(&mut b, QUEST_INFO, 4, r), done_text);
+        let list = b.object(
+            native_type::QUEST_INFO_LIST,
+            NativeObject::QuestList(vec![done]),
+        );
+        assert_eq!(
+            dump(&mut b, QUEST_INFO_LIST, 7, list),
+            format!(
+                "-- quest list elements: --\n  Element 1) {done_text}\n-- end of the quest list \
+                 elements --\n"
+            )
+        );
+    }
+
+    fn step() -> Keyframe {
+        Keyframe {
+            scene: 1,
+            number: 2,
+            duration: 1500.0f64.to_bits(),
+            video: 0x10,
+            audio: 0x20,
+            voice: 0x30,
+            subtitle: literal("words"),
+            movie: "film".encode_utf16().collect(),
+            tracks: track::VIDEO | track::VOICE | track::MOVIE,
+        }
+    }
+
+    /// **A story's records dump as the client writes them**: a keyframe's number, its duration in the
+    /// C library's exponent form, and only the tracks it defines; a scene's id, its act and its flags,
+    /// then its keyframes; an act's flags and its scenes, each under a heading numbered from 1, or a
+    /// line saying it has none.
+    ///
+    /// Behaviour: script.glue.a-storys-records-dump-as-the-client-writes-them
+    #[test]
+    fn a_storys_records_dump_as_the_client_writes_them() {
+        let mut b = Bench::new();
+        let k = b.object(
+            native_type::KEYFRAME,
+            NativeObject::Keyframe(Box::new(step())),
+        );
+        let key = "    Keyframe: 2\n     --Duration: 1.500000e+003 secs\n     --Video Track: \
+                   0x00000010.\n     --Voice Track: 0x00000030.\n     --Text Track: film.\n    \
+                   --------\n";
+        assert_eq!(dump(&mut b, KEYFRAME, 1, k), key);
+
+        let scene = SceneInfo {
+            id: 0x51,
+            name: literal("Opening"),
+            act: 0x61,
+            number: 4,
+            hidden: 1,
+            playable: 0,
+            keyframes: vec![step()],
+        };
+        let scene_head =
+            "\n-- scene contains: --\n  SceneID: 0x00000051.\n  Scene Name: (Opening).\n  \
+                          Parent Act ID: 0x00000061 ().\n  Scene Number: 4.\n  Scene is hidden \
+                          (locked).\n  Scene is not playable.\n\n";
+        let scene_text = format!("{scene_head}{key}-----------------------\n");
+        let s = b.object(
+            native_type::SCENE_INFO,
+            NativeObject::Scene(Box::new(scene.clone())),
+        );
+        assert_eq!(dump(&mut b, SCENE_INFO, 1, s), scene_text);
+
+        let act = ActInfo {
+            id: 0x61,
+            number: 2,
+            name: literal("First"),
+            visible: 1,
+            playable: 0,
+            scenes: vec![scene],
+        };
+        let a = b.object(
+            native_type::ACT_INFO,
+            NativeObject::Act(Box::new(act.clone())),
+        );
+        assert_eq!(
+            dump(&mut b, ACT_INFO, 4, a),
+            format!(
+                "\n-- act contains: --\n  Act ID: 0x00000061.\n  Act Name: (First).\n  Act Number: 2.\n  \
+                 Act is visible.\n  Act is not playable.\n  Scene list contains 1 items:\n    \
+                 ----------------\n    -- Scene 1 --\n    ----------------{scene_text}\n\n\
+                 -----------------------\n"
+            )
+        );
+        let empty = b.object(
+            native_type::ACT_INFO,
+            NativeObject::Act(Box::new(ActInfo {
+                scenes: Vec::new(),
+                ..act
+            })),
+        );
+        assert!(dump(&mut b, ACT_INFO, 4, empty).contains(
+            "Scene list contains 0 items:\n    < This Act has no scenes > \n\n-----------------------\n"
+        ));
+    }
+}

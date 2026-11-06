@@ -121,6 +121,68 @@ fn a_barrel_is_made_by_its_camp_and_never_moves_or_fights() {
     assert_eq!(place_of(&h, id), at);
 }
 
+/// A turret's shot comes when it is due, not at the world's next step: each gap is its rhythm's over
+/// the shot's time scale, within the harness's step.
+/// Behaviour: server.creatures.attacks-when-due
+#[test]
+fn a_turrets_shot_comes_when_it_is_due_not_at_the_worlds_next_step() {
+    let mut h = Harness::new();
+    h.server.catalog = yalain_testkit::test_catalog();
+    camp(&mut h, TURRET, unlevelled(true), [84.06, 240.2, -44.6]);
+    camp(&mut h, GUARD, guard(), [89.06, 240.2, -44.6]);
+    let (b, me) = enter(&mut h);
+    let turret = made(&h, b, TURRET);
+    let guard_id = made(&h, b, GUARD);
+    if let Some(p) = h.server.players.values_mut().find(|p| p.character == me) {
+        p.position.origin[0] += 22.0;
+        yalain_world::quals::set_int(
+            &mut p.qualities,
+            yalain_world::player::quality::HEALTH_MAX,
+            100_000,
+        );
+        yalain_world::quals::set_int(
+            &mut p.qualities,
+            yalain_world::player::quality::HEALTH,
+            100_000,
+        );
+    }
+    assert!(h.run_until(200, |h| mode_of(h, guard_id) == Some(Mode::Chasing)));
+    let from = h.bots[b].inbox.len();
+    let gap = yalain_world::missiles::rhythm(TURRET).gap;
+    let mut at: Vec<(f64, f32)> = Vec::new();
+    let mut told = 0;
+    for _ in 0..1000 {
+        h.step();
+        let now: Vec<f32> = h
+            .world_messages(b, from)
+            .iter()
+            .filter_map(|m| match m {
+                ServerMessage::DoStory(e)
+                    if e.sender.id == turret
+                        && e.action.skill == MISSILE
+                        && e.action.attacker_behavior.time_scale > 0.0 =>
+                {
+                    Some(e.action.attacker_behavior.time_scale)
+                }
+                _ => None,
+            })
+            .collect();
+        if now.len() > told {
+            at.push((h.now.0, *now.last().expect("told")));
+            told = now.len();
+        }
+    }
+    assert!(at.len() > 10, "{} shots", at.len());
+    for pair in at.windows(2) {
+        let seen = pair[1].0 - pair[0].0;
+        let due = f64::from(gap / pair[0].1);
+        assert!(
+            (seen - due).abs() <= 0.051 + 0.001,
+            "a gap of {seen:.3} where {due:.3} was due"
+        );
+    }
+}
+
 /// A turret, whose template gives no level and turns without moving, does not shoot first; when a
 /// creature near it goes after a player, it takes on the nearest player within its missile's
 /// reach and shoots from where it stands.

@@ -1,8 +1,8 @@
 //! What a character keeps from one session to the next and is sent as it enters again: the weapon
 //! in its hand (listed in the session start's inventory tables, made in its hand), and when it
 //! last used each skill (the time it was away not counting toward the skill's wait), every quest it
-//! holds with what is left of each one's wait to be taken again (but the hidden ones; one whose
-//! time ran out while it was away failed).
+//! holds with what is left of each one's wait to be taken again (but the hidden ones), a timed
+//! quest's time standing still while it is away (one with no time left as it left failed).
 //! Fixture: a new human in the test hall with the starting bow, beside the test camp's beetle.
 
 use auberean_protocol::login::CharacterRef;
@@ -514,6 +514,7 @@ fn hour_quest(id: u32) -> QuestDef {
         journals: (1..=3).map(|n| (n, 0x2500_17EE)).collect(),
         challenge: 5,
         duration: 0.0,
+        timed_phase: 0,
         retry: 3600.0,
         xp: 0,
         cancellable: true,
@@ -524,6 +525,11 @@ fn hour_quest(id: u32) -> QuestDef {
         min_level: 0,
         fails_on_death: false,
         once: false,
+        fellows: yalain_content::quests::Fellows::default(),
+        last_waits: false,
+        hero_only: false,
+        pay: yalain_content::quests::CompletionPay::default(),
+        required: None,
     }
 }
 
@@ -557,6 +563,8 @@ fn every_quest_held_is_listed_at_entry_with_what_is_left_of_its_wait() {
             .map(hour_quest)
             .collect(),
         steps: Vec::new(),
+        gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let now = h.unix;
     let held = |quest, status, phase, ago: i64| QuestState {
@@ -710,6 +718,92 @@ fn an_items_bind_on_use_mark_is_kept_across_a_logout() {
     assert_eq!((mark(marked), mark(plain)), (Some(true), Some(false)));
 }
 
+/// Whom an item is bound to, and a recipe's attunement, stay with the item across a logout.
+/// Behaviour: server.items.bound-and-attuned-kept
+#[test]
+fn whom_an_item_is_bound_to_and_its_attunement_are_kept_across_a_logout() {
+    const CHEST: u32 = 0x4700_7301;
+    let mut h = Harness::new();
+    let (b, me) = h.player_in_world("one", "Elara");
+    scene_drawn(&mut h, b);
+    h.server.catalog.insert(yalain_testkit::test_template(
+        CHEST,
+        0x180,
+        yalain_content::Props::default(),
+    ));
+    let bound = h.arm(b, me, CHEST);
+    let attuned = h.arm(b, me, CHEST);
+    let plain = h.arm(b, me, CHEST);
+    if let Some(t) = h.server.things.get_mut(bound) {
+        t.own.bound_to = me;
+    }
+    if let Some(t) = h.server.things.get_mut(attuned) {
+        t.own.attuned = true;
+    }
+    log_off(&mut h, b, me);
+    h.enter_world(b, "one", me);
+    h.run(10);
+    let own = |id: u64| {
+        h.server
+            .things
+            .get(id)
+            .map(|t| (t.own.bound_to, t.own.attuned))
+    };
+    assert_eq!(own(bound), Some((me, false)));
+    assert_eq!(own(attuned), Some((0, true)));
+    assert_eq!(own(plain), Some((0, false)));
+}
+
+/// An effect a skill put on an item is kept across a logout, on its own time: its strength and its
+/// end as they were, the item one item, and a logout it has run out in leaves nothing.
+/// Behaviour: server.items.an-effect-on-an-item-is-kept
+#[test]
+fn an_effect_on_an_item_is_kept_across_a_logout_on_its_own_time() {
+    const SWORD: u32 = 0x4700_7A44;
+    const LONG: u32 = 0x7000_7A05;
+    const SHORT: u32 = 0x7000_7A06;
+    let mut h = Harness::new();
+    let (b, me) = h.player_in_world("one", "Elara");
+    scene_drawn(&mut h, b);
+    h.server.catalog.insert(yalain_testkit::test_template(
+        SWORD,
+        0x1067,
+        yalain_content::Props::default(),
+    ));
+    for state in [LONG, SHORT] {
+        h.server
+            .effect_table
+            .effects
+            .insert(state, yalain_testkit::plain_effect(state));
+    }
+    let sword = h.arm(b, me, SWORD);
+    let (long, short) = (h.server.game_now + 1000.0, h.server.game_now + 10.0);
+    let on = |state: u32, until: f64| yalain_world::things::TimedEffect {
+        state,
+        spellcraft: 30.0,
+        until,
+    };
+    h.server.things.get_mut(sword).expect("it").timed = vec![on(LONG, long), on(SHORT, short)];
+    log_off(&mut h, b, me);
+    h.advance(20.0);
+    h.enter_world(b, "one", me);
+    h.run(10);
+    let held = |h: &Harness| {
+        h.server
+            .players
+            .values()
+            .find(|p| p.character == me)
+            .map_or(0, |p| p.play.items.iter().filter(|i| i.id == sword).count())
+    };
+    assert_eq!(held(&h), 1, "one item");
+    let t = h.server.things.get(sword).expect("it");
+    assert_eq!(t.timed, vec![on(LONG, long)], "as it was, the other gone");
+    assert_eq!(
+        yalain_world::effects::running_on_item(&h.server, t).len(),
+        1
+    );
+}
+
 /// A hidden quest a character holds is never in its session start's list, under way or done; the
 /// shown ones beside it are.
 /// Behaviour: server.quests.hidden-never-listed
@@ -734,6 +828,8 @@ fn a_hidden_quest_is_never_listed_at_entry() {
             },
         ],
         steps: Vec::new(),
+        gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let now = h.unix;
     let held = |quest, status, phase| QuestState {
@@ -763,11 +859,11 @@ fn a_hidden_quest_is_never_listed_at_entry() {
     assert_eq!(p.play.quests.len(), 3, "the hidden ones still held");
 }
 
-/// A quest whose time ran out while its character was away enters failed: listed failed, with
-/// what is left of its wait from when its time ran out.
-/// Behaviour: server.quests.ran-out-while-away
+/// A quest with no time left when its character left (a server that stopped before its time told
+/// it) enters failed: listed failed, with what is left of its wait from when its time ran out.
+/// Behaviour: server.quests.ran-out-before-leaving
 #[test]
-fn a_quest_whose_time_ran_out_while_away_is_listed_failed() {
+fn a_quest_with_no_time_left_when_its_player_left_is_listed_failed() {
     const TIMED: u32 = 0x4000_0112;
     const STILL_TIMED: u32 = 0x4000_0113;
     let mut h = Harness::new();
@@ -775,11 +871,14 @@ fn a_quest_whose_time_ran_out_while_away_is_listed_failed() {
     scene_drawn(&mut h, b);
     let timed = |id| QuestDef {
         duration: 600.0,
+        timed_phase: 0,
         ..hour_quest(id)
     };
     h.server.quests = QuestTable {
         quests: vec![timed(TIMED), timed(STILL_TIMED)],
         steps: Vec::new(),
+        gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let now = h.unix;
     let given = |quest, ago: i64| QuestState {
@@ -811,4 +910,322 @@ fn a_quest_whose_time_ran_out_while_away_is_listed_failed() {
     assert!(wait >= lo && wait <= hi, "{wait} left, not {lo}..{hi}");
     let still = record(STILL_TIMED);
     assert_eq!((still.status, still.phase), (status::UNDERWAY, 1));
+}
+
+/// A timed quest's time stands still while its player is away, however long: it enters under way
+/// with what it had left, and then runs out only after that much more time in the world. When it
+/// was given moves on by the time away, for a done quest too.
+/// Behaviour: server.quests.time-runs-only-in-the-world
+#[test]
+fn a_timed_quests_time_stands_still_while_its_player_is_away() {
+    const TIMED: u32 = 0x4000_0112;
+    const DONE: u32 = 0x4000_0113;
+    const AWAY: f64 = 1000.0;
+    let mut h = Harness::new();
+    let (b, me) = h.player_in_world("one", "Elara");
+    scene_drawn(&mut h, b);
+    h.server.quests = QuestTable {
+        quests: vec![
+            QuestDef {
+                duration: 600.0,
+                timed_phase: 0,
+                ..hour_quest(TIMED)
+            },
+            hour_quest(DONE),
+        ],
+        steps: Vec::new(),
+        gives: Vec::new(),
+        rooms: Vec::new(),
+    };
+    let given = h.unix - 100;
+    for p in h.server.players.values_mut() {
+        p.play.quests = vec![
+            QuestState {
+                quest: TIMED,
+                status: status::UNDERWAY,
+                phase: 1,
+                started: given,
+                updated: given,
+            },
+            QuestState {
+                quest: DONE,
+                status: status::COMPLETED,
+                phase: 0,
+                started: given,
+                updated: given,
+            },
+        ];
+    }
+    let leaving = h.unix;
+    log_off(&mut h, b, me);
+    let left = h.unix;
+    wait_coarse(&mut h, AWAY);
+    let from = h.bots[b].inbox.len();
+    let entering = h.unix;
+    h.enter_world(b, "one", me);
+    let entered = h.unix;
+    let list = quest_list(&session_start(&h, b, from));
+    let record = |id: u32| list.iter().find(|q| q.id == id).expect("listed");
+    let timed = record(TIMED);
+    assert_eq!((timed.status, timed.phase), (status::UNDERWAY, 1));
+    let time_left = f64::from_bits(timed.seconds_remaining);
+    #[allow(clippy::cast_precision_loss)]
+    let played = (left - leaving + entered - entering) as f64;
+    assert!(
+        time_left >= 500.0 - played - 2.0 && time_left <= 500.0 + 2.0,
+        "{time_left} left, about 500 less the {played} s logging off and on"
+    );
+    // When each was given, as the list says, moved on alike by the time away: not the done one's
+    // completion.
+    let (a, d) = (timed, record(DONE));
+    let bestowed = |q: &QuestInfo| f64::from_bits(q.bestowed);
+    assert_eq!(
+        bestowed(a),
+        bestowed(d),
+        "given at one time, and moved alike"
+    );
+    let moved = bestowed(d) - f64::from_bits(d.done);
+    assert!(
+        (moved - AWAY).abs() <= played + 2.0,
+        "given {moved} s after it was done: the time away"
+    );
+    // It runs out only after what it has left, in the world.
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .expect("in the world")
+        .0;
+    let under_way = |h: &Harness| {
+        h.server.players[&world]
+            .play
+            .quests
+            .iter()
+            .any(|q| q.quest == TIMED && q.status == status::UNDERWAY)
+    };
+    wait_coarse(&mut h, time_left - 5.0);
+    assert!(under_way(&h), "still has a little time");
+    let from = h.bots[b].inbox.len();
+    wait_coarse(&mut h, 10.0);
+    assert!(!under_way(&h), "its time ran out");
+    assert!(
+        calls_of(&h, b, from)
+            .iter()
+            .any(|(f, _)| *f == yalain_world::quests::UPDATE_QUEST),
+        "and it was told"
+    );
+}
+
+/// A wait to be taken again runs while its player is away, a done, a failed and a cancelled
+/// quest's alike; when it was done stays where it was.
+/// Behaviour: server.quests.waits-run-while-away
+#[test]
+fn a_wait_to_be_taken_again_runs_while_its_player_is_away() {
+    const DONE: u32 = 0x4000_0112;
+    const FAILED: u32 = 0x4000_0113;
+    const CANCELLED: u32 = 0x4000_0114;
+    const OVER: u32 = 0x4000_0115;
+    const AWAY: f64 = 1000.0;
+    let mut h = Harness::new();
+    let (b, me) = h.player_in_world("one", "Elara");
+    scene_drawn(&mut h, b);
+    h.server.quests = QuestTable {
+        quests: [DONE, FAILED, CANCELLED, OVER]
+            .into_iter()
+            .map(|q| QuestDef {
+                duration: 600.0,
+                timed_phase: 0,
+                ..hour_quest(q)
+            })
+            .collect(),
+        steps: Vec::new(),
+        gives: Vec::new(),
+        rooms: Vec::new(),
+    };
+    let now = h.unix;
+    let held = |quest, status, ago: i64| QuestState {
+        quest,
+        status,
+        phase: 0,
+        started: now - ago - 100,
+        updated: now - ago,
+    };
+    for p in h.server.players.values_mut() {
+        p.play.quests = vec![
+            held(DONE, status::COMPLETED, 100),
+            held(FAILED, status::FAILED, 100),
+            held(CANCELLED, status::CANCELLED, 100),
+            held(OVER, status::COMPLETED, 3000),
+        ];
+    }
+    log_off(&mut h, b, me);
+    wait_coarse(&mut h, AWAY);
+    let from = h.bots[b].inbox.len();
+    h.enter_world(b, "one", me);
+    let entered = h.unix;
+    let list = quest_list(&session_start(&h, b, from));
+    let wait = |id: u32| {
+        f64::from_bits(
+            list.iter()
+                .find(|q| q.id == id)
+                .expect("listed")
+                .seconds_until_retry,
+        )
+    };
+    #[allow(clippy::cast_precision_loss)]
+    let since = (entered - now + 100) as f64;
+    assert!(since > AWAY, "away a while");
+    for q in [DONE, FAILED] {
+        let left = wait(q);
+        assert!(
+            (left - (3600.0 - since)).abs() <= 2.0,
+            "{q:08X}: {left} s of its hour left, {since} s on"
+        );
+    }
+    assert_eq!(wait(CANCELLED), 0.0, "its five minutes went by while away");
+    assert_eq!(wait(OVER), 0.0, "its hour went by while away");
+}
+
+/// A quest under way in a save made before its time stood still keeps what it had left when it was
+/// kept: the save's own form is read as it stands, it is neither lost nor given time back.
+/// Behaviour: server.quests.a-saved-quest-keeps-what-it-had-left
+#[test]
+fn a_quest_under_way_in_a_save_keeps_the_time_it_had_left_when_it_was_kept() {
+    const TIMED: u32 = 0x4000_0112;
+    let mut h = Harness::new();
+    let (b, me) = h.player_in_world("one", "Elara");
+    scene_drawn(&mut h, b);
+    h.server.quests = QuestTable {
+        quests: vec![QuestDef {
+            duration: 600.0,
+            timed_phase: 0,
+            ..hour_quest(TIMED)
+        }],
+        steps: Vec::new(),
+        gives: Vec::new(),
+        rooms: Vec::new(),
+    };
+    log_off(&mut h, b, me);
+    // As a save holds it: given 3000 s before it was kept, of which 2800 s were not played, and
+    // kept 5000 s ago. It has 400 s left by this reckoning, none by the calendar.
+    wait_coarse(&mut h, 2.0);
+    let kept_at = h.server.game_now - 5000.0;
+    let mut st = h.server.store.world_state(me).ok().flatten().expect("kept");
+    let mut play = yalain_world::state::PlayState::from_bytes(&st.play).expect("it reads");
+    play.kept_at = kept_at;
+    let given = h.unix - 5000 - 200;
+    play.quests = vec![QuestState {
+        quest: TIMED,
+        status: status::UNDERWAY,
+        phase: 1,
+        started: given,
+        updated: given,
+    }];
+    st.play = play.to_bytes();
+    h.server.store.set_world_state(me, &st).expect("kept");
+    let from = h.bots[b].inbox.len();
+    h.enter_world(b, "one", me);
+    let list = quest_list(&session_start(&h, b, from));
+    let timed = list.iter().find(|q| q.id == TIMED).expect("listed");
+    assert_eq!(
+        (timed.status, timed.phase),
+        (status::UNDERWAY, 1),
+        "not lost"
+    );
+    let left = f64::from_bits(timed.seconds_remaining);
+    assert!((left - 400.0).abs() <= 5.0, "{left} s left, about 400");
+}
+
+/// Time away moves on when a quest under way came to its phase, so a later phase's time stands still
+/// too; when a quest no longer under way ended stays put, its wait running on the calendar.
+/// Behaviour: server.quests.timed-in-one-phase
+#[test]
+fn time_away_moves_when_a_phase_came_and_not_when_a_quest_ended() {
+    let held = |status, updated| QuestState {
+        quest: 0x4000_0112,
+        status,
+        phase: 2,
+        started: 1000,
+        updated,
+    };
+    let mut quests = [held(status::UNDERWAY, 2000), held(status::COMPLETED, 2000)];
+    yalain_world::quests::time_stood_still(&mut quests, 500, 10_000);
+    assert_eq!(quests[0].updated, 2500, "moved on by the time away");
+    assert_eq!(quests[1].updated, 2000, "stays put");
+    let mut late = [held(status::UNDERWAY, 9800)];
+    yalain_world::quests::time_stood_still(&mut late, 500, 10_000);
+    assert_eq!(late[0].updated, 10_000, "never past now");
+}
+
+/// At entry, a quest is failed for having no time left only where its time runs at its phase and has
+/// run out; one past the phase its duration runs in, however long ago it was given, stays under way.
+/// Behaviour: server.quests.timed-in-one-phase
+#[test]
+fn a_quest_at_a_phase_its_time_does_not_run_in_is_not_failed_at_entry() {
+    const IN_FIRST: u32 = 0x4000_0112;
+    const IN_SECOND: u32 = 0x4000_0113;
+    let timed = |id, phase| QuestDef {
+        duration: 600.0,
+        timed_phase: phase,
+        ..hour_quest(id)
+    };
+    let table = QuestTable {
+        quests: vec![timed(IN_FIRST, 1), timed(IN_SECOND, 2)],
+        steps: Vec::new(),
+        gives: Vec::new(),
+        rooms: Vec::new(),
+    };
+    let at = |quest, phase, updated| QuestState {
+        quest,
+        status: status::UNDERWAY,
+        phase,
+        started: 1000,
+        updated,
+    };
+    // A first phase's time counts from the giving, whatever moved it since.
+    let mut held = [
+        at(IN_FIRST, 2, 1000),
+        at(IN_FIRST, 1, 9900),
+        at(IN_SECOND, 1, 1000),
+        at(IN_SECOND, 2, 9900),
+        at(IN_SECOND, 2, 1000),
+    ];
+    yalain_world::quests::ran_out_before_leaving(&table, &mut held, 10_000);
+    let statuses: Vec<u32> = held.iter().map(|q| q.status).collect();
+    assert_eq!(
+        statuses,
+        [
+            status::UNDERWAY,
+            status::FAILED,
+            status::UNDERWAY,
+            status::UNDERWAY,
+            status::FAILED
+        ]
+    );
+    assert_eq!(held[4].updated, 1600, "as of when it ran out");
+}
+
+/// A quest given while its character was out of the world counts from when the character enters,
+/// not from later; one with a time already ahead of now keeps it.
+/// Behaviour: server.quests.given-out-of-the-world-counts-from-entry
+#[test]
+fn time_away_moves_a_quests_time_on_but_never_past_now() {
+    let held = |started| QuestState {
+        quest: 0x4000_0112,
+        status: status::UNDERWAY,
+        phase: 1,
+        started,
+        updated: started,
+    };
+    let mut quests = [held(1000), held(9000), held(20_000)];
+    yalain_world::quests::time_stood_still(&mut quests, 500, 10_000);
+    assert_eq!(quests[0].started, 1500, "moved on by the time away");
+    assert_eq!(quests[1].started, 9500, "moved on by the time away");
+    let mut late = [held(9800), held(20_000), held(i64::MAX - 1)];
+    yalain_world::quests::time_stood_still(&mut late, 500, 10_000);
+    assert_eq!(late[0].started, 10_000, "never past now");
+    assert_eq!(late[1].started, 20_000, "one ahead of now stays");
+    assert_eq!(late[2].started, i64::MAX - 1, "and does not overflow");
+    assert_eq!(quests[2].started, 20_000, "one ahead of now stays");
 }

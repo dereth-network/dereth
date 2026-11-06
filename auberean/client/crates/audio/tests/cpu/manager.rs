@@ -107,6 +107,32 @@ fn a_non_looping_counted_sound_past_the_budget_is_refused() {
     assert!(m.play(&f, &uncounted).is_some());
 }
 
+/// Behaviour: audio.manager.a-silent-makers-sound-takes-no-budget
+#[test]
+fn a_silent_makers_one_at_a_time_sound_takes_no_place_in_the_budget() {
+    const MAKER: u64 = 7;
+    let at_the_listener = |_: u64| Some([0.0; 3]);
+    let run = |silent: bool| {
+        let f = files();
+        let mut m = SoundPlayer::new(Some(100));
+        m.set_playing_sounds(16.0);
+        let mut own = PlayRequest::new(ONE_AT_A_TIME);
+        own.emitter = Some(MAKER);
+        m.play(&f, &own).expect("accepted");
+        let others: Vec<u32> = (0..16)
+            .map(|_| m.play(&f, &PlayRequest::new(LONG_FLAT)).expect("accepted"))
+            .collect();
+        if silent {
+            m.set_muted(std::iter::once(MAKER).collect());
+        }
+        m.use_time(0.0, Listener::default(), &at_the_listener);
+        m.use_time(0.01, Listener::default(), &at_the_listener);
+        others.iter().filter(|h| !m.has_finished(**h)).count()
+    };
+    assert_eq!(run(false), 15, "heard, it is first and takes a place");
+    assert_eq!(run(true), 16, "silent, it leaves its place to the others");
+}
+
 /// Behaviour: audio.manager.one-at-a-time
 #[test]
 fn a_self_exclusive_setting_plays_once_at_a_time() {
@@ -235,6 +261,40 @@ fn a_slider_change_reaches_the_sounds_playing() {
     m.set_volume(h, 0.5);
     let g = gain_from_millibels(-1875);
     assert_eq!(m.gains(h), Some([g, g]));
+}
+
+fn life(m: &SoundPlayer, h: u32) -> Option<Life> {
+    m.playing().iter().find(|p| p.0 == h).map(|p| p.2)
+}
+
+/// Behaviour: audio.manager.a-silent-makers-sounds-stop-and-play-again
+#[test]
+fn a_silent_makers_sounds_stop_and_play_again() {
+    let f = files();
+    let mut m = SoundPlayer::new(Some(100));
+    let mut looping = PlayRequest::new(PLACED_LOOPING);
+    looping.emitter = Some(9);
+    let held = m.play(&f, &looping).expect("accepted");
+    let mut other = PlayRequest::new(PLACED_LOOPING);
+    other.emitter = Some(8);
+    let beside = m.play(&f, &other).expect("accepted");
+    let at = |_: u64| Some([0.0, 1.0, 0.0]);
+    m.use_time(0.0, Listener::default(), &at);
+    assert_eq!(life(&m, held), Some(Life::Playing));
+    // Its maker goes silent: no voice, but the sound is kept. Another maker's plays on.
+    m.set_muted([9].into_iter().collect());
+    m.use_time(0.1, Listener::default(), &at);
+    assert_eq!(life(&m, held), Some(Life::KeepAlive));
+    assert_eq!(life(&m, beside), Some(Life::Playing));
+    assert_eq!(voices(&m), 1);
+    // It stays so while its maker is silent.
+    m.use_time(0.2, Listener::default(), &at);
+    assert_eq!(life(&m, held), Some(Life::KeepAlive));
+    // Heard again, it plays again.
+    m.set_muted(std::collections::BTreeSet::new());
+    m.use_time(0.3, Listener::default(), &at);
+    assert_eq!(life(&m, held), Some(Life::Playing));
+    assert_eq!(voices(&m), 2);
 }
 
 /// Behaviour: audio.manager.placed-sounds-follow-their-maker
@@ -369,16 +429,60 @@ fn sound_off_silences_every_sound_until_it_is_on_again() {
     let h = m.play(&f, &PlayRequest::new(LONG_FLAT)).expect("accepted");
     m.use_time(0.0, Listener::default(), &nobody);
     assert!(pull(&m, 4).iter().any(|v| *v != 0.0));
+    assert_eq!(voices(&m), 1);
     m.handle_apply(key::SOUND_OFF, 1.0);
     assert!(m.sound_off());
+    assert_eq!(voices(&m), 0, "the device is let go of");
     assert_eq!(pull(&m, 4), vec![0.0; 8]);
-    // A sound asked for while off lives on without a sound.
+    // A sound with a length asked for while off lives on without a sound.
     let later = m.play(&f, &PlayRequest::new(LONG_FLAT)).expect("accepted");
     m.use_time(0.01, Listener::default(), &nobody);
     assert_eq!(pull(&m, 4), vec![0.0; 8]);
     assert!(!m.has_finished(h) && !m.has_finished(later));
     m.handle_apply(key::SOUND_OFF, 0.0);
-    assert!(pull(&m, 4).iter().any(|v| *v != 0.0));
+    assert_eq!(voices(&m), 2, "on again, both play");
+    // From their start, not from where they stopped.
+    assert_eq!(pull(&m, 1)[0], 2.0 * 0.25);
+}
+
+/// Behaviour: audio.options.sound-off-ends-what-is-not-playing
+#[test]
+fn sound_off_ends_a_paused_sound_and_music_with_no_length_of_its_own() {
+    use auberean_audio::options::key;
+    const FAR: u64 = 7;
+    let f = files();
+    let far = |_: u64| Some([1000.0, 0.0, 0.0]);
+    let mut m = SoundPlayer::new(Some(100));
+    // Too far away: looping, it waits, paused.
+    let mut placed = PlayRequest::new(PLACED_LOOPING);
+    placed.emitter = Some(FAR);
+    let paused = m.play(&f, &placed).expect("accepted");
+    let music = m
+        .play(&f, &PlayRequest::new(TRACK_SETTING))
+        .expect("accepted");
+    m.use_time(0.0, Listener::default(), &far);
+    assert!(!m.has_finished(paused) && !m.has_finished(music));
+    m.handle_apply(key::SOUND_OFF, 1.0);
+    let looping = m.play(&f, &PlayRequest::new(LOOPING)).expect("accepted");
+    m.use_time(0.01, Listener::default(), &far);
+    m.use_time(0.02, Listener::default(), &far);
+    assert!(m.has_finished(paused), "paused, it is done");
+    assert!(
+        m.has_finished(music),
+        "music that was playing is done on its next turn"
+    );
+    assert!(
+        !m.has_finished(looping),
+        "a looping sound has a length, and waits"
+    );
+    let later = m
+        .play(&f, &PlayRequest::new(TRACK_SETTING))
+        .expect("accepted");
+    m.use_time(0.03, Listener::default(), &far);
+    m.use_time(0.04, Listener::default(), &far);
+    assert!(m.has_finished(later), "music asked for while off is done");
+    m.handle_apply(key::SOUND_OFF, 0.0);
+    assert_eq!(voices(&m), 1, "on again, only the looping sound plays");
 }
 
 /// Behaviour: audio.options.the-sound-section

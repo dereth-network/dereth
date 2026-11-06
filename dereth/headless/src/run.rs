@@ -723,7 +723,8 @@ impl<'a> Run<'a> {
     }
 
     /// `enter <name>` over a server connection: once the character list is up, enter the world as
-    /// `name`, creating the character first (an Aluvian soldier in Holtburg) when the account has
+    /// `name`, creating the character first (an Aluvian soldier in Holtburg, or on a Launch world the
+    /// character-creation table's first template) when the account has
     /// none of that name; then frames until the character stands in the world.
     fn enter(&mut self, name: &str, mage: bool) -> Result<(), RunError> {
         use dereth_client_sdk::contract::pregame::CharGenAction;
@@ -744,12 +745,10 @@ impl<'a> Run<'a> {
         let mut created = false;
         if find(self).is_none() {
             let before = self.app.host_state.chargen_response_notices;
+            let store = &self.app.store;
+            let character = new_character(self.opts.era, || creation_table(store), name, mage);
             self.app
-                .run_chargen_actions(vec![CharGenAction::SendCharGenResult(Box::new(if mage {
-                    caster(name)
-                } else {
-                    soldier(name)
-                }))]);
+                .run_chargen_actions(vec![CharGenAction::SendCharGenResult(Box::new(character))]);
             let answered = |run: &mut Self| run.app.host_state.chargen_response_notices != before;
             if !self.paced_until(30.0, answered)? {
                 return Err(RunError::Net(
@@ -1235,6 +1234,77 @@ fn caster(name: &str) -> dereth_client_sdk::contract::pregame::CharGenResultData
     c
 }
 
+/// The character `enter` creates on a world of `era`. A world whose characters take a template
+/// whole (no credits to spend) is sent the character-creation table's template, read from `table`
+/// only then; any other world, or one whose table has no usable template, the soldier (with
+/// `mage`, the caster).
+fn new_character(
+    era: Option<dereth_client_sdk::primitives::EraId>,
+    table: impl FnOnce() -> Option<dereth_client_sdk::assets::tables::CharGen>,
+    name: &str,
+    mage: bool,
+) -> dereth_client_sdk::contract::pregame::CharGenResultData {
+    (era == Some(dereth_client_sdk::primitives::EraId::Launch))
+        .then(table)
+        .flatten()
+        .and_then(|cg| templated(&cg, name, mage))
+        .unwrap_or_else(|| if mage { caster(name) } else { soldier(name) })
+}
+
+/// The character-creation table: the 1999 one when the world's own files are the older ones
+/// beside the later.
+fn creation_table(
+    store: &dereth_client_sdk::dat::RetailDatStore,
+) -> Option<dereth_client_sdk::assets::tables::CharGen> {
+    use dereth_client_sdk::assets::{tables::CharGen, Decode};
+    use dereth_client_sdk::primitives::AssetSource as _;
+    let id = dereth_client_sdk::primitives::DataId(0x0E00_0002);
+    let store = store.classic_files().unwrap_or_else(|| store.clone());
+    CharGen::decode_payload_in(store.era(), id, &store.read(id).ok()?).ok()
+}
+
+/// A new character for `enter` in a world whose characters take a template whole: an Aluvian
+/// male of the character-creation table's first template (with `mage`, the first that trains
+/// War Magic), its attributes and skills as the template gives them, at the heritage's first start.
+fn templated(
+    cg: &dereth_client_sdk::assets::tables::CharGen,
+    name: &str,
+    mage: bool,
+) -> Option<dereth_client_sdk::contract::pregame::CharGenResultData> {
+    const WAR_MAGIC: u32 = 34;
+    let heritage = cg.heritage_groups.get(&1)?;
+    let (number, template) = heritage.templates.iter().enumerate().find(|(_, t)| {
+        !mage || t.normal_skills.contains(&WAR_MAGIC) || t.primary_skills.contains(&WAR_MAGIC)
+    })?;
+    let color = *heritage.sexes.get(&1)?.clothing_colors.first()?;
+    let mut c = soldier(name);
+    let mut skills = vec![0; 55];
+    for &skill in &template.normal_skills {
+        *skills.get_mut(usize::try_from(skill).ok()?)? = 2;
+    }
+    for &skill in &template.primary_skills {
+        *skills.get_mut(usize::try_from(skill).ok()?)? = 3;
+    }
+    c.skill_advancement_classes = skills;
+    c.template_num = i32::try_from(number).ok()?;
+    [
+        c.strength,
+        c.endurance,
+        c.coordination,
+        c.quickness,
+        c.focus,
+        c.self_,
+    ] = template.attributes.map(|a| i32::try_from(a).unwrap_or(0));
+    (
+        c.headgear_color,
+        c.shirt_color,
+        c.trousers_color,
+        c.footwear_color,
+    ) = (color, color, color, color);
+    c.start_area = *heritage.primary_start_areas.first()?;
+    Some(c)
+}
+
 /// A new character for `enter`: an Aluvian male soldier (template 6) with Heavy Weapons, Melee
 /// Defense, Healing, Jump and Run trained, starting in Holtburg.
 fn soldier(name: &str) -> dereth_client_sdk::contract::pregame::CharGenResultData {
@@ -1284,8 +1354,169 @@ fn soldier(name: &str) -> dereth_client_sdk::contract::pregame::CharGenResultDat
 
 #[cfg(test)]
 mod tests {
-    use super::{ended_why, settings_preferences};
+    use super::{caster, ended_why, new_character, settings_preferences, soldier};
     use dereth_client_sdk::net::client_session::DisconnectReason;
+
+    use dereth_client_sdk::assets::tables::{
+        CharGen, CharGenTemplate, HeritageGroup, ObjDesc, SexCg,
+    };
+    use dereth_client_sdk::primitives::{DataId, EraId};
+    use std::collections::BTreeMap;
+
+    /// A creation table with one heritage (Aluvian), one sex wearing color 7, a first start area
+    /// of 3, and two templates: a fighter, then one that trains War Magic as its primary.
+    fn creation_table() -> CharGen {
+        let sex = SexCg {
+            naming_help: None,
+            name: "Male".into(),
+            scale: 100,
+            setup: DataId(0),
+            sound_table: DataId(0),
+            icon: 0,
+            base_palette: DataId(0),
+            skin_palset: DataId(0),
+            physics_table: DataId(0),
+            motion_table: DataId(0),
+            combat_table: DataId(0),
+            base_objdesc: ObjDesc {
+                version: 11,
+                palette: None,
+                subpalettes: Vec::new(),
+                texture_changes: Vec::new(),
+                anim_part_changes: Vec::new(),
+            },
+            hair_colors: Vec::new(),
+            hair_styles: Vec::new(),
+            eye_colors: Vec::new(),
+            eye_strips: Vec::new(),
+            nose_strips: Vec::new(),
+            mouth_strips: Vec::new(),
+            headgear: Vec::new(),
+            shirts: Vec::new(),
+            pants: Vec::new(),
+            footwear: Vec::new(),
+            clothing_colors: vec![7, 9],
+        };
+        let template = |name: &str, attributes, normal_skills, primary_skills| CharGenTemplate {
+            name: name.into(),
+            icon: 0,
+            title: 0,
+            attributes,
+            normal_skills,
+            primary_skills,
+        };
+        let heritage = HeritageGroup {
+            description: None,
+            name: "Aluvian".into(),
+            icon: 0,
+            setup: DataId(0),
+            environment_setup: DataId(0),
+            attribute_credits: 0,
+            skill_credits: 0,
+            primary_start_areas: vec![3, 1],
+            secondary_start_areas: Vec::new(),
+            skills: Vec::new(),
+            templates: vec![
+                template("Fighter", [90, 80, 70, 60, 20, 10], vec![6], vec![45]),
+                template("Mage", [10, 40, 20, 30, 100, 100], vec![6], vec![34]),
+            ],
+            sex_order: vec![1],
+            template_presentations: BTreeMap::new(),
+            sex_table_marker: 0,
+            sexes: BTreeMap::from([(1, sex)]),
+        };
+        CharGen {
+            help_strings: Vec::new(),
+            id: DataId(0x0E00_0002),
+            second_data_id: DataId(0),
+            starter_areas: Vec::new(),
+            hg_table_marker: 0,
+            heritage_order: vec![1],
+            heritage_groups: BTreeMap::from([(1, heritage)]),
+        }
+    }
+
+    #[test]
+    fn a_launch_world_is_sent_the_creation_tables_template_whole() {
+        let fighter = new_character(
+            Some(EraId::Launch),
+            || Some(creation_table()),
+            "Pell",
+            false,
+        );
+        assert_eq!(fighter.name, "Pell");
+        assert_eq!(fighter.template_num, 0);
+        assert_eq!(
+            [
+                fighter.strength,
+                fighter.endurance,
+                fighter.coordination,
+                fighter.quickness,
+                fighter.focus,
+                fighter.self_,
+            ],
+            [90, 80, 70, 60, 20, 10]
+        );
+        assert_eq!(fighter.skill_advancement_classes[6], 2);
+        assert_eq!(fighter.skill_advancement_classes[45], 3);
+        assert_eq!(
+            fighter
+                .skill_advancement_classes
+                .iter()
+                .filter(|&&c| c != 0)
+                .count(),
+            2,
+            "only the template's skills are trained"
+        );
+        assert_eq!(fighter.start_area, 3);
+        assert_eq!(
+            (
+                fighter.headgear_color,
+                fighter.shirt_color,
+                fighter.trousers_color,
+                fighter.footwear_color
+            ),
+            (7, 7, 7, 7)
+        );
+        let mage = new_character(Some(EraId::Launch), || Some(creation_table()), "Pell", true);
+        assert_eq!(
+            mage.template_num, 1,
+            "the first template that trains War Magic"
+        );
+        assert_eq!(mage.skill_advancement_classes[34], 3);
+    }
+
+    #[test]
+    fn a_later_world_or_a_launch_world_without_a_table_is_sent_the_built_in_characters() {
+        for era in [None, Some(EraId::Infiltration), Some(EraId::Eor)] {
+            let read = std::cell::Cell::new(false);
+            let table = || {
+                read.set(true);
+                Some(creation_table())
+            };
+            assert_eq!(
+                new_character(era, table, "Pell", false),
+                soldier("Pell"),
+                "{era:?}"
+            );
+            assert!(
+                !read.get(),
+                "{era:?}: the table is read only for a Launch world"
+            );
+            assert_eq!(
+                new_character(era, || Some(creation_table()), "Pell", true),
+                caster("Pell")
+            );
+        }
+        assert_eq!(
+            new_character(Some(EraId::Launch), || None, "Pell", false),
+            soldier("Pell")
+        );
+        assert_eq!(
+            new_character(Some(EraId::Launch), || None, "Pell", true),
+            caster("Pell")
+        );
+    }
 
     #[test]
     fn a_settings_folder_named_holds_the_preferences_and_none_named_writes_nothing() {

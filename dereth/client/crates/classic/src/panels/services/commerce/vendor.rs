@@ -38,6 +38,19 @@ impl Vendor {
     }
 }
 impl Panel for Vendor {
+    fn hover(&self, at: HoverPoint<'_>, c: &Context<'_>) -> Option<Hover> {
+        if at.id != "items" {
+            return None;
+        }
+        let item = at.item?;
+        let row = self.rows(c).into_iter().find(|r| r.item == item)?;
+        let action = match self.tab {
+            0 => "buy",
+            1 => "remove from buying list",
+            _ => "remove from selling list",
+        };
+        Hover::line(format!("Worth {}p - Double click to {action}", row.price))
+    }
     fn resize(&mut self, width: u32, _: u32) {
         self.width = width;
     }
@@ -474,6 +487,51 @@ mod shared_stock_tests {
             classic: &ClassicState::default(),
             map_teleport_allowed: false,
         })
+    }
+
+    #[test]
+    fn a_row_says_what_it_is_worth_and_what_a_double_click_does() {
+        let row = ShopRow {
+            item: ObjectId(1),
+            obj_type: 0x20,
+            amount: 5,
+            max_stack_size: 100,
+            price: 1234,
+            ..Default::default()
+        };
+        let game = Shop(ShopView {
+            open: true,
+            vendor: Some(ObjectId(99)),
+            type_filters: vec![("All", 0xffff_ffff)],
+            stock: vec![row.clone()],
+            buy_list: vec![row.clone()],
+            sell_list: vec![row],
+            ..Default::default()
+        });
+        for (tab, action) in [
+            (0, "buy"),
+            (1, "remove from buying list"),
+            (2, "remove from selling list"),
+        ] {
+            let panel = Vendor {
+                tab,
+                ..Default::default()
+            };
+            let at = |item| HoverPoint {
+                id: "items",
+                x: 0,
+                y: 0,
+                item,
+                row: None,
+            };
+            with(&game, |c| {
+                assert_eq!(
+                    panel.hover(at(Some(ObjectId(1))), c).unwrap().name,
+                    format!("Worth 1234p - Double click to {action}")
+                );
+                assert_eq!(panel.hover(at(None), c), None, "an empty slot");
+            });
+        }
     }
 
     /// Behaviour: vendor.stock.shared-projection-keeps-availability-and-order

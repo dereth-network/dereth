@@ -19,10 +19,11 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use auberean_assets::entity::Entity;
-use auberean_assets::fx::{AppearanceKey, FxData, FxNode, FxTable, Particles};
+use auberean_assets::fx::{AppearanceKey, FxData, FxNode, Particles};
 use auberean_primitives::random::Random;
 use auberean_primitives::{DataId, Vec3};
 use auberean_world::color::Color;
+use auberean_world::inside::{BlockLights, Outside};
 use auberean_world::look::{Atoms, Group, Keyed, Look, LookRecords};
 use auberean_world::math::{add, length, sub, Mat4};
 use auberean_world::place::{PlaceRecords, DRAWN_KINDS};
@@ -38,6 +39,48 @@ const MAX_DEPTH: usize = 16;
 /// The bucket count of an object's own effect table.
 const OWN_TABLE_BUCKETS: u32 = 32;
 
+/// A slider an effect moves: to `value` over `time` seconds, on the object's children too when
+/// `children`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FxSlider {
+    pub slider: u32,
+    pub value: f32,
+    pub time: f32,
+    pub children: bool,
+}
+
+/// The sliders holding an object's color: red, green, blue, alpha.
+const COLOR_SLIDERS: [u32; 4] = [0x4000_0016, 0x4000_0017, 0x4000_0018, 0x4000_001A];
+
+/// The sliders `node` moves over its ramp time: its own to its intensity, and with a color each of
+/// the object's color sliders to that color's part.
+// D2-06881, D2-06880
+#[must_use]
+pub fn node_sliders(node: &FxNode) -> Vec<FxSlider> {
+    let time = node.ramp_time.unwrap_or(0.0);
+    let children = node.property_color == Some(true);
+    let mut out = Vec::new();
+    if let Some(slider) = node.slider.filter(|s| *s != 0) {
+        out.push(FxSlider {
+            slider,
+            value: node.intensity.unwrap_or(1.0),
+            time,
+            children,
+        });
+    }
+    if let Some((true, c)) = node.color {
+        for (slider, value) in COLOR_SLIDERS.into_iter().zip([c.r, c.g, c.b, c.a]) {
+            out.push(FxSlider {
+                slider,
+                value,
+                time,
+                children,
+            });
+        }
+    }
+    out
+}
+
 /// Every effect stored table `table` (and, after it, each table it extends, in order and depth
 /// first) lists for effect id `effect`.
 // D2-15746
@@ -52,7 +95,7 @@ fn collect(records: &WorldRecords, table: u32, effect: u32, depth: usize, out: &
     if depth > MAX_DEPTH {
         return;
     }
-    let Some(t) = records.get::<FxTable>(table) else {
+    let Some(t) = records.fx_table(table) else {
         return;
     };
     if let Some((_, list)) = t.effects.iter().find(|(id, _)| *id == effect) {
@@ -170,6 +213,65 @@ impl ObjectFxTable {
     }
 }
 
+/// A decal an effect lays: what it is made from, and how far from its object's place it lies,
+/// along the world's axes.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FxDecal {
+    pub desc: crate::decal::DecalDesc,
+    pub offset: Vec3,
+}
+
+/// The channels an effect's entry may be keyed to, and what its key there says.
+pub mod channel {
+    /// How much gore: fun, none, low or normal, 1 to 4.
+    pub const GORE: u32 = 0x4000_0001;
+    /// The color of blood: green or red, 1 or 2.
+    pub const BLOOD: u32 = 0x4000_0007;
+    /// Whether steps raise particles: 1 or 0.
+    pub const FOOT_STEP_PARTICLES: u32 = 0x4000_0008;
+}
+
+/// What the player's preferences ask of the entries of an effect keyed to a channel.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Channels {
+    pub gore: u32,
+    pub blood: u32,
+    pub foot_step_particles: bool,
+}
+
+impl Default for Channels {
+    /// Normal gore, red blood, steps raising particles.
+    fn default() -> Self {
+        Self {
+            gore: 4,
+            blood: 2,
+            foot_step_particles: true,
+        }
+    }
+}
+
+impl Channels {
+    /// Whether an entry is keyed otherwise than the preferences ask: such an entry does not play.
+    /// A channel no preference holds is not looked at.
+    // D2-06908
+    #[must_use]
+    pub fn mismatch(&self, node: &FxNode) -> bool {
+        let asked = [
+            (channel::GORE, self.gore),
+            (channel::BLOOD, self.blood),
+            (
+                channel::FOOT_STEP_PARTICLES,
+                u32::from(self.foot_step_particles),
+            ),
+        ];
+        node.channel_keys.as_ref().is_some_and(|keys| {
+            asked
+                .iter()
+                .any(|(channel, value)| keys.iter().any(|(c, v)| c == channel && v != value))
+        })
+    }
+}
+
 /// One effect an object is playing: how strongly, whether it began with the object, the ids of
 /// the particle systems it keeps going (those that run until stopped), and when it ends (the
 /// client's time; none for never).
@@ -180,6 +282,10 @@ pub struct FxState {
     pub startup: bool,
     pub systems: Vec<u32>,
     pub end: Option<f64>,
+    /// An entry's color lasts a time, so the object's color goes back when the effect ends.
+    pub restore_color: bool,
+    /// Sounds are kept going with it.
+    pub keeps_sounds: bool,
 }
 
 /// Where an object stands as it plays an effect: in block `home`'s frame at `place` with `scale`,
@@ -199,6 +305,13 @@ pub trait Rig {
     fn holding_location(&self, kind: u32) -> Option<Mat4>;
     fn bone(&self, kind: u32) -> Option<Mat4>;
     fn water_height(&self) -> Option<f32>;
+    /// The bone a system carried at a holding location of `kind` follows: the first part group's
+    /// of the location's number, or its first when the object has no such location; none when
+    /// that group has no such bone.
+    fn holding_bone(&self, kind: u32) -> Option<Mat4>;
+    /// Whether the object has a figure whose bones can be asked for. Without one, what an entry
+    /// sets on a bone stands at the object.
+    fn has_figure(&self) -> bool;
 }
 
 /// An object with no holding locations, no bones and no water.
@@ -214,6 +327,51 @@ impl Rig for NoRig {
     }
     fn water_height(&self) -> Option<f32> {
         None
+    }
+    fn holding_bone(&self, _kind: u32) -> Option<Mat4> {
+        None
+    }
+    fn has_figure(&self) -> bool {
+        false
+    }
+}
+
+/// An object with no animation of its own: its bones and holding locations as its look's body
+/// first stands, for the systems its effects carry on them.
+#[derive(Clone, Debug)]
+pub struct RestRig {
+    body: auberean_animation::body::Body,
+}
+
+impl RestRig {
+    /// The rig of look `look`, when its body can be put together.
+    #[must_use]
+    pub fn of_look(records: &WorldRecords, look: &Look) -> Option<Self> {
+        let anims = auberean_animation::records::CachedRecords::new(records);
+        auberean_animation::body::Body::from_look(&anims, look).map(|body| Self { body })
+    }
+}
+
+impl Rig for RestRig {
+    fn holding_location(&self, kind: u32) -> Option<Mat4> {
+        let anims = auberean_animation::records::CachedRecords::default();
+        let (_, location, _) = self.body.holding_location(&anims, kind)?;
+        let t = location.transform;
+        Some(Mat4::from_parts(t.offset, t.rotation, t.scale))
+    }
+    fn bone(&self, kind: u32) -> Option<Mat4> {
+        let anims = auberean_animation::records::CachedRecords::default();
+        self.body.bone_type_matrix(&anims, kind)
+    }
+    fn water_height(&self) -> Option<f32> {
+        None
+    }
+    fn holding_bone(&self, kind: u32) -> Option<Mat4> {
+        let anims = auberean_animation::records::CachedRecords::default();
+        self.body.carried_bone(&anims, kind)
+    }
+    fn has_figure(&self) -> bool {
+        true
     }
 }
 
@@ -233,6 +391,17 @@ pub enum AppearanceFx {
     Remove { table: u32, key: u32 },
 }
 
+/// What part of an object's figure a carried system follows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CarriedOn {
+    /// The object itself.
+    Object,
+    /// The first bone of a kind.
+    Bone(u32),
+    /// The bone a holding location of a kind is on.
+    HoldingLocation(u32),
+}
+
 /// A particle system an object carries: where it stands on the object and the system.
 #[derive(Clone, Debug)]
 pub struct CarriedSystem {
@@ -240,8 +409,10 @@ pub struct CarriedSystem {
     pub id: u32,
     /// The system's record.
     pub desc: u32,
-    /// Its place on the object: the effect's offset.
+    /// Its place on what it stands on: the effect's offset, or the holding location's own.
     pub offset: Mat4,
+    /// The part of the figure it follows as the figure moves.
+    pub on: CarriedOn,
     /// Whether the object's turn is taken off it.
     pub remove_rotation: bool,
     pub system: SystemRef,
@@ -250,6 +421,9 @@ pub struct CarriedSystem {
 /// The effects an object plays and the particle systems they keep going.
 #[derive(Clone, Debug)]
 pub struct ObjectEffects {
+    /// What its look gives its systems' scale.
+    // D2-06005
+    particle_scale: f32,
     table: ObjectFxTable,
     /// The effects played from the moment the object is made, with their strengths, in the
     /// object's table order.
@@ -280,8 +454,16 @@ pub struct ObjectEffects {
     /// The streaks its effects asked turned on (true) or off since last taken, each with the
     /// holding location whose objects' streaks it means (0: every object it holds).
     streak_asks: Vec<(bool, u32)>,
+    /// The sliders its effects moved since last taken, in order.
+    sliders: Vec<FxSlider>,
+    /// The decals its effects laid since last taken, in order.
+    decals: Vec<FxDecal>,
+    /// What the player's preferences last asked of its effects' entries.
+    channels: Channels,
     /// The sounds its effects played or stopped, in order, not yet taken.
     sounds: Vec<FxSound>,
+    /// The startup effects' entries that make an object, each with its effect, not yet taken.
+    objects_to_make: Vec<(u32, FxNode)>,
 }
 
 /// A sound an object's effect played, or the sounds kept with an effect stopped. The object
@@ -298,6 +480,8 @@ pub enum FxSound {
     },
     /// The sounds kept with effect `effect` stop.
     Stop { effect: u32 },
+    /// The sounds kept with effect `effect` go to `volume`.
+    Volume { effect: u32, volume: f32 },
 }
 
 /// A light an effect placed on an object: the light its entity describes, its range's and
@@ -331,7 +515,7 @@ impl PlacedLight {
     /// much of it shows (rolling `dice` for any noise), its specular color times that too; its most
     /// range and most intensity (times how much shows) from its waveforms' bounds, for how far and
     /// how strongly it may light what is near it.
-    // D2-06524, D2-13333, D2-13324, D2-13325
+    // D2-06524, D2-13333, D2-13324, D2-13325, D2-13323
     #[must_use]
     pub fn standing(
         &self,
@@ -407,6 +591,7 @@ impl ObjectEffects {
             return None;
         }
         Some(Self {
+            particle_scale: look.particle_scale,
             table: ObjectFxTable::of_group(&look.global),
             startup: look.global.startup_fx.entries.clone(),
             states: BTreeMap::new(),
@@ -423,13 +608,88 @@ impl ObjectEffects {
             lights: Vec::new(),
             streaks: Vec::new(),
             streak_asks: Vec::new(),
+            sliders: Vec::new(),
+            decals: Vec::new(),
+            channels: Channels::default(),
             sounds: Vec::new(),
+            objects_to_make: Vec::new(),
         })
+    }
+
+    /// The sliders its effects moved since last taken, in order.
+    pub fn take_sliders(&mut self) -> Vec<FxSlider> {
+        std::mem::take(&mut self.sliders)
+    }
+
+    /// The decals its effects laid since last taken, in order.
+    pub fn take_decals(&mut self) -> Vec<FxDecal> {
+        std::mem::take(&mut self.decals)
+    }
+
+    /// An entry's decal, while the decal effects preference is on: its size, its turn from the way
+    /// the object faces and how far off it lies each read from its waveforms at this moment; off
+    /// by the entry's origin and, with a distance, by a random way across the ground for a random
+    /// part of that distance.
+    // D2-06891
+    fn decal_fx(
+        &mut self,
+        systems: &ParticleSystems,
+        decal: &auberean_assets::fx::Decal,
+        at: &Spot,
+    ) {
+        if !systems.decal_effects() {
+            return;
+        }
+        let dice = systems.dice();
+        let wave = |w| auberean_world::wave::value(w, at.now, &dice);
+        let (size, turn, reach) = (
+            wave(&decal.size),
+            wave(&decal.rotation).to_radians(),
+            wave(&decal.position_radius),
+        );
+        let mut offset = decal.origin;
+        if reach > 0.0 {
+            let way = Vec3::new(dice.roll_float(-1.0, 1.0), dice.roll_float(-1.0, 1.0), 0.0);
+            let far = reach * dice.roll_float(0.0, 1.0);
+            let long = length(way).max(f32::EPSILON);
+            offset.x += way.x / long * far;
+            offset.y += way.y / long * far;
+        }
+        let forward = sub(
+            at.place.point(Vec3::new(0.0, 1.0, 0.0)),
+            at.place.point(Vec3::ZERO),
+        );
+        let (s, c) = (
+            dereth_primitives::num::math::sinf(turn),
+            dereth_primitives::num::math::cosf(turn),
+        );
+        let way = Vec3::new(
+            forward.x * c - forward.y * s,
+            forward.x * s + forward.y * c,
+            forward.z,
+        );
+        let long = length(way).max(f32::EPSILON);
+        self.decals.push(FxDecal {
+            desc: crate::decal::DecalDesc {
+                material: decal.material.0,
+                lifespan: decal.lifespan,
+                size: Vec3::new(size, size, size),
+                direction: Vec3::new(way.x / long, way.y / long, way.z / long),
+                color: Color::from_argb(decal.color.0),
+                draw_once: false,
+            },
+            offset,
+        });
     }
 
     /// The sounds its effects played or stopped since last taken, in order.
     pub fn take_sounds(&mut self) -> Vec<FxSound> {
         std::mem::take(&mut self.sounds)
+    }
+
+    /// The startup effects' entries that make an object since last taken, each with its effect.
+    pub fn take_objects_to_make(&mut self) -> Vec<(u32, FxNode)> {
+        std::mem::take(&mut self.objects_to_make)
     }
 
     /// The appearances its effects laid over the object or took off it since last taken, in
@@ -468,6 +728,12 @@ impl ObjectEffects {
         });
     }
 
+    /// The terrain kind its entries are played for.
+    #[must_use]
+    pub const fn terrain(&self) -> u32 {
+        self.terrain
+    }
+
     /// The object's table.
     #[must_use]
     pub fn table(&self) -> &ObjectFxTable {
@@ -478,6 +744,12 @@ impl ObjectEffects {
     #[must_use]
     pub fn states(&self) -> &BTreeMap<u32, FxState> {
         &self.states
+    }
+
+    /// What its look gives its systems' scale.
+    #[must_use]
+    pub fn particle_scale(&self) -> f32 {
+        self.particle_scale
     }
 
     /// The particle systems the object carries.
@@ -498,6 +770,23 @@ impl ObjectEffects {
         scale: Vec3,
         now: f64,
     ) {
+        self.start_on(systems, records, home, place, scale, now, &NoRig);
+    }
+
+    /// [`ObjectEffects::start`] on a figure: what its startup effects set on a bone or holding
+    /// location stands there.
+    // D2-06529
+    #[allow(clippy::too_many_arguments)]
+    pub fn start_on(
+        &mut self,
+        systems: &ParticleSystems,
+        records: &WorldRecords,
+        home: (i32, i32),
+        place: &Mat4,
+        scale: Vec3,
+        now: f64,
+        rig: &dyn Rig,
+    ) {
         let at = Spot {
             home,
             place: *place,
@@ -507,7 +796,7 @@ impl ObjectEffects {
         // The table takes the effects the look's appearance lists as the object starts.
         self.table = ObjectFxTable::of_group_with(records, &self.group);
         for (effect, strength) in self.startup.clone() {
-            self.startup_fx(systems, records, effect, strength, &at, false);
+            self.startup_fx(systems, records, effect, strength, &at, false, rig);
         }
         self.object_end(systems, records, home, place, scale, now);
     }
@@ -515,7 +804,8 @@ impl ObjectEffects {
     /// The rest of every startup effect, played as the object's making ends, and again each time
     /// its look is brought up to date: its streaks, its sounds (each entry's, kept to stop with the
     /// effect; taken with [`ObjectEffects::take_sounds`]), its lights and its repulsors (another each
-    /// time). (Their decals and objects made are not played here.)
+    /// time). The objects they make are left for the host ([`ObjectEffects::take_objects_to_make`]),
+    /// another each time too.
     // D2-06529
     pub fn object_end(
         &mut self,
@@ -533,7 +823,7 @@ impl ObjectEffects {
             now,
         };
         for (effect, strength) in self.startup.clone() {
-            self.startup_fx(systems, records, effect, strength, &at, true);
+            self.startup_fx(systems, records, effect, strength, &at, true, &NoRig);
         }
     }
 
@@ -541,6 +831,7 @@ impl ObjectEffects {
     /// each entry's particle systems set going and its appearance laid over the object; for the
     /// `rest`, each entry's repulsors.
     // D2-06933
+    #[allow(clippy::too_many_arguments)]
     fn startup_fx(
         &mut self,
         systems: &ParticleSystems,
@@ -549,6 +840,7 @@ impl ObjectEffects {
         strength: f32,
         at: &Spot,
         rest: bool,
+        rig: &dyn Rig,
     ) {
         let list = self.table.fx_data(records, effect);
         if list.is_empty() {
@@ -558,6 +850,7 @@ impl ObjectEffects {
         state.desired = strength;
         state.current = strength;
         state.startup = true;
+        let mut keeps_sounds = false;
         for data in &list {
             let node = node_for(data, self.terrain).clone();
             if rest {
@@ -571,6 +864,10 @@ impl ObjectEffects {
                         volume: strength,
                         kept: true,
                     });
+                    keeps_sounds = true;
+                }
+                if let Some((true, d)) = &node.decal {
+                    self.decal_fx(systems, d, at);
                 }
                 if let Some((true, r)) = node.repulsor {
                     self.repulse_fx(systems, &r, at);
@@ -578,10 +875,13 @@ impl ObjectEffects {
                 if let Some((true, l)) = &node.light {
                     self.light_fx(systems, l, node.bone_offset, at.now);
                 }
+                if node.visual_desc.is_some_and(|v| !v.is_none()) {
+                    self.objects_to_make.push((effect, node));
+                }
                 continue;
             }
             if node.particles.as_ref().is_some_and(|p| !p.is_empty()) {
-                if let Some(id) = self.particle_fx(systems, records, &node, at) {
+                if let Some(id) = self.particle_fx(systems, records, &node, at, rig) {
                     if let Some(s) = self.states.get_mut(&effect) {
                         s.systems.push(id);
                     }
@@ -591,6 +891,9 @@ impl ObjectEffects {
                 let key = node.appearance_key.unwrap_or_default();
                 self.do_appearance_fx(apr.0, key, strength);
             }
+        }
+        if let Some(s) = self.states.get_mut(&effect) {
+            s.keeps_sounds = keeps_sounds;
         }
     }
 
@@ -733,43 +1036,74 @@ impl ObjectEffects {
         self.repulsors.len()
     }
 
-    /// Set going an effect's particle system at the object, raised by the effect's offset: the id
-    /// the object knows it by when it runs until stopped.
-    // D2-06901
+    /// Set going an effect's particle system on the object: on the bone its entry names, raised by
+    /// its offset (none when the figure has no such bone); else at the holding location it names,
+    /// on that location's bone; else at the object, raised by its offset. The id the object knows
+    /// it by when it runs until stopped.
+    // D2-06901, D2-06484, D2-06525
     fn particle_fx(
         &mut self,
         systems: &ParticleSystems,
         records: &WorldRecords,
         node: &FxNode,
         at: &Spot,
+        rig: &dyn Rig,
     ) -> Option<u32> {
         let desc = particle_id(node, &systems.dice())?;
-        let offset = node.bone_offset.unwrap_or(Vec3::ZERO);
+        let lifted = || {
+            let o = node.bone_offset.unwrap_or(Vec3::ZERO);
+            if o.x.is_nan() || o.y.is_nan() || o.z.is_nan() {
+                Mat4::IDENTITY
+            } else {
+                Mat4::translation(o)
+            }
+        };
+        let (offset, on) = match (
+            node.bone.filter(|k| *k != 0),
+            node.holding_location.filter(|k| *k != 0),
+        ) {
+            (Some(kind), _) if rig.has_figure() => {
+                rig.bone(kind)?;
+                (lifted(), CarriedOn::Bone(kind))
+            }
+            (None, Some(kind)) if rig.has_figure() => (
+                rig.holding_location(kind).unwrap_or(Mat4::IDENTITY),
+                CarriedOn::HoldingLocation(kind),
+            ),
+            _ => (lifted(), CarriedOn::Object),
+        };
         let remove_rotation = node.remove_rotation.unwrap_or(false);
-        let id = self.create_system(systems, records, desc, offset, remove_rotation, at);
+        let id = self.create_system(systems, records, desc, offset, on, remove_rotation, at, rig);
         id.filter(|_| particle_is_looping(records, desc))
     }
 
-    /// A system of record `desc` set going on the object at `offset`: one already going that may
-    /// be shared, else a new one, which other objects may share when this one is placed with the
-    /// world.
+    /// A system of record `desc` set going on the object at `offset` on what it stands `on`: one
+    /// already going that may be shared, else a new one, which other objects may share when this
+    /// one is placed with the world.
     // D2-06483, D2-06662
+    #[allow(clippy::too_many_arguments)]
     fn create_system(
         &mut self,
         systems: &ParticleSystems,
         records: &WorldRecords,
         desc: u32,
-        offset: Vec3,
+        offset: Mat4,
+        on: CarriedOn,
         remove_rotation: bool,
         at: &Spot,
+        rig: &dyn Rig,
     ) -> Option<u32> {
-        let offset = if offset.x.is_nan() || offset.y.is_nan() || offset.z.is_nan() {
-            Mat4::IDENTITY
-        } else {
-            Mat4::translation(offset)
-        };
-        let place = carried_place(&offset, remove_rotation, &at.place);
-        let system = systems.create(records, desc, true, at.home, place, at.scale, at.now)?;
+        let place = carried_place(&offset, on, remove_rotation, &at.place, rig);
+        let system = systems.create(
+            records,
+            desc,
+            true,
+            at.home,
+            place,
+            at.scale,
+            self.particle_scale,
+            at.now,
+        )?;
         systems.set_can_be_shared(&system, self.shared);
         let id = self.next_id;
         self.next_id += 1;
@@ -777,6 +1111,7 @@ impl ObjectEffects {
             id,
             desc,
             offset,
+            on,
             remove_rotation,
             system,
         });
@@ -797,8 +1132,8 @@ impl ObjectEffects {
     /// object that do not ramp at once) and lays its appearances over the object again at the
     /// strength it then has; nothing restarts; a startup effect is left alone. Whether it played,
     /// and the effect scripts to play. Its streaks are made, and the streaks it turns on or off asked
-    /// for. (Its colors, sliders, objects made, targets, decals and repulsors are not played here.)
-    // D2-06934, D2-06932
+    /// for, its decals laid and its repulsors carried.
+    // D2-06934, D2-06932, D2-06887
     #[allow(clippy::too_many_arguments)]
     pub fn do_fx(
         &mut self,
@@ -814,8 +1149,11 @@ impl ObjectEffects {
         if list.is_empty() {
             return (false, Vec::new());
         }
+        let channels = systems.fx_channels();
+        self.channels = channels;
         let applies = |n: &FxNode| {
-            (n.player_only != Some(true) || who.player)
+            !channels.mismatch(n)
+                && (n.player_only != Some(true) || who.player)
                 && (n.day_time.unwrap_or(true) || who.night)
                 && (n.night_time.unwrap_or(true) || !who.night)
         };
@@ -831,7 +1169,7 @@ impl ObjectEffects {
             let mut appearance = Vec::new();
             for data in &list {
                 let n = node_for(data, terrain);
-                if n.player_only == Some(true) && !who.player {
+                if channels.mismatch(n) || (n.player_only == Some(true) && !who.player) {
                     continue;
                 }
                 if n.ramp_time.unwrap_or(0.0) < 0.0002 {
@@ -842,6 +1180,12 @@ impl ObjectEffects {
                 }
             }
             state.current = current;
+            if state.keeps_sounds {
+                self.sounds.push(FxSound::Volume {
+                    effect,
+                    volume: current,
+                });
+            }
             for (apr, key, scalar) in appearance {
                 self.do_appearance_fx(apr, key, scalar);
             }
@@ -871,11 +1215,13 @@ impl ObjectEffects {
                 intensity
             };
             if let Some(sound) = sound_id(&node, &systems.dice()) {
+                let kept = sound_is_looping(records, sound) && node.fire_and_forget != Some(true);
+                state.keeps_sounds |= kept;
                 self.sounds.push(FxSound::Play {
                     effect,
                     sound,
                     volume: state.current,
-                    kept: sound_is_looping(records, sound) && node.fire_and_forget != Some(true),
+                    kept,
                 });
             }
             if let Some(apr) = node.appearance.filter(|a| !a.is_none()) {
@@ -884,17 +1230,25 @@ impl ObjectEffects {
             }
             let script = node.fx_script.filter(|d| !d.is_none()).map(|d| d.0);
             scripts.extend(script);
-            let mut looping = false;
+            self.sliders.extend(node_sliders(&node));
+            if node.color.is_some_and(|(on, _)| on) && node.color_lifetime.unwrap_or(0.0) != 0.0 {
+                state.restore_color = true;
+            }
             if node.particles.as_ref().is_some_and(|p| !p.is_empty()) {
                 if node.fire_and_forget == Some(true) {
                     self.fire_particle_fx(systems, records, &node, &spot, rig);
-                } else if let Some(id) = self.particle_fx(systems, records, &node, &spot) {
+                } else if let Some(id) = self.particle_fx(systems, records, &node, &spot, rig) {
                     state.systems.push(id);
-                    looping = true;
                 }
             }
             if let Some((true, s)) = &node.streak {
                 self.streak_fx(systems, s, at.now);
+            }
+            if let Some((true, d)) = &node.decal {
+                self.decal_fx(systems, d, &spot);
+            }
+            if let Some((true, r)) = node.repulsor {
+                self.repulse_fx(systems, &r, &spot);
             }
             if let Some((true, l)) = &node.light {
                 self.light_fx(systems, l, node.bone_offset, at.now);
@@ -909,7 +1263,8 @@ impl ObjectEffects {
             if node.stop_streak == Some(true) {
                 self.streak_asks.push((false, location));
             }
-            state.end = calc_duration(records, &node, looping, script).map(|d| at.now + d);
+            state.end = calc_duration(records, &node, &systems.dice(), script, state.restore_color)
+                .map(|d| at.now + d);
         }
         if !applied {
             return (false, scripts);
@@ -954,21 +1309,34 @@ impl ObjectEffects {
             offset()
         };
         let place = on.then(&place);
-        let _ = systems.create_autonomous(records, desc, at.home, place, at.scale, at.now);
+        let _ = systems.create_autonomous(
+            records,
+            desc,
+            at.home,
+            place,
+            at.scale,
+            self.particle_scale,
+            at.now,
+        );
     }
 
     /// Stops effect `effect`: the particle systems it keeps going are let go of, and it no longer
     /// plays; a startup effect only when `force`d. Asked (not `force`d), the appearances its
-    /// entries lay over the object are taken off it.
-    // D2-06920
+    /// entries lay over the object are taken off it. An entry that says so puts the object's color
+    /// back to white in a tenth of a second, whether the effect was playing or not.
+    // D2-06920, D2-06588, D2-06646
     pub fn stop_fx(&mut self, records: &WorldRecords, effect: u32, force: bool) -> bool {
         let Some(state) = self.states.get(&effect) else {
+            self.restore_color(records, effect);
+            self.stop_streaks(records, effect);
             return false;
         };
         if state.startup && !force {
             return false;
         }
         let gone = state.systems.clone();
+        self.restore_color(records, effect);
+        self.stop_streaks(records, effect);
         self.systems.retain(|c| !gone.contains(&c.id));
         if !force {
             for data in self.table.fx_data(records, effect) {
@@ -985,12 +1353,54 @@ impl ObjectEffects {
         true
     }
 
+    /// The streaks the effect's entries turn on are turned off, as it is stopped.
+    fn stop_streaks(&mut self, records: &WorldRecords, effect: u32) {
+        for data in self.table.fx_data(records, effect) {
+            let n = node_for(&data, self.terrain);
+            if n.start_streak == Some(true) {
+                self.streak_asks
+                    .push((false, n.holding_location.unwrap_or(0)));
+            }
+        }
+    }
+
+    /// The object's color back to white, once for each of the effect's entries that says so.
+    fn restore_color(&mut self, records: &WorldRecords, effect: u32) {
+        for data in self.table.fx_data(records, effect) {
+            if node_for(&data, self.terrain).restore == Some(true) {
+                self.color_back();
+            }
+        }
+    }
+
+    /// The object's color back to white in a tenth of a second.
+    fn color_back(&mut self) {
+        self.sliders
+            .extend(COLOR_SLIDERS.into_iter().map(|slider| FxSlider {
+                slider,
+                value: 1.0,
+                time: 0.1,
+                children: false,
+            }));
+    }
+
+    /// The object is going: every effect it plays stops, its startup effects too, with the systems
+    /// they keep going, and its sounds with them.
+    // D2-06923, D2-06643
+    pub fn destroy(&mut self) {
+        for effect in std::mem::take(&mut self.states).into_keys() {
+            self.sounds.push(FxSound::Stop { effect });
+        }
+        self.systems.clear();
+    }
+
     /// The effects have their time up to `now` (the client's time; nothing passes the first
     /// time): each whose strength is not yet the one asked moves toward it, at each of its entries
     /// in turn (one that ramps by the time passed over its ramp's time, held at the strength
     /// asked; one that does not, to it at once), each entry's appearance laid over the object at
-    /// the strength it has then (or taken off at none); then those whose end has come stop, as a
-    /// forced [`ObjectEffects::stop_fx`] stops them, leaving their appearances.
+    /// the strength it has then (or taken off at none); then those whose end has come are over: their
+    /// systems go, what they lay over the object and the sounds they keep going stay, and the
+    /// color goes back only when an entry's color lasts a time.
     // D2-06924
     pub fn use_time(&mut self, records: &WorldRecords, now: f64) {
         #[allow(clippy::cast_possible_truncation)] // a frame's span
@@ -1003,6 +1413,9 @@ impl ObjectEffects {
             }
             for data in self.table.fx_data(records, *effect) {
                 let n = node_for(&data, self.terrain);
+                if self.channels.mismatch(n) {
+                    continue;
+                }
                 let ramp = n.ramp_time.unwrap_or(0.0);
                 if ramp >= 0.0002 {
                     let step = dt / ramp;
@@ -1018,6 +1431,12 @@ impl ObjectEffects {
                     appearance.push((apr.0, n.appearance_key.unwrap_or_default(), state.current));
                 }
             }
+            if state.keeps_sounds {
+                self.sounds.push(FxSound::Volume {
+                    effect: *effect,
+                    volume: state.current,
+                });
+            }
         }
         for (apr, key, scalar) in appearance {
             self.do_appearance_fx(apr, key, scalar);
@@ -1029,7 +1448,13 @@ impl ObjectEffects {
             .map(|(k, _)| *k)
             .collect();
         for effect in ended {
-            self.stop_fx(records, effect, true);
+            let Some(state) = self.states.remove(&effect) else {
+                continue;
+            };
+            self.systems.retain(|c| !state.systems.contains(&c.id));
+            if state.restore_color {
+                self.color_back();
+            }
         }
     }
 
@@ -1048,9 +1473,25 @@ impl ObjectEffects {
         light: Color,
         now: f64,
     ) {
+        self.think_on(systems, home, place, scale, light, now, &NoRig);
+    }
+
+    /// [`ObjectEffects::think`] on a figure: each system on a bone stands where that bone is now.
+    // D2-06649
+    #[allow(clippy::too_many_arguments)]
+    pub fn think_on(
+        &mut self,
+        systems: &ParticleSystems,
+        home: (i32, i32),
+        place: &Mat4,
+        scale: Vec3,
+        light: Color,
+        now: f64,
+        rig: &dyn Rig,
+    ) {
         for c in &self.systems {
-            let at = carried_place(&c.offset, c.remove_rotation, place);
-            systems.queue(&c.system, home, at, scale, light, now);
+            let at = carried_place(&c.offset, c.on, c.remove_rotation, place, rig);
+            systems.queue(&c.system, home, at, scale, self.particle_scale, light, now);
         }
         self.systems
             .retain(|c| !systems.ready_to_die(&c.system, now));
@@ -1082,35 +1523,56 @@ struct Spot {
     now: f64,
 }
 
-/// Where a carried system stands: its offset on the object (with no scale), then the object's
-/// place. An effect that asks for its bone's turn to be taken off keeps only the offset's
-/// translation; an offset with no bone has no turn.
-fn carried_place(offset: &Mat4, remove_rotation: bool, place: &Mat4) -> Mat4 {
-    let offset = if remove_rotation {
-        Mat4::translation(offset.point(Vec3::ZERO))
-    } else {
-        *offset
+/// Where a carried system stands: its offset, then the bone it follows as the figure stands now
+/// (with no scale), then the object's place. An effect that asks for its bone's turn to be taken
+/// off keeps only where that puts it on the object.
+// D2-06649
+fn carried_place(
+    offset: &Mat4,
+    on: CarriedOn,
+    remove_rotation: bool,
+    place: &Mat4,
+    rig: &dyn Rig,
+) -> Mat4 {
+    let bone = match on {
+        CarriedOn::Object => None,
+        CarriedOn::Bone(kind) => rig.bone(kind),
+        CarriedOn::HoldingLocation(kind) => rig.holding_bone(kind),
     };
-    offset.then(place)
+    let on_object = bone.map_or(*offset, |b| offset.then(&b));
+    let on_object = if remove_rotation {
+        Mat4::translation(on_object.point(Vec3::ZERO))
+    } else {
+        on_object
+    };
+    on_object.then(place)
 }
 
+/// How long an object an effect makes or retargets lasts when its entry doesn't say, seconds.
+const DEFAULT_LIFETIME: f32 = 15.0;
+
 /// How long an entry of an effect plays, seconds; none for until it is stopped: a looping particle
-/// system's never ends, else none at all; an object it makes or a retarget with a lifetime, that
-/// lifetime; an effect on a target, never; an appearance, a tenth of a second when its scalar
+/// system's never ends, else none at all; an object it makes or a retarget, its lifetime if not 0
+/// (15 s unless the entry says, never if negative); an effect on a target, never; an appearance, a tenth of a second when its scalar
 /// lessens it, else never; an effect script, the script's length. (A color it restores is not
 /// played here.)
 // D2-06903
-fn calc_duration(
+#[must_use]
+pub fn calc_duration(
     records: &WorldRecords,
     node: &FxNode,
-    looping: bool,
+    dice: &Random,
     script: Option<u32>,
+    restore_color: bool,
 ) -> Option<f64> {
-    let mut d = if looping { None } else { Some(0.0) };
-    if (node.visual_desc.is_some_and(|v| !v.is_none()) || node.retarget == Some(true))
-        && node.lifetime.is_some_and(|l| l != 0.0)
-    {
-        d = node.lifetime.map(f64::from);
+    let sound = sound_id(node, dice).is_some_and(|s| sound_is_looping(records, s));
+    let particles = particle_id(node, dice).is_some_and(|p| particle_is_looping(records, p));
+    let mut d = if sound || particles { None } else { Some(0.0) };
+    if node.visual_desc.is_some_and(|v| !v.is_none()) || node.retarget == Some(true) {
+        let life = f64::from(node.lifetime.unwrap_or(DEFAULT_LIFETIME));
+        if life != 0.0 {
+            d = (life >= 0.0).then_some(life);
+        }
     }
     if node.target_fx.is_some_and(|t| t != 0) {
         d = None;
@@ -1124,6 +1586,12 @@ fn calc_duration(
     if let Some(s) = script {
         if let Some(fx) = records.get::<auberean_assets::fx::FxScript>(s) {
             d = Some(f64::from(fx.period));
+        }
+    }
+    // A color that lasts holds the effect for as long.
+    if restore_color {
+        if let Some(life) = node.color_lifetime.filter(|l| *l > 0.0) {
+            d = Some(f64::from(life));
         }
     }
     d
@@ -1258,6 +1726,70 @@ pub fn entity_place(e: &Entity) -> Option<(u32, Mat4, Vec3)> {
     Some((object, place, e.scale.unwrap_or(Vec3::new(1.0, 1.0, 1.0))))
 }
 
+/// The effects of the objects an interface scene places: begun when the scene is first shown, run
+/// on the scene's own clock with systems of its own, lit by the scene's lights.
+#[derive(Debug, Default)]
+pub struct ViewEffects {
+    systems: ParticleSystems,
+    effects: PlacedEffects,
+    placed: Vec<PlacedLook>,
+}
+
+impl ViewEffects {
+    /// The effects of the objects among `entities` that play any.
+    #[must_use]
+    pub fn of_scene(records: &WorldRecords, entities: &[Entity], dice: &Random) -> Self {
+        let systems = ParticleSystems::default();
+        systems.set_dice(dice);
+        let placed = entities
+            .iter()
+            .enumerate()
+            .filter_map(|(index, e)| {
+                let (object, place, own) = entity_place(e)?;
+                let (look, scale) = object_effect_look(records, object)?;
+                Some(PlacedLook {
+                    key: PlacedLook::key(VIEW_BLOCK, 0, index),
+                    block: VIEW_BLOCK,
+                    look,
+                    place,
+                    scale: Vec3::new(own.x * scale.x, own.y * scale.y, own.z * scale.z),
+                })
+            })
+            .collect();
+        Self {
+            systems,
+            effects: PlacedEffects::default(),
+            placed,
+        }
+    }
+
+    /// What the effects draw at `now`, seen from `eye` with right, forward and up: their lit
+    /// particles take `light` and, when the scene has lights, those kept where each stands.
+    pub fn batches(
+        &mut self,
+        records: &WorldRecords,
+        now: f64,
+        light: Color,
+        lights: Option<(&BlockLights, &Outside)>,
+        eye: Vec3,
+        axes: (Vec3, Vec3, Vec3),
+    ) -> Vec<ObjectBatch> {
+        self.effects.sync(&self.systems, records, &self.placed, now);
+        self.effects.draw(&self.systems, now, light);
+        if let Some((lights, outside)) = lights {
+            let mut order = lights.scene();
+            self.systems.light_queued(now, |_, at| {
+                let kept = order.keep(lights, at, 0.0, outside);
+                Some(lights.particle_lights(&kept))
+            });
+        }
+        self.systems.batches(VIEW_BLOCK, 1.0, now, eye, axes)
+    }
+}
+
+/// The block an interface scene's objects are taken to stand in: it has no other.
+const VIEW_BLOCK: (i32, i32) = (0, 0);
+
 /// One placed object's effects, kept from frame to frame.
 #[derive(Clone, Debug)]
 struct Placed {
@@ -1265,6 +1797,7 @@ struct Placed {
     place: Mat4,
     scale: Vec3,
     effects: ObjectEffects,
+    rig: Option<RestRig>,
 }
 
 /// The effects of the objects placed with the world around the viewer: an object's begin when it
@@ -1290,6 +1823,8 @@ impl PlacedEffects {
     /// Follow the objects now drawn, `placed`: those new to it begin their startup effects at
     /// `now`, their systems kept by `systems` and shared with the other objects placed with the
     /// world; those no longer drawn are dropped, letting go of their systems.
+    /// The objects their startup effects make are not made: an object placed with the world has no
+    /// body for them to hang from.
     pub fn sync(
         &mut self,
         systems: &ParticleSystems,
@@ -1307,7 +1842,13 @@ impl PlacedEffects {
                 continue;
             };
             effects.shared = true;
-            effects.start(systems, records, p.block, &p.place, p.scale, now);
+            let rig = RestRig::of_look(records, &p.look);
+            match &rig {
+                Some(rig) => {
+                    effects.start_on(systems, records, p.block, &p.place, p.scale, now, rig);
+                }
+                None => effects.start(systems, records, p.block, &p.place, p.scale, now),
+            }
             self.objects.insert(
                 p.key,
                 Placed {
@@ -1315,6 +1856,7 @@ impl PlacedEffects {
                     place: p.place,
                     scale: p.scale,
                     effects,
+                    rig,
                 },
             );
         }
@@ -1345,8 +1887,15 @@ impl PlacedEffects {
     /// with `light`.
     pub fn draw(&mut self, systems: &ParticleSystems, now: f64, light: Color) {
         for p in self.objects.values_mut() {
-            p.effects
-                .think(systems, p.block, &p.place, p.scale, light, now);
+            match &p.rig {
+                Some(rig) => {
+                    p.effects
+                        .think_on(systems, p.block, &p.place, p.scale, light, now, rig);
+                }
+                None => p
+                    .effects
+                    .think(systems, p.block, &p.place, p.scale, light, now),
+            }
         }
     }
 }

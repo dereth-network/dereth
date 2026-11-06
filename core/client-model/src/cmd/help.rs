@@ -101,6 +101,19 @@ impl CommandInterp {
     /// is not a valid command."* on top of whatever came back from here.
     #[must_use]
     pub fn do_help(&self, args: &[String]) -> Vec<(String, u32)> {
+        self.do_help_in(args, &super::world_commands::HelpScope::default())
+    }
+
+    /// [`Self::do_help`] on a world whose `scope` says which commands it lacks: help says
+    /// nothing of them, `@help` on one answers as for an unknown command, and `@lifestone` is
+    /// described as the command it is there.
+    #[must_use]
+    pub fn do_help_in(
+        &self,
+        args: &[String],
+        scope: &super::world_commands::HelpScope,
+    ) -> Vec<(String, u32)> {
+        let filtered = |line: &str| scope.filter(line);
         if args.is_empty() {
             let mut listing = String::from(HELP_AVAILABLE);
             for group in HELP_GROUP_ORDER {
@@ -109,7 +122,7 @@ impl CommandInterp {
                 };
                 let Some(func) = entry.help else { continue };
                 for line in help_text(func, HelpType::Summary).unwrap_or(&[]) {
-                    listing.push_str(line);
+                    listing.extend(filtered(line));
                 }
             }
             return vec![
@@ -118,8 +131,9 @@ impl CommandInterp {
             ];
         }
         let name = args[0].trim_start_matches(HELP_SIGILS);
-        let long = self
-            .lookup(name)
+        let long = (!scope.hides(name))
+            .then(|| self.lookup(name))
+            .flatten()
             .and_then(|entry| entry.help)
             .and_then(|func| help_text(func, HelpType::Long));
         let Some(long) = long else {
@@ -127,7 +141,7 @@ impl CommandInterp {
         };
         let mut body = String::from(FOR_MORE_INFORMATION);
         for line in long {
-            body.push_str(line);
+            body.extend(filtered(line));
         }
         vec![
             (HELP_NOTE.to_owned(), HELP_CHAT_TYPE),

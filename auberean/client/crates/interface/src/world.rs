@@ -38,6 +38,8 @@ mod quality {
 pub(crate) mod notice {
     pub const CHANGE_RADAR_LOOK: u32 = 0x0085 << 16 | 0x000A;
     pub const RELOAD_OPTIONS: u32 = 0x0085 << 16 | 0x0009;
+    /// An item changed, its quantity among others.
+    pub const ITEM_UPDATE: u32 = 0x008B << 16 | 0x0004;
     /// The options window changed the player's options.
     pub const OPTIONS_CHANGED: u32 = 0x46D;
 }
@@ -46,7 +48,6 @@ pub(crate) mod notice {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Ask {
     CeaseAttack(u64),
-    ShowCoordinates(bool),
     ShowNames(bool),
 }
 
@@ -78,6 +79,7 @@ pub struct Gather {
     selection: u64,
     last_selection: u64,
     auto_target: bool,
+    should_auto_target: bool,
     ranges: Option<(f32, f32)>,
     options: Option<(bool, bool)>,
     /// The calls asked, for the next frame.
@@ -124,6 +126,11 @@ fn global(cell: u32, origin: [f32; 3]) -> [f32; 3] {
 }
 
 impl Gather {
+    /// The options the panels read changed: ask them again.
+    pub fn options_changed(&mut self) {
+        self.options = None;
+    }
+
     /// Ask the player's scripts what the panels read of them (see the module's description).
     pub fn prepare(&mut self, client: &mut Client, notices: &[Notice]) {
         let Some(player) = client
@@ -144,11 +151,6 @@ impl Gather {
                     client.interface(function::STOP_ATTACKING, &[InterfaceArg::Long(id)]);
                 }
                 // D2-00565, D2-01265
-                Ask::ShowCoordinates(on) => {
-                    let w = InterfaceArg::Word(u32::from(on));
-                    client.interface(function::SET_SHOW_RADAR_COORDS, &[w]);
-                    self.options = None;
-                }
                 // D2-00567, D2-01262
                 Ask::ShowNames(on) => {
                     let w = InterfaceArg::Word(u32::from(on));
@@ -174,6 +176,12 @@ impl Gather {
                         f.name = None;
                     }),
                 },
+                // D2-02061
+                notice::ITEM_UPDATE => {
+                    if let Some(f) = n.about.and_then(|id| self.facts.get_mut(&id)) {
+                        f.name = None;
+                    }
+                }
                 notice::RELOAD_OPTIONS | notice::OPTIONS_CHANGED => self.options = None,
                 _ => {}
             }
@@ -201,6 +209,7 @@ impl Gather {
         self.auto_target = client
             .interface(function::GET_AUTO_TARGET, &[])
             .is_some_and(|(_, v)| v != 0);
+        self.should_auto_target = client.should_auto_target().is_some_and(|v| v != 0);
         if self.ranges.is_none() {
             self.ranges = client.radar_ranges();
         }
@@ -369,7 +378,6 @@ impl Gather {
                 fellow: f.fellow,
                 attackable: f.attackable,
                 owner_fellow: f.owner_fellow,
-                held: o.parent.is_some(),
             });
         }
         self.names.retain(|id, (_, _, download)| {
@@ -396,10 +404,12 @@ impl Gather {
             selection: self.selection,
             last_selection: self.last_selection,
             auto_target: self.auto_target,
+            should_auto_target: self.should_auto_target,
             ranges: self.ranges.unwrap_or((50.0, 75.0)),
             show_coordinates: coords,
             show_names: names,
             portal_space: client.in_portal_space(),
+            portal_drawn: s.portal_drawn,
             moving: s.moving,
             fellow_xp: self.fellow_xp.clone(),
             last_attacker: client.last_attacker,

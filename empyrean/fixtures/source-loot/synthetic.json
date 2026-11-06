@@ -1,0 +1,1410 @@
+{
+  "id": 1,
+  "schema": 1,
+  "algorithm": "ac1999-six-groups-v1",
+  "revision": "5fe910e7a3e549d955117920a1bd30b4ee646938",
+  "files_sha256": {
+    "profile.json": "0000000000000000000000000000000000000000000000000000000000000000",
+    "material-colors.json": "0000000000000000000000000000000000000000000000000000000000000000",
+    "material-values.json": "0000000000000000000000000000000000000000000000000000000000000000",
+    "Tiers/tier-1.json": "0000000000000000000000000000000000000000000000000000000000000000",
+    "Tiers/tier-2.json": "0000000000000000000000000000000000000000000000000000000000000000",
+    "Tiers/tier-3.json": "0000000000000000000000000000000000000000000000000000000000000000",
+    "Tiers/tier-4.json": "0000000000000000000000000000000000000000000000000000000000000000",
+    "Tiers/tier-5.json": "0000000000000000000000000000000000000000000000000000000000000000",
+    "Pools/melee-weapons.json": "0000000000000000000000000000000000000000000000000000000000000000",
+    "Pools/missile-weapons.json": "0000000000000000000000000000000000000000000000000000000000000000",
+    "Pools/armor.json": "0000000000000000000000000000000000000000000000000000000000000000",
+    "Pools/clothing.json": "0000000000000000000000000000000000000000000000000000000000000000",
+    "Pools/jewelry.json": "0000000000000000000000000000000000000000000000000000000000000000",
+    "Pools/gems.json": "0000000000000000000000000000000000000000000000000000000000000000",
+    "Pools/casters.json": "0000000000000000000000000000000000000000000000000000000000000000",
+    "Pools/scrolls.json": "0000000000000000000000000000000000000000000000000000000000000000",
+    "Pools/components.json": "0000000000000000000000000000000000000000000000000000000000000000",
+    "Pools/misc.json": "0000000000000000000000000000000000000000000000000000000000000000",
+    "Mutations/armor.json": "0000000000000000000000000000000000000000000000000000000000000000",
+    "Mutations/melee-weapons.json": "0000000000000000000000000000000000000000000000000000000000000000",
+    "Mutations/missile-weapons.json": "0000000000000000000000000000000000000000000000000000000000000000",
+    "Spells/armor-feet.json": "0000000000000000000000000000000000000000000000000000000000000000",
+    "Spells/armor-hands.json": "0000000000000000000000000000000000000000000000000000000000000000",
+    "Spells/armor-head.json": "0000000000000000000000000000000000000000000000000000000000000000",
+    "Spells/armor-item.json": "0000000000000000000000000000000000000000000000000000000000000000",
+    "Spells/armor-lower.json": "0000000000000000000000000000000000000000000000000000000000000000",
+    "Spells/armor-upper.json": "0000000000000000000000000000000000000000000000000000000000000000",
+    "Spells/caster-attack.json": "0000000000000000000000000000000000000000000000000000000000000000",
+    "Spells/caster-support.json": "0000000000000000000000000000000000000000000000000000000000000000",
+    "Spells/caster.json": "0000000000000000000000000000000000000000000000000000000000000000",
+    "Spells/clothing-feet.json": "0000000000000000000000000000000000000000000000000000000000000000",
+    "Spells/clothing-hands.json": "0000000000000000000000000000000000000000000000000000000000000000",
+    "Spells/clothing-head.json": "0000000000000000000000000000000000000000000000000000000000000000",
+    "Spells/clothing-item.json": "0000000000000000000000000000000000000000000000000000000000000000",
+    "Spells/gem.json": "0000000000000000000000000000000000000000000000000000000000000000",
+    "Spells/jewelry.json": "0000000000000000000000000000000000000000000000000000000000000000",
+    "Spells/melee.json": "0000000000000000000000000000000000000000000000000000000000000000",
+    "Spells/missile.json": "0000000000000000000000000000000000000000000000000000000000000000",
+    "Spells/shield.json": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "profile": {
+    "spellProperties": {
+      "spellPower": [
+        10,
+        10,
+        10,
+        10,
+        10,
+        10
+      ],
+      "spellMana": [
+        30,
+        30,
+        30,
+        30,
+        30,
+        30
+      ]
+    }
+  },
+  "tiers": {
+    "1": {
+      "tierId": 1,
+      "scrollCategories": [
+        "I"
+      ],
+      "componentCategories": [
+        "components"
+      ],
+      "valueFactorMin": 1.0,
+      "valueFactorMax": 1.0,
+      "gemValueFactorMin": 0.5,
+      "gemValueFactorMax": 0.5,
+      "maxAmountOfSpells": 3,
+      "chanceOfSpells": 0.0,
+      "minSpellLevel": 1,
+      "maxSpellLevel": 1,
+      "preferredSpellLevel": 1,
+      "preferredSpellLevelStrength": 2.0,
+      "meleeWeaponBaseTierWeights": [
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "missileWeaponBaseTierWeights": [
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "armorBaseTierWeights": [
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "mundaneBaseTierWeights": [
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "materialsCeramic": [
+        "iron"
+      ],
+      "materialsCloth": [
+        "iron"
+      ],
+      "materialsGem": [
+        "iron"
+      ],
+      "materialsLeather": [
+        "iron"
+      ],
+      "materialsMetal": [
+        "iron"
+      ],
+      "materialsStone": [
+        "iron"
+      ],
+      "materialsWood": [
+        "iron"
+      ]
+    },
+    "2": {
+      "tierId": 2,
+      "scrollCategories": [
+        "I"
+      ],
+      "componentCategories": [
+        "components"
+      ],
+      "valueFactorMin": 1.0,
+      "valueFactorMax": 1.0,
+      "gemValueFactorMin": 0.5,
+      "gemValueFactorMax": 0.5,
+      "maxAmountOfSpells": 3,
+      "chanceOfSpells": 0.0,
+      "minSpellLevel": 1,
+      "maxSpellLevel": 1,
+      "preferredSpellLevel": 1,
+      "preferredSpellLevelStrength": 2.0,
+      "meleeWeaponBaseTierWeights": [
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "missileWeaponBaseTierWeights": [
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "armorBaseTierWeights": [
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "mundaneBaseTierWeights": [
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "materialsCeramic": [
+        "iron"
+      ],
+      "materialsCloth": [
+        "iron"
+      ],
+      "materialsGem": [
+        "iron"
+      ],
+      "materialsLeather": [
+        "iron"
+      ],
+      "materialsMetal": [
+        "iron"
+      ],
+      "materialsStone": [
+        "iron"
+      ],
+      "materialsWood": [
+        "iron"
+      ]
+    },
+    "3": {
+      "tierId": 3,
+      "scrollCategories": [
+        "I"
+      ],
+      "componentCategories": [
+        "components"
+      ],
+      "valueFactorMin": 1.0,
+      "valueFactorMax": 1.0,
+      "gemValueFactorMin": 0.5,
+      "gemValueFactorMax": 0.5,
+      "maxAmountOfSpells": 3,
+      "chanceOfSpells": 0.0,
+      "minSpellLevel": 1,
+      "maxSpellLevel": 1,
+      "preferredSpellLevel": 1,
+      "preferredSpellLevelStrength": 2.0,
+      "meleeWeaponBaseTierWeights": [
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "missileWeaponBaseTierWeights": [
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "armorBaseTierWeights": [
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "mundaneBaseTierWeights": [
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "materialsCeramic": [
+        "iron"
+      ],
+      "materialsCloth": [
+        "iron"
+      ],
+      "materialsGem": [
+        "iron"
+      ],
+      "materialsLeather": [
+        "iron"
+      ],
+      "materialsMetal": [
+        "iron"
+      ],
+      "materialsStone": [
+        "iron"
+      ],
+      "materialsWood": [
+        "iron"
+      ]
+    },
+    "4": {
+      "tierId": 4,
+      "scrollCategories": [
+        "I"
+      ],
+      "componentCategories": [
+        "components"
+      ],
+      "valueFactorMin": 1.0,
+      "valueFactorMax": 1.0,
+      "gemValueFactorMin": 0.5,
+      "gemValueFactorMax": 0.5,
+      "maxAmountOfSpells": 3,
+      "chanceOfSpells": 0.0,
+      "minSpellLevel": 1,
+      "maxSpellLevel": 1,
+      "preferredSpellLevel": 1,
+      "preferredSpellLevelStrength": 2.0,
+      "meleeWeaponBaseTierWeights": [
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "missileWeaponBaseTierWeights": [
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "armorBaseTierWeights": [
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "mundaneBaseTierWeights": [
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "materialsCeramic": [
+        "iron"
+      ],
+      "materialsCloth": [
+        "iron"
+      ],
+      "materialsGem": [
+        "iron"
+      ],
+      "materialsLeather": [
+        "iron"
+      ],
+      "materialsMetal": [
+        "iron"
+      ],
+      "materialsStone": [
+        "iron"
+      ],
+      "materialsWood": [
+        "iron"
+      ]
+    },
+    "5": {
+      "tierId": 5,
+      "scrollCategories": [
+        "I"
+      ],
+      "componentCategories": [
+        "components"
+      ],
+      "valueFactorMin": 1.0,
+      "valueFactorMax": 1.0,
+      "gemValueFactorMin": 0.5,
+      "gemValueFactorMax": 0.5,
+      "maxAmountOfSpells": 3,
+      "chanceOfSpells": 0.0,
+      "minSpellLevel": 1,
+      "maxSpellLevel": 1,
+      "preferredSpellLevel": 1,
+      "preferredSpellLevelStrength": 2.0,
+      "meleeWeaponBaseTierWeights": [
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "missileWeaponBaseTierWeights": [
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "armorBaseTierWeights": [
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "mundaneBaseTierWeights": [
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "materialsCeramic": [
+        "iron"
+      ],
+      "materialsCloth": [
+        "iron"
+      ],
+      "materialsGem": [
+        "iron"
+      ],
+      "materialsLeather": [
+        "iron"
+      ],
+      "materialsMetal": [
+        "iron"
+      ],
+      "materialsStone": [
+        "iron"
+      ],
+      "materialsWood": [
+        "iron"
+      ]
+    }
+  },
+  "pools": {
+    "melee-weapons": [
+      {
+        "category": "swords",
+        "entries": [
+          {
+            "name": "Synthetic item",
+            "wcid": 8001
+          }
+        ],
+        "weight": 3,
+        "mutationBands": [
+          {
+            "minDamageBonus": 2,
+            "maxDamageBonus": 2,
+            "minDamageModBonus": 0.2,
+            "maxDamageModBonus": 0.2,
+            "slowSpeedMod": 0.5,
+            "fastSpeedMod": 0.5,
+            "minArmorMult": 1.5,
+            "maxArmorMult": 1.5,
+            "minShieldArmorMult": 2.0,
+            "maxShieldArmorMult": 2.0,
+            "minBurdenMod": 0.8,
+            "maxBurdenMod": 0.8
+          },
+          {
+            "minDamageBonus": 2,
+            "maxDamageBonus": 2,
+            "minDamageModBonus": 0.2,
+            "maxDamageModBonus": 0.2,
+            "slowSpeedMod": 0.5,
+            "fastSpeedMod": 0.5,
+            "minArmorMult": 1.5,
+            "maxArmorMult": 1.5,
+            "minShieldArmorMult": 2.0,
+            "maxShieldArmorMult": 2.0,
+            "minBurdenMod": 0.8,
+            "maxBurdenMod": 0.8
+          },
+          {
+            "minDamageBonus": 2,
+            "maxDamageBonus": 2,
+            "minDamageModBonus": 0.2,
+            "maxDamageModBonus": 0.2,
+            "slowSpeedMod": 0.5,
+            "fastSpeedMod": 0.5,
+            "minArmorMult": 1.5,
+            "maxArmorMult": 1.5,
+            "minShieldArmorMult": 2.0,
+            "maxShieldArmorMult": 2.0,
+            "minBurdenMod": 0.8,
+            "maxBurdenMod": 0.8
+          },
+          {
+            "minDamageBonus": 2,
+            "maxDamageBonus": 2,
+            "minDamageModBonus": 0.2,
+            "maxDamageModBonus": 0.2,
+            "slowSpeedMod": 0.5,
+            "fastSpeedMod": 0.5,
+            "minArmorMult": 1.5,
+            "maxArmorMult": 1.5,
+            "minShieldArmorMult": 2.0,
+            "maxShieldArmorMult": 2.0,
+            "minBurdenMod": 0.8,
+            "maxBurdenMod": 0.8
+          },
+          {
+            "minDamageBonus": 2,
+            "maxDamageBonus": 2,
+            "minDamageModBonus": 0.2,
+            "maxDamageModBonus": 0.2,
+            "slowSpeedMod": 0.5,
+            "fastSpeedMod": 0.5,
+            "minArmorMult": 1.5,
+            "maxArmorMult": 1.5,
+            "minShieldArmorMult": 2.0,
+            "maxShieldArmorMult": 2.0,
+            "minBurdenMod": 0.8,
+            "maxBurdenMod": 0.8
+          }
+        ]
+      }
+    ],
+    "missile-weapons": [
+      {
+        "category": "bows",
+        "entries": [
+          {
+            "name": "Synthetic item",
+            "wcid": 8002
+          }
+        ],
+        "weight": 1,
+        "mutationBands": [
+          {
+            "minDamageBonus": 2,
+            "maxDamageBonus": 2,
+            "minDamageModBonus": 0.2,
+            "maxDamageModBonus": 0.2,
+            "slowSpeedMod": 0.5,
+            "fastSpeedMod": 0.5,
+            "minArmorMult": 1.5,
+            "maxArmorMult": 1.5,
+            "minShieldArmorMult": 2.0,
+            "maxShieldArmorMult": 2.0,
+            "minBurdenMod": 0.8,
+            "maxBurdenMod": 0.8
+          },
+          {
+            "minDamageBonus": 2,
+            "maxDamageBonus": 2,
+            "minDamageModBonus": 0.2,
+            "maxDamageModBonus": 0.2,
+            "slowSpeedMod": 0.5,
+            "fastSpeedMod": 0.5,
+            "minArmorMult": 1.5,
+            "maxArmorMult": 1.5,
+            "minShieldArmorMult": 2.0,
+            "maxShieldArmorMult": 2.0,
+            "minBurdenMod": 0.8,
+            "maxBurdenMod": 0.8
+          },
+          {
+            "minDamageBonus": 2,
+            "maxDamageBonus": 2,
+            "minDamageModBonus": 0.2,
+            "maxDamageModBonus": 0.2,
+            "slowSpeedMod": 0.5,
+            "fastSpeedMod": 0.5,
+            "minArmorMult": 1.5,
+            "maxArmorMult": 1.5,
+            "minShieldArmorMult": 2.0,
+            "maxShieldArmorMult": 2.0,
+            "minBurdenMod": 0.8,
+            "maxBurdenMod": 0.8
+          },
+          {
+            "minDamageBonus": 2,
+            "maxDamageBonus": 2,
+            "minDamageModBonus": 0.2,
+            "maxDamageModBonus": 0.2,
+            "slowSpeedMod": 0.5,
+            "fastSpeedMod": 0.5,
+            "minArmorMult": 1.5,
+            "maxArmorMult": 1.5,
+            "minShieldArmorMult": 2.0,
+            "maxShieldArmorMult": 2.0,
+            "minBurdenMod": 0.8,
+            "maxBurdenMod": 0.8
+          },
+          {
+            "minDamageBonus": 2,
+            "maxDamageBonus": 2,
+            "minDamageModBonus": 0.2,
+            "maxDamageModBonus": 0.2,
+            "slowSpeedMod": 0.5,
+            "fastSpeedMod": 0.5,
+            "minArmorMult": 1.5,
+            "maxArmorMult": 1.5,
+            "minShieldArmorMult": 2.0,
+            "maxShieldArmorMult": 2.0,
+            "minBurdenMod": 0.8,
+            "maxBurdenMod": 0.8
+          }
+        ]
+      },
+      {
+        "category": "thrown",
+        "entries": [
+          {
+            "name": "Synthetic item",
+            "wcid": 8017
+          }
+        ],
+        "weight": 1,
+        "mutationBands": [
+          {
+            "minDamageBonus": 2,
+            "maxDamageBonus": 2,
+            "minDamageModBonus": 0.2,
+            "maxDamageModBonus": 0.2,
+            "slowSpeedMod": 0.5,
+            "fastSpeedMod": 0.5,
+            "minArmorMult": 1.5,
+            "maxArmorMult": 1.5,
+            "minShieldArmorMult": 2.0,
+            "maxShieldArmorMult": 2.0,
+            "minBurdenMod": 0.8,
+            "maxBurdenMod": 0.8
+          },
+          {
+            "minDamageBonus": 2,
+            "maxDamageBonus": 2,
+            "minDamageModBonus": 0.2,
+            "maxDamageModBonus": 0.2,
+            "slowSpeedMod": 0.5,
+            "fastSpeedMod": 0.5,
+            "minArmorMult": 1.5,
+            "maxArmorMult": 1.5,
+            "minShieldArmorMult": 2.0,
+            "maxShieldArmorMult": 2.0,
+            "minBurdenMod": 0.8,
+            "maxBurdenMod": 0.8
+          },
+          {
+            "minDamageBonus": 2,
+            "maxDamageBonus": 2,
+            "minDamageModBonus": 0.2,
+            "maxDamageModBonus": 0.2,
+            "slowSpeedMod": 0.5,
+            "fastSpeedMod": 0.5,
+            "minArmorMult": 1.5,
+            "maxArmorMult": 1.5,
+            "minShieldArmorMult": 2.0,
+            "maxShieldArmorMult": 2.0,
+            "minBurdenMod": 0.8,
+            "maxBurdenMod": 0.8
+          },
+          {
+            "minDamageBonus": 2,
+            "maxDamageBonus": 2,
+            "minDamageModBonus": 0.2,
+            "maxDamageModBonus": 0.2,
+            "slowSpeedMod": 0.5,
+            "fastSpeedMod": 0.5,
+            "minArmorMult": 1.5,
+            "maxArmorMult": 1.5,
+            "minShieldArmorMult": 2.0,
+            "maxShieldArmorMult": 2.0,
+            "minBurdenMod": 0.8,
+            "maxBurdenMod": 0.8
+          },
+          {
+            "minDamageBonus": 2,
+            "maxDamageBonus": 2,
+            "minDamageModBonus": 0.2,
+            "maxDamageModBonus": 0.2,
+            "slowSpeedMod": 0.5,
+            "fastSpeedMod": 0.5,
+            "minArmorMult": 1.5,
+            "maxArmorMult": 1.5,
+            "minShieldArmorMult": 2.0,
+            "maxShieldArmorMult": 2.0,
+            "minBurdenMod": 0.8,
+            "maxBurdenMod": 0.8
+          }
+        ]
+      }
+    ],
+    "armor": [
+      {
+        "category": "armor",
+        "entries": [
+          {
+            "name": "Synthetic item",
+            "wcid": 8003
+          }
+        ],
+        "baseTier": 1,
+        "mutationBands": [
+          {
+            "minDamageBonus": 2,
+            "maxDamageBonus": 2,
+            "minDamageModBonus": 0.2,
+            "maxDamageModBonus": 0.2,
+            "slowSpeedMod": 0.5,
+            "fastSpeedMod": 0.5,
+            "minArmorMult": 1.5,
+            "maxArmorMult": 1.5,
+            "minShieldArmorMult": 2.0,
+            "maxShieldArmorMult": 2.0,
+            "minBurdenMod": 0.8,
+            "maxBurdenMod": 0.8
+          },
+          {
+            "minDamageBonus": 2,
+            "maxDamageBonus": 2,
+            "minDamageModBonus": 0.2,
+            "maxDamageModBonus": 0.2,
+            "slowSpeedMod": 0.5,
+            "fastSpeedMod": 0.5,
+            "minArmorMult": 1.5,
+            "maxArmorMult": 1.5,
+            "minShieldArmorMult": 2.0,
+            "maxShieldArmorMult": 2.0,
+            "minBurdenMod": 0.8,
+            "maxBurdenMod": 0.8
+          },
+          {
+            "minDamageBonus": 2,
+            "maxDamageBonus": 2,
+            "minDamageModBonus": 0.2,
+            "maxDamageModBonus": 0.2,
+            "slowSpeedMod": 0.5,
+            "fastSpeedMod": 0.5,
+            "minArmorMult": 1.5,
+            "maxArmorMult": 1.5,
+            "minShieldArmorMult": 2.0,
+            "maxShieldArmorMult": 2.0,
+            "minBurdenMod": 0.8,
+            "maxBurdenMod": 0.8
+          },
+          {
+            "minDamageBonus": 2,
+            "maxDamageBonus": 2,
+            "minDamageModBonus": 0.2,
+            "maxDamageModBonus": 0.2,
+            "slowSpeedMod": 0.5,
+            "fastSpeedMod": 0.5,
+            "minArmorMult": 1.5,
+            "maxArmorMult": 1.5,
+            "minShieldArmorMult": 2.0,
+            "maxShieldArmorMult": 2.0,
+            "minBurdenMod": 0.8,
+            "maxBurdenMod": 0.8
+          },
+          {
+            "minDamageBonus": 2,
+            "maxDamageBonus": 2,
+            "minDamageModBonus": 0.2,
+            "maxDamageModBonus": 0.2,
+            "slowSpeedMod": 0.5,
+            "fastSpeedMod": 0.5,
+            "minArmorMult": 1.5,
+            "maxArmorMult": 1.5,
+            "minShieldArmorMult": 2.0,
+            "maxShieldArmorMult": 2.0,
+            "minBurdenMod": 0.8,
+            "maxBurdenMod": 0.8
+          }
+        ]
+      }
+    ],
+    "clothing": [
+      {
+        "category": "clothing",
+        "entries": [
+          {
+            "name": "Synthetic item",
+            "wcid": 8004
+          }
+        ]
+      }
+    ],
+    "jewelry": [
+      {
+        "category": "jewelry",
+        "entries": [
+          {
+            "name": "Synthetic item",
+            "wcid": 8005
+          }
+        ]
+      }
+    ],
+    "gems": [
+      {
+        "category": "gemstones",
+        "entries": [
+          {
+            "name": "Synthetic item",
+            "wcid": 8006,
+            "material": 61
+          }
+        ]
+      }
+    ],
+    "casters": [
+      {
+        "category": "casters",
+        "entries": [
+          {
+            "name": "Synthetic item",
+            "wcid": 8007
+          }
+        ]
+      }
+    ],
+    "scrolls": [
+      {
+        "category": "I",
+        "entries": [
+          {
+            "name": "Synthetic item",
+            "wcid": 8008
+          }
+        ]
+      }
+    ],
+    "components": [
+      {
+        "category": "components",
+        "entries": [
+          {
+            "name": "Synthetic item",
+            "wcid": 8009
+          }
+        ]
+      }
+    ],
+    "misc": [
+      {
+        "category": "manaStones",
+        "entries": [
+          {
+            "name": "Synthetic item",
+            "wcid": 8010,
+            "baseTier": 2
+          }
+        ]
+      },
+      {
+        "category": "healingKits",
+        "entries": [
+          {
+            "name": "Synthetic item",
+            "wcid": 8011
+          }
+        ]
+      },
+      {
+        "category": "potions",
+        "entries": [
+          {
+            "name": "Synthetic item",
+            "wcid": 8012,
+            "baseTier": 2
+          }
+        ]
+      },
+      {
+        "category": "food",
+        "entries": [
+          {
+            "name": "Synthetic item",
+            "wcid": 8013
+          }
+        ]
+      },
+      {
+        "category": "coins",
+        "entries": [
+          {
+            "name": "Synthetic item",
+            "wcid": 8014
+          }
+        ]
+      },
+      {
+        "category": "lockpicks",
+        "entries": [
+          {
+            "name": "Synthetic item",
+            "wcid": 8015
+          }
+        ]
+      },
+      {
+        "category": "parchment",
+        "entries": [
+          {
+            "name": "Synthetic item",
+            "wcid": 8016
+          }
+        ]
+      }
+    ]
+  },
+  "mutations": {
+    "armor": [
+      {
+        "minDamageBonus": 2,
+        "maxDamageBonus": 2,
+        "minDamageModBonus": 0.2,
+        "maxDamageModBonus": 0.2,
+        "slowSpeedMod": 0.5,
+        "fastSpeedMod": 0.5,
+        "minArmorMult": 1.5,
+        "maxArmorMult": 1.5,
+        "minShieldArmorMult": 2.0,
+        "maxShieldArmorMult": 2.0,
+        "minBurdenMod": 0.8,
+        "maxBurdenMod": 0.8
+      },
+      {
+        "minDamageBonus": 2,
+        "maxDamageBonus": 2,
+        "minDamageModBonus": 0.2,
+        "maxDamageModBonus": 0.2,
+        "slowSpeedMod": 0.5,
+        "fastSpeedMod": 0.5,
+        "minArmorMult": 1.5,
+        "maxArmorMult": 1.5,
+        "minShieldArmorMult": 2.0,
+        "maxShieldArmorMult": 2.0,
+        "minBurdenMod": 0.8,
+        "maxBurdenMod": 0.8
+      },
+      {
+        "minDamageBonus": 2,
+        "maxDamageBonus": 2,
+        "minDamageModBonus": 0.2,
+        "maxDamageModBonus": 0.2,
+        "slowSpeedMod": 0.5,
+        "fastSpeedMod": 0.5,
+        "minArmorMult": 1.5,
+        "maxArmorMult": 1.5,
+        "minShieldArmorMult": 2.0,
+        "maxShieldArmorMult": 2.0,
+        "minBurdenMod": 0.8,
+        "maxBurdenMod": 0.8
+      },
+      {
+        "minDamageBonus": 2,
+        "maxDamageBonus": 2,
+        "minDamageModBonus": 0.2,
+        "maxDamageModBonus": 0.2,
+        "slowSpeedMod": 0.5,
+        "fastSpeedMod": 0.5,
+        "minArmorMult": 1.5,
+        "maxArmorMult": 1.5,
+        "minShieldArmorMult": 2.0,
+        "maxShieldArmorMult": 2.0,
+        "minBurdenMod": 0.8,
+        "maxBurdenMod": 0.8
+      },
+      {
+        "minDamageBonus": 2,
+        "maxDamageBonus": 2,
+        "minDamageModBonus": 0.2,
+        "maxDamageModBonus": 0.2,
+        "slowSpeedMod": 0.5,
+        "fastSpeedMod": 0.5,
+        "minArmorMult": 1.5,
+        "maxArmorMult": 1.5,
+        "minShieldArmorMult": 2.0,
+        "maxShieldArmorMult": 2.0,
+        "minBurdenMod": 0.8,
+        "maxBurdenMod": 0.8
+      }
+    ],
+    "swords": [
+      {
+        "minDamageBonus": 2,
+        "maxDamageBonus": 2,
+        "minDamageModBonus": 0.2,
+        "maxDamageModBonus": 0.2,
+        "slowSpeedMod": 0.5,
+        "fastSpeedMod": 0.5,
+        "minArmorMult": 1.5,
+        "maxArmorMult": 1.5,
+        "minShieldArmorMult": 2.0,
+        "maxShieldArmorMult": 2.0,
+        "minBurdenMod": 0.8,
+        "maxBurdenMod": 0.8
+      },
+      {
+        "minDamageBonus": 2,
+        "maxDamageBonus": 2,
+        "minDamageModBonus": 0.2,
+        "maxDamageModBonus": 0.2,
+        "slowSpeedMod": 0.5,
+        "fastSpeedMod": 0.5,
+        "minArmorMult": 1.5,
+        "maxArmorMult": 1.5,
+        "minShieldArmorMult": 2.0,
+        "maxShieldArmorMult": 2.0,
+        "minBurdenMod": 0.8,
+        "maxBurdenMod": 0.8
+      },
+      {
+        "minDamageBonus": 2,
+        "maxDamageBonus": 2,
+        "minDamageModBonus": 0.2,
+        "maxDamageModBonus": 0.2,
+        "slowSpeedMod": 0.5,
+        "fastSpeedMod": 0.5,
+        "minArmorMult": 1.5,
+        "maxArmorMult": 1.5,
+        "minShieldArmorMult": 2.0,
+        "maxShieldArmorMult": 2.0,
+        "minBurdenMod": 0.8,
+        "maxBurdenMod": 0.8
+      },
+      {
+        "minDamageBonus": 2,
+        "maxDamageBonus": 2,
+        "minDamageModBonus": 0.2,
+        "maxDamageModBonus": 0.2,
+        "slowSpeedMod": 0.5,
+        "fastSpeedMod": 0.5,
+        "minArmorMult": 1.5,
+        "maxArmorMult": 1.5,
+        "minShieldArmorMult": 2.0,
+        "maxShieldArmorMult": 2.0,
+        "minBurdenMod": 0.8,
+        "maxBurdenMod": 0.8
+      },
+      {
+        "minDamageBonus": 2,
+        "maxDamageBonus": 2,
+        "minDamageModBonus": 0.2,
+        "maxDamageModBonus": 0.2,
+        "slowSpeedMod": 0.5,
+        "fastSpeedMod": 0.5,
+        "minArmorMult": 1.5,
+        "maxArmorMult": 1.5,
+        "minShieldArmorMult": 2.0,
+        "maxShieldArmorMult": 2.0,
+        "minBurdenMod": 0.8,
+        "maxBurdenMod": 0.8
+      }
+    ],
+    "bows": [
+      {
+        "minDamageBonus": 2,
+        "maxDamageBonus": 2,
+        "minDamageModBonus": 0.2,
+        "maxDamageModBonus": 0.2,
+        "slowSpeedMod": 0.5,
+        "fastSpeedMod": 0.5,
+        "minArmorMult": 1.5,
+        "maxArmorMult": 1.5,
+        "minShieldArmorMult": 2.0,
+        "maxShieldArmorMult": 2.0,
+        "minBurdenMod": 0.8,
+        "maxBurdenMod": 0.8
+      },
+      {
+        "minDamageBonus": 2,
+        "maxDamageBonus": 2,
+        "minDamageModBonus": 0.2,
+        "maxDamageModBonus": 0.2,
+        "slowSpeedMod": 0.5,
+        "fastSpeedMod": 0.5,
+        "minArmorMult": 1.5,
+        "maxArmorMult": 1.5,
+        "minShieldArmorMult": 2.0,
+        "maxShieldArmorMult": 2.0,
+        "minBurdenMod": 0.8,
+        "maxBurdenMod": 0.8
+      },
+      {
+        "minDamageBonus": 2,
+        "maxDamageBonus": 2,
+        "minDamageModBonus": 0.2,
+        "maxDamageModBonus": 0.2,
+        "slowSpeedMod": 0.5,
+        "fastSpeedMod": 0.5,
+        "minArmorMult": 1.5,
+        "maxArmorMult": 1.5,
+        "minShieldArmorMult": 2.0,
+        "maxShieldArmorMult": 2.0,
+        "minBurdenMod": 0.8,
+        "maxBurdenMod": 0.8
+      },
+      {
+        "minDamageBonus": 2,
+        "maxDamageBonus": 2,
+        "minDamageModBonus": 0.2,
+        "maxDamageModBonus": 0.2,
+        "slowSpeedMod": 0.5,
+        "fastSpeedMod": 0.5,
+        "minArmorMult": 1.5,
+        "maxArmorMult": 1.5,
+        "minShieldArmorMult": 2.0,
+        "maxShieldArmorMult": 2.0,
+        "minBurdenMod": 0.8,
+        "maxBurdenMod": 0.8
+      },
+      {
+        "minDamageBonus": 2,
+        "maxDamageBonus": 2,
+        "minDamageModBonus": 0.2,
+        "maxDamageModBonus": 0.2,
+        "slowSpeedMod": 0.5,
+        "fastSpeedMod": 0.5,
+        "minArmorMult": 1.5,
+        "maxArmorMult": 1.5,
+        "minShieldArmorMult": 2.0,
+        "maxShieldArmorMult": 2.0,
+        "minBurdenMod": 0.8,
+        "maxBurdenMod": 0.8
+      }
+    ],
+    "thrown": [
+      {
+        "minDamageBonus": 2,
+        "maxDamageBonus": 2,
+        "minDamageModBonus": 0.2,
+        "maxDamageModBonus": 0.2,
+        "slowSpeedMod": 0.5,
+        "fastSpeedMod": 0.5,
+        "minArmorMult": 1.5,
+        "maxArmorMult": 1.5,
+        "minShieldArmorMult": 2.0,
+        "maxShieldArmorMult": 2.0,
+        "minBurdenMod": 0.8,
+        "maxBurdenMod": 0.8
+      },
+      {
+        "minDamageBonus": 2,
+        "maxDamageBonus": 2,
+        "minDamageModBonus": 0.2,
+        "maxDamageModBonus": 0.2,
+        "slowSpeedMod": 0.5,
+        "fastSpeedMod": 0.5,
+        "minArmorMult": 1.5,
+        "maxArmorMult": 1.5,
+        "minShieldArmorMult": 2.0,
+        "maxShieldArmorMult": 2.0,
+        "minBurdenMod": 0.8,
+        "maxBurdenMod": 0.8
+      },
+      {
+        "minDamageBonus": 2,
+        "maxDamageBonus": 2,
+        "minDamageModBonus": 0.2,
+        "maxDamageModBonus": 0.2,
+        "slowSpeedMod": 0.5,
+        "fastSpeedMod": 0.5,
+        "minArmorMult": 1.5,
+        "maxArmorMult": 1.5,
+        "minShieldArmorMult": 2.0,
+        "maxShieldArmorMult": 2.0,
+        "minBurdenMod": 0.8,
+        "maxBurdenMod": 0.8
+      },
+      {
+        "minDamageBonus": 2,
+        "maxDamageBonus": 2,
+        "minDamageModBonus": 0.2,
+        "maxDamageModBonus": 0.2,
+        "slowSpeedMod": 0.5,
+        "fastSpeedMod": 0.5,
+        "minArmorMult": 1.5,
+        "maxArmorMult": 1.5,
+        "minShieldArmorMult": 2.0,
+        "maxShieldArmorMult": 2.0,
+        "minBurdenMod": 0.8,
+        "maxBurdenMod": 0.8
+      },
+      {
+        "minDamageBonus": 2,
+        "maxDamageBonus": 2,
+        "minDamageModBonus": 0.2,
+        "maxDamageModBonus": 0.2,
+        "slowSpeedMod": 0.5,
+        "fastSpeedMod": 0.5,
+        "minArmorMult": 1.5,
+        "maxArmorMult": 1.5,
+        "minShieldArmorMult": 2.0,
+        "maxShieldArmorMult": 2.0,
+        "minBurdenMod": 0.8,
+        "maxBurdenMod": 0.8
+      }
+    ]
+  },
+  "spells": {
+    "armor-feet": [
+      {
+        "spellName": "Synthetic ward",
+        "spells": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      }
+    ],
+    "armor-hands": [
+      {
+        "spellName": "Synthetic ward",
+        "spells": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      }
+    ],
+    "armor-head": [
+      {
+        "spellName": "Synthetic ward",
+        "spells": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      }
+    ],
+    "armor-item": [
+      {
+        "spellName": "Synthetic ward",
+        "spells": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      }
+    ],
+    "armor-lower": [
+      {
+        "spellName": "Synthetic ward",
+        "spells": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      }
+    ],
+    "armor-upper": [
+      {
+        "spellName": "Synthetic ward",
+        "spells": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      }
+    ],
+    "caster-attack": [
+      {
+        "spellName": "Synthetic ward",
+        "spells": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      }
+    ],
+    "caster-support": [
+      {
+        "spellName": "Synthetic ward",
+        "spells": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      }
+    ],
+    "caster": [
+      {
+        "spellName": "Synthetic ward",
+        "spells": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      }
+    ],
+    "clothing-feet": [
+      {
+        "spellName": "Synthetic ward",
+        "spells": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      }
+    ],
+    "clothing-hands": [
+      {
+        "spellName": "Synthetic ward",
+        "spells": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      }
+    ],
+    "clothing-head": [
+      {
+        "spellName": "Synthetic ward",
+        "spells": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      }
+    ],
+    "clothing-item": [
+      {
+        "spellName": "Synthetic ward",
+        "spells": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      }
+    ],
+    "gem": [
+      {
+        "spellName": "Synthetic ward",
+        "spells": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      }
+    ],
+    "jewelry": [
+      {
+        "spellName": "Synthetic ward",
+        "spells": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      }
+    ],
+    "melee": [
+      {
+        "spellName": "Synthetic ward",
+        "spells": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      }
+    ],
+    "missile": [
+      {
+        "spellName": "Synthetic ward",
+        "spells": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      }
+    ],
+    "shield": [
+      {
+        "spellName": "Synthetic ward",
+        "spells": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      }
+    ]
+  },
+  "material_values": {
+    "iron": 2.0
+  },
+  "material_colors": [],
+  "algorithm_revision": "5fe910e7a3e549d955117920a1bd30b4ee646938"
+}

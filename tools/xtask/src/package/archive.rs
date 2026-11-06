@@ -292,6 +292,54 @@ pub fn tar_entries(bytes: &[u8]) -> Result<Vec<Entry>, String> {
     Ok(out)
 }
 
+/// Unpack a `.tar.gz` whose every entry is below `root` into `dest`, with `root` left off and which
+/// files are executable kept. A link, or a path that isn't plain, is refused.
+pub fn unpack_tar_gz(bytes: &[u8], root: &str, dest: &Path) -> Result<(), String> {
+    let mut tar = Vec::new();
+    flate2::read::GzDecoder::new(bytes)
+        .read_to_end(&mut tar)
+        .map_err(|e| format!("gzip: {e}"))?;
+    let prefix = format!("{root}/");
+    let made = |p: &Path, e: std::io::Error| format!("{}: {e}", p.display());
+    let mut at = 0usize;
+    for entry in tar_entries(&tar)? {
+        let header = at;
+        let len = usize::try_from(entry.size).map_err(|_| "tar: entry too large".to_owned())?;
+        at += 512 + len.div_ceil(512) * 512;
+        let name = entry.path.trim_end_matches('/');
+        if name == root {
+            continue;
+        }
+        let Some(rest) = name.strip_prefix(&prefix) else {
+            return Err(format!("tar: {name} is outside {prefix}"));
+        };
+        if rest.contains(['\\', ':']) || rest.split('/').any(|c| matches!(c, "" | "." | "..")) {
+            return Err(format!("tar: {name} is not a plain path"));
+        }
+        let path = dest.join(rest);
+        match entry.kind {
+            Kind::Dir => std::fs::create_dir_all(&path).map_err(|e| made(&path, e))?,
+            Kind::Link(what) => return Err(format!("tar: {name} is {what}")),
+            Kind::File => {
+                if let Some(dir) = path.parent() {
+                    std::fs::create_dir_all(dir).map_err(|e| made(dir, e))?;
+                }
+                let data = &tar[header + 512..header + 512 + len];
+                std::fs::write(&path, data).map_err(|e| made(&path, e))?;
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let mode = octal_field(&tar[header + 100..header + 108])?;
+                    let mode = if mode & 0o111 != 0 { 0o755 } else { 0o644 };
+                    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode))
+                        .map_err(|e| made(&path, e))?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// The entries of a `.tar.gz`.
 pub fn tar_gz_entries(bytes: &[u8]) -> Result<Vec<Entry>, String> {
     let mut tar = Vec::new();

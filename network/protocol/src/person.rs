@@ -109,6 +109,20 @@ pub struct PersonFriend {
     pub characters: Vec<Address>,
 }
 
+/// The characters a person view lists for a character of the world `slug`, each with the handle it
+/// comes by: in the view's order, each once, with the first handle that names it. A character of
+/// that world, the viewer among them, is its own world's to list, so it is left out, as is a channel.
+#[must_use]
+pub fn view_listing(persons: &[PersonFriend], slug: &str) -> Vec<(Address, Address)> {
+    let mut seen = std::collections::HashSet::new();
+    persons
+        .iter()
+        .flat_map(|p| p.characters.iter().map(move |c| (c, &p.handle)))
+        .filter(|(c, _)| !c.is_channel() && c.world() != slug && seen.insert(c.key()))
+        .map(|(c, h)| (c.clone(), h.clone()))
+        .collect()
+}
+
 /// `persons` cut to a view's limits, in order: past [`MAX_PERSON_FRIENDS`] person friends and
 /// past [`MAX_VIEW_CHARACTERS`] handles the rest are left out; then each keeps its handle, and
 /// its other characters, at most [`MAX_PERSON_CHARACTERS`] in all for one, take what is left of
@@ -309,6 +323,35 @@ mod tests {
         let long = within_view_limits(vec![friend(1, 30)]);
         assert_eq!(long[0].characters.len(), MAX_PERSON_CHARACTERS);
         assert!(!is_within_view_limits(&[friend(1, 21)]));
+    }
+
+    /// Spec: link messages: a view lists its characters in order, each once under the first handle
+    /// that names it, leaving out the viewer's own world's and channels.
+    #[test]
+    fn a_view_lists_each_character_once_under_its_first_handle() {
+        let a = |s: &str| Address::parse(s).expect("an address");
+        let persons = [
+            PersonFriend {
+                handle: a("Bob@coldeve"),
+                characters: vec![a("Bob@coldeve"), a("Rob@frost"), a("Ann@here")],
+            },
+            PersonFriend {
+                handle: a("Cal@frost"),
+                characters: vec![a("Cal@frost"), a("ROB@frost"), a("guild@channel")],
+            },
+        ];
+        let got: Vec<(String, String)> = view_listing(&persons, "here")
+            .into_iter()
+            .map(|(c, h)| (c.to_string(), h.to_string()))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("Bob@coldeve".to_owned(), "Bob@coldeve".to_owned()),
+                ("Rob@frost".to_owned(), "Bob@coldeve".to_owned()),
+                ("Cal@frost".to_owned(), "Cal@frost".to_owned()),
+            ]
+        );
     }
 
     /// Spec: link messages: a page address goes in a line as it is, so it holds no space, angle

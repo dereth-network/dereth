@@ -34,6 +34,8 @@ pub mod bits {
 const FALLBACK_FONTS: [u32; 2] = [0x4000_0004, 0x4000_0005];
 /// The enumeration mapping that names the fallback fonts.
 const FONT_MAPPING: u32 = 0x4000_000B;
+/// The font every text element starts in, by its value in the font mapping.
+const DEFAULT_FONT: u32 = 0x4000_003E;
 
 mod name {
     use crate::Token;
@@ -217,6 +219,17 @@ pub struct TextState {
     laid_for: (i32, i32, [i32; 4]),
 }
 
+impl TextState {
+    /// A new element's state, in the mapping's default font.
+    // D2-11778
+    pub(crate) fn starting(assets: &dyn crate::source::Assets) -> Box<Self> {
+        Box::new(Self {
+            font: assets.data_id_by_enum(DEFAULT_FONT, FONT_MAPPING),
+            ..Self::default()
+        })
+    }
+}
+
 impl Default for TextState {
     // D2-11778
     fn default() -> Self {
@@ -262,6 +275,7 @@ impl TextState {
 pub struct Keyboard {
     pub shift: bool,
     pub ctrl: bool,
+    pub alt: bool,
     /// What was last cut or copied, for the host to put on the system's clipboard; and what the
     /// host last read from it, for pasting.
     pub copied: Option<String>,
@@ -331,6 +345,12 @@ impl Ui {
         self.node_mut(h)?.text_state.as_deref_mut()
     }
 
+    /// A text element's state, to change what isn't drawn: the caller says when something is
+    /// ([`Self::touch`]).
+    fn ts_mut_undrawn(&mut self, h: Handle) -> Option<&mut TextState> {
+        self.node_mut_undrawn(h)?.text_state.as_deref_mut()
+    }
+
     /// Which typed characters a text element takes (all, with none): a panel's entry that takes
     /// only numbers.
     pub fn set_input_filter(&mut self, h: Handle, filter: Option<fn(u16) -> bool>) {
@@ -364,6 +384,18 @@ impl Ui {
     #[must_use]
     pub fn ctrl_held(&self) -> bool {
         self.keyboard.ctrl
+    }
+
+    /// Alt as the host sees it.
+    pub fn set_alt(&mut self, alt: bool) {
+        self.keyboard.alt = alt;
+    }
+
+    /// Whether an Alt key is held, as the host last said.
+    // D2-03448
+    #[must_use]
+    pub fn alt_held(&self) -> bool {
+        self.keyboard.alt
     }
 
     /// What the host read from the system's clipboard, for pasting.
@@ -651,7 +683,8 @@ impl Ui {
     }
 
     /// Before a string is added or measured: when the element's font lacks one of its characters,
-    /// the first of the fallback fonts that holds every one of them becomes the element's font
+    /// the first of the fallback fonts that holds every one of them becomes the element's font for
+    /// that string
     /// (an element without a font keeps none).
     // D2-11776, D2-10050
     fn determine_font(&mut self, h: Handle, units: &[u16]) {
@@ -772,18 +805,21 @@ impl Ui {
         self.add_string_with_font(h, s, 0, 0);
     }
 
-    /// Replace the text with an entry of the element's string table.
+    /// Replace the text with an entry of the element's string table, as a string reference:
+    /// written as the client writes one, once its tables have come.
     // D2-11833
     pub fn set_string(&mut self, h: Handle, token: u32) {
         let table = self.string_table(h);
-        let s = self.assets().string(table, token).unwrap_or_default();
-        self.set_text(h, &s);
+        self.set_string_info(h, &auberean_text::StringInfo::entry(table, token));
     }
 
     /// Add the strings that are ready, in order, each in its font and color; say so when any
     /// was.
     // D2-11819
     fn check_string_downloads(&mut self, h: Handle) {
+        if self.text_state(h).is_none_or(|t| t.downloads.is_empty()) {
+            return;
+        }
         let assets = self.assets().clone();
         let mut done = false;
         loop {
@@ -813,10 +849,11 @@ impl Ui {
         }
     }
 
-    /// Add `text` at the caret in the font and color of now, the caret after it: an editable
-    /// element first drops what is selected, another stops selecting. (A one-line element keeps
-    /// the caret in view.) Without a font the glyphs take no room and are not drawn, but are
-    /// kept for when one comes.
+    /// Add `text` at the caret in the font and color of now, or in a fallback font when the
+    /// element's lacks one of its characters, the caret after it: an editable element first drops
+    /// what is selected, another stops selecting. (A one-line element keeps the caret in view.)
+    /// The element's own font is back for what comes next. Without a font the glyphs take no room
+    /// and are not drawn, but are kept for when one comes.
     // D2-11816
     fn add_text_internal(&mut self, h: Handle, units: &[u16]) {
         if units.is_empty() {
@@ -828,12 +865,14 @@ impl Ui {
         } else {
             self.set_selecting(h, false);
         }
+        let own_font = self.text_state(h).map_or(0, |t| t.font);
         self.determine_font(h, units);
         let font = self.current_font(h);
         let Some(t) = self.ts_mut(h) else { return };
         let moved = t
             .glyphs
             .add_text(t.cursor, units, t.font_color, font, t.font_outline);
+        t.font = own_font;
         t.cursor += moved;
         clamp_position(t);
         if t.has(bits::ONE_LINE) {
@@ -926,11 +965,15 @@ impl Ui {
         if units.is_empty() {
             return Some((0, 0));
         }
+        let own_font = self.text_state(h)?.font;
         self.determine_font(h, &units);
+        let font = self.current_font(h);
+        if let Some(t) = self.ts_mut(h) {
+            t.font = own_font;
+        }
         let t = self.text_state(h)?;
-        let font = self.current_font(h)?;
         let mut temp = GlyphRun::default();
-        temp.add_text(0, &units, t.font_color, Some(font), t.font_outline);
+        temp.add_text(0, &units, t.font_color, Some(font?), t.font_outline);
         let max_w = self
             .node(h)
             .and_then(|n| n.int_attr(attr::MAX_WIDTH))
@@ -943,6 +986,33 @@ impl Ui {
     // -----------------------------------------------------------------------------------------
     // Laying out and the view
     // -----------------------------------------------------------------------------------------
+
+    /// Before the elements are drawn: each text element shown whose text or size changed is broken
+    /// into lines, and its scroll bars follow.
+    // D2-11796
+    pub fn lay_out_text_shown(&mut self) {
+        fn walk(ui: &Ui, h: Handle, out: &mut Vec<Handle>) {
+            let Some(n) = ui.node(h) else { return };
+            if !n.visible {
+                return;
+            }
+            if let Some(t) = &n.text_state {
+                if t.dirty || t.laid_for != (n.rect.width(), n.rect.height(), t.marg) {
+                    out.push(h);
+                }
+            }
+            for c in &n.children {
+                walk(ui, *c, out);
+            }
+        }
+        let mut changed = Vec::new();
+        for r in self.roots() {
+            walk(self, *r, &mut changed);
+        }
+        for h in changed {
+            self.recalculate_glyph_list(h);
+        }
+    }
 
     /// Break the text into lines when it changed (see [`lay_out_state`]); the scroll bars
     /// follow.
@@ -1056,8 +1126,8 @@ impl Ui {
         };
         if x < t.view_x {
             t.view_x = x.max(0);
-        } else if x > w + 1 + t.view_x {
-            t.view_x = (w - 1 + x).max(0);
+        } else if x > w + t.view_x {
+            t.view_x = (x - w).max(0);
         }
     }
 
@@ -1806,6 +1876,7 @@ impl Ui {
 
     /// Type into the entry that has the keyboard, a character at a time; returns whether an entry
     /// took the text.
+    // D2-04864
     pub fn type_text(&mut self, typed: &str) -> bool {
         let Some(h) = self.focus() else {
             return false;
@@ -1890,11 +1961,14 @@ impl Ui {
     // D2-11822
     fn text_global_loop(&mut self, h: Handle) {
         self.check_string_downloads(h);
-        let now = self.now();
-        let Some(t) = self.ts_mut(h) else { return };
-        if !t.has(bits::EDITABLE) {
+        // Most text can't be edited, and asking changes nothing that is drawn.
+        if !self.text_state(h).is_some_and(|t| t.has(bits::EDITABLE)) {
             return;
         }
+        let now = self.now();
+        let Some(t) = self.ts_mut_undrawn(h) else {
+            return;
+        };
         let before = t.cursor_visible;
         if now - t.last_cursor_move < 1.5 {
             t.cursor_visible = true;

@@ -35,8 +35,8 @@ of its own, `dereth-plugin-<version>-<platform>`, which the template's workflows
 The tool carries Dereth's version, and its rules are those of the client released with it: the
 API version a plugin may ask for, the permissions and capabilities it may name, the files a package
 may hold. Each Dereth release carries it for every platform it ships, beside the launcher:
-`dereth-plugin-<version>-windows-x86_64.zip`, or `-linux-x86_64.tar.gz`, `-macos-aarch64.tar.gz`
-and `-macos-x86_64.tar.gz`, listed in the release's `SHA256SUMS`. Unpack it and run
+`dereth-plugin-<version>-windows-x86_64.zip`, `-linux-x86_64.tar.gz` or `-macos-aarch64.tar.gz`,
+listed in the release's `SHA256SUMS`. Unpack it and run
 `dereth-plugin`. In a Dereth checkout it also builds from source:
 
 ```text

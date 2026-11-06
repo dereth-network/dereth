@@ -198,12 +198,13 @@ impl CollisionInfo {
         self.sliding_normal = n;
     }
 
-    /// De-duplicating append. A non-`Ok` state also
-    /// records `last_collided_object`.
+    /// De-duplicating append: an object already listed changes nothing. A new object with a
+    /// non-`Ok` state also records `last_collided_object`.
     pub fn add_object(&mut self, obj: PhysHandle, state: TransitionState) {
-        if !self.collide_object.iter().any(|(h, _)| *h == obj) {
-            self.collide_object.push((obj, state));
+        if self.collide_object.iter().any(|(h, _)| *h == obj) {
+            return;
         }
+        self.collide_object.push((obj, state));
         if state != TransitionState::Ok {
             self.last_collided_object = Some(obj);
         }
@@ -693,7 +694,7 @@ mod tests {
     }
 
     #[test]
-    fn add_object_deduplicates_and_tracks_the_last_collision() {
+    fn add_object_lists_an_object_once_and_tracks_the_last_new_collision() {
         let mut a: Arena<u32> = Arena::new();
         let h1 = a.insert(1);
         let h2 = a.insert(2);
@@ -702,15 +703,17 @@ mod tests {
         ci.add_object(h1, TransitionState::Collided);
         assert_eq!(ci.collide_object.len(), 1, "de-duplicated by handle");
         assert_eq!(
-            ci.last_collided_object,
-            Some(h1),
-            "but the state still registers"
+            ci.last_collided_object, None,
+            "a listed object's state does not register"
         );
-        ci.add_object(h2, TransitionState::Ok);
+        ci.add_object(h2, TransitionState::Collided);
         assert_eq!(ci.collide_object.len(), 2);
+        assert_eq!(ci.last_collided_object, Some(h2));
+        let h3 = a.insert(3);
+        ci.add_object(h3, TransitionState::Ok);
         assert_eq!(
             ci.last_collided_object,
-            Some(h1),
+            Some(h2),
             "an Ok add does not overwrite it"
         );
     }

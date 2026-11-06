@@ -6,9 +6,10 @@ use auberean_protocol::login::{CharacterRef, Empty};
 use auberean_protocol::physics::{HeadDirection, Target};
 use auberean_protocol::{queue, ClientMessage, ServerMessage};
 use yalain_content::{ContentObject, ContentPack, Description, Kind};
+use yalain_testkit::invariants::VisualOrder;
 use yalain_testkit::play::report;
 use yalain_testkit::{Harness, TestGround};
-use yalain_world::world::{motion, IDLE_MOTION};
+use yalain_world::world::{motion, ARRIVAL_FX, IDLE_MOTION};
 
 fn created(h: &Harness, b: usize, from: usize, id: u64) -> bool {
     h.world_messages(b, from)
@@ -145,6 +146,98 @@ fn head_turns_and_looking_at_reach_the_clients_that_know_the_player() {
     assert_eq!(looked, Some(idb));
 }
 
+/// The end of a player's arrival effect reaches a client already watching it, which then takes the
+/// player's later visual messages at once.
+/// Behaviour: server.presence.a-players-arrival-ends-for-all-who-see-it
+#[test]
+fn the_end_of_an_arrival_reaches_a_client_already_watching_and_nothing_after_it_waits() {
+    let mut h = Harness::new();
+    let (w, _) = h.player_in_world("two", "Babyfare");
+    let (a, me) = h.player_in_world("one", "Elara");
+    h.run(10);
+    let from = h.bots[w].inbox.len();
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &ClientMessage::SceneRenderingComplete(Empty),
+    );
+    let ended = h.wait_for(w, from, |m| match m {
+        ServerMessage::StopFx(e) if e.sender.id == me => Some(e.action.0),
+        _ => None,
+    });
+    assert_eq!(ended, Some(ARRIVAL_FX));
+    h.bots[a].send(true, queue::WEENIE, &ClientMessage::LookAt(Target(me)));
+    let looked = h.wait_for(w, from, |m| match m {
+        ServerMessage::LookAt(e) if e.sender.id == me => Some(e.action.0),
+        _ => None,
+    });
+    assert_eq!(looked, Some(me));
+    let mut order = VisualOrder::new();
+    for r in h.bots[w].inbox.iter().filter(|r| r.world) {
+        order.see(r.blob_id, &r.bytes);
+    }
+    assert_eq!(order.held(), Vec::new(), "nothing waits for a stamp");
+}
+
+/// Taken as a client takes them, a visual message waits for the stamps before its own and for its
+/// object; one at a stamp already passed is dropped; a visual stamp under a private message counts for
+/// nothing, and is told as wrong.
+/// Behaviour: server.presence.a-check-of-visual-order-waits-as-a-client-waits
+#[test]
+fn the_check_of_visual_order_waits_as_a_client_waits() {
+    use auberean_protocol::physics::{ObjectEvent, Word};
+    use auberean_protocol::types::ObjectStamp;
+    use yalain_net::blob::{blob_id, BlobKind};
+    use yalain_testkit::invariants::Held;
+    const ID: u64 = 0x2130_0000_0000_0001;
+    let stop = |other_stamp: u16| {
+        ServerMessage::StopFx(ObjectEvent {
+            sender: ObjectStamp {
+                id: ID,
+                instance_stamp: 1,
+                other_stamp,
+            },
+            action: Word(7),
+        })
+        .encode()
+    };
+    let visual = blob_id(BlobKind::VISUAL, 1, 0, 0);
+    let made = ServerMessage::CreateObject(auberean_protocol::physics::CreateObject {
+        id: ID,
+        physics: auberean_protocol::types::PhysicsDesc {
+            instance_stamp: 1,
+            visual_ordering_stamp: 5,
+            ..Default::default()
+        },
+        ..Default::default()
+    })
+    .encode();
+    let mut order = VisualOrder::new();
+    order.see(visual, &stop(6));
+    assert!(order.held().is_empty(), "waits for its object, not a stamp");
+    order.see(blob_id(BlobKind::UNORDERED, 1, 0, 0), &made);
+    assert!(order.held().is_empty(), "taken once its object is made");
+    order.see(visual, &stop(8));
+    let held = Held {
+        object: ID,
+        current: 6,
+        stamp: 8,
+        kind: "0x100a1".to_owned(),
+    };
+    assert_eq!(order.held(), [held]);
+    order.see(visual, &stop(7));
+    assert!(order.held().is_empty(), "the missing stamp frees it");
+    order.see(visual, &stop(3));
+    assert_eq!(order.dropped.get("0x100a1"), Some(&1), "passed: dropped");
+    assert!(order.misrouted().is_empty());
+    order.see(blob_id(BlobKind::PRIVATE, 1, 1, 0), &stop(9));
+    assert_eq!(
+        order.misrouted(),
+        ["0x100a1"],
+        "a visual stamp, sent private"
+    );
+}
+
 /// A player that walks out of another's view is not taken away from that client (the client lets
 /// it go itself); its movements stop reaching it, and it is made for it again when it comes back.
 /// Behaviour: server.presence.out-of-view-let-go
@@ -192,6 +285,51 @@ fn a_player_out_of_view_is_let_go_and_made_again_when_it_returns() {
         ),
     );
     assert!(h.run_until(100, |h| created(h, b, from, ida)));
+}
+
+/// Reports that keep crossing the view's lines bring a player's view up to date no oftener than the
+/// world's pace: the second, straight after the first, is seen once that pace has passed, not before.
+/// Behaviour: server.presence.a-view-moves-at-the-worlds-pace
+#[test]
+fn reports_crossing_the_view_bring_it_up_to_date_at_the_worlds_pace() {
+    let mut h = Harness::new();
+    let (a, ida) = h.player_in_world("one", "Elara");
+    let (b, _) = h.player_in_world("two", "Babyfare");
+    h.run(40);
+    // Short steps, so that a report and all that follows it come within the pace.
+    let reported = |h: &mut Harness, cell: u32| {
+        for _ in 0..8 {
+            h.step_by(0.002);
+        }
+        assert!(h
+            .server
+            .players
+            .values()
+            .any(|p| p.character == ida && p.position.cell == cell));
+    };
+    let start = h.now.0;
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &report(0x7000_0001, Vec3::new(10.0, 10.0, 50.0), 0, IDLE_MOTION, 0),
+    );
+    reported(&mut h, 0x7000_0001);
+    let from = h.bots[b].inbox.len();
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &report(
+            0x0299_0109,
+            Vec3::new(59.0, 240.0, -44.6),
+            0,
+            IDLE_MOTION,
+            0,
+        ),
+    );
+    reported(&mut h, 0x0299_0109);
+    assert!(h.now.0 - start < yalain_world::presence::VIEW_EVERY);
+    assert!(!created(&h, b, from, ida), "not yet");
+    assert!(h.run_until(100, |h| created(h, b, from, ida)), "owed");
 }
 
 /// A player that leaves the world (at the end of its linger after a logoff) is seen to leave by
@@ -281,6 +419,7 @@ fn static_object(id: u64, cell: u32) -> ContentObject {
         object: Some(id),
         template: 0x4700_1154,
         description: Description {
+            name_text: None,
             package: 0xF0C,
             look: 0x1F00_031E,
             enter_fx: 0,

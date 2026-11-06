@@ -57,7 +57,7 @@ fn a_value_set_for_the_run_comes_before_the_files() {
         "unnamed"
     );
     p.set_bool(section::NET, key::COMPUTE_UNIQUE_PORT, 0);
-    p.set_uint32(section::NET, key::USER_SPECIFIED_PORT, 9010);
+    p.set_bool(section::NET, key::USER_SPECIFIED_PORT, 9010);
     assert_eq!(
         p.inq_bool(section::NET, key::COMPUTE_UNIQUE_PORT),
         Some(false)

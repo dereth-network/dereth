@@ -547,7 +547,7 @@ pub fn planned(work: &Path, wanted: &Wanted) -> Builds {
                 .insert(world.clone(), build(v, mod_path(work, v, world)));
         }
     }
-    // The web client carries Dereth's version, and is released with it.
+    // The web client, both games in one release, carries Dereth's version and is released with it.
     if let Some(v) = wanted.versions.get(&Product::Dereth) {
         out.web = Some(build(v, web_path(work, v)));
     }
@@ -728,9 +728,16 @@ fn build_in(
         }
     }
     if let Some(b) = paths.web {
-        // As `cargo xtask package web` builds it: the module and its bindings beside the page,
+        // As `cargo xtask package web` builds it: the modules and their bindings beside the page,
         // stamped as the candidate. The folder is what a host serves.
-        stamp(m, &[src.join("dereth/web/Cargo.toml")], &b.version)?;
+        stamp(
+            m,
+            &[
+                src.join("dereth/web/Cargo.toml"),
+                src.join("dereth/web/front/Cargo.toml"),
+            ],
+            &b.version,
+        )?;
         m.run(
             Some(src),
             "cargo",

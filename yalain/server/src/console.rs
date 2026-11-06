@@ -20,7 +20,8 @@
 //!          keep every character in the world now; the world goes on
 //! dn       the world's link to the Dereth Network and its blocks; `dn block <world or
 //!          Name@world>` and `dn unblock ...` block a world or a character for everyone on this
-//!          world, or lift it; `dn verify <token>` verifies the world with the token the site gave
+//!          world, or lift it (`dn admin block ...` is the same, as it is said in game); `dn verify
+//!          <token>` verifies the world with the token the site gave
 //!          (`yalain_federation`'s operator commands)
 //! hero     `hero <name>` makes a character a hero (it earns focus, and has its greatest at
 //!          once), `hero <name> off` no longer one; in the world or out of it
@@ -46,15 +47,18 @@
 //!          write a character to a new file, for another world
 //! import-character <file> <account> [new name]
 //!          bring a character from a file onto an account, as a new character
-//! accountcreate <name> <secret> [access]
-//!          make an account, a player's unless given a level (a number or a name: 0 Player,
-//!          1 Advocate, 2 Sentinel, 3 Envoy, 4 Developer, 5 Admin)
+//! accountcreate <name> <secret> [admin]
+//!          make an account, a player's unless given the word `admin`
 //! accountget <name>, accountlist
-//!          an account, or every account: its id, level and any ban
+//!          an account, or every account: its id, whether an admin's, and any ban
 //! set-accountpassword <name> <secret>
 //!          give an account a new secret
-//! set-accountaccess <name> [access]
-//!          set an account's level (a player's when none is given)
+//! set-accountadmin <name> [on|off]
+//!          make an account an admin's, or a player's again
+//! set-characteradmin <name> [on|off]
+//!          make a character of an admin's account an admin character, or a player again
+//! set-accountgroups <name> [group,group...]
+//!          put an account in its named groups (none when none are given)
 //! ban <account> <days> <hours> <minutes> [reason]
 //!          keep an account out for that long, booting it if it is logged in
 //! unban <account>, banlist
@@ -100,7 +104,7 @@ pub const HELP: &str = "commands: reload (compile the world database again and t
                         <seconds> (the countdown's length, 0 to 99999), stop-now [message] (or \
                         stop, or exit), save-world (keep every character in the world now), dn \
                         (the Dereth Network: dn, dn block <world or Name@world>, dn unblock \
-                        <world or Name@world>, dn verify <token>), hero (hero <name>, hero \
+                        <world or Name@world>, dn admin global [<room>], dn verify <token>), hero (hero <name>, hero \
                         <name> off: make a \
                         character a hero or no longer one), teleport <character> to <character \
                         | place <name> | cell x y z [heading]>, place <character> to <character \
@@ -110,8 +114,10 @@ pub const HELP: &str = "commands: reload (compile the world database again and t
                         of the world at once), export-character <name> <file>, \
                         import-character <file> <account> [new name] (names with spaces as the \
                         rest of the line or in double quotes), the moderation commands (accountcreate <name> \
-                        <secret> [access], accountget <name>, accountlist, set-accountpassword \
-                        <name> <secret>, set-accountaccess <name> [access], ban <account> <days> \
+                        <secret> [admin], accountget <name>, accountlist, set-accountpassword \
+                        <name> <secret>, set-accountadmin <name> [on|off], set-characteradmin \
+                        <name> [on|off], set-accountgroups <name> [group,group...], ban <account> \
+                        <days> \
                         <hours> <minutes> [reason], unban <account>, banlist, gag <character>, \
                         ungag <character>, boot {char|account|iid} <who>[, reason]), gamecast \
                         <message> (show every player in the world a message), help";
@@ -572,8 +578,8 @@ mod tests {
     /// Behaviour: server.operator.accounts-at-the-console
     #[test]
     fn the_consoles_moderation_commands_read_and_never_show_a_secret() {
-        use yalain_world::admin::{Access, BootBy, Command as Admin};
-        let Some(Command::Admin(Ok(c))) = parse("AccountCreate kara hunter2 3") else {
+        use yalain_world::admin::{BootBy, Command as Admin};
+        let Some(Command::Admin(Ok(c))) = parse("AccountCreate kara hunter2 admin") else {
             panic!("an account made");
         };
         assert_eq!(
@@ -581,7 +587,7 @@ mod tests {
             Admin::AccountCreate {
                 name: "kara".into(),
                 ticket: "hunter2".into(),
-                access: Access::Envoy,
+                admin: true,
             }
         );
         let Some(Command::Admin(Ok(p))) = parse("set-accountpassword kara hunter3") else {
