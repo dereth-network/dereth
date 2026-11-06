@@ -662,6 +662,30 @@ fn a_qualities_record_names_its_data_ids_references_and_descriptions_records() {
     assert_eq!(none.iter().count(), 0);
 }
 
+/// An enum map names its base map's record, and one with no base names none.
+///
+/// Behaviour: data.database.an-enum-map-names-its-base-record
+#[test]
+fn an_enum_map_names_its_base_record() {
+    use auberean_assets::database::gather_sub_ids;
+    use auberean_assets::strings::EnumMap;
+    use auberean_dat::QualifiedIds;
+    let map = |base| EnumMap {
+        id: 0x2200_0002,
+        base,
+        names: Vec::new(),
+    };
+    let mut out = QualifiedIds::new();
+    gather_sub_ids(&map(0x2200_0001), 0x4000_0030, &mut out);
+    assert_eq!(
+        out.iter().map(|q| q.id).collect::<Vec<u32>>(),
+        [0x2200_0001]
+    );
+    let mut none = QualifiedIds::new();
+    gather_sub_ids(&map(0), 0x4000_0030, &mut none);
+    assert_eq!(none.iter().count(), 0);
+}
+
 /// A saved script state as the files hold one: its id, its graph's bytes counted, its package.
 fn state(id: u32, graph: &[u8], package: u32) -> Vec<u8> {
     let mut b = id.to_le_bytes().to_vec();

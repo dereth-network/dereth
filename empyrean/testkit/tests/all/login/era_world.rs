@@ -129,6 +129,12 @@ mod era_real {
                 o.get_property(empyrean_entity::enums::PropertyBool::RecallsDisabled)
             });
         match rules.start_positions {
+            StartPositions::AtCharGenLocation => {
+                let dats = l.ts.world.dats.portal_dat();
+                let first = &dats.char_gen().starter_areas[0].locations[0];
+                assert_eq!(at.cell(), first.cell.0, "the selected creation location");
+                assert_eq!(recalls_disabled, None, "recalls are enabled");
+            }
             StartPositions::FromCharGen => {
                 assert_eq!(at.cell(), ACADEMY_CELL, "the Training Academy");
                 assert_eq!(recalls_disabled, Some(true));

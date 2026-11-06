@@ -67,6 +67,7 @@ mod name {
     pub const SELECTED_NAME: Token = Token::of("SelectedName");
     pub const SELECTED_LEVEL: Token = Token::of("SelectedLevel");
     pub const MISC_TEXT: Token = Token::of("MiscText");
+    pub const SELECTED_SKILL: Token = Token::of("SelectedCraftSkill");
     pub const SELECTED_ICON: Token = Token::of("SelectedIcon");
     pub const BUTTON_FIELD: Token = Token::of("ButtonField");
     pub const SKILLS_VIEW: Token = Token::of("craftskillview");
@@ -211,6 +212,20 @@ pub struct Craft {
     refresh_due: bool,
 }
 
+/// The layout's two lower views stretch the head with the page and leave the craft skill's display
+/// where it stands, so on a window taller than the layout's the head covers the list and takes its
+/// clicks. Here the head keeps its height and the display stays at the page's foot, and the list
+/// alone takes what the page grows by. A page at the layout's height is laid out as before.
+fn give_the_list_what_the_page_grows_by(ui: &mut Ui, page: Handle) {
+    for (view, head) in [
+        (name::CATEGORIES_VIEW, name::SKILL_HEADER),
+        (name::RECIPES_VIEW, name::RECIPE_HEADER),
+    ] {
+        ui.set_child_edges(page, view, head, [1, 1, 1, 2]);
+        ui.set_child_edges(page, view, name::SELECTED_SKILL, [0, 2, 0, 1]);
+    }
+}
+
 impl Craft {
     /// The page under the skill window's framework: its page and drag field found, its buttons,
     /// rows and tab heard.
@@ -218,6 +233,9 @@ impl Craft {
     pub fn new(ui: &mut Ui, parent: FrameId) -> Self {
         let frame = ui.new_child_frame(parent);
         let page = ui.element(name::PAGE);
+        if let Some(p) = page {
+            give_the_list_what_the_page_grows_by(ui, p);
+        }
         let drag = page.and_then(|p| ui.child_recursive(p, name::DRAG_FIELD));
         if let Some(l) = ui.frame_listener(frame) {
             for b in [name::FORWARD, name::BACK, name::RAISE, name::RECIPE_BUTTON] {

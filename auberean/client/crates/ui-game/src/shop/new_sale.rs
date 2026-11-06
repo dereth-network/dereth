@@ -59,6 +59,8 @@ pub struct NewSale {
     /// The item, how many, the price.
     item: u64,
     quantity: u32,
+    /// The name for that many has been asked of the scripts and is not known yet.
+    awaiting_name: bool,
     chosen_price: u32,
     stack_context: u32,
     dialog: u32,
@@ -86,6 +88,7 @@ impl NewSale {
             price: None,
             item: NO_OBJECT,
             quantity: 0,
+            awaiting_name: false,
             chosen_price: 0,
             stack_context: 0,
             dialog: 0,
@@ -163,12 +166,41 @@ impl NewSale {
         let Some(d) = ui.child_recursive(f, name::DESC) else {
             return;
         };
-        match &it {
+        let name = self
+            .facts
+            .as_ref()
+            .and_then(|fa| fa.name_of_amount(self.item, self.quantity));
+        match name {
+            Some(n) => ui.set_text(d, n),
             None => ui.clear_all_text(d),
-            Some(i) => ui.set_text(d, &i.name),
+        }
+        self.awaiting_name = it.is_some() && name.is_none();
+        if self.awaiting_name {
+            out.push(Request::Inventory(inventory::Request::NameAmount {
+                item: self.item,
+                quantity: self.quantity,
+            }));
         }
         if let Some(p) = self.price {
             ui.clear_all_text(p);
+        }
+    }
+
+    /// The name for the amount has come: the window shows it.
+    fn name_came(&mut self, ui: &mut Ui) {
+        if !self.awaiting_name {
+            return;
+        }
+        let Some(name) = self
+            .facts
+            .as_ref()
+            .and_then(|f| f.name_of_amount(self.item, self.quantity))
+        else {
+            return;
+        };
+        self.awaiting_name = false;
+        if let Some(d) = self.field.and_then(|f| ui.child_recursive(f, name::DESC)) {
+            ui.set_text(d, name);
         }
     }
 
@@ -252,8 +284,10 @@ impl NewSale {
             return;
         };
         #[allow(clippy::cast_precision_loss)]
-        let total = self.chosen_price as f32 * self.quantity as f32 * self.shop.consignment_charge;
-        let cost = dereth_primitives::num::to_i32(total.ceil())
+        let total = f64::from(self.chosen_price as f32)
+            * f64::from(self.quantity as f32)
+            * f64::from(self.shop.consignment_charge);
+        let cost = dereth_primitives::num::to_i32_f64(total.ceil())
             .cast_unsigned()
             .max(1);
         let s = entry(
@@ -262,7 +296,12 @@ impl NewSale {
             vec![
                 (
                     name::PRODUCT,
-                    Var::Text(Box::new(StringInfo::literal(&it.name))),
+                    Var::Text(Box::new(StringInfo::literal(
+                        self.facts
+                            .as_ref()
+                            .and_then(|f| f.name_of_amount(self.item, self.quantity))
+                            .unwrap_or(&it.name),
+                    ))),
                 ),
                 (name::COST, Var::UInt(cost)),
                 (name::PRICE_VAR, Var::UInt(self.chosen_price)),
@@ -462,10 +501,11 @@ impl Child for NewSale {
     }
 
     /// What the scripts answer of the items and of consignments.
-    fn update(&mut self, _ui: &mut Ui, view: &View<'_>, _out: &mut Vec<Request>) {
+    fn update(&mut self, ui: &mut Ui, view: &View<'_>, _out: &mut Vec<Request>) {
         if let Some(f) = view.inventory {
             if self.facts.as_ref().is_none_or(|o| o.version != f.version) {
                 self.facts = Some(f.clone());
+                self.name_came(ui);
             }
         }
         if let Some(s) = view.shop {

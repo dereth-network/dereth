@@ -179,3 +179,43 @@ fn a_gagged_characters_tells_through_the_service_go_nowhere() {
     assert_eq!(answer(&w.take(ann), cx).0, Hr::OK, "ungagged");
     assert_eq!(events(&w.take(cara)).len(), 1);
 }
+
+/// A tell by a name as a client shows it, with its suffix, reaches the character, in any case, with
+/// or without the world; a suffix no one has now is no one; and a character's own name wins.
+/// Behaviour: server.friends.suffixed-name
+#[test]
+fn a_tell_by_a_name_with_its_suffix_reaches_the_character() {
+    let mut w = World::new();
+    let ann = w.player("Ann");
+    let cara = w.player("Cara");
+    w.character("Dan");
+    let tell = |w: &mut World, user: &str| {
+        let cx = w.request(
+            ann,
+            Request::SendToUserEx {
+                user: user.into(),
+                text: "hi".into(),
+                extra: None,
+            },
+        );
+        answer(&w.take(ann), cx).0
+    };
+    assert_eq!(tell(&mut w, "Cara St. 3@Dawnsong"), Hr::NO_SUCH_USER);
+    w.service
+        .set_suffixed([("Cara St. 3".to_owned(), "Cara".to_owned())]);
+    for user in ["Cara St. 3@Dawnsong", "cara st. 3", "Cara St. 3@dawnsong"] {
+        assert_eq!(tell(&mut w, user), Hr::OK, "{user}");
+        assert_eq!(events(&w.take(cara)).len(), 1, "{user}");
+    }
+    assert_eq!(tell(&mut w, "Cara St. 4@Dawnsong"), Hr::NO_SUCH_USER);
+    // A shown name that is someone's own: the one with that name is told.
+    let bold = w.player("Ann Bold");
+    w.service
+        .set_suffixed([("Ann Bold".to_owned(), "Ann".to_owned())]);
+    assert_eq!(tell(&mut w, "Ann Bold@Dawnsong"), Hr::OK);
+    assert_eq!(events(&w.take(bold)).len(), 1);
+    assert!(events(&w.take(ann)).is_empty());
+    // No longer suffixed, the name is no one again.
+    w.service.set_suffixed([]);
+    assert_eq!(tell(&mut w, "Cara St. 3@Dawnsong"), Hr::NO_SUCH_USER);
+}

@@ -1193,3 +1193,96 @@ fn vendor_prices_agree_with_dereth_rules() {
             .join("\n  ")
     );
 }
+
+/// Divergence: V486
+/// What the server charges and pays for a trade note on a world whose notes know their issuer is
+/// what the client's window shows, for small notes and large and stacks of them: both read the one
+/// rule in the shared rules, and it agrees with the formula any other item is priced by.
+#[test]
+fn an_early_note_costs_what_the_client_shows_at_every_value() {
+    use dereth_rules::vendor::{
+        buy_price_on_world, sell_price_on_world, EARLY_NOTE_FOREIGN_BUY_RATE,
+        EARLY_NOTE_ISSUER_BUY_RATE, EARLY_NOTE_SELL_RATE,
+    };
+    use dereth_rules::weenie::item_type::PROMISSORY_NOTE;
+    let values: [i32; 23] = [
+        1,
+        3,
+        7,
+        9,
+        10,
+        11,
+        99,
+        100,
+        101,
+        999,
+        1_000,
+        5_000,
+        10_000,
+        50_000,
+        100_000,
+        150_000,
+        250_000,
+        1_000_000,
+        10_000_000,
+        123_456_789,
+        500_000_000,
+        1_000_000_000,
+        1_900_000_000,
+    ];
+    let mut checked = 0;
+    for &unit in &values {
+        for count in [1_i32, 2, 3, 7, 10, 25, 100, 1_000] {
+            let Some(whole) = unit.checked_mul(count) else {
+                continue;
+            };
+            // Past what the client's price can hold it has no number to agree with.
+            if f64::from(unit) * f64::from(count) * 1.1 + 1.0 >= f64::from(i32::MAX) {
+                continue;
+            }
+            let (value, stack) = (Some(whole), Some(count));
+            let shown = sell_price_on_world(false, unit, PROMISSORY_NOTE, 1.5, count);
+            assert_eq!(
+                i64::from(vendor::early_note_sell_cost(value, stack)),
+                i64::from(shown),
+                "selling {count} at {unit}"
+            );
+            assert_eq!(
+                i64::from(shown),
+                i64::from(vendor::get_sell_cost_of(
+                    Some(f64::from(EARLY_NOTE_SELL_RATE)),
+                    value,
+                    stack,
+                    None
+                )),
+                "the same as before the rule moved, {count} at {unit}"
+            );
+            let foreign = buy_price_on_world(false, unit, PROMISSORY_NOTE, 0.5, count);
+            assert_eq!(
+                vendor::early_note_buy_cost(value, stack, false),
+                foreign,
+                "buying {count} at {unit}"
+            );
+            assert_eq!(
+                foreign,
+                vendor::get_buy_cost_of(
+                    Some(f64::from(EARLY_NOTE_FOREIGN_BUY_RATE)),
+                    value,
+                    stack,
+                    None
+                )
+            );
+            assert_eq!(
+                vendor::early_note_buy_cost(value, stack, true),
+                vendor::get_buy_cost_of(
+                    Some(f64::from(EARLY_NOTE_ISSUER_BUY_RATE)),
+                    value,
+                    stack,
+                    None
+                )
+            );
+            checked += 1;
+        }
+    }
+    assert!(checked >= 100, "{checked}");
+}

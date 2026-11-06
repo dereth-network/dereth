@@ -33,7 +33,8 @@ pub fn unit_tier(profile: Profile) -> Vec<Report> {
     let mut build = vec!["test"];
     build.extend_from_slice(profile.cargo_args());
     build.extend_from_slice(SERVER_CRATES);
-    let test = build.clone();
+    let mut test = build.clone();
+    test.push("--no-fail-fast");
     build.push("--no-run");
     let (built, _) = timed(&ws, "cargo", &build);
     if !built {
@@ -473,6 +474,55 @@ pub fn real_dump(profile: Profile) -> Report {
         .args(&argv)
         .current_dir(workspace_root())
         .env("EMPYREAN_WORLD_SQL", &sql)
+        .status()
+        .is_ok_and(|s| s.success());
+    Report::new(
+        NAME,
+        pass_fail(ok),
+        format!("{:.1}s", t0.elapsed().as_secs_f64()),
+    )
+}
+
+const LAUNCH_FIXTURE_VAR: &str = "EMPYREAN_TEST_LAUNCH_FIXTURE";
+
+/// The Launch world's fixture manifest (the 1999 dats and an ac1999 pack, each hash-pinned), when
+/// `EMPYREAN_TEST_LAUNCH_FIXTURE` names a file.
+pub fn launch_fixture() -> Option<PathBuf> {
+    let p = PathBuf::from(std::env::var_os(LAUNCH_FIXTURE_VAR).filter(|v| !v.is_empty())?);
+    p.is_file().then_some(p)
+}
+
+/// The Launch world's play tests (tier 1): creation, a portal, a kill, a vendor, recipes, a quest
+/// chain and a save, on the 1999 dats and an ac1999 pack. Neither ships, so without the fixture
+/// the row is an oracle nobody consulted, reported NO-ORACLE naming the variable.
+pub fn launch_content(profile: Profile) -> Report {
+    const NAME: &str = "server real content: empyrean-world (Launch world)";
+    let Some(fixture) = launch_fixture() else {
+        return no_oracle(
+            NAME.to_owned(),
+            &["the Launch world fixture (set EMPYREAN_TEST_LAUNCH_FIXTURE)"],
+        );
+    };
+    let mut argv: Vec<&str> = vec!["test", "-q"];
+    argv.extend_from_slice(profile.cargo_args());
+    argv.extend_from_slice(&[
+        "-p",
+        "empyrean-world",
+        "--features",
+        "launch-content",
+        "--test",
+        "all",
+        "world::launch_content::",
+        "--",
+        "--test-threads=1",
+    ]);
+    println!("--- {NAME}: {LAUNCH_FIXTURE_VAR}={}", fixture.display());
+    println!("$ cargo {}", argv.join(" "));
+    let t0 = Instant::now();
+    let ok = std::process::Command::new("cargo")
+        .args(&argv)
+        .current_dir(workspace_root())
+        .env(LAUNCH_FIXTURE_VAR, &fixture)
         .status()
         .is_ok_and(|s| s.success());
     Report::new(

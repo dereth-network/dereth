@@ -41,7 +41,7 @@ pub fn shop(w: &dereth_client_model::World) -> ShopView {
             // The vendor item list prices a stock row at one unit; the count changes only when the
             // player moves the stack slider, and that is the single-item buy's reading, not the
             // list's. The client divides the stack value out before pricing the displayed row.
-            price: s.profile.vendor_sell_price(&p.pwd, 1),
+            price: w.shop_sell_price(&p.pwd, 1),
             refusal: None,
         })
         .collect();
@@ -62,7 +62,7 @@ pub fn shop(w: &dereth_client_model::World) -> ShopView {
                 max_stack_size: max_stack_size(w, *id, pwd),
                 contained_items: num_contained_items(w, *id),
                 contained_containers: num_contained_containers(w, *id),
-                price: s.profile.vendor_sell_price(pwd, *n),
+                price: w.shop_sell_price(pwd, *n),
                 refusal: None,
             })
         })
@@ -82,7 +82,7 @@ pub fn shop(w: &dereth_client_model::World) -> ShopView {
                 max_stack_size: u32::from(pwd.max_stack_size.unwrap_or(0)),
                 contained_items: num_contained_items(w, *id),
                 contained_containers: num_contained_containers(w, *id),
-                price: s.profile.vendor_buy_price(pwd),
+                price: w.shop_buy_price(pwd),
                 // The row a player can see a refusal on. `refusal_message` is the four-string
                 // table; the containment test runs first and may supply its own refusal.
                 refusal: w.drag_item_acceptable(*id),

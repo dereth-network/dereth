@@ -5,4 +5,5 @@ mod camera;
 mod element;
 mod moving;
 mod rules;
+mod sound;
 mod steering;

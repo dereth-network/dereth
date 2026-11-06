@@ -2511,6 +2511,16 @@ pub fn handle_action_do_allegiance_house_action(
 ) {
     //Console.WriteLine($"{Name}.DoAllegianceHouseAction({action})");
 
+    // DIVERGE: V420, a world without `@allegiance house` (after June 2005) refuses it.
+    if !crate::world_objects::era_gates::has(
+        w,
+        this,
+        w.era.features.allegiance_house_commands,
+        "allegiance house commands",
+    ) {
+        return;
+    }
+
     let Some(allegiance) = allegiance::player_allegiance(w, this) else {
         weenie_error(w, this, WeenieError::YouAreNotInAllegiance);
         return;

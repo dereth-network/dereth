@@ -43,6 +43,9 @@ pub struct MasterConfiguration {
     /// DIVERGE: an extra section; ACE has one set of rules.
     #[serde(rename = "Era")]
     pub era: EraConfiguration,
+    /// `[portal_storms]`.
+    #[serde(rename = "PortalStorms")]
+    pub portal_storms: PortalStormConfiguration,
 
     /// Not ACE: the world's data overlay over the base data files (`[dat_overlay]`).
     /// DIVERGE: an extra section; ACE serves whole data files.
@@ -58,4 +61,30 @@ pub struct MasterConfiguration {
     /// DIVERGE: an extra section; ACE has no network of worlds (V451).
     #[serde(rename = "Federation")]
     pub federation: FederationConfiguration,
+}
+
+/// `empyrean.toml` -> `[portal_storms]`: moving players out of a crowded landblock. Off by default,
+/// on any era.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PortalStormConfiguration {
+    /// How many players a landblock's surface holds before a storm brews. 0: no storms.
+    #[serde(rename = "Threshold")]
+    pub threshold: u32,
+    /// How long a storm brews before it is imminent.
+    #[serde(rename = "BrewSeconds")]
+    pub brew_seconds: u32,
+    /// How long a storm is imminent before it starts moving players.
+    #[serde(rename = "ImminentSeconds")]
+    pub imminent_seconds: u32,
+}
+
+impl Default for PortalStormConfiguration {
+    fn default() -> Self {
+        Self {
+            threshold: 0,
+            brew_seconds: 60,
+            imminent_seconds: 60,
+        }
+    }
 }

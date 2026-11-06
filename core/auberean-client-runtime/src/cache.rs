@@ -28,6 +28,7 @@ struct Inner {
     made: OnceLock<Made>,
 }
 
+// D2-05154
 struct Made {
     stores: Arc<StoreSet>,
     database: Arc<Database>,
@@ -44,6 +45,7 @@ impl core::fmt::Debug for DataCache {
 
 impl DataCache {
     /// A cache over these files (the portal file first), storing records dated by `clock`.
+    // D2-05182
     #[must_use]
     pub fn new(files: Vec<Arc<DatFile>>, clock: Arc<AtomicU32>) -> Self {
         Self(Arc::new(Inner {
@@ -77,6 +79,9 @@ impl DataCache {
         self.0.made.get().is_some()
     }
 
+    /// The cache's start, once the host has opened the files: each file in its slot and known by
+    /// its id, the records' caches over them, the master map found through the portal file.
+    // D2-05172
     fn made(&self) -> &Made {
         self.0.made.get_or_init(|| {
             let clock = self.0.clock.clone();

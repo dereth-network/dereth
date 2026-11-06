@@ -118,18 +118,6 @@ impl Body {
         self.stop_all_server_behaviors();
     }
 
-    /// The server stops a behavior on the body.
-    // D2-05848
-    pub fn receive_stop_behavior(&mut self, behavior: u32) {
-        crate::motion::Owner::stop_behavior(self, behavior);
-    }
-
-    /// Goes to a mode with no one waiting to hear it is there.
-    // D2-05884
-    pub fn do_mode_no_blocking(&mut self, mode: u32) {
-        crate::motion::Owner::do_mode(self, 0, mode);
-    }
-
     /// Whether the body shows a behavior.
     // D2-05896
     #[must_use]
@@ -138,7 +126,6 @@ impl Body {
     }
 
     /// The stamp kept for update kind `kind` (0 to 3).
-    // D2-06332
     #[must_use]
     pub fn update_time(&self, kind: usize) -> u16 {
         self.update_times[kind]
@@ -150,7 +137,7 @@ impl Body {
     }
 
     /// Whether `stamp` is newer than the one kept for update kind `kind`; a newer one is kept.
-    // D2-06190
+    // D2-06190, D2-06332
     pub fn is_newer_than_update(&mut self, kind: usize, stamp: u16) -> bool {
         let kept = self.update_times[kind];
         if stamp == kept {
@@ -183,7 +170,7 @@ impl Body {
     /// frozen. The figure is then told that speed, not the velocity the body asks for: a body
     /// held against a wall stands, and a step up or down shows in its vertical speed. (The rest of
     /// an animation step, the figure's sliders, effects and triggers, is the figure's own.)
-    // D2-06252
+    // D2-06252, D2-06489
     pub fn update_animation(&mut self, dt: f32) {
         if self.is_animation_frozen() {
             return;
@@ -197,37 +184,23 @@ impl Body {
 }
 
 impl Body {
-    /// The server plays an effect on the body.
-    // D2-05860
-    pub fn receive_do_fx(&mut self, fx: u32, intensity: f32) {
-        crate::motion::Owner::do_fx(self, fx, intensity);
-    }
-
-    /// The server plays a list of effects on the body, each at full intensity.
-    // D2-06167
-    pub fn receive_do_fx_list(&mut self, effects: &[u32]) {
-        for fx in effects {
-            crate::motion::Owner::do_fx(self, *fx, 1.0);
-        }
-    }
-
     /// The object the body's targeted effects aim at.
     // D2-06099
     pub fn set_fx_target(&mut self, object: u64) {
         self.fx_target = object;
     }
 
+    /// The look its effects clone from now on, with an appearance laid over it.
+    // D2-06263
+    pub fn set_look_to_clone(&mut self, look: u32, appearance: u32, values: &[(u32, f32)]) {
+        self.look_to_clone = look;
+        self.clone_appearance = appearance;
+        self.clone_values = values.to_vec();
+    }
+
     /// No object for its targeted effects, and no look for them to clone.
-    // D2-06098
     pub fn clear_fx_target(&mut self) {
         self.fx_target = 0;
         self.look_to_clone = 0;
-    }
-
-    /// Whether the body has anything to collide with: a collision sphere.
-    // D2-06278
-    #[must_use]
-    pub fn has_physics_presence(&self) -> bool {
-        self.num_sphere() != 0
     }
 }

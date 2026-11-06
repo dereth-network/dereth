@@ -13,6 +13,9 @@
 //! toggle, which opens no window.
 
 use crate::{ActionId, InputMapId};
+use dereth_client_contract::options::sheet::{self, Needs};
+use dereth_client_contract::PlayerOption;
+use dereth_primitives::EraFeatures;
 
 /// The input maps the rows are bound in.
 pub use crate::maps as map;
@@ -192,6 +195,40 @@ impl Row {
                         | "MovementHoldSidestep"
                         | "LookAtFront"
                 ))
+    }
+
+    /// What the row's action needs of the world: a window key its window's system, a spell tab
+    /// key the spell tabs, and an option key what the option's own row needs.
+    #[must_use]
+    pub fn needs(&self) -> Needs {
+        match self.action_name {
+            "ToggleHousePanel" => Needs::Housing,
+            "ToggleCharacterTitlePanel" => Needs::Titles,
+            "ToggleJournalPanel" | "TogglePageListPanel" => Needs::Journal,
+            "ToggleContractsPanel" => Needs::Contracts,
+            "ToggleTradePanel" => Needs::Trade,
+            "ToggleSpellResearchPanel" => Needs::SpellResearch,
+            "CombatPrevSpellTab"
+            | "CombatNextSpellTab"
+            | "CombatFirstSpellTab"
+            | "CombatLastSpellTab" => Needs::SpellTabs,
+            name => name
+                .strip_prefix("PlayerOption_")
+                .and_then(|option| {
+                    PlayerOption::ALL
+                        .into_iter()
+                        .find(|o| format!("{o:?}") == option)
+                })
+                .and_then(sheet::row_of_option)
+                .map_or(Needs::Nothing, |row| row.needs),
+        }
+    }
+
+    /// Whether the keyboard editor of `interface` lists this action on a world playing `features`.
+    /// A row the world leaves out stays bindable, and a binding made for it stays saved.
+    #[must_use]
+    pub fn listed(&self, interface: Interface, features: Option<&EraFeatures>) -> bool {
+        self.shown(interface) && self.needs().met(features)
     }
 
     /// The row's caption in `interface`: the Horizon interface names a few actions by what they do
@@ -624,6 +661,122 @@ pub const ROWS: &[Row] = &[
     row_not_used(M::OWN, "RepeatLastMessage", G::Chat, C::PERMANENT, "Repeat Message (in chat box)", Some(Why::REPEAT_MESSAGE), None),
     row_not_used(M::OWN, "LookAtFront", G::Camera, C::CAMERA, "Look At Your Front", None, Some(Why::HORIZON_ONLY)),
 ];
+
+#[cfg(test)]
+mod era_tests {
+    use super::*;
+
+    fn row_named(name: &str) -> &'static Row {
+        ROWS.iter()
+            .chain(HORIZON_ROWS)
+            .find(|r| r.action_name == name)
+            .unwrap_or_else(|| panic!("no row {name}"))
+    }
+
+    /// Behaviour: presentation.era.key-rows-and-option-keys-follow-the-world
+    /// A key for a system the world lacks is not listed, each by its own system; with everything
+    /// on, or a world whose era is not known, the page is the whole page.
+    #[test]
+    fn a_key_row_follows_the_system_of_its_action() {
+        let without = |f: fn(&mut EraFeatures)| {
+            let mut features = EraFeatures::ALL;
+            f(&mut features);
+            features
+        };
+        let flags: [(&str, EraFeatures); 20] = [
+            (
+                "PlayerOption_FellowshipShareLoot",
+                without(|f| f.fellowship_share_loot = false),
+            ),
+            (
+                "PlayerOption_FellowshipAutoAcceptRequests",
+                without(|f| f.fellowship_auto_accept = false),
+            ),
+            (
+                "PlayerOption_HearAllegianceChat",
+                without(|f| f.allegiance_chat = false),
+            ),
+            ("ToggleHousePanel", without(|f| f.housing = false)),
+            ("ToggleCharacterTitlePanel", without(|f| f.titles = false)),
+            ("ToggleJournalPanel", without(|f| f.journal = false)),
+            ("TogglePageListPanel", without(|f| f.journal = false)),
+            ("ToggleContractsPanel", without(|f| f.contracts = false)),
+            ("ToggleTradePanel", without(|f| f.trade = false)),
+            (
+                "PlayerOption_HearGeneralChat",
+                without(|f| f.global_chat_rooms = false),
+            ),
+            ("CombatNextSpellTab", without(|f| f.spell_tabs = false)),
+            ("CombatLastSpellTab", without(|f| f.spell_tabs = false)),
+            ("PlayerOption_ShowCloak", without(|f| f.cloaks = false)),
+            (
+                "PlayerOption_DisplayChessRank",
+                without(|f| f.chess = false),
+            ),
+            (
+                "PlayerOption_SalvageMultiple",
+                without(|f| f.tinkering = false),
+            ),
+            (
+                "PlayerOption_FellowshipShareXP",
+                without(|f| f.fellowship_options = false),
+            ),
+            (
+                "PlayerOption_AcceptLootPermits",
+                without(|f| f.corpse_permissions = false),
+            ),
+            (
+                "PlayerOption_IgnoreTradeRequests",
+                without(|f| f.trade = false),
+            ),
+            (
+                "PlayerOption_DragItemOnPlayerOpensSecureTrade",
+                without(|f| f.trade = false),
+            ),
+            (
+                "PlayerOption_ConfirmVolatileRareUse",
+                without(|f| f.pre_order_items_and_rares = false),
+            ),
+        ];
+        for (name, off) in flags {
+            let row = row_named(name);
+            assert!(row.needs().met(Some(&EraFeatures::ALL)), "{name}");
+            assert!(!row.needs().met(Some(&off)), "{name}");
+            assert!(row.needs().met(None), "{name}");
+        }
+        for interface in [Interface::Modern, Interface::Classic, Interface::Horizon] {
+            for row in ROWS {
+                assert_eq!(
+                    row.listed(interface, None),
+                    row.shown(interface),
+                    "{}",
+                    row.action_name
+                );
+                assert_eq!(
+                    row.listed(interface, Some(&EraFeatures::ALL)),
+                    row.shown(interface),
+                    "{}",
+                    row.action_name
+                );
+            }
+        }
+    }
+
+    /// Behaviour: presentation.era.option-rows-follow-the-worlds-systems
+    /// Every option key names an option of the Character Options page, so the key's answer is the
+    /// row's own.
+    #[test]
+    fn every_option_key_with_a_need_reads_it_from_the_options_row() {
+        for option in PlayerOption::ALL {
+            let name = format!("PlayerOption_{option:?}");
+            let Some(row) = ROWS.iter().find(|r| r.action_name == name) else {
+                continue;
+            };
+            let want = sheet::row_of_option(option).map_or(Needs::Nothing, |r| r.needs);
+            assert_eq!(row.needs(), want, "{name}");
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {

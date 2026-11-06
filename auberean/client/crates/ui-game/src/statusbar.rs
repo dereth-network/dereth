@@ -924,6 +924,7 @@ impl Effects {
             data_enum: eid,
             ..Examination::default()
         }));
+        out.push(Request::OpenExaminationPanel);
     }
 }
 
@@ -1572,6 +1573,7 @@ impl Child for VitaeStatus {
                     kind: EXAMINE_VITAE,
                     ..Examination::default()
                 }));
+                out.push(Request::OpenExaminationPanel);
             }
         }
     }
@@ -1603,6 +1605,7 @@ impl Child for VitaeStatus {
 
 /// The indicators' panel: the network, conflict and vitae indicators, each a framework of its own.
 #[derive(Debug)]
+// D2-02426
 pub struct Indicators {
     frame: FrameId,
     /// The indicators, in the panel's list (the last made first).
@@ -1713,6 +1716,7 @@ impl Child for Indicators {
 
 /// The status bar's panel.
 #[derive(Debug)]
+// D2-02398
 pub struct StatusBar {
     frame: FrameId,
     /// The bar.

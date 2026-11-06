@@ -138,9 +138,6 @@ impl WorldObject {
 
         let str_and_end = strength.wrapping_add(endurance.wrapping_mul(2));
 
-        //var modifier = 1.0 + (0.0494 * Math.Pow(strAndEnd, 1.179) / 100.0f);    // formula deduced from values present in the client pdb
-        //var attributeMod = Math.Clamp(modifier, 1.0, 2.1);      // cap between + 0-110%
-
         if str_and_end <= 200 {
             return 1.0f32;
         }
@@ -377,7 +374,13 @@ pub fn vital_heart_beat(w: &mut World, this: ObjectGuid, vital_key: PropertyAttr
             }
 
             // take attributes into consideration (strength, endurance)
-            let attribute_mod = heart_beat_obj(w, this).get_attribute_mod(vital);
+            // DIVERGE: not in a world without the later Endurance benefits
+            // (`EraFeatures::endurance_benefits`, V470).
+            let attribute_mod = if w.era.features.endurance_benefits {
+                heart_beat_obj(w, this).get_attribute_mod(vital)
+            } else {
+                1.0
+            };
 
             // take stance into consideration (combat, crouch, sitting, sleeping)
             let stance_mod = heart_beat_obj(w, this).get_stance_mod(vital);

@@ -133,21 +133,34 @@ fn multiply(img: &mut crate::source::Image, color: u32) {
     }
 }
 
-/// One picture laid over another of the same place by its alpha (the part they share).
-fn lay_over(base: &mut crate::source::Image, top: &crate::source::Image) {
-    let (w, h) = (base.width.min(top.width), base.height.min(top.height));
-    for y in 0..h {
-        for x in 0..w {
+/// One picture laid over another: `top` stretched to the size of `base`, texel by nearest texel,
+/// and each laid by its own alpha (none: passed over; whole: it replaces the texel, its alpha too;
+/// else mixed, the alpha below kept). A picture of alpha alone has nothing to lay.
+// D2-09615, D2-09960
+pub fn lay_over(base: &mut crate::source::Image, top: &crate::source::Image) {
+    if top.alpha_only || base.width == 0 || base.height == 0 {
+        return;
+    }
+    let mixed = |d: u8, s: u8, a: u8| {
+        let (d, s, a) = (i32::from(d), i32::from(s), i32::from(a));
+        let by = (d - s) * a;
+        let v = d - ((by + ((by >> 31) & 0xFF)) >> 8);
+        u8::try_from(v.clamp(0, 255)).unwrap_or(0)
+    };
+    for y in 0..base.height {
+        for x in 0..base.width {
+            let (sx, sy) = (x * top.width / base.width, y * top.height / base.height);
+            let t = top.texel(sx, sy);
             let bi = ((y * base.width + x) * 4) as usize;
-            let ti = ((y * top.width + x) * 4) as usize;
-            let a = f32::from(top.bgra[ti + 3]) / 255.0;
-            for k in 0..3 {
-                let v = f32::from(top.bgra[ti + k]) * a + f32::from(base.bgra[bi + k]) * (1.0 - a);
-                base.bgra[bi + k] = dereth_primitives::num::to_i32(v).clamp(0, 255) as u8;
+            match t[3] {
+                0 => {}
+                0xFF => base.bgra[bi..bi + 4].copy_from_slice(&t),
+                a => {
+                    for (d, s) in base.bgra[bi..bi + 3].iter_mut().zip(t) {
+                        *d = mixed(*d, s, a);
+                    }
+                }
             }
-            let ba = f32::from(base.bgra[bi + 3]) / 255.0;
-            let out = a + ba * (1.0 - a);
-            base.bgra[bi + 3] = dereth_primitives::num::to_i32(out * 255.0).clamp(0, 255) as u8;
         }
     }
 }
@@ -533,6 +546,15 @@ impl Ui {
     pub fn set_image(&mut self, h: Handle, picture: u32, mode: u32) {
         let Some(n) = self.node(h) else { return };
         let alpha = n.float_attr(attr::ALPHA_VALUE).unwrap_or(0.0);
+        let same = n
+            .picture
+            .as_ref()
+            .is_some_and(|p| p.id == picture && p.mode == mode)
+            && n.blends == (mode == 1 || mode == 2)
+            && (n.alpha != -1.0 || alpha == n.alpha);
+        if same {
+            return;
+        }
         let Some(n) = self.node_mut(h) else { return };
         // D2-11929
         n.blends = mode == 1 || mode == 2;
@@ -676,18 +698,6 @@ impl Ui {
         }
         self.set_image(h, picture, mode);
         true
-    }
-
-    /// Say a drawing of the element starts or is done, when it asks to be told.
-    // D2-11370, D2-11371
-    pub fn notify_draw(&mut self, h: Handle, done: bool) {
-        if self
-            .node(h)
-            .is_some_and(|n| n.bool_attr(Token::of("notify_on_draw")))
-        {
-            let what = if done { "draw_done" } else { "draw_start" };
-            self.broadcast(h, Token::of(what), 0);
-        }
     }
 
     // -----------------------------------------------------------------------------------------

@@ -633,6 +633,7 @@ impl Ui {
         if self.node(h).and_then(|n| n.float_attr(which)).is_none() {
             return;
         }
+        self.mgr.wheel_taken = true;
         if self.sb_has(h, bits::STOP_LOCATIONS) {
             self.scrollbar_move_steps(h, which, if up { 1 } else { -1 });
             return;
@@ -644,6 +645,49 @@ impl Ui {
             (true, false) => lname::H_LINE_INC,
         };
         self.broadcast_on_root(h, what);
+    }
+
+    /// A wheel step no scroll bar took: the nearest bar of the window under the pointer takes it,
+    /// looking out from the topmost element to the whole window.
+    pub(crate) fn wheel_the_window(&mut self, top: Option<Handle>, x: i32, y: i32, b: u32) {
+        let mut at = top;
+        while let Some(h) = at {
+            if let Some(bar) = self.nearest_bar(h, x, y) {
+                let mut handled = false;
+                self.mouse_down(bar, x, y, b, &mut handled);
+                return;
+            }
+            at = self.node(h).and_then(|n| n.parent);
+        }
+    }
+
+    /// The vertical bar shown and enabled under an element that is nearest `(x, y)`.
+    fn nearest_bar(&self, h: Handle, x: i32, y: i32) -> Option<Handle> {
+        let distance = |bar: Handle| {
+            let r = self.screen_rect(bar).unwrap_or_default();
+            let dx = (r.x0 - x).max(x - r.x1).max(0);
+            let dy = (r.y0 - y).max(y - r.y1).max(0);
+            i64::from(dx) * i64::from(dx) + i64::from(dy) * i64::from(dy)
+        };
+        let mut stack = vec![h];
+        let mut best: Option<(i64, Handle)> = None;
+        while let Some(at) = stack.pop() {
+            let Some(n) = self.node(at) else { continue };
+            if !n.visible {
+                continue;
+            }
+            if self.kind_of(at) == crate::types::kind::SCROLLBAR
+                && !self.sb_has(at, bits::HORIZONTAL | bits::DISABLED)
+                && self.shown(at)
+            {
+                let d = distance(at);
+                if best.is_none_or(|(b, _)| d < b) {
+                    best = Some((d, at));
+                }
+            }
+            stack.extend(n.children.iter().copied());
+        }
+        best.map(|(_, bar)| bar)
     }
 
     /// The pointer moved while the widget is held: the widget's top-left goes where the pointer

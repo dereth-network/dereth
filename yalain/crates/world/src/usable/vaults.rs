@@ -204,6 +204,15 @@ pub fn glyph_at_vault<S: Store>(
     );
 }
 
+/// A player has left the world: a trip of its through a vault is under way no longer.
+pub fn left<S: Store>(s: &mut Server<S>, world: ConnId) {
+    for t in s.vault_trips.values_mut() {
+        if t.under_way == Some(world) {
+            t.under_way = None;
+        }
+    }
+}
+
 /// The glyph's use has played: a trip too soon after the vault's last is refused (the trip
 /// dropped, the glyph kept); else the trip goes on. Returns whether it goes on.
 pub fn opens<S: Store>(

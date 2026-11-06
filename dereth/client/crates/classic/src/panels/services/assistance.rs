@@ -37,6 +37,22 @@ fn inserted_nonblank(old: &str, new: &str) -> bool {
         .any(|c| *c != ' ' && *c != '\n')
 }
 impl Panel for Assistance {
+    fn hover(&self, at: HoverPoint<'_>, _: &Context<'_>) -> Option<Hover> {
+        match (at.id, self.urgent, self.stage) {
+            ("begin", false, _) => Hover::line("Click to register a complaint."),
+            ("cancel", false, 0) => Hover::line("Click to return to game options."),
+            ("cancel", false, _) => Hover::line("Click to cancel sending complaint."),
+            ("cancel", true, 0) => Hover::line("Click to cancel requesting assistance."),
+            ("cancel", true, _) => Hover::line("Click to cancel sending help message."),
+            ("send", true, _) => Hover::line("Click to send help message."),
+            ("name", false, _) => Hover::line("Type the offending character name in this box."),
+            ("text", false, _) => {
+                Hover::line("Type in this box your description of the complaint.")
+            }
+            ("text", true, _) => Hover::line("Type in this box your message to the admin."),
+            _ => None,
+        }
+    }
     fn id(&self) -> &'static str {
         if self.urgent {
             "urgent-assistance"
@@ -48,7 +64,12 @@ impl Panel for Assistance {
         let mut f = tiled(300, c.layout.side_height() - 25, "0600128A");
         match self.stage {
             0 => {
-                let intro = if self.urgent {
+                let launch = c.game.era_ui().launch_wording;
+                let intro = if launch && !self.urgent {
+                    "You should only click the 'Report Abuse' button to report behavior which is harassing, threatening, or offensive. Misuse of this function violates the Terms of Service."
+                } else if launch {
+                    "Use this option ONLY if you are stuck in a situation which prevents you from playing the game.\n\nIf you require assistance of a less urgent nature, please contact an advocate. To ask an Advocate for assistance, either walk up to them, or 'tell' them your request by typing '@tell <name>, <message>' (without the <>'s). They may be busy helping other people, so please be patient."
+                } else if self.urgent {
                     "Use this option ONLY if you are stuck in a situation which prevents you from playing the game.\n\nTo file a report of a less urgent nature, such as a general question, suggestion, or observation, please contact Customer Service via this link:\n\nhttp://ac.turbinegames.com/index.php?page_id=177"
                 } else {
                     "You should only click the 'Report Abuse' button to report behavior which is threatening or offensive.\n\nMisuse of this function violates the Code of Conduct.\n\nIf you have a less urgent or milder complaint, please contact Customer Service via this link:\n\nhttp://ac.turbinegames.com/index.php?page_id=177"
@@ -85,7 +106,16 @@ impl Panel for Assistance {
                         true,
                         true,
                     );
-                    label(&mut f,rect(8,142,284,128),"Envoys will help you as soon as they can.  Calls are answered in order of urgency.  If you require assistance please do not log off the character which submitted the request.  Please be as descriptive as possible.  Please submit one call per issue, and please wait 30 minutes before resubmitting the request.  Abuse of this feature can result in your being removed from the game.","15-6");
+                    label(
+                        &mut f,
+                        rect(8, 142, 284, 128),
+                        if c.game.era_ui().launch_wording {
+                            "Please be patient- It may take time to handle your request."
+                        } else {
+                            "Envoys will help you as soon as they can.  Calls are answered in order of urgency.  If you require assistance please do not log off the character which submitted the request.  Please be as descriptive as possible.  Please submit one call per issue, and please wait 30 minutes before resubmitting the request.  Abuse of this feature can result in your being removed from the game."
+                        },
+                        "15-6",
+                    );
                 } else {
                     f.image("0600147C", rect(0, 42, 300, 20), false, false);
                     f.image("0600147B", rect(0, 120, 300, 82), false, false);
@@ -126,7 +156,9 @@ impl Panel for Assistance {
                 centered(
                     &mut f,
                     rect(5, 105, 290, 120),
-                    if self.urgent {
+                    if self.urgent && c.game.era_ui().launch_wording {
+                        "Your message has been sent.\nAn advocate may be contacting you shortly. However, a response cannot always be guaranteed."
+                    } else if self.urgent {
                         "Your message has been sent.\nAn Envoy may be contacting you shortly. However, a response cannot always be guaranteed."
                     } else {
                         c.classic

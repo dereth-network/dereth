@@ -8,5 +8,6 @@ mod names;
 mod property;
 mod records;
 mod requests;
+mod rle;
 mod script;
 mod strings;

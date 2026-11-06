@@ -367,6 +367,8 @@ pub struct StatRow {
 /// A spell of the spellbook, for the actions window.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Spell {
+    /// The player's charge on it as a whole percent, on a world with charges.
+    pub charge: Option<u32>,
     pub id: u32,
     pub name: String,
     pub school: u32,
@@ -639,6 +641,10 @@ pub struct GameState {
     /// The open book as the game's book session has it: the page, its text, whether it is
     /// writable.
     pub book_session: dereth_client_contract::book::BookSessionView,
+    /// The player the selection lets the character swear to, as the game's rules have it.
+    pub swear_target: Option<dereth_primitives::ObjectId>,
+    /// The world charges more experience for an oath than the character has to spare.
+    pub short_of_oath_experience: bool,
     /// The player's notebook, as the game's shared notebook holds it, and whether the world's
     /// era has one.
     pub journal: dereth_client_contract::journal::JournalView,

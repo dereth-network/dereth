@@ -1164,7 +1164,7 @@ fn a_change_belongs_to_the_products_built_from_its_package_and_each_takes_its_re
         ("empyrean-world", "empyrean/crates/world"),
         ("empyrean-server", "empyrean/server"),
         ("dereth-client", "dereth/client"),
-        ("dereth-launch", "dereth/launcher/crates/launch"),
+        ("dereth-launch", "launcher/crates/launch"),
     ]
     .iter()
     .map(|(n, d)| ((*n).to_owned(), (*d).to_owned()))
@@ -1220,11 +1220,8 @@ fn a_change_belongs_to_the_products_built_from_its_package_and_each_takes_its_re
         [Product::Hub, Product::Empyrean, Product::Dereth]
     );
     assert_eq!(
-        of(&[
-            "dereth/launcher/ui/app.js",
-            "dereth/launcher/crates/launch/src/pad.rs"
-        ]),
-        [Product::Dereth]
+        of(&["launcher/ui/app.js", "launcher/crates/launch/src/pad.rs"]),
+        [Product::Launcher, Product::Dereth]
     );
     assert_eq!(
         of(&["docs/network/03-world-behaviour.md", "README.md"]),
@@ -1232,7 +1229,7 @@ fn a_change_belongs_to_the_products_built_from_its_package_and_each_takes_its_re
     );
     // A lock file by itself is no product's: the crates that moved in it say whose it is.
     assert_eq!(
-        of(&["Cargo.lock", "dereth/launcher/Cargo.lock"]),
+        of(&["Cargo.lock", "launcher/Cargo.lock"]),
         [] as [Product; 0]
     );
     let moved: BTreeMap<Product, Vec<String>> =
@@ -1264,21 +1261,18 @@ fn a_change_belongs_to_the_products_built_from_its_package_and_each_takes_its_re
     assert_eq!(plan::lyceum_bump().0, Bump::Patch);
     // The web client carries Dereth's version: a change to it alone is a Dereth release, and the
     // plan says so.
-    assert_eq!(of(&["dereth/web/www/front.js"]), [Product::Dereth]);
+    assert_eq!(of(&["dereth/web/www/play.js"]), [Product::Dereth]);
     assert_eq!(of(&["dereth\\web\\src\\front.rs"]), [Product::Dereth]);
     let web_alone = |paths: &[&str]| {
         let changed: Vec<String> = paths.iter().map(|p| (*p).to_owned()).collect();
         plan::web_alone(&changed, &packages, &depends, &BTreeMap::new())
     };
-    assert!(web_alone(&["dereth/web/www/front.js", "docs/x.md"]));
+    assert!(web_alone(&["dereth/web/www/play.js", "docs/x.md"]));
     let client_moved: BTreeMap<Product, Vec<String>> =
         [(Product::Dereth, vec!["wgpu 27.0.0 -> 27.0.1".to_owned()])].into();
     assert!(
         !plan::web_alone(
-            &[
-                "dereth/web/www/front.js".to_owned(),
-                "Cargo.lock".to_owned()
-            ],
+            &["dereth/web/www/play.js".to_owned(), "Cargo.lock".to_owned()],
             &packages,
             &depends,
             &client_moved
@@ -1286,7 +1280,7 @@ fn a_change_belongs_to_the_products_built_from_its_package_and_each_takes_its_re
         "the client's crates moved too"
     );
     assert!(!web_alone(&[
-        "dereth/web/www/front.js",
+        "dereth/web/www/play.js",
         "dereth/client/src/main.rs"
     ]));
     assert!(!web_alone(&["core/primitives/src/lib.rs"]), "the client's");
@@ -1513,7 +1507,7 @@ fn a_lock_change_counts_only_for_the_products_whose_crates_moved() {
 }
 
 #[test]
-fn the_launchers_own_lock_is_weighed_for_dereth_alone() {
+fn the_launchers_own_lock_is_weighed_for_the_launcher_alone() {
     let launcher = |tauri: &str| {
         lock_text(&[
             (
@@ -1528,25 +1522,28 @@ fn the_launchers_own_lock_is_weighed_for_dereth_alone() {
         ])
     };
     let found = plan::lock_moves(
-        &["dereth/launcher/Cargo.lock".to_owned()],
+        &["launcher/Cargo.lock".to_owned()],
         &|lock| {
-            assert_eq!(lock, "dereth/launcher/Cargo.lock");
+            assert_eq!(lock, "launcher/Cargo.lock");
             (launcher("2.8.0"), launcher("2.9.1"))
         },
         &BTreeMap::new(),
     )
     .expect("both locks read");
-    assert_eq!(found.keys().copied().collect::<Vec<_>>(), [Product::Dereth]);
-    assert_eq!(found[&Product::Dereth], ["tauri 2.8.0 -> 2.9.1"]);
+    assert_eq!(
+        found.keys().copied().collect::<Vec<_>>(),
+        [Product::Launcher]
+    );
+    assert_eq!(found[&Product::Launcher], ["tauri 2.8.0 -> 2.9.1"]);
     // A launcher lock that is new on the branch is all added.
     let found = plan::lock_moves(
-        &["dereth/launcher/Cargo.lock".to_owned()],
+        &["launcher/Cargo.lock".to_owned()],
         &|_| (String::new(), launcher("2.9.1")),
         &BTreeMap::new(),
     )
     .expect("both locks read");
     assert_eq!(
-        found[&Product::Dereth],
+        found[&Product::Launcher],
         ["serde 1.0.210 (added)", "tauri 2.9.1 (added)"]
     );
     // A crate taken from a git commit instead names where it is from.
@@ -1555,13 +1552,13 @@ fn the_launchers_own_lock_is_weighed_for_dereth_alone() {
         "name = \"tauri\"\nversion = \"2.9.1\"\nsource = \"git+https://example.org/tauri#0123abc\"",
     );
     let found = plan::lock_moves(
-        &["dereth/launcher/Cargo.lock".to_owned()],
+        &["launcher/Cargo.lock".to_owned()],
         &|_| (launcher("2.9.1"), from_git.clone()),
         &BTreeMap::new(),
     )
     .expect("both locks read");
     assert_eq!(
-        found[&Product::Dereth],
+        found[&Product::Launcher],
         ["tauri 2.9.1 -> 2.9.1 (git+https://example.org/tauri#0123abc)"]
     );
 
@@ -1637,11 +1634,14 @@ fn workspaces() -> plan::Built {
             "dereth-network-hub",
             "empyrean-server",
             "empyrean-import",
+            "empyrean-relay",
             "empyrean-content",
             "empyrean-testkit",
             "dereth-client-runtime",
             "dereth-client",
             "dereth-web",
+            "dereth-web-front",
+            "auberean-web",
             "dereth-launch",
             "dereth-primitives",
         ],
@@ -1673,6 +1673,11 @@ fn workspaces() -> plan::Built {
                 &["empyrean-content"],
             ),
             (
+                "empyrean-relay",
+                Some("empyrean/relay"),
+                &["dereth-primitives"],
+            ),
+            (
                 "empyrean-content",
                 Some("empyrean/crates/content"),
                 &["dereth-primitives"],
@@ -1694,8 +1699,14 @@ fn workspaces() -> plan::Built {
             ),
             ("dereth-web", Some("dereth/web"), &["dereth-client-runtime"]),
             (
+                "dereth-web-front",
+                Some("dereth/web/front"),
+                &["dereth-launch"],
+            ),
+            ("auberean-web", Some("auberean/web"), &["auberean-dat"]),
+            (
                 "dereth-launch",
-                Some("dereth/launcher/crates/launch"),
+                Some("launcher/crates/launch"),
                 &["dereth-primitives"],
             ),
             ("mlua", Some("vendor/mlua"), &["bstr"]),
@@ -1717,12 +1728,12 @@ fn workspaces() -> plan::Built {
         &[
             (
                 "dereth-launcher",
-                Some("dereth/launcher"),
+                Some("launcher"),
                 &["dereth-launch:normal+dev", "tauri", "tempfile:dev"],
             ),
             (
                 "dereth-launch",
-                Some("dereth/launcher/crates/launch"),
+                Some("launcher/crates/launch"),
                 &["dereth-primitives"],
             ),
             ("dereth-primitives", Some("core/primitives"), &["serde"]),
@@ -1732,10 +1743,7 @@ fn workspaces() -> plan::Built {
         ],
     );
     plan::Built::read(
-        &[
-            ("Cargo.lock", main),
-            ("dereth/launcher/Cargo.lock", launcher),
-        ],
+        &[("Cargo.lock", main), ("launcher/Cargo.lock", launcher)],
         Path::new("/w"),
     )
 }
@@ -1756,6 +1764,7 @@ fn workspace_lock() -> Vec<(&'static str, &'static str, bool, &'static [&'static
             &["dereth-primitives", "embed-resource", "empyrean-testkit"],
         ),
         ("empyrean-import", "0.3.4", false, &["empyrean-content"]),
+        ("empyrean-relay", "0.3.4", false, &["dereth-primitives"]),
         ("empyrean-content", "0.3.4", false, &["dereth-primitives"]),
         (
             "empyrean-testkit",
@@ -1776,6 +1785,8 @@ fn workspace_lock() -> Vec<(&'static str, &'static str, bool, &'static [&'static
             &["dereth-client-runtime", "dereth-launch", "mlua"],
         ),
         ("dereth-web", "0.4.6", false, &["dereth-client-runtime"]),
+        ("dereth-web-front", "0.4.6", false, &["dereth-launch"]),
+        ("auberean-web", "0.1.2", false, &["auberean-dat"]),
         ("dereth-launch", "0.4.6", false, &["dereth-primitives"]),
         ("mlua", "0.12.1", false, &["bstr"]),
         ("dereth-primitives", "0.0.0", false, &["proptest", "serde"]),
@@ -1809,9 +1820,14 @@ fn a_product_is_built_from_what_it_ships_through_normal_and_build_dependencies_a
                 set(&[
                     "empyrean-server",
                     "empyrean-import",
+                    "empyrean-relay",
                     "empyrean-content",
                     "dereth-primitives"
                 ])
+            ),
+            (
+                Product::Launcher,
+                set(&["dereth-launcher", "dereth-launch", "dereth-primitives"])
             ),
             (
                 Product::Dereth,
@@ -1819,8 +1835,10 @@ fn a_product_is_built_from_what_it_ships_through_normal_and_build_dependencies_a
                     "dereth-client",
                     "dereth-client-runtime",
                     "dereth-web",
+                    "dereth-web-front",
+                    "auberean-web",
+                    "auberean-dat",
                     "dereth-launch",
-                    "dereth-launcher",
                     "dereth-primitives",
                     "mlua"
                 ])
@@ -1846,7 +1864,7 @@ fn a_product_is_built_from_what_it_ships_through_normal_and_build_dependencies_a
         .contains(&("mlua".to_owned(), "vendor/mlua".to_owned())));
     assert!(built
         .packages
-        .contains(&("dereth-launcher".to_owned(), "dereth/launcher".to_owned())));
+        .contains(&("dereth-launcher".to_owned(), "launcher".to_owned())));
     assert!(
         built.packages.iter().all(|(n, _)| n != "serde"),
         "a crate from crates.io has no folder here"
@@ -1889,19 +1907,26 @@ fn a_product_is_built_from_what_it_ships_through_normal_and_build_dependencies_a
     // A vendored crate outside the workspace is its users'.
     assert_eq!(of("vendor/mlua/src/lua.rs"), [Product::Dereth]);
     assert_eq!(
-        of("dereth/launcher/crates/launch/src/pad.rs"),
-        [Product::Dereth]
+        of("launcher/crates/launch/src/pad.rs"),
+        [Product::Launcher, Product::Dereth]
     );
     assert_eq!(
         of("core/primitives/src/lib.rs"),
-        [Product::Hub, Product::Empyrean, Product::Dereth]
+        [
+            Product::Hub,
+            Product::Empyrean,
+            Product::Launcher,
+            Product::Dereth
+        ]
     );
-    // Asheron's Call 2's core is its client's and its server's; the world builder is released for
-    // its own folder, as Lyceum is.
+    // Asheron's Call 2's core is its client's, its server's and the web client's, whose one release
+    // carries both games; the world builder is released for its own folder, as Lyceum is.
     assert_eq!(
         of("core/auberean-dat/src/lib.rs"),
-        [Product::Auberean, Product::Yalain]
+        [Product::Dereth, Product::Auberean, Product::Yalain]
     );
+    // Auberean's browser module is released with the web client alone.
+    assert_eq!(of("auberean/web/src/browser.rs"), [Product::Dereth]);
     assert_eq!(of("yalain/server/src/main.rs"), [Product::Yalain]);
     assert_eq!(of("athenaeum/editor/src/main.rs"), [Product::Athenaeum]);
 
@@ -2333,10 +2358,11 @@ const LOCAL: ship::Options = ship::Options {
 const COMMIT: &str = "c0ffee0000000000000000000000000000000001";
 
 /// CI's jobs, as `.github/workflows/ci.yml` names them.
-const CI_JOBS: [&str; 6] = [
+const CI_JOBS: [&str; 7] = [
     "tier0 (windows-latest)",
     "tier0 (ubuntu-latest)",
     "tier0 (macos-latest)",
+    "rules and docs",
     "network (windows-latest)",
     "network (ubuntu-latest)",
     "web (wasm32)",
@@ -4551,6 +4577,10 @@ fn web_fake() -> Fake {
             "dereth/web/Cargo.toml",
             "[package]\nname = \"dereth-web\"\nversion = \"0.4.3\"\n",
         )
+        .tracked(
+            "dereth/web/front/Cargo.toml",
+            "[package]\nname = \"dereth-web-front\"\nversion = \"0.4.3\"\n",
+        )
         .tracked("dereth/web/www/index.html", "<p>the page</p>")
         .reply(
             "rustup target list --installed",
@@ -4565,6 +4595,9 @@ fn a_dereth_release_builds_the_web_client_as_a_candidate_and_play_web_serves_it_
     let f = &m.inner;
     assert!(f
         .get("D:/preflight/src/dereth/web/Cargo.toml")
+        .is_some_and(|t| t.contains("version = \"0.4.4-rc.1\"")));
+    assert!(f
+        .get("D:/preflight/src/dereth/web/front/Cargo.toml")
         .is_some_and(|t| t.contains("version = \"0.4.4-rc.1\"")));
     assert_eq!(
         f.done("cargo run"),
@@ -4984,7 +5017,7 @@ fn ship_asks_github_for_the_checks_of_exactly_the_preflighted_commit_and_carries
     assert_eq!(
         r,
         Ok(format!(
-            "CI passed on c0ffee0000: all 6 checks green ({}).",
+            "CI passed on c0ffee0000: all 7 checks green ({}).",
             checks_page()
         ))
     );
@@ -5100,24 +5133,26 @@ fn ship_waits_while_ci_runs_saying_each_jobs_state_as_it_changes_on_the_machines
     let (r, said) = ci_on(&mut f, false, false);
     assert!(
         r.as_ref()
-            .is_ok_and(|l| l.starts_with("CI passed on c0ffee0000: all 6 checks green")),
+            .is_ok_and(|l| l.starts_with("CI passed on c0ffee0000: all 7 checks green")),
         "{r:?}"
     );
     assert_eq!(
         said,
         [
             format!(
-                "Waiting for CI on c0ffee0000 ({}), for 120 minutes at most:",
+                "Waiting for CI on c0ffee0000 ({}), for 180 minutes at most:",
                 checks_page()
             ),
             "  tier0 (windows-latest): queued".to_owned(),
             "  tier0 (ubuntu-latest): queued".to_owned(),
             "  tier0 (macos-latest): queued".to_owned(),
+            "  rules and docs: in progress".to_owned(),
             "  network (windows-latest): in progress".to_owned(),
             "  network (ubuntu-latest): in progress".to_owned(),
             "  web (wasm32): in progress".to_owned(),
             "  tier0 (windows-latest): in progress".to_owned(),
             "  tier0 (ubuntu-latest): success".to_owned(),
+            "  rules and docs: success".to_owned(),
             "  network (windows-latest): success".to_owned(),
             "  network (ubuntu-latest): success".to_owned(),
         ]
@@ -5130,7 +5165,7 @@ fn ship_waits_while_ci_runs_saying_each_jobs_state_as_it_changes_on_the_machines
         r,
         Ok(format!(
             "CI is still running on c0ffee0000: would wait for tier0 (windows-latest), tier0 \
-             (ubuntu-latest), tier0 (macos-latest), network (windows-latest), network \
+             (ubuntu-latest), tier0 (macos-latest), rules and docs, network (windows-latest), network \
              (ubuntu-latest), web (wasm32) ({}).",
             checks_page()
         ))
@@ -5163,7 +5198,7 @@ fn ship_waits_for_checks_not_started_yet_and_gives_up_when_none_ever_starts() {
         said,
         [
             format!(
-                "Waiting for CI on c0ffee0000 ({}), for 120 minutes at most:",
+                "Waiting for CI on c0ffee0000 ({}), for 180 minutes at most:",
                 checks_page()
             ),
             "  nothing has run on it on GitHub yet: has the mirror pushed `preflight`?".to_owned()
@@ -5241,7 +5276,7 @@ fn ship_gives_up_when_ci_has_not_finished_within_the_bound_naming_what_still_run
     assert_eq!(
         e,
         format!(
-            "CI has not finished on c0ffee0000 in 120 minutes ({}); nothing is shipped.\n\
+            "CI has not finished on c0ffee0000 in 180 minutes ({}); nothing is shipped.\n\
              Still running:\n  tier0 (macos-latest): queued, {}\n\
              `cargo xtask ship` waits again; `--skip-checks` ships without waiting.",
             checks_page(),
@@ -5313,11 +5348,11 @@ fn ship_waits_out_githubs_limit_on_calls_and_spreads_the_calls_left_over_the_hou
     assert_eq!(waits, ["pause 121000"]);
 
     // Given back only after the wait would end: refused then, naming what still ran.
-    let (r, _, waits) = pauses(vec![Ok(ok(&running)), Ok(spent(T0 + 60 + 3 * 3600))]);
+    let (r, _, waits) = pauses(vec![Ok(ok(&running)), Ok(spent(T0 + 60 + 4 * 3600))]);
     assert_eq!(
         r,
         Err(format!(
-            "GitHub's hourly limit on calls is spent for 180 more minutes, past the 120 minutes \
+            "GitHub's hourly limit on calls is spent for 240 more minutes, past the 180 minutes \
              `ship` waits; nothing is shipped.\nStill running at the last ask:\n  \
              tier0 (macos-latest): in progress, {}\n`cargo xtask ship` asks again; \
              `--skip-checks` ships without asking.",
@@ -5543,19 +5578,18 @@ fn ship_reads_every_page_of_the_check_runs_and_a_failure_on_the_last_one_refuses
     );
 }
 
-/// The CI `ship` waits for keeps tier 0's dependency builds between the runs on `main` and on
-/// `preflight`, the branch a preflight pushes, and no CI job may run longer than `ship` waits; the
-/// release workflows keep nothing and build clean.
+/// The CI `ship` waits for keeps tier 0's dependency builds from the runs on `main`, and its
+/// compiled libraries from those and from `preflight`, the branch a preflight pushes; no CI job may
+/// run longer than `ship` waits; the release workflows keep nothing and build clean.
 #[test]
-fn ci_keeps_tier0s_builds_from_main_and_preflight_runs_within_ships_wait_and_releases_build_clean()
-{
+fn ci_keeps_tier0s_builds_from_main_runs_within_ships_wait_and_releases_build_clean() {
     let dir = crate::util::workspace_root().join(".github/workflows");
     let read = |f: &str| std::fs::read_to_string(dir.join(f)).expect(f);
     let ci = read("ci.yml");
     let tier0 = ci
         .split("\n  tier0:\n")
         .nth(1)
-        .and_then(|rest| rest.split("\n  network:\n").next())
+        .and_then(|rest| rest.split("\n  rules:\n").next())
         .expect("the tier0 job");
     let cache =
         regex::Regex::new(r"uses: Swatinem/rust-cache@[0-9a-f]{40} # v\d").expect("a pattern");
@@ -5566,8 +5600,9 @@ fn ci_keeps_tier0s_builds_from_main_and_preflight_runs_within_ships_wait_and_rel
     };
     let step = cache.find(tier0).expect("tier0 keeps its builds").start();
     assert!(at("rustup override set") < step && step < at("run: cargo xtask ci tier0"));
+    assert!(tier0.contains("save-if: ${{ github.ref == 'refs/heads/main' }}"));
     assert!(tier0.contains(&format!(
-        "save-if: ${{{{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/{}' }}}}",
+        "SCCACHE_GHA_RW_MODE: ${{{{ (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/{}') && 'READ_WRITE' || 'READ_ONLY' }}}}",
         super::ci::BRANCH
     )));
     assert_eq!(cache.find_iter(&ci).count(), 1, "tier0's alone");
@@ -5577,7 +5612,7 @@ fn ci_keeps_tier0s_builds_from_main_and_preflight_runs_within_ships_wait_and_rel
         .filter_map(|l| l.trim().strip_prefix("timeout-minutes: "))
         .map(|m| m.parse().expect("minutes"))
         .collect();
-    assert!(limits.contains(&120), "{limits:?}");
+    assert!(limits.contains(&180), "{limits:?}");
     assert!(
         limits.iter().all(|m| m * 60 <= super::ci::BOUND_S),
         "{limits:?}"
@@ -5600,4 +5635,37 @@ fn ci_keeps_tier0s_builds_from_main_and_preflight_runs_within_ships_wait_and_rel
         }
     }
     assert!(releases >= 6, "{releases} release workflows");
+}
+
+/// A change to the launcher's own app is the launcher's alone, and `ship` cuts the launcher before
+/// the games, whose packages hold it.
+#[test]
+fn the_launcher_is_its_own_product_and_ships_before_the_games() {
+    let of = |paths: &[&str]| {
+        let changed: Vec<String> = paths.iter().map(|p| (*p).to_owned()).collect();
+        plan::products_of(&changed, &[], &BTreeMap::new(), &BTreeMap::new())
+            .into_iter()
+            .collect::<Vec<_>>()
+    };
+    // The web client's page is made from the launcher's page and art, and only from those.
+    assert_eq!(
+        of(&["launcher/ui/app.js"]),
+        [Product::Launcher, Product::Dereth]
+    );
+    assert_eq!(
+        of(&["launcher/assets/fonts/a.woff2"]),
+        [Product::Launcher, Product::Dereth]
+    );
+    assert_eq!(of(&["launcher/src/main.rs"]), [Product::Launcher]);
+    assert_eq!(of(&["dereth/web/www/front.js"]), [Product::Dereth]);
+    assert_eq!(of(&["auberean/web/src/lib.rs"]), [Product::Dereth]);
+    let at = |p: Product| {
+        Product::ALL
+            .iter()
+            .position(|x| *x == p)
+            .expect("a product")
+    };
+    assert!(at(Product::Launcher) < at(Product::Dereth));
+    assert!(at(Product::Launcher) < at(Product::Auberean));
+    assert_eq!(Product::Launcher.command_name(), "launcher");
 }

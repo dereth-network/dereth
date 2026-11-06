@@ -25,6 +25,7 @@ fn person(origin: [f32; 3]) -> ContentObject {
         object: Some(PERSON),
         template: TEMPLATE,
         description: Description {
+            name_text: None,
             package: 0x13A4,
             look: 0x1F00_0100,
             enter_fx: 0,
@@ -86,9 +87,12 @@ pub(super) fn tables_of(h: &Harness) -> WorldTables {
         crafting: s.crafting.clone(),
         weapons: s.creature_weapons.clone(),
         weapon_rules: s.creature_weapon_rules.clone(),
+        death_spawns: s.death_spawns.clone(),
         names: None,
         kinds: None,
         ground: None,
+        files: None,
+        patch: None,
     }
 }
 

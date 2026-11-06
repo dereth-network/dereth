@@ -17,7 +17,7 @@ use tungstenite::handshake::server::{Request, Response};
 use tungstenite::WebSocket;
 use yalain_testkit::authored;
 
-use crate::session::{must, scratch, serving};
+use crate::session::{must, scratch, serving, LIFE};
 
 pub(crate) const KEY: &str = "drth_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
 
@@ -259,5 +259,76 @@ fn the_server_links_to_its_hub_and_answers_another_worlds_tell_and_watch() {
     must(
         logged(&dir, "coldeve is blocked for everyone on this world."),
         &dir,
+    );
+}
+
+/// A world set up from its configuration file's `[server.websocket]`, on the network and with a
+/// status endpoint, tells its hub in its `hello` and its status endpoint where browsers reach it:
+/// the file's `public_url`. A page from the file's `allowed_origins` may read the status too.
+/// Behaviour: server.network.websocket-url-told-to-the-hub
+/// Behaviour: server.operator.websocket-settings-read-as-empyreans
+/// Behaviour: server.operator.websocket-url-on-the-status-endpoint
+#[test]
+fn a_world_tells_its_hub_and_its_status_endpoint_its_public_websocket_address() {
+    let dir = scratch("yalain-live-websocket-hub");
+    let install = auberean_dat::testing::require_target_install();
+    let (hub, links) = stand_in_hub();
+    std::fs::write(dir.join("network.key"), format!("{KEY}\n")).expect("the key file");
+    let quoted = |p: &Path| format!("{:?}", p.to_string_lossy());
+    let (_, _server, ()) = serving(&dir, |port| {
+        std::fs::write(
+            dir.join("yalain.toml"),
+            format!(
+                "[server]\ndat_files_directory = {}\nworld_database_path = {}\n\
+                 status_address = \"127.0.0.1:0\"\n\
+                 [server.network]\nport = {port}\n\
+                 [server.websocket]\nenabled = true\nlisten = \"127.0.0.1:0\"\n\
+                 public_url = \"wss://play.example.org/ws\"\n\
+                 allowed_origins = [\"https://play.example.org\"]\n\
+                 [database]\nin_memory = true\n[testing]\nrun_seconds = {LIFE}\n\
+                 [federation]\nenabled = true\nhub_url = \"ws://127.0.0.1:{hub}\"\n\
+                 slug = \"shardfall\"\n",
+                quoted(&install),
+                quoted(&authored::database_dir()),
+            ),
+        )
+        .expect("the configuration file");
+        let log = std::fs::File::create(dir.join("server.log")).expect("the server's log");
+        let child = Command::new(env!("CARGO_BIN_EXE_yalain"))
+            .current_dir(&dir)
+            .stdin(Stdio::null())
+            .stdout(log.try_clone().expect("the log twice"))
+            .stderr(log)
+            .spawn()
+            .expect("the server starts");
+        (child, ())
+    });
+    let mut link = must(
+        links
+            .recv_timeout(HANG)
+            .map_err(|e| format!("the link: {e}")),
+        &dir,
+    );
+    link.ws
+        .get_ref()
+        .set_read_timeout(Some(Duration::from_millis(200)))
+        .expect("a read timeout");
+    let hello = must(next(&mut link.ws, "hello"), &dir);
+    let Message::Hello { websocket_url, .. } = hello else {
+        panic!("not a hello: {hello:?}");
+    };
+    assert_eq!(websocket_url.as_deref(), Some("wss://play.example.org/ws"));
+    let status_port = crate::configured::status_port(&dir);
+    let status = crate::configured::status(status_port, &dir);
+    assert_eq!(status["websocket_url"], "wss://play.example.org/ws");
+    let mut asked = TcpStream::connect((Ipv4Addr::LOCALHOST, status_port)).expect("connects");
+    asked
+        .write_all(b"GET /status HTTP/1.1\r\nHost: x\r\nOrigin: https://play.example.org\r\n\r\n")
+        .expect("sent");
+    let mut text = String::new();
+    asked.read_to_string(&mut text).expect("an answer");
+    assert!(
+        text.contains("Access-Control-Allow-Origin: https://play.example.org\r\n"),
+        "{text}"
     );
 }

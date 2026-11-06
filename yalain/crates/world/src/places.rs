@@ -190,6 +190,9 @@ pub enum Step {
     OutOfScene { scene: u32 },
     /// A story shard's wait is over: its scene, then into portal space.
     Shard { scene: u32 },
+    /// A use of this person or object has moved a quest that leads on: it flashes, into portal
+    /// space.
+    Sent { by: u64 },
 }
 
 /// A use of an object the server is carrying out: the request's description (its slots and its
@@ -317,6 +320,9 @@ fn portal_scene<S: Store>(s: &Server<S>, f: u32, scene: u32) -> ServerMessage {
 pub const USE_STATUS_IN_USE: u32 = 10001;
 pub const USE_FLAGS_IN_USE: u32 = 956;
 
+/// The use answer's control flags for an item of the pack with no use, refused.
+pub const USE_FLAGS_PACK: u32 = 316;
+
 /// The use answer's control flags for another player used: it cannot be (the status is the same
 /// "cannot use").
 pub const USE_FLAGS_A_PLAYER: u32 = 828;
@@ -410,6 +416,13 @@ fn use_thing<S: Store>(
             crate::combat::begin(s, net, world, u.item, clock);
         }
     }
+}
+
+/// Is this item in the player's pack, neither worn nor wielded?
+fn in_the_pack<S: Store>(s: &Server<S>, world: ConnId, item: u64) -> bool {
+    s.players
+        .get(&world)
+        .is_some_and(|p| p.play.items.iter().any(|h| h.id == item && h.location == 0))
 }
 
 /// Why taking an item of a template is refused, if its quest keeps the player from it.
@@ -664,6 +677,19 @@ pub fn actions_locked<S: Store>(s: &Server<S>, world: ConnId) -> bool {
         })
 }
 
+/// Does a use under way count on what the player's pack holds until it is done: a trip (a glyph or
+/// a step's item goes as it arrives), a key turning, a knife cutting? Nothing leaves the pack by the
+/// player's asking until then: not put down, not sold, not traded.
+#[must_use]
+pub fn pack_spoken_for<S: Store>(s: &Server<S>, world: ConnId) -> bool {
+    s.players.get(&world).is_some_and(|p| p.trip.is_some())
+        || crate::usable::doors::waiting_on(s, world)
+        || crate::usable::chests::waiting_on(s, world)
+        || s.timers
+            .iter()
+            .any(|(_, t)| matches!(t, Timer::Butcher { world: w, .. } if *w == world))
+}
+
 /// A player asks to use an object.
 pub fn use_object<S: Store>(
     s: &mut Server<S>,
@@ -746,7 +772,8 @@ pub fn use_object<S: Store>(
     }
     // Another player cannot be used: refused at once where the user stands, with the distance
     // between them, and the other told nothing.
-    if let Some(other) = s.players.values().find(|o| o.character == u.item) {
+    let other = presence::player_for(s, world, u.item).and_then(|w| s.players.get(&w));
+    if let Some(other) = other {
         let distance = presence::distance(&p.position, &other.position).unwrap_or(0.0);
         let no = use_refused(&u, 0, Some(USE_FLAGS_A_PLAYER), distance, USE_STATUS_IN_USE);
         send(net, world, BlobKind::PRIVATE, &no);
@@ -803,6 +830,24 @@ pub fn use_object<S: Store>(
     let lifestone = LIFESTONES.contains(&o.template);
     let person = talks_to(s, o);
     let broker = crate::market::broker(s, o.template).is_some();
+    // An object for monarchs alone is refused at once, wherever the player stands, whatever else it
+    // asks of the player (2017: the Allegiance Sign and the Binding Stone, 2 of 2, at 17.9 and
+    // 5.7 m, the stone's quest not held).
+    if s.catalog
+        .get(o.template)
+        .is_some_and(|t| crate::item_use::not_monarch(s, world, &t.props))
+    {
+        let distance = reach(&u.from, o.cell, o.origin).unwrap_or(0.0);
+        let no = use_refused(
+            &u,
+            0,
+            Some(USE_FLAGS_CANNOT_BE_USED),
+            distance,
+            crate::item_use::refusal::MONARCH_ONLY,
+        );
+        send(net, world, BlobKind::PRIVATE, &no);
+        return;
+    }
     // A portal its quest keeps the player out of is refused at once, wherever the player stands
     // (2017: 2 of 2, at 13.5 and 56.9 m; the generic portals kept by their placed instance's
     // quest, 21 of 21 requests answered in 0.09-0.46 s, at 2.9-76.0 m), whether or not where it
@@ -876,8 +921,38 @@ fn use_held<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, u: 
     let Some(item) = s.things.get(u.item).map(|t| t.template) else {
         return;
     };
+    // An item in the pack that its quest keeps from the player is used no more than taken (2017, pack
+    // uses refused 10042, 10021: 13 of 15 of items whose classes name a quest for taking, 8 of 8 of
+    // 10042).
+    if u.target == 0 && in_the_pack(s, world, u.item) {
+        if let Some(why) = take_refused(s, world, item, clock) {
+            let no = use_refused(&u, 0, Some(USE_FLAGS_PACK), 0.0, why);
+            send(net, world, BlobKind::PRIVATE, &no);
+            return;
+        }
+    }
     if crate::usable::doors::door(s, u.target).is_some() {
         crate::usable::doors::key_used(s, net, world, u, clock);
+        return;
+    }
+    // A contract kept because it could not hire when it was bought tries again.
+    if crate::pets::is_contract(item) && in_the_pack(s, world, u.item) {
+        let hired = crate::pets::hire(s, net, world, item, clock);
+        let me = s.players.get(&world).map_or(0, |p| p.character);
+        let told = if hired {
+            use_done(&u, me, USE_FLAGS_PACK, false, 0.0)
+        } else {
+            use_refused(&u, 0, Some(USE_FLAGS_PACK), 0.0, USE_STATUS_OK)
+        };
+        send(net, world, BlobKind::PRIVATE, &told);
+        return;
+    }
+    // A totem used on an item in the pack.
+    if s.things
+        .get(u.item)
+        .is_some_and(|t| crate::craft::totem::noun(t.template).is_some())
+    {
+        crate::craft::use_totem(s, net, world, &u);
         return;
     }
     if crate::usable::chests::chest(s, u.target).is_some() {
@@ -1358,13 +1433,41 @@ pub fn walk_interrupted<S: Store>(
         return;
     }
     let goal = walk_goal(&u);
-    let here = p.position;
-    let thing = s.things.get(goal).map(|t| (t.at, t.kind, t.container));
-    if let Some((_, crate::things::Kind::Item, None)) = thing {
+    if let Some(crate::things::Kind::Item) = s
+        .things
+        .get(goal)
+        .filter(|t| t.container.is_none())
+        .map(|t| t.kind)
+    {
         return;
     }
-    let distance = match thing {
-        Some((at, _, _)) => at.and_then(|at| presence::distance(&here, &at)),
+    walk_cut_short(s, net, world);
+}
+
+/// A player on its way to an object goes no further: the walk ends, and its use is answered as cut
+/// short. A trip or a death takes a player off its walk as its own moving does; the player would
+/// otherwise stay walking to where it no longer is, and every later use would be refused.
+pub(crate) fn walk_cut_short<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
+    let Some(p) = s.players.get(&world) else {
+        return;
+    };
+    let Some((u, _)) = p.walking_to.clone() else {
+        return;
+    };
+    let goal = walk_goal(&u);
+    let here = p.position;
+    let lying = s
+        .things
+        .get(goal)
+        .is_some_and(|t| t.kind == crate::things::Kind::Item && t.container.is_none());
+    if lying {
+        let cant = crate::inventory::refused::CANT_GET_THERE;
+        crate::inventory::pickup_refused(s, net, world, goal, cant);
+        stop_walking(s, net, world);
+        return;
+    }
+    let distance = match s.things.get(goal).map(|t| t.at) {
+        Some(at) => at.and_then(|at| presence::distance(&here, &at)),
         None => presence::content_by_id(&s.content.objects, goal).and_then(|i| {
             let o = &s.content.objects[i];
             reach(&here, o.cell, o.origin)
@@ -1474,6 +1577,12 @@ fn carry_out<S: Store>(
         origin: to.origin,
         rotation: to.rotation,
     };
+    // A person who sends whoever uses it says its line first (2017: 14 of 16 trips from the one
+    // person recorded so came with its line).
+    if let Some(line) = crate::talk::at_use(s, world, o.template, Some(i)) {
+        let speaker = crate::talk::content_speaker(s, i);
+        crate::talk::say(s, net, world, &speaker, &line.words, line.how);
+    }
     if let Some(&scene) = s.story.shards.get(&u.item) {
         crate::scenes::shard_used(s, net, world, u, to, scene, clock);
         return;
@@ -1483,6 +1592,12 @@ fn carry_out<S: Store>(
         return;
     }
     through_portal(s, net, world, u, to, clock);
+}
+
+/// Is a player on its way somewhere already? What it is on its way for (a kill's step, a glyph's
+/// use) comes as it lands, so nothing else sends it anywhere first.
+fn on_a_trip<S: Store>(s: &Server<S>, world: ConnId) -> bool {
+    s.players.get(&world).is_some_and(|p| p.trip.is_some())
 }
 
 /// A player in reach of a portal goes through it: the portal flashes, the player is told it is
@@ -1495,37 +1610,10 @@ pub(crate) fn through_portal<S: Store>(
     to: StoredPosition,
     clock: Clock,
 ) {
-    if s.things.get(u.item).is_some() {
-        let flash = ServerMessage::DoFx(ObjectEvent {
-            sender: crate::inventory::visual(s, u.item),
-            action: Fx {
-                fx: fx::PORTAL_USED,
-                scalar: 1.0,
-            },
-        });
-        crate::combat::to_all_seeing(s, net, u.item, &flash);
-    } else {
-        let flash = ServerMessage::DoFx(ObjectEvent {
-            sender: object_stamp(s, u.item),
-            action: Fx {
-                fx: fx::PORTAL_USED,
-                scalar: 1.0,
-            },
-        });
-        to_knowers(s, net, u.item, &flash);
+    if on_a_trip(s, world) {
+        return;
     }
-    let teleporting = TextInfo {
-        string_id: text::TELEPORTING.0,
-        table: text::TELEPORTING.1,
-        ..TextInfo::default()
-    };
-    send(
-        net,
-        world,
-        BlobKind::PRIVATE,
-        &crate::chat::show_text(8, teleporting),
-    );
-    enter_portal_space(s, net, world, true);
+    flash_and_go(s, net, world, u.item);
     if let Some(p) = s.players.get_mut(&world) {
         p.trip = Some(Trip {
             to,
@@ -1546,6 +1634,81 @@ pub(crate) fn through_portal<S: Store>(
     );
 }
 
+/// What was used has sent the player: it flashes, the player is told it is teleporting and goes into
+/// portal space.
+fn flash_and_go<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, item: u64) {
+    if s.things.get(item).is_some() {
+        let flash = ServerMessage::DoFx(ObjectEvent {
+            sender: crate::inventory::visual(s, item),
+            action: Fx {
+                fx: fx::PORTAL_USED,
+                scalar: 1.0,
+            },
+        });
+        crate::combat::to_all_seeing(s, net, item, &flash);
+    } else {
+        let flash = ServerMessage::DoFx(ObjectEvent {
+            sender: object_stamp(s, item),
+            action: Fx {
+                fx: fx::PORTAL_USED,
+                scalar: 1.0,
+            },
+        });
+        to_knowers(s, net, item, &flash);
+    }
+    let teleporting = TextInfo {
+        string_id: text::TELEPORTING.0,
+        table: text::TELEPORTING.1,
+        ..TextInfo::default()
+    };
+    send(
+        net,
+        world,
+        BlobKind::PRIVATE,
+        &crate::chat::show_text(8, teleporting),
+    );
+    enter_portal_space(s, net, world, true);
+}
+
+/// A step leads somewhere: the player is taken at once. A use of a person or an object has already
+/// told its update (2017: the one such trip recorded, the touch's text and portal space together,
+/// 0.18 s after the use, 1 of 1); a kill's step, given here, is run on landing, if it still may.
+pub(crate) fn sends_on<S: Store>(
+    s: &mut Server<S>,
+    world: ConnId,
+    by: u64,
+    place: yalain_content::quests::Place,
+    step: Option<yalain_content::quests::Step>,
+    clock: Clock,
+) {
+    let Some(p) = s.players.get_mut(&world) else {
+        return;
+    };
+    if p.trip.is_some() {
+        return;
+    }
+    p.trip = Some(Trip {
+        to: StoredPosition {
+            cell: place.cell,
+            origin: place.origin,
+            rotation: crate::world::rotation_of_heading(place.heading),
+        },
+        used: None,
+        step,
+        resurrect: false,
+        sent: false,
+        said: None,
+    });
+    s.after(
+        clock,
+        0.0,
+        Timer::Trip {
+            world,
+            step: Step::Sent { by },
+        },
+    );
+}
+
 /// A door used: its scene in place of portal space, in one tick: told it is teleporting, its
 /// animation and movement frozen, the scene begun; no flash and no glows. A second and a half later
 /// it comes out at the door's destination as from portal space, the scene ended in place of portal
@@ -1559,6 +1722,9 @@ fn through_door<S: Store>(
     scene: u32,
     clock: Clock,
 ) {
+    if on_a_trip(s, world) {
+        return;
+    }
     let teleporting = TextInfo {
         string_id: text::TELEPORTING.0,
         table: text::TELEPORTING.1,
@@ -1656,6 +1822,20 @@ fn enter_portal_space<S: Store>(
     world: ConnId,
     teleport_fx: bool,
 ) {
+    goes_into_portal_space(s, net, world, teleport_fx);
+    // Auras go off as the player goes into portal space.
+    crate::effects::auras_off(s, net, world);
+}
+
+/// The player goes into portal space: its effects, its animation and movement frozen, and any walk
+/// it was on over.
+fn goes_into_portal_space<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    teleport_fx: bool,
+) {
+    walk_cut_short(s, net, world);
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
@@ -1699,8 +1879,6 @@ fn enter_portal_space<S: Store>(
         BlobKind::PRIVATE,
         &portal_space(function::ENTER_PORTAL_SPACE),
     );
-    // Auras go off as the player goes into portal space.
-    crate::effects::auras_off(s, net, world);
 }
 
 /// Bind a player to the lifestone it used.
@@ -1808,6 +1986,9 @@ pub fn recall_trip<S: Store>(
     to: StoredPosition,
     said: Option<TextInfo>,
 ) {
+    if on_a_trip(s, world) {
+        return;
+    }
     enter_portal_space(s, net, world, false);
     if let Some(p) = s.players.get_mut(&world) {
         p.trip = Some(Trip {
@@ -1886,16 +2067,26 @@ pub fn resurrection_place<S: Store>(s: &Server<S>, world: ConnId) -> StoredPosit
             rotation: [1.0, 0.0, 0.0, 0.0],
         };
     };
-    if let Some((_, at)) = p.places.iter().find(|(k, _)| *k == kind::LIFESTONE) {
+    resurrection_place_of(s, &p.places, p.position)
+}
+
+/// [`resurrection_place`] for a character with these kept places, fallen at `fell`.
+#[must_use]
+pub fn resurrection_place_of<S: Store>(
+    s: &Server<S>,
+    places: &[(u32, StoredPosition)],
+    fell: StoredPosition,
+) -> StoredPosition {
+    if let Some((_, at)) = places.iter().find(|(k, _)| *k == kind::LIFESTONE) {
         return *at;
     }
     s.content
         .objects
         .iter()
         .filter(|o| LIFESTONES.contains(&o.template))
-        .filter_map(|o| reach(&p.position, o.cell, o.origin).map(|d| (d, o)))
+        .filter_map(|o| reach(&fell, o.cell, o.origin).map(|d| (d, o)))
         .min_by(|a, b| a.0.total_cmp(&b.0))
-        .map_or(p.position, |(_, o)| beside(o.cell, o.origin, &p.position))
+        .map_or(fell, |(_, o)| beside(o.cell, o.origin, &fell))
 }
 
 /// A dead player goes through portal space to where it returns (its effects, frozen, portal
@@ -1907,7 +2098,8 @@ pub fn resurrection_trip<S: Store>(
     to: StoredPosition,
     clock: Clock,
 ) {
-    enter_portal_space(s, net, world, false);
+    // Its auras stay on (2017: 0 of 98 went off at the 44 requests of a player holding some).
+    goes_into_portal_space(s, net, world, false);
     if let Some(p) = s.players.get_mut(&world) {
         p.trip = Some(Trip {
             to,
@@ -1979,6 +2171,20 @@ pub fn step<S: Store>(
                 },
             );
         }
+        Step::Sent { by } => {
+            if s.players.get(&world).is_none_or(|p| p.trip.is_none()) {
+                return;
+            }
+            flash_and_go(s, net, world, by);
+            s.after(
+                clock,
+                IN_PORTAL_SPACE,
+                Timer::Trip {
+                    world,
+                    step: Step::Arrive,
+                },
+            );
+        }
         Step::Arrive => arrive(s, net, world, None, clock),
         Step::OutOfScene { scene } => arrive(s, net, world, Some(scene), clock),
         Step::Shard { scene } => crate::scenes::bestow(s, net, world, scene, clock),
@@ -2030,9 +2236,34 @@ fn arrive<S: Store>(
         p = q;
     }
     if let Some(step) = &trip.step {
-        // The step the trip was for: its update now (the player back in the list for it).
+        // The step the trip was for: its update now, if nothing has moved its quest since (the
+        // player back in the list for it).
         s.players.insert(world, p);
-        crate::quests::run(s, net, world, step, None, clock);
+        if crate::quests::may_run_now(s, world, step, clock.unix) {
+            crate::quests::run(s, net, world, step, None, clock);
+        }
+        let Some(q) = s.players.remove(&world) else {
+            return;
+        };
+        p = q;
+    }
+    let shard_quest = trip
+        .used
+        .as_ref()
+        .and_then(|u| s.story.shard_quests.get(&u.item).copied());
+    if let Some(quest) = shard_quest {
+        // A vault's shard completes its quest as the player comes out, before the use is answered
+        // (2017: 33 of 33).
+        s.players.insert(world, p);
+        crate::quests::apply(
+            s,
+            net,
+            world,
+            quest,
+            yalain_content::quests::Update::Complete,
+            0,
+            clock,
+        );
         let Some(q) = s.players.remove(&world) else {
             return;
         };
@@ -2121,6 +2352,11 @@ fn arrive<S: Store>(
     }
     if trip.resurrect {
         crate::death::returned(s, net, world);
+        s.after(
+            clock,
+            crate::effects::AURAS_PULSE_AFTER_RETURN,
+            crate::Timer::AurasPulseAgain { world },
+        );
     }
     if let Some(u) = trip.used.as_ref().filter(|u| u.target != 0) {
         // An item used on an object: the use answered, as the object's work is done (a vault's

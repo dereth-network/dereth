@@ -33,7 +33,9 @@ fn library() -> Option<&'static Library> {
             .into_iter()
             .find(|(n, _)| *n == DatName::Portal)?;
         let dat = DatFile::open(&path).ok()?;
-        Library::from_record(&dat.read(RECORD).ok()?).ok()
+        dat.read_checked(RECORD, Library::from_record)
+            .ok()
+            .map(|c| c.value)
     })
     .as_ref()
 }
@@ -61,6 +63,7 @@ fn content() -> ContentPack {
             object: Some(id),
             template,
             description: Description {
+                name_text: None,
                 package: 0x19C,
                 look: 0x1F00_0ED5,
                 enter_fx: 0,
@@ -402,6 +405,7 @@ fn every_call_of_a_social_day_reads_back_against_the_client_library() {
         "WM_Store::PostCEvt_Store_InitSaleReminders",
         "WM_Store::PostCEvt_Store_EnterStore",
         "WM_Store::PostCEvt_Store_UpdateSale",
+        "WM_Store::PostCEvt_Store_UpdateSaleReminders",
     ] {
         assert!(checked.contains_key(want), "{want} was sent");
     }

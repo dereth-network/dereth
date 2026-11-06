@@ -4,7 +4,7 @@ use std::io;
 use std::path::Path;
 use std::sync::Arc;
 
-use athenaeum_foundry::edit::{NewKind, NewRow};
+use athenaeum_foundry::edit::{ClearingShape, NewKind, NewRow, NEW_CLEARING};
 use athenaeum_foundry::{Layer, Session};
 use dereth_pack::store::{MemoryStore, SourceStore};
 use yalain_world_db::layer;
@@ -190,6 +190,168 @@ fn moving_a_base_row_into_another_landblock_takes_it_away_where_it_was() {
     assert!(s.entry("camp c-4586@77B8").is_none());
     assert!(text(&s, FILE).contains("items = [\"camp c-4586@77B8\"]"));
     assert_eq!(s.removed().len(), 1);
+}
+
+#[test]
+fn a_row_placed_in_a_room_names_it_and_moves_from_room_to_room_and_out() {
+    let mut s = session();
+    let room = (u32::from(LB) << 16) | 0x0105;
+    let item = s.place_in(&person([1.0, 2.0, 3.0]), Some(room)).unwrap();
+    clean(&s);
+    let cell = |s: &Session, i: &str| match &s.entry(i).unwrap().row.row {
+        Row::Object(o) => o.cell,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(cell(&s, &item), Some(room));
+    let next = room + 1;
+    s.move_into(&item, LB, [4.0, 2.0, 3.0], Some(next)).unwrap();
+    assert_eq!(cell(&s, &item), Some(next), "to the next room");
+    s.move_to(&item, LB, [5.0, 2.0, 3.0]).unwrap();
+    assert_eq!(cell(&s, &item), Some(next), "a plain move keeps the room");
+    let land = (u32::from(LB) << 16) | 0x0001;
+    s.move_into(&item, LB, [6.0, 2.0, 3.0], Some(land)).unwrap();
+    assert_eq!(cell(&s, &item), Some(land), "and out");
+    clean(&s);
+}
+
+#[test]
+fn changes_gathered_together_undo_and_redo_as_one_step() {
+    let mut s = session();
+    let a = s.place(&person([1.0, 2.0, 3.0])).unwrap();
+    let b = s.place(&person([4.0, 2.0, 3.0])).unwrap();
+    let steps = s.steps().0;
+    s.begin_step();
+    s.move_to(&a, LB, [10.0, 2.0, 3.0]).unwrap();
+    s.move_to(&b, LB, [20.0, 2.0, 3.0]).unwrap();
+    s.end_step();
+    assert_eq!(s.steps().0, steps + 1);
+    s.undo();
+    assert_eq!(s.entry(&a).unwrap().at().x, 1.0);
+    assert_eq!(s.entry(&b).unwrap().at().x, 4.0);
+    s.redo();
+    assert_eq!(s.entry(&a).unwrap().at().x, 10.0);
+    assert_eq!(s.entry(&b).unwrap().at().x, 20.0);
+}
+
+#[test]
+fn a_place_renamed_takes_what_leads_to_it_along_as_one_step() {
+    let mut s = session();
+    let place = s
+        .place(&NewRow {
+            kind: NewKind::Place,
+            ..person([5.0, 6.0, 7.0])
+        })
+        .unwrap();
+    let door = s.place(&person([1.0, 2.0, 3.0])).unwrap();
+    let old = match &s.entry(&place).unwrap().row.row {
+        Row::Place(p) => p.key.clone(),
+        other => panic!("{other:?}"),
+    };
+    s.set(&door, "to", &format!("\"{old}\"")).unwrap();
+    let steps = s.steps().0;
+    let renamed = s.rename_place(&place, "the-inn").unwrap();
+    assert_eq!(s.steps().0, steps + 1, "one step");
+    clean(&s);
+    assert!(s.entry(&place).is_none());
+    assert!(s.entry(&renamed).is_some());
+    let to = |s: &Session| match &s.entry(&door).unwrap().row.row {
+        Row::Object(o) => o.to.clone(),
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(to(&s).as_deref(), Some("the-inn"));
+    assert!(s.rename_place(&renamed, "not a key").is_err());
+    assert!(s.rename_place(&door, "elsewhere").is_err(), "not a place");
+    s.undo();
+    assert!(s.entry(&place).is_some(), "one undo takes it all back");
+    assert_eq!(to(&s), Some(old));
+}
+
+#[test]
+fn a_row_copied_from_a_room_stands_where_it_goes() {
+    let mut s = session();
+    let item = s
+        .place_in(&person([1.0, 2.0, 3.0]), Some(0x77B7_0105))
+        .unwrap();
+    let cell = |s: &Session, i: &str| match &s.entry(i).unwrap().row.row {
+        Row::Object(o) => o.cell,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(cell(&s, &item), Some(0x77B7_0105));
+    let kept = s.duplicate(&item, LB, [4.0, 2.0, 3.0]).unwrap();
+    assert_eq!(
+        cell(&s, &kept),
+        Some(0x77B7_0105),
+        "beside it: the room is kept"
+    );
+    let out = s.copy_to(&item, LB, [4.0, 2.0, 3.0], None).unwrap();
+    let land = cell(&s, &out).expect("a land cell");
+    assert!(land & 0xFFFF < 0x100, "{land:08X}");
+    let other = s
+        .copy_to(&item, LB, [4.0, 2.0, 3.0], Some(0x77B7_0106))
+        .unwrap();
+    assert_eq!(cell(&s, &other), Some(0x77B7_0106));
+    clean(&s);
+}
+
+#[test]
+fn an_objects_scale_is_set_kept_and_taken_away() {
+    let mut s = session();
+    let item = s.place(&person([1.0, 2.0, 3.0])).unwrap();
+    s.set(&item, "scale", "1.5").unwrap();
+    clean(&s);
+    let scale = |s: &Session| match &s.entry(&item).unwrap().row.row {
+        Row::Object(o) => o.scale,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(scale(&s), Some(1.5));
+    s.move_to(&item, LB, [4.0, 2.0, 3.0]).unwrap();
+    assert_eq!(scale(&s), Some(1.5), "a move keeps it");
+    s.set(&item, "scale", "").unwrap();
+    assert_eq!(scale(&s), None);
+}
+
+#[test]
+fn a_copy_of_a_row_has_a_key_of_its_own_and_the_rest_as_it_was() {
+    let mut s = session();
+    let first = s.place(&person([1.0, 2.0, 3.0])).unwrap();
+    s.set(
+        &first,
+        "name",
+        "{ table = 0x25001B44, string = 0x8FE5C6EE }",
+    )
+    .unwrap();
+    let copy = s.duplicate(&first, LB, [4.0, 5.0, 6.0]).unwrap();
+    assert_ne!(copy, first);
+    clean(&s);
+    let at = s.entry(&copy).unwrap().at();
+    assert_eq!((at.x, at.y, at.z), (4.0, 5.0, Some(6.0)));
+    let Row::Object(o) = &s.entry(&copy).unwrap().row.row else {
+        panic!("an object")
+    };
+    assert_eq!(o.template, KEEPER);
+    assert_eq!(o.name.map(|n| n.string), Some(0x8FE5_C6EE));
+    assert_eq!(o.heading, Some(90.0));
+    let at = s.entry(&first).unwrap().at();
+    assert_eq!(at.x, 1.0, "the first stays where it stood");
+    s.undo();
+    assert!(s.entry(&copy).is_none(), "one step undoes it");
+    assert!(s.entry(&first).is_some());
+}
+
+#[test]
+fn a_copy_of_a_base_row_is_a_new_row_and_the_base_row_stays() {
+    let mut s = session();
+    let base_row = s
+        .entries()
+        .iter()
+        .find(|e| e.layer == Layer::Base && matches!(e.row.row, Row::Object(_)))
+        .map(|e| e.item.clone())
+        .expect("a row of the base");
+    let copy = s.duplicate(&base_row, LB, [9.0, 9.0, 1.0]).unwrap();
+    clean(&s);
+    assert_eq!(s.entry(&copy).unwrap().layer, Layer::Target);
+    assert_eq!(s.entry(&copy).unwrap().was, None);
+    assert_eq!(s.entry(&base_row).unwrap().layer, Layer::Base);
 }
 
 #[test]
@@ -488,4 +650,86 @@ fn a_moved_camp_keeps_how_its_creatures_move_and_its_route_in_the_base() {
         })
         .unwrap();
     assert_eq!(back, route);
+}
+
+#[test]
+fn a_clearing_is_placed_moved_reshaped_copied_and_taken_away_as_a_row() {
+    let mut s = session();
+    let round = ClearingShape::Round { radius: 12.0 };
+    let item = s.place_clearing(LB, [10.0, 20.0], round).unwrap();
+    assert_eq!(item, "clearing clearing-1@77B8");
+    clean(&s);
+    assert!(
+        text(&s, FILE).contains("[[clearing]]"),
+        "{}",
+        text(&s, FILE)
+    );
+    let shape = |s: &Session, item: &str| match &s.entry(item).expect("the row").row.row {
+        Row::Clearing(c) => (c.radius, c.size, c.heading, c.at.x, c.at.z),
+        r => panic!("{r:?}"),
+    };
+    assert_eq!(shape(&s, &item), (Some(12.0), None, None, 10.0, None));
+    assert_eq!(s.clearings().len(), 1);
+
+    // Field by field, and refused when it would leave no one shape.
+    s.set(&item, "radius", "30.0").unwrap();
+    assert_eq!(shape(&s, &item).0, Some(30.0));
+    assert!(s.set(&item, "radius", "").is_err());
+    assert!(s.set(&item, "size", "[1.0, 2.0]").is_err());
+    clean(&s);
+
+    // A height it is moved to means nothing: it lies on the ground.
+    s.move_to(&item, LB, [40.0, 50.0, 99.0]).unwrap();
+    assert_eq!(shape(&s, &item).3, 40.0);
+    assert_eq!(shape(&s, &item).4, None);
+
+    // Another shape is one step.
+    let steps = s.steps().0;
+    let rectangle = ClearingShape::Rectangle {
+        size: [8.0, 4.0],
+        heading: 30.0,
+    };
+    s.shape_clearing(&item, rectangle).unwrap();
+    assert_eq!(s.steps().0, steps + 1);
+    assert_eq!(
+        shape(&s, &item),
+        (None, Some([8.0, 4.0]), Some(30.0), 40.0, None)
+    );
+    s.turn(&item, 45.0).unwrap();
+    assert_eq!(shape(&s, &item).2, Some(45.0));
+    clean(&s);
+    s.undo();
+    s.undo();
+    assert_eq!(shape(&s, &item).0, Some(30.0));
+
+    // Into another block, its key and item follow; a copy has a key of its own.
+    let there = s.move_to(&item, 0x77B9, [1.0, 2.0, 0.0]).unwrap();
+    assert_eq!(there, "clearing clearing-1@77B9");
+    let copy = s.duplicate(&there, 0x77B9, [5.0, 5.0, 0.0]).unwrap();
+    assert_eq!(copy, "clearing clearing-2@77B9");
+    clean(&s);
+    assert_eq!(s.clearings().len(), 2);
+    s.delete(&copy).unwrap();
+    s.delete(&there).unwrap();
+    assert!(s.clearings().is_empty());
+    clean(&s);
+}
+
+#[test]
+fn placing_the_kind_clearing_with_nothing_drawn_gives_the_usual_size() {
+    let mut s = session();
+    let item = s
+        .place(&NewRow {
+            kind: NewKind::Clearing,
+            template: 0,
+            landblock: LB,
+            at: [10.0, 20.0, 5.0],
+            heading: 0.0,
+        })
+        .unwrap();
+    let Row::Clearing(c) = &s.entry(&item).unwrap().row.row else {
+        panic!("a clearing");
+    };
+    assert_eq!(c.radius, Some(NEW_CLEARING));
+    assert!(!NewKind::Clearing.has_template());
 }

@@ -159,7 +159,7 @@ fn summon_portal_opens_a_portal_ahead_of_its_summoner_that_goes_after_thirty_sec
             _ => None,
         })
         .collect();
-    assert_eq!(vigor, [50], "half of its 100 vigor");
+    assert_eq!(vigor, [46], "half of its 100 vigor, and the sword's 4");
     // The portal 0.69 s after the story: not at 0.65 s, there at 0.70 s.
     h.run(13);
     assert!(portal_made(&h, b, from).is_none(), "not before 0.69 s");

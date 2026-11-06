@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use auberean_client_runtime::files::{file_name, timestamp, Files, Open};
+use auberean_client_runtime::files::{file_name, text_lines, timestamp, Files, Open};
 use auberean_script::local::{bare_name, LocalSystem, LocalTime};
 
 /// A folder in memory, and a clock stopped at one time.
@@ -91,6 +91,67 @@ fn a_file_is_marked_and_its_lines_end_in_a_carriage_return_and_a_line_feed() {
     disk.files.insert("empty.txt".into(), Vec::new());
     assert!(f.open(&mut disk, &units("empty.txt"), "empty.txt", false, true));
     assert_eq!(disk.files["empty.txt"], bytes(""));
+}
+
+/// A file reads as narrow text: a carriage return before a line feed goes, a lone one stays; a
+/// Ctrl+Z ends the text; the code page's bytes become its characters; a line stops at a zero; a line
+/// over 4095 characters goes on as a next one. So a file a script wrote reads as its mark and first
+/// letter.
+///
+/// Behaviour: script.natives.a-file-reads-as-narrow-text
+#[test]
+fn a_file_reads_as_narrow_text_a_line_at_a_time() {
+    let line = |s: &str| units(s);
+    assert_eq!(
+        text_lines(b"one\r\ntwo\n\nfour\rfive"),
+        [line("one"), line("two"), line(""), line("four\rfive")]
+    );
+    assert_eq!(text_lines(b"seen\n\x1Anot seen\n"), [line("seen")]);
+    assert_eq!(text_lines(b"\x80\xE9\n"), [[0x20AC, 0xE9]]);
+    assert_eq!(text_lines(b"cut\0off\nnext"), [line("cut"), line("next")]);
+    assert_eq!(text_lines(b""), Vec::<Vec<u16>>::new());
+    let long = vec![b'a'; 4096];
+    let read = text_lines(&long);
+    assert_eq!((read[0].len(), read[1].len()), (4095, 1));
+    // A file a script wrote: its mark, the first letter, then a zero ends the line; the line
+    // feed's high byte, a zero, is a line with nothing on it.
+    assert_eq!(
+        text_lines(&bytes("hi\r\n")),
+        [vec![0xFF, 0xFE, u16::from(b'h')], Vec::new()]
+    );
+}
+
+/// Reading a file that is not open opens it to read and fails when there is none; reading uses it
+/// up, its name staying open until it is closed; a file open to write gives nothing and is used up
+/// too, so a line written to it after is taken and dropped.
+///
+/// Behaviour: script.natives.reading-a-file-uses-it-up
+#[test]
+fn reading_a_file_opens_it_and_uses_it_up() {
+    let mut f = Files::default();
+    let mut disk = Folder::default();
+    let path = units("notes.txt");
+    assert_eq!(f.read(&mut disk, &path, "notes.txt"), None);
+    assert!(f.open.is_empty(), "nothing opened");
+    disk.files.insert("notes.txt".into(), b"a\nb\n".to_vec());
+    assert_eq!(
+        f.read(&mut disk, &path, "notes.txt"),
+        Some(vec![units("a"), units("b")])
+    );
+    assert_eq!(f.open.get(&path), Some(&Open::UsedUp));
+    assert_eq!(f.read(&mut disk, &path, "notes.txt"), Some(Vec::new()));
+    assert!(f.close(&path));
+    assert_eq!(
+        f.read(&mut disk, &path, "notes.txt"),
+        Some(vec![units("a"), units("b")]),
+        "closed, it reads again"
+    );
+    assert!(f.close(&path));
+    let out = units("out.txt");
+    assert!(f.open(&mut disk, &out, "out.txt", false, false));
+    assert_eq!(f.read(&mut disk, &out, "out.txt"), Some(Vec::new()));
+    assert!(f.write(&mut disk, &out, "out.txt", &units("gone")));
+    assert_eq!(disk.files["out.txt"], [0xFF, 0xFE]);
 }
 
 /// A line written with a timestamp starts with the local time as the C library writes

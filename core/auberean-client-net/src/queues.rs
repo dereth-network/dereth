@@ -45,12 +45,14 @@ pub fn is_kept(queue_id: u16, message_type: u32) -> bool {
 #[must_use]
 pub fn queue_of(m: &ClientMessage) -> u16 {
     match m {
-        ClientMessage::DataHeld(_)
+        ClientMessage::OverlayHeld(_)
+        | ClientMessage::DataHeld(_)
         | ClientMessage::DataRequest(_)
         | ClientMessage::DownloadEnds(_) => queue::DATABASE,
         ClientMessage::PlayCharacter(_)
         | ClientMessage::LogOff(_)
         | ClientMessage::DeleteCharacter(_)
+        | ClientMessage::RestoreCharacter(_)
         | ClientMessage::CreateCharacter(_)
         | ClientMessage::Chat(_) => queue::LOGON,
         ClientMessage::ServerCall(_)

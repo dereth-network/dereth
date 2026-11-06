@@ -284,8 +284,9 @@ pub fn new(
     let desired_share_xp = share_xp;
 
     // get loot sharing from leader's character options
-    let share_loot =
-        player_character::get_character_option(w, leader, CharacterOption::ShareFellowshipLoot);
+    // DIVERGE: V489, a world without fellowship loot sharing shares none, whatever the leader saved.
+    let share_loot = w.era.features.fellowship_share_loot
+        && player_character::get_character_option(w, leader, CharacterOption::ShareFellowshipLoot);
 
     let mut fellowship_members = DotNetDict::new();
     fellowship_members.add(leader.full(), leader);
@@ -385,11 +386,14 @@ pub fn add_fellowship_member(
             return;
         }
 
-        if player_character::get_character_option(
-            w,
-            new_member,
-            CharacterOption::AutomaticallyAcceptFellowshipRequests,
-        ) {
+        // DIVERGE: V490, a world without auto-accept asks every invited player, whatever they saved.
+        if w.era.features.fellowship_auto_accept
+            && player_character::get_character_option(
+                w,
+                new_member,
+                CharacterOption::AutomaticallyAcceptFellowshipRequests,
+            )
+        {
             add_confirmed_member(w, this, Some(inviter), Some(new_member), true);
         } else {
             let inviter_name = name(w, inviter);

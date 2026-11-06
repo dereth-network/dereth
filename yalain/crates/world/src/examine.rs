@@ -103,6 +103,11 @@ pub fn selection_info(selected: u64, v: Option<Vitals>) -> ServerMessage {
     .expect("a selection packs")
 }
 
+/// The health and vigor of an object whose template names none, a person most often (2017: 1,677 of
+/// 1,683 selections of such objects, of 356 templates).
+const UNNAMED_HEALTH: i32 = 30;
+const UNNAMED_VIGOR: i32 = 130;
+
 /// The vitals of an object of the world that has them (a creature or a person: its template's
 /// greatest health and vigor, untouched).
 #[must_use]
@@ -110,8 +115,8 @@ pub fn content_vitals(o: &yalain_content::ContentObject) -> Option<Vitals> {
     if o.kind == yalain_content::Kind::Static {
         return None;
     }
-    let h = o.facts.max_health.unwrap_or(0).cast_unsigned();
-    let v = o.facts.max_vigor.unwrap_or(0).cast_unsigned();
+    let h = o.facts.max_health.unwrap_or(UNNAMED_HEALTH).cast_unsigned();
+    let v = o.facts.max_vigor.unwrap_or(UNNAMED_VIGOR).cast_unsigned();
     Some(Vitals {
         health: h,
         max_health: h,

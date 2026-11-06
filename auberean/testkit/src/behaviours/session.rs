@@ -4,7 +4,7 @@
 //! A row claims what the September 2013 client does on the wire, held to the client itself and to
 //! the recorded January 2017 sessions.
 
-use super::{Behaviour, Evidence, Tier, RETAIL};
+use super::{Behaviour, Evidence, Tier, RETAIL, THIS_CLIENT, TOOLING};
 
 /// This subject's rows, in id order.
 pub static ROWS: &[Behaviour] = &[
@@ -61,6 +61,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SESS-DOUBLE"),
         station: "auberean-headless::cpu::world_entry::a_server_double_takes_the_client_through_login_character_list_and_world_entry",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.interface.a-panels-selection-is-not-looked-at",
+        says: "A selection made from a panel (the radar, a name, the pack, a fellow) sends no look: the head stays on what the selection keys and the world's clicks last chose.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SELECT-NO-LOOK"),
+        station: "auberean-headless::cpu::world_entry::a_panels_selection_is_not_looked_at",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -167,6 +175,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "session.logon.no-ticket-is-an-account-login",
+        says: "With no ticket the login is an account login: the account and the session-key blob, \
+               nothing in the ticket's place.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-LOGON-ACCOUNT"),
+        station: "auberean-client-net::cpu::logon::a_login_with_no_ticket_is_an_account_login",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "session.logon.the-login-carries-version-ticket-account-and-key-blob",
         says: "The game login carries the version 1802, a ticket login with flags 1, the time, the \
                account as typed, a session-key blob (its twelve-byte header, then 64 bytes) and the \
@@ -196,6 +213,23 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SESS-POSITION-PACK"),
         station: "auberean-client-runtime::cpu::world::reports::a_report_packs_heading_motion_flags_and_stamps",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.position.a-report-says-where-the-body-is-turning-to",
+        says: "While the player's body turns toward a heading its position report says that \
+               heading, and it goes on reporting until the body faces it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-POSITION-TURNING"),
+        station: "auberean-client-runtime::cpu::world::reports::a_report_says_where_the_body_is_turning_to",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.position.a-turn-under-the-heading-tolerance-is-not-reported",
+        says: "A turn smaller than 0.0002 radians, the way round through north included, is no                reason to send a report.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-POSITION-TOLERANCE"),
+        station: "auberean-client-runtime::cpu::world::reports::a_turn_under_the_heading_tolerance_is_not_reported",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -265,6 +299,59 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "session.server.a-character-entering-again-gives-the-journal-its-quests",
+        says: "A character that logged off with a quest under way enters again: the whole-list                notice the scripts send the journal at the session's start carries the quest, as                the journal asks for it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-JOURNAL-AT-ENTRY"),
+        station: "yalain-testkit::dat::session::a_character_entering_again_gives_the_journal_its_quests",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "session.server.a-dead-player-comes-back-by-the-dialogs-ask",
+        says: "A player killed asks to be brought back, as death's dialog does, and is told it lives again.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-RESURRECT"),
+        station: "yalain-testkit::dat::session::a_dead_player_asks_and_comes_back",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "session.server.a-looted-item-with-its-places-in-its-qualities-goes-where-they-say",
+        says: "An item whose template keeps its places only in its qualities record, used from the \
+               pack, goes on the body where they say and leaves what is in hand there.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SERVER-PLACES-IN-QUALITIES"),
+        station: "yalain-testkit::dat::session::looted_moccasins_used_go_on_the_feet_and_the_weapon_stays_in_hand",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "session.server.an-admin-passes-through-and-cannot-die",
+        says: "An admin's typed ethereality, never-say-die and attackable commands run the game's own \
+               scripts to calls the server honors: what it passes through is told to every client that \
+               knows it, it cannot die, and creatures leave it alone; the override is lifted as typed.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SESSION-ADMIN-GODMODE"),
+        station: "yalain-testkit::dat::admin::an_admin_types_its_way_out_of_harm_and_through_the_world",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "session.server.an-admins-command-reaches-the-server-and-is-answered",
+        says: "An admin's command that goes to the server runs the game's scripts to a plain call, the \
+               server answers it, and the client's own admin script shows the line.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESSION-ADMIN-ANSWER"),
+        station: "yalain-testkit::dat::admin::an_admins_server_command_is_answered_in_the_clients_window",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "session.server.an-item-without-worn-properties-changes-the-body-as-2017-showed",
+        says: "An item whose template names no worn appearance in its properties gives its wearer \
+               the look the 2017 servers sent for it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SERVER-WORN-IN-CODE"),
+        station: "yalain-testkit::corpus::keeping::every_recorded_look_of_a_template_without_worn_properties_is_in_the_table",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "session.server.our-client-enters-with-the-weapon-it-left-wielded",
         says: "Our client wields its starting sword on our server, logs off and enters again: its \
                model has the sword hanging from the player and wielded by it, and the server \
@@ -299,6 +386,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Live,
     },
     behaviour! {
+        id: "session.server.our-client-takes-a-worlds-overlay-as-it-logs-in",
+        says: "Our client says it keeps overlays and which files it holds ahead of what it holds,                stores a world's records it lacks as it logs in, and reads them as its own.",
+        since: THIS_CLIENT,
+        divergence: "CD2-world-overlay",
+        evidence: Evidence::Private("AC2-EVID-SESSION-OVERLAY-TAKEN"),
+        station: "yalain-testkit::dat::world_patch::our_client_takes_a_worlds_overlay_as_it_logs_in_and_reads_it",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "session.server.our-clients-kept-window-places-come-back-on-the-next-entry",
         says: "Our client keeps a panel's place through the player's interface into its options \
                and sends it to our server to keep; logged off and entered again, its scripts \
@@ -309,6 +405,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "session.server.our-clients-options-sent-at-log-off-come-back-on-the-next-entry",
+        says: "An option our client changes in play comes back at the next entry when the play \
+               screen's end sends the options to our server before the log off, and not otherwise.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-KEEP-OPTIONS"),
+        station: "yalain-testkit::dat::session::our_clients_options_sent_at_log_off_come_back_on_the_next_entry",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "session.time.a-players-position-leaves-the-game-clock-alone",
         says: "A position the server gives for the player places its body and leaves the game \
                clock alone, whether its time is ahead of the clock or behind it: only the \
@@ -316,6 +421,26 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SESS-POSITION-CLOCK"),
         station: "auberean-client-runtime::cpu::world::clock::a_players_position_leaves_the_game_clock_alone",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.time.a-position-of-the-players-own-moves-it-by-its-stamps",
+        says: "A position of the player's own moves its body only by a newer stamp: a teleport \
+               puts it there facing the position's heading, a forced position puts it there \
+               facing as it faced, and any other moves nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-PLAYER-POSITION"),
+        station: "auberean-client-runtime::cpu::world::clock::a_position_of_the_players_own_moves_it_by_its_stamps",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.time.a-position-of-the-players-own-with-an-impulse-throws-it",
+        says: "A position of the player's own with an impulse and a newer stamp puts its body \
+               there, facing as it faced unless the position teleports it, then throws it at the \
+               position's velocity.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-PLAYER-IMPULSE"),
+        station: "auberean-client-runtime::cpu::world::clock::a_position_of_the_players_own_with_an_impulse_throws_it_once",
         tier: Tier::Cpu,
     },
     behaviour! {

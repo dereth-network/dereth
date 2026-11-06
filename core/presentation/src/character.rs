@@ -419,7 +419,7 @@ pub fn augmentation_section(
     features: dereth_primitives::EraFeatures,
     compose: &mut Compose<'_>,
 ) -> String {
-    if !(features.luminance || features.innate_augmentations) {
+    if !(features.luminance || features.innate_augmentations || features.augmentations) {
         return String::new();
     }
     let mut s = String::new();
@@ -614,9 +614,35 @@ mod tests {
             ]
         );
     }
+    /// Behaviour: presentation.era.bought-augmentations-show-with-augmentations
+    /// A world with augmentations, and neither luminance nor the innate ones, keeps the lines of
+    /// what was bought, and has no luminance heading.
+    #[test]
+    fn a_world_with_only_bought_augmentations_keeps_their_lines() {
+        let mut c = CharacterInfo::default();
+        c.aug_ints.insert(0xDA, 1);
+        let only_bought = dereth_primitives::EraFeatures {
+            augmentations: true,
+            luminance: false,
+            innate_augmentations: false,
+            ..Default::default()
+        };
+        assert_eq!(
+            augmentation_section(&c, only_bought, &mut token_form)
+                .lines()
+                .collect::<Vec<_>>(),
+            ["ID_CharacterInfo_Augmentation_Attribute_Strength[1]"]
+        );
+        let none = dereth_primitives::EraFeatures {
+            augmentations: false,
+            ..only_bought
+        };
+        assert_eq!(augmentation_section(&c, none, &mut token_form), "");
+    }
+
     /// Behaviour: presentation.era.shared-facts-follow-the-world-profile
     #[test]
-    fn the_augmentation_section_requires_luminance_or_innate_augmentations() {
+    fn the_augmentation_section_requires_a_system_that_has_one() {
         let mut c = CharacterInfo {
             melee_mastery: 1,
             ..Default::default()
@@ -629,6 +655,7 @@ mod tests {
                     dereth_primitives::EraFeatures {
                         luminance,
                         innate_augmentations,
+                        augmentations: false,
                         ..Default::default()
                     },
                     &mut token_form,

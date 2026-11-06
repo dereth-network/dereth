@@ -1,7 +1,7 @@
 [package]
 name = "empyrean-world"
 description = "The port of Source/ACE.Server's gameplay: world objects, managers, factories, game messages, events and actions."
-version = "0.3.8" # Empyrean's own version, shared by every empyrean-* crate (not the workspace's)
+version = "0.3.10" # Empyrean's own version, shared by every empyrean-* crate (not the workspace's)
 edition.workspace = true
 rust-version.workspace = true
 license = "AGPL-3.0-only"
@@ -15,6 +15,8 @@ doctest = false
 # retail dats under DERETH_TEST_DAT_DIR, world.pack under EMPYREAN_TEST_WORLD_PACK
 # (default world.pack in the repository) and fixtures/packet-captures/, and fail when they are absent.
 real-content = ["empyrean-dat/real-content"]
+# Opt-in, hash-pinned Launch content tests. Independent of the retail-content fixture.
+launch-content = []
 
 [dependencies]
 empyrean-common.workspace = true
@@ -46,6 +48,7 @@ dereth-client-net = { workspace = true, features = ["test-support"] }
 dereth-client-runtime.workspace = true
 dereth-dat = { workspace = true, features = ["test-support"] }
 serde_json.workspace = true
+sha2.workspace = true
 dereth-client-model.workspace = true
 # The flat-land + synthetic-setup helper (`empyrean_testkit::land`). Integration tests only; a
 # dev-dependency cycle is fine for them (one empyrean-world lib).

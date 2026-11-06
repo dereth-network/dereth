@@ -27,6 +27,56 @@ impl BoneTransform {
             rotation: r.quat()?,
         })
     }
+
+    /// A frame's place and rotation at a scale of one.
+    // D2-13262
+    #[must_use]
+    pub fn of_frame(offset: Vec3, rotation: Quat) -> Self {
+        Self {
+            offset,
+            scale: Vec3::new(1.0, 1.0, 1.0),
+            rotation,
+        }
+    }
+
+    /// Every part multiplied by `weight`, to be summed with others and made whole.
+    // D2-13264
+    #[must_use]
+    pub fn weighted(&self, weight: f32) -> Self {
+        let v = |v: Vec3| Vec3::new(v.x * weight, v.y * weight, v.z * weight);
+        let q = self.rotation;
+        Self {
+            offset: v(self.offset),
+            scale: v(self.scale),
+            rotation: Quat {
+                w: q.w * weight,
+                x: q.x * weight,
+                y: q.y * weight,
+                z: q.z * weight,
+            },
+        }
+    }
+
+    /// Whether every part is a number and the rotation is a unit, within 0.0002.
+    // D2-13268
+    #[must_use]
+    pub fn is_valid(&self) -> bool {
+        let q = self.rotation;
+        let parts = [
+            self.offset.x,
+            self.offset.y,
+            self.offset.z,
+            self.scale.x,
+            self.scale.y,
+            self.scale.z,
+            q.w,
+            q.x,
+            q.y,
+            q.z,
+        ];
+        let length = q.w * q.w + q.x * q.x + q.y * q.y + q.z * q.z;
+        !parts.iter().any(|v| v.is_nan()) && (length - 1.0).abs() < 0.0002
+    }
 }
 
 /// One bone of the skeleton: the index of its parent bone, and its id.
@@ -225,5 +275,33 @@ impl Decode for Setup {
             physics_radius,
             physics_bounds,
         })
+    }
+}
+
+#[cfg(test)]
+mod transform_tests {
+    //! Behaviour: none (a bone transform's parts, held to hand-worked values)
+    use super::*;
+
+    #[test]
+    fn a_bone_transform_writes_weighs_and_checks_itself() {
+        let unit = Quat {
+            w: 1.0,
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+        };
+        let t = BoneTransform::of_frame(Vec3::new(1.0, 2.0, 3.0), unit);
+        assert_eq!(t.scale, Vec3::new(1.0, 1.0, 1.0));
+        assert!(t.is_valid());
+        let half = t.weighted(0.5);
+        assert_eq!(half.offset, Vec3::new(0.5, 1.0, 1.5));
+        assert_eq!(half.rotation.w, 0.5);
+        assert!(!half.is_valid(), "its rotation no longer a unit");
+        assert!(!BoneTransform {
+            offset: Vec3::new(f32::NAN, 0.0, 0.0),
+            ..t
+        }
+        .is_valid());
     }
 }

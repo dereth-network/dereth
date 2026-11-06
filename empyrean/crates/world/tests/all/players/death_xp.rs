@@ -596,7 +596,9 @@ fn a_player_levels_up_at_the_table_threshold() {
     let msgs = sent();
     assert_eq!(
         chats(&msgs),
-        ["You are now level 2!\nYou have 1,100 experience points and 1 skill credits available to raise skills and attributes."]
+        [
+            "You are now level 2!\nYou have 1,100 experience points and 1 skill credits available to raise skills and attributes."
+        ]
     );
     let ops: Vec<u32> = msgs.iter().map(|m| m.1).collect();
     let (int64, int) = (
@@ -639,7 +641,9 @@ fn a_player_levels_up_at_the_table_threshold() {
     );
     assert_eq!(
         chats(&sent()),
-        ["You have reached the maximum level of 4!\nYou have 5,000 experience points and 2 skill credits available to raise skills and attributes."]
+        [
+            "You have reached the maximum level of 4!\nYou have 5,000 experience points and 2 skill credits available to raise skills and attributes."
+        ]
     );
     assert!(player_xp::is_max_level(&h.w, P1));
     // at max level nothing more is added
@@ -1761,41 +1765,46 @@ fn an_era_before_throne_of_destiny_keeps_earning_at_the_level_cap_up_to_32_bit_c
     };
     let max = i64::from(u32::MAX);
 
-    let mut h = H::with_xp_table(table.clone());
-    h.w.era = empyrean_common::era::EraId::Infiltration.rules();
-    h.player(P1, S1, "Tester", 126, 4_286_609_098);
-    h.o_mut(P1)
-        .set_property(PropertyInt64::AvailableExperience, 0);
-    player_xp::update_xp_and_level(&mut h.w, P1, 5_000_000, XpType::Kill);
-    let o = h.o(P1);
-    assert_eq!(
-        (o.level(), o.total_experience(), o.available_experience()),
-        (Some(126), Some(4_291_609_098), Some(5_000_000)),
-        "experience arrives at the cap"
-    );
-    player_xp::update_xp_and_level(&mut h.w, P1, 4_000_000_000, XpType::Kill);
-    let o = h.o(P1);
-    assert_eq!(
-        (o.level(), o.total_experience(), o.available_experience()),
-        (Some(126), Some(max), Some(4_005_000_000)),
-        "the total stops at 32 bits; unassigned is still under its cap"
-    );
-    player_xp::update_xp_and_level(&mut h.w, P1, 1_000_000_000, XpType::Kill);
-    assert_eq!(
-        h.o(P1).available_experience(),
-        Some(max),
-        "unassigned stops at 32 bits"
-    );
+    for era in [
+        empyrean_common::era::EraId::Launch,
+        empyrean_common::era::EraId::Infiltration,
+    ] {
+        let mut h = H::with_xp_table(table.clone());
+        h.w.era = era.rules();
+        h.player(P1, S1, "Tester", 126, 4_286_609_098);
+        h.o_mut(P1)
+            .set_property(PropertyInt64::AvailableExperience, 0);
+        player_xp::update_xp_and_level(&mut h.w, P1, 5_000_000, XpType::Kill);
+        let o = h.o(P1);
+        assert_eq!(
+            (o.level(), o.total_experience(), o.available_experience()),
+            (Some(126), Some(4_291_609_098), Some(5_000_000)),
+            "experience arrives at the cap"
+        );
+        player_xp::update_xp_and_level(&mut h.w, P1, 4_000_000_000, XpType::Kill);
+        let o = h.o(P1);
+        assert_eq!(
+            (o.level(), o.total_experience(), o.available_experience()),
+            (Some(126), Some(max), Some(4_005_000_000)),
+            "the total stops at 32 bits; unassigned is still under its cap"
+        );
+        player_xp::update_xp_and_level(&mut h.w, P1, 1_000_000_000, XpType::Kill);
+        assert_eq!(
+            h.o(P1).available_experience(),
+            Some(max),
+            "unassigned stops at 32 bits"
+        );
 
-    // Spend it all (on Strength, say): the next kill fills it again.
-    assert!(player_xp::spend_xp(&mut h.w, P1, max, false));
-    assert_eq!(h.o(P1).available_experience(), Some(0));
-    player_xp::update_xp_and_level(&mut h.w, P1, 1_000, XpType::Kill);
-    let o = h.o(P1);
-    assert_eq!(
-        (o.level(), o.total_experience(), o.available_experience()),
-        (Some(126), Some(max), Some(1_000))
-    );
+        // Spend it all (on Strength, say): the next kill fills it again.
+        assert!(player_xp::spend_xp(&mut h.w, P1, max, false));
+        assert_eq!(h.o(P1).available_experience(), Some(0));
+        player_xp::update_xp_and_level(&mut h.w, P1, 1_000, XpType::Kill);
+        let o = h.o(P1);
+        assert_eq!(
+            (o.level(), o.total_experience(), o.available_experience()),
+            (Some(126), Some(max), Some(1_000))
+        );
+    }
 
     // The end of retail's rule: nothing at the cap.
     let mut h = H::with_xp_table(table);
@@ -1930,5 +1939,733 @@ mod luminance {
         h.w.era = eor;
         assert!(player_luminance::spend_luminance(&mut h.w, A, 100));
         assert_eq!(available_luminance(&h), Some(400));
+    }
+}
+
+mod launch_lifestone {
+    //! Divergence: V465
+    //! Resurrection grants, stale stored properties and damage consumers in isolated worlds.
+    use super::*;
+    use empyrean_common::era::EraId;
+    use empyrean_entity::enums::AttackConditions;
+    use empyrean_world::entity::body_part::BodyPart;
+    use empyrean_world::world_objects::{player_combat, player_move};
+
+    fn stale(h: &mut H) {
+        h.o_mut(P1).set_under_lifestone_protection(true);
+        h.o_mut(P1).set_lifestone_protection_timestamp(Some(9.0));
+    }
+
+    #[test]
+    fn launch_lifestone_grants_cleanup_and_notifications_are_silent() {
+        let mut h = H::new();
+        h.player(P1, S1, "Tester", 10, 0);
+        h.w.era = EraId::Launch.rules();
+        for action in [
+            player_death::set_lifestone_protection,
+            player_death::lifestone_protection_tick,
+            player_death::lifestone_protection_dispel,
+            player_death::handle_lifestone_protection,
+        ] {
+            stale(&mut h);
+            assert!(!player_death::under_lifestone_protection(&h.w, P1));
+            start_capture();
+            action(&mut h.w, P1);
+            assert!(!h.o(P1).under_lifestone_protection());
+            assert_eq!(h.o(P1).lifestone_protection_timestamp(), None);
+            assert!(
+                sent().is_empty(),
+                "no protection, expiry, dispel or shield notification"
+            );
+        }
+    }
+
+    #[test]
+    fn later_eras_keep_lifestone_grants_expiry_and_dispel_messages() {
+        for era in [EraId::Eor, EraId::Infiltration] {
+            let mut h = H::new();
+            h.player(P1, S1, "Tester", 10, 0);
+            h.w.era = era.rules();
+            player_death::set_lifestone_protection(&mut h.w, P1);
+            assert!(player_death::under_lifestone_protection(&h.w, P1));
+            assert_eq!(h.o(P1).lifestone_protection_timestamp(), Some(0.0));
+            h.o_mut(P1).wo.world_object_tick.cached_heartbeat_interval = 59.0;
+            player_death::lifestone_protection_tick(&mut h.w, P1);
+            assert!(player_death::under_lifestone_protection(&h.w, P1));
+            h.o_mut(P1).wo.world_object_tick.cached_heartbeat_interval = 1.0;
+            start_capture();
+            player_death::lifestone_protection_tick(&mut h.w, P1);
+            assert!(!player_death::under_lifestone_protection(&h.w, P1));
+            assert_eq!(h.o(P1).lifestone_protection_timestamp(), None);
+            assert_eq!(
+                chats(&sent()),
+                ["You're no longer protected by the Lifestone's magic!"]
+            );
+            player_death::set_lifestone_protection(&mut h.w, P1);
+            start_capture();
+            player_death::lifestone_protection_dispel(&mut h.w, P1);
+            assert_eq!(
+                chats(&sent()),
+                ["Your actions have dispelled the Lifestone's magic!"]
+            );
+            assert!(!player_death::under_lifestone_protection(&h.w, P1));
+        }
+    }
+
+    #[test]
+    fn launch_lifestone_flags_do_not_block_physical_dot_or_falling_damage() {
+        for era in [EraId::Launch, EraId::Eor, EraId::Infiltration] {
+            for path in 0..3 {
+                let mut h = H::new();
+                h.player(P1, S1, "Tester", 10, 0);
+                for attribute in [
+                    empyrean_entity::enums::PropertyAttribute::Strength,
+                    empyrean_entity::enums::PropertyAttribute::Endurance,
+                    empyrean_entity::enums::PropertyAttribute::Coordination,
+                    empyrean_entity::enums::PropertyAttribute::Quickness,
+                    empyrean_entity::enums::PropertyAttribute::Focus,
+                    empyrean_entity::enums::PropertyAttribute::Self_,
+                ] {
+                    let player = h.o_mut(P1);
+                    player
+                        .biota
+                        .properties_attribute
+                        .as_mut()
+                        .unwrap()
+                        .get_or_insert_with(attribute, Default::default)
+                        .init_level = 60;
+                    let value = empyrean_world::world_objects::entity::creature_attribute::CreatureAttribute::new(player, attribute);
+                    player.attributes_mut().insert(attribute, value);
+                }
+                h.place(P1);
+                h.w.era = era.rules();
+                stale(&mut h);
+                match path {
+                    0 => {
+                        player_combat::take_damage(
+                            &mut h.w,
+                            P1,
+                            None,
+                            DamageType::Bludgeon,
+                            10.0,
+                            BodyPart::Chest,
+                            false,
+                            AttackConditions::None,
+                        );
+                    }
+                    1 => player_combat::take_damage_over_time(
+                        &mut h.w,
+                        P1,
+                        10.0,
+                        DamageType::Bludgeon,
+                    ),
+                    _ => player_move::take_damage_falling(&mut h.w, P1, 10.0),
+                }
+                let player = h.o(P1);
+                assert_eq!(
+                    player.health().current(player),
+                    if era == EraId::Launch { 90 } else { 100 },
+                    "{era:?}, path {path}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn launch_lifestone_flags_do_not_replace_independent_invincibility() {
+        for era in [EraId::Launch, EraId::Eor, EraId::Infiltration] {
+            let mut h = H::new();
+            h.player(P1, S1, "Tester", 10, 0);
+            h.player(P2, S2, "Attacker", 10, 0);
+            h.place(P1);
+            h.place(P2);
+            h.w.era = era.rules();
+            stale(&mut h);
+            h.o_mut(P1).set_invincible(true);
+            let hit = empyrean_world::entity::damage_event::DamageEvent::calculate_damage(
+                &mut h.w, P2, P1, None, None, None,
+            );
+            assert_eq!(hit.lifestone_protection, era != EraId::Launch);
+            assert_eq!(
+                player_combat::take_damage(
+                    &mut h.w,
+                    P1,
+                    None,
+                    DamageType::Bludgeon,
+                    10.0,
+                    BodyPart::Chest,
+                    false,
+                    AttackConditions::None
+                ),
+                0
+            );
+            let player = h.o(P1);
+            assert_eq!(player.health().current(player), 100);
+        }
+    }
+}
+
+mod launch_corpse_decay {
+    //! Divergence: V465
+    //! New corpse lifetimes and the existing countdown, emptying and reload paths.
+    use super::*;
+    use empyrean_common::era::EraId;
+    use empyrean_entity::enums::BondedStatus;
+    use empyrean_world::world_objects::{container, world_object_decay};
+
+    fn player_corpse(era: EraId, level: i32, nonempty: bool) -> (H, ObjectGuid) {
+        let mut h = H::new();
+        h.w.era = era.rules();
+        h.player(P1, S1, "Tester", level, 0);
+        if nonempty {
+            let item = h.item(0x8000_0200, "Keepsake", ItemType::Gem, 1);
+            h.o_mut(item)
+                .set_property(PropertyDataId::Setup, land::TEST_SETUP);
+            h.o_mut(item).set_bonded(Some(BondedStatus::Slippery));
+            assert!(creature_death::container_try_add_to_inventory(
+                &mut h.w, P1, item
+            ));
+        }
+        h.place(P1);
+        creature_death::create_corpse(&mut h.w, P1, None, false);
+        let corpse = h.find_corpse().expect("created corpse");
+        assert_eq!(container::inventory(h.o(corpse)).is_empty(), !nonempty);
+        (h, corpse)
+    }
+
+    #[test]
+    fn new_nonempty_player_corpses_use_the_era_floor_at_level_boundaries() {
+        for era in [EraId::Launch, EraId::Eor, EraId::Infiltration] {
+            for (level, launch, later) in [
+                (1, 300.0, 3600.0),
+                (11, 3300.0, 3600.0),
+                (12, 3600.0, 3600.0),
+                (13, 3900.0, 3900.0),
+                (126, 37800.0, 37800.0),
+            ] {
+                let (h, corpse) = player_corpse(era, level, true);
+                assert_eq!(
+                    h.o(corpse).time_to_rot(),
+                    Some(if era == EraId::Launch { launch } else { later }),
+                    "{era:?}, level {level}"
+                );
+                assert_eq!(h.o(corpse).level(), Some(level));
+            }
+        }
+    }
+
+    #[test]
+    fn player_corpse_countdowns_expire_at_the_assigned_boundary() {
+        for (era, lifetime) in [
+            (EraId::Launch, 300.0),
+            (EraId::Eor, 3600.0),
+            (EraId::Infiltration, 3600.0),
+        ] {
+            let (mut h, corpse) = player_corpse(era, 1, true);
+            world_object_decay::decay(&mut h.w, corpse, TimeSpan::from_seconds(lifetime - 1.0));
+            assert_eq!(h.o(corpse).time_to_rot(), Some(1.0));
+            assert!(!world_object_decay::decay_completed(h.o(corpse)));
+            world_object_decay::decay(&mut h.w, corpse, TimeSpan::from_seconds(1.0));
+            assert!(world_object_decay::decay_completed(h.o(corpse)));
+            assert!(container::inventory(h.o(corpse)).is_empty());
+            assert!(h
+                .o(ObjectGuid::new(0x8000_0200))
+                .current_landblock
+                .is_some());
+        }
+    }
+
+    #[test]
+    fn empty_and_newly_emptied_corpses_keep_the_existing_short_decay() {
+        for era in [EraId::Eor, EraId::Infiltration] {
+            let (h, corpse) = player_corpse(era, 1, false);
+            assert_eq!(h.o(corpse).time_to_rot(), Some(corpse::EMPTY_DECAY_TIME));
+            let (mut h, corpse) = player_corpse(era, 1, true);
+            let item = ObjectGuid::new(0x8000_0200);
+            assert!(
+                container::try_remove_from_inventory_with_item(&mut h.w, corpse, item, false)
+                    .is_some()
+            );
+            world_object_decay::decay(&mut h.w, corpse, TimeSpan::from_seconds(5.0));
+            assert_eq!(h.o(corpse).time_to_rot(), Some(corpse::EMPTY_DECAY_TIME));
+            assert!(!world_object_decay::decay_completed(h.o(corpse)));
+        }
+    }
+
+    #[test]
+    fn restored_player_corpses_keep_saved_remaining_time_and_wait_for_inventory() {
+        use empyrean_world::factories::world_object_factory as factory;
+        use empyrean_world::world_objects::world_object::CtorEnv;
+        for era in [EraId::Launch, EraId::Eor, EraId::Infiltration] {
+            for remaining in [-1.0, 0.0, 37.0, 7200.0] {
+                let (mut h, corpse) = player_corpse(era, 1, true);
+                h.o_mut(corpse).set_time_to_rot(Some(remaining));
+                let mut biota = h.o(corpse).biota.clone();
+                let restored_guid = ObjectGuid::new(0x8000_0300);
+                biota.id = restored_guid.full();
+                let restored =
+                    factory::create_world_object_from_biota(&CtorEnv::without_content(&h.w), biota)
+                        .unwrap();
+                assert_eq!(restored.time_to_rot(), Some(remaining));
+                h.w.objects.insert(restored).unwrap();
+                world_object_decay::decay(&mut h.w, restored_guid, TimeSpan::from_seconds(5.0));
+                assert_eq!(
+                    h.o(restored_guid).time_to_rot(),
+                    Some(remaining),
+                    "inventory not loaded"
+                );
+                let item = h.item(0x8000_0400, "Saved item", ItemType::Gem, 1);
+                assert!(creature_death::container_try_add_to_inventory(
+                    &mut h.w,
+                    restored_guid,
+                    item
+                ));
+                h.o_mut(restored_guid)
+                    .container
+                    .as_mut()
+                    .unwrap()
+                    .container
+                    .inventory_loaded = true;
+                corpse::corpse_on_initial_inventory_load_completed(&mut h.w, restored_guid);
+                assert_eq!(h.o(restored_guid).time_to_rot(), Some(remaining));
+                assert_eq!(
+                    world_object_decay::is_decayable(&h.w, restored_guid),
+                    remaining != -1.0
+                );
+                if remaining <= 0.0 {
+                    continue;
+                }
+                world_object_decay::decay(&mut h.w, restored_guid, TimeSpan::from_seconds(5.0));
+                assert_eq!(h.o(restored_guid).time_to_rot(), Some(remaining - 5.0));
+            }
+        }
+    }
+
+    #[test]
+    fn monster_corpse_default_decay_is_independent_of_player_level_policy() {
+        for era in [EraId::Eor, EraId::Infiltration] {
+            let mut h = H::new();
+            h.w.era = era.rules();
+            h.creature(Class::Creature, MONSTER, "Drudge", 100);
+            h.o_mut(MONSTER).set_level(Some(1));
+            h.place(MONSTER);
+            creature_death::create_corpse(&mut h.w, MONSTER, None, false);
+            let corpse = h.find_corpse().unwrap();
+            assert!(corpse::fields(&h.w, corpse).is_monster);
+            assert_eq!(h.o(corpse).time_to_rot(), None);
+            world_object_decay::decay(&mut h.w, corpse, TimeSpan::from_seconds(5.0));
+            assert_eq!(
+                h.o(corpse).time_to_rot(),
+                Some(world_object_decay::DEFAULT_TIME_TO_ROT)
+            );
+        }
+    }
+}
+
+mod launch_death_rules {
+    //! Divergence: V474, V475, V476
+    //! The November 1999 death and corpse rules: what a death loses, how many corpses a character
+    //! keeps in the world, and how long monster and empty corpses lie.
+    //! Fixture: the death harness's flat landblock, its memory shard and seeded draws.
+    use super::*;
+    use empyrean_common::era::EraId;
+    use empyrean_entity::enums::{BondedStatus, PropertyFloat};
+    use empyrean_world::world_objects::{container, world_object_decay};
+
+    /// Every corpse in the world, by guid.
+    fn corpses(h: &H) -> Vec<ObjectGuid> {
+        (0x8000_0000..0x8000_0040u32)
+            .map(ObjectGuid::new)
+            .filter(|g| h.w.objects.get(*g).is_some_and(WorldObject::is_corpse))
+            .collect()
+    }
+
+    /// One death of the player carrying one slippery keepsake, which always drops: the new corpse.
+    fn die_with_a_keepsake(h: &mut H, item: u32) -> ObjectGuid {
+        let before = corpses(h);
+        let keepsake = h.item(item, "Keepsake", ItemType::Gem, 1);
+        h.o_mut(keepsake)
+            .set_property(PropertyDataId::Setup, land::TEST_SETUP);
+        h.o_mut(keepsake).set_bonded(Some(BondedStatus::Slippery));
+        assert!(creature_death::container_try_add_to_inventory(
+            &mut h.w, P1, keepsake
+        ));
+        creature_death::create_corpse(&mut h.w, P1, None, false);
+        let new: Vec<_> = corpses(h)
+            .into_iter()
+            .filter(|c| !before.contains(c))
+            .collect();
+        assert_eq!(new.len(), 1, "one new corpse");
+        new[0]
+    }
+
+    fn launch_player(level: i32) -> H {
+        let mut h = H::new();
+        h.w.era = EraId::Launch.rules();
+        h.player(P1, S1, "Tester", level, 0);
+        h.place(P1);
+        h
+    }
+
+    /// At launch every death loses half the coins carried and `max(level / 10, 1)` items, 0 to 2
+    /// more above level 10; the relief of levels 1 to 35 came in May 2002.
+    #[test]
+    fn launch_deaths_lose_coins_and_items_at_every_level() {
+        let mut h = H::new();
+        h.w.era = EraId::Launch.rules();
+        h.player(P1, S1, "Tester", 1, 0);
+        h.corpse(ObjectGuid::new(0x8000_0100));
+        let corpse = ObjectGuid::new(0x8000_0100);
+        let mut reference = DotNetRandom::new(SEED);
+        let count = |h: &mut H, level: i32| {
+            h.o_mut(P1).set_level(Some(level));
+            player_death::get_num_items_dropped(&h.w, P1, corpse)
+        };
+        assert_eq!(count(&mut h, 1), 1, "one item at level 1");
+        assert_eq!(count(&mut h, 5), 1);
+        assert_eq!(count(&mut h, 10), 1, "no extra draw at level 10");
+        assert_eq!(count(&mut h, 11), 1 + reference.next_range(0, 3));
+        assert_eq!(count(&mut h, 19), 1 + reference.next_range(0, 3));
+        assert_eq!(count(&mut h, 20), 2 + reference.next_range(0, 3));
+        assert_eq!(count(&mut h, 126), 12 + reference.next_range(0, 3));
+        assert_eq!(
+            count(&mut h, 400),
+            14.min(40 + reference.next_range(0, 3)),
+            "ACE's cap"
+        );
+        h.o_mut(P1).set_property(PropertyInt::CoinValue, 1001);
+        for level in [1, 5, 6, 40] {
+            h.o_mut(P1).set_level(Some(level));
+            assert_eq!(
+                player_death::get_num_coins_dropped(&h.w, P1),
+                500,
+                "half the coins at level {level}"
+            );
+        }
+        // The end of retail's relief, for comparison.
+        h.w.era = EraId::Eor.rules();
+        assert_eq!(count(&mut h, 10), 0);
+        h.o_mut(P1).set_level(Some(5));
+        assert_eq!(player_death::get_num_coins_dropped(&h.w, P1), 0);
+    }
+
+    /// A level-1 death at launch can lose what the character wields: its armor, worth more than
+    /// the gem in its pack, goes to the corpse. At the end of retail a level-1 death loses nothing.
+    #[test]
+    fn a_launch_death_at_level_one_loses_the_most_valuable_item_wielded_or_not() {
+        for era in [EraId::Launch, EraId::Eor] {
+            let mut h = H::new();
+            h.w.era = era.rules();
+            h.player(P1, S1, "Tester", 1, 0);
+            let armor = h.item(0x8000_0201, "Armor", ItemType::Armor, 5_000);
+            let gem = h.item(0x8000_0203, "Gem", ItemType::Gem, 2_000);
+            assert!(creature_death::container_try_add_to_inventory(
+                &mut h.w, P1, gem
+            ));
+            assert!(creature_death::creature_try_equip_object(
+                &mut h.w,
+                P1,
+                armor,
+                EquipMask::ChestArmor
+            ));
+            h.place(P1);
+            creature_death::create_corpse(&mut h.w, P1, None, false);
+            let corpse = h.find_corpse().expect("a corpse");
+            let lost = creature_death::container_inventory(&h.w, corpse);
+            if era == EraId::Launch {
+                assert_eq!(lost, [armor], "the wielded armor");
+                assert_eq!(h.o(corpse).time_to_rot(), Some(300.0));
+            } else {
+                assert!(lost.is_empty(), "{lost:?}");
+            }
+        }
+    }
+
+    /// A third corpse at launch makes the oldest decay at its next tick and leave its items on the
+    /// ground; the other two keep their time.
+    #[test]
+    fn a_third_launch_corpse_makes_the_oldest_decay_and_leave_its_items() {
+        let mut h = launch_player(1);
+        let first = die_with_a_keepsake(&mut h, 0x8000_0200);
+        h.advance(10.0);
+        let second = die_with_a_keepsake(&mut h, 0x8000_0201);
+        assert_eq!(h.o(first).time_to_rot(), Some(300.0), "two are allowed");
+        h.advance(10.0);
+        let third = die_with_a_keepsake(&mut h, 0x8000_0202);
+        assert_eq!(h.o(first).time_to_rot(), Some(0.0), "the oldest decays now");
+        assert_eq!(h.o(second).time_to_rot(), Some(300.0));
+        assert_eq!(h.o(third).time_to_rot(), Some(300.0));
+        world_object_decay::decay(&mut h.w, first, TimeSpan::from_seconds(1.0));
+        assert!(world_object_decay::decay_completed(h.o(first)));
+        assert!(container::inventory(h.o(first)).is_empty());
+        assert!(
+            h.o(ObjectGuid::new(0x8000_0200))
+                .current_landblock
+                .is_some(),
+            "its keepsake is on the ground"
+        );
+    }
+
+    /// The oldest corpse may lie on a landblock that is not loaded: its saved rot time becomes 0,
+    /// so it decays and leaves its items as soon as that landblock loads.
+    #[test]
+    fn a_saved_corpse_on_a_landblock_not_loaded_counts_and_decays_when_it_loads() {
+        let mut h = launch_player(1);
+        let first = die_with_a_keepsake(&mut h, 0x8000_0200);
+        // A copy of it saved under another guid and an older time, standing for a corpse left
+        // on a landblock that has since unloaded.
+        let saved_guid = ObjectGuid::new(0x8000_0030);
+        let mut saved = h.o(first).biota.clone();
+        saved.id = saved_guid.full();
+        let created = h.o(first).creation_timestamp().expect("a creation time");
+        {
+            let mut db = h.w.shard.base_database();
+            assert!(db.save_biota(&mut saved, false));
+            let mut stored = db.get_biota(saved_guid.full(), false).expect("saved");
+            for p in &mut stored.biota_properties_int {
+                if p.r#type == PropertyInt::CreationTimestamp.0 {
+                    p.value = created - 1_000;
+                }
+            }
+            assert!(db.do_save_biota(&mut stored));
+        }
+        h.advance(10.0);
+        let second = die_with_a_keepsake(&mut h, 0x8000_0201);
+        let rot = |h: &H| {
+            h.w.shard
+                .base_database()
+                .get_biota(saved_guid.full(), false)
+                .expect("still saved")
+                .biota_properties_float
+                .iter()
+                .find(|p| p.r#type == PropertyFloat::TimeToRot.0)
+                .map(|p| p.value)
+        };
+        assert_eq!(
+            rot(&h),
+            Some(0.0),
+            "the saved corpse was the oldest of three"
+        );
+        assert_eq!(h.o(first).time_to_rot(), Some(300.0));
+        assert_eq!(h.o(second).time_to_rot(), Some(300.0));
+    }
+
+    /// The end of retail and February 2005 keep every corpse but ACE's per-landblock limit.
+    #[test]
+    fn later_eras_keep_a_third_corpse_and_its_elders() {
+        for era in [EraId::Eor, EraId::Infiltration] {
+            let mut h = H::new();
+            h.w.era = era.rules();
+            h.player(P1, S1, "Tester", 1, 0);
+            h.place(P1);
+            let mut made = Vec::new();
+            for item in 0x8000_0200..0x8000_0203u32 {
+                made.push(die_with_a_keepsake(&mut h, item));
+                h.advance(10.0);
+            }
+            for c in made {
+                assert_eq!(h.o(c).time_to_rot(), Some(3600.0), "{era:?}");
+            }
+        }
+    }
+
+    /// A monster's corpse lay 90 seconds before November 2002 and left its unclaimed loot on the
+    /// ground; at the end of retail it lies the corpse's own time and its loot goes with it.
+    #[test]
+    fn launch_monster_corpses_lie_ninety_seconds_and_leave_their_loot() {
+        for era in [EraId::Launch, EraId::Eor] {
+            let mut h = H::new();
+            h.w.era = era.rules();
+            h.creature(Class::Creature, MONSTER, "Drudge", 100);
+            h.o_mut(MONSTER).set_level(Some(1));
+            h.place(MONSTER);
+            creature_death::create_corpse(&mut h.w, MONSTER, None, false);
+            let corpse = h.find_corpse().unwrap();
+            let loot = h.item(0x8000_0200, "Loot", ItemType::Gem, 10);
+            h.o_mut(loot)
+                .set_property(PropertyDataId::Setup, land::TEST_SETUP);
+            assert!(creature_death::container_try_add_to_inventory(
+                &mut h.w, corpse, loot
+            ));
+            let lifetime = if era == EraId::Launch {
+                assert_eq!(h.o(corpse).time_to_rot(), Some(90.0));
+                90.0
+            } else {
+                assert_eq!(h.o(corpse).time_to_rot(), None);
+                world_object_decay::decay(&mut h.w, corpse, TimeSpan::from_seconds(1.0));
+                world_object_decay::DEFAULT_TIME_TO_ROT
+            };
+            world_object_decay::decay(&mut h.w, corpse, TimeSpan::from_seconds(lifetime - 1.0));
+            assert!(!world_object_decay::decay_completed(h.o(corpse)), "{era:?}");
+            world_object_decay::decay(&mut h.w, corpse, TimeSpan::from_seconds(1.0));
+            assert!(world_object_decay::decay_completed(h.o(corpse)), "{era:?}");
+            assert_eq!(
+                h.w.objects
+                    .get(loot)
+                    .is_some_and(|o| o.current_landblock.is_some()),
+                era == EraId::Launch,
+                "{era:?}: the loot on the ground"
+            );
+        }
+    }
+
+    /// Before June 2000 a monster's corpse was its killer's for its first 15 seconds, then
+    /// anyone's; at the end of retail it is the killer's until half its time is left.
+    #[test]
+    fn a_launch_monster_corpse_is_its_killers_for_fifteen_seconds() {
+        for (era, locked_for) in [(EraId::Launch, 15.0), (EraId::Eor, 120.0)] {
+            let mut h = H::new();
+            h.w.era = era.rules();
+            h.player(P1, S1, "Tester", 10, 0);
+            h.player(P2, S2, "Helper", 10, 0);
+            h.creature(Class::Creature, MONSTER, "Drudge", 100);
+            h.o_mut(MONSTER).set_level(Some(1));
+            h.place(MONSTER);
+            let killer = h.info(P1);
+            creature_death::create_corpse(&mut h.w, MONSTER, Some(&killer), false);
+            let corpse = h.find_corpse().unwrap();
+            // Loot in it, so an empty corpse's early rot plays no part.
+            let loot = h.item(0x8000_0200, "Loot", ItemType::Gem, 10);
+            assert!(creature_death::container_try_add_to_inventory(
+                &mut h.w, corpse, loot
+            ));
+            if era == EraId::Eor {
+                world_object_decay::decay(&mut h.w, corpse, TimeSpan::from_seconds(0.0));
+            }
+            assert!(corpse::has_permission(&mut h.w, corpse, P1), "{era:?}");
+            assert!(!corpse::has_permission(&mut h.w, corpse, P2), "{era:?}");
+            world_object_decay::decay(&mut h.w, corpse, TimeSpan::from_seconds(locked_for - 1.0));
+            assert!(!corpse::has_permission(&mut h.w, corpse, P2), "{era:?}");
+            world_object_decay::decay(&mut h.w, corpse, TimeSpan::from_seconds(2.0));
+            assert!(corpse::has_permission(&mut h.w, corpse, P2), "{era:?}");
+        }
+    }
+
+    /// Before December 1999 an empty corpse lay as long as a full one: an empty player corpse
+    /// lasts five minutes a level, and emptying a corpse does not shorten it.
+    #[test]
+    fn launch_empty_corpses_last_their_full_time() {
+        let mut h = launch_player(3);
+        creature_death::create_corpse(&mut h.w, P1, None, false);
+        let empty = h.find_corpse().expect("a corpse");
+        assert!(container::inventory(h.o(empty)).is_empty());
+        assert_eq!(h.o(empty).time_to_rot(), Some(900.0));
+        world_object_decay::decay(&mut h.w, empty, TimeSpan::from_seconds(5.0));
+        assert_eq!(h.o(empty).time_to_rot(), Some(895.0));
+    }
+}
+
+mod launch_corpse_notices_and_permits {
+    //! Divergence: V478, V479
+    //! A world before May 2001 tells a player nothing of where its corpse lies, and one before
+    //! April 2001 honors no corpse permit, even one granted before the world changed.
+    //! Fixture: the death harness's flat landblock, its memory shard and seeded draws.
+    use super::*;
+    use empyrean_common::era::EraId;
+    use empyrean_entity::enums::BondedStatus;
+
+    /// The player dies outdoors carrying one slippery keepsake, which always drops; the chat lines
+    /// the death sent.
+    fn death_lines(era: EraId) -> Vec<String> {
+        let mut h = H::new();
+        h.w.era = era.rules();
+        h.player(P1, S1, "Tester", 20, 0);
+        h.place(P1);
+        let keepsake = h.item(0x8000_0300, "Keepsake", ItemType::Gem, 1);
+        h.o_mut(keepsake)
+            .set_property(PropertyDataId::Setup, land::TEST_SETUP);
+        h.o_mut(keepsake).set_bonded(Some(BondedStatus::Slippery));
+        assert!(creature_death::container_try_add_to_inventory(
+            &mut h.w, P1, keepsake
+        ));
+        start_capture();
+        creature_death::create_corpse(&mut h.w, P1, None, false);
+        assert!(h.find_corpse().is_some(), "a corpse");
+        chats(&sent())
+    }
+
+    #[test]
+    fn a_launch_death_does_not_tell_where_the_corpse_lies() {
+        let located = |lines: &[String]| {
+            lines
+                .iter()
+                .any(|m| m.starts_with("Your corpse is located at ("))
+        };
+        let launch = death_lines(EraId::Launch);
+        assert!(
+            launch.iter().any(|m| m.starts_with("You've lost")),
+            "the keepsake dropped: {launch:?}"
+        );
+        assert!(!located(&launch), "{launch:?}");
+        let later = death_lines(EraId::Eor);
+        assert!(located(&later), "{later:?}");
+    }
+
+    #[test]
+    fn a_launch_corpse_opens_to_no_permit_granted_before_the_world_changed() {
+        let mut h = H::new();
+        h.player(P1, S1, "Tester", 10, 0);
+        h.player(P2, S2, "Helper", 10, 0);
+        let corpse_guid = ObjectGuid::new(0x8000_0100);
+        let mut c = WorldObject::allocate(Class::Corpse);
+        c.guid = corpse_guid;
+        c.set_victim_id(Some(P1.full()));
+        c.set_killer_id(Some(MONSTER.full()));
+        c.set_time_to_rot(Some(3600.0));
+        h.w.objects.insert(c).unwrap();
+        let expires = h.w.now.utc + player_death::permit_time();
+        h.o_mut(P2)
+            .player
+            .as_mut()
+            .unwrap()
+            .player_death
+            .loot_permission
+            .insert(P1, expires);
+        h.w.era = EraId::Launch.rules();
+        assert!(!corpse::has_permission(&mut h.w, corpse_guid, P2));
+        assert!(
+            !h.o(P2)
+                .player
+                .as_ref()
+                .unwrap()
+                .player_death
+                .loot_permission
+                .is_empty(),
+            "nothing was used up"
+        );
+        assert!(
+            corpse::has_permission(&mut h.w, corpse_guid, P1),
+            "the owner"
+        );
+        h.w.era = EraId::Eor.rules();
+        assert!(corpse::has_permission(&mut h.w, corpse_guid, P2));
+    }
+
+    #[test]
+    fn a_launch_world_refuses_every_permit_and_consent_request() {
+        let mut h = H::new();
+        h.player(P1, S1, "Tester", 10, 0);
+        h.player(P2, S2, "Helper", 10, 0);
+        h.w.era = EraId::Launch.rules();
+        start_capture();
+        player_death::handle_action_add_player_permission(&mut h.w, P1, "Helper");
+        player_death::handle_action_remove_player_permission(&mut h.w, P1, "Helper");
+        player_death::handle_action_display_player_consent_list(&mut h.w, P1);
+        player_death::handle_action_clear_player_consent_list(&mut h.w, P1);
+        player_death::handle_action_remove_from_player_consent_list(&mut h.w, P1, "Helper");
+        let lines = chats(&sent());
+        assert_eq!(
+            lines,
+            vec!["This world has no corpse permits.".to_owned(); 5],
+            "each request is refused, and nothing else is said"
+        );
+        assert!(h
+            .o(P2)
+            .player
+            .as_ref()
+            .unwrap()
+            .player_death
+            .loot_permission
+            .is_empty());
     }
 }

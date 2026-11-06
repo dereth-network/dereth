@@ -42,6 +42,7 @@ pub fn item(l: &Located) -> Option<Item> {
             quest: r.quest,
             key: r.key.clone(),
         },
+        Row::Give(r) => Item::Give { key: r.key.clone() },
         Row::Talk(r) => Item::Talk { key: r.key.clone() },
         Row::Craft(r) => Item::Craft { id: r.id() },
         Row::Butchery(r) => Item::Butchery { profile: r.profile },
@@ -50,16 +51,24 @@ pub fn item(l: &Located) -> Option<Item> {
         Row::Weapon(r) => Item::Weapon {
             name: r.name.clone(),
         },
+        Row::DeathSpawn(r) => Item::DeathSpawn {
+            effect: r.effect.clone(),
+        },
         Row::Route(r) => Item::Route { key: r.key.clone() },
         Row::Area(r) => Item::Area {
             landblock: r.landblock,
+        },
+        Row::Clearing(r) => Item::Clearing {
+            key: r.key.clone(),
+            landblock,
         },
         Row::Remove(_) => return None,
     })
 }
 
 /// The item key a row sets: `object KEY@XXYY`, `camp KEY@XXYY`, `place KEY`, `loot 0xVALUE`,
-/// `keeper 0xTEMPLATE`, `sale 0xSTORE ORDINAL`, `quest 0xID`, `step 0xQUEST KEY`, `talk KEY`.
+/// `keeper 0xTEMPLATE`, `sale 0xSTORE ORDINAL`, `quest 0xID`, `step 0xQUEST KEY`, `give KEY`,
+/// `talk KEY`.
 #[must_use]
 pub fn item_key(l: &Located) -> Option<String> {
     item(l).map(|i| i.to_string())
@@ -77,6 +86,7 @@ fn value(row: &Row) -> String {
         Row::Sale(x) => x.prov = crate::rows::Prov::default(),
         Row::Quest(x) => x.prov = crate::rows::Prov::default(),
         Row::Step(x) => x.prov = crate::rows::Prov::default(),
+        Row::Give(x) => x.prov = crate::rows::Prov::default(),
         Row::Place(x) => x.prov = crate::rows::Prov::default(),
         Row::Talk(x) => x.prov = crate::rows::Prov::default(),
         Row::Craft(x) => x.prov = crate::rows::Prov::default(),
@@ -84,8 +94,10 @@ fn value(row: &Row) -> String {
         Row::Scene(x) => x.prov = crate::rows::Prov::default(),
         Row::Shard(x) => x.prov = crate::rows::Prov::default(),
         Row::Weapon(x) => x.prov = crate::rows::Prov::default(),
+        Row::DeathSpawn(x) => x.prov = crate::rows::Prov::default(),
         Row::Route(x) => x.prov = crate::rows::Prov::default(),
         Row::Area(x) => x.prov = crate::rows::Prov::default(),
+        Row::Clearing(x) => x.prov = crate::rows::Prov::default(),
         Row::Remove(_) => {}
     }
     format!("{r:?}")

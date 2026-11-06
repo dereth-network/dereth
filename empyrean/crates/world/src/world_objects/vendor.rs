@@ -23,8 +23,8 @@ use std::sync::Arc;
 use empyrean_common::dotnet::{CsCast, DotNetDict};
 use empyrean_common::time::Time;
 use empyrean_entity::enums::{
-    AttunedStatus, DestinationType, ItemType, ObjectDescriptionFlag, PropertyBool, PropertyInt,
-    PropertyString, RegenLocationType, VendorType, WeenieClassName, WeenieError,
+    AttunedStatus, DestinationType, ItemType, ObjectDescriptionFlag, PropertyBool, PropertyDataId,
+    PropertyInt, PropertyString, RegenLocationType, VendorType, WeenieClassName, WeenieError,
     WeenieErrorWithString,
 };
 use empyrean_entity::{ObjectGuid, Weenie};
@@ -818,6 +818,7 @@ pub fn buy_items_validate_transaction(
     }
 
     // everything is verified at this point
+    stamp_note_issuer(w, this, &purchase_items);
 
     // send transaction to player for further processing
     player_commerce::finalize_buy_transaction(
@@ -840,6 +841,11 @@ pub fn get_sell_cost(w: &World, this: ObjectGuid, item: ObjectGuid) -> u32 {
         let o = obj(w, item);
         (o.value(), o.stack_size(), o.item_type())
     };
+    // DIVERGE: V486, a world whose trade notes know their issuer sells a note at 1.1 times its
+    // value, as the early client prices it.
+    if item_type == ItemType::PromissoryNote && !w.era.features.trade_notes_cash_anywhere {
+        return early_note_sell_cost(value, stack_size);
+    }
     get_sell_cost_of(
         obj(w, this).sell_price(),
         value,
@@ -926,7 +932,74 @@ pub fn get_buy_cost(w: &World, this: ObjectGuid, item: ObjectGuid) -> i32 {
         let o = obj(w, item);
         (o.value(), o.stack_size(), o.item_type())
     };
+    // DIVERGE: V486, a world whose trade notes know their issuer cashes a note at its face value
+    // only at the vendor that issued it, and at 0.8 of it elsewhere.
+    if item_type == ItemType::PromissoryNote && !w.era.features.trade_notes_cash_anywhere {
+        return early_note_buy_cost(value, stack_size, note_issued_by(w, item, this));
+    }
     get_buy_cost_of(obj(w, this).buy_price(), value, stack_size, Some(item_type))
+}
+
+/// Not ACE: what a trade note is charged at on a world whose notes know their issuer (V486): the
+/// price the client shows, in the shared rules. Past the client's range it has no such price, and
+/// the charge is as for any other item at that rate.
+#[must_use]
+pub fn early_note_sell_cost(value: Option<i32>, stack_size: Option<i32>) -> u32 {
+    use dereth_rules::vendor::{early_note_sell_price, EARLY_NOTE_SELL_RATE};
+    let (unit, count) = unit_and_count(value.unwrap_or(0), stack_size);
+    if !in_client_range(EARLY_NOTE_SELL_RATE, unit, count) {
+        return get_sell_cost_of(
+            Some(f64::from(EARLY_NOTE_SELL_RATE)),
+            value,
+            stack_size,
+            None,
+        );
+    }
+    u32::try_from(early_note_sell_price(unit, count))
+        .unwrap_or(0)
+        .max(1)
+}
+
+/// Not ACE: what a vendor pays for a trade note on a world whose notes know their issuer (V486);
+/// see [`early_note_sell_cost`].
+#[must_use]
+pub fn early_note_buy_cost(value: Option<i32>, stack_size: Option<i32>, issued_here: bool) -> i32 {
+    use dereth_rules::vendor::{
+        early_note_buy_price, EARLY_NOTE_FOREIGN_BUY_RATE, EARLY_NOTE_ISSUER_BUY_RATE,
+    };
+    let rate = if issued_here {
+        EARLY_NOTE_ISSUER_BUY_RATE
+    } else {
+        EARLY_NOTE_FOREIGN_BUY_RATE
+    };
+    let (unit, count) = unit_and_count(value.unwrap_or(0), stack_size);
+    if !in_client_range(rate, unit, count) {
+        return get_buy_cost_of(Some(f64::from(rate)), value, stack_size, None);
+    }
+    early_note_buy_price(unit, count, issued_here).max(1)
+}
+
+/// Not ACE: whether `vendor` issued the trade note `note`: the vendor class it was stamped with
+/// when sold (`VendorsClassId`) is the vendor's own.
+#[must_use]
+pub fn note_issued_by(w: &World, note: ObjectGuid, vendor: ObjectGuid) -> bool {
+    let issuer: Option<u32> = obj(w, note).get_property(PropertyDataId::VendorsClassId);
+    issuer.is_some_and(|wcid| wcid == obj(w, vendor).weenie_class_id())
+}
+
+/// Not ACE: stamp each trade note among `items` with `vendor`'s class as its issuer, on a world
+/// whose notes know their issuer (V486).
+pub fn stamp_note_issuer(w: &mut World, vendor: ObjectGuid, items: &[ObjectGuid]) {
+    if w.era.features.trade_notes_cash_anywhere {
+        return;
+    }
+    let wcid = obj(w, vendor).weenie_class_id();
+    for &item in items {
+        let o = obj_mut(w, item);
+        if o.item_type() == ItemType::PromissoryNote {
+            o.set_property(PropertyDataId::VendorsClassId, wcid);
+        }
+    }
 }
 
 /// `GetBuyCost(Weenie item)`: `GetBuyCost(item.GetValue(), item.GetItemType())`.

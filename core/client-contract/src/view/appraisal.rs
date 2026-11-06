@@ -22,6 +22,12 @@
 /// are unavailable to this crate.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct AppraisalView {
+    /// The world words an item's requirements as they read at Launch.
+    pub launch_wording: bool,
+    /// The item's type bits.
+    pub obj_type: u32,
+    /// Someone wields or wears the item.
+    pub wielded: bool,
     /// `dereth_client_model::AppraisalCache::delivery` — which `0x00C9` this profile came in on.
     ///
     /// It has no counterpart in the client and is not read from the profile: it is what lets a

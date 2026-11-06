@@ -90,6 +90,8 @@ pub struct Presenter {
     nearest: wgpu::Sampler,
     textures: HashMap<egui::TextureId, Texture>,
     composed: Option<(wgpu::Texture, u32, u32)>,
+    /// The last frame found the window can't be seen.
+    hidden: bool,
 }
 
 impl std::fmt::Debug for Presenter {
@@ -255,6 +257,7 @@ impl Presenter {
         });
         let nearest = device.create_sampler(&wgpu::SamplerDescriptor::default());
         Ok(Self {
+            hidden: false,
             _instance: instance,
             surface,
             config,
@@ -413,6 +416,12 @@ impl Presenter {
         t
     }
 
+    /// Whether the last frame found the window can't be seen, so nothing waited for the display.
+    #[must_use]
+    pub fn hidden(&self) -> bool {
+        self.hidden
+    }
+
     /// Draw a frame: the world (when there is one) and the panels over it, into the window; with
     /// `shot`, also save the window's picture there.
     #[allow(clippy::too_many_lines)] // one pass, in drawing order
@@ -543,9 +552,14 @@ impl Presenter {
                 }
             }
         }
-        let frame = match self.surface.get_current_texture() {
+        let acquired = self.surface.get_current_texture();
+        self.hidden = matches!(acquired, wgpu::CurrentSurfaceTexture::Occluded);
+        let frame = match acquired {
             wgpu::CurrentSurfaceTexture::Success(t)
             | wgpu::CurrentSurfaceTexture::Suboptimal(t) => Some(t),
+            // A window that can't be seen, or a picture that came late: the surface is as it was,
+            // and configuring it again would wait for the device.
+            wgpu::CurrentSurfaceTexture::Occluded | wgpu::CurrentSurfaceTexture::Timeout => None,
             _ => {
                 self.surface.configure(device, &self.config);
                 None
@@ -584,6 +598,7 @@ impl Presenter {
             self.textures.remove(&id);
         }
         let _ = self.renderer.device().poll(wgpu::PollType::Poll);
+        self.renderer.end_frame();
         if let Some(path) = shot {
             match self.save(&composed, w, h, path) {
                 Ok(()) => tracing::info!("screenshot {}", path.display()),

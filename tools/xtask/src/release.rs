@@ -1,12 +1,12 @@
 //! `cargo xtask release <product> <version> [--push] [--remote <name>]`: cut a release of
-//! Empyrean (`empyrean`), of Dereth (`dereth`: the launcher and the client, one version), of
+//! Empyrean (`empyrean`), of the launcher (`launcher`), of Dereth (`dereth`: the client), of
 //! Lyceum (`lyceum`: the world builder's editor and its command, one version), of one of
 //! Asheron's Call 2's three products, Auberean (`auberean`: the client), Yalain (`yalain`: the
 //! server) and Athenaeum (`athenaeum`: the world builder), or of one of the Dereth Network's two
 //! products, its hub (`network-hub`) and its ACE mod (`network-ace`; [`network`]).
 //!
 //! On a clean `main` it sets the version of every crate that carries the product's version
-//! (Empyrean: every `empyrean-*` crate; Dereth: the client and the launcher; Lyceum: the editor,
+//! (Empyrean: every `empyrean-*` crate; the launcher's own; Dereth: the client's; Lyceum: the editor,
 //! the command and the Foundry; Auberean: the client and the headless client; Yalain: every
 //! `yalain-*` crate; Athenaeum: the editor, the command and the Foundry) to `<version>` and commits
 //! that with the lock files (skipped when the tree already carries it), runs `cargo xtask ci tier0`
@@ -281,6 +281,7 @@ fn locks(product: Product) -> &'static [(&'static str, &'static str)] {
         | Product::Yalain
         | Product::Athenaeum => &[("", "Cargo.lock")],
         Product::Dereth => version::DERETH_LOCKS,
+        Product::Launcher => &[("launcher", "launcher/Cargo.lock")],
     }
 }
 
@@ -390,6 +391,76 @@ fn stamp_changes(ws: &Path, product: Product, requested: &str) -> Result<Option<
     Ok(Some(file.to_owned()))
 }
 
+/// The launcher a game's smoke package holds: built here, for that smoke test alone, since its
+/// release is only made once its tag is pushed. The folder its files are in.
+fn smoke_launcher(ws: &Path, host: &str, version: &str) -> Result<std::path::PathBuf, String> {
+    println!("\n=== the launcher {version}, for the smoke test");
+    package::auberean::build_flavor(
+        &package::launcher::FLAVOR,
+        ws,
+        version,
+        version,
+        &[host.to_owned()],
+        None,
+        false,
+        None,
+        None,
+        None,
+    )
+}
+
+/// A game's release holds the launcher version in the tree, so that must be released first, and
+/// the launcher unchanged since. Whether a release is refused for it, and how to cut it.
+fn launcher_is_released(ws: &Path, remote: &str, version: &str) -> Result<(), String> {
+    let tag = Product::Launcher.tag_for(version);
+    let here = git(ws, &["tag", "--list", &tag])?;
+    let there = git(ws, &["ls-remote", "--tags", remote, &tag]).unwrap_or_default();
+    let changed = if here.is_empty() {
+        Vec::new()
+    } else {
+        git(
+            ws,
+            &[
+                "diff",
+                "--name-only",
+                &tag,
+                "HEAD",
+                "--",
+                "launcher",
+                ":(exclude,glob)**/*.md",
+            ],
+        )?
+        .lines()
+        .map(str::to_owned)
+        .collect()
+    };
+    launcher_refusal(&tag, !here.is_empty() || !there.is_empty(), &changed).map_or(Ok(()), Err)
+}
+
+/// Why a game's release can't go ahead, given whether the launcher's `tag` exists and the launcher
+/// files `changed` since it.
+pub(crate) fn launcher_refusal(tag: &str, exists: bool, changed: &[String]) -> Option<String> {
+    let version = tag
+        .strip_prefix(version::LAUNCHER_TAG_PREFIX)
+        .unwrap_or(tag);
+    if !exists {
+        // A tree carrying a pre-release hasn't had the release itself yet.
+        let release = version.split('-').next().unwrap_or(version);
+        return Some(format!(
+            "this release holds the launcher {version}, which has no tag {tag}: release it first, \
+             with `cargo xtask release launcher {release}`"
+        ));
+    }
+    if changed.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "the launcher has changed since {tag} ({}): release it first, with \
+         `cargo xtask release launcher <version>`",
+        changed.join(", ")
+    ))
+}
+
 fn run(
     product: Product,
     requested: &str,
@@ -409,6 +480,10 @@ fn run(
     // A Lyceum release's notes are mostly its highlights, and so are Asheron's Call 2's products',
     // so a release without them is refused here, before anything changes; Dereth's and Empyrean's
     // say so and go on.
+    let launcher_version = Product::Launcher.version(&ws)?;
+    if product.holds_launcher() {
+        launcher_is_released(&ws, remote, &launcher_version)?;
+    }
     if needs_highlights(product) {
         let file = notes::changes_file(product);
         let text = std::fs::read_to_string(changes_path(&ws, product))
@@ -519,12 +594,28 @@ fn run(
     match product {
         Product::Empyrean => package::build_packages(&ws, &[host], None, false),
         // A macOS host needs MoltenVK for these, named as the package command takes it.
-        Product::Dereth => package::dereth::build_packages(&ws, &[host], None, false, None, None),
+        Product::Dereth => {
+            let launcher = smoke_launcher(&ws, &host, &launcher_version)?;
+            package::dereth::build_packages(&ws, &[host], None, false, None, Some(&launcher))
+        }
         Product::Lyceum => package::lyceum::build_packages(&ws, &[host], None, false, None),
         Product::Auberean => {
-            package::auberean::build_packages(&ws, &[host], None, false, None, None)
+            let launcher = smoke_launcher(&ws, &host, &launcher_version)?;
+            package::auberean::build_packages(&ws, &[host], None, false, Some(&launcher))
         }
         Product::Yalain => package::yalain::build_packages(&ws, &[host], None, false),
+        Product::Launcher => package::auberean::build_flavor(
+            &package::launcher::FLAVOR,
+            &ws,
+            requested,
+            requested,
+            &[host],
+            None,
+            false,
+            None,
+            None,
+            None,
+        ),
         Product::Athenaeum => {
             package::desktop::build_packages(&package::athenaeum::SPEC, &ws, &[host], None, false)
         }

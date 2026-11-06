@@ -75,6 +75,8 @@ pub struct KeyBindings {
     capture_revision: u64,
     swallowed: Vec<u16>,
     pub warning: Option<String>,
+    /// The systems the world has; `None` lists every row.
+    era: Option<dereth_primitives::EraFeatures>,
 }
 
 impl KeyBindings {
@@ -90,6 +92,7 @@ impl KeyBindings {
             capture_revision: 0,
             swallowed: Vec::new(),
             warning: None,
+            era: None,
         };
         k.set_keys(keys);
         k
@@ -180,6 +183,14 @@ impl KeyBindings {
             .collect()
     }
 
+    /// The systems the world has; a key for what it lacks is not listed. Returns whether they
+    /// changed, and with them the page.
+    pub fn set_era(&mut self, features: dereth_primitives::EraFeatures) -> bool {
+        let changed = self.era != Some(features);
+        self.era = Some(features);
+        changed
+    }
+
     pub fn snapshot(&self) -> KeyboardState {
         let header = |label: &str| KeyBinding {
             action: 0,
@@ -203,7 +214,11 @@ impl KeyBindings {
             bindings.push(header(label));
             let mut rows: Vec<_> = presentation::ROWS
                 .iter()
-                .filter(|r| r.category == index && r.not_used(Interface::Classic).is_none())
+                .filter(|r| {
+                    r.category == index
+                        && r.not_used(Interface::Classic).is_none()
+                        && r.needs().met(self.era.as_ref())
+                })
                 .collect();
             rows.sort_by_key(|r| r.label.to_lowercase());
             bindings.extend(rows.into_iter().map(row));
@@ -894,6 +909,30 @@ mod tests {
                 .handle(&HostAction::SaveKeyMapAs { name: name.into() })
                 .is_err());
         }
+    }
+
+    /// Behaviour: presentation.era.key-rows-and-option-keys-follow-the-world
+    /// A key for a system the world lacks leaves the page and comes back with the system; the
+    /// binding made for it is kept all the while.
+    #[test]
+    fn the_key_page_lists_only_what_the_world_has() {
+        let listed =
+            |k: &KeyBindings, label: &str| k.snapshot().bindings.iter().any(|b| b.label == label);
+        let mut k = KeyBindings::new(&keys());
+        assert!(listed(&k, "House Panel"), "an unknown world has everything");
+        let bindings = k.bindings.clone();
+        let lacking = dereth_primitives::EraFeatures {
+            housing: false,
+            apartments: false,
+            ..dereth_primitives::EraFeatures::ALL
+        };
+        assert!(k.set_era(lacking));
+        assert!(!k.set_era(lacking), "only a change is a change");
+        assert!(!listed(&k, "House Panel"));
+        assert!(listed(&k, "Map Panel"));
+        assert_eq!(k.bindings, bindings, "every binding is kept");
+        assert!(k.set_era(dereth_primitives::EraFeatures::ALL));
+        assert!(listed(&k, "House Panel"));
     }
 
     /// Behaviour: keys.classic.a-scheme-saved-under-a-name-is-the-one-chosen-after

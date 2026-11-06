@@ -185,6 +185,9 @@ impl Default for Limits {
     }
 }
 
+/// The most whole worlds one character may squelch.
+pub const MAX_SQUELCHED_WORLDS: usize = 50;
+
 #[cfg(test)]
 mod tests {
     use super::*;

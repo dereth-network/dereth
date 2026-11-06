@@ -10,6 +10,7 @@ use auberean_client_sdk::Client;
 use auberean_friends::{
     ClientConfig, ClientOut, ClientSession, Cx, Event, Hr, Mode, Request, Ticket,
 };
+use auberean_script::native_object::{TextInfo, VariableValue};
 use yalain_testkit::session as play;
 
 /// The game's client on a loopback socket, on the real clock.
@@ -62,6 +63,20 @@ pub fn shown(c: &Client) -> Vec<String> {
         .filter_map(|s| s.text.literal.as_deref())
         .map(String::from_utf16_lossy)
         .collect()
+}
+
+/// Whether a line of the client's own strings holds `needle`, in a literal of it or of one of its
+/// variables.
+pub fn names(text: &TextInfo, needle: &str) -> bool {
+    let holds = |l: &Option<Vec<u16>>| {
+        l.as_deref()
+            .is_some_and(|l| String::from_utf16_lossy(l).contains(needle))
+    };
+    holds(&text.literal)
+        || text.variables.iter().any(|v| match &v.value {
+            VariableValue::Nested(t) => names(t, needle),
+            _ => false,
+        })
 }
 
 /// A friends stream: the stream's client half over a TCP socket, on the real clock.
