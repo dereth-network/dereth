@@ -1557,6 +1557,12 @@ impl Backend {
 
         let mut command = Command::new(&plan.exe);
         crate::components::leave_the_mount(&mut command, &plan.exe);
+        // In the environment, which a client too old to report takes no notice of.
+        if dereth {
+            if let Some(hub) = dereth_launch::serverlist::other_hub(self.list.sources()) {
+                command.env("DERETH_PLAYER_COUNT_HUB", hub);
+            }
+        }
         let child = match command
             .current_dir(&plan.working_dir)
             .args(plan.argv(&password))

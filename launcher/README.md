@@ -161,6 +161,10 @@ that run a client of their own, else the end of retail.
 4. the server-tracker login, which ACE, GDLE and Empyrean all answer: up or down, with no player
    count.
 
+A world with no count of its own takes the hub's, which may come from a player's Dereth client or
+from TreeStats. The count grows dimmer as it ages, and hovering over it says where it came from and
+how old it is.
+
 On Windows and Linux, a button beside the version under the rail creates a desktop shortcut. On
 Linux each start also writes the launcher's application entry (`network.dereth.dereth.desktop`
 and its icon under `$XDG_DATA_HOME`), and the Dereth client window's hidden entry with the client's

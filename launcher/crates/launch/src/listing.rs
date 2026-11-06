@@ -257,7 +257,10 @@ impl WorldList {
                 } else {
                     listed && self.hub.word_pending()
                 };
+                let own_count = live.is_some_and(|l| l.players.is_some());
+                let count = self.hub.count(&w.slug, now).filter(|_| listed);
                 let mut w = worlds::shown(w, answered, heard, hub, state);
+                worlds::take_hub_count(&mut w, count.as_ref(), own_count);
                 w.era_state = worlds::era_state(&w, heard.is_some(), may_answer);
                 w.favorite = state.is_favorite_world(&w.slug);
                 w
