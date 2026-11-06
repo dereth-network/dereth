@@ -282,6 +282,9 @@ impl<S: Store> Server<S> {
         self.creature_weapons = t.weapons;
         self.creature_weapon_rules = t.weapon_rules;
         self.death_spawns = t.death_spawns;
+        let fresh = crate::pets::Pets::default();
+        self.pets.kinds = fresh.kinds;
+        self.pets.limits = fresh.limits;
         self.pets.read_rows(t.pet_kinds, t.pet_limits);
 
         if let Some(names) = t.names {

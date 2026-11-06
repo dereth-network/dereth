@@ -8341,6 +8341,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.pets.a-reload-reads-the-rows",
+        says: "A reload takes up a world's rows of pets and what its skills allow, and drops a row it \
+               no longer has.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-PETS-RELOAD"),
+        station: "yalain-testkit::cpu::operator::reload::a_reload_takes_up_the_worlds_pet_rows",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.pets.a-row-makes-a-kind",
         says: "A world's row makes a kind of pet the server has no list entry for, as many as it \
                says, and replaces a listed kind of the same effect.",

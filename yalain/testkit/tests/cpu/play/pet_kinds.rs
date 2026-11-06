@@ -894,6 +894,7 @@ fn a_pet_a_skill_makes_at_a_creature_appears_beside_it_and_goes_after_it() {
 #[test]
 fn a_skill_aimed_at_the_users_pet_changes_which_attack_the_pet_uses() {
     const BARREL: u32 = 3002;
+    const OTHER_CLASS: u32 = 3005;
     const SINGLE: u32 = 3003;
     const DOUBLE: u32 = 3004;
     const TWIN: u32 = 0x7000_08BE;
@@ -991,6 +992,28 @@ fn a_skill_aimed_at_the_users_pet_changes_which_attack_the_pet_uses() {
     );
     assert!(h.run_until(300, |h| thrown(h, from).is_some()));
     assert_eq!(thrown(&h, from), Some(SINGLE), "no effect on it yet");
+    // A skill that names another class of pet lands on nothing.
+    let mut other_class = h.server.skill_table.skills[&BARREL].clone();
+    other_class.id = OTHER_CLASS;
+    if let Some(u) = other_class.usage.as_mut() {
+        u.valid_pet_class = 0x100;
+    }
+    h.server.skill_table.skills.insert(OTHER_CLASS, other_class);
+    if let Some(p) = h.server.players.values_mut().find(|p| p.character == me) {
+        let mut learned = *p.play.skills.last().expect("trained");
+        learned.skill = OTHER_CLASS;
+        p.play.skills.push(learned);
+    }
+    let wrong = use_skill(&mut h, b, OTHER_CLASS, pet);
+    assert!(h
+        .calls(b, wrong)
+        .iter()
+        .any(|(f, v)| *f == 0x8204_001A && !v.is_empty()));
+    assert!(
+        yalain_world::effects::records_of(&h.server, yalain_world::effects::On::Creature(pet))
+            .is_empty()
+    );
+    h.run(200);
     // Another player's use lands on nothing.
     let their = use_skill(&mut h, other, BARREL, pet);
     assert!(h
