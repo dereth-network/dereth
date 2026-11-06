@@ -1322,6 +1322,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.craft.butchery-expert-by-skill",
+        says: "An expert cut's chance goes by the butcher's level alone, a six hundredth of it, 25% \
+               at level 150.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-BUTCHERY-EXPERT-BY-SKILL"),
+        station: "yalain-testkit::cpu::play::butchery::an_expert_cuts_chance_goes_by_the_butchers_level_alone",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.butchery-finds-nothing",
         says: "A cut that draws its profile's share of nothing gathers no material and pays no experience; \
                the use is answered empty at the result and the corpse may be butchered again.",
