@@ -22,6 +22,8 @@ pub struct SeenCamera {
     pub heading: f32,
     /// Degrees above level.
     pub pitch: f32,
+    /// How far it leans about the way it looks, degrees, its right going up.
+    pub roll: f32,
     /// The vertical field of view, degrees.
     pub fov_y: f32,
     pub near: f32,
@@ -37,8 +39,7 @@ impl SeenCamera {
             fm::cosf(h) * fm::cosf(p),
             fm::sinf(p),
         );
-        let r = math::normalize(math::cross(f, Vec3::new(0.0, 0.0, 1.0)));
-        let u = math::cross(r, f);
+        let (r, u) = auberean_draw::scene::view_axes(f, self.roll);
         (f, r, u)
     }
 
@@ -160,10 +161,54 @@ pub struct SeenHearing {
 }
 
 impl Seen {
+    /// Where the middle of a body drawn in the frame shows on a screen `width` by `height` pixels;
+    /// `None` for a body not drawn, or not in front of the camera.
+    // D2-02182
+    #[must_use]
+    pub fn place_on_screen(&self, id: u64, width: f32, height: f32) -> Option<(f32, f32)> {
+        let body = self.body(id)?;
+        let middle = body.bounds.map_or(body.origin, |(lo, hi)| {
+            body.to_block(Vec3::new(
+                (lo.x + hi.x) * 0.5,
+                (lo.y + hi.y) * 0.5,
+                (lo.z + hi.z) * 0.5,
+            ))
+        });
+        let (x, y, _) = self.camera.as_ref()?.project(middle, width, height)?;
+        Some((x, y))
+    }
+
     /// The body of object `id`, if it was drawn.
     #[must_use]
     pub fn body(&self, id: u64) -> Option<&SeenBody> {
         self.bodies.iter().find(|b| b.id == id)
+    }
+}
+
+/// Below this many vertices to walk, a frame's bodies are not worth waking other threads for.
+const WORTH_SHARING: usize = 16_000;
+
+/// Work out ahead, on the threads there are, what the rest of the frame reads of its bodies'
+/// vertices and walks them for; `casts` when volumes of shadow are made. With too little to share
+/// out, it is left to be worked out as it is asked for.
+pub fn work_out_bodies(
+    objects: &[ObjectBatch],
+    noted: &[(u64, Range<usize>, Vec3, f32)],
+    casts: bool,
+) {
+    let mut asks = Vec::new();
+    let mut weight = 0;
+    for (_, range, _, heading) in noted {
+        if let Some(batches) = objects.get(range.clone()) {
+            let spin = (
+                fm::sinf(heading.to_radians()),
+                fm::cosf(heading.to_radians()),
+            );
+            weight += auberean_draw::body::ask_ahead(batches, spin, casts, &mut asks);
+        }
+    }
+    if weight >= WORTH_SHARING {
+        auberean_draw::body::answer_ahead(asks);
     }
 }
 
@@ -181,6 +226,16 @@ pub fn bounds_of(body: &SeenBody, batches: &[ObjectBatch]) -> Option<(Vec3, Vec3
             continue;
         }
         done.push(this);
+        if b.posed.is_some() {
+            if let Some((l, h)) = b.turned_box(turn) {
+                let [x, y, z, _] = b.transform.0[3];
+                let at = body.to_body_turned(Vec3::new(x, y, z), turn);
+                widen(&mut lo, &mut hi, [l[0] + at.x, l[1] + at.y, l[2] + at.z]);
+                widen(&mut lo, &mut hi, [h[0] + at.x, h[1] + at.y, h[2] + at.z]);
+                any = true;
+            }
+            continue;
+        }
         b.each_position(|[x, y, z]| {
             let w = b.transform.point(Vec3::new(x, y, z));
             let p = body.to_body_turned(w, turn);

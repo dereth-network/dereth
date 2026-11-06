@@ -225,11 +225,11 @@ cached:
 Eviction is only by cumulative acknowledgement, by retransmit request, or by teardown. **The original
 has no size or age cap on this cache.** This project bounds it by age (146 seconds: the 140-second
 connection timeout and ten requests' time, so that a peer back from a dropout can still ask for
-everything it missed) and by count (4,096 packets) and keeps the eviction semantics, which is a
+everything it missed) and by count (32,768 packets) and by size (8 MiB) and keeps the eviction semantics, which is a
 deliberate deviation; a request for a packet past either bound is answered with a rejection.
 
 > Pinned by `core/transport/src/session.rs :: cache_strips_disposable_headers_and_retransmit_reuses_the_stored_key`,
-> `:: the_cache_is_bounded_by_age`, and `core/transport/src/flow.rs ::
+> `:: the_cache_is_bounded_by_age`, `:: the_cache_holds_no_more_than_its_limit_in_bytes`, and `core/transport/src/flow.rs ::
 > a_packet_is_sent_again_after_a_dropout_just_under_the_timeout`.
 
 ## 5. Ordering

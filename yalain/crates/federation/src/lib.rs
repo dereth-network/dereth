@@ -216,6 +216,13 @@ pub trait Friends {
     /// stream or not.
     fn in_world(&self, name: &str) -> bool;
 
+    /// Whether a character of this world (by name, any case) is in the world, with a friends
+    /// stream or not, and not hidden: its person view is watched while it is.
+    fn in_sight(&self, name: &str) -> bool;
+
+    /// The name of every character [`Friends::in_sight`].
+    fn everyone_in_sight(&self) -> Vec<String>;
+
     /// How many names a character keeps on its friends list, of any world.
     fn kept_count(&self, character: &str) -> usize;
 

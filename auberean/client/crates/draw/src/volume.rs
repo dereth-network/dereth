@@ -483,8 +483,17 @@ impl VolumeMaker {
             let Some(level) = level_of(&mesh) else {
                 continue;
             };
-            let mut positions: Vec<Vec3> = Vec::with_capacity(b.vertices.len());
-            b.each_position(|[x, y, z]| positions.push(Vec3::new(x, y, z)));
+            let walked: Vec<Vec3>;
+            let positions: &[Vec3] = if let Some(list) = &b.posed {
+                list.positions()
+            } else {
+                walked = {
+                    let mut all = Vec::with_capacity(b.vertices.len());
+                    b.each_position(|[x, y, z]| all.push(Vec3::new(x, y, z)));
+                    all
+                };
+                &walked
+            };
             let Some(c) = self
                 .connectivity
                 .entry((b.mesh, level))
@@ -511,15 +520,9 @@ impl VolumeMaker {
                 continue;
             };
             let local = normalize(local);
-            let Some(v) = shadow_volume(
-                &c,
-                &positions,
-                local,
-                0.0,
-                near,
-                room.vertices,
-                room.indices,
-            ) else {
+            let Some(v) =
+                shadow_volume(&c, positions, local, 0.0, near, room.vertices, room.indices)
+            else {
                 continue;
             };
             room.volumes -= 1;

@@ -154,6 +154,7 @@ impl ViewCamera {
             fov_y: self.fov_y,
             near: self.near,
             far: self.far,
+            roll: 0.0,
             orthographic: self.orthographic.then_some(self.vertical_scale),
         }
     }
@@ -297,6 +298,16 @@ pub fn scene_camera(scene: &UiScene, name: &str) -> Option<ViewCamera> {
 // D2-06121, D2-06120
 #[must_use]
 pub fn figure_box(records: &WorldRecords, desc: &Desc) -> Option<(Vec3, Vec3)> {
+    let (low, high, s) = figure_box_and_scale(records, desc)?;
+    Some((
+        Vec3::new(low.x * s.x, low.y * s.y, low.z * s.z),
+        Vec3::new(high.x * s.x, high.y * s.y, high.z * s.z),
+    ))
+}
+
+/// The box [`figure_box`] takes, before the figure's scale, and that scale.
+#[must_use]
+pub fn figure_box_and_scale(records: &WorldRecords, desc: &Desc) -> Option<(Vec3, Vec3, Vec3)> {
     let look = Look::of(records, desc).ok()?;
     let mut group = auberean_physics::parts::PartGroup::default();
     if !group.init_look(records, &look) {
@@ -307,10 +318,10 @@ pub fn figure_box(records: &WorldRecords, desc: &Desc) -> Option<(Vec3, Vec3)> {
     if b.min.x > b.max.x || b.min.z > b.max.z {
         return None;
     }
-    let s = look.scale;
     Some((
-        Vec3::new(b.min.x * s.x, b.min.y * s.y, b.min.z * s.z),
-        Vec3::new(b.max.x * s.x, b.max.y * s.y, b.max.z * s.z),
+        Vec3::new(b.min.x, b.min.y, b.min.z),
+        Vec3::new(b.max.x, b.max.y, b.max.z),
+        look.scale,
     ))
 }
 

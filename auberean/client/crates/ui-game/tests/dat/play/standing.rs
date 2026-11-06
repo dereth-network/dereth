@@ -140,8 +140,9 @@ fn vitals_read_current_over_greatest_and_focus_is_a_heros() {
     assert!(!ui.node(el(&ui, "FocusText")).unwrap().visible);
     let health = el(&ui, "HealthMeter");
     let fill = ui.child(health, Token::of("left_fill")).unwrap();
-    // The fill slides in from the left: 40% of the 215-pixel bar shows.
-    assert_eq!(ui.node(fill).unwrap().rect.x1, 85);
+    // The fill slides in from the left: 40% of the 215-pixel bar shows, the part hidden cut to a
+    // whole pixel toward the bar.
+    assert_eq!(ui.node(fill).unwrap().rect.x1, 86);
 }
 
 /// A toolbar window's button shows its window and, pressed again, hides it; its tooltip says

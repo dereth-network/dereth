@@ -235,6 +235,14 @@ pub fn check_database(db: &Database) -> Vec<Problem> {
                     None => {}
                 }
             }
+            Row::Place(r) => {
+                if r.row.is_some() != r.holds.is_some() {
+                    problems.push(at(
+                        "row, holds: a room of a row names both its row and its creature's cell"
+                            .into(),
+                    ));
+                }
+            }
             Row::Step(r) => {
                 if matches!(r.update, Update::Advance) && r.phase.is_none() {
                     problems.push(at("phase: an advance names the phase it moves to".into()));
@@ -273,6 +281,15 @@ pub fn check_database(db: &Database) -> Vec<Problem> {
             Row::Talk(r) => check_talk(r, l, &objects, &mut |m| problems.push(at(m))),
             Row::Loot(r) if r.counts.iter().any(|c| !(0.0..=1.0).contains(c)) => {
                 problems.push(at("counts: shares between 0 and 1".into()));
+            }
+            Row::Loot(r)
+                if r.level.is_some()
+                    != matches!(r.value.as_slice(), [low, high] if low <= high && *low > 0)
+                    || (r.level.is_none() && !r.value.is_empty()) =>
+            {
+                problems.push(at(
+                    "level, value: a chest's draw names its level and [low, high]".into(),
+                ));
             }
             _ => {}
         }
@@ -334,6 +351,7 @@ fn scope_key(l: &Located) -> Option<String> {
     Some(match &l.row {
         Row::Object(r) => format!("{}@{lb:04X}", r.key),
         Row::Camp(r) => format!("{}@{lb:04X}", r.key),
+        Row::Clearing(r) => format!("clearing {}@{lb:04X}", r.key),
         Row::Place(r) => format!("place {}", r.key),
         Row::Talk(r) => format!("talk {}", r.key),
         Row::Route(r) => format!("route {}", r.key),

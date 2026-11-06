@@ -72,6 +72,7 @@ fn a_part_draws_its_own_copy_when_its_look_changes_its_materials() {
         transform: at(x),
         detail: None,
         look,
+        played: None,
     };
     let parts = [part(0.0, None), part(100.0, Some(look)), part(200.0, None)];
     let camera = Camera {
@@ -81,6 +82,7 @@ fn a_part_draws_its_own_copy_when_its_look_changes_its_materials() {
         fov_y: 60.0,
         near: 0.1,
         far: 500.0,
+        roll: 0.0,
         orthographic: None,
     };
     let day = builder.day(&camp);
@@ -188,6 +190,7 @@ fn a_scenes_own_lights_light_its_draws_in_place_of_the_sun() {
         fov_y: 60.0,
         near: 0.1,
         far: 500.0,
+        roll: 0.0,
         orthographic: None,
     };
     let dark = DayLight {
@@ -211,4 +214,73 @@ fn a_scenes_own_lights_light_its_draws_in_place_of_the_sun() {
 
     let sunlit = builder.parts_frame(&parts, Vec::new(), camera, dark, None);
     assert!(sunlit.objects.iter().all(|b| !b.points.inside));
+}
+
+/// A mesh that mixes the two.
+const MIXED_MESH: DataId = DataId(0x0600_0145);
+/// A look showing it.
+const MIXED_LOOK: DataId = DataId(0x1F00_0081);
+
+/// Whether every draw that marks how near it is comes before every draw that does not, and both
+/// kinds are there.
+fn writers_come_first(writes: &[bool]) -> bool {
+    let first_other = writes.iter().position(|w| !*w);
+    let last_writer = writes.iter().rposition(|w| *w);
+    matches!((first_other, last_writer), (Some(o), Some(w)) if w < o)
+}
+
+/// A mesh's fragments marking how near they are draw before those that do not, whatever order
+/// they are stored in, for a placed part and for a body alike.
+///
+/// Behaviour: draw.world.a-meshs-depth-writing-fragments-draw-first
+#[test]
+fn a_meshs_depth_writing_fragments_draw_first() {
+    use auberean_animation::body::Body as Figure;
+    use auberean_animation::CachedRecords;
+    use auberean_draw::body::BodyDrawer;
+    let r = &install().records;
+    let region = r.region().expect("the region");
+    let mut builder = SceneBuilder::new(r, &region);
+    let camp = Spot {
+        block: (0xC1, 0x56),
+        position: Vec3::new(122.842, 89.758, 81.6),
+        heading: 90.0,
+        pitch: 5.0,
+        time_of_day: 0.45,
+        day: None,
+    };
+    let camera = Camera {
+        position: Vec3::new(0.0, -5.0, 2.0),
+        heading: 0.0,
+        pitch: 0.0,
+        roll: 0.0,
+        fov_y: 60.0,
+        near: 0.1,
+        far: 500.0,
+        orthographic: None,
+    };
+    let day = builder.day(&camp);
+    let light = builder.light(&camp, day.as_ref());
+    let part = Part {
+        mesh: MIXED_MESH,
+        transform: Mat4::IDENTITY,
+        detail: None,
+        look: None,
+        played: None,
+    };
+    let frame = builder.parts_frame(&[part], Vec::new(), camera, light, None);
+    let placed: Vec<bool> = frame.objects.iter().map(|b| b.layer.depth_write).collect();
+    assert!(writers_come_first(&placed), "a placed part: {placed:?}");
+
+    let recs = CachedRecords::new(r);
+    let figure = Figure::assemble(&recs, MIXED_LOOK).expect("the look");
+    let poses = figure.pose(&recs);
+    let place = Mat4::IDENTITY;
+    let batches = BodyDrawer::default().batches(r, &figure, &poses, &place);
+    let shown: Vec<bool> = batches
+        .iter()
+        .filter(|b| b.mesh == MIXED_MESH.0)
+        .map(|b| b.layer.depth_write)
+        .collect();
+    assert!(writers_come_first(&shown), "a body: {shown:?}");
 }

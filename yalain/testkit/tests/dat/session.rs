@@ -298,6 +298,7 @@ fn a_character_entering_again_gives_the_journal_its_quests() {
         }],
         steps: Vec::new(),
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     ok(play::character_list(&mut s));
     let me = ok(play::create(&mut s, "Aubrey"));
@@ -351,9 +352,12 @@ fn looted_moccasins_used_go_on_the_feet_and_the_weapon_stays_in_hand() {
     const PUT_ON: u32 = 0x4000_0002;
     const FEET: u32 = 0x10;
     let mut s = InProcess::new();
-    s.h.server
-        .catalog
-        .insert(Portal::open().template(MOCCASINS));
+    // Tumerok's by their class, on a character of any race here.
+    let mut moccasins = Portal::open().template(MOCCASINS);
+    moccasins
+        .props
+        .set("Usage_RequiredRace", yalain_content::Prop::Word(0));
+    s.h.server.catalog.insert(moccasins);
     for profile in &mut s.h.server.loot.profiles {
         profile.items = vec![(MOCCASINS, 1)];
     }

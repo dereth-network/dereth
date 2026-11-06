@@ -699,6 +699,15 @@ pub fn creature_passage<S: Store>(
     Passage::Waits
 }
 
+/// Is a use still good to go on: no key in it, or the key still held by who turned it?
+pub(crate) fn key_kept<S: Store>(s: &Server<S>, world: ConnId, key: Option<u64>) -> bool {
+    key.is_none_or(|key| {
+        s.players
+            .get(&world)
+            .is_some_and(|p| p.play.items.iter().any(|h| h.id == key))
+    })
+}
+
 /// Tell everyone who sees a door it turns passable or solid and plays a mode.
 fn moving<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, physics: i32, m: u32) {
     let q = ServerMessage::UpdateIntVisual(VisualQuality {
@@ -794,6 +803,10 @@ pub(crate) fn fits_answer<S: Store>(
     locked_name: Option<(u32, u32)>,
 ) -> Use {
     let key_name = s.things.get(key).and_then(|t| t.facts.name);
+    // Its text can't be written without the key's name.
+    if key_name.is_none() {
+        return u.clone();
+    }
     let vars = [
         locked_name.map(|n| progress::nested(text::DOOR, progress::text(n))),
         key_name.map(|n| progress::nested(text::KEY, progress::text(n))),
@@ -843,7 +856,14 @@ pub fn step<S: Store>(
     match step {
         Step::Turned => {
             if let Some(w) = s.doors.by_id.get_mut(&id).and_then(|d| d.waiting.take()) {
-                open(s, net, id, kind, Some(w), clock);
+                if key_kept(s, w.world, w.key) {
+                    open(s, net, id, kind, Some(w), clock);
+                } else {
+                    if let Some(d) = s.doors.by_id.get_mut(&id) {
+                        d.phase = Phase::Closed;
+                    }
+                    refuse(s, net, w.world, &w.used, refusal::WRONG_KEY);
+                }
             }
         }
         Step::Opened => {
@@ -851,6 +871,11 @@ pub fn step<S: Store>(
                 d.phase = Phase::Open;
                 d.waiting.take()
             });
+            if let Some(w) = waiting.as_ref().filter(|w| !key_kept(s, w.world, w.key)) {
+                refuse(s, net, w.world, &w.used, refusal::WRONG_KEY);
+                close(s, net, id, kind, clock);
+                return;
+            }
             if waiting.as_ref().is_some_and(|w| w.key.is_some()) {
                 if let Some(d) = s.doors.by_id.get_mut(&id) {
                     d.unlocked = true;

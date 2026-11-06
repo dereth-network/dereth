@@ -36,6 +36,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "model.characters.a-refused-character-keeps-the-servers-error",
+        says: "A character refused keeps the error the server gave, for the creation screen to say why.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CHARGEN-ERROR"),
+        station: "auberean-client-model::cpu::characters::a_refused_character_keeps_the_servers_error",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "model.characters.a-slot-holds-the-character-at-its-place",
         says: "The character list is read by slot, a character's place in the list: a slot past \
                the end or holding no id has no character, no name and the invalid id; a \
@@ -350,6 +358,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MODEL-BOOTED"),
         station: "auberean-client-model::cpu::model::a_boot_is_kept_as_a_refusal_with_its_words",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "model.state.a-creation-brings-back-an-object-that-left",
+        says: "A creation of an object the client still has puts it back in the world where the                creation says it stands, after it left the world: a player who went on ahead through                a door is there when the client arrives.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-MODEL-CREATION-BRINGS-BACK"),
+        station: "auberean-client-model::cpu::model::a_creation_brings_back_an_object_that_left",
         tier: Tier::Cpu,
     },
     behaviour! {

@@ -564,7 +564,7 @@ impl ContainerCells {
             }
             return;
         }
-        let old_index = if item == super::NO_OBJECT {
+        let old_index = if from == super::NO_OBJECT {
             if self.container != facts.player {
                 return;
             }

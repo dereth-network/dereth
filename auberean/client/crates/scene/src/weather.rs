@@ -203,7 +203,10 @@ impl Weather {
                 },
             );
         }
-        for s in [vapor, bubbles, ripples].into_iter().flatten() {
+        for s in queued(shows, [vapor, bubbles, ripples])
+            .into_iter()
+            .flatten()
+        {
             systems.queue(
                 s,
                 v.home,
@@ -218,8 +221,59 @@ impl Weather {
     }
 }
 
+/// The rain's systems drawn this frame: its vapor only while enough rain falls to show, its bubbles
+/// and ripples always.
+// D2-11042
+fn queued<T: Copy>(shows: bool, [vapor, bubbles, ripples]: [T; 3]) -> Vec<T> {
+    let mut out = Vec::with_capacity(3);
+    if shows {
+        out.push(vapor);
+    }
+    out.extend([bubbles, ripples]);
+    out
+}
+
 fn block_id(block: (i32, i32)) -> Option<LandblockId> {
     let x = u8::try_from(block.0).ok()?;
     let y = u8::try_from(block.1).ok()?;
     Some(LandblockId::new(x, y))
+}
+
+impl BodyBones {
+    /// The body's bones for the rain and the water to touch, when it stands outdoors in cell
+    /// `cell`; inside they touch it nowhere, whatever the camera sees.
+    // D2-11036
+    pub(crate) fn outdoors(cell: u32, bones: impl FnOnce() -> Self) -> Option<Self> {
+        (!crate::is_interior(cell)).then(bones)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Behaviour: none (which of the rain's systems a frame draws; the rain itself is the draw crate's)
+    use super::{queued, BodyBones};
+    use auberean_world::math::Mat4;
+
+    #[test]
+    fn rain_touches_a_body_only_outdoors() {
+        let bones = || BodyBones {
+            bones: Vec::new(),
+            place: Mat4::IDENTITY,
+            water: None,
+        };
+        assert!(BodyBones::outdoors(0xC156_0035, bones).is_some());
+        assert!(BodyBones::outdoors(0x0298_0121, bones).is_none());
+    }
+
+    #[test]
+    fn the_rains_vapor_is_drawn_only_while_enough_rain_falls_to_show() {
+        assert_eq!(
+            queued(true, ["vapor", "bubbles", "ripples"]),
+            ["vapor", "bubbles", "ripples"]
+        );
+        assert_eq!(
+            queued(false, ["vapor", "bubbles", "ripples"]),
+            ["bubbles", "ripples"]
+        );
+    }
 }

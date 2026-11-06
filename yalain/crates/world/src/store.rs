@@ -24,7 +24,7 @@ use auberean_script::native_object::{Item, NativeObject};
 use yalain_content::quests::Trigger;
 use yalain_content::stores::Sale;
 use yalain_content::ContentObject;
-use yalain_net::{BlobKind, ConnId, ServerNet};
+use yalain_net::{ConnId, ServerNet};
 use yalain_store::Store;
 
 use crate::calls::{Node, Value};
@@ -67,6 +67,7 @@ pub const MONEY: u32 = 3100;
 pub mod error {
     pub const NOT_FOUND: u32 = 45001;
     pub const NOT_ENOUGH_COIN: u32 = 45006;
+    pub const SALE_REFUSED: u32 = 45009;
     pub const COLLECT_FAILED: u32 = 45014;
     pub const NO_ROOM: u32 = 45016;
 }
@@ -108,6 +109,7 @@ pub fn talk<S: Store>(
                 || crate::talk::Speaker {
                     id,
                     name,
+                    name_text: None,
                     stamp: auberean_protocol::types::ObjectStamp {
                         id,
                         instance_stamp: 1,
@@ -126,6 +128,7 @@ pub fn talk<S: Store>(
                 || crate::talk::Speaker {
                     id,
                     name,
+                    name_text: None,
                     stamp: auberean_protocol::types::ObjectStamp {
                         id,
                         instance_stamp: 1,
@@ -141,12 +144,17 @@ pub fn talk<S: Store>(
     let keeper = s.stores.keeper(o.template).cloned();
     let greeting = keeper.as_ref().and_then(|k| k.greeting.clone());
     if let Some(g) = &greeting {
-        crate::quests::tell(s, net, world, id, name, g);
+        let told = object.map_or_else(
+            || name.map_or_else(Default::default, crate::progress::text),
+            |i| crate::talk::content_speaker(s, i).told_as(),
+        );
+        crate::quests::tell(s, net, world, id, told, g);
     } else if let Some(line) = crate::talk::at_use(s, world, o.template, object) {
         let speaker = object.map_or(
             crate::talk::Speaker {
                 id,
                 name,
+                name_text: None,
                 stamp: auberean_protocol::types::ObjectStamp {
                     id,
                     instance_stamp: 1,
@@ -286,11 +294,21 @@ fn may_have<S: Store>(s: &Server<S>, world: ConnId, sale: &Sale) -> bool {
 }
 
 /// The client turns the store's page.
-pub fn turn_page<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, forward: bool) {
+pub fn turn_page<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    forward: bool,
+    now: dereth_primitives::LocalTime,
+) {
     let Some((keeper, store, pos)) = s.players.get(&world).and_then(|p| p.shopping) else {
         s.unhandled.note("a store page turned outside a store");
         return;
     };
+    if crate::market::is_broker(s, keeper) {
+        crate::market::turn_page(s, net, world, (keeper, store, pos), forward, now);
+        return;
+    }
     let size = u32::try_from(s.stores.sales_of(store).len()).unwrap_or(0);
     let pos = if forward {
         if pos + PAGE < size {
@@ -368,11 +386,17 @@ pub fn purchase<S: Store>(
         return;
     };
     // What the world can't make isn't sold: nothing is paid for it. Nor what is bought for what its
-    // acquiring does, when the world can't do that.
-    if s.catalog
-        .get(sale.product)
-        .is_none_or(|t| crate::quests::acquiring_does_more_than_quests(&t.props))
-    {
+    // acquiring does, when the world can't do that, or not for this player now: a contract hires one
+    // mercenary, so it goes one at a time.
+    let hires = crate::pets::is_contract(sale.product);
+    let refused = if hires {
+        quantity > 1 || !crate::pets::may_hire(s, world, sale.product)
+    } else {
+        s.catalog
+            .get(sale.product)
+            .is_none_or(|t| crate::quests::acquiring_does_more_than_quests(&t.props))
+    };
+    if refused || s.catalog.get(sale.product).is_none() {
         s.unhandled.note(format!(
             "a purchase of template {:08X}, which the world can't make or carry out",
             sale.product
@@ -423,12 +447,7 @@ pub fn purchase<S: Store>(
     if !room {
         for v in [1, 0] {
             let m = open(s, v);
-            net.send(
-                world,
-                auberean_protocol::queue::EVENT,
-                BlobKind::VISUAL,
-                m.encode(),
-            );
+            crate::places::to_knowers(s, net, keeper, &m);
         }
         let m = session::call(function::REQUEST_DONE, &[Arg::Int(error::NO_ROOM)]).expect("packs");
         progress::private(net, world, &m);
@@ -444,21 +463,14 @@ pub fn purchase<S: Store>(
     // The money first (2017: before the storekeeper opened in 9 of 10 purchases).
     progress::send_int(net, world, MONEY, left.cast_signed());
     let opened = open(s, 1);
-    net.send(
-        world,
-        auberean_protocol::queue::EVENT,
-        BlobKind::VISUAL,
-        opened.encode(),
-    );
+    crate::places::to_knowers(s, net, keeper, &opened);
     crate::inventory::bought(s, net, world, sale.product, quantity, keeper, clock);
+    if hires {
+        crate::pets::hire(s, net, world, sale.product, clock);
+    }
     let m = page(s, world, keeper, store, pos, function::UPDATE_STORE);
     progress::private(net, world, &m);
     let closed = open(s, 0);
-    net.send(
-        world,
-        auberean_protocol::queue::EVENT,
-        BlobKind::VISUAL,
-        closed.encode(),
-    );
+    crate::places::to_knowers(s, net, keeper, &closed);
     crate::world::keep_player(s, world);
 }

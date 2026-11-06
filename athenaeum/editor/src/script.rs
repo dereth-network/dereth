@@ -6,7 +6,8 @@
 //! camera XXYY X Y Z YAW PITCH        put the camera at a point of a landblock (degrees)
 //! fly ITEM                           fly the camera to a row
 //! select ITEM | none                 select a row
-//! place KIND TEMPLATE XXYY X Y [H]   place a row (person, static, camp, place) on the ground
+//! place KIND TEMPLATE XXYY X Y [H]   place a row (person, static, camp, place, clearing) on the
+//!                                    ground; `-` for a template it isn't made of
 //! move ITEM XXYY X Y                 move a row onto the ground there
 //! turn ITEM HEADING                  turn a row
 //! set ITEM FIELD VALUE...            set a field, the rest of the line its TOML value

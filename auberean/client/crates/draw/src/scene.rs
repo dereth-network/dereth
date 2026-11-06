@@ -7,6 +7,7 @@ use dereth_primitives::num::floor_to_i32;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use auberean_assets::entity::Entity;
 use auberean_assets::landblock::Landblock;
 use auberean_assets::mesh::{CellMesh, Mesh};
 use auberean_primitives::{DataId, Vec3};
@@ -18,7 +19,7 @@ use auberean_world::place::{cell_look, entity_parts, parts_of, Part};
 use auberean_world::records::{RegionSet, WorldRecords};
 use auberean_world::scenery::{block_scenery, KeptClear, SceneryInput, SceneryObject};
 use auberean_world::sky::{day_light, sky_pieces, DayLight};
-use auberean_world::terrain::{build_block, TerrainBlock};
+use auberean_world::terrain::{build_block_blending, TerrainBlock};
 use auberean_world::water::BlockWater;
 use dereth_landscape::{Detail, LandblockWindow, SlotAction, WindowSpec};
 
@@ -28,7 +29,7 @@ use crate::material::{
     device_flags, draw_layers, ground_picture, instance_material, instance_material_with,
     material_kind, shadow_layer, DrawLayer,
 };
-use crate::mesh::{level_at, marked_levels, vertices, MeshVertex, PosedVertex};
+use crate::mesh::{level_at, marked_levels, vertices, MeshVertex, PosedList};
 use crate::shadow::{CloudShadows, ShadowMap};
 
 mod interior;
@@ -58,6 +59,8 @@ pub struct Camera {
     pub position: Vec3,
     pub heading: f32,
     pub pitch: f32,
+    /// How far it leans about the way it looks, degrees, its right going up.
+    pub roll: f32,
     /// Vertical field of view, degrees.
     pub fov_y: f32,
     pub near: f32,
@@ -65,6 +68,28 @@ pub struct Camera {
     /// Seen straight on (no perspective): the height seen, metres, from the picture's foot to its
     /// top; its width by the picture's shape.
     pub orthographic: Option<f32>,
+}
+
+/// The right and up of a view looking along unit `forward`, leaning `roll` degrees about it.
+// D2-10593
+#[must_use]
+pub fn view_axes(forward: Vec3, roll: f32) -> (Vec3, Vec3) {
+    use auberean_world::math::{add, cross, normalize, scale};
+    let right = normalize(cross(forward, Vec3::new(0.0, 0.0, 1.0)));
+    let up = cross(right, forward);
+    if roll == 0.0 {
+        return (right, up);
+    }
+    let (s, c) = dereth_primitives::num::math::sin_cosf(roll.to_radians());
+    let leaned = add(scale(right, c), scale(up, s));
+    (leaned, cross(leaned, forward))
+}
+
+/// [`view_axes`] by the three numbers of each axis.
+#[must_use]
+pub fn view_axes_of(forward: [f32; 3], roll: f32) -> ([f32; 3], [f32; 3]) {
+    let (r, u) = view_axes(Vec3::new(forward[0], forward[1], forward[2]), roll);
+    ([r.x, r.y, r.z], [u.x, u.y, u.z])
 }
 
 /// A terrain vertex: position, lit color, the ground picture's coordinates and the mask's.
@@ -99,7 +124,10 @@ pub struct ObjectBatch {
     pub vertices: Arc<Vec<MeshVertex>>,
     /// A body's: where each of `vertices` stands this frame and which way it faces, in place of
     /// the positions and normals they hold.
-    pub posed: Option<Arc<Vec<PosedVertex>>>,
+    pub posed: Option<Arc<PosedList>>,
+    /// For a placed object that plays, the body it takes its pose from each frame
+    /// ([`crate::placed::PlacedBodies`]); until then it stands as stored.
+    pub played: Option<Arc<crate::placed::Played>>,
     pub indices: Arc<Vec<u16>>,
     pub transform: Mat4,
     pub layer: DrawLayer,
@@ -530,6 +558,13 @@ impl ObjectBatch {
         }
     }
 
+    /// The box a posed draw fills under its transform's turning and then `spin`, a sine and cosine
+    /// about z, its transform's place left out. `None` for a draw not posed or with no vertex.
+    #[must_use]
+    pub fn turned_box(&self, spin: (f32, f32)) -> Option<([f32; 3], [f32; 3])> {
+        self.posed.as_ref()?.turned_box(&self.transform, spin)
+    }
+
     /// `f` of where each vertex stands in the draw's own frame, in order.
     pub fn each_position(&self, mut f: impl FnMut([f32; 3])) {
         match &self.posed {
@@ -662,7 +697,14 @@ pub fn in_order<'a>(batches: Vec<&'a ObjectBatch>, pass: Pass, eye: Vec3) -> Vec
         keyed.sort_by(|a, b| b.0.total_cmp(&a.0));
         keyed.into_iter().map(|(_, b)| b).collect()
     };
+    // What stands in a cell seen from the land comes after what stands on the land.
+    let (looked, own): (Vec<&ObjectBatch>, Vec<&ObjectBatch>) = if pass.farthest_first() {
+        own.into_iter().partition(|b| b.cull.is_looked_in())
+    } else {
+        (Vec::new(), own)
+    };
     let mut out = order(own);
+    out.extend(order(looked));
     out.extend(order(outside));
     out
 }
@@ -887,6 +929,8 @@ pub struct SceneBuilder<'a> {
     /// How long the client has been running, in seconds: scrolling pictures (the clouds'
     /// shadows) follow it, so frames match another client's only at the same running time.
     pub uptime: f64,
+    /// The land's squares blend their corners' grounds.
+    pub terrain_blending: bool,
     /// The static object shadows preference: the sun's shadow map of the near objects.
     pub static_shadows: bool,
     /// The cloud shadows preference. Clouds are drawn only with static shadows on, as the client
@@ -922,6 +966,9 @@ pub struct SceneBuilder<'a> {
     /// The draws inside were lit with lights objects carry in the last frame that had any.
     pub(crate) carried_lit: bool,
     /// The placed objects that cast a volume of shadow numbered so far: the next one's number.
+    /// The objects the server made that cast on the land, as they stood when the light last
+    /// ticked, printed on the shadow map with the world's.
+    pub dynamic_land_casters: Vec<ObjectBatch>,
     placed_casters: u32,
     /// Each placed object's look when it plays startup effects, with its scale.
     effect_looks: HashMap<u32, Option<(Arc<Look>, Vec3)>>,
@@ -1059,6 +1106,7 @@ impl<'a> SceneBuilder<'a> {
             scenery_draw_distance: 2,
             textures: Textures::default(),
             uptime: 0.0,
+            terrain_blending: true,
             static_shadows: true,
             cloud_shadows: true,
             water_reflections: true,
@@ -1076,6 +1124,7 @@ impl<'a> SceneBuilder<'a> {
             kept_lights: HashMap::new(),
             carried_lit: false,
             placed_casters: 0,
+            dynamic_land_casters: Vec::new(),
             effect_looks: HashMap::new(),
             cell_looks: HashMap::new(),
             sky_parts: HashMap::new(),
@@ -1209,7 +1258,7 @@ impl<'a> SceneBuilder<'a> {
     /// plays startup effects.
     pub(crate) fn placed_look(
         &mut self,
-        e: &auberean_assets::entity::Entity,
+        e: &Entity,
         block: (i32, i32),
         cell: u16,
         index: usize,
@@ -1238,7 +1287,7 @@ impl<'a> SceneBuilder<'a> {
     // D2-06038, D2-06187
     pub(crate) fn placed_caster(
         &mut self,
-        e: &auberean_assets::entity::Entity,
+        e: &Entity,
         parts: &[Part],
         place: &Mat4,
         toward: Option<Vec3>,
@@ -1268,10 +1317,24 @@ impl<'a> SceneBuilder<'a> {
         })
     }
 
+    /// Whether an object made from entity `e` casts a shadow on the land, as its drawing properties
+    /// say.
+    // D2-06038, D2-06218
+    fn casts_on_land(&self, e: &Entity) -> bool {
+        use auberean_physics::world::{entity_graphics_state, graphics};
+        use auberean_world::place::PlaceRecords;
+        if !self.static_shadows {
+            return false;
+        }
+        let records = self.records;
+        let lookup = |id: u32| records.entity(DataId(id));
+        entity_graphics_state(e, &lookup) & graphics::LANDSCAPE_SHADOW != 0
+    }
+
     /// Whether an object the world places from entity `e` is drawn with those seen through, as
     /// its drawing properties say.
     // D2-06038
-    pub(crate) fn placed_seen_through(&self, e: &auberean_assets::entity::Entity) -> bool {
+    pub(crate) fn placed_seen_through(&self, e: &Entity) -> bool {
         use auberean_physics::world::{entity_graphics_state, graphics};
         use auberean_world::place::PlaceRecords;
         let records = self.records;
@@ -1311,6 +1374,7 @@ impl<'a> SceneBuilder<'a> {
             out.push(ObjectBatch {
                 vertices: verts.clone(),
                 posed: None,
+                played: None,
                 indices: frag.indices.clone(),
                 transform,
                 layer,
@@ -1483,6 +1547,16 @@ impl<'a> SceneBuilder<'a> {
             );
             Cull::Box { lo, hi }
         };
+        // Frills are gathered into one mesh as they stand, and never play.
+        // D2-10859
+        let played = part.played.filter(|_| !frill).map(|p| {
+            Arc::new(crate::placed::Played {
+                look: p.look,
+                group: p.group,
+                setup_mesh: p.mesh,
+                frame: p.object.then(place),
+            })
+        });
         let mut out = Vec::new();
         for (at, materials) in choices {
             let lod = lod.map(|l: Lod| {
@@ -1494,6 +1568,8 @@ impl<'a> SceneBuilder<'a> {
                 l.update(distance);
                 l
             });
+            // D2-05492
+            let mut drawn: Vec<(Arc<Vec<u16>>, Vec<DrawLayer>)> = Vec::new();
             for frag in &mesh.levels[marked[at]].fragments {
                 let Some(mat) = usize::try_from(frag.material)
                     .ok()
@@ -1505,11 +1581,15 @@ impl<'a> SceneBuilder<'a> {
                     Some(look) => self.looked_material(look, mesh.kind, mat.0, materials),
                     None => self.material_at(mat.0, materials),
                 };
-                let indices = frag.indices.clone();
+                drawn.push((frag.indices.clone(), layers));
+            }
+            crate::mesh::depth_writers_first(&mut drawn, |(_, layers)| layers.first());
+            for (indices, layers) in drawn {
                 for layer in layers {
                     out.push(ObjectBatch {
                         vertices: verts.clone(),
                         posed: None,
+                        played: played.clone(),
                         indices: indices.clone(),
                         transform,
                         layer,
@@ -1555,6 +1635,7 @@ impl<'a> SceneBuilder<'a> {
             .map(|layer| ObjectBatch {
                 vertices: vertices.clone(),
                 posed: None,
+                played: None,
                 indices: indices.clone(),
                 transform: Mat4::IDENTITY,
                 layer,
@@ -1624,9 +1705,6 @@ impl<'a> SceneBuilder<'a> {
             return None;
         }
         let n = i * g.squares_per_side + j;
-        if g.holes.get(n).copied().unwrap_or(false) {
-            return None;
-        }
         let corner = |v: u32| -> Option<crate::decal::Corner> {
             let k = usize::try_from(v).ok()?;
             let p = g.vertices.get(k)?;
@@ -1701,7 +1779,9 @@ impl<'a> SceneBuilder<'a> {
         let mut near_blocks: HashMap<(i32, i32), TerrainBlock> = HashMap::new();
         let mut water = Vec::new();
         for &(bx, by) in &wanted {
-            let Some(tb) = build_block(land, self.region.surfaces(), &blocks, bx, by) else {
+            let surfaces = self.region.surfaces();
+            let blending = self.terrain_blending;
+            let Some(tb) = build_block_blending(land, surfaces, &blocks, bx, by, blending) else {
                 continue;
             };
             counts.blocks += 1;
@@ -1791,6 +1871,9 @@ impl<'a> SceneBuilder<'a> {
             // objects farthest first, an object's parts together.
             let mut anchors: Vec<Vec3> = Vec::new();
             let mut frill_parts: Vec<Part> = Vec::new();
+            // The parts of the block's objects that cast on the land.
+            // D2-06218
+            let mut land_casters: Vec<Part> = Vec::new();
             if let Some(tb) = near_blocks.get(&(bx, by)) {
                 for s in self.block_scenery(tb, &blocks, info.as_ref()).iter() {
                     let cell = (
@@ -1816,6 +1899,12 @@ impl<'a> SceneBuilder<'a> {
                         frill_parts.extend(p);
                     } else {
                         anchors.extend(std::iter::repeat_n(s.origin, p.len()));
+                        if self.casts_on_land(&Entity {
+                            object: Some(s.object.0),
+                            ..Entity::default()
+                        }) {
+                            land_casters.extend(p.iter().cloned());
+                        }
                         parts.extend(p);
                     }
                 }
@@ -1836,7 +1925,7 @@ impl<'a> SceneBuilder<'a> {
                 }
             }
             let Some(info) = info else {
-                casters.extend(parts.iter().map(|p| (p.clone(), place)));
+                casters.extend(land_casters.into_iter().map(|p| (p, place)));
                 for (part, anchor) in parts.iter().zip(&anchors) {
                     let at = part.transform.then(&place).point(Vec3::ZERO);
                     let d =
@@ -1865,6 +1954,9 @@ impl<'a> SceneBuilder<'a> {
                 if let Some(c) = self.placed_caster(e, &p, &place, None) {
                     part_casters.push((parts.len()..parts.len() + p.len(), c));
                 }
+                if self.casts_on_land(e) {
+                    land_casters.extend(p.iter().cloned());
+                }
                 if self.placed_seen_through(e) {
                     seen_through.push(parts.len()..parts.len() + p.len());
                 }
@@ -1876,9 +1968,9 @@ impl<'a> SceneBuilder<'a> {
                 }
                 parts.extend(p);
             }
-            // The block's objects and its scenery cast shadows; the interiors seen from outside
+            // Only those objects and that scenery cast on the land; the interiors seen from outside
             // do not.
-            casters.extend(parts.iter().map(|p| (p.clone(), place)));
+            casters.extend(land_casters.into_iter().map(|p| (p, place)));
             let outdoors = parts.len();
             // The interior cells seen from outside, each once (the list may name a cell again),
             // lit as cells: each part's cell, and for an object standing in one its key, place
@@ -1913,6 +2005,7 @@ impl<'a> SceneBuilder<'a> {
                     transform: frame,
                     detail: None,
                     look,
+                    played: None,
                 });
                 let looked = Cull::Looked {
                     block: (bx, by),
@@ -2031,6 +2124,7 @@ impl<'a> SceneBuilder<'a> {
             for (part, place) in &casters {
                 self.caster_batches(part, place, &mut batches);
             }
+            batches.extend(self.dynamic_land_casters.iter().cloned());
             counts.shadow_casters = batches.len();
             let ground: Vec<Vec3> = near_blocks
                 .values()
@@ -2119,6 +2213,7 @@ impl<'a> SceneBuilder<'a> {
                 fov_y,
                 near: 0.1,
                 far: 2000.0,
+                roll: 0.0,
                 orthographic: None,
             },
             light,
@@ -2232,6 +2327,7 @@ impl<'a> SceneBuilder<'a> {
                         .into_iter()
                         .map(|part| Part {
                             detail: None,
+                            played: None,
                             ..part
                         })
                         .collect(),
@@ -2395,6 +2491,7 @@ impl<'a> SceneBuilder<'a> {
                 .map(|layer| ObjectBatch {
                     vertices: d.shore.vertices.clone(),
                     posed: None,
+                    played: None,
                     indices: indices.clone(),
                     transform: Mat4::IDENTITY,
                     layer,
@@ -2502,6 +2599,7 @@ impl<'a> SceneBuilder<'a> {
             .map(|layer| ObjectBatch {
                 vertices: verts.clone(),
                 posed: None,
+                played: None,
                 indices: indices.clone(),
                 transform: *place,
                 layer,
@@ -2525,6 +2623,11 @@ impl<'a> SceneBuilder<'a> {
                 lod: None,
             })
             .collect()
+    }
+
+    /// Place block `(x, y)`'s scenery again when it is next drawn: its landblock changed.
+    pub fn forget_scenery(&mut self, x: i32, y: i32) {
+        self.scenery.remove(&(x, y));
     }
 
     /// The scenery of one block, placed once and kept.

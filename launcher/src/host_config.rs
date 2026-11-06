@@ -4,12 +4,13 @@
 //! when its value is not the server's default, so a new world's file stays short.
 //!
 //! The era chooses the world database too: the end of retail plays `world.pack`, Infiltration
-//! `world.pack.infiltration`, each fetched by Get world database for its era. A world whose
-//! configuration names a world database of its own keeps it.
+//! `world.pack.infiltration`, Launch `world.pack.launch`, each fetched by Get world database for
+//! its era. A world whose configuration names a world database of its own keeps it.
 //!
 //! The era also chooses the game data the world is drawn from, by the client's own rule
-//! ([`dereth_launch::eras::required_set`]): an era before Throne of Destiny plays the Classic
-//! files, any other the Modern ones. So the world and the players' clients never disagree.
+//! ([`dereth_launch::eras::required_set`]): Launch plays the 1999 pair, another era before Throne
+//! of Destiny the Classic files, any other the Modern ones. So the world and the players' clients
+//! never disagree.
 
 use dereth_launch::datset::{self, DatRole, SetKind};
 use serde::{Deserialize, Serialize};
@@ -19,7 +20,7 @@ use std::path::{Path, PathBuf};
 use toml_edit::{value, DocumentMut};
 
 /// The eras a world can play, as `[era] profile` names them.
-pub const ERAS: [&str; 2] = ["eor", "infiltration"];
+pub const ERAS: [&str; 3] = ["eor", "infiltration", "launch"];
 
 /// The log levels `server.log_level` takes.
 pub const LOG_LEVELS: [&str; 5] = ["error", "warn", "info", "debug", "trace"];
@@ -95,37 +96,40 @@ impl Default for Patching {
 /// The world database each era plays, in the world's folder.
 #[must_use]
 pub fn era_pack(era: &str) -> &'static str {
-    if era == "infiltration" {
-        "world.pack.infiltration"
-    } else {
-        "world.pack"
+    match era {
+        "infiltration" => "world.pack.infiltration",
+        "launch" => "world.pack.launch",
+        _ => "world.pack",
     }
 }
 
-/// The ACE world release a world database was made from: its world, by the era it is, and the
+/// The world release a world database was made from: its world, by the era it is, and the
 /// release's tag.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct WorldBase {
-    /// `eor` for ACE's end-of-retail world, `infiltration` for its February 2005 world.
+    /// `eor` for ACE's end-of-retail world, `infiltration` for its February 2005 world, `launch`
+    /// for ac1999's world as it launched in November 1999.
     pub era: &'static str,
     /// The release, as its tag names it: `v0.9.295`.
     pub version: String,
 }
 
-/// The start of each ACE world release's dump file name, and the era that world is.
-const BASE_DUMPS: [(&str, &str); 2] = [
-    ("ACE-World-Database-", "eor"),
-    ("ACE-World-16PY-db-", "infiltration"),
+/// How each world release's file is named: the start of its name, the ways its name ends, and the
+/// era that world is.
+const BASE_DUMPS: [(&str, &[&str], &str); 3] = [
+    ("ACE-World-Database-", &[".sql.zip", ".sql"], "eor"),
+    ("ACE-World-16PY-db-", &[".sql.zip", ".sql"], "infiltration"),
+    ("empyrean-world-launch-", &[".pack"], "launch"),
 ];
 
-/// The release a world database dump's file name names: ACE's end-of-retail world
-/// (`ACE-World-Database-<tag>.sql`) or its February 2005 world (`ACE-World-16PY-db-<tag>.sql`).
-/// `None` for any other name.
+/// The release a world database's source file name names: ACE's end-of-retail world
+/// (`ACE-World-Database-<tag>.sql`), its February 2005 world (`ACE-World-16PY-db-<tag>.sql`), or
+/// the Launch world's built pack (`empyrean-world-launch-<tag>.pack`). `None` for any other name.
 #[must_use]
 pub fn world_base(dump: &str) -> Option<WorldBase> {
-    BASE_DUMPS.iter().find_map(|(prefix, era)| {
+    BASE_DUMPS.iter().find_map(|(prefix, ends, era)| {
         let tag = dump.strip_prefix(prefix)?;
-        let tag = tag.strip_suffix(".sql.zip").or(tag.strip_suffix(".sql"))?;
+        let tag = ends.iter().find_map(|end| tag.strip_suffix(end))?;
         let digits = tag.strip_prefix('v')?;
         let parts: Vec<&str> = digits.split('.').collect();
         (parts.len() == 3
@@ -139,22 +143,19 @@ pub fn world_base(dump: &str) -> Option<WorldBase> {
     })
 }
 
-/// The dump file a world database was made from, as the server's import tool says when it fetches
-/// one (`… is already cached: <folder>/ACE-World-Database-v0.9.295.sql`, or the release it
-/// downloads and caches): the first such name it prints.
+/// The file a world database was made from, as the server's import tool says when it fetches one
+/// (`… is already cached: <folder>/ACE-World-Database-v0.9.295.sql`, or the release it downloads
+/// and caches): the first such name it prints. A built pack's download address names its source
+/// commit rather than its release, so only the file it caches counts.
 #[must_use]
 pub fn fetched_dump(said: &str) -> Option<String> {
-    BASE_DUMPS
-        .iter()
-        .filter_map(|(prefix, _)| {
-            let at = said.find(prefix)?;
-            let rest = &said[at..];
-            let end = rest.find(".sql")? + ".sql".len();
-            Some((at, rest[..end].to_owned()))
+    said.split_whitespace().find_map(|word| {
+        BASE_DUMPS.iter().find_map(|(prefix, _, _)| {
+            let name = &word[word.rfind(prefix)?..];
+            world_base(name)?;
+            Some(name.strip_suffix(".zip").unwrap_or(name).to_owned())
         })
-        .min_by_key(|(at, _)| *at)
-        .map(|(_, name)| name)
-        .filter(|name| world_base(name).is_some())
+    })
 }
 
 /// The file beside a world database that names the dump it was made from: `<pack>.base`.
@@ -475,7 +476,8 @@ pub fn check_game_data(era: &str, dats: &Path) -> Result<(), String> {
 /// What a world plays besides its settings, as its configuration and folder say.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 pub struct Plays {
-    /// Which world database: `era` (its era's own, `world.pack` or `world.pack.infiltration`),
+    /// Which world database: `era` (its era's own: `world.pack`, `world.pack.infiltration` or
+    /// `world.pack.launch`),
     /// `lyceum` (one a Lyceum world was published as) or `own` (another its configuration names).
     pub database: &'static str,
     /// That world database, as the configuration names it.
@@ -1220,8 +1222,35 @@ mod tests {
         let text = s.update_config(own).unwrap();
         assert!(text.contains("published/snapshot-1/world.pack"), "{text}");
         assert_eq!(era_pack("eor"), "world.pack");
+        s.era = "launch".into();
+        s.validate().unwrap();
+        let text = s.update_config("").unwrap();
+        assert!(
+            text.contains("world_pack_path = \"world.pack.launch\""),
+            "{text}"
+        );
+        assert!(text.contains("profile = \"launch\""), "{text}");
         s.era = "gold".into();
         assert!(s.validate().is_err(), "no such era");
+    }
+
+    /// Every era the Settings screen offers can be saved, each with a world database of its own.
+    #[test]
+    fn every_era_the_settings_screen_offers_can_be_saved() {
+        let eras = dereth_launch::eras::eras();
+        let mut packs: Vec<_> = eras.iter().map(|e| era_pack(e.name)).collect();
+        packs.sort_unstable();
+        packs.dedup();
+        assert_eq!(packs.len(), eras.len(), "{packs:?}");
+        for era in eras {
+            let s = Settings {
+                era: era.name.into(),
+                ..settings()
+            };
+            s.validate().unwrap();
+            let saved = s.update_config("").unwrap();
+            assert_eq!(Settings::from_config(&saved).unwrap().era, era.name);
+        }
     }
 
     /// The Settings screen's numbers and words are held to what the server takes.
@@ -1575,6 +1604,18 @@ mod tests {
             Some("ACE-World-16PY-db-v0.8.8.sql")
         );
         assert_eq!(fetched_dump("nothing fetched"), None);
+        // A built pack's address names its source commit; the file it caches names the release.
+        let built = "downloading https://github.com/dereth-network/empyrean-world-launch/releases/download/v0.1.0/empyrean-world-launch-80adf514.zip\nzip SHA-256 0a matches GitHub's digest\ncached C:\\Users\\a you\\world-database\\empyrean-world-launch-v0.1.0.pack (1 bytes) in 1.0s\nwrote C:\\worlds\\world.pack.launch\n";
+        assert_eq!(
+            fetched_dump(built).as_deref(),
+            Some("empyrean-world-launch-v0.1.0.pack")
+        );
+        assert_eq!(
+            world_base("empyrean-world-launch-v0.1.0.pack").map(|b| (b.era, b.version)),
+            Some(("launch", "v0.1.0".into()))
+        );
+        assert_eq!(world_base("empyrean-world-launch-80adf514.pack"), None);
+        assert_eq!(world_base("empyrean-world-launch-v0.1.0.sql"), None);
 
         let temp = tempfile::tempdir().unwrap();
         let dir = temp.path();

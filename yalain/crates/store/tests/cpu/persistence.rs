@@ -945,6 +945,12 @@ fn the_operators_moderation_is_kept_and_an_earlier_file_gains_it() {
     drop(sql);
     let mut sql = SqliteStore::open(&file.0).expect("opens again");
     for store in [&mut sql as &mut dyn Store, &mut memory] {
+        assert_eq!(
+            store.account(1).expect("reads").map(|a| a.name).as_deref(),
+            Some("Tester"),
+            "by id"
+        );
+        assert_eq!(store.account(99).expect("reads"), None, "no such account");
         let a = store
             .account_by_name("TESTER")
             .expect("reads")

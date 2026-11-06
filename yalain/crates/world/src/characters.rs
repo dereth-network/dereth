@@ -772,8 +772,8 @@ pub fn build_of<S: Store>(s: &Server<S>, c: &Character, st: &WorldState) -> Resu
 /// ids for its items, its name or `new_name`. Kept whole or not at all. Returns what was done.
 ///
 /// # Errors
-/// The account cannot hold it, the name is no name or is taken, its state does not read, or the
-/// store's.
+/// The account cannot hold it, the name is no name or is taken, its state does not read or holds
+/// one item id twice, or the store's.
 pub fn import<S: Store>(
     s: &mut Server<S>,
     file: &CharacterFile,
@@ -791,6 +791,14 @@ pub fn import<S: Store>(
         ));
     }
     let mut play = PlayState::from_bytes(&file.state.play)?;
+    // Each row becomes an item of its own, so one id held twice would make two of one item.
+    let mut seen = std::collections::HashSet::new();
+    if let Some(h) = play.items.iter().find(|h| !seen.insert(h.id)) {
+        return Err(format!(
+            "the file holds item {:#x} twice: nothing was brought",
+            h.id
+        ));
+    }
     let account = account_for(s, account, now)?;
     let n = s.store.next_character_number().map_err(|e| e.to_string())?;
     let old = file.character.id;
@@ -818,6 +826,9 @@ pub fn import<S: Store>(
         None => false,
     });
     let me = |x: u64| if x == old { id } else { x };
+    for k in &mut play.item_states {
+        k.own.bound_to = me(k.own.bound_to);
+    }
     for e in &mut play.effects {
         e.caster = me(e.caster);
         e.acting = me(e.acting);

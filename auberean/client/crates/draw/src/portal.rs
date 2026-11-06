@@ -34,6 +34,7 @@ use dereth_primitives::num::math;
 use crate::material::{draw_layers, instance_material, DEVICE_FLAGS};
 use crate::mesh::MeshVertex;
 use crate::scene::{Camera, Frame, ObjectBatch, SceneBuilder};
+use crate::systems::{ParticleSystems, SystemRef};
 
 /// The rings of the tunnel.
 pub const RINGS: usize = 150;
@@ -90,6 +91,8 @@ struct Ring {
     at: f32,
     radius: f32,
     frame: Mat4,
+    /// It has had its chance of a puff of cloud.
+    puffed: bool,
 }
 
 /// What the effect draws this moment.
@@ -126,6 +129,16 @@ pub fn ring_alpha(j: usize, hidden: usize) -> f32 {
     }
 }
 
+/// The puffs of cloud's particle system, and the frame its particles live in.
+const PUFFS: u32 = 0x3900_0148;
+const TUBE_BLOCK: (i32, i32) = (0, 0);
+/// The tunnel must be this much in view for puffs to go, and which rings ahead let them go, how
+/// likely each is to, and how far from its middle, as a share of its radius.
+const PUFFS_FROM: f32 = 0.9;
+const PUFF_RINGS: std::ops::Range<usize> = 40..50;
+const PUFF_CHANCE: f32 = 0.5;
+const PUFF_REACH: f32 = 0.8;
+
 /// The effect.
 #[derive(Clone, Debug)]
 pub struct Passage {
@@ -140,6 +153,8 @@ pub struct Passage {
     random: f32,
     dice: Random,
     sounds: Vec<PassageSound>,
+    /// The puffs of cloud, once the tunnel has been drawn.
+    puffs: Option<(ParticleSystems, SystemRef)>,
 }
 
 pub use auberean_world::noise::Noise;
@@ -207,6 +222,7 @@ impl Passage {
             random: 0.0,
             dice,
             sounds: Vec::new(),
+            puffs: None,
         }
     }
 
@@ -272,6 +288,7 @@ impl Passage {
             at: 0.0,
             radius: 0.0,
             frame: Mat4::IDENTITY,
+            puffed: false,
         };
         self.rings = vec![first; RINGS];
         self.make(0, RINGS);
@@ -298,6 +315,7 @@ impl Passage {
                 at,
                 radius,
                 frame: r.then(&prev.frame),
+                puffed: false,
             };
         }
     }
@@ -418,6 +436,77 @@ impl Passage {
         (at, [right, ahead, up])
     }
 
+    /// The puffs of cloud: with the tunnel all but in view, each ring 40 to 49 ahead not yet asked
+    /// has an even chance of letting one go somewhere within 0.8 of its radius, once. They live in
+    /// the tube's frame; `frame` is seen from `eye` with right, ahead and up `axes`.
+    // D2-11053, D2-11055
+    fn puff(
+        &mut self,
+        records: &WorldRecords,
+        frame: &mut Frame,
+        look: &Look,
+        now: f64,
+        eye: Vec3,
+        axes: [Vec3; 3],
+    ) {
+        let one = Vec3::new(1.0, 1.0, 1.0);
+        if self.puffs.is_none() {
+            let systems = ParticleSystems::default();
+            systems.set_dice(&self.dice);
+            let made = systems.create(
+                records,
+                PUFFS,
+                false,
+                TUBE_BLOCK,
+                Mat4::IDENTITY,
+                one,
+                1.0,
+                now,
+            );
+            self.puffs = made.map(|system| (systems, system));
+        }
+        let Some((systems, system)) = self.puffs.as_ref() else {
+            return;
+        };
+        if look.visibility > PUFFS_FROM {
+            for k in PUFF_RINGS {
+                let at = (self.passed + k) % RINGS;
+                let ring = &mut self.rings[at];
+                if ring.puffed {
+                    continue;
+                }
+                ring.puffed = true;
+                if self.dice.roll_float(0.0, 1.0) <= PUFF_CHANCE {
+                    let reach = ring.radius * PUFF_REACH;
+                    let up = self.dice.roll_float(-reach, reach);
+                    let right = self.dice.roll_float(-reach, reach);
+                    let spot = ring.frame.point(Vec3::new(right, 0.0, up));
+                    systems.discharge(system, 0, now, spot);
+                }
+            }
+        }
+        systems.queue(
+            system,
+            TUBE_BLOCK,
+            Mat4::IDENTITY,
+            one,
+            1.0,
+            Color::WHITE,
+            now,
+        );
+        let [r, a, u] = axes;
+        let view = Mat4([
+            [r.x, a.x, u.x, 0.0],
+            [r.y, a.y, u.y, 0.0],
+            [r.z, a.z, u.z, 0.0],
+            [-dot(eye, r), -dot(eye, a), -dot(eye, u), 1.0],
+        ]);
+        for mut b in systems.batches(TUBE_BLOCK, 1.0, now, eye, (r, a, u)) {
+            b.transform = b.transform.then(&view);
+            frame.objects.push(b);
+        }
+    }
+
     /// The tube's vertices, as the camera sees them (its right x, ahead y, up z): each ring's
     /// points at `scale` times its radius, its distance and place round the ring as picture
     /// coordinates, faded with distance; and the triangles joining each ring to the next, the far
@@ -482,7 +571,7 @@ impl Passage {
     // D2-11053
     #[must_use]
     pub fn frame(
-        &self,
+        &mut self,
         records: &WorldRecords,
         builder: &mut SceneBuilder<'_>,
         look: &Look,
@@ -504,6 +593,7 @@ impl Passage {
             transform: turn,
             detail: None,
             look: None,
+            played: None,
         };
         let camera = Camera {
             position: Vec3::new(0.0, 0.0, 0.0),
@@ -512,6 +602,7 @@ impl Passage {
             fov_y: FOV * look.tunnel_fov,
             near: 0.1,
             far: 2000.0,
+            roll: 0.0,
             orthographic: None,
         };
         let mut light = DayLight::DEFAULT;
@@ -533,6 +624,7 @@ impl Passage {
                 frame.objects.push(ObjectBatch {
                     vertices: v.clone(),
                     posed: None,
+                    played: None,
                     indices: i.clone(),
                     transform: Mat4::IDENTITY,
                     layer,
@@ -557,6 +649,7 @@ impl Passage {
                 });
             }
         }
+        self.puff(records, &mut frame, look, now, eye, axes);
         // Portal space is no world of objects: each draw goes by its layer, in its order.
         for b in &mut frame.objects {
             let step = b.by_layer();

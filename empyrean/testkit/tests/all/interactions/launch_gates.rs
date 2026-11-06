@@ -372,9 +372,11 @@ mod allegiance_administration {
     use crate::support::event_world::*;
     use dereth_protocol::comms::CommunicationTextboxString;
     use dereth_protocol::social::{
-        AllegianceAddAllegianceBan, AllegianceBreakAllegianceBoot, AllegianceClearMotd,
-        AllegianceDoAllegianceLockAction, AllegianceQueryAllegianceName, AllegianceQueryMotd,
-        AllegianceSetAllegianceName, AllegianceSetAllegianceOfficer, AllegianceSetMotd,
+        AllegianceAddAllegianceBan, AllegianceBreakAllegianceBoot, AllegianceChatGag,
+        AllegianceClearMotd, AllegianceDoAllegianceHouseAction, AllegianceDoAllegianceLockAction,
+        AllegianceListAllegianceOfficerTitles, AllegianceListAllegianceOfficers,
+        AllegianceQueryAllegianceName, AllegianceQueryMotd, AllegianceSetAllegianceName,
+        AllegianceSetAllegianceOfficer, AllegianceSetMotd,
     };
     use empyrean_common::era::{EraExt as _, EraId};
 
@@ -430,7 +432,7 @@ mod allegiance_administration {
             "This world has no allegiance message of the day.",
             "This world has no allegiance booting.",
             "This world has no allegiance officers.",
-            "This world has no allegiance officers.",
+            "This world has no allegiance lock.",
             "This world has no allegiance bans.",
             "This world has no allegiance names.",
             "This world has no allegiance names.",
@@ -449,6 +451,48 @@ mod allegiance_administration {
             .filter(|t| t.starts_with("This world has no"))
             .collect();
         assert_eq!(said, refusals);
+    }
+
+    /// February 2005 has officers and bans (May 2004), but not titles, the lock or the gag (May
+    /// 2006), the allegiance's name, or `@allegiance house` (after June 2005).
+    #[test]
+    fn a_february_2005_world_has_the_officers_and_bans_but_nothing_later() {
+        let mut ts = server();
+        ts.world.era = EraId::Infiltration.rules();
+        let alpha = join(&mut ts, "alpha", ALPHA, "Alpha", at(20.0, 20.0), false);
+        ts.send_game_action(alpha, &AllegianceListAllegianceOfficers);
+        ts.send_game_action(
+            alpha,
+            &AllegianceAddAllegianceBan {
+                name: "Bravo".into(),
+            },
+        );
+        ts.send_game_action(alpha, &AllegianceListAllegianceOfficerTitles);
+        ts.send_game_action(alpha, &AllegianceDoAllegianceLockAction { action: 1 });
+        ts.send_game_action(
+            alpha,
+            &AllegianceChatGag {
+                name: "Bravo".into(),
+                gagged: 1,
+            },
+        );
+        ts.send_game_action(alpha, &AllegianceQueryAllegianceName);
+        ts.send_game_action(alpha, &AllegianceDoAllegianceHouseAction { action: 1 });
+        ts.advance(1.0);
+        let said: Vec<String> = texts(&ts, alpha)
+            .into_iter()
+            .filter(|t| t.starts_with("This world has no"))
+            .collect();
+        assert_eq!(
+            said,
+            [
+                "This world has no allegiance officer titles.",
+                "This world has no allegiance lock.",
+                "This world has no allegiance chat gag.",
+                "This world has no allegiance names.",
+                "This world has no allegiance house commands.",
+            ]
+        );
     }
 
     #[test]

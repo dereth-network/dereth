@@ -92,6 +92,16 @@ impl Friends for Service {
         self.present.contains_key(&name) || self.in_world.contains(&name)
     }
 
+    fn in_sight(&self, name: &str) -> bool {
+        self.in_world(name)
+    }
+
+    fn everyone_in_sight(&self) -> Vec<String> {
+        let mut names = self.everyone_present();
+        names.extend(self.in_world.iter().cloned());
+        names
+    }
+
     fn show_line(&mut self, character: u64, line: &str) {
         self.lines.push((character, line.to_owned()));
     }

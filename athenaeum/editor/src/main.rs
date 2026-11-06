@@ -247,6 +247,7 @@ impl App<'_> {
                         "static" => NewKind::Static,
                         "camp" => NewKind::Camp,
                         "place" => NewKind::Place,
+                        "clearing" => NewKind::Clearing,
                         _ => NewKind::Person,
                     };
                     e.template = template;
@@ -354,6 +355,7 @@ impl App<'_> {
     }
 
     fn redraw(&mut self, el: &ActiveEventLoop) {
+        let began = std::time::Instant::now();
         let now = self.start.elapsed().as_secs_f64();
         #[allow(clippy::cast_possible_truncation)]
         let dt = ((now - self.last) as f32).clamp(0.0, 0.25);
@@ -398,6 +400,9 @@ impl App<'_> {
         let frame = self.editor.frame();
         let mut load = |id: u32| auberean_draw::picture::load(&world.records, id);
         present.present(Some(frame), out, &self.gui.ctx, &mut load, shot.as_deref());
+        if present.hidden() {
+            std::thread::sleep(hidden_rest(began.elapsed()));
+        }
         self.editor
             .draw_picture(&self.gui.ctx, &mut present.renderer, &mut load);
         if let Some(w) = &self.window {
@@ -767,6 +772,29 @@ fn version_text() -> String {
         option_env!("ATHENAEUM_BUILD_COMMIT").unwrap_or("unknown"),
         option_env!("ATHENAEUM_BUILD_TARGET").unwrap_or("unknown"),
     )
+}
+
+/// How long a frame that took `took` rests in a window that can't be seen. Nothing there waits for
+/// the display, so without this it would draw as fast as it can.
+fn hidden_rest(took: std::time::Duration) -> std::time::Duration {
+    std::time::Duration::from_micros(16_667).saturating_sub(took)
+}
+
+#[cfg(test)]
+mod hidden_tests {
+    //! Behaviour: none (a window nobody can see draws no picture)
+    use super::hidden_rest;
+    use std::time::Duration;
+
+    #[test]
+    fn a_hidden_window_rests_out_a_sixtieth_of_a_second_and_a_slow_frame_not_at_all() {
+        assert_eq!(hidden_rest(Duration::ZERO), Duration::from_micros(16_667));
+        assert_eq!(
+            hidden_rest(Duration::from_millis(10)),
+            Duration::from_micros(6_667)
+        );
+        assert_eq!(hidden_rest(Duration::from_millis(40)), Duration::ZERO);
+    }
 }
 
 #[cfg(test)]

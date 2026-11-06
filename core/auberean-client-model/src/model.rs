@@ -278,6 +278,8 @@ impl Object {
                     flags: 0,
                     velocity: auberean_primitives::Vec3::ZERO,
                 });
+                // Being put in a cell brings back an object that had left the world.
+                self.in_world = true;
             }
         } else {
             self.parent = Some((parent, p.location_id()));
@@ -342,6 +344,8 @@ pub enum Effect {
     },
     /// The server asked which data the client has.
     DataQuery,
+    /// The records a world's overlay was made over, for this client to check its files against.
+    OverlayBases(auberean_protocol::login::OverlayBases),
     /// A data download begins.
     DownloadBegins(DownloadBegins),
     /// A data record came.
@@ -389,8 +393,9 @@ pub struct Model {
     /// The player's description as it arrived.
     pub description: Option<Description>,
     /// The server's last answer to making a character: its response (1 made, 3 name in use, 4
-    /// name refused, 8 no free slot), the character, and how many answers came so far.
-    pub creation: Option<(u32, u64, u32)>,
+    /// name refused, 8 no free slot), the character, how many answers came so far, and the error
+    /// its response names.
+    pub creation: Option<(u32, u64, u32, u32)>,
     /// The server's last refusal of an entry (or end of the login): its reason (11 the character
     /// is still in the world, 20 booted), and how many refusals came so far.
     pub refused: Option<(u32, u32)>,
@@ -411,8 +416,8 @@ impl Model {
     /// The server's answer to a character asked for, kept for the creation screens.
     // D2-03956
     fn answer_creation(&mut self, c: &CharacterCreated) {
-        let n = self.creation.map_or(0, |(_, _, n)| n) + 1;
-        self.creation = Some((c.response, c.identity.id, n));
+        let n = self.creation.map_or(0, |(_, _, n, _)| n) + 1;
+        self.creation = Some((c.response, c.identity.id, n, c.result));
     }
 
     /// The player's id, once its creation has taken effect; 0 (no id) before, and after the
@@ -588,6 +593,7 @@ impl Model {
             // D2-03954, D2-03991
             S::CharacterDeleted(d) => fx.push(Effect::CharacterDeleted(d.character)),
             S::DataQuery(_) => fx.push(Effect::DataQuery),
+            S::OverlayBases(b) => fx.push(Effect::OverlayBases(b.clone())),
             S::DownloadBegins(b) => fx.push(Effect::DownloadBegins(b.clone())),
             S::DataRecord(r) => fx.push(Effect::DataRecord(r.clone())),
             S::DataRefused(r) => fx.push(Effect::DataRefused(*r)),

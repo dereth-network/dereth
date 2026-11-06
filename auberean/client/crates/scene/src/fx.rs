@@ -36,11 +36,7 @@ impl Rig for FigureRig<'_, '_> {
         self.water
     }
     fn holding_bone(&self, kind: u32) -> Option<Mat4> {
-        let figure = self.figure?;
-        figure
-            .holding_location(self.anims, kind)
-            .map(|(_, _, bone)| bone)
-            .or_else(|| figure.first_bone_matrix(self.anims))
+        self.figure?.carried_bone(self.anims, kind)
     }
     fn has_figure(&self) -> bool {
         self.figure.is_some()
@@ -270,20 +266,22 @@ impl BodyFx {
     }
 
     /// The lights its effects placed on the body, as they stand `now` with the body at `at` (on
-    /// the one grid) facing `heading` in cell `cell`; none before it has stood anywhere.
+    /// the one grid) facing `heading` in cell `cell`, at the body's `opacity`; none before it has
+    /// stood anywhere.
     pub(crate) fn lights(
         &self,
         at: Vec3,
         heading: f32,
         cell: u32,
         now: f64,
+        opacity: f32,
     ) -> Vec<(auberean_draw::effects::PlacedLight, (i32, i32))> {
         let Some(home) = self.home else {
             return Vec::new();
         };
         let place = place_in(at, heading, home);
         self.fx
-            .lights_now(&place, cell, now, 1.0)
+            .lights_now(&place, cell, now, opacity)
             .into_iter()
             .map(|l| (l, home))
             .collect()

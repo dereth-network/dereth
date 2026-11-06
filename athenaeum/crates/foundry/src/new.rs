@@ -82,10 +82,11 @@ pub fn files(key: &str) -> Vec<(String, String)> {
 }
 
 /// A new world's `.gitignore`: the playtest folder (the editor's server, its characters' stores
-/// and logs) and the build's output are made from the world, never part of it.
+/// and logs), the build's output and the overlay are made from the world, never part of it.
 pub const GITIGNORE: &str = "# Made from the world as it is played and built; never part of it.\n\
                              .playtest/\n\
-                             build/\n";
+                             build/\n\
+                             overlay/\n";
 
 /// Make a new world in `dir`, which must not hold one already; its key is `key`, else made from
 /// the folder's name.

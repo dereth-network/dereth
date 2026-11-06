@@ -17,9 +17,12 @@
 //!   a player who is no hero, at most 50 as well: 2017, 1,268 records above 50, all of heroes, 0 of
 //!   16,397 others').
 //! - **Raising** a skill costs the experience from what it holds to its table's next level (none at
-//!   the table's top). It is refused when the skill cannot be raised, is untrained, is at its cap,
-//!   or the player's available experience is short of the cost; raised, the experience moves from
-//!   the player to the skill.
+//!   the table's top). It is refused when the skill cannot be raised, is untrained or being
+//!   untrained, is at its cap, or the player's available experience is short of the cost; raised,
+//!   the experience moves from the player to the skill.
+//! - **Untraining** a skill is refused while another is being untrained, when it is not trained,
+//!   may not be untrained or is not the player's to untrain, or a trained child or dependent stands
+//!   on it; nothing is trained on a skill being untrained.
 //!
 //! **The answers** are 2017's (79 trainings and 1,602 raises checked against the costs):
 //! training, the parents' and prerequisites' updated information, the repository with the credits
@@ -94,11 +97,21 @@ pub mod refusal {
     pub const PREREQUISITE: u32 = 30_004;
     pub const CREDITS: u32 = 30_006;
     pub const UNTRAINED: u32 = 30_009;
+    pub const BEING_UNTRAINED: u32 = 30_010;
     pub const CAP: u32 = 30_011;
     pub const EXPERIENCE: u32 = 30_012;
     pub const CANNOT_RAISE: u32 = 30_037;
     pub const NOT_BY_PLAYER: u32 = 30_040;
     pub const HERO: u32 = 30_047;
+    /// What untraining refuses, first failure first (the library's codes): the skill's definition,
+    /// or its holder's record of it, doesn't let the player; another skill is being untrained; a
+    /// trained child or dependent stands on it. And a skill trained on one being untrained.
+    pub const NOT_UNTRAINABLE: u32 = 30_007;
+    pub const NOT_PLAYERS_TO_UNTRAIN: u32 = 30_008;
+    pub const ALREADY_UNTRAINING: u32 = 30_031;
+    pub const HAS_CHILDREN: u32 = 30_033;
+    pub const PARENT_BEING_UNTRAINED: u32 = 30_036;
+    pub const HAS_DEPENDENTS: u32 = 30_049;
 }
 
 /// The texts of skills, in their table.
@@ -235,6 +248,8 @@ pub struct Usage {
     pub implements_left: i32,
     /// The kinds of target it takes.
     pub valid_targets: u32,
+    /// The kinds of object it may be aimed at, when it names them.
+    pub valid_object_kinds: Vec<u32>,
     /// What the user plays on another: a hit, a miss, a critical; and on itself: a hit, a miss.
     pub behavior_other: [u32; 3],
     pub behavior_self: [u32; 2],
@@ -457,6 +472,22 @@ impl Usage {
             implements_right: word("m_AllowedImplementsRight")?.cast_signed(),
             implements_left: word("m_AllowedImplementsLeft")?.cast_signed(),
             valid_targets: word("m_validTargets")?,
+            valid_object_kinds: nav
+                .field(o, "m_validWeenieTypes")
+                .ok()
+                .and_then(|r| nav.native(r).ok())
+                .map_or_else(Vec::new, |n| match n {
+                    NativeObject::HashSet(h) => h
+                        .buckets
+                        .iter()
+                        .flatten()
+                        .filter_map(|i| match i {
+                            Item::Word(w) => Some(*w),
+                            _ => None,
+                        })
+                        .collect(),
+                    _ => Vec::new(),
+                }),
             behavior_other: [
                 word("m_BehaviorOtherHit")?,
                 word("m_BehaviorOtherMiss")?,
@@ -767,6 +798,39 @@ impl SkillTable {
         None
     }
 
+    /// Why a player may not untrain a skill, if it may not, by the library's rule, first failure
+    /// first. A skill its holder's others stand on stays until they go: otherwise its credits come
+    /// back and what it opened stays.
+    #[must_use]
+    pub fn untrain_refusal(&self, skills: &[Held], skill: u32, under_way: bool) -> Option<u32> {
+        if under_way {
+            return Some(refusal::ALREADY_UNTRAINING);
+        }
+        let Some(h) = skills
+            .iter()
+            .find(|h| h.skill == skill && h.mask & mask::TRAINED != 0)
+        else {
+            return Some(refusal::UNTRAINED);
+        };
+        if self
+            .skills
+            .get(&skill)
+            .is_none_or(|d| d.flags & flag::MAY_UNTRAIN == 0)
+        {
+            return Some(refusal::NOT_UNTRAINABLE);
+        }
+        if h.granted != 0 || h.mask & mask::PLAYERS_TO_UNTRAIN == 0 {
+            return Some(refusal::NOT_PLAYERS_TO_UNTRAIN);
+        }
+        if h.children != 0 {
+            return Some(refusal::HAS_CHILDREN);
+        }
+        if h.dependents != 0 {
+            return Some(refusal::HAS_DEPENDENTS);
+        }
+        None
+    }
+
     /// The cost of raising a skill, or why a player may not.
     ///
     /// # Errors
@@ -1031,6 +1095,25 @@ pub fn train<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v:
     let Some(p) = s.players.get(&world) else {
         return;
     };
+    // Nothing is trained on a skill on its way out.
+    let on_its_way_out = p.untraining.is_some_and(|u| {
+        s.skill_table.skills.get(&skill).is_some_and(|d| {
+            d.parents
+                .iter()
+                .chain(&d.prereqs)
+                .any(|(other, _)| *other == u.skill)
+        })
+    });
+    if on_its_way_out {
+        refuse(
+            net,
+            world,
+            &s.skill_table,
+            skill,
+            refusal::PARENT_BEING_UNTRAINED,
+        );
+        return;
+    }
     let starting = s.start.skills.get(&p.race).cloned().unwrap_or_default();
     let mut skills = held(&starting, &p.play.skills);
     let level = crate::examine::level_of(&p.qualities);
@@ -1090,6 +1173,11 @@ pub fn raise<S: Store>(
     let mut skills = held(&starting, &p.play.skills);
     let available = quals::long(&p.qualities, progress::q::AVAILABLE_XP).unwrap_or(0);
     let hero = crate::focus::is_hero(&p.qualities);
+    // A skill on its way out takes no more: only what it held when that began comes back.
+    if p.untraining.is_some_and(|u| u.skill == skill) {
+        refuse(net, world, &s.skill_table, skill, refusal::BEING_UNTRAINED);
+        return;
+    }
     let cost = match s.skill_table.raise(&skills, skill, available, hero) {
         Ok(c) => c,
         Err(code) => {
@@ -1143,12 +1231,16 @@ pub fn untrain<S: Store>(
     };
     let starting = s.start.skills.get(&p.race).cloned().unwrap_or_default();
     let skills = held(&starting, &p.play.skills);
+    // The client asks only when its own copy of this rule lets it, so a refusal isn't answered.
+    if s.skill_table
+        .untrain_refusal(&skills, skill, p.untraining.is_some())
+        .is_some()
+    {
+        return;
+    }
     let Some(h) = skills.iter().find(|h| h.skill == skill).copied() else {
         return;
     };
-    if h.granted != 0 || p.untraining.is_some() {
-        return;
-    }
     if h.xp == 0 {
         let now = net.game_time(clock.local);
         untrained(s, net, world, skill, 0, now);

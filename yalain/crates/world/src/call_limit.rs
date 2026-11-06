@@ -6,6 +6,8 @@
 //! before it is read.
 //!
 //! This is the server's own rule. Nothing recorded shows the 2017 servers having one, or reaching it.
+//! The same goes for how fast one player may talk, which is its own limit below this one: the 2017
+//! data has squelch lists and a player's report of spam, and no limit nor any words for one.
 
 use std::collections::HashMap;
 
@@ -15,6 +17,21 @@ use yalain_net::{ConnId, LocalTime};
 pub const BURST: f64 = 2000.0;
 /// Calls a connection may send a second, after that.
 pub const PER_SECOND: f64 = 200.0;
+
+/// Lines of talk a player may say at once: its sayings, tells, emotes and room lines together.
+/// (2017's busiest, of 1,645 such lines over the 2017 recordings, said 1 in a second, 3 in ten
+/// seconds and 6 in a minute.)
+pub const TALK_BURST: f64 = 10.0;
+/// Lines of talk a player may say a second, after that.
+pub const TALK_PER_SECOND: f64 = 10.0;
+
+/// How many fragments of what a world connection has waiting behind a long message put off reading
+/// its calls: about 2 MB, half a minute at the usual rate of a long message. What a client asks for
+/// waits behind what it asked for before, and a long reply holds up every reply after it, so however
+/// a reply comes to be long, and whichever it is, this keeps what is waiting for one connection
+/// from growing with what it asks. One long reply puts off nothing: an allegiance's tree of 2,000
+/// members is 593 KB, and the longest recorded message 52,596 bytes.
+pub const MOST_BEHIND: usize = 4800;
 
 /// What a connection has left, and what it has lost.
 #[derive(Debug, Clone, Copy)]
@@ -48,14 +65,25 @@ impl Bucket {
 
     /// A call now: may it go on?
     pub fn allow(&mut self, now: LocalTime) -> bool {
+        self.allow_for(1.0, now)
+    }
+
+    /// Something that costs this much, now: may it go on?
+    pub fn allow_for(&mut self, cost: f64, now: LocalTime) -> bool {
         self.left = (self.left + (now.0 - self.at).max(0.0) * self.per_second).min(self.burst);
         self.at = now.0;
-        if self.left < 1.0 {
+        if self.left < cost {
             self.dropped += 1;
             return false;
         }
-        self.left -= 1.0;
+        self.left -= cost;
         true
+    }
+
+    /// Would it have all it may hold, now?
+    #[must_use]
+    pub fn full(&self, now: LocalTime) -> bool {
+        self.left + (now.0 - self.at).max(0.0) * self.per_second >= self.burst
     }
 }
 

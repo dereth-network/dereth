@@ -1,13 +1,14 @@
 //! What a press of the pointer finds by a body's box.
 
 use auberean_primitives::Vec3;
-use auberean_scene::seen::{check_object_selection, selection_bounds, SeenBody, SeenCamera};
+use auberean_scene::seen::{check_object_selection, selection_bounds, Seen, SeenBody, SeenCamera};
 
 fn camera() -> SeenCamera {
     SeenCamera {
         position: Vec3::new(0.0, 0.0, 0.0),
         heading: 0.0,
         pitch: 0.0,
+        roll: 0.0,
         fov_y: 90.0,
         near: 0.1,
     }
@@ -25,6 +26,46 @@ fn body_at(y: f32) -> SeenBody {
 
 fn cube(half: f32) -> (Vec3, Vec3) {
     (Vec3::new(-half, -half, -half), Vec3::new(half, half, half))
+}
+
+/// A body drawn in front of the camera has a place on the screen, the middle of its box; one
+/// behind the camera or not drawn has none.
+///
+/// Behaviour: desktop.world.a-body-drawn-has-a-place-on-the-screen
+#[test]
+fn a_body_drawn_has_a_place_on_the_screen() {
+    let seen = Seen {
+        camera: Some(camera()),
+        bodies: vec![
+            SeenBody {
+                bounds: Some(cube(1.0)),
+                ..body_at(10.0)
+            },
+            SeenBody {
+                id: 2,
+                bounds: Some((Vec3::new(4.0, -1.0, -1.0), Vec3::new(6.0, 1.0, 1.0))),
+                ..body_at(5.0)
+            },
+            SeenBody {
+                id: 3,
+                ..body_at(-10.0)
+            },
+        ],
+        ..Seen::default()
+    };
+    assert_eq!(seen.place_on_screen(1, 800.0, 800.0), Some((400.0, 400.0)));
+    let (x, y) = seen.place_on_screen(2, 800.0, 800.0).unwrap();
+    assert_eq!(
+        (x, y),
+        (800.0, 400.0),
+        "the middle of its box, 5 m to the side at 5 m"
+    );
+    assert_eq!(
+        seen.place_on_screen(3, 800.0, 800.0),
+        None,
+        "behind the camera"
+    );
+    assert_eq!(seen.place_on_screen(4, 800.0, 800.0), None, "not drawn");
 }
 
 /// A body's box lies under the pointer when one of its corners stands on the screen and its square

@@ -63,6 +63,10 @@ const BITS: &[(u32, u32, u32)] = &[
     (0x4D, 0x4C, 0x2_0000),
 ];
 
+/// The options whose bit set means off: fellows on the map and the pet panel. A cleared profile
+/// shows both.
+const OFF_WHEN_SET: [u32; 2] = [0x8000, 0x1_0000];
+
 /// The yes-or-no options' getters and setters (each finds its bit in [`BITS`]).
 const OPTIONS: &[(u32, u32, NativeFn)] = &[
     (PROFILE, 0x10, option),
@@ -665,7 +669,7 @@ fn bit_of(native: u32) -> u32 {
 fn option(c: &mut Call<'_>) -> Result<Status, Stop> {
     let bit = bit_of(c.native);
     with_profile!(c, p);
-    let on = p.test_bits(bit);
+    let on = p.test_bits(bit) != OFF_WHEN_SET.contains(&bit);
     c.write(-2, u32::from(on), tag::MIXED)?;
     Ok(Status::Success)
 }
@@ -680,7 +684,7 @@ fn set_option(c: &mut Call<'_>) -> Result<Status, Stop> {
     let Some(p) = profile_mut(c, r)? else {
         return Ok(Status::Crash);
     };
-    p.set_bits(on != 0, bit);
+    p.set_bits((on != 0) != OFF_WHEN_SET.contains(&bit), bit);
     Ok(Status::Success)
 }
 

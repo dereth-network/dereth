@@ -236,6 +236,69 @@ fn a_weapon_takes_an_inscription_and_a_mote_is_refused() {
         .is_none());
 }
 
+/// Words past the longest an item takes are refused in the client's own words, and what it held stays;
+/// the longest itself is taken whole.
+/// Behaviour: server.inventory.an-inscription-past-its-longest-is-refused
+#[test]
+fn an_inscription_past_its_longest_is_refused_and_the_old_one_stays() {
+    let mut h = world_of_items();
+    let (a, _, world) = player(&mut h, "one");
+    let sword = give(&mut h, world, SWORD);
+    let words = |s: &str| yalain_world::chat::text_arg(yalain_world::profile::literal(s));
+    let held = |h: &Harness| {
+        h.server
+            .things
+            .get(sword)
+            .and_then(|t| t.inscription.clone())
+            .map(|(t, _)| t)
+    };
+    let longest = "x".repeat(yalain_world::personal::MAX_INSCRIPTION);
+    let from = h.bots[a].inbox.len();
+    h.ask(
+        a,
+        function::INSCRIBE,
+        &[words(&longest), Arg::LongInt(sword)],
+        3,
+    );
+    assert_eq!(h.texts(a, from), [(text::SHOWN_AS, text::INSCRIBED.0)]);
+    assert_eq!(held(&h).as_deref(), Some(longest.as_str()));
+    let from = h.bots[a].inbox.len();
+    let past = "y".repeat(yalain_world::personal::MAX_INSCRIPTION + 1);
+    h.ask(
+        a,
+        function::INSCRIBE,
+        &[words(&past), Arg::LongInt(sword)],
+        3,
+    );
+    // "Your inscription is too long."
+    assert_eq!(text::TOO_LONG, (0x72F8_3432, 0x2500_000B));
+    assert_eq!(h.texts(a, from), [(text::SHOWN_AS, text::TOO_LONG.0)]);
+    assert_eq!(held(&h).as_deref(), Some(longest.as_str()));
+    // A template may name a longest of its own.
+    let mut own = h.server.catalog.get(SWORD).expect("the sword").clone();
+    own.props
+        .set("Item_MaxInscriptionLength", yalain_content::Prop::Int(128));
+    h.server.catalog.insert(own);
+    let from = h.bots[a].inbox.len();
+    let past = "z".repeat(129);
+    h.ask(
+        a,
+        function::INSCRIBE,
+        &[words(&past), Arg::LongInt(sword)],
+        3,
+    );
+    assert_eq!(h.texts(a, from), [(text::SHOWN_AS, text::TOO_LONG.0)]);
+    let from = h.bots[a].inbox.len();
+    let fits = "z".repeat(128);
+    h.ask(
+        a,
+        function::INSCRIBE,
+        &[words(&fits), Arg::LongInt(sword)],
+        3,
+    );
+    assert_eq!(h.texts(a, from), [(text::SHOWN_AS, text::INSCRIBED.0)]);
+}
+
 /// An item the player does not hold is refused with the same text, and takes no words: a client
 /// naming another player's item, or one lying in the world.
 /// Behaviour: server.inventory.inscribing-only-what-the-player-holds
@@ -479,4 +542,173 @@ fn a_lodestone_used_from_the_pack_is_only_answered() {
         .map(|i| i.location)
         .collect();
     assert_eq!(held, [0], "kept in the pack, not wielded");
+}
+
+/// A character's aliases are kept up to a bound: past it an alias is not taken and nothing already
+/// kept changes; one may still be replaced by one that fits, or removed.
+/// Behaviour: server.social.options-kept-within-bounds
+#[test]
+fn an_alias_past_what_a_character_keeps_changes_nothing() {
+    use yalain_world::options::{Options, MOST_ALIAS_BYTES, MOST_ALIAS_UNITS};
+    let mut o = Options::default();
+    let long = "x".repeat(MOST_ALIAS_UNITS);
+    assert!(o.set_alias("mine", "/say hello", true));
+    assert!(o.set_alias("long", &long, true));
+    assert!(!o.set_alias("toolong", &format!("{long}x"), true));
+    assert!(!o.set_alias(&format!("{long}x"), "t", true));
+    let two = o.alias_list();
+    assert_eq!(two.len(), 2);
+    let mut n = 0;
+    while n < 1000 && o.set_alias(&format!("a{n}"), &long, true) {
+        n += 1;
+    }
+    assert!(n > 60, "two thousand bytes each: {n}");
+    let kept = o.aliases.as_ref().map_or(0, Vec::len);
+    assert!(kept <= MOST_ALIAS_BYTES, "{kept}");
+    assert!(kept > MOST_ALIAS_BYTES - 3 * MOST_ALIAS_UNITS, "{kept}");
+    let full = o.alias_list();
+    assert!(!o.set_alias("another", &long, true));
+    assert_eq!(o.alias_list(), full, "nothing changed");
+    assert!(o.set_alias("mine", "/say bye", true), "replaced");
+    assert!(o.set_alias("a0", "", false), "removed");
+    assert!(o
+        .alias_list()
+        .contains(&("mine".to_owned(), "/say bye".to_owned())));
+    assert!(o.set_alias("another", &long, true), "room again");
+}
+
+/// Options kept before there were bounds: as a character enters, every alias of a size a player uses
+/// stays, in order, wherever it stood among the rest; what is left is within the bounds, and is what
+/// is kept and told from then on. A character within the bounds keeps its options to the byte.
+/// Behaviour: server.social.options-kept-within-bounds
+#[test]
+fn a_character_with_options_past_the_bounds_enters_with_the_aliases_a_player_uses() {
+    use auberean_protocol::login::CharacterRef;
+    use auberean_script::wire::Out;
+    use yalain_world::options::{LeftOut, Options, MOST_ALIAS_BYTES, MOST_PART_BYTES};
+    let flood = "x".repeat(30_000);
+    let mut names: Vec<(String, String)> = vec![("first".into(), "/say one".into())];
+    for i in 0..4 {
+        names.push((format!("big{i}"), flood.clone()));
+    }
+    names.push(("second".into(), "/say two".into()));
+    let mut w = Out::new();
+    w.u32(u32::try_from(names.len()).expect("few"));
+    for (a, t) in &names {
+        w.wide(&a.encode_utf16().collect::<Vec<_>>());
+        w.wide(&t.encode_utf16().collect::<Vec<_>>());
+    }
+    let mut big_shortcut = Out::new();
+    big_shortcut.u32(0x4000_0003);
+    big_shortcut.wide(&vec![0x78; MOST_PART_BYTES]);
+    let mut big_window = Vec::new();
+    big_window.extend(1u32.to_le_bytes());
+    big_window.extend(0x1234u32.to_le_bytes());
+    big_window.extend(200u32.to_le_bytes());
+    big_window.extend(vec![0u8; 200 * 24]);
+    let row = Options {
+        aliases: Some(w.buf),
+        shortcuts: vec![big_shortcut.buf, 0u32.to_le_bytes().to_vec()],
+        window_places: Some(big_window),
+        ..Options::default()
+    };
+    assert_eq!(row.alias_list().len(), 6, "the row as it stood reads");
+    let mut trimmed = row.clone();
+    assert_eq!(
+        trimmed.keep_within_bounds(),
+        LeftOut {
+            aliases: 4,
+            parts: 2
+        }
+    );
+    let mut same = trimmed.clone();
+    assert_eq!(same.keep_within_bounds(), LeftOut::default());
+    assert_eq!(same, trimmed, "within the bounds it is left to the byte");
+
+    let mut h = world_of_items();
+    let (a, me, world) = player(&mut h, "one");
+    h.server.players.get_mut(&world).expect("in").options = row;
+    h.bots[a].send(
+        false,
+        queue::LOGON,
+        &auberean_protocol::ClientMessage::LogOff(CharacterRef { character: me }),
+    );
+    for _ in 0..25 {
+        h.step_by(1.0);
+    }
+    assert!(!h.server.players.contains_key(&world), "gone");
+    let kept = yalain_world::saves::state_of(&mut h.server, me)
+        .expect("reads")
+        .expect("kept");
+    assert!(kept.options.len() > MOST_ALIAS_BYTES, "kept as it stood");
+    let back = h.at_character_list("one");
+    h.enter_world(back, "one", me);
+    let p = h
+        .server
+        .players
+        .values()
+        .find(|p| p.character == me)
+        .expect("in the world again");
+    assert_eq!(
+        p.options.alias_list(),
+        vec![
+            ("first".to_owned(), "/say one".to_owned()),
+            ("second".to_owned(), "/say two".to_owned())
+        ]
+    );
+    assert_eq!(p.options.shortcuts[0], 0u32.to_le_bytes().to_vec());
+    assert_eq!(p.options.window_places, None);
+    let w = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .expect("in")
+        .0;
+    yalain_world::world::keep_player(&mut h.server, w);
+    h.run(2);
+    let kept = yalain_world::saves::state_of(&mut h.server, me)
+        .expect("reads")
+        .expect("kept");
+    assert!(
+        kept.options.len() < MOST_ALIAS_BYTES,
+        "kept within them now"
+    );
+}
+
+/// A call that sets a part of the options, past what a client's own use comes to, is not kept.
+/// Behaviour: server.social.options-kept-within-bounds
+#[test]
+fn a_shortcut_past_what_a_character_keeps_is_not_kept() {
+    use yalain_world::options::MOST_PART_BYTES;
+    let mut h = world_of_items();
+    let (b, _, world) = player(&mut h, "one");
+    let text = |units: usize| -> Vec<u8> {
+        let mut bytes = 0x4000_0003_u32.to_le_bytes().to_vec();
+        bytes.extend(u16::try_from(units).expect("short").to_le_bytes());
+        bytes.extend(std::iter::repeat_n(0x78_u8, units * 2));
+        while !bytes.len().is_multiple_of(4) {
+            bytes.push(0);
+        }
+        bytes
+    };
+    let set = |h: &mut Harness, b: usize, bytes: Vec<u8>| {
+        let packed = auberean_script::native_object::NativeObject::Packed { ty: 172, bytes };
+        let mut g = yalain_world::graph::Builder::new();
+        g.native(172, packed);
+        h.bots[b].send(
+            true,
+            auberean_protocol::queue::WEENIE,
+            &yalain_testkit::play::server_call(
+                yalain_world::session::request::SHORTCUT,
+                &[Arg::Object(g.graph()), Arg::Int(5)],
+            ),
+        );
+        h.run(3);
+    };
+    let small = text(100);
+    set(&mut h, b, small.clone());
+    assert_eq!(h.server.players[&world].options.shortcuts[5], small);
+    set(&mut h, b, text(MOST_PART_BYTES));
+    assert_eq!(h.server.players[&world].options.shortcuts[5], small);
 }

@@ -73,11 +73,26 @@ pub const BROADCAST_KIND: u32 = 256;
 pub const EMOTE_TEXT: u32 = 8;
 
 /// Who says a line: its object, its name, and its object's stamp.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Speaker {
     pub id: u64,
     pub name: Option<(u32, u32)>,
+    /// The name it goes by as literal text, in place of `name`.
+    pub name_text: Option<String>,
     pub stamp: ObjectStamp,
+}
+
+impl Speaker {
+    /// Its name as a player reads it.
+    #[must_use]
+    pub fn told_as(&self) -> TextInfo {
+        match &self.name_text {
+            Some(n) => text_for(&Words::Literal(n.clone()), ""),
+            None => self
+                .name
+                .map_or_else(TextInfo::default, crate::progress::text),
+        }
+    }
 }
 
 /// A content object as a speaker.
@@ -88,6 +103,7 @@ pub fn content_speaker<S: Store>(s: &Server<S>, i: usize) -> Speaker {
     Speaker {
         id,
         name: o.description.name.or(o.facts.name),
+        name_text: o.description.name_text.clone(),
         stamp: ObjectStamp {
             id,
             instance_stamp: s.placed.instance(id),
@@ -103,6 +119,7 @@ pub fn thing_speaker<S: Store>(s: &Server<S>, id: u64) -> Option<Speaker> {
     Some(Speaker {
         id,
         name: t.facts.name,
+        name_text: None,
         stamp: ObjectStamp {
             id,
             instance_stamp: t.instance,
@@ -161,7 +178,7 @@ pub fn say<S: Store>(
     how: How,
 ) {
     match how {
-        How::Tell => quests::tell(s, net, world, speaker.id, speaker.name, words),
+        How::Tell => quests::tell(s, net, world, speaker.id, speaker.told_as(), words),
         How::Emote => {
             let Some(p) = s.players.get(&world) else {
                 return;
@@ -240,7 +257,8 @@ pub const fn update_of(u: Update) -> (TalkUpdate, Option<u32>) {
         Update::Bestow => (TalkUpdate::Bestow, None),
         Update::Advance(p) => (TalkUpdate::Advance, Some(p)),
         Update::Complete => (TalkUpdate::Complete, None),
-        Update::Fail => (TalkUpdate::Fail, None),
+        // No line names none: nothing is said for it, the phase below being no phase.
+        Update::Fail | Update::Nothing => (TalkUpdate::Fail, None),
     }
 }
 
@@ -254,6 +272,9 @@ pub fn with_update<S: Store>(
     quest: u32,
     update: Update,
 ) -> Vec<Line> {
+    if update == Update::Nothing {
+        return Vec::new();
+    }
     let (up, phase) = update_of(update);
     let mut lines: Vec<&Line> = s
         .talk

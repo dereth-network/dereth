@@ -81,12 +81,63 @@ impl Bench {
         (status, cx.slot(0).unwrap().0)
     }
 
+    /// Ask a profile native for its answer (`fp[-2]`).
+    fn get(&mut self, number: u32, receiver: u32) -> u32 {
+        let mut cx = Context::new(usize::MAX, 0);
+        cx.push(0, tag::MIXED).unwrap();
+        cx.push(receiver, tag::REFERENCE).unwrap();
+        cx.fp = cx.sp;
+        let id = NativeId::new(PROFILE, number).0;
+        let Some(Binding::Ported(f)) = self.prog.table.get(id) else {
+            panic!("native {id:#x} is not ported");
+        };
+        f(&mut Call {
+            vm: &mut self.vm,
+            cx: &mut cx,
+            host: &mut self.host,
+            native: id,
+        })
+        .expect("the native runs");
+        cx.slot(0).unwrap().0
+    }
+
     fn read(&self, r: u32) -> GameplayOptions {
         match self.vm.heap.native(r).unwrap() {
             NativeObject::Options(p) => (**p).clone(),
             _ => panic!("a profile"),
         }
     }
+}
+
+/// The pet panel's and fellows on the map's options read their bit the other way: a cleared
+/// profile has them on, and turning one off sets its bit. Another option reads its bit straight.
+///
+/// Behaviour: script.natives.two-options-are-on-with-their-bit-clear
+#[test]
+fn two_options_are_on_with_their_bit_clear() {
+    const GET_SHOW_FELLOWS_ON_MAP: u32 = 0x49;
+    const SET_SHOW_FELLOWS_ON_MAP: u32 = 0x48;
+    const GET_SHOW_PET_UI: u32 = 0x4B;
+    const SET_SHOW_PET_UI: u32 = 0x4A;
+    const GET_SHOW_SHORTCUT_NUMBERS: u32 = 0x10;
+    const SET_SHOW_SHORTCUT_NUMBERS: u32 = 0x0F;
+    let mut b = Bench::new();
+    let p = b.profile();
+    for (get, set, bit) in [
+        (GET_SHOW_FELLOWS_ON_MAP, SET_SHOW_FELLOWS_ON_MAP, 0x8000),
+        (GET_SHOW_PET_UI, SET_SHOW_PET_UI, 0x1_0000),
+    ] {
+        assert_eq!(b.get(get, p), 1, "on with the bit clear");
+        b.call(set, p, 0, 0);
+        assert_eq!(b.read(p).bits & bit, bit, "off sets it");
+        assert_eq!(b.get(get, p), 0);
+        b.call(set, p, 1, 0);
+        assert_eq!(b.read(p).bits & bit, 0, "on clears it");
+    }
+    assert_eq!(b.get(GET_SHOW_SHORTCUT_NUMBERS, p), 0);
+    b.call(SET_SHOW_SHORTCUT_NUMBERS, p, 1, 0);
+    assert_eq!(b.get(GET_SHOW_SHORTCUT_NUMBERS, p), 1);
+    assert_eq!(b.read(p).bits & 1, 1);
 }
 
 /// A chat window's filter and devoted channel, a kind's font size, color and popup flag are set

@@ -4,6 +4,7 @@
 use auberean_assets::ui::AttributeValue as V;
 use auberean_primitives::DataId;
 use auberean_ui::text::Color;
+use auberean_ui::types::button_id;
 use auberean_ui::types::text::key;
 use auberean_ui::{Token, Ui};
 
@@ -239,6 +240,35 @@ fn resting_on_a_tooltips_owner() -> Ui {
     u.use_time(0.0);
     u.pointer_move(150, 150);
     u
+}
+
+/// The pointer passes through a tooltip: resting under it, it still finds what lies beneath.
+///
+/// Behaviour: ui.pointer.the-pointer-passes-through-a-tooltip
+#[test]
+fn the_pointer_passes_through_a_tooltip() {
+    let mut u = resting_on_a_tooltips_owner();
+    let owner = u.hit(150, 150).expect("the owner");
+    u.use_time(0.3);
+    let tip = u.tooltip().expect("the tooltip shows");
+    let at = u.screen_rect(tip).expect("where it stands");
+    assert!(at.contains(150, 150), "over the pointer: {at:?}");
+    assert_eq!(u.hit(150, 150), Some(owner), "under it the owner");
+}
+
+/// The left button held back from anywhere holds a tooltip back: pressed where no element is (over
+/// the world) and dragged onto the owner, no tooltip shows while it is down.
+///
+/// Behaviour: ui.tooltip.the-left-button-down-anywhere-holds-a-tooltip-back
+#[test]
+fn the_left_button_down_over_the_world_holds_a_tooltip_back() {
+    let mut u = resting_on_a_tooltips_owner();
+    u.pointer_move(10, 10);
+    u.pointer_button(button_id::LEFT, true);
+    u.pointer_move(150, 150);
+    u.use_time(5.0);
+    u.use_time(6.0);
+    assert!(u.tooltip().is_none(), "held back while the button is down");
 }
 
 /// A tooltip is drawn in front of everything, also of the first on the screen at its own depth.
@@ -550,6 +580,18 @@ fn a_reference_waits_for_its_string_tables_and_what_follows_waits_behind_it() {
     assert!(said_done(&mut u, h));
 }
 
+/// An element's entry of its string table goes in the way a string reference does, written by the
+/// client, not as the table stores it.
+///
+/// Behaviour: ui.text.an-entry-of-the-string-table-is-a-reference
+#[test]
+fn an_entry_of_the_string_table_is_a_reference() {
+    let (mut u, _) = downloading(text("Entry", [0, 0, 199, 19], vec![]));
+    let h = entry(&mut u);
+    u.set_string(h, 7);
+    assert_eq!(typed(&u, h), "t7");
+}
+
 /// A text element's waiting strings are dropped when its text is replaced, and when it goes:
 /// each lets go of the download it waits on.
 ///
@@ -650,8 +692,8 @@ fn font_of(chars: impl IntoIterator<Item = u16>, width: u32) -> Arc<auberean_ass
 
 /// A string with a character the element's font lacks switches the element to the first fallback
 /// font that holds all of it (the Unicode font, then the second); when neither holds it, or the
-/// element has no font, the font stays. Each string starts from the element's own font, and
-/// measuring a string switches the font as adding it does.
+/// element has no font, the font stays. The fallback lasts for that string: the next one, a typed
+/// character or a measured string starts from the element's own font.
 ///
 /// Behaviour: ui.text.a-character-the-font-lacks-switches-to-a-fallback-font
 #[test]
@@ -695,7 +737,7 @@ fn a_character_the_font_lacks_switches_to_a_fallback_font() {
     u.add_string(a, "ab");
     assert_eq!(font(&u, a), FONT, "a string the font holds keeps it");
     u.add_string(a, "café");
-    assert_eq!(font(&u, a), UNICODE);
+    assert_eq!(font(&u, a), FONT, "the font is back after the string");
     assert_eq!(
         widths(&u, a),
         [6, 6, 7, 7, 7, 7],
@@ -703,16 +745,16 @@ fn a_character_the_font_lacks_switches_to_a_fallback_font() {
     );
     u.add_string(a, "x");
     assert_eq!(
-        font(&u, a),
-        FONT,
-        "each string is added in the element's own font first"
+        widths(&u, a),
+        [6, 6, 7, 7, 7, 7, 6],
+        "the next string in the element's own font"
     );
 
     let b = make(&mut u, "B");
     u.add_string(b, "\u{416}");
     assert_eq!(
-        font(&u, b),
-        SECOND,
+        widths(&u, b),
+        [9],
         "the first fallback lacks it: the second"
     );
 
@@ -726,12 +768,84 @@ fn a_character_the_font_lacks_switches_to_a_fallback_font() {
 
     let e = make(&mut u, "E");
     let measured = u.inq_size_with_margins(e, "é");
-    assert_eq!(font(&u, e), UNICODE, "measuring switches the font too");
-    assert_eq!(measured.map(|m| m.0), Some(7));
+    assert_eq!(font(&u, e), FONT, "measuring leaves the font as it was");
+    assert_eq!(
+        measured.map(|m| m.0),
+        Some(7),
+        "measured in the fallback font"
+    );
 
     let bare = make(&mut u, "Bare");
     u.add_string(bare, "é");
     assert_eq!(font(&u, bare), 0, "an element without a font keeps none");
+}
+
+/// With the mapping naming a default font, an element with no font of its own starts in it; one
+/// with a font of its own has that.
+///
+/// Behaviour: ui.text.an-element-with-no-font-starts-in-the-default-font
+#[test]
+fn an_element_with_no_font_starts_in_the_default_font() {
+    const DEFAULT: u32 = 0x4200_0012;
+    let bare = element(
+        "Bare",
+        "text",
+        [0, 0, 299, 19],
+        0,
+        vec![state("stateless", 0, vec![], vec![], vec![])],
+    );
+    let mut r = records(vec![bare, text("Own", [0, 0, 299, 19], vec![])], vec![]);
+    r.fonts.insert(DEFAULT, font_of(0x20u16..0x7F, 9));
+    r.enums.insert((0x4000_003E, 0x4000_000B), DEFAULT);
+    let mut u = Ui::new(Arc::new(r), 1024, 768);
+    let l = u.load_layout(LAYOUT).unwrap();
+    let h = u.create_root(l, Token::of("Bare")).unwrap();
+    assert_eq!(u.text_state(h).unwrap().font, DEFAULT);
+    u.add_string(h, "ab");
+    assert_eq!(u.text_state(h).unwrap().glyphs.glyphs[0].width, 9);
+    let own = u.create_root(l, Token::of("Own")).unwrap();
+    assert_eq!(u.text_state(own).unwrap().font, FONT);
+}
+
+/// A one-line entry keeps the caret in view: the view stays while the caret is within the width
+/// past it, then stands one width before the caret; going back past its start puts the view at
+/// the caret.
+///
+/// Behaviour: ui.text.a-one-line-entry-keeps-the-caret-in-view
+#[test]
+fn a_one_line_entry_keeps_the_caret_in_view() {
+    let e = text(
+        "Entry",
+        [0, 0, 19, 19],
+        vec![("editable", V::Bool(true)), ("one_line", V::Bool(true))],
+    );
+    let mut u = ui(vec![e], vec![]);
+    let h = entry(&mut u);
+    let view = |u: &Ui| u.text_state(h).unwrap().view_x;
+    u.pointer_move(10, 10);
+    u.pointer_press();
+    u.pointer_release();
+    let advance = {
+        u.type_text("a");
+        let w = u.text_state(h).unwrap().glyphs.glyphs[0].width;
+        u.backspace();
+        w
+    };
+    let width = 20;
+    let fit = width / advance;
+    for _ in 0..fit {
+        u.type_text("a");
+        assert_eq!(view(&u), 0, "within the width the view stays");
+    }
+    for _ in 0..4 {
+        u.type_text("a");
+    }
+    let at_end = (fit + 4) * advance - width;
+    assert_eq!(view(&u), at_end, "one width before the caret");
+    u.character_input(0, key::HOME);
+    assert_eq!(view(&u), 0, "back at the start");
+    u.character_input(0, key::END);
+    assert_eq!(view(&u), at_end, "at the end again");
 }
 
 /// An element shown with `activate_on_show` takes the keyboard, unless the use key is held: it may

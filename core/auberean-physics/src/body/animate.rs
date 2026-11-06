@@ -190,6 +190,14 @@ impl Body {
         self.fx_target = object;
     }
 
+    /// The look its effects clone from now on, with an appearance laid over it.
+    // D2-06263
+    pub fn set_look_to_clone(&mut self, look: u32, appearance: u32, values: &[(u32, f32)]) {
+        self.look_to_clone = look;
+        self.clone_appearance = appearance;
+        self.clone_values = values.to_vec();
+    }
+
     /// No object for its targeted effects, and no look for them to clone.
     pub fn clear_fx_target(&mut self) {
         self.fx_target = 0;

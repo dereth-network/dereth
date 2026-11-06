@@ -1,7 +1,7 @@
 [package]
 name = "yalain"
 description = "The Asheron's Call 2 server executable: its settings, the data it reads at start, the sockets and the loop."
-version = "0.2.0" # Yalain's own version, shared by every yalain-* crate (not the workspace's)
+version = "0.2.1" # Yalain's own version, shared by every yalain-* crate (not the workspace's)
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -64,6 +64,7 @@ zip = { version = "8", default-features = false, features = ["deflate-flate2-zli
 live = ["yalain-testkit/retail-dats"]
 
 [dev-dependencies]
+dereth-dat.workspace = true
 # The Global room's tests send and read the chat service's packets.
 auberean-protocol.workspace = true
 dereth-protocol.workspace = true

@@ -306,6 +306,29 @@ pub struct Viewer {
     pub origin: Vec3,
     /// A unit vector.
     pub look: Vec3,
+    /// How the camera is turned, when it is more than a look with no lean: a glide between two
+    /// views, or a bone it rides on.
+    pub rotation: Option<Quat>,
+}
+
+impl Viewer {
+    /// The frame it stands in, turned as it is.
+    fn frame(&self) -> dereth_primitives::Frame {
+        let mut f = dereth_primitives::Frame::new(self.origin, Quat::IDENTITY);
+        match self.rotation {
+            Some(q) => f.rotation = q,
+            None => auberean_physics::geom::set_vector_heading(&mut f, self.look),
+        }
+        f
+    }
+
+    /// A place of the camera in cell `cell`, turned as this view is, standing at `origin`.
+    #[must_use]
+    pub fn stand_at(&self, cell: CellId, origin: Vec3) -> Position {
+        let mut f = self.frame();
+        f.origin = origin;
+        Position::new(cell, f)
+    }
 }
 
 /// The id no object has.
@@ -345,6 +368,7 @@ impl Objects for Subject {
         (id != NO_OBJECT).then(|| Viewer {
             origin: self.origin,
             look: self.global_of(Vec3::new(0.0, 1.0, 0.0)),
+            rotation: None,
         })
     }
 
@@ -410,18 +434,6 @@ fn length(a: Vec3) -> f32 {
 
 fn near(a: Vec3, b: Vec3) -> bool {
     (a.x - b.x).abs() < EPS && (a.y - b.y).abs() < EPS && (a.z - b.z).abs() < EPS
-}
-
-/// The way from `a` toward `b`, `w` of the angle between them (both unit vectors).
-fn slerp(a: Vec3, b: Vec3, w: f32) -> Vec3 {
-    let d = (a.x * b.x + a.y * b.y + a.z * b.z).clamp(-1.0, 1.0);
-    let angle = math::acosf(d);
-    if angle < 1e-4 {
-        return normalize(add(scale(a, 1.0 - w), scale(b, w)));
-    }
-    let s = math::sinf(angle);
-    let (ka, kb) = (math::sinf((1.0 - w) * angle) / s, math::sinf(w * angle) / s);
-    normalize(add(scale(a, ka), scale(b, kb)))
 }
 
 /// The client's gradient noise, made once.
@@ -937,6 +949,18 @@ impl CameraControl {
         c.pitch_now = c.offset.z;
         c.targeting.distance = c.distance;
         c
+    }
+
+    /// New options: a new default distance or tilt puts the camera there at once.
+    // D2-10711
+    #[allow(clippy::float_cmp)] // whether the preference changed at all
+    pub fn set_options(&mut self, o: Options) {
+        let moved = o.distance != self.options.distance || o.tilt != self.options.tilt;
+        self.options = o;
+        self.apply_options();
+        if moved {
+            self.set_defaults();
+        }
     }
 
     /// The options taken into the camera's targeting.
@@ -1551,11 +1575,12 @@ impl CameraControl {
         self.first_person || self.targeting.player != self.targeting.target
     }
 
-    /// Whether only the walls and the ground stop the camera, no object: in the map view.
+    /// Whether only the walls and the ground stop the camera, no object: in the map view, or
+    /// looking at a bone.
     // D2-10675
     #[must_use]
     pub fn check_env_only(&self) -> bool {
-        self.map_view
+        self.map_view || self.targeting.target_bone != 0
     }
 
     /// The pitch eased by the slope: the player's rise each frame, smoothed, its opposite
@@ -1766,6 +1791,7 @@ impl CameraControl {
         let nowhere = Viewer {
             origin: Vec3::ZERO,
             look: Vec3::new(0.0, 1.0, 0.0),
+            rotation: None,
         };
         let d = self.targeting.distance;
         let third = 0.333_333_34;
@@ -1780,6 +1806,7 @@ impl CameraControl {
                 let mut at = Viewer {
                     origin: pp.origin,
                     look: heading_along(v),
+                    rotation: None,
                 };
                 let Some(f) = pf else {
                     return Some(at);
@@ -1804,6 +1831,7 @@ impl CameraControl {
                 let mut at = Viewer {
                     origin: pp.origin,
                     look: heading_along(pp.look),
+                    rotation: None,
                 };
                 let Some(f) = pf else {
                     return Some(at);
@@ -1822,6 +1850,7 @@ impl CameraControl {
                 let mut at = Viewer {
                     origin: pt.origin,
                     look,
+                    rotation: None,
                 };
                 let Some(f) = tf else {
                     return Some(at);
@@ -1905,6 +1934,7 @@ impl CameraControl {
         let nowhere = Viewer {
             origin: Vec3::ZERO,
             look: Vec3::new(0.0, 1.0, 0.0),
+            rotation: None,
         };
         if !self.targeting.is_on {
             let at = self.internal_calc_viewer_pos(false, now.0, now.1, subject, objects, fallback);
@@ -1920,9 +1950,14 @@ impl CameraControl {
             return new;
         };
         let w = self.targeting.weight;
+        // D2-10742
+        let mut turned = dereth_primitives::Frame::new(Vec3::ZERO, Quat::IDENTITY);
+        auberean_physics::geom::slerp_rotation(&mut turned, &old.frame(), &new.frame(), w);
+        let m = auberean_physics::geom::rotation_axes(turned.rotation);
         Viewer {
             origin: add(old.origin, scale(sub(new.origin, old.origin), w)),
-            look: slerp(old.look, new.look, w),
+            look: Vec3::new(m[3], m[4], m[5]),
+            rotation: Some(turned.rotation),
         }
     }
 }
@@ -1981,6 +2016,30 @@ pub fn stand(cell: CellId, origin: Vec3, look: Vec3) -> Position {
 pub fn look_of(at: &Position) -> Vec3 {
     let m = auberean_physics::geom::rotation_axes(at.frame.rotation);
     Vec3::new(m[3], m[4], m[5])
+}
+
+/// How far a camera standing at `at` leans about the way it looks, in degrees: its right going up.
+// D2-10593
+#[must_use]
+pub fn lean_of(at: &Position) -> f32 {
+    let m = auberean_physics::geom::rotation_axes(at.frame.rotation);
+    let (right, forward) = (Vec3::new(m[0], m[1], m[2]), Vec3::new(m[3], m[4], m[5]));
+    let cross = |a: Vec3, b: Vec3| {
+        Vec3::new(
+            a.y * b.z - a.z * b.y,
+            a.z * b.x - a.x * b.z,
+            a.x * b.y - a.y * b.x,
+        )
+    };
+    let flat = normalize(cross(forward, Vec3::new(0.0, 0.0, 1.0)));
+    let up = cross(flat, forward);
+    let dot = |a: Vec3, b: Vec3| a.x * b.x + a.y * b.y + a.z * b.z;
+    let lean = math::atan2f(dot(right, up), dot(right, flat)).to_degrees();
+    if lean.abs() < 1e-3 {
+        0.0
+    } else {
+        lean
+    }
 }
 
 /// No objects at all.

@@ -148,6 +148,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "motion.draw.a-body-drawn-between-ticks-keeps-its-whole-rotation",
+        says: "A body drawn between ticks keeps its frame's whole rotation: one pitched along its path, as a missile is, stays pitched.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAWN-WHOLE-ROTATION"),
+        station: "auberean-physics::cpu::motion::moving::a_body_drawn_between_ticks_keeps_its_whole_rotation",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "motion.draw.a-body-is-drawn-between-its-last-two-ticks",
         says: "Between physics ticks a moving body is drawn between where it was before its last \
                tick and where it is, by how far the frame is past that tick (its heading turned \
@@ -463,6 +471,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MOTION-JUMP"),
         station: "auberean-physics::cpu::motion::moving::a_jump_follows_its_arc_and_waits_to_repeat",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "motion.jump.a-jump-stops-the-behaviors-a-move-cancels",
+        says: "A jump stops the behaviors a move cancels; a jump the body may not make stops                nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-MOTION-JUMP-CANCELS"),
+        station: "auberean-physics::cpu::motion::moving::a_jump_stops_the_behaviors_a_move_cancels",
         tier: Tier::Cpu,
     },
     behaviour! {

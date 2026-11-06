@@ -71,6 +71,7 @@ impl Product {
             Self::Empyrean => &[
                 ("Cargo.lock", "empyrean-server"),
                 ("Cargo.lock", "empyrean-import"),
+                ("Cargo.lock", "empyrean-relay"),
             ],
             Self::Launcher => &[("launcher/Cargo.lock", "dereth-launcher")],
             Self::Dereth => &[

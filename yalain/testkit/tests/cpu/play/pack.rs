@@ -17,6 +17,7 @@ use yalain_world::things::{Corpse, Kind, Thing};
 /// A template that stacks to a thousand, and one worth 25 gold each.
 const STACKING: u32 = 0x4700_2109;
 const VALUED: u32 = 0x4700_210A;
+const SCRIPTED: u32 = 0x4700_210B;
 const WORTH: i64 = 25;
 const CONTAINER: u32 = 258;
 const QUANTITY: u32 = 262;
@@ -490,6 +491,140 @@ fn a_drag_to_the_money_bag_while_busy_is_refused() {
         "nothing paid"
     );
     assert_eq!(pack_order(&h, world), [item], "still held");
+}
+
+/// A template that stacks, whose value is its class's alone.
+fn scripted(h: &mut Harness, value: u32) -> u32 {
+    let mut props = yalain_content::Props::default()
+        .with_class(&[("Item_Value", yalain_content::Prop::Int(i64::from(value)))]);
+    props.set("Item_MaxStackSize", yalain_content::Prop::Int(1000));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(SCRIPTED, 0x200, props));
+    SCRIPTED
+}
+
+/// `n` of a pack's item dragged to the money bag; what the money reads after it.
+fn drag_to_bag(h: &mut Harness, b: usize, me: u64, world: ConnId, item: u64, n: u32) -> i32 {
+    h.ask(
+        b,
+        function::TO_MONEY_BAG,
+        &[
+            Arg::LongInt(me),
+            Arg::Int(0),
+            Arg::Int(n),
+            Arg::LongInt(item),
+        ],
+        4,
+    );
+    yalain_world::quals::int(&h.server.players[&world].qualities, MONEY).unwrap_or(0)
+}
+
+/// An item whose data names no value sells for the one its class's code sets.
+/// Behaviour: server.inventory.a-scripts-value-stands-where-the-data-names-none
+#[test]
+fn an_item_only_its_class_values_sells_for_that_value() {
+    let (mut h, b, me, world) = player();
+    let t = scripted(&mut h, 7);
+    inventory::give(&mut h.server, &mut h.net, world, t, 1);
+    h.run(2);
+    let item = pack_order(&h, world)[0];
+    assert_eq!(drag_to_bag(&mut h, b, me, world, item, 1), 7);
+    assert!(pack_order(&h, world).is_empty(), "sold");
+}
+
+/// A value in the data stands over the class's, though it be nothing.
+/// Behaviour: server.inventory.a-scripts-value-stands-where-the-data-names-none
+#[test]
+fn a_value_in_the_data_stands_over_the_classs() {
+    for (data, paid) in [(3, 3), (0, 0)] {
+        let (mut h, b, me, world) = player();
+        let mut props = yalain_content::Props::default();
+        props.set("Item_Value", yalain_content::Prop::Int(data));
+        let props = props.with_class(&[("Item_Value", yalain_content::Prop::Int(10))]);
+        h.server
+            .catalog
+            .insert(yalain_testkit::test_template(SCRIPTED, 0x200, props));
+        inventory::give(&mut h.server, &mut h.net, world, SCRIPTED, 1);
+        h.run(2);
+        let item = pack_order(&h, world)[0];
+        assert_eq!(drag_to_bag(&mut h, b, me, world, item, 1), paid);
+    }
+}
+
+/// Part of a stack dragged to the money bag pays for the pieces that went, and the rest stays in the
+/// pack, its count told in turn; the rest dragged after it pays the same and goes.
+/// Behaviour: server.inventory.money-bag-pays-for-part-of-a-stack
+#[test]
+fn part_of_a_stack_dragged_to_the_money_bag_pays_for_what_went_and_the_rest_stays() {
+    let (mut h, b, me, world) = player();
+    let t = scripted(&mut h, 7);
+    inventory::give(&mut h.server, &mut h.net, world, t, 5);
+    h.run(2);
+    let item = pack_order(&h, world)[0];
+    let from = h.bots[b].inbox.len();
+    assert_eq!(drag_to_bag(&mut h, b, me, world, item, 2), 14);
+    let told: Vec<i32> = h
+        .world_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::UpdateIntVisual(q) if q.object.id == item => Some(q.value),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(told, [3], "the count left");
+    assert_eq!(pack_order(&h, world), [item], "the rest stays");
+    assert_eq!(drag_to_bag(&mut h, b, me, world, item, 3), 35);
+    assert!(pack_order(&h, world).is_empty(), "the rest goes");
+}
+
+/// An item worth nothing dragged to the money bag is refused and kept: "That item cannot be
+/// transformed into money.", the drag answered with the item, nothing paid.
+/// Behaviour: server.inventory.money-bag-refuses-an-item-of-no-worth
+#[test]
+fn an_item_worth_nothing_dragged_to_the_money_bag_is_refused_and_kept() {
+    let (mut h, b, me, world) = player();
+    inventory::give(&mut h.server, &mut h.net, world, TEST_ITEM, 1);
+    h.run(2);
+    let item = pack_order(&h, world)[0];
+    let from = h.bots[b].inbox.len();
+    assert_eq!(drag_to_bag(&mut h, b, me, world, item, 1), 0);
+    let calls = h.calls(b, from);
+    let done = calls
+        .iter()
+        .find(|(f, _)| *f == function::TO_MONEY_BAG_DONE)
+        .expect("answered");
+    assert_eq!(done.1[2], Value::Long(item), "with the item");
+    let refusal = 0xD4B3_FC38_u32.to_le_bytes();
+    assert!(
+        h.bots[b].inbox[from..]
+            .iter()
+            .any(|r| r.bytes.windows(4).any(|w| w == refusal)),
+        "told it cannot"
+    );
+    assert!(
+        !h.world_messages(b, from).iter().any(|m| matches!(
+            m,
+            ServerMessage::UpdateInt(q) if q.quality == MONEY
+        ) || matches!(m, ServerMessage::ForgetObject(_))),
+        "nothing paid, nothing destroyed"
+    );
+    assert_eq!(pack_order(&h, world), [item], "still held");
+}
+
+/// A stack with no value of its own keeps taking new pieces once its template's value comes from its
+/// class: both are worth the same.
+/// Behaviour: server.inventory.a-scripts-value-stands-where-the-data-names-none
+#[test]
+fn a_stack_kept_with_no_value_of_its_own_still_takes_new_pieces_of_a_template_its_class_values() {
+    let (mut h, _, _, world) = player();
+    let t = scripted(&mut h, 7);
+    inventory::give_stacked(&mut h.server, &mut h.net, world, t, 2);
+    inventory::give_stacked(&mut h.server, &mut h.net, world, t, 3);
+    h.run(2);
+    let held = &h.server.players[&world].play.items;
+    assert_eq!(held.len(), 1, "one stack");
+    assert_eq!(held[0].quantity, 5);
 }
 
 /// A corpse beside the player holding `n` test items, opened by it; returns the corpse and its

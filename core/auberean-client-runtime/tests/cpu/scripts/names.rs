@@ -5,7 +5,7 @@ use auberean_script::native_object::TextInfo;
 
 use auberean_script::Host as _;
 
-use crate::common::{Bench, ITEM};
+use crate::common::{Bench, ABSENT, ITEM};
 
 /// The scripts ask the client's table of file names, which its data cache starts and no file of
 /// names fills: an id is 0, a name empty, and the type asked about is registered.
@@ -126,9 +126,6 @@ fn an_object_described_again_is_drawn_or_not_by_its_flags() {
     described_again(&mut b.host, ITEM);
     assert!(drawn(&b), "neither: drawn again");
     // No body: nothing.
-    b.host.model.object_mut(ITEM).unwrap().in_world = false;
-    let o = b.host.model.object_mut(ITEM).unwrap();
-    set(&BOOL, o, 10, 1);
-    described_again(&mut b.host, ITEM);
-    assert!(drawn(&b));
+    described_again(&mut b.host, ABSENT);
+    assert!(!b.host.bodies.contains_key(&ABSENT));
 }

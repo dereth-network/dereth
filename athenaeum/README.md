@@ -58,7 +58,7 @@ cargo run --profile test-release -p yalain -- --dats <install folder> --world-db
 
 `athenaeum new` makes a world over the database with one empty pack, `fill-<name>`, which the
 editor's changes go into, and a `.gitignore` that keeps what playing and building it leave
-(`.playtest`, `build`) out of a repository. `validate` checks a world without writing anything
+(`.playtest`, `build`, `overlay`) out of a repository. `validate` checks a world without writing anything
 (with `--dats`, it also compiles it against the install); `build` writes the server's tables as
 text into the world's `build` folder for reading; `facts` counts what a world changes.
 `--base <folder>` uses a checkout of the database in place of the cached release. The data
@@ -106,8 +106,17 @@ to where it leads.
   standing as they stood to each other.
 - `=` and `-` make the selected objects larger and smaller, and **scale** on the right sets it; an
   empty one goes back to their template's.
+- **name_text** on the right gives a person or object a name of its own: over their head and in what
+  they tell you. Examining them, and a shop's own title, still show the template's name.
 - Ctrl+D or **Duplicate** copies the selected row beside it and selects the copy, whatever it is:
   a person with their name and place, a camp with its creatures, a portal with where it leads.
+- **Place** with the kind **clearing** keeps a spot free of trees, rocks and grass: drag on the
+  ground from the middle (**Round**) or corner to corner (**Rectangle**), and the land stops growing
+  there at once. Its marker moves it, and its fields change its size. It's a `[[clearing]]` row: `at`
+  and a `radius`, or a `size = [x, y]` and a `heading`. Play shows it in our client, and `athenaeum
+  build` writes it to the world's `overlay` folder, which Yalain reads, sending Auberean what it
+  lacks as it logs in. Yalain refuses a retail client on a world with an overlay unless its operator
+  turns on `[ddd] enable_dat_patching`, so **Play** with the retail client doesn't enter such a world.
 - A row of the database is never written: changing one writes this world's own row of its key,
   shown as changed, with what it was and **Put back**; taking one away writes a `[[remove]]`.
 - Ctrl+S saves, Ctrl+Z undoes, Ctrl+Y redoes (Cmd on macOS, as well). The world's problems are listed along the bottom as

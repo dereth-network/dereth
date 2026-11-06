@@ -5,6 +5,9 @@
 use std::io::Read;
 use std::path::Path;
 
+/// The most an archive unpacks to, in bytes: an archive is about 20 MB and may be 512 MB.
+pub const UNPACKED_LIMIT: u64 = 2 * 1024 * 1024 * 1024;
+
 /// One file of an archive.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct File {
@@ -19,13 +22,27 @@ pub struct File {
 /// # Errors
 /// When the archive cannot be read or holds anything but plain files in `root/`.
 pub fn read(name: &str, bytes: &[u8], root: &str) -> Result<Vec<File>, String> {
+    read_within(name, bytes, root, UNPACKED_LIMIT)
+}
+
+/// [`read`], with the most it may unpack to.
+///
+/// # Errors
+/// As [`read`], and when it would unpack to more.
+pub fn read_within(name: &str, bytes: &[u8], root: &str, limit: u64) -> Result<Vec<File>, String> {
     let entries = if name.ends_with(".zip") {
-        zip_entries(bytes)?
+        zip_entries(bytes, limit)?
     } else if name.ends_with(".tar.gz") {
         let mut tar = Vec::new();
         flate2::read::GzDecoder::new(bytes)
+            .take(limit.saturating_add(1))
             .read_to_end(&mut tar)
             .map_err(|e| format!("{name}: gzip: {e}"))?;
+        if tar.len() as u64 > limit {
+            return Err(format!(
+                "{name}: larger unpacked than a release is: refused"
+            ));
+        }
         tar_entries(&tar)?
     } else {
         return Err(format!("{name} is neither a .zip nor a .tar.gz"));
@@ -93,7 +110,7 @@ struct Entry {
     bytes: Vec<u8>,
 }
 
-fn zip_entries(bytes: &[u8]) -> Result<Vec<Entry>, String> {
+fn zip_entries(bytes: &[u8], limit: u64) -> Result<Vec<Entry>, String> {
     let mut z =
         zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(|e| format!("zip: {e}"))?;
     let mut out = Vec::new();
@@ -104,7 +121,16 @@ fn zip_entries(bytes: &[u8]) -> Result<Vec<Entry>, String> {
         let dir = f.is_dir();
         let mut data = Vec::new();
         if !dir && !link {
-            f.read_to_end(&mut data).map_err(|e| format!("zip: {e}"))?;
+            f.by_ref()
+                .take(limit.saturating_add(1))
+                .read_to_end(&mut data)
+                .map_err(|e| format!("zip: {e}"))?;
+            if data.len() as u64 > limit {
+                return Err(format!(
+                    "zip: `{}` is larger than a release is: refused",
+                    f.name()
+                ));
+            }
         }
         out.push(Entry {
             path: f.name().to_owned(),
@@ -176,4 +202,39 @@ fn tar_entries(bytes: &[u8]) -> Result<Vec<Entry>, String> {
         at = start + len.div_ceil(512) * 512;
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    //! Behaviour: none (a guard on what a release's archive unpacks to, checked with small archives)
+
+    use std::io::Write as _;
+
+    use super::read_within;
+
+    fn gzipped(bytes: &[u8]) -> Vec<u8> {
+        let mut e = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+        e.write_all(bytes).expect("written");
+        e.finish().expect("done")
+    }
+
+    fn zipped(bytes: &[u8]) -> Vec<u8> {
+        let mut z = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        z.start_file("r/a", zip::write::SimpleFileOptions::default())
+            .expect("started");
+        z.write_all(bytes).expect("written");
+        z.finish().expect("done").into_inner()
+    }
+
+    #[test]
+    fn an_archive_that_unpacks_past_the_limit_is_refused() {
+        let big = vec![0_u8; 20_000];
+        let why = read_within("a.tar.gz", &gzipped(&big), "r", 10_000).expect_err("too large");
+        assert!(why.contains("refused"), "{why}");
+        assert!(read_within("a.tar.gz", &gzipped(&big), "r", 30_000).is_ok());
+        let why = read_within("a.zip", &zipped(&big), "r", 10_000).expect_err("too large");
+        assert!(why.contains("refused"), "{why}");
+        let files = read_within("a.zip", &zipped(&big), "r", 30_000).expect("in limit");
+        assert_eq!(files[0].bytes.len(), big.len());
+    }
 }

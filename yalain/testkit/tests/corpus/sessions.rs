@@ -232,6 +232,7 @@ fn world_of(recorded: &[ServerMessage]) -> ContentPack {
             object: Some(o.id),
             template: w.entity_did,
             description: Description {
+                name_text: None,
                 package: w.package_id,
                 look: o.visual.parent,
                 enter_fx: 0,
