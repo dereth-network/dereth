@@ -2,14 +2,14 @@
 
 use auberean_protocol::login::{
     CharacterCreated, CharacterList, CharacterRef, CharacterRefused, CreateCharacter, DataHeld,
-    DeleteCharacter, PlayCharacter,
+    DeleteCharacter, PlayCharacter, RestoreCharacter,
 };
 use auberean_protocol::table::{Table, SMALL};
 use auberean_protocol::text::{NarrowString, WideString};
 use auberean_protocol::{queue, ClientMessage, ServerMessage};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4};
 
-use yalain_net::{NetConfig, ServerNet, Service};
+use yalain_net::{fixed_stream, NetConfig, ServerNet, Service};
 use yalain_store::{MemoryStore, Store as _};
 use yalain_testkit::{Harness, WORLD_PORT};
 use yalain_world::login::{account_for_command, add_account, PLAYER_ID_BASE, SECRET_COST};
@@ -259,6 +259,52 @@ fn a_name_holding_an_operators_banned_word_is_refused() {
     );
 }
 
+/// A deleted character asked back is answered as a made one, its grey gone and its look kept, and
+/// can be entered; one not deleted is refused and changes nothing.
+/// Behaviour: server.characters.deleted-brought-back
+#[test]
+fn a_deleted_character_asked_back_loses_its_grey() {
+    let mut h = Harness::new();
+    let b = at_character_list(&mut h, "tester");
+    let made = create(&mut h, b, "Babyfare").identity;
+    let id = made.id;
+    let restore = ClientMessage::RestoreCharacter(RestoreCharacter {
+        character: id,
+        name: WideString::from("Babyfare"),
+        account: NarrowString::from("tester"),
+    });
+
+    let before = h.bots[b].inbox.len();
+    h.bots[b].send(false, queue::LOGON, &restore);
+    assert!(h.run_until(STEPS, |h| h.bots[b].inbox.len() > before));
+    let Some(ServerMessage::CharacterCreated(c)) = h.bots[b].inbox[before].message() else {
+        panic!("an answer");
+    };
+    assert_ne!(c.response, CharacterCreated::OK, "a living character");
+
+    let delete = ClientMessage::DeleteCharacter(DeleteCharacter {
+        account: NarrowString::from("tester"),
+        character: id,
+    });
+    let before = h.bots[b].inbox.len();
+    h.bots[b].send(false, queue::LOGON, &delete);
+    assert!(h.run_until(STEPS, |h| h.bots[b].inbox.len() >= before + 3));
+
+    let before = h.bots[b].inbox.len();
+    h.bots[b].send(false, queue::LOGON, &restore);
+    assert!(h.run_until(STEPS, |h| h.bots[b].inbox.len() > before));
+    let Some(ServerMessage::CharacterCreated(c)) = h.bots[b].inbox[before].message() else {
+        panic!("an answer");
+    };
+    assert_eq!(c.response, CharacterCreated::OK);
+    assert_eq!(c.identity.id, id);
+    assert_eq!(c.identity.seconds_greyed_out, 0);
+    assert_eq!(c.identity.name, made.name);
+    assert_eq!(c.identity.visual, made.visual);
+    let stored = h.server.store.character(id).unwrap().unwrap();
+    assert_eq!(stored.deleted_at, None);
+}
+
 /// A deleted character is answered with its id and the lists again: gone from the list by name,
 /// greyed out for an hour in the list with looks, then gone.
 /// Behaviour: server.characters.deleted-greyed-for-an-hour
@@ -324,7 +370,7 @@ fn each_client_is_referred_to_the_world_at_the_address_it_reached_the_login_by()
     let own_on_lan = Ipv4Addr::new(192, 168, 1, 20);
     h.net = ServerNet::new(
         NetConfig::retail_ids(SocketAddrV4::new(named, WORLD_PORT)),
-        0x5EED,
+        fixed_stream(0x5EED),
         1.25e8,
         h.now,
     );
@@ -380,7 +426,7 @@ fn a_client_on_the_worlds_network_enters_by_its_cookie_from_another_address_ther
     let own_on_lan = Ipv4Addr::new(10, 21, 23, 20);
     h.net = ServerNet::new(
         NetConfig::retail_ids(SocketAddrV4::new(named, WORLD_PORT)),
-        0x5EED,
+        fixed_stream(0x5EED),
         1.25e8,
         h.now,
     );

@@ -34,8 +34,6 @@ pub mod client_session;
 pub mod linkstatus;
 pub mod net;
 pub mod queues;
-/// What a raw recording says that only a datagram-header parse can read: the login request's
-/// connection sequence number and each enter-world, for every harness that replays one.
 pub mod recording;
 /// The capture/replay harness. Behind a feature so the transport itself needs no JSON parser.
 #[cfg(feature = "replay")]

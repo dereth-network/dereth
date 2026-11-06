@@ -72,6 +72,10 @@ struct Inner {
     no_lights: bool,
     /// The streak effects preference is off: the effects make no streaks.
     no_streaks: bool,
+    /// What the player's preferences ask of the effects' entries.
+    channels: crate::effects::Channels,
+    /// The decal effects preference is off.
+    no_decals: bool,
     /// The volumetric fog effects preference is off: the systems whose particles move by
     /// repulsors (the ground's mists) neither think nor draw.
     no_fog: bool,
@@ -325,6 +329,29 @@ impl ParticleSystems {
         !self.lock().no_streaks
     }
 
+    /// Whether the effects played from now on lay the decals they name: the decal effects
+    /// preference (on unless set off).
+    pub fn set_decal_effects(&self, on: bool) {
+        self.lock().no_decals = !on;
+    }
+
+    /// Whether the effects lay decals.
+    #[must_use]
+    pub fn decal_effects(&self) -> bool {
+        !self.lock().no_decals
+    }
+
+    /// What the player's preferences ask of the effects' entries from now on.
+    pub fn set_fx_channels(&self, channels: crate::effects::Channels) {
+        self.lock().channels = channels;
+    }
+
+    /// What the player's preferences ask of the effects' entries.
+    #[must_use]
+    pub fn fx_channels(&self) -> crate::effects::Channels {
+        self.lock().channels
+    }
+
     /// Whether the systems whose particles move by repulsors (the ground's mists) think and draw:
     /// the volumetric fog effects preference (on unless set off). Off, they stand still and are
     /// not drawn until it is on again.
@@ -352,6 +379,7 @@ impl ParticleSystems {
         home: (i32, i32),
         place: Mat4,
         scale: Vec3,
+        particle: f32,
         now: f64,
     ) -> Option<SystemRef> {
         if record == 0 {
@@ -371,7 +399,9 @@ impl ParticleSystems {
             inner.add_ref(id);
             id
         } else {
-            let set = ParticleSet::load(records, record, place, scale, now, &inner.dice)?;
+            let mut set = ParticleSet::load(records, record, place, scale, now, &inner.dice)?;
+            let scale = set.drawn_scale(scale, particle);
+            set.set_place(place, scale);
             inner.next_id += 1;
             let id = inner.next_id;
             inner.systems.push(System {
@@ -397,6 +427,7 @@ impl ParticleSystems {
     /// its particles are dead. A record that is not a system sets nothing going.
     // D2-10310
     #[must_use]
+    #[allow(clippy::too_many_arguments)]
     pub fn create_autonomous(
         &self,
         records: &WorldRecords,
@@ -404,6 +435,7 @@ impl ParticleSystems {
         home: (i32, i32),
         place: Mat4,
         scale: Vec3,
+        particle: f32,
         now: f64,
     ) -> bool {
         if record == 0 {
@@ -413,6 +445,8 @@ impl ParticleSystems {
         let Some(mut set) = ParticleSet::load(records, record, place, scale, now, &dice) else {
             return false;
         };
+        let scale = set.drawn_scale(scale, particle);
+        set.set_place(place, scale);
         set.place_emitters(now);
         self.lock()
             .autonomous
@@ -428,10 +462,25 @@ impl ParticleSystems {
         }
     }
 
+    /// Let one particle of emitter `k` of the system go at `now` at `at`, in the frame of its place.
+    pub fn discharge(&self, system: &SystemRef, k: usize, now: f64, at: Vec3) {
+        if let Some(s) = self.lock().find(system.id) {
+            s.set.discharge_at(k, now, at);
+        }
+    }
+
+    /// The system draws whole however far off it is.
+    pub fn set_no_fade(&self, system: &SystemRef) {
+        if let Some(s) = self.lock().find(system.id) {
+            s.set.set_no_fade(true);
+        }
+    }
+
     /// Draw the system this frame (the client's running time `now`) at `place` in block `home`'s
     /// frame with `scale`, lit by `light`. The first place a frame queues it moves it there (its
     /// emitters placed there the first time) and runs it to `now`.
     // D2-10293
+    #[allow(clippy::too_many_arguments)]
     #[allow(clippy::too_many_arguments)]
     pub fn queue(
         &self,
@@ -439,6 +488,7 @@ impl ParticleSystems {
         home: (i32, i32),
         place: Mat4,
         scale: Vec3,
+        particle: f32,
         light: Color,
         now: f64,
     ) {
@@ -447,6 +497,7 @@ impl ParticleSystems {
         let Some(s) = inner.find(system.id) else {
             return;
         };
+        let scale = s.set.drawn_scale(scale, particle);
         let first = s.queued_at != Some(now);
         if first {
             s.places.clear();
@@ -513,6 +564,20 @@ impl ParticleSystems {
     #[must_use]
     pub fn alive(&self, system: &SystemRef) -> usize {
         self.lock().find(system.id).map_or(0, |s| s.set.alive())
+    }
+
+    /// The scales the system draws at this frame, one for each place it was queued, and whether
+    /// its description scales it with its object.
+    #[must_use]
+    pub fn drawn_scales(&self, system: &SystemRef) -> (Vec<Vec3>, bool) {
+        self.lock()
+            .find(system.id)
+            .map_or((Vec::new(), false), |s| {
+                (
+                    s.places.iter().map(|at| at.scale).collect(),
+                    s.set.scales_with_object(),
+                )
+            })
     }
 
     /// How many owners hold the system.

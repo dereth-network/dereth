@@ -13,7 +13,7 @@
 
 // `behaviour!` is `#[macro_export]`ed by `mod.rs` above this module's declaration, so it is in
 // textual scope here and needs no import.
-use super::{Behaviour, Evidence, Tier, RETAIL, THIS_CLIENT};
+use super::{Behaviour, Evidence, Tier, RETAIL, THIS_CLIENT, TOOLING};
 
 /// This subject's rows, in id order.
 pub static ROWS: &[Behaviour] = &[
@@ -148,6 +148,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "link.flow.a-packet-stays-resendable-while-the-connection-can-last",
+        says: "A sent packet not yet acknowledged can be sent again for as long as the connection \
+               can last: a peer back from a dropout just under the 140-second timeout has it sent \
+               again when it asks, and is not told it is gone.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-FLOW-RESEND-KEEP"),
+        station: "dereth-transport::lib::flow::tests::a_packet_is_sent_again_after_a_dropout_just_under_the_timeout",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "link.flow.each-closed-server-interval-is-reported-with-its-byte-count",
         says: "Each time a datagram from the shard opens a newer half-second interval of the \
                shard's, the client reports back how many bytes it received in the interval just \
@@ -157,6 +167,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-FLOW-REPORT"),
         station: "dereth-client-net::cpu::net::flow_report::every_recorded_flow_report_is_reproduced_from_the_server_datagrams",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "link.flow.sent-cache-bounds",
+        says: "The sent-packet cache holds at most 32,768 packets or 8 MiB, its oldest going first, and finds a sequence across a wrap in time that doesn't grow with what it holds.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC-EVID-FLOW-SENT-CACHE-BOUNDS"),
+        station: "dereth-transport::lib::session::tests::the_cache_holds_no_more_than_its_limit_in_bytes",
         tier: Tier::Cpu,
     },
     behaviour! {

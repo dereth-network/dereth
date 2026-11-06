@@ -10,7 +10,8 @@ use crate::common::{ids_of, install};
 
 /// Every material instance is made ready from its material and its modifiers, and the device
 /// draws at least one of its layers; every field of every material's parameters reaches a layer
-/// the material has, and every coordinate-animation field an animation of that layer.
+/// the material has, and every coordinate-animation field an animation of that layer; none sets a
+/// diffuse or normal modifier.
 ///
 /// Behaviour: draw.material.every-material-instance-is-drawn-with-a-layer
 #[test]
@@ -25,6 +26,11 @@ fn every_material_instance_is_drawn_with_a_layer() {
             for f in &p.fields {
                 fields += 1;
                 let [field, _, layer, index] = f.words;
+                // The fields that set a layer's diffuse and normal modifiers: no layer holds one.
+                if (13..=32).contains(&field) {
+                    stray.push((id, f.words));
+                    continue;
+                }
                 let Some(l) = usize::try_from(layer).ok().and_then(|k| m.layers.get(k)) else {
                     stray.push((id, f.words));
                     continue;

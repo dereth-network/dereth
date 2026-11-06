@@ -105,6 +105,8 @@ pub fn usage_effects(props: &Props, resolve: impl Fn(&str) -> Option<u32>) -> Ve
 /// on its user, and on whoever wears or wields it.
 pub const USED: (&str, &str) = ("Usage_Effect", "_Spellcraft");
 pub const WORN: (&str, &str) = ("Item_EquipperEffect", "Stat");
+/// And on whoever kills a creature.
+pub const DIED: (&str, &str) = ("NPC_DeathEffect", "Stat");
 
 /// The effects a template's properties name by one pair of [`USED`] and [`WORN`], in order, each at
 /// its spellcraft (else 1), resolved by `resolve` (a name that resolves to nothing is left out).
@@ -235,6 +237,8 @@ pub mod refusal {
     pub const LACKING_QUEST: u32 = 10_019;
     /// The player's quest is not where the item needs it.
     pub const WRONG_QUEST_STATUS: u32 = 10_020;
+    /// "Only monarchs can use that item."
+    pub const MONARCH_ONLY: u32 = 10_038;
     /// A take: the player's quest is not where the item needs it.
     pub const WRONG_QUEST_STATUS_TAKE: u32 = 10_021;
     /// A take: the player has never had the quest the item needs.
@@ -376,6 +380,10 @@ pub fn begin<S: Store>(
     let Some(template) = s.things.get(u.item).map(|t| t.template) else {
         return false;
     };
+    if crate::craft::totem::noun(template).is_some() {
+        crate::craft::use_totem(s, net, world, u);
+        return true;
+    }
     let Some(t) = s.catalog.get(template) else {
         return false;
     };
@@ -390,6 +398,7 @@ pub fn begin<S: Store>(
         && !examined
         && !seed
         && !own
+        && !crate::death_spawn::names_one(s, &t.props)
     {
         return false;
     }
@@ -457,12 +466,25 @@ pub(crate) fn refuse<S: Store>(
     true
 }
 
-/// Why a player may not use an item of these properties now, if it may not: moving (an item that
-/// may not be used so), a mount's item with its hands full, a mount on or indoors, too far from
-/// the item's place, its quest (one the server knows) not where the item needs it, below the
-/// item's least level.
+/// Is this for monarchs alone, and the player none? A monarch is the head of an allegiance; a
+/// player in none is not one.
+#[must_use]
+pub fn not_monarch<S: Store>(s: &Server<S>, world: ConnId, props: &Props) -> bool {
+    props.flag("Usage_MonarchOnly")
+        && s.players
+            .get(&world)
+            .is_none_or(|p| s.allegiances.monarch(p.character) != Some(p.character))
+}
+
+/// Why a player may not use an item of these properties now, if it may not: for monarchs alone and
+/// the player none, moving (an item that may not be used so), a mount's item with its hands full,
+/// a mount on or indoors, too far from the item's place, its quest (one the server knows) not where
+/// the item needs it, below the item's least level.
 fn refused<S: Store>(s: &Server<S>, world: ConnId, props: &Props, clock: Clock) -> Option<u32> {
     let p = s.players.get(&world)?;
+    if not_monarch(s, world, props) {
+        return Some(refusal::MONARCH_ONLY);
+    }
     if not_while_moving(props) && crate::skill_use::moving(p) {
         return Some(refusal::MOVING);
     }
@@ -724,6 +746,13 @@ fn carry_out<S: Store>(
     for e in list {
         put_on(s, net, world, me, u.item, e, clock);
     }
+    // One that makes what a world's row names moves the quest it names too, before it's answered
+    // (2017: a practice gem's quest 0.06 s before its answer, 4 of 4).
+    if crate::death_spawn::names_one(s, &t.props) {
+        for e in crate::quests::named_for_use(s, &t.props) {
+            crate::quests::moves(s, net, world, e, true, clock);
+        }
+    }
     // A Tessera's hero skill credit.
     let behavior = item_behavior(s, u.item, template, &t.props);
     let tessera = behavior == Some(TESSERA_BEHAVIOR);
@@ -767,6 +796,7 @@ fn carry_out<S: Store>(
     }
     let done = crate::places::use_done(&u, me, f, false, 0.0);
     progress::private(net, world, &done);
+    crate::death_spawn::used(s, net, world, &t.props, clock);
     // Food wears with each use, and goes at its last.
     if template == FOOD {
         crate::butchery::wear_tool_by(s, net, world, u.item, 1.0, FOOD_DURABILITY);
@@ -823,10 +853,18 @@ pub(crate) fn put_on<S: Store>(
         skill: 0,
         item,
         giver: None,
+        answers: false,
     };
     match def.kind {
         // What it does is the server's own (an antidote's cure, a portal): not made here.
-        Kind::Other | Kind::Pet { .. } | Kind::Aura(_) | Kind::Recall(_) => {
+        Kind::Other
+        | Kind::Pet { .. }
+        | Kind::Aura(_)
+        | Kind::Recall(_)
+        | Kind::Counter { .. }
+        | Kind::Reply { .. }
+        | Kind::Watcher(_)
+        | Kind::Ward { .. } => {
             s.unhandled
                 .note(format!("an item's effect {:08X} of no kind made", e.state));
         }

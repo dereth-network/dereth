@@ -98,7 +98,6 @@ jobs:
           # Ubuntu 22.04's glibc (2.35) is the oldest a Linux release runs on.
           - { target: x86_64-unknown-linux-gnu, os: ubuntu-22.04 }
           - { target: aarch64-apple-darwin, os: macos-latest }
-          - { target: x86_64-apple-darwin, os: macos-latest }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 150
     defaults:
@@ -143,15 +142,6 @@ jobs:
         run: |
           mkdir smoke
           run() { "$@"; }
-          case "$TARGET" in
-            x86_64-apple-darwin)
-              if arch -x86_64 /usr/bin/true 2> /dev/null; then
-                run() { arch -x86_64 "$@"; }
-              else
-                echo "::notice::no Rosetta on this runner: $TARGET is checked by its headers only"
-                exit 0
-              fi ;;
-          esac
           case "$TARGET" in
             *windows*)
               (cd smoke && 7z x "../dist/lyceum-$VERSION-windows-x86_64.zip" > /dev/null)
@@ -268,12 +258,12 @@ jobs:
 
           ## Downloads
 
-          Lyceum $VERSION, the world builder: its editor and the \`lyceum\` command, for Windows (10 or newer, x86-64), macOS (11 or newer, Apple silicon and Intel) and Linux (x86-64, glibc 2.35 or newer: Ubuntu 22.04 and later).
+          Lyceum $VERSION, the world builder: its editor and the \`lyceum\` command, for Windows (10 or newer, x86-64), macOS (11 or newer, Apple silicon) and Linux (x86-64, glibc 2.35 or newer: Ubuntu 22.04 and later).
 
           | system | download | |
           |---|---|---|
           | Windows | \`lyceum-$VERSION-windows-x86_64.zip\` | unzip anywhere; \`lyceum-editor.exe\` and \`lyceum.exe\` are inside; no installer |
-          | macOS | \`Lyceum-$VERSION-macos-aarch64.app.tar.gz\` (Apple silicon), \`-x86_64\` (Intel) | unpack and move \`Lyceum.app\` to Applications; the \`lyceum\` command is \`Lyceum.app/Contents/MacOS/lyceum\` |
+          | macOS | \`Lyceum-$VERSION-macos-aarch64.app.tar.gz\` (Apple silicon) | unpack and move \`Lyceum.app\` to Applications; the \`lyceum\` command is \`Lyceum.app/Contents/MacOS/lyceum\` |
           | Linux | \`lyceum-$VERSION-linux-x86_64.tar.gz\` | unpack anywhere; a desktop entry and its icon are inside |
 
           Start the editor and open a world, or make a new one from the sample. README.md, in each download, says how to build worlds.
@@ -304,7 +294,6 @@ jobs:
               "Lyceum-$VERSION-"*)
                 case "${f#"Lyceum-$VERSION-"}" in
                   macos-aarch64.app.tar.gz) label="Lyceum · macOS Apple silicon" ;;
-                  macos-x86_64.app.tar.gz) label="Lyceum · macOS Intel" ;;
                 esac ;;
             esac
             if [ -n "$label" ]; then

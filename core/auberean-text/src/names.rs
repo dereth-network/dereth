@@ -316,7 +316,6 @@ pub fn format_for_audience(name: &[u16]) -> (Vec<u16>, bool) {
 
 /// [`format_for_audience`] when the install has a word filter; without one the name is left as
 /// typed.
-// D2-14301
 #[must_use]
 pub fn format_for_audience_with(filter: Option<&WordFilter>, name: &[u16]) -> (Vec<u16>, bool) {
     match filter {

@@ -204,7 +204,9 @@ impl Attribute {
 
 impl Media {
     /// A kind word, the kind word again (the item's own copy), then the kind's fields.
-    // D2-11092, D2-11094, D2-11114, D2-11131, D2-11110, D2-11147, D2-11135, D2-11124
+    // D2-11092, D2-11094, D2-11114, D2-11131, D2-11110, D2-11147, D2-11135, D2-11124, D2-11093
+    // D2-11107, D2-11115, D2-11120, D2-11125, D2-11128, D2-11132, D2-11136, D2-11139, D2-11143
+    // D2-11148
     fn read(r: &mut Reader<'_>) -> Result<Self> {
         let kind = r.u32()?;
         let again = r.u32()?;
@@ -616,6 +618,7 @@ impl Decode for Font {
 }
 
 /// One binding of a key map: an input to an action, with a name.
+// D2-04879
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct KeyBinding {
     pub action: u32,
@@ -625,7 +628,7 @@ pub struct KeyBinding {
 
 /// A key map (`.keymap`, `0x1D000000`+): a named set of bindings from inputs to actions. A new
 /// one is empty (the client leaves a new map's identity as the memory held it; this one is zero).
-// D2-04904, D2-04905, D2-04906, D2-04911
+// D2-04904, D2-04905, D2-04906, D2-04911, D2-04910
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct KeyMap {
     pub name: String,
@@ -678,7 +681,7 @@ pub struct ActionText {
 
 /// The action map (`.actionmap`, `0x51000000`+): which actions toggle which, what each action does
 /// with each set of modifiers, and the actions' names.
-// D2-03421, D2-03422, D2-03427, D2-03428, D2-03431
+// D2-03421, D2-03422, D2-03427, D2-03428, D2-03431, D2-03430
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct ActionBindings {
     pub string_table: DataId,
@@ -772,7 +775,7 @@ impl ActionBindings {
 
 impl KeyMap {
     /// Write the record as [`KeyMap`] decodes it.
-    // D2-04889, D2-04899
+    // D2-04889, D2-04899, D2-15350
     pub fn write(&self, id: u32, w: &mut auberean_dat::Writer) {
         w.u32(id);
         w.narrow_string(&self.name);

@@ -21,6 +21,7 @@ dereth-primitives.workspace = true
 wgpu = "30"
 pollster.workspace = true
 bytemuck = { version = "1", features = ["derive"] }
+web-time.workspace = true
 
 [dev-dependencies]
 # The shader compiler wgpu uses, to check the world's shaders without a device.

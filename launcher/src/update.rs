@@ -1,0 +1,707 @@
+//! The launcher updating itself, and starting its game's client's update.
+//!
+//! Every launcher updates from the launcher's own releases (`launcher-v*`), whichever game's package
+//! it came in. At start it lists its repository's GitHub releases through GitHub's REST API, as many
+//! pages as it takes to reach one of them, picks the newest published one
+//! ([`dereth_launch::releases`]) and reads that release's `latest.json` (or the `latest.json` that
+//! `DERETH_UPDATE_URL` names). When that's a newer version, it downloads the release in the
+//! background. When the list cannot be had, or holds no launcher release, there is no update this
+//! time: the player is not told, and the next start tries again.
+//! The download is checked against the update-signing public key in `tauri.conf.json`: an
+//! unsigned or wrongly signed file is refused. Once it is in, the page offers a restart.
+//!
+//! The game's client isn't in that release. It's a component, and the launcher fetches its game's
+//! newer client from that game's own releases ([`crate::components::update_client`]).
+//!
+//! Installing differs by system. On macOS and Linux the updater replaces the app bundle or the
+//! AppImage itself. On Windows the release is a zip with no installer, which the updater cannot
+//! install, so the launcher does it: the zip is unpacked beside the launcher, its files are swapped
+//! in by renaming the running ones aside ([`dereth_launch::swap`]), and the launcher starts again
+//! from the new files; the next start removes the old ones. Nothing here touches the launcher's
+//! state, which lives in its own folders.
+//!
+//! Only a launcher that is a release looks for updates ([`crate::components::is_release`]). One built
+//! from the repository never checks (unless `DERETH_UPDATE_URL` says to).
+
+use std::sync::Mutex;
+
+use dereth_launch::components::Product;
+use dereth_launch::releases;
+use dereth_launch::world::Game;
+use serde::Serialize;
+use tauri::{AppHandle, Manager};
+use tauri_plugin_updater::{Update, UpdaterExt};
+
+/// Where an update stands, as the page shows it.
+#[derive(Debug, Clone, Serialize, Default)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum UpdateView {
+    /// Nothing to show: not checked, not a release, or already current.
+    #[default]
+    None,
+    Downloading {
+        version: String,
+        done: u64,
+        total: Option<u64>,
+    },
+    /// Downloaded and verified; a restart installs it.
+    Ready {
+        version: String,
+    },
+    Failed {
+        reason: String,
+    },
+}
+
+/// The update state the app keeps: what the page sees, and the download waiting to be installed.
+#[derive(Default)]
+pub struct Updates {
+    pub view: Mutex<UpdateView>,
+    pending: Mutex<Option<(Update, Vec<u8>)>>,
+}
+
+fn set(app: &AppHandle, view: UpdateView) {
+    let updates = app.state::<Updates>();
+    *updates
+        .view
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = view;
+}
+
+/// Check for a newer launcher and download it, and for a newer client of the game `channel`, in the
+/// background. `is_release` says whether this launcher updates itself.
+pub fn check(app: &AppHandle, is_release: bool, channel: Game) {
+    let override_url = std::env::var("DERETH_UPDATE_URL")
+        .ok()
+        .filter(|u| !u.is_empty());
+    if !is_release && override_url.is_none() {
+        return;
+    }
+    if is_release {
+        if let Some(shared) = app.try_state::<crate::components::Shared>() {
+            let shared = shared.inner().clone();
+            let app = app.clone();
+            std::thread::spawn(move || {
+                crate::components::update_client(app, shared, channel_client(channel));
+            });
+        }
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let found =
+            tauri::async_runtime::spawn_blocking(move || manifest_url(override_url, list_page))
+                .await
+                .ok()
+                .flatten();
+        let Some(url) = found else {
+            return;
+        };
+        if let Err(reason) = check_and_download(&app, &url).await {
+            eprintln!("dereth: the update failed: {reason}");
+            if let Some(b) = app.try_state::<crate::backend::Shared>() {
+                crate::backend::lock(&b)
+                    .notify_error(format!("The launcher could not update: {reason}"));
+            }
+            set(&app, UpdateView::Failed { reason });
+        }
+    });
+}
+
+/// The game client a launcher's game names.
+fn channel_client(channel: Game) -> Product {
+    match channel {
+        Game::Dereth => Product::Dereth,
+        Game::Auberean => Product::Auberean,
+    }
+}
+
+/// Where the `latest.json` to update from is: the one `DERETH_UPDATE_URL` names when it is set,
+/// else the newest launcher release's, found in the source repository's releases as `fetch` fetches
+/// their pages. `None`, logged and not shown, when the list cannot be fetched or read, or holds no
+/// launcher release to update from: not reaching GitHub is no reason to bother the player.
+fn manifest_url(
+    override_url: Option<String>,
+    mut fetch: impl FnMut(&str) -> Result<releases::Page, String>,
+) -> Option<String> {
+    if override_url.is_some() {
+        return override_url;
+    }
+    let source = releases::SOURCE_URL;
+    let Some(api) = releases::releases_api_url(source) else {
+        eprintln!("dereth: no update check: {source} is not a GitHub repository");
+        return None;
+    };
+    let mut listing = releases::Listing::new(&api);
+    let prefix = releases::LAUNCHER_TAG_PREFIX;
+    let needs = [releases::Need::Newest(prefix.to_owned())];
+    match listing
+        .read(&needs, &mut fetch)
+        .and_then(|()| releases::newest_update_release_of(&listing.json(), prefix))
+    {
+        Ok(Some(release)) => Some(release.manifest_url),
+        Ok(None) => {
+            eprintln!("dereth: no update check: {source} has no published launcher release");
+            None
+        }
+        Err(e) => {
+            eprintln!("dereth: no update information: {e}");
+            None
+        }
+    }
+}
+
+/// The page of the releases API's list at `url`, and the next page's address from its `Link`
+/// header. GitHub asks every caller for a User-Agent.
+fn list_page(url: &str) -> Result<releases::Page, String> {
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(std::time::Duration::from_secs(15)))
+        .build()
+        .into();
+    let mut resp = agent
+        .get(url)
+        .header(
+            "User-Agent",
+            concat!("dereth-launcher/", env!("CARGO_PKG_VERSION")),
+        )
+        .header("Accept", "application/vnd.github+json")
+        .call()
+        .map_err(|e| format!("{url}: {e}"))?;
+    let next = resp
+        .headers()
+        .get("link")
+        .and_then(|l| l.to_str().ok())
+        .and_then(releases::next_page);
+    // A page of 100 releases, each listing its files, runs to a few megabytes.
+    let body = resp
+        .body_mut()
+        .with_config()
+        .limit(32 << 20)
+        .read_to_vec()
+        .map_err(|e| format!("{url}: {e}"))?;
+    Ok(releases::Page { body, next })
+}
+
+async fn check_and_download(app: &AppHandle, url: &str) -> Result<(), String> {
+    let endpoint = url.parse().map_err(|e| format!("{url}: {e}"))?;
+    // The updater's own comparison: only a version above this launcher's is an update.
+    let updater = app
+        .updater_builder()
+        .endpoints(vec![endpoint])
+        .map_err(|e| e.to_string())?
+        .build()
+        .map_err(|e| e.to_string())?;
+    // Not reaching the release, or a release without this platform, is no reason to bother the
+    // player either: the check is tried again on the next start.
+    let update = match updater.check().await {
+        Ok(Some(update)) => update,
+        Ok(None) => return Ok(()),
+        Err(e) => {
+            eprintln!("dereth: no update information: {e}");
+            return Ok(());
+        }
+    };
+    let version = update.version.clone();
+    set(
+        app,
+        UpdateView::Downloading {
+            version: version.clone(),
+            done: 0,
+            total: None,
+        },
+    );
+    let mut done = 0u64;
+    let progress = app.clone();
+    let progress_version = version.clone();
+    let bytes = update
+        .download(
+            move |chunk, total| {
+                done += chunk as u64;
+                set(
+                    &progress,
+                    UpdateView::Downloading {
+                        version: progress_version.clone(),
+                        done,
+                        total,
+                    },
+                );
+            },
+            || {},
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    let updates = app.state::<Updates>();
+    *updates
+        .pending
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some((update, bytes));
+    set(app, UpdateView::Ready { version });
+    Ok(())
+}
+
+/// Install the downloaded update and start again.
+///
+/// # Errors
+/// Nothing was downloaded, or installing failed.
+pub fn install_and_restart(app: &AppHandle) -> Result<(), String> {
+    let pending = app
+        .state::<Updates>()
+        .pending
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .take();
+    let Some((update, bytes)) = pending else {
+        return Err("No update has been downloaded.".into());
+    };
+    #[cfg(windows)]
+    {
+        let _ = update;
+        let exe = windows::install(&bytes)?;
+        std::process::Command::new(&exe)
+            .current_dir(exe.parent().unwrap_or(std::path::Path::new(".")))
+            .spawn()
+            .map_err(|e| format!("the updated launcher could not start: {e}"))?;
+        app.exit(0);
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        update.install(bytes).map_err(|e| e.to_string())?;
+        app.restart()
+    }
+}
+
+/// The Windows install: the release zip, unpacked and swapped in beside the running launcher.
+#[cfg(windows)]
+pub mod windows {
+    use std::path::{Path, PathBuf};
+
+    use dereth_launch::swap;
+
+    /// The launcher's file name, which a release must hold.
+    pub const EXE: &str = "dereth.exe";
+
+    /// Unpack `zip` into the staging folder in `dir`.
+    ///
+    /// # Errors
+    /// The archive is not a zip, names a path outside the folder, or could not be written.
+    pub fn unpack(zip: &[u8], dir: &Path) -> Result<PathBuf, String> {
+        let staging = dir.join(swap::STAGING_DIR);
+        let _ = std::fs::remove_dir_all(&staging);
+        std::fs::create_dir_all(&staging).map_err(|e| format!("{}: {e}", staging.display()))?;
+        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(zip))
+            .map_err(|e| format!("the update is not a zip: {e}"))?;
+        for i in 0..archive.len() {
+            let mut entry = archive
+                .by_index(i)
+                .map_err(|e| format!("the update's zip: {e}"))?;
+            let Some(rel) = entry.enclosed_name() else {
+                return Err(format!(
+                    "the update names a path outside its folder: {}",
+                    entry.name()
+                ));
+            };
+            let out = staging.join(rel);
+            if entry.is_dir() {
+                std::fs::create_dir_all(&out).map_err(|e| format!("{}: {e}", out.display()))?;
+                continue;
+            }
+            if let Some(parent) = out.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| format!("{}: {e}", parent.display()))?;
+            }
+            let mut file =
+                std::fs::File::create(&out).map_err(|e| format!("{}: {e}", out.display()))?;
+            std::io::copy(&mut entry, &mut file).map_err(|e| format!("{}: {e}", out.display()))?;
+        }
+        Ok(staging)
+    }
+
+    /// Put the release in `zip` in place of the files in `dir`. Returns the new launcher's path.
+    ///
+    /// # Errors
+    /// Unpacking failed, the archive holds no launcher, or a file could not be swapped (in which
+    /// case `dir` is as it was).
+    pub fn install_into(zip: &[u8], dir: &Path) -> Result<PathBuf, String> {
+        let staging = unpack(zip, dir)?;
+        let result = (|| {
+            let release = swap::release_root(&staging, EXE)
+                .ok_or_else(|| format!("the update holds no {EXE}"))?;
+            swap::swap_in(dir, &release)
+                .map_err(|e| format!("the update could not replace the launcher's files: {e}"))
+        })();
+        let _ = std::fs::remove_dir_all(&staging);
+        result.map(|_| dir.join(EXE))
+    }
+
+    /// [`install_into`] the running launcher's own folder.
+    pub fn install(zip: &[u8]) -> Result<PathBuf, String> {
+        let exe = std::env::current_exe()
+            .map_err(|e| format!("the launcher could not find itself: {e}"))?;
+        let dir = exe.parent().ok_or("the launcher is in no folder")?;
+        install_into(zip, dir)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use dereth_launch::releases;
+    use tauri_plugin_updater::RemoteRelease;
+
+    /// `latest.json` as the release writes it: one entry per platform, each the download and its
+    /// signature. The keys are the updater's `<os>-<arch>` targets.
+    const LATEST: &str = r#"{
+        "version": "0.2.0",
+        "notes": "Dereth 0.2.0",
+        "pub_date": "2026-10-01T12:00:00Z",
+        "platforms": {
+            "windows-x86_64": {
+                "signature": "c2lnbmF0dXJlIGZvciB3aW5kb3dz",
+                "url": "https://github.com/dereth-network/dereth/releases/download/dereth-v0.2.0/dereth-0.2.0-windows-x86_64.zip"
+            },
+            "darwin-aarch64": {
+                "signature": "c2lnbmF0dXJlIGZvciBtYWNPUw==",
+                "url": "https://github.com/dereth-network/dereth/releases/download/dereth-v0.2.0/Dereth-0.2.0-macos-aarch64.app.tar.gz"
+            },
+            "linux-x86_64": {
+                "signature": "c2lnbmF0dXJlIGZvciBMaW51eA==",
+                "url": "https://github.com/dereth-network/dereth/releases/download/dereth-v0.2.0/Dereth-0.2.0-linux-x86_64.AppImage"
+            }
+        }
+    }"#;
+
+    #[test]
+    fn latest_json_reads_as_a_version_and_one_download_per_platform() {
+        let release: RemoteRelease = serde_json::from_str(LATEST).unwrap();
+        assert_eq!(release.version.to_string(), "0.2.0");
+        assert_eq!(release.notes.as_deref(), Some("Dereth 0.2.0"));
+        let windows = release.download_url("windows-x86_64").unwrap();
+        assert!(
+            windows.path().ends_with(".zip"),
+            "Windows updates from the release zip: {windows}"
+        );
+        assert_eq!(
+            release.signature("linux-x86_64").unwrap(),
+            "c2lnbmF0dXJlIGZvciBMaW51eA=="
+        );
+        assert!(release
+            .download_url("darwin-aarch64")
+            .unwrap()
+            .path()
+            .ends_with(".app.tar.gz"));
+        assert!(
+            release.download_url("darwin-x86_64").is_err(),
+            "a platform the release lacks has no update"
+        );
+    }
+
+    /// The configuration names no endpoint: the launcher gives the updater the one it found at
+    /// start, so no fixed address in it can go stale. The signing key is there.
+    #[test]
+    fn the_configuration_names_the_signing_key_and_no_endpoint() {
+        let conf: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        assert!(conf["plugins"]["updater"]["endpoints"].is_null());
+        assert!(conf["plugins"]["updater"]["pubkey"]
+            .as_str()
+            .is_some_and(|k| !k.is_empty()));
+    }
+
+    /// Whichever game's package it came in, a launcher reads the launcher's newest release, passing
+    /// over the games' own, newer-numbered or not.
+    #[test]
+    fn every_launcher_updates_from_the_launchers_newest_release_and_no_games() {
+        let url = super::manifest_url(None, |_| {
+            page(
+                br#"[
+                {"tag_name":"dereth-v0.6.0","draft":false,"prerelease":false,"assets":[
+                    {"name":"latest.json","browser_download_url":"https://example.test/d060/latest.json"}]},
+                {"tag_name":"auberean-v0.7.0","draft":false,"prerelease":false,"assets":[
+                    {"name":"latest.json","browser_download_url":"https://example.test/a070/latest.json"}]},
+                {"tag_name":"launcher-v0.6.0","draft":true,"prerelease":false,"assets":[
+                    {"name":"latest.json","browser_download_url":"https://example.test/draft/latest.json"}]},
+                {"tag_name":"launcher-v0.5.0","draft":false,"prerelease":false,"assets":[
+                    {"name":"latest.json","browser_download_url":"https://example.test/l050/latest.json"}]}
+            ]"#,
+                None,
+            )
+        });
+        assert_eq!(
+            url.as_deref(),
+            Some("https://example.test/l050/latest.json")
+        );
+        let none = super::manifest_url(None, |_| {
+            page(
+                br#"[{"tag_name":"dereth-v0.6.0","draft":false,"prerelease":false,"assets":[
+                    {"name":"latest.json","browser_download_url":"https://example.test/d060/latest.json"}]}]"#,
+                None,
+            )
+        });
+        assert_eq!(none, None);
+    }
+
+    /// The Windows install finds the launcher in a launcher release's zip, whose folder is named for
+    /// it and not for a game, and leaves what the release doesn't hold where it is.
+    #[test]
+    fn a_launcher_release_swaps_in_and_leaves_a_client_beside_it_alone() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+        std::fs::write(dir.join("dereth.exe"), b"old launcher").unwrap();
+        std::fs::write(dir.join("dereth-client.exe"), b"the client").unwrap();
+        let staged = dir.join("staged");
+        let root = staged.join("launcher-0.5.0");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("dereth.exe"), b"new launcher").unwrap();
+        let release = dereth_launch::swap::release_root(&staged, "dereth.exe").unwrap();
+        dereth_launch::swap::swap_in(dir, &release).unwrap();
+        assert_eq!(
+            std::fs::read(dir.join("dereth.exe")).unwrap(),
+            b"new launcher"
+        );
+        assert_eq!(
+            std::fs::read(dir.join("dereth-client.exe")).unwrap(),
+            b"the client"
+        );
+    }
+
+    #[test]
+    fn dereth_update_url_wins_and_no_release_list_is_fetched() {
+        let url = super::manifest_url(Some("https://example.test/latest.json".into()), |_| {
+            panic!("the release list is not fetched when DERETH_UPDATE_URL is set")
+        });
+        assert_eq!(url.as_deref(), Some("https://example.test/latest.json"));
+    }
+
+    /// A page of the list holding `json`, naming `next` as the page after it.
+    fn page(json: &[u8], next: Option<&str>) -> Result<releases::Page, String> {
+        Ok(releases::Page {
+            body: json.to_vec(),
+            next: next.map(str::to_owned),
+        })
+    }
+
+    #[test]
+    fn the_newest_launcher_releases_latest_json_is_read_from_the_source_repositorys_list() {
+        let mut asked = Vec::new();
+        let url = super::manifest_url(None, |api| {
+            asked.push(api.to_owned());
+            page(
+                br#"[
+                {"tag_name":"empyrean-v0.3.0","draft":false,"prerelease":false,"assets":[
+                    {"name":"release.json","browser_download_url":"https://example.test/e/release.json"}]},
+                {"tag_name":"launcher-v0.3.0","draft":true,"prerelease":false,"assets":[
+                    {"name":"latest.json","browser_download_url":"https://example.test/draft/latest.json"}]},
+                {"tag_name":"launcher-v0.2.0","draft":false,"prerelease":false,"assets":[
+                    {"name":"latest.json","browser_download_url":"https://example.test/l020/latest.json"}]}
+            ]"#,
+                Some("https://api.github.com/repositories/1/releases?per_page=100&page=2"),
+            )
+        });
+        assert_eq!(
+            url.as_deref(),
+            Some("https://example.test/l020/latest.json")
+        );
+        assert_eq!(
+            asked,
+            [releases::releases_api_url(releases::SOURCE_URL).unwrap()],
+            "one page: it holds a launcher release"
+        );
+    }
+
+    #[test]
+    fn the_list_is_read_on_to_the_page_holding_a_launcher_release() {
+        let second = "https://api.github.com/repositories/1/releases?per_page=100&page=2";
+        let mut asked = Vec::new();
+        let url = super::manifest_url(None, |api| {
+            asked.push(api.to_owned());
+            if api == second {
+                page(
+                    br#"[{"tag_name":"launcher-v0.4.6","assets":[
+                        {"name":"latest.json","browser_download_url":"https://example.test/d046/latest.json"}]}]"#,
+                    None,
+                )
+            } else {
+                page(
+                    br#"[{"tag_name":"empyrean-v0.3.4"},{"tag_name":"lyceum-v0.1.0"}]"#,
+                    Some(second),
+                )
+            }
+        });
+        assert_eq!(
+            url.as_deref(),
+            Some("https://example.test/d046/latest.json")
+        );
+        assert_eq!(asked.len(), 2);
+    }
+
+    #[test]
+    fn a_page_is_fetched_with_the_next_pages_address_from_its_link_header() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!(
+            "http://{}/repos/someone/fork/releases?per_page=100",
+            listener.local_addr().unwrap()
+        );
+        let second = "https://api.github.com/repositories/1/releases?per_page=100&page=2";
+        let served = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut head = Vec::new();
+            let mut buf = [0u8; 1024];
+            while !head.windows(4).any(|w| w == b"\r\n\r\n") {
+                match stream.read(&mut buf).unwrap() {
+                    0 => break,
+                    n => head.extend_from_slice(&buf[..n]),
+                }
+            }
+            let body = br#"[{"tag_name":"empyrean-v0.3.4"}]"#;
+            let link = format!("<{second}>; rel=\"next\", <{second}>; rel=\"last\"");
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nLink: {link}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            )
+            .unwrap();
+            stream.write_all(body).unwrap();
+        });
+        let page = super::list_page(&url).unwrap();
+        served.join().unwrap();
+        assert_eq!(page.body, br#"[{"tag_name":"empyrean-v0.3.4"}]"#);
+        assert_eq!(page.next.as_deref(), Some(second));
+    }
+
+    #[test]
+    fn an_unreachable_or_unreadable_release_list_skips_the_check_quietly() {
+        assert_eq!(
+            super::manifest_url(None, |_| Err("connection refused".into())),
+            None
+        );
+        assert_eq!(
+            super::manifest_url(None, |_| page(
+                br#"{"message":"API rate limit exceeded"}"#,
+                None
+            )),
+            None
+        );
+        assert_eq!(
+            super::manifest_url(None, |_| page(br#"[{"tag_name":"empyrean-v1.0.0"}]"#, None)),
+            None
+        );
+    }
+
+    /// The launcher's icon is the network's emblem in every package: the shared configuration
+    /// names the picture and the Windows icon, and the macOS one adds its own icon file.
+    #[test]
+    fn every_configuration_names_the_launchers_own_icon_files() {
+        let base: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        assert_eq!(
+            base["bundle"]["icon"],
+            serde_json::json!(["icons/icon.png", "icons/icon.ico"])
+        );
+        let mac: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.macos.conf.json")).unwrap();
+        assert_eq!(
+            mac["bundle"]["icon"],
+            serde_json::json!(["icons/Network.icns", "icons/icon.png", "icons/icon.ico"])
+        );
+        // And macOS 26's own drawing of it, compiled from the layered source, which the bundle's
+        // Info.plist names.
+        assert_eq!(
+            mac["bundle"]["macOS"]["files"]["Resources/Assets.car"],
+            "icons/layered/Assets.car"
+        );
+        assert!(include_str!("../Info.plist")
+            .contains("<key>CFBundleIconName</key>\n\t<string>Network</string>"));
+        let build = include_str!("../build.rs");
+        for (from, to) in [
+            ("network.png", "icons/icon.png"),
+            ("network.ico", "icons/icon.ico"),
+            ("Network.icns", "icons/Network.icns"),
+        ] {
+            assert!(
+                build.contains(&format!(r#"std::fs::copy(icon.join("{from}"), "{to}")"#)),
+                "{from}"
+            );
+        }
+        assert!(build.contains(r#"compile_icon(&assets.join("Network.icon"), "Network""#));
+        assert!(build.contains(r#""--app-icon", name"#));
+    }
+
+    /// The icon files hold every size each system asks for: the Windows icon 16 to 256 pixels,
+    /// the macOS one up to 1024 (512 at twice the density).
+    #[test]
+    fn the_icon_files_hold_every_size_up_to_the_largest_each_system_draws() {
+        let ico = include_bytes!("../assets/icon/network.ico");
+        let count = usize::from(u16::from_le_bytes([ico[4], ico[5]]));
+        // A directory entry's width byte is the width, 0 for 256.
+        let widths: Vec<u32> = (0..count)
+            .map(|i| match ico[6 + 16 * i] {
+                0 => 256,
+                w => u32::from(w),
+            })
+            .collect();
+        for want in [16, 24, 32, 48, 64, 128, 256] {
+            assert!(widths.contains(&want), "{want} in {widths:?}");
+        }
+        let icns = include_bytes!("../assets/icon/Network.icns");
+        assert_eq!(&icns[..4], b"icns");
+        let mut kinds = Vec::new();
+        let mut at = 8;
+        while at + 8 <= icns.len() {
+            let len = u32::from_be_bytes([icns[at + 4], icns[at + 5], icns[at + 6], icns[at + 7]]);
+            kinds.push(String::from_utf8_lossy(&icns[at..at + 4]).into_owned());
+            at += len as usize;
+        }
+        // 16, 32, 128, 256, 512 and 1024 pixels.
+        for want in ["icp4", "icp5", "ic07", "ic08", "ic09", "ic10"] {
+            assert!(kinds.iter().any(|k| k == want), "{want} in {kinds:?}");
+        }
+        let png = include_bytes!("../assets/icon/network.png");
+        assert_eq!(
+            u32::from_be_bytes([png[16], png[17], png[18], png[19]]),
+            256
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_windows_update_zip_is_unpacked_and_swapped_in_beside_the_launcher() {
+        use std::io::Write;
+        let dir = std::env::temp_dir().join(format!("dereth-update-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("dereth.exe"), "launcher 1").unwrap();
+        std::fs::write(dir.join("dereth-client.exe"), "client 1").unwrap();
+
+        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let opts = zip::write::SimpleFileOptions::default();
+        for (name, text) in [
+            ("dereth-0.2.0/dereth.exe", "launcher 2"),
+            ("dereth-0.2.0/dereth-client.exe", "client 2"),
+        ] {
+            zip.start_file(name, opts).unwrap();
+            zip.write_all(text.as_bytes()).unwrap();
+        }
+        let bytes = zip.finish().unwrap().into_inner();
+
+        let exe = super::windows::install_into(&bytes, &dir).unwrap();
+        assert_eq!(exe, dir.join("dereth.exe"));
+        assert_eq!(
+            std::fs::read_to_string(dir.join("dereth.exe")).unwrap(),
+            "launcher 2"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.join("dereth-client.exe")).unwrap(),
+            "client 2"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.join("dereth.exe.dereth-old")).unwrap(),
+            "launcher 1"
+        );
+        assert!(
+            !dir.join(dereth_launch::swap::STAGING_DIR).exists(),
+            "the staging folder is removed"
+        );
+        assert_eq!(dereth_launch::swap::clean_up(&dir), 2);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

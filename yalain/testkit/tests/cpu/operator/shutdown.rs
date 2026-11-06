@@ -124,6 +124,53 @@ fn stopping_the_server_keeps_every_character_still_in_the_world() {
     }
 }
 
+/// A stop takes every client from the world to its disconnected screen, told it was logged off,
+/// one at its character list too, and every connection ends rather than timing out.
+/// Behaviour: server.operator.a-stop-lets-every-client-go
+#[test]
+fn a_stop_tells_every_client_it_was_logged_off_and_ends_its_connection() {
+    let mut h = Harness::new();
+    let (a, _) = h.player_in_world("one", "Elara");
+    let b = h.at_character_list("two");
+    h.run(5);
+    let (from_a, from_b) = (h.bots[a].inbox.len(), h.bots[b].inbox.len());
+    assert!(h.net.connection_count() >= 3);
+    let now = h.now;
+    assert_eq!(shutdown::stopping(&mut h.server, &mut h.net, now), 1);
+    assert_eq!(h.net.connection_count(), 0, "every connection is ended");
+    h.run(4);
+    for (bot, from) in [(a, from_a), (b, from_b)] {
+        assert!(
+            h.bots[bot].inbox[from..].iter().any(|r| matches!(
+                r.message(),
+                Some(auberean_protocol::ServerMessage::CharacterRefused(x))
+                    if x.reason == auberean_protocol::login::CharacterRefused::LOGGED_OFF
+            )),
+            "bot {bot}"
+        );
+    }
+}
+
+/// A stop after a panic has nothing more to tell: everyone was let go at the panic.
+/// Behaviour: server.operator.a-stop-lets-every-client-go
+#[test]
+fn a_stop_after_a_panic_tells_no_one_it_was_logged_off() {
+    let mut h = Harness::new();
+    let (a, _) = h.player_in_world("one", "Elara");
+    h.run(5);
+    let clock = h.clock();
+    yalain_world::guard::stopped(&mut h.server, &mut h.net, clock, "a test");
+    let from = h.bots[a].inbox.len();
+    let now = h.now;
+    assert_eq!(shutdown::stopping(&mut h.server, &mut h.net, now), 0);
+    h.run(4);
+    assert!(!h.bots[a].inbox[from..].iter().any(|r| matches!(
+        r.message(),
+        Some(auberean_protocol::ServerMessage::CharacterRefused(x))
+            if x.reason == auberean_protocol::login::CharacterRefused::LOGGED_OFF
+    )));
+}
+
 /// What a player was shown as notices since `from`: for each, when it was sent (seconds after the
 /// countdown began, from the inbox's length each second: what the world sends at a step reaches
 /// the client at the next), and its text: the operator's literal, or the countdown's string and
@@ -239,6 +286,56 @@ fn a_shutdown_shows_the_operators_message_and_counts_down_the_operators_interval
     assert_eq!(done, Some(620.0), "done twenty seconds after the last line");
 }
 
+/// The countdown an update warns players with: every player in the world is shown its own length
+/// at once, the lines follow as a shutdown's do, and the server is done twenty seconds after the
+/// last; a second one, or one during an operator's shutdown, begins nothing.
+/// Behaviour: server.update.players-warned-by-the-shutdown-countdown
+#[test]
+fn an_updates_warning_counts_down_its_own_seconds_to_every_player() {
+    let mut h = Harness::new();
+    let (a, _) = h.player_in_world("one", "Elara");
+    let (b, _) = h.player_in_world("two", "Tamsin");
+    h.run(5);
+    let from = [h.bots[a].inbox.len(), h.bots[b].inbox.len()];
+    let begun = h.now.0;
+    let clock = h.clock();
+    assert!(shutdown::begin_warning(
+        &mut h.server,
+        &mut h.net,
+        clock,
+        300
+    ));
+    assert_eq!(h.server.cfg.shutdown_seconds, 300);
+    assert!(
+        !shutdown::begin_warning(&mut h.server, &mut h.net, clock, 60),
+        "one countdown at a time"
+    );
+    assert_eq!(
+        h.server.cfg.shutdown_seconds, 300,
+        "and it keeps its length"
+    );
+    let (at, done) = watch(&mut h, &[a, b], begun, 340.0);
+    let want = vec![
+        (0.0, Shown::Line(shutdown::MINUTES, vec![5])),
+        (180.0, Shown::Line(shutdown::MINUTES, vec![2])),
+        (
+            210.0,
+            Shown::Line(shutdown::MINUTES_AND_SECONDS, vec![1, 30]),
+        ),
+        (240.0, Shown::Line(shutdown::MINUTES, vec![1])),
+        (270.0, Shown::Line(shutdown::SECONDS, vec![30])),
+        (300.0, Shown::Line(shutdown::NOW, vec![])),
+    ];
+    for (i, bot) in [a, b].into_iter().enumerate() {
+        assert_eq!(
+            shown(&h, bot, from[i], &at[i]),
+            want,
+            "what player {i} was shown, and when"
+        );
+    }
+    assert_eq!(done, Some(320.0), "done twenty seconds after the last line");
+}
+
 /// A countdown cancelled after two lines: every player in the world is told the world is no
 /// longer shutting down, no more lines come, the world goes on, and a later shutdown counts down
 /// afresh. Cancelling with no countdown running does nothing.
@@ -332,4 +429,58 @@ fn stopping_now_shows_the_last_line_and_lets_the_server_stop_at_once() {
         ]
     );
     assert_eq!(h.server.shutdown, Shutdown::Done);
+}
+
+/// A world that runs no pass for the limit's looks is stopped once, from where it was.
+/// Behaviour: server.operator.a-world-that-runs-no-pass-is-stopped
+#[test]
+fn a_world_that_runs_no_pass_for_the_limit_is_stopped_once() {
+    use yalain_world::guard::{watch, Part, Passes};
+    let passes = Passes::default();
+    passes.pass();
+    passes.at(Part::World);
+    let mut looks = 0;
+    let mut stopped = Vec::new();
+    assert!(watch(&passes, 5, || looks += 1, |part| stopped.push(part)));
+    assert_eq!(stopped, [Part::World], "stopped once, from where it was");
+    assert_eq!(looks, 5, "after the limit, its first look seeing the count");
+}
+
+/// A world that runs a pass between any two looks is never stopped, however many looks go by, and
+/// its passes being over ends the watch.
+/// Behaviour: server.operator.a-world-that-runs-no-pass-is-stopped
+#[test]
+fn a_world_still_running_passes_is_not_stopped_and_its_end_ends_the_watch() {
+    use yalain_world::guard::{watch, Passes};
+    let passes = Passes::default();
+    let mut looks = 0;
+    let mut stopped = false;
+    let ended = watch(
+        &passes,
+        2,
+        || {
+            looks += 1;
+            passes.pass();
+            if looks == 1_000 {
+                passes.over();
+            }
+        },
+        |_| stopped = true,
+    );
+    assert!(!ended && !stopped, "never stopped");
+    assert_eq!(looks, 1_000);
+}
+
+/// A limit of nothing never stops the world, and a pass after looks with none starts the count again.
+/// Behaviour: server.operator.a-world-that-runs-no-pass-is-stopped
+#[test]
+fn a_limit_of_nothing_never_trips_and_a_pass_starts_the_count_again() {
+    use yalain_world::guard::PassWatch;
+    let mut never = PassWatch::new(0);
+    assert!((0..1_000).all(|_| !never.look(7)));
+    let mut w = PassWatch::new(3);
+    assert!(!w.look(1) && !w.look(1) && !w.look(1), "two looks still");
+    assert!(!w.look(2), "a pass");
+    assert!(!w.look(2) && !w.look(2), "two looks still");
+    assert!(w.look(2), "the third");
 }

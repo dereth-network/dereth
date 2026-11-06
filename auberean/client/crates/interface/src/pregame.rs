@@ -131,7 +131,8 @@ pub(crate) fn make_keyboard(ui: &mut Ui, data: &mut Shared) -> Option<Box<dyn Fl
 
 // D2-01790
 pub(crate) fn make_credits(ui: &mut Ui, data: &mut Shared) -> Option<Box<dyn FlowScreen<Shared>>> {
-    let s = Credits::open(ui, false)?;
+    let (shift, ctrl) = ui.modifiers();
+    let s = Credits::open(ui, ctrl && ui.alt_held() && !shift)?;
     PreScreen::made(Box::new(s), data)
 }
 
@@ -194,18 +195,13 @@ pub(crate) enum Net {
 
 impl Retail {
     /// A key pressed (or the left button) while the key map is up: heard by it with the modifier
-    /// held (Ctrl before Shift), at its next tick.
-    pub(crate) fn key_for_keyboard(&mut self, word: u32, shift: bool, ctrl: bool) {
+    /// held (left Shift, right Shift, left Ctrl, right Ctrl, the first of them), at its next tick.
+    // D2-04867
+    pub(crate) fn key_for_keyboard(&mut self, word: u32, held: u8) {
         if self.pre::<Keyboard>().is_none() {
             return;
         }
-        let m = if ctrl {
-            keyboard::meta::LEFT_CTRL
-        } else if shift {
-            keyboard::meta::LEFT_SHIFT
-        } else {
-            0
-        };
+        let m = keyboard::meta::of_held(held);
         self.flow.flow.data.pre.key_hits.push((word, m));
     }
 
@@ -245,6 +241,7 @@ impl Retail {
         if let Some(list) = game.client.and_then(|c| c.model.characters.as_ref()) {
             let set = character_set(list);
             if d.pre.characters.as_ref() != Some(&set) {
+                // D2-11860
                 d.pre.characters = Some(set);
                 d.pre.lists += 1;
             }
@@ -258,7 +255,7 @@ impl Retail {
                 0
             });
         }
-        if let Some((response, id, n)) = game.client.and_then(|c| c.model.creation) {
+        if let Some((response, id, n, error)) = game.client.and_then(|c| c.model.creation) {
             if n != self.answers {
                 self.answers = n;
                 let character = game
@@ -279,7 +276,7 @@ impl Retail {
                 d.pre_notices.push(Notice::CharGenVerification {
                     response,
                     character,
-                    error: 0,
+                    error,
                 });
             }
         }
@@ -310,7 +307,7 @@ impl Retail {
                         }));
                     }
                 }
-                _ => {}
+                Net::Idle | Net::Connected => {}
             }
             self.net = net;
         }
@@ -371,6 +368,7 @@ impl Retail {
         let queued = self.flow.flow.queued_mode();
         let listing = self.flow.flow.mode() == mode::CHARACTER_SELECTION;
         if listing && queued != mode::AVATAR_SELECTION && self.creation.is_some() {
+            // D2-11863, D2-11862, D2-11864
             self.creation = None;
             let d = &mut self.flow.flow.data.pre;
             d.in_creation = false;
@@ -443,8 +441,8 @@ impl Retail {
         }
         for action in order {
             let text = texts.as_ref().and_then(|t| {
-                let x = t.texts.iter().find(|x| x.action == action)?;
-                self.ui.assets().string(t.string_table.0, x.name)
+                let (name, _) = t.descrip_values(action)?;
+                self.ui.assets().string(t.string_table.0, name)
             });
             match text {
                 Some(s) if !s.is_empty() => actions.push((action, s)),
@@ -531,11 +529,11 @@ impl Retail {
                 P::Delete { character } => {
                     requests.push(Request::Act(Action::DeleteCharacter { character }));
                 }
-                P::Create { name } => {
+                P::Create { name, admin } => {
                     let choice = self
                         .creation
                         .as_ref()
-                        .and_then(|c| crate::new_character(&name, c));
+                        .and_then(|c| crate::new_character(&name, admin, c));
                     if let Some(c) = choice {
                         requests.push(Request::Act(Action::CreateCharacter(c)));
                     }
@@ -552,9 +550,8 @@ impl Retail {
                     self.refresh_choices();
                 }
                 P::Behave { figure, behavior } => {
-                    // The scenes' figures play no behaviors yet: the behavior is over at once.
-                    tracing::debug!(figure, behavior, "a figure's behavior not played");
-                    self.flow.flow.data.pre.behaving.retain(|f| *f != figure);
+                    self.behaviors.push((figure, behavior));
+                    self.behaviors_begin = 2;
                 }
                 P::Randomize { mask } => {
                     if let Some(c) = &mut self.creation {
@@ -598,11 +595,22 @@ impl Retail {
                         k.maps = maps;
                     }
                 }
+                P::LiveKeys(maps) => {
+                    // Bound from now on, nothing written.
+                    requests.push(Request::BindKeyMaps([
+                        maps.normal.clone(),
+                        maps.shift.clone(),
+                        maps.control.clone(),
+                    ]));
+                    if let Some(k) = &mut self.flow.flow.data.pre.keys {
+                        k.maps = maps;
+                    }
+                }
                 P::Quit => requests.push(Request::Quit),
                 P::Sound(id) => requests.push(crate::sounds::screens(id)),
                 P::Silence => requests.push(crate::sounds::screens_silence()),
-                r @ P::Restore { .. } => {
-                    tracing::debug!(?r, "not carried out yet");
+                P::Restore { character, name } => {
+                    requests.push(Request::Act(Action::RestoreCharacter { character, name }));
                 }
             }
         }
@@ -625,6 +633,10 @@ impl Retail {
         let now = self.ui.now();
         let mut scene = None;
         if let Some(s) = self.pre::<CharacterSelect>() {
+            let portal = s.viewports().1.and_then(|v| self.ui.screen_rect(v));
+            if let Some(v) = portal.and_then(|r| hall::portal_scene(records, r)) {
+                overlay.scenes.push(v);
+            }
             let list = game.client.and_then(|c| c.model.characters.as_ref());
             let rect = s.viewports().0.and_then(|v| self.ui.screen_rect(v));
             if let (Some(l), Some(r)) = (list, rect) {
@@ -634,7 +646,8 @@ impl Retail {
             let rect = a.viewport().and_then(|v| self.ui.screen_rect(v));
             if let (Some(c), Some(r)) = (&self.creation, rect) {
                 let may = self.flow.flow.data.pre.may_make;
-                if let Some((v, who)) = hall::hall_scene(records, r, c, may) {
+                let under = self.flow.flow.data.pre.under;
+                if let Some((v, who)) = hall::hall_scene(records, r, c, may, under) {
                     self.flow.flow.data.pre.hall = who
                         .iter()
                         .map(|&(race, sex)| Avatar { race, sex })
@@ -651,6 +664,7 @@ impl Retail {
         match &mut scene {
             Some(v) => {
                 v.pick = self.pick.take();
+                v.behaviors = std::mem::take(&mut self.behaviors);
                 overlay.scenes.push(v.clone());
             }
             None if self.picking => {
@@ -665,6 +679,17 @@ impl Retail {
     /// What the last frame's pick found, for the screen that asked.
     // D2-01816, D2-01842
     pub(crate) fn pregame_picked(&mut self, game: &Game<'_>) {
+        // A behavior asked shows as played only once a frame has drawn it.
+        if self.behaviors_begin > 0 {
+            self.behaviors_begin -= 1;
+        } else {
+            self.flow
+                .flow
+                .data
+                .pre
+                .behaving
+                .retain(|f| game.behaving.contains(&(0, *f)));
+        }
         if !self.picking || self.pick.is_some() {
             return;
         }

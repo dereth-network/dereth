@@ -1,7 +1,7 @@
 [package]
 name = "yalain-store"
 description = "Accounts and characters: the server's persistent state, in embedded SQLite or in memory for tests."
-version = "0.1.2" # Yalain's own version, shared by every yalain-* crate (not the workspace's)
+version = "0.2.1" # Yalain's own version, shared by every yalain-* crate (not the workspace's)
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -15,6 +15,7 @@ sqlite = ["dep:rusqlite"]
 [dependencies]
 # The online backup copies a database file before its schema is migrated.
 rusqlite = { workspace = true, optional = true, features = ["backup"] }
+tracing.workspace = true
 
 [dev-dependencies]
 auberean-testkit.workspace = true

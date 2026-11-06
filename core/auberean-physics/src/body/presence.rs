@@ -74,7 +74,6 @@ impl Body {
 
     /// The server says the body left the world: when its position stamp is newer, a body that is
     /// not the player's lets go of its holder and leaves.
-    // D2-06191
     pub fn receive_leave_world(
         &mut self,
         land: &Land,
@@ -95,7 +94,6 @@ impl Body {
 
     /// A teleport begins: the body stops following sent positions and is unconstrained; it drops
     /// its target and tells its watchers it is teleporting; its teleport stamp moves on.
-    // D2-06054
     pub fn handle_teleport_start(&mut self) {
         self.minterp.stop_interpolating();
         self.minterp.unconstrain();
@@ -107,7 +105,6 @@ impl Body {
     }
 
     /// Puts the body at `p` as it stands outside any cell: there now and before.
-    // D2-05979
     pub fn set_no_cell_position(&mut self, p: Position) {
         let heading = crate::geom::frame_heading(&p.frame).degrees();
         self.position = p;

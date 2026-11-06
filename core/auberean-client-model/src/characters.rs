@@ -42,7 +42,6 @@ pub fn includes(list: &CharacterList, id: u64) -> bool {
 }
 
 /// The character in a slot, if it holds one.
-// D2-13097
 #[must_use]
 pub fn identity(list: &CharacterList, slot: u32) -> Option<&CharacterIdentity> {
     list.characters
@@ -51,14 +50,12 @@ pub fn identity(list: &CharacterList, slot: u32) -> Option<&CharacterIdentity> {
 }
 
 /// The name of the character in a slot.
-// D2-13098
 #[must_use]
 pub fn name(list: &CharacterList, slot: u32) -> Option<&WideString> {
     identity(list, slot).map(|c| &c.name)
 }
 
 /// The id of the character in a slot; the invalid id (0) for none.
-// D2-13099
 #[must_use]
 pub fn id(list: &CharacterList, slot: u32) -> u64 {
     identity(list, slot).map_or(0, |c| c.id)
@@ -77,7 +74,6 @@ pub fn set_greyed_out_for(list: &mut CharacterList, slot: u32, seconds: u32) {
 
 /// How long the character in a slot stays greyed out: 0 for an empty slot, a negative one, or one
 /// past the number of characters the account may have (when it may have any).
-// D2-13101
 #[must_use]
 pub fn greyed_out_for(list: &CharacterList, slot: i32) -> u32 {
     let Ok(s) = u32::try_from(slot) else {

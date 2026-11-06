@@ -3,11 +3,12 @@
 //!
 //! Sent all at once, such a message fills the client's socket and loses most of it, and the client
 //! asks for lost packets again only 114 at a time, once every 0.6 s, while a server keeps a sent
-//! packet for resending 120 s and its last 4,096 at most: the download never completes. So a
+//! packet for resending 120 s and only so many at most: the download never completes. So a
 //! message longer than one interval's budget leaves the connection's own queue for this one and is
 //! sent from it a part at a time:
 //!
-//! - **the rate:** at most [`BYTES_PER_INTERVAL`] in each half-second interval, counting what the
+//! - **the rate:** at most half of the connection's rate in each half-second interval
+//!   ([`BYTES_PER_INTERVAL`] unless the host sets another, within [`check_rate`]), counting what the
 //!   connection resends and its other messages first, which go out at once as before: the budget
 //!   is the large messages', and they take what the rest leave of it;
 //! - **the window:** never more than [`WINDOW`] sequenced packets out that the client has not
@@ -15,14 +16,15 @@
 //!   whole window lost is asked for again long before any of it is let go.
 //!
 //! A message on a queue that already has a large message waiting waits behind it, whatever its
-//! length, so each queue keeps its order; the other queues' messages are not held.
+//! length, so each queue keeps its order; the other queues' messages are not held. What counts as
+//! large does not change with the rate, so no rate lets a large message skip the window.
 
 use std::collections::{BTreeMap, VecDeque};
 
 use dereth_primitives::LocalTime;
 use dereth_transport::blob::NetBlob;
 use dereth_transport::flow::FlowQueue;
-use dereth_transport::session::MAX_NAK_IDS;
+use dereth_transport::session::{MAX_NAK_IDS, SENT_CACHE_MAX_PACKETS};
 use dereth_transport::wire::{
     Fragment, OutPacket, ProtoHeader, MAX_BUILD_PAYLOAD, MAX_FRAGS_PER_PACKET,
 };
@@ -35,14 +37,53 @@ pub const BYTES_PER_INTERVAL: usize = 32 * 1024;
 
 /// The most sequenced packets a server has out unacknowledged before its large messages wait: ten
 /// of the client's requests to send again, which it makes one each 0.6 s, so a whole window lost
-/// is asked for again within six seconds, far inside the 120 s and the 4,096 packets a server
-/// keeps for resending.
+/// is asked for again within six seconds, far inside the time and the packets a server keeps
+/// for resending.
 #[allow(clippy::cast_possible_truncation)]
 pub const WINDOW: u32 = 10 * MAX_NAK_IDS as u32;
 
+const _: () = assert!((WINDOW as usize) < SENT_CACHE_MAX_PACKETS);
+
+/// The most fragments a connection may have waiting before it is closed: about 45 MB, above what a
+/// download's own limit and one more record of it ever leave waiting, so only a client that has
+/// stopped taking what it is sent comes to it.
+pub const MOST_WAITING: usize = 100_000;
+
+/// The default rate: the January 2013 servers' ([`BYTES_PER_INTERVAL`] each half second).
+#[allow(clippy::cast_possible_truncation)]
+pub const DEFAULT_BYTES_PER_SECOND: u32 = 2 * BYTES_PER_INTERVAL as u32;
+
+/// The lowest rate taken: four full packets each half second. Less is the connection's own
+/// acknowledgements and clock messages spending most of the budget, and on a world connection its
+/// other messages all of it, so a large message might never go.
+pub const MIN_BYTES_PER_SECOND: u32 = 4 * 1024;
+
+/// The highest rate taken: each half second's burst just fills the 128 KiB a client's socket holds
+/// between two frames, and the four bursts between its acknowledgements just fit in the window. A
+/// larger burst is mostly lost and asked for again at the client's 114 packets each 0.6 s, which
+/// is slower.
+pub const MAX_BYTES_PER_SECOND: u32 = 256 * 1024;
+
+/// Refuse a rate no download does well at.
+///
+/// # Errors
+/// The rate is outside [`MIN_BYTES_PER_SECOND`] to [`MAX_BYTES_PER_SECOND`].
+pub fn check_rate(bytes_per_second: u32) -> Result<(), String> {
+    if (MIN_BYTES_PER_SECOND..=MAX_BYTES_PER_SECOND).contains(&bytes_per_second) {
+        Ok(())
+    } else {
+        Err(format!(
+            "{bytes_per_second} bytes a second: it must be {MIN_BYTES_PER_SECOND} to \
+             {MAX_BYTES_PER_SECOND}"
+        ))
+    }
+}
+
 /// One connection's large messages, waiting as fragments.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Pace {
+    /// What may be sent in one interval.
+    budget: usize,
     /// The fragments waiting, in the order they go.
     fragments: VecDeque<Fragment>,
     /// How many of them each queue has.
@@ -53,9 +94,28 @@ pub struct Pace {
     interval: Option<u16>,
 }
 
+impl Default for Pace {
+    fn default() -> Self {
+        Self::at_rate(DEFAULT_BYTES_PER_SECOND)
+    }
+}
+
 impl Pace {
-    /// Does a message of `len` bytes on `queue` go by the pace: longer than an interval's budget,
-    /// or on a queue with a large message waiting?
+    /// A connection's large messages sent at `bytes_per_second` ([`check_rate`] says which rates
+    /// do well).
+    #[must_use]
+    pub fn at_rate(bytes_per_second: u32) -> Self {
+        Self {
+            budget: usize::try_from(bytes_per_second / 2).unwrap_or(usize::MAX),
+            fragments: VecDeque::new(),
+            by_queue: BTreeMap::new(),
+            spent: 0,
+            interval: None,
+        }
+    }
+
+    /// Does a message of `len` bytes on `queue` go by the pace: longer than the 2013 servers' budget
+    /// of an interval, or on a queue with a large message waiting?
     #[must_use]
     pub fn takes(&self, queue: u16, len: usize) -> bool {
         len > BYTES_PER_INTERVAL || self.by_queue.get(&queue).is_some_and(|n| *n > 0)
@@ -78,6 +138,12 @@ impl Pace {
     #[must_use]
     pub fn waiting(&self) -> usize {
         self.fragments.len()
+    }
+
+    /// How many fragments of one queue are waiting.
+    #[must_use]
+    pub fn waiting_on(&self, queue: u16) -> usize {
+        self.by_queue.get(&queue).copied().unwrap_or(0)
     }
 
     /// The connection is in interval `interval`: a new one starts its budget again.
@@ -105,7 +171,7 @@ impl Pace {
     ) -> Vec<Vec<u8>> {
         let mut out = Vec::new();
         while !self.fragments.is_empty()
-            && self.spent < BYTES_PER_INTERVAL
+            && self.spent < self.budget
             && flow.highest_id_sent.wrapping_sub(acknowledged) < WINDOW
         {
             let mut packet = OutPacket::new(ProtoHeader {

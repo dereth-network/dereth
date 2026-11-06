@@ -21,6 +21,17 @@
 //! distance the cell itself was given when it last held the camera: the camera's cell takes its
 //! block's distance each frame and keeps it, and a cell the camera has never stood in is never
 //! left out for the fog.
+//!
+//! From outside, each view onto the land looks into the cells of the blocks about the camera that
+//! touch the outside: a cell whose box meets the view, and which is never culled or has a doorway
+//! some of which the view shows (a doorway out for a camera on the land, one between cells for a
+//! camera inside), starts a walk of its own, once a frame, with that view. The cells such a walk
+//! reaches are drawn when they are its first cell or that cell sees them; what stands in them as
+//! it does for a camera inside.
+//!
+//! A body is taken from the cells it touches: drawn when one of them is and its box, doubled, meets
+//! a view that cell was entered by. One standing on the land is drawn when its box, doubled, meets
+//! a view onto the land.
 
 use std::collections::{HashMap, HashSet};
 
@@ -32,6 +43,12 @@ use dereth_primitives::shape::Plane;
 use dereth_primitives::Vec3 as V;
 
 use crate::scene::{Camera, Cull, ObjectBatch};
+
+/// The first low word of an interior cell.
+const FIRST_INTERIOR: u32 = 0x100;
+
+/// The most cells a body may touch and still be culled by them.
+pub const BODY_CELLS: usize = 6;
 
 /// How far off a plane a corner may lie and still count as on it, when a doorway is clipped to a
 /// view.
@@ -121,6 +138,24 @@ impl Frustum {
             -dot(forward, add(eye, scale(forward, near))),
         ));
         Self { planes, eye }
+    }
+
+    /// The view of `camera`, the picture `aspect` times as wide as it is high.
+    #[must_use]
+    pub fn of_camera(camera: &Camera, aspect: f32) -> Self {
+        let (h, p) = (camera.heading.to_radians(), camera.pitch.to_radians());
+        let forward = Vec3::new(sinf(h) * cosf(p), cosf(h) * cosf(p), sinf(p));
+        let (right, up) = crate::scene::view_axes(forward, camera.roll);
+        let (right, forward, up) = (v(right), v(forward), v(up));
+        Self::camera(
+            v(camera.position),
+            right,
+            forward,
+            up,
+            aspect * camera.fov_y,
+            camera.fov_y,
+            camera.near,
+        )
     }
 
     /// The view through `corners` (a doorway clipped to this view) from this view's camera: one
@@ -245,8 +280,21 @@ pub struct Room {
     pub doorways: Vec<Doorway>,
     /// The cells drawn with it, by low word.
     pub shared: Vec<u16>,
+    /// The cells it sees, by low word.
+    pub visible: Vec<u16>,
     /// The interior fog's far distance it was given when it last held the camera.
     pub fog_cut: Option<f32>,
+}
+
+impl Room {
+    /// Whether a doorway leads out onto the land.
+    // D2-03515
+    #[must_use]
+    pub fn touches_outside(&self) -> bool {
+        self.doorways
+            .iter()
+            .any(|d| matches!(d.beyond, Beyond::Outside))
+    }
 }
 
 /// The cells never culled taken together: the doorways out of them (each in its own cell's mesh
@@ -262,6 +310,8 @@ pub struct Group {
 /// takes them.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Rooms {
+    /// Their block.
+    pub block: (i32, i32),
     /// The camera's cell.
     pub root: u16,
     /// The cells the camera's cell sees: those drawn when reached, with it.
@@ -326,19 +376,7 @@ impl Rooms {
     // D2-03601, D2-11032
     #[must_use]
     pub fn sight(&self, camera: &Camera, aspect: f32) -> Sight {
-        let (h, p) = (camera.heading.to_radians(), camera.pitch.to_radians());
-        let forward = V::new(sinf(h) * cosf(p), cosf(h) * cosf(p), sinf(p));
-        let right = unit(cross(forward, V::new(0.0, 0.0, 1.0)));
-        let up = cross(right, forward);
-        let view = Frustum::camera(
-            v(camera.position),
-            right,
-            forward,
-            up,
-            aspect * camera.fov_y,
-            camera.fov_y,
-            camera.near,
-        );
+        let view = Frustum::of_camera(camera, aspect);
         let mut walk = Walk {
             rooms: self,
             in_walk: HashSet::new(),
@@ -350,8 +388,152 @@ impl Rooms {
             .filter(|c| walk.sight.entered.contains_key(c))
             .collect();
         walk.sight.fog_color = self.fog_color;
+        walk.sight.block = Some(self.block);
         walk.sight
     }
+
+    /// Whether some of cell `room` shows through `view`, a view onto the land: its box meets the
+    /// view, and it is never culled or a doorway of it shows. A camera on the land looks by the
+    /// doorways out; a camera inside (`viewer_inside`), out through a doorway of its own, by those
+    /// between cells.
+    // D2-03576
+    #[must_use]
+    pub fn shows_from_outside(room: &Room, view: &Frustum, viewer_inside: bool) -> bool {
+        if view.relation(v(room.lo), v(room.hi)) == Relation::Outside {
+            return false;
+        }
+        room.no_cull
+            || room.doorways.iter().any(|d| {
+                matches!(d.beyond, Beyond::Outside) != viewer_inside
+                    && view
+                        .check_polygon(&Walk::placed(&d.corners, &room.place), false)
+                        .is_some()
+            })
+    }
+}
+
+/// A block's cells a view onto the land may look into: those it lists as seen from outside, in
+/// its order.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LookIn {
+    pub block: (i32, i32),
+    pub rooms: Rooms,
+    pub order: Vec<u16>,
+}
+
+/// What `views`, the views onto the land, look into among `blocks`: the walk each cell shown
+/// starts, the first view to show it taking it; `viewer_inside` when the camera stands in a cell.
+/// Also whether a walk found a cell open to the sky.
+// D2-03646, D2-03551, D2-03552
+#[must_use]
+pub fn look_into(
+    blocks: &[LookIn],
+    views: &[Frustum],
+    viewer_inside: bool,
+) -> (HashMap<(i32, i32), Seen>, bool) {
+    let mut seen: HashMap<(i32, i32), Seen> = HashMap::new();
+    let mut gathered: HashSet<((i32, i32), u16)> = HashSet::new();
+    let mut sky = false;
+    for view in views {
+        for look in blocks {
+            for &low in &look.order {
+                let Some(room) = look.rooms.cells.get(&low) else {
+                    continue;
+                };
+                if gathered.contains(&(look.block, low))
+                    || !room.touches_outside()
+                    || !Rooms::shows_from_outside(room, view, viewer_inside)
+                {
+                    continue;
+                }
+                gathered.insert((look.block, low));
+                let mut walk = Walk {
+                    rooms: &look.rooms,
+                    in_walk: HashSet::new(),
+                    sight: Sight::default(),
+                };
+                walk.cell(low, view, true);
+                sky |= walk.sight.sky;
+                let into = seen.entry(look.block).or_default();
+                for (cell, views) in walk.sight.entered {
+                    if cell == low || room.visible.contains(&cell) {
+                        into.drawn.insert(cell);
+                    }
+                    into.entered.entry(cell).or_default().extend(views);
+                }
+            }
+        }
+    }
+    (seen, sky)
+}
+
+/// What culls a body standing in cell `cell` (a full id), touching `touching` too, drawn by
+/// `batches`: on the land its box, inside the interior cells it touches of its cell's block with
+/// its box; each box twice its size about its middle. Drawn whatever the camera sees when it has
+/// no vertex or touches too many cells to name.
+// D2-03577, D2-03583, D2-03646
+#[must_use]
+pub fn body_cull(cell: u32, touching: &[u32], batches: &[ObjectBatch]) -> Cull {
+    let mut lo = Vec3::new(f32::MAX, f32::MAX, f32::MAX);
+    let mut hi = Vec3::new(f32::MIN, f32::MIN, f32::MIN);
+    let mut last: Option<(usize, Mat4)> = None;
+    for b in batches {
+        let here = (b.places(), b.transform);
+        if last == Some(here) {
+            continue;
+        }
+        last = Some(here);
+        b.each_position(|[x, y, z]| {
+            let w = b.transform.point(Vec3::new(x, y, z));
+            lo = Vec3::new(lo.x.min(w.x), lo.y.min(w.y), lo.z.min(w.z));
+            hi = Vec3::new(hi.x.max(w.x), hi.y.max(w.y), hi.z.max(w.z));
+        });
+    }
+    if lo.x > hi.x {
+        return Cull::Never;
+    }
+    let twice = |l: f32, h: f32| (l + 0.5 * (l - h), h + 0.5 * (h - l));
+    let (lx, hx) = twice(lo.x, hi.x);
+    let (ly, hy) = twice(lo.y, hi.y);
+    let (lz, hz) = twice(lo.z, hi.z);
+    let (lo, hi) = (Vec3::new(lx, ly, lz), Vec3::new(hx, hy, hz));
+    if cell & 0xFFFF < FIRST_INTERIOR {
+        return Cull::Box { lo, hi };
+    }
+    let mut cells = [0u16; BODY_CELLS];
+    let mut n = 0;
+    for &c in std::iter::once(&cell).chain(touching) {
+        if c >> 16 != cell >> 16 || c & 0xFFFF < FIRST_INTERIOR {
+            continue;
+        }
+        #[allow(clippy::cast_possible_truncation)] // the low word
+        let low = c as u16;
+        if cells[..n].contains(&low) {
+            continue;
+        }
+        if n == BODY_CELLS {
+            return Cull::Never;
+        }
+        cells[n] = low;
+        n += 1;
+    }
+    #[allow(clippy::cast_possible_wrap)] // a block's coordinates are a byte each
+    let block = ((cell >> 24) as i32, ((cell >> 16) & 0xFF) as i32);
+    Cull::Body {
+        block,
+        cells,
+        lo,
+        hi,
+    }
+}
+
+/// What a block's cells show of themselves to the views onto the land.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Seen {
+    /// The cells reached, each with the views it was entered by.
+    pub entered: HashMap<u16, Vec<Frustum>>,
+    /// The cells drawn.
+    pub drawn: HashSet<u16>,
 }
 
 /// What a frame seen from inside shows at the moment.
@@ -368,9 +550,35 @@ pub struct Sight {
     /// A cell was left out for the interior fog: the background is painted its color.
     pub fog: bool,
     pub fog_color: [f32; 4],
+    /// The camera stands on the land: all of it is in view, whatever its boxes.
+    pub on_land: bool,
+    /// The block of the camera's cell.
+    pub block: Option<(i32, i32)>,
+    /// What the views onto the land look into, by block.
+    pub seen: HashMap<(i32, i32), Seen>,
 }
 
 impl Sight {
+    /// What a camera on the land sees at the moment: its `view` onto the land, and what that looks
+    /// into among `blocks`.
+    #[must_use]
+    pub fn on_land(view: Frustum, blocks: &[LookIn]) -> Self {
+        let (seen, _) = look_into(blocks, std::slice::from_ref(&view), false);
+        Self {
+            outside: vec![view],
+            on_land: true,
+            seen,
+            ..Self::default()
+        }
+    }
+
+    /// Look through the views out of a camera's cell into `blocks`.
+    pub fn look_out(&mut self, blocks: &[LookIn]) {
+        let (seen, sky) = look_into(blocks, &self.outside, true);
+        self.seen = seen;
+        self.sky |= sky;
+    }
+
     /// Whether the land, its water and the light outdoors are drawn: a view out onto it.
     #[must_use]
     pub fn outdoors(&self) -> bool {
@@ -387,7 +595,13 @@ impl Sight {
     // D2-03592, D2-03590
     #[must_use]
     pub fn shows(&self, b: &ObjectBatch) -> bool {
-        match b.cull {
+        self.shows_cull(b.cull)
+    }
+
+    /// Whether a draw culled by `cull` is drawn.
+    #[must_use]
+    pub fn shows_cull(&self, cull: Cull) -> bool {
+        match cull {
             Cull::Never => true,
             Cull::Cell(c) => self.drawn.contains(&c),
             Cull::InCell { cell, lo, hi } => {
@@ -398,10 +612,49 @@ impl Sight {
                             .any(|f| f.relation(v(lo), v(hi)) != Relation::Outside)
                     })
             }
-            Cull::Box { lo, hi } => self
-                .outside
-                .iter()
-                .any(|f| f.relation(v(lo), v(hi)) != Relation::Outside),
+            Cull::Box { lo, hi } => {
+                self.on_land
+                    || self
+                        .outside
+                        .iter()
+                        .any(|f| f.relation(v(lo), v(hi)) != Relation::Outside)
+            }
+            Cull::Looked { block, cell } => self
+                .seen
+                .get(&block)
+                .is_some_and(|s| s.drawn.contains(&cell)),
+            Cull::LookedIn {
+                block,
+                cell,
+                lo,
+                hi,
+            } => self.seen.get(&block).is_some_and(|s| {
+                s.drawn.contains(&cell)
+                    && s.entered.get(&cell).is_some_and(|views| {
+                        views
+                            .iter()
+                            .any(|f| f.relation(v(lo), v(hi)) != Relation::Outside)
+                    })
+            }),
+            Cull::Body {
+                block,
+                cells,
+                lo,
+                hi,
+            } => {
+                let meets = |views: &Vec<Frustum>| {
+                    views
+                        .iter()
+                        .any(|f| f.relation(v(lo), v(hi)) != Relation::Outside)
+                };
+                let inside = self.block == Some(block);
+                cells.iter().filter(|&&c| c != 0).any(|c| {
+                    (inside && self.drawn.contains(c) && self.entered.get(c).is_some_and(meets))
+                        || self.seen.get(&block).is_some_and(|s| {
+                            s.drawn.contains(c) && s.entered.get(c).is_some_and(meets)
+                        })
+                })
+            }
         }
     }
 }

@@ -9,6 +9,15 @@ use super::{Behaviour, Evidence, Tier, RETAIL, THIS_CLIENT};
 /// This subject's rows, in id order.
 pub static ROWS: &[Behaviour] = &[
     behaviour! {
+        id: "model.characters.a-character-brought-back-loses-its-grey",
+        says: "The answer that a deleted character is made again takes its grey off in the list, \
+               where it stays one row.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-MODEL-CHARACTER-BROUGHT-BACK"),
+        station: "auberean-client-model::cpu::characters::a_character_brought_back_loses_its_grey",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "model.characters.a-deletion-is-told-and-the-list-waits-for-the-server",
         says: "A character deleted is told on, and the account's list is left as it is: the list \
                the server sends after the deletion shows the character gone.",
@@ -24,6 +33,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-CGAME3-CHARACTER-SLOTS"),
         station: "auberean-client-model::cpu::characters::a_new_list_allows_five_characters",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "model.characters.a-refused-character-keeps-the-servers-error",
+        says: "A character refused keeps the error the server gave, for the creation screen to say why.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CHARGEN-ERROR"),
+        station: "auberean-client-model::cpu::characters::a_refused_character_keeps_the_servers_error",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -79,12 +96,51 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "model.events.a-private-gap-is-given-up-one-stamp-at-a-time",
+        says: "With twenty private messages held and five minutes blocked, a message arriving gives \
+               up one missing stamp, and the five minutes start again if the next held one is still \
+               not next; a late stamp the give-ups have not reached still takes effect.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CSTREAM-PRIVATE-GIVE-UP"),
+        station: "auberean-client-model::cpu::events::a_private_gap_is_given_up_one_stamp_per_five_minutes",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "model.events.a-private-message-that-does-not-read-holds-nothing-back",
+        says: "A private message the client cannot read counts for its stamp, so what the server \
+               sends after it takes effect at once rather than waiting out the give-up; it waits \
+               for the player's object as a readable one would, and leaves with the world.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CSTREAM-PRIVATE-UNREAD"),
+        station: "auberean-client-model::cpu::events::a_private_message_that_does_not_read_holds_nothing_back",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "model.events.a-queue-for-an-object-being-made-waits",
         says: "A queue of messages waiting for an object that is being made from its records is \
                never given up, however long it waits.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MODEL-BEING-CREATED"),
         station: "auberean-client-model::cpu::events::a_queue_for_an_object_being_made_is_never_given_up",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "model.events.a-repeated-private-stamp-past-a-gap-takes-effect-twice",
+        says: "A private stamp arriving again while it is held past a gap is held again and takes \
+               effect twice, the later arrival first, and each counts toward the twenty held.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CSTREAM-PRIVATE-REPEAT"),
+        station: "auberean-client-model::cpu::events::a_private_stamp_repeated_past_a_gap_takes_effect_twice_later_arrival_first",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "model.events.a-visual-message-that-does-not-read-holds-nothing-back",
+        says: "A visual message's object and stamps stand at its head, whatever its type: one that \
+               does not read still counts for its stamp, or waits for its object, and one of any \
+               readable type keeps its place in that object's order.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-MODEL-VISUAL-HEAD"),
+        station: "auberean-client-model::cpu::events::a_visual_message_that_does_not_read_holds_nothing_back",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -148,12 +204,30 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "model.events.of-two-visual-messages-held-under-one-stamp-the-heap-picks",
+        says: "Of two visual messages held under one stamp, the queue's heap decides which goes first, and \
+               the other is dropped: after a smaller stamp has passed through, the later of the two goes.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-MODEL-VISUAL-QUEUE-HEAP"),
+        station: "auberean-client-model::cpu::events::of_two_visual_messages_held_under_one_stamp_the_heap_picks_the_later",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "model.events.private-messages-in-stamp-order",
         says: "The player's private messages take effect in the order of their stamps, whatever \
                order they arrive in; one stamped at or before the last taken is dropped.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MODEL-PRIVATE-ORDER"),
         station: "auberean-client-model::cpu::events::private_messages_take_effect_in_stamp_order",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "model.events.stamps-exactly-half-the-circle-apart-favor-the-smaller",
+        says: "Of two stamps exactly half the circle apart the numerically smaller is the newer: a visual \
+               message waits or is dropped by it, and an incarnation replaces or is ignored by it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-MODEL-STAMP-HALF-CIRCLE"),
+        station: "auberean-client-model::cpu::events::stamps_exactly_half_the_circle_apart_favor_the_smaller",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -174,6 +248,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MODEL-VISUAL-ORDER"),
         station: "auberean-client-model::cpu::events::visual_messages_take_effect_in_stamp_order_per_object",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "model.events.visual-stamps-held-across-the-wrap-go-round-the-circle",
+        says: "An object's visual messages are held and released by the circle of stamps: a stamp past \
+               the wrap waits behind those before the wrap, and the wanted stamp is never held up behind it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-MODEL-VISUAL-QUEUE-CIRCLE"),
+        station: "auberean-client-model::cpu::events::visual_stamps_held_across_the_wrap_take_effect_round_the_circle",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -248,8 +331,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "model.replay.every-recorded-let-go-names-an-item-its-sender-held",
-        says: "Every let-go recorded in 2013 and 2017 that takes effect names an item the model \
-               has hanging from the message's sender, and the item hangs from nothing after it.",
+        says: "Every let-go recorded in 2013 and 2017 that finds its item hanging names an item the \
+               model has hanging from the message's sender, and the item hangs from nothing after \
+               it; one stamped no later than a hold already taken leaves the item held, and one \
+               coming after the item's move to a pack, stamped later, has nothing left to do.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MODEL-LET-GO-REPLAY"),
         station: "auberean-client-runtime::corpus::inventory::every_recorded_let_go_names_an_item_its_sender_held",
@@ -276,6 +361,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "model.state.a-creation-brings-back-an-object-that-left",
+        says: "A creation of an object the client still has puts it back in the world where the                creation says it stands, after it left the world: a player who went on ahead through                a door is there when the client arrives.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-MODEL-CREATION-BRINGS-BACK"),
+        station: "auberean-client-model::cpu::model::a_creation_brings_back_an_object_that_left",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "model.state.a-let-go-names-the-item-and-its-holder-sends-it",
         says: "A held item is let go of by a message its holder sends: the item let go of is the \
                one the message names, in the incarnation it names, not the message's sender.",
@@ -291,6 +384,23 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MODEL-REFUSED"),
         station: "auberean-client-model::cpu::model::a_refused_entry_is_kept_with_its_reason_and_counted",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "model.state.a-stale-leaving-or-holding-changes-nothing",
+        says: "Leaving the world or being held counts only when its stamp is later than the newest \n               position stamp the object heard; an older or equal one changes nothing, half the \n               circle ahead counting as behind.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-MODEL-STALE-POSITION-STAMP"),
+        station: "auberean-client-model::cpu::model::a_stale_leaving_or_holding_changes_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "model.state.an-object-made-held-takes-its-position-stamp",
+        says: "An object made already held takes the position stamp its description gives: a let-go \
+               older than that changes nothing, and a later one lets it go.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-MODEL-HELD-POSITION-STAMP"),
+        station: "auberean-client-model::cpu::model::an_object_made_held_takes_its_position_stamp",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -364,6 +474,15 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-WORLD-PHYSICS-OBJ"),
         station: "auberean-client-runtime::cpu::world::objects::the_scene_makes_a_game_objects_physics_object_from_its_records_and_descriptions",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "model.world.a-region-the-data-does-not-name-is-not-taken-up",
+        says: "The installed data names one region. A player's creation naming another number \
+               changes nothing: the world stays as it was and the scene takes nothing up.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WORLD-REGION-ONE-NAMED"),
+        station: "auberean-client-runtime::corpus::calls::a_region_the_data_does_not_name_is_not_taken_up",
+        tier: Tier::Corpus,
     },
     behaviour! {
         id: "model.world.a-regions-number-puts-the-world-in-its-region",

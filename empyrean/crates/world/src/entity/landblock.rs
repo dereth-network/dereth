@@ -1081,6 +1081,7 @@ pub fn tick_single_threaded_work(w: &mut World, id: LandblockId, current_unix_ti
 
     let stopwatch = perf::stopwatch_start(w);
     let players = lb(w, id).players.clone();
+    crate::world_objects::portal_storm::tick(w, id, &players, current_unix_time);
     for player in players {
         if w.objects.contains(player) {
             player_player_tick(w, player, current_unix_time);
@@ -1294,6 +1295,25 @@ fn add_world_object_internal(w: &mut World, id: LandblockId, wo: ObjectGuid) -> 
     }
 
     true
+}
+
+/// Not ACE: the player corpses of `victim_id` on landblock `id` (its world objects, then its
+/// pending additions, each once), for an era's limit on a character's corpses in the world.
+#[must_use]
+pub fn player_corpses_of(w: &World, id: LandblockId, victim_id: u32) -> Vec<ObjectGuid> {
+    let l = lb(w, id);
+    let mut out: Vec<ObjectGuid> = Vec::new();
+    for &g in l.world_objects.keys().chain(l.pending_additions.keys()) {
+        if out.contains(&g) {
+            continue;
+        }
+        if w.objects.get(g).is_some_and(|c| {
+            c.is_corpse() && c.level().is_some() && c.victim_id() == Some(victim_id)
+        }) {
+            out.push(g);
+        }
+    }
+    out
 }
 
 // ACE: Landblock.RemoveWorldObject

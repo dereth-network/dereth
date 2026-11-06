@@ -119,6 +119,7 @@ fn world() -> Harness {
             journals: Vec::new(),
             challenge: -999,
             duration: 0.0,
+            timed_phase: 0,
             retry: 0.0,
             xp: 0,
             cancellable: false,
@@ -129,8 +130,15 @@ fn world() -> Harness {
             min_level: 0,
             fails_on_death: false,
             once: false,
+            fellows: yalain_content::quests::Fellows::default(),
+            last_waits: false,
+            hero_only: false,
+            pay: yalain_content::quests::CompletionPay::default(),
+            required: None,
         }],
         steps: Vec::new(),
+        gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let effect = |state, spellcraft| UsageEffect { state, spellcraft };
     h.server.item_uses.insert(
@@ -646,7 +654,10 @@ fn a_rod_whose_use_moves_a_quest_is_refused_away_from_its_place_and_moves_it_the
         takes: Vec::new(),
         races: Vec::new(),
         effects_last: false,
+        wants: None,
         fellows: false,
+        levels: None,
+        xp_share: 0.0,
         to: None,
     });
     let (b, me, world) = in_world(&mut h);
@@ -798,8 +809,13 @@ fn a_reward_quest_is_completed_with_the_quest_it_rewards() {
             to: None,
             races: Vec::new(),
             effects_last: false,
+            wants: None,
             fellows: false,
+            levels: None,
+            xp_share: 0.0,
         }],
+        gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let mut token = Props::default();
     token
@@ -861,6 +877,47 @@ fn a_reward_quest_is_completed_with_the_quest_it_rewards() {
     );
     let from = send_use(&mut h, b, me, token, 0.2);
     assert_eq!(answers(&h, b, from)[0].status, 0);
+}
+
+/// An item for monarchs alone used by anyone else is refused (10038) and does nothing.
+/// Behaviour: server.items.monarch-only
+#[test]
+fn an_item_for_monarchs_alone_is_refused_to_anyone_else() {
+    use yalain_world::allegiance::Node;
+    const CROWN: u32 = 0x4700_2158;
+    let mut h = world();
+    let mut props = Props::default();
+    props
+        .set("Item_UsageAction", Prop::Word(0x1F))
+        .set("Usage_MonarchOnly", Prop::Bool(true));
+    template(&mut h, CROWN, props);
+    h.server.item_uses.insert(
+        CROWN,
+        vec![item_use::UsageEffect {
+            state: LUCK,
+            spellcraft: 1.0,
+        }],
+    );
+    let (b, me, world) = in_world(&mut h);
+    let crown = give(&mut h, world, CROWN, 1);
+    let from = send_use(&mut h, b, me, crown, 0.2);
+    assert_eq!(
+        answers(&h, b, from)
+            .iter()
+            .map(|a| a.status)
+            .collect::<Vec<_>>(),
+        vec![refusal::MONARCH_ONLY]
+    );
+    assert!(records_from(&h, world, crown).is_empty());
+    h.server.allegiances.nodes.insert(me, Node::default());
+    let from = send_use(&mut h, b, me, crown, 0.2);
+    assert!(
+        answers(&h, b, from)
+            .iter()
+            .all(|a| a.status != refusal::MONARCH_ONLY),
+        "a monarch is not refused"
+    );
+    assert!(!records_from(&h, world, crown).is_empty(), "and it works");
 }
 
 /// An item used below its least level is refused (10009) and does nothing.

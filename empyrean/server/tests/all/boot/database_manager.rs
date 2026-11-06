@@ -146,6 +146,32 @@ fn empty_content_skips_the_checks() {
     assert!(installed_shard_has(&w, 0x5000_0001));
 }
 
+/// Divergence: V466
+#[test]
+fn launch_startup_refuses_missing_source_policy_and_local_loot_dependencies() {
+    use empyrean_common::era::EraId;
+    use empyrean_content::loot::SourceLootPolicy;
+    for with_policy in [false, true] {
+        let mut content = good_content().era(EraId::Launch);
+        if with_policy {
+            let p = SourceLootPolicy::from_json(include_bytes!(
+                "../../../../fixtures/source-loot/synthetic.json"
+            ))
+            .unwrap();
+            content = content.source_loot_policy(p);
+        }
+        let mut w = world_with(content);
+        w.era = EraId::Launch.rules();
+        assert!(database_manager::initialize(
+            &mut w,
+            auth(),
+            shard_with(0x5000_0001),
+            &options(true)
+        ));
+        assert!(!installed_shard_has(&w, 0x5000_0001));
+    }
+}
+
 #[test]
 fn no_admin_account_turns_on_auto_promotion() {
     let mut w = world_with(good_content());

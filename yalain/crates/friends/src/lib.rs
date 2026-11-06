@@ -28,8 +28,20 @@
 //!   player with a stream has them, on the network or not.
 //! - **Other worlds' characters** need the character on the Dereth Network (`@dn on`, said in
 //!   chat) and the world linked; the link's half does the rest ([`Service::said`]).
+//! - **A linked character's friends on other worlds** are its person's, kept by the hub: an add goes
+//!   there and the link's half lists what its person friends name, beside what this service keeps.
+//!   The client's friends page holds what it was last given, and only a list it asks for rebuilds it.
+//!   So its first ask waits, a moment, for the character's first person view; a row a view adds in
+//!   play comes with the next list, and one that goes stays, offline, until then, its removal
+//!   answered as done.
+//! - **A hidden character** ([`Service::set_hidden`], a cloaked admin) is not there to anyone: its
+//!   friends here and on other worlds see it offline, a tell to it is answered as one to a
+//!   character offline is, and it stops watching its friends on other worlds, whose watches would
+//!   say it is here. Its client keeps its stream, and it may still tell whom it chooses.
 //! - **A gagged character** ([`Service::set_gagged`]) tells nobody, here or on another world: it
 //!   is shown [`GAGGED`], and its client that the tell could not be sent.
+//! - **A renamed character** ([`Service::renamed`]) keeps its stream and its state. Every character's
+//!   lists hold it by the new name; a friend present sees the old name go and the new one come.
 //! - **Names.** A name whose world part is the world's own name (any case) or its slug is a
 //!   character of the world, and is written back as `Name@` and the world's name exactly, so the
 //!   client knows its own world. Every other character is written as its network address.
@@ -147,6 +159,8 @@ pub struct TicketCheck {
     pub stream: StreamId,
     pub cx: Cx,
     pub ticket: Ticket,
+    /// The address it came from, as bounds count it.
+    pub peer: String,
 }
 
 /// The account a stream is bound to.
@@ -214,12 +228,12 @@ impl Lists {
     }
 }
 
-/// A tell to another world, waiting for its end.
+/// A tell through the link, waiting for its end.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Waiting {
-    stream: StreamId,
-    account: u64,
-    cx: Cx,
+    /// The stream, its account and the request that asked; none for the game's own tell, whose
+    /// teller has been answered already.
+    asked: Option<(StreamId, u64, Cx)>,
     teller: u64,
 }
 
@@ -232,6 +246,25 @@ struct Adding {
     friend: dereth_network_protocol::Address,
     /// When it is shown offline if its world has not answered.
     until: Duration,
+}
+
+/// A client's ask for its friends, held for the character's first person view.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ListWait {
+    stream: StreamId,
+    cx: Cx,
+    /// The character, in small letters.
+    name: String,
+    /// When it is answered if no view has come.
+    until: Duration,
+}
+
+/// A change to a character's kept list the link's half made, for the store.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct KeptChange {
+    character: u64,
+    entry: String,
+    on: bool,
 }
 
 /// The friends service.
@@ -277,6 +310,14 @@ pub struct Service {
     now: Duration,
     /// The characters the world has gagged, as the host says.
     gagged: HashSet<u64>,
+    /// The characters no one is to know are here, as the host says.
+    hidden: HashSet<u64>,
+    /// Those in the world with a suffix, by the name a client shows, in small letters.
+    suffixed: HashMap<String, String>,
+    /// Clients' asks for their friends, waiting for a person view.
+    lists_waiting: Vec<ListWait>,
+    /// What the store has yet to hear of the kept lists.
+    kept_changes: Vec<KeptChange>,
 }
 
 /// The time as the link's half counts it.
@@ -335,6 +376,10 @@ impl Service {
             accounts_changed: true,
             now: Duration::ZERO,
             gagged: HashSet::new(),
+            hidden: HashSet::new(),
+            suffixed: HashMap::new(),
+            lists_waiting: Vec::new(),
+            kept_changes: Vec::new(),
         }
     }
 
@@ -459,6 +504,7 @@ impl Service {
             self.assumed_offline.insert(key.clone());
             self.added(&key, false);
         }
+        self.answer_lists(fed.as_deref_mut());
         let gone: Vec<String> = self
             .held
             .values()
@@ -480,6 +526,7 @@ impl Service {
             .values()
             .filter_map(|s| s.session.next_wake())
             .chain(self.adding.values().map(|a| a.until))
+            .chain(self.lists_waiting.iter().map(|l| l.until))
             .chain(self.held.values().map(|h| h.until))
             .min()
     }
@@ -579,6 +626,106 @@ impl Service {
         self.gagged = characters;
     }
 
+    /// The characters in the world with a suffix, each as a client shows it and by its own name.
+    pub fn set_suffixed(&mut self, characters: impl IntoIterator<Item = (String, String)>) {
+        self.suffixed = characters
+            .into_iter()
+            .map(|(shown, own)| (shown.to_lowercase(), own))
+            .collect();
+    }
+
+    /// The characters no one is to know are here, as the world says. Those newly so go offline to
+    /// their friends, here and on other worlds, as if they had left; those no longer so come back
+    /// as if they had entered. One that left the world but stays present after a hand-over stays
+    /// as it was until it goes: it must not show online on its way out.
+    pub fn set_hidden(
+        &mut self,
+        now: Duration,
+        characters: HashSet<u64>,
+        store: &mut impl Store,
+        mut fed: Option<&mut Federation>,
+    ) {
+        self.now = now;
+        let mut next = characters;
+        for h in self.here.values() {
+            let held = self
+                .held
+                .values()
+                .any(|x| x.name.eq_ignore_ascii_case(&h.name));
+            if held && self.hidden.contains(&h.character) {
+                next.insert(h.character);
+            }
+        }
+        if next == self.hidden {
+            return;
+        }
+        let here: Vec<(u64, String, Mode)> = self
+            .here
+            .values()
+            .map(|h| (h.character, h.name.clone(), mode_of(&h.state)))
+            .collect();
+        // In the world without a stream: nobody sees these come or go, but their person views do.
+        let alone: Vec<(u64, String)> = self
+            .in_world
+            .values()
+            .filter(|w| !self.here.contains_key(&w.name.to_lowercase()))
+            .map(|w| (w.character, w.name.clone()))
+            .collect();
+        for (character, name, _) in &here {
+            if next.contains(character) && !self.hidden.contains(character) {
+                self.hide(name, fed.as_deref_mut());
+            }
+        }
+        if let Some(f) = fed.as_deref_mut() {
+            for (character, name) in &alone {
+                if next.contains(character) && !self.hidden.contains(character) {
+                    f.stop_view_of(name);
+                }
+            }
+        }
+        let lifted = std::mem::replace(&mut self.hidden, next);
+        if let Some(f) = fed.as_deref_mut() {
+            for (character, name) in &alone {
+                if lifted.contains(character) && !self.hidden.contains(character) {
+                    f.watch_view_of(&*self, name);
+                }
+            }
+        }
+        for (character, name, mode) in &here {
+            if lifted.contains(character) && !self.hidden.contains(character) {
+                self.tell_friends_of(name, *mode);
+                if let Some(f) = fed.as_deref_mut() {
+                    f.arrived(self, name);
+                }
+            }
+        }
+        self.settle(now, store, fed);
+    }
+
+    /// A present character is to be hidden: everyone sees it go. It stops watching its friends on
+    /// other worlds, so what its client shows of them can't stand: it shows them offline too.
+    fn hide(&mut self, name: &str, fed: Option<&mut Federation>) {
+        self.tell_friends_of(name, Mode::OFFLINE);
+        let Some(f) = fed else {
+            return;
+        };
+        let shown: Vec<dereth_network_protocol::Address> = f
+            .remote_of(&*self, name)
+            .into_iter()
+            .filter(|a| f.shown(name, a) == Some(true))
+            .collect();
+        f.left(self, name);
+        f.stop_view_of(name);
+        for friend in shown {
+            yalain_federation::Friends::show_presence(self, name, &friend, false, true);
+        }
+    }
+
+    /// Whether a character of this world is hidden, by its name.
+    fn is_hidden(&self, name: &str) -> bool {
+        self.id_of(name).is_some_and(|id| self.hidden.contains(&id))
+    }
+
     /// The ticket a stream presented is refused (`banned`: the account is banned). Counted
     /// against the address it came from.
     pub fn refuse(
@@ -645,6 +792,8 @@ impl Service {
         }
         if let Some(&id) = self.by_account.get(&account) {
             self.arrive(now, id, &w, false, fed.as_deref_mut());
+        } else if let Some(f) = fed.as_deref_mut() {
+            f.watch_view_of(&*self, name);
         }
         self.settle(now, store, fed);
     }
@@ -697,6 +846,10 @@ impl Service {
                     self.leave_stream_of(&w.name);
                     self.depart(&w.name, fed.as_deref_mut());
                 }
+            } else if !self.hidden.contains(&w.character) {
+                if let Some(f) = fed.as_deref_mut() {
+                    f.stop_view_of(&w.name);
+                }
             }
         }
         self.settle(now, store, fed);
@@ -728,9 +881,81 @@ impl Service {
         );
         self.start(now, id, &w.name, fed.as_deref());
         self.tell_friends_of(&w.name, Mode::ONLINE);
-        if let Some(f) = fed {
+        if let Some(f) = fed.filter(|_| !self.hidden.contains(&w.character)) {
             f.arrived(self, &w.name);
         }
+    }
+
+    /// A character took a new name, which the store has now, in everyone's lists too. It stays
+    /// present with the stream and state it had. Whoever lists it and is present sees the old name
+    /// leave and the new one arrive: a client shows no other way to change one name to another, and
+    /// its friends window finds the new name only when it next asks for the list.
+    pub fn renamed(
+        &mut self,
+        now: Duration,
+        character: u64,
+        old: &str,
+        new: &str,
+        store: &mut impl Store,
+        mut fed: Option<&mut Federation>,
+    ) {
+        self.now = now;
+        let (from, to) = (old.to_lowercase(), new.to_lowercase());
+        if self.here.contains_key(&from) {
+            self.tell_friends_of(old, Mode::OFFLINE);
+        }
+        if let Some(f) = fed.as_deref_mut() {
+            f.renaming(self, old);
+        }
+        for l in self.lists.values_mut() {
+            names::rename(&mut l.friends, &from, &to, new);
+            names::rename(&mut l.ignored, &from, &to, new);
+        }
+        self.ignores_changed = true;
+        self.ids.remove(&from);
+        self.ids.insert(to.clone(), (character, new.to_owned()));
+        for w in self
+            .in_world
+            .values_mut()
+            .filter(|w| w.character == character)
+        {
+            new.clone_into(&mut w.name);
+        }
+        if let Some(mut h) = self.here.remove(&from) {
+            new.clone_into(&mut h.name);
+            self.here.insert(to.clone(), h);
+        }
+        let adding: Vec<(String, String)> = self
+            .adding
+            .keys()
+            .filter(|(c, _)| *c == from)
+            .cloned()
+            .collect();
+        for key in adding {
+            if let Some(a) = self.adding.remove(&key) {
+                self.adding.insert((to.clone(), key.1), a);
+            }
+        }
+        let assumed: Vec<(String, String)> = self
+            .assumed_offline
+            .iter()
+            .filter(|(c, _)| *c == from)
+            .cloned()
+            .collect();
+        for key in assumed {
+            self.assumed_offline.remove(&key);
+            self.assumed_offline.insert((to.clone(), key.1));
+        }
+        for l in self.lists_waiting.iter_mut().filter(|l| l.name == from) {
+            l.name.clone_from(&to);
+        }
+        if let Some(f) = fed.as_deref_mut() {
+            f.renamed(self, old, new);
+        }
+        if let Some(mode) = self.here.get(&to).map(|h| mode_of(&h.state)) {
+            self.tell_friends_of(new, mode);
+        }
+        self.settle(now, store, fed);
     }
 
     /// Sends a present character's stream its friends, each with its state.
@@ -765,13 +990,17 @@ impl Service {
         }
         self.assumed_offline.retain(|(c, _)| *c != key);
         self.tell_friends_of(&h.name, Mode::OFFLINE);
-        if let Some(f) = fed {
+        if let Some(f) = fed.filter(|_| !self.hidden.contains(&h.character)) {
             f.left(self, &h.name);
         }
     }
 
-    /// Every present character that lists `name` (a character of this world) is told its mode.
+    /// Every present character that lists `name` (a character of this world) is told its mode;
+    /// nobody is told anything of a hidden one.
     fn tell_friends_of(&mut self, name: &str, mode: Mode) {
+        if self.is_hidden(name) {
+            return;
+        }
         let key = name.to_lowercase();
         let user = self.written_local(name);
         let listing: Vec<StreamId> = self
@@ -797,21 +1026,66 @@ impl Service {
         }
     }
 
-    /// The friends a character lists, each with its state now.
-    fn friends_of(&self, name: &str, fed: Option<&Federation>) -> Vec<FriendStatus> {
-        let Some(&(id, _)) = self.ids.get(&name.to_lowercase()) else {
-            return Vec::new();
-        };
-        let Some(l) = self.lists.get(&id) else {
-            return Vec::new();
-        };
-        l.friends
-            .iter()
+    /// The friends a character lists, each with its state now: those it keeps, and those its person
+    /// friends list.
+    pub(crate) fn friends_of(&self, name: &str, fed: Option<&Federation>) -> Vec<FriendStatus> {
+        let kept = self
+            .id_of(name)
+            .and_then(|id| self.lists.get(&id))
+            .map(|l| l.friends.clone())
+            .unwrap_or_default();
+        let persons = fed.map_or_else(Vec::new, |f| f.person_friends(name));
+        kept.into_iter()
+            .chain(persons.iter().map(ToString::to_string))
             .map(|e| {
-                let (user, mode) = self.status_of(name, e, fed);
+                let (user, mode) = self.status_of(name, &e, fed);
                 FriendStatus::new(&user, mode)
             })
             .collect()
+    }
+
+    /// Answers the asks for friends whose time has come, or whose view has.
+    fn answer_lists(&mut self, mut fed: Option<&mut Federation>) {
+        let now = self.now;
+        let due: Vec<ListWait> = {
+            let (due, waiting) = std::mem::take(&mut self.lists_waiting)
+                .into_iter()
+                .partition(|l| l.until <= now);
+            self.lists_waiting = waiting;
+            due
+        };
+        for l in due {
+            self.give_list(l.stream, l.cx, &l.name, fed.as_deref_mut());
+        }
+    }
+
+    /// Answers a client's ask for its friends.
+    pub(crate) fn give_list(
+        &mut self,
+        stream: StreamId,
+        cx: Cx,
+        name: &str,
+        fed: Option<&mut Federation>,
+    ) {
+        let friends = self.friends_of(name, fed.as_deref());
+        if let Some(f) = fed {
+            f.list_given(name);
+        }
+        self.answer(
+            stream,
+            cx,
+            Hr::OK,
+            auberean_friends::Answer::GetFriendsList { friends },
+        );
+    }
+
+    /// Tells the store what the link's half changed in the kept lists.
+    fn store_kept_changes(&mut self, store: &mut impl Store) {
+        for c in std::mem::take(&mut self.kept_changes) {
+            if let Err(e) = store.set_listed(c.character, NetworkList::Friends, &c.entry, c.on) {
+                tracing::warn!("friends service: the store: {e}");
+            }
+        }
     }
 
     /// A listed name as the client is shown it, with its mode.
@@ -825,14 +1099,15 @@ impl Service {
                     if online { Mode::ONLINE } else { Mode::OFFLINE },
                 )
             }
-            Target::NoSuchUser => (entry.to_owned(), Mode::OFFLINE),
+            Target::Channel(_) | Target::NoSuchUser => (entry.to_owned(), Mode::OFFLINE),
         }
     }
 
-    /// A character of this world's mode now.
+    /// A character of this world's mode now: a hidden one is offline.
     fn local_mode(&self, name: &str) -> Mode {
         self.here
             .get(&name.to_lowercase())
+            .filter(|h| !self.hidden.contains(&h.character))
             .map_or(Mode::OFFLINE, |h| mode_of(&h.state))
     }
 
@@ -864,6 +1139,7 @@ impl Service {
     /// Drains every stream with something for the host, handling what each says, until nothing
     /// is left.
     fn settle(&mut self, now: Duration, store: &mut impl Store, mut fed: Option<&mut Federation>) {
+        self.store_kept_changes(store);
         while let Some(id) = self.dirty.pop_first() {
             let Some(s) = self.streams.get_mut(&id) else {
                 continue;
@@ -918,6 +1194,7 @@ impl Service {
                 stream: id,
                 cx,
                 ticket,
+                peer: peer.clone(),
             }),
             Err(_) => {
                 // Counted as any refusal.
@@ -943,8 +1220,10 @@ impl Service {
             return;
         };
         self.tickets.retain(|t| t.stream != id);
-        self.waiting.retain(|_, w| w.stream != id);
+        self.waiting
+            .retain(|_, w| w.asked.is_none_or(|(stream, _, _)| stream != id));
         self.adding.retain(|_, a| a.stream != id);
+        self.lists_waiting.retain(|l| l.stream != id);
         let Some(account) = s.account else {
             return;
         };
@@ -1023,6 +1302,16 @@ impl Service {
         self.lists
             .get(&character)
             .is_some_and(|l| l.of(list).iter().any(|e| e.to_lowercase() == key))
+    }
+
+    /// How many whole worlds a character squelches.
+    fn count_worlds(&self, character: u64) -> usize {
+        self.lists.get(&character).map_or(0, |l| {
+            l.ignored
+                .iter()
+                .filter(|e| names::is_world_entry(e))
+                .count()
+        })
     }
 
     /// How many names a character lists.

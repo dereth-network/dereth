@@ -405,7 +405,6 @@ impl SightLine {
     }
 
     /// Starts at `from` and runs along `offset`.
-    // D2-08608
     pub fn set_from_position_and_offset(&mut self, from: &Position, offset: Vec3) {
         self.set_ray(Ray::from_offset(from.frame.origin, offset), from.cell.0);
     }

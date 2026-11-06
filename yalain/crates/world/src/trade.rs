@@ -16,6 +16,10 @@
 //! receive, both are told the trade failed, naming which side (the asker's want of room first);
 //! nothing moves, the acceptances are cleared and the trade stays open.
 //!
+//! **An attuned item**: when both have accepted and either side offers an item bound to its holder,
+//! both are told items are traded, its move refused, the trade reset and the trouble; nothing
+//! moves, and the trade stays open with nothing offered.
+//!
 //! **Both accepted**: both are told items are traded; each item moves into the other's pack at its
 //! first slot (a part of a stack as a new item, the rest staying), the move told to both and the
 //! item contained for its receiver; the trade is reset and both told it is finished. The trade
@@ -89,6 +93,7 @@ pub mod text {
     pub const TABLE: u32 = 0x2500_05E5;
     pub const TRADING: (u32, u32) = (0x2CAF_D828, TABLE);
     pub const FINISHED: (u32, u32) = (0x5EF2_06B9, TABLE);
+    pub const PROBLEM: (u32, u32) = (0xAF5F_E73E, TABLE);
     pub const FIGHTING: (u32, u32) = (0x0F4F_EB12, TABLE);
     pub const WAIT: (u32, u32) = (0x7A18_4D8F, TABLE);
     pub const ALREADY: (u32, u32) = (0xFD48_9ED8, TABLE);
@@ -237,7 +242,7 @@ pub fn open<S: Store>(
         );
         return;
     }
-    let Some(other) = world_of(s, target) else {
+    let Some(other) = crate::presence::player_for(s, world, target) else {
         s.unhandled
             .note("a trade asked of someone not in the world");
         return;
@@ -548,6 +553,21 @@ pub fn accept<S: Store>(
     let t = s.trades.list[i].clone();
     both(s, net, &t, &call(function::ACCEPTED, &[Arg::LongInt(me)]));
     if t.master_accepted && t.slave_accepted {
+        // What is no longer there to give is taken back, and each must look and accept again.
+        if offers_gone(s, net, i) {
+            return;
+        }
+        // A use under way on either side counts on its pack as it stands.
+        let spoken_for = [t.master, t.slave]
+            .iter()
+            .filter_map(|who| world_of(s, *who))
+            .any(|w| crate::places::pack_spoken_for(s, w));
+        if spoken_for {
+            clear_acceptance(&mut s.trades.list[i]);
+            let failed = call(function::FAILED, &[Arg::Int(crate::places::ACTIONS_LOCKED)]);
+            both(s, net, &t, &failed);
+            return;
+        }
         if let Some(why) = no_room(s, &t) {
             clear_acceptance(&mut s.trades.list[i]);
             both(s, net, &t, &call(function::FAILED, &[Arg::Int(why)]));
@@ -555,6 +575,41 @@ pub fn accept<S: Store>(
         }
         complete(s, net, i, clock);
     }
+}
+
+/// Take back what a side offered and no longer holds in its pack as many of (put down, sold, split
+/// off, merged away since it was offered), told to both as a side taking it back is. Whether any was.
+fn offers_gone<S: Store>(s: &mut Server<S>, net: &mut ServerNet, i: usize) -> bool {
+    let t = s.trades.list[i].clone();
+    let mut any = false;
+    for (who, items) in [(t.master, &t.master_items), (t.slave, &t.slave_items)] {
+        let Some(world) = world_of(s, who) else {
+            continue;
+        };
+        for (item, n) in items {
+            let held = s.players.get(&world).is_some_and(|p| {
+                p.play
+                    .items
+                    .iter()
+                    .any(|h| h.id == *item && h.location == 0 && h.quantity.max(1) >= *n)
+            });
+            if held {
+                continue;
+            }
+            any = true;
+            s.trades.list[i].items_mut(who).retain(|(x, _)| x != item);
+            both(
+                s,
+                net,
+                &t,
+                &call(function::REVOKED, &[Arg::LongInt(*item), Arg::LongInt(who)]),
+            );
+        }
+    }
+    if any {
+        clear_acceptance(&mut s.trades.list[i]);
+    }
+    any
 }
 
 /// Whether a side has no room for what it would receive (each item offered arrives as one item in
@@ -597,6 +652,9 @@ fn complete<S: Store>(s: &mut Server<S>, net: &mut ServerNet, i: usize, _clock: 
         &t,
         &crate::chat::show_text(NOTICE, progress::text(text::TRADING)),
     );
+    if refuse_attuned(s, net, i, &t) {
+        return;
+    }
     for (giver, items) in [
         (t.master, t.master_items.clone()),
         (t.slave, t.slave_items.clone()),
@@ -622,6 +680,56 @@ fn complete<S: Store>(s: &mut Server<S>, net: &mut ServerNet, i: usize, _clock: 
             crate::world::keep_player(s, w);
         }
     }
+}
+
+/// An attuned item among the offers stops the trade: its move refused, the first of them alone
+/// told, the trade reset and nothing moved (2017: 5 trades, both sides, the master's offers first;
+/// a second item in one of them told nothing). Returns whether it did.
+fn refuse_attuned<S: Store>(s: &mut Server<S>, net: &mut ServerNet, i: usize, t: &Trade) -> bool {
+    let first = [(t.master, &t.master_items), (t.slave, &t.slave_items)]
+        .into_iter()
+        .flat_map(|(giver, items)| items.iter().map(move |(item, n)| (giver, *item, *n)))
+        .find(|(_, item, _)| {
+            s.things
+                .get(*item)
+                .is_some_and(|x| inventory::attuned_now(s, x))
+        });
+    let Some((giver, item, n)) = first else {
+        return false;
+    };
+    let m = Move {
+        move_type: MOVE_TYPE,
+        item,
+        quantity: n,
+        from: giver,
+        from_slot: -1,
+        actual_from_slot: -1,
+        target: t.other(giver),
+        merge_slot: -1,
+        all_taken: true,
+        trade: true,
+        no_move: true,
+        no_anim: true,
+        contain: true,
+        grab: true,
+        unlock: true,
+        check_take: true,
+        status: crate::drops::status::ATTUNED,
+        ..Move::default()
+    };
+    both(s, net, t, &inventory::move_done(&m));
+    let tr = &mut s.trades.list[i];
+    tr.master_items.clear();
+    tr.slave_items.clear();
+    clear_acceptance(tr);
+    both(s, net, t, &call(function::RESET, &[]));
+    both(
+        s,
+        net,
+        t,
+        &crate::chat::show_text(REFUSED, progress::text(text::PROBLEM)),
+    );
+    true
 }
 
 /// One item (or a part of a stack) from one pack to the front of the other.
@@ -660,6 +768,9 @@ fn give<S: Store>(
         }
         item
     } else {
+        let Some(new) = inventory::split_off(s, item, n) else {
+            return;
+        };
         let left = held.quantity - n;
         if let Some(p) = s.players.get_mut(&gw) {
             if let Some(h) = p.play.items.iter_mut().find(|h| h.id == item) {
@@ -675,29 +786,27 @@ fn give<S: Store>(
             quality: QUANTITY,
             value: i32::try_from(left).unwrap_or(i32::MAX),
         });
-        progress::private(net, gw, &m);
-        let value = s.things.get(item).map_or(0, |x| x.value);
-        let Some(new) = inventory::make_item(s, template, n, value) else {
-            return;
-        };
+        inventory::to_holder(s, net, gw, item, &m);
         new
     };
-    // Into the receiver's pack at its first slot, the rest moved down.
+    // Into the receiver's pack at its first slot, the rest moved down; into the first bag with room
+    // when the pack itself is full.
+    let mut slot = 0;
     if let Some(p) = s.players.get_mut(&rw) {
-        inventory::insert_at(&mut p.play.items, 0);
+        slot = inventory::room_for_one(&mut p.play.items);
         p.play.items.insert(
             0,
             Held {
                 id: moved,
                 template,
-                slot: 0,
+                slot,
                 location: 0,
                 quantity: n.min(held.quantity),
             },
         );
     }
     if let Some(x) = s.things.get_mut(moved) {
-        x.container = Some((receiver, 0));
+        x.container = Some((receiver, slot));
         x.at = None;
     }
     let m = Move {
@@ -711,8 +820,8 @@ fn give<S: Store>(
         actual_from_slot: i32::try_from(held.slot).unwrap_or(-1),
         target: receiver,
         actual_target: receiver,
-        target_slot: 0,
-        actual_target_slot: 0,
+        target_slot: i32::try_from(slot).unwrap_or(0),
+        actual_target_slot: i32::try_from(slot).unwrap_or(0),
         merge_slot: -1,
         all_taken: whole,
         trade: true,
@@ -738,7 +847,7 @@ fn give<S: Store>(
                 quality: CONTAINER,
                 value: owner,
             });
-            progress::private(net, rw, &m);
+            inventory::to_holder(s, net, rw, moved, &m);
         }
     } else if let Some(x) = s.things.get(moved) {
         let m = ServerMessage::CreateObject(inventory::item_create(x));

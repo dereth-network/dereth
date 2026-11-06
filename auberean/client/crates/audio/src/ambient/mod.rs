@@ -1,8 +1,8 @@
 //! Ambient sound by place: the sounds a kind of place makes, picked by what lies around the
 //! player and heard from where the camera is.
 //!
-//! - **Places name kinds.** Every interior cell the player can see names one kind
-//!   ([`INTERIOR_KIND`]); the landscape's points (a landblock's vertices whose scenery carries a
+//! - **Places name kinds.** Every interior cell the player can see names its kind; the landscape's
+//!   points (a landblock's vertices whose scenery carries a
 //!   sound word) each name theirs. The region's ambient sound table describes each kind: its sound
 //!   environment, and its sounds that play now and then and continuously ([`desc`],
 //!   [`objects`]).
@@ -41,9 +41,6 @@ use desc::Description;
 /// landblock (0, 0).
 pub type Place = [f32; 3];
 
-/// The kind every interior cell names.
-pub const INTERIOR_KIND: u32 = 2;
-
 /// The emitters of the ambient sounds' objects: these top bits, then a running number. No
 /// object of the world has them.
 pub const EMITTERS: u64 = 0xA3B1_0000_0000_0000;
@@ -78,8 +75,8 @@ pub struct Surroundings<'a> {
     pub player: Place,
     /// The cells about the player are being waited for: nothing is recomputed.
     pub blocking: bool,
-    /// The interior cells in view: where each one's origin is.
-    pub cells: &'a [Place],
+    /// The interior cells in view: the kind each names and where its origin is.
+    pub cells: &'a [(u32, Place)],
     /// The landscape's points are heard.
     pub outside: bool,
     /// The landblocks whose points are heard (the landscape's near window).
@@ -367,8 +364,8 @@ impl Ambient {
         speaker: &mut dyn Speaker,
     ) {
         let outdoors = around.cell & 0xFFFF < 0x100;
-        for c in around.cells {
-            self.add_cell_sound(INTERIOR_KIND, *c, outdoors, speaker);
+        for (kind, c) in around.cells {
+            self.add_cell_sound(*kind, *c, outdoors, speaker);
         }
         if !around.outside {
             return;

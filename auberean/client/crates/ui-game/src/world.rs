@@ -149,9 +149,6 @@ pub struct Thing {
     pub body: Option<Body>,
     /// Its animation has faded it out of sight: no marks are put on it.
     pub faded: bool,
-    /// It hangs from another body (a wielded weapon): it is seen and picked where that body holds
-    /// it, and has no place of its own in the world.
-    pub held: bool,
     /// What the player's scripts answer of it: it is in the player's fellowship; the player may
     /// attack it on its own; its owner is in the fellowship.
     pub fellow: bool,
@@ -179,6 +176,9 @@ pub struct World {
     pub selection: u64,
     pub last_selection: u64,
     pub auto_target: bool,
+    /// The player's scripts would pick a target of their own as it starts to attack: it targets
+    /// automatically, and what is selected is nothing it could attack.
+    pub should_auto_target: bool,
     /// The radar's ranges indoors and outdoors, meters.
     pub ranges: (f32, f32),
     /// The radar's map coordinates shown; names shown over heads (the player's options).
@@ -186,6 +186,8 @@ pub struct World {
     pub show_names: bool,
     /// The player is in portal space.
     pub portal_space: bool,
+    /// Portal space is drawn, which lasts past the server's putting the player back.
+    pub portal_drawn: bool,
     /// The camera the world was last drawn from, once it was.
     pub camera: Option<Camera>,
     /// The answer to the last pick in the world asked: the object under the pointer, or none;

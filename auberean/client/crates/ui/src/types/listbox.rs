@@ -222,6 +222,7 @@ impl Ui {
     /// The element a named attribute points to: in the element's own window when it asks for
     /// unique messages, else the element of that name wherever it is, made and not yet on the
     /// screen included (a window's tree finds its scroll bar while the window is being made).
+    // D2-11261
     pub(crate) fn named_element(&self, h: Handle, a: Token) -> Option<Handle> {
         let id = self.node(h)?.id_attr(a)?;
         if id == 0 {
@@ -785,7 +786,9 @@ impl Ui {
         }
         let items = self.list_items(h);
         let horizontal = self.lb_test(h, bits::HORIZONTAL);
-        let (mut cols, mut rows, mut iw, mut ih) = (1, 1, 0, 0);
+        // An emptied list keeps the size of its cells, and one cell of sheet.
+        let (mut iw, mut ih) = self.lb(h).map_or((0, 0), |l| (l.item_w, l.item_h));
+        let (mut cols, mut rows) = (1, 1);
         if !items.is_empty() {
             let maxc = self.int_or(h, attr::MAX_COLUMNS, 1).max(1);
             self.listbox_adopt_items(h, &items);
@@ -926,6 +929,13 @@ impl Ui {
         self.named_element(h, a)
     }
 
+    /// A list's rows laid out again and its controls brought in step with its view, for a row whose
+    /// height changed. Nothing else under the list's window is touched.
+    // D2-11550
+    pub fn list_update_and_draw(&mut self, list: Handle) {
+        self.listbox_update_and_draw(list);
+    }
+
     /// Lay out, keep the view on the sheet, update the controls.
     // D2-11550
     pub(crate) fn listbox_update_and_draw(&mut self, h: Handle) {
@@ -1028,12 +1038,13 @@ impl Ui {
         }
     }
 
-    /// Insert a row at `index` (at the end past it).
-    // D2-11572
+    /// Insert a row at `index` (past the end of the list, no row is added).
+    // D2-11572, D2-11224
     pub fn list_insert(&mut self, list: Handle, item: Handle, index: usize) {
         if let Some(n) = self.node_mut(list) {
-            let at = index.min(n.list.items.len());
-            n.list.items.insert(at, item);
+            if index <= n.list.items.len() {
+                n.list.items.insert(index, item);
+            }
         }
         self.sync_selected_index(list);
         if !self.lb_test(list, bits::MULTI_OP) {
@@ -1041,12 +1052,14 @@ impl Ui {
         }
     }
 
-    /// Insert a row before another row of the list (at the end when that is not one of its rows).
+    /// Insert a row before another row of the list, at the end with no other named (and not at
+    /// all when the one named is not one of its rows).
     // D2-11519
     pub fn list_insert_before(&mut self, list: Handle, item: Handle, before: Option<Handle>) {
-        let at = before
-            .and_then(|b| self.list_index_of(list, b))
-            .unwrap_or(usize::MAX);
+        let at = match before {
+            Some(b) => self.list_index_of(list, b).unwrap_or(usize::MAX),
+            None => self.node(list).map_or(0, |n| n.list.items.len()),
+        };
         self.list_insert(list, item, at);
     }
 
@@ -1079,8 +1092,8 @@ impl Ui {
         self.listbox_update_and_draw(list);
     }
 
-    /// Take the row at `index` out of the list (keeping the element): no longer selected or
-    /// under a dragged item.
+    /// Take the row at `index` out of the list (keeping the element, which stands nowhere until
+    /// it is put somewhere): no longer selected or under a dragged item.
     // D2-11554
     pub fn list_remove(&mut self, list: Handle, index: usize) -> Option<Handle> {
         let item = self.list_items(list).get(index).copied()?;
@@ -1093,6 +1106,10 @@ impl Ui {
             if l.drag_over == Some(item) {
                 l.drag_over = None;
             }
+            n.children.retain(|c| *c != item);
+        }
+        if let Some(n) = self.node_mut(item).filter(|n| n.parent == Some(list)) {
+            n.parent = None;
         }
         self.sync_selected_index(list);
         if !self.lb_test(list, bits::MULTI_OP) {

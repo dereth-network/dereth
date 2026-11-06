@@ -231,16 +231,16 @@ pub fn handle_roll_treasure(w: &mut World, session: Option<SessionId>, parameter
             return;
         }
     };
-    if let Some(death) = w.content.get_cached_death_treasure(id) {
+    if let Some(death) = loot_generation_factory::death_loot_profile(w, id, None) {
         say(
             w,
             &format!(
                 "Rolling treasure {id}: death treasure, tier {}, {times} time(s).",
-                death.tier
+                death.tier()
             ),
         );
         for k in 1..=times {
-            let made = loot_generation_factory::create_random_loot_objects(w, &death);
+            let made = loot_generation_factory::create_death_loot(w, &death);
             let made = given_back(w, made);
             say(w, &format!("Treasure roll {k}: {}", made_words(&made)));
         }

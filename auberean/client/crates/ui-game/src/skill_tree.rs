@@ -682,6 +682,7 @@ impl SkillTree {
                         data_enum: root,
                         ..Examination::default()
                     }));
+                    out.push(Request::OpenExaminationPanel);
                 }
             }
             if self.tree.is_some() {
@@ -952,6 +953,7 @@ impl Child for SkillTree {
                 data_enum: data,
                 ..Examination::default()
             }));
+            out.push(Request::OpenExaminationPanel);
         }
         if [
             name::TRAIN_BUTTON,
@@ -1011,8 +1013,7 @@ impl Child for SkillTree {
             }
             notice::UPDATE_SKILL => self.heard.push(Heard::Skill(w(0))),
             notice::UPDATE_SKILL_PANEL | notice::UPDATE_SKILL_PANEL_FULL => {
-                let points = (n.words.len() >= 4)
-                    .then(|| (u64::from(w(0)) | u64::from(w(1)) << 32, w(2), w(3)));
+                let points = (n.words.len() >= 4).then(|| (n.long(0), w(2), w(3)));
                 self.heard.push(Heard::Points(
                     points,
                     n.native == notice::UPDATE_SKILL_PANEL_FULL,

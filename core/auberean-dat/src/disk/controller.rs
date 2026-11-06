@@ -6,7 +6,6 @@ use super::device::Files;
 use super::intset::VersionSet;
 use super::tree::Directory;
 use crate::container::ITERATION_LIST;
-use crate::stamp::DatIdStamp;
 use crate::{Reader, Writer};
 
 /// The file may grow when it runs short.
@@ -248,12 +247,6 @@ impl Store {
         self.entry(id).map_or(0, |e| e.date)
     }
 
-    /// Record `id`'s size; `u32::MAX` when it is not here.
-    // D2-17640
-    pub fn get_data_size(&mut self, id: u32) -> u32 {
-        self.entry(id).map_or(u32::MAX, |e| e.size)
-    }
-
     fn entry(&mut self, id: u32) -> Option<super::node::DirEntry> {
         let (at, i) = self.tree.lookup(&mut self.blocks, id)?;
         Some(self.tree.kept(at).node.entry(i))
@@ -290,33 +283,6 @@ impl Store {
             return false;
         }
         self.tree.remove(&mut self.blocks, id)
-    }
-
-    /// Set the id of the file's id map, written out at once; the old one (0 for a file only
-    /// read, which is left alone).
-    // D2-17644
-    pub fn set_master_map_did(&mut self, id: u32) -> u32 {
-        if self.read_only {
-            return 0;
-        }
-        let old = self.blocks.info.master_map_id;
-        self.blocks.info.master_map_id = id;
-        if self.initialized {
-            let _ = self.tree.save_data_to_file(&mut self.blocks);
-        }
-        old
-    }
-
-    /// Set the file's version stamp, written out at once (never in a file only read).
-    // D2-17645
-    pub fn set_dat_id_stamp(&mut self, stamp: &DatIdStamp) {
-        if self.read_only {
-            return;
-        }
-        self.blocks.info.stamp = *stamp;
-        if self.initialized {
-            let _ = self.tree.save_data_to_file(&mut self.blocks);
-        }
     }
 
     /// Store `data` as record `id`, replacing one already there; whether it was stored. Id 0,
@@ -393,20 +359,6 @@ impl Store {
             .info
             .free_count
             .wrapping_mul(self.blocks.info.block_size)
-    }
-
-    /// The id of the file's id map.
-    // D2-05125
-    #[must_use]
-    pub fn get_master_map_did(&self) -> u32 {
-        self.blocks.info.master_map_id
-    }
-
-    /// The file's version stamp.
-    // D2-05126
-    #[must_use]
-    pub fn get_dat_id_stamp(&self) -> DatIdStamp {
-        self.blocks.info.stamp
     }
 
     /// The name the file was opened by.

@@ -603,3 +603,85 @@ fn an_unanswered_offer_times_out() {
         None
     );
 }
+
+/// Divergence: V481
+/// Before March 2002 an oath needed no answer: on a Launch world Vass's oath binds him to Mona at
+/// once, and she is never asked.
+#[test]
+fn a_launch_oath_binds_without_asking_the_patron() {
+    use empyrean_common::era::{EraExt as _, EraId};
+    let mut ts = seeded();
+    ts.world.era = EraId::Launch.rules();
+    let mona = enter(&mut ts, "mona", MONA, None);
+    let vass = enter(&mut ts, "vass", VASS, None);
+    ts.advance(1.0);
+    let asked = events::<CharacterConfirmationRequest>(&ts, mona).len();
+    let told = ts.received::<CommunicationTextboxString>(vass).len();
+    oath(&mut ts, vass);
+    let vass_guid = ObjectGuid::new(VASS);
+    assert!(
+        ts.run_until(5.0, |ts| ts
+            .world
+            .objects
+            .get(vass_guid)
+            .and_then(|o| o.patron_id())
+            == Some(MONA)),
+        "Vass is Mona's vassal"
+    );
+    assert_eq!(
+        events::<CharacterConfirmationRequest>(&ts, mona).len(),
+        asked,
+        "Mona was not asked"
+    );
+    assert_eq!(
+        chats(&ts, vass, told),
+        ["Mona has accepted your oath of Allegiance!"]
+    );
+}
+
+/// Divergence: V492
+/// A world without the allegiance chat room carries no line in it and names no such room: a member
+/// of an allegiance gets the room's answer at the end of retail, and nothing on a Launch world.
+#[test]
+fn a_launch_world_has_no_allegiance_chat_room() {
+    use dereth_protocol::comms::ChatRoomMembership;
+    use dereth_protocol::turbine::{ExtraBlob, SendToRoomById};
+    use empyrean_common::era::{EraExt as _, EraId};
+    use empyrean_world::world_objects::player_networking;
+    for (era, answered) in [(EraId::Launch, false), (EraId::Eor, true)] {
+        let mut ts = seeded();
+        let mona = enter(&mut ts, "mona", MONA, None);
+        let vass = enter(&mut ts, "vass", VASS, None);
+        ts.advance(1.0);
+        swear(&mut ts, mona, vass);
+        ts.world.era = era.rules();
+        let mark = ts.received_raw(vass).len();
+        ts.send_message(
+            vass,
+            NetQueue::Logon,
+            &SendToRoomById {
+                context: 5,
+                room: 1,
+                text: "To the allegiance".to_owned(),
+                extra: ExtraBlob::Speaker {
+                    sender: VASS,
+                    chat_type: 1,
+                },
+            },
+        );
+        ts.advance(0.3);
+        let turbine = ts.received_raw(vass)[mark..]
+            .iter()
+            .filter(|m| m.opcode == 0xF7DE)
+            .count();
+        assert_eq!(turbine > 0, answered, "{era}");
+        player_networking::send_turbine_chat_channels(&mut ts.world, ObjectGuid::new(VASS), false);
+        ts.advance(0.3);
+        let rooms = events::<ChatRoomMembership>(&ts, vass);
+        assert_eq!(
+            rooms.last().expect("the rooms").allegiance_room != 0,
+            answered,
+            "{era}"
+        );
+    }
+}

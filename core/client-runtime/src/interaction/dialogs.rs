@@ -102,6 +102,21 @@ impl Interaction {
         self.absorb(game, out, req);
     }
 
+    /// `@lifestone`'s death question, where it kills, for the dialog service to put on screen.
+    pub fn take_lifestone_death_confirmations(&mut self) -> Vec<&'static str> {
+        std::mem::take(&mut self.pending_lifestone_death_confirmations)
+    }
+
+    /// The Yes of `@lifestone`'s death question: the lifestone event `0x0063`, which kills the
+    /// character on such a world. A No sends nothing.
+    pub fn confirm_lifestone_death(&mut self, game: &mut dereth_client_model::World) {
+        let mut req = RecordingRequests::default();
+        game.confirm_lifestone_death(&mut req);
+        self.stats.chat_command_requests += 1;
+        let out = Notices::default();
+        self.absorb(game, out, req);
+    }
+
     /// The web addresses clicked in chat lines since the dialog service last asked.
     pub fn take_link_confirmations(&mut self) -> Vec<String> {
         std::mem::take(&mut self.pending_link_confirmations)

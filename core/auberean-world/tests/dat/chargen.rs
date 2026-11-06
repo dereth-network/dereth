@@ -128,6 +128,7 @@ mod scripts {
     use std::any::Any;
     use std::sync::Arc;
 
+    use auberean_assets::Database;
     use auberean_dat::locate::{install_dats, DatName};
     use auberean_dat::testing::require_target_install;
     use auberean_dat::DatFile;
@@ -145,11 +146,21 @@ mod scripts {
     struct States {
         states: StateCache,
         program: Arc<Program>,
+        random: auberean_world::chargen::Random,
+        database: Database,
     }
 
     impl Host for States {
         fn saved_state(&mut self, id: u32) -> Option<Arc<SavedState>> {
             self.states.get(id, &self.program.library)
+        }
+
+        fn random(&mut self) -> Result<f64, Stop> {
+            Ok(self.random.draw())
+        }
+
+        fn database(&mut self) -> Option<&Database> {
+            Some(&self.database)
         }
 
         fn as_any(&mut self) -> &mut dyn Any {
@@ -182,8 +193,10 @@ mod scripts {
                 .find(|(n, _)| *n == DatName::Portal)
                 .expect("a portal file");
             let dat = Arc::new(DatFile::open(&path).expect("the portal file"));
-            let lib = Library::from_record(&dat.read(RECORD).expect("the library"))
-                .expect("the library reads");
+            let lib = dat
+                .read_checked(RECORD, Library::from_record)
+                .expect("the library reads")
+                .value;
             let natives = auberean_glue::natives(&lib);
             let program = Arc::new(Program::link(lib, natives).expect("the library links"));
             let mut vm = Vm::new(Arc::clone(&program));
@@ -191,8 +204,10 @@ mod scripts {
             Self {
                 vm,
                 host: States {
-                    states: StateCache::new(dat),
+                    states: StateCache::new(Arc::clone(&dat)),
                     program: Arc::clone(&program),
+                    random: auberean_world::chargen::Random::default(),
+                    database: Database::new(vec![Arc::clone(&dat)]),
                 },
                 program,
             }
@@ -202,6 +217,11 @@ mod scripts {
         /// calls one: `outs` slots (each null), the result slot, a reference to each out slot,
         /// the arguments (`args[0]` the first parameter), the singleton.
         pub fn call(&mut self, function: u32, outs: usize, args: &[u32]) -> Answer {
+            self.call_holding(function, &vec![NULL; outs], args)
+        }
+
+        /// The same, with each out slot holding a value on the way in.
+        pub fn call_holding(&mut self, function: u32, held: &[u32], args: &[u32]) -> Answer {
             let s = self.vm.heap.singleton(STATE_BASE | PACKAGE);
             let p = self.vm.create_process(s);
             let mut cx: Context = self.vm.new_context(p);
@@ -212,9 +232,9 @@ mod scripts {
                 outs: Vec::new(),
             };
             let run = (|| -> Result<Status, Stop> {
-                for _ in 0..outs {
+                for h in held {
                     at.push(cx.sp);
-                    cx.push(NULL, tag::REFERENCE)?;
+                    cx.push(*h, tag::REFERENCE)?;
                 }
                 let result = cx.sp;
                 cx.push(0, tag::INT)?;
@@ -247,6 +267,11 @@ mod scripts {
             answer
         }
 
+        /// Start the machine's random numbers from the top, as a new run of the client does.
+        pub fn restart_random(&mut self) {
+            self.host.random = auberean_world::chargen::Random::default();
+        }
+
         /// A native object by reference.
         pub fn native(&self, r: u32) -> Option<NativeObject> {
             self.vm.heap.native(r).ok().cloned()
@@ -277,7 +302,8 @@ fn label_id(name: &str) -> u32 {
 #[test]
 fn the_native_creation_answers_as_the_character_generators_scripts_do() {
     use auberean_script::native_object::{Item, NativeObject};
-    use auberean_world::chargen::{body_entity, PLAYER_ENTITY, RACES};
+    use auberean_world::chargen::{avatar_entity, body_entity, RACES};
+    const ADMIN_AVATAR: u32 = scripts::PACKAGE << 16 | 0x01;
     const PLAYER_AVATAR: u32 = scripts::PACKAGE << 16 | 0x02;
     const RACE_SEX_DATA: u32 = scripts::PACKAGE << 16 | 0x05;
     const RACE_SEX_INFO: u32 = scripts::PACKAGE << 16 | 0x06;
@@ -302,7 +328,13 @@ fn the_native_creation_answers_as_the_character_generators_scripts_do() {
     };
 
     let a = m.call(PLAYER_AVATAR, 1, &[]);
-    assert_eq!(a.outs[0].0, PLAYER_ENTITY, "the player's avatar");
+    assert_eq!(a.outs[0].0, avatar_entity(false), "the player's avatar");
+    let a = m.call(ADMIN_AVATAR, 1, &[]);
+    assert_eq!(
+        a.outs[0].0,
+        avatar_entity(true),
+        "the administrator's avatar"
+    );
 
     // The races and sexes.
     let a = m.call(RACE_SEX_DATA, 1, &[]);
@@ -414,4 +446,80 @@ fn the_native_creation_answers_as_the_character_generators_scripts_do() {
         labelled, 87,
         "the ten races and sexes have 87 types between them"
     );
+}
+
+/// The character generator's scripts, handed a creation's race and sex in every race and sex, fill
+/// it as the native creation fills a new avatar from the same random numbers, value for value: every
+/// type picked among its stops, build and height then put at the middle stop, a type it lacks at
+/// 0; and the race's class and implement.
+///
+/// Behaviour: world.chargen.a-new-avatars-defaults-are-what-the-scripts-set
+#[test]
+fn a_new_avatars_defaults_are_what_the_scripts_set() {
+    use auberean_glue::chargen::{CreationChoices, CREATION_CHOICES};
+    use auberean_world::chargen::{BODIES, RACES};
+    const SET_DEFAULTS: u32 = scripts::PACKAGE << 16 | 0x0E;
+    let w = need_world!();
+    let mut m = scripts::Machine::new();
+    for &(race, sex, _) in &BODIES {
+        let r = m.vm.heap.add_native(
+            CREATION_CHOICES,
+            CreationChoices {
+                race,
+                sex,
+                ..CreationChoices::default()
+            }
+            .native(),
+        );
+        m.restart_random();
+        let a = m.call_holding(SET_DEFAULTS, &[r], &[]);
+        assert!(a.status.is_ok(), "race {race} sex {sex:#x}: {a:?}");
+        assert_eq!(a.result, 1, "race {race} sex {sex:#x}: {a:?}");
+        let got = m.native(r).expect("the creation");
+        let got = CreationChoices::of(&got).expect("a creation's choices");
+        assert_eq!((got.race, got.sex), (race, sex));
+        let &(_, class, implement, _) = RACES.iter().find(|x| x.0 == race).expect("its race");
+        assert_eq!(
+            (got.class, got.implement),
+            (class, implement),
+            "race {race} sex {sex:#x}"
+        );
+        let choices = choices(&w.records, race, sex);
+        let ours = Avatar::new(&choices, race, sex, &mut Random::default());
+        let mut wrong = Vec::new();
+        for t in TYPES {
+            let script = got.physique.get(&t).copied();
+            let native = ours.value(t).map(f32::to_bits);
+            if script != native {
+                wrong.push(format!(
+                    "type {t:#x}: scripts {script:x?}, ours {native:x?}"
+                ));
+            }
+        }
+        assert!(wrong.is_empty(), "race {race} sex {sex:#x}: {wrong:#?}");
+    }
+}
+
+/// The end-of-retail files hold no word filter, so the character generator's scripts leave a typed
+/// name's written form as it was and answer that nothing changed.
+///
+/// Behaviour: world.chargen.with-no-word-filter-the-scripts-leave-a-name-alone
+#[test]
+fn with_no_word_filter_the_scripts_leave_a_name_alone() {
+    use auberean_script::native_object::{native_type, NativeObject};
+    const FORMAT_NAME: u32 = scripts::PACKAGE << 16 | 0x11;
+    let _ = need_world!();
+    let mut m = scripts::Machine::new();
+    let held: Vec<u16> = "held".encode_utf16().collect();
+    let name = m.vm.heap.add_native(
+        native_type::WP_STRING,
+        NativeObject::Text("  jOHN  o'neil-ra ".encode_utf16().collect()),
+    );
+    let out =
+        m.vm.heap
+            .add_native(native_type::WP_STRING, NativeObject::Text(held.clone()));
+    let a = m.call_holding(FORMAT_NAME, &[out], &[name]);
+    assert!(a.status.is_ok(), "{a:?}");
+    assert_eq!(a.result, 0, "{a:?}");
+    assert_eq!(m.native(out), Some(NativeObject::Text(held)));
 }

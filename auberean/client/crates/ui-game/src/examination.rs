@@ -138,7 +138,7 @@ impl Default for ExamRequest {
 
 /// One line of a profile: its kind, the tabs it shows on, the element it is drawn with (0 for the
 /// window's own), its value (a word, or 64 bits), the game time a countdown runs out at, a string
-/// reference, an icon's first picture.
+/// reference, an icon's layers (each a picture and its color).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Line {
     pub kind: u32,
@@ -147,7 +147,7 @@ pub struct Line {
     pub value: u64,
     pub time: f64,
     pub text: Option<StringInfo>,
-    pub icon: u32,
+    pub icon: Vec<(u32, u32)>,
     /// An effect line's own lines, as the player's scripts made them for it.
     pub effect: Vec<Line>,
 }
@@ -391,7 +391,7 @@ impl Examination {
     }
 
     /// The rows and the times left gone; the next line at the top left.
-    // D2-02600
+    // D2-02600, D2-02602
     fn cleanup_rows(&mut self, ui: &mut Ui) {
         if let Some(l) = self.list {
             ui.list_flush(l);
@@ -514,6 +514,7 @@ impl Examination {
                 table,
                 Token::of("ID_Examination_Tab").raw(),
             )),
+            // D2-12184
             kind::LONG => Some(number(Value::Long(l.value as i64))),
             _ => None,
         }
@@ -596,12 +597,11 @@ impl Examination {
                 };
                 ui.set_parent(e, row);
                 ui.move_to(e, self.x, self.y);
-                let picture = if l.kind == kind::IMAGE {
-                    l.value as u32
+                if l.kind == kind::IMAGE {
+                    ui.add_image_to_state(e, l.value as u32, 0, state::STATELESS);
                 } else {
-                    l.icon
-                };
-                ui.add_image_to_state(e, picture, 0, state::STATELESS);
+                    ui.set_icon_desc(e, &l.icon);
+                }
                 let Some((gw, gh)) = ui.image_size(e) else {
                     return;
                 };

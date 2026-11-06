@@ -14,4 +14,5 @@ pub(crate) mod real_dump;
 pub(crate) mod real_patch_reapply;
 pub(crate) mod sql_dump_import;
 mod version_flag;
+mod world_base;
 pub(crate) mod world_data_tools;

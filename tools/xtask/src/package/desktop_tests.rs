@@ -17,7 +17,6 @@ use crate::util::workspace_root;
 const WINDOWS: &str = "x86_64-pc-windows-msvc";
 const LINUX: &str = "x86_64-unknown-linux-gnu";
 const MAC_ARM: &str = "aarch64-apple-darwin";
-const MAC_X64: &str = "x86_64-apple-darwin";
 const V: &str = "0.1.0";
 
 /// A product of one program, as the desktop packaging takes one: Auberean's client on its own,
@@ -94,7 +93,6 @@ fn release_files_are_named_for_product_version_and_platform_and_read_back() {
             "auberean-0.1.0-windows-x86_64.zip",
             "Auberean-0.1.0-linux-x86_64.AppImage",
             "Auberean-0.1.0-macos-aarch64.app.tar.gz",
-            "Auberean-0.1.0-macos-x86_64.app.tar.gz",
         ]
     );
     assert_eq!(
@@ -103,7 +101,6 @@ fn release_files_are_named_for_product_version_and_platform_and_read_back() {
             "athenaeum-0.1.0-windows-x86_64.zip",
             "Athenaeum-0.1.0-linux-x86_64.AppImage",
             "Athenaeum-0.1.0-macos-aarch64.app.tar.gz",
-            "Athenaeum-0.1.0-macos-x86_64.app.tar.gz",
         ]
     );
     for spec in SPECS {
@@ -251,8 +248,8 @@ fn apprun_starts_the_first_program_or_the_one_its_first_argument_names() {
 #[test]
 fn the_macos_bundle_carries_the_programs_the_icon_the_signature_and_the_notices() {
     for spec in SPECS {
-        for triple in [MAC_ARM, MAC_X64] {
-            let m = target(spec, triple);
+        {
+            let m = target(spec, MAC_ARM);
             assert_eq!(spec.archive_root(m, V), format!("{}.app", spec.title));
             let contents = spec.contents(m);
             for file in [
@@ -613,7 +610,7 @@ fn the_desktop_products_build_natively() {
     assert!(targets::plan_desktop(target(a, WINDOWS), &host(Os::Windows)).is_ok());
     let e = targets::plan_desktop(target(a, LINUX), &host(Os::Windows)).expect_err("cross");
     assert!(e.contains("Linux host only"), "{e}");
-    assert!(targets::plan_desktop(target(a, MAC_X64), &host(Os::Mac)).is_ok());
+    assert!(targets::plan_desktop(target(a, MAC_ARM), &host(Os::Mac)).is_ok());
 }
 
 /// A release build of any of Asheron's Call 2's programs names the commit and the target in every
@@ -806,7 +803,7 @@ fn every_file_the_desktop_packages_read_from_the_tree_is_there() {
 fn each_product_carries_one_version_of_its_own_which_its_tag_names() {
     let ws = workspace_root();
     for (product, count) in [
-        (Product::Auberean, 2),
+        (Product::Auberean, 3),
         (Product::Yalain, 9),
         (Product::Athenaeum, 3),
     ] {

@@ -463,6 +463,24 @@ store_path = "network.json"
 min_character_age_seconds = 0
 
 # ----------------------------------------------------------------------------------------------
+[portal_storms]
+# Portal storms move players out of a crowded landblock: past the threshold a storm brews,
+# then is imminent, then moves one player outdoors to the middle of a neighboring landblock
+# every ten seconds until the crowd is under the threshold. Off by default, on any era.
+
+# default: 0 (Empyrean only)
+# How many players a landblock's surface holds before a storm brews. 0: no storms.
+threshold = 0
+
+# default: 60 (Empyrean only)
+# How long a storm brews before it is imminent.
+brew_seconds = 60
+
+# default: 60 (Empyrean only)
+# How long a storm is imminent before it starts moving players.
+imminent_seconds = 60
+
+# ----------------------------------------------------------------------------------------------
 [era]
 # The era the world plays. Every era speaks the end-of-retail client protocol; the era
 # selects the world's rules (start positions, level cap, what the character list tells
@@ -471,10 +489,16 @@ min_character_age_seconds = 0
 # its status document announces the whole set to the client.
 
 # default: "eor" (Empyrean only)
-# "eor" (the end of retail, ACE's rules) or "infiltration" (February 2005). world.pack
+# "eor" (end of retail), "infiltration" (February 2005), or "launch" (1999, experimental). world.pack
 # must have been built for the same era (`empyrean-import --era <era>`); the server refuses
 # to start otherwise.
 profile = "eor"
+
+# default: the profile's (Empyrean only)
+# The characters an account may hold, up to 20. Left out, the era's own: 5 on a Launch
+# world, 11 otherwise. Characters already over the limit keep playing; only creating a
+# new one is refused.
+# max_characters_per_account = 11
 
 # default: the profile's (Empyrean only)
 # Damage, critical, healing and the other ratings.
@@ -562,7 +586,7 @@ profile = "eor"
 # cantrips = true
 
 # default: the profile's (Empyrean only)
-# Learning spells by researching their formulas (gone by 2002; off in every profile).
+# Learning spells by researching their formulas (gone by 2002; on in Launch).
 # On, a client's formula test casts the spell it makes and teaches it if it is new.
 # spell_research = false
 
@@ -574,3 +598,166 @@ profile = "eor"
 # An oath of allegiance costs unassigned experience once a character has broken from
 # a patron (before Throne of Destiny; on in infiltration).
 # swear_xp_cost = false
+
+# default: the profile's (Empyrean only)
+# A minute of invulnerability after resurrecting at a lifestone.
+# lifestone_protection = true
+
+# default: the profile's (Empyrean only)
+# Skill credits left unspent at character creation are kept, not lost.
+# creation_credit_carry_over = true
+
+# default: the profile's (Empyrean only)
+# Untraining, unspecializing and specializing skills after creation.
+# skill_alteration = true
+
+# default: the profile's (Empyrean only)
+# Buying augmentations with experience.
+# augmentations = true
+
+# default: the profile's (Empyrean only)
+# Entering PK Lite, the optional lighter PK status.
+# pk_lite = true
+
+# default: the profile's (Empyrean only)
+# The @marketplace recall.
+# marketplace_recall = true
+
+# default: the profile's (Empyrean only)
+# Strength and Endurance raising natural resistances, health regeneration and stamina savings.
+# endurance_benefits = true
+
+# default: the profile's (Empyrean only)
+# @lifestone recalls for half the character's mana, and @die kills. Off, @lifestone kills
+# the character and there is no @die.
+# lifestone_recall = true
+
+# default: the profile's (Empyrean only)
+# The @pkarena and @pklarena recalls.
+# pk_arena_recalls = true
+
+# default: the profile's (Empyrean only)
+# A player corpse holding items lasts at least an hour. Off, five minutes a level.
+# player_corpse_hour_minimum = true
+
+# default: the profile's (Empyrean only)
+# Casting skill above a spell's power lowers the chance of burning its components.
+# component_burn_skill_discount = true
+
+# default: the profile's (Empyrean only)
+# War and Life Magic projectiles can strike critically.
+# war_and_life_projectile_criticals = true
+
+# default: the profile's (Empyrean only)
+# A player's War Magic projectiles gain damage from skill above the spell's power.
+# war_magic_skill_damage_bonus = true
+
+# default: the profile's (Empyrean only)
+# A transfer spell whose target cannot take its whole benefit costs its source less.
+# transfer_overflow_reduces_source = true
+
+# default: the profile's (Empyrean only)
+# An item enchantment cast on a creature lands on the items it wears.
+# item_enchantment_redirection = true
+
+# default: the profile's (Empyrean only)
+# The spellcasting panel's tabs (the client only; the server announces it).
+# spell_tabs = true
+
+# default: the profile's (Empyrean only)
+# A fellowship's founder chooses whether it shares experience. Off, every fellowship shares.
+# fellowship_options = true
+
+# default: the profile's (Empyrean only)
+# @permit and @consent: letting other players loot your corpse.
+# corpse_permissions = true
+
+# default: the profile's (Empyrean only)
+# Telling a player where its corpse lies after an outdoor death.
+# corpse_location_notices = true
+
+# default: the profile's (Empyrean only)
+# @log, copying the chat window to a file (the client only; the server announces it).
+# chat_log = true
+
+# default: the profile's (Empyrean only)
+# @corpse, showing where the last outdoor death was.
+# corpse_command = true
+
+# default: the profile's (Empyrean only)
+# The allegiance's message of the day, its broadcasts and its speaker.
+# allegiance_messages = true
+
+# default: the profile's (Empyrean only)
+# A patron is asked to accept an oath. Off, an oath is accepted at once.
+# allegiance_oath_confirmation = true
+
+# default: the profile's (Empyrean only)
+# Booting a member out of the allegiance.
+# allegiance_boot = true
+
+# default: the profile's (Empyrean only)
+# Appraising an item needs no skill. Off, the appraisal skill for its kind is rolled
+# against the item's difficulty.
+# appraisal_without_skills = true
+
+# default: the profile's (Empyrean only)
+# Trade notes cash at face value at any vendor and sell at 15% over it. Off, they sell at
+# 10% over and cash in full only at the vendor that issued them, at 80% elsewhere.
+# trade_notes_cash_anywhere = true
+
+# default: the profile's (Empyrean only)
+# Allegiance officers and account bans.
+# allegiance_officers_and_bans = true
+
+# default: the profile's (Empyrean only)
+# Naming the allegiance.
+# allegiance_name = true
+
+# default: the profile's (Empyrean only)
+# A fellowship shares its creatures' loot where its founder chooses to.
+# fellowship_share_loot = true
+
+# default: the profile's (Empyrean only)
+# A character may accept every fellowship invitation at once. Off, every invitation asks.
+# fellowship_auto_accept = true
+
+# default: the profile's (Empyrean only)
+# A leader may open a fellowship, so that any member may recruit.
+# fellowship_open = true
+
+# default: the profile's (Empyrean only)
+# The allegiance chat room.
+# allegiance_chat = true
+
+# default: the profile's (Empyrean only)
+# The bonus for a skill trained or specialized at character creation is free experience,
+# so the next rank costs what that rank costs. Off, a specialized skill starts with 10
+# ranks no experience paid for.
+# creation_skill_bonus_as_experience = false
+
+# default: the profile's (Empyrean only)
+# The game's own chat rooms: General, Trade, LFG, Roleplay, Society and Olthoi.
+# global_chat_rooms = true
+
+# default: the profile's (Empyrean only)
+# A charge on each spell a character knows, spent by casting it and regained over time.
+# spell_charge = false
+
+# default: the profile's (Empyrean only)
+# A world-wide value on each spell, spent by everyone casting it and regained over hours.
+# spell_economy = false
+
+# default: the profile's (Empyrean only)
+# Officer titles, the allegiance lock and gagging a member of the allegiance room.
+# Also needs allegiance_officers_and_bans.
+# allegiance_titles_and_lock = true
+
+# default: the profile's (Empyrean only)
+# @allegiance house, opening the monarch's villa or mansion to the allegiance.
+# allegiance_house_commands = true
+
+# default: false (Empyrean only)
+# Start even when the data files are not the ones the era expects (a Launch world on
+# later files, ...). The server logs which files it found.
+any_dat_files = false

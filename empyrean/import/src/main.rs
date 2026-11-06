@@ -12,7 +12,7 @@
 //! to set it (no environment variable is read), so a build is reproducible.
 //!
 //! ```text
-//! empyrean-import fetch [--world <world>] [--version <n> | --latest] [--dir <folder>] [--pack [--out <world.pack>] [--report <report.json>]]
+//! empyrean-import fetch [--era <era> | --world <world>] [--version <n> | --latest] [--dir <folder>] [--pack [--out <world.pack>] [--report <report.json>]]
 //! empyrean-import --sql <dump.sql> [--patches <dir|file>]... [--json <dir|file>]...
 //!             [--now <YYYY-MM-DD HH:MM:SS>] [--era <era>] [--allow-skipped] [--allow-unknown-tables]
 //!             [--allow-unknown-columns] --out <world.pack> [--report <report.json>]
@@ -25,20 +25,23 @@
 //! empyrean-import dat-overlay --base <dir> --world <dir> --out <dir> --world-key <name> [--era <era>]
 //! empyrean-import spawns [--world <world>] [--sql <dump.sql>] [--out <spawns.tsv>]
 //! empyrean-import schema [--out <schema.json>]
+//! empyrean-import ac1999 --revision <sha> [--source <repository|bundle>] [--target launch|classic-1999-10-09|source]
+//!             --allow-incomplete --out <new-directory>
+//! empyrean-import ac1999 package --bundle <bundle> --out <new-directory>
 //! empyrean-import gdle --sql <dump.sql> --patches <dir|file>... [--now <YYYY-MM-DD HH:MM:SS>] --out <dir>
 //! empyrean-import --sql <dump.sql> [--patches …] [--json …] [--era <era>] --overlay <overlay.sqlite>
 //!             [--overlay-journal <dir>] --out <world.pack> [--report <report.json>]
 //! ```
 //!
-//! `--era` names the era the content is for (`eor`, the default, or `infiltration`); the pack's
+//! `--era` names the era the content is for (`eor`, the default, `infiltration`, or `launch`); the pack's
 //! header records it, and the server refuses a pack whose era is not its configured `[era]
 //! profile`.
 //!
 //! `fetch` downloads the ACE-World release this build pins (or `--version <n>`, or `--latest`)
 //! from GitHub, checks its SHA-256, and caches the dump in the per-user cache folder the
 //! real-dump tests also read; `--pack` then builds `world.pack` from it, for the world's era.
-//! `--world` picks the world database: `patches` (the default: the end of retail) or `16py` (the
-//! February 2005 world). See [`fetch`].
+//! `--era` fetches an era's world; `--world` names a world database: `patches` (the default: the end
+//! of retail), `16py` (the February 2005 world) or `ac1999` (the world as it launched). See [`fetch`].
 //!
 //! The base is a full `mysqldump` of ACE's world database. `--patches` and `--json` inputs apply
 //! over it in command-line order: ACE-style per-object SQL files (`DELETE` + `INSERT`, and
@@ -83,11 +86,15 @@
 //! as Lifestoned and GDLE JSON, and the quests it adds or changes as GDLE's `quests.json`, merged
 //! into a server's own when one is named, less the quests it takes away: see [`gdle`].
 //!
+//! `ac1999` prepares a revision-pinned, incomplete Launch-era world base and pack. It preserves
+//! unsupported content in a change ledger and the committed source snapshot: see [`ac1999`].
+//!
 //! `--corrections` lists every correction entry of this build (applies, stale or absent, with the
 //! stored and corrected values and the divergence row), every value each correction rule changes,
 //! and the corrections digest the server logs at start-up. Exit status 0 means every entry applies,
 //! 1 that some entry is stale or absent, 2 an error.
 
+mod ac1999;
 mod dat_overlay;
 mod fetch;
 mod gdle;
@@ -111,10 +118,10 @@ use empyrean_content::PackContent;
 
 fn usage() -> ExitCode {
     eprintln!(
-        "usage: empyrean-import fetch [--world patches|16py] [--version <n> | --latest] [--dir <folder>] [--pack [--out <world.pack>] [--report <report.json>]]\n\
+        "usage: empyrean-import fetch [--era launch|infiltration|eor | --world patches|16py|ac1999] [--version <n> | --latest] [--dir <folder>] [--pack [--out <world.pack>] [--report <report.json>]]\n\
          \x20                  (downloads ACE-World {pin} by default into {cache})\n\
          \x20      empyrean-import --sql <dump.sql> [--patches <dir|file>]... [--json <dir|file>]...\n\
-         \x20                  [--now <YYYY-MM-DD HH:MM:SS>] [--era eor|infiltration] [--allow-skipped] [--allow-unknown-tables]\n\
+         \x20                  [--now <YYYY-MM-DD HH:MM:SS>] [--era eor|infiltration|launch] [--allow-skipped] [--allow-unknown-tables]\n\
          \x20                  [--allow-unknown-columns] --out <world.pack> [--report <report.json>]\n\
          \x20                  (--now defaults to 2000-01-01 00:00:00)\n\
          \x20      empyrean-import --check <old.pack> <new.pack> [--fields] [--overlap [<dir|file>]]... [--overlap-json <dir|file>]...\n\
@@ -123,7 +130,10 @@ fn usage() -> ExitCode {
          \x20                  [--report <diff.json>]\n\
          \x20      empyrean-import --corrections <world.pack> [--report <corrections.json>]\n\
          \x20      empyrean-import --version\n\
-         \x20      empyrean-import dat-overlay --base <dir> --world <dir> --out <dir> --world-key <name> [--era eor|infiltration]\n\
+         \x20      empyrean-import ac1999 --revision <sha> [--source <repository|bundle>] [--target launch|classic-1999-10-09|source]\n\
+         \x20                  --allow-incomplete --out <new-directory>\n\
+         \x20      empyrean-import ac1999 package --bundle <bundle> --out <new-directory>\n\
+         \x20      empyrean-import dat-overlay --base <dir> --world <dir> --out <dir> --world-key <name> [--era eor|infiltration|launch]\n\
          \x20                  (a world's data files taken apart against their base, as the overlay the server serves)\n\
          \x20      empyrean-import spawns [--world patches|16py] [--sql <dump.sql>] [--out <spawns.tsv>]\n\
          \x20                  (the setups the world's spawns are drawn with, how many and where, for the art survey)\n\
@@ -194,6 +204,9 @@ fn main() -> ExitCode {
     let mut allow = Allow::default();
     let mut era: Option<EraId> = None;
     let argv: Vec<String> = std::env::args().skip(1).collect();
+    if argv.first().is_some_and(|a| a == "ac1999") {
+        return ac1999::run(&argv[1..]);
+    }
     if argv.first().is_some_and(|a| a == "--version") {
         print!(
             "{}",
@@ -375,6 +388,20 @@ fn run_fetch(args: &[String]) -> ExitCode {
         }
     };
     match &opts.pack {
+        Some((out, _))
+            if opts.world.form == empyrean_common::world_release::ReleaseForm::BuiltPack =>
+        {
+            match std::fs::copy(&sql, out) {
+                Ok(_) => {
+                    println!("wrote {}", out.display());
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("empyrean-import fetch: {}: {e}", out.display());
+                    ExitCode::FAILURE
+                }
+            }
+        }
         Some((out, report)) => run_build(
             &Build {
                 sql,

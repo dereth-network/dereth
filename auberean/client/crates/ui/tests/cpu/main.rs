@@ -7,5 +7,6 @@ mod fixture;
 mod framework;
 mod lists;
 mod media;
+mod pixels;
 mod pointer;
 mod text;

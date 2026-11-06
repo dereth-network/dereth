@@ -126,12 +126,6 @@ impl DatSource {
         let sub = lookup(&master, mapping);
         self.map(sub).map_or(0, |m| lookup(&m, value))
     }
-
-    /// Let the language go; the next asker reads it again.
-    // D2-14190
-    pub fn shutdown_language(&mut self) {
-        self.language = None;
-    }
 }
 
 impl Source for DatSource {
