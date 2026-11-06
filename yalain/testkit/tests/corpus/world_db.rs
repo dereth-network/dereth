@@ -3602,3 +3602,33 @@ fn no_store_sale_pays_back_more_than_it_cost_at_the_best_transmutation_perk() {
     assert!(checked > 100, "{checked}");
     assert!(over.is_empty(), "{} pay back more: {over:x?}", over.len());
 }
+
+/// Every template a world's rows make reads from the install, so a real start can describe it, and
+/// a row a death or a use makes by is a creature.
+/// Behaviour: server.makes.the-rows-name-what-they-make
+#[test]
+fn everything_the_worlds_rows_make_reads_from_the_install() {
+    let t = &compiled().tables;
+    let portal = yalain_testkit::authored::Portal::open();
+    let named = yalain_world::makes::by_the_rows(yalain_world::makes::Rows {
+        objects: &t.content.objects,
+        stores: &t.stores,
+        quests: &t.quests,
+        crafting: &t.crafting,
+        death_spawns: &t.death_spawns,
+    });
+    for template in named {
+        assert_eq!(portal.template(template).id, template);
+    }
+    for (name, spawn) in &t.death_spawns {
+        let mut props = portal.template(spawn.template).props;
+        props.set(
+            yalain_content::props::creature_property::LEVEL,
+            yalain_content::Prop::Int(20),
+        );
+        assert!(
+            yalain_content::CreatureStats::from_props(&props).is_some(),
+            "{name}"
+        );
+    }
+}
