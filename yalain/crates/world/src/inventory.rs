@@ -2112,12 +2112,7 @@ pub fn transmute_all<S: Store>(
             continue;
         };
         let count = t.quantity.max(1);
-        let worth = if t.value > 0 {
-            t.value
-        } else {
-            item_value(s, t.template)
-        }
-        .saturating_mul(count);
+        let worth = crate::pack::paid_for(s, world, t.template, t.value, count);
         let m = Move {
             move_type: move_type::TAKE,
             item: *item,

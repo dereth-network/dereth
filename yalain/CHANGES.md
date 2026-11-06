@@ -18,6 +18,7 @@ what they see, not how it was done.
 - Fixed players being able to keep others out of the world.
 - Sellers at the broker now see their sale when it's bought.
 - Unsold consignments now expire after 11 days and wait at the broker to be collected.
+- Transmutation Master now pays its extra gold.
 
 ## 0.2.1 (2026-11-05)
 - Fixed sold consignments still showing as in stock.

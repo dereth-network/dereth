@@ -317,8 +317,39 @@ pub struct SkillDef {
     /// it: the attribute is its rating times that.
     pub category: u32,
     pub attribute_mod: f32,
-    /// A perk's kind, for a skill that is one.
-    pub perk: Option<u32>,
+    /// What it gives, for a skill that is a perk.
+    pub perk: Option<Perk>,
+}
+
+/// What a perk gives: its kind, its value, and its priority among the perks of its kind.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Perk {
+    pub kind: u32,
+    pub value: f64,
+    pub priority: i32,
+}
+
+/// The kinds of perk this server gives effect to.
+pub mod perk_kind {
+    /// Items bring this many times their worth into the money bag.
+    pub const TRANSMUTATION: u32 = 19;
+}
+
+/// What a character holding these skills has of a kind of perk: of those it holds, the one with the
+/// highest priority, the first found on a tie.
+#[must_use]
+pub fn perk_value(table: &SkillTable, skills: &[Held], kind: u32) -> Option<f64> {
+    let mut best: Option<Perk> = None;
+    for perk in skills
+        .iter()
+        .filter_map(|h| table.skills.get(&h.skill)?.perk)
+        .filter(|p| p.kind == kind)
+    {
+        if best.is_none_or(|b| perk.priority > b.priority) {
+            best = Some(perk);
+        }
+    }
+    best.map(|p| p.value)
 }
 
 /// The attribute category of the skills that rate a player's Arcane Lore.
@@ -445,7 +476,13 @@ impl SkillDef {
             perk: lib
                 .package_id(PERK_SKILL)
                 .is_some_and(|a| lib.derives_from(root.package_id(), a))
-                .then(|| nav.field(root, "m_perkType").ok())
+                .then(|| {
+                    Some(Perk {
+                        kind: nav.field(root, "m_perkType").ok()?,
+                        value: nav.double(root, "m_value").ok()?,
+                        priority: nav.field(root, "m_priority").ok()?.cast_signed(),
+                    })
+                })
                 .flatten(),
         })
     }
@@ -1261,7 +1298,7 @@ fn untrain_refusal_now<S: Store>(
                     && crate::inventory::segment_of(h.slot) == last_bag
             })
             .count();
-        if perk == untraining::BAGS_PERK && held >= places {
+        if perk.kind == untraining::BAGS_PERK && held >= places {
             return Some(refusal::LAST_BAG_FULL);
         }
     }

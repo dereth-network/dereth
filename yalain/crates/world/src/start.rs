@@ -137,6 +137,33 @@ impl<'a> Nav<'a> {
             .ok_or_else(|| format!("{pkg} has no slot {slot}"))
     }
 
+    /// A double field: it lies in two slots, the low word first.
+    ///
+    /// # Errors
+    /// The library has no such field for the object's package.
+    pub fn double(&self, o: &PackedObject, name: &str) -> Result<f64, String> {
+        let pkg = self.lib.package_name(o.package_id());
+        let frame = self
+            .lib
+            .frame(&pkg)
+            .ok_or_else(|| format!("the library has no frame for {pkg}"))?;
+        let m = frame
+            .members
+            .iter()
+            .find(|m| m.name == name)
+            .ok_or_else(|| format!("{pkg} has no field {name}"))?;
+        let slot = usize::try_from(m.slot).map_err(|_| format!("{pkg}::{name} is not a field"))?;
+        let word = |i: usize| {
+            o.slots
+                .get(i)
+                .copied()
+                .ok_or_else(|| format!("{pkg} has no slot {i}"))
+        };
+        Ok(f64::from_bits(
+            u64::from(word(slot)?) | u64::from(word(slot + 1)?) << 32,
+        ))
+    }
+
     /// A number field as its value: an integer's (signed) or a float's.
     ///
     /// # Errors

@@ -4940,6 +4940,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.inventory.money-bag-pays-a-perk",
+        says: "An item sold to the money bag pays each piece's worth times its seller's \
+               transmutation perk, rounded down; the highest of the perks it holds counts, one \
+               with none is paid the worth, and coins count one each whoever drags them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-BAG-PERK"),
+        station: "yalain-testkit::cpu::play::pack::an_item_sold_to_the_money_bag_pays_its_sellers_transmutation_perk",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.inventory.money-bag-pays-for-part-of-a-stack",
         says: "Part of a stack dragged to the money bag pays for the pieces that went, and the \
                rest stays in the pack with its count told.",
@@ -10393,6 +10403,14 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-SKILL-LIST"),
         station: "yalain-testkit::cpu::play::own_requests::the_trained_skills_list_has_a_line_for_each_trained_skill_only",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.skills.perks-read-from-their-definitions",
+        says: "Each perk reads its kind, value and priority from its definition.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PERK-READ"),
+        station: "yalain-testkit::dat::skills::perks_read_with_their_kind_value_and_priority",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "server.skills.raise",

@@ -302,7 +302,10 @@ fn a_perk(h: &mut Harness, kind: u32) {
         .skills
         .get_mut(&SKILL)
         .expect("defined");
-    d.perk = Some(kind);
+    d.perk = Some(yalain_world::skills::Perk {
+        kind,
+        ..yalain_world::skills::Perk::default()
+    });
 }
 
 /// A perk is untrained no sooner than a week after the last perk was; a skill that is no perk
