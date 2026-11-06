@@ -184,6 +184,13 @@ and can trace rays. The startup log line says which compiler it used.
 The client can also run without a window and replay recorded input:
 [`dereth/client/INPUT-REPLAY.md`](dereth/client/INPUT-REPLAY.md).
 
+## What the client tells the hub
+
+When you log in to a world, the Dereth client tells the Dereth Network's hub that world's address and
+the player count the world gave it, so the launcher can show how many are playing. There's no setting
+to turn this off. It carries no account, character or id, and the hub keeps only the latest count and
+when it came, never your address ([the hub's rules](docs/network/05-hub.md)).
+
 ## Where the client keeps its settings
 
 Everything the player saves (`UserPreferences.ini`, key maps, UI layouts, screenshots and

@@ -387,6 +387,7 @@ impl<S: Shell> App<S> {
             teleport: crate::teleport::Teleport::new(),
             anim_assets,
             frame_hook: None,
+            world_players: None,
             hook_control_losses: 0,
             hook_chat: Vec::new(),
             hook_outcomes: Vec::new(),

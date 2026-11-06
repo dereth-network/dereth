@@ -1043,6 +1043,9 @@ pub struct App<S: Shell> {
     /// The step a product installed into the frame, run before the UI step. See
     /// [`crate::frame_hook`].
     frame_hook: Option<Box<dyn crate::frame_hook::FrameHook>>,
+    /// Told how many players a world says it has, each time it says so at login
+    /// ([`Self::on_world_players`]).
+    world_players: Option<Box<dyn FnMut(u32)>>,
     /// The chat lines this frame's messages produced, gathered for the frame hook. Kept only while
     /// a hook is installed.
     hook_chat: Vec<dereth_client_contract::chat::interface::ChatMessage>,

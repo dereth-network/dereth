@@ -108,6 +108,7 @@ fn run_with(
     let want_ui = cfg.ui;
     let cfg_ui_mode = cfg.ui_mode;
     let host = cfg.host.clone();
+    let port = cfg.port;
     let account = cfg.account.clone();
     let plugins = cfg.plugins.then(|| dereth_client::plugins::DesktopPlugins {
         settings_dir: dereth_desktop::folders::default_settings_dir(
@@ -188,6 +189,9 @@ fn run_with(
         // The connection step keeps the UI alive until the link reaches Connected; `App::run`
         // owns that frame loop. This branch therefore only reports which server was selected.
         tracing::info!("connecting to {host} as {account}");
+        if let Some(reporter) = dereth_client::player_count::reporter(&host, port) {
+            app.on_world_players(reporter);
+        }
     }
 
     if let Some(m) = cfg_ui_mode {

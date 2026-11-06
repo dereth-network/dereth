@@ -540,6 +540,15 @@ pub static DIVERGENCES: &[Divergence] = &[
               is needed to see it again on another machine.",
     },
     Divergence {
+        id: "CD-reports-player-count",
+        title: "A login tells the Dereth Network's hub the world's player count",
+        change: "The count a world gives at login goes to the hub with the world's address and \
+                 port, and nothing else, for the launcher's list of worlds. There is no setting to \
+                 turn it off. A world on the player's own computer or network is not reported.",
+        why: "Most worlds have no other way to say how many are on; a world's count is public and \
+              says nothing of who is playing.",
+    },
+    Divergence {
         id: "CD-resizable-window",
         title: "On macOS the window can be dragged to any size",
         change: "On macOS the player can drag the window's edges, down to the login size, and the \

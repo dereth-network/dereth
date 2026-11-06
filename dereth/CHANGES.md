@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`launcher/RELEASING.md`](launcher/RELEASING.md)).
 
 ## Unreleased
+- Logging in now reports the world's player count to the hub, with no opt-out.
 - Fixed a crash on exit on Linux with Wayland and NVIDIA.
 - Launch: the character page and character options show only what 1999's did.
 - Launch: spells ask for the tapers of your own account.

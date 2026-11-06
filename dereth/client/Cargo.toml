@@ -72,6 +72,7 @@ dereth-dat.workspace = true
 # URL (`src/plugins.rs`, off the frame's thread). The same client and TLS the server's importer
 # already uses.
 ureq = { version = "3", default-features = false, features = ["rustls"] }
+serde_json.workspace = true
 tracing.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
