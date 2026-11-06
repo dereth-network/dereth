@@ -1935,12 +1935,12 @@ function worldPage() {
   const dataNote = world.era_state === "checking" || world.era_state === "unknown"
     ? "This world has not said its era yet. It needs Modern data files, and Classic ones too if it plays an era before Throne of Destiny."
     : world.world_base === "modern" && world.dats.custom
-    ? `${world.name} plays ${eraName} over its own Modern data files. Classic ones are optional, for the classic looks.`
+    ? `${world.name} plays ${eraName} over its own Modern data files. Classic ones are optional, for the classic interface and looks.`
     : needs === "original"
     ? `${eraName} needs the 1999 data files, which its world is drawn from, and Modern ones beside them for the interface.`
     : needs === "classic"
     ? `${eraName} is before Throne of Destiny: it needs Classic data files, which its world is drawn from, and Modern ones beside them for the interface.`
-    : `${eraName} needs Modern data files. Classic ones are optional, for the classic looks.`;
+    : `${eraName} needs Modern data files. Classic ones are optional, for the classic interface and looks.`;
   const missing = f.client === "dereth" && !hasRequiredSet();
   // A world that plays with its own files, and none of the player's sets is them: where they come
   // from, and the way to point at them.

@@ -10,6 +10,9 @@ section, dated, and opens a new empty one in the same commit as the version.
 
 ## Unreleased
 
+- The Library holds art packs as it holds data files, and a world's page chooses which the Dereth
+  client draws, or none.
+
 ## 0.5.1 (2026-11-05)
 
 - A hosted world can now be saved in the Launch era.

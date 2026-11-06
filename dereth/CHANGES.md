@@ -14,8 +14,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
-- Launcher: the Library holds art packs as it holds data files, and a world's page chooses which the Dereth client draws, or none.
 - Better Lighting: Retail Look and No Slope Materials say so when no art pack is open.
+
 ## 0.4.14 (2026-11-05)
 
 ## 0.4.13 (2026-11-05)
