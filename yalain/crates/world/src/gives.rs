@@ -4,7 +4,8 @@
 //! busy (another give, a drop, a use under way) is refused at once, actions locked; so is a give
 //! to a person (not an object) another player is giving something to (target busy: 2017, 1 of 1;
 //! eight gives to an object during another's were all taken). Otherwise the player is walked to
-//! the person (a movement order to 2 m, sent even when it is there: 360 of 360).
+//! the person (a movement order to 2 m, sent even when it is there: 360 of 360). A person is busy
+//! only with a give being handed to it: one still on its way, from however far, holds no one up.
 //!
 //! **Handed over.** In reach, the walk stops and the player plays its handing-over behavior with
 //! the item's look in its hand, in the walk's context, and the item's container is cleared; 1.31 s
@@ -164,7 +165,7 @@ pub fn asked<S: Store>(
             *w != world
                 && o.giving
                     .as_ref()
-                    .is_some_and(|g| g.asked.target == m.target)
+                    .is_some_and(|g| g.handed && g.asked.target == m.target)
         });
     if busy {
         refuse(net, world, &m, status::TARGET_BUSY);
@@ -277,7 +278,7 @@ fn hand_over<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, cl
             quality: q::CONTAINER,
             value: 0,
         });
-        presence::to_thing_knowers(s, net, item, BlobKind::VISUAL, &cleared);
+        crate::inventory::to_holder(s, net, world, item, &cleared);
     }
     s.after(clock, HANDED_AFTER, Timer::Handed { world });
 }
@@ -575,7 +576,7 @@ pub fn back<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, m: 
             quality: q::CONTAINER,
             value: holder,
         });
-        presence::to_thing_knowers(s, net, m.item, BlobKind::VISUAL, &held);
+        crate::inventory::to_holder(s, net, world, m.item, &held);
     }
     true
 }
@@ -603,7 +604,7 @@ pub fn keep<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, giv
             quality: crate::craft::QUANTITY,
             value: i32::try_from(left).unwrap_or(i32::MAX),
         });
-        progress::private(net, world, &m);
+        crate::inventory::to_holder(s, net, world, given.item, &m);
         crate::world::keep_player(s, world);
         return;
     }
@@ -617,12 +618,8 @@ pub fn keep<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, giv
         other_stamp: 0,
     }));
     net.send(world, queue::EVENT, BlobKind::UNORDERED, gone.encode());
-    let container = presence::content_by_id(&s.content.objects, given.target)
-        .map_or(ObjectStamp::default(), |i| {
-            crate::talk::content_speaker(s, i).stamp
-        });
     let destroyed = ServerMessage::VisualObjectCall(ObjectCall {
-        object: container,
+        object: crate::places::object_stamp(s, given.target),
         call: ClientCall {
             function: FunctionId(DESTROY_CONTAINED),
             args: Some(
@@ -631,7 +628,7 @@ pub fn keep<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, giv
             ),
         },
     });
-    net.send(world, queue::EVENT, BlobKind::VISUAL, destroyed.encode());
+    crate::places::to_knowers(s, net, given.target, &destroyed);
     crate::world::keep_player(s, world);
 }
 

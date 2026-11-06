@@ -1454,12 +1454,12 @@ pub fn handle_action_list_allegiance_officers(w: &mut World, this: ObjectGuid) {
 
 // ACE: Player.HandleActionListAllegianceOfficerTitles
 pub fn handle_action_list_allegiance_officer_titles(w: &mut World, this: ObjectGuid) {
-    // DIVERGE: V483, a world without allegiance officers, locks and bans (May 2004) refuses the request.
+    // DIVERGE: V483, a world without officer titles and the lock (May 2006) refuses the request.
     if !crate::world_objects::era_gates::has(
         w,
         this,
-        w.era.features.allegiance_officers_and_bans,
-        "allegiance officers",
+        w.era.features.allegiance_officers_and_bans && w.era.features.allegiance_titles_and_lock,
+        "allegiance officer titles",
     ) {
         return;
     }
@@ -1495,12 +1495,12 @@ pub fn handle_action_set_allegiance_officer_title(
     rank: u32,
     title: &str,
 ) {
-    // DIVERGE: V483, a world without allegiance officers, locks and bans (May 2004) refuses the request.
+    // DIVERGE: V483, a world without officer titles and the lock (May 2006) refuses the request.
     if !crate::world_objects::era_gates::has(
         w,
         this,
-        w.era.features.allegiance_officers_and_bans,
-        "allegiance officers",
+        w.era.features.allegiance_officers_and_bans && w.era.features.allegiance_titles_and_lock,
+        "allegiance officer titles",
     ) {
         return;
     }
@@ -1545,12 +1545,12 @@ pub fn handle_action_set_allegiance_officer_title(
 
 // ACE: Player.HandleActionClearAllegianceOfficerTitles
 pub fn handle_action_clear_allegiance_officer_titles(w: &mut World, this: ObjectGuid) {
-    // DIVERGE: V483, a world without allegiance officers, locks and bans (May 2004) refuses the request.
+    // DIVERGE: V483, a world without officer titles and the lock (May 2006) refuses the request.
     if !crate::world_objects::era_gates::has(
         w,
         this,
-        w.era.features.allegiance_officers_and_bans,
-        "allegiance officers",
+        w.era.features.allegiance_officers_and_bans && w.era.features.allegiance_titles_and_lock,
+        "allegiance officer titles",
     ) {
         return;
     }
@@ -1815,12 +1815,12 @@ pub fn handle_action_do_allegiance_lock_action(
     this: ObjectGuid,
     action: AllegianceLockAction,
 ) {
-    // DIVERGE: V483, a world without allegiance officers, locks and bans (May 2004) refuses the request.
+    // DIVERGE: V483, a world without officer titles and the lock (May 2006) refuses the request.
     if !crate::world_objects::era_gates::has(
         w,
         this,
-        w.era.features.allegiance_officers_and_bans,
-        "allegiance officers",
+        w.era.features.allegiance_officers_and_bans && w.era.features.allegiance_titles_and_lock,
+        "allegiance lock",
     ) {
         return;
     }
@@ -1915,12 +1915,12 @@ pub fn handle_action_set_allegiance_approved_vassal(
     this: ObjectGuid,
     player_name: &str,
 ) {
-    // DIVERGE: V483, a world without allegiance officers, locks and bans (May 2004) refuses the request.
+    // DIVERGE: V483, a world without officer titles and the lock (May 2006) refuses the request.
     if !crate::world_objects::era_gates::has(
         w,
         this,
-        w.era.features.allegiance_officers_and_bans,
-        "allegiance officers",
+        w.era.features.allegiance_officers_and_bans && w.era.features.allegiance_titles_and_lock,
+        "allegiance lock",
     ) {
         return;
     }
@@ -2099,6 +2099,15 @@ pub fn handle_action_allegiance_chat_gag(
     player_name: &str,
     enabled: bool,
 ) {
+    // DIVERGE: V483, a world without officer titles and the lock (May 2006) has no gag either.
+    if !crate::world_objects::era_gates::has(
+        w,
+        this,
+        w.era.features.allegiance_officers_and_bans && w.era.features.allegiance_titles_and_lock,
+        "allegiance chat gag",
+    ) {
+        return;
+    }
     if enabled {
         handle_action_allegiance_chat_gag_enabled(w, this, player_name);
     } else {

@@ -464,7 +464,7 @@ impl Fellows {
             .and_then(|n| n.instance_id_attr(name::ID))
             .unwrap_or(0);
         if id != 0 {
-            out.push(PlayRequest::Select(id));
+            out.push(PlayRequest::SetSelection(id));
         }
     }
 
@@ -493,7 +493,7 @@ impl Fellows {
                     if id == 0 {
                         continue;
                     }
-                    out.push(PlayRequest::Select(id));
+                    out.push(PlayRequest::SetSelection(id));
                     if param == button_id::DOUBLE_LEFT {
                         if let Some(i) = self.find(id) {
                             let s = self.rows[i].name.clone();

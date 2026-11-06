@@ -562,10 +562,15 @@ pub fn apply_on<S: Store>(
             crate::craft::forget(s, net, world, *recipe);
             true
         }
+        (Kind::Taunt(share), On::Creature(id)) => {
+            crate::ai::taunted(s, id, cast.caster, *share, clock.local.0);
+            true
+        }
         (
             Kind::Quest { .. } | Kind::GrantRecipe(_) | Kind::RemoveRecipe(_) | Kind::Teleport(_),
             On::Creature(_),
         )
+        | (Kind::Taunt(_), On::Player(_))
         | (Kind::Aura(_), _) => false,
         // A pet is summoned as its skill's use ends ([`crate::pets`]), never as an effect; a
         // recall is its skill's trip ([`crate::skill_use`]).
@@ -799,7 +804,7 @@ pub(crate) fn harm_back<S: Store>(
         if conn_of(s, target).is_some() {
             crate::combat::hurt_creature(s, net, attacker, target, back, clock);
         } else {
-            crate::pets::struck(s, net, attacker, target, back, clock);
+            crate::pets::struck(s, net, attacker, (target, 0), back, clock);
         }
     }
 }
@@ -1993,15 +1998,173 @@ pub fn on_held<S: Store>(s: &Server<S>, player: u64, item: u64, shield: bool) ->
     held
 }
 
-/// The effects auras hold on a thing in the world: nothing unless a player has it in hand.
+/// The effects held on a thing in the world: those skills put on it, wherever it is, and those auras
+/// hold on it when a player has it in hand.
 #[must_use]
 pub fn on_thing<S: Store>(s: &Server<S>, t: &crate::things::Thing) -> Vec<(u32, f32)> {
+    let mut held: Vec<(u32, f32)> = running_on_item(s, t)
+        .into_iter()
+        .map(|e| (e.state, e.spellcraft))
+        .collect();
+    held.extend(auras_on_thing(s, t));
+    held
+}
+
+/// The effects auras hold on a thing in the world: nothing unless a player has it in hand.
+#[must_use]
+pub fn auras_on_thing<S: Store>(s: &Server<S>, t: &crate::things::Thing) -> Vec<(u32, f32)> {
     let Some((holder, _)) = t.wielded else {
         return Vec::new();
     };
     let shield = crate::skill_use::implement_of(&s.catalog, t.template)
         == Some(crate::skill_use::implement::SHIELD);
     on_held(s, holder, t.id, shield)
+}
+
+/// The class of an effect that attunes what it is on to whoever holds it.
+const ATTUNEMENT_CLASS: u32 = 114;
+
+/// The effects skills put on an item that are still running: the top one of each class, by its
+/// priority, then its spellcraft, then the later to end.
+#[must_use]
+pub fn running_on_item<S: Store>(
+    s: &Server<S>,
+    t: &crate::things::Thing,
+) -> Vec<crate::things::TimedEffect> {
+    let mut top: Vec<(u32, f32, crate::things::TimedEffect)> = Vec::new();
+    for e in t.timed.iter().filter(|e| e.until > s.game_now) {
+        let Some(d) = s.effect_table.get(e.state) else {
+            continue;
+        };
+        let priority = d.priority.at(e.spellcraft).unwrap_or(0.0);
+        let rank = |p: f32, x: &crate::things::TimedEffect| (p, x.spellcraft, x.until);
+        match top.iter_mut().find(|(class, _, _)| *class == d.eq_class) {
+            Some(held) => {
+                if rank(priority, e) > rank(held.1, &held.2) {
+                    (held.1, held.2) = (priority, *e);
+                }
+            }
+            None => top.push((d.eq_class, priority, *e)),
+        }
+    }
+    top.into_iter().map(|(_, _, e)| e).collect()
+}
+
+/// Does an effect that attunes an item run on this one?
+#[must_use]
+pub fn attuned_by_effect<S: Store>(s: &Server<S>, t: &crate::things::Thing) -> bool {
+    t.timed.iter().any(|e| {
+        e.until > s.game_now
+            && s.effect_table
+                .get(e.state)
+                .is_some_and(|d| d.eq_class == ATTUNEMENT_CLASS)
+    })
+}
+
+/// A message about an item to all who see it: its holder alone unless it is in hand.
+fn tell_of_item<S: Store>(s: &mut Server<S>, net: &mut ServerNet, item: u64, m: &ServerMessage) {
+    let Some(t) = s.things.get(item) else {
+        return;
+    };
+    let holder = t.wielded.or(t.container).map(|(holder, _)| holder);
+    if let Some(world) = holder.and_then(|h| crate::social::world_of(s, h)) {
+        crate::inventory::to_holder(s, net, world, item, m);
+    }
+}
+
+/// A skill puts an effect on an item, for its time on the game clock whoever holds it after. An item
+/// carries one of each effect: a new one takes the place of an older one no stronger, and a weaker
+/// one changes nothing. Its look plays as the first effect showing it goes on (2017: 25 of 32 first
+/// stories on an item played it, 2 of 23 with one running), and stops as the last ends.
+pub fn put_on_item<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    item: u64,
+    state: u32,
+    spellcraft: f32,
+    clock: Clock,
+) {
+    let Some(def) = s.effect_table.get(state).cloned() else {
+        s.unhandled
+            .note(format!("an effect {state:08X} the server does not know"));
+        return;
+    };
+    let Some(seconds) = def.duration.at(spellcraft) else {
+        return;
+    };
+    let now = net.game_time(clock.local);
+    let until = now + f64::from(seconds);
+    let Some(t) = s.things.get_mut(item) else {
+        return;
+    };
+    t.timed.retain(|e| e.until > now);
+    if t.timed
+        .iter()
+        .any(|e| e.state == state && e.spellcraft > spellcraft)
+    {
+        return;
+    }
+    let showing = def.fx != 0
+        && s.things.get(item).is_some_and(|t| {
+            t.timed
+                .iter()
+                .any(|e| s.effect_table.get(e.state).is_some_and(|d| d.fx == def.fx))
+        });
+    let Some(t) = s.things.get_mut(item) else {
+        return;
+    };
+    t.timed.retain(|e| e.state != state);
+    t.timed.push(crate::things::TimedEffect {
+        state,
+        spellcraft,
+        until,
+    });
+    if def.fx != 0 && !showing {
+        let m = ServerMessage::DoFx(ObjectEvent {
+            sender: crate::inventory::visual(s, item),
+            action: Fx {
+                fx: def.fx,
+                scalar: 1.0,
+            },
+        });
+        tell_of_item(s, net, item, &m);
+        s.after(
+            clock,
+            f64::from(seconds),
+            crate::Timer::ItemEffectEnds { item, fx: def.fx },
+        );
+    }
+}
+
+/// The time of the look an item's effects show is up: it stops, unless an effect showing it runs on.
+pub fn item_effect_ends<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    item: u64,
+    fx: u32,
+    clock: Clock,
+) {
+    let now = net.game_time(clock.local);
+    let Some(t) = s.things.get_mut(item) else {
+        return;
+    };
+    t.timed.retain(|e| e.until > now);
+    let last = s.things.get(item).and_then(|t| {
+        t.timed
+            .iter()
+            .filter(|e| s.effect_table.get(e.state).is_some_and(|d| d.fx == fx))
+            .map(|e| e.until)
+            .max_by(f64::total_cmp)
+    });
+    if let Some(last) = last {
+        s.after(clock, last - now, crate::Timer::ItemEffectEnds { item, fx });
+        return;
+    }
+    let m = ServerMessage::StopFx(ObjectEvent {
+        sender: crate::inventory::visual(s, item),
+        action: Word(fx),
+    });
+    tell_of_item(s, net, item, &m);
 }
 
 /// What these effects on an item multiply a stat of it by.
@@ -2030,6 +2193,19 @@ pub fn held_damage<S: Store>(s: &Server<S>, held: &[(u32, f32)], most: i32) -> i
     #[allow(clippy::cast_precision_loss)]
     let whole = most as f32 * held_multiplier(s, held, crate::made::stat::DAMAGE) + added;
     dereth_primitives::num::to_i32(whole.floor())
+}
+
+/// What these effects on an item add to its shield rating, rounded down.
+#[must_use]
+pub fn held_rating<S: Store>(s: &Server<S>, held: &[(u32, f32)]) -> i32 {
+    let added: f32 = held
+        .iter()
+        .filter_map(|(state, spellcraft)| Some((s.effect_table.get(*state)?, *spellcraft)))
+        .flat_map(|(d, spellcraft)| d.changes(spellcraft))
+        .filter(|(st, multiply, _)| *st == crate::made::stat::ARMOR && !*multiply)
+        .map(|(_, _, by)| by)
+        .sum();
+    dereth_primitives::num::floor_to_i32(added)
 }
 
 /// The players an aura's pulse reaches, when it reaches players: its user, and each of its fellows

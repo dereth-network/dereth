@@ -909,12 +909,23 @@ fn resize(c: &mut Call<'_>) -> Result<Status, Stop> {
     resize_to(c, r, |_, _| Some(size_for(want)), 1)
 }
 
-/// Rehash into the bucket count that suits the entry count.
-// D2-09062, D2-09125, D2-09272, D2-09490
+/// Rehash into the bucket count that suits the entry count, unless the count now is within a
+/// factor of two of the entries.
+// D2-09062, D2-09125, D2-09272, D2-09490, D2-07309
 fn optimize_size(c: &mut Call<'_>) -> Result<Status, Stop> {
     with_receiver!(c, r);
-    #[allow(clippy::cast_possible_truncation)]
-    resize_to(c, r, |_, len| Some(size_for(len as u32)), 0)
+    resize_to(
+        c,
+        r,
+        |now, len| {
+            #[allow(clippy::cast_possible_truncation)]
+            let len = len as u32;
+            let buckets = BUCKET_SIZES[usize::from(now)];
+            let suits = len >> 1 <= buckets && buckets <= len.wrapping_mul(2);
+            (!suits).then(|| size_for(len))
+        },
+        0,
+    )
 }
 
 /// Whether the table has more than twice as many buckets as entries.

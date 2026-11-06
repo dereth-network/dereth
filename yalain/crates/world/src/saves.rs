@@ -300,9 +300,10 @@ pub fn put<S: Store>(s: &mut Server<S>, character: u64, state: WorldState) -> St
     write_out(s)
 }
 
-/// Set more ids aside for the world's things when its block is running low.
+/// Set more ids aside for the world's things when its block is running low, however far past its
+/// end they were given while the store would not answer.
 fn reserve_ids<S: Store>(s: &mut Server<S>) -> StoreResult<()> {
-    if s.things.low() {
+    while s.things.low() {
         let first = s.store.reserve_thing_numbers(crate::things::ID_BLOCK)?;
         s.things.add_block(first, crate::things::ID_BLOCK);
     }

@@ -1555,10 +1555,13 @@ fn a_quest_an_admin_takes_off_a_player_takes_its_subquests_too() {
                 effects_last: false,
                 wants: None,
                 fellows: false,
+                levels: None,
+                xp_share: 0.0,
                 to: None,
             })
             .to_vec(),
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let world = h
         .server
@@ -1691,6 +1694,7 @@ fn a_quest_an_admin_takes_off_a_player_leaves_its_clients_list_at_once() {
             quests: vec![def(SHOWN, false), def(OTHER, false), def(HIDDEN, true)],
             steps: Vec::new(),
             gives: Vec::new(),
+            rooms: Vec::new(),
         };
         for p in h.server.players.values_mut() {
             for quest in [SHOWN, OTHER, HIDDEN] {

@@ -105,6 +105,8 @@ pub fn usage_effects(props: &Props, resolve: impl Fn(&str) -> Option<u32>) -> Ve
 /// on its user, and on whoever wears or wields it.
 pub const USED: (&str, &str) = ("Usage_Effect", "_Spellcraft");
 pub const WORN: (&str, &str) = ("Item_EquipperEffect", "Stat");
+/// And on whoever kills a creature.
+pub const DIED: (&str, &str) = ("NPC_DeathEffect", "Stat");
 
 /// The effects a template's properties name by one pair of [`USED`] and [`WORN`], in order, each at
 /// its spellcraft (else 1), resolved by `resolve` (a name that resolves to nothing is left out).
@@ -396,6 +398,7 @@ pub fn begin<S: Store>(
         && !examined
         && !seed
         && !own
+        && !crate::death_spawn::names_one(s, &t.props)
     {
         return false;
     }
@@ -743,6 +746,13 @@ fn carry_out<S: Store>(
     for e in list {
         put_on(s, net, world, me, u.item, e, clock);
     }
+    // One that makes what a world's row names moves the quest it names too, before it's answered
+    // (2017: a practice gem's quest 0.06 s before its answer, 4 of 4).
+    if crate::death_spawn::names_one(s, &t.props) {
+        for e in crate::quests::named_for_use(s, &t.props) {
+            crate::quests::moves(s, net, world, e, true, clock);
+        }
+    }
     // A Tessera's hero skill credit.
     let behavior = item_behavior(s, u.item, template, &t.props);
     let tessera = behavior == Some(TESSERA_BEHAVIOR);
@@ -786,6 +796,7 @@ fn carry_out<S: Store>(
     }
     let done = crate::places::use_done(&u, me, f, false, 0.0);
     progress::private(net, world, &done);
+    crate::death_spawn::used(s, net, world, &t.props, clock);
     // Food wears with each use, and goes at its last.
     if template == FOOD {
         crate::butchery::wear_tool_by(s, net, world, u.item, 1.0, FOOD_DURABILITY);

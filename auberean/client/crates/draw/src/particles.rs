@@ -516,6 +516,12 @@ impl ParticleSet {
         }
     }
 
+    /// Whether its description scales it with the object it stands on.
+    #[must_use]
+    pub fn scales_with_object(&self) -> bool {
+        self.desc.scale_type == SCALES_WITH_OBJECT
+    }
+
     /// The scale of the object it stands on.
     #[must_use]
     pub fn scale(&self) -> Vec3 {
@@ -1567,8 +1573,9 @@ impl ParticleSet {
         if !self.no_fade && distance > self.desc.start_fade_distance && span > EPSILON {
             opacity = 1.0 - (distance - self.desc.start_fade_distance) / span;
         }
-        // A system in the world draws its particles where they are; one of its own draws them
-        // through its place and the object's scale.
+        // A system in the world draws its particles where they are; one of its own draws them at
+        // its place, by the object's scale, without the place's turn, so its quads face the camera
+        // however the object is turned.
         let (to_world, size_scale) = if self.desc.world_space {
             let s = scale3;
             (Mat4::IDENTITY, s.x.max(s.y).max(s.z))
@@ -1579,7 +1586,7 @@ impl ParticleSet {
                 [0.0, 0.0, scale3.z, 0.0],
                 [0.0, 0.0, 0.0, 1.0],
             ]);
-            (s.then(&place), 1.0)
+            (s.then(&Mat4::translation(place_origin)), 1.0)
         };
         let world_scale = if self.desc.world_space {
             scale3
@@ -1750,6 +1757,7 @@ impl ParticleSet {
                 out.push(ObjectBatch {
                     vertices: v.clone(),
                     posed: None,
+                    played: None,
                     indices: i.clone(),
                     transform: Mat4::IDENTITY,
                     layer: layer.clone(),
@@ -1885,13 +1893,18 @@ pub fn approximate_lifetime(desc: &Particles) -> f32 {
 /// (degrees above the horizon), as the frame's camera looks.
 #[must_use]
 pub fn camera_axes(heading: f32, pitch: f32) -> (Vec3, Vec3, Vec3) {
+    leaned_camera_axes(heading, pitch, 0.0)
+}
+
+/// [`camera_axes`] for a view leaning `roll` degrees about the way it looks.
+#[must_use]
+pub fn leaned_camera_axes(heading: f32, pitch: f32, roll: f32) -> (Vec3, Vec3, Vec3) {
     let (h, p) = (heading.to_radians(), pitch.to_radians());
     let forward = Vec3::new(
         math::sinf(h) * math::cosf(p),
         math::cosf(h) * math::cosf(p),
         math::sinf(p),
     );
-    let right = unit_or_zero(cross(forward, Vec3::new(0.0, 0.0, 1.0)));
-    let up = cross(right, forward);
+    let (right, up) = crate::scene::view_axes(forward, roll);
     (right, forward, up)
 }

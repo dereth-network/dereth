@@ -482,6 +482,8 @@ fn a_kills_step_runs_first_and_its_quest_is_not_moved_again_by_the_effect() {
         effects_last: false,
         wants: None,
         fellows: false,
+        levels: None,
+        xp_share: 0.0,
         to: None,
     });
     let from = h.bots[b].inbox.len();
@@ -612,6 +614,8 @@ fn giving_step() -> Step {
         effects_last: false,
         wants: None,
         fellows: false,
+        levels: None,
+        xp_share: 0.0,
         to: None,
     }
 }
@@ -714,6 +718,8 @@ fn an_item_acquired_moves_the_quest_its_template_names() {
         effects_last: false,
         wants: None,
         fellows: false,
+        levels: None,
+        xp_share: 0.0,
         to: None,
     });
     let from = h.bots[b].inbox.len();
@@ -745,6 +751,8 @@ fn an_item_acquired_moves_the_quest_its_template_names() {
         effects_last: false,
         wants: None,
         fellows: false,
+        levels: None,
+        xp_share: 0.0,
         to: None,
     });
     h.server.quests.steps.retain(|st| st.quest != QUEST);
@@ -760,4 +768,394 @@ fn an_item_acquired_moves_the_quest_its_template_names() {
     );
     h.run(2);
     assert_eq!(phase(&h, me), 3, "by what the person gave");
+}
+
+/// A kill's step that leads somewhere sends the killer there; one that leads nowhere doesn't.
+/// Behaviour: server.quests.kill-step-leads-on
+#[test]
+fn a_kills_step_that_leads_somewhere_sends_the_killer() {
+    let mut q = quest(3);
+    q.effects = Vec::new();
+    let (mut h, _, me) = world(q);
+    let template = kill(&mut h, me, &[]);
+    let place = yalain_content::quests::Place {
+        cell: 0x049E_0138,
+        origin: [1.0, 2.0, 3.0],
+        heading: 127,
+    };
+    let step = |needs: u32, to| Step {
+        quest: QUEST,
+        needs,
+        trigger: Trigger::Kill(template),
+        tell: None,
+        update: Update::Advance(needs + 1),
+        xp: 0,
+        gives: Vec::new(),
+        counts: Vec::new(),
+        effects: Vec::new(),
+        text: None,
+        placed: "authored for a test".into(),
+        requires: Vec::new(),
+        takes: Vec::new(),
+        to,
+        races: Vec::new(),
+        effects_last: false,
+        fellows: false,
+        wants: None,
+        levels: None,
+        xp_share: 0.0,
+    };
+    h.server.quests.steps = vec![step(1, Some(place)), step(2, None)];
+    for p in h.server.players.values_mut() {
+        p.play.quests.push(QuestState {
+            quest: QUEST,
+            status: status::UNDERWAY,
+            phase: 1,
+            started: 0,
+            updated: 0,
+        });
+    }
+    let trip_to = |h: &Harness| {
+        let p = h.server.players.values().next().expect("in the world");
+        (p.trip.as_ref().map(|t| t.to.cell), p.play.quests[0].phase)
+    };
+    kill(&mut h, me, &[]);
+    assert_eq!(
+        trip_to(&h),
+        (Some(0x049E_0138), 1),
+        "sent, the update to come"
+    );
+    land(&mut h);
+    assert_eq!(trip_to(&h), (None, 2));
+    kill(&mut h, me, &[]);
+    assert_eq!(trip_to(&h), (None, 3), "the last leads nowhere");
+}
+
+/// Out of portal space, at wherever the trip was for.
+fn land(h: &mut Harness) {
+    h.advance(yalain_world::places::IN_PORTAL_SPACE);
+    h.run(4);
+}
+
+/// A step of the test quest for a kill of this template, leading to this place.
+pub(super) fn leading_step(template: u32, needs: u32, to: yalain_content::quests::Place) -> Step {
+    Step {
+        quest: QUEST,
+        needs,
+        trigger: Trigger::Kill(template),
+        tell: None,
+        update: Update::Advance(needs + 1),
+        xp: 0,
+        gives: Vec::new(),
+        counts: Vec::new(),
+        effects: Vec::new(),
+        text: None,
+        placed: "authored for a test".into(),
+        requires: Vec::new(),
+        takes: Vec::new(),
+        to: Some(to),
+        races: Vec::new(),
+        effects_last: false,
+        fellows: false,
+        wants: None,
+        levels: None,
+        xp_share: 0.0,
+    }
+}
+
+const ARENA: yalain_content::quests::Place = yalain_content::quests::Place {
+    cell: 0x049E_0138,
+    origin: [1.0, 2.0, 3.0],
+    heading: 127,
+};
+
+/// A kill's step that leads somewhere is told as the killer comes out there, once, and the journal
+/// doesn't move before: the update isn't in what's sent as the trip starts.
+/// Behaviour: server.quests.a-kills-update-comes-on-landing
+#[test]
+fn a_kills_update_comes_as_the_killer_lands() {
+    let mut q = quest(3);
+    q.effects = Vec::new();
+    let (mut h, b, me) = world(q);
+    let template = kill(&mut h, me, &[]);
+    h.server.quests.steps = vec![leading_step(template, 1, ARENA)];
+    holds(&mut h, me, status::UNDERWAY, 1);
+    h.run(2);
+    let from = h.calls(b, 0).len();
+    kill(&mut h, me, &[]);
+    assert!(updates(&h, b, from).is_empty(), "nothing told at the kill");
+    assert_eq!(phase(&h, me), 1);
+    let p = h.server.players.values().next().expect("in the world");
+    assert_eq!(p.trip.as_ref().map(|t| t.to.cell), Some(ARENA.cell));
+    assert_ne!(p.position.cell, ARENA.cell, "not there yet");
+    land(&mut h);
+    assert_eq!(updates(&h, b, from).len(), 1, "told once, on landing");
+    assert_eq!(phase(&h, me), 2);
+    let p = h.server.players.values().next().expect("in the world");
+    assert_eq!(p.position.cell, ARENA.cell);
+    assert!(p.trip.is_none());
+}
+
+/// Another kill of the kind while the first's trip is under way moves nothing: the quest moves one
+/// phase, on landing, even where the creature's own effects name it.
+/// Behaviour: server.quests.a-kills-update-comes-on-landing
+#[test]
+fn a_second_kill_on_the_way_moves_the_quest_no_further() {
+    let mut q = quest(4);
+    q.effects = Vec::new();
+    let (mut h, b, me) = world(q);
+    let template = kill(&mut h, me, &[]);
+    h.server.quests.steps = vec![
+        leading_step(template, 1, ARENA),
+        leading_step(template, 2, ARENA),
+    ];
+    holds(&mut h, me, status::UNDERWAY, 1);
+    h.run(2);
+    let from = h.calls(b, 0).len();
+    kill(&mut h, me, &[]);
+    kill(&mut h, me, &[INCREMENT]);
+    assert_eq!(phase(&h, me), 1);
+    land(&mut h);
+    assert_eq!(phase(&h, me), 2);
+    assert_eq!(updates(&h, b, from).len(), 1);
+}
+
+/// A killer whose client goes away on the way lands all the same before it leaves, and comes back
+/// there with the quest moved on.
+/// Behaviour: server.quests.a-kills-update-comes-on-landing
+#[test]
+fn a_killer_whose_client_goes_away_on_the_way_comes_back_moved_on() {
+    let mut q = quest(3);
+    q.effects = Vec::new();
+    let (mut h, b, me) = world(q);
+    let template = kill(&mut h, me, &[]);
+    h.server.quests.steps = vec![leading_step(template, 1, ARENA)];
+    holds(&mut h, me, status::UNDERWAY, 1);
+    h.run(2);
+    kill(&mut h, me, &[]);
+    h.bots[b].leave();
+    assert!(
+        h.run_until(2000, |h| h.server.players.is_empty()),
+        "it leaves"
+    );
+    let again = h.at_character_list("one");
+    h.enter_world(again, "one", me);
+    assert_eq!(phase(&h, me), 2);
+    let p = h.server.players.values().next().expect("back");
+    assert!(p.trip.is_none());
+    assert_eq!(p.position.cell, ARENA.cell);
+}
+
+/// A quest that has moved while its trip was under way isn't moved back on landing, and a player
+/// still comes out.
+/// Behaviour: server.quests.a-kills-update-comes-on-landing
+#[test]
+fn a_quest_moved_meanwhile_stays_where_it_is_on_landing() {
+    let mut q = quest(5);
+    q.effects = Vec::new();
+    let (mut h, b, me) = world(q);
+    let template = kill(&mut h, me, &[]);
+    h.server.quests.steps = vec![leading_step(template, 1, ARENA)];
+    holds(&mut h, me, status::UNDERWAY, 1);
+    h.run(2);
+    kill(&mut h, me, &[]);
+    holds(&mut h, me, status::UNDERWAY, 4);
+    let from = h.calls(b, 0).len();
+    land(&mut h);
+    assert_eq!(phase(&h, me), 4);
+    assert!(updates(&h, b, from).is_empty());
+    let p = h.server.players.values().next().expect("in the world");
+    assert_eq!(p.position.cell, ARENA.cell);
+}
+
+/// A kill's trip takes a player off a walk it is on: its use is answered, and at the far end nothing
+/// is left to refuse its next use.
+/// Behaviour: server.places.a-walk-ends-with-a-trip-or-a-death
+#[test]
+fn a_kills_trip_ends_a_walk_and_leaves_no_use_refused_after_it() {
+    let mut q = quest(3);
+    q.effects = Vec::new();
+    let (mut h, b, me) = world(q);
+    let template = kill(&mut h, me, &[]);
+    h.server.quests.steps = vec![leading_step(template, 1, ARENA)];
+    holds(&mut h, me, status::UNDERWAY, 1);
+    h.run(2);
+    let world = *h.server.players.keys().next().expect("in the world");
+    let beetle = h
+        .server
+        .catalog
+        .get(yalain_testkit::TEST_CREATURE)
+        .cloned()
+        .expect("the beetle");
+    let mut at = h.server.players[&world].position;
+    at.origin[0] += 100.0;
+    let id = h.server.things.new_id();
+    let mut corpse =
+        yalain_world::things::Thing::of(id, &beetle, yalain_world::things::Kind::Corpse);
+    corpse.at = Some(at);
+    corpse.corpse = Some(yalain_world::things::Corpse {
+        killer: me,
+        originator: 0,
+        contents: Vec::new(),
+        expires: f64::MAX,
+        creature: yalain_testkit::TEST_CREATURE,
+        butchered: false,
+        killer_level: 0,
+    });
+    h.server.things.insert(corpse);
+    h.bots[b].send(
+        true,
+        auberean_protocol::queue::WEENIE,
+        &yalain_testkit::play::server_call(0x8216_0016, &[yalain_testkit::play::use_of(id, me)]),
+    );
+    h.run(4);
+    assert!(h.server.players[&world].walking_to.is_some(), "on its way");
+    kill(&mut h, me, &[]);
+    land(&mut h);
+    assert_eq!(h.server.players[&world].position.cell, ARENA.cell);
+    assert!(h.server.players[&world].walking_to.is_none(), "no longer");
+    assert!(!yalain_world::places::actions_locked(&h.server, world));
+}
+
+/// A step leading to a room of a row of like rooms sends the player to one with no player in it and
+/// its creature standing, at random among such; failing that, one with no player; failing that, any.
+/// Behaviour: server.quests.a-step-leads-to-one-of-its-rooms
+#[test]
+fn a_kills_step_sends_the_killer_to_a_free_room_of_its_row() {
+    use yalain_content::quests::{Place, Room};
+    let mut q = quest(3);
+    q.effects = Vec::new();
+    let (mut h, _, me) = world(q);
+    let template = kill(&mut h, me, &[]);
+    let room = |i: u32| Room {
+        place: Place {
+            cell: 0x049E_0138 + i,
+            #[allow(clippy::cast_precision_loss)]
+            origin: [-120.4 + 60.0 * i as f32, -84.7, 3.06],
+            heading: 127,
+        },
+        holds: 0x049E_0160 + i,
+    };
+    h.server.quests.rooms = vec![vec![room(0), room(1), room(2)]];
+    h.server.quests.steps = vec![Step {
+        quest: QUEST,
+        needs: 1,
+        trigger: Trigger::Kill(template),
+        tell: None,
+        update: Update::Advance(1),
+        xp: 0,
+        gives: Vec::new(),
+        counts: Vec::new(),
+        effects: Vec::new(),
+        text: None,
+        placed: "authored for a test".into(),
+        requires: Vec::new(),
+        takes: Vec::new(),
+        to: Some(room(1).place),
+        races: Vec::new(),
+        effects_last: false,
+        fellows: false,
+        wants: None,
+        levels: None,
+        xp_share: 0.0,
+    }];
+    for p in h.server.players.values_mut() {
+        p.play.quests.push(QuestState {
+            quest: QUEST,
+            status: status::UNDERWAY,
+            phase: 1,
+            started: 0,
+            updated: 0,
+        });
+    }
+    let (_, other) = h.player_in_world("two", "Bran");
+    let sent_to = |h: &mut Harness| {
+        let mut seen = std::collections::BTreeSet::new();
+        for _ in 0..60 {
+            kill(h, me, &[]);
+            let p = h
+                .server
+                .players
+                .values_mut()
+                .find(|p| p.character == me)
+                .expect("in the world");
+            let to = p.trip.take().expect("sent").to;
+            seen.insert(to.cell - 0x049E_0138);
+            let at = room(to.cell - 0x049E_0138).place;
+            assert_eq!(to.origin, at.origin, "where it lands");
+            p.play.quests[0].phase = 1;
+        }
+        seen.into_iter().collect::<Vec<u32>>()
+    };
+    assert_eq!(sent_to(&mut h), [0, 1, 2], "all free, none standing");
+    let in_room = |h: &mut Harness, who: u64, i: u32| {
+        let p = h
+            .server
+            .players
+            .values_mut()
+            .find(|p| p.character == who)
+            .expect("in the world");
+        p.position.cell = room(i).place.cell;
+        p.position.origin = [
+            room(i).place.origin[0],
+            room(i).place.origin[1] - 40.0,
+            3.06,
+        ];
+    };
+    in_room(&mut h, other, 0);
+    assert_eq!(sent_to(&mut h), [1, 2], "not where a player is");
+    // Kept out of the next beetles' way: the highest id is the next to die.
+    let mut standing = h
+        .server
+        .things
+        .by_id
+        .values()
+        .find(|t| t.creature.is_some() && t.alive())
+        .cloned()
+        .expect("the camp's");
+    standing.id = 1;
+    standing.at = Some(yalain_store::StoredPosition {
+        cell: room(2).holds,
+        origin: [0.0, 0.0, 0.0],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    });
+    h.server.things.insert(standing);
+    assert_eq!(sent_to(&mut h), [2], "where its creature stands");
+    in_room(&mut h, other, 2);
+    assert_eq!(
+        sent_to(&mut h),
+        [0, 1],
+        "not though it stands, with a player there"
+    );
+}
+
+/// A kill's trip keeps its step: a recall coming due on the way takes it nowhere else, and the
+/// quest moves as it lands.
+/// Behaviour: server.quests.a-kills-trip-keeps-its-step
+#[test]
+fn a_recall_on_a_kills_trip_leaves_it_and_its_step() {
+    let mut q = quest(3);
+    q.effects = Vec::new();
+    let (mut h, _b, me) = world(q);
+    let template = kill(&mut h, me, &[]);
+    h.server.quests.steps = vec![leading_step(template, 1, ARENA)];
+    holds(&mut h, me, status::UNDERWAY, 1);
+    h.run(2);
+    kill(&mut h, me, &[]);
+    let world = *h.server.players.keys().next().expect("in the world");
+    let elsewhere = yalain_store::StoredPosition {
+        cell: 0x0102_0003,
+        origin: [12.5, 34.5, 2.0],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    yalain_world::places::recall_trip(&mut h.server, &mut h.net, world, elsewhere, None);
+    let p = &h.server.players[&world];
+    assert_eq!(p.trip.as_ref().map(|t| t.to.cell), Some(ARENA.cell));
+    assert!(
+        p.trip.as_ref().is_some_and(|t| t.step.is_some()),
+        "its step"
+    );
+    land(&mut h);
+    assert_eq!(phase(&h, me), 2);
+    assert_eq!(h.server.players[&world].position.cell, ARENA.cell);
 }

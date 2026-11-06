@@ -985,8 +985,16 @@ impl Gpu {
                         .create_view(&wgpu::TextureViewDescriptor::default());
                     (Some(t), view)
                 }
-                _ => {
-                    surface.configure(&self.device, config);
+                other => {
+                    // A window that can't be seen, or a picture that came late, leaves the surface
+                    // as it was; configuring it again would wait for the device.
+                    if !matches!(
+                        other,
+                        wgpu::CurrentSurfaceTexture::Occluded
+                            | wgpu::CurrentSurfaceTexture::Timeout
+                    ) {
+                        surface.configure(&self.device, config);
+                    }
                     // The frame's draws are dropped with it, so what it released is free now.
                     self.texture_book.descriptors.retire(self.frame_stamp + 1);
                     return Ok(());

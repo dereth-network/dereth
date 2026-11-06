@@ -49,15 +49,24 @@ impl Scene<'_> {
 
     /// The objects this frame's effects make and what they do to what they aim at: an effect that
     /// is already playing only takes its strength. Each entry played where the object is now, for
-    /// who it is and the time of day, makes its object and acts on its target.
-    // D2-06907, D2-06916, D2-06932, D2-06547
-    pub(crate) fn aim_fx(&mut self, client: &mut Client, played: &[(u64, u32, f32)], night: bool) {
+    /// who it is and the time of day, makes its object and acts on its target. Those from `hooks`
+    /// on were set off by animations and scripts: they aim where their object's behavior last said.
+    // D2-06907, D2-06916, D2-06932, D2-06547, D2-06252
+    pub(crate) fn aim_fx(
+        &mut self,
+        client: &mut Client,
+        played: &[(u64, u32, f32)],
+        hooks: usize,
+        night: bool,
+    ) {
         let aims = std::mem::take(&mut self.fx_aims);
-        for &(object, effect, scalar) in played {
+        for (k, &(object, effect, scalar)) in played.iter().enumerate() {
             let target = aims
                 .iter()
                 .find(|(o, e, _)| *o == object && *e == effect)
-                .map_or(0, |a| a.2);
+                .map(|a| a.2)
+                .or_else(|| (k >= hooks).then(|| self.body(object).map_or(0, |b| b.fx_target)))
+                .unwrap_or(0);
             if self.fx_is_playing(object, effect) {
                 continue;
             }
@@ -93,8 +102,42 @@ impl Scene<'_> {
         }
     }
 
+    /// The objects the startup effects of the bodies about ask for: each hangs from or stands where
+    /// its body says, and goes when the effect or the body does.
+    // D2-06933, D2-06916
+    pub(crate) fn make_startup_objects(&mut self, client: &mut Client) {
+        let mut ids: Vec<u64> = self.player.iter().map(|p| p.id).collect();
+        ids.extend(self.others.ids());
+        ids.extend(self.held.ids());
+        ids.extend(self.temporaries.ids().into_iter().map(|(id, _)| id));
+        for object in ids {
+            let Some(asked) = self.fx_of(object).map(|f| f.fx.take_objects_to_make()) else {
+                continue;
+            };
+            for (effect, n) in asked {
+                let Some(look) = n.visual_desc else {
+                    continue;
+                };
+                let mut aimed = Aimed {
+                    object,
+                    effect,
+                    target: 0,
+                    hidden: Vec::new(),
+                    target_fx: Vec::new(),
+                    made: Vec::new(),
+                    seen: false,
+                    age: 0,
+                };
+                self.do_create_object_fx(client, &mut aimed, look.0, &n);
+                if !aimed.made.is_empty() {
+                    self.aimed.push(aimed);
+                }
+            }
+        }
+    }
+
     /// Whether `object` plays `effect` now.
-    fn fx_is_playing(&mut self, object: u64, effect: u32) -> bool {
+    pub(crate) fn fx_is_playing(&mut self, object: u64, effect: u32) -> bool {
         self.fx_of(object)
             .is_some_and(|f| f.fx.states().contains_key(&effect))
     }
@@ -138,13 +181,25 @@ impl Scene<'_> {
         }
         let mut target = a.target;
         if n.retarget == Some(true) && n.conditional != Some(true) {
-            let clone = self.body(a.object).map_or(0, |b| b.look_to_clone);
+            let (clone, appearance, values) = self.body(a.object).map_or((0, 0, Vec::new()), |b| {
+                (b.look_to_clone, b.clone_appearance, b.clone_values.clone())
+            });
             if clone == 0 {
                 return;
             }
             let Some(made) = self.create_temporary(client, clone, CLONE_SECONDS) else {
                 return;
             };
+            if appearance != 0 {
+                self.temporaries.add_appearance(
+                    &self.world.records,
+                    &self.anims,
+                    made,
+                    appearance,
+                    &values,
+                );
+            }
+            a.made.push(made);
             self.set_made_object(a.object, made);
             target = made;
         }
@@ -160,9 +215,19 @@ impl Scene<'_> {
             self.do_fx(target, fx, scalar);
             a.target_fx.push(fx);
         }
-        if n.unparent == Some(true) {
-            if let Some(b) = self.body_mut(target) {
+        // What has never stood in the world has no place of its own to be let go at, so it stays
+        // held: a clone made in the hand.
+        let has_place = self.temporaries.get(target).is_none_or(|t| t.stood);
+        if n.unparent == Some(true) && has_place {
+            if let Some(b) = self.body_mut(target).filter(|b| b.has_parent) {
                 b.unset_parent();
+                let at = b.position;
+                let holder = self.temporaries.get(target).and_then(|t| t.holder);
+                self.holder_lets_go(holder.map(|(h, _)| h), target);
+                let (land, table) = (&self.land, &mut self.table);
+                if let Some(t) = self.temporaries.body_mut(target) {
+                    t.enter_world_at(land, table, &at, false);
+                }
             }
         }
         // D2-06885

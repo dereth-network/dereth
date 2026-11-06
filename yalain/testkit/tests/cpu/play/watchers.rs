@@ -370,14 +370,22 @@ fn a_swing_at_a_creature_holding_one_is_lessened_and_sent_back_at_the_swinger() 
     }
     let from = h.bots[b].inbox.len();
     attack(&mut h, b, id);
-    let done = h.run_until(4000, |h| {
-        hooks(h, b, from, me, id)
-            .iter()
-            .filter(|k| landed(k))
-            .count()
-            >= 5
-    });
-    assert!(done, "it swings");
+    // A long run of evasions must not let it rest and regain what it lost.
+    let mut steps = 0;
+    while hooks(&h, b, from, me, id)
+        .iter()
+        .filter(|k| landed(k))
+        .count()
+        < 5
+    {
+        let now = h.now.0;
+        if let Some(t) = h.server.things.get_mut(id) {
+            t.last_hurt = now;
+        }
+        h.step();
+        steps += 1;
+        assert!(steps < 4000, "it swings");
+    }
     h.bots[b].send(
         true,
         queue::WEENIE,

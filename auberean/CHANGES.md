@@ -7,6 +7,91 @@ not how it was done.
 
 ## Unreleased
 
+## 0.1.4 (2026-11-05)
+
+- Fixed a crash when the graphics device goes away, as when a driver resets.
+- Fixed a far-off target losing its name, marks and health bar.
+- Your own character no longer loses detail too soon as the camera pulls back.
+- Fixed the haze around gateway signs and other scaled objects being too wide.
+- Fixed others' damage numbers ignoring the range option, and far targets not being refused.
+- Actions asked of you in portal space no longer play late when you arrive.
+- Selecting from the radar, a name or your pack no longer turns your head.
+- Selling part of a stack in your shop now names the amount you chose.
+- Key map presets now take effect at once, and right Shift and Ctrl bind as themselves.
+- Fixed a radar kept hidden coming back as a bare dial.
+- Fixed layered icons showing soft fringes and hazy overlays.
+- Fixed a refused character's name reading as a corrupt character.
+- Fixed tooltips eating clicks on what lies under them.
+- Dialogs now open with their button ready for the use key.
+- Fixed the names key and resizing the bar undoing unapplied Character options.
+- Fixed the craft panel staying open after using a recipe's last charge.
+- Fixed a stack's name keeping its old count.
+- The terrain blending preference and its switches now work.
+- Fixed auto-run carrying on through a portal.
+- The assistance page's kinds of call now list in their proper order.
+- The camera distance and tilt options now apply as soon as you change them.
+- Damage numbers now fade out as they rise, and show at their proper size.
+- Fixed pools of lamplight on the ground vanishing when you look out from a doorway.
+- Fixed other bodies not leaving the ground when an animation made them jump.
+- Jumping now interrupts the same actions walking does.
+- Worlds that change the game's records now send them as you log in.
+- Fixed a weapon's trail staying on after the effect that started it stopped.
+- Fixed looping music from emotes stopping as soon as it started.
+- Fixed effects that fade a body out snapping it back at once.
+- Fixed mist on the ground in rain too light to see.
+- Fixed sunlit halls: the sun now falls across their floors and walls.
+- The height slider now shows on the whole-body view when making a character.
+- The credits now stop the music that was playing and start their own.
+- Book pages no longer creep up a pixel per page.
+- A window's dropdown now closes when the window hides.
+- The journal scrolls to the quest that changed.
+- Pressing Shift or Ctrl alone no longer gets bound in the key map.
+- The hide-all key no longer works during a story.
+- The pet mode buttons now step from the mode you last chose.
+- Fixed the pet panel and fellows on the map options being the wrong way round.
+- Long text in a one-line entry no longer goes blank when you press End.
+- A character the font lacks no longer changes the font of what you type next.
+- Windows you resize now stop at the edges of the screen.
+- Dropping a second item in the world no longer sends it to the last target.
+- A corpse's or chest's window now opens over it.
+- Auto-run no longer carries on after walking up to something you used.
+- Some stretched walls and scenery can now be walked through, as in retail.
+- Gateway and vault swirls now face you from every side.
+- Fixed a dropped item having no marks or name until you selected something else.
+- Crowded places run faster.
+- Fixed some effects on a body standing in the wrong place.
+- Fixed bodies losing their walk or idle when the server sent them again.
+- Fixed the music falling silent when a piece waiting its turn was stopped.
+- Turning sound off and on again plays sounds from their start.
+- Full screen at another shape now keeps its shape, with black bars.
+- Fixed not seeing a player who went through a door ahead of you.
+- The craft page's rows can now be clicked on tall windows.
+- A world's own records can now be read from a folder.
+- A click that brings the window forward no longer acts on the game.
+- A covered window on a Mac no longer runs flat out.
+- Screenshots now follow the key you bind, not always Ctrl+P.
+- The mouse wheel now scrolls whatever window the pointer is over.
+- Chat now says "the item" when someone hands you something.
+- The paper doll no longer shows your mount while you ride.
+- Items in a trade now name the number offered.
+- Items in a trade now show when selected and when you target with an item.
+- Fixed objects that retail leaves unshadowed casting shadows on the ground.
+- Fixed items not showing in hand when picked up, put down or handed over.
+- Fixed some creatures and objects missing the parts they carry.
+- Fixed objects from the server casting no shadow on the ground.
+- Fixed arrows lingering where they hit, and held effects trailing a moving body.
+- Added the puffs of cloud at the start of portal space.
+- Fixed discs and light pools stopping at holes in the land.
+- Fixed the sun's flare showing past leaves and rooflines.
+- Fixed rain steaming off a player standing indoors.
+- Fixed see-through parts of some objects being hidden by the rest of the object.
+- Fixed arrows flying level instead of pointing along their path.
+- Fixed the camera dipping at the ground as it glides between views.
+- In first person the view now leans with your head.
+- Fixed a fog tint showing through gaps in sealed rooms.
+- Fixed a bow's killing shot showing no hit line or damage number.
+- Trees now sway in the wind, and placed creatures like schools of fish move.
+
 ## 0.1.3 (2026-11-05)
 
 - Fixed Add on the friends page staying off when you selected a player.

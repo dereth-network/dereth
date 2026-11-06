@@ -64,12 +64,6 @@ mod name {
     pub const RELATIVE_Y: Token = Token::of("relative_y_position");
 }
 
-/// The scripts' notices the window hears besides the shops'.
-pub mod own_notice {
-    /// The player mounted (1) or got off (0).
-    pub const UPDATE_MOUNT_STATE: u32 = crate::gameplay::notice::UPDATE_MOUNT_STATE;
-}
-
 /// How long a hidden window keeps its elements, in seconds; how many rows a page shows.
 const KEEP: f64 = 120.0;
 const PAGE: i32 = 7;
@@ -99,10 +93,11 @@ pub struct Consignments {
     /// An item dropped on the list, the consignment it restocks (0: a new one), how many.
     dropped: u64,
     restock: u32,
+    /// The restock's question waits on the scripts' name for the amount.
+    awaiting_name: bool,
     amount: u32,
     stack_context: u32,
     dialog: u32,
-    mounted: bool,
     hidden_at: f64,
     facts: Option<inventory::Facts>,
     shop: Facts,
@@ -137,10 +132,10 @@ impl Consignments {
             store: Store::default(),
             dropped: NO_OBJECT,
             restock: 0,
+            awaiting_name: false,
             amount: 0,
             stack_context: 0,
             dialog: 0,
-            mounted: false,
             hidden_at: 0.0,
             facts: None,
             shop: Facts::default(),
@@ -163,12 +158,6 @@ impl Consignments {
     #[must_use]
     pub const fn dialog(&self) -> u32 {
         self.dialog
-    }
-
-    /// Whether the player is mounted (the figure follows the player's look only on foot).
-    #[must_use]
-    pub const fn mounted(&self) -> bool {
-        self.mounted
     }
 
     /// The figure's viewport placed where the window says, from the window's corner.
@@ -294,7 +283,7 @@ impl Consignments {
             .and_then(|s| ui.node(s))
             .and_then(|n| n.instance_id_attr(name::ITEM_ID))
         {
-            out.push(Request::Select(item));
+            out.push(Request::SetSelection(item));
         }
     }
 
@@ -311,15 +300,38 @@ impl Consignments {
             return;
         }
         self.amount = amount;
+        if self.facts.as_ref().is_some_and(|f| {
+            f.item(self.dropped).is_some() && f.name_of_amount(self.dropped, amount).is_none()
+        }) {
+            self.awaiting_name = true;
+            out.push(Request::Inventory(inventory::Request::NameAmount {
+                item: self.dropped,
+                quantity: amount,
+            }));
+            return;
+        }
+        self.ask_restock(ui, out);
+    }
+
+    /// What restocking the amount costs, asked, the item called by its name for that many.
+    // D2-02326
+    fn ask_restock(&mut self, ui: &Ui, out: &mut Vec<Request>) {
+        let amount = self.amount;
         let Some(sale) = self.store.sale(self.restock) else {
             return;
         };
-        let Some(it) = self.facts.as_ref().and_then(|f| f.item(self.dropped)) else {
+        let Some(f) = self.facts.as_ref() else {
             return;
         };
+        let Some(it) = f.item(self.dropped) else {
+            return;
+        };
+        let name = f.name_of_amount(self.dropped, amount).unwrap_or(&it.name);
         #[allow(clippy::cast_precision_loss)]
-        let price = amount as f32 * sale.cost_quantity * self.shop.consignment_charge;
-        let cost = dereth_primitives::num::to_i32(price.ceil())
+        let price = f64::from(amount as f32)
+            * f64::from(sale.cost_quantity)
+            * f64::from(self.shop.consignment_charge);
+        let cost = dereth_primitives::num::to_i32_f64(price.ceil())
             .cast_unsigned()
             .max(1);
         let s = entry(
@@ -328,7 +340,7 @@ impl Consignments {
             vec![
                 (
                     name::PRODUCT,
-                    Var::Text(Box::new(auberean_text::StringInfo::literal(&it.name))),
+                    Var::Text(Box::new(auberean_text::StringInfo::literal(name))),
                 ),
                 (name::COST, Var::UInt(cost)),
             ],
@@ -727,9 +739,9 @@ impl Child for Consignments {
         }
     }
 
-    /// The scripts' consignment notices; leaving the catalog; the player mounted; the
-    /// selection; the questions and splits; a row dragged into the pack (collected).
-    // D2-02323, D2-02327, D2-02338, D2-02339, D2-02350
+    /// The scripts' consignment notices; leaving the catalog; the selection; the questions and
+    /// splits; a row dragged into the pack (collected).
+    // D2-02327, D2-02338, D2-02339, D2-02350
     fn notice(&mut self, ui: &mut Ui, n: &Notice, out: &mut Vec<Request>) {
         match n.native {
             notice::VIEW_CONSIGNMENT => {
@@ -743,7 +755,6 @@ impl Child for Consignments {
                 }
             }
             notice::LEAVE_CONSIGNMENT | notice::LEAVE_CATALOG => self.show(ui, false, out),
-            own_notice::UPDATE_MOUNT_STATE => self.mounted = n.word() != 0,
             notice::SELECTION_CHANGED => {
                 if !self.shown(ui) {
                     return;
@@ -791,10 +802,18 @@ impl Child for Consignments {
 
     /// What the scripts answer of the items and of consignments; while the player is on foot,
     /// a change of the player's look reframes the figure.
-    fn update(&mut self, _ui: &mut Ui, view: &View<'_>, _out: &mut Vec<Request>) {
+    fn update(&mut self, ui: &mut Ui, view: &View<'_>, out: &mut Vec<Request>) {
         if let Some(f) = view.inventory {
             if self.facts.as_ref().is_none_or(|o| o.version != f.version) {
                 self.facts = Some(f.clone());
+                let came = self
+                    .facts
+                    .as_ref()
+                    .is_some_and(|f| f.name_of_amount(self.dropped, self.amount).is_some());
+                if self.awaiting_name && came {
+                    self.awaiting_name = false;
+                    self.ask_restock(ui, out);
+                }
             }
         }
         if let Some(s) = view.shop {

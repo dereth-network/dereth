@@ -1,7 +1,7 @@
 [package]
 name = "yalain-net"
 description = "Server sessions over the shared transport: the login and world services' handshakes, each connection's reliable transport, the referral that takes a client from the login service to the world, message sending under blob ids, and teardown."
-version = "0.2.0" # Yalain's own version, shared by every yalain-* crate (not the workspace's)
+version = "0.2.1" # Yalain's own version, shared by every yalain-* crate (not the workspace's)
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

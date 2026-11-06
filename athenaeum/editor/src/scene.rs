@@ -3,7 +3,8 @@
 //! and the world's rows standing in it as bodies, each put together from its template's look as
 //! the client puts together what the server sends; and the ground under a point.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::{Arc, PoisonError, RwLock};
 
 use auberean_animation::body::{Body as Figure, PartPose};
 use auberean_animation::look::{Desc, Keyed, Look, GLOBAL_KEY};
@@ -26,12 +27,21 @@ use auberean_world::sky::DayLight;
 use dereth_primitives::num::math as fm;
 use dereth_primitives::{CellId, LandblockId};
 
+use yalain_world_db::rows::Clearing;
+
 use crate::view::{View, BLOCK};
 
-/// The world's records and its region, read once.
+/// The landblock records the world's clearings change, by id.
+type Cleared = Arc<RwLock<BTreeMap<u32, Vec<u8>>>>;
+
+/// The world's records and its region, read once; the landblocks the world's clearings change read
+/// in place of the file's, as they stand in the session.
 pub struct WorldData {
     pub records: WorldRecords,
     pub region: RegionSet,
+    cell: DatFile,
+    ctx: Context,
+    cleared: Cleared,
 }
 
 impl std::fmt::Debug for WorldData {
@@ -54,12 +64,29 @@ impl WorldData {
         let portal = open(&|n| *n == DatName::Portal).ok_or("no portal file")?;
         let cell = open(&|n| *n == DatName::Cell(1)).ok_or("no cell file")?;
         let ctx = Context::from_portal(&portal).map_err(|e| format!("{e:?}"))?;
-        let records = WorldRecords::new(portal, cell, open(&|n| *n == DatName::HighRes), ctx);
+        let records = WorldRecords::new(
+            portal,
+            cell.clone(),
+            open(&|n| *n == DatName::HighRes),
+            ctx.clone(),
+        );
         if let Some(file) = open(&|n| *n == DatName::Local("English".to_owned())) {
             records.use_language_file(file);
         }
+        let cleared = Cleared::default();
+        let (held, file) = (Arc::clone(&cleared), cell.clone());
+        records.read_cells_through(Some(Arc::new(move |id, _kind| {
+            let kept = held.read().unwrap_or_else(PoisonError::into_inner);
+            kept.get(&id).cloned().or_else(|| file.read(id).ok())
+        })));
         let region = records.region().map_err(|e| format!("{e:?}"))?;
-        Ok(Self { records, region })
+        Ok(Self {
+            records,
+            region,
+            cell,
+            ctx,
+            cleared,
+        })
     }
 }
 
@@ -157,6 +184,7 @@ pub fn picture_camera(lo: [f32; 3], hi: [f32; 3]) -> Camera {
         near: (distance - reach * 1.1).max(0.01),
         far: distance + reach * 1.1,
         orthographic: None,
+        roll: 0.0,
     }
 }
 
@@ -219,6 +247,44 @@ impl<'w> Scene<'w> {
             row_effects: HashMap::new(),
             started: std::time::Instant::now(),
         }
+    }
+
+    /// Show these clearings, each with the landblock it is written in: the blocks they change, or
+    /// changed before, grow what they now grow.
+    ///
+    /// # Errors
+    /// A clearing in a landblock the install does not hold; what is shown stays as it was.
+    pub fn show_clearings(&mut self, rows: &[(&Clearing, u16)]) -> Result<(), String> {
+        let data = self.data;
+        let (blocks, _) = athenaeum_foundry::overlay::cleared_rows(
+            rows,
+            &data.cell,
+            &data.ctx,
+            &data.region,
+            &data.records,
+        )?;
+        let mut kept = data.cleared.write().unwrap_or_else(PoisonError::into_inner);
+        let changed: Vec<u32> = kept
+            .iter()
+            .filter(|(id, bytes)| blocks.get(*id) != Some(*bytes))
+            .map(|(id, _)| *id)
+            .chain(
+                blocks
+                    .iter()
+                    .filter(|(id, bytes)| kept.get(*id) != Some(*bytes))
+                    .map(|(id, _)| *id),
+            )
+            .collect();
+        *kept = blocks;
+        drop(kept);
+        for id in &changed {
+            let [x, y, ..] = id.to_be_bytes();
+            self.builder.forget_scenery(i32::from(x), i32::from(y));
+        }
+        if !changed.is_empty() {
+            self.built = None;
+        }
+        Ok(())
     }
 
     /// A block's ground and what stands on it, read when first asked for.

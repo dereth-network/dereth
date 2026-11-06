@@ -21,6 +21,7 @@ fn object(id: u64, template: u32, origin: [f32; 3], destination: Option<Place>) 
         object: Some(id),
         template,
         description: Description {
+            name_text: None,
             package: 0x1A00,
             look: 0x1F00_0ED5,
             enter_fx: 0,
@@ -1483,5 +1484,20 @@ fn creatures_meet_what_stays_where_it_stands_for_every_player() {
     assert_eq!(
         met,
         [(plain.object.unwrap(), 1.0), (scaled.object.unwrap(), 2.5)]
+    );
+}
+
+/// A placed person's name as literal text is what the client is told it is called, in place of its
+/// template's, as a player's name is told.
+/// Behaviour: none (a world's own name for a person)
+#[test]
+fn a_placed_things_name_text_is_told_as_its_name() {
+    let mut o = object(0x4002_9900_0000_0001, 0x4700_0001, [1.0, 2.0, 3.0], None);
+    o.description.name = Some((0x10, 0x25));
+    o.description.name_text = Some("Old Tom".into());
+    let made = yalain_world::player::content_object(1, &o);
+    assert_eq!(
+        made.weenie.name,
+        auberean_protocol::text::StringInfo::literal("Old Tom")
     );
 }

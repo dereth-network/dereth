@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use auberean_draw::body::BodyDrawer;
 use auberean_draw::material::{draw_layers, instance_material, DEVICE_FLAGS};
-use auberean_draw::mesh::{MeshVertex, PosedVertex};
+use auberean_draw::mesh::{MeshVertex, PosedList};
 use auberean_draw::scene::{SceneBuilder, Spot};
 use auberean_primitives::{DataId, Quat, Vec3};
 use auberean_world::math::Mat4;
@@ -346,6 +346,72 @@ fn a_body_in_two_streams_is_the_picture_of_its_vertices_written_whole() {
     assert_ne!(a, none, "the body shows");
 }
 
+/// A list of a body's places is written once while its pose stands, and what other bodies write
+/// around it never reaches it: past both of the kept arenas taking over from each other, a standing
+/// body draws as it did, beside one whose list is new each frame.
+#[test]
+fn a_standing_bodys_places_are_written_once_and_stay_its_own() {
+    let r = &install().records;
+    let region = r.region().expect("the region");
+    let mut builder = SceneBuilder::new(r, &region);
+    let (bare, batches) = frame_with_a_body(&mut builder, r);
+    let mut frame = bare.clone();
+    frame.objects.extend(batches.iter().cloned());
+    // Far overhead, out of sight: what it writes would show only if it landed on the standing body.
+    // Each list is a megabyte, its vertices over and over, so the arenas soon take over.
+    let far = |list: &PosedList| {
+        Arc::new(PosedList::new(
+            list.iter()
+                .cycle()
+                .take(1 << 16)
+                .map(|v| {
+                    let mut v = *v;
+                    v.position[2] += 10_000.0;
+                    v
+                })
+                .collect(),
+        ))
+    };
+    let first = frame.objects.len();
+    frame.objects.extend(batches.iter().cloned());
+    let mut device = renderer();
+    let mut load = |id: u32| auberean_draw::picture::load(r, id);
+    let (none, before, after, standing) = checked(&mut device, |d| {
+        let none = d.render(&bare, 640, 480, &mut load).expect("read back");
+        let churn = |frame: &mut auberean_draw::scene::Frame| {
+            let mut new: HashMap<usize, Arc<PosedList>> = HashMap::new();
+            for (b, was) in frame.objects[first..].iter_mut().zip(&batches) {
+                let list = was.posed.as_ref().expect("its places");
+                let moved = new
+                    .entry(Arc::as_ptr(list) as usize)
+                    .or_insert_with(|| far(list));
+                b.posed = Some(moved.clone());
+            }
+        };
+        churn(&mut frame);
+        let before = d.render(&frame, 640, 480, &mut load).expect("read back");
+        d.render(&frame, 640, 480, &mut load).expect("read back");
+        d.take_work();
+        d.render(&frame, 640, 480, &mut load).expect("read back");
+        let standing = d.take_work();
+        let after: Vec<_> = (0..40)
+            .map(|_| {
+                churn(&mut frame);
+                d.render(&frame, 640, 480, &mut load).expect("read back")
+            })
+            .collect();
+        (none, before, after, standing)
+    });
+    assert_ne!(none, before, "the body shows");
+    assert_eq!(standing.mesh_misses, 0, "{standing:?}");
+    for (k, after) in after.iter().enumerate() {
+        assert_eq!(
+            &before, after,
+            "frame {k}: the standing body draws as it did"
+        );
+    }
+}
+
 /// A body's places and facings make no buffer of their own, whether its list is new each frame or
 /// stands for as long as its pose: only the mesh's own list, seen again, gets one.
 #[test]
@@ -361,21 +427,21 @@ fn a_bodys_places_make_no_buffer() {
     let mut load = |id: u32| auberean_draw::picture::load(r, id);
     let (standing, moving) = checked(&mut device, |d| {
         for _ in 0..3 {
-            d.render(&frame, 320, 240, &mut load).expect("read back");
+            d.render(&frame, 640, 480, &mut load).expect("read back");
         }
         d.take_work();
-        d.render(&frame, 320, 240, &mut load).expect("read back");
+        d.render(&frame, 640, 480, &mut load).expect("read back");
         let standing = d.take_work();
         // A new list for each list of places, shared by its draws as they were.
-        let mut new: HashMap<usize, Arc<Vec<PosedVertex>>> = HashMap::new();
+        let mut new: HashMap<usize, Arc<PosedList>> = HashMap::new();
         for b in &mut frame.objects[body.clone()] {
             let list = b.posed.as_ref().expect("its places");
             let moved = new
                 .entry(Arc::as_ptr(list) as usize)
-                .or_insert_with(|| Arc::new(list.to_vec()));
+                .or_insert_with(|| Arc::new(PosedList::new(list.to_vec())));
             b.posed = Some(moved.clone());
         }
-        d.render(&frame, 320, 240, &mut load).expect("read back");
+        d.render(&frame, 640, 480, &mut load).expect("read back");
         (standing, d.take_work())
     });
     assert_eq!(standing.buffers, 0, "{standing:?}");

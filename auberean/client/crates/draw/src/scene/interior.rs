@@ -547,6 +547,7 @@ impl SceneBuilder<'_> {
                     ),
                     detail: None,
                     look,
+                    played: None,
                 },
                 Cull::Cell(low),
                 None,
@@ -1076,6 +1077,14 @@ fn reach_of(batches: &[ObjectBatch]) -> Option<f32> {
             continue;
         }
         done.push(this);
+        let at = b.transform.0[3];
+        if b.posed.is_some() {
+            if let Some((l, h)) = b.turned_box((0.0, 1.0)) {
+                super::widen(&mut lo, &mut hi, [l[0] + at[0], l[1] + at[1], l[2] + at[2]]);
+                super::widen(&mut lo, &mut hi, [h[0] + at[0], h[1] + at[1], h[2] + at[2]]);
+            }
+            continue;
+        }
         b.each_position(|[x, y, z]| {
             let w = b.transform.point(Vec3::new(x, y, z));
             super::widen(&mut lo, &mut hi, [w.x, w.y, w.z]);

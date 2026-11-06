@@ -20,6 +20,7 @@ use std::collections::BTreeMap;
 use auberean_animation::body::Body as Figure;
 use auberean_animation::host::Completion;
 use auberean_animation::CachedRecords;
+use auberean_assets::fx::AppearanceKey;
 use auberean_client_sdk::protocol::types::VisualDesc as WireVisual;
 use auberean_client_sdk::Client;
 use auberean_draw::body::BodyDrawer;
@@ -31,7 +32,7 @@ use auberean_physics::missile::{MissileParameters, MissileTargetingParameters};
 use auberean_physics::motion::values::default_values;
 use auberean_physics::world::NoGameObjects;
 use auberean_primitives::{DataId, Quat, Vec3};
-use auberean_world::look::{Look, ObjectLook};
+use auberean_world::look::{Desc, Look, ObjectLook};
 use auberean_world::math::Mat4;
 use auberean_world::place::PlaceRecords;
 use auberean_world::records::WorldRecords;
@@ -39,6 +40,8 @@ use dereth_primitives::Position;
 
 use crate::{Scene, BLOCK_LENGTH};
 
+/// The part group an appearance laid over an effect's clone goes to.
+const CLONE_APPEARANCE_GROUP: u32 = 0x4000_0002;
 /// How long a fading object takes to fade out, and the opacity it fades to, seconds.
 pub const FADE_TIME: f64 = 0.5;
 /// How long after a behavior asks that its object go it goes, hidden until then, seconds.
@@ -55,6 +58,9 @@ pub(crate) struct Temporary {
     pub figure: Option<Figure>,
     pub body: Body,
     pub scale: Vec3,
+    /// Whether it has stood in the world, and so has a place of its own: what is only ever held
+    /// has none.
+    pub stood: bool,
     /// The holder and the holding location it is taken up at, while it is held.
     pub holder: Option<(u64, u32)>,
     /// When its timeout passes (the client's time), when it has one.
@@ -238,6 +244,7 @@ impl Temporaries {
                 dress: None,
                 placed_at: None,
                 figure,
+                stood: false,
                 body,
                 scale: look.scale,
                 holder: None,
@@ -269,13 +276,51 @@ impl Temporaries {
         t.body.child_scale = look.child_scale;
     }
 
+    /// Object `id` takes `values` of appearance table `apr` over its look.
+    // D2-06907
+    pub(crate) fn add_appearance(
+        &mut self,
+        records: &WorldRecords,
+        anims: &CachedRecords<'_>,
+        id: u64,
+        apr: u32,
+        values: &[(u32, f32)],
+    ) {
+        let Some(t) = self.made.get_mut(&id) else {
+            return;
+        };
+        let mut parent = DataId(t.data_id);
+        if parent.0 >> 24 == 0x47 {
+            parent = records
+                .entity(parent)
+                .and_then(|e| e.object)
+                .map_or(DataId::NONE, DataId);
+        }
+        let dress = t.dress.get_or_insert_with(|| {
+            ObjectLook::new(&Desc {
+                parent,
+                ..Desc::default()
+            })
+        });
+        for &(key, scalar) in values {
+            let value = AppearanceKey { key, scalar };
+            let _ = dress
+                .local
+                .add_appearance_key(anims, CLONE_APPEARANCE_GROUP, apr, value);
+        }
+        let Ok(look) = dress.total(anims) else {
+            return;
+        };
+        crate::takes_look(anims, &mut t.figure, &mut t.effects, Some(&look), id);
+    }
+
     /// Removes object `id` at once.
     pub(crate) fn remove(&mut self, id: u64) -> Option<Temporary> {
         self.made.remove(&id)
     }
 
-    /// Fades object `id` out over half a second and removes it `delay` seconds from `now` (the
-    /// fade's time when 0).
+    /// Fades object `id` out over `fade` seconds and removes it `delay` seconds from `now`: with no
+    /// delay it goes at once, before the fade shows.
     // D2-05707
     pub(crate) fn fade_and_remove(&mut self, id: u64, now: f64, fade: f64, delay: f64) {
         let Some(t) = self.made.get_mut(&id) else {
@@ -285,7 +330,7 @@ impl Temporaries {
             #[allow(clippy::cast_possible_truncation)]
             f.sliders.do_slider(0, FADE_SLIDER, 0.0, fade as f32);
         }
-        let at = now + if delay == 0.0 { fade } else { delay };
+        let at = now + delay;
         t.removal = Some(t.removal.map_or(at, |r| r.min(at)));
     }
 
@@ -453,7 +498,7 @@ impl Scene<'_> {
 
     /// A holder takes an object the client made off its list as the object goes, so that the id,
     /// when used again, is not taken for it.
-    fn holder_lets_go(&mut self, holder: Option<u64>, id: u64) {
+    pub(crate) fn holder_lets_go(&mut self, holder: Option<u64>, id: u64) {
         let Some(holder) = holder else {
             return;
         };
@@ -562,6 +607,7 @@ impl Scene<'_> {
         let Some(t) = self.temporaries.get_mut(id) else {
             return;
         };
+        t.stood |= t.body.in_world;
         let (holder_body, holder_figure) = match self.player.as_mut() {
             Some(p) if p.id == holder => (&mut p.body, &p.figure),
             _ => match self.others.holder_mut(holder) {
@@ -684,6 +730,7 @@ impl Scene<'_> {
                 continue;
             };
             let was_in_world = t.body.in_world;
+            t.stood |= was_in_world;
             let was_active = t.body.missile.as_deref().is_some_and(|g| g.activated);
             // Held, it is put in the world where it hangs now.
             let hung_at = t.body.has_parent.then_some(t.body.position);
@@ -761,7 +808,7 @@ impl Scene<'_> {
             Notice::FadeOut { fade, delay } => {
                 tracing::debug!(
                     id = format_args!("{id:#x}"),
-                    "an object the client made fades out: it struck something"
+                    "an object the client made fades out"
                 );
                 self.temporaries.fade_and_remove(id, now, fade, delay);
             }
@@ -815,6 +862,18 @@ impl Scene<'_> {
 
     /// Where object `id` hangs from holder `holder`'s body as it stands now, when it is taken up.
     fn hanging_place(&self, id: u64, holder: u64) -> Option<Position> {
+        self.hanging(id, holder, None).map(|(at, _)| at)
+    }
+
+    /// Where object `id` hangs from `holder` and what the holder gives its scale: from where the
+    /// holder is drawn `alpha` of a tick past its last, or from where it stands.
+    // D2-06182
+    fn hanging(
+        &self,
+        id: u64,
+        holder: u64,
+        alpha: Option<f32>,
+    ) -> Option<(Position, (dereth_primitives::Vec3, f32))> {
         let (hb, hf) = match &self.player {
             Some(p) if p.id == holder => (&p.body, &p.figure),
             _ => {
@@ -828,13 +887,26 @@ impl Scene<'_> {
             .and_then(|c| c.children.iter().find(|c| c.id == id))?;
         let m = crate::held::hanging(hf, &self.anims, info);
         let whole = hb.total_scale(None);
-        Some(Body::child_place(&hb.position, whole, info, m.as_ref()))
+        let at = alpha.map_or(hb.position, |a| hb.drawn(a).0);
+        Some((
+            Body::child_place(&at, whole, info, m.as_ref()),
+            (whole, hb.child_scale),
+        ))
+    }
+
+    /// How much of an object the client made shows, 0 to 1, when it has a figure.
+    #[must_use]
+    pub fn temporary_opacity(&self, id: u64) -> Option<f32> {
+        let f = self.temporaries.get(id)?.figure.as_ref()?;
+        Some(f.sliders.current(FADE_SLIDER).clamp(0.0, 1.0))
     }
 
     /// The objects the client made as they are drawn this frame `alpha` of a tick past their last:
     /// each with where it stands and its scale. One held by the player is left out when the player
     /// is not drawn.
-    pub(crate) fn temporaries_placed(
+    // D2-06149, D2-06182
+    #[must_use]
+    pub fn temporaries_placed(
         &self,
         alpha: f32,
         player_drawn: bool,
@@ -849,13 +921,14 @@ impl Scene<'_> {
                     if !player_drawn && self.player.as_ref().is_some_and(|p| p.id == h) {
                         continue;
                     }
-                    self.hanging_place(id, h)
+                    self.hanging(id, h, Some(alpha))
+                        .map(|(at, given)| (at, t.body.total_scale(Some(given))))
                 }
-                None if t.body.in_world => Some(t.body.drawn(alpha).0),
+                None if t.body.in_world => Some((t.body.drawn(alpha).0, t.body.total_scale(None))),
                 None => None,
             };
-            if let Some(at) = place {
-                out.push((id, at, t.body.total_scale(None)));
+            if let Some((at, scale)) = place {
+                out.push((id, at, scale));
             }
         }
         out

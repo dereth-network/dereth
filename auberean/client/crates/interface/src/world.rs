@@ -38,6 +38,8 @@ mod quality {
 pub(crate) mod notice {
     pub const CHANGE_RADAR_LOOK: u32 = 0x0085 << 16 | 0x000A;
     pub const RELOAD_OPTIONS: u32 = 0x0085 << 16 | 0x0009;
+    /// An item changed, its quantity among others.
+    pub const ITEM_UPDATE: u32 = 0x008B << 16 | 0x0004;
     /// The options window changed the player's options.
     pub const OPTIONS_CHANGED: u32 = 0x46D;
 }
@@ -174,6 +176,12 @@ impl Gather {
                         f.name = None;
                     }),
                 },
+                // D2-02061
+                notice::ITEM_UPDATE => {
+                    if let Some(f) = n.about.and_then(|id| self.facts.get_mut(&id)) {
+                        f.name = None;
+                    }
+                }
                 notice::RELOAD_OPTIONS | notice::OPTIONS_CHANGED => self.options = None,
                 _ => {}
             }

@@ -2,10 +2,18 @@
 //!
 //! A row claims what the September 2013 client does when it draws a mesh or a terrain layer.
 
-use super::{Behaviour, Evidence, Tier, RETAIL};
+use super::{Behaviour, Evidence, Tier, RETAIL, THIS_CLIENT, TOOLING};
 
 /// This subject's rows, in id order.
 pub static ROWS: &[Behaviour] = &[
+    behaviour! {
+        id: "draw.bodies.the-players-meshes-keep-their-detail-farther-out",
+        says: "The player's own meshes are drawn at half as much detail again as their distance gives, up to full: they drop a level later than another figure's. What the player holds does not share this.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PLAYER-MESH-DETAIL"),
+        station: "auberean-draw::dat::bodies::the_players_meshes_keep_their_detail_farther_out",
+        tier: Tier::Dat,
+    },
     behaviour! {
         id: "draw.cells.a-cells-appearance-dresses-its-mesh-by-material-kind",
         says: "An interior cell that names an appearance key is drawn with that key's change set of the cells' appearance table: its mesh's materials are swapped by material kind, so one mesh serves a grassy hall and a sandy canyon.",
@@ -119,6 +127,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "draw.decal.light-pools-show-from-a-room-that-looks-out",
+        says: "The lights standing outdoors lay their pools on the land whenever the land is drawn: with the camera outdoors or in a room that looks out, with light effects on.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-LIGHT-POOLS-LOOKING-OUT"),
+        station: "auberean-scene::cpu::view::light_pools_show_from_a_room_that_looks_out",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "draw.effects.a-carried-system-stands-at-the-holding-location-its-entry-names",
         says: "A particle system an effect's entry keeps going at a holding location stands at that location, on that location's bone.",
         since: RETAIL,
@@ -173,6 +189,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "draw.effects.a-slider-with-no-intensity-goes-to-full",
+        says: "An effect entry that moves a slider and stores no intensity moves it to full.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-FX-SLIDER-DEFAULT"),
+        station: "auberean-draw::cpu::effects::a_slider_entry_with_no_intensity_goes_to_full",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "draw.effects.an-appearances-effects-play-in-place-of-its-tables",
         says: "The effects an object's appearance lists for an effect id (each appearance atom's \
                effects for every id it names, gathered in order of their first ids, an atom of \
@@ -182,6 +206,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-APPEARANCE-EFFECTS"),
         station: "auberean-draw::dat::effects::the_arcane_fire_burns_its_appearances_blue_flames",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "draw.effects.an-effect-lasts-while-its-sound-or-system-runs-until-stopped",
+        says: "An effect lasts until it is stopped when its sound loops or its particle system runs until stopped; otherwise its entries' other times decide.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-FX-DURATION"),
+        station: "auberean-draw::dat::effects::an_effect_lasts_until_stopped_when_its_sound_or_system_does",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -201,6 +233,14 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-FX-SLIDERS"),
         station: "auberean-draw::cpu::effects::particles::an_effect_moves_its_sliders_over_its_ramp",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "draw.effects.an-effect-running-out-restores-only-a-color-that-lasts",
+        says: "An effect that runs out of itself leaves the object's color, unless an entry's color lasts a time.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-FX-RUN-OUT-COLOR"),
+        station: "auberean-draw::dat::effects::an_effect_running_out_restores_only_a_color_that_lasts",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "draw.effects.an-effects-appearance-is-laid-over-its-object-until-it-stops",
@@ -229,6 +269,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-FX-CHANNELS"),
         station: "auberean-draw::dat::effects::an_effects_entries_play_as_the_players_preferences_ask",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "draw.effects.an-effects-kept-sounds-follow-its-strength",
+        says: "An effect asked again while it plays moves the looping sounds it keeps to its new strength.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-FX-KEPT-SOUND-VOLUME"),
+        station: "auberean-draw::dat::effects::an_effects_kept_sounds_follow_its_strength",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -293,6 +341,14 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-EFFECT-LIGHTS-PLACED"),
         station: "auberean-draw::dat::effects::placed_objects_torches_light_the_land",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "draw.flare.a-flare-asks-of-one-pixel-whether-its-object-is-seen",
+        says: "A sky object is seen when the one pixel at its place on the screen is not drawn over, so a thin edge across that pixel hides its flare and one beside it does not.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-FLARE-ONE-PIXEL"),
+        station: "auberean-draw::cpu::landscape::shadows::a_flare_asks_of_one_pixel_whether_its_object_is_seen",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "draw.frame.each-step-draws-its-objects-farthest-first",
@@ -464,6 +520,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "draw.inside.no-sky-drawn-no-veil-over-it",
+        says: "The fog's veil over the sky is drawn with the sky: rooms with no view out and no cell open to the sky show none of it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-VEIL-WITH-SKY"),
+        station: "auberean-gpu::gpu::inside::rooms_with_no_view_out_show_no_veil_of_the_fog_outside",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
         id: "draw.inside.rooms-seen-from-outside-are-lit-as-rooms",
         says: "The rooms a block lists as seen from outside, drawn in a frame outdoors, are lit as \
                rooms and not by the sun: each drawn once, its mesh by the light its vertices carry                and the lights it keeps where it stands; a light carried inside reaches them, one                carried on the land outside does not.",
@@ -519,6 +583,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-CULL-WALK"),
         station: "auberean-draw::cpu::objects::cull::the_walk_reaches_the_rooms_the_doorways_show",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "draw.inside.what-stands-in-a-cell-seen-from-the-land-draws-after-the-land",
+        says: "With the camera on the land, each step of the world's objects draws what stands on the land first, then what stands in the cells it looks into, each list farthest first.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-LOOKED-IN-ORDER"),
+        station: "auberean-draw::cpu::objects::degrade::what_stands_in_a_cell_seen_from_the_land_draws_after_what_stands_on_it",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -736,6 +808,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "draw.mesh.a-lost-device-is-noticed-and-does-not-stop-the-game",
+        says: "A device that goes away is noticed, and drawing on it asks for nothing it can't give; another device draws.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-DEVICE-LOST"),
+        station: "auberean-gpu::gpu::lost::a_lost_device_is_noticed_and_does_not_stop_the_game",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
         id: "draw.mesh.a-vertex-format-lays-its-elements-out-in-order",
         says: "A stored vertex holds its position, blend weights, normal, point size, diffuse and \
                specular colors, tangent-space vectors and coordinate pairs in that order, sized \
@@ -780,6 +860,15 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-DRAW-DETAIL"),
         station: "auberean-draw::cpu::objects::layout::detail_falls_from_near_to_far",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "draw.mesh.every-draw-of-a-frame-shows-its-own-uniforms",
+        says: "However many draws a frame has, each shows its own uniforms, across the device's \
+               buffers of them.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-UNIFORMS-EACH-DRAW"),
+        station: "auberean-gpu::gpu::uniforms::every_draw_of_a_frame_shows_its_own_uniforms",
+        tier: Tier::Gpu,
     },
     behaviour! {
         id: "draw.mesh.the-adaptive-degrade-draws-moving-bodies-in-as-frames-slow",
@@ -926,6 +1015,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "draw.particles.a-system-of-its-own-draws-without-its-places-turn",
+        says: "A system of its own draws at its place without the place's turn, so a swirl faces \
+               the camera however its object is turned.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-PARTICLE-NO-TURN"),
+        station: "auberean-draw::cpu::effects::particles::a_system_of_its_own_draws_without_its_places_turn",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "draw.particles.a-system-without-limits-runs-until-stopped",
         says: "A particle system with a physics duration, or with an emitter that has neither an \n               emission limit nor a time limit, runs until it is stopped; any other lasts about its \n               longest emitter's start, lifespan and emitting time less its fast-forward.",
         since: RETAIL,
@@ -961,6 +1059,14 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-DRAW-PARTICLE-PLACE"),
         station: "auberean-draw::cpu::effects::particles::a_world_system_reckons_distance_from_where_it_is_first_placed",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "draw.particles.an-effect-carries-the-repulsor-its-entry-names",
+        says: "An effect played on an object carries the repulsor its entry names, as a look's startup effects do.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-FX-REPULSOR"),
+        station: "auberean-draw::dat::effects::an_effect_played_carries_the_repulsor_its_entry_names",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "draw.particles.color-and-size-blend-toward-the-next-keyframe-that-blends-them",
@@ -1078,6 +1184,14 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-PORTAL-PHASES"),
         station: "auberean-draw::cpu::effects::portal::portal_space_comes_in_and_goes_out_a_second_a_phase",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "draw.portal.puffs-of-cloud-show-near-the-tunnels-start",
+        says: "With the tunnel more than 0.9 in view, each ring 40 to 49 ahead has one even chance of letting a puff of cloud go within 0.8 of its radius. The system has the usual fade, measured from the tube's start, so puffs draw only while the camera is within 60 m of it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PORTAL-PUFFS"),
+        station: "auberean-draw::dat::effects::puffs_of_cloud_show_near_the_tunnels_start",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "draw.portal.the-tunnel-is-rings-three-meters-apart-the-camera-rushes-along",
@@ -1331,6 +1445,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-STREAK-FX"),
         station: "auberean-draw::dat::effects::a_weapons_streak_waits_for_a_swing_to_turn_it_on",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "draw.streak.stopping-the-effect-that-turned-a-streak-on-turns-it-off",
+        says: "Stopping an effect whose entry turns a streak on turns that streak off, whether or not the effect still plays.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-FX-STREAK-STOP"),
+        station: "auberean-draw::dat::effects::stopping_the_effect_that_turned_a_streak_on_turns_it_off",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -1686,11 +1808,44 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "draw.world.a-meshs-depth-writing-fragments-draw-first",
+        says: "A mesh draws the fragments whose material's first layer marks how near it is before those that do not, each kind in its stored order.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-FRAGMENT-ORDER"),
+        station: "auberean-draw::dat::parts::a_meshs_depth_writing_fragments_draw_first",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "draw.world.a-part-draws-its-own-copy-when-its-look-changes-materials",
         says: "A part draws through its own frame carried by the object's the mesh its instance                holds: the one every part showing it shares, or, when the part's look changes its                materials, its own copy with them changed, the other parts keeping the mesh's own;                it is culled by its mesh's box carried through its frame.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PART-DRAW"),
         station: "auberean-draw::dat::parts::a_part_draws_its_own_copy_when_its_look_changes_its_materials",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "draw.world.a-placed-look-with-a-behavior-table-plays-through-one-shared-body",
+        says: "An object the world places whose look has a behavior table plays it through one body kept for the look, stepped once a frame, so every object showing the look stands in one pose and moves with the others; a look with no behavior table stands as stored.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PLACED-PLAYS"),
+        station: "auberean-draw::dat::placed::a_placed_school_of_fish_swims_and_every_object_showing_it_moves_together",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "draw.world.a-placed-objects-box-holds-it-where-its-animation-takes-it",
+        says: "The box a placed object that plays is culled by holds every vertex wherever its animation takes it, not only where the mesh is stored.",
+        since: THIS_CLIENT,
+        divergence: "CD2-placed-boxes-hold-the-animation",
+        evidence: Evidence::Private("AC2-EVID-PLACED-BOX"),
+        station: "auberean-draw::dat::placed::a_placed_objects_box_holds_it_wherever_its_animation_takes_it",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "draw.world.only-objects-that-say-so-cast-on-the-land",
+        says: "An object prints on the sun's shadow map only when its drawing properties say it casts on the land. Those without the property, placed or scenery, leave no shadow there.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-LAND-CASTERS-0930"),
+        station: "auberean-draw::dat::landscape::only_objects_that_say_so_cast_on_the_land",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -1733,11 +1888,35 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "draw.world.the-wind-moves-a-placed-object-that-plays",
+        says: "The world's wind blows on the body a placed object plays through, as on any other: a tree that plays travels further in a gale than in still air.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PLACED-WIND"),
+        station: "auberean-draw::dat::placed::the_wind_moves_a_placed_tree_further_than_still_air_does",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "draw.world.what-lies-on-the-ground-crosses-holes-in-it",
+        says: "What is laid on the ground, a disc or a pool of light, takes every square of the land at the land's height, holes included.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DECAL-OVER-HOLES"),
+        station: "auberean-draw::dat::landscape::what_lies_on_the_ground_crosses_holes_in_it",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "draw.world.what-stands-on-the-land-takes-the-lands-shadow",
         says: "What stands on the land and is not seen through is drawn dark by the share of \n               the sun the land lets through at its spot.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-LAND-SHADOW"),
         station: "auberean-draw::dat::landscape::what_stands_on_the_land_takes_the_lands_shadow",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "draw.world.with-blending-off-a-square-shows-one-ground",
+        says: "With the land's blending off a square shows one ground and no masked layer.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-LANDSCAPE-BLENDING-OFF"),
+        station: "auberean-draw::dat::landscape::with_blending_off_a_square_shows_one_ground",
         tier: Tier::Dat,
     },
 ];

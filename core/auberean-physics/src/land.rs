@@ -328,13 +328,16 @@ impl HostCell for LandCell {
                 }
             }
         }
-        // The solids standing in the cell.
+        // The solids standing in the cell, but for those a mover walks through.
         let k = self.cx * CELLS_PER_SIDE + self.cy;
         let own = self.block.cell_solids[k]
             .iter()
             .map(|&i| &self.block.solids[i as usize]);
         let over = self.overhanging.iter().map(|(b, i)| &b.solids[*i as usize]);
-        for solid in own.chain(over).filter(|s| !s.marked) {
+        for solid in own
+            .chain(over)
+            .filter(|s| !s.marked && !crate::object::uneven(s.scale))
+        {
             let r = collide::object_part_find_obj_collisions_scaled(
                 ctx,
                 t,

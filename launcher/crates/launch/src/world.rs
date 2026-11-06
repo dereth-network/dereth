@@ -340,6 +340,10 @@ pub struct World {
     /// itself, or the `https://` URL it is published at. Absent: the world publishes none, and the
     /// Dereth client applies its defaults.
     pub plugin_policy: Option<String>,
+    /// The client reaches this world through a relay on the player's computer, which the launcher
+    /// runs ([`crate::relayed`]).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub relayed: bool,
 }
 
 /// The logon version string every emulator requires today.

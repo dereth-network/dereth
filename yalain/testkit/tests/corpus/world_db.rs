@@ -17,7 +17,7 @@ use yalain_testkit::play::server_call;
 use yalain_testkit::Harness;
 use yalain_world_db::compile::{compile, Tables};
 use yalain_world_db::install::DatInstall;
-use yalain_world_db::release::{cache_dir_for, Host, PINNED_TAG};
+use yalain_world_db::release::{pinned_in_cache, PINNED_TAG};
 use yalain_world_db::{check, merge, rows, Files};
 
 /// The variable naming a world database checkout for the tests.
@@ -27,14 +27,11 @@ fn database() -> PathBuf {
     if let Some(v) = std::env::var_os(WORLD_DB_VAR).filter(|v| !v.is_empty()) {
         return PathBuf::from(v);
     }
-    let cached =
-        cache_dir_for(Host::current(), |n| std::env::var_os(n)).map(|c| c.join(PINNED_TAG));
-    match cached {
-        Some(d) if d.join("world.toml").is_file() => d,
-        _ => panic!(
-            "no world database: set {WORLD_DB_VAR} to a checkout, or fetch the pinned release ({PINNED_TAG}) with `yalain world fetch`"
-        ),
-    }
+    pinned_in_cache().unwrap_or_else(|why| {
+        panic!(
+            "no world database: {why}. Set {WORLD_DB_VAR} to a checkout, or fetch the pinned release ({PINNED_TAG}) with `yalain world fetch`"
+        )
+    })
 }
 
 fn load(root: &Path) -> Files {
@@ -71,13 +68,6 @@ struct Compiled {
     tables: Tables,
 }
 
-/// The pinned release in the per-user cache, if it is there.
-fn pinned_database() -> Option<PathBuf> {
-    cache_dir_for(Host::current(), |n| std::env::var_os(n))
-        .map(|c| c.join(PINNED_TAG))
-        .filter(|d| d.join("world.toml").is_file())
-}
-
 /// The database, checked, merged and compiled against the install, once.
 fn compiled() -> &'static Compiled {
     static C: OnceLock<Compiled> = OnceLock::new();
@@ -87,8 +77,8 @@ fn compiled() -> &'static Compiled {
 /// The pinned release compiled, once (the database itself when it is the pinned release).
 fn pinned() -> &'static Compiled {
     static P: OnceLock<Compiled> = OnceLock::new();
-    let dir = pinned_database().unwrap_or_else(|| {
-        panic!("no pinned release: fetch it ({PINNED_TAG}) with `yalain world fetch`")
+    let dir = pinned_in_cache().unwrap_or_else(|why| {
+        panic!("no pinned release: {why}. Fetch it ({PINNED_TAG}) with `yalain world fetch`")
     });
     if dir == database() {
         return compiled();
@@ -2174,7 +2164,7 @@ fn people_give_the_quests_2017_recorded_and_say_their_lines_for_them() {
 }
 
 /// **An under-level line is no plain line**: no placed person who is left with another line keeps
-/// its under-level line in what it says to anyone; only the four with nothing else to say do.
+/// its under-level line in what it says to anyone.
 /// Behaviour: server.quests.under-level-line-out-of-the-plain-pool
 #[test]
 fn no_placed_person_with_anything_else_to_say_says_its_under_level_line_to_anyone() {
@@ -3020,4 +3010,558 @@ fn every_phase_a_recorded_quest_shows_time_at_is_one_the_world_times() {
     wrong.sort();
     wrong.dedup();
     assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+/// **An Ulkas mine**: a guard's death gives a player who has paid its hidden quest and with it the
+/// mine's, and one who has not nothing; each gem counts, and the last ends the quest and the toll,
+/// so the next guard gives no more until another fee.
+/// Behaviour: server.gives.ulkas-mines
+#[test]
+fn an_ulkas_mine_is_given_by_a_guard_after_its_toll_and_its_last_gem_ends_the_toll() {
+    use yalain_content::quests::{Trigger, Update};
+    use yalain_world::quests::{killed, moves, status, Move, QuestEffect};
+    let t = &compiled().tables;
+    for (toll, guard_quest, mine, guard, grant, gems, effect) in [
+        (
+            0x4000_0183,
+            0x4000_0184,
+            0x4000_0185,
+            0x4700_2B5B,
+            0x6F00_1DAA,
+            8,
+            "Eff_BestowQuestBossUlkasOsteth",
+        ),
+        (
+            0x4000_0186,
+            0x4000_0187,
+            0x4000_0188,
+            0x4700_2B59,
+            0x6F00_1DA9,
+            12,
+            "Eff_BestowQuestBossUlkasOmishan",
+        ),
+        (
+            0x4000_0189,
+            0x4000_018A,
+            0x4000_018B,
+            0x4700_2CF3,
+            0x6F00_1DA8,
+            13,
+            "Eff_BestowQuestBossUlkasLinvak",
+        ),
+    ] {
+        let def = t.quests.quest(guard_quest).expect("the guard's quest");
+        assert!(def.hidden, "{guard_quest:08X}");
+        assert_eq!(def.required, Some((toll, status::UNDERWAY)));
+        let step = t
+            .quests
+            .steps
+            .iter()
+            .find(|s| s.trigger == Trigger::Given(guard_quest))
+            .unwrap_or_else(|| panic!("{guard_quest:08X}"));
+        assert_eq!(
+            (step.quest, step.needs, step.update),
+            (mine, 0, Update::Bestow)
+        );
+        assert_eq!(step.effects, [grant]);
+        assert!(step.effects_last, "the update told before the recipe");
+        let (mut h, _, _) = served(t);
+        set_level(&mut h, 60);
+        let world = *h.server.players.keys().next().expect("a player");
+        h.server.quest_ids.insert(
+            effect.trim_start_matches("Eff_Bestow").to_string(),
+            guard_quest,
+        );
+        let kill = |h: &mut yalain_testkit::Harness| {
+            let clock = h.clock();
+            killed(
+                &mut h.server,
+                &mut h.net,
+                world,
+                (0, guard),
+                &[effect.to_string()],
+                clock,
+            );
+            h.run(2);
+        };
+        kill(&mut h);
+        assert_eq!(quest_state(&h, mine), None, "no toll, no mine");
+        quest_at(&mut h, toll, 1);
+        kill(&mut h);
+        assert_eq!(quest_state(&h, mine), Some((status::UNDERWAY, 1)));
+        for n in 1..=gems {
+            let clock = h.clock();
+            let e = QuestEffect {
+                quest: mine,
+                act: Move::Increment,
+            };
+            moves(&mut h.server, &mut h.net, world, e, true, clock);
+            h.run(2);
+            if n < gems {
+                assert_eq!(quest_state(&h, mine), Some((status::UNDERWAY, n + 1)));
+            }
+        }
+        assert_eq!(quest_state(&h, mine).map(|q| q.0), Some(status::COMPLETED));
+        assert_eq!(quest_state(&h, toll).map(|q| q.0), Some(status::COMPLETED));
+        kill(&mut h);
+        assert_eq!(
+            quest_state(&h, mine).map(|q| q.0),
+            Some(status::COMPLETED),
+            "the toll is spent"
+        );
+    }
+    // The way down from the sapphire mines is used after the last gem, so it asks nothing.
+    let down = t
+        .content
+        .objects
+        .iter()
+        .find(|o| o.object == Some(0x40BA_8700_0000_0014))
+        .expect("the way down");
+    assert!(down.gate.is_none());
+}
+
+/// **Ryvenna's gems**: 33 in the order characters did them: each given at the use after the one
+/// before it is done, none given twice, any size taken, her fee paid and her next gem named.
+/// Behaviour: server.gives.ryvenna-gems
+#[test]
+fn ryvennas_gems_follow_one_another_in_the_order_characters_did_them() {
+    use yalain_content::quests::{Need, Trigger, Update};
+    use yalain_world::quests::status;
+    const RYVENNA: u32 = 0x4700_2FD7;
+    // First, the jade recorded and the one recorded after it, last.
+    const QUARTZ: u32 = 0x4000_02F7;
+    const OBSIDIAN: u32 = 0x4000_02F3;
+    const JADE: u32 = 0x4000_02EE;
+    const GARNET: u32 = 0x4000_02ED;
+    const STARSTONE: u32 = 0x4000_02FD;
+    const OPAL: u32 = 0x4000_02F4;
+    let t = &compiled().tables;
+    let givings: Vec<_> = t
+        .quests
+        .steps
+        .iter()
+        .filter(|s| s.trigger == Trigger::Use(RYVENNA) && s.update == Update::Bestow)
+        .collect();
+    assert_eq!(givings.len(), 33);
+    assert!(givings.iter().all(|s| s.needs == 0 && s.tell.is_some()));
+    assert!(!givings.iter().any(|s| s.quest == OPAL), "nobody did it");
+    for g in &givings {
+        assert!(
+            t.quests.quest(g.quest).is_some_and(|d| d.once),
+            "{:08X} is done once",
+            g.quest
+        );
+    }
+    let after = |q: u32| {
+        givings
+            .iter()
+            .find(|s| s.requires == [(q, Need::Done)])
+            .map(|s| s.quest)
+    };
+    assert_eq!(after(QUARTZ), Some(OBSIDIAN));
+    assert_eq!(after(JADE), Some(GARNET));
+    assert_eq!(after(STARSTONE), None);
+    let mut q = Some(QUARTZ);
+    let mut n = 0;
+    while let Some(at) = q {
+        n += 1;
+        q = after(at);
+    }
+    assert_eq!(n, 33, "one chain");
+    for g in &givings {
+        let taken: Vec<_> = t
+            .quests
+            .steps
+            .iter()
+            .filter(|s| {
+                s.quest == g.quest && s.needs == 1 && matches!(s.trigger, Trigger::Give(_, RYVENNA))
+            })
+            .collect();
+        assert_eq!(taken.len(), 4, "{:08X}: every size", g.quest);
+        let fee = &taken[0].counts;
+        assert!(taken.iter().all(|s| &s.counts == fee), "{:08X}", g.quest);
+    }
+
+    let portal = yalain_testkit::authored::Portal::open();
+    let (mut h, b, me) = served(t);
+    set_level(&mut h, 60);
+    let o = placed(t, RYVENNA);
+    use_person(&mut h, b, me, t, o);
+    assert_eq!(quest_state(&h, QUARTZ), Some((status::UNDERWAY, 1)));
+    use_person(&mut h, b, me, t, o);
+    assert_eq!(quest_state(&h, OBSIDIAN), None, "one at a time");
+    let huge = t
+        .quests
+        .steps
+        .iter()
+        .find_map(|s| match s.trigger {
+            Trigger::Give(i, RYVENNA) if s.quest == QUARTZ => Some(i),
+            _ => None,
+        })
+        .expect("a stone");
+    hand_in(&mut h, &portal, huge, RYVENNA);
+    assert_eq!(
+        quest_state(&h, QUARTZ).map(|q| q.0),
+        Some(status::COMPLETED)
+    );
+    use_person(&mut h, b, me, t, o);
+    assert_eq!(quest_state(&h, OBSIDIAN), Some((status::UNDERWAY, 1)));
+    assert_eq!(
+        quest_state(&h, QUARTZ).map(|q| q.0),
+        Some(status::COMPLETED),
+        "not given twice"
+    );
+}
+
+/// **Journal hand-ins**: what each person's line was waiting for now runs: the item given at the
+/// journal's last phase finishes its quest, and the line tied to it is said.
+/// Behaviour: server.gives.journal-hand-ins
+#[test]
+fn hand_ins_a_journal_names_finish_their_quests() {
+    use yalain_world::quests::status;
+    let t = &compiled().tables;
+    let portal = yalain_testkit::authored::Portal::open();
+    for (quest, phase, item, to) in [
+        (0x8000_030F_u32, 1, 0x4700_1CCF_u32, 0x4700_32BD_u32),
+        (0x8000_0300, 1, 0x4700_0CB3, 0x4700_32D0),
+        (0x8000_0301, 1, 0x4700_1900, 0x4700_32D0),
+        (0x8000_0307, 1, 0x4700_1906, 0x4700_32D3),
+        (0x8000_0308, 1, 0x4700_1905, 0x4700_32D3),
+        (0x8000_02E0, 2, 0x4700_1909, 0x4700_32D7),
+        (0x8000_0349, 2, 0x4700_13FA, 0x4700_2FBB),
+        (0x8000_0282, 5, 0x4700_1679, 0x4700_3173),
+        (0x8000_00DF, 2, 0x4700_0912, 0x4700_3319),
+        (0x8000_00E0, 2, 0x4700_0917, 0x4700_331B),
+        (0x8000_00E1, 2, 0x4700_091C, 0x4700_331D),
+        (0x8000_00E2, 2, 0x4700_0921, 0x4700_331F),
+        (0x8000_00E3, 2, 0x4700_0926, 0x4700_3321),
+    ] {
+        let (mut h, _, _) = served(t);
+        quest_at(&mut h, quest, phase);
+        // A crafter's pair of errands: each is taken while the other is under way.
+        let other = match quest {
+            0x8000_0300 => Some(0x8000_0301),
+            0x8000_0301 => Some(0x8000_0300),
+            0x8000_0307 => Some(0x8000_0308),
+            0x8000_0308 => Some(0x8000_0307),
+            _ => None,
+        };
+        if let Some(other) = other {
+            quest_at(&mut h, other, 1);
+        }
+        hand_in(&mut h, &portal, item, to);
+        assert_eq!(
+            quest_state(&h, quest).map(|q| q.0),
+            Some(status::COMPLETED),
+            "{quest:08X}"
+        );
+    }
+    // Five horns are what Gormery wants; each carenzi takes the nut.
+    for carenzi in [
+        0x4700_31B9,
+        0x4700_31BB,
+        0x4700_31BD,
+        0x4700_31BF,
+        0x4700_31C1,
+    ] {
+        let (mut h, _, _) = served(t);
+        quest_at(&mut h, 0x8000_038C, 4);
+        hand_in(&mut h, &portal, 0x4700_172B, carenzi);
+        assert_eq!(
+            quest_state(&h, 0x8000_038C),
+            Some((status::UNDERWAY, 5)),
+            "{carenzi:08X}"
+        );
+    }
+    let horns = t
+        .quests
+        .steps
+        .iter()
+        .find(|s| s.quest == 0x8000_030F && s.needs == 1)
+        .expect("the horns");
+    assert_eq!(horns.wants, Some(5));
+    let coins = t
+        .quests
+        .steps
+        .iter()
+        .find(|s| s.quest == 0x8000_02E8 && s.needs == 0)
+        .expect("Kleptor's fee");
+    assert_eq!(coins.wants, Some(25));
+}
+
+/// A mine's recipe reads as the data defines it: the gems it may give, and the mine it must be made at.
+/// Behaviour: server.craft.recipe-charges-and-targets-read
+#[test]
+fn a_mines_recipe_reads_its_charges_and_its_mine() {
+    let p = yalain_testkit::authored::Portal::open();
+    let c = p.crafting(&[0x6F00_06A0], &[0x6F00_02D2, 0x6F00_02D3, 0x6F00_02D4]);
+    for (r, charges, mine) in [
+        (0x6F00_02D2, 13, 0x4700_0B3B),
+        (0x6F00_02D3, 12, 0x4700_0B3C),
+        (0x6F00_02D4, 8, 0x4700_0B3D),
+    ] {
+        let d = &c.recipes[&r];
+        assert_eq!((d.charges, d.targets.as_slice()), (charges, &[mine][..]));
+    }
+}
+
+/// A template with the properties the install gives it.
+fn as_installed(portal: &yalain_testkit::authored::Portal, item: u32) -> yalain_content::Template {
+    use yalain_world_db::compile::Install;
+    let install = dat_install();
+    let mut t = portal.template(item);
+    t.props = yalain_content::Props::of(item, &|id| install.entity(id), &|id| {
+        install.property_name(id)
+    });
+    t
+}
+
+/// Run what a use of a person does, by its trigger.
+fn used_person(h: &mut Harness, who: u32) {
+    use yalain_content::quests::Trigger;
+    let world = player_world(h);
+    let clock = h.clock();
+    yalain_world::quests::triggered(
+        &mut h.server,
+        &mut h.net,
+        world,
+        Trigger::Use(who),
+        None,
+        clock,
+    );
+    h.run(2);
+}
+
+/// **Clackety's and Click's second halves**: a person the journal names moves the quest on, the last
+/// item handed to that person brings the item the crafter wants and the next phase, and the crafter
+/// takes it. Crotchet's jug is filled at Cedar's cask, and his coupon is good at Cedar's.
+/// Behaviour: server.quests.crafters-second-halves
+#[test]
+fn a_crafters_second_half_runs_as_its_journal_says() {
+    use yalain_content::quests::Trigger;
+    use yalain_world::quests::status;
+    let t = &compiled().tables;
+    let portal = yalain_testkit::authored::Portal::open();
+    for (quest, asked, items, wanted, crafter) in [
+        (
+            0x8000_02FB_u32,
+            0x4700_32D0_u32,
+            [
+                (0x8000_0300_u32, 0x4700_0CB3_u32),
+                (0x8000_0301, 0x4700_1900),
+            ],
+            0x4700_18FF_u32,
+            0x4700_32CE_u32,
+        ),
+        (
+            0x8000_0303,
+            0x4700_32D3,
+            [(0x8000_0307, 0x4700_1906), (0x8000_0308, 0x4700_1905)],
+            0x4700_1904,
+            0x4700_32D2,
+        ),
+    ] {
+        let (mut h, _, _) = served(t);
+        for x in [wanted, 0x4700_1902, 0x4700_1901] {
+            h.server.catalog.insert(portal.template(x));
+        }
+        quest_at(&mut h, quest, 2);
+        used_person(&mut h, asked);
+        assert_eq!(quest_state(&h, quest), Some((status::UNDERWAY, 3)));
+        hand_in(&mut h, &portal, items[0].1, asked);
+        assert_eq!(
+            quest_state(&h, items[0].0).map(|q| q.0),
+            Some(status::COMPLETED)
+        );
+        assert_eq!(
+            quest_state(&h, quest),
+            Some((status::UNDERWAY, 3)),
+            "one to go"
+        );
+        let holds_wanted = |h: &Harness| {
+            h.server.players[&player_world(h)]
+                .play
+                .items
+                .iter()
+                .any(|i| i.template == wanted)
+        };
+        assert!(!holds_wanted(&h));
+        hand_in(&mut h, &portal, items[1].1, asked);
+        assert_eq!(quest_state(&h, quest), Some((status::UNDERWAY, 4)));
+        assert!(holds_wanted(&h), "the last brings it");
+        hand_in(&mut h, &portal, wanted, crafter);
+        assert_eq!(quest_state(&h, quest).map(|q| q.0), Some(status::COMPLETED));
+    }
+    let filled = t
+        .quests
+        .steps
+        .iter()
+        .find(|s| s.trigger == Trigger::UseOn(0x4700_1902, 0x4700_1903))
+        .expect("the jug at the cask");
+    assert_eq!(filled.gives, [0x4700_1905]);
+    let coupon = t
+        .quests
+        .gives
+        .iter()
+        .find(|g| g.item == Some(0x4700_1901) && g.to == 0x4700_33FB)
+        .expect("the coupon at Cedar's");
+    assert_eq!(coupon.gives, [0x4700_1906]);
+}
+
+/// **Seskri's talismans**: each talisman's own effect moves her quest on from the phase before; she
+/// names what is left at each phase, and takes the last.
+/// Behaviour: server.quests.seskris-talismans
+#[test]
+fn seskris_quest_moves_by_its_talismans_and_ends_with_the_last() {
+    use yalain_world::quests::status;
+    let t = &compiled().tables;
+    let portal = yalain_testkit::authored::Portal::open();
+    const QUEST: u32 = 0x4000_0101;
+    let (mut h, b, me) = served(t);
+    h.server.quest_ids = quest_ids();
+    let world = player_world(&h);
+    for (item, from, to) in [
+        (0x4700_18A4_u32, 1, 2),
+        (0x4700_18A6, 2, 3),
+        (0x4700_18AC, 3, 4),
+        (0x4700_18AE, 4, 5),
+        (0x4700_18A8, 5, 6),
+    ] {
+        h.server.catalog.insert(as_installed(&portal, item));
+        quest_at(&mut h, QUEST, from);
+        let clock = h.clock();
+        yalain_world::quests::took(&mut h.server, &mut h.net, world, item, clock);
+        assert_eq!(
+            quest_state(&h, QUEST),
+            Some((status::UNDERWAY, to)),
+            "{item:08X}"
+        );
+    }
+    let o = placed(t, 0x4700_3293);
+    for (phase, line) in [(1, 0xF2AE_9DAA_u32), (3, 0xF2BE_9DAA), (6, 0xF296_9DAA)] {
+        quest_at(&mut h, QUEST, phase);
+        let said = use_person(&mut h, b, me, t, o);
+        assert!(
+            said.iter().any(|(_, s)| *s == Some(line)),
+            "{phase} {said:08X?}"
+        );
+    }
+    quest_at(&mut h, QUEST, 6);
+    hand_in(&mut h, &portal, 0x4700_18A8, 0x4700_3293);
+    assert_eq!(quest_state(&h, QUEST).map(|q| q.0), Some(status::COMPLETED));
+}
+
+/// **Aua's maintenance**: she gives it, its shards and stibnite move it by their own effects, the
+/// alembic takes each, and she takes the infusion.
+/// Behaviour: server.quests.aua-gives-the-skyport-maintenance
+#[test]
+fn aua_gives_her_quest_and_the_alembic_makes_the_infusion() {
+    use yalain_content::quests::Trigger;
+    use yalain_world::quests::status;
+    let t = &compiled().tables;
+    let portal = yalain_testkit::authored::Portal::open();
+    const QUEST: u32 = 0x8000_0282;
+    const ALEMBIC: u32 = 0x4700_3171;
+    let (mut h, _, _) = served(t);
+    h.server.quest_ids = quest_ids();
+    let world = player_world(&h);
+    used_person(&mut h, 0x4700_3173);
+    assert_eq!(quest_state(&h, QUEST), Some((status::UNDERWAY, 1)));
+    for (item, to) in [(0x4700_1677_u32, 2), (0x4700_167A, 3)] {
+        h.server.catalog.insert(as_installed(&portal, item));
+        let clock = h.clock();
+        yalain_world::quests::took(&mut h.server, &mut h.net, world, item, clock);
+        assert_eq!(
+            quest_state(&h, QUEST),
+            Some((status::UNDERWAY, to)),
+            "{item:08X}"
+        );
+    }
+    let def = t.quests.quest(QUEST).expect("the quest");
+    assert_eq!(def.retry, 172_800.0);
+    for (item, before, after) in [(0x4700_1677_u32, 3, 4), (0x4700_167A, 4, 5)] {
+        let step = t
+            .quests
+            .steps
+            .iter()
+            .find(|s| s.trigger == Trigger::UseOn(item, ALEMBIC))
+            .unwrap_or_else(|| panic!("{item:08X}"));
+        assert_eq!(step.needs, before);
+        assert_eq!(step.update, yalain_content::quests::Update::Advance(after));
+    }
+    quest_at(&mut h, QUEST, 5);
+    hand_in(&mut h, &portal, 0x4700_1679, 0x4700_3173);
+    assert_eq!(quest_state(&h, QUEST).map(|q| q.0), Some(status::COMPLETED));
+}
+
+/// **The Ulkas mines' other portals**: each way down leads to the mine's base, each second way in
+/// where the first does, asking for the same toll.
+/// Behaviour: server.quests.mine-ways-down
+#[test]
+fn every_ulkas_mine_portal_leads_somewhere() {
+    let t = &compiled().tables;
+    let of = |id: u64| {
+        t.content
+            .objects
+            .iter()
+            .find(|o| o.object == Some(id))
+            .unwrap_or_else(|| panic!("{id:016X}"))
+    };
+    for id in [
+        0x407A_9500_0000_0001_u64,
+        0x4057_6000_0000_0001,
+        0x4056_5E00_0000_0010,
+    ] {
+        assert!(of(id).destination.is_some(), "{id:016X}");
+        assert!(of(id).gate.is_none(), "{id:016X} is a way out");
+    }
+    assert_eq!(
+        of(0x4057_6000_0000_0001).destination,
+        of(0x4056_5E00_0000_0010).destination
+    );
+    for (second, first) in [
+        (0x4079_9400_0000_0004_u64, 0x4079_9400_0000_0003_u64),
+        (0x4056_6000_0000_0003, 0x4056_6000_0000_0004),
+    ] {
+        assert_eq!(
+            of(second).destination,
+            of(first).destination,
+            "{second:016X}"
+        );
+        assert_eq!(
+            of(second).gate.map(|g| g.quest),
+            of(first).gate.map(|g| g.quest),
+            "{second:016X}"
+        );
+    }
+}
+
+/// **The Rouge mirra** goes as the others: cleansed at the font, charged at Exelaris, handed to the
+/// golem.
+/// Behaviour: server.quests.the-rouge-mirra
+#[test]
+fn the_rouge_mirra_goes_as_the_other_mirras() {
+    use yalain_world::quests::status;
+    let t = &compiled().tables;
+    let portal = yalain_testkit::authored::Portal::open();
+    const QUEST: u32 = 0x4000_02A2;
+    let (mut h, _, _) = served(t);
+    h.server.catalog.insert(portal.template(0x4700_1750));
+    hand_in(&mut h, &portal, 0x4700_174B, 0x4700_2FFD);
+    assert_eq!(
+        quest_state(&h, QUEST),
+        Some((status::UNDERWAY, 2)),
+        "given, and moved by what it gives"
+    );
+    let charge = t
+        .quests
+        .gives
+        .iter()
+        .find(|g| g.item == Some(0x4700_1750) && g.to == 0x4700_31C3)
+        .expect("charged at Exelaris");
+    assert_eq!(charge.gives, [0x4700_174E]);
+    hand_in(&mut h, &portal, 0x4700_174E, 0x4700_3331);
+    assert_eq!(quest_state(&h, QUEST), Some((status::UNDERWAY, 3)));
+    hand_in(&mut h, &portal, 0x4700_076A, 0x4700_3331);
+    assert_eq!(quest_state(&h, QUEST).map(|q| q.0), Some(status::COMPLETED));
 }

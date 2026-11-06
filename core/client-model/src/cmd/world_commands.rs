@@ -42,8 +42,12 @@ pub fn allegiance_subcommand_available(features: &EraFeatures, sub: &str) -> boo
         features.allegiance_boot
     } else if eq("motd") || eq("broadcast") || eq("br") {
         features.allegiance_messages
-    } else if eq("officer") || eq("title") || eq("lock") || eq("ban") {
+    } else if eq("officer") || eq("ban") {
         features.allegiance_officers_and_bans
+    } else if eq("title") || eq("lock") {
+        features.allegiance_officers_and_bans && features.allegiance_titles_and_lock
+    } else if eq("house") {
+        features.allegiance_house_commands
     } else if eq("name") {
         features.allegiance_name
     } else if eq("chat") || eq("ch") {
@@ -54,11 +58,17 @@ pub fn allegiance_subcommand_available(features: &EraFeatures, sub: &str) -> boo
 }
 
 /// Whether the world has what an `@allegiance chat` subcommand (its first word) asks for: moving
-/// a member out of the room or gagging one came with the officers.
+/// a member out of the room came with the officers, and gagging one with their titles.
 #[must_use]
 pub fn allegiance_chat_subcommand_available(features: &EraFeatures, sub: &str) -> bool {
     let eq = |lit: &str| sub.eq_ignore_ascii_case(lit);
-    !(eq("kick") || eq("gag") || eq("ungag")) || features.allegiance_officers_and_bans
+    if eq("kick") {
+        features.allegiance_officers_and_bans
+    } else if eq("gag") || eq("ungag") {
+        features.allegiance_officers_and_bans && features.allegiance_titles_and_lock
+    } else {
+        true
+    }
 }
 
 /// Whether the world has what the words after `@allegiance` ask for.
@@ -121,6 +131,7 @@ impl HelpScope {
             "officer",
             "title",
             "lock",
+            "house",
             "name",
             "motd",
             "broadcast",
@@ -319,6 +330,22 @@ mod tests {
             &EraFeatures::ALL,
             &args(&["chat", "gag"])
         ));
+
+        // February 2005 has the officers, the bans and the kick, and none of what came later.
+        let f = EraFeatures::INFILTRATION;
+        for sub in [&["officer"][..], &["ban"], &["chat", "kick"]] {
+            assert!(allegiance_command_available(&f, &args(sub)), "{sub:?}");
+        }
+        for sub in [
+            &["title"][..],
+            &["lock"],
+            &["name"],
+            &["house"],
+            &["chat", "gag"],
+            &["chat", "ungag"],
+        ] {
+            assert!(!allegiance_command_available(&f, &args(sub)), "{sub:?}");
+        }
 
         let no_messages = EraFeatures {
             allegiance_messages: false,

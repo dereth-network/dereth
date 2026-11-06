@@ -32,6 +32,7 @@ fn person(id: u64, template: u32, origin: [f32; 3]) -> ContentObject {
         object: Some(id),
         template,
         description: Description {
+            name_text: None,
             package: 0x13A4,
             look: 0x1F00_0100,
             enter_fx: 0,
@@ -755,6 +756,8 @@ fn quests() -> QuestTable {
         effects_last: false,
         wants: None,
         fellows: false,
+        levels: None,
+        xp_share: 0.0,
         to: None,
     };
     QuestTable {
@@ -789,6 +792,7 @@ fn quests() -> QuestTable {
             step(1, LIEUTENANT_TEMPLATE, Update::Advance(2)),
         ],
         gives: Vec::new(),
+        rooms: Vec::new(),
     }
 }
 
@@ -903,4 +907,351 @@ fn a_purchase_of_too_many_or_from_afar_is_refused() {
         "in reach it goes"
     );
     assert_eq!(items(&h), before + 1);
+}
+
+/// A shop selling a medic's and a pet keeper's contract, and a player in it with coin: the harness,
+/// its client, the player and its world connection.
+fn merc_shop(coin: i32) -> (Harness, usize, u64, yalain_net::ConnId) {
+    use yalain_world::pets::mercenary;
+    let mut h = shop();
+    let sale = h.server.stores.sales[0].clone();
+    h.server.stores.sales = [mercenary::MEDIC, mercenary::KEEPER]
+        .into_iter()
+        .enumerate()
+        .map(|(i, product)| Sale {
+            product,
+            ordinal: u32::try_from(i).unwrap_or(0),
+            cost: 500.0,
+            stack: 5,
+            ..sale.clone()
+        })
+        .collect();
+    for (id, makes) in [
+        (mercenary::MEDIC, 0x4700_3457),
+        (mercenary::KEEPER, 0x4700_3455),
+    ] {
+        let mut props = yalain_content::Props::default();
+        props.set("Icon", yalain_content::Prop::Word(0x4100_7D5C));
+        h.server
+            .catalog
+            .insert(yalain_testkit::test_template(id, 0x1067, props));
+        let mut pet = h
+            .server
+            .catalog
+            .get(yalain_testkit::TEST_CREATURE)
+            .cloned()
+            .expect("a creature");
+        pet.id = makes;
+        h.server.catalog.insert(pet);
+    }
+    let (b, me) = in_store(&mut h);
+    for p in h.server.players.values_mut() {
+        yalain_world::quals::set_int(&mut p.qualities, 3100, coin);
+    }
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .map(|(c, _)| c)
+        .expect("in the world");
+    (h, b, me, world)
+}
+
+/// Ask to buy the contract at an ordinal: whether it was refused.
+fn buy_contract(h: &mut Harness, b: usize, me: u64, ordinal: u32) -> bool {
+    buy_contracts(h, b, me, ordinal, 1)
+}
+
+fn buy_contracts(h: &mut Harness, b: usize, me: u64, ordinal: u32, quantity: u32) -> bool {
+    let from = h.bots[b].inbox.len();
+    let stock =
+        yalain_world::store::STOCK_BASE | u64::from(STORE & 0xFFFF) << 8 | u64::from(ordinal);
+    let mut g = Builder::new();
+    g.object(
+        0x1B76,
+        &[
+            Slot::Long(stock),
+            Slot::Ref(None),
+            Slot::Long(me),
+            Slot::Int(quantity),
+            Slot::Long(KEEPER),
+            Slot::Int(0),
+            Slot::Int(0),
+        ],
+    );
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(PURCHASE, &[Arg::Object(g.graph())]),
+    );
+    h.run(10);
+    calls_of(h, b, from)
+        .iter()
+        .any(|(f, v)| *f == REQUEST_DONE && v.contains(&Value::Int(45001)))
+}
+
+/// A storekeeper opening and closing for a sale shows to everyone beside it, who take the keeper's
+/// visual messages in turn with the buyer.
+/// Behaviour: server.store.a-keeper-opens-for-all-who-see-it
+#[test]
+fn a_keeper_opening_for_a_sale_is_told_to_those_beside_it() {
+    let (mut h, b, me, _) = merc_shop(1000);
+    let (w, _) = h.player_in_world("two", "Bran");
+    h.run(10);
+    for sale in 1_u16..=2 {
+        let from = h.bots[w].inbox.len();
+        assert!(!buy_contract(&mut h, b, me, 0), "bought");
+        let opened: Vec<(i32, u16)> = h
+            .world_messages(w, from)
+            .iter()
+            .filter_map(|m| match m {
+                ServerMessage::UpdateBoolVisual(q)
+                    if q.object.id == KEEPER && q.quality == yalain_world::store::OPEN =>
+                {
+                    Some((q.value, q.object.other_stamp))
+                }
+                _ => None,
+            })
+            .collect();
+        let first = 2 * sale;
+        assert_eq!(opened, [(1, first), (0, first + 1)], "sale {sale}");
+    }
+}
+
+fn steps(seconds: f64) -> usize {
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let n = (seconds / yalain_testkit::STEP).round() as usize;
+    n
+}
+
+fn coin(h: &Harness, world: yalain_net::ConnId) -> i32 {
+    yalain_world::quals::int(&h.server.players[&world].qualities, 3100).unwrap_or(0)
+}
+
+fn contracts(h: &Harness, world: yalain_net::ConnId) -> usize {
+    h.server.players[&world]
+        .play
+        .items
+        .iter()
+        .filter(|i| yalain_world::pets::is_contract(i.template))
+        .count()
+}
+
+fn mercs(h: &Harness, me: u64) -> Vec<u32> {
+    use yalain_world::pets::mercenary;
+    h.server
+        .pets
+        .by_id
+        .values()
+        .filter(|p| p.owner == me && p.class == mercenary::CLASS)
+        .map(|p| p.template)
+        .collect()
+}
+
+/// A contract bought is paid for, hires its mercenary at once and is used up; the next dismisses the
+/// one before it, so one is hired at a time. The mercenary stands in the world as a pet, on its
+/// template's numbers.
+/// Behaviour: server.pets.a-contract-hires-a-mercenary
+#[test]
+fn a_contract_hires_its_mercenary_at_once_and_is_used_up_and_the_next_takes_its_place() {
+    let (mut h, b, me, world) = merc_shop(2000);
+    assert!(!buy_contract(&mut h, b, me, 0));
+    assert_eq!(coin(&h, world), 1500);
+    assert_eq!(contracts(&h, world), 0, "used up");
+    assert_eq!(mercs(&h, me), [0x4700_3457]);
+    let first = *h.server.pets.of(me).first().expect("hired");
+    assert!(h.server.things.get(first).is_some_and(|t| t.at.is_some()));
+    assert!(!buy_contract(&mut h, b, me, 1));
+    assert_eq!(coin(&h, world), 1000);
+    assert_eq!(mercs(&h, me), [0x4700_3455], "the medic is dismissed");
+    assert!(h.server.things.get(first).is_none());
+}
+
+/// Someone who can't hire now is refused the contract: nothing paid, nothing in the pack, no
+/// mercenary. A template that can't make it is refused the same.
+/// Behaviour: server.pets.a-contract-that-cannot-hire-costs-nothing
+#[test]
+fn a_contract_that_cannot_hire_now_is_refused_and_costs_nothing() {
+    let (mut h, b, me, world) = merc_shop(2000);
+    let clock = h.clock();
+    yalain_world::death::player_dies(&mut h.server, &mut h.net, world, None, clock);
+    h.run(2);
+    assert!(buy_contract(&mut h, b, me, 0), "refused the dying");
+    assert_eq!((coin(&h, world), contracts(&h, world)), (2000, 0));
+    assert!(mercs(&h, me).is_empty());
+    let (mut h, b, me, world) = merc_shop(2000);
+    if let Some(p) = h.server.players.get_mut(&world) {
+        yalain_world::quals::set_int(&mut p.qualities, yalain_world::player::quality::HEALTH, 0);
+    }
+    assert!(buy_contract(&mut h, b, me, 0), "refused the dead");
+    assert_eq!((coin(&h, world), contracts(&h, world)), (2000, 0));
+    assert!(mercs(&h, me).is_empty());
+    let (mut h, b, me, world) = merc_shop(2000);
+    assert!(buy_contracts(&mut h, b, me, 0, 2), "one at a time");
+    assert_eq!((coin(&h, world), contracts(&h, world)), (2000, 0));
+    h.server.catalog.insert(yalain_testkit::test_template(
+        0x4700_3457,
+        0x180,
+        yalain_content::Props::default(),
+    ));
+    assert!(
+        buy_contract(&mut h, b, me, 0),
+        "refused with nothing to make"
+    );
+    assert_eq!((coin(&h, world), contracts(&h, world)), (2000, 0));
+    assert!(mercs(&h, me).is_empty());
+}
+
+/// A contract in the pack that can't hire when used stays, the player is told, and it hires when it
+/// can; no second mercenary comes of it.
+/// Behaviour: server.pets.a-contract-that-cannot-hire-costs-nothing
+#[test]
+fn a_contract_that_fails_to_hire_is_kept_and_hires_when_it_can() {
+    use yalain_world::pets::mercenary;
+    let (mut h, b, me, world) = merc_shop(2000);
+    yalain_world::inventory::give(&mut h.server, &mut h.net, world, mercenary::MEDIC, 1);
+    let id = h.server.players[&world]
+        .play
+        .items
+        .iter()
+        .find(|i| i.template == mercenary::MEDIC)
+        .expect("given")
+        .id;
+    let template = h.server.catalog.get(0x4700_3457).cloned().expect("there");
+    h.server.catalog.insert(yalain_testkit::test_template(
+        0x4700_3457,
+        0x180,
+        yalain_content::Props::default(),
+    ));
+    h.bots[b].send(true, queue::WEENIE, &server_call(USE, &[use_of(id, me)]));
+    h.run(10);
+    assert_eq!(contracts(&h, world), 1, "kept");
+    assert!(mercs(&h, me).is_empty());
+    h.server.catalog.insert(template);
+    h.bots[b].send(true, queue::WEENIE, &server_call(USE, &[use_of(id, me)]));
+    h.run(10);
+    assert_eq!(contracts(&h, world), 0, "used up");
+    assert_eq!(mercs(&h, me).len(), 1);
+    h.bots[b].send(true, queue::WEENIE, &server_call(USE, &[use_of(id, me)]));
+    h.run(10);
+    assert_eq!(mercs(&h, me).len(), 1, "a contract gone hires no more");
+}
+
+/// A mercenary goes at its time, with its owner's death, and with its owner leaving the world, and
+/// does not come back with its owner.
+/// Behaviour: server.pets.a-mercenary-ends
+#[test]
+fn a_mercenary_ends_with_its_time_its_owners_death_and_its_owner_leaving() {
+    let (mut h, b, me, _) = merc_shop(2000);
+    assert!(!buy_contract(&mut h, b, me, 0));
+    assert_eq!(mercs(&h, me).len(), 1);
+    let pet = h.server.pets.of(me)[0];
+    for _ in 0..3590 {
+        h.step_by(1.0);
+    }
+    assert_eq!(mercs(&h, me).len(), 1, "not yet");
+    for _ in 0..20 {
+        h.step_by(1.0);
+    }
+    assert!(mercs(&h, me).is_empty(), "its time is up");
+    assert!(h.server.things.get(pet).is_none());
+    let (mut h, b, me, world) = merc_shop(2000);
+    assert!(!buy_contract(&mut h, b, me, 0));
+    let pet = h.server.pets.of(me)[0];
+    let clock = h.clock();
+    yalain_world::death::player_dies(&mut h.server, &mut h.net, world, None, clock);
+    h.run(2);
+    assert!(mercs(&h, me).is_empty(), "its owner died");
+    assert!(h.server.things.get(pet).is_none_or(|t| !t.alive()));
+    let (mut h, b, me, _) = merc_shop(2000);
+    assert!(!buy_contract(&mut h, b, me, 0));
+    let pet = h.server.pets.of(me)[0];
+    h.bots[b].send(
+        false,
+        queue::LOGON,
+        &auberean_protocol::ClientMessage::LogOff(auberean_protocol::login::CharacterRef {
+            character: me,
+        }),
+    );
+    h.run(steps(30.0));
+    assert!(mercs(&h, me).is_empty(), "its owner left");
+    assert!(h.server.things.get(pet).is_none());
+    h.enter_world(b, "one", me);
+    h.run(10);
+    assert!(mercs(&h, me).is_empty(), "nor is it back");
+    for _ in 0..3610 {
+        h.step_by(1.0);
+    }
+    assert!(h.server.things.get(pet).is_none());
+    assert!(mercs(&h, me).is_empty());
+}
+
+/// A medic tends its owner when hurt, no sooner again than it may; a keeper tends its owner's other
+/// pets. A mercenary doesn't take the place of a pet a skill summons.
+/// Behaviour: server.pets.a-mercenary-tends
+#[test]
+fn a_medic_tends_its_owner_and_a_keeper_its_owners_pets() {
+    use yalain_world::effect_defs::{EffectDef, Kind, Scale};
+    use yalain_world::pets::mercenary;
+    use yalain_world::player::quality;
+    let (mut h, b, me, world) = merc_shop(2000);
+    h.server.effect_table.effects.insert(
+        mercenary::TEND_EFFECT,
+        EffectDef {
+            kind: Kind::InstantVital {
+                flags: yalain_world::effect_defs::vital::HEALTH,
+                change: Scale(vec![(0.0, 100.0)]),
+            },
+            ..yalain_testkit::plain_effect(mercenary::TEND_EFFECT)
+        },
+    );
+    let set = |h: &mut Harness, n: i32, of: i32| {
+        let p = h.server.players.get_mut(&world).expect("in the world");
+        yalain_world::quals::set_int(&mut p.qualities, quality::HEALTH_MAX, of);
+        yalain_world::quals::set_int(&mut p.qualities, quality::HEALTH, n);
+    };
+    let health = |h: &Harness| {
+        yalain_world::quals::int(&h.server.players[&world].qualities, quality::HEALTH).unwrap_or(0)
+    };
+    assert!(!buy_contract(&mut h, b, me, 0));
+    set(&mut h, 900, 1000);
+    h.run(steps(2.0));
+    assert_eq!(health(&h), 900, "hurt too little to tend");
+    set(&mut h, 500, 1000);
+    h.run(steps(2.0));
+    assert_eq!(health(&h), 600, "tended");
+    h.run(steps(5.0));
+    assert_eq!(health(&h), 600, "not yet again");
+    set(&mut h, 1000, 1000);
+    h.advance(mercenary::TENDS_EVERY);
+    h.run(1);
+    set(&mut h, 500, 1000);
+    h.run(steps(2.0));
+    assert_eq!(health(&h), 600, "again");
+    // The keeper tends another pet of its owner's that is hurt.
+    assert!(!buy_contract(&mut h, b, me, 1));
+    assert_eq!(mercs(&h, me), [0x4700_3455]);
+    let keeper = h.server.pets.of(me)[0];
+    let waits = h.server.pets.by_id[&keeper].next_tend;
+    h.server.things.get_mut(keeper).expect("hired").health = 10;
+    h.run(steps(2.0));
+    assert_eq!(
+        h.server.pets.by_id[&keeper].next_tend, waits,
+        "a keeper doesn't tend itself"
+    );
+    let mut other = h.server.pets.by_id[&keeper].clone();
+    other.id = 0x8130_0000_0000_0777;
+    other.class = 16;
+    other.effect = 0x7000_0805;
+    let mut body = h.server.things.get(keeper).expect("in the world").clone();
+    body.id = other.id;
+    body.max_health = 1000;
+    body.health = 500;
+    h.server.things.insert(body);
+    h.server.pets.by_id.insert(other.id, other);
+    h.run(steps(2.0));
+    let healed = h.server.things.get(0x8130_0000_0000_0777).map(|t| t.health);
+    assert!(healed >= Some(600), "tended: {healed:?}");
+    assert_eq!(mercs(&h, me).len(), 1, "the other is no mercenary");
 }

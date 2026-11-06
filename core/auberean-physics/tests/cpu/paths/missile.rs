@@ -657,13 +657,31 @@ fn an_object_noted_says_whether_it_is_a_player_or_a_creature() {
     let mut table = ObjectTable::default();
     table.note(1, &body, true);
     table.note(2, &body, false);
-    table.note_still(3, at(2.0, 2.0, 0.0), 1.0, one, true);
-    table.note_still(4, at(2.0, 2.0, 0.0), 1.0, one, false);
+    table.note_still(3, &body, one, true);
+    table.note_still(4, &body, one, false);
     let asked = |id| table.object(id).map(|o| o.player_or_creature);
     assert_eq!(asked(1), Some(true));
     assert_eq!(asked(2), Some(false));
     assert_eq!(asked(3), Some(true));
     assert_eq!(asked(4), Some(false));
+}
+
+/// An object that stands where it is put, with no collision spheres of its own, is as dynamic as
+/// its state says: only a static one turns a sticky missile away.
+///
+/// Behaviour: missile.detonate.an-object-standing-still-is-dynamic-unless-static
+#[test]
+fn an_object_standing_still_is_dynamic_unless_static() {
+    use auberean_physics::body::missile::{ObjectTable, Objects};
+    let mut body = crate::contact::objects::body(1.0, 1.0);
+    let one = Vec3::new(1.0, 1.0, 1.0);
+    let mut table = ObjectTable::default();
+    table.note_still(1, &body, one, false);
+    assert_eq!(table.object(1).map(|o| o.dynamic), Some(true));
+    body.set_state(body.state() | 0x1);
+    assert!(body.is_static());
+    table.note_still(2, &body, one, false);
+    assert_eq!(table.object(2).map(|o| o.dynamic), Some(false));
 }
 
 /// A missile that goes off stops flying (its flight effect and streak stop) and fades out over

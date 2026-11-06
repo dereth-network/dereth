@@ -131,6 +131,13 @@ impl Editor<'_> {
             programs: self.programs.clone(),
             folder: self.session.dir().join(live::FOLDER),
             base: self.base.clone(),
+            key: self.session.key().to_owned(),
+            clearings: self
+                .session
+                .clearings()
+                .into_iter()
+                .map(|(c, l)| (c.clone(), l))
+                .collect(),
         }
     }
 

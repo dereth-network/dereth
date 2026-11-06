@@ -141,6 +141,12 @@ fetches at most once a day (the refresh button fetches again) and keeps the copy
 `world-list.json`. `DERETH_SERVERS_LIST` names a `Servers.xml` to read instead, and
 `DERETH_HUB_LIST` another hub's list.
 
+**A world played through a relay** speaks another wire format than Dereth's. The launcher keeps
+these in a table of its own, and lists them only when `--relayed-worlds on` has turned them on
+(`--relayed-worlds off` turns them off; the choice is kept). Play starts `empyrean-relay`, which comes
+with Empyrean, on this computer's loopback address and starts the client towards it; the relay goes
+when the client does. Nothing else contacts such a world.
+
 **A world's era and systems** come from its Empyrean status, else the launcher's table of worlds
 that run a client of their own, else the end of retail.
 
@@ -259,7 +265,7 @@ shows its state, Empyrean version, players online and uptime
 
 | Section | What |
 |---|---|
-| World | name, era, data set, world base, the character screen's welcome, and port (the world takes the one after it too). Infiltration needs a Classic set, any other era a Modern one. Each era has its own world base (`world.pack`, `world.pack.infiltration`), which **Get world database** downloads |
+| World | name, era, data set, world base, the character screen's welcome, and port (the world takes the one after it too). Launch needs the 1999 pair, Infiltration a Classic set, the end of retail a Modern one. Each era has its own world base (`world.pack`, `world.pack.infiltration`, `world.pack.launch`), which **Get world database** downloads |
 | Players | the two switches, player limits overall and per IP address, and the shutdown warning |
 | Era systems | each of the era's systems; **Use defaults for** puts them back |
 | Websocket | for browser players: on or off, a TLS proxy or a certificate and key, the address, the pages allowed to connect (`https://play.dereth.network` to begin with) and the public address |

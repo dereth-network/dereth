@@ -128,9 +128,9 @@ fn ban<S: Store>(cx: &mut Cx<'_, S>, a: &Args<'_>) -> Vec<String> {
 fn finger_line<S: Store>(cx: &mut Cx<'_, S>, c: &yalain_store::Character) -> String {
     let account =
         cx.s.store
-            .accounts()
+            .account(c.account)
             .ok()
-            .and_then(|all| all.into_iter().find(|a| a.id == c.account))
+            .flatten()
             .map_or_else(|| "(none)".to_owned(), |a| a.name);
     format!("{} ({:#x}) is on account {account}.", c.name, c.id)
 }

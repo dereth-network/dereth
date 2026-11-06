@@ -13,3 +13,4 @@ mod quests;
 mod session;
 mod skills;
 mod walls;
+mod world_patch;

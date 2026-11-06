@@ -670,6 +670,17 @@ impl ClientLine {
         true
     }
 
+    /// What the line sets of the settings read: the land's blending (the run's other values ask of
+    /// a device this client does not have).
+    // D2-00087, D2-00090
+    pub fn apply_to(&self, settings: &mut crate::Settings) {
+        for (s, k, v) in &self.run_values {
+            if (*s, *k) == (run::GRAPHICS, run::TERRAIN_BLENDING) {
+                settings.terrain_blending = *v != 0;
+            }
+        }
+    }
+
     /// The preferences for this run: the file's, with the values the line set over them.
     #[must_use]
     pub fn preferences(

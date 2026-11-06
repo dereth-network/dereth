@@ -102,6 +102,11 @@ pub use auberean_glue::chat_options;
 pub use host::{CallResult, InterfaceArg, Scripts};
 use interface::function;
 
+/// The server's answer to a move of an item.
+const MOVE_ITEM_DONE: u32 = 0x820E_005E;
+/// Where a move's description holds the item, its two slots.
+const MOVE_ITEM: usize = 44;
+
 /// The server's call that puts the player in portal space, and the one that takes it out.
 pub const ENTER_PORTAL_SPACE: u32 = 0x8212_0020;
 pub const EXIT_PORTAL_SPACE: u32 = 0x8212_001B;
@@ -334,6 +339,13 @@ pub struct Client {
     /// [`PHYSICS_KEPT`] go once twice that many are kept (the heads' directions come many times a
     /// second).
     pub physics: Vec<ServerMessage>,
+    /// A scene is playing the stories: what comes after each waits until it has played it
+    /// ([`Self::take_held_to_next_story`]), so a hit is shown as things stood when it was told.
+    pub stories_in_order: bool,
+    /// A story was told and the scene has not played it yet.
+    story_waits: bool,
+    /// What the server said after a story the scene has not played, in order.
+    held: std::collections::VecDeque<Item>,
     /// The object that last attacked the player with a harmful skill, as its story told it (0 for
     /// none yet).
     pub last_attacker: u64,
@@ -379,7 +391,7 @@ pub struct Client {
     open_containers: std::collections::BTreeSet<u64>,
     /// The items offered in a trade, as the scripts told the trade window (each side's, the
     /// partner's still in the partner's pack): the window shows them as the inventory's items.
-    trade_items: std::collections::BTreeSet<u64>,
+    trade_items: std::collections::BTreeMap<u64, u32>,
     /// The friends service's layer, when the player was started with one.
     friends: Option<friends::Friends>,
     /// Rooms (lent to the scripts while a call runs).
@@ -493,6 +505,9 @@ impl Client {
             shown: Vec::new(),
             notices: Vec::new(),
             physics: Vec::new(),
+            stories_in_order: false,
+            story_waits: false,
+            held: std::collections::VecDeque::new(),
             last_attacker: 0,
             look_at_selection: true,
             looking_at: 0,
@@ -514,7 +529,7 @@ impl Client {
             inventory_stale: false,
             inventory_seen: (0, 0),
             open_containers: std::collections::BTreeSet::new(),
-            trade_items: std::collections::BTreeSet::new(),
+            trade_items: std::collections::BTreeMap::new(),
             friends: None,
             rooms: Some(rooms::RoomChat::default()),
             login_secret_given,
@@ -696,6 +711,16 @@ impl Client {
                 // D2-01984, D2-00419, D2-01254
                 self.ask(function::SET_SELECTION, &[InterfaceArg::Long(target)]);
                 self.look_at_selection(target);
+            }
+            // D2-00419, D2-01254
+            Action::SetSelection { target } => {
+                self.ask(function::SET_SELECTION, &[InterfaceArg::Long(target)]);
+            }
+            // D2-00417
+            Action::NameAmount { item, quantity } => {
+                let name = self.with_scripts(|s| s.name_for(item, quantity));
+                self.inventory.amount_name = name.map(|n| (item, quantity, n));
+                self.inventory.version += 1;
             }
             // D2-00423, D2-01285
             Action::UseSelected => self.ask(function::USE_SELECTION, &[]),
@@ -1256,6 +1281,7 @@ impl Client {
         };
         self.inventory_stale = false;
         inv.version = self.inventory.version;
+        inv.amount_name.clone_from(&self.inventory.amount_name);
         if inv != self.inventory {
             inv.version += 1;
             self.inventory = inv;
@@ -1273,7 +1299,7 @@ impl Client {
             .values()
             .flat_map(|c| c.segments.iter().flat_map(|s| s.items.iter()))
             .chain(inv.worn.iter().map(|(_, id)| id))
-            .chain(self.trade_items.iter());
+            .chain(self.trade_items.keys());
         let mut listed = listed;
         listed.any(|id| self.model.object(*id).is_some() != inv.items.contains_key(id))
             || inv
@@ -1311,7 +1337,7 @@ impl Client {
     /// closed).
     fn trade_noticed(
         stale: &mut bool,
-        items: &mut std::collections::BTreeSet<u64>,
+        items: &mut std::collections::BTreeMap<u64, u32>,
         notices: &[host::PanelNotice],
     ) {
         let long = |n: &host::PanelNotice, at: usize| {
@@ -1321,7 +1347,7 @@ impl Client {
         for n in notices {
             match n.native {
                 store::trade::OFFERED => {
-                    items.insert(long(n, 2));
+                    items.insert(long(n, 2), n.words.get(4).copied().unwrap_or(0));
                 }
                 store::trade::REVOKED => {
                     items.remove(&long(n, 2));
@@ -1337,6 +1363,7 @@ impl Client {
     /// again, and objects the server had the client forget go. (A host that hands messages over
     /// itself, a recording, calls it once a frame.)
     pub fn upkeep(&mut self) {
+        self.with_host(|h| h.being_made.clear());
         self.wake_due();
         // The data cache's worker and its askers.
         let now = self.now;
@@ -1699,7 +1726,7 @@ impl Client {
         }
         self.queue.receive(self.now, Item { blob_id, message });
         while let Some(item) = self.queue.pop() {
-            self.take_effect(&item);
+            self.take_in_order(item);
         }
     }
 
@@ -1708,8 +1735,35 @@ impl Client {
     fn take_unread(&mut self, blob_id: u64, raw: &[u8]) {
         self.queue.receive_unread(self.now, blob_id, raw);
         while let Some(item) = self.queue.pop() {
-            self.take_effect(&item);
+            self.take_in_order(item);
         }
+    }
+
+    /// A message off the queue takes effect, unless it comes after a story still to be played.
+    fn take_in_order(&mut self, item: Item) {
+        if self.story_waits {
+            self.held.push_back(item);
+            return;
+        }
+        self.take_effect(&item);
+        self.story_waits =
+            self.stories_in_order && matches!(item.message, ServerMessage::DoStory(_));
+    }
+
+    /// The stories told so far have been played: what the server said after them takes effect,
+    /// as far as the next story. Whether any did.
+    pub fn take_held_to_next_story(&mut self) -> bool {
+        self.story_waits = false;
+        let any = !self.held.is_empty();
+        while !self.story_waits {
+            let Some(item) = self.held.pop_front() else {
+                break;
+            };
+            self.take_effect(&item);
+            self.story_waits =
+                self.stories_in_order && matches!(item.message, ServerMessage::DoStory(_));
+        }
+        any
     }
 
     fn take_effect(&mut self, item: &Item) {
@@ -1808,7 +1862,14 @@ impl Client {
             );
         }
         if let Some(c) = change {
+            let made = match c {
+                lifecycle::Change::Made { object, .. } => Some(object),
+                _ => None,
+            };
             self.live(c);
+            if let Some(object) = made {
+                self.with_host(|h| h.being_made.insert(object));
+            }
         }
         for fx in effects {
             let mut out = Vec::new();
@@ -1825,6 +1886,7 @@ impl Client {
             match fx {
                 // The download's, taken above.
                 Effect::DataQuery
+                | Effect::OverlayBases(_)
                 | Effect::DownloadBegins(_)
                 | Effect::DataRecord(_)
                 | Effect::DataRefused(_)
@@ -1945,9 +2007,30 @@ impl Client {
             _ => {}
         }
         let bytes = args.map_or(&[][..], |a| a.0.as_slice());
+        let moved = (function == MOVE_ITEM_DONE)
+            .then(|| self.moved_item(bytes))
+            .flatten();
+        self.with_host(|h| h.answering_a_move = moved);
         if let Some(result) = self.with_scripts(|s| s.run(object, function, bytes)) {
             self.calls.add(&result);
         }
+        self.with_host(|h| h.answering_a_move = None);
+    }
+
+    /// The item a move's answer is about: the move's description is its one argument.
+    fn moved_item(&mut self, args: &[u8]) -> Option<u64> {
+        self.with_host(|h| {
+            let values = auberean_script::args::decode(args, &h.program.library).ok()?;
+            let Some(auberean_script::args::Arg::Object(g)) = values.first() else {
+                return None;
+            };
+            let auberean_script::graph::Body::Object(o) = &g.entries.first()?.body else {
+                return None;
+            };
+            let (low, high) = (*o.slots.get(MOVE_ITEM)?, *o.slots.get(MOVE_ITEM + 1)?);
+            Some(u64::from(high) << 32 | u64::from(low))
+        })
+        .flatten()
     }
 
     /// Run `f` with the client's scripts lent to the data cache to name the records of each saved

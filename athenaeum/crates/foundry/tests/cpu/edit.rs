@@ -4,7 +4,7 @@ use std::io;
 use std::path::Path;
 use std::sync::Arc;
 
-use athenaeum_foundry::edit::{NewKind, NewRow};
+use athenaeum_foundry::edit::{ClearingShape, NewKind, NewRow, NEW_CLEARING};
 use athenaeum_foundry::{Layer, Session};
 use dereth_pack::store::{MemoryStore, SourceStore};
 use yalain_world_db::layer;
@@ -650,4 +650,86 @@ fn a_moved_camp_keeps_how_its_creatures_move_and_its_route_in_the_base() {
         })
         .unwrap();
     assert_eq!(back, route);
+}
+
+#[test]
+fn a_clearing_is_placed_moved_reshaped_copied_and_taken_away_as_a_row() {
+    let mut s = session();
+    let round = ClearingShape::Round { radius: 12.0 };
+    let item = s.place_clearing(LB, [10.0, 20.0], round).unwrap();
+    assert_eq!(item, "clearing clearing-1@77B8");
+    clean(&s);
+    assert!(
+        text(&s, FILE).contains("[[clearing]]"),
+        "{}",
+        text(&s, FILE)
+    );
+    let shape = |s: &Session, item: &str| match &s.entry(item).expect("the row").row.row {
+        Row::Clearing(c) => (c.radius, c.size, c.heading, c.at.x, c.at.z),
+        r => panic!("{r:?}"),
+    };
+    assert_eq!(shape(&s, &item), (Some(12.0), None, None, 10.0, None));
+    assert_eq!(s.clearings().len(), 1);
+
+    // Field by field, and refused when it would leave no one shape.
+    s.set(&item, "radius", "30.0").unwrap();
+    assert_eq!(shape(&s, &item).0, Some(30.0));
+    assert!(s.set(&item, "radius", "").is_err());
+    assert!(s.set(&item, "size", "[1.0, 2.0]").is_err());
+    clean(&s);
+
+    // A height it is moved to means nothing: it lies on the ground.
+    s.move_to(&item, LB, [40.0, 50.0, 99.0]).unwrap();
+    assert_eq!(shape(&s, &item).3, 40.0);
+    assert_eq!(shape(&s, &item).4, None);
+
+    // Another shape is one step.
+    let steps = s.steps().0;
+    let rectangle = ClearingShape::Rectangle {
+        size: [8.0, 4.0],
+        heading: 30.0,
+    };
+    s.shape_clearing(&item, rectangle).unwrap();
+    assert_eq!(s.steps().0, steps + 1);
+    assert_eq!(
+        shape(&s, &item),
+        (None, Some([8.0, 4.0]), Some(30.0), 40.0, None)
+    );
+    s.turn(&item, 45.0).unwrap();
+    assert_eq!(shape(&s, &item).2, Some(45.0));
+    clean(&s);
+    s.undo();
+    s.undo();
+    assert_eq!(shape(&s, &item).0, Some(30.0));
+
+    // Into another block, its key and item follow; a copy has a key of its own.
+    let there = s.move_to(&item, 0x77B9, [1.0, 2.0, 0.0]).unwrap();
+    assert_eq!(there, "clearing clearing-1@77B9");
+    let copy = s.duplicate(&there, 0x77B9, [5.0, 5.0, 0.0]).unwrap();
+    assert_eq!(copy, "clearing clearing-2@77B9");
+    clean(&s);
+    assert_eq!(s.clearings().len(), 2);
+    s.delete(&copy).unwrap();
+    s.delete(&there).unwrap();
+    assert!(s.clearings().is_empty());
+    clean(&s);
+}
+
+#[test]
+fn placing_the_kind_clearing_with_nothing_drawn_gives_the_usual_size() {
+    let mut s = session();
+    let item = s
+        .place(&NewRow {
+            kind: NewKind::Clearing,
+            template: 0,
+            landblock: LB,
+            at: [10.0, 20.0, 5.0],
+            heading: 0.0,
+        })
+        .unwrap();
+    let Row::Clearing(c) = &s.entry(&item).unwrap().row.row else {
+        panic!("a clearing");
+    };
+    assert_eq!(c.radius, Some(NEW_CLEARING));
+    assert!(!NewKind::Clearing.has_template());
 }

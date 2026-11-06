@@ -14,8 +14,14 @@
 //! - everyone in the world is told, and every connection is ended;
 //! - the operator reads an error line, and the server exits with a failure, so a service manager
 //!   starts it again and no staged update goes in.
+//!
+//! A world that runs no pass for a long time ends the same way, by the [`PassWatch`] outside its
+//! thread: the failure's exit, each character back to its last save. What the world holds can't be
+//! reached from outside its thread, so nothing is written or told first.
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
+use std::sync::Arc;
 
 use auberean_protocol::login::CharacterRefused;
 use yalain_net::ServerNet;
@@ -56,5 +62,128 @@ pub fn stopped<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock, w
     }));
     if told.is_err() {
         tracing::error!("the connections could not be told the world is stopping");
+    }
+}
+
+/// How long a world may run no pass before it is stopped, in seconds, unless its operator says
+/// otherwise. Far above the longest pass known, so that only a world not running trips it: 145 ms,
+/// a world's first pass on the whole world, and a save on a locked store at most a second a character.
+pub const NO_PASS_SECONDS: u32 = 300;
+
+/// Where in its pass the world is: the part of the pass last begun.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum Part {
+    /// The operator's console and what its jobs finished.
+    Console,
+    /// What came over the network.
+    Network,
+    /// The world's events and timers.
+    World,
+    /// The services beside the world and what goes out.
+    Sending,
+}
+
+impl Part {
+    const ALL: [Self; 4] = [Self::Console, Self::Network, Self::World, Self::Sending];
+
+    /// What the operator's log calls it.
+    #[must_use]
+    pub const fn words(self) -> &'static str {
+        match self {
+            Self::Console => "the console",
+            Self::Network => "what came over the network",
+            Self::World => "the world's events and timers",
+            Self::Sending => "the services and what goes out",
+        }
+    }
+}
+
+/// The world's passes as its thread counts them, for the watch on another thread to read.
+#[derive(Debug, Clone, Default)]
+pub struct Passes {
+    count: Arc<AtomicU64>,
+    part: Arc<AtomicU8>,
+    done: Arc<AtomicBool>,
+}
+
+impl Passes {
+    /// One more pass is under way.
+    pub fn pass(&self) {
+        self.count.fetch_add(1, Ordering::Relaxed);
+        self.at(Part::Console);
+    }
+
+    /// The pass has come to a part.
+    pub fn at(&self, part: Part) {
+        self.part.store(part as u8, Ordering::Relaxed);
+    }
+
+    /// The world's passes are over: it is stopping as it should, and the watch ends.
+    pub fn over(&self) {
+        self.done.store(true, Ordering::Relaxed);
+    }
+
+    /// The part the last pass reached.
+    #[must_use]
+    pub fn part(&self) -> Part {
+        Part::ALL
+            .get(usize::from(self.part.load(Ordering::Relaxed)))
+            .copied()
+            .unwrap_or(Part::Console)
+    }
+}
+
+/// A look at the world's passes every so often: `limit` looks in a row that see no new pass trip it.
+/// It counts its own looks and reads no clock, so that a machine put to sleep and woken up isn't
+/// taken for a world not running.
+#[derive(Debug)]
+pub struct PassWatch {
+    limit: u32,
+    last: Option<u64>,
+    still: u32,
+}
+
+impl PassWatch {
+    /// A watch that `limit` looks trip; 0 never trips.
+    #[must_use]
+    pub const fn new(limit: u32) -> Self {
+        Self {
+            limit,
+            last: None,
+            still: 0,
+        }
+    }
+
+    /// Look at the count of passes: has the world run none for the limit?
+    pub fn look(&mut self, count: u64) -> bool {
+        if self.last == Some(count) {
+            self.still = self.still.saturating_add(1);
+        } else {
+            self.last = Some(count);
+            self.still = 0;
+        }
+        self.limit != 0 && self.still >= self.limit
+    }
+}
+
+/// Watch the world's passes, `rest` between looks, until they are over; or call `stop` and end, once,
+/// when the world has run none for `limit` looks. Returns whether it called `stop`.
+pub fn watch(
+    passes: &Passes,
+    limit: u32,
+    mut rest: impl FnMut(),
+    mut stop: impl FnMut(Part),
+) -> bool {
+    let mut w = PassWatch::new(limit);
+    loop {
+        if passes.done.load(Ordering::Relaxed) {
+            return false;
+        }
+        if w.look(passes.count.load(Ordering::Relaxed)) {
+            stop(passes.part());
+            return true;
+        }
+        rest();
     }
 }

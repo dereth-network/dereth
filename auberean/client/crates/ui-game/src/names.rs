@@ -20,7 +20,7 @@
 //! struck object for its duration, rising three of its own heights over its life (above the
 //! selection's name, meters and marks when the object is the selection), moved off the other
 //! damage texts as names are moved off names; hidden in portal space, where it does not age, and
-//! for an object not in the world. (Its scale and its fading out are not drawn.)
+//! for an object not in the world. It is drawn at its scale and fades out over its life.
 
 use std::any::Any;
 use std::collections::VecDeque;
@@ -95,6 +95,8 @@ pub struct DamageText {
     pub element: Handle,
     pub start: f64,
     pub duration: f64,
+    /// How large it is drawn.
+    pub scale: f32,
     pub object: u64,
 }
 
@@ -485,11 +487,13 @@ impl Names {
             ui.resize_to(e, w, h);
         }
         ui.set_text(e, &b.text);
+        ui.set_object_scale(e, b.scale);
         ui.set_visible(e, false);
         self.damage.push(DamageText {
             element: e,
             start: ui.now(),
             duration: f64::from(b.duration),
+            scale: b.scale,
             object,
         });
         self.place_all(ui, world, &mut Vec::new());
@@ -537,6 +541,8 @@ impl Names {
             }
             kept.push(d);
             let (tw, th) = Self::size_of(ui, Some(d.element));
+            #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+            let (tw, th) = ((tw as f32 * d.scale) as i32, (th as f32 * d.scale) as i32); // LINT-OK: a size in pixels cuts its fraction
             let rise = dereth_primitives::num::to_i32_f64(f64::from(self.floaty_travel * th) * age);
             let mut above = rise;
             if d.object == self.selection {
@@ -579,6 +585,8 @@ impl Names {
                 continue;
             }
             placed.push(b);
+            #[allow(clippy::cast_possible_truncation)] // a share of 1
+            ui.set_object_alpha(d.element, (1.0 - age) as f32);
             ui.move_picture(d.element, b.x0, b.y0);
             ui.set_visible(d.element, true);
         }
@@ -892,7 +900,7 @@ impl Names {
         let far = self.max_selection_distance;
         #[allow(clippy::cast_precision_loss)]
         if ((far * far) as f32) < y * y + x * x {
-            out.push(Request::Select(0));
+            out.push(Request::SetSelection(0));
             return;
         }
         let (w, h) = ui.display();
@@ -1038,44 +1046,47 @@ impl Names {
         };
         let mut names = std::mem::take(&mut self.names);
         for n in &mut names {
-            ui.set_visible(n.element, false);
-            if in_portal || n.object == self.selection {
-                continue;
-            }
-            let Some(t) = world.thing(n.object) else {
-                continue;
-            };
-            let [x, y, _] = t.from_player;
-            if x * x + y * y > range_sq {
-                continue;
-            }
-            let (nw, nh) = Self::size_of(ui, Some(n.element));
-            let Some((cx, cy)) = self.calc_screen_position(ui, world, t, &mut n.history, nh) else {
-                continue;
-            };
-            let x0 = dereth_primitives::num::to_i32_f64(f64::from(cx) - f64::from(nw) * 0.5);
-            let mut b = Box2D::sized(x0, cy, nw, nh);
-            let mut ways = 0xF;
-            let mut off = false;
-            for _ in 0..self.max_attempts {
-                if !screen.collide(&b) {
-                    off = true;
-                    break;
+            let shown = 'place: {
+                if in_portal || n.object == self.selection {
+                    break 'place false;
                 }
-                let Some(i) = place_here(&b, &placed) else {
-                    break;
+                let Some(t) = world.thing(n.object) else {
+                    break 'place false;
                 };
-                make_new_data(&mut b, &placed[i], &mut ways);
-                if ways == 0 {
-                    ways = 0xF;
+                let [x, y, _] = t.from_player;
+                if x * x + y * y > range_sq {
+                    break 'place false;
                 }
-            }
-            if off {
-                continue;
-            }
-            placed.push(b);
-            ui.move_picture(n.element, b.x0, b.y0);
-            ui.set_visible(n.element, true);
+                let (nw, nh) = Self::size_of(ui, Some(n.element));
+                let Some((cx, cy)) = self.calc_screen_position(ui, world, t, &mut n.history, nh)
+                else {
+                    break 'place false;
+                };
+                let x0 = dereth_primitives::num::to_i32_f64(f64::from(cx) - f64::from(nw) * 0.5);
+                let mut b = Box2D::sized(x0, cy, nw, nh);
+                let mut ways = 0xF;
+                let mut off = false;
+                for _ in 0..self.max_attempts {
+                    if !screen.collide(&b) {
+                        off = true;
+                        break;
+                    }
+                    let Some(i) = place_here(&b, &placed) else {
+                        break;
+                    };
+                    make_new_data(&mut b, &placed[i], &mut ways);
+                    if ways == 0 {
+                        ways = 0xF;
+                    }
+                }
+                if off {
+                    break 'place false;
+                }
+                placed.push(b);
+                ui.move_picture(n.element, b.x0, b.y0);
+                true
+            };
+            ui.set_visible(n.element, shown);
         }
         self.names = names;
     }
@@ -1116,7 +1127,7 @@ impl Names {
                     .and_then(|n| n.instance_id_attr(name::OBJECT_ID))
                     .unwrap_or(0);
                 if id != 0 && world.player != 0 {
-                    out.push(Request::Select(id));
+                    out.push(Request::SetSelection(id));
                 }
             }
             Mail::Global {
@@ -1155,9 +1166,12 @@ impl Names {
             {
                 self.reload_options(ui, world);
             }
+            // An item changing (a stack's count among others) names it anew, as a new look does.
             // D2-02061
-            notice::ITEM_UPDATE if n.about == Some(self.selection) => {
-                self.check_name(ui, world);
+            notice::ITEM_UPDATE => {
+                if let Some(o) = n.about {
+                    self.change_radar_look(ui, world, o);
+                }
             }
             notice::DO_3D_DAMAGE => {
                 if let (Some(o), Some(Some(Record::DamageText(b)))) = (n.about, n.records.first()) {
@@ -1273,6 +1287,11 @@ impl Child for Names {
         }
         if world.selection != self.selection {
             self.selection_changed(ui, world);
+        }
+        // An item chosen in the pack has its name once it lies in the world.
+        // D2-02063
+        if !self.has_name && world.thing(self.selection).is_some() {
+            self.check_name(ui, world);
         }
         for m in std::mem::take(&mut self.mail) {
             self.hear(ui, world, &m, out);

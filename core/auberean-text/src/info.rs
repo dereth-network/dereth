@@ -609,11 +609,10 @@ fn set_var_in_table(
             }
             Some(nested.inq_internal(src, true).1)
         }
-        Value::Nothing(_) => None,
+        Value::Nothing(_) => return,
     };
-    if let Some(text) = text {
-        vars.insert(v.id, text);
-    }
+    // A number that could not be written still sets its variable, to nothing.
+    vars.insert(v.id, text.unwrap_or_default());
 }
 
 /// Look a token up (through a private table when the entry names one) and render it with the

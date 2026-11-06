@@ -626,9 +626,7 @@ pub fn prepare_host(shared: State<'_, Shared>, id: String) -> Result<(), String>
             let era = Settings::from_config(&text)?.era;
             let mut fetch = crate::components::command(&import);
             fetch.arg("fetch");
-            if era != "eor" {
-                fetch.args(["--era", era.as_str()]);
-            }
+            fetch.args(world_arguments(&era));
             let pack = crate::host_publication::pack_path(&dir);
             let output = fetch
                 .args(["--pack", "--out"])
@@ -1306,6 +1304,18 @@ pub fn open_host_world(
     Ok(slug)
 }
 
+/// What `empyrean-import fetch` is told to get a world of `era`'s database. The end of retail's is
+/// the default. A world made before Empyrean 0.3.9 keeps its own Empyrean, whose import tool has no
+/// `--era`, and of the later eras only Infiltration could be played on one: that tool knows its
+/// world by name.
+fn world_arguments(era: &str) -> Vec<String> {
+    match era {
+        "eor" => Vec::new(),
+        "infiltration" => vec!["--world".to_owned(), "16py".to_owned()],
+        era => vec!["--era".to_owned(), era.to_owned()],
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1328,6 +1338,15 @@ mod tests {
             },
         )
         .unwrap();
+    }
+
+    /// An Infiltration world asks by the world's name, which every Empyrean's import tool reads;
+    /// `--era` is only for an era no older tool could play.
+    #[test]
+    fn a_world_on_an_older_empyrean_can_still_get_its_database() {
+        assert!(world_arguments("eor").is_empty());
+        assert_eq!(world_arguments("infiltration"), ["--world", "16py"]);
+        assert_eq!(world_arguments("launch"), ["--era", "launch"]);
     }
 
     /// A Yalain world an earlier build made in `hosts` is moved at start to Yalain's own folder,

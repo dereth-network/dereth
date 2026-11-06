@@ -7,7 +7,7 @@
 //! cells, the human male); a hand-written login.
 
 use std::cell::RefCell;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
 use std::rc::Rc;
 use std::sync::{Arc, OnceLock};
@@ -310,6 +310,8 @@ struct DoubleHost {
     page_error: Option<i32>,
     /// The boxes of text shown: the title and the text.
     boxes: Vec<(String, String)>,
+    /// The files it keeps.
+    files: std::collections::HashMap<String, Vec<u8>>,
 }
 
 fn me() -> SocketAddr {
@@ -319,6 +321,13 @@ fn me() -> SocketAddr {
 impl Host for DoubleHost {
     fn now(&self) -> f64 {
         self.time
+    }
+    fn load_file(&self, name: &str) -> Option<Vec<u8>> {
+        self.files.get(name).cloned()
+    }
+    fn save_file(&mut self, name: &str, bytes: &[u8]) -> bool {
+        self.files.insert(name.to_owned(), bytes.to_vec());
+        true
     }
     fn unix_time(&self) -> u32 {
         0
@@ -479,6 +488,7 @@ fn shell_over(
         pages: Vec::new(),
         page_error: None,
         boxes: Vec::new(),
+        files: std::collections::HashMap::new(),
     };
     let mut s = Shell::new(
         host,
@@ -1193,6 +1203,7 @@ fn a_boot_at_login_shows_its_line_on_the_disconnected_screen() {
         pages: Vec::new(),
         page_error: None,
         boxes: Vec::new(),
+        files: std::collections::HashMap::new(),
     };
     let mut s = Shell::new(
         host,
@@ -1275,6 +1286,7 @@ fn a_record_that_cannot_be_stored_ends_the_session_on_the_disconnected_screen_wi
         pages: Vec::new(),
         page_error: None,
         boxes: Vec::new(),
+        files: std::collections::HashMap::new(),
     };
     let mut s = Shell::new(
         host,
@@ -1333,6 +1345,7 @@ fn the_screens_before_the_world_keep_1024_by_768_in_any_window() {
         pages: Vec::new(),
         page_error: None,
         boxes: Vec::new(),
+        files: std::collections::HashMap::new(),
     };
     let mut s = Shell::new(
         host,
@@ -2413,6 +2426,37 @@ fn the_character_screen_runs_the_portal_under_its_backdrop() {
     assert_eq!(portal.rect, [790.0, 144.0, 936.0, 290.0]);
 }
 
+/// The appearance screen's view of the whole figure stays put as the height is chosen, so the
+/// figure grows and shrinks in it; the view close up moves with the height.
+///
+/// Behaviour: ui.creation.the-whole-figure-view-stays-as-the-height-changes
+#[test]
+fn the_whole_figure_view_stays_as_the_height_changes() {
+    use auberean_interface::hall::{shaping_scene, Creation};
+    let records = &data().0.records;
+    let mut random = auberean_primitives::random::Random::new();
+    let mut creation = Creation::new(records, &mut random);
+    let rect = auberean_ui::Rect::new(0, 0, 99, 99);
+    let seen = |c: &Creation, zoomed: bool| {
+        let s = shaping_scene(records, rect, c, zoomed).expect("the scene");
+        (
+            s.camera.position.x,
+            s.camera.position.y,
+            s.camera.position.z,
+        )
+    };
+    let (whole, close) = (seen(&creation, false), seen(&creation, true));
+    let key = creation.chosen;
+    let avatar = creation.avatars.get_mut(&key).expect("the avatar");
+    avatar.values.insert(auberean_world::chargen::HEIGHT, 1.1);
+    assert_eq!(
+        seen(&creation, false),
+        whole,
+        "the whole figure's view stays"
+    );
+    assert_ne!(seen(&creation, true), close, "the close view follows");
+}
+
 /// The inventory's paper doll shows the player's figure as the player looks, standing still in
 /// its first pose in the paper doll's scene, seen straight on by the scene's camera: the camera
 /// sees the figure's drawn height (the box around its parts as read, times its scale; less for the
@@ -2490,6 +2534,67 @@ fn the_paper_doll_shows_the_player_seen_straight_on() {
         "half the height below the camera: {:?}",
         f.origin
     );
+}
+
+/// The paper doll's figure follows the player's look on foot and keeps it while mounted: a mount's
+/// look is the mount with the rider on it, and the doll shows the rider as it was until the player
+/// gets off.
+///
+/// Behaviour: ui.inventory.the-paper-doll-keeps-its-look-while-mounted
+#[test]
+fn the_paper_doll_keeps_its_look_while_mounted() {
+    let (mut s, retail) = into_the_world();
+    press(&mut s, Key::I);
+    assert!(
+        until(&mut s, 1.0, |_| shows(&retail, "PaperDollViewport")),
+        "I opens the inventory"
+    );
+    let shown = |s: &mut Shell<'_, DoubleHost>| {
+        s.frame().overlay.scenes.iter().find_map(|v| {
+            let f = v.figures.first()?;
+            Some(f.look.clone())
+        })
+    };
+    let scaled = |s: &mut Shell<'_, DoubleHost>, parent: u32, by: f32| {
+        let c = s.client.as_mut().expect("the client");
+        let v = &mut c.model.object_mut(PLAYER).expect("the player").visual;
+        v.bits = VisualDesc::PARENT | VisualDesc::SCALE;
+        v.parent = parent;
+        v.scale = Vec3::new(by, by, by);
+    };
+    let mounted = |s: &mut Shell<'_, DoubleHost>, on: u32| {
+        let c = s.client.as_mut().expect("the client");
+        c.notices
+            .push(auberean_client_sdk::runtime::host::PanelNotice {
+                native: auberean_ui_game::gameplay::notice::UPDATE_MOUNT_STATE,
+                about: Some(PLAYER),
+                words: vec![on],
+                objects: Vec::new(),
+                requests: Vec::new(),
+                effect_lines: Vec::new(),
+                listed: Vec::new(),
+            });
+    };
+    let on_foot = shown(&mut s).expect("the figure");
+
+    let parent = on_foot.parent.0;
+    scaled(&mut s, parent, 1.25);
+    let bigger = shown(&mut s).expect("the figure");
+    assert_ne!(bigger, on_foot, "on foot it follows the look");
+
+    mounted(&mut s, 1);
+    step(&mut s);
+    scaled(&mut s, parent, 1.5);
+    assert_eq!(
+        shown(&mut s).expect("the figure"),
+        bigger,
+        "mounted, it keeps the look it had"
+    );
+
+    mounted(&mut s, 0);
+    step(&mut s);
+    let off = shown(&mut s).expect("the figure");
+    assert_ne!(off, bigger, "off the mount, it follows the look again");
 }
 
 /// The paper doll's figure answers a search under the pointer with the part it meets: the doll's
@@ -3017,6 +3122,222 @@ fn ctrl_and_alt_held_open_the_other_credits() {
             until(&mut s, 1.0, |_| retail.borrow().screen() == "select"),
             "back: {}",
             retail.borrow().screen()
+        );
+    }
+}
+
+/// The screenshot key the player's key map names asks for a screenshot when it is let go, once:
+/// Ctrl+P does on the keys as they come, and so does a key the player binds to it. A key bound to
+/// something else does not.
+///
+/// Behaviour: desktop.interface.the-screenshot-key-asks-for-a-screenshot
+#[test]
+fn the_screenshot_key_asks_for_a_screenshot() {
+    let (mut s, _) = into_the_world();
+    let event = |s: &mut Shell<'_, DoubleHost>, key: Key, down: bool| {
+        s.event(&Event::Key {
+            key,
+            down,
+            repeat: false,
+        });
+        s.frame().screenshot
+    };
+    assert!(!event(&mut s, Key::ControlLeft, true), "Ctrl alone");
+    assert!(!event(&mut s, Key::P, true), "Ctrl+P held");
+    assert!(event(&mut s, Key::P, false), "Ctrl+P let go");
+    assert!(!s.frame().screenshot, "only once");
+    assert!(!event(&mut s, Key::ControlLeft, false), "Ctrl let go");
+    assert!(!event(&mut s, Key::P, true), "P alone");
+    assert!(!event(&mut s, Key::P, false), "P alone let go");
+
+    assert!(!event(&mut s, Key::F9, true), "F9, unbound");
+    assert!(!event(&mut s, Key::F9, false), "F9, unbound, let go");
+    let bound = [(Key::F9.input_word(), auberean_ui_game::flow::SCREENSHOT_KEY)];
+    assert!(s.keys.apply(
+        [&bound, &[], &[]],
+        &mut auberean_shell::host::HostFiles(&mut s.host)
+    ));
+    assert!(!event(&mut s, Key::F9, true), "F9 held");
+    assert!(event(&mut s, Key::F9, false), "F9, bound to it, let go");
+}
+
+/// A killing arrow's hit, told by its target with the news of the death right behind it: the hit's
+/// line and number come first, and the target's scripts see it not yet dead. Told after the death,
+/// the same hit shows nothing, as the scripts ask.
+///
+/// Behaviour: desktop.interface.a-story-is-played-before-what-the-server-said-after-it
+#[test]
+fn a_killing_arrows_hit_is_shown_before_the_target_is_dead() {
+    use auberean_client_sdk::protocol::physics::ObjectEvent;
+    use auberean_client_sdk::protocol::quality::VisualQuality;
+    use auberean_client_sdk::protocol::types::{ObjectStamp, PhysicsStory, StoryHook};
+    /// The visual messages' ordering type.
+    const VISUAL: u64 = 0x0200_0000_0000_0000;
+    /// A hit, kind 1 with the target, result, animation hook and the target's health change.
+    const HIT: u32 = 0xB81;
+    /// A thrown attack's arrival: the attacker, the skill and that it is a basic attack.
+    const ARRIVAL: u32 = PhysicsStory::ATTACKER | PhysicsStory::SKILL | 0x20;
+    /// The result the scripts call a plain hit.
+    const HIT_RESULT: i32 = 0x4000_0008;
+    const DEAD: u32 = 279;
+    let man_stamp = |visual: u16| ObjectStamp {
+        id: MAN,
+        instance_stamp: 1,
+        other_stamp: visual,
+    };
+    let arrival = |damage: i32| {
+        let mut hook = StoryHook {
+            bits: HIT,
+            target: MAN,
+            ..StoryHook::default()
+        };
+        hook.numbers[0] = HIT_RESULT;
+        hook.numbers[3] = -damage;
+        ServerMessage::DoStory(ObjectEvent {
+            sender: man_stamp(0),
+            action: PhysicsStory {
+                bits: ARRIVAL,
+                attacker: PLAYER,
+                skill: 0x4000_0001,
+                hooks: vec![hook],
+                ..PhysicsStory::default()
+            },
+        })
+    };
+    let dead = ServerMessage::UpdateBoolVisual(VisualQuality {
+        object: man_stamp(9),
+        quality: DEAD,
+        value: 1,
+    });
+    let mut script = with_a_man_and(vec![
+        s2c(40.0, 1, 1, WORLD | 9, &arrival(123)),
+        s2c(40.0, 1, 1, VISUAL | 9, &dead),
+        s2c(45.0, 1, 1, WORLD | 10, &arrival(456)),
+    ]);
+    for e in &mut script.events {
+        if let Step::Msg { msg, .. } = e {
+            if msg.mtype == 0x10058 {
+                if let Ok(ServerMessage::CreateObject(mut man)) = ServerMessage::decode(&msg.raw) {
+                    if man.id == MAN {
+                        // A human's scripts, which show the damage done to him.
+                        man.weenie = player_weenie();
+                        msg.raw = ServerMessage::CreateObject(man).encode();
+                    }
+                }
+            }
+        }
+    }
+    let (mut s, _retail) = into_the_world_running(script, data_with_scripts());
+    // Every line the scripts write of a hit, and every number they raise over the man.
+    let (mut lines, mut numbers) = (Vec::new(), Vec::new());
+    while s.host.time < 47.0 {
+        step(&mut s);
+        let c = s.client.as_ref().expect("the client");
+        lines.extend(c.shown.iter().map(|l| format!("{:?}", l.text)));
+        numbers.extend(
+            c.notices
+                .iter()
+                .filter(|n| {
+                    n.native == auberean_client_sdk::runtime::combat::DO_3D_DAMAGE
+                        && n.about == Some(MAN)
+                })
+                .map(|n| format!("{n:?}")),
+        );
+    }
+    println!("{lines:?} {numbers:?}");
+    assert_eq!(lines.len(), 1, "the killing hit's line alone: {lines:?}");
+    assert!(lines[0].contains("123"), "its damage: {lines:?}");
+    assert_eq!(
+        numbers.len(),
+        1,
+        "the killing hit's number alone: {numbers:?}"
+    );
+}
+
+/// The placed objects about the player play as the game runs: every frame of the world stands
+/// those that play in their bodies' poses, and a moment later the poses have moved on.
+///
+/// Behaviour: draw.world.a-placed-look-with-a-behavior-table-plays-through-one-shared-body
+#[test]
+fn the_worlds_placed_objects_play_as_the_game_runs() {
+    let (mut s, _retail) = into_the_world();
+    // Where the first vertex of each draw that stands in a pose is, by its mesh and object.
+    let stands = |s: &mut Shell<'static, DoubleHost>| -> HashMap<(u32, [u32; 3]), [u32; 3]> {
+        step(s);
+        let frame = s.frame();
+        frame.world.map_or(HashMap::new(), |world| {
+            world
+                .objects
+                .iter()
+                .filter(|b| b.played.is_some())
+                .filter_map(|b| {
+                    let [x, y, z, _] = b.transform.0[3];
+                    let at = b.position(0).filter(|_| b.posed.is_some())?;
+                    Some(((b.mesh, [x, y, z].map(f32::to_bits)), at.map(f32::to_bits)))
+                })
+                .collect()
+        })
+    };
+    let before = (0..300)
+        .map(|_| stands(&mut s))
+        .find(|l| !l.is_empty())
+        .expect("objects that play stand in their bodies' poses about the player");
+    for _ in 0..30 {
+        step(&mut s);
+    }
+    let after = stands(&mut s);
+    let moved = before
+        .iter()
+        .filter(|(k, at)| after.get(*k).is_some_and(|now| now != *at))
+        .count();
+    println!("{moved} of {} draws moved", before.len());
+    assert!(moved > 0, "their poses moved on");
+}
+
+/// A body past its visible distance keeps the box what marks it stands on, as big as it is near:
+/// a creature drawn to 65 m is not drawn at all 150 m off, and a man (a human body is drawn to 90 m,
+/// some of what he has to 300 m) has only part of himself left to draw.
+///
+/// Behaviour: desktop.interface.a-body-past-its-visible-distance-keeps-its-box
+#[test]
+fn a_body_past_its_visible_distance_keeps_its_box() {
+    /// A creature of one part, drawn to 65 m.
+    const SHORT_SIGHTED: u32 = 0x1F00_0022;
+    let box_of = |look: u32, away: f32| {
+        let mut man = the_man();
+        man.visual.did = look;
+        man.physics.position.frame.origin.x += away;
+        let (mut s, _retail) = into_the_world_running(
+            script_with(vec![s2c(
+                6.43,
+                1,
+                1,
+                WORLD | 7,
+                &ServerMessage::CreateObject(man),
+            )]),
+            data_with_scripts(),
+        );
+        assert!(
+            until(&mut s, 2.0, |s| s.scene.seen.body(MAN).is_some()),
+            "known at {away} m"
+        );
+        step(&mut s);
+        let drawn = s.scene.drawn_batches(MAN).expect("noted").len();
+        let bounds = s.scene.seen.body(MAN).and_then(|b| b.bounds);
+        (drawn, bounds.map(|(lo, hi)| (hi.x - lo.x, hi.z - lo.z)))
+    };
+    for (look, none_left) in [(SHORT_SIGHTED, true), (HUMAN_MALE, false)] {
+        let (near_draws, near) = box_of(look, 0.0);
+        let (far_draws, far) = box_of(look, 150.0);
+        assert!(
+            far_draws < near_draws,
+            "{look:?}: {far_draws} of {near_draws}"
+        );
+        assert_eq!(far_draws == 0, none_left, "{look:#x}");
+        let (near, far) = (near.expect("a box near"), far.expect("a box far off"));
+        assert!(
+            (near.0 - far.0).abs() < 0.1 && (near.1 - far.1).abs() < 0.1,
+            "{look:#x}: {near:?} and {far:?}"
         );
     }
 }

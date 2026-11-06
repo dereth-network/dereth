@@ -14,7 +14,8 @@
 //! players around it every so often; a pet summoned, of a class, for a lifetime or for good; a
 //! teleport, which sends its target to its place when its time is up; a recall, which is its
 //! skill's ([`crate::skill_use`]): to a place its user keeps (a link), to one of a list of named
-//! places, or to its allegiance's hall.
+//! places, or to its allegiance's hall; a taunt, which changes a creature's mind about its caster
+//! once ([`crate::ai`]), by the low end of the range its data gives over spellcraft.
 //!
 //! **A combination** looks for the target's effects of its types (or classes): found, it adds its
 //! effect for that case at the cast's spellcraft adjusted by its own amount, gives its user the
@@ -106,6 +107,14 @@ pub const CATEGORY_FLAGS: [(u32, u32); 5] = [
 mod counter_flag {
     pub const CONSTANT: u32 = 0x40;
     pub const VARIABLE: u32 = 0x80;
+}
+
+/// What a taunt's own flags say it adjusts by: its low bits, as a share of the creature's whole
+/// health, up or down. Every taunt of the data is one of these two.
+const TAUNT_KIND: u32 = 7;
+mod taunt_kind {
+    pub const TAUNT: u32 = 2;
+    pub const DETAUNT: u32 = 4;
 }
 
 /// What a reply's external flags say of its chance: the same at any spellcraft, or along a line.
@@ -275,6 +284,9 @@ pub enum Kind {
     /// Held by its wearer, it may keep off effects of these classes (none named: of any), by a
     /// chance at its spellcraft.
     Ward { classes: Vec<u32>, chance: Scale },
+    /// A creature's mind changed about its caster, once, by this share of the creature's whole
+    /// health: more inclined to it, or less (below 0).
+    Taunt(f32),
     /// Anything else (kept as a record only).
     Other,
 }
@@ -469,6 +481,12 @@ impl EffectDef {
         let number = |name: &str| nav.number(o, name).unwrap_or(0.0);
         let kind = if let Some(ward) = ward_of(state) {
             ward
+        } else if is("AITauntDetauntEffect") {
+            match word("m_flags").unwrap_or(0) & TAUNT_KIND {
+                taunt_kind::TAUNT => Kind::Taunt(number("m_fMinFractionalMod")),
+                taunt_kind::DETAUNT => Kind::Taunt(-number("m_fMinFractionalMod")),
+                _ => Kind::Other,
+            }
         } else if let Some(effect) = state_of("m_effGenerate").filter(|_| {
             is("ReflectiveVitalEffect")
                 && flags & (counter_flag::CONSTANT | counter_flag::VARIABLE) != 0
