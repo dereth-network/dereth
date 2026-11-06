@@ -342,6 +342,9 @@ pub struct Body {
     /// The object its targeted effects aim at, and the look its effects clone (none: 0).
     pub fx_target: u64,
     pub look_to_clone: u32,
+    /// The appearance table and values laid over the look its effects clone.
+    pub clone_appearance: u32,
+    pub clone_values: Vec<(u32, f32)>,
     /// Its setup's radius and height, unscaled: what it measures itself by (its spheres' until
     /// the host gives them).
     pub setup_radius: f32,
@@ -470,6 +473,8 @@ impl Body {
             notices: Vec::new(),
             fx_target: 0,
             look_to_clone: 0,
+            clone_appearance: 0,
+            clone_values: Vec::new(),
             setup_radius,
             setup_height,
             update_times: [0; 4],
@@ -725,6 +730,8 @@ impl Body {
             world.set_undetectable(key, on);
         }
         world.set_ignore_collisions(key, self.has(flags::IGNORE_COLLISIONS));
+        world.set_mobile(key, self.has(flags::MOBILE));
+        world.set_reporting(key, self.has(flags::REPORT_COLLISIONS));
         if self.min_impact != (0.0, 0.0) {
             if let Some(c) = world.collisions_mut(key) {
                 c.set_min_reported_impact_xy(self.min_impact.0);
@@ -1181,8 +1188,9 @@ impl Body {
 
     /// Where the body is drawn `alpha` of a tick past its last tick (from [`Ticker::alpha`]):
     /// between where it was before that tick and where it is, the origin along the line between
-    /// them (across a block's edge, in the block it is in now) and the heading turned the short
-    /// way; in the cell it is in now. A body whose movement has stopped is drawn where it is.
+    /// them (across a block's edge, in the block it is in now), the heading turned the short way
+    /// and the frame's whole rotation with it; in the cell it is in now. A body whose movement has
+    /// stopped is drawn where it is.
     // D2-05830, D2-05829, D2-06219
     #[must_use]
     pub fn drawn(&self, alpha: f32) -> (Position, f32) {
@@ -1205,7 +1213,8 @@ impl Body {
         let heading = (was + turn * alpha).rem_euclid(360.0);
         let mut at = now;
         at.frame.origin = origin;
-        at.frame.rotation = heading_rotation(heading);
+        // A missile flying along its path keeps its pitch.
+        crate::geom::slerp_rotation(&mut at.frame, &before.frame, &now.frame, alpha);
         (at, heading)
     }
 }

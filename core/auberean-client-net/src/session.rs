@@ -550,7 +550,11 @@ impl Session {
             }
             Counter::Data => {
                 let s = self.data;
-                self.data = s.wrapping_add(1);
+                // A retail client never sends this one, so it takes no stamp from those it does:
+                // what follows carries the stamps a retail client's would.
+                if !matches!(m, ClientMessage::OverlayHeld(_)) {
+                    self.data = s.wrapping_add(1);
+                }
                 s
             }
         };

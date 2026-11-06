@@ -333,37 +333,81 @@ impl Allegiances {
         if !self.member(id) {
             return 0;
         }
-        self.rank_below(id, &mut BTreeSet::new())
+        Self::rank_below(
+            id,
+            &self.children(),
+            &mut BTreeSet::new(),
+            &mut BTreeMap::new(),
+        )
     }
 
-    /// A member's rank by its vassals' ranks, each counted once however a stored allegiance links
-    /// them.
-    fn rank_below(&self, id: u64, seen: &mut BTreeSet<u64>) -> u32 {
+    /// Every member's rank.
+    #[must_use]
+    pub fn ranks(&self) -> BTreeMap<u64, u32> {
+        let children = self.children();
+        let mut known = BTreeMap::new();
+        for id in self.nodes.keys() {
+            Self::rank_below(*id, &children, &mut BTreeSet::new(), &mut known);
+        }
+        known
+    }
+
+    /// Every member's vassals, in the order they swore, read once.
+    fn children(&self) -> BTreeMap<u64, Vec<u64>> {
+        let mut sworn: BTreeMap<u64, Vec<(f64, u64)>> = BTreeMap::new();
+        for (k, n) in &self.nodes {
+            sworn.entry(n.patron).or_default().push((n.joined, *k));
+        }
+        sworn
+            .into_iter()
+            .map(|(patron, mut v)| {
+                v.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+                (patron, v.into_iter().map(|(_, k)| k).collect())
+            })
+            .collect()
+    }
+
+    /// A member's rank by its vassals' ranks, each counted once however a shape of oaths reaches
+    /// them. Ranks already reckoned are taken as they are.
+    fn rank_below(
+        id: u64,
+        children: &BTreeMap<u64, Vec<u64>>,
+        seen: &mut BTreeSet<u64>,
+        known: &mut BTreeMap<u64, u32>,
+    ) -> u32 {
+        if let Some(rank) = known.get(&id) {
+            return *rank;
+        }
         seen.insert(id);
         let mut ranks = Vec::new();
-        for v in self.vassals(id) {
-            if seen.insert(v) {
-                ranks.push(self.rank_below(v, seen));
+        for v in children.get(&id).into_iter().flatten() {
+            if seen.insert(*v) {
+                ranks.push(Self::rank_below(*v, children, seen, known));
             }
         }
-        let Some(&top) = ranks.iter().max() else {
-            return 1;
+        let rank = match ranks.iter().max() {
+            None => 1,
+            Some(&top) => {
+                let held = ranks.iter().filter(|r| **r == top).count();
+                (if held >= 2 { top + 1 } else { top }).clamp(1, TOP_RANK)
+            }
         };
-        let held = ranks.iter().filter(|r| **r == top).count();
-        (if held >= 2 { top + 1 } else { top }).clamp(1, TOP_RANK)
+        known.insert(id, rank);
+        rank
     }
 
     /// Every member under a member, itself first, each once however a stored allegiance links
     /// them.
     #[must_use]
     pub fn tree(&self, id: u64) -> Vec<u64> {
+        let children = self.children();
         let mut out = vec![id];
         let mut seen = BTreeSet::from([id]);
         let mut i = 0;
         while i < out.len() {
-            for v in self.vassals(out[i]) {
-                if seen.insert(v) {
-                    out.push(v);
+            for v in children.get(&out[i]).into_iter().flatten() {
+                if seen.insert(*v) {
+                    out.push(*v);
                 }
             }
             i += 1;
@@ -558,7 +602,7 @@ pub fn no_allegiance() -> ServerMessage {
     crate::chat::no_allegiance()
 }
 
-fn data(b: &mut Builder, s_: &Allegiances, id: u64, f: &Facts) -> u32 {
+fn data(b: &mut Builder, s_: &Allegiances, id: u64, f: &Facts, rank: u32) -> u32 {
     let node = s_.nodes.get(&id).copied().unwrap_or_default();
     let officer = s_.monarch(id) == Some(id);
     let me = b.reserve(DATA.0);
@@ -574,7 +618,7 @@ fn data(b: &mut Builder, s_: &Allegiances, id: u64, f: &Facts) -> u32 {
             Slot::Long(node.pooled),
             Slot::Int(u32::from(officer)),
             Slot::Long(id),
-            Slot::Int(s_.rank(id)),
+            Slot::Int(rank),
             Slot::Int(NO_FACTION),
             Slot::Ref(Some(name)),
         ],
@@ -607,13 +651,20 @@ pub fn profile<S: Store>(s: &mut Server<S>, member: u64) -> ServerMessage {
             all.names.get(&monarch).map_or("", String::as_str),
         )),
     ));
-    let patron_ref = pf.as_ref().map(|f| data(&mut b, all, patron, f));
-    let member_ref = data(&mut b, all, member, &me);
-    let monarch_ref = mf.as_ref().map(|f| data(&mut b, all, monarch, f));
+    let patron_ref = pf
+        .as_ref()
+        .map(|f| data(&mut b, all, patron, f, all.rank(patron)));
+    let member_ref = data(&mut b, all, member, &me, all.rank(member));
+    let monarch_ref = mf
+        .as_ref()
+        .map(|f| data(&mut b, all, monarch, f, all.rank(monarch)));
     let (list, online) = if vf.is_empty() {
         (None, None)
     } else {
-        let refs: Vec<u32> = vf.iter().map(|(v, f)| data(&mut b, all, *v, f)).collect();
+        let refs: Vec<u32> = vf
+            .iter()
+            .map(|(v, f)| data(&mut b, all, *v, f, all.rank(*v)))
+            .collect();
         let list = b.native(
             REF_LIST,
             NativeObject::Sequence {
@@ -827,12 +878,14 @@ fn hierarchy<S: Store>(s: &mut Server<S>, monarch: u64) -> Builder {
     let nodes: BTreeMap<u64, u32> = members.iter().map(|m| (*m, b.reserve(NODE.0))).collect();
     let buckets = crate::graph::bucket_count(EXPORT_TABLES_SIZE);
     let (mut by_name, mut by_id) = (Vec::new(), Vec::new());
+    let (ranks, children) = (all.ranks(), all.children());
     for (m, f) in &facts {
         let node = nodes[m];
-        let d = data(&mut b, all, *m, f);
-        let vassals: Vec<Item> = all
-            .vassals(*m)
-            .iter()
+        let d = data(&mut b, all, *m, f, ranks.get(m).copied().unwrap_or(0));
+        let vassals: Vec<Item> = children
+            .get(m)
+            .into_iter()
+            .flatten()
             .map(|v| Item::Ref(nodes[v]))
             .collect();
         let list = b.native(
@@ -915,8 +968,16 @@ fn hierarchy<S: Store>(s: &mut Server<S>, monarch: u64) -> Builder {
 }
 
 /// The tree exported to a file: the asker is sent its whole allegiance and the file's name (one
-/// in no allegiance is refused by its own client before it asks).
-pub fn export<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v: &[Value]) {
+/// in no allegiance is refused by its own client before it asks). Its rows come out of the
+/// connection's allowance for pages, as it reads a store's row for each (2 asked for in all the
+/// recordings).
+pub fn export<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    v: &[Value],
+    now: yalain_net::LocalTime,
+) {
     if !ensure(s) {
         return;
     }
@@ -931,6 +992,10 @@ pub fn export<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v
         s.unhandled.note("a tree export by one in no allegiance");
         return;
     };
+    let members = s.allegiances.tree(monarch).len();
+    if !crate::market::rows_allowed(s, world, members + 1, now) {
+        return;
+    }
     let hier = hierarchy(s, monarch);
     let mut f = Builder::new();
     f.native(STRING, NativeObject::Text(file.encode_utf16().collect()));
@@ -1077,12 +1142,7 @@ pub fn accept<S: Store>(
         progress::private(net, vw, &swore_to(patron, &pname, err));
         return;
     }
-    let before: BTreeMap<u64, u32> = s
-        .allegiances
-        .nodes
-        .keys()
-        .map(|k| (*k, s.allegiances.rank(*k)))
-        .collect();
+    let before = s.allegiances.ranks();
     let new_monarch = !s.allegiances.member(patron);
     let now = net.game_time(clock.local);
     s.allegiances.nodes.entry(patron).or_default();
@@ -1131,9 +1191,7 @@ pub fn accept<S: Store>(
         }
     }
     // Others up the chain whose rank rose are told it.
-    let chain: Vec<u64> = s.allegiances.nodes.keys().copied().collect();
-    for id in chain {
-        let rank = s.allegiances.rank(id);
+    for (id, rank) in s.allegiances.ranks() {
         if id != patron && id != vassal && rank > before.get(&id).copied().unwrap_or(0) {
             if let Some(w) = world_of(s, id) {
                 tell_rank(s, net, w, rank, text::RANK_UP);

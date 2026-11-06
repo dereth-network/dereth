@@ -11,7 +11,6 @@ use std::sync::Arc;
 use auberean_draw::mesh::{MeshVertex, PosedVertex};
 use auberean_draw::scene::TerrainVertex;
 use bytemuck::Pod;
-use wgpu::util::DeviceExt;
 
 use super::{MeshGpuVertex, TerrainGpuVertex};
 
@@ -22,6 +21,9 @@ const KEEP_FRAMES: u64 = 240;
 /// The size of each buffer one frame's lists are written into. A list larger than this has a
 /// buffer of its size.
 const CHUNK: usize = 4 << 20;
+
+/// How much of bodies' lists the arena being filled holds before the other takes over.
+const KEPT_BYTES: usize = 32 << 20;
 
 /// A list's place on the device.
 #[derive(Clone, Debug, PartialEq)]
@@ -41,6 +43,8 @@ struct Chunk {
     buffer: wgpu::Buffer,
     data: Vec<u8>,
     used: usize,
+    /// How much of what it holds the device has been given.
+    written: usize,
 }
 
 /// One frame's lists, written into buffers kept between frames. A browser's WebGL 2 keeps a
@@ -67,6 +71,7 @@ impl Arena {
         self.at = 0;
         for c in &mut self.chunks {
             c.used = 0;
+            c.written = 0;
         }
     }
 
@@ -93,6 +98,7 @@ impl Arena {
                 }),
                 data: vec![0; size],
                 used: 0,
+                written: 0,
             });
         }
         let c = &mut self.chunks[self.at];
@@ -106,14 +112,20 @@ impl Arena {
         }
     }
 
-    /// Write what the frame took to the device; the bytes written.
-    fn write(&self, queue: &wgpu::Queue) -> u64 {
+    /// Write what it took since the last write to the device; the bytes written.
+    fn write(&mut self, queue: &wgpu::Queue) -> u64 {
         let mut bytes = 0;
-        for c in self.chunks.iter().filter(|c| c.used > 0) {
-            queue.write_buffer(&c.buffer, 0, &c.data[..c.used]);
-            bytes += c.used as u64;
+        for c in self.chunks.iter_mut().filter(|c| c.used > c.written) {
+            queue.write_buffer(&c.buffer, c.written as u64, &c.data[c.written..c.used]);
+            bytes += (c.used - c.written) as u64;
+            c.written = c.used;
         }
         bytes
+    }
+
+    /// The bytes it holds.
+    fn holds(&self) -> usize {
+        self.chunks.iter().map(|c| c.used).sum()
     }
 }
 
@@ -123,6 +135,8 @@ enum Place {
     Passing(Slice, u64),
     /// In a buffer of its own.
     Own(Slice),
+    /// In the kept arena of a generation.
+    Kept(Slice, u64),
 }
 
 struct Entry<T> {
@@ -162,6 +176,25 @@ struct Now {
     draw: u64,
 }
 
+/// A buffer of its own holding `bytes`. A device that has been lost makes no buffer to write them
+/// into, and the frame goes on without them until the device is made again.
+fn buffer_holding(device: &wgpu::Device, bytes: &[u8], usage: wgpu::BufferUsages) -> wgpu::Buffer {
+    let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: None,
+        // Whole words, and never nothing, as a buffer mapped when it is made must be.
+        size: (bytes.len() as u64)
+            .next_multiple_of(wgpu::COPY_BUFFER_ALIGNMENT)
+            .max(wgpu::COPY_BUFFER_ALIGNMENT),
+        usage,
+        mapped_at_creation: true,
+    });
+    if let Ok(mut held) = buffer.get_mapped_range_mut(..) {
+        held.slice(..bytes.len()).copy_from_slice(bytes);
+    }
+    buffer.unmap();
+    buffer
+}
+
 impl<T> Lists<T> {
     /// Where `list` is on the device. `gpu` is what the device reads of it.
     fn slice<B: Pod>(
@@ -196,7 +229,7 @@ impl<T> Lists<T> {
                 counts.hits += 1;
                 slice.clone()
             }
-            Place::Passing(..) => {
+            Place::Passing(..) | Place::Kept(..) => {
                 // Seen in an earlier draw: it stays.
                 counts.misses += 1;
                 let data = gpu(list);
@@ -204,11 +237,7 @@ impl<T> Lists<T> {
                 counts.buffers += 1;
                 counts.buffer_bytes += bytes.len() as u64;
                 let slice = Slice {
-                    buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: None,
-                        contents: bytes,
-                        usage,
-                    }),
+                    buffer: buffer_holding(device, bytes, usage),
                     offset: 0,
                     size: bytes.len() as u64,
                 };
@@ -218,11 +247,11 @@ impl<T> Lists<T> {
         }
     }
 
-    /// Where `list` is on the device when it changes from frame to frame: written as it stands
-    /// into the arena of each draw that asks for it, never given buffers of its own.
-    fn passing(
+    /// Where `list` is on the device when it lasts a few frames: written once into the kept arena,
+    /// and found there for as long as its generation stands.
+    fn kept(
         &mut self,
-        (device, arena): (&wgpu::Device, &mut Arena),
+        (device, arena, generation): (&wgpu::Device, &mut Arena, u64),
         now: Now,
         counts: &mut Counts,
         list: &Arc<Vec<T>>,
@@ -232,12 +261,12 @@ impl<T> Lists<T> {
     {
         let key = Arc::as_ptr(list) as usize;
         if let Some(Entry {
-            place: Place::Passing(slice, seen),
+            place: Place::Kept(slice, of),
             used,
             ..
         }) = self.entries.get_mut(&key)
         {
-            if *seen == now.draw {
+            if *of + 1 >= generation {
                 *used = now.frame;
                 counts.hits += 1;
                 return slice.clone();
@@ -249,7 +278,7 @@ impl<T> Lists<T> {
             key,
             Entry {
                 _list: Arc::clone(list),
-                place: Place::Passing(slice.clone(), now.draw),
+                place: Place::Kept(slice.clone(), generation),
                 used: now.frame,
             },
         );
@@ -259,7 +288,7 @@ impl<T> Lists<T> {
     /// A frame is over: lists its frames have not gone on drawing are let go.
     fn end_frame(&mut self, frame: u64) {
         self.entries.retain(|_, e| match e.place {
-            Place::Passing(..) => e.used == frame,
+            Place::Passing(..) | Place::Kept(..) => e.used == frame,
             Place::Own(..) => frame.saturating_sub(e.used) < KEEP_FRAMES,
         });
     }
@@ -275,6 +304,13 @@ pub(crate) struct MeshCache {
     /// One draw's lists.
     pub(crate) passing_vertices: Arena,
     pub(crate) passing_indices: Arena,
+    /// Bodies' lists, which a pose keeps for several frames. Each is filled in its turn and starts
+    /// again only after the other has been filled since, so what a frame draws is never written
+    /// over: a list stands for one generation after the one it was written in.
+    kept: [Arena; 2],
+    /// Which of them is being filled, and how many times they have changed places.
+    kept_now: usize,
+    generation: u64,
     frame: u64,
     draw: u64,
     counts: Counts,
@@ -290,6 +326,12 @@ impl Default for MeshCache {
             land_indices: Lists::default(),
             passing_vertices: Arena::new(wgpu::BufferUsages::VERTEX),
             passing_indices: Arena::new(wgpu::BufferUsages::INDEX),
+            kept: [
+                Arena::new(wgpu::BufferUsages::VERTEX),
+                Arena::new(wgpu::BufferUsages::VERTEX),
+            ],
+            kept_now: 0,
+            generation: 0,
             frame: 0,
             draw: 0,
             counts: Counts::default(),
@@ -349,8 +391,8 @@ impl MeshCache {
         list: &Arc<Vec<PosedVertex>>,
     ) -> Slice {
         let now = self.now();
-        self.posed.passing(
-            (device, &mut self.passing_vertices),
+        self.posed.kept(
+            (device, &mut self.kept[self.kept_now], self.generation),
             now,
             &mut self.counts,
             list,
@@ -398,8 +440,9 @@ impl MeshCache {
 
     /// Write this draw's lists to the device, before it is submitted.
     pub(crate) fn write(&mut self, queue: &wgpu::Queue) {
-        self.counts.written +=
-            self.passing_vertices.write(queue) + self.passing_indices.write(queue);
+        self.counts.written += self.passing_vertices.write(queue)
+            + self.passing_indices.write(queue)
+            + self.kept[self.kept_now].write(queue);
     }
 
     /// What the lists have cost since the last call.
@@ -416,5 +459,10 @@ impl MeshCache {
         self.land.end_frame(frame);
         self.land_indices.end_frame(frame);
         self.frame += 1;
+        if self.kept[self.kept_now].holds() >= KEPT_BYTES {
+            self.kept_now = 1 - self.kept_now;
+            self.kept[self.kept_now].begin();
+            self.generation += 1;
+        }
     }
 }

@@ -7,8 +7,67 @@ what they see, not how it was done.
 
 ## Unreleased
 
+## 0.2.1 (2026-11-05)
+- Fixed sold consignments still showing as in stock.
+- Sellers in the world now get a reminder when their sale is bought.
+- Fixed a character without the friends service not hearing of its Discord link.
+- A world can change the game's records and send them to clients.
+- Fixed a rebuilt server refusing to start when its world database wasn't downloaded yet.
+- Items now bind piece by piece as you fight, and tell you when they do.
+- Bound and attuned items can't be put up for sale.
+- Recipes that attune an item now do.
+- Skills are refused under an effect that bars them.
+- Taunts now draw creatures in group fights.
+- How close a creature stops and how far it swings now go with its size.
+- Wasps, wisps and other flyers fly at their height and chase you indoors.
+- Fixed new players being unable to log in on a busy server.
+- Fixed many logins at once slowing the whole world.
+- Fixed heavy network traffic holding up the world.
+- Fixed a stuck connection holding up the status endpoint.
+- Bound items now say whom they're bound to.
+- Emblem of Might, Galvanize and Bigger Board With Nail now work.
+- Some skills now draw a creature's attention a little more or less.
+- Contracts now hire mercenaries.
+- Fixed players moving quickly between areas slowing the whole world.
+- A character file with a duplicated item is now refused.
+- Fixed imported characters being refused their own bound gear.
+- Fixed idle WebSocket connections shutting out browser players.
+- A player can't report being somewhere it couldn't have reached.
+- A character's aliases and settings have a size limit.
+- A character holds up to 100 consignments.
+- Fixed a key opening a locked chest or door more than once.
+- Fixed a chest staying open for good when its opener leaves the world.
+- Pet names can be refused as too long or not allowed.
+- Fixed long lines of talk holding up what nearby players hear.
+- Other players can no longer hurt your pet while you're at peace.
+- Oaths in very large allegiances no longer stall the world.
+- Killing some creatures curses you.
+- Many weapons and armor that did nothing now work.
+- Fixed other players' movements and swings sticking after they arrive.
+- Fixed items being lost for no gold at the money bag.
+- A frozen world now stops itself so it can restart.
+- Players can't talk faster than ten lines a second.
+- A plain shield now shows Shield Stats.
+- Curses and peace amulets now change who creatures attack.
+- Fixed the error text when a glyph opens a vault.
+- A too-long inscription is refused, not cut.
+- A knife stays in the pack while it cuts.
+- Broker stores now have pages.
+- Fixed uses being refused after dying or teleporting mid-walk.
+- Fixed a vault staying busy after its traveler was removed.
+- A client far behind has its requests put off until it catches up.
+- A large allegiance's export no longer slows the world.
+- Recipes that cost money now ask for it.
+- A skill can't be untrained while a skill built on it is still trained.
+- The dead can't fight, and nobody fights from portal space.
+- Starting a hand-in from far away no longer keeps a quest person busy.
+- Fixed a friends connection slowing the whole world.
+
+- Fixed a selected person showing empty health and vigor bars.
+
 ## 0.2.0 (2026-11-05)
 
+- A world can give a person it places a name of its own.
 - Creatures now go around what a world places.
 - Players in a browser now have their friends list.
 - A world's objects can have a scale of their own.

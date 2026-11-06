@@ -25,6 +25,8 @@ pub struct Settings {
     pub sync_to_display: bool,
     /// The edges smoothed.
     pub antialiasing: bool,
+    /// The land's squares blend their corners' grounds.
+    pub terrain_blending: bool,
     /// The files the key maps are kept in.
     pub key_files: crate::keys::KeyFiles,
     /// The text read, for writing back what this program does not use.
@@ -48,13 +50,26 @@ pub struct Presentation {
 
 impl Presentation {
     /// The size of the picture shown in a window of this size: in full screen the size asked for,
-    /// scaled to fill the monitor, otherwise the window's own.
+    /// scaled to the monitor, otherwise the window's own.
     #[must_use]
     pub const fn drawn_in(&self, window: (u32, u32)) -> (u32, u32) {
         if self.full_screen {
             self.size
         } else {
             window
+        }
+    }
+
+    /// Where a picture of size `drawn` shows in a window of size `window`, in the window's pixels
+    /// (left, top, width, height): in full screen as large as it goes at its own shape in the
+    /// middle, black bars around it; a window it fills.
+    #[must_use]
+    pub fn shown_in(&self, drawn: (u32, u32), window: (u32, u32)) -> [f32; 4] {
+        if self.full_screen {
+            crate::interface::fitted(drawn, window)
+        } else {
+            #[allow(clippy::cast_precision_loss)]
+            [0.0, 0.0, window.0 as f32, window.1 as f32]
         }
     }
 }
@@ -68,18 +83,48 @@ pub fn in_picture_pixels(window: (u32, u32), scale: f64) -> (u32, u32) {
     (along(window.0), along(window.1))
 }
 
-/// A point of a picture of size `from` in a picture of size `to` that fills the same space.
+/// A point of a window as the point of the picture of size `picture` that shows in part `shown` of
+/// it ([`Presentation::shown_in`]). A point on a bar is off the picture.
 #[must_use]
-pub fn in_picture(point: (f32, f32), from: (u32, u32), to: (u32, u32)) -> (f32, f32) {
+pub fn on_picture(point: (f32, f32), shown: [f32; 4], picture: (u32, u32)) -> (f32, f32) {
     #[allow(clippy::cast_precision_loss)]
-    let along = |p: f32, f: u32, t: u32| {
-        if f == t || f == 0 {
-            p
+    let along = |p: f32, at: f32, size: f32, to: u32| {
+        if size > 0.0 {
+            (p - at) * to as f32 / size
         } else {
-            p * t as f32 / f as f32
+            p - at
         }
     };
-    (along(point.0, from.0, to.0), along(point.1, from.1, to.1))
+    (
+        along(point.0, shown[0], shown[2], picture.0),
+        along(point.1, shown[1], shown[3], picture.1),
+    )
+}
+
+/// A point off the picture, on a bar, as the nearest point of it, and whether it was on the picture.
+#[must_use]
+pub fn held_to_picture(point: (f32, f32), picture: (u32, u32)) -> ((f32, f32), bool) {
+    #[allow(clippy::cast_precision_loss)]
+    let along = |p: f32, size: u32| p.clamp(0.0, size.max(1) as f32 - 1.0);
+    let held = (along(point.0, picture.0), along(point.1, picture.1));
+    #[allow(clippy::cast_precision_loss)]
+    let on = point.0 >= 0.0
+        && point.1 >= 0.0
+        && point.0 < picture.0 as f32
+        && point.1 < picture.1 as f32;
+    (held, on)
+}
+
+/// A point of the picture of size `picture` as the point of the window where it shows: the other
+/// way from [`on_picture`].
+#[must_use]
+pub fn on_window(point: (f32, f32), shown: [f32; 4], picture: (u32, u32)) -> (f32, f32) {
+    #[allow(clippy::cast_precision_loss)]
+    let along = |p: f32, at: f32, size: f32, from: u32| at + p * size / from.max(1) as f32;
+    (
+        along(point.0, shown[0], shown[2], picture.0),
+        along(point.1, shown[1], shown[3], picture.1),
+    )
 }
 
 impl Default for Settings {
@@ -92,6 +137,7 @@ impl Default for Settings {
             triple_buffering: false,
             sync_to_display: true,
             antialiasing: true,
+            terrain_blending: true,
             key_files: crate::keys::KeyFiles::default(),
             profile: Profile::default(),
         }
@@ -117,6 +163,7 @@ const LOOK_AT_SELECTION: (&str, &str) = ("Avatar", "AvatarLookAtSelection");
 const HOVER_TRANSPARENCY: (&str, &str) = ("Avatar", "AvatarHoverTransparency");
 /// The display's size, its width above its height in one number, and full screen; an earlier
 /// version of this program kept the size as two numbers of its own, still read.
+const TERRAIN_BLENDING: &str = "LandscapeTerrainBlending";
 const DISPLAY_RESOLUTION: (&str, &str) = ("Rendering", "DisplayResolution");
 const FULL_SCREEN: (&str, &str) = ("Rendering", "FullScreen");
 const TRIPLE_BUFFERING: (&str, &str) = ("Rendering", "TripleBuffering");
@@ -289,6 +336,10 @@ impl Settings {
             if let Some(x) = value {
                 any |= graphics.set(p.key, x);
             }
+        }
+        // D2-10525
+        if let Some(on) = get(GRAPHICS, TERRAIN_BLENDING).and_then(|v| flag_value(v.trim())) {
+            s.terrain_blending = on;
         }
         // A kept overall quality (1 to 5) sets its own preferences over those read.
         if let Some(q) = get(GRAPHICS, OVERALL_NAME).and_then(|v| v.trim().parse::<u32>().ok()) {

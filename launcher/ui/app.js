@@ -468,8 +468,8 @@ function programName(product) {
   if (c?.checkout) return `${title}${c.checkout_version ? ` ${vee(c.checkout_version)}` : ""} (Local Build)`;
   return c?.installed?.version ? `${title} ${vee(c.installed.version)}` : title;
 }
-// The ACE world each era's world base is.
-const BASE_NAMES = { eor: "ACE End of Retail", infiltration: "ACE Infiltration (2005)" };
+// The world each era's world base is.
+const BASE_NAMES = { eor: "ACE End of Retail", infiltration: "ACE Infiltration (2005)", launch: "ac1999 Launch (1999)" };
 // A world base in words: `ACE End of Retail v0.9.295`, or the era's world alone when its release
 // is not known.
 const baseName = (era, base) => `${BASE_NAMES[base?.era ?? era] ?? BASE_NAMES.eor}${base?.version ? ` ${base.version}` : ""}`;
@@ -3189,12 +3189,15 @@ document.addEventListener("focusin", (ev) => {
 });
 if (window.__TAURI__?.event) window.__TAURI__.event.listen("pad", (e) => onPad(e.payload));
 
-// A world page whose world's library changed underneath it (a private copy finished) reads its
-// options again, so the new set appears without the player having to reopen the page.
+// A world page whose world's library changed underneath it (a private copy finished), or whose
+// world has since said its era, reads its options again, so the sets it may play appear without the
+// player having to reopen the page.
 let lastSets = "";
 async function watchLibrary() {
   const sets = JSON.stringify(ui.snap?.state.dat_sets.map((d) => d.id) ?? []);
-  if (sets !== lastSets && ui.screen === "world" && ui.world) {
+  const shown = ui.screen === "world" ? ui.world?.view.world : null;
+  const eraSaid = shown && (worldBy(shown.slug)?.era ?? null) !== (shown.era ?? null);
+  if ((sets !== lastSets || eraSaid) && ui.screen === "world" && ui.world) {
     lastSets = sets;
     const view = await api("world_view", { slug: ui.world.view.world.slug }).catch(() => null);
     if (view) {

@@ -786,7 +786,9 @@ impl Ui {
         }
         let items = self.list_items(h);
         let horizontal = self.lb_test(h, bits::HORIZONTAL);
-        let (mut cols, mut rows, mut iw, mut ih) = (1, 1, 0, 0);
+        // An emptied list keeps the size of its cells, and one cell of sheet.
+        let (mut iw, mut ih) = self.lb(h).map_or((0, 0), |l| (l.item_w, l.item_h));
+        let (mut cols, mut rows) = (1, 1);
         if !items.is_empty() {
             let maxc = self.int_or(h, attr::MAX_COLUMNS, 1).max(1);
             self.listbox_adopt_items(h, &items);
@@ -1036,12 +1038,13 @@ impl Ui {
         }
     }
 
-    /// Insert a row at `index` (at the end past it).
-    // D2-11572
+    /// Insert a row at `index` (past the end of the list, no row is added).
+    // D2-11572, D2-11224
     pub fn list_insert(&mut self, list: Handle, item: Handle, index: usize) {
         if let Some(n) = self.node_mut(list) {
-            let at = index.min(n.list.items.len());
-            n.list.items.insert(at, item);
+            if index <= n.list.items.len() {
+                n.list.items.insert(index, item);
+            }
         }
         self.sync_selected_index(list);
         if !self.lb_test(list, bits::MULTI_OP) {
@@ -1049,12 +1052,14 @@ impl Ui {
         }
     }
 
-    /// Insert a row before another row of the list (at the end when that is not one of its rows).
+    /// Insert a row before another row of the list, at the end with no other named (and not at
+    /// all when the one named is not one of its rows).
     // D2-11519
     pub fn list_insert_before(&mut self, list: Handle, item: Handle, before: Option<Handle>) {
-        let at = before
-            .and_then(|b| self.list_index_of(list, b))
-            .unwrap_or(usize::MAX);
+        let at = match before {
+            Some(b) => self.list_index_of(list, b).unwrap_or(usize::MAX),
+            None => self.node(list).map_or(0, |n| n.list.items.len()),
+        };
         self.list_insert(list, item, at);
     }
 

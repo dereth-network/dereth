@@ -566,6 +566,20 @@ impl ParticleSystems {
         self.lock().find(system.id).map_or(0, |s| s.set.alive())
     }
 
+    /// The scales the system draws at this frame, one for each place it was queued, and whether
+    /// its description scales it with its object.
+    #[must_use]
+    pub fn drawn_scales(&self, system: &SystemRef) -> (Vec<Vec3>, bool) {
+        self.lock()
+            .find(system.id)
+            .map_or((Vec::new(), false), |s| {
+                (
+                    s.places.iter().map(|at| at.scale).collect(),
+                    s.set.scales_with_object(),
+                )
+            })
+    }
+
     /// How many owners hold the system.
     #[must_use]
     pub fn owners(&self, system: &SystemRef) -> u32 {

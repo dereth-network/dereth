@@ -309,6 +309,19 @@ impl OtherBody {
         }
     }
 
+    /// What its figure set off this step: its effects go among the figure's events, the kinds of
+    /// its hooks are handed back, and a jump its animation reached wakes the body, which jumps if
+    /// it may.
+    // D2-06252
+    pub fn take_figure_triggers(&mut self, figure: &mut Figure) -> Vec<u32> {
+        let (hooks, impulses) = crate::take_triggers(figure);
+        if impulses.iter().any(|i| i.jump) {
+            self.body.set_movement_active(true);
+            self.body.jump();
+        }
+        hooks
+    }
+
     /// Whether the body is in the world (not lost in a cell not loaded).
     #[must_use]
     pub fn in_world(&self) -> bool {
@@ -650,7 +663,7 @@ impl Others {
             let asked = player_or_creature(*id);
             if b.shape.is_some() {
                 let s = ob.body.total_scale(None);
-                table.note_still(*id, ob.body.position, ob.body.height(), s, asked);
+                table.note_still(*id, &ob.body, s, asked);
             } else {
                 table.note(*id, &ob.body, asked);
             }
@@ -1009,8 +1022,8 @@ impl Others {
                     look(id, &ob.body, f, step);
                     f.advance(anims, step);
                     ob.body.figure_stands_in(f.modes.element());
-                    self.heard
-                        .push((id, f.take_completions(), crate::take_triggers(f).0));
+                    let hooks = ob.take_figure_triggers(f);
+                    self.heard.push((id, f.take_completions(), hooks));
                 }
             }
         }
@@ -1121,27 +1134,56 @@ impl Others {
             {
                 continue;
             }
-            // Drawn between its last two ticks, at its whole scale.
-            let (at, heading) = ob.drawn(alpha);
-            let rel = Vec3::new(at.x - ox, at.y - oy, at.z);
-            let rot = auberean_physics::body::heading_rotation(heading);
-            let s = ob.body.total_scale(None);
-            let place = Mat4::from_parts(
-                rel,
-                Quat {
-                    w: rot.w,
-                    x: rot.x,
-                    y: rot.y,
-                    z: rot.z,
-                },
-                Vec3::new(s.x, s.y, s.z),
-            );
+            let (place, rel, heading) = drawn_place(ob, alpha, (ox, oy));
             let poses = f.pose(anims);
             let start = out.len();
             drawer.next_body(ob.body.is_mobile());
             out.extend(drawer.batches(records, f, &poses, &place));
             noted.push((*id, start..out.len(), rel, heading));
         }
+    }
+
+    /// Whether body `id` has a part past its visible distance as it stands now.
+    pub(crate) fn leaves_out_a_part(
+        &self,
+        id: u64,
+        drawer: &mut BodyDrawer,
+        block: (i32, i32),
+        alpha: f32,
+    ) -> bool {
+        let Some(b) = self.bodies.get(&id) else {
+            return false;
+        };
+        let (Some(f), Some(ob)) = (&b.figure, &b.body) else {
+            return false;
+        };
+        #[allow(clippy::cast_precision_loss)]
+        let (ox, oy) = (block.0 as f32 * BLOCK_LENGTH, block.1 as f32 * BLOCK_LENGTH);
+        let (place, _, _) = drawn_place(ob, alpha, (ox, oy));
+        drawer.leaves_out_a_part(f, &place, ob.body.is_mobile())
+    }
+
+    /// Body `id`'s draws, wherever it stands from the eye: what it would be drawn as, for the box
+    /// it fills past its visible distance. `None` when it has no body.
+    pub(crate) fn draws_at_any_distance(
+        &self,
+        id: u64,
+        records: &WorldRecords,
+        anims: &CachedRecords<'_>,
+        drawer: &mut BodyDrawer,
+        block: (i32, i32),
+        alpha: f32,
+    ) -> Option<Vec<ObjectBatch>> {
+        let b = self.bodies.get(&id)?;
+        let (f, ob) = (b.figure.as_ref()?, b.body.as_ref()?);
+        #[allow(clippy::cast_precision_loss)]
+        let (ox, oy) = (block.0 as f32 * BLOCK_LENGTH, block.1 as f32 * BLOCK_LENGTH);
+        let (place, _, _) = drawn_place(ob, alpha, (ox, oy));
+        let poses = f.pose(anims);
+        let eye = drawer.eye.take();
+        let draws = drawer.batches(records, f, &poses, &place);
+        drawer.eye = eye;
+        Some(draws)
     }
 
     /// Run the effects the bodies about block `block` play to `now` (the client's running
@@ -1185,6 +1227,7 @@ impl Others {
                 continue;
             }
             let (at, heading) = ob.drawn(alpha);
+            let whole = ob.body.total_scale(None);
             let who = auberean_draw::effects::FxWho {
                 player: false,
                 night,
@@ -1200,7 +1243,7 @@ impl Others {
                 anims,
                 at,
                 heading,
-                b.scale,
+                Vec3::new(whole.x, whole.y, whole.z),
                 light,
                 now,
                 who,
@@ -1238,6 +1281,11 @@ impl Others {
     }
 
     /// The effects body `id` plays, when it has any.
+    pub(crate) fn effects_of(&self, id: u64) -> Option<&crate::fx::BodyFx> {
+        self.bodies.get(&id)?.effects.as_ref()
+    }
+
+    /// The effects body `id` plays, when it has any.
     pub(crate) fn effects_mut(&mut self, id: u64) -> Option<&mut crate::fx::BodyFx> {
         self.bodies.get_mut(&id)?.effects.as_mut()
     }
@@ -1259,6 +1307,41 @@ impl Others {
         }
     }
 
+    /// The bodies standing outdoors within the detailed blocks around the viewer (block `block`)
+    /// whose objects cast on the land, as they print on the sun's shadow map now.
+    // D2-03691, D2-06218
+    pub fn land_casters(
+        &self,
+        records: &WorldRecords,
+        anims: &CachedRecords<'_>,
+        drawer: &mut BodyDrawer,
+        world: &World,
+        block: (i32, i32),
+        alpha: f32,
+    ) -> Vec<ObjectBatch> {
+        use auberean_physics::world::graphics;
+        #[allow(clippy::cast_precision_loss)]
+        let (ox, oy) = (block.0 as f32 * BLOCK_LENGTH, block.1 as f32 * BLOCK_LENGTH);
+        let mut out = Vec::new();
+        for b in self.bodies.values() {
+            let (Some(f), Some(ob), Some(k)) = (&b.figure, &b.body, b.key) else {
+                continue;
+            };
+            let cell = ob.body.position.cell.0;
+            if !ob.in_world()
+                || !in_detail(cell, block)
+                || crate::is_interior(cell)
+                || ob.body.is_no_draw()
+                || !world.graphics_state(k, graphics::LANDSCAPE_SHADOW)
+            {
+                continue;
+            }
+            let place = drawn_place(ob, alpha, (ox, oy)).0;
+            out.extend(drawer.land_caster_batches(records, f, &f.pose(anims), &place));
+        }
+        out
+    }
+
     /// The lights the effects of the bodies in the world within the detailed blocks around the
     /// viewer (block `block`) placed on them, as they stand `now` with each body where it is
     /// drawn (`alpha` of the way between its last two ticks): each with the block its place is in.
@@ -1277,7 +1360,8 @@ impl Others {
                 continue;
             }
             let (at, heading) = ob.drawn(alpha);
-            out.extend(fx.lights(at, heading, ob.body.position.cell.0, now));
+            let opacity = b.figure.as_ref().map_or(1.0, |f| f.sliders.opacity());
+            out.extend(fx.lights(at, heading, ob.body.position.cell.0, now, opacity));
         }
         out
     }
@@ -1456,6 +1540,26 @@ pub(crate) fn ethereality(w: &WeenieDesc) -> auberean_physics::solid::Etherealit
             .map(|i| w.numbers[i])
     };
     auberean_physics::solid::Ethereality::of_numbers(number)
+}
+
+/// Where a body is drawn between its last two ticks, at its whole scale, in the frame of the block
+/// whose corner is at `(ox, oy)`: its place, where it stands and its heading.
+fn drawn_place(ob: &OtherBody, alpha: f32, (ox, oy): (f32, f32)) -> (Mat4, Vec3, f32) {
+    let (at, heading) = ob.drawn(alpha);
+    let rel = Vec3::new(at.x - ox, at.y - oy, at.z);
+    let rot = auberean_physics::body::heading_rotation(heading);
+    let s = ob.body.total_scale(None);
+    let place = Mat4::from_parts(
+        rel,
+        Quat {
+            w: rot.w,
+            x: rot.x,
+            y: rot.y,
+            z: rot.z,
+        },
+        Vec3::new(s.x, s.y, s.z),
+    );
+    (place, rel, heading)
 }
 
 /// Entry `key` takes the properties of the entity record `desc` its object is made from (an

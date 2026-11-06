@@ -672,9 +672,10 @@ fn fs_water(in: FullscreenOut) -> @location(0) vec4<f32> {
                 }
             }
         }
-    } else if (reach < t && sample.z > level + 0.3) {
-        // Something stands in front of the water there, above it: the pixel shows it. The bank's
-        // lip sits right at the surface, so only what stands clearly above the water counts.
+    } else if (reach < t && sample.z > level + 0.02 + reach * 0.001) {
+        // Something stands in front of the water there, above it: the pixel shows it. Only what
+        // touches the surface, as far as the pixel can tell, is left to the water: with the eye
+        // just over the water, anything wider would mirror the sky across what stands in it.
         discard;
     }
     let s = eye + dir * t;

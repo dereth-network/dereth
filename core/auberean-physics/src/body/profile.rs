@@ -155,8 +155,7 @@ impl Body {
         self.object_scale = s;
         if self.has_physics_tree() {
             let t = self.total_scale(None);
-            let even = (t.x - t.y).abs() < 0.0002 && (t.x - t.z).abs() < 0.0002;
-            self.put(flags::NON_UNIFORM_SCALE, !even);
+            self.put(flags::NON_UNIFORM_SCALE, crate::object::uneven(t));
         }
     }
 

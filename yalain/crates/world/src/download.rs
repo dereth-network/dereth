@@ -20,6 +20,7 @@ use std::io::Write as _;
 use auberean_dat::{DatFile, DatKind, RecordType};
 use auberean_protocol::login::{DataRecord, DataRefused, DataRequest};
 use auberean_protocol::{queue, ServerMessage};
+use dereth_primitives::DataId;
 use yalain_net::{BlobKind, ConnId, LocalTime, ServerNet};
 use yalain_store::Store;
 
@@ -121,6 +122,11 @@ pub trait DataFiles: std::fmt::Debug {
 
     /// The records of [`PREPARED_FROM`] or longer.
     fn very_long(&self) -> Vec<(DatKind, u32)>;
+
+    /// Whether a world's overlay holds a word on this record, which a reload may change.
+    fn overlaid(&self, _file: DatKind, _id: u32) -> bool {
+        false
+    }
 }
 
 /// Records held in memory, by file and id.
@@ -145,15 +151,20 @@ pub struct InstallFiles {
     pub english: Option<DatFile>,
 }
 
-impl DataFiles for InstallFiles {
-    fn read(&self, file: DatKind, id: u32) -> Option<Vec<u8>> {
-        let dat = match file {
+impl InstallFiles {
+    const fn of(&self, file: DatKind) -> Option<&DatFile> {
+        match file {
             DatKind::Portal => self.portal.as_ref(),
             DatKind::Cell => self.cell.as_ref(),
             DatKind::Local => self.english.as_ref(),
             DatKind::None => None,
-        }?;
-        dat.read(id).ok()
+        }
+    }
+}
+
+impl DataFiles for InstallFiles {
+    fn read(&self, file: DatKind, id: u32) -> Option<Vec<u8>> {
+        self.of(file)?.read(id).ok()
     }
 
     fn very_long(&self) -> Vec<(DatKind, u32)> {
@@ -170,6 +181,12 @@ impl DataFiles for InstallFiles {
                 .map(move |e| (kind, e.id))
         })
         .collect()
+    }
+
+    fn overlaid(&self, file: DatKind, id: u32) -> bool {
+        self.of(file)
+            .and_then(|dat| dat.shared().layer())
+            .is_some_and(|layer| layer.touches(DataId(id)))
     }
 }
 
@@ -268,12 +285,16 @@ pub fn answer<S: Store>(
     }
 }
 
-/// Compress the [`PREPARED_FROM`] records now, before the world runs.
+/// Compress the [`PREPARED_FROM`] records now, before the world runs. What a world's overlay holds
+/// isn't kept: a reload may change it.
 pub fn prepare<S: Store>(s: &mut Server<S>) {
     let Some(files) = s.data.as_deref() else {
         return;
     };
     for (file, id) in files.very_long() {
+        if files.overlaid(file, id) {
+            continue;
+        }
         if let Some(record) = files.read(file, id) {
             let p = packed(0, 0, id, &record);
             s.downloads.prepared.insert((file, id), (p.size, p.bytes));
@@ -317,7 +338,8 @@ fn record_answer<S: Store>(
     kind: u32,
     id: u32,
 ) -> Option<DataRecord> {
-    if let Some((size, bytes)) = s.downloads.prepared.get(&(file, id)) {
+    let overlaid = s.data.as_deref().is_some_and(|f| f.overlaid(file, id));
+    if let Some((size, bytes)) = s.downloads.prepared.get(&(file, id)).filter(|_| !overlaid) {
         let (size, bytes) = (*size, bytes.clone());
         s.downloads.spend(conn, 0);
         return Some(DataRecord {

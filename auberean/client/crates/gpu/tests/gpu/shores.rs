@@ -31,6 +31,7 @@ const CAMERA: Camera = Camera {
     fov_y: 60.0,
     near: 0.1,
     far: 500.0,
+    roll: 0.0,
     orthographic: None,
 };
 

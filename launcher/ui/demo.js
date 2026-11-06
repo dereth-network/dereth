@@ -27,7 +27,7 @@
     .map(([role, file_name]) => ({ role, file_name, size: 512 * 1048576, modified: 0, read_only: false, iterations: it[role] }));
 
   // The client's era table, as the backend sends it.
-  const NAMES = ["ratings", "consolidated_weapon_skills", "item_spell_auras", "assessed_armor_and_ratings", "swear_to_lower_level", "pre_order_items_and_rares", "dual_wield", "weapon_masteries", "innate_augmentations", "aetheria", "luminance", "contracts", "titles", "cloaks", "trinkets", "journal", "trade", "housing", "apartments", "tinkering", "cantrips", "spell_research", "chess", "swear_xp_cost", "lifestone_protection", "creation_credit_carry_over", "skill_alteration", "augmentations", "pk_lite", "marketplace_recall", "endurance_benefits", "lifestone_recall", "pk_arena_recalls", "player_corpse_hour_minimum", "component_burn_skill_discount", "war_and_life_projectile_criticals", "war_magic_skill_damage_bonus", "transfer_overflow_reduces_source", "item_enchantment_redirection", "spell_tabs", "fellowship_options", "corpse_permissions", "corpse_location_notices", "chat_log", "corpse_command", "allegiance_messages", "allegiance_oath_confirmation", "allegiance_boot", "appraisal_without_skills", "trade_notes_cash_anywhere", "allegiance_officers_and_bans", "allegiance_name", "fellowship_share_loot", "fellowship_auto_accept", "fellowship_open", "allegiance_chat", "creation_skill_bonus_as_experience", "global_chat_rooms", "spell_charge", "spell_economy"];
+  const NAMES = ["ratings", "consolidated_weapon_skills", "item_spell_auras", "assessed_armor_and_ratings", "swear_to_lower_level", "pre_order_items_and_rares", "dual_wield", "weapon_masteries", "innate_augmentations", "aetheria", "luminance", "contracts", "titles", "cloaks", "trinkets", "journal", "trade", "housing", "apartments", "tinkering", "cantrips", "spell_research", "chess", "swear_xp_cost", "lifestone_protection", "creation_credit_carry_over", "skill_alteration", "augmentations", "pk_lite", "marketplace_recall", "endurance_benefits", "lifestone_recall", "pk_arena_recalls", "player_corpse_hour_minimum", "component_burn_skill_discount", "war_and_life_projectile_criticals", "war_magic_skill_damage_bonus", "transfer_overflow_reduces_source", "item_enchantment_redirection", "spell_tabs", "fellowship_options", "corpse_permissions", "corpse_location_notices", "chat_log", "corpse_command", "allegiance_messages", "allegiance_oath_confirmation", "allegiance_boot", "appraisal_without_skills", "trade_notes_cash_anywhere", "allegiance_officers_and_bans", "allegiance_name", "fellowship_share_loot", "fellowship_auto_accept", "fellowship_open", "allegiance_chat", "creation_skill_bonus_as_experience", "global_chat_rooms", "spell_charge", "spell_economy", "allegiance_titles_and_lock", "allegiance_house_commands"];
   const SECOND = NAMES.slice(24);
   const table = (on) => Object.fromEntries(NAMES.map((n) => [n, on(n)]));
   const eras = [
@@ -287,7 +287,7 @@
   // A Lyceum world as the backend lists it.
   const lyWorld = (path, home, extra = {}) => ({ path, home, key: path.split("\\").slice(-2, -1)[0], era: "eor", saved: Math.floor(Date.now() / 1000) - 3 * 86400, outdated: false, facts: null, ...extra });
   // The ACE world each era's world database is made from, as Get world database records it.
-  const BASES = { eor: { era: "eor", version: "v0.9.295" }, infiltration: { era: "infiltration", version: "v0.8.8" } };
+  const BASES = { eor: { era: "eor", version: "v0.9.295" }, infiltration: { era: "infiltration", version: "v0.8.8" }, launch: { era: "launch", version: "v0.1.0" } };
   const offerOf = (c) => c.checkout || !c.latest ? { kind: "none" } : !c.installed ? { kind: "download", version: c.latest } : c.installed.version !== c.latest ? { kind: "update", version: c.latest } : { kind: "none" };
   // Auberean's realm, as the backend shows it.
   const AC2_CHECK = {
@@ -393,9 +393,9 @@
       const needs = eras.find((e) => e.name === settings.era)?.needs ?? "modern";
       if (h.plays.dat_overlay && (settings.era !== h.settings.era || settings.dats !== h.settings.dats)) { h.message = "The Lyceum world this world plays was built for its era and game data, so those stay as they are."; return; }
       if (settings.federation?.enabled && !h.plays.network_key) { h.message = "Save the world's key before linking it to the Dereth Network."; return; }
-      if (!state.dat_sets.some((s) => s.path === settings.dats && s.kind === needs)) { h.message = needs === "classic" ? "Infiltration (February 2005) is drawn on the land from before Throne of Destiny: choose Classic data files (portal.dat and cell.dat) for it." : "End of Retail plays the Modern data files (client_portal.dat and the rest): choose those for it."; return; }
+      if (!state.dat_sets.some((s) => s.path === settings.dats && s.kind === needs)) { h.message = needs === "original" ? "Launch (1999, experimental) is drawn from the 1999 data files: choose a folder whose portal.dat and cell.dat are from 1999." : needs === "classic" ? "Infiltration (February 2005) is drawn on the land from before Throne of Destiny: choose Classic data files (portal.dat and cell.dat) for it." : "End of Retail plays the Modern data files (client_portal.dat and the rest): choose those for it."; return; }
       if (settings.era !== h.settings.era && h.plays.database === "era") {
-        h.plays.pack = settings.era === "infiltration" ? "world.pack.infiltration" : "world.pack";
+        h.plays.pack = { infiltration: "world.pack.infiltration", launch: "world.pack.launch" }[settings.era] ?? "world.pack";
         h.plays.base = h.plays.era_bases.find((b) => b.era === settings.era) ?? null;
         h.prepared = !!h.plays.base;
       }

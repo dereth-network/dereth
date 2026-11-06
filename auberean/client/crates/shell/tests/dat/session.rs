@@ -722,6 +722,55 @@ fn an_effect_asked_out_of_sight_plays_at_once() {
     assert!(unseen, "playing while the world is out of sight");
 }
 
+/// An effect asked again while it still plays does not start its camera part again: the camera
+/// keeps the one track it started.
+///
+/// Behaviour: desktop.camera.an-effect-asked-again-does-not-start-its-camera-part-again
+#[test]
+fn an_effect_asked_again_does_not_start_its_camera_part_again() {
+    use auberean_client_sdk::protocol::physics::{Fx, ObjectEvent};
+    const HELD: u32 = 0x4100_0612;
+    let ask = |at: f64| {
+        (
+            at,
+            ServerMessage::DoFx(ObjectEvent {
+                sender: ObjectStamp {
+                    id: PLAYER,
+                    instance_stamp: 1,
+                    other_stamp: 0,
+                },
+                action: Fx {
+                    fx: HELD,
+                    scalar: 1.0,
+                },
+            }),
+        )
+    };
+    let later = [ask(3.0), ask(3.2)];
+    let script = script_until(HALL_CELL, HALL_AT, Quat::IDENTITY, &[], &later, 40.0);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    let (mut most, mut playing_at) = (0, None);
+    while s.host.time < 6.0 {
+        step(&mut s);
+        most = most.max(s.scene.camera.effects.tracks.len());
+        if playing_at.is_none() && s.scene.player_effects().iter().any(|(fx, _)| *fx == HELD) {
+            playing_at = Some(s.host.time);
+        }
+    }
+    assert!(playing_at.is_some(), "the effect plays");
+    assert_eq!(most, 1, "one track, started once");
+}
+
 /// An interface that takes every key.
 struct TakesKeys(DevLogin);
 
@@ -1684,6 +1733,71 @@ fn figures_animate_a_thirtieth_of_a_second_apart_at_any_frame_rate() {
     );
 }
 
+/// A body whose animation is frozen, as it is through a portal, plays no behavior and takes no
+/// mode, and neither waits for the thaw.
+///
+/// Behaviour: desktop.bodies.a-frozen-body-drops-behaviors-and-modes
+#[test]
+fn a_frozen_body_drops_behaviors_and_modes() {
+    use auberean_client_sdk::runtime::host::Behavior;
+    use auberean_client_sdk::script::native_object::BehaviorParams;
+    use auberean_physics::body::JUMP_BEHAVIOR;
+    const CROUCH: u32 = 0x4000_0013;
+    let server = ServerDouble::new(script(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell(Box::new(DevLogin::new(
+        server,
+        "tester".into(),
+        "t".into(),
+        Some("tester".into()),
+    )));
+    while s.host.time < 8.0 {
+        step(&mut s);
+    }
+    let player = s
+        .client
+        .as_ref()
+        .and_then(|c| c.model.player)
+        .expect("the player");
+    let doing = |s: &Shell<'_, DoubleHost>| {
+        s.scene
+            .player_figure()
+            .expect("the figure")
+            .is_doing_behavior(JUMP_BEHAVIOR)
+    };
+    let play = |s: &mut Shell<'_, DoubleHost>| {
+        s.scene.carry_out_behavior(&Behavior::Play {
+            object: player,
+            params: BehaviorParams {
+                behavior: JUMP_BEHAVIOR,
+                ..BehaviorParams::default()
+            },
+        });
+    };
+    let mode_before = s.scene.player_figure().expect("the figure").mode;
+    s.scene
+        .body_mut(player)
+        .expect("its body")
+        .set_animation_frozen(true);
+    play(&mut s);
+    assert!(s.scene.player_do_mode(CROUCH), "answered as if taken");
+    assert!(!doing(&s), "frozen, the behavior does not start");
+    assert_eq!(
+        s.scene.player_figure().expect("the figure").mode,
+        mode_before,
+        "nor the mode"
+    );
+    s.scene
+        .body_mut(player)
+        .expect("its body")
+        .set_animation_frozen(false);
+    for _ in 0..4 {
+        step(&mut s);
+        assert!(!doing(&s), "thawed, nothing was kept for it");
+    }
+    play(&mut s);
+    assert!(doing(&s), "thawed, a new one plays");
+}
+
 /// A behavior asked with its actions locked holds the player's own movement while it plays: forward
 /// held does not move the body until the behavior is over, then it does.
 ///
@@ -2597,6 +2711,23 @@ fn the_bodies_effects_place_lights_among_the_frames() {
         "at the human: {:?}",
         l.origin
     );
+    let (whole, set_opacity) = (l.intensity, |s: &mut Shell<'_, DoubleHost>, o: f32| {
+        s.scene
+            .figure_mut(OTHER)
+            .expect("its figure")
+            .sliders
+            .do_slider(0, 0x4000_0015, o, 0.0);
+    });
+    set_opacity(&mut s, 0.25);
+    for _ in 0..3 {
+        step(&mut s);
+    }
+    let faded = colored(&s, 0.498)[0].intensity;
+    assert!(
+        (faded - whole * 0.25).abs() < whole * 0.05,
+        "as the body fades: {faded} of {whole}"
+    );
+    set_opacity(&mut s, 1.0);
     s.scene.do_fx(PLAYER, WHITE, 1.0);
     for _ in 0..3 {
         step(&mut s);
@@ -3924,6 +4055,433 @@ fn an_aimed_effect_acts_on_its_target() {
     );
 }
 
+/// An object held by a body is drawn from where the holder is drawn, between its ticks, at a scale
+/// the holder's whole scale and child scale give it. One told to fade with no delay goes at once.
+/// Fixture: the look whose startup effects make two held objects, made beside the player; then the
+/// player running while an effect has it hold another.
+///
+/// Behaviour: desktop.bodies.what-a-body-holds-is-drawn-with-it
+#[test]
+fn what_a_body_holds_is_drawn_with_it() {
+    use auberean_client_sdk::protocol::physics::{Fx, ObjectEvent};
+    const CELL: u32 = 0xC156_0035;
+    const OBJECT: u64 = 0x8130_1B05_CC00_0191;
+    const MAKES_TWO: u32 = 0x1F00_0CBE;
+    const MAKES_BLADES: u32 = 0x8100_0366;
+    let object = CreateObject {
+        id: OBJECT,
+        visual: VisualDesc {
+            bits: VisualDesc::DID,
+            did: MAKES_TWO,
+            ..VisualDesc::default()
+        },
+        physics: PhysicsDesc {
+            bits: PhysicsDesc::POSITION,
+            instance_stamp: 1,
+            visual_ordering_stamp: 1,
+            position: Placement {
+                cell: CELL,
+                frame: Frame {
+                    origin: Vec3 {
+                        x: 126.0,
+                        y: 92.0,
+                        z: 80.0,
+                    },
+                    rotation: Quat::IDENTITY,
+                },
+            },
+            ..PhysicsDesc::default()
+        },
+        ..CreateObject::default()
+    };
+    let at = Vec3 {
+        x: 122.842,
+        y: 89.758,
+        z: 80.0,
+    };
+    let later = [(
+        22.0,
+        ServerMessage::DoFx(ObjectEvent {
+            sender: ObjectStamp {
+                id: PLAYER,
+                instance_stamp: 1,
+                other_stamp: 0,
+            },
+            action: Fx {
+                fx: MAKES_BLADES,
+                scalar: 1.0,
+            },
+        }),
+    )];
+    let script = script_until(CELL, at, Quat::IDENTITY, &[object], &later, 40.0);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    while s.host.time < 14.0 {
+        step(&mut s);
+    }
+    let held = s.scene.made_objects();
+    assert_eq!(held.len(), 2, "the object holds its two");
+    let first = held[0];
+
+    // Scale: the holder's whole scale reaches what it holds.
+    s.scene
+        .body_mut(OBJECT)
+        .expect("the holder")
+        .set_scale_vector(dereth_primitives::Vec3::new(2.0, 2.0, 2.0));
+    let holder = s.scene.body(OBJECT).expect("the holder");
+    let given = (holder.total_scale(None), holder.child_scale);
+    let own = s.scene.body(first).expect("what it holds");
+    let (alone, wanted) = (own.total_scale(None), own.total_scale(Some(given)));
+    assert!((wanted.x - alone.x).abs() > 0.1, "{wanted:?} {alone:?}");
+    let (_, _, scale) = s
+        .scene
+        .temporaries_placed(0.5, true)
+        .into_iter()
+        .find(|(id, _, _)| *id == first)
+        .expect("it is drawn");
+    assert!((scale.x - wanted.x).abs() < 1e-4, "{scale:?} {wanted:?}");
+
+    // Fading with no delay, it goes at once.
+    s.scene
+        .body_mut(first)
+        .expect("what it holds")
+        .delete_self(0.5, 0.0);
+    let start = s.host.time;
+    while s.scene.made_objects().contains(&first) && s.host.time < start + 2.0 {
+        step(&mut s);
+    }
+    assert!(
+        s.host.time - start < 0.1,
+        "gone after {} s",
+        s.host.time - start
+    );
+
+    // Place: what the running player holds moves between the player's ticks.
+    s.event(&Event::Key {
+        key: Key::W,
+        down: true,
+        repeat: false,
+    });
+    let mut between = false;
+    while s.host.time < 22.0 {
+        step(&mut s);
+        let at = |s: &Shell<_>, alpha: f32| {
+            s.scene
+                .temporaries_placed(alpha, true)
+                .into_iter()
+                .find(|(id, _, _)| *id != held[1])
+                .map(|(_, p, _)| p.frame.origin)
+        };
+        if let (Some(a), Some(b)) = (at(&s, 0.0), at(&s, 1.0)) {
+            between |= (a.x - b.x).abs() + (a.y - b.y).abs() > 0.05;
+        }
+    }
+    assert!(between, "what it holds is drawn between its ticks");
+}
+
+/// An object the server made prints on the sun's shadow map, where it stands, once the light ticks
+/// after its drawing properties say it casts on the land, and not otherwise. Fixture: a server
+/// double making a man beside the player at the camp, the property set on his entry in the world.
+///
+/// Behaviour: desktop.world.a-server-object-that-says-so-casts-on-the-land
+#[test]
+fn a_server_object_that_says_so_casts_on_the_land() {
+    use auberean_physics::world::graphics;
+    const CELL: u32 = 0xC156_0035;
+    const OBJECT: u64 = 0x8130_1B05_CC00_0191;
+    let printed = |casts: bool| {
+        let object = CreateObject {
+            id: OBJECT,
+            visual: VisualDesc {
+                bits: VisualDesc::DID,
+                did: HUMAN_MALE,
+                ..VisualDesc::default()
+            },
+            physics: PhysicsDesc {
+                bits: PhysicsDesc::POSITION,
+                instance_stamp: 1,
+                visual_ordering_stamp: 1,
+                position: Placement {
+                    cell: CELL,
+                    frame: Frame {
+                        origin: Vec3 {
+                            x: 126.0,
+                            y: 92.0,
+                            z: 80.0,
+                        },
+                        rotation: Quat::IDENTITY,
+                    },
+                },
+                ..PhysicsDesc::default()
+            },
+            ..CreateObject::default()
+        };
+        let at = Vec3 {
+            x: 122.842,
+            y: 89.758,
+            z: 80.0,
+        };
+        let script = script_until(CELL, at, Quat::IDENTITY, &[object], &[], 200.0);
+        let server =
+            ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+        let mut s = shell_with(
+            script,
+            Box::new(DevLogin::new(
+                server,
+                "tester".into(),
+                "t".into(),
+                Some("tester".into()),
+            )),
+        );
+        let mut set = false;
+        let mut seen = 0;
+        while s.host.time < 120.0 {
+            step(&mut s);
+            if !set {
+                if let Some(k) = s.scene.table().find(OBJECT) {
+                    set = true;
+                    s.scene
+                        .table_mut()
+                        .set_graphics_state(k, graphics::LANDSCAPE_SHADOW, casts);
+                }
+            }
+            let now = s.host.time;
+            if let Some(map) = s.scene.frame(now).and_then(|f| f.shadow.as_ref()) {
+                let here = map.casters.iter().filter(|c| {
+                    let o = c.transform.point(auberean_primitives::Vec3::ZERO);
+                    (o.x - 126.0).abs() < 0.01 && (o.y - 92.0).abs() < 0.01
+                });
+                seen = seen.max(here.count());
+            }
+        }
+        assert!(set, "he stands in the world");
+        seen
+    };
+    assert_eq!(printed(false), 0, "he does not say so");
+    assert!(printed(true) > 0, "he says so");
+}
+
+/// An object whose look's startup effects make objects has them as it arrives, each hanging from it
+/// at its holding location; one whose look's do not has none. Fixture: a server double making the
+/// object beside the player in the hall.
+///
+/// Behaviour: desktop.bodies.an-objects-startup-effects-make-their-objects
+#[test]
+fn an_objects_startup_effects_make_their_objects() {
+    const CELL: u32 = 0x0298_0121;
+    const OBJECT: u64 = 0x8130_1B05_CC00_0191;
+    const MAKES_TWO: u32 = 0x1F00_0CBE;
+    let made_for = |look: u32| {
+        let object = CreateObject {
+            id: OBJECT,
+            visual: VisualDesc {
+                bits: VisualDesc::DID,
+                did: look,
+                ..VisualDesc::default()
+            },
+            physics: PhysicsDesc {
+                bits: PhysicsDesc::POSITION,
+                instance_stamp: 1,
+                visual_ordering_stamp: 1,
+                position: Placement {
+                    cell: CELL,
+                    frame: Frame {
+                        origin: Vec3 {
+                            x: -3.9,
+                            y: 337.5,
+                            z: -44.7,
+                        },
+                        rotation: Quat::IDENTITY,
+                    },
+                },
+                ..PhysicsDesc::default()
+            },
+            ..CreateObject::default()
+        };
+        let at = Vec3 {
+            x: 2.0,
+            y: 330.0,
+            z: -43.76,
+        };
+        let script = script_until(CELL, at, Quat::IDENTITY, &[object], &[], 40.0);
+        let server =
+            ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+        let mut s = shell_with(
+            script,
+            Box::new(DevLogin::new(
+                server,
+                "tester".into(),
+                "t".into(),
+                Some("tester".into()),
+            )),
+        );
+        while s.host.time < 14.0 {
+            step(&mut s);
+        }
+        let made = s.scene.made_objects();
+        let held = made
+            .iter()
+            .filter(|m| s.scene.body(**m).is_some_and(|b| b.has_parent))
+            .count();
+        (made.len(), held)
+    };
+    assert_eq!(made_for(HUMAN_MALE), (0, 0), "this look makes none");
+    assert_eq!(
+        made_for(MAKES_TWO),
+        (2, 2),
+        "this one makes two and holds them"
+    );
+}
+
+/// A behavior that names a target and a look to clone gives them to the effects its animation sets
+/// off: putting an item down, the player's effects hide the item and take a clone of it in hand. The
+/// clone has never stood in the world, so the entry that lets go of what it holds leaves it held.
+/// As the effect ends the item shows again, its marks having stayed, and the clone fades out in the
+/// hand and goes three seconds later. Fixture: the human figure in the hall's cell
+/// standing in for the item, a server double asking the player's body for the behavior at a set
+/// time.
+///
+/// Behaviour: desktop.bodies.a-behaviors-target-and-clone-go-to-its-effects
+#[test]
+fn a_behaviors_target_and_clone_go_to_its_effects() {
+    use auberean_client_sdk::protocol::physics::ObjectEvent;
+    use auberean_client_sdk::protocol::types::BehaviorParams;
+    const DRUDGES_CELL: u32 = 0x0298_0121;
+    const ITEM: u64 = 0x8130_1B05_CC00_0191;
+    const ITEM_LOOK: u32 = 0x1F00_0069;
+    const PUTTING_DOWN: u32 = 0x4100_0021;
+    const PUT_DOWN_SCRIPT: u32 = 0x5700_0005;
+    let item = CreateObject {
+        id: ITEM,
+        visual: VisualDesc {
+            bits: VisualDesc::DID,
+            did: HUMAN_MALE,
+            ..VisualDesc::default()
+        },
+        physics: PhysicsDesc {
+            bits: PhysicsDesc::POSITION,
+            instance_stamp: 1,
+            visual_ordering_stamp: 1,
+            position: Placement {
+                cell: DRUDGES_CELL,
+                frame: Frame {
+                    origin: Vec3 {
+                        x: -3.9,
+                        y: 337.5,
+                        z: -44.7,
+                    },
+                    rotation: Quat::IDENTITY,
+                },
+            },
+            ..PhysicsDesc::default()
+        },
+        ..CreateObject::default()
+    };
+    let at = Vec3 {
+        x: 2.0,
+        y: 330.0,
+        z: -43.76,
+    };
+    let later = [(
+        9.0,
+        ServerMessage::PlayBehavior(ObjectEvent {
+            sender: ObjectStamp {
+                id: PLAYER,
+                instance_stamp: 1,
+                other_stamp: 0,
+            },
+            action: BehaviorParams {
+                bits: BehaviorParams::BEHAVIOR
+                    | BehaviorParams::FX_SCRIPT
+                    | BehaviorParams::TARGET
+                    | BehaviorParams::CLONE,
+                behavior: PUTTING_DOWN,
+                fx_script: PUT_DOWN_SCRIPT,
+                target: ITEM,
+                clone_visual: ITEM_LOOK,
+                ..BehaviorParams::default()
+            },
+        }),
+    )];
+    let script = script_until(DRUDGES_CELL, at, Quat::IDENTITY, &[item], &later, 40.0);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    let (mut hid, mut held, mut clone) = (false, false, None);
+    let mut marked = true;
+    let mut let_go = false;
+    let (mut faded_from, mut faded_out) = (None, None);
+    let mut gone_at = None;
+    while s.host.time < 34.0 {
+        step(&mut s);
+        let hidden = s.scene.body(ITEM).is_some_and(|b| b.is_no_draw());
+        hid |= hidden;
+        if hidden {
+            marked &= s.scene.seen.body(ITEM).is_some_and(|b| b.bounds.is_some());
+        }
+        if clone.is_none() {
+            clone = s.scene.made_objects().first().copied();
+        }
+        let Some(m) = clone else { continue };
+        if !s.scene.made_objects().contains(&m) {
+            gone_at = gone_at.or(Some(s.host.time));
+            if !hidden {
+                break;
+            }
+            continue;
+        }
+        let b = s.scene.body(m);
+        held |= b.is_some_and(|b| b.has_parent);
+        let_go |= held && b.is_some_and(|b| !b.has_parent || b.in_world);
+        let opacity = s.scene.temporary_opacity(m).unwrap_or(1.0);
+        if opacity < 1.0 {
+            faded_from = faded_from.or(Some(s.host.time));
+        }
+        if opacity <= 0.01 {
+            faded_out = faded_out.or(Some(s.host.time));
+        }
+    }
+    assert!(hid, "the behavior's effects hide the item");
+    assert!(clone.is_some(), "they make a clone of it");
+    assert!(held, "and take the clone up");
+    assert!(!let_go, "it stays in the hand");
+    assert!(marked, "what marks the item stays while it is hidden");
+    let from = faded_from.expect("it fades out");
+    let out = faded_out.expect("all the way");
+    assert!(
+        (0.3..=0.7).contains(&(out - from)),
+        "over half a second: {}",
+        out - from
+    );
+    let gone = gone_at.expect("the clone goes");
+    assert!(
+        (2.5..=3.5).contains(&(gone - from)),
+        "three seconds later: {}",
+        gone - from
+    );
+    assert!(
+        !s.scene.body(ITEM).expect("its body").is_no_draw(),
+        "and the item shows again"
+    );
+}
+
 /// An effect that makes an object and names a behavior: the object hangs from the player at the
 /// entry's holding location, is hidden at once as its behavior ends, and goes three seconds later,
 /// past the effect's own second. Fixture: a server double asking the player's body for the effect
@@ -4725,21 +5283,27 @@ fn an_effects_decal_is_laid_where_its_object_stands() {
         .flat_map(|m| draw_layers(&m, DEVICE_FLAGS))
         .collect();
     let drawn_with = |cell: u32, at: Vec3, asked: bool| {
-        let later = [(
-            9.0,
-            ServerMessage::DoTargetedFx(ObjectEvent {
-                sender: ObjectStamp {
-                    id: PLAYER,
-                    instance_stamp: 1,
-                    other_stamp: 0,
-                },
-                action: TargetedFx {
-                    fx: LAYS,
-                    scalar: 1.0,
-                    target: 0,
-                },
-            }),
-        )];
+        // Asked a few times: each is a random size, which may not reach the ground.
+        let later: Vec<_> = [9.0, 11.0, 13.0, 15.0]
+            .into_iter()
+            .map(|at| {
+                (
+                    at,
+                    ServerMessage::DoTargetedFx(ObjectEvent {
+                        sender: ObjectStamp {
+                            id: PLAYER,
+                            instance_stamp: 1,
+                            other_stamp: 0,
+                        },
+                        action: TargetedFx {
+                            fx: LAYS,
+                            scalar: 1.0,
+                            target: 0,
+                        },
+                    }),
+                )
+            })
+            .collect();
         let later: &[_] = if asked { &later } else { &[] };
         let script = script_until(cell, at, Quat::IDENTITY, &[], later, 40.0);
         let server =
@@ -4754,7 +5318,7 @@ fn an_effects_decal_is_laid_where_its_object_stands() {
             )),
         );
         let mut drawn = false;
-        while s.host.time < 14.0 {
+        while s.host.time < 20.0 {
             step(&mut s);
             let now = s.host.time;
             drawn |= s.scene.frame(now).is_some_and(|f| {
@@ -4774,14 +5338,7 @@ fn an_effects_decal_is_laid_where_its_object_stands() {
                 z: 80.0,
             },
         ),
-        (
-            0x0298_0121,
-            Vec3 {
-                x: 2.0,
-                y: 330.0,
-                z: -43.76,
-            },
-        ),
+        (HALL_CELL, HALL_AT),
     ] {
         assert!(
             !drawn_with(cell, at, false),
@@ -5744,6 +6301,144 @@ fn the_reports_carry_the_motion_a_move_ordered_asks() {
             "at {t:.2} ({o:?}) the report asks forward {forward:#04x}"
         );
     }
+}
+
+/// A run Q latched ends once a move the server ordered takes the body, so the body does not run
+/// on when the move is done.
+///
+/// Behaviour: desktop.controls.a-move-of-the-bodys-own-ends-the-latched-run
+#[test]
+fn a_move_ordered_ends_the_latched_run() {
+    use auberean_client_sdk::protocol::physics::{MoveOrder, ObjectEvent};
+    use auberean_client_sdk::protocol::types::{MoveTarget, MovementParams};
+    let order = ServerMessage::MoveTo(ObjectEvent {
+        sender: ObjectStamp {
+            id: PLAYER,
+            instance_stamp: 1,
+            other_stamp: 0,
+        },
+        action: MoveOrder {
+            params: MovementParams {
+                flags: MovementParams::MAX_SUCCESS | 0x2,
+                desired_velocity: 1.0,
+                fail_distance: f32::MAX,
+                desired_distance: 0.0,
+                max_success_distance: 0.2,
+                min_success_distance: 0.0,
+                target: MoveTarget::Place(Placement {
+                    cell: HALL_CELL,
+                    frame: Frame {
+                        origin: Vec3::new(HALL_AT.x, HALL_AT.y + 8.0, HALL_AT.z),
+                        rotation: Quat::IDENTITY,
+                    },
+                }),
+                offset: Vec3::ZERO,
+                offset_id: 0,
+                waypoints: Vec::new(),
+                context: 0,
+            },
+            stamp: 1,
+        },
+    });
+    // The double's clock runs a second ahead of the shell's: the order comes at 8 s.
+    let script = script_then(HALL_CELL, HALL_AT, Quat::IDENTITY, &[], &[(9.0, order)]);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    // The order reaches the body a little before 6 s.
+    while s.host.time < 5.0 {
+        step(&mut s);
+    }
+    assert_eq!(s.phase(), Phase::World);
+    assert!(!s.scene.player_moving_to());
+    for down in [true, false] {
+        s.event(&Event::Key {
+            key: Key::Q,
+            down,
+            repeat: false,
+        });
+    }
+    step(&mut s);
+    assert!(s.controls.autorun(), "Q latched the run");
+    while !s.scene.player_moving_to() {
+        assert!(s.controls.autorun(), "only the move ends the run");
+        assert!(s.host.time < 12.0, "the order never took the body");
+        step(&mut s);
+    }
+    step(&mut s);
+    assert!(!s.controls.autorun(), "the move ended the run");
+}
+
+/// A teleport ends a latched run, so the player does not run on from where it arrives. Fixture: a
+/// server double putting the player down again with a new teleport stamp at a set time.
+///
+/// Behaviour: desktop.controls.a-teleport-ends-the-latched-run
+#[test]
+fn a_teleport_ends_the_latched_run() {
+    let put = ServerMessage::Position(ObjectPosition {
+        sender: ObjectStamp {
+            id: PLAYER,
+            instance_stamp: 1,
+            other_stamp: 0,
+        },
+        time: 0.0,
+        cell: HALL_CELL,
+        origin: HALL_AT,
+        heading_motion: u32::from_be_bytes([0, 127, 127, 127]),
+        flags: 0,
+        position_stamp: 1,
+        force_position_stamp: 0,
+        teleport_stamp: 1,
+        velocity: Vec3::new(0.0, 0.0, 0.0),
+    });
+    let script = script_until(
+        HALL_CELL,
+        HALL_AT,
+        Quat::IDENTITY,
+        &[],
+        &[(12.0, put)],
+        30.0,
+    );
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    while s.host.time < 6.0 {
+        step(&mut s);
+    }
+    assert_eq!(s.phase(), Phase::World);
+    for down in [true, false] {
+        s.event(&Event::Key {
+            key: Key::Q,
+            down,
+            repeat: false,
+        });
+    }
+    step(&mut s);
+    assert!(s.controls.autorun(), "Q latched the run");
+    let stamp = |s: &Shell<'_, DoubleHost>| s.client.as_ref().map_or(0, |c| c.body.teleport_stamp);
+    while stamp(&s) == 0 {
+        assert!(s.controls.autorun(), "only the teleport ends the run");
+        assert!(s.host.time < 20.0, "the teleport never came");
+        step(&mut s);
+    }
+    step(&mut s);
+    assert!(!s.controls.autorun(), "the teleport ended the run");
 }
 
 /// The window losing the keyboard lets each action in force go as its key would: a strafe held

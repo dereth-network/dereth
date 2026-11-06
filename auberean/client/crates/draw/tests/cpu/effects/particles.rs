@@ -403,6 +403,60 @@ fn a_system_without_limits_runs_until_stopped() {
     assert!(approximate_lifetime(&desc(Vec::new(), 0.0)).abs() < 1e-6);
 }
 
+/// A system of its own draws at its place without the place's turn: on an object turned a quarter
+/// about the vertical, its particle 2 m along the emitter's x is still 2 m east of the place, and its
+/// quad as wide across the screen as on an object not turned.
+///
+/// Behaviour: draw.particles.a-system-of-its-own-draws-without-its-places-turn
+#[test]
+fn a_system_of_its_own_draws_without_its_places_turn() {
+    let e = Emitter {
+        origin: steady3(2.0, 0.0, 0.0),
+        ..emitter(1.0, 1, 1, 100.0, Vec::new())
+    };
+    let desc = Particles {
+        max_particles: 500,
+        scale_type: 2,
+        physics_time_step: 0.05,
+        start_fade_distance: 40.0,
+        stop_fade_distance: 60.0,
+        world_space: false,
+        emitters: vec![e],
+        ..Particles::default()
+    };
+    let at = Vec3::new(10.0, 0.0, 0.0);
+    let half = std::f32::consts::FRAC_1_SQRT_2;
+    let turned = Mat4::from_parts(
+        at,
+        auberean_primitives::Quat {
+            w: half,
+            x: 0.0,
+            y: 0.0,
+            z: half,
+        },
+        Vec3::new(1.0, 1.0, 1.0),
+    );
+    let quad_on = |place: Mat4| {
+        let mut s = ParticleSet::new(
+            desc.clone(),
+            vec![auberean_draw::material::draw_layer(
+                &auberean_assets::material::MaterialLayer::default(),
+            )],
+            place,
+            Vec3::new(1.0, 1.0, 1.0),
+            0.0,
+            &Random::new(),
+        );
+        run(&mut s, 40);
+        quads(&drawn(&s, 2.0))
+    };
+    let turned = quad_on(turned);
+    let plain = quad_on(Mat4::translation(at));
+    assert_eq!(turned.len(), 1);
+    assert_eq!(turned, plain);
+    assert!((turned[0].0[0] - 12.0).abs() < 1e-3, "{turned:?}");
+}
+
 /// A system whose particles live in the world starts its emitters' distance reckoning where it is
 /// first placed: placed 30 m from the origin, an emitter discharging every metre it moves
 /// discharges nothing until it moves, then a blast for each metre.

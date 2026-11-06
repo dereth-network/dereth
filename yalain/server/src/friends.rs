@@ -12,13 +12,13 @@
 //! shows the line that the friends list is out of reach (as it does for an account with no
 //! stream).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::{ErrorKind, Read as _, Write as _};
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream};
 use std::time::Duration;
 
 use yalain_federation::{Character, Federation, Room, Speaker};
-use yalain_friends::{Out, Service, StreamId};
+use yalain_friends::{Out, Service, StreamId, TicketCheck};
 use yalain_net::{ConnId, ServerNet};
 use yalain_store::Store;
 use yalain_world::admin::Ticket;
@@ -65,6 +65,8 @@ pub struct Friends {
     next: StreamId,
     /// Each account's character in the world, as last told to the service.
     in_world: HashMap<u64, u64>,
+    /// The tickets waiting their turn among the secrets the world checks.
+    tickets: VecDeque<TicketCheck>,
 }
 
 impl Friends {
@@ -99,6 +101,7 @@ impl Friends {
             carried_out: Vec::new(),
             next: 1,
             in_world: HashMap::new(),
+            tickets: VecDeque::new(),
         })
     }
 
@@ -188,12 +191,29 @@ impl Friends {
             f.set_too_new(yalain_world::saves::too_new_in_world(server));
         }
         busy |= self.read(now, &mut server.store, fed.as_deref_mut());
-        for t in self.service.take_tickets() {
+        self.tickets.extend(self.service.take_tickets());
+        while self.tickets.len() > yalain_world::login::MOST_LOGINS_WAITING {
+            if let Some(t) = self.tickets.pop_back() {
+                self.service.refuse(
+                    now,
+                    t.stream,
+                    t.cx,
+                    false,
+                    &mut server.store,
+                    fed.as_deref_mut(),
+                );
+            }
+        }
+        while yalain_world::login::secret_check_due(server) {
+            let Some(t) = self.tickets.pop_front() else {
+                break;
+            };
             // A banned account's ticket is refused as banned: the client says the account is.
             match yalain_world::admin::ticket(
                 server,
                 &t.ticket.account,
                 t.ticket.secret.as_bytes(),
+                &t.peer,
                 unix_now(),
             ) {
                 Ticket::Admitted(a) => self.service.admit(
@@ -597,12 +617,7 @@ fn character_named<S: Store>(server: &mut Server<S>, name: &str) -> Option<Chara
         .ok()
         .flatten()
         .filter(|c| c.deleted_at.is_none())?;
-    let account = server
-        .store
-        .accounts()
-        .ok()?
-        .into_iter()
-        .find(|a| a.id == c.account);
+    let account = server.store.account(c.account).ok()?;
     let banned =
         account.is_some_and(|a| yalain_world::admin::banned(&mut server.store, &a, unix_now()));
     // A gag holds whether or not the character is in the world.
@@ -1418,6 +1433,8 @@ mod tests {
         let attempt = |h: &mut Harness, f: &mut Friends, fed: &mut Federation| {
             f.pump(at(h), &mut h.server, &mut h.net, Some(fed));
             let t = h.now.0;
+            // Only the line counts: entering, it asks for its person view.
+            let _ = fed.take_frames(t);
             fed.room_said(&mut f.service, t, elara, "Elara", Room::General, "hi");
             let said = !fed.take_frames(t).is_empty();
             let m = SayMessage::Ask {

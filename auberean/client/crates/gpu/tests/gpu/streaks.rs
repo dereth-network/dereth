@@ -72,6 +72,7 @@ fn a_swung_streak_leaves_a_ribbon_of_light() {
         fov_y: 60.0,
         near: 0.05,
         far: 100.0,
+        roll: 0.0,
         orthographic: None,
     };
     let with = builder.parts_frame(&[], lit, camera, light, None);

@@ -33,10 +33,11 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::data;
+use auberean_dat::overlay::{WorldOverlay, WORLD_FOLDER};
 use yalain_world_db::compile::{compile, Tables};
 use yalain_world_db::install::DatInstall;
 use yalain_world_db::release::{self, PINNED_TAG, PINNED_ZIP_SHA256};
-use yalain_world_db::{check, layer, merge, report, rows, Files};
+use yalain_world_db::{check, layer, merge, report, rows, Files, Problem};
 
 /// Run `yalain world <command> ...`.
 ///
@@ -114,6 +115,59 @@ pub fn database_dir(arg: &str) -> Result<PathBuf, String> {
     }
 }
 
+/// The overlay of the world a `--world-db` argument names: the folder `given` (`--dat-overlay`), else
+/// `<folder>/overlay`, made for it by `athenaeum build`. A release of the database has none of its
+/// own, and neither has a world that changes no record.
+///
+/// # Errors
+/// The folder holds what isn't an overlay, or the overlay of another world.
+pub fn overlay_of(world_db: &str, given: Option<&Path>) -> Result<Option<WorldOverlay>, String> {
+    let dir = Path::new(world_db);
+    let folder = || {
+        given
+            .map_or_else(|| dir.join(WORLD_FOLDER), Path::to_path_buf)
+            .display()
+            .to_string()
+    };
+    let overlay = match given {
+        Some(g) => WorldOverlay::open(g).map(Some),
+        None if world_db == "pinned" => return Ok(None),
+        None => WorldOverlay::of_world(dir),
+    }
+    .map_err(|e| format!("{}: {e}", folder()))?;
+    let Some(overlay) = overlay else {
+        return Ok(None);
+    };
+    if world_db == "pinned" {
+        return Ok(Some(overlay));
+    }
+    if let Some(db) = rows::read_partly(&load(dir)?).0 {
+        if db.world.key != overlay.world() {
+            return Err(format!(
+                "{}: this overlay is world {}'s, and this is world {}: build it again",
+                folder(),
+                overlay.world(),
+                db.world.key
+            ));
+        }
+    }
+    Ok(Some(overlay))
+}
+
+/// What a world's clearings come to with no overlay: what the land grows stays, and the person who
+/// wrote them should know why.
+#[must_use]
+pub fn clearing_warning(merged: &merge::Merged, has_overlay: bool) -> Option<String> {
+    let clearings = merged
+        .rows
+        .iter()
+        .filter(|l| matches!(l.row, rows::Row::Clearing(_)))
+        .count();
+    (clearings > 0 && !has_overlay).then(|| {
+        format!("{clearings} clearings and no overlay: `athenaeum build` makes the world's overlay")
+    })
+}
+
 /// Does a world served from this argument use the release this build pins? `pinned` does; a folder
 /// does when it lies over a base with no version of its own and no `--world-base` in its place. One
 /// that does not read counts as using it: the server will refuse it anyway.
@@ -139,6 +193,9 @@ pub fn uses_the_pin(world_db: &str, world_base: Option<&Path>) -> bool {
 /// # Errors
 /// No cache folder, or the release not fetched yet.
 pub fn release_dir(tag: &str) -> Result<PathBuf, String> {
+    if release::parse_tag(tag).as_deref() != Some(tag) {
+        return Err(format!("{tag} is not a release of the world database"));
+    }
     let dir = cache_dir()?.join(tag);
     if dir.join("world.toml").is_file() {
         Ok(dir)
@@ -365,27 +422,53 @@ fn fetch_cmd(args: &[String]) -> Result<(), String> {
         }
     }
     let tag = tag.unwrap_or_else(|| PINNED_TAG.to_string());
-    let template = from
-        .or_else(|| {
-            std::env::var("YALAIN_WORLD_URL")
-                .ok()
-                .filter(|v| !v.is_empty())
-        })
-        .unwrap_or_else(|| release::DEFAULT_SOURCE.to_string());
+    let template = from.unwrap_or_else(usual_source);
     let dir = match dir {
         Some(d) => d,
         None => cache_dir()?,
     };
-    let dest = dir.join(&tag);
-    if dest.join("world.toml").is_file() {
+    fetch_release(&tag, sha, &template, &dir)
+}
+
+/// Where a release is read from unless told otherwise: the `YALAIN_WORLD_URL` variable, else the
+/// database's release downloads.
+fn usual_source() -> String {
+    std::env::var("YALAIN_WORLD_URL")
+        .ok()
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| release::DEFAULT_SOURCE.to_string())
+}
+
+/// The SHA-256 this build knows for the release `tag`: its pin's.
+fn known_sha256(tag: &str) -> Option<String> {
+    (tag == PINNED_TAG).then(|| PINNED_ZIP_SHA256.to_string())
+}
+
+/// Whether the folder `dest` holds a release: its world file, and when its SHA-256 is known, the
+/// very files of the archive with that SHA-256. A release of any other version is taken on trust.
+fn holds_release(dest: &Path, sha: Option<&str>) -> bool {
+    dest.join("world.toml").is_file()
+        && sha.is_none_or(|sha| {
+            release::unpacked(dest)
+                .and_then(|files| release::unpacked_sha256(&files))
+                .is_some_and(|actual| actual == sha)
+        })
+}
+
+/// Put the release `tag` in `dir`, one folder per tag, unless it is there: read from `template`,
+/// checked against `sha` (or the pin's, or the `.sha256` beside the archive), checked as a
+/// database, and moved into place whole. Nothing already in `dir` changes when any of it fails.
+fn fetch_release(tag: &str, sha: Option<String>, template: &str, dir: &Path) -> Result<(), String> {
+    let dest = dir.join(tag);
+    let known = sha.or_else(|| known_sha256(tag));
+    if holds_release(&dest, known.as_deref()) {
         println!("{tag} is already cached: {}", dest.display());
         return Ok(());
     }
-    let src = source(&template, &tag);
-    let expected = match (sha, tag == PINNED_TAG) {
-        (Some(s), _) => s,
-        (None, true) => PINNED_ZIP_SHA256.to_string(),
-        (None, false) => {
+    let src = source(template, tag);
+    let expected = match &known {
+        Some(s) => s.clone(),
+        None => {
             let side = read_source(&format!("{src}.sha256")).map_err(|e| {
                 format!("{e}\n  {tag} is not the pinned release: give its SHA-256 with --sha256")
             })?;
@@ -402,7 +485,7 @@ fn fetch_cmd(args: &[String]) -> Result<(), String> {
     if actual != expected {
         return Err(format!(
             "{} does not match: expected SHA-256 {expected}, got {actual}. Nothing was cached.",
-            release::zip_name(&tag)
+            release::zip_name(tag)
         ));
     }
     println!("SHA-256 {actual} matches");
@@ -419,24 +502,105 @@ fn fetch_cmd(args: &[String]) -> Result<(), String> {
             "the archive's entry {bad} leaves its folder; nothing was cached"
         ));
     }
-    let partial = dir.join(format!("{tag}.partial"));
+    place(&files, tag, known.as_deref(), dir)
+}
+
+/// Move a release's files into `dir` whole. Worlds starting together may fetch the same release:
+/// each writes a folder of its own, and the first to finish is the one kept. A folder under the
+/// release's name that is not the release (`sha`, [`holds_release`]) is moved aside, not deleted:
+/// `<tag>.replaced`.
+fn place(files: &Files, tag: &str, sha: Option<&str>, dir: &Path) -> Result<(), String> {
+    let dest = dir.join(tag);
+    let partial = dir.join(format!("{tag}.partial-{}", std::process::id()));
     std::fs::remove_dir_all(&partial).ok();
     let written = (|| -> std::io::Result<()> {
-        for (k, v) in &files {
+        for (k, v) in files {
             let p = partial.join(k);
             if let Some(parent) = p.parent() {
                 std::fs::create_dir_all(parent)?;
             }
             std::fs::write(&p, v)?;
         }
-        std::fs::rename(&partial, &dest)
+        if !dest.exists() || holds_release(&dest, sha) {
+            return std::fs::rename(&partial, &dest);
+        }
+        let aside = dir.join(format!("{tag}.replaced"));
+        std::fs::remove_dir_all(&aside).ok();
+        std::fs::rename(&dest, &aside)?;
+        println!("the folder that was not {tag} is now {}", aside.display());
+        std::fs::rename(&partial, &dest).inspect_err(|_| {
+            std::fs::rename(&aside, &dest).ok();
+        })
     })();
     if let Err(e) = written {
         std::fs::remove_dir_all(&partial).ok();
+        if holds_release(&dest, sha) {
+            println!("{tag} is already cached: {}", dest.display());
+            return Ok(());
+        }
         return Err(format!("unpacking into {}: {e}", dest.display()));
     }
     println!("cached {} files in {}", files.len(), dest.display());
     Ok(())
+}
+
+/// The release a world served from this argument reads from the cache: `pinned` reads this build's;
+/// a folder reads the one its base names, else this build's, unless `--world-base` stands in for
+/// it. A folder alone, or one that does not read, reads none.
+fn release_it_reads(world_db: &str, world_base: Option<&Path>) -> Option<String> {
+    if world_db == "pinned" {
+        return Some(PINNED_TAG.to_string());
+    }
+    if world_base.is_some() {
+        return None;
+    }
+    let files = load(Path::new(world_db)).ok()?;
+    let base = rows::read_partly(&files).0?.world.base?;
+    match base.version {
+        // A version that is not a tag names no folder of the cache: the compile refuses it.
+        Some(version) => release::parse_tag(&version).filter(|tag| *tag == version),
+        None => Some(PINNED_TAG.to_string()),
+    }
+}
+
+/// Before a world starts: fetch the release it reads from the cache, when that is not there, as
+/// after a rebuild that moved this build's pin, or when a folder under this build's pin is not that
+/// release. A world on a folder or a version of its own stays on it.
+///
+/// # Errors
+/// The release could not be fetched, in words for the operator.
+pub fn fetch_for_start(world_db: &str, world_base: Option<&Path>) -> Result<(), String> {
+    let Some(tag) = release_it_reads(world_db, world_base) else {
+        return Ok(());
+    };
+    fetch_missing(&tag, known_sha256(&tag), &usual_source(), &cache_dir()?)
+}
+
+/// Fetch the release `tag` into `dir` for a world about to start, unless it is there, held to `sha`
+/// when known.
+fn fetch_missing(tag: &str, sha: Option<String>, template: &str, dir: &Path) -> Result<(), String> {
+    let dest = dir.join(tag);
+    if holds_release(&dest, sha.as_deref()) {
+        return Ok(());
+    }
+    if dest.exists() {
+        println!(
+            "The world database in {} is not {tag}: downloading it.",
+            dest.display()
+        );
+    } else {
+        println!("This world needs the world database {tag}: downloading it.");
+    }
+    fetch_release(tag, sha, template, dir).map_err(|why| {
+        let version = if tag == PINNED_TAG {
+            String::new()
+        } else {
+            format!(" --version {tag}")
+        };
+        format!(
+            "could not download {tag}, which this world needs: {why}\n  Nothing was changed. Run `yalain world fetch{version}` when you can reach it, or give --world-db <folder>."
+        )
+    })
 }
 
 /// A relative path that stays inside the folder it is joined to.
@@ -523,7 +687,7 @@ pub fn compile_dir(
     if let Some(local) = p.english() {
         install = install.with_text(Box::new(move |id| local.read(id).ok()));
     }
-    let tables = compile(&merged, &install).map_err(|p| {
+    let mut tables = compile(&merged, &install).map_err(|p| {
         format!(
             "{}\n{} problems compiling {}",
             report(&p),
@@ -531,6 +695,9 @@ pub fn compile_dir(
             db_dir.display()
         )
     })?;
+    if let Some(w) = clearing_warning(&merged, p.has_overlay()) {
+        tables.warnings.push(Problem::new("world.toml", 0, w));
+    }
     Ok(tables)
 }
 
@@ -557,8 +724,9 @@ fn compile_cmd(args: &[String]) -> Result<(), String> {
                 .into(),
         );
     };
-    let dir = database_dir(db.as_deref().unwrap_or("pinned"))?;
-    let portal = data::Portal::open(&dats)?;
+    let db = db.unwrap_or_else(|| "pinned".to_owned());
+    let dir = database_dir(&db)?;
+    let portal = data::Portal::open(&dats, overlay_of(&db, None)?)?;
     let t = compile_dir(&portal, &dir, base.as_deref())?;
     std::fs::create_dir_all(&out).map_err(|e| format!("{}: {e}", out.display()))?;
     for (name, text) in [
@@ -717,6 +885,254 @@ mod tests {
         main(&strings(&args)).unwrap();
         let cached = load(&d.join("cache").join("v0.3.0")).unwrap();
         assert_eq!(cached["world.toml"], load(&world).unwrap()["world.toml"]);
+        std::fs::remove_dir_all(&d).ok();
+    }
+
+    /// A folder holding release `tag`'s archive and the `.sha256` beside it, as a source to fetch from.
+    fn source_holding(d: &Path, tag: &str) -> String {
+        let world = d.join("world");
+        fixture_world(&world);
+        let (w, o) = (world.to_string_lossy(), d.join("source"));
+        let args = ["release", &w, "--tag", tag, "--out", &o.to_string_lossy()];
+        main(&strings(&args)).unwrap();
+        o.to_string_lossy().to_string()
+    }
+
+    /// Everything under a folder, for seeing that a failure left it as it was.
+    fn tree(dir: &Path) -> std::collections::BTreeSet<PathBuf> {
+        let mut out = std::collections::BTreeSet::new();
+        let mut stack = vec![dir.to_path_buf()];
+        while let Some(d) = stack.pop() {
+            for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
+                if e.path().is_dir() {
+                    stack.push(e.path());
+                }
+                out.insert(e.path());
+            }
+        }
+        out
+    }
+
+    /// A world about to start on a release the cache lacks gets it from the source, beside the
+    /// releases already there; one the cache has is not read from the source at all.
+    /// Behaviour: server.world.a-missing-release-is-fetched-at-start
+    #[test]
+    fn a_world_starting_on_a_release_not_in_the_cache_fetches_it() {
+        let d = scratch("start-fetch");
+        let source = source_holding(&d, "v0.3.0");
+        let cache = d.join("cache");
+        std::fs::create_dir_all(cache.join("v0.2.0")).unwrap();
+        std::fs::write(cache.join("v0.2.0").join("world.toml"), "old").unwrap();
+        fetch_missing("v0.3.0", None, &source, &cache).unwrap();
+        assert_eq!(
+            load(&cache.join("v0.3.0")).unwrap()["world.toml"],
+            load(&d.join("world")).unwrap()["world.toml"],
+        );
+        assert_eq!(
+            std::fs::read_to_string(cache.join("v0.2.0").join("world.toml")).unwrap(),
+            "old",
+            "another release stays as it was"
+        );
+        let after = tree(&cache);
+        assert!(
+            after
+                .iter()
+                .all(|p| !p.to_string_lossy().contains("partial")),
+            "{after:?}"
+        );
+        // Now in the cache, the source is not read: it could not be.
+        fetch_missing("v0.3.0", None, &d.join("gone").to_string_lossy(), &cache).unwrap();
+        assert_eq!(tree(&cache), after);
+        std::fs::remove_dir_all(&d).ok();
+    }
+
+    /// With no source to reach, or an archive whose hash is wrong, a world about to start is told
+    /// so in plain words, what to do next among them, and the cache stays exactly as it was. This
+    /// build's pin is held to the hash built into it.
+    /// Behaviour: server.world.a-release-not-fetched-at-start-changes-nothing
+    #[test]
+    fn a_fetch_at_start_that_fails_says_so_and_changes_nothing() {
+        let d = scratch("start-fetch-fails");
+        let cache = d.join("cache");
+        std::fs::create_dir_all(cache.join("v0.2.0")).unwrap();
+        std::fs::write(cache.join("v0.2.0").join("world.toml"), "old").unwrap();
+        let before = tree(&cache);
+
+        // Nothing at the source.
+        let gone = d.join("gone");
+        let e = fetch_missing("v0.3.0", None, &gone.to_string_lossy(), &cache).unwrap_err();
+        assert!(
+            e.contains("could not download v0.3.0")
+                && e.contains("Nothing was changed")
+                && e.contains("yalain world fetch --version v0.3.0"),
+            "{e}"
+        );
+        assert_eq!(tree(&cache), before);
+
+        // An archive at the source that is not the pin's.
+        let mut files = Files::new();
+        files.insert("world.toml".into(), "key = \"w\"\n".into());
+        let source = d.join("source");
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::write(
+            source.join(release::zip_name(PINNED_TAG)),
+            release::archive(&files, "{}\n"),
+        )
+        .unwrap();
+        let pin = known_sha256(PINNED_TAG);
+        let e = fetch_missing(PINNED_TAG, pin, &source.to_string_lossy(), &cache).unwrap_err();
+        assert!(
+            e.contains("does not match") && e.contains(PINNED_ZIP_SHA256),
+            "{e}"
+        );
+        assert!(
+            e.contains("Run `yalain world fetch` when you can reach it"),
+            "{e}"
+        );
+        assert_eq!(tree(&cache), before);
+        std::fs::remove_dir_all(&d).ok();
+    }
+
+    /// A folder under a release's name holding something else, a candidate of the same name or a
+    /// release gone wrong on disk, is not trusted where the hash is known: it is fetched again, and
+    /// the folder that was there stays beside it. With the fetch failing, it stays where it was
+    /// and the world does not start on it. The real release is left alone, and read from no source.
+    /// A world's base names a release: anything else, a way out of the cache among them, is none.
+    /// Behaviour: server.world.a-folder-that-is-not-the-pin-is-fetched-again
+    #[test]
+    fn a_base_that_names_no_release_is_refused() {
+        for tag in [
+            "../v0.1.0",
+            "v0.1.0/..",
+            "..",
+            "v1",
+            "/tmp/x",
+            "v0.1.0/../../x",
+        ] {
+            let why = release_dir(tag).expect_err(tag);
+            assert!(why.contains("is not a release"), "{why}");
+        }
+    }
+
+    /// Behaviour: server.world.a-folder-that-is-not-the-pin-is-fetched-again
+    #[test]
+    fn a_cached_folder_that_is_not_the_release_it_is_named_for_is_fetched_again() {
+        let d = scratch("start-fetch-wrong");
+        let source = source_holding(&d, "v0.3.0");
+        let side = std::fs::read_to_string(
+            Path::new(&source).join(format!("{}.sha256", release::zip_name("v0.3.0"))),
+        )
+        .unwrap();
+        let sha = side.split_whitespace().next().unwrap().to_string();
+        let cache = d.join("cache");
+        std::fs::create_dir_all(cache.join("v0.3.0")).unwrap();
+        std::fs::write(cache.join("v0.3.0").join("world.toml"), "a candidate").unwrap();
+        let world = || std::fs::read_to_string(cache.join("v0.3.0").join("world.toml")).unwrap();
+
+        // No source: refused, and what was there is still there.
+        let gone = d.join("gone").to_string_lossy().to_string();
+        let e = fetch_missing("v0.3.0", Some(sha.clone()), &gone, &cache).unwrap_err();
+        assert!(e.contains("Nothing was changed"), "{e}");
+        assert_eq!(world(), "a candidate");
+        assert!(!cache.join("v0.3.0.replaced").exists());
+
+        // With no hash known, the folder is taken as it is.
+        fetch_missing("v0.3.0", None, &gone, &cache).unwrap();
+        assert_eq!(world(), "a candidate");
+
+        // The real release takes its place; the other is kept beside it.
+        fetch_missing("v0.3.0", Some(sha.clone()), &source, &cache).unwrap();
+        assert_eq!(world(), load(&d.join("world")).unwrap()["world.toml"]);
+        assert_eq!(
+            std::fs::read_to_string(cache.join("v0.3.0.replaced").join("world.toml")).unwrap(),
+            "a candidate"
+        );
+
+        // The real release is taken as it is, its hash known, with no source to read.
+        let after = tree(&cache);
+        fetch_missing("v0.3.0", Some(sha.clone()), &gone, &cache).unwrap();
+        assert_eq!(tree(&cache), after);
+
+        // One file changed on disk is not the release.
+        let pack = after
+            .iter()
+            .find(|p| {
+                p.extension().is_some_and(|e| e == "toml")
+                    && p.starts_with(cache.join("v0.3.0"))
+                    && !p.ends_with("world.toml")
+            })
+            .unwrap();
+        std::fs::write(pack, "changed").unwrap();
+        fetch_missing("v0.3.0", Some(sha), &source, &cache).unwrap();
+        assert_ne!(std::fs::read_to_string(pack).unwrap(), "changed");
+        std::fs::remove_dir_all(&d).ok();
+    }
+
+    /// `pinned` follows the build's pin; a world with a version of its own keeps it, a folder of its
+    /// own reads nothing from the cache, and `--world-base` stands in for the cache.
+    /// Behaviour: server.world.a-world-keeps-the-release-it-names
+    #[test]
+    fn the_release_fetched_at_start_is_the_one_the_world_reads() {
+        let d = scratch("start-fetch-which");
+        let world = |base: &str| {
+            std::fs::write(
+                d.join("world.toml"),
+                format!(
+                    "format_version = 1\nkey = \"w\"\ngame = \"ac2\"\nera = \"eor\"\npacks = []\n{base}"
+                ),
+            )
+            .unwrap();
+        };
+        let text = d.to_string_lossy().to_string();
+        let pin = Some(PINNED_TAG.to_string());
+        assert_eq!(release_it_reads("pinned", None), pin);
+        assert_eq!(
+            release_it_reads(&format!("{text}/nothing-here"), None),
+            None
+        );
+        world("");
+        assert_eq!(release_it_reads(&text, None), None, "a folder alone");
+        world("[base]\ndb = \"db\"\n");
+        assert_eq!(release_it_reads(&text, None), pin, "over no named version");
+        assert_eq!(
+            release_it_reads(&text, Some(Path::new("/some/base"))),
+            None,
+            "over a folder of its own"
+        );
+        world("[base]\ndb = \"db\"\nversion = \"v0.1.0\"\n");
+        assert_eq!(
+            release_it_reads(&text, None).as_deref(),
+            Some("v0.1.0"),
+            "over the release it names"
+        );
+        world("[base]\ndb = \"db\"\nversion = \"../elsewhere\"\n");
+        assert_eq!(release_it_reads(&text, None), None, "not a release's name");
+        std::fs::remove_dir_all(&d).ok();
+    }
+
+    /// Two worlds starting together may fetch one release: the one that finishes second takes the
+    /// first's, rather than failing or replacing it, and neither sees the other's unfinished folder.
+    /// Behaviour: server.world.a-release-fetched-twice-at-once-is-kept-whole
+    #[test]
+    fn a_release_that_appears_during_a_fetch_is_kept_and_the_fetch_succeeds() {
+        let d = scratch("start-fetch-twice");
+        let cache = d.join("cache");
+        let mut files = Files::new();
+        files.insert("world.toml".into(), "new".into());
+        std::fs::create_dir_all(cache.join("v0.3.0")).unwrap();
+        std::fs::write(cache.join("v0.3.0").join("world.toml"), "first").unwrap();
+        std::fs::create_dir_all(cache.join("v0.3.0.partial-1")).unwrap();
+        std::fs::write(cache.join("v0.3.0.partial-1").join("world.toml"), "other").unwrap();
+        place(&files, "v0.3.0", None, &cache).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(cache.join("v0.3.0").join("world.toml")).unwrap(),
+            "first"
+        );
+        assert_eq!(
+            std::fs::read_to_string(cache.join("v0.3.0.partial-1").join("world.toml")).unwrap(),
+            "other",
+            "another program's unfinished folder is left to it"
+        );
         std::fs::remove_dir_all(&d).ok();
     }
 

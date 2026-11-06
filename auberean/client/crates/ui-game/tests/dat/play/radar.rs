@@ -149,7 +149,7 @@ fn the_blip_under_the_pointer_names_and_selects_its_object() {
     ui.pointer_button(button_id::LEFT, true);
     let out = tick(&mut ui, &mut p, &mut t, &w);
     ui.pointer_button(button_id::LEFT, false);
-    assert!(out.contains(&Request::Select(7)), "{out:?}");
+    assert!(out.contains(&Request::SetSelection(7)), "{out:?}");
     ui.pointer_move(rx + 71 - 30, ry + 69);
     tick(&mut ui, &mut p, &mut t, &w);
     assert_eq!(
@@ -276,4 +276,27 @@ fn the_panels_places_are_kept_when_moved_and_put_back_when_the_options_come() {
         out.contains(&Request::PutBackLocations { reloaded: false }),
         "{out:?}"
     );
+}
+
+/// The radar's kept places put back with its field hidden hide the whole radar, dial and all, so it
+/// does not come back as a bare dial.
+///
+/// Behaviour: ui.radar.a-radar-kept-hidden-comes-back-hidden
+#[test]
+fn a_radar_kept_hidden_comes_back_hidden() {
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut t = 0.0;
+    let w = world(0.0, false, Vec::new());
+    tick(&mut ui, &mut p, &mut t, &w);
+    let (root, heading) = {
+        let r = radar_of(&p);
+        (r.root.expect("the radar"), r.heading.expect("the dial"))
+    };
+    assert!(ui.shown(heading), "the dial shows");
+    ui.set_visible(root, false);
+    ui.frame_apply_locations(p.frame(), &Default::default());
+    tick(&mut ui, &mut p, &mut t, &w);
+    assert!(!ui.shown(heading), "the dial goes with it");
+    assert!(!ui.shown(root));
 }

@@ -111,6 +111,8 @@ pub fn database() -> Files {
 pub struct Portal {
     pub dat: DatFile,
     pub ctx: Context,
+    /// The script library, read once: a catalog asks it of every template.
+    library: std::sync::OnceLock<Library>,
 }
 
 impl std::fmt::Debug for Portal {
@@ -146,7 +148,11 @@ impl Portal {
             .expect("a portal file");
         let dat = DatFile::open(&p).expect("the portal file opens");
         let ctx = Context::from_portal(&dat).expect("its context reads");
-        Self { dat, ctx }
+        Self {
+            dat,
+            ctx,
+            library: std::sync::OnceLock::new(),
+        }
     }
 
     fn entity(&self, id: u32) -> Option<Entity> {
@@ -189,15 +195,23 @@ impl Portal {
                 .and_then(|l| l.names.name(p))
                 .map(str::to_string)
         };
+        let class = Props::class_of(id, &|e| self.entity(e)).map_or_else(Vec::new, |c| {
+            yalain_world_db::install::class_properties(
+                self.library.get_or_init(|| self.library()),
+                c,
+            )
+        });
+        let props = Props::of(id, &|e| self.entity(e), &name)
+            .with_places_of(self.qualities(yalain_content::qualities_id(id)).as_ref())
+            .with_worn_of(id)
+            .with_take_gate_of(id)
+            .with_class(&class);
         Template {
             id,
             description: describe(id, &|e| self.entity(e), &|q| self.qualities(q))
                 .expect("the template is described"),
-            facts: facts(id, &|e| self.entity(e), &self.fact_ids()),
-            props: Props::of(id, &|e| self.entity(e), &name)
-                .with_places_of(self.qualities(yalain_content::qualities_id(id)).as_ref())
-                .with_worn_of(id)
-                .with_take_gate_of(id),
+            facts: facts(id, &|e| self.entity(e), &self.fact_ids()).named_by(&props),
+            props,
         }
     }
 
@@ -337,6 +351,15 @@ impl Portal {
     #[must_use]
     pub fn worn_effects(&self, templates: &[u32]) -> yalain_world::item_use::ItemUses {
         self.named_effects(templates, yalain_world::item_use::WORN)
+    }
+
+    /// The effects these templates' deaths name, as the server reads them at start.
+    ///
+    /// # Panics
+    /// The library does not read.
+    #[must_use]
+    pub fn death_effects(&self, templates: &[u32]) -> yalain_world::item_use::ItemUses {
+        self.named_effects(templates, yalain_world::item_use::DIED)
     }
 
     fn named_effects(

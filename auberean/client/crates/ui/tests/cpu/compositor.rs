@@ -64,6 +64,7 @@ fn a_small_picture_repeats_unless_sized_to_its_element() {
         width: 2,
         height: 2,
         bgra: checker,
+        alpha_only: false,
     });
     let tiled = element(
         "Tiled",
@@ -110,6 +111,7 @@ fn a_centered_picture_is_drawn_once_in_the_middle() {
         width: 2,
         height: 2,
         bgra: vec![255; 2 * 2 * 4],
+        alpha_only: false,
     });
     let field = element(
         "Centered",

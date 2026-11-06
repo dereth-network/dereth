@@ -17,6 +17,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The build, the tests and clippy, on every system: each compiles code the others do not. The
+  # rules and the docs read the same source everywhere and run once, in `rules`. Each part is a step
+  # of its own, so its time can be read from the run's steps, and each runs whatever the one before
+  # it did: one run reports everything that is wrong.
   tier0:
     name: tier0 (${{ matrix.os }})
     strategy:
@@ -25,10 +29,21 @@ jobs:
       matrix:
         os: [windows-latest, ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 120
+    # A run that hits the limit tells nothing and saves nothing, so the limit is well past the
+    # slowest system's time: only a hang should reach it. `cargo xtask ship` waits at least this.
+    timeout-minutes: 180
     defaults:
       run:
         shell: pwsh
+    env:
+      # Incremental builds cannot be cached, and a fresh checkout has nothing to build on.
+      CARGO_INCREMENTAL: '0'
+      # sccache keeps a run's compiled libraries in the Actions cache as they are built, even when
+      # the run is later cancelled. RUSTC_WRAPPER is set below, only once it has started.
+      SCCACHE_GHA_ENABLED: 'on'
+      SCCACHE_GHA_RW_MODE: ${{ (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/preflight') && 'READ_WRITE' || 'READ_ONLY' }}
+      # If its server dies mid-run, compile without it rather than fail.
+      SCCACHE_IGNORE_SERVER_IO_ERROR: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -51,24 +66,130 @@ jobs:
           rustup toolchain install $toolchain --profile minimal --component clippy,rustfmt
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           rustup override set $toolchain
-      # The dependencies' builds and the registry, kept between runs, one cache for each system
-      # (the workspace's own crates are always built afresh). Runs on main and on `preflight`, the
-      # branch `cargo xtask preflight` pushes, save theirs; a run on any other branch restores
-      # main's and saves nothing. After the toolchain: its version is part of the key.
+      # The dependencies' builds and the registry, kept between runs, one cache for each system.
+      # Runs on main save theirs; a run on any other branch restores main's and saves nothing. After
+      # the toolchain: its version is part of the key.
       - name: The dependencies' builds from earlier runs
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: ${{ matrix.os }}
-          save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/preflight' }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # The workspace's own libraries, which the cache above leaves out. An optional extra: when the
+      # action or the cache service fails, the build goes on without it and only takes longer.
+      - name: Install sccache
+        id: sccache
+        continue-on-error: true
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+        with:
+          version: v0.19.0
+          # Its closing report can fail a job; the step below says the same and cannot.
+          disable_annotations: true
+      - name: Use sccache if it starts
+        if: steps.sccache.outcome == 'success'
+        continue-on-error: true
+        run: |
+          sccache --start-server
+          if ($LASTEXITCODE -eq 0) {
+            "RUSTC_WRAPPER=sccache" >> $env:GITHUB_ENV
+          } else {
+            Write-Output "::warning::sccache did not start; building without it"
+          }
+          exit 0
       - name: Fetch locked dependencies
         run: cargo fetch --locked
-      # The one check, the same command a contributor runs before pushing (CONTRIBUTING.md): the
-      # build, every test that needs no game data (client and server), clippy, every rule and the
-      # documentation check.
-      - name: cargo xtask ci tier0
+      - name: Build
         env:
           CARGO_NET_OFFLINE: 'true'
-        run: cargo xtask ci tier0
+        run: cargo xtask ci tier0 --only build
+      - name: Tests
+        if: ${{ !cancelled() }}
+        env:
+          CARGO_NET_OFFLINE: 'true'
+        run: cargo xtask ci tier0 --only test
+      - name: Clippy
+        if: ${{ !cancelled() }}
+        env:
+          CARGO_NET_OFFLINE: 'true'
+        run: cargo xtask ci tier0 --only clippy
+      - name: How sccache did
+        if: ${{ !cancelled() && steps.sccache.outcome == 'success' }}
+        continue-on-error: true
+        run: |
+          sccache --show-stats
+          $s = (sccache --show-stats --stats-format=json | ConvertFrom-Json).stats
+          Write-Output "::notice title=sccache::hits $($s.cache_hits.counts.Rust), misses $($s.cache_misses.counts.Rust), errors $($s.cache_errors.counts.Rust), not cacheable $($s.requests_not_cacheable)"
+          exit 0
+
+  # The rules and the docs: what reads the source and comes out the same on every system, run once.
+  # `cargo xtask ci tier0` still runs them everywhere it is typed. The docs of code that only another
+  # system compiles are not checked here: .forgejo/workflows/landed.yml checks them on each system.
+  rules:
+    name: rules and docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      CARGO_INCREMENTAL: '0'
+      SCCACHE_GHA_ENABLED: 'on'
+      SCCACHE_GHA_RW_MODE: ${{ (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/preflight') && 'READ_WRITE' || 'READ_ONLY' }}
+      SCCACHE_IGNORE_SERVER_IO_ERROR: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Install the Linux build inputs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libasound2-dev pkg-config
+      - name: Install the workspace Rust version
+        run: |
+          $found = Select-String -Path Cargo.toml -Pattern '^rust-version\s*=\s*"([^"]+)"'
+          if (@($found).Count -ne 1) { Write-Error "Cargo.toml must hold exactly one rust-version line"; exit 1 }
+          $toolchain = $found.Matches[0].Groups[1].Value
+          rustup toolchain install $toolchain --profile minimal --component rustfmt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          rustup override set $toolchain
+      - name: Install sccache
+        id: sccache
+        continue-on-error: true
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+        with:
+          version: v0.19.0
+          # Its closing report can fail a job; the step below says the same and cannot.
+          disable_annotations: true
+      - name: Use sccache if it starts
+        if: steps.sccache.outcome == 'success'
+        continue-on-error: true
+        run: |
+          sccache --start-server
+          if ($LASTEXITCODE -eq 0) {
+            "RUSTC_WRAPPER=sccache" >> $env:GITHUB_ENV
+          } else {
+            Write-Output "::warning::sccache did not start; building without it"
+          }
+          exit 0
+      - name: Fetch locked dependencies
+        run: cargo fetch --locked
+      - name: Rules
+        env:
+          CARGO_NET_OFFLINE: 'true'
+        run: cargo xtask ci tier0 --only rules
+      - name: Docs
+        if: ${{ !cancelled() }}
+        env:
+          CARGO_NET_OFFLINE: 'true'
+        run: cargo xtask ci tier0 --only docs
+      - name: How sccache did
+        if: ${{ !cancelled() && steps.sccache.outcome == 'success' }}
+        continue-on-error: true
+        run: |
+          sccache --show-stats
+          $s = (sccache --show-stats --stats-format=json | ConvertFrom-Json).stats
+          Write-Output "::notice title=sccache::hits $($s.cache_hits.counts.Rust), misses $($s.cache_misses.counts.Rust), errors $($s.cache_errors.counts.Rust), not cacheable $($s.requests_not_cacheable)"
+          exit 0
 
   # The Dereth Network (network/): its crates' tests and the conformance vectors through the suite's
   # own binary, then the ACE mod built with .NET 10 against a pinned ACE release and checked by its

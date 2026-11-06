@@ -274,22 +274,25 @@ pub fn draw<S: Store>(s: &mut Server<S>, net: &mut ServerNet, creature: u64, sta
     if again && !weapons.is_empty() {
         bump(s, creature);
     }
-    let made: Vec<Option<ServerMessage>> = weapons.iter().map(|w| hung(s, *w)).collect();
-    let attach: Vec<Vec<Vec<u8>>> = weapons
+    let held: Vec<Vec<Vec<u8>>> = weapons
         .iter()
         .enumerate()
         .map(|(i, w)| {
             if !watchers.iter().any(|(_, known)| known[i]) {
                 return Vec::new();
             }
-            let mut ms: Vec<Vec<u8>> = held_again(s, creature, *w)
+            held_again(s, creature, *w)
                 .iter()
                 .map(ServerMessage::encode)
-                .collect();
-            ms.extend(attach(s, *w).map(|m| m.encode()));
-            ms
+                .collect()
         })
         .collect();
+    let attached: Vec<Option<Vec<u8>>> = weapons
+        .iter()
+        .map(|w| attach(s, *w).map(|m| m.encode()))
+        .collect();
+    // Made after those stamps are taken: a client made one now takes the next.
+    let made: Vec<Option<ServerMessage>> = weapons.iter().map(|w| hung(s, *w)).collect();
     let slide = (!weapons.is_empty()).then(|| slider(s, creature).encode());
     let then = ServerMessage::DoMode(ObjectEvent {
         sender: crate::inventory::visual(s, creature),
@@ -318,7 +321,7 @@ pub fn draw<S: Store>(s: &mut Server<S>, net: &mut ServerNet, creature: u64, sta
             BlobKind::VISUAL,
             then.clone(),
         );
-        for (i, ms) in attach.iter().enumerate() {
+        for (i, ms) in held.iter().enumerate() {
             if known.get(i).copied().unwrap_or(false) {
                 for m in ms {
                     net.send(
@@ -327,6 +330,9 @@ pub fn draw<S: Store>(s: &mut Server<S>, net: &mut ServerNet, creature: u64, sta
                         BlobKind::VISUAL,
                         m.clone(),
                     );
+                }
+                if let Some(m) = &attached[i] {
+                    crate::presence::on_its_stream(s, net, conn, weapons[i], m.clone());
                 }
             }
         }
@@ -421,7 +427,7 @@ pub fn put_away<S: Store>(s: &mut Server<S>, net: &mut ServerNet, creature: u64)
                 net.send(
                     *conn,
                     auberean_protocol::queue::EVENT,
-                    BlobKind::VISUAL,
+                    BlobKind::UNORDERED,
                     m.clone(),
                 );
             }

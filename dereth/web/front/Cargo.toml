@@ -2,7 +2,7 @@
 name = "dereth-web-front"
 description = "The web front page's launcher: the desktop launcher's own logic in a small WebAssembly module of its own, which the page loads first and which holds neither game."
 # Dereth's version: the web client's, which `cargo xtask release dereth` moves.
-version = "0.4.13"
+version = "0.4.14"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

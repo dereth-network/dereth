@@ -707,7 +707,7 @@ profile = "eor"
 # trade_notes_cash_anywhere = true
 
 # default: the profile's (Empyrean only)
-# Allegiance officers, their titles, the allegiance lock and account bans.
+# Allegiance officers and account bans.
 # allegiance_officers_and_bans = true
 
 # default: the profile's (Empyrean only)
@@ -747,6 +747,15 @@ profile = "eor"
 # default: the profile's (Empyrean only)
 # A world-wide value on each spell, spent by everyone casting it and regained over hours.
 # spell_economy = false
+
+# default: the profile's (Empyrean only)
+# Officer titles, the allegiance lock and gagging a member of the allegiance room.
+# Also needs allegiance_officers_and_bans.
+# allegiance_titles_and_lock = true
+
+# default: the profile's (Empyrean only)
+# @allegiance house, opening the monarch's villa or mansion to the allegiance.
+# allegiance_house_commands = true
 
 # default: false (Empyrean only)
 # Start even when the data files are not the ones the era expects (a Launch world on

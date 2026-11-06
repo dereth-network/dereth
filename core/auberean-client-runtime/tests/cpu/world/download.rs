@@ -5,13 +5,15 @@
 use std::sync::Arc;
 
 use auberean_client_runtime::data::{DataFiles, ENGLISH};
-use auberean_client_runtime::download::SERVER_LIBRARY_ITERATIONS;
+use auberean_client_runtime::download::{notice_line, SERVER_LIBRARY_ITERATIONS};
 use auberean_client_runtime::{Client, ClientData, ClientSettings};
 use auberean_dat::disk::controller::OPEN_CREATE;
 use auberean_dat::disk::download::event;
 use auberean_dat::disk::{DatStorageMut, Files, MemoryFile, OpenMode, OpenSpec, Store, VersionSet};
 use auberean_dat::DatFile;
-use auberean_protocol::login::{DataQuery, DataRecord, DownloadBegins, Empty, MissingIterations};
+use auberean_protocol::login::{
+    DataQuery, DataRecord, DownloadBegins, Empty, MissingIterations, OverlayBase, OverlayBases,
+};
 use auberean_protocol::types::IterationRun;
 use auberean_protocol::{ClientMessage, ServerMessage};
 
@@ -316,4 +318,53 @@ fn a_record_asked_for_that_no_file_holds_is_asked_of_the_server_and_its_record_o
         .get_now(GATHER_NONE, map(1))
         .expect("the record the server sent");
     assert!(record.downcast::<IdMap>().is_ok());
+}
+
+/// **Asked what it holds, the client first says it takes a world's records and names its files by
+/// their layouts; a retail client says nothing of the kind.**
+///
+/// Behaviour: data.overlay.says-it-keeps-them
+#[test]
+fn asked_what_it_holds_the_client_first_says_it_keeps_overlays_and_names_its_files() {
+    let mut c = client();
+    c.take_message(LOGIN | 1, ServerMessage::DataQuery(DataQuery::default()));
+    let sent = c.sent();
+    let at = |want: &dyn Fn(&ClientMessage) -> bool| sent.iter().position(|s| want(&s.message));
+    let said = at(&|m| matches!(m, ClientMessage::OverlayHeld(_))).expect("it says so");
+    let held = at(&|m| matches!(m, ClientMessage::DataHeld(_))).expect("what it holds");
+    assert!(said < held);
+    let ClientMessage::OverlayHeld(o) = &sent[said].message else {
+        unreachable!("found above");
+    };
+    assert!(o.checks_records());
+    let files: Vec<u64> = o.bases.iter().map(|b| b.dat_file).collect();
+    assert_eq!(files, [PORTAL, CELL]);
+    assert_ne!(o.bases[0].fingerprint, o.bases[1].fingerprint);
+}
+
+/// **Told the records a world's overlay was made over, the client holding them goes on, and one
+/// holding others stops, saying why.**
+///
+/// Behaviour: data.overlay.checks-its-files-against-what-it-is-told
+#[test]
+fn a_client_told_records_it_doesnt_hold_stops_saying_why() {
+    let held =
+        auberean_dat::overlay::records_of(&file(CELL, &[0x0101_FFFF, 0x0101_FFFE, 0x0102_FFFF]))
+            .expect("its records");
+    let told = |fingerprint| {
+        ServerMessage::OverlayBases(OverlayBases {
+            bases: vec![OverlayBase {
+                dat_file: CELL,
+                fingerprint,
+            }],
+        })
+    };
+    let mut c = client();
+    c.take_message(LOGIN | 1, told(held));
+    assert_eq!(c.data_download().fatal, None);
+
+    let mut c = client();
+    c.take_message(LOGIN | 1, told([0x5A; 32]));
+    let notice = c.data_download().fatal.expect("it stops");
+    assert!(notice_line(notice).is_some_and(|l| l.contains("other data files")));
 }

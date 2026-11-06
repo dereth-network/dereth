@@ -33,7 +33,8 @@ pub fn unit_tier(profile: Profile) -> Vec<Report> {
     let mut build = vec!["test"];
     build.extend_from_slice(profile.cargo_args());
     build.extend_from_slice(SERVER_CRATES);
-    let test = build.clone();
+    let mut test = build.clone();
+    test.push("--no-fail-fast");
     build.push("--no-run");
     let (built, _) = timed(&ws, "cargo", &build);
     if !built {

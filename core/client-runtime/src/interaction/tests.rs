@@ -28,7 +28,9 @@ fn launch_commands_are_refused_locally_and_later_eras_keep_their_actions() {
                 .is_empty());
             let requests = inter.take_pending_requests();
             let lines = game.scroll.drain();
-            if era == EraId::Launch {
+            // The arena recalls came in January 2006, after February 2005.
+            let arena = command.contains("arena");
+            if era == EraId::Launch || (era == EraId::Infiltration && arena) {
                 assert!(requests.is_empty(), "{command}");
                 assert_eq!(lines.len(), 1, "{command}");
                 assert_eq!(lines[0].window, 8);

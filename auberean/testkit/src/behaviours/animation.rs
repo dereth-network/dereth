@@ -28,6 +28,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "animation.behaviors.what-an-object-does-of-itself-is-not-the-networks",
+        says: "A behavior an object does of itself is not among those told to the network, so a \
+               description that does not list it leaves it playing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-ANIM-AUTONOMOUS-UNSENT"),
+        station: "auberean-animation::cpu::trackers::a_behavior_an_object_does_of_itself_is_not_among_those_told_to_the_network",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "animation.body.a-changed-look-keeps-what-the-body-plays",
         says: "A body brought up to date with its object's changed look keeps what it plays: each \
                group keeps its part when the body has one of its key, hung from the same group, \
@@ -52,8 +61,9 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "animation.body.a-slider-just-past-still-moves-at-once",
         says: "A locomotion slider standing just past still (under 0.05 m/s) toward the side the \
-               body moves is moved there in 0.05 s; from still, or across a change of more than \
-               0.75 m/s, in 0.3 s; otherwise in 0.1 s.",
+               body moves is moved there in 0.05 s, except that forward a change of more than \
+               0.75 m/s takes 0.3 s; from still, or across a change of more than 0.75 m/s, in \
+               0.3 s; otherwise in 0.1 s.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-ANIM-SLIDER-RATE"),
         station: "auberean-animation::cpu::motion::a_slider_just_past_still_moves_at_once",

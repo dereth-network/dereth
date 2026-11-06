@@ -21,6 +21,9 @@
 //! hurt to 80% or less shows it. A run that ends is answered with the player not attacking and at
 //! peace.
 //!
+//! **Who swings.** A dead player, or one in portal space, is refused a run. One already under way
+//! ends at a death and waits out a trip.
+//!
 //! **On another player.** A run may target another player where who may harm whom allows it
 //! ([`crate::kingdoms::may_harm`]): it begins, and each swing goes on, only while it does, else the
 //! basic attacks fail with the reason and the run ends. Its stories are a run's on a creature, each
@@ -481,6 +484,21 @@ pub fn may_attack_player<S: Store>(s: &Server<S>, world: ConnId, other: ConnId) 
     )
 }
 
+/// May a player harm a thing? A pet is as its owner ([`may_attack_player`]), its own owner's
+/// excepted; any other creature may be fought.
+///
+/// # Errors
+/// Why not (the client writes the text).
+pub fn may_attack_thing<S: Store>(s: &Server<S>, world: ConnId, thing: u64) -> Result<(), u32> {
+    let Some(owner) = s.pets.by_id.get(&thing).map(|p| p.owner) else {
+        return Ok(());
+    };
+    match s.players.iter().find(|(_, p)| p.character == owner) {
+        Some((c, _)) if *c != world => may_attack_player(s, world, *c),
+        _ => Ok(()),
+    }
+}
+
 /// The bits of a hook's target health change and target PK damage change.
 const TARGET_HEALTH: u32 = 0x800;
 const TARGET_PK_DAMAGE: u32 = 0x2000;
@@ -510,7 +528,7 @@ pub fn with_pk_damage(m: &mut ServerMessage, player: u64) {
 /// Is a player dead (its health gone)?
 #[must_use]
 pub fn is_dead(p: &Player) -> bool {
-    crate::examine::Vitals::of_qualities(&p.qualities).is_some_and(|v| v.health == 0)
+    crate::quals::int(&p.qualities, crate::player::quality::HEALTH) == Some(0)
 }
 
 /// Send a visual event about a player or a thing to its own client (a player) and every client
@@ -539,7 +557,7 @@ pub(crate) fn attack_state(on: bool) -> ServerMessage {
     session::call(function::ATTACK_STATE, &[Arg::Int(u32::from(on))]).expect("packs")
 }
 
-fn failed(err: u32) -> ServerMessage {
+pub(crate) fn failed(err: u32) -> ServerMessage {
     session::call(function::BASIC_ATTACKS_FAILED, &[Arg::Int(err)]).expect("packs")
 }
 
@@ -585,6 +603,27 @@ pub fn begin<S: Store>(
     target: u64,
     clock: Clock,
 ) {
+    // Nobody swings from death or from portal space.
+    let Some(p) = s.players.get(&world) else {
+        return;
+    };
+    let (dead, away, was) = (
+        p.dying.is_some() || is_dead(p),
+        p.trip.is_some(),
+        p.attacking.is_some(),
+    );
+    if dead || away {
+        let why = if dead {
+            crate::skill_use::refusal::DEAD
+        } else {
+            crate::places::ACTIONS_LOCKED
+        };
+        progress::private(net, world, &failed(why));
+        if !was {
+            progress::private(net, world, &attack_state(false));
+        }
+        return;
+    }
     // Any living creature may be attacked: a practice target that never fights back (the halls'
     // Straw Drudges) is struck like any other. Another player, only as who may harm whom allows.
     let fightable = match player_target(s, world, target) {
@@ -596,10 +635,16 @@ pub fn begin<S: Store>(
                 return;
             }
         },
-        None => s
-            .things
-            .get(target)
-            .map(|t| t.alive() && t.creature.is_some()),
+        None => {
+            if let Err(err) = may_attack_thing(s, world, target) {
+                progress::private(net, world, &failed(err));
+                progress::private(net, world, &attack_state(false));
+                return;
+            }
+            s.things
+                .get(target)
+                .map(|t| t.alive() && t.creature.is_some())
+        }
     };
     if fightable != Some(true) {
         let err = if fightable.is_some() {
@@ -624,8 +669,6 @@ pub fn begin<S: Store>(
         progress::private(net, world, &attack_state(false));
         return;
     }
-    // Fighting binds what binds when used in combat.
-    crate::equip::in_combat(s, world);
     let mode = crate::skill_use::player_mode(s, me);
     s.next_context = s.next_context.wrapping_add(1);
     let context = s.next_context;
@@ -736,14 +779,23 @@ fn swing<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock:
     let Some(run) = s.players.get(&world).and_then(|p| p.attacking) else {
         return;
     };
-    // Another player: only while who may harm whom still allows it.
-    let other = player_target(s, world, run.target);
-    if let Some(o) = other {
-        if let Err(err) = may_attack_player(s, world, o) {
-            progress::private(net, world, &failed(err));
-            end(s, net, world);
-            return;
+    // In portal space the run waits for its player to come out.
+    if s.players.get(&world).is_some_and(|p| p.trip.is_some()) {
+        if let Some(r) = s.players.get_mut(&world).and_then(|p| p.attacking.as_mut()) {
+            r.next_swing = now + WALKING_CHECK;
         }
+        return;
+    }
+    // Another player or its pet: only while who may harm whom still allows it.
+    let other = player_target(s, world, run.target);
+    let allowed = other.map_or_else(
+        || may_attack_thing(s, world, run.target),
+        |o| may_attack_player(s, world, o),
+    );
+    if let Err(err) = allowed {
+        progress::private(net, world, &failed(err));
+        end(s, net, world);
+        return;
     }
     let target = match other {
         Some(o) => s
@@ -1238,6 +1290,9 @@ pub fn lands<S: Store>(s: &mut Server<S>, net: &mut ServerNet, mut l: Landing, c
     if hurts && other.is_none() {
         crate::treasure::on_hit(s, net, l.world, l.target, clock);
     }
+    if alive && l.outcome.landed() {
+        crate::equip::blow_landed(s, net, l.world);
+    }
     if l.thrown {
         let hooks = if alive {
             let extra = if l.index > 0 {
@@ -1289,13 +1344,24 @@ pub fn lands<S: Store>(s: &mut Server<S>, net: &mut ServerNet, mut l: Landing, c
         if alive {
             crate::effects::harm_back(s, net, me, l.target, l.back, clock);
         }
+        if alive && l.outcome.landed() && s.players.get(&o).is_some_and(|q| !is_dead(q)) {
+            attack_effects(s, net, &l, On::Player(o), me, clock);
+        }
         return;
     }
     if hurts {
-        hurt_creature(s, net, l.target, me, l.damage, clock);
+        hurt_creature_by_skill(s, net, l.target, (me, me, l.skill), l.damage, clock);
     }
     if alive {
         crate::effects::harm_back(s, net, me, l.target, l.back, clock);
+    }
+    if alive
+        && l.outcome.landed()
+        && s.things
+            .get(l.target)
+            .is_some_and(crate::things::Thing::alive)
+    {
+        attack_effects(s, net, &l, On::Creature(l.target), me, clock);
     }
     if s.things
         .get(l.target)
@@ -1303,6 +1369,30 @@ pub fn lands<S: Store>(s: &mut Server<S>, net: &mut ServerNet, mut l: Landing, c
     {
         crate::ai::go_after(s, net, l.target, me, clock);
     }
+}
+
+/// A basic attack that names target effects puts them on what it landed on, at its user's rating
+/// in it, as a special's do.
+fn attack_effects<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    l: &Landing,
+    on: On,
+    me: u64,
+    clock: Clock,
+) {
+    let Some(u) = s
+        .skill_table
+        .skills
+        .get(&l.skill)
+        .and_then(|d| d.usage.as_ref())
+        .filter(|u| !u.target_effects.is_empty())
+        .cloned()
+    else {
+        return;
+    };
+    let rating = crate::skill_use::rating_of(s, l.world, l.skill);
+    crate::skill_use::put_target_effects(s, net, me, &u, on, rating, clock);
 }
 
 /// Who a story is from.
@@ -1456,6 +1546,20 @@ pub fn hurt_creature<S: Store>(
     hurt_creature_as(s, net, id, (by, by), damage, clock);
 }
 
+/// A creature takes damage a skill did: as [`hurt_creature_as`], with the harm it remembers as
+/// [`crate::ai::harm_noticed`] counts it.
+pub(crate) fn hurt_creature_by_skill<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    id: u64,
+    (by, damager, skill): (u64, u64, u32),
+    damage: i32,
+    clock: Clock,
+) {
+    let noticed = crate::ai::harm_noticed(skill, damage);
+    hurt_creature_noticed(s, net, id, (by, damager), (damage, noticed), clock);
+}
+
 /// A creature takes damage from a player, or from its pet (the player and the damager): the hurt is
 /// the player's; the health taken, no more than the creature had left, is the damager's part of
 /// its kill.
@@ -1463,8 +1567,19 @@ pub(crate) fn hurt_creature_as<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     id: u64,
-    (by, damager): (u64, u64),
+    who: (u64, u64),
     damage: i32,
+    clock: Clock,
+) {
+    hurt_creature_noticed(s, net, id, who, (damage, i64::from(damage)), clock);
+}
+
+fn hurt_creature_noticed<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    id: u64,
+    (by, damager): (u64, u64),
+    (damage, noticed): (i32, i64),
     clock: Clock,
 ) {
     // Its hurter's pets take it on.
@@ -1495,7 +1610,7 @@ pub(crate) fn hurt_creature_as<S: Store>(
         let now = clock.local.0;
         c.harm
             .retain(|(when, _, _)| now - when < crate::ai::HARM_REMEMBERED);
-        c.harm.push((now, by, i64::from(damage)));
+        c.harm.push((now, by, noticed));
     }
     if t.health == 0 {
         crate::death::creature_dies(s, net, id, by, clock);
@@ -1921,8 +2036,7 @@ pub fn after_hurt<S: Store>(
     by: u64,
     clock: Clock,
 ) {
-    // Being hit binds what binds when used in combat.
-    crate::equip::in_combat(s, world);
+    crate::equip::hit_taken(s, net, world);
     if s.players.get(&world).is_some_and(is_dead) {
         crate::death::player_dies(s, net, world, Some(by), clock);
     }
@@ -2034,6 +2148,7 @@ pub fn thing_strikes_thing<S: Store>(
             crate::Timer::ThingStrikeLands {
                 by: id,
                 target,
+                skill: skill.skill,
                 harm,
             },
         );
@@ -2071,7 +2186,7 @@ pub fn pet_strike_seconds(skill: u32) -> f64 {
 pub fn thing_strike_lands<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
-    by: u64,
+    (by, skill): (u64, u32),
     target: u64,
     harm: crate::effects::Harm,
     clock: Clock,
@@ -2080,7 +2195,7 @@ pub fn thing_strike_lands<S: Store>(
         .get(target)
         .is_some_and(crate::things::Thing::alive)
     {
-        crate::pets::struck(s, net, target, by, harm.left, clock);
+        crate::pets::struck(s, net, target, (by, skill), harm.left, clock);
         crate::effects::harm_back(s, net, by, target, harm.back, clock);
     }
 }

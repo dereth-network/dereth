@@ -68,11 +68,18 @@ impl Body {
         )
     }
 
-    /// The transform, in the body's current pose, of the first part group's first bone, when it
-    /// has one.
-    // D2-06662
+    /// The bone a particle system carried at the holding location of `kind` follows. Whichever
+    /// group names the location, the system is the first group's, so it follows that group's bone
+    /// of the location's number, and no bone when that group has none of that number; with no such
+    /// location, that group's first bone.
+    // D2-06525, D2-06662, D2-06649
     #[must_use]
-    pub fn first_bone_matrix(&self, records: &dyn BodyRecords) -> Option<Mat4> {
-        self.pose_of_bone(records, 0, 0)
+    pub fn carried_bone(&self, records: &dyn BodyRecords, kind: u32) -> Option<Mat4> {
+        let bone = self
+            .parts
+            .iter()
+            .find_map(|p| holding_location(&p.setup, kind))
+            .map_or(0, |l| l.bone as usize);
+        self.pose_of_bone(records, 0, bone)
     }
 }

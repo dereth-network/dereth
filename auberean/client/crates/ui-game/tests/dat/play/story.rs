@@ -50,6 +50,26 @@ fn sounds(out: &[Request]) -> Vec<Sound> {
         .collect()
 }
 
+/// While a story is up, the key that hides the whole interface does nothing.
+///
+/// Behaviour: ui.story.the-hide-all-key-waits-for-a-story
+#[test]
+fn the_hide_all_key_waits_for_a_story() {
+    let mut w = World::new();
+    w.tick(&[said(
+        notice::PLAY_SEQUENCE,
+        vec![0],
+        vec![Some(Record::Scenes(scenes()))],
+    )]);
+    assert!(w.play.story().is_some(), "the story up");
+    let shown = w.play.shown(&w.ui);
+    w.ui.key(auberean_ui_game::gameplay::action::ALL_UI, true);
+    w.tick(&[]);
+    w.ui.key(auberean_ui_game::gameplay::action::ALL_UI, false);
+    w.tick(&[]);
+    assert_eq!(w.play.shown(&w.ui), shown);
+}
+
 /// The scripts' scenes put the story up over the screen; once its background has faded in, the
 /// world hides and the playable scenes' steps play one after another: each step's picture in the
 /// frame whose turn it is, its music and voice, its subtitle; a step lasts its own time, else five

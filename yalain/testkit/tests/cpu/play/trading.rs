@@ -433,3 +433,166 @@ fn a_trade_is_closed_by_either_side_by_distance_and_by_leaving() {
     assert!(v.contains(&Value::Int(error::LOGGED_OUT)) && v.contains(&Value::Long(aid)));
     assert!(h.server.trades.list.is_empty());
 }
+
+/// A bound item is no attuned one: it may be traded, and whom it is bound to goes with it, so its
+/// new holder may not equip it, and its examination says so. A recipe's attunement stops the trade as a template's does.
+/// Behaviour: server.trade.a-bound-item-may-be-traded
+#[test]
+fn a_bound_item_goes_in_a_trade_still_bound_and_an_attuned_one_stops_it() {
+    const WORN: u32 = 0x4700_7A42;
+    let (mut h, (a, aid), (b, bid)) = two();
+    let bound = hold(&mut h, aid, WORN, 1);
+    h.server.things.get_mut(bound).expect("made").own.bound_to = aid;
+    let attuned = hold(&mut h, aid, WORN, 1);
+    h.server.things.get_mut(attuned).expect("made").own.attuned = true;
+    opened(&mut h, (a, aid), (b, bid));
+    h.ask(
+        a,
+        function::OFFER,
+        &[Arg::Int(1), Arg::LongInt(attuned)],
+        10,
+    );
+    h.ask(a, function::ACCEPT, &[], 10);
+    h.ask(b, function::ACCEPT, &[], 10);
+    assert!(pack(&h, bid).iter().all(|(i, _, _)| *i != attuned));
+    h.ask(a, function::OFFER, &[Arg::Int(1), Arg::LongInt(bound)], 10);
+    h.ask(a, function::ACCEPT, &[], 10);
+    h.ask(b, function::ACCEPT, &[], 10);
+    assert!(pack(&h, bid).iter().any(|(i, _, _)| *i == bound));
+    assert_eq!(
+        h.server.things.get(bound).map(|t| t.own.bound_to),
+        Some(aid)
+    );
+}
+
+/// An item under an effect that attunes it stops a trade like one attuned for good, and goes when the
+/// effect has run out.
+/// Behaviour: server.trade.an-item-under-an-attuning-effect-stays
+#[test]
+fn an_item_under_an_attuning_effect_stops_a_trade_until_it_ends() {
+    const STATE: u32 = 0x7000_7A02;
+    const WORN: u32 = 0x4700_7A42;
+    let (mut h, (a, aid), (b, bid)) = two();
+    h.server
+        .effect_table
+        .effects
+        .insert(STATE, yalain_testkit::attuning_effect(STATE));
+    let item = hold(&mut h, aid, WORN, 1);
+    let until = h.server.game_now + 100.0;
+    h.server
+        .things
+        .get_mut(item)
+        .expect("made")
+        .timed
+        .push(yalain_world::things::TimedEffect {
+            state: STATE,
+            spellcraft: 1.0,
+            until,
+        });
+    opened(&mut h, (a, aid), (b, bid));
+    let trade = |h: &mut Harness| {
+        h.ask(a, function::OFFER, &[Arg::Int(1), Arg::LongInt(item)], 10);
+        h.ask(a, function::ACCEPT, &[], 10);
+        h.ask(b, function::ACCEPT, &[], 10);
+    };
+    trade(&mut h);
+    assert!(pack(&h, bid).iter().all(|(i, _, _)| *i != item), "refused");
+    assert!(pack(&h, aid).iter().any(|(i, _, _)| *i == item), "kept");
+    h.advance(101.0);
+    h.run(1);
+    trade(&mut h);
+    assert!(
+        pack(&h, bid).iter().any(|(i, _, _)| *i == item),
+        "gone over"
+    );
+    assert!(pack(&h, aid).iter().all(|(i, _, _)| *i != item));
+}
+
+/// An effect on an item goes with it to its new holder, on its own time: what it raises is raised
+/// for the new holder until then and no longer, and the item is one item throughout.
+/// Behaviour: server.skills.an-effect-on-an-item-ends-and-does-not-stack
+#[test]
+fn an_effect_on_a_traded_item_keeps_its_time_and_ends_for_the_new_holder() {
+    use yalain_world::effect_defs::{EffectDef, Kind, Scale};
+    const STATE: u32 = 0x7000_7A04;
+    const SWORD: u32 = 0x4700_7A43;
+    let (mut h, (a, aid), (b, bid)) = two();
+    let mut props = yalain_content::Props::default();
+    props.set("Weapon_Damage", yalain_content::Prop::Int(92));
+    h.server.catalog.insert(test_template(SWORD, 0x1067, props));
+    h.server.effect_table.effects.insert(
+        STATE,
+        EffectDef {
+            kind: Kind::Numeric {
+                flags: 166,
+                stats: vec![yalain_world::made::stat::DAMAGE],
+                magnitude: Scale(vec![(0.0, 61.0)]),
+            },
+            duration: Scale(vec![(0.0, 60.0)]),
+            eq_class: 31,
+            ..yalain_testkit::plain_effect(STATE)
+        },
+    );
+    let item = hold(&mut h, aid, SWORD, 1);
+    let until = h.server.game_now + 60.0;
+    h.server
+        .things
+        .get_mut(item)
+        .expect("made")
+        .timed
+        .push(yalain_world::things::TimedEffect {
+            state: STATE,
+            spellcraft: 30.0,
+            until,
+        });
+    opened(&mut h, (a, aid), (b, bid));
+    h.ask(a, function::OFFER, &[Arg::Int(1), Arg::LongInt(item)], 10);
+    h.ask(a, function::ACCEPT, &[], 10);
+    h.ask(b, function::ACCEPT, &[], 10);
+    let most = |h: &Harness| {
+        yalain_world::combat::weapon_damage(&h.server, item)
+            .expect("a weapon")
+            .most
+    };
+    assert!(pack(&h, bid).iter().any(|(i, _, _)| *i == item));
+    assert!(pack(&h, aid).iter().all(|(i, _, _)| *i != item));
+    assert_eq!(most(&h), 92 + 61);
+    assert_eq!(h.server.things.get(item).expect("it").timed[0].until, until);
+    h.advance(61.0);
+    h.run(1);
+    assert_eq!(most(&h), 92, "over, for its new holder too");
+    assert!(pack(&h, bid).iter().any(|(i, _, _)| *i == item));
+}
+
+/// A trade cannot complete while a use under way counts on a side's pack: it fails, nothing moves,
+/// and the two may accept again.
+/// Behaviour: server.trade.waits-for-a-use-under-way
+#[test]
+fn a_trade_fails_while_a_trip_counts_on_a_sides_pack_and_nothing_moves() {
+    let (mut h, (a, aid), (b, bid)) = two();
+    let bow = hold(&mut h, aid, BOW, 1);
+    opened(&mut h, (a, aid), (b, bid));
+    h.ask(a, function::OFFER, &[Arg::Int(1), Arg::LongInt(bow)], 10);
+    h.ask(b, function::ACCEPT, &[], 10);
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == aid)
+        .expect("in")
+        .0;
+    let to = h.server.players[&world].position;
+    h.server.players.get_mut(&world).expect("in").trip = Some(yalain_world::places::Trip {
+        to,
+        used: None,
+        step: None,
+        resurrect: false,
+        sent: false,
+        said: None,
+    });
+    let from = h.bots[a].inbox.len();
+    h.ask(a, function::ACCEPT, &[], 10);
+    assert!(h.functions(a, from).contains(&function::FAILED), "it fails");
+    assert!(pack(&h, aid).iter().any(|i| i.0 == bow), "nothing moved");
+    assert!(!pack(&h, bid).iter().any(|i| i.0 == bow), "nothing moved");
+}

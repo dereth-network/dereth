@@ -48,6 +48,8 @@ pub mod look {
     pub const QUEST_NAME: u32 = 0x3800_42FF;
     /// The line saying an item binds.
     pub const BINDS: u32 = 0xE9BC_E65B;
+    /// The line saying an item is bound to another player.
+    pub const BOUND_TO_ANOTHER: u32 = 0x5796_899D;
 }
 
 /// The strings of profiles (string ids) and their tables.
@@ -855,6 +857,10 @@ pub mod item_line {
     pub const HARMONIC: u32 = 0xA0CE_495E;
     /// "This item will bind itself to the first player that uses it in combat. ..."
     pub const BINDS: u32 = 0x1BB0_CDB6;
+    /// "This item is bound to you and cannot be used by another player."
+    pub const BOUND_TO_YOU: u32 = 0x8374_DB1F;
+    /// "This item is bound to another player.  You cannot use it."
+    pub const BOUND_TO_ANOTHER: u32 = 0x80F0_FB85;
     /// "{The} {totem} has been imbued by a spellbinder and can be used to enchant {a} {kind}."
     pub const TOTEM_IMBUED: u32 = 0xD937_4C67;
     /// "The target item must have a minimum level of at least {}."
@@ -970,6 +976,8 @@ pub struct ItemEffect {
     pub spellcraft: Option<i32>,
     /// Its amount, when it shows one.
     pub amount: Option<Amount>,
+    /// When it runs out, on the game clock, when it shows that.
+    pub ends: Option<f64>,
 }
 
 /// How little above a whole number a percentage is still shown as one: (0.3 of a float reads 30.000002
@@ -1055,6 +1063,7 @@ pub fn item_effects(
                 table: shown.table,
                 spellcraft: shown.spellcraft_shown.then_some(sc),
                 amount: None,
+                ends: None,
             });
         }
     }
@@ -1180,11 +1189,23 @@ pub struct ItemView {
     pub shield: Option<i32>,
     /// It binds to the first player that uses it in combat.
     pub binds: bool,
+    /// It is bound: to whoever examines it, or to another.
+    pub bound: Option<BoundTo>,
     /// Its own effects change its damage, its vigor cost: those lines are drawn as enchanted.
     pub damage_changed: bool,
     pub vigor_changed: bool,
+    /// Effects change its shield rating, or give a weapon one of this much.
+    pub rating_changed: bool,
+    pub rating_given: Option<i32>,
     /// It is a totem: what it goes on, and the least level and Arcane Lore its target must have.
     pub totem: Option<TotemView>,
+}
+
+/// Whom an item is bound to, as who examines it reads it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BoundTo {
+    You,
+    Another,
 }
 
 /// What a totem says of what it may enchant.
@@ -1271,15 +1292,24 @@ impl ItemView {
         } else {
             text("Name")
         };
+        // Both a weapon's numbers and a rating make a shield: its stats are the weapon's, with its
+        // rating and combat delay, under their own heading.
+        let rating = int("Item_ArmorLevel");
+        let held = props.int("Weapon_Damage").is_some();
+        let shield = rating.filter(|_| held);
         let weapon = int("Weapon_Damage").map(|d| {
             (
                 d,
                 props.float("Weapon_Variance").unwrap_or(0.0),
-                int("Weapon_Speed").unwrap_or(0),
+                if shield.is_some() {
+                    int("Item_CombatDelay").unwrap_or(0)
+                } else {
+                    int("Weapon_Speed").unwrap_or(0)
+                },
                 int("Weapon_VigorCost").unwrap_or(0),
             )
         });
-        let armor = int("Item_ArmorLevel").map(|a| {
+        let armor = rating.filter(|_| !held).map(|a| {
             (
                 a,
                 int("Item_CombatDelay").unwrap_or(0),
@@ -1299,6 +1329,7 @@ impl ItemView {
             description: text("Description"),
             weapon,
             armor,
+            shield,
             destroyed_on_use: props.flag("Item_IsDestroyOnUse"),
             min_level: int("Usage_MinLevel").unwrap_or(0),
             max_level: int("Usage_MaxLevel").unwrap_or(0),
@@ -1477,7 +1508,15 @@ pub fn item(asked: u32, v: &ItemView) -> Profile {
         // A shield's rating leads, and its damage comes last.
         if let Some(rating) = v.shield {
             stat(&mut p, l::SHIELD_RATING);
-            p.int(STATS, look::VALUE, rating);
+            p.int(
+                STATS,
+                if v.rating_changed {
+                    name_look::ENCHANTED
+                } else {
+                    look::VALUE
+                },
+                rating,
+            );
             p.brk(STATS);
         } else {
             damage_line(&mut p);
@@ -1496,6 +1535,11 @@ pub fn item(asked: u32, v: &ItemView) -> Profile {
             vigor,
         );
         p.brk(STATS);
+        if let Some(given) = v.rating_given {
+            stat(&mut p, l::SHIELD_RATING);
+            p.int(STATS, name_look::ENCHANTED, given);
+            p.brk(STATS);
+        }
         if v.shield.is_some() {
             damage_line(&mut p);
         }
@@ -1510,7 +1554,15 @@ pub fn item(asked: u32, v: &ItemView) -> Profile {
         p.text(STATS, look::LABEL, string(line::TABLE, l::ARMOR_STATS));
         p.brk(STATS);
         stat(&mut p, l::ARMOR_RATING);
-        p.int(STATS, look::VALUE, rating);
+        p.int(
+            STATS,
+            if v.rating_changed {
+                name_look::ENCHANTED
+            } else {
+                look::VALUE
+            },
+            rating,
+        );
         p.brk(STATS);
         stat(&mut p, l::COMBAT_DELAY);
         p.int(STATS, look::VALUE, delay);
@@ -1664,6 +1716,16 @@ pub fn item(asked: u32, v: &ItemView) -> Profile {
         p.text(REQUIREMENTS, look::BINDS, string(line::TABLE, l::BINDS));
         p.brk(REQUIREMENTS);
     }
+    if let Some(bound) = v.bound {
+        let (how, said) = match bound {
+            BoundTo::You => (look::LABEL, l::BOUND_TO_YOU),
+            BoundTo::Another => (look::BOUND_TO_ANOTHER, l::BOUND_TO_ANOTHER),
+        };
+        p.tab(REQUIREMENTS, 0);
+        p.tab(REQUIREMENTS, 0);
+        p.text(REQUIREMENTS, how, string(line::TABLE, said));
+        p.brk(REQUIREMENTS);
+    }
     if let Some((said, by)) = &v.inscription {
         inscription_lines(&mut p, said, by);
     }
@@ -1706,7 +1768,7 @@ fn totem_lines(p: &mut Profile, v: &ItemView) {
 fn effect_lines(p: &mut Profile, v: &ItemView) {
     use item_line as l;
     let weapon = v.weapon.is_some();
-    let armor = v.armor.is_some();
+    let armor = v.armor.is_some() || v.shield.is_some();
     let mut first = true;
     for when in [
         When::Used,
@@ -1758,6 +1820,10 @@ fn effect_lines(p: &mut Profile, v: &ItemView) {
                     vec![nested(var::NAME, string(e.table, l::NAME))],
                 ),
             );
+            if let Some(at) = e.ends {
+                p.tab(EFFECTS, 0);
+                p.countdown(EFFECTS, look::LABEL, at);
+            }
             p.brk(EFFECTS);
             p.tab(EFFECTS, indent + 1);
             p.text(EFFECTS, look::LABEL, string(e.table, l::DESCRIPTION));

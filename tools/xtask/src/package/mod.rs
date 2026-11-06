@@ -1,8 +1,8 @@
 //! `cargo xtask package empyrean`: Empyrean's release archives, built the same way on a
 //! contributor's machine and in the release workflow.
 //!
-//! For each target it builds `empyrean-server` and `empyrean-import` in the `server-release`
-//! profile, stages an allowlist of files, checks every file and every binary, and writes one
+//! For each target it builds `empyrean-server`, `empyrean-import` and `empyrean-relay` in the
+//! `server-release` profile, stages an allowlist of files, checks every file and every binary, and writes one
 //! archive; then it writes the release's index beside the archives: `MANIFEST.txt`,
 //! `release.json` and `SHA256SUMS`. The source is the tagged commit, whose archives GitHub
 //! attaches to the release itself; `NOTICE.txt` names both. `release.json` carries the release's
@@ -78,7 +78,7 @@ use targets::{Builder, Host, Os, Target};
 /// no other (`EMPYREAN_BUILD_SOURCE_URL`).
 pub const DEFAULT_SOURCE_URL: &str = "https://github.com/dereth-network/dereth";
 
-/// The two binaries, and the package each is built from.
+/// The binaries, and the package each is built from.
 const BINARIES: &[(&str, &str, headers::Role)] = &[
     (
         "empyrean-server",
@@ -88,6 +88,11 @@ const BINARIES: &[(&str, &str, headers::Role)] = &[
     (
         "empyrean-import",
         "empyrean/import/Cargo.toml",
+        headers::Role::Import,
+    ),
+    (
+        "empyrean-relay",
+        "empyrean/relay/Cargo.toml",
         headers::Role::Import,
     ),
 ];

@@ -14,10 +14,12 @@
 mod common;
 mod fade;
 mod inside;
+mod lost;
 mod materials;
 mod pipelines;
 mod shadows;
 mod shores;
 mod streaks;
 mod textures;
+mod uniforms;
 mod water;

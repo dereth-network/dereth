@@ -518,6 +518,14 @@ mod tests {
             false
         }
 
+        fn in_sight(&self, _name: &str) -> bool {
+            false
+        }
+
+        fn everyone_in_sight(&self) -> Vec<String> {
+            Vec::new()
+        }
+
         fn show_line(&mut self, _character: u64, _line: &str) {}
 
         fn kept_count(&self, _: &str) -> usize {

@@ -1,0 +1,109 @@
+name: landed tier 1
+
+# The tests that read the game's data, on `landed`'s tip, on a machine holding that data. A batch, once a
+# night or by hand, not a run for every commit; and not at all when that commit has already passed.
+#
+# A schedule runs from the default branch's copy of this file, so it starts once this file is there;
+# by hand it runs from any branch holding the file. Either way it tests `landed`.
+#
+# A runner declares the label `retail-data` and runs jobs directly on the machine, in a shell. It has
+# bash, git, rustup and curl on its PATH, and in its environment:
+#
+#   DERETH_CI_HOME   a folder on a fast disk this workflow owns, written with forward slashes
+#   the variables CONTRIBUTING.md lists that name its data
+#
+# A failed test's message can quote the data it read, and this log leaves the machine. So what the
+# tier prints stays in a file on the machine, and the log gets its table and the names of what failed.
+on:
+  schedule:
+    - cron: '0 9 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: landed-tier1
+  cancel-in-progress: false
+
+jobs:
+  tier1:
+    name: tier1
+    runs-on: retail-data
+    # Below the forge's own three-hour limit on a job.
+    timeout-minutes: 170
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Landed's tip, in this runner's own tree
+        id: tree
+        env:
+          TOKEN: ${{ github.token }}
+          SERVER: ${{ github.server_url }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          test -n "$DERETH_CI_HOME" || { echo "DERETH_CI_HOME is not set on this runner"; exit 1; }
+          tree="$DERETH_CI_HOME/tier1-tree"
+          git init -q "$tree"
+          cd "$tree"
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraHeader
+          GIT_CONFIG_VALUE_0="Authorization: Basic $(printf 'x-access-token:%s' "$TOKEN" | base64 | tr -d '\n')"
+          export GIT_CONFIG_VALUE_0
+          git fetch -q --force --tags "$SERVER/$REPOSITORY.git" refs/heads/landed
+          commit=$(git rev-parse FETCH_HEAD)
+          git checkout -q --force --detach "$commit"
+          # Only the build survives from one run to the next.
+          git clean -q -ffdx -e target/
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          if [ "$(cat "$DERETH_CI_HOME/tier1-passed" 2>/dev/null)" = "$commit" ]; then
+            echo "landed's tip $commit has already passed"
+            echo "wanted=no" >> "$GITHUB_OUTPUT"
+          else
+            echo "testing landed's tip $commit"
+            echo "wanted=yes" >> "$GITHUB_OUTPUT"
+          fi
+      - name: The workspace Rust version and locked dependencies
+        if: steps.tree.outputs.wanted == 'yes'
+        run: |
+          cd "$DERETH_CI_HOME/tier1-tree"
+          toolchain=$(sed -n 's/^rust-version *= *"\([^"]*\)".*/\1/p' Cargo.toml)
+          test -n "$toolchain"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup override set "$toolchain"
+          cargo fetch --locked
+      - name: Tier 1, its output kept on this machine
+        if: steps.tree.outputs.wanted == 'yes'
+        env:
+          CARGO_NET_OFFLINE: 'true'
+          COMMIT: ${{ steps.tree.outputs.commit }}
+        run: |
+          cd "$DERETH_CI_HOME/tier1-tree"
+          mkdir -p "$DERETH_CI_HOME/logs"
+          log="$DERETH_CI_HOME/logs/tier1-$COMMIT.log"
+          status=0
+          cargo xtask ci tier1 > "$log" 2>&1 || status=$?
+          echo "the whole output is on this machine, in $log"
+          # The table names rows and says how each ended, and the second list names tests alone.
+          sed -n '/^CI tier 1/,$p' "$log"
+          grep -E '^test .+ \.\.\. FAILED$' "$log" || true
+          if [ "$status" -eq 0 ]; then
+            echo "$COMMIT" > "$DERETH_CI_HOME/tier1-passed"
+          fi
+          # The newest twenty logs stay.
+          ls -1t "$DERETH_CI_HOME"/logs/tier1-*.log | tail -n +21 | while read -r old; do rm -f "$old"; done
+          exit "$status"
+      # What passed is said on the commit it passed on, which on a schedule is not the commit the
+      # forge runs this file from. Saying it is a courtesy: the job's own result stands without it.
+      - name: Say so on the commit
+        if: ${{ !cancelled() && steps.tree.outputs.wanted == 'yes' }}
+        continue-on-error: true
+        env:
+          TOKEN: ${{ github.token }}
+          SERVER: ${{ github.server_url }}
+          REPOSITORY: ${{ github.repository }}
+          COMMIT: ${{ steps.tree.outputs.commit }}
+          TIER1: ${{ job.status }}
+        run: |
+          case "$TIER1" in success) state=success ;; *) state=failure ;; esac
+          curl -fsS -o /dev/null -X POST -H "Authorization: token $TOKEN" \
+            -H 'Content-Type: application/json' \
+            -d "{\"context\":\"tier1\",\"state\":\"$state\",\"description\":\"cargo xtask ci tier1\"}" \
+            "$SERVER/api/v1/repos/$REPOSITORY/statuses/$COMMIT"

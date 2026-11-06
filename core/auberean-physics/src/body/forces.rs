@@ -474,8 +474,9 @@ impl Body {
         ground(self.desired_element()) && ground(self.element())
     }
 
-    /// Jumps: off the ground, up at the jump impulse of walking on the earth times the jump scale
-    /// and the body's own height scale (at least half; not its look's), into the air.
+    /// Jumps: off the ground, the behaviors a move cancels stopped, up at the jump impulse of
+    /// walking on the earth times the jump scale and the body's own height scale (at least half;
+    /// not its look's), into the air.
     // D2-06134
     pub fn jump(&mut self) -> bool {
         if !self.contact {
@@ -487,6 +488,7 @@ impl Body {
         }
         self.contact = false;
         self.set_misc_active(true);
+        self.stop_move_to_cancels_behaviors();
         let scale = self.object_scale.z.max(0.5);
         let values = self.motion_values_for_element(EARTH);
         self.velocity.z = self.jump_scale * values.jump_impulse * scale;

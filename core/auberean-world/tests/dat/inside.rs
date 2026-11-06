@@ -216,6 +216,43 @@ fn the_sun_lights_the_vertices_its_directions_list() {
     assert_eq!(dark[first as usize].color, [0.0; 3]);
 }
 
+/// The share of the sun the nearest stored direction takes is its product with the light, whose
+/// length is the sun's brightness: a dim sun leaves that direction less, and the next the rest.
+///
+/// Behaviour: world.inside.a-dim-suns-share-falls-with-its-brightness
+#[test]
+fn a_dim_suns_nearest_direction_takes_a_share_scaled_by_its_brightness() {
+    let w = need_world!();
+    let l = BlockLights::of(&w.records, 0x02, 0x98).expect("the hall's light");
+    let sun = l.sunlight.as_ref().expect("the hall's sunlight");
+    let travel = Vec3::new(0.0, 0.0, -1.0);
+    let brightness = 0.65;
+    let dim = Outside {
+        brightness,
+        direction: travel,
+        sun: Color::new(1.0, 1.0, 1.0, 1.0),
+        ..gray_day()
+    };
+    let (best, second, cos) = auberean_world::sky::sun_directions(travel);
+    let (best, second) = (best.expect("a nearest"), second.expect("a next"));
+    let low = 0x011F;
+    let in_list = |d: usize, i: u32| sun[d].get(&low).is_some_and(|l| l.contains(&i));
+    let only_first = sun[best]
+        .get(&low)
+        .expect("the cell's sunlit vertices")
+        .iter()
+        .copied()
+        .find(|i| !in_list(second, *i))
+        .expect("a vertex only the nearest direction lists");
+    let vertices = vec![floor(Vec3::ZERO); only_first as usize + 1];
+    let lit = l.cell_vertices(0x0298_0000 | low, &Mat4::IDENTITY, &vertices, &[], &dim, 4);
+    // Straight down onto a floor, so the vertex takes the whole of its direction's share.
+    let want = brightness * (brightness * cos);
+    for c in lit[only_first as usize].color {
+        assert!((c - want).abs() < 2e-3, "{c} against {want}");
+    }
+}
+
 /// No interior cell of the data holds a light of its own as an entity: every entity placed in a
 /// cell is an object, so a cell's lights are all its block's light record's, and no cell has a
 /// corona to draw.

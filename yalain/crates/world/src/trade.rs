@@ -557,6 +557,17 @@ pub fn accept<S: Store>(
         if offers_gone(s, net, i) {
             return;
         }
+        // A use under way on either side counts on its pack as it stands.
+        let spoken_for = [t.master, t.slave]
+            .iter()
+            .filter_map(|who| world_of(s, *who))
+            .any(|w| crate::places::pack_spoken_for(s, w));
+        if spoken_for {
+            clear_acceptance(&mut s.trades.list[i]);
+            let failed = call(function::FAILED, &[Arg::Int(crate::places::ACTIONS_LOCKED)]);
+            both(s, net, &t, &failed);
+            return;
+        }
         if let Some(why) = no_room(s, &t) {
             clear_acceptance(&mut s.trades.list[i]);
             both(s, net, &t, &call(function::FAILED, &[Arg::Int(why)]));
@@ -681,7 +692,7 @@ fn refuse_attuned<S: Store>(s: &mut Server<S>, net: &mut ServerNet, i: usize, t:
         .find(|(_, item, _)| {
             s.things
                 .get(*item)
-                .is_some_and(|x| inventory::attunable(&s.catalog, x.template))
+                .is_some_and(|x| inventory::attuned_now(s, x))
         });
     let Some((giver, item, n)) = first else {
         return false;
@@ -775,7 +786,7 @@ fn give<S: Store>(
             quality: QUANTITY,
             value: i32::try_from(left).unwrap_or(i32::MAX),
         });
-        progress::private(net, gw, &m);
+        inventory::to_holder(s, net, gw, item, &m);
         new
     };
     // Into the receiver's pack at its first slot, the rest moved down; into the first bag with room
@@ -836,7 +847,7 @@ fn give<S: Store>(
                 quality: CONTAINER,
                 value: owner,
             });
-            progress::private(net, rw, &m);
+            inventory::to_holder(s, net, rw, moved, &m);
         }
     } else if let Some(x) = s.things.get(moved) {
         let m = ServerMessage::CreateObject(inventory::item_create(x));

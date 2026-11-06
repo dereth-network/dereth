@@ -35,12 +35,13 @@ use auberean_protocol::types::{CharacterIdentity, VisualDesc};
 use auberean_protocol::wire::{Field, Reader, Writer};
 use auberean_protocol::{message_type, queue, ClientBlob, ClientMessage, ServerMessage};
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::net::IpAddr;
 use yalain_net::login::GameLogin;
 use yalain_net::{BlobKind, CloseReason, ConnId, LocalTime, ServerNet};
 use yalain_store::{Account, Character, Store};
 
+use crate::call_limit::Bucket;
 use crate::{AccountPolicy, Clock, Server, Session, Stage};
 
 /// The high word of every player's object id.
@@ -94,11 +95,67 @@ pub const LOGIN_LOCKOUT: f64 = 60.0;
 /// window are forgotten.
 const GUARD_ADDRESSES: usize = 4096;
 
-/// The refused logins of each address, and the addresses refused unchecked until a time.
+/// How many secrets one address may have checked at once, and a second after that. Checking a
+/// secret is slow by design and the world waits for it, so how many are checked is limited. Each
+/// of the 198 machines recorded in 2017 logged in at most twice in a minute; this is far past a
+/// household's or a shared address's, and the operator can exempt an address.
+pub const ADDRESS_CHECKS: (f64, f64) = (16.0, 2.0);
+/// How many secrets the world checks a second at [`SECRET_COST`], one at a time with the world's work
+/// between them: about a sixth of its time. A higher cost checks fewer, for the same time.
+pub const CHECKS_A_SECOND: f64 = 16.0;
+/// How many logins may wait for their secrets to be checked: every place in the world logging in
+/// together, twice over. Past it, one is told the world has no room.
+pub const MOST_LOGINS_WAITING: usize = 256;
+
+/// How many new accounts one address may make at once on an open world, and a second after that:
+/// a household's, and each further one a minute. What an open world's accounts come to is bounded
+/// by this and [`WORLD_NEW_ACCOUNTS`].
+pub const ADDRESS_NEW_ACCOUNTS: (f64, f64) = (8.0, 1.0 / 60.0);
+/// How many new accounts the world makes at once, and a second after that.
+pub const WORLD_NEW_ACCOUNTS: (f64, f64) = (256.0, 1.0);
+
+/// The refused logins of each address, the addresses refused unchecked until a time, how many secrets
+/// each address may yet have checked, and the logins waiting their turn for theirs.
 #[derive(Debug, Default)]
 pub struct LoginGuard {
     refusals: HashMap<String, Vec<f64>>,
     locked: HashMap<String, f64>,
+    checks: HashMap<String, Bucket>,
+    new_accounts: HashMap<String, Bucket>,
+    world_new_accounts: Option<Bucket>,
+    /// When the next secret may be checked.
+    next_check: f64,
+    waiting: VecDeque<(ConnId, GameLogin)>,
+    /// Logins turned away with too many waiting.
+    turned_away: u64,
+}
+
+/// An address's next check, under its limit; the addresses remembered stay bounded, those with their
+/// limit whole being forgotten first, and one past that is not held to it.
+fn spend_address(
+    buckets: &mut HashMap<String, Bucket>,
+    address: &str,
+    (burst, per_second): (f64, f64),
+    now: LocalTime,
+) -> bool {
+    if buckets.len() >= GUARD_ADDRESSES && !buckets.contains_key(address) {
+        buckets.retain(|_, b| !b.full(now));
+        if buckets.len() >= GUARD_ADDRESSES {
+            return true;
+        }
+    }
+    let bucket = buckets
+        .entry(address.to_owned())
+        .or_insert_with(|| Bucket::with(burst, per_second, now));
+    let allowed = bucket.allow(now);
+    if !allowed && bucket.dropped == 1 {
+        tracing::warn!(
+            address,
+            "this address is logging in faster than {per_second:.0} a second: what is over is told \
+             the world has no room"
+        );
+    }
+    allowed
 }
 
 impl LoginGuard {
@@ -217,6 +274,67 @@ pub fn secret_is_current(secret: &[u8], cost: u32) -> bool {
             .ok()
             .and_then(|c| c.parse::<u32>().ok())
             == Some(cost)
+}
+
+/// May a login or a friends ticket from this address go on to have its secret checked? Asked only of
+/// an address its client has answered from, so that nobody can spend another's. An address the
+/// operator exempts, or this machine's own, may. A name with no account on an open world would make
+/// one: that has limits of its own, the world's for every address.
+pub(crate) fn may_check_secret<S: Store>(s: &mut Server<S>, address: &str, name: &str) -> bool {
+    let now = s.saves.now;
+    let exempt = address.parse::<IpAddr>().is_ok_and(|ip| ip.is_loopback())
+        || address == address_key(IpAddr::V6(std::net::Ipv6Addr::LOCALHOST))
+        || s.cfg
+            .unlimited_addresses
+            .iter()
+            .any(|a| address_key(*a) == address);
+    if !exempt && !spend_address(&mut s.login_guard.checks, address, ADDRESS_CHECKS, now) {
+        return false;
+    }
+    let makes_one = s.cfg.accounts == AccountPolicy::Open
+        && matches!(s.store.account_by_name(name.trim()), Ok(None));
+    if !makes_one {
+        return true;
+    }
+    let guard = &mut s.login_guard;
+    if !exempt && !spend_address(&mut guard.new_accounts, address, ADDRESS_NEW_ACCOUNTS, now) {
+        return false;
+    }
+    let (burst, per_second) = WORLD_NEW_ACCOUNTS;
+    guard
+        .world_new_accounts
+        .get_or_insert_with(|| Bucket::with(burst, per_second, now))
+        .allow(now)
+}
+
+/// Is it time to check another secret?
+#[must_use]
+pub fn secret_check_due<S: Store>(s: &Server<S>) -> bool {
+    s.saves.now.0 >= s.login_guard.next_check
+}
+
+/// A secret is about to be checked: the next waits its share of the world's time.
+pub(crate) fn secret_checked<S: Store>(s: &mut Server<S>) {
+    let cost = s
+        .cfg
+        .secret_cost
+        .clamp(*SECRET_COSTS.start(), *SECRET_COSTS.end());
+    #[allow(clippy::cast_possible_wrap)]
+    // LINT-OK: two small whole numbers, not a float
+    let work = 2f64.powi(cost as i32 - SECRET_COST as i32);
+    s.login_guard.next_check = s.saves.now.0 + work / CHECKS_A_SECOND;
+}
+
+/// The logins whose turn has come.
+pub(crate) fn checks_due<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
+    while secret_check_due(s) {
+        let Some((conn, login)) = s.login_guard.waiting.pop_front() else {
+            return;
+        };
+        if net.service(conn).is_some() {
+            admit(s, net, conn, &login, clock);
+        }
+    }
 }
 
 /// Make an account beforehand (for [`AccountPolicy::Listed`]), its secret kept at `cost`.
@@ -342,6 +460,8 @@ fn kept_current<S: Store>(store: &mut S, mut a: Account, ticket: &[u8], cost: u3
     a
 }
 
+/// A login whose client has answered its handshake takes its turn: at once if nothing is waiting,
+/// its secret checked as its turn comes, with the world's work between. An admin's goes first.
 pub(crate) fn logged_in<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -349,15 +469,80 @@ pub(crate) fn logged_in<S: Store>(
     login: &GameLogin,
     clock: Clock,
 ) {
-    let name = login.account.trim().to_string();
-    let world_full = holds_as_many_as_it_may(s, conn);
-    let why = address_full(s, net, conn)
-        .or_else(|| (world_full && !names_an_admin(s, &name)).then_some("the world is full"));
-    if let Some(why) = why {
-        tracing::info!(?conn, "login refused: {why}");
+    if held_back(s, net, conn, login, clock) {
+        return;
+    }
+    let now = clock.local.0;
+    let address = net.peer(conn).map(|a| address_key(a.ip()));
+    let locked = address
+        .as_deref()
+        .is_some_and(|a| s.login_guard.locked(a, now));
+    let name = login.account.trim();
+    if !locked
+        && address
+            .as_deref()
+            .is_some_and(|a| !may_check_secret(s, a, name))
+    {
+        tracing::debug!(
+            ?conn,
+            ?address,
+            "login refused unchecked: too many from its address"
+        );
         refuse_login(net, conn, CharacterRefused::SERVER_FULL, clock);
         return;
     }
+    if s.login_guard.waiting.is_empty() && secret_check_due(s) {
+        return admit(s, net, conn, login, clock);
+    }
+    if names_an_admin(s, login.account.trim()) {
+        s.login_guard.waiting.push_front((conn, login.clone()));
+    } else if s.login_guard.waiting.len() < MOST_LOGINS_WAITING {
+        s.login_guard.waiting.push_back((conn, login.clone()));
+    } else {
+        s.login_guard.turned_away += 1;
+        if s.login_guard.turned_away % 4096 == 1 {
+            tracing::warn!(
+                turned_away = s.login_guard.turned_away,
+                "more logins are waiting than this world checks: what is over is told the world \
+                 has no room"
+            );
+        }
+        refuse_login(net, conn, CharacterRefused::SERVER_FULL, clock);
+    }
+}
+
+/// Is a login refused for the world or its address holding as many as they may? It is told so.
+fn held_back<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    conn: ConnId,
+    login: &GameLogin,
+    clock: Clock,
+) -> bool {
+    let name = login.account.trim();
+    let world_full = holds_as_many_as_it_may(s, conn);
+    let why = address_full(s, net, conn)
+        .or_else(|| (world_full && !names_an_admin(s, name)).then_some("the world is full"));
+    if let Some(why) = why {
+        tracing::info!(?conn, "login refused: {why}");
+        refuse_login(net, conn, CharacterRefused::SERVER_FULL, clock);
+    }
+    why.is_some()
+}
+
+/// A login's turn: its secret checked, and it is in or refused.
+fn admit<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    conn: ConnId,
+    login: &GameLogin,
+    clock: Clock,
+) {
+    if held_back(s, net, conn, login, clock) {
+        return;
+    }
+    let name = login.account.trim().to_string();
+    let world_full = holds_as_many_as_it_may(s, conn);
     let address = net.peer(conn).map(|a| address_key(a.ip()));
     let now = clock.local.0;
     let locked = address
@@ -366,6 +551,7 @@ pub(crate) fn logged_in<S: Store>(
     let account = if locked {
         None
     } else {
+        secret_checked(s);
         admits(
             s.cfg.accounts,
             s.cfg.secret_cost,
@@ -417,6 +603,40 @@ pub(crate) fn logged_in<S: Store>(
         BlobKind::LOGIN,
         &ServerMessage::DataQuery(retail_data_query()),
     );
+}
+
+/// Answer a client that told of its data and lacks nothing of the world's: the script library if
+/// it's an admin's that lacks that, else the end of the download and its characters.
+fn answer_held<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    conn: ConnId,
+    held: &auberean_protocol::login::DataHeld,
+    clock: Clock,
+) {
+    let admin = s.sessions.get(&conn).is_some_and(|x| x.account.admin);
+    if let Some((begins, records)) = s
+        .admin_library
+        .as_ref()
+        .filter(|_| admin)
+        .and_then(|l| l.to_send(&held.files))
+    {
+        tracing::info!(?conn, "serving an admin's account the script library");
+        send(net, conn, queue::DATABASE, BlobKind::LOGIN, begins);
+        for record in records {
+            send(net, conn, queue::DATABASE, BlobKind::LOGIN, record);
+        }
+        s.storing_library.insert(conn);
+        return;
+    }
+    send(
+        net,
+        conn,
+        queue::DATABASE,
+        BlobKind::LOGIN,
+        &ServerMessage::DownloadEnds(Empty),
+    );
+    send_lists(s, net, conn, clock);
 }
 
 /// Does the world hold as many logins as it may, without the new one on `conn`? Counted before the
@@ -1024,30 +1244,13 @@ pub(crate) fn message<S: Store>(
         }
     };
     match m {
+        ClientMessage::OverlayHeld(held) => {
+            s.overlay_clients.insert(conn, held);
+        }
         ClientMessage::DataHeld(held) => {
-            let admin = s.sessions.get(&conn).is_some_and(|x| x.account.admin);
-            if let Some((begins, records)) = s
-                .admin_library
-                .as_ref()
-                .filter(|_| admin)
-                .and_then(|l| l.to_send(&held.files))
-            {
-                tracing::info!(?conn, "serving an admin's account the script library");
-                send(net, conn, queue::DATABASE, BlobKind::LOGIN, begins);
-                for record in records {
-                    send(net, conn, queue::DATABASE, BlobKind::LOGIN, record);
-                }
-                s.storing_library.insert(conn);
-                return;
+            if !crate::world_patch::on_held(s, net, conn, &held, clock) {
+                answer_held(s, net, conn, &held, clock);
             }
-            send(
-                net,
-                conn,
-                queue::DATABASE,
-                BlobKind::LOGIN,
-                &ServerMessage::DownloadEnds(Empty),
-            );
-            send_lists(s, net, conn, clock);
         }
         ClientMessage::DataRequest(r) => crate::download::answer(s, net, conn, r, clock),
         ClientMessage::CreateCharacter(c) => create(s, net, conn, &c, clock),
@@ -1056,6 +1259,12 @@ pub(crate) fn message<S: Store>(
         ClientMessage::PlayCharacter(p) => enter(s, net, conn, p.character, clock),
         ClientMessage::LogOff(_) => log_off(s, net, conn, clock),
         ClientMessage::DownloadEnds(_) => {
+            // It has stored the world's records it was sent: on as any client that told of its
+            // data.
+            if let Some(held) = s.patches.stored(conn) {
+                answer_held(s, net, conn, &held, clock);
+                return;
+            }
             // It has stored the library it was sent; its characters follow.
             if s.storing_library.remove(&conn) {
                 tracing::info!(?conn, "an admin's client has stored the script library");
@@ -1144,6 +1353,8 @@ pub(crate) fn closed<S: Store>(
         return;
     }
     s.storing_library.remove(&conn);
+    s.overlay_clients.remove(&conn);
+    s.patches.closed(conn);
     if let Some(session) = s.sessions.remove(&conn) {
         tracing::info!(?conn, ?why, account = %session.account.name, "login connection closed");
         if let Stage::InWorld { world, character } = session.stage {

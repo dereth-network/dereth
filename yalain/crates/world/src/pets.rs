@@ -86,6 +86,10 @@ pub mod text {
     pub const KIND_VAR: u32 = 0xAC50_A4E8;
     /// "The summoning fails."
     pub const SUMMONING_FAILS: (u32, u32) = (0xA5AC_6CBF, 0x2500_0CE5);
+    /// "That pet name is too long."
+    pub const NAME_TOO_LONG: (u32, u32) = (0x9353_92A2, 0x2500_000B);
+    /// "That pet name is not allowed."
+    pub const NAME_NOT_ALLOWED: (u32, u32) = (0x3C48_5626, 0x2500_000B);
 }
 
 /// Why a summoning skill is refused: its user has as many pets of the class as it allows.
@@ -114,7 +118,7 @@ pub const KIND_VELOCITY: &str = "Physics_VelScale";
 /// template, its flags, how many of its class a skill allows, and its health by level where 2017
 /// showed it; how it fights and how it ends. The class, the lifetime and the icon are the effect's
 /// and the skill's own; the rest is the server's alone.
-pub const KINDS: [PetKind; 11] = [
+pub const KINDS: [PetKind; 14] = [
     // The Ranger's Lasher (Nature's Aid).
     PetKind::new(0x7000_0805, 0x4700_0846, 1096, 1, &LASHER_HEALTH).hits_for(0.075, 0.45, 0.78),
     // The Feral Intendant's Shreth.
@@ -151,7 +155,55 @@ pub const KINDS: [PetKind; 11] = [
         .hits_a_swing(4),
     // The Enchanter's Living Armor.
     PetKind::new(0x7000_1F22, 0x4700_0840, 1096, 1, &[]).hits_for(0.04, 0.35, 0.8),
+    // The mercenaries, known by their contracts: see [`mercenary`].
+    PetKind::new(mercenary::CRAFTER, 0x4700_3453, 1096, 1, &[]).hits_for(0.05, 0.1, 0.8),
+    PetKind::new(mercenary::KEEPER, 0x4700_3455, 1096, 1, &[])
+        .hits_for(0.05, 0.1, 0.8)
+        .tending(Tends::OwnersPets),
+    PetKind::new(mercenary::MEDIC, 0x4700_3457, 1096, 1, &[])
+        .hits_for(0.05, 0.1, 0.8)
+        .tending(Tends::Owner),
 ];
+
+/// Mercenaries, hired by contract. The numbers here are this server's own: the summons they would
+/// run are in no data the server holds, nothing recorded shows one, and each is meant to be changed
+/// when something better is known. A contract hires at once as it is bought, dismisses the mercenary
+/// before it (one at a time, as its text says) and is used up. The mercenary follows and fights as a
+/// pet does, on its template's own numbers; a medic tends its owner, a keeper its owner's other pets.
+/// It ends after an hour, with its owner's death or with its owner leaving the world.
+pub mod mercenary {
+    /// The contracts' templates, which also name their kinds.
+    pub const CRAFTER: u32 = 0x4700_18D1;
+    pub const KEEPER: u32 = 0x4700_18D2;
+    pub const MEDIC: u32 = 0x4700_18D3;
+    /// Its class of pet, apart from every class a skill summons.
+    pub const CLASS: u32 = 0x10_0000;
+    /// How long it stays, in seconds.
+    pub const SECONDS: f64 = 3600.0;
+    /// Its level, its template's, and the spellcraft it tends at.
+    pub const LEVEL: f32 = 20.0;
+    /// How often it may tend, in seconds, the share of whole health below which it does, and the
+    /// effect it tends with (a healer's plain heal).
+    pub const TENDS_EVERY: f64 = 30.0;
+    pub const TENDS_BELOW: f32 = 0.75;
+    pub const TEND_EFFECT: u32 = 0x7000_0772;
+}
+
+/// Whom a kind of pet tends, when it does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tends {
+    Owner,
+    OwnersPets,
+}
+
+/// Is an item of this template a contract that hires a mercenary?
+#[must_use]
+pub const fn is_contract(template: u32) -> bool {
+    matches!(
+        template,
+        mercenary::CRAFTER | mercenary::KEEPER | mercenary::MEDIC
+    )
+}
 
 /// The Lasher's greatest health at its summoner's ratings (2017's: 29, 52, 53 and 54).
 pub const LASHER_HEALTH: [(i32, i32); 4] = [(29, 663), (52, 1762), (53, 1813), (54, 1863)];
@@ -174,6 +226,8 @@ pub struct PetKind {
     pub lands: f32,
     /// Hits a swing on its one target.
     pub hits: u32,
+    /// Whom it tends, when it does.
+    pub tends: Option<Tends>,
     /// It stays where it is made (it never follows; it takes on what comes within its reach).
     pub stays: bool,
     /// Its missile lands on every creature this near where it falls (0: on its target alone).
@@ -205,6 +259,7 @@ impl PetKind {
             variance: 0.35,
             lands: 0.8,
             hits: 1,
+            tends: None,
             stays: false,
             area: 0.0,
             taunts: false,
@@ -224,6 +279,12 @@ impl PetKind {
     #[must_use]
     pub const fn hits_a_swing(mut self, hits: u32) -> Self {
         self.hits = hits;
+        self
+    }
+
+    #[must_use]
+    pub const fn tending(mut self, whom: Tends) -> Self {
+        self.tends = Some(whom);
         self
     }
 
@@ -349,6 +410,8 @@ pub struct Pet {
     pub effect: u32,
     /// What its owner last hurt, which a supporting pet takes on.
     pub assist: Option<u64>,
+    /// When it may next tend.
+    pub next_tend: f64,
 }
 
 /// Every pet in the world, and each owner's debt of orders.
@@ -532,6 +595,22 @@ pub fn summon<S: Store>(
     else {
         return None;
     };
+    let icon = s.skill_table.skills.get(&skill).map_or(0, |d| d.icon);
+    let seconds = lifetime.at(rating).filter(|x| *x > 0.0).map(f64::from);
+    summon_kind(s, net, world, kind, (class, icon, seconds), rating, clock)
+}
+
+/// A pet of a kind appears for a player: of a class, with an icon, for so many seconds when it does
+/// not stay until it is killed. Returns the pet.
+fn summon_kind<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    kind: PetKind,
+    (class, icon, seconds): (u32, u32, Option<f64>),
+    rating: f32,
+    clock: Clock,
+) -> Option<u64> {
     let (owner, owner_at) = s.players.get(&world).map(|p| (p.character, p.position))?;
     if kind.outdoors_only && crate::presence::indoors(owner_at.cell) {
         // Told of, then "The summoning fails.", and taken off the list as the use ends.
@@ -540,7 +619,6 @@ pub fn summon<S: Store>(
             .get(kind.template)
             .and_then(|t| t.description.name)
             .unwrap_or_default();
-        let icon = s.skill_table.skills.get(&skill).map_or(0, |d| d.icon);
         let id = s.things.new_id();
         progress::private(
             net,
@@ -568,7 +646,6 @@ pub fn summon<S: Store>(
     }
     stats.max_vigor = VIGOR_PER_LEVEL * level;
     let name = template.description.name.unwrap_or_default();
-    let icon = s.skill_table.skills.get(&skill).map_or(0, |d| d.icon);
     let own = props.float(KIND_VELOCITY).unwrap_or(1.0);
     let velocity = VELOCITY_FACTOR * own.max(crate::effects::player_speed(s, world).0);
     let id = s.things.new_id();
@@ -613,12 +690,14 @@ pub fn summon<S: Store>(
         taken_by: Vec::new(),
         unreached: Vec::new(),
         ranged: false,
+        closing: None,
         barred: Vec::new(),
         next_look: f64::INFINITY,
         lost_since: None,
         joining: None,
         opening: None,
         harm: Vec::new(),
+        taunts: Vec::new(),
         considered: f64::NEG_INFINITY,
         target_since: now,
         kin_helped: None,
@@ -641,18 +720,134 @@ pub fn summon<S: Store>(
             order: Order::Follow,
             next_plan: now + PLAN_EVERY,
             goal: None,
-            effect,
+            effect: kind.effect,
             assist: None,
+            next_tend: now,
         },
     );
-    if let Some(seconds) = lifetime.at(rating).filter(|x| *x > 0.0) {
-        s.after(
-            clock,
-            f64::from(seconds),
-            crate::Timer::PetExpires { pet: id },
-        );
+    if let Some(seconds) = seconds {
+        s.after(clock, seconds, crate::Timer::PetExpires { pet: id });
     }
     Some(id)
+}
+
+/// May a player hire on this contract now? Its mercenary's template must make a pet, and the player
+/// be in the world, alive and out of portal space.
+#[must_use]
+pub fn may_hire<S: Store>(s: &Server<S>, world: ConnId, contract: u32) -> bool {
+    let makes = kind_of(contract)
+        .filter(|_| is_contract(contract))
+        .and_then(|k| s.catalog.get(k.template))
+        .is_some_and(|t| yalain_content::CreatureStats::from_props(&t.props).is_some());
+    makes
+        && s.players
+            .get(&world)
+            .is_some_and(|p| !crate::combat::is_dead(p) && p.dying.is_none() && p.trip.is_none())
+}
+
+/// A contract in a player's pack is carried out: the mercenary appears, the one before it goes, and
+/// the contract is used up. When it can't be, the contract stays and the player is told: nothing
+/// is lost, and using the contract tries again. Returns whether it hired.
+pub fn hire<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    contract: u32,
+    clock: Clock,
+) -> bool {
+    let kind = may_hire(s, world, contract)
+        .then(|| kind_of(contract))
+        .flatten();
+    let icon = s
+        .catalog
+        .get(contract)
+        .and_then(|t| t.props.word("Icon"))
+        .unwrap_or(0);
+    let hired = kind.and_then(|k| {
+        let about = (mercenary::CLASS, icon, Some(mercenary::SECONDS));
+        summon_kind(s, net, world, k, about, mercenary::LEVEL, clock)
+    });
+    let Some(hired) = hired else {
+        progress::private(
+            net,
+            world,
+            &crate::chat::show_text(1, progress::text(text::SUMMONING_FAILS)),
+        );
+        return false;
+    };
+    let owner = s.players.get(&world).map_or(0, |p| p.character);
+    for old in s.pets.of(owner) {
+        let is_merc = s
+            .pets
+            .by_id
+            .get(&old)
+            .is_some_and(|p| p.class == mercenary::CLASS);
+        if old != hired && is_merc {
+            expires(s, net, old);
+        }
+    }
+    appear(s, net, hired);
+    crate::inventory::take_from_pack(s, net, world, contract);
+    true
+}
+
+/// A pet that tends does so, when its time has come and someone it tends needs it.
+fn tend<S: Store>(s: &mut Server<S>, net: &mut ServerNet, pet: &Pet, clock: Clock) {
+    let Some(whom) = kind_of(pet.effect).and_then(|k| k.tends) else {
+        return;
+    };
+    let now = clock.local.0;
+    if now < pet.next_tend {
+        return;
+    }
+    let low = |n: i32, of: i32| {
+        #[allow(clippy::cast_precision_loss)]
+        let share = n as f32 / of.max(1) as f32;
+        share < mercenary::TENDS_BELOW
+    };
+    let on = match whom {
+        Tends::Owner => s
+            .players
+            .iter()
+            .find(|(_, p)| p.character == pet.owner && !crate::combat::is_dead(p))
+            .filter(|(_, p)| {
+                low(
+                    crate::quals::int(&p.qualities, crate::player::quality::HEALTH).unwrap_or(0),
+                    crate::quals::int(&p.qualities, crate::player::quality::HEALTH_MAX)
+                        .unwrap_or(0),
+                )
+            })
+            .map(|(c, _)| crate::effects::On::Player(*c)),
+        Tends::OwnersPets => s
+            .pets
+            .of(pet.owner)
+            .into_iter()
+            .filter(|id| *id != pet.id)
+            .find(|id| {
+                s.things
+                    .get(*id)
+                    .is_some_and(|t| t.alive() && low(t.health, t.max_health))
+            })
+            .map(crate::effects::On::Creature),
+    };
+    let Some(on) = on else {
+        return;
+    };
+    if let Some(p) = s.pets.by_id.get_mut(&pet.id) {
+        p.next_tend = now + mercenary::TENDS_EVERY;
+    }
+    crate::effects::apply_on(
+        s,
+        net,
+        on,
+        mercenary::TEND_EFFECT,
+        crate::effects::Cast {
+            caster: pet.owner,
+            spellcraft: mercenary::LEVEL,
+            ..crate::effects::Cast::default()
+        },
+        clock,
+    );
 }
 
 /// A pet's description's numbers its kingdom sets: its physics type and its movement ethereality
@@ -870,8 +1065,25 @@ fn owe<S: Store>(s: &mut Server<S>, owner: u64, now: f64) -> Option<f32> {
     (before > ORDERS_OWED).then_some((after - ORDERS_OWED) as f32)
 }
 
+/// The longest name a pet may take, in UTF-16 units. The servers refused every recorded name of 27
+/// or more (11 of 11, up to 47) and took every one of 13 or less; none between was asked for.
+pub const MOST_NAME_UNITS: usize = 26;
+
+/// What its owner is told when a pet can't take this name, written as the server keeps it: one too
+/// long, or one with anything but letters of any alphabet, spaces, apostrophes and hyphens (digits
+/// were refused, 3 names of 3; an accented letter and a space were taken).
+#[must_use]
+pub fn name_refused(name: &str) -> Option<(u32, u32)> {
+    if name.encode_utf16().count() > MOST_NAME_UNITS {
+        return Some(text::NAME_TOO_LONG);
+    }
+    let allowed = |c: char| c.is_alphabetic() || matches!(c, ' ' | '\'' | '-');
+    (name.is_empty() || !name.chars().all(allowed)).then_some(text::NAME_NOT_ALLOWED)
+}
+
 /// A pet renamed: kept in the written form, its owner told "Name (kind)" as its name and everyone
-/// who sees it shown the same; nothing new shown when it is the name it has.
+/// who sees it shown the same; nothing new shown when it is the name it has. A name it can't take
+/// changes nothing, and its owner is told why.
 fn rename<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -884,6 +1096,11 @@ fn rename<S: Store>(
     let Some(p) = s.pets.by_id.get_mut(&pet).filter(|p| p.owner == owner) else {
         return;
     };
+    if let Some(why) = name_refused(&name) {
+        let told = crate::chat::show_text(1, progress::text(why));
+        progress::private(net, world, &told);
+        return;
+    }
     let template = p.template;
     let same = p.name.as_deref() == Some(name.as_str());
     p.name = Some(name.clone());
@@ -933,6 +1150,10 @@ fn order_attack<S: Store>(
     let Some(from) = s.players.get(&world).map(|p| p.position) else {
         return;
     };
+    if let Err(err) = crate::combat::may_attack_thing(s, world, target) {
+        progress::private(net, world, &crate::combat::failed(err));
+        return;
+    }
     if crate::presence::distance(&from, &at).is_none_or(|d| d > ATTACK_RANGE) {
         progress::private(
             net,
@@ -1157,6 +1378,7 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, pet: &Pet, clock: Clock
     let Some(at) = s.things.get(id).filter(|t| t.alive()).and_then(|t| t.at) else {
         return;
     };
+    tend(s, net, pet, clock);
     let away = crate::presence::distance(&at, &owner_at);
     let mut order = pet.order;
     if order == Order::Return && away.is_some_and(|d| d <= BACK_WITH) {
@@ -1173,7 +1395,8 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, pet: &Pet, clock: Clock
             .get(id)
             .and_then(|t| t.creature.as_ref())
             .and_then(|c| c.target)
-            .filter(|t| s.things.get(*t).is_some_and(Thing::alive));
+            .filter(|t| s.things.get(*t).is_some_and(Thing::alive))
+            .filter(|t| crate::combat::may_attack_thing(s, world, *t).is_ok());
         current.or_else(|| unbidden(s, pet, &at))
     };
     if let Some(t) = fighting {
@@ -1566,6 +1789,7 @@ fn strike<S: Store>(
                 crate::Timer::ThingStrikeLands {
                     by: id,
                     target,
+                    skill: skill.skill,
                     harm,
                 },
             );
@@ -1697,7 +1921,7 @@ pub fn lands<S: Store>(
     });
     crate::combat::to_all_seeing(s, net, target, &told);
     for (t, harm) in landed {
-        struck_by_pet(s, net, t, pet, harm.left, clock);
+        struck_by_pet(s, net, t, (pet, skill.skill), harm.left, clock);
         crate::effects::harm_back(s, net, pet, t, harm.back, clock);
     }
 }
@@ -1737,7 +1961,7 @@ pub fn struck<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     target: u64,
-    by: u64,
+    (by, skill): (u64, u32),
     damage: i32,
     clock: Clock,
 ) {
@@ -1766,7 +1990,7 @@ pub fn struck<S: Store>(
         }
         return;
     }
-    struck_by_pet(s, net, target, by, damage, clock);
+    struck_by_pet(s, net, target, (by, skill), damage, clock);
 }
 
 /// A pet's hit lands on a creature: it is hurt as the pet's owner's, and fights the pet (turning
@@ -1775,14 +1999,14 @@ fn struck_by_pet<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     target: u64,
-    by: u64,
+    (by, skill): (u64, u32),
     damage: i32,
     clock: Clock,
 ) {
     let Some(owner) = s.pets.by_id.get(&by).map(|p| p.owner) else {
         return;
     };
-    crate::combat::hurt_creature_as(s, net, target, (owner, by), damage, clock);
+    crate::combat::hurt_creature_by_skill(s, net, target, (owner, by, skill), damage, clock);
     turn_on_pet(s, net, target, by, clock);
 }
 

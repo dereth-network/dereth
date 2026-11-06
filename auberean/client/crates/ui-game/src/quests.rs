@@ -387,9 +387,11 @@ impl Journal {
             return;
         };
         for (list, quests) in [(u, &mut self.underway), (f, &mut self.finished)] {
+            let mut open = None;
             for (i, d) in quests.iter_mut().enumerate() {
                 if d.quest.id == self.selected {
                     d.expanded = true;
+                    open = Some(i);
                 }
                 if d.element.is_some() {
                     Self::update_element(ui, d, list);
@@ -398,6 +400,9 @@ impl Journal {
                 }
             }
             ui.list_changes_done(list);
+            if let Some(i) = open {
+                ui.list_scroll_to_row(list, i32::try_from(i).unwrap_or(i32::MAX), true);
+            }
         }
     }
 
@@ -614,6 +619,12 @@ impl Child for Journal {
                     let w = ui.node(from).map_or(0, |n| n.rect.width());
                     let h = ui.text_state(from).map_or(0, |t| t.paper_h);
                     ui.resize_to(from, w, h);
+                    for list in [self.underway_list, self.finished_list]
+                        .into_iter()
+                        .flatten()
+                    {
+                        ui.list_update_and_draw(list);
+                    }
                 }
                 if element == name::CANCEL_BUTTON && what == msg::BUTTON_RELEASE_ON {
                     self.ask_cancel(ui, id, out);

@@ -40,6 +40,7 @@ fn object(id: u64, template: u32, origin: [f32; 3]) -> ContentObject {
         object: Some(id),
         template,
         description: Description {
+            name_text: None,
             package: 0x103E,
             look: 0x1F00_0100,
             enter_fx: 0,
@@ -109,6 +110,8 @@ fn step(quest: u32, needs: u32, trigger: Trigger, update: Update) -> Step {
         effects_last: false,
         wants: None,
         fellows: false,
+        levels: None,
+        xp_share: 0.0,
         to: None,
     }
 }
@@ -276,6 +279,7 @@ fn doctrines_world() -> Harness {
         quests,
         steps,
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     h
 }
@@ -368,6 +372,7 @@ fn a_failed_quest_is_given_again_only_once_its_wait_is_over() {
         }],
         steps: vec![step(MIST, 0, Trigger::Use(SHRINE), Update::Bestow)],
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     h.server.talk = TalkTable {
         lines: vec![line(SHRINE, GO_AWAY, Role::RefuseUse, How::Emote, None)],
@@ -424,6 +429,7 @@ fn a_quest_is_not_given_under_its_least_level_and_the_person_says_why() {
         }],
         steps: vec![step(TREE, 0, Trigger::Use(DERU), Update::Bestow)],
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     h.server.talk = TalkTable {
         lines: vec![
@@ -470,6 +476,7 @@ fn a_quest_that_fails_on_death_fails_as_its_player_dies() {
         ],
         steps: Vec::new(),
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let (b, _me) = h.player_in_world("one", "Elara");
     let world = *h.server.players.keys().next().expect("a player");
@@ -560,6 +567,7 @@ fn a_done_quest_with_no_wait_is_given_again_at_once_unless_it_is_done_once() {
             step(ONCE, 0, Trigger::Use(GUARD), Update::Bestow),
         ],
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let (b, me) = h.player_in_world("one", "Elara");
     holding(
@@ -604,6 +612,7 @@ fn a_persons_too_soon_line_is_not_said_at_a_plain_use() {
             .map(|q| step(*q, 0, Trigger::Use(STUBBY), Update::Bestow))
             .collect(),
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     h.server.talk = TalkTable {
         lines: vec![line(STUBBY, TOO_SOON, Role::TooSoon, How::Tell, None)],
@@ -664,6 +673,7 @@ fn a_persons_wait_counts_only_the_players_time_in_the_world() {
             .map(|q| step(*q, 0, Trigger::Use(STUBBY), Update::Bestow))
             .collect(),
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     h.server.talk = TalkTable {
         lines: vec![line(STUBBY, TOO_SOON, Role::TooSoon, How::Tell, None)],
@@ -756,6 +766,7 @@ fn a_person_with_several_quests_gives_one_at_a_time_and_none_until_its_wait_is_o
         quests,
         steps,
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     h.server.talk = TalkTable {
         lines: vec![
@@ -923,6 +934,7 @@ fn a_person_whose_quests_follow_one_another_gives_the_next_at_once() {
             })
             .collect(),
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let (b, me) = h.player_in_world("one", "Elara");
     let person = 0x8130_0000_0000_0801;

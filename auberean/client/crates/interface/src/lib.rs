@@ -363,6 +363,7 @@ fn facts(
                         had: i.had,
                         worn: i.worn,
                         melts_at_once: i.melts_at_once,
+                        offered_name: i.offered_name.clone(),
                         data_id: model.object(*id).map_or(0, |o| o.weenie.entity_did),
                     },
                 )
@@ -372,6 +373,7 @@ fn facts(
         coin_stack: inv.coin_stack,
         no_melt_question: inv.no_melt_question,
         selection: inv.selection,
+        amount_name: inv.amount_name.clone(),
         picked: None,
         screen: std::collections::BTreeMap::new(),
     }
@@ -484,7 +486,8 @@ fn inventory_action(r: inventory::Request) -> Option<Action> {
             container,
             open: false,
         },
-        I::Select(target) => Action::Select { target },
+        I::Select(target) => Action::SetSelection { target },
+        I::NameAmount { item, quantity } => Action::NameAmount { item, quantity },
         r @ (I::Help { .. } | I::Pick | I::PickWorld | I::ShowDoll { .. }) => {
             tracing::debug!(?r, "not carried out yet");
             return None;
@@ -585,6 +588,8 @@ pub struct Retail {
     cursor: Option<Arc<CursorImage>>,
     /// Shift and Ctrl held.
     mods: (bool, bool),
+    /// The modifier keys held: left Shift 1, right Shift 2, left Ctrl 4, right Ctrl 8.
+    held_mods: u8,
     /// Each key held for a play action: the modifier bits it was pressed with (its release ends
     /// the action its press began).
     play_keys: std::collections::HashMap<u32, u32>,
@@ -701,6 +706,7 @@ impl Retail {
             zoomed: false,
             cursor: None,
             mods: (false, false),
+            held_mods: 0,
             play_keys: std::collections::HashMap::new(),
             held_keys: std::collections::BTreeSet::new(),
             held_buttons: std::collections::BTreeSet::new(),
@@ -903,6 +909,7 @@ impl Retail {
     /// What the play screen is given this frame: the player's vitals, the radar's place line, the
     /// chat window's lines (the scripts' and the client's own errors), the scripts' notices.
     fn feed(&mut self, game: &Game<'_>) {
+        let window = self.scale();
         let d = &mut self.flow.flow.data;
         d.in_world = game.phase == Phase::World;
         d.arrivals = game.arrivals;
@@ -1003,6 +1010,12 @@ impl Retail {
                 .filter(|n| n.about.is_none() || n.about == player_id)
                 .cloned(),
         );
+        for n in game.notices {
+            if n.native == gameplay::notice::UPDATE_MOUNT_STATE && n.about == player_id {
+                self.dolls
+                    .set_mounted(n.words.first().is_some_and(|w| *w != 0));
+            }
+        }
         self.held_looks = looks
             .into_iter()
             .map(|n| gameplay::Notice {
@@ -1054,6 +1067,27 @@ impl Retail {
             }
             if let Some(f) = d.inventory.as_mut() {
                 f.picked = self.world_found;
+                // Where the containers opening stand on the screen, for their windows to open
+                // over them.
+                f.screen.clear();
+                let (w, h) = (game.size.0 as f32, game.size.1 as f32);
+                for o in d
+                    .everyone
+                    .iter()
+                    .filter(|n| n.native == inventory::notice::CONTAINER_STATE_UPDATE)
+                    .filter_map(|n| n.about)
+                {
+                    if let Some((x, y)) = game.seen.place_on_screen(o, w, h) {
+                        let (left, top, scale) = window;
+                        f.screen.insert(
+                            o,
+                            (
+                                to_i32(((x - left) / scale).floor()),
+                                to_i32(((y - top) / scale).floor()),
+                            ),
+                        );
+                    }
+                }
             }
             if d.skills
                 .as_ref()
@@ -1187,6 +1221,9 @@ impl Retail {
                     tracing::debug!(target = format_args!("{target:#x}"), "select");
                     requests.push(Request::Act(Action::Select { target }));
                 }
+                R::SetSelection(target) => {
+                    requests.push(Request::Act(Action::SetSelection { target }));
+                }
                 // The play screen's display is the window's own size.
                 #[allow(clippy::cast_precision_loss)]
                 R::Pick { x, y } => requests.push(Request::PickWorld {
@@ -1202,12 +1239,19 @@ impl Retail {
                 }
                 R::ShowNames(on) => {
                     self.gather.asks.push(world::Ask::ShowNames(on));
-                    self.options.stale = true;
+                    self.options.quiet = true;
                 }
                 R::Options(r) => match options::action(&r) {
                     Some(a) => {
                         requests.push(Request::Act(a));
-                        self.options.stale = true;
+                        // The bar's rows set by hand: the page set its own row already.
+                        // D2-02831
+                        let told = !matches!(
+                            r,
+                            auberean_ui_game::options::Request::Set { tell: false, .. }
+                        );
+                        self.options.stale |= told;
+                        self.options.quiet |= !told;
                     }
                     None => match &r {
                         auberean_ui_game::options::Request::Preferences(p) => {
@@ -1707,6 +1751,7 @@ impl Retail {
         self.play_keys.clear();
         self.left_to_world = false;
         self.mods = (false, false);
+        self.held_mods = 0;
         self.ui.set_modifiers(false, false);
         self.ui.set_alt(false);
     }
@@ -1746,6 +1791,16 @@ impl Retail {
 
     /// The interface action a key pressed or let go names in the player's key maps, with Shift
     /// and Ctrl as held at its press.
+    /// A modifier key pressed or let go: Shift and Ctrl hold while either of their keys does.
+    fn hold_modifier(&mut self, bit: u8, down: bool) {
+        self.held_mods = if down {
+            self.held_mods | bit
+        } else {
+            self.held_mods & !bit
+        };
+        self.mods = (self.held_mods & 3 != 0, self.held_mods & 12 != 0);
+    }
+
     fn play_action(
         &mut self,
         keys: &auberean_shell::keys::Keys,
@@ -2055,8 +2110,7 @@ impl Interface for Retail {
                 };
                 let took = self.interface_button(id, *down);
                 if *down && *button == Button::Left && pregame {
-                    let (shift, ctrl) = self.mods;
-                    self.key_for_keyboard(pregame::LEFT_BUTTON_WORD, shift, ctrl);
+                    self.key_for_keyboard(pregame::LEFT_BUTTON_WORD, self.held_mods);
                 }
                 // The left button runs forward in mouse look: the world's controls see it too,
                 // even when it lands on the field over the world (or on a panel under a pointer
@@ -2106,15 +2160,17 @@ impl Interface for Retail {
                 // Shift, Ctrl and Alt as the interface reads them; Delete reaches the entry with the
                 // keyboard as the key it is.
                 match key {
-                    Key::ShiftLeft | Key::ShiftRight => self.mods.0 = *down,
-                    Key::ControlLeft | Key::ControlRight => self.mods.1 = *down,
+                    Key::ShiftLeft => self.hold_modifier(1, *down),
+                    Key::ShiftRight => self.hold_modifier(2, *down),
+                    Key::ControlLeft => self.hold_modifier(4, *down),
+                    Key::ControlRight => self.hold_modifier(8, *down),
                     Key::AltLeft | Key::AltRight => self.ui.set_alt(*down),
                     _ => {}
                 }
                 self.ui.set_modifiers(self.mods.0, self.mods.1);
                 if *down && pregame {
                     let w = pregame::input_word(*key);
-                    self.key_for_keyboard(w, self.mods.0, self.mods.1);
+                    self.key_for_keyboard(w, self.held_mods);
                 }
                 if *down && *key == Key::Delete && self.ui.character_input(0, DELETE_KEY) {
                     return true;
@@ -2161,7 +2217,9 @@ impl Interface for Retail {
                 self.let_go();
                 pregame
             }
-            _ => pregame,
+            Event::Focus(true) | Event::Motion { .. } | Event::Resized { .. } | Event::Close => {
+                pregame
+            }
         }
     }
 
@@ -2181,7 +2239,11 @@ impl Interface for Retail {
         self.keep_keys(game);
         self.dialog_notices();
         for e in self.flow.tick(&mut self.ui) {
-            tracing::debug!(?e, "not carried out yet");
+            match e {
+                auberean_ui_game::flow::Event::Screenshot => {
+                    requests.push(Request::Screenshot);
+                }
+            }
         }
         let out = std::mem::take(&mut self.flow.flow.data.out);
         self.carry_out(out, requests);

@@ -154,6 +154,13 @@ impl Sliders {
         self.infos.get(slider).map_or(0.0, |i| i.value)
     }
 
+    /// The object's opacity, held to 0..1.
+    // D2-06524
+    #[must_use]
+    pub fn opacity(&self) -> f32 {
+        self.current(OPACITY).clamp(0.0, 1.0)
+    }
+
     /// What an object's draws are multiplied by, as these sliders hold it: red, green, blue and
     /// alpha, each held to 0..1, the alpha times the opacity (its own slider, held to 0..1).
     // D2-06487, D2-06380

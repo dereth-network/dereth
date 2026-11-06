@@ -19,6 +19,7 @@ use auberean_testkit::captures;
 
 /// The client's entering the world, which the event queue's holding rule turns on.
 pub(crate) const PLAY_CHARACTER: u32 = 0x1002B;
+const CLIENT_POSITION: u32 = 0x1008E;
 
 /// The server's script-call carriers: to the player, to an object in a cell, to an object by its
 /// visual, and the alternate form to the player.
@@ -502,8 +503,8 @@ const BASIC_ATTACK: u32 = 0x20;
 /// text to the panels); a hit on the player by a skill asks the attacker's scripts whether the
 /// skill harms; a hook that makes missiles asks the attacker's body's scripts for the missile of
 /// every hook that fires one, and a hook that fires one asks for its own. Every call runs to its
-/// end: at least 1,558,000 hooks' effects, 795,000 hits' damage (183,000 combat lines, 736,000
-/// floating texts), 59,000 questions of harm (43,000 harmful) and 327,000 missiles, each made from
+/// end: at least 1,558,000 hooks' effects, 795,000 hits' damage (183,000 combat lines, 703,000
+/// floating texts, another's hit only within range of where the player walked), 59,000 questions of harm (43,000 harmful) and 327,000 missiles, each made from
 /// a record, aimed at an object and passing through physics types the property list names.
 ///
 /// Behaviour: script.model.every-recorded-story-hook-runs-against-the-scripts
@@ -517,6 +518,8 @@ fn every_recorded_story_hook_runs_against_the_attackers_and_targets_scripts() {
         .filter(|t| ServerMessage::is_known_type(*t))
         .collect();
     types.push(PLAY_CHARACTER);
+    // Where the player walked: another's hit shows its floating text only within range of them.
+    types.push(CLIENT_POSITION);
     let (mut effects, mut damage, mut harm, mut missile) = (
         HookTally::default(),
         HookTally::default(),
@@ -546,10 +549,15 @@ fn every_recorded_story_hook_runs_against_the_attackers_and_targets_scripts() {
             c.upkeep();
         }
         if !m.to_client {
-            if let Ok(ClientMessage::PlayCharacter(p)) = ClientMessage::decode(&m.raw) {
-                c.act(Action::PlayCharacter {
+            match ClientMessage::decode(&m.raw) {
+                Ok(ClientMessage::PlayCharacter(p)) => c.act(Action::PlayCharacter {
                     character: p.character,
-                });
+                }),
+                Ok(ClientMessage::Position(p)) => {
+                    let heading = c.body.heading;
+                    c.body.place(p.cell, p.origin, heading);
+                }
+                _ => {}
             }
             return;
         }
@@ -688,7 +696,7 @@ fn every_recorded_story_hook_runs_against_the_attackers_and_targets_scripts() {
     // What the hits showed: effects, the combat lines, the floating texts, the skills that harm.
     assert!(shown_fx >= 512_000, "{shown_fx}");
     assert!(lines >= 183_000, "{lines}");
-    assert!(floating >= 736_000, "{floating}");
+    assert!(floating >= 703_000, "{floating}");
     assert!(harmful >= 43_000, "{harmful}");
     // What the missiles were.
     for (what, n, floor) in [

@@ -450,3 +450,45 @@ fn a_string_reference_reads_itself_from_a_text_tree_by_its_keywords() {
 
     assert!(!text_from_node(&mut TextInfo::default(), None, &mut names));
 }
+
+/// **A string changes case as the C library does in the English locale**: accented letters
+/// change too, and a letter with no single partner stays as it is.
+///
+/// Behaviour: script.glue.a-strings-case-changes-accented-letters-too
+#[test]
+fn a_strings_case_changes_accented_letters_too() {
+    let mut b = Bench::new();
+    let lower = b.text("HELLO ÉÖ");
+    b.call(TEXT, 0x1F, lower, &[], 0);
+    assert_eq!(s(&b, lower), "hello éö");
+    let upper = b.text("hello éßÿ");
+    b.call(TEXT, 0x1E, upper, &[], 0);
+    assert_eq!(s(&b, upper), "HELLO ÉßŸ");
+}
+
+/// **A string's leading float is read as the C library reads one**: past white space, as far as
+/// a number goes, its exponent marked with `e` or `d` and read only with digits. The words for
+/// infinity and not-a-number are no number, so they read as zero.
+///
+/// Behaviour: script.glue.a-strings-float-is-read-as-the-c-library-reads-one
+#[test]
+fn a_strings_float_is_read_as_the_c_library_reads_one() {
+    let mut b = Bench::new();
+    for (text, want) in [
+        (" -2.5e1abc", -25.0_f32),
+        ("1d2", 100.0),
+        ("+.5", 0.5),
+        ("7e", 7.0),
+        ("7e+", 7.0),
+        ("1.2.3", 1.2),
+        (".", 0.0),
+        ("", 0.0),
+        ("inf", 0.0),
+        ("infinity", 0.0),
+        ("nan", 0.0),
+        ("-inf", 0.0),
+    ] {
+        let t = b.text(text);
+        assert_eq!(f32::from_bits(b.answer(TEXT, 0x1B, t, &[])), want, "{text}");
+    }
+}

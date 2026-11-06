@@ -9,7 +9,7 @@ mod presence;
 mod streams;
 mod tells;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::net::{IpAddr, Ipv4Addr};
 use std::time::Duration;
 

@@ -969,6 +969,40 @@ fn a_primary_piece_waits_for_the_one_playing_which_repeats_until_another_waits()
     assert!(!m.has_finished(second));
 }
 
+/// Behaviour: audio.manager.a-stopped-primary-piece-waits-no-longer
+#[test]
+fn a_waiting_primary_piece_that_is_stopped_leaves_the_one_playing_to_repeat() {
+    let mut f = sequence_files(&[(0, 384, 0, 60, 127)]);
+    f.music(0x2C00_0001, 0x2 | 0x100, KIND_SEGMENT, 0x2400_0012);
+    f.music(0x2C00_0002, 0x2 | 0x100, KIND_SEGMENT, 0x2400_0012);
+    let mut m = SoundPlayer::new(Some(22_050));
+    let mixer = m.mixer().expect("a device");
+    let mut now = 0.0;
+    let mut turn = |m: &mut SoundPlayer, seconds: f64| {
+        let steps = to_i32_f64((seconds * 10.0).round());
+        for _ in 0..steps {
+            let mut out = vec![0.0; 2 * 2205];
+            mixer.lock().expect("mixer").mix(&mut out);
+            now += 0.1;
+            m.use_time(now, Listener::default(), &|_| None);
+        }
+    };
+    let first = m
+        .play(&f, &PlayRequest::new(0x2C00_0001))
+        .expect("accepted");
+    turn(&mut m, 1.0);
+    let second = m
+        .play(&f, &PlayRequest::new(0x2C00_0002))
+        .expect("accepted");
+    turn(&mut m, 0.5);
+    assert_eq!(m.stats.pieces, 1, "the second waits");
+    m.stop(second, 0.0);
+    turn(&mut m, 5.0);
+    assert!(m.has_finished(second), "stopped, it is gone");
+    assert!(!m.has_finished(first), "the one playing goes on");
+    assert_eq!(m.stats.pieces, 2, "and starts again as if none had waited");
+}
+
 /// Behaviour: audio.music.chord.music-values
 #[test]
 fn a_style_notes_music_value_becomes_its_key_over_the_chord_and_scale() {

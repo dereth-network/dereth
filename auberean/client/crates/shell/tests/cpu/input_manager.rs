@@ -16,6 +16,40 @@ fn pointer() -> Event {
     Event::Pointer { x: 10.0, y: 20.0 }
 }
 
+/// The press that brought the window forward isn't heard, nor its release, and the next frame's
+/// click is. A press in a window already active is, and a window that was never left doesn't count
+/// as coming active.
+///
+/// Behaviour: desktop.input.a-click-that-brings-the-window-forward-is-not-heard
+#[test]
+fn a_click_that_brings_the_window_forward_is_not_heard() {
+    let button = |button, down| Event::Button { button, down };
+    let mut m = InputManager::default();
+    assert!(m.admit(&Event::Focus(true)), "the first focus, never left");
+    assert!(m.admit(&button(Button::Left, true)));
+    assert!(m.admit(&button(Button::Left, false)));
+
+    assert!(m.admit(&Event::Focus(false)));
+    assert!(m.admit(&Event::Focus(true)));
+    assert!(!m.admit(&button(Button::Left, true)), "the press");
+    m.frame_begins();
+    assert!(
+        m.admit(&button(Button::Right, true)),
+        "another button, now the devices are up"
+    );
+    assert!(!m.admit(&button(Button::Left, false)), "its release");
+    assert!(m.admit(&button(Button::Left, true)), "the next click");
+    assert!(m.admit(&button(Button::Left, false)));
+
+    assert!(m.admit(&Event::Focus(false)));
+    assert!(m.admit(&Event::Focus(true)));
+    m.frame_begins();
+    assert!(
+        m.admit(&button(Button::Left, true)),
+        "a click frames after the window came forward"
+    );
+}
+
 /// While the window is not the active one nothing hears a press or a release, the wheel, mouse
 /// motion or the pointer; the window's own events always pass. Where the pointer went is heard
 /// once, the last place, when the window is active again.

@@ -56,6 +56,7 @@ fn portal(
         object: Some(id),
         template,
         description: Description {
+            name_text: None,
             package: 0x1A00,
             look: 0x1F00_0ED5,
             enter_fx: 0,

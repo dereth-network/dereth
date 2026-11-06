@@ -345,6 +345,66 @@ fn a_skill_that_says_it_goes_faster_is_told_at_the_square_of_it() {
     }
 }
 
+/// A special is refused while its user holds an effect that bars it, the refusal saying so, and
+/// goes once the effect is off; an effect it doesn't name bars nothing.
+/// Behaviour: server.specials.barred-by-an-effect
+#[test]
+fn a_special_under_an_effect_that_bars_it_is_refused_until_the_effect_is_off() {
+    const BAR: u32 = 0x7000_7E01;
+    const OTHER: u32 = 0x7000_7E02;
+    let (mut h, b, me, beetle) = beside_a_beetle();
+    practice_target(&mut h, beetle);
+    h.arm(b, me, BOW);
+    h.server
+        .skill_table
+        .skills
+        .get_mut(&DEADEYE)
+        .and_then(|d| d.usage.as_mut())
+        .expect("used")
+        .barring_effects = vec![BAR];
+    let hold = |h: &mut Harness, state: u32| {
+        let p = h.server.players.values_mut().next().expect("the player");
+        let eid = yalain_world::effects::next_eid(p);
+        p.play
+            .effects
+            .retain(|e| e.state != BAR && e.state != OTHER);
+        p.play.effects.push(yalain_world::state::EffectState {
+            eid,
+            state,
+            cast: 0.0,
+            timeout: 1.0e9,
+            caster: 0,
+            spellcraft: 10.0,
+            pk: false,
+            acting: 0,
+            skill: 0,
+            item: 0,
+            flags: 0,
+            categories: 1,
+        });
+    };
+    hold(&mut h, BAR);
+    let from = use_skill(&mut h, b, 6, DEADEYE, beetle);
+    h.run(80);
+    let told = |h: &Harness, from: usize| {
+        h.world_messages(b, from)
+            .iter()
+            .filter(|m| matches!(m, ServerMessage::DoStory(e) if e.sender.id == me))
+            .count()
+    };
+    assert_eq!(told(&h, from), 0, "barred: no story");
+    assert!(calls_of(&h, b, from).iter().any(|(f, args)| {
+        *f == yalain_world::skill_use::function::REFUSED
+            && args.contains(&Value::Int(
+                yalain_world::skill_use::refusal::BARRED_BY_EFFECT,
+            ))
+    }));
+    hold(&mut h, OTHER);
+    let from = use_skill(&mut h, b, 7, DEADEYE, beetle);
+    h.run(80);
+    assert!(told(&h, from) > 0, "another effect bars nothing");
+}
+
 /// A special waiting for a run's next swing still goes when the run has nothing it may swing.
 /// Behaviour: server.weapons.withheld-run-waits
 #[test]
@@ -1408,4 +1468,57 @@ fn a_skills_range_is_measured_between_the_bodies() {
     let from = use_skill(&mut h, b, 10, DEADEYE, beetle);
     h.run(6);
     assert!(!functions(&h, b, from).contains(&function::REFUSED));
+}
+
+/// The harm a skill counts for at a creature's draw is its points' share more or less, one point to
+/// one percent; what the creature loses is the damage itself.
+/// Behaviour: server.creatures.a-skills-harm-counts-by-its-points
+#[test]
+fn a_skills_harm_counts_at_a_draw_by_its_points_and_takes_only_its_damage() {
+    use yalain_world::ai::harm_noticed;
+    for (skill, counted) in [
+        (701, 10_100),
+        (326, 9_900),
+        (2189, 10_500),
+        (322, 10_050),
+        (96, 10_000),
+    ] {
+        assert_eq!(harm_noticed(skill, 10_000), counted, "skill {skill}");
+    }
+    // A missile's and a strike's, each by a skill that counts for more.
+    for (skill, like, weapon) in [(2189, DEADEYE, BOW), (2190, 176, SWORD)] {
+        let (mut h, b, me, beetle) = beside_a_beetle();
+        practice_target(&mut h, beetle);
+        h.arm(b, me, weapon);
+        let mut def = h.server.skill_table.skills[&like].clone();
+        def.id = skill;
+        let usage = def.usage.as_mut().expect("used");
+        usage.max_range = 1000.0;
+        usage.min_range = -1.0;
+        usage.ui_flags &= !yalain_world::skill_use::ui_flag::MOVE_TO;
+        for hook in &mut usage.hooks {
+            hook.add = 5_000.0;
+        }
+        h.server.skill_table.skills.insert(skill, def);
+        if let Some(t) = h.server.things.get_mut(beetle) {
+            t.max_health = 1_000_000;
+            t.health = 1_000_000;
+        }
+        use_skill(&mut h, b, 6, skill, beetle);
+        h.run(80);
+        let t = h.server.things.get(beetle).expect("alive");
+        let lost = 1_000_000 - t.health;
+        let harm: i64 = t
+            .creature
+            .as_ref()
+            .expect("a creature")
+            .harm
+            .iter()
+            .filter(|e| e.1 == me)
+            .map(|e| e.2)
+            .sum();
+        assert!(lost > 100, "skill {skill} hit for {lost}");
+        assert_eq!(harm, harm_noticed(skill, lost), "skill {skill}");
+        assert!(harm > i64::from(lost));
+    }
 }

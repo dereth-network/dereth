@@ -201,6 +201,63 @@ fn the_wheel_scrolls_a_list_through_its_scroll_bar() {
     assert_eq!(y_view(&u, list), 0);
 }
 
+/// The wheel over a window's bare ground, or over something in it that is not a list, scrolls the
+/// window's list by its bar.
+///
+/// Behaviour: ui.scrollbar.the-wheel-scrolls-the-window-under-the-pointer
+#[test]
+fn the_wheel_scrolls_the_window_under_the_pointer() {
+    let label = element("Label", "field", [200, 200, 280, 280], 0, vec![]);
+    let (mut u, list, _) = five_rows(vec![
+        row(),
+        window(vec![("vertical_scrollbar", id("Bar"))], vec![bar(), label]),
+    ]);
+    u.pointer_move(150, 150);
+    u.pointer_button(button_id::WHEEL_DOWN, true);
+    assert_eq!(y_view(&u, list), 20, "over the window's ground");
+    u.pointer_move(250, 250);
+    u.pointer_button(button_id::WHEEL_DOWN, true);
+    assert_eq!(y_view(&u, list), 40, "over a label in it");
+    u.pointer_button(button_id::WHEEL_UP, true);
+    assert_eq!(y_view(&u, list), 20, "back up");
+}
+
+/// The wheel over another window, or nothing, leaves a window's list alone, and so does a wheel
+/// over a window whose bar is hidden.
+///
+/// Behaviour: ui.scrollbar.the-wheel-leaves-other-windows-alone
+#[test]
+fn the_wheel_leaves_other_windows_alone() {
+    let other = element("Other", "field", [400, 0, 499, 99], 0, vec![]);
+    let mut u = ui(
+        vec![
+            row(),
+            window(vec![("vertical_scrollbar", id("Bar"))], vec![bar()]),
+            other,
+        ],
+        vec![],
+    );
+    let l = u.load_layout(LAYOUT).unwrap();
+    let w = u.create_root(l, Token::of("Window")).unwrap();
+    let list = u.child(w, Token::of("List")).unwrap();
+    for _ in 0..5 {
+        let r = u.create(l, Token::of("Row")).unwrap();
+        u.list_add(list, r);
+    }
+    u.create_root(l, Token::of("Other")).unwrap();
+    u.pointer_move(450, 50);
+    u.pointer_button(button_id::WHEEL_DOWN, true);
+    assert_eq!(y_view(&u, list), 0, "over another window");
+    u.pointer_move(600, 600);
+    u.pointer_button(button_id::WHEEL_DOWN, true);
+    assert_eq!(y_view(&u, list), 0, "over nothing");
+    let b = u.child(w, Token::of("Bar")).unwrap();
+    u.set_visible(b, false);
+    u.pointer_move(150, 150);
+    u.pointer_button(button_id::WHEEL_DOWN, true);
+    assert_eq!(y_view(&u, list), 0, "its bar hidden");
+}
+
 /// Dragging a scroll bar's widget moves the bar to the widget's share of the way, and the list
 /// takes that share of its hidden rows (kept on a row's edge).
 ///
@@ -293,6 +350,46 @@ fn a_smooth_list_glides_to_its_goal_over_its_movement_time() {
     );
 }
 
+/// A meter that moves its fills slides each whole: it keeps the size the layout gave it, a left
+/// fill stands the part of the meter's width past the position before the meter, cut to a whole
+/// pixel toward the meter, and a right fill at the position.
+///
+/// Behaviour: ui.meter.a-moving-fill-slides-keeping-its-own-size
+#[test]
+fn a_moving_fill_slides_keeping_its_own_size() {
+    let fill = |name: &str, r: [i16; 4]| element(name, "field", r, 0, vec![]);
+    let meter = element(
+        "Meter",
+        "meter",
+        [10, 10, 110, 39],
+        0,
+        vec![state(
+            "stateless",
+            0,
+            vec![("move_fill", V::Bool(true))],
+            vec![],
+            vec![
+                fill("left_fill", [0, 0, 100, 22]),
+                fill("right_fill", [0, 0, 100, 22]),
+            ],
+        )],
+    );
+    let mut u = ui(vec![meter], vec![]);
+    let l = u.load_layout(LAYOUT).unwrap();
+    let m = u.create_root(l, Token::of("Meter")).unwrap();
+    u.set_meter(m, 0.5);
+    let rect =
+        |u: &auberean_ui::Ui, n: &str| u.node(u.child(m, Token::of(n)).unwrap()).unwrap().rect;
+    assert_eq!(
+        rect(&u, "left_fill"),
+        auberean_ui::Rect::sized(-50, 0, 101, 23)
+    );
+    assert_eq!(
+        rect(&u, "right_fill"),
+        auberean_ui::Rect::sized(50, 0, 101, 23)
+    );
+}
+
 /// A meter with a left fill: a goal is taken at once (the fill half the meter at 0.5); a smooth
 /// meter moves toward it over its movement time.
 ///
@@ -333,6 +430,118 @@ fn a_meter_takes_its_goal_at_once_or_smoothly() {
     assert_eq!(fill(&u, smooth), 50, "half way after half the time");
     u.use_time(2.0);
     assert_eq!(fill(&u, smooth), 100);
+}
+
+/// A list emptied row by row keeps its cells' size and one cell of sheet, so the view it stood at
+/// stays; inserting past its end, or before a row not its own, adds nothing.
+///
+/// Behaviour: ui.list.an-emptied-list-keeps-its-cell-and-a-row-past-the-end-is-refused
+#[test]
+fn an_emptied_list_keeps_its_cell_and_a_row_past_the_end_is_refused() {
+    let (mut u, list, rows) = five_rows(vec![window(vec![], vec![]), row()]);
+    let cell = u.node(rows[0]).unwrap().rect.height();
+    let l = u.load_layout(LAYOUT).unwrap();
+    let extra = u.create(l, Token::of("Row")).unwrap();
+    u.list_insert(list, extra, 6);
+    assert_eq!(u.list_items(list).len(), 5, "past the end: none");
+    u.list_insert_before(list, extra, Some(list));
+    assert_eq!(
+        u.list_items(list).len(),
+        5,
+        "before no row of its own: none"
+    );
+    u.list_insert_before(list, extra, None);
+    assert_eq!(u.list_items(list).len(), 6, "before nothing: at the end");
+    u.list_remove(list, 5);
+    u.list_scroll_to_row(list, 1, true);
+    assert_eq!(y_view(&u, list), cell, "a row down");
+    for _ in 0..5 {
+        u.list_remove(list, 0);
+    }
+    assert_eq!(
+        y_view(&u, list),
+        cell,
+        "the view stays, on one cell of sheet"
+    );
+}
+
+/// An open menu closes as the window it stands in hides: its popup, its own top-level element,
+/// does not stay on the screen.
+///
+/// Behaviour: ui.menu.an-open-menu-closes-as-its-window-hides
+#[test]
+fn an_open_menu_closes_as_its_window_hides() {
+    let popup = element(
+        "Popup",
+        "field",
+        [0, 0, 79, 59],
+        0,
+        vec![state(
+            "stateless",
+            0,
+            vec![],
+            vec![],
+            vec![element(
+                "MenuList",
+                "listbox",
+                [0, 0, 79, 59],
+                0,
+                vec![state(
+                    "stateless",
+                    0,
+                    vec![("click_select", V::Bool(true))],
+                    vec![],
+                    vec![],
+                )],
+            )],
+        )],
+    );
+    let item = element(
+        "Item",
+        "text",
+        [0, 0, 79, 14],
+        0,
+        vec![state("stateless", 0, vec![], vec![], vec![])],
+    );
+    let menu = element(
+        "Menu",
+        "menu",
+        [10, 10, 89, 29],
+        0,
+        vec![state(
+            "stateless",
+            0,
+            vec![
+                ("popup", id("Popup")),
+                ("listbox", id("MenuList")),
+                ("text_item", id("Item")),
+            ],
+            vec![],
+            vec![],
+        )],
+    );
+    let win = element(
+        "Window",
+        "field",
+        [0, 0, 299, 299],
+        0,
+        vec![state("stateless", 0, vec![], vec![], vec![menu])],
+    );
+    let mut u = ui(vec![popup, item, win], vec![]);
+    let l = u.load_layout(LAYOUT).unwrap();
+    let w = u.create_root(l, Token::of("Window")).unwrap();
+    let m = u.child(w, Token::of("Menu")).unwrap();
+    u.menu_insert_text(m, "One", 0).unwrap();
+    click(&mut u, 50, 20);
+    let popup = u
+        .roots()
+        .iter()
+        .copied()
+        .find(|r| u.node(*r).unwrap().id == Token::of("Popup"))
+        .expect("the popup is up");
+    assert!(u.shown(popup));
+    u.set_visible(w, false);
+    assert!(!u.shown(popup), "gone with its window");
 }
 
 /// A menu opens its popup under itself, sized to its rows; choosing a row selects it, the menu

@@ -56,7 +56,9 @@ pub fn action(r: &options::Request) -> Option<Action> {
                 .collect(),
             tell: *tell,
         }),
-        _ => None,
+        options::Request::AssistanceSite
+        | options::Request::Assistance { .. }
+        | options::Request::Preferences(_) => None,
     }
 }
 
@@ -65,6 +67,10 @@ pub fn action(r: &options::Request) -> Option<Action> {
 pub struct Reader {
     /// They may have changed since last read.
     pub stale: bool,
+    /// They changed in a way the character page takes up itself, or not until it next reads them:
+    /// read again without telling it, so its unapplied rows stay.
+    // D2-02831, D2-02137
+    pub quiet: bool,
     read: u32,
 }
 
@@ -81,14 +87,13 @@ impl Reader {
             n.native == gameplay::notice::RELOAD_OPTIONS
                 || n.native == options::notice::OPTIONS_CHANGED
         });
-        if !(self.stale || said || now.is_none()) {
+        if !(self.stale || self.quiet || said || now.is_none()) {
             return;
         }
         let Some(o) = client.options() else {
             return;
         };
-        self.stale = false;
-        self.read += 1;
+        self.count_read(said || now.is_none());
         *now = Some(Values {
             bits: o.bits,
             radar_mask: o.radar_mask,
@@ -96,5 +101,41 @@ impl Reader {
             damage_range: f32::from_bits(o.damage_text_range),
             read: self.read,
         });
+    }
+
+    /// A reading taken: it tells the page when they were stale or `told`, and not when only
+    /// quiet.
+    fn count_read(&mut self, told: bool) {
+        if self.stale || told {
+            self.read += 1;
+        }
+        self.stale = false;
+        self.quiet = false;
+    }
+}
+
+#[cfg(test)]
+mod reader_tests {
+    //! Behaviour: none (when the character page is told to read the player's options again)
+    use super::Reader;
+
+    #[test]
+    fn a_quiet_reading_does_not_tell_the_page() {
+        let mut r = Reader {
+            stale: true,
+            ..Reader::default()
+        };
+        r.count_read(false);
+        assert_eq!(r.read, 1, "stale tells it");
+        r.quiet = true;
+        r.count_read(false);
+        assert_eq!(r.read, 1, "quiet does not");
+        assert!(!r.quiet);
+        r.quiet = true;
+        r.stale = true;
+        r.count_read(false);
+        assert_eq!(r.read, 2, "stale wins");
+        r.count_read(true);
+        assert_eq!(r.read, 3, "a notice tells it");
     }
 }

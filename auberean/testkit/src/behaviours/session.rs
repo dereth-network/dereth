@@ -4,7 +4,7 @@
 //! A row claims what the September 2013 client does on the wire, held to the client itself and to
 //! the recorded January 2017 sessions.
 
-use super::{Behaviour, Evidence, Tier, RETAIL, TOOLING};
+use super::{Behaviour, Evidence, Tier, RETAIL, THIS_CLIENT, TOOLING};
 
 /// This subject's rows, in id order.
 pub static ROWS: &[Behaviour] = &[
@@ -61,6 +61,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SESS-DOUBLE"),
         station: "auberean-headless::cpu::world_entry::a_server_double_takes_the_client_through_login_character_list_and_world_entry",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.interface.a-panels-selection-is-not-looked-at",
+        says: "A selection made from a panel (the radar, a name, the pack, a fellow) sends no look: the head stays on what the selection keys and the world's clicks last chose.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SELECT-NO-LOOK"),
+        station: "auberean-headless::cpu::world_entry::a_panels_selection_is_not_looked_at",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -376,6 +384,15 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SESS-LOOPBACK"),
         station: "yalain::live::session::our_client_plays_a_whole_session_on_the_server_executable",
         tier: Tier::Live,
+    },
+    behaviour! {
+        id: "session.server.our-client-takes-a-worlds-overlay-as-it-logs-in",
+        says: "Our client says it keeps overlays and which files it holds ahead of what it holds,                stores a world's records it lacks as it logs in, and reads them as its own.",
+        since: THIS_CLIENT,
+        divergence: "CD2-world-overlay",
+        evidence: Evidence::Private("AC2-EVID-SESSION-OVERLAY-TAKEN"),
+        station: "yalain-testkit::dat::world_patch::our_client_takes_a_worlds_overlay_as_it_logs_in_and_reads_it",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "session.server.our-clients-kept-window-places-come-back-on-the-next-entry",

@@ -738,6 +738,84 @@ fn a_portals_recall_flags_and_a_places_name_compile_for_the_server() {
 }
 
 #[test]
+fn a_chests_row_compiles_with_its_level_and_band_or_is_a_problem_without_both() {
+    let row = |extra: &str| {
+        let mut files = fixture();
+        let path = files
+            .keys()
+            .find(|k| k.ends_with("loot.toml"))
+            .expect("loot rows")
+            .clone();
+        let text = files.get(&path).expect("read").replacen(
+            "\nprov = ",
+            &format!("\n{extra}\nprov = "),
+            1,
+        );
+        files.insert(path, text);
+        files
+    };
+    let files = row("level = 45\nvalue = [130, 189]");
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let chest = t.loot.profiles[0].chest.expect("a chest's");
+    assert_eq!((chest.level, chest.value), (45, (130, 189)));
+    assert_eq!(
+        yalain_content::LootTable::from_text(&t.loot.to_text())
+            .unwrap()
+            .profiles[0]
+            .chest,
+        Some(chest),
+        "it reads back as written"
+    );
+    for bad in [
+        "level = 45",
+        "value = [130, 189]",
+        "level = 45\nvalue = [9, 3]",
+    ] {
+        assert!(
+            check(&row(bad))
+                .iter()
+                .any(|p| p.to_string().contains("level, value: a chest's")),
+            "{bad}"
+        );
+    }
+}
+
+#[test]
+fn a_places_row_of_rooms_compiles_with_where_each_ones_creature_stands() {
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/places.toml",
+        "heading = 320.5",
+        "heading = 320.5\nrow = \"arena\"\nholds = 0x77B80010",
+    );
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(t.quests.rooms.len(), 1);
+    let room = t.quests.rooms[0][0];
+    assert_eq!(
+        (room.place.cell, room.place.origin, room.holds),
+        (0x77B8_0003, [1.18, 53.42, 183.82], 0x77B8_0010)
+    );
+    assert_eq!(
+        yalain_content::QuestTable::from_text(&t.quests.to_text())
+            .unwrap()
+            .rooms,
+        t.quests.rooms,
+        "it reads back as written"
+    );
+    let mut bad = fixture();
+    edit(
+        &mut bad,
+        "town/server/places.toml",
+        "heading = 320.5",
+        "heading = 320.5\nrow = \"arena\"",
+    );
+    assert!(check(&bad)
+        .iter()
+        .any(|p| p.to_string().contains("row, holds: a room")));
+}
+
+#[test]
 fn a_place_names_the_templates_whose_maps_lead_there_and_a_line_may_refuse_a_map() {
     let t = compile(&merge(&read(&fixture()).unwrap()).unwrap(), &Fake::new()).unwrap();
     assert!(t.places_named.is_empty(), "no place names a template");
@@ -1384,6 +1462,107 @@ fn a_person_names_a_route_it_walks_and_only_a_person_may() {
 }
 
 #[test]
+fn a_clearing_is_a_landblocks_row_with_one_shape_a_pack_can_take_away() {
+    let row = |body: &str| {
+        format!("[[clearing]]\nkey = \"yard\"\nat = [10.0, 20.0, \"ground\"]\n{body}prov = {{ from = \"authored\" }}\n")
+    };
+    let with = |file: &str, text: String| {
+        let mut files = fixture();
+        files.insert(format!("town/server/{file}"), text);
+        files
+    };
+    let at = "landblocks/1234.toml";
+    let db = read(&with(at, row("radius = 12.0\n"))).unwrap();
+    let merged = merge(&db).unwrap();
+    let found: Vec<_> = merged
+        .rows
+        .iter()
+        .filter_map(|l| match &l.row {
+            Row::Clearing(c) => Some((c.key.clone(), c.radius, c.size, l.landblock)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(found, [("yard".to_owned(), Some(12.0), None, Some(0x1234))]);
+    compile(&merged, &Fake::new()).expect("the server has no use for it");
+    let mut taken = with(
+        at,
+        row("radius = 12.0
+"),
+    );
+    taken.insert(
+        "town/server/gone.toml".to_owned(),
+        "[[remove]]
+item = \"clearing yard@1234\"
+"
+        .to_owned(),
+    );
+    let merged = merge(&read(&taken).unwrap()).unwrap();
+    assert!(!merged
+        .rows
+        .iter()
+        .any(|l| matches!(l.row, Row::Clearing(_))));
+    assert!(read(&with(at, row("size = [4.0, 5.0]\nheading = 30.0\n"))).is_ok());
+
+    for (file, text, says) in [
+        (at, row(""), "radius"),
+        (at, row("radius = 1.0\nsize = [1.0, 2.0]\n"), "radius"),
+        (at, row("radius = 0.0\n"), "radius"),
+        (at, row("radius = 241.0\n"), "radius"),
+        (at, row("size = [1.0]\n"), "size"),
+        ("places.toml", row("radius = 1.0\n"), "landblock"),
+        (at, row("radius = 1.0\n").replace("[10.0,", "[160.0,"), "at"),
+    ] {
+        let problems = read(&with(file, text.clone())).expect_err(&text);
+        assert!(
+            problems.iter().any(|p| p.to_string().contains(says)),
+            "{text}: {problems:?}"
+        );
+    }
+    let two = format!("{}{}", row("radius = 1.0\n"), row("radius = 2.0\n"));
+    let files = with(at, two);
+    assert!(
+        !yalain_world_db::check::check(&files).is_empty(),
+        "one key to a block"
+    );
+}
+
+#[test]
+fn an_objects_name_text_is_its_name_unless_it_has_a_recorded_one() {
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/landblocks/77B7.toml",
+        "heading = 165.0",
+        "heading = 165.0\nname_text = \"Old Tom\"",
+    );
+    edit(
+        &mut files,
+        "town/server/landblocks/77B7.toml",
+        "to = \"inn\"\nprov = { from = \"authored\" }",
+        "to = \"inn\"\nname_text = \"Ignored\"\nprov = { from = \"authored\" }",
+    );
+    let merged = merge(&read(&files).unwrap()).unwrap();
+    let t = compile(&merged, &Fake::new()).unwrap();
+    assert_eq!(
+        yalain_content::ContentPack::from_text(&t.content.to_text()).unwrap(),
+        t.content,
+        "the content's text keeps it"
+    );
+    let named = |template: u32| {
+        t.content
+            .objects
+            .iter()
+            .find(|o| o.template == template)
+            .unwrap()
+            .description
+            .name_text
+            .clone()
+    };
+    assert_eq!(named(0x4700_33D0).as_deref(), Some("Old Tom"));
+    assert_eq!(named(0x4700_115B), None, "its recorded name stands");
+}
+
+#[test]
 fn an_objects_own_scale_is_served_in_place_of_its_templates() {
     let scale_with = |row: &str| {
         let mut files = fixture();
@@ -1641,6 +1820,22 @@ fn what_a_quest_pays_is_its_setups_unless_its_row_says() {
     );
     let (xp, row) = pay("xp = 12");
     assert_eq!((xp, row.share), (12, 0.0), "a row's amount, no share");
+    assert!(!row.flat, "weighed as the setup says");
+    assert!(
+        pay("xp = 12\nxp_whole = true").1.flat,
+        "whole where the row says so"
+    );
+    assert_eq!(
+        pay("xp_share = 0.02\nxp_least = 3\nxp_most = 9").1,
+        CompletionPay {
+            share: 0.02,
+            least: 3,
+            most: 9,
+            flat: true,
+            ..CompletionPay::default()
+        },
+        "the row's share, within its limits"
+    );
     let mut files = fixture();
     edit(
         &mut files,
