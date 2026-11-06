@@ -14,6 +14,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 - Launch is no longer marked experimental.
+- Relay: the sky and calendar now follow the ac1999 world's clock.
 - Launch: spells ask for the tapers of the player's own account.
 - A world that hangs now stops itself after five minutes, so it can be restarted.
 - Joining the Dereth Network with @dn on now turns on the room that carries Global.
