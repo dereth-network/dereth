@@ -284,6 +284,11 @@ fn paid_in_parts<S: Store>(
 ) {
     let all: i64 = parts.iter().map(|(_, t)| *t).sum();
     let mut told: Vec<ConnId> = Vec::new();
+    let hurt: Vec<u64> = parts
+        .iter()
+        .map(|(by, _)| s.pets.by_id.get(by).map_or(*by, |p| p.owner))
+        .collect();
+    let group = worth.group.then_some(hurt.as_slice());
     for &(by, taken) in parts {
         let owner = s.pets.by_id.get(&by).map_or(by, |p| p.owner);
         let Some(world) = world_of(s, owner) else {
@@ -297,7 +302,7 @@ fn paid_in_parts<S: Store>(
             continue;
         }
         if let Some(shares) =
-            crate::fellowship::shares(s, owner, worth.xp, worth.level, worth.group, (taken, all))
+            crate::fellowship::shares(s, owner, worth.xp, worth.level, group, (taken, all))
         {
             let focus = crate::fellowship::focus_shares(s, owner, worth.focus, (taken, all));
             for (w, amount) in shares {

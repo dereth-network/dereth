@@ -265,8 +265,8 @@ pub fn share(eligible: usize) -> f64 {
 #[must_use]
 pub fn group_factor(size: usize) -> f64 {
     match size {
-        0..=2 => 1.0,
-        3 => 1.5,
+        0 | 1 => 1.0,
+        2 | 3 => 1.5,
         4 => 2.2,
         5 => 2.5,
         6 => 2.7,
@@ -959,13 +959,15 @@ pub fn focus_shares<S: Store>(
 /// near or not, and evenly: each gets the creature's experience by its own level times that share
 /// (and a group creature's factor), times the part's share of the health taken; only those within
 /// 160 m of the fellow whose part it is are paid. The part of a fellow not of a level to share is
-/// paid to it alone, whole (with a group creature's factor), and to no other.
+/// paid to it alone, whole (with a group creature's factor), and to no other. `hurt`: for a group
+/// creature, the players whose damage or pets' it took; two fellows take its factor only when both
+/// hurt it.
 pub fn shares<S: Store>(
     s: &Server<S>,
     killer: u64,
     death_xp: i64,
     creature_level: i32,
-    group: bool,
+    hurt: Option<&[u64]>,
     (taken, all): (i64, i64),
 ) -> Option<Vec<(ConnId, u64)>> {
     let i = s.fellowships.of(killer)?;
@@ -980,11 +982,14 @@ pub fn shares<S: Store>(
         .map(|x| (x.id, level_of(s, x.id)))
         .collect();
     let n = levels.iter().filter(|(_, l)| eligible(*l, leader)).count();
-    let factor = if group {
-        group_factor(f.fellows.len())
-    } else {
-        1.0
-    };
+    let factor = hurt.map_or(1.0, |hurt| {
+        let both = f.fellows.iter().all(|x| hurt.contains(&x.id));
+        if f.fellows.len() == 2 && !both {
+            1.0
+        } else {
+            group_factor(f.fellows.len())
+        }
+    });
     let kw = world_of(s, killer)?;
     let own = level_of(s, killer);
     if !eligible(own, leader) {

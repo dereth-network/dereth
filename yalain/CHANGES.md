@@ -26,6 +26,7 @@ what they see, not how it was done.
 - Stuns, slows and roots leave their target immune for a minute.
 - Patrons no longer earn from their vassals' quests.
 - A vassal's new level now pays its patron what it has earned.
+- Two fellows who both hit a group creature earn more from it.
 
 ## 0.2.1 (2026-11-05)
 - Fixed sold consignments still showing as in stock.

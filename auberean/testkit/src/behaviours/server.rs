@@ -3754,6 +3754,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.fellowship.a-pets-damage-takes-part-for-its-owner",
+        says: "A kill of a group creature goes by who hurt it, a pet's damage counting as its \
+               owner's.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PET-TAKES-PART"),
+        station: "yalain-testkit::cpu::play::fellowships::a_group_creature_two_fellows_killed_pays_them_by_who_hurt_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.fellowship.a-place-is-its-leaders-to-offer",
         says: "A place taken joins only if the one who offered it still leads a fellowship; one who \
                has gone over to another's offers nothing.",
@@ -3860,6 +3869,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-FELLOW-EVEN"),
         station: "yalain-testkit::cpu::play::fellowships::shares_go_evenly_whatever_the_fellows_levels",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.fellowship.two-fellows-group-factor",
+        says: "Two fellows take a group creature's factor of 1.5 only when both hurt it, 0.9 of it \
+               each by their own levels; a fellow not of a level who hurt it brings the factor to \
+               the other's part, paid alone.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TWO-FELLOWS-GROUP"),
+        station: "yalain-testkit::cpu::play::fellowships::two_fellows_take_a_group_creatures_factor_only_when_both_hurt_it",
         tier: Tier::Cpu,
     },
     behaviour! {
