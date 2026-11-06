@@ -16,7 +16,7 @@
 //! tells everyone who knows it its new one. A summoning skill
 //! is refused (the client writes "You have too many pets to use that skill.") to an owner who has
 //! as many live pets of a class as the skill allows; a pet counts toward every class it shares a bit
-//! with, and others do not count.
+//! with, and others do not count. Aimed at a creature, its pet appears beside it and goes after it.
 //!
 //!
 //! **Orders** (the pet window's, and `/pet`): a mode is echoed back, pet and mode, and kept; a

@@ -8350,6 +8350,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.pets.a-self-aimed-target-effect-summons",
+        says: "A pet effect among the target effects of a skill used on its user makes its \
+               pet as one among its user effects does.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PETS-SELF-AIMED"),
+        station: "yalain-testkit::cpu::play::pet_kinds::a_pet_effect_among_a_self_aimed_skills_target_effects_makes_its_pet",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.pets.a-summoning-that-cannot-make-says-so",
         says: "A summoning that can't make what it names is told of, says \"The summoning \
                fails.\" and is taken off the owner's list as the use ends.",
@@ -8595,6 +8604,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-PETS-SUMMON"),
         station: "yalain-testkit::cpu::play::pets::natures_aid_tells_the_ranger_of_its_lasher_which_then_appears_beside_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.pets.summoned-at-a-creature",
+        says: "A skill aimed at creatures whose target effect makes a pet makes it beside the \
+               creature it lands on, and the pet goes after that creature.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PETS-AT-A-CREATURE"),
+        station: "yalain-testkit::cpu::play::pet_kinds::a_pet_a_skill_makes_at_a_creature_appears_beside_it_and_goes_after_it",
         tier: Tier::Cpu,
     },
     behaviour! {

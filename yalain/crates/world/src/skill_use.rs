@@ -1196,7 +1196,8 @@ fn check<S: Store>(
     if u.ui_flags & ui_flag::USE_WHILE_MOVING == 0 && moving(p) {
         return Err(refusal::MOVING);
     }
-    if crate::pets::too_many(s, p.character, r.skill, &u.user_effects) {
+    let summons = u.user_effects.iter().chain(&u.target_effects).copied();
+    if crate::pets::too_many(s, p.character, r.skill, &summons.collect::<Vec<u32>>()) {
         return Err(crate::pets::TOO_MANY_PETS);
     }
     Ok(u)
@@ -2293,6 +2294,9 @@ fn hook<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: 
         }
     };
     for state in &u.target_effects {
+        if summons_at(s, net, world, (&u, *state), spellcraft, None, clock) {
+            continue;
+        }
         crate::effects::apply(
             s,
             net,
@@ -2384,8 +2388,63 @@ fn strike<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock
     }
 }
 
+/// If this target effect summons a pet: the pet appears (at `at`, or before its user), and it is
+/// true. A summoning aimed at a creature goes after it ([`put_target_effects`]).
+fn summons_at<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    (u, effect): (&Usage, u32),
+    rating: f32,
+    at: Option<StoredPosition>,
+    clock: Clock,
+) -> bool {
+    summon_from(s, net, world, (u, effect), rating, (at, None), clock)
+}
+
+/// A pet a skill's target effect names appears now, the skill's own icon on it.
+fn summon_from<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    (u, effect): (&Usage, u32),
+    rating: f32,
+    (at, after): (Option<StoredPosition>, Option<u64>),
+    clock: Clock,
+) -> bool {
+    let is_pet = matches!(
+        s.effect_table.get(effect).map(|d| &d.kind),
+        Some(EffectKind::Pet { .. })
+    );
+    if !is_pet {
+        return false;
+    }
+    let skill = s
+        .skill_table
+        .skills
+        .iter()
+        .find(|(_, d)| {
+            d.usage
+                .as_ref()
+                .is_some_and(|x| x.target_effects == u.target_effects)
+        })
+        .map_or(0, |(id, _)| *id);
+    let what = crate::pets::Summoning {
+        skill,
+        effect,
+        rating,
+        at,
+        after,
+    };
+    for pet in crate::pets::summon(s, net, world, what, clock) {
+        crate::pets::appear(s, net, pet);
+    }
+    true
+}
+
 /// A skill's target effects put on a creature or another player it landed on, cast by the player
-/// at its rating.
+/// at its rating. One that summons makes its pet beside the creature, to go after it; at a player
+/// it tells its user the summoning fails, as pets take on creatures alone.
 pub(crate) fn put_target_effects<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -2395,7 +2454,42 @@ pub(crate) fn put_target_effects<S: Store>(
     spellcraft: f32,
     clock: Clock,
 ) {
+    let user = s
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .map(|(c, _)| *c);
     for state in &u.target_effects {
+        if let Some(world) = user {
+            let summons = match on {
+                crate::effects::On::Creature(id) => {
+                    let at = s.things.get(id).and_then(|t| t.at);
+                    summon_from(
+                        s,
+                        net,
+                        world,
+                        (u, *state),
+                        spellcraft,
+                        (at, Some(id)),
+                        clock,
+                    )
+                }
+                crate::effects::On::Player(_) => {
+                    let pet = matches!(
+                        s.effect_table.get(*state).map(|d| &d.kind),
+                        Some(EffectKind::Pet { .. })
+                    );
+                    if pet {
+                        let fails = crate::progress::text(crate::pets::text::SUMMONING_FAILS);
+                        crate::progress::private(net, world, &crate::chat::show_text(1, fails));
+                    }
+                    pet
+                }
+            };
+            if summons {
+                continue;
+            }
+        }
         crate::effects::apply_on(
             s,
             net,

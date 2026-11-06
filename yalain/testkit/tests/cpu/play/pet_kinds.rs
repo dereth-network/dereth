@@ -820,6 +820,73 @@ fn a_summoning_that_cant_make_what_it_names_says_the_summoning_fails() {
     }
 }
 
+/// A pet effect among the target effects of a skill used on its user makes its pet as one among its
+/// user effects does.
+/// Behaviour: server.pets.a-self-aimed-target-effect-summons
+#[test]
+fn a_pet_effect_among_a_self_aimed_skills_target_effects_makes_its_pet() {
+    let mut h = Harness::new();
+    with_kind(&mut h, &LASHER, 1);
+    if let Some(u) = h
+        .server
+        .skill_table
+        .skills
+        .get_mut(&SKILL)
+        .and_then(|d| d.usage.as_mut())
+    {
+        u.target_effects = std::mem::take(&mut u.user_effects);
+    }
+    let (b, me) = summoner(&mut h);
+    h.run(20);
+    let from = summon(&mut h, b);
+    assert!(pet_added(&h, b, from).is_some());
+    assert_eq!(h.server.pets.of(me).len(), 1);
+}
+
+/// A skill aimed at creatures whose target effect makes a pet makes it beside the creature it
+/// lands on, and the pet goes after that creature.
+/// Behaviour: server.pets.summoned-at-a-creature
+#[test]
+fn a_pet_a_skill_makes_at_a_creature_appears_beside_it_and_goes_after_it() {
+    let mut h = Harness::new();
+    with_kind(&mut h, &LASHER, 1);
+    let strike = h.server.skill_table.skills[&62].clone();
+    let mut d = h.server.skill_table.skills[&SKILL].clone();
+    let mut u = strike.usage.clone().expect("a strike");
+    u.target_effects = vec![LASHER.effect];
+    u.implements_right = -2;
+    u.implements_left = -1;
+    d.usage = Some(u);
+    h.server.skill_table.skills.insert(SKILL, d);
+    let (b, me) = summoner(&mut h);
+    h.run(20);
+    let beetle = beetles(&h)[0];
+    put_near(&mut h, beetle, me, 1.0, 1.0);
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(
+            USE_SKILL,
+            &[Arg::Int(1), Arg::Int(SKILL), Arg::LongInt(beetle)],
+        ),
+    );
+    assert!(
+        h.run_until(600, |h| pet_added(h, b, from).is_some()),
+        "it lands"
+    );
+    let pet = pet_added(&h, b, from).expect("a pet");
+    assert_eq!(target_of(&h, pet), Some(beetle));
+    let at = h.server.things.get(pet).and_then(|t| t.at).expect("placed");
+    let there = h
+        .server
+        .things
+        .get(beetle)
+        .and_then(|t| t.at)
+        .expect("placed");
+    assert!((at.origin[0] - there.origin[0]).abs() < 3.0, "beside it");
+}
+
 /// A kind's health at a level is its row's, between its levels the line, and never less than its
 /// template's.
 /// Behaviour: server.pets.health-by-kind-and-level
