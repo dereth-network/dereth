@@ -1276,6 +1276,38 @@ file = "rock/missing.gltf"
     }
 
     #[test]
+    fn a_material_with_only_a_base_color_keeps_its_flat_bend_and_surface_one_block_across() {
+        let mut files = HashMap::new();
+        files.insert(
+            "m/wall.png".to_owned(),
+            png_of(16, 16, &[90, 60, 30, 255].repeat(256)),
+        );
+        let manifest = r#"
+[pack]
+name = "Pictures"
+format = 1
+[[material]]
+texture = "0x0500287C"
+base_color = "m/wall.png"
+author = "a"
+tool = "t"
+license = "CC0-1.0"
+"#;
+        let pack = ArtPack::open(manifest, &mut |path| {
+            files
+                .get(path)
+                .cloned()
+                .ok_or_else(|| format!("{path}: missing"))
+        })
+        .expect("the pack opens");
+        assert_eq!(pack.materials.len(), 1, "{:?}", pack.problems);
+        let wall = &pack.materials[0];
+        assert_eq!((wall.albedo.width, wall.albedo.height), (16, 16));
+        assert_eq!((wall.normal.width, wall.normal.height), (4, 4));
+        assert_eq!((wall.surface.width, wall.surface.height), (4, 4));
+    }
+
+    #[test]
     fn a_material_for_a_retail_picture_keeps_its_alpha_and_is_read_as_the_retail_picture_is() {
         let mut files = HashMap::new();
         // An eight by eight picture whose left half is cut away (alpha 0), as a retail cut-out

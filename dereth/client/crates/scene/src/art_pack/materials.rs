@@ -31,6 +31,9 @@ pub struct TextureMaterial {
 /// occlusion.
 const DEFAULTS: [u8; 4] = [128, 128, 230, 255];
 
+/// The side of the bend and surface pictures of a material that has only a base colour: one block.
+const FLAT: u32 = 4;
+
 /// The files of one material, as read.
 pub(super) struct MaterialFiles {
     base: Vec<u8>,
@@ -99,7 +102,11 @@ pub(super) fn material(
     let normal = channel(&files.normal, &entry.normal)?;
     let roughness = channel(&files.roughness, &entry.roughness)?;
     let occlusion = channel(&files.occlusion, &entry.occlusion)?;
-    let texels = (w as usize) * (h as usize);
+    // With no picture but its base colour, the bend and the surface are the same at every texel:
+    // one block of each samples as pictures of the base colour's size would.
+    let flat = normal.is_none() && roughness.is_none() && occlusion.is_none();
+    let (mw, mh) = if flat { (FLAT, FLAT) } else { (w, h) };
+    let texels = (mw as usize) * (mh as usize);
     let at = |p: &Option<Vec<u8>>, i: usize, c: usize, default: u8| {
         p.as_ref().map_or(default, |p| p[i * 4 + c])
     };
@@ -122,8 +129,12 @@ pub(super) fn material(
             255,
         ]);
     }
-    let (hw, hh) = ((w / 2).max(1), (h / 2).max(1));
-    let surface = images::stretched(w, h, &surface, hw, hh);
+    let (hw, hh) = if flat {
+        (mw, mh)
+    } else {
+        ((w / 2).max(1), (h / 2).max(1))
+    };
+    let surface = images::stretched(mw, mh, &surface, hw, hh);
     let albedo = Image {
         srgb: false,
         ..images::compressed(
@@ -136,7 +147,7 @@ pub(super) fn material(
         [
             albedo,
             images::compressed(
-                images::with_levels(w, h, bends, false, None),
+                images::with_levels(mw, mh, bends, false, None),
                 BlockFormat::Bc5,
             ),
             images::compressed(
