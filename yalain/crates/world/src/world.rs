@@ -1149,7 +1149,7 @@ pub fn message<S: Store>(
         }
         ClientMessage::ServerCall(call) => {
             if kept_call(&mut p, call.function.0, &call.args.0) {
-                keep(s, &p);
+                s.saves.option_changed(p.character);
             } else {
                 s.players.insert(world, p);
                 return crate::requests::call(s, net, world, &call, clock);

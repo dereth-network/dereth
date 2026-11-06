@@ -11796,6 +11796,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.world.options-kept-soon",
+        says: "An option the client sends reaches the store with its character's next save, at most so long on; its leaving takes it along.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-OPTIONS-SOON"),
+        station: "yalain-testkit::cpu::entry::world::an_option_goes_with_the_characters_next_save_soon_enough",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.world.position-sent-back-and-kept",
         says: "The place the client reports for its player is sent back to it as the player's \
                position on the player's own position stream, each stamped newer than the last; \
