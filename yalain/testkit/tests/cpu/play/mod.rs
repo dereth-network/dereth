@@ -3,6 +3,7 @@
 
 mod allegiance;
 mod areas;
+mod armor;
 mod attack_speed;
 mod auras;
 mod barrels_and_turrets;

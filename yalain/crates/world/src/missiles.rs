@@ -551,7 +551,8 @@ pub fn arrives<S: Store>(s: &mut Server<S>, net: &mut ServerNet, f: Flight, cloc
     let outcome = rules::roll_missile(&mut s.rng, f.skill.kind, level, my_level, moved);
     let more = effects_add(s, f.creature);
     let damage = if outcome.landed() {
-        rules::creature_hit(
+        let armor = combat::armor_on(s, world);
+        rules::creature_hit_on_player(
             &mut s.rng,
             f.skill.kind,
             rules::Natural {
@@ -561,6 +562,7 @@ pub fn arrives<S: Store>(s: &mut Server<S>, net: &mut ServerNet, f: Flight, cloc
                 factor: f.skill.factor,
             },
             my_level,
+            armor,
             outcome == Outcome::Critical,
         )
     } else {

@@ -419,6 +419,35 @@ fn an_items_profile_shows_what_a_skill_put_on_it() {
     )));
 }
 
+/// What a skill put on a shield or gave a weapon counts once in its holder's armor, as it shows.
+/// Behaviour: server.combat.armor-from-each-source-once
+#[test]
+fn what_a_skill_put_on_a_piece_counts_once_in_its_holders_armor() {
+    let (mut h, b, me) = world();
+    let shield = h.arm(b, me, SHIELD);
+    let sword = h.arm(b, me, SWORD);
+    let world = *h.server.players.keys().next().expect("in the world");
+    h.server.things.get_mut(shield).expect("it").own.made = Some(yalain_world::made::Made {
+        damage: Some((92, 0.27)),
+        armor: Some(36),
+        delay: Some(7),
+        vigor: Some(6),
+        ..yalain_world::made::Made::default()
+    });
+    assert!((yalain_world::combat::armor_on(&h.server, world) - 36.0).abs() < f32::EPSILON);
+    cast(&mut h, b, ON_SHIELD, shield);
+    assert!(
+        (yalain_world::combat::armor_on(&h.server, world) - 76.0).abs() < f32::EPSILON,
+        "36 and 40 at rating 30, as it shows"
+    );
+    h.run(steps(2.0));
+    cast(&mut h, b, ON_WEAPON, sword);
+    assert!(
+        (yalain_world::combat::armor_on(&h.server, world) - 116.0).abs() < f32::EPSILON,
+        "and the weapon's 40"
+    );
+}
+
 /// The raise ends with its time, the look stops, and nothing is left on the item; used again while
 /// it runs, it does not stack, the look does not play again, and the time starts over.
 /// Behaviour: server.skills.an-effect-on-an-item-ends-and-does-not-stack

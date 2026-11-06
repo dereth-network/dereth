@@ -432,3 +432,51 @@ fn a_creatures_special_waits_forty_seconds_before_it_is_used_again() {
         "never within 40 s: {used_at:?}"
     );
 }
+
+/// A missile's hit comes off the armor the player has when it lands.
+/// Behaviour: server.combat.armor-takes-a-point
+#[test]
+fn a_missiles_hit_comes_off_the_armor_the_player_has() {
+    const COAT: u32 = 0x4700_7A11;
+    let hits = |rating: i64| -> Vec<i32> {
+        let mut h = Harness::new();
+        shooter_at(&mut h, 22.0, false);
+        let (b, me) = h.player_in_world("one", "Elara");
+        scene_drawn(&mut h, b);
+        let mut coat = yalain_content::Props::default();
+        coat.set("Item_ArmorLevel", Prop::Int(rating))
+            .set("Item_ValidInventoryLocations", Prop::Word(2))
+            .set("Item_PreferredInventoryLocation", Prop::Word(2));
+        h.server.catalog.insert(test_template(COAT, 0x180, coat));
+        h.arm(b, me, COAT);
+        for p in h.server.players.values_mut() {
+            yalain_world::quals::set_int(&mut p.qualities, yalain_world::examine::LEVEL, 10);
+            yalain_world::quals::set_int(&mut p.qualities, 263, 1_000_000);
+            yalain_world::quals::set_int(&mut p.qualities, 258, 1_000_000);
+        }
+        let from = h.bots[b].inbox.len();
+        h.run(3000);
+        h.world_messages(b, from)
+            .iter()
+            .filter_map(|m| match m {
+                ServerMessage::DoStory(e) if e.sender.id == me => Some(e),
+                _ => None,
+            })
+            .flat_map(|e| e.action.hooks.iter())
+            .filter(|k| k.target == me && k.numbers[3] < 0)
+            .map(|k| -k.numbers[3])
+            .collect()
+    };
+    let bare = hits(0);
+    assert!(!bare.is_empty(), "a missile hits within the run");
+    assert!(
+        bare.iter().all(|d| *d >= 5),
+        "10 x (0.5 to 1) at the least: {bare:?}"
+    );
+    let armored = hits(1000);
+    assert!(!armored.is_empty());
+    assert!(
+        armored.iter().all(|d| *d <= 3),
+        "a quarter of 10 at the most: {armored:?}"
+    );
+}

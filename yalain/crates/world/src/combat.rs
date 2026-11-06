@@ -1854,6 +1854,40 @@ pub fn armor_taken<S: Store>(s: &Server<S>, id: u64) -> i32 {
     dereth_primitives::num::to_i32((-add).max(0.0).round())
 }
 
+/// The armor a player has: the rating each piece it wears or holds shows, what skills have put on a
+/// piece in that, and what effects on the player give, an item's own worn effects among them (2017:
+/// Encase's 50 alone 51, an Obelisk Ward's 6 alone 5.4, Lumbering Might's 41 alone 45, one effect
+/// of each class). No piece's rating shows what the effects on its wearer give, so nothing counts
+/// twice. Below nothing under effects that take it away.
+#[must_use]
+pub fn armor_on<S: Store>(s: &Server<S>, world: ConnId) -> f32 {
+    let Some(p) = s.players.get(&world) else {
+        return 0.0;
+    };
+    let worn: i32 = p
+        .play
+        .items
+        .iter()
+        .filter(|h| h.location != 0)
+        .filter_map(|h| s.things.get(h.id))
+        .map(|t| {
+            let v = crate::requests::item_view(s, t);
+            v.shield
+                .or(v.armor.map(|a| a.0))
+                .or(v.rating_given)
+                .unwrap_or(0)
+        })
+        .sum();
+    let (add, mult) = crate::effects::modifier(
+        &s.effect_table,
+        &p.play.effects,
+        crate::effects::ARMOR_RATING,
+    );
+    #[allow(clippy::cast_precision_loss)]
+    let worn = worn as f32;
+    (worn + add) * mult
+}
+
 /// A creature within reach of its target strikes, when its next attack is due: a heal or a buff on
 /// itself by its chance ([`crate::missiles::helps`]), else a special at hand by its chance (one that
 /// throws a missile looses it even this near), else one of its basic melee attacks drawn by its
@@ -1949,7 +1983,8 @@ pub fn creature_strike_with<S: Store>(
     };
     let more = crate::missiles::effects_add(s, id);
     let damage = if outcome.landed() {
-        rules::creature_hit(
+        let armor = armor_on(s, target);
+        rules::creature_hit_on_player(
             &mut s.rng,
             skill.kind,
             rules::Natural {
@@ -1959,6 +1994,7 @@ pub fn creature_strike_with<S: Store>(
                 factor: skill.factor,
             },
             my_level,
+            armor,
             outcome == Outcome::Critical,
         )
     } else {

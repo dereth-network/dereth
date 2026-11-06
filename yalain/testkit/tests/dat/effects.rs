@@ -1865,3 +1865,44 @@ fn templates_that_never_leave_a_corpse_are_read_so_and_have_nothing_to_leave() {
     let plain = CreatureStats::from_props(&p.template(0x4700_2AF6).props).expect("a creature");
     assert!(!plain.never_leaves_corpse);
 }
+
+/// The install's armor effects give a player what 2017's records of them said, each counted once:
+/// an Obelisk Ward's 6, Lumbering Might's 40 at a spellcraft of 30 and 79 at 43, and of the two
+/// together, one class, the stronger.
+/// Behaviour: server.combat.armor-from-each-source-once
+#[test]
+fn the_installs_armor_effects_count_on_a_player_as_recorded() {
+    use yalain_testkit::authored::Portal;
+    use yalain_world::effects::{self, Cast, On};
+    const WARD: u32 = 0x6F00_1DFA;
+    const LUMBERING: u32 = 0x7000_0922;
+    let p = Portal::open();
+    let armor = |states: &[(u32, f32)]| {
+        let mut h = yalain_testkit::Harness::new();
+        let (_, _) = h.player_in_world("one", "Elara");
+        h.run(5);
+        let list: Vec<u32> = states.iter().map(|x| x.0).collect();
+        h.server.effect_table = p.effects(&list);
+        let world = *h.server.players.keys().next().expect("in the world");
+        let clock = h.clock();
+        for (state, spellcraft) in states {
+            assert!(effects::apply_on(
+                &mut h.server,
+                &mut h.net,
+                On::Player(world),
+                *state,
+                Cast {
+                    spellcraft: *spellcraft,
+                    ..Cast::default()
+                },
+                clock,
+            ));
+        }
+        yalain_world::combat::armor_on(&h.server, world)
+    };
+    assert!((armor(&[(WARD, 1.0)]) - 6.0).abs() < 0.01);
+    assert!((armor(&[(LUMBERING, 30.0)]) - 40.0).abs() < 0.6);
+    assert!((armor(&[(LUMBERING, 43.0)]) - 79.0).abs() < 1.0);
+    // One class: the stronger of the two.
+    assert!((armor(&[(WARD, 1.0), (LUMBERING, 30.0)]) - 40.0).abs() < 0.6);
+}

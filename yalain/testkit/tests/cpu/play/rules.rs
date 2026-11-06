@@ -94,7 +94,7 @@ fn attacks_land_with_the_measured_chance_for_their_direction_level_difference_an
 }
 
 /// A creature's hit on a player at level 1 or 2 does its natural damage in full (2017's had no
-/// armor yet), and from level 3 the measured share the player's armor lets through.
+/// armor yet), and on anything else the measured share armor lets through by the level it hits.
 /// Behaviour: server.combat.creature-damage-through-armor
 #[test]
 fn a_creatures_hit_does_its_natural_damage_in_full_to_a_player_of_level_one_or_two() {

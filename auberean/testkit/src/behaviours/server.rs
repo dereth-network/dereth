@@ -1185,6 +1185,35 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.combat.armor-from-each-source-once",
+        says: "A player's armor is the rating each piece it wears or holds shows, what skills \
+               put on a piece in that, and what effects on the player give, the top of a class, \
+               an item's worn effects among them, each once.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ARMOR-SOURCES"),
+        station: "yalain-testkit::cpu::play::armor::a_players_armor_counts_each_piece_and_each_effect_once",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.combat.armor-never-stops-a-hit",
+        says: "What armor leaves of a hit is never below a draw of 1% to 25% of the hit, and at \
+               least 1, so no rating stops one.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ARMOR-FLOOR"),
+        station: "yalain-testkit::cpu::play::armor::no_rating_stops_a_creatures_hit",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.combat.armor-takes-a-point",
+        says: "From level 3 a creature's hit on a player is its natural damage rolled from what \
+               its variance leaves up to all of it, with what its skill adds, a critical a fifth \
+               more, less the player's armor, a point for a point; armor below nothing adds.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ARMOR-POINT"),
+        station: "yalain-testkit::cpu::play::armor::a_point_of_armor_takes_a_point_of_a_creatures_hit",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.combat.asking-again-keeps-the-swings-pace",
         says: "However often it asks, a player's swings come no faster than their pace and what asking allows, and asking never costs it one.",
         since: TOOLING,
@@ -1213,8 +1242,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.combat.creature-damage-through-armor",
-        says: "A creature's hit does its natural damage in full to a player of level 1 or 2, who \
-               wears no armor yet, and from level 3 the share 2017's players' armor let through.",
+        says: "A creature's hit does its natural damage in full to a player of level 1 or 2, \
+               whatever it wears; on a creature, the share armor lets through by the level hit.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-DAMAGE-LOW"),
         station: "yalain-testkit::cpu::play::rules::a_creatures_hit_does_its_natural_damage_in_full_to_a_player_of_level_one_or_two",
