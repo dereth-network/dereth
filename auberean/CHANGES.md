@@ -11,6 +11,7 @@ not how it was done.
 - Fixed screenshots overwriting the ones from earlier sessions.
 - Fixed the landing animation not playing over floors.
 - Fixed other players and creatures hanging in the air after a long move.
+- Fixed rooms losing their lights in copies of a shared dungeon.
 
 ## 0.1.4 (2026-11-05)
 
