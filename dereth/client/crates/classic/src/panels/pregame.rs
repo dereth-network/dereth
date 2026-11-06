@@ -848,10 +848,14 @@ impl Pregame {
             "Quick Character",
             room && !self.waiting,
         );
+        // A Launch world's client had no way to restore a character, so nothing chosen reads Delete.
+        let deletes = live
+            || (selected.is_none()
+                && c.pregame.era_features == dereth_primitives::EraFeatures::LAUNCH);
         f.button(
-            if live { "delete" } else { "restore" },
+            if deletes { "delete" } else { "restore" },
             rect(402, 195, 220, 36),
-            if live {
+            if deletes {
                 "Delete Character"
             } else {
                 "Restore Character"

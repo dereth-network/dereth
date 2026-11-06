@@ -1220,6 +1220,38 @@ fn allocated_credits_and_raw_name_edits_reach_the_real_finish_action() {
     });
 }
 
+/// With nothing chosen, a Launch world's list reads as its own client's did.
+#[test]
+fn with_no_character_chosen_a_launch_world_reads_delete_and_a_later_one_restore() {
+    context(|base| {
+        let says = |features| {
+            let mut view = base.pregame.clone();
+            view.connected = true;
+            view.character_set = Some(dereth_client_contract::persist::CharacterSet::default());
+            view.era_features = features;
+            let c = Context {
+                resources: &crate::resources::Resources::default(),
+                layout: crate::panels::Layout::default(),
+                now: dereth_primitives::LocalTime(0.0),
+                pregame: &view,
+                ..*base
+            };
+            let p = Pregame::new(
+                "login",
+                Ok(std::rc::Rc::new(data())),
+                dereth_primitives::LocalTime(0.0),
+            );
+            let text = format!("{:?}", p.login(&c));
+            (
+                text.contains("Delete Character"),
+                text.contains("Restore Character"),
+            )
+        };
+        assert_eq!(says(dereth_primitives::EraFeatures::LAUNCH), (true, false));
+        assert_eq!(says(dereth_primitives::EraFeatures::ALL), (false, true));
+    });
+}
+
 /// Behaviour: presentation.era.unspent-skill-credits-warn-where-they-are-lost
 /// Finishing with skill credits left asks first on a world that loses them, in the words of the
 /// world's own client; answered yes, the character goes.
