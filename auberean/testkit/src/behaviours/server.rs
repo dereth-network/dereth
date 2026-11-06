@@ -596,6 +596,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.allegiance.quest-experience-is-not-passed-up",
+        says: "A quarter of a kill's part or a fellow's share goes into the patron's pool; nothing \
+               of what a quest pays, on its way or at its end.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-XP-NOT-PASSED"),
+        station: "yalain-testkit::cpu::play::allegiance::what_a_quest_pays_is_not_passed_up_and_what_a_kill_pays_is",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.allegiance.ranks-read-in-one-pass",
         says: "Ranks and trees read from the whole table at once come out as walking it member by \
                member does, a stored circle ending as it did.",

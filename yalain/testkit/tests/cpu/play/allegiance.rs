@@ -438,7 +438,7 @@ fn award(h: &mut Harness, id: u64, amount: u64) {
         &mut h.net,
         w,
         amount,
-        yalain_world::progress::Award::Step,
+        yalain_world::progress::Award::Part,
     );
     h.run(5);
 }
@@ -487,6 +487,41 @@ fn a_vassals_experience_is_pooled_and_paid_to_its_patron_up_to_the_levels_cap() 
     // Another 1,000: 250 pooled, but nothing left under the level's cap.
     award(&mut h, vid, 1_000);
     assert_eq!(total(&h), 350);
+}
+
+fn pool_of(h: &Harness, patron: u64) -> u64 {
+    h.server
+        .allegiances
+        .nodes
+        .get(&patron)
+        .map_or(0, |n| n.pooled)
+}
+
+/// Pay a player, for what a kill's share or a quest pays.
+fn pay(h: &mut Harness, id: u64, amount: u64, why: yalain_world::progress::Award) {
+    let w = yalain_world::social::world_of(&h.server, id).expect("in the world");
+    yalain_world::progress::award(&mut h.server, &mut h.net, w, amount, why);
+    h.run(5);
+}
+
+/// A quarter of a kill's part or a fellow's share goes into the patron's pool; nothing of what a
+/// quest pays, on its way or at its end.
+/// Behaviour: server.allegiance.quest-experience-is-not-passed-up
+#[test]
+fn what_a_quest_pays_is_not_passed_up_and_what_a_kill_pays_is() {
+    use yalain_world::progress::Award;
+    let (mut h, a, b) = two();
+    let (_, vid) = a;
+    let (_, pid) = b;
+    h.server.levels = levels();
+    sworn(&mut h, a, b);
+    pay(&mut h, vid, 400, Award::Quest((0, 0)));
+    pay(&mut h, vid, 400, Award::Step);
+    assert_eq!(pool_of(&h, pid), 0, "a quest's and its steps'");
+    pay(&mut h, vid, 40, Award::Part);
+    assert_eq!(pool_of(&h, pid), 10, "a quarter of a part");
+    pay(&mut h, vid, 40, Award::Share);
+    assert_eq!(pool_of(&h, pid), 20, "and of a share");
 }
 
 /// A store edited by hand into a circle of oaths still has an end: every walk counts each member

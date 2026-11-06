@@ -286,7 +286,7 @@ pub fn award_with_focus<S: Store>(
     if now > was {
         level_up(s, net, world, was, now);
     }
-    if amount > 0 && why != Award::Allegiance {
+    if amount > 0 && matches!(why, Award::Part | Award::Share) {
         crate::allegiance::earned(s, net, character, amount);
     }
     match why {

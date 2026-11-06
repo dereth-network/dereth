@@ -33,11 +33,12 @@
 //! rank, one more when two or more vassals hold it, ten at most. A rank's title is by species,
 //! sex and rank.
 //!
-//! **Experience passed up**: a quarter of what a vassal earns goes into its patron's pool; a pool
-//! that reaches a fifth of the experience the patron's next level takes (fifty at least, two
-//! million at most) is paid to the patron, up to a third and a half of that level's experience
-//! for the level, and a tenth of the payment goes on into its own patron's pool. A patron in the
-//! world is told which vassal earned it; one away is paid as it enters.
+//! **Experience passed up**: a quarter of what a vassal earns from kills goes into its patron's
+//! pool; what a quest pays does not. A pool that reaches a fifth of the experience the patron's
+//! next level takes (fifty at least, two million at most) is paid to the patron, up to a third and
+//! a half of that level's experience for the level, and a tenth of the payment goes on into its
+//! own patron's pool. A patron in the world is told which vassal earned it; one away is paid as it
+//! enters.
 //!
 //! **The tree's export** (the chat command that writes the allegiance to a file): the asker is
 //! sent the whole allegiance, every member's node with its vassals and its patron, the tables of
