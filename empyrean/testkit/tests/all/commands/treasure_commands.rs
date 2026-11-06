@@ -196,3 +196,52 @@ fn a_draws_things_are_said_by_class_count_and_name_and_a_tables_files_by_its_id(
         assert_eq!(rows[0].attribute.flags.0 & 1 != 0, console_only, "{name}");
     }
 }
+
+/// Divergence: V466
+#[test]
+fn console_roll_dispatches_grouped_profiles_and_recycles_generated_items() {
+    use empyrean_common::era::{EraExt, EraId};
+    use empyrean_content::{
+        loot::{GroupedTreasureDeath, SlotGroup, SourceLootPolicy},
+        MemContent,
+    };
+    use empyrean_entity::enums::{PropertyString, WeenieType};
+    let p = SourceLootPolicy::from_json(include_bytes!(
+        "../../../../fixtures/source-loot/synthetic.json"
+    ))
+    .unwrap();
+    let mut groups = [SlotGroup::default(); 6];
+    groups[4] = SlotGroup {
+        chance: 100,
+        min: 1,
+        max: 1,
+    };
+    let row = GroupedTreasureDeath {
+        id: 1,
+        treasure_type: 99,
+        tier: 1,
+        quality: 0.0,
+        groups,
+    };
+    let mut content = MemContent::new()
+        .era(EraId::Launch)
+        .source_loot_policy(p)
+        .grouped_treasure(row);
+    for id in [8011, 8013] {
+        content = content.weenie(
+            empyrean_content::models::world::Weenie::new(id, "synthetic", WeenieType::Generic)
+                .with_string(PropertyString::Name, "Synthetic"),
+        );
+    }
+    let mut ts = TestServer::new();
+    ts.world.content = Arc::new(content);
+    ts.world.era = EraId::Launch.rules();
+    guid_manager::initialize(&mut ts.world, &mut EmptyShard);
+    let objects = ts.world.objects.len();
+    let output = console(&mut ts, "roll-treasure 99 2");
+    assert!(output[0].contains("tier 1"));
+    assert!(output[1].contains("Synthetic"));
+    assert!(output[2].contains("Synthetic"));
+    assert_eq!(ts.world.objects.len(), objects);
+    assert_eq!(guid_manager::recycled_guids_total(&ts.world), 2);
+}

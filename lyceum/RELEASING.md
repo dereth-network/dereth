@@ -3,7 +3,7 @@
 A Lyceum release includes the editor, the `lyceum` command, and the separate Empyrean server
 and import tool, for Windows, macOS and
 Linux, published as a GitHub release of this repository under a `lyceum-v<version>` tag. It is
-released the way Dereth is ([`dereth/launcher/RELEASING.md`](../dereth/launcher/RELEASING.md)):
+released the way Dereth is ([`launcher/RELEASING.md`](../launcher/RELEASING.md)):
 two commands and one review.
 
 1. **`cargo xtask release lyceum <version>`** on a clean `main`: sets the version, dates the
@@ -43,7 +43,7 @@ and the target they were built from.
 | system | the release file | its label |
 |---|---|---|
 | Windows (x86-64) | `lyceum-<v>-windows-x86_64.zip`: one folder, `lyceum-<v>/`, holding `lyceum-editor.exe` (with its icon), `lyceum.exe`, `empyrean-server.exe`, `empyrean-import.exe`, `README.md`, `CHANGES.md`, `LICENSE`, `NOTICE.txt`, `THIRD-PARTY-LICENSES.html`. No installer | Lyceum · Windows x64 (zip, no installer) |
-| macOS (Apple silicon, Intel) | `Lyceum-<v>-macos-aarch64.app.tar.gz` (and `-x86_64`): `Lyceum.app`, with all four programs in `Contents/MacOS`, MoltenVK in `Contents/Frameworks`, and the icon, the documents and the notices in `Contents/Resources` | Lyceum · macOS Apple silicon, Lyceum · macOS Intel |
+| macOS (Apple silicon) | `Lyceum-<v>-macos-aarch64.app.tar.gz`: `Lyceum.app`, with all four programs in `Contents/MacOS`, MoltenVK in `Contents/Frameworks`, and the icon, the documents and the notices in `Contents/Resources` | Lyceum · macOS Apple silicon |
 | Linux (x86-64) | `lyceum-<v>-linux-x86_64.tar.gz`: one folder, `lyceum-<v>/`, holding `lyceum-editor`, `lyceum`, `empyrean-server`, `empyrean-import`, the desktop entry `network.dereth.lyceum.desktop` and its icon `network.dereth.lyceum.png`, the documents and the notices | Lyceum · Linux x86-64 (glibc 2.35+) |
 
 Every package also carries `EMPYREAN-LICENSE` and `LIFESTONED-LICENSE.txt`. Its notice
@@ -58,7 +58,7 @@ and what the header checks read from each program), `release.json` (Release fact
 | Target | Built on | Runs on |
 |---|---|---|
 | `x86_64-pc-windows-msvc` | Windows | Windows 10 or newer |
-| `aarch64-apple-darwin`, `x86_64-apple-darwin` | macOS | macOS 11 or newer |
+| `aarch64-apple-darwin` | macOS | macOS 11 or newer |
 | `x86_64-unknown-linux-gnu` | Linux (the workflow uses Ubuntu 22.04) | glibc 2.35 or newer (Ubuntu 22.04 and later), with ALSA and a Vulkan driver |
 
 **Not code-signed yet**, as Dereth's: Windows SmartScreen warns once, macOS refuses once (System
@@ -97,8 +97,7 @@ What it needs, and says when missing, before building anything:
 - **cargo-about**: `cargo install --locked cargo-about --features cli`.
 - **Windows:** the MSVC build tools.
 - **macOS:** Xcode's command-line tools, and **MoltenVK**'s macOS release unpacked, named with
-  `--moltenvk <dir>` or `DERETH_MOLTENVK_DIR` (the same one Dereth's package takes). For the Intel
-  target on an Apple-silicon Mac, `rustup target add x86_64-apple-darwin`.
+  `--moltenvk <dir>` or `DERETH_MOLTENVK_DIR` (the same one Dereth's package takes).
 - **Linux:** ALSA's headers, on Debian and Ubuntu `libasound2-dev build-essential pkg-config`.
   Build on Ubuntu 22.04: the build host's glibc is the oldest a release runs on.
 
@@ -131,13 +130,12 @@ does not bump twice), or drop the commit with `git reset --hard HEAD~1`.
 
 1. **version and tag:** the tag names the version the three crates carry, and the tagged commit is
    on `main`; then the release notes, kept as the `release-notes-lyceum` artifact.
-2. **package**, one job per target on a runner of its own system (Windows; Ubuntu 22.04; macOS for
-   both Apple silicon and Intel): installs ALSA's headers on Linux and cargo-about, fetches
+2. **package**, one job per target on a runner of its own system (Windows; Ubuntu 22.04; macOS):
+   installs ALSA's headers on Linux and cargo-about, fetches
    MoltenVK on macOS (pinned by SHA-256), runs `cargo xtask package lyceum --target <target>`, and
    smoke-runs the packaged programs: both answer `--version` with the release's version and the
    target, `lyceum --help` its commands, and `lyceum-editor --list-recent` what its start screen
-   shows (the bundle's signature verified first; Intel macOS under Rosetta when the runner has
-   it). The editor has no headless start screen, so its window is not opened there.
+   shows (the bundle's signature verified first). The editor has no headless start screen, so its window is not opened there.
 3. **gather the release:** every runner's files, scanned again, with the index written over them.
 4. **draft the GitHub release** (tags only): `gh release create --draft --latest=false`
    (`--prerelease` for a pre-release version) with the notes, then the downloads, and every file

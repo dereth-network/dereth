@@ -180,6 +180,34 @@ pub fn get_spell_formula(
     }
 }
 
+/// Not ACE: a spell table from before the spell record named a target type holds none, and each
+/// spell's formula alone says what it may be cast at. Gives every spell of such a table the type its
+/// formula names; a table that names any target type is left as it is.
+pub fn fill_target_types_from_formulas(table: &mut SpellTable) {
+    if table
+        .spells
+        .values()
+        .any(|s| s.non_component_target_type != 0)
+    {
+        return;
+    }
+    for spell in table.spells.values_mut() {
+        spell.non_component_target_type =
+            dereth_rules::weenie::formula_target_type(&spell.formula());
+    }
+}
+
+/// Not ACE: puts a table's caster, target and fizzle scripts into the later numbering every other
+/// script the server names is in; a message puts them back as it goes out.
+pub fn renumber_effects(table: &mut SpellTable, era: dereth_primitives::ContainerEra) {
+    use dereth_world_data::effect_numbering::script_from_files;
+    for spell in table.spells.values_mut() {
+        spell.caster_effect = script_from_files(era, spell.caster_effect);
+        spell.target_effect = script_from_files(era, spell.target_effect);
+        spell.fizzle_effect = script_from_files(era, spell.fizzle_effect);
+    }
+}
+
 fn at(comps: &[u32], i: usize) -> Result<u32, AceThrow> {
     comps
         .get(i)
@@ -349,4 +377,44 @@ fn randomize_version3(spell: &SpellBase, account_name: &str) -> Result<Vec<u32>,
         + LOWEST_TAPER_ID;
     set(&mut comps, 6, v6)?;
     Ok(comps)
+}
+
+#[cfg(test)]
+mod target_type_tests {
+    use super::*;
+
+    fn table(stored: u32) -> SpellTable {
+        let mut table = crate::fake::sample::spell_table();
+        let spell = table.spells.values_mut().next().expect("a spell");
+        for (slot, c) in spell.raw_comps.iter_mut().zip([1, 2, 3, 4, 0x39]) {
+            *slot = c + spell.comp_key;
+        }
+        spell.non_component_target_type = stored;
+        table
+    }
+
+    fn the_type(table: &SpellTable) -> u32 {
+        table
+            .spells
+            .values()
+            .next()
+            .unwrap()
+            .non_component_target_type
+    }
+
+    /// Divergence: V494
+    #[test]
+    fn a_table_naming_no_target_types_takes_them_from_the_formulas() {
+        let mut t = table(0);
+        fill_target_types_from_formulas(&mut t);
+        assert_eq!(the_type(&t), 0x0008_8B8F);
+    }
+
+    /// Divergence: V494
+    #[test]
+    fn a_table_naming_target_types_keeps_them() {
+        let mut t = table(0x10);
+        fill_target_types_from_formulas(&mut t);
+        assert_eq!(the_type(&t), 0x10);
+    }
 }

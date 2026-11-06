@@ -1,9 +1,9 @@
 //! Plugins in the browser: packages the player added to the page, kept in the browser's private
 //! file system, and each plugin's store kept there too.
 //!
-//! The added packages, and the plugins installed from plugin sources (kept as zips beside them,
-//! [`crate::plugin_sources`]), are the plugins the page offers the client, as the launcher
-//! offers the desktop client its own: each is ticked in the plugin panel (`/plugin`) the first
+//! The added packages, and the plugins installed from plugin sources (kept as zips beside them by
+//! the launcher's module, `dereth-web-front`), are the plugins the page offers the client, as the
+//! launcher offers the desktop client its own: each is ticked in the plugin panel (`/plugin`) the first
 //! time the client sees it, and loads while it is ticked; one the player unticks stays off.
 //!
 //! The page keeps added plugins in its private file system, one folder per package or a

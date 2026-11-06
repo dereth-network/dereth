@@ -513,7 +513,7 @@ impl Shop {
             .and_then(|s| ui.node(s))
             .and_then(|n| n.instance_id_attr(name::ITEM_ID))
         {
-            out.push(Request::Select(item));
+            out.push(Request::SetSelection(item));
         }
     }
 

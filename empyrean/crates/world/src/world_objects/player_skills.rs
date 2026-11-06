@@ -283,6 +283,14 @@ pub fn handle_action_train_skill(
     skill: Skill,
     credits_spent: i32,
 ) -> bool {
+    // DIVERGE: an era's trainable skills (`EraRules::training_skills`, V461).
+    if w.era
+        .training_skills
+        .is_some_and(|skills| !skills.contains(&skill.0.cast_unsigned()))
+    {
+        return false;
+    }
+
     if exceeds_available_skill_credits(w, this, credits_spent) {
         log::warn!(
             "{}.HandleActionTrainSkill({}, {credits_spent}) - not enough skill credits",
@@ -387,6 +395,9 @@ pub fn train_skill_with(
     if apply_creation_bonus_xp {
         cs.set_experience_spent(o, 526);
         cs.set_ranks(o, 5);
+        // DIVERGE: V493, the bonus is the world's own curve up to rank 5 where the bonus is
+        // experience.
+        seed_creation_bonus(w, this, cs, SkillAdvancementClass::Trained, 5);
     } else {
         cs.set_experience_spent(o, 0);
     }
@@ -401,6 +412,35 @@ pub fn train_skill_with(
     }
 
     true
+}
+
+/// Not ACE (V493): `ranks` of the creation bonus as the experience the world's own curve asks for
+/// them, on a world where the bonus is experience. A curve that does not reach so far gives none.
+fn seed_creation_bonus(
+    w: &mut World,
+    this: ObjectGuid,
+    cs: CreatureSkill,
+    sac: SkillAdvancementClass,
+    ranks: u16,
+) {
+    use dereth_rules::skills::Sac;
+    if !w.era.features.creation_skill_bonus_as_experience {
+        return;
+    }
+    let curve = match sac {
+        SkillAdvancementClass::Trained => Sac::Trained,
+        _ => Sac::Specialized,
+    };
+    let experience = dereth_rules::advancement::experience_to_skill_level(
+        w.dats.portal_dat().xp_table(),
+        curve,
+        usize::from(ranks),
+    );
+    let reached = experience != u32::MAX;
+    let o = obj_mut(w, this);
+    cs.set_init_level(o, 0);
+    cs.set_ranks(o, if reached { ranks } else { 0 });
+    cs.set_experience_spent(o, if reached { experience } else { 0 });
 }
 
 // ACE: Player.SpecializeSkill
@@ -447,6 +487,9 @@ pub fn specialize_skill_with(
         return false;
     }
 
+    // DIVERGE: V493, on a world where the creation bonus is experience a skill specialized at
+    // creation starts at rank 10 on the curve, with no ranks that no experience paid for.
+    let bonus_as_experience = reset_skill && w.era.features.creation_skill_bonus_as_experience;
     if reset_skill {
         // this path only during char creation
         let o = obj_mut(w, this);
@@ -460,8 +503,11 @@ pub fn specialize_skill_with(
     }
 
     let o = obj_mut(w, this);
-    cs.set_init_level(o, 10);
+    cs.set_init_level(o, if bonus_as_experience { 0 } else { 10 });
     cs.set_advancement_class(o, SkillAdvancementClass::Specialized);
+    if bonus_as_experience {
+        seed_creation_bonus(w, this, cs, SkillAdvancementClass::Specialized, 10);
+    }
 
     add_available_skill_credits(w, this, credits_spent.wrapping_neg());
 

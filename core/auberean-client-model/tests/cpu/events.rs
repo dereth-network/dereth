@@ -1,9 +1,10 @@
 //! The event queue: what waits, and in what order messages take effect.
 
-use auberean_client_model::events::{EventQueue, Item};
+use auberean_client_model::events::{newer, EventQueue, Item};
+use auberean_protocol::login::Empty;
 use auberean_protocol::ServerMessage;
 
-use crate::{create_item, fx, player_object, private_int, PLAYER};
+use crate::{create_item, fx, item, player_object, private_int, PLAYER};
 
 fn drain(q: &mut EventQueue) -> Vec<Item> {
     let mut v = Vec::new();
@@ -77,6 +78,280 @@ fn private_messages_take_effect_in_stamp_order() {
     assert_eq!(q.stats().dropped, 1);
 }
 
+/// The player, in the world, with the private stream not started.
+fn in_the_world() -> EventQueue {
+    let mut q = EventQueue::new();
+    q.start_entering();
+    q.receive(0.0, player_object());
+    q.receive(0.0, create_item(PLAYER, 1, 1));
+    drain(&mut q);
+    q
+}
+
+fn private_taken(q: &mut EventQueue) -> Vec<u32> {
+    drain(q).iter().filter_map(quality_of).collect()
+}
+
+/// Twenty messages held and five minutes blocked give up one stamp as a message arrives, not the
+/// whole gap. Stamps 2 to 4 are missing: each give-up takes one and starts the five minutes again,
+/// and only the last lets what is held through.
+///
+/// Behaviour: model.events.a-private-gap-is-given-up-one-stamp-at-a-time
+#[test]
+fn a_private_gap_is_given_up_one_stamp_per_five_minutes() {
+    let mut q = in_the_world();
+    q.receive(1.0, private_int(1, 1));
+    assert_eq!(private_taken(&mut q), vec![1]);
+    for stamp in 5..=23 {
+        q.receive(2.0, private_int(stamp, u32::from(stamp)));
+    }
+    assert!(private_taken(&mut q).is_empty(), "nineteen held, none next");
+    q.receive(2.0, private_int(24, 24));
+    q.receive(302.5, private_int(25, 25));
+    assert!(
+        private_taken(&mut q).is_empty(),
+        "stamp 2 given up; 5 is not next, so the five minutes start again"
+    );
+    q.receive(602.0, private_int(26, 26));
+    assert!(
+        private_taken(&mut q).is_empty(),
+        "the five minutes run from the first give-up"
+    );
+    q.receive(603.0, private_int(27, 27));
+    assert!(private_taken(&mut q).is_empty(), "stamp 3 given up");
+    q.receive(904.0, private_int(28, 28));
+    assert_eq!(
+        private_taken(&mut q),
+        (5..=28).collect::<Vec<u32>>(),
+        "stamp 4 given up, and all that was held follows"
+    );
+    assert_eq!(q.stats().dropped, 0);
+}
+
+/// The blob id of a private message under `stamp`.
+fn private_id(stamp: u16) -> u64 {
+    private_int(stamp, 0).blob_id
+}
+
+/// A private message that does not read counts for its stamp: what follows it takes effect at
+/// once, whichever order they come in, and nothing is held afterward.
+///
+/// Behaviour: model.events.a-private-message-that-does-not-read-holds-nothing-back
+#[test]
+fn a_private_message_that_does_not_read_holds_nothing_back() {
+    let mut q = in_the_world();
+    q.receive(1.0, private_int(1, 1));
+    q.receive_unread(1.0, private_id(2), &[]);
+    q.receive(1.0, private_int(3, 3));
+    assert_eq!(private_taken(&mut q), vec![1, 3], "it came in its place");
+    q.receive(2.0, private_int(5, 5));
+    assert!(
+        private_taken(&mut q).is_empty(),
+        "the stamp before it hasn't come"
+    );
+    q.receive_unread(2.0, private_id(4), &[]);
+    assert_eq!(
+        private_taken(&mut q),
+        vec![5],
+        "it came late, and let go of what it held"
+    );
+    q.receive(3.0, private_int(6, 6));
+    assert_eq!(private_taken(&mut q), vec![6]);
+    assert_eq!(q.stats().dropped, 0);
+    q.receive_unread(3.0, private_id(6), &[]);
+    q.receive(3.0, private_int(7, 7));
+    assert_eq!(
+        private_taken(&mut q),
+        vec![7],
+        "a repeat of one taken changes nothing"
+    );
+}
+
+/// Only a private message's stamp counts: one of another kind that does not read leaves the
+/// private stream as it was.
+///
+/// Behaviour: model.events.a-private-message-that-does-not-read-holds-nothing-back
+#[test]
+fn a_message_of_another_kind_that_does_not_read_counts_for_no_private_stamp() {
+    let mut q = in_the_world();
+    q.receive(1.0, private_int(1, 1));
+    q.receive_unread(
+        1.0,
+        item(3, 2, ServerMessage::DownloadEnds(Empty)).blob_id,
+        &[],
+    );
+    q.receive_unread(
+        1.0,
+        item(2, 2, ServerMessage::DownloadEnds(Empty)).blob_id,
+        &[],
+    );
+    q.receive(1.0, private_int(3, 3));
+    assert_eq!(private_taken(&mut q), vec![1], "stamp 2 is still missing");
+    q.receive(1.0, private_int(2, 2));
+    assert_eq!(private_taken(&mut q), vec![2, 3]);
+}
+
+/// While the player is being made, a private message that does not read waits as a readable one
+/// would; out of the world, and past leaving it, it counts for nothing.
+///
+/// Behaviour: model.events.a-private-message-that-does-not-read-holds-nothing-back
+#[test]
+fn a_private_message_that_does_not_read_waits_for_the_player_as_any_would() {
+    let mut q = EventQueue::new();
+    q.receive_unread(0.0, private_id(1), &[]);
+    q.start_entering();
+    q.receive_unread(0.0, private_id(2), &[]);
+    q.receive(0.0, private_int(1, 1));
+    q.receive(0.0, private_int(3, 3));
+    q.receive(0.0, player_object());
+    assert!(private_taken(&mut q).is_empty(), "no player's object yet");
+    q.receive(0.0, create_item(PLAYER, 1, 1));
+    assert_eq!(private_taken(&mut q), vec![1, 3]);
+
+    let mut q = EventQueue::new();
+    q.start_entering();
+    q.receive_unread(0.0, private_id(2), &[]);
+    q.leave_world();
+    q.start_entering();
+    q.receive(0.0, player_object());
+    q.receive(0.0, create_item(PLAYER, 1, 1));
+    drain(&mut q);
+    q.receive(0.0, private_int(1, 1));
+    q.receive(0.0, private_int(2, 2));
+    assert_eq!(
+        private_taken(&mut q),
+        vec![1, 2],
+        "the stamp left with the world"
+    );
+    assert_eq!(q.stats().dropped, 0);
+}
+
+/// It takes twenty held and more than five minutes: nineteen held after any wait give up nothing,
+/// and neither do twenty held after exactly five minutes.
+///
+/// Behaviour: model.events.a-private-gap-is-given-up-one-stamp-at-a-time
+#[test]
+fn a_private_give_up_takes_twenty_held_and_more_than_five_minutes() {
+    let mut late = in_the_world();
+    late.receive(1.0, private_int(1, 1));
+    drain(&mut late);
+    for stamp in 3..=20 {
+        late.receive(2.0, private_int(stamp, u32::from(stamp)));
+    }
+    late.receive(900.0, private_int(21, 21));
+    assert!(private_taken(&mut late).is_empty(), "nineteen held");
+    late.receive(900.0, private_int(22, 22));
+    assert_eq!(private_taken(&mut late), (3..=22).collect::<Vec<u32>>());
+
+    let mut exact = in_the_world();
+    exact.receive(1.0, private_int(1, 1));
+    drain(&mut exact);
+    for stamp in 3..=21 {
+        exact.receive(2.0, private_int(stamp, u32::from(stamp)));
+    }
+    exact.receive(302.0, private_int(22, 22));
+    assert!(private_taken(&mut exact).is_empty(), "exactly five minutes");
+    exact.receive(302.5, private_int(23, 23));
+    assert_eq!(private_taken(&mut exact), (3..=23).collect::<Vec<u32>>());
+}
+
+/// A stamp of the gap that comes late, before the give-ups reach it, still takes effect; one they
+/// have passed is dropped.
+///
+/// Behaviour: model.events.a-private-gap-is-given-up-one-stamp-at-a-time
+#[test]
+fn a_private_stamp_the_give_ups_have_not_reached_still_takes_effect() {
+    let mut q = in_the_world();
+    q.receive(1.0, private_int(1, 1));
+    drain(&mut q);
+    for stamp in 5..=24 {
+        q.receive(2.0, private_int(stamp, u32::from(stamp)));
+    }
+    q.receive(303.0, private_int(25, 25));
+    assert!(private_taken(&mut q).is_empty(), "stamp 2 given up");
+    q.receive(304.0, private_int(2, 2));
+    assert!(private_taken(&mut q).is_empty(), "stamp 2 has gone");
+    assert_eq!(q.stats().dropped, 1);
+    q.receive(305.0, private_int(3, 3));
+    assert_eq!(private_taken(&mut q), vec![3], "stamp 3 had not gone");
+    q.receive(306.0, private_int(4, 4));
+    assert_eq!(
+        private_taken(&mut q),
+        (4..=25).collect::<Vec<u32>>(),
+        "stamp 4 closes the gap"
+    );
+    assert_eq!(q.stats().dropped, 1);
+}
+
+/// When a late message lets some of what is held through and the next held one is still not next,
+/// the five minutes start again from then.
+///
+/// Behaviour: model.events.a-private-gap-is-given-up-one-stamp-at-a-time
+#[test]
+fn taking_what_a_late_message_lets_through_starts_the_five_minutes_again() {
+    let mut q = in_the_world();
+    q.receive(1.0, private_int(1, 1));
+    drain(&mut q);
+    q.receive(2.0, private_int(3, 3));
+    for stamp in 5..=23 {
+        q.receive(2.0, private_int(stamp, u32::from(stamp)));
+    }
+    q.receive(290.0, private_int(2, 2));
+    assert_eq!(private_taken(&mut q), vec![2, 3], "stamp 4 still missing");
+    q.receive(303.0, private_int(24, 24));
+    assert!(
+        private_taken(&mut q).is_empty(),
+        "twenty held, but only 13 seconds since the head was last looked at"
+    );
+    q.receive(591.0, private_int(25, 25));
+    assert_eq!(
+        private_taken(&mut q),
+        (5..=25).collect::<Vec<u32>>(),
+        "more than five minutes on: stamp 4 given up"
+    );
+}
+
+/// A stamp already held, past a gap, is held again: each takes effect, the later arrival first.
+/// A stamp already taken is still dropped.
+///
+/// Behaviour: model.events.a-repeated-private-stamp-past-a-gap-takes-effect-twice
+#[test]
+fn a_private_stamp_repeated_past_a_gap_takes_effect_twice_later_arrival_first() {
+    let mut q = in_the_world();
+    q.receive(1.0, private_int(1, 1));
+    drain(&mut q);
+    q.receive(1.1, private_int(3, 30));
+    q.receive(1.2, private_int(3, 31));
+    q.receive(1.3, private_int(4, 40));
+    assert!(private_taken(&mut q).is_empty());
+    q.receive(1.4, private_int(2, 20));
+    assert_eq!(private_taken(&mut q), vec![20, 31, 30, 40]);
+    assert_eq!(q.stats().dropped, 0);
+    q.receive(1.5, private_int(4, 41));
+    assert!(private_taken(&mut q).is_empty());
+    assert_eq!(q.stats().dropped, 1);
+}
+
+/// A message repeated past a gap counts toward the twenty held.
+///
+/// Behaviour: model.events.a-repeated-private-stamp-past-a-gap-takes-effect-twice
+#[test]
+fn a_repeated_private_stamp_counts_toward_the_twenty_held() {
+    let mut q = in_the_world();
+    q.receive(1.0, private_int(1, 1));
+    drain(&mut q);
+    for n in 0..19 {
+        q.receive(2.0, private_int(3, n));
+    }
+    assert!(private_taken(&mut q).is_empty());
+    q.receive(303.0, private_int(3, 19));
+    assert_eq!(
+        private_taken(&mut q),
+        (0..=19).rev().collect::<Vec<u32>>(),
+        "twenty held under one stamp: stamp 2 given up, the newest arrival first"
+    );
+}
+
 /// An object's visual messages take effect in visual-stamp order after its creation's stamp; one
 /// stamped at or before the creation is dropped, and one about a newer incarnation of the object
 /// waits while the client has the older one.
@@ -99,6 +374,81 @@ fn visual_messages_take_effect_in_stamp_order_per_object() {
         1,
         "the newer incarnation's effect waits"
     );
+}
+
+/// The bytes of a visual message of a type this client doesn't read, about `id`.
+fn unread_visual(id: u64, instance: u16, visual: u16) -> Vec<u8> {
+    let mut raw = 0x1_FFFF_u32.to_le_bytes().to_vec();
+    raw.extend_from_slice(&id.to_le_bytes());
+    raw.extend_from_slice(&instance.to_le_bytes());
+    raw.extend_from_slice(&visual.to_le_bytes());
+    raw
+}
+
+/// A visual message that does not read counts for its object's stamp, read from its head: what
+/// follows takes effect at once, whichever order they come in. About an object not here yet it
+/// waits with what waits for it, and one too short to name an object counts for nothing.
+///
+/// Behaviour: model.events.a-visual-message-that-does-not-read-holds-nothing-back
+#[test]
+fn a_visual_message_that_does_not_read_holds_nothing_back() {
+    let id = 0x8130_0000_0000_0007;
+    let visual_blob = fx(id, 1, 0, 0).blob_id;
+    let mut q = EventQueue::new();
+    q.receive(0.0, create_item(id, 1, 1));
+    drain(&mut q);
+    q.receive_unread(1.0, visual_blob, &unread_visual(id, 1, 2));
+    q.receive(1.0, fx(id, 1, 3, 0x3));
+    let got: Vec<u32> = drain(&mut q).iter().filter_map(effect_of).collect();
+    assert_eq!(got, vec![0x3], "it came in its place");
+    q.receive(2.0, fx(id, 1, 5, 0x5));
+    assert!(drain(&mut q).is_empty(), "the stamp before it hasn't come");
+    q.receive_unread(2.0, visual_blob, &unread_visual(id, 1, 4));
+    let got: Vec<u32> = drain(&mut q).iter().filter_map(effect_of).collect();
+    assert_eq!(got, vec![0x5], "it came late, and let go of what it held");
+    assert_eq!(q.stats().force_creates, 0);
+
+    q.receive_unread(3.0, visual_blob, &[0; 8]);
+    q.receive(3.0, fx(id, 1, 7, 0x7));
+    assert!(
+        drain(&mut q).is_empty(),
+        "too short: stamp 6 is still missing"
+    );
+
+    let later = 0x8130_0000_0000_0008;
+    q.receive_unread(4.0, visual_blob, &unread_visual(later, 1, 2));
+    assert_eq!(q.waiting_objects(), 1, "it waits for its object");
+    q.receive(4.0, fx(later, 1, 3, 0x33));
+    q.receive(4.0, create_item(later, 1, 1));
+    let got: Vec<u32> = drain(&mut q).iter().filter_map(effect_of).collect();
+    assert_eq!(got, vec![0x33], "its stamp came with the creation");
+    assert_eq!(q.waiting_objects(), 0);
+}
+
+/// A visual message of a type that reads but names no object of its own takes its object and stamps
+/// from its head too, so it holds its place in that object's order.
+///
+/// Behaviour: model.events.a-visual-message-that-does-not-read-holds-nothing-back
+#[test]
+fn a_visual_message_of_any_type_keeps_its_place_by_its_head() {
+    use auberean_protocol::quality::PrivateQuality;
+    let id: u64 = 0x0000_0002_0000_0007;
+    let mut q = EventQueue::new();
+    q.receive(0.0, create_item(id, 1, 1));
+    drain(&mut q);
+    let value = (id >> 32) | (1 << 32) | (2 << 48);
+    let quality = u32::try_from(id & 0xFFFF_FFFF).expect("its low half");
+    let of_any_type = item(
+        2,
+        0,
+        ServerMessage::UpdateInstanceId(PrivateQuality { quality, value }),
+    );
+    q.receive(1.0, fx(id, 1, 3, 0x3));
+    assert!(drain(&mut q).is_empty(), "stamp 2 hasn't come");
+    q.receive(1.0, of_any_type);
+    let got = drain(&mut q);
+    assert!(matches!(got[0].message, ServerMessage::UpdateInstanceId(_)));
+    assert_eq!(effect_of(&got[1]), Some(0x3));
 }
 
 /// A creation of a newer incarnation replaces the one the client has: the old one goes first,
@@ -460,7 +810,7 @@ fn a_let_go_of_an_item_not_yet_made_never_takes_effect() {
             ServerMessage::Parent(ObjectEvent {
                 sender: stamp(HELD, 1, 2),
                 action: Attach {
-                    parent: stamp(HOLDER, 1, 0),
+                    parent: stamp(HOLDER, 1, 1),
                     location: 1,
                     orientation: 0,
                 },
@@ -521,4 +871,176 @@ fn leaving_the_world_drops_what_was_held_while_entering() {
     let got = drain(&mut q);
     assert_eq!(got.len(), 1, "only the player's creation");
     assert!(matches!(got[0].message, ServerMessage::PlayerObject(_)));
+}
+
+/// Two stamps are ordered round the circle: the larger is newer while they are less than half the
+/// circle apart and the smaller from there on. At exactly half, the smaller is newer, so of two
+/// stamps that far apart one is always newer and never both.
+///
+/// Behaviour: model.events.stamps-exactly-half-the-circle-apart-favor-the-smaller
+#[test]
+fn stamps_exactly_half_the_circle_apart_favor_the_smaller() {
+    assert!(newer(0, 0x8000));
+    assert!(!newer(0x8000, 0));
+    assert!(newer(0x1234, 0x9234));
+    assert!(!newer(0x9234, 0x1234));
+    // One step either side of half.
+    assert!(newer(0x7FFF, 0));
+    assert!(!newer(0, 0x7FFF));
+    assert!(newer(0, 0x8001));
+    assert!(!newer(0x8001, 0));
+    // Equal is never newer, and an ordinary step and the wrap read as they should.
+    assert!(!newer(7, 7));
+    assert!(newer(8, 7));
+    assert!(newer(0, 0xFFFF));
+    assert!(!newer(0xFFFF, 0));
+    // Any two different stamps: exactly one of them is newer.
+    for b in [0u16, 1, 0x7FFF, 0x8000, 0xFFFF] {
+        for gap in 1..=0xFFFFu16 {
+            let a = b.wrapping_add(gap);
+            assert!(newer(a, b) != newer(b, a), "{a:#x} and {b:#x}");
+        }
+    }
+}
+
+/// A visual message exactly half the circle from what the queue wants next waits when its stamp is
+/// the smaller of the two and is dropped when it is the larger.
+///
+/// Behaviour: model.events.stamps-exactly-half-the-circle-apart-favor-the-smaller
+#[test]
+fn a_visual_message_exactly_half_the_circle_ahead_waits_or_drops_by_the_smaller_stamp() {
+    let id = 0x8130_0000_0000_0002;
+    // The queue wants 0x8000, the message is 0: the smaller, so it is newer and it waits.
+    let mut q = EventQueue::new();
+    q.receive(0.0, create_item(id, 1, 0x7FFF));
+    drain(&mut q);
+    q.receive(0.1, fx(id, 1, 0, 0xA));
+    assert!(drain(&mut q).is_empty());
+    assert_eq!(q.stats().held_visual, 1, "it was counted as held");
+    assert_eq!(q.stats().dropped, 0, "and it was not dropped");
+    // The queue wants 1, the message is 0x8001: the larger, so it is older and it is dropped.
+    let mut q = EventQueue::new();
+    q.receive(0.0, create_item(id, 1, 0));
+    drain(&mut q);
+    q.receive(0.1, fx(id, 1, 0x8001, 0xC));
+    assert_eq!(q.stats().dropped, 1);
+    q.receive(0.2, fx(id, 1, 1, 0xD));
+    assert_eq!(
+        drain(&mut q)
+            .iter()
+            .filter_map(effect_of)
+            .collect::<Vec<_>>(),
+        vec![0xD]
+    );
+}
+
+/// A creation exactly half the circle of incarnations away replaces the object when its stamp is
+/// the smaller and is ignored when it is the larger; a message about that incarnation waits or is
+/// dropped alike.
+///
+/// Behaviour: model.events.stamps-exactly-half-the-circle-apart-favor-the-smaller
+#[test]
+fn an_incarnation_exactly_half_the_circle_away_replaces_or_is_ignored_by_the_smaller_stamp() {
+    let id = 0x8130_0000_0000_0002;
+    let mut q = EventQueue::new();
+    q.receive(0.0, create_item(id, 0x8000, 1));
+    drain(&mut q);
+    q.receive(0.1, fx(id, 0, 1, 0xA));
+    assert!(drain(&mut q).is_empty());
+    assert_eq!(q.waiting_objects(), 1, "about the newer one: it waits");
+    q.receive(0.2, create_item(id, 0, 1));
+    assert_eq!(q.stats().replaced, 1);
+
+    let mut q = EventQueue::new();
+    q.receive(0.0, create_item(id, 0, 1));
+    drain(&mut q);
+    q.receive(0.1, fx(id, 0x8000, 1, 0xA));
+    assert_eq!(q.waiting_objects(), 0, "about an older one: dropped");
+    q.receive(0.2, create_item(id, 0x8000, 1));
+    assert!(drain(&mut q).is_empty(), "an older creation is ignored");
+    assert_eq!(q.stats().replaced, 0);
+}
+
+/// Brings a queue to stamp `at`, which a creation can only reach in steps of under half the circle.
+fn object_at_stamp(q: &mut EventQueue, id: u64, at: u16) {
+    q.receive(0.0, create_item(id, 1, at.wrapping_sub(0x7FFF)));
+    q.receive(0.0, create_item(id, 1, at));
+    drain(q);
+}
+
+/// Stamps held across the wrap of the circle take effect round it: 1 waits for 0xFFFF and 0, and
+/// 0xFFFF, the one wanted, is not held up behind it, so nothing is given up on.
+///
+/// Behaviour: model.events.visual-stamps-held-across-the-wrap-go-round-the-circle
+#[test]
+fn visual_stamps_held_across_the_wrap_take_effect_round_the_circle() {
+    let id = 0x8130_0000_0000_0002;
+    let mut q = EventQueue::new();
+    object_at_stamp(&mut q, id, 0xFFFE);
+    q.receive(0.1, fx(id, 1, 1, 0x1));
+    assert!(drain(&mut q).is_empty(), "1 waits for the stamps before it");
+    q.receive(0.2, fx(id, 1, 0xFFFF, 0xF));
+    assert_eq!(
+        drain(&mut q)
+            .iter()
+            .filter_map(effect_of)
+            .collect::<Vec<_>>(),
+        vec![0xF],
+        "the wanted stamp goes, with 1 still held"
+    );
+    q.receive(0.3, fx(id, 1, 0, 0x0));
+    assert_eq!(
+        drain(&mut q)
+            .iter()
+            .filter_map(effect_of)
+            .collect::<Vec<_>>(),
+        vec![0x0, 0x1],
+    );
+    q.receive(30.0, fx(id, 1, 2, 0x2));
+    assert_eq!(q.take_force_creates(), Vec::<u64>::new());
+    assert_eq!(q.stats().dropped, 0);
+}
+
+/// Messages held under one stamp come off in the order the queue's heap leaves them, not the order
+/// they came: the later of two goes and the earlier, by then older than the one wanted, is
+/// dropped.
+///
+/// Behaviour: model.events.of-two-visual-messages-held-under-one-stamp-the-heap-picks
+#[test]
+fn of_two_visual_messages_held_under_one_stamp_the_heap_picks_the_later() {
+    let id = 0x8130_0000_0000_0002;
+    let mut q = EventQueue::new();
+    q.receive(0.0, create_item(id, 1, 0));
+    drain(&mut q);
+    q.receive(0.1, fx(id, 1, 3, 0xA));
+    q.receive(0.1, fx(id, 1, 3, 0xB));
+    q.receive(0.1, fx(id, 1, 2, 0xC));
+    assert!(drain(&mut q).is_empty());
+    q.receive(0.1, fx(id, 1, 1, 0xD));
+    assert_eq!(
+        drain(&mut q)
+            .iter()
+            .filter_map(effect_of)
+            .collect::<Vec<_>>(),
+        vec![0xD, 0xC, 0xB],
+    );
+    assert_eq!(q.stats().dropped, 1);
+    // The sinking message goes to the right of two equal children: the later again.
+    let mut q = EventQueue::new();
+    q.receive(0.0, create_item(id, 1, 0));
+    drain(&mut q);
+    q.receive(0.1, fx(id, 1, 2, 0x2));
+    q.receive(0.1, fx(id, 1, 3, 0xA));
+    q.receive(0.1, fx(id, 1, 3, 0xB));
+    q.receive(0.1, fx(id, 1, 4, 0x4));
+    assert!(drain(&mut q).is_empty());
+    q.receive(0.1, fx(id, 1, 1, 0x1));
+    assert_eq!(
+        drain(&mut q)
+            .iter()
+            .filter_map(effect_of)
+            .collect::<Vec<_>>(),
+        vec![0x1, 0x2, 0xB, 0x4],
+    );
+    assert_eq!(q.stats().dropped, 1);
 }

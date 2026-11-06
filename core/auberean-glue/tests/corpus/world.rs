@@ -26,8 +26,10 @@ pub fn target() -> Option<&'static (Arc<DatFile>, Arc<Program>)> {
             .into_iter()
             .find(|(n, _)| *n == DatName::Portal)?;
         let dat = DatFile::open(&path).expect("open the portal file");
-        let lib =
-            Library::from_record(&dat.read(RECORD).expect("the library")).expect("the library");
+        let lib = dat
+            .read_checked(RECORD, Library::from_record)
+            .expect("the library")
+            .value;
         let natives = auberean_glue::natives(&lib);
         let prog = Program::link(lib, natives).expect("the library links against the natives");
         Some((Arc::new(dat), Arc::new(prog)))

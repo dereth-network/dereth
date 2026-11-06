@@ -64,6 +64,23 @@ impl Surface {
         self.bgra.fill(0);
     }
 
+    /// Make the texels of `area` transparent black.
+    fn clear_area(&mut self, area: Rect) {
+        let Some(c) = area.intersect(self.bounds()) else {
+            return;
+        };
+        for y in c.y0..=c.y1 {
+            let (from, to) = self.row(y, c.x0, c.x1);
+            self.bgra[from..to].fill(0);
+        }
+    }
+
+    /// Where the texels of row `y` from column `x0` to `x1` lie, all of them on the picture.
+    fn row(&self, y: i32, x0: i32, x1: i32) -> (usize, usize) {
+        let at = |x: i32| usize::try_from((y * self.width + x) * 4).unwrap_or(0);
+        (at(x0), at(x1 + 1))
+    }
+
     /// The whole picture.
     #[must_use]
     pub const fn bounds(&self) -> Rect {
@@ -120,36 +137,62 @@ pub fn window(r: Rect, width: i32, height: i32) -> Rect {
 // D2-09960
 // The original truncates the faded alpha toward zero.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-fn blit_texel(dst: &mut Surface, x: i32, y: i32, s: [u8; 4], how: Blit) {
+#[inline]
+fn blit_one(d: &mut [u8; 4], s: [u8; 4], how: Blit) {
     let blend = match how {
         Blit::Copy => false,
         Blit::CopyFaded(a) => {
             let faded = (f32::from(s[3]) * a.clamp(0.0, 1.0)) as u8;
-            dst.put(x, y, [s[0], s[1], s[2], faded]);
+            *d = [s[0], s[1], s[2], faded];
             return;
         }
         Blit::Blend => true,
     };
     if !blend || s[3] == 0xFF {
         if !blend || s[3] != 0 {
-            dst.put(x, y, s);
+            *d = s;
         }
         return;
     }
     if s[3] == 0 {
         return;
     }
-    let d = dst.get(x, y);
     let a = i32::from(s[3]);
     let mix = |dc: u8, sc: u8| -> u8 {
         let dc = i32::from(dc);
         u8::try_from(dc - (dc - i32::from(sc)) * a / 256).unwrap_or(0)
     };
-    dst.put(
-        x,
-        y,
-        [mix(d[0], s[0]), mix(d[1], s[1]), mix(d[2], s[2]), d[3]],
-    );
+    *d = [mix(d[0], s[0]), mix(d[1], s[1]), mix(d[2], s[2]), d[3]];
+}
+
+/// One source texel onto the layer at `(x, y)`, when that is on the layer.
+fn blit_texel(dst: &mut Surface, x: i32, y: i32, s: [u8; 4], how: Blit) {
+    if let Some(i) = dst.index(x, y) {
+        if let Some((d, _)) = dst.bgra[i..].split_first_chunk_mut::<4>() {
+            blit_one(d, s, how);
+        }
+    }
+}
+
+/// A run of source texels onto a run of layer texels, as many as both have.
+#[inline]
+fn blit_run(dst: &mut [u8], src: &[u8], how: Blit) {
+    let (to, _) = dst.as_chunks_mut::<4>();
+    let (from, _) = src.as_chunks::<4>();
+    match how {
+        Blit::Copy => {
+            let n = to.len().min(from.len()) * 4;
+            dst[..n].copy_from_slice(&src[..n]);
+        }
+        Blit::Blend => to
+            .iter_mut()
+            .zip(from)
+            .for_each(|(d, s)| blit_one(d, *s, Blit::Blend)),
+        Blit::CopyFaded(_) => to
+            .iter_mut()
+            .zip(from)
+            .for_each(|(d, s)| blit_one(d, *s, how)),
+    }
 }
 
 /// Draw a picture over an element's rectangle `area`, clipped to `clip`: once at its size; else
@@ -171,9 +214,11 @@ pub fn draw_image(
     if iw <= 0 || ih <= 0 {
         return;
     }
-    let Some(c) = area.intersect(clip) else {
+    let Some(c) = area.intersect(clip).and_then(|c| c.intersect(dst.bounds())) else {
         return;
     };
+    // Where column `x` of row `y` of the picture lies.
+    let at = |x: i32, y: i32| usize::try_from((y * iw + x) * 4).unwrap_or(0);
     let (bw, bh) = (area.width(), area.height());
     if center && !(iw == bw && ih == bh) {
         // Once, its top left at half the room left over (none when it is larger).
@@ -183,44 +228,78 @@ pub fn draw_image(
             return;
         };
         for y in c.y0..=c.y1 {
-            let sy = u32::try_from(y - y0).unwrap_or(0);
-            for x in c.x0..=c.x1 {
-                let sx = u32::try_from(x - x0).unwrap_or(0);
-                blit_texel(dst, x, y, img.texel(sx, sy), how);
-            }
+            let (from, to) = dst.row(y, c.x0, c.x1);
+            let start = at(c.x0 - x0, y - y0);
+            blit_run(&mut dst.bgra[from..to], &img.bgra[start..], how);
         }
         return;
     }
     if (iw == bw && ih == bh) || !stretch {
         // Once at its size, or repeated across the element from its top left.
         for y in c.y0..=c.y1 {
-            let sy = u32::try_from((y - area.y0).rem_euclid(ih)).unwrap_or(0);
-            for x in c.x0..=c.x1 {
-                let sx = u32::try_from((x - area.x0).rem_euclid(iw)).unwrap_or(0);
-                blit_texel(dst, x, y, img.texel(sx, sy), how);
+            let sy = (y - area.y0).rem_euclid(ih);
+            let mut x = c.x0;
+            while x <= c.x1 {
+                let sx = (x - area.x0).rem_euclid(iw);
+                let last = (x + iw - sx - 1).min(c.x1);
+                let (from, to) = dst.row(y, x, last);
+                let start = at(sx, sy);
+                blit_run(&mut dst.bgra[from..to], &img.bgra[start..], how);
+                x = last + 1;
             }
         }
         return;
     }
+    let columns: Vec<usize> = (c.x0..=c.x1)
+        .map(|x| {
+            let sx = i64::from(x - area.x0) * i64::from(iw) / i64::from(bw);
+            usize::try_from(sx).unwrap_or(0).min(img.width as usize - 1)
+        })
+        .collect();
     for y in c.y0..=c.y1 {
-        let sy = u32::try_from(i64::from(y - area.y0) * i64::from(ih) / i64::from(bh)).unwrap_or(0);
-        for x in c.x0..=c.x1 {
-            let sx =
-                u32::try_from(i64::from(x - area.x0) * i64::from(iw) / i64::from(bw)).unwrap_or(0);
-            blit_texel(
-                dst,
-                x,
-                y,
-                img.texel(sx.min(img.width - 1), sy.min(img.height - 1)),
-                how,
-            );
+        let sy = u32::try_from(i64::from(y - area.y0) * i64::from(ih) / i64::from(bh))
+            .unwrap_or(0)
+            .min(img.height - 1) as usize;
+        let row = &img.bgra[sy * img.width as usize * 4..];
+        let (from, to) = dst.row(y, c.x0, c.x1);
+        let (run, _) = dst.bgra[from..to].as_chunks_mut::<4>();
+        for (d, sx) in run.iter_mut().zip(&columns) {
+            let i = sx * 4;
+            blit_one(d, [row[i], row[i + 1], row[i + 2], row[i + 3]], how);
         }
+    }
+}
+
+/// The part of a layer anything has been drawn in so far.
+#[derive(Clone, Copy, Debug, Default)]
+struct Drawn(Option<Rect>);
+
+impl Drawn {
+    fn add(&mut self, r: Rect) {
+        self.0 = Some(match self.0 {
+            Some(d) => Rect::new(
+                d.x0.min(r.x0),
+                d.y0.min(r.y0),
+                d.x1.max(r.x1),
+                d.y1.max(r.y1),
+            ),
+            None => r,
+        });
     }
 }
 
 /// Draw one element and what is under it into a layer.
 // D2-11176, D2-11169
-fn draw_element(ui: &Ui, layer: &mut Surface, h: Handle, ox: i32, oy: i32, parent_clip: Rect) {
+#[allow(clippy::too_many_arguments)]
+fn draw_element(
+    ui: &Ui,
+    layer: &mut Surface,
+    h: Handle,
+    ox: i32,
+    oy: i32,
+    parent_clip: Rect,
+    drawn: &mut Drawn,
+) {
     let Some(n) = ui.node(h) else { return };
     if !n.visible {
         return;
@@ -234,15 +313,18 @@ fn draw_element(ui: &Ui, layer: &mut Surface, h: Handle, ox: i32, oy: i32, paren
             let how = Blit::of_mode(p.mode, n.alpha);
             let stretch = n.bool_attr(attr::SIZE_IMAGE_TO_OWNER);
             draw_image(layer, &img, area, clip, how, stretch, n.center_image);
+            drawn.add(clip);
         }
     }
     if n.kind == kind::TEXT {
         crate::types::text::post_blit(ui, layer, h, area, clip);
+        drawn.add(clip);
     }
     for c in n.children.iter().rev() {
-        draw_element(ui, layer, *c, area.x0, area.y0, clip);
+        draw_element(ui, layer, *c, area.x0, area.y0, clip, drawn);
     }
     if n.kind == kind::TREE {
+        drawn.add(clip);
         let (segments, color) = ui.tree_segments(h);
         for [x0, y0, x1, y1] in segments {
             draw_line(
@@ -261,6 +343,7 @@ fn draw_element(ui: &Ui, layer: &mut Surface, h: Handle, ox: i32, oy: i32, paren
         let Some(c) = w.offset(area.x0, area.y0).intersect(clip) else {
             continue;
         };
+        drawn.add(c);
         for y in c.y0..=c.y1 {
             for x in c.x0..=c.x1 {
                 layer.put(x, y, *texel);
@@ -271,6 +354,7 @@ fn draw_element(ui: &Ui, layer: &mut Surface, h: Handle, ox: i32, oy: i32, paren
         let (x0, y0) = (area.x0 + ox, area.y0 + oy);
         let r = Rect::sized(x0, y0, picture.width, picture.height);
         if let Some(c) = r.intersect(clip) {
+            drawn.add(c);
             for y in c.y0..=c.y1 {
                 for x in c.x0..=c.x1 {
                     blit_texel(layer, x, y, picture.get(x - x0, y - y0), Blit::Blend);
@@ -280,13 +364,32 @@ fn draw_element(ui: &Ui, layer: &mut Surface, h: Handle, ox: i32, oy: i32, paren
     }
 }
 
+/// The largest whole number at or below `x`, of a size a screen's texels have.
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+#[inline]
+fn floor_small(x: f32) -> i32 {
+    let i = x as i32; // LINT-OK: a screen's texels, far inside the range
+    i - i32::from((i as f32) > x)
+}
+
+/// A channel worked out as a number from 0 up, to the nearest whole value it can hold.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss
+)]
+#[inline]
+fn round_channel(v: f32) -> u8 {
+    let i = v as i32; // LINT-OK: a channel's value, far inside the range
+    (i + i32::from(v - i as f32 >= 0.5)).min(255) as u8
+}
+
 /// A top-level element's layer turned about the middle of its rectangle by whole degrees,
 /// counterclockwise, as the original turns a drawn object in the screen's plane (texels sampled
 /// between their four neighbours); the rectangle the turned picture covers.
 // D2-10429
 #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
-fn turn_layer(layer: &Surface, area: Rect, degrees: i32) -> (Surface, Rect) {
-    let mut out = Surface::new(layer.width, layer.height);
+fn turn_layer(layer: &Surface, out: &mut Surface, area: Rect, degrees: i32) -> Rect {
     let a = (degrees as f32).to_radians();
     let (sin, cos) = (
         dereth_primitives::num::math::sinf(a),
@@ -304,58 +407,106 @@ fn turn_layer(layer: &Surface, area: Rect, degrees: i32) -> (Surface, Rect) {
         to_i32((cy + rh).ceil()),
     );
     let Some(c) = covers.intersect(layer.bounds()) else {
-        return (out, covers);
+        return covers;
     };
-    let sample = |x: f32, y: f32| -> [f32; 4] {
-        let (x0, y0) = (x.floor(), y.floor());
-        let (fx, fy) = (x - x0, y - y0);
-        let (ix, iy) = (to_i32(x0), to_i32(y0));
-        let mut acc = [0.0f32; 4];
-        for (dx, dy, w) in [
-            (0, 0, (1.0 - fx) * (1.0 - fy)),
-            (1, 0, fx * (1.0 - fy)),
-            (0, 1, (1.0 - fx) * fy),
-            (1, 1, fx * fy),
-        ] {
-            let (sx, sy) = (ix + dx, iy + dy);
-            let t = if area.contains(sx, sy) {
-                layer.get(sx, sy)
-            } else {
-                [0; 4]
-            };
-            let alpha = f32::from(t[3]) * w;
-            acc[0] += f32::from(t[0]) * alpha;
-            acc[1] += f32::from(t[1]) * alpha;
-            acc[2] += f32::from(t[2]) * alpha;
-            acc[3] += alpha;
-        }
-        acc
+    // The texels a sample can read: those of the area on the layer. Off it they are clear.
+    let Some(read) = area.intersect(layer.bounds()) else {
+        return covers;
     };
     for y in c.y0..=c.y1 {
-        for x in c.x0..=c.x1 {
+        let (from, to) = out.row(y, c.x0, c.x1);
+        let (run, _) = out.bgra[from..to].as_chunks_mut::<4>();
+        for (x, d) in (c.x0..=c.x1).zip(run) {
             // Where this texel's middle comes from: turned back by the angle (a positive angle
             // turns the picture counterclockwise on the screen, whose rows run down).
             let (dx, dy) = (x as f32 + 0.5 - cx, y as f32 + 0.5 - cy);
             let sx = dx * cos - dy * sin + cx - 0.5;
             let sy = dx * sin + dy * cos + cy - 0.5;
-            let acc = sample(sx, sy);
+            let acc = sample_layer(layer, read, sx, sy);
             if acc[3] <= 0.0 {
                 continue;
             }
-            let px = |v: f32| (v / acc[3]).round().clamp(0.0, 255.0) as u8;
-            out.put(
-                x,
-                y,
-                [
-                    px(acc[0]),
-                    px(acc[1]),
-                    px(acc[2]),
-                    acc[3].round().clamp(0.0, 255.0) as u8,
-                ],
-            );
+            *d = [
+                round_channel(acc[0] / acc[3]),
+                round_channel(acc[1] / acc[3]),
+                round_channel(acc[2] / acc[3]),
+                round_channel(acc[3]),
+            ];
         }
     }
-    (out, covers)
+    covers
+}
+
+/// What a layer holds at a place between its texels, from the four about it inside `read`:
+/// each color weighted by its alpha, and the alpha.
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+fn sample_layer(layer: &Surface, read: Rect, x: f32, y: f32) -> [f32; 4] {
+    let (ix, iy) = (floor_small(x), floor_small(y));
+    let (fx, fy) = (x - ix as f32, y - iy as f32);
+    let mut acc = [0.0f32; 4];
+    for (dx, dy, w) in [
+        (0, 0, (1.0 - fx) * (1.0 - fy)),
+        (1, 0, fx * (1.0 - fy)),
+        (0, 1, (1.0 - fx) * fy),
+        (1, 1, fx * fy),
+    ] {
+        let (sx, sy) = (ix + dx, iy + dy);
+        if !read.contains(sx, sy) {
+            continue;
+        }
+        let i = (sy * layer.width + sx) as usize * 4;
+        let Some((t, _)) = layer.bgra[i..].split_first_chunk::<4>() else {
+            continue;
+        };
+        if t[3] == 0 {
+            continue;
+        }
+        let alpha = f32::from(t[3]) * w;
+        acc[0] += f32::from(t[0]) * alpha;
+        acc[1] += f32::from(t[1]) * alpha;
+        acc[2] += f32::from(t[2]) * alpha;
+        acc[3] += alpha;
+    }
+    acc
+}
+
+/// Write `area` of `layer` into `out` at `scale` of its size from its top-left corner, each texel
+/// read from the four about where it comes from; the rectangle it covers.
+// D2-02129, D2-10433
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+fn scale_layer(layer: &Surface, out: &mut Surface, area: Rect, scale: f32) -> Rect {
+    let covers = Rect::sized(
+        area.x0,
+        area.y0,
+        (area.width() as f32 * scale) as i32, // LINT-OK: a size in pixels cuts its fraction
+        (area.height() as f32 * scale) as i32, // LINT-OK: a size in pixels cuts its fraction
+    );
+    let (Some(c), Some(read)) = (
+        covers.intersect(layer.bounds()),
+        area.intersect(layer.bounds()),
+    ) else {
+        return covers;
+    };
+    let (ox, oy) = (area.x0 as f32, area.y0 as f32);
+    for y in c.y0..=c.y1 {
+        let (from, to) = out.row(y, c.x0, c.x1);
+        let (run, _) = out.bgra[from..to].as_chunks_mut::<4>();
+        for (x, d) in (c.x0..=c.x1).zip(run) {
+            let sx = (x as f32 + 0.5 - ox) / scale + ox - 0.5;
+            let sy = (y as f32 + 0.5 - oy) / scale + oy - 0.5;
+            let acc = sample_layer(layer, read, sx, sy);
+            if acc[3] <= 0.0 {
+                continue;
+            }
+            *d = [
+                round_channel(acc[0] / acc[3]),
+                round_channel(acc[1] / acc[3]),
+                round_channel(acc[2] / acc[3]),
+                round_channel(acc[3]),
+            ];
+        }
+    }
+    covers
 }
 
 /// A line one texel wide from `a` to `b` (both ends drawn) in a color, inside `clip`.
@@ -427,9 +578,9 @@ pub fn draw(ui: &Ui, frame: &mut Surface) {
 /// Draw only the top-level elements whose depth passes `keep`, deepest first. A scene shown in a
 /// viewport stands at the viewport's depth: a host draws the elements deeper than it, the scene,
 /// then the nearer ones. Each is drawn into a transparent layer of its own, then laid over.
-// D2-11219, D2-11163
 pub fn draw_where(ui: &Ui, frame: &mut Surface, keep: impl Fn(i32) -> bool) {
     let mut layer = Surface::new(frame.width, frame.height);
+    let mut turned = None;
     let screen = frame.bounds();
     for (r, z) in layers(ui) {
         let Some(n) = ui.node(r) else { continue };
@@ -439,16 +590,44 @@ pub fn draw_where(ui: &Ui, frame: &mut Surface, keep: impl Fn(i32) -> bool) {
         let Some(clip) = layer_clip(ui, r, screen) else {
             continue;
         };
-        layer.clear();
-        draw_element(ui, &mut layer, r, 0, 0, clip);
-        fade_layer(&mut layer, n.rect, n.object_alpha);
-        if n.rotation == 0 {
-            composite(frame, &layer, n.rect);
-        } else {
-            let (turned, covers) = turn_layer(&layer, n.rect, n.rotation);
-            composite(frame, &turned, covers);
+        let mut drawn = Drawn::default();
+        draw_element(ui, &mut layer, r, 0, 0, clip, &mut drawn);
+        if let Some(area) = drawn.0 {
+            fade_layer(&mut layer, area, n.object_alpha);
+            #[allow(clippy::float_cmp)] // exactly the size it was left at
+            if n.object_scale != 1.0 {
+                let scaled = turned.get_or_insert_with(|| Surface::new(layer.width, layer.height));
+                let covers = scale_layer(&layer, scaled, n.rect, n.object_scale);
+                composite(frame, scaled, covers);
+                scaled.clear_area(covers);
+            } else if n.rotation == 0 {
+                composite(frame, &layer, area.intersect(n.rect).unwrap_or(area));
+            } else {
+                let turned = turned.get_or_insert_with(|| Surface::new(layer.width, layer.height));
+                let covers = turn_layer(&layer, turned, n.rect, n.rotation);
+                composite(frame, turned, covers);
+                turned.clear_area(covers);
+            }
+            // The next element starts from a clear layer.
+            layer.clear_area(area);
         }
+        draw_resize_outline(ui, frame, r, screen);
     }
+}
+
+/// While a window with a resize line is being resized its picture stays as it was, and a white
+/// outline one texel wide shows the place and size it takes on release, at the window's own depth.
+// D2-10398, D2-10399, D2-11282
+fn draw_resize_outline(ui: &Ui, out: &mut Surface, root: Handle, screen: Rect) {
+    const WHITE: [f32; 3] = [1.0, 1.0, 1.0];
+    let Some(line) = ui.resize_outline(root) else {
+        return;
+    };
+    let (x0, y0, x1, y1) = (line.x0, line.y0, line.x1, line.y1);
+    draw_line(out, (x0, y0), (x1, y0), WHITE, screen);
+    draw_line(out, (x0, y1), (x0, y0), WHITE, screen);
+    draw_line(out, (x0, y1), (x1, y1), WHITE, screen);
+    draw_line(out, (x1, y0), (x1, y1), WHITE, screen);
 }
 
 /// Where a layer is drawn: the screen, and for an item being dragged only the area it is shown
@@ -470,8 +649,9 @@ fn has_surface(ui: &Ui, root: Handle) -> bool {
 
 /// The top-level elements from the deepest, each with the depth it is drawn at, then an item
 /// being dragged, in front of everything: each top-level element is an object of its own while it
-/// is on the screen.
-// D2-11281, D2-11220, D2-11265, D2-11152
+/// is on the screen. Of equal depths the one put on the screen first is drawn last, in front; a
+/// tooltip is in front of them all.
+// D2-11281, D2-11220, D2-11265, D2-11152, D2-10386
 fn layers(ui: &Ui) -> Vec<(Handle, i32)> {
     let mut out: Vec<(Handle, i32)> = ui
         .roots()
@@ -479,6 +659,12 @@ fn layers(ui: &Ui) -> Vec<(Handle, i32)> {
         .rev()
         .filter_map(|r| ui.node(*r).map(|n| (*r, n.z)))
         .collect();
+    if let Some(tip) = ui.tooltip() {
+        if let Some(at) = out.iter().position(|(r, _)| *r == tip) {
+            let shown = out.remove(at);
+            out.push(shown);
+        }
+    }
     if let Some(d) = ui.dragged() {
         out.push((d, i32::MIN));
     }
@@ -509,20 +695,25 @@ fn fade_layer(layer: &mut Surface, area: Rect, alpha: f32) {
 /// Lay one layer over a picture that keeps its own alpha (`over`): what the layer covers wins by
 /// the layer's alpha, and the picture's alpha grows by what the layer adds.
 fn composite_over(dst: &mut Surface, layer: &Surface, area: Rect) {
-    let Some(c) = area.intersect(dst.bounds()) else {
+    let Some(c) = area
+        .intersect(dst.bounds())
+        .and_then(|c| c.intersect(layer.bounds()))
+    else {
         return;
     };
     for y in c.y0..=c.y1 {
-        for x in c.x0..=c.x1 {
-            let s = layer.get(x, y);
+        let (from, to) = layer.row(y, c.x0, c.x1);
+        let (at, end) = dst.row(y, c.x0, c.x1);
+        let texels = layer.bgra[from..to].as_chunks::<4>().0;
+        let under = dst.bgra[at..end].as_chunks_mut::<4>().0;
+        for (s, d) in texels.iter().zip(under) {
             let sa = u32::from(s[3]);
             if sa == 0 {
                 continue;
             }
-            let d = dst.get(x, y);
             let da = u32::from(d[3]);
             if sa == 255 || da == 0 {
-                dst.put(x, y, s);
+                *d = *s;
                 continue;
             }
             // Straight alpha: out = s * sa + d * da * (1 - sa), over out's alpha.
@@ -533,7 +724,7 @@ fn composite_over(dst: &mut Surface, layer: &Surface, area: Rect) {
                     .unwrap_or(255)
             };
             let a = u8::try_from((oa + 127) / 255).unwrap_or(255);
-            dst.put(x, y, [mix(s[0], d[0]), mix(s[1], d[1]), mix(s[2], d[2]), a]);
+            *d = [mix(s[0], d[0]), mix(s[1], d[1]), mix(s[2], d[2]), a];
         }
     }
 }
@@ -542,8 +733,34 @@ fn composite_over(dst: &mut Surface, layer: &Surface, area: Rect) {
 /// starts transparent and keeps how much each texel is covered: laid over a scene by its alpha, it
 /// gives what [`draw_where`] gives over that scene.
 pub fn draw_layers_where(ui: &Ui, out: &mut Surface, keep: impl Fn(i32) -> bool) {
+    draw_layers_with(ui, out, keep, &mut Layers::default());
+}
+
+/// The clear pictures top-level elements are drawn into on their way to the frame, kept so that a
+/// frame need not make them again.
+#[derive(Debug, Default)]
+pub struct Layers {
+    layer: Option<Surface>,
+    turned: Option<Surface>,
+}
+
+/// [`draw_layers_where`], drawing into `layers`, and leaving them clear.
+// D2-11219, D2-11163
+pub fn draw_layers_with(
+    ui: &Ui,
+    out: &mut Surface,
+    keep: impl Fn(i32) -> bool,
+    layers_kept: &mut Layers,
+) {
     out.clear();
-    let mut layer = Surface::new(out.width, out.height);
+    let fits = |s: &Surface| s.width == out.width && s.height == out.height;
+    layers_kept.layer = layers_kept.layer.take().filter(fits);
+    layers_kept.turned = layers_kept.turned.take().filter(fits);
+    let (width, height) = (out.width, out.height);
+    let layer = layers_kept
+        .layer
+        .get_or_insert_with(|| Surface::new(width, height));
+    let turned = &mut layers_kept.turned;
     let screen = out.bounds();
     for (r, z) in layers(ui) {
         let Some(n) = ui.node(r) else { continue };
@@ -553,15 +770,28 @@ pub fn draw_layers_where(ui: &Ui, out: &mut Surface, keep: impl Fn(i32) -> bool)
         let Some(clip) = layer_clip(ui, r, screen) else {
             continue;
         };
-        layer.clear();
-        draw_element(ui, &mut layer, r, 0, 0, clip);
-        fade_layer(&mut layer, n.rect, n.object_alpha);
-        if n.rotation == 0 {
-            composite_over(out, &layer, n.rect);
-        } else {
-            let (turned, covers) = turn_layer(&layer, n.rect, n.rotation);
-            composite_over(out, &turned, covers);
+        let mut drawn = Drawn::default();
+        draw_element(ui, layer, r, 0, 0, clip, &mut drawn);
+        if let Some(area) = drawn.0 {
+            fade_layer(layer, area, n.object_alpha);
+            #[allow(clippy::float_cmp)] // exactly the size it was left at
+            if n.object_scale != 1.0 {
+                let scaled = turned.get_or_insert_with(|| Surface::new(layer.width, layer.height));
+                let covers = scale_layer(layer, scaled, n.rect, n.object_scale);
+                composite_over(out, scaled, covers);
+                scaled.clear_area(covers);
+            } else if n.rotation == 0 {
+                composite_over(out, layer, area);
+            } else {
+                let turned = turned.get_or_insert_with(|| Surface::new(layer.width, layer.height));
+                let covers = turn_layer(layer, turned, n.rect, n.rotation);
+                composite_over(out, turned, covers);
+                turned.clear_area(covers);
+            }
+            // The next element starts from a clear layer.
+            layer.clear_area(area);
         }
+        draw_resize_outline(ui, out, r, screen);
     }
 }
 

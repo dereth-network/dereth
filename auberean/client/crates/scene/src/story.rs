@@ -323,6 +323,7 @@ impl StoryHost<Act> for Stage<'_, '_> {
         self.scene.has_body(object)
     }
 
+    // D2-06076
     fn object_behavior(&mut self, object: u64, behavior: &Act) {
         self.scene.play_behavior(object, &behavior.0);
     }
@@ -430,6 +431,32 @@ impl StoryHost<Act> for Stage<'_, '_> {
     }
 }
 
+/// What the server asks of a body itself: a push (away from an object, or as given), an effect
+/// script, the end of a layer or of behaviors, what the ground does to its motion.
+// D2-05844, D2-06117, D2-05841, D2-05842, D2-05843, D2-05857
+fn recv_on_body(b: &mut auberean_physics::body::Body, m: &ServerMessage) {
+    match m {
+        ServerMessage::Push(e) => {
+            b.add_impulse(crate::pv(e.action.direction));
+        }
+        ServerMessage::DoFxScript(e) => {
+            b.receive_do_fx_script(e.action.0);
+        }
+        ServerMessage::EndLayer(e) => b.receive_stop_layer(e.action.0),
+        ServerMessage::StopAllBehaviors(_) => b.receive_stop_all_server_behaviors(),
+        ServerMessage::StopMoveCancelsBehaviors(_) => {
+            b.receive_stop_move_to_cancels_behaviors();
+        }
+        ServerMessage::HoverHeight(e) => b.set_hover_height(e.action.0),
+        ServerMessage::GlobalModifier(e) => b.set_global_modifier(e.action.0),
+        ServerMessage::TerrainChange(e) => {
+            b.add_terrain_modifier(e.action.terrain, e.action.modifier);
+        }
+        ServerMessage::ClearTerrainChanges(_) => b.clear_terrain_modifiers(),
+        _ => {}
+    }
+}
+
 impl Scene<'_> {
     /// Runs `f` on body `body`'s story player (made when it has none) with the world as the story
     /// sees it.
@@ -523,6 +550,15 @@ impl Scene<'_> {
     ) -> Vec<ServerMessage> {
         let mut waiting = Vec::new();
         for m in events {
+            // D2-06167
+            if let ServerMessage::PrivateFx(f) = &m {
+                if let Some(id) = self.player.as_ref().map(|p| p.id) {
+                    for fx in &f.0 {
+                        self.do_fx(id, *fx, 1.0);
+                    }
+                }
+                continue;
+            }
             let Some(id) = auberean_client_sdk::model::events::subject(&m).map(|s| s.id) else {
                 continue;
             };
@@ -535,6 +571,7 @@ impl Scene<'_> {
                 ServerMessage::PlayBehavior(e) => {
                     self.recv_do_behavior(client, id, params_of_wire(&e.action));
                 }
+                // D2-05848
                 ServerMessage::StopBehavior(e) => {
                     let anims = &self.anims;
                     if let Some(f) = crate::figure_in(
@@ -547,6 +584,7 @@ impl Scene<'_> {
                         f.stop_behavior(anims, e.action.0);
                     }
                 }
+                // D2-05884
                 ServerMessage::DoMode(e) => {
                     self.do_mode(id, e.action.0);
                 }
@@ -562,6 +600,7 @@ impl Scene<'_> {
                         f.set_mode(anims, e.action.0);
                     }
                 }
+                // D2-05860
                 ServerMessage::DoFx(e) => self.do_fx(id, e.action.fx, e.action.scalar),
                 ServerMessage::StopFx(e) => self.stop_fx(id, e.action.0),
                 ServerMessage::MoveTo(e) => self.recv_move_to(id, &e.action),
@@ -584,9 +623,284 @@ impl Scene<'_> {
                     self.look_at(id, e.action.0);
                 }
                 ServerMessage::TurnHead(e) => self.look_dir(id, e.action.x, e.action.y),
-                _ => {}
+                ServerMessage::MoveSlider(e) => self.recv_do_slider(id, &e.action),
+                // D2-05886
+                ServerMessage::LetGoBehavior(e) => {
+                    if let Some(b) = self.body_mut(id) {
+                        b.set_animation_active(true);
+                    }
+                    if e.action.params.mode != 0 {
+                        self.do_mode(id, e.action.params.mode);
+                    }
+                    let anims = &self.anims;
+                    if let Some(f) = crate::figure_in(
+                        &mut self.player,
+                        &mut self.others,
+                        &mut self.held,
+                        &mut self.temporaries,
+                        id,
+                    ) {
+                        f.release_behavior(
+                            anims,
+                            e.action.behavior,
+                            &params_of_wire(&e.action.params),
+                        );
+                    }
+                }
+                ServerMessage::DoTargetedFx(e) => {
+                    self.do_targeted_fx(id, e.action.fx, e.action.scalar, e.action.target);
+                }
+                // D2-05905
+                ServerMessage::MotionInterpChange(e) => {
+                    let record = self
+                        .world
+                        .records
+                        .get::<auberean_assets::animation::MotionDesc>(e.action.0);
+                    if let (Some(md), Some(b)) = (record, self.body_mut(id)) {
+                        b.minterp
+                            .set_description(e.action.0, std::sync::Arc::new(md));
+                        b.set_movement_active(true);
+                    }
+                }
+                ServerMessage::InitializeMissile(e) => self.recv_initialize_missile(id, &e.action),
+                ServerMessage::PushToward(e) => self.recv_push_toward(id, &e.action),
+                m => {
+                    if let Some(b) = self.body_mut(id) {
+                        recv_on_body(b, &m);
+                    }
+                }
             }
         }
         waiting
+    }
+
+    /// Object `id`'s body is brought up to what the server describes of it: its velocity, rate of
+    /// turn and scales; where it looks; the behaviors it plays (those of the network's it plays that
+    /// are not described stop, those described it does not play start); its sliders, those the
+    /// network moves and those described, each going to its described value (0 when not described)
+    /// over the time its described speed takes; and the effects it plays (those it plays stop, its
+    /// look's own apart, and those described start).
+    // D2-06366, D2-13868, D2-13869, D2-13870, D2-13871
+    pub(crate) fn take_description(&mut self, client: &Client, id: u64) {
+        use auberean_client_sdk::protocol::types::PhysicsDesc as Pd;
+        let Some(c) = client.model.object(id).map(|o| o.physics.clone()) else {
+            return;
+        };
+        if let Some(b) = self.body_mut(id) {
+            auberean_physics::motion::Owner::set_velocity(b, crate::pv(c.velocity));
+            b.set_misc_active(true);
+            b.set_omega_velocity(crate::pv(c.omega));
+            if c.bits & Pd::VELOCITY_SCALE != 0 {
+                b.set_velocity_scale(c.velocity_scale);
+            }
+            if c.bits & Pd::JUMP_SCALE != 0 {
+                b.set_jump_scale(c.jump_scale);
+            }
+            b.acceleration_field_velocity = crate::pv(c.external_acceleration);
+            b.update_times = c.stamps;
+        }
+        if c.look_at != 0 {
+            self.look_at(id, c.look_at);
+        }
+        if c.bits & (Pd::HEAD_X | Pd::HEAD_Z) != 0
+            && !self.player.as_ref().is_some_and(|p| p.id == id)
+        {
+            self.looks.entry(id).or_default().dir = (c.head_x, c.head_z);
+        }
+        let anims = &self.anims;
+        let Some(f) = crate::figure_in(
+            &mut self.player,
+            &mut self.others,
+            &mut self.held,
+            &mut self.temporaries,
+            id,
+        ) else {
+            return;
+        };
+        let running = f.modes.network_params();
+        for r in &running {
+            if !c.behaviors.iter().any(|d| d.behavior == r.behavior) {
+                f.stop_behavior(anims, r.behavior);
+            }
+        }
+        let records = &self.world.records;
+        let network = records
+            .get::<auberean_assets::animation::CharacterTemplate>(
+                records.data_id_by_enum(0x4000_0001, 0x4000_0008),
+            )
+            .map(|t| t.sliders.clone())
+            .unwrap_or_default();
+        let mut sliders: std::collections::BTreeSet<u32> = f
+            .sliders
+            .network_sliders(|s| network.iter().find(|(n, _)| *n == s).map(|(_, c)| *c))
+            .into_iter()
+            .collect();
+        sliders.extend(c.sliders.iter().map(|s| s.slider));
+        for slider in sliders {
+            let (value, speed) = c
+                .sliders
+                .iter()
+                .find(|s| s.slider == slider)
+                .map_or((0.0, 0.0), |s| (s.value, s.time));
+            let (desired, moving) = (f.sliders.desired(slider), f.sliders.velocity(slider));
+            #[allow(clippy::float_cmp)]
+            if desired != value || moving != speed {
+                let time = if speed.abs() >= 0.0002 {
+                    ((desired - value) / speed).abs()
+                } else {
+                    0.0
+                };
+                f.sliders.do_slider(0, slider, value, time);
+            }
+        }
+        for d in c
+            .behaviors
+            .iter()
+            .filter(|d| !running.iter().any(|r| r.behavior == d.behavior))
+        {
+            self.play_behavior(id, &params_of_wire(d));
+        }
+        let playing = self
+            .others
+            .effects_mut(id)
+            .map(|e| e.current_fx())
+            .unwrap_or_default();
+        for (fx, _) in playing {
+            self.stop_fx(id, fx);
+        }
+        for fx in &c.fx {
+            self.do_fx(id, fx.fx, fx.scalar);
+        }
+        if c.bits & (Pd::TARGET | Pd::TARGET_POSITION) != 0 {
+            let target_position = crate::position_of_placement(&c.target_position);
+            let target = (c.bits & Pd::TARGET != 0).then(|| {
+                (
+                    c.target,
+                    c.bits & Pd::TARGET_SCALED != 0,
+                    crate::pv(c.target_offset),
+                )
+            });
+            let (land, table) = (&self.land, &mut self.table);
+            let body = if self.player.as_ref().is_some_and(|p| p.id == id) {
+                self.player.as_mut().map(|p| &mut p.body)
+            } else {
+                self.others.body_mut(id)
+            };
+            if let Some(b) = body {
+                b.take_missile_description(
+                    land,
+                    table,
+                    &mut auberean_physics::body::missile::NoObjects,
+                    target_position,
+                    c.bits & Pd::MISSILE_ACTIVATED != 0,
+                    c.bits & Pd::MISSILE_MOVING != 0,
+                    target,
+                    crate::pv(c.velocity),
+                );
+            }
+        }
+    }
+
+    /// The server moves a slider of object `object`: the player's own body keeps the sliders the
+    /// character template leaves to the client. The body's animation wakes.
+    // D2-05852, D2-15073, D2-05885
+    fn recv_do_slider(&mut self, object: u64, s: &auberean_client_sdk::protocol::physics::Slide) {
+        let is_player = self.player.as_ref().is_some_and(|p| p.id == object);
+        if is_player && self.slider_is_the_clients(s.slider) {
+            return;
+        }
+        if let Some(b) = self.body_mut(object) {
+            b.set_animation_active(true);
+        }
+        if let Some(f) = crate::figure_in(
+            &mut self.player,
+            &mut self.others,
+            &mut self.held,
+            &mut self.temporaries,
+            object,
+        ) {
+            f.sliders.do_slider(0, s.slider, s.value, s.time);
+        }
+    }
+
+    /// Whether the game's character template names `slider` as one the network does not move.
+    fn slider_is_the_clients(&self, slider: u32) -> bool {
+        const TEMPLATE: (u32, u32) = (0x4000_0001, 0x4000_0008);
+        let records = &self.world.records;
+        let id = records.data_id_by_enum(TEMPLATE.0, TEMPLATE.1);
+        records
+            .get::<auberean_assets::animation::CharacterTemplate>(id)
+            .and_then(|t| {
+                t.sliders
+                    .iter()
+                    .find(|(s, _)| *s == slider)
+                    .map(|(_, c)| *c)
+            })
+            .is_some_and(|controller| controller == 0)
+    }
+
+    /// The server pushes object `object` away from another: measured from where that object stands
+    /// now; what the body kept of that object for a move stays as it was. None when that object is
+    /// not here.
+    // D2-05844
+    fn recv_push_toward(
+        &mut self,
+        object: u64,
+        a: &auberean_client_sdk::protocol::physics::TargetedImpulse,
+    ) {
+        let Some(at) = self.body(a.target).map(|t| t.position) else {
+            return;
+        };
+        let Some(b) = self.body_mut(object) else {
+            return;
+        };
+        let kept = b.targets.insert(
+            a.target,
+            auberean_physics::motion::moveto::TargetBody {
+                position: at,
+                radius: 0.0,
+                height: 0.0,
+            },
+        );
+        b.add_targeted_impulse(a.target, a.magnitude, a.falloff != 0, a.vertical);
+        match kept {
+            Some(k) => {
+                b.targets.insert(a.target, k);
+            }
+            None => {
+                b.targets.remove(&a.target);
+            }
+        }
+    }
+
+    /// The server launches object `object` as a missile: it flies at the velocity given toward
+    /// where its target is.
+    fn recv_initialize_missile(
+        &mut self,
+        object: u64,
+        m: &auberean_client_sdk::protocol::physics::Missile,
+    ) {
+        let is_player = self.player.as_ref().is_some_and(|p| p.id == object);
+        let body = if is_player {
+            self.player.as_mut().map(|p| &mut p.body)
+        } else {
+            self.others.body_mut(object)
+        };
+        let Some(b) = body else {
+            return;
+        };
+        let target = auberean_physics::target::Aim {
+            object: m.target,
+            position: crate::position_of_placement(&m.target_offset),
+            offset: crate::pv(m.target_velocity),
+            valid: m.initialized != 0,
+        };
+        b.receive_initialize_missile(
+            &self.land,
+            &mut self.table,
+            &mut auberean_physics::body::missile::NoObjects,
+            crate::pv(m.velocity),
+            &target,
+        );
     }
 }

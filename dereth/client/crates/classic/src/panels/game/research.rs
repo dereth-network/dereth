@@ -54,7 +54,43 @@ impl SpellResearch {
     }
 }
 
+impl SpellResearch {
+    /// Lays a component at the formula's end. On Launch one not carried in that number is refused.
+    fn lay(&mut self, wcid: u32, carried: &[ComponentRow], c: &Context<'_>) -> Vec<PanelAction> {
+        let laid = self
+            .formula
+            .components()
+            .iter()
+            .filter(|laid| **laid == wcid)
+            .count();
+        let owned = carried
+            .iter()
+            .find(|r| r.wcid == wcid)
+            .map_or(0, |r| r.owned);
+        if c.game.era_ui().launch_wording && i64::try_from(laid).unwrap_or(i64::MAX) >= owned {
+            return vec![PanelAction::Host(HostAction::LocalFeedback {
+                severity: crate::panels::FeedbackSeverity::Information,
+                text: "You do not have enough of this component".into(),
+            })];
+        }
+        self.add(wcid);
+        vec![]
+    }
+}
 impl Panel for SpellResearch {
+    fn hover(&self, at: HoverPoint<'_>, c: &Context<'_>) -> Option<Hover> {
+        match at.id {
+            "carried" if at.item.is_some() => {
+                Hover::line("Drag this icon to add it to the Formula")
+            }
+            "clear" => Hover::line("Click to clear the Formula"),
+            "test" if c.game.combat_mode() == 8 => {
+                Hover::line("Click to test your current spell formula")
+            }
+            "test" => Hover::line("You must first enter magic mode to test spell formulae"),
+            _ => None,
+        }
+    }
     fn id(&self) -> &'static str {
         "spell-research"
     }
@@ -194,12 +230,12 @@ impl Panel for SpellResearch {
                 ..
             } if id == "formula" => {
                 if let Some(wcid) = c.game.object_is_owned_component(object) {
-                    self.add(wcid);
+                    return self.lay(wcid, &carried, c);
                 }
             }
             ControlEvent::DoubleClick { id, index } if id == "carried" => {
                 if let Some(row) = at(index) {
-                    self.add(row.wcid);
+                    return self.lay(row.wcid, &carried, c);
                 }
             }
             // A double click on a laid component takes it out again.
@@ -226,6 +262,61 @@ mod tests {
     //! Behaviour: none (classic front-end adapter; no retail behaviour claim).
     use super::*;
     use dereth_client_contract::view::ComponentCategory;
+
+    #[test]
+    fn on_launch_a_formula_takes_no_more_of_a_component_than_is_carried() {
+        #[derive(Debug)]
+        struct Launch;
+        impl GameView for Launch {
+            fn era_ui(&self) -> dereth_client_contract::era::EraUiFacts {
+                dereth_client_contract::era::EraUiFacts::for_profile(
+                    dereth_primitives::EraId::Launch,
+                )
+            }
+        }
+        let resources = crate::resources::Resources::default();
+        let (p, k, s, state) = (
+            PregameView::default(),
+            KeyboardState::default(),
+            ClassicSettings::default(),
+            ClassicState::default(),
+        );
+        let context = |game| Context {
+            resources: &resources,
+            layout: crate::panels::Layout::default(),
+            now: dereth_primitives::LocalTime(0.0),
+            game,
+            pregame: &p,
+            keyboard: &k,
+            settings: &s,
+            map_teleport_allowed: false,
+            classic: &state,
+        };
+        let rows = [ComponentRow {
+            wcid: 5,
+            owned: 1,
+            ..Default::default()
+        }];
+        let mut page = SpellResearch::default();
+        let launch = context(&Launch);
+        assert_eq!(page.lay(5, &rows, &launch), vec![]);
+        assert_eq!(
+            page.lay(5, &rows, &launch),
+            vec![PanelAction::Host(HostAction::LocalFeedback {
+                severity: crate::panels::FeedbackSeverity::Information,
+                text: "You do not have enough of this component".into(),
+            })]
+        );
+        assert_eq!(page.formula.components(), [5]);
+        let game = Game::default();
+        let later = context(&game);
+        assert_eq!(
+            page.lay(5, &rows, &later),
+            vec![],
+            "other worlds never asked"
+        );
+        assert_eq!(page.formula.components(), [5, 5]);
+    }
 
     #[derive(Debug, Default)]
     struct Game {

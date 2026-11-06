@@ -2,8 +2,11 @@
 //! repository, the files scripts write, the log masks, the physics object and the distributor.
 
 mod distributor;
+mod dumps;
 mod files;
+mod game_time;
 mod log_system;
+mod lookup;
 mod names;
 mod natives;
 mod physics_object;

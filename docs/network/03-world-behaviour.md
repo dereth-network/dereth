@@ -190,7 +190,8 @@ code:
   with `@dn admin global` (section 6), which asks the hub.
 - **Until the hub says.** A world no hub has told carries the Global room where its own settings
   say (Empyrean: `[federation] global_room`; the ACE mod: `GlobalRoom`; Roleplay when they name
-  none, no room when they name it empty). A hub that holds no room for the world is sent that one,
+  none, no room when they name it empty; a world of Asheron's Call 2 has other rooms, and General
+  when it names none: [07](07-ac2-world-behaviour.md) section 7). A hub that holds no room for the world is sent that one,
   once (the seed); from then on the hub's room holds and the setting is not read, and a world whose
   setting names another room logs so once. The setting goes in a later release.
 - **Out.** A line a character on the network says in that room goes to the local listeners as any

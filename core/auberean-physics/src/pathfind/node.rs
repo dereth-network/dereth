@@ -424,7 +424,6 @@ impl Node {
     }
 
     /// The ground here, made (with the defaults) when the node has none.
-    // D2-13441
     pub fn node_data(&mut self) -> &mut NodeData {
         self.data.get_or_insert_with(NodeData::default)
     }

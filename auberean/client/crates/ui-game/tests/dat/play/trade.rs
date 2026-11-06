@@ -2,8 +2,9 @@
 //! taken back, each side's acceptance, the partner closing it.
 
 use auberean_text::StringInfo;
-use auberean_ui::Token;
+use auberean_ui::{Cursor, Token, Value};
 use auberean_ui_game::gameplay::{Record, Request};
+use auberean_ui_game::inventory::{attr, notice as item_notice};
 use auberean_ui_game::trade::{notice, Trade, TradeRequest};
 
 use super::stage::{answer, dialog, long, said, World, ORE, PARTNER, PLAYER, SWORD};
@@ -122,4 +123,78 @@ fn the_trade_window_offers_accepts_and_closes() {
     assert!(w.shown(field), "still shown");
     w.wait(30.0);
     assert!(!w.shown(field), "hidden after the delay");
+}
+
+/// An offered item's tooltip names it for the number offered, not the number its owner holds.
+///
+/// Behaviour: ui.trade.an-offered-item-is-named-for-the-number-offered
+#[test]
+fn an_offered_item_is_named_for_the_number_offered() {
+    let mut w = World::new();
+    w.inventory.version += 1;
+    w.inventory
+        .items
+        .get_mut(&ORE)
+        .expect("the ore")
+        .offered_name = Some("5 Ore".to_string());
+    w.tick(&[said(notice::OPENED, Vec::new(), Vec::new())]);
+    w.tick(&[said(
+        notice::OFFERED,
+        [ids(&[PLAYER, ORE]), vec![5]].concat(),
+        Vec::new(),
+    )]);
+    let row = w.ui.list_items(w.el("TradeListBoxSelf"))[0];
+    let icon = w.under(row, "ItemIcon");
+    assert_eq!(w.ui.element_tooltip(icon), Some("5 Ore"));
+}
+
+/// An offered item shows the player's selection as a pack's does: its icon takes the selected look
+/// when it becomes the selection and loses it when the selection moves on, on either side of the
+/// trade. An item waiting to be used on a target gives the icon the cursor its element names, and
+/// the kept cursor comes back after.
+///
+/// Behaviour: ui.trade.an-offered-item-shows-the-selection-and-the-targeting-cursor
+#[test]
+fn an_offered_item_shows_the_selection_and_the_targeting_cursor() {
+    let mut w = World::new();
+    let theirs = 0x5000_0000_0000_0099;
+    let offered = |who: u64, item: u64| {
+        said(
+            notice::OFFERED,
+            [ids(&[who, item]), vec![1]].concat(),
+            Vec::new(),
+        )
+    };
+    w.tick(&[said(notice::OPENED, Vec::new(), Vec::new())]);
+    w.tick(&[offered(PLAYER, SWORD), offered(PARTNER, theirs)]);
+    let icon = |w: &World, list: &str| {
+        let row = w.ui.list_items(w.el(list))[0];
+        w.under(row, "ItemIcon")
+    };
+    let (mine, other) = (icon(&w, "TradeListBoxSelf"), icon(&w, "TradeListBoxOther"));
+    let selected = Token::of("selected");
+    let selection = |id: u64| said(item_notice::SELECTION_CHANGED, ids(&[id]), Vec::new());
+
+    w.tick(&[selection(SWORD)]);
+    assert_eq!(w.state(mine), selected, "the player's offer, selected");
+    assert_ne!(w.state(other), selected, "the partner's, not");
+    w.tick(&[selection(theirs)]);
+    assert_ne!(w.state(mine), selected, "the selection moved on");
+    assert_eq!(w.state(other), selected, "the partner's offer, selected");
+
+    let targeting = |on: u32| said(item_notice::SET_TARGETING_POINTER, vec![on], Vec::new());
+    let cursor = Cursor {
+        picture: 0x0600_0001,
+        hot_x: 1,
+        hot_y: 2,
+    };
+    w.ui.set_attr(mine, attr::USAGE_CURSOR, Value::DataId(cursor.picture));
+    w.ui.set_attr(mine, attr::USAGE_CURSOR_X, Value::Int(1));
+    w.ui.set_attr(mine, attr::USAGE_CURSOR_Y, Value::Int(2));
+    let shown = |w: &World| w.ui.node(mine).and_then(|n| n.cursor).unwrap_or_default();
+    let before = shown(&w);
+    w.tick(&[targeting(1)]);
+    assert_eq!(shown(&w), cursor, "the waiting cursor");
+    w.tick(&[targeting(0)]);
+    assert_eq!(shown(&w), before, "the kept one back");
 }

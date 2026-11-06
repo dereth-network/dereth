@@ -3,4 +3,5 @@
 
 mod container;
 mod disk;
+mod overlay;
 mod types;

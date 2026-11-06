@@ -79,6 +79,7 @@ pub enum Op {
 }
 
 /// A batch of requests whose asker is told about them together; [`Batch::NONE`] when nobody is.
+// D2-17935
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Batch(pub u32);
 
@@ -244,6 +245,7 @@ struct Handler {
 }
 
 /// The cache's requests.
+// D2-05137
 pub struct Requests {
     reqs: Vec<Option<Request>>,
     free_reqs: Vec<usize>,
@@ -1294,7 +1296,7 @@ impl Requests {
     }
 
     /// Let every batch go, and forget every get kept.
-    // D2-12795
+    // D2-12795, D2-12598
     pub fn flush_pending_requests(&mut self) {
         let batches: Vec<Batch> = self.busy.keys().copied().collect();
         for b in batches {

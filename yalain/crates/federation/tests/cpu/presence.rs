@@ -117,7 +117,8 @@ fn present_characters_on_the_network_watch_their_friends_on_linked_worlds() {
 /// A friend's state reaches the character that lists it as its world reports it: the first
 /// report after the friend was added or its world came back is a state, later changes are news.
 /// A report for a character that does not list the friend, or is not present, is not shown. When
-/// the friend's world goes, or the hub, friends shown online show offline as a state.
+/// the friend's world goes, or the hub, friends shown online show offline, a change from what was
+/// shown.
 /// Behaviour: server.network.friends-state-shown
 #[test]
 fn a_friends_state_is_shown_as_its_world_reports_it_and_offline_when_its_world_goes() {
@@ -142,7 +143,7 @@ fn a_friends_state_is_shown_as_its_world_reports_it_and_offline_when_its_world_g
     presence(&mut w, "Ann@dawnsong", "Bob@coldeve", true);
     assert!(states(&mut w).is_empty(), "no change, nothing shown");
     world(&mut w, "coldeve", false);
-    assert_eq!(states(&mut w), vec![st("Ann", "bob@coldeve", false, false)]);
+    assert_eq!(states(&mut w), vec![st("Ann", "bob@coldeve", false, true)]);
     world(&mut w, "coldeve", true);
     assert_eq!(
         watches(&w.frames()),
@@ -156,7 +157,7 @@ fn a_friends_state_is_shown_as_its_world_reports_it_and_offline_when_its_world_g
         "the first report after its world came back is a state"
     );
     w.fed.on_link_down(&mut w.service, w.t);
-    assert_eq!(states(&mut w), vec![st("Ann", "bob@coldeve", false, false)]);
+    assert_eq!(states(&mut w), vec![st("Ann", "bob@coldeve", false, true)]);
 }
 
 /// A character is shown at most four changes of one friend at once, then one every five seconds:
@@ -240,7 +241,8 @@ fn watches_wait_behind_tells_and_answers_and_go_a_world_at_a_time() {
     let first = w.frames();
     assert!(matches!(first[0], Message::Tell { .. }), "{first:?}");
     assert!(matches!(first[1], Message::TellResult { .. }), "{first:?}");
-    let rest = &first[2..];
+    assert!(matches!(first[2], Message::PersonWatch { .. }), "{first:?}");
+    let rest = &first[3..];
     // A burst of 72 (a tenth under 80): the tell, the answer, then 70 watches; each world's share
     // is a burst of 18 (a tenth under 20).
     assert_eq!(rest.len(), 36, "two worlds' shares: {}", rest.len());

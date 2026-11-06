@@ -2,5 +2,6 @@
 //! library. Without either, a test fails, naming the variable to set.
 
 mod args;
+mod icons;
 mod multi;
 mod options;

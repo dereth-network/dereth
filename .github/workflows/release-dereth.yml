@@ -2,19 +2,20 @@ name: Release Dereth
 
 # Builds, checks and drafts a Dereth release: the launcher, with the client inside it, and the
 # plugin author's tool, for Windows, macOS and Linux. A pushed `dereth-v<version>` tag builds every
-# target and creates a DRAFT GitHub release, which a maintainer reviews and publishes by hand. The
-# launcher updates itself from the latest.json of the repository's newest published
-# `dereth-v<version>` release (a pre-release excepted), which it finds by listing the releases.
+# target and creates a DRAFT GitHub release, which a maintainer reviews and publishes by hand. Its
+# latest.json names the launcher it holds, for installs from before the launcher had releases of its
+# own; every other launcher updates from those.
 # Running it by hand (workflow_dispatch) is a dry run: the same builds and checks,
 # the release files kept as a workflow artifact for 7 days, nothing published.
 #
 # Every job runs `cargo xtask package dereth`, the same command a contributor runs locally
-# (dereth/launcher/RELEASING.md). The CI workflow runs tier 0 on the tagged commit as on every
+# (launcher/RELEASING.md). The CI workflow runs tier 0 on the tagged commit as on every
 # push.
 #
-# Every package carries the retail Asheron's Call 2 client's friends library
-# (auberean_friends.dll) beside the launcher. It is a 32-bit Windows DLL, so one Windows job builds
-# it (`cargo xtask package friends-dll`) and every system's job takes that same file.
+# The launcher isn't built here. A package holds the launcher version in the tree, from that
+# launcher-v release's files: the job named launcher waits for exactly that release and fails if it
+# isn't there in time, never taking another. The retail Asheron's Call 2 client's friends library
+# comes with it.
 #
 # The release's description starts with its notes, which `cargo xtask release-notes dereth` writes
 # from the tagged tree: the release's section of dereth/CHANGES.md, then the client's commits since
@@ -35,10 +36,15 @@ concurrency:
 env:
   # The build tools, pinned.
   CARGO_ABOUT_VERSION: 0.9.2
-  TAURI_CLI_VERSION: 2.12.0
   # MoltenVK for the macOS bundles: KhronosGroup's macOS release, pinned by its checksum.
   MOLTENVK_URL: https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.2/MoltenVK-macos.tar
   MOLTENVK_SHA256: f95765a6229cb7b915990a2890ce12ebe36a730b021545d3d52ae69ce4c4024e
+  # The Linux AppImage's packer and the runtime it embeds, pinned by their checksums: the launcher's
+  # AppImage is unpacked and packed again with the client in it.
+  APPIMAGETOOL_URL: https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage
+  APPIMAGETOOL_SHA256: ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0
+  APPIMAGE_RUNTIME_URL: https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64
+  APPIMAGE_RUNTIME_SHA256: 2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d
   # Where the release files are downloaded from, the source the notices name, and the repository
   # whose releases the launcher updates from: this repository.
   DERETH_BUILD_SOURCE_URL: https://github.com/${{ github.repository }}
@@ -50,6 +56,7 @@ jobs:
     timeout-minutes: 30
     outputs:
       version: ${{ steps.version.outputs.version }}
+      launcher: ${{ steps.version.outputs.launcher }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -62,7 +69,7 @@ jobs:
           test -n "$toolchain"
           rustup toolchain install "$toolchain" --profile minimal
           rustup override set "$toolchain"
-      - name: The tag names the version the client and the launcher carry, on main
+      - name: The tag names the version the client carries, on main
         id: version
         shell: bash
         run: |
@@ -75,8 +82,10 @@ jobs:
           else
             version=$(cargo xtask version dereth)
           fi
+          launcher=$(cargo xtask version launcher)
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "Dereth $version"
+          echo "launcher=$launcher" >> "$GITHUB_OUTPUT"
+          echo "Dereth $version, with the launcher $launcher"
       - name: The release notes, from CHANGES.md and the commits since the previous release
         shell: bash
         env:
@@ -95,38 +104,47 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  friends-library:
-    name: the retail client's friends library
-    # Built once, on Windows (the only host that links a 32-bit Windows DLL), and given to every
-    # system's package job: each package carries the same file beside the launcher.
-    runs-on: windows-latest
-    timeout-minutes: 60
-    defaults:
-      run:
-        shell: bash
+  launcher:
+    name: the launcher release this tree names
+    # A game's package holds the launcher version in the tree, and no other. A tag waits here for
+    # that release, which the launcher's own workflow may still be making; a dry run looks once.
+    # Reading a draft takes write access, so this job has it and does nothing else with it.
+    needs: version
+    runs-on: ubuntu-latest
+    timeout-minutes: 220
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-          fetch-depth: 0
-      - name: Install the workspace Rust version and the retail client's target
+      - name: Install the workspace Rust version
+        shell: bash
         run: |
           toolchain=$(sed -n 's/^rust-version *= *"\([^"]*\)".*/\1/p' Cargo.toml)
           test -n "$toolchain"
-          rustup toolchain install "$toolchain" --profile minimal --target i686-pc-windows-msvc
+          rustup toolchain install "$toolchain" --profile minimal
           rustup override set "$toolchain"
-      - name: cargo xtask package friends-dll
-        run: cargo xtask package friends-dll --out friends-library
+      - name: cargo xtask package launcher --fetch
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            cargo xtask package launcher --fetch launcher-release --wait
+          else
+            cargo xtask package launcher --fetch launcher-release
+          fi
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: friends-library-dereth
-          path: friends-library/auberean_friends.dll
+          name: launcher-release-dereth
+          path: launcher-release/
           if-no-files-found: error
           retention-days: 7
 
   package:
     name: package (${{ matrix.target }})
-    needs: [version, friends-library]
+    needs: [version, launcher]
     strategy:
       fail-fast: false
       matrix:
@@ -135,7 +153,6 @@ jobs:
           # Ubuntu 22.04's glibc (2.35) is the oldest a Linux release runs on.
           - { target: x86_64-unknown-linux-gnu, os: ubuntu-22.04 }
           - { target: aarch64-apple-darwin, os: macos-latest }
-          - { target: x86_64-apple-darwin, os: macos-latest }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 150
     defaults:
@@ -160,14 +177,22 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev \
             libssl-dev libasound2-dev build-essential pkg-config curl wget file patchelf
+      - name: Fetch appimagetool and the AppImage runtime (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/appimagetool" "$APPIMAGETOOL_URL"
+          echo "$APPIMAGETOOL_SHA256  $RUNNER_TEMP/appimagetool" | sha256sum -c -
+          curl -fsSL -o "$RUNNER_TEMP/appimage-runtime" "$APPIMAGE_RUNTIME_URL"
+          echo "$APPIMAGE_RUNTIME_SHA256  $RUNNER_TEMP/appimage-runtime" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/appimagetool"
+          echo "APPIMAGETOOL=$RUNNER_TEMP/appimagetool" >> "$GITHUB_ENV"
+          echo "APPIMAGE_RUNTIME=$RUNNER_TEMP/appimage-runtime" >> "$GITHUB_ENV"
       - name: Fetch locked dependencies
         run: |
           cargo fetch --locked
-          cargo fetch --locked --manifest-path dereth/launcher/Cargo.toml
-      - name: Install cargo-about and the Tauri CLI
-        run: |
-          cargo install --locked "cargo-about@$CARGO_ABOUT_VERSION" --features cli
-          cargo install --locked "tauri-cli@$TAURI_CLI_VERSION"
+          cargo fetch --locked --manifest-path launcher/Cargo.toml
+      - name: Install cargo-about
+        run: cargo install --locked "cargo-about@$CARGO_ABOUT_VERSION" --features cli
       - name: Fetch MoltenVK (macOS)
         if: runner.os == 'macOS'
         run: |
@@ -177,15 +202,15 @@ jobs:
           echo "DERETH_MOLTENVK_DIR=$RUNNER_TEMP/MoltenVK" >> "$GITHUB_ENV"
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: friends-library-dereth
-          path: friends-library
+          name: launcher-release-dereth
+          path: launcher-release
       - name: cargo xtask package dereth
         env:
           # The launcher's update-signing key. Without it the files are built unsigned and no
           # latest.json is written, which a tag refuses below.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: cargo xtask package dereth --target ${{ matrix.target }} --out dist --friends-dll friends-library/auberean_friends.dll
+        run: cargo xtask package dereth --target ${{ matrix.target }} --out dist --launcher launcher-release
       - name: A release is signed
         if: github.ref_type == 'tag'
         run: |
@@ -197,18 +222,10 @@ jobs:
         env:
           TARGET: ${{ matrix.target }}
           VERSION: ${{ needs.version.outputs.version }}
+          LAUNCHER: ${{ needs.version.outputs.launcher }}
         run: |
           mkdir smoke
           run() { "$@"; }
-          case "$TARGET" in
-            x86_64-apple-darwin)
-              if arch -x86_64 /usr/bin/true 2> /dev/null; then
-                run() { arch -x86_64 "$@"; }
-              else
-                echo "::notice::no Rosetta on this runner: $TARGET is checked by its headers only"
-                exit 0
-              fi ;;
-          esac
           case "$TARGET" in
             *windows*)
               (cd smoke && 7z x "../dist/dereth-$VERSION-windows-x86_64.zip" > /dev/null)
@@ -239,7 +256,7 @@ jobs:
               library="smoke/Dereth.app/Contents/Resources/auberean_friends.dll" ;;
           esac
           run "$launcher" --version | tee version-launcher.txt
-          grep -qx "dereth $VERSION" version-launcher.txt
+          grep -qx "dereth $LAUNCHER" version-launcher.txt
           grep -qx "target: $TARGET" version-launcher.txt
           run "$client" --version | tee version-client.txt
           grep -qx "dereth-client $VERSION" version-client.txt
@@ -250,8 +267,8 @@ jobs:
           # The same tool comes with Dereth, beside the client.
           run "$bundled" --version | tee version-bundled-tool.txt
           cmp version-tool.txt version-bundled-tool.txt
-          # The retail client's friends library is beside the launcher: the one built for this release.
-          cmp "$library" "friends-library/auberean_friends.dll"
+          # The retail client's friends library came with the launcher.
+          test -s "$library"
           echo "::notice::the launcher has no headless mode, so its window is not opened here"
       - name: Keep this target's files (the index is written by the gather job)
         run: rm -f dist/SHA256SUMS dist/MANIFEST.txt dist/release.json dist/latest.json
@@ -336,17 +353,17 @@ jobs:
 
           ## Downloads
 
-          Dereth $VERSION: the launcher, with the Dereth client inside it, for Windows (10 or newer, x86-64), macOS (11 or newer, Apple silicon and Intel) and Linux (x86-64, glibc 2.35 or newer: Ubuntu 22.04 and later).
+          Dereth $VERSION: the launcher, with the Dereth client inside it, for Windows (10 or newer, x86-64), macOS (11 or newer, Apple silicon) and Linux (x86-64, glibc 2.35 or newer: Ubuntu 22.04 and later).
 
           | system | download | |
           |---|---|---|
           | Windows | \`dereth-$VERSION-windows-x86_64.zip\` | unzip anywhere and run \`dereth.exe\`; no installer |
-          | macOS | \`Dereth-$VERSION-macos-aarch64.app.tar.gz\` (Apple silicon), \`-x86_64\` (Intel) | unpack and move \`Dereth.app\` to Applications |
+          | macOS | \`Dereth-$VERSION-macos-aarch64.app.tar.gz\` (Apple silicon) | unpack and move \`Dereth.app\` to Applications |
           | Linux | \`Dereth-$VERSION-linux-x86_64.AppImage\` | mark it executable and run it |
 
           The launcher keeps itself and the client up to date from this repository's newest Dereth release.
 
-          For plugin authors: the plugin author's tool, \`dereth-plugin\`, comes with Dereth, beside the client. \`dereth-plugin-$VERSION-<platform>\` is the same tool on its own (\`.zip\` on Windows, \`.tar.gz\` on macOS and Linux); unpack it and run \`dereth-plugin\`.
+          For plugin authors: Dereth Plugin Tools, \`dereth-plugin\`, comes with Dereth, beside the client. \`dereth-plugin-$VERSION-<platform>\` is the same tool on its own (\`.zip\` on Windows, \`.tar.gz\` on macOS and Linux); unpack it and run \`dereth-plugin\`.
 
           **No game data is included**: the client plays with the data files of your own Asheron's Call install.
 
@@ -367,10 +384,9 @@ jobs:
               latest.json) label="Updater manifest" ;;
               "dereth-plugin-$VERSION-"*)
                 case "${f#"dereth-plugin-$VERSION-"}" in
-                  windows-x86_64.zip) label="Plugin author's tool · Windows x64" ;;
-                  macos-aarch64.tar.gz) label="Plugin author's tool · macOS Apple silicon" ;;
-                  macos-x86_64.tar.gz) label="Plugin author's tool · macOS Intel" ;;
-                  linux-x86_64.tar.gz) label="Plugin author's tool · Linux x86-64 (glibc 2.35+)" ;;
+                  windows-x86_64.zip) label="Dereth Plugin Tools · Windows x64" ;;
+                  macos-aarch64.tar.gz) label="Dereth Plugin Tools · macOS Apple silicon" ;;
+                  linux-x86_64.tar.gz) label="Dereth Plugin Tools · Linux x86-64 (glibc 2.35+)" ;;
                 esac ;;
               "dereth-$VERSION-"*)
                 case "${f#"dereth-$VERSION-"}" in
@@ -379,7 +395,6 @@ jobs:
               "Dereth-$VERSION-"*)
                 case "${f#"Dereth-$VERSION-"}" in
                   macos-aarch64.app.tar.gz) label="Dereth · macOS Apple silicon" ;;
-                  macos-x86_64.app.tar.gz) label="Dereth · macOS Intel" ;;
                   linux-x86_64.AppImage) label="Dereth · Linux x86-64 AppImage (glibc 2.35+)" ;;
                 esac ;;
             esac
@@ -396,7 +411,9 @@ jobs:
           fi
           PRE=""
           # A pre-release version carries a suffix (`0.2.0-rc.1`); the tag always holds a hyphen.
-          case "$VERSION" in *-*) PRE="--prerelease" ;; esac
-          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag $PRE \
+          # A final Dereth release is the repository's Latest; every other product's draft is not.
+          LATEST="--latest"
+          case "$VERSION" in *-*) PRE="--prerelease"; LATEST="--latest=false" ;; esac
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag $LATEST $PRE \
             --title "Dereth $VERSION" --notes-file ../notes.md \
             "${assets[@]}"

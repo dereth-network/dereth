@@ -46,6 +46,9 @@ shutdown_interval = 120
 # default: 300 (--save-interval; Yalain only)
 # Seconds between saves of each character in the world.
 player_save_interval = 300
+# Stop with a failure if the world runs no pass for this many seconds, so a service manager can
+# start it again. 0 for never.
+watchdog_seconds = 300
 
 # default: "info" (--verbose for "debug")
 # The server log's level: "info", or "debug" (and "trace") for every connection event and more.
@@ -62,6 +65,29 @@ status_address = ""
 # Stop, saving everyone in the world, when the console's input ends: for a program that runs the
 # server and holds its console. Leave it off for a server run as a service.
 stop_at_console_end = false
+
+# default: "off" (--update)
+# Which new releases the server installs by itself: "off", "patch" (patch releases of this minor
+# version, which change no database or configuration) or "minor" (also minor releases, with their
+# database migrations and newer world databases). Major releases and pre-releases are only
+# reported. `yalain update --check` says what would be taken and why. See SETUP.md, "Automatic
+# updates".
+update = "off"
+
+# default: 6 (--update-check-hours)
+# Hours between checks for a new release while update is not "off".
+update_check_hours = 6
+
+# default: 300 (--update-warning-seconds)
+# Seconds of in-game shutdown countdown before the server restarts into a new release.
+update_warning_seconds = 300
+
+# default: "" (--update-source)
+# Where new releases are looked for. Empty means the GitHub repository this build came from.
+# Otherwise a GitHub repository ("https://github.com/<owner>/<name>"), or a mirror that serves
+# GitHub's releases API for one ("https://mirror.example.org/repos/<owner>/<name>"). Every download
+# is checked against the release's SHA256SUMS and release.json.
+update_source = ""
 
 # ----------------------------------------------------------------------------------------------
 [server.network]
@@ -108,6 +134,67 @@ maximum_allowed_sessions_per_ip_address = -1
 # IP addresses exempt from that limit. Example: ["127.0.0.1"]
 allow_unlimited_sessions_from_ip_addresses = []
 
+# default: 65536 (--download-rate; Yalain only)
+# The bytes a second a client is sent a large data download at, 4096 to 262144. The default is
+# the retail servers' rate, which takes about two minutes over the largest record; the highest
+# takes about half a minute. Anything else stops the server at its start.
+download_bytes_per_second = 65536
+
+# ----------------------------------------------------------------------------------------------
+[server.websocket]
+# The WebSocket endpoint: clients in a browser connect here directly, one game datagram per
+# message, and reach the login and the world over that one connection. Off unless enabled. wss://
+# needs a certificate and key; plain ws:// is served only on a loopback address or with
+# behind_tls_proxy.
+
+# default: false (--websocket)
+# Listen for WebSocket connections.
+enabled = false
+
+# default: "0.0.0.0:9443" (--websocket-listen)
+# The address to listen on, "<ip>:<port>". Behind a reverse proxy on this machine, a loopback
+# address such as "127.0.0.1:9180".
+listen = "0.0.0.0:9443"
+
+# default: "" (--websocket-tls-certificate)
+# The PEM certificate chain for wss://. Empty serves plain ws://, which is allowed only on loopback
+# or with behind_tls_proxy.
+tls_certificate = ""
+
+# default: "" (--websocket-tls-private-key)
+# The PEM private key for tls_certificate.
+tls_private_key = ""
+
+# default: false (--websocket-behind-tls-proxy)
+# A reverse proxy in front (nginx, Cloudflare) terminates TLS, so plain ws:// may be served on a
+# non-loopback address. The proxy must be the only way in.
+behind_tls_proxy = false
+
+# default: [] (--websocket-trusted-proxy)
+# The proxies whose X-Forwarded-For header names the client, for the limits, the log and the rule
+# that a world login comes from its login's address. Example: ["127.0.0.1"]. A connection from any
+# other address is taken as the client.
+trusted_proxies = []
+
+# default: [] (--websocket-allowed-origin)
+# The web pages allowed to connect, by origin. Example: ["https://play.example.org"]. Empty refuses
+# every browser page.
+allowed_origins = []
+
+# default: 4 (--websocket-max-per-address)
+# WebSocket connections open at once from one client address; -1 is unlimited.
+maximum_connections_per_ip_address = 4
+
+# default: 60 (--websocket-idle-timeout)
+# Seconds a connection may send nothing before it is closed. Keep a proxy's read timeout longer
+# than this.
+idle_timeout = 60
+
+# default: "" (--websocket-public-url)
+# The URL clients use, reported by the status endpoint and told to the hub
+# ("wss://play.example.org/ws"). Empty derives it from listen.
+public_url = ""
+
 # ----------------------------------------------------------------------------------------------
 [server.accounts]
 # Account creation.
@@ -124,6 +211,22 @@ password_hash_work_factor = 8
 # default: [] (--add-account; Yalain only)
 # Accounts made at start, as "name:ticket".
 accounts = []
+# default: [] (--admin; Yalain only)
+# Accounts to make admins', by name, on the start that makes them from `accounts` above. It does
+# nothing for an account already there, which may be a stranger's who logged in with that name: at the
+# console, set-accountadmin <name> raises one, and off makes one a player for good.
+admins = []
+
+# default: false (--serve-admin-library; Yalain only)
+# Serve admin accounts' retail clients the script library that sends their admin commands in the
+# clear. Such a client must run with -rodat off, on a copy of the install kept for this world.
+serve_admin_library = false
+
+# default: [] (--admin-command; Yalain only)
+# The account-level admin commands kept to named groups, as "command:group,group": ban, boot,
+# fingerchar, fingerid, fingeraccount, serverparam, userlimit, dumpadmintable. A command not listed is
+# open to every admin. The console's set-accountgroups puts an account in its groups.
+admin_commands = []
 
 # default: "" (--banned-names; Yalain only)
 # A file of patterns new character names may not hold, one a line ("*" for any letters). Empty
@@ -193,6 +296,46 @@ slug = ""
 # The file that holds the world's registry key (drth_...), relative to this file's folder. The
 # key is never written in this file; keep that one readable by the server only.
 key_file = "network.key"
+
+# default: 0 (--min-character-age)
+# Seconds a character must have played before it sends to the network: tells, room lines, channels.
+min_character_age_seconds = 0
+
+# default: "general" (--global-room)
+# The chat room that carries the network's Global room until the hub keeps one for this world:
+# "general", "trade", "lfg" or "roleplay", or empty for none. General and Trade are those rooms;
+# this game has no LFG or Roleplay room, so "lfg" and "roleplay" both mean its PvP room, which
+# nobody else needs. A hub that keeps none is told this one, once; after that the hub's holds,
+# moved on its operator page or with @dn admin global. SETUP.md, section 8.4, says more.
+global_room = "general"
+
+# ----------------------------------------------------------------------------------------------
+[dat_overlay]
+# A world's overlay: the records it changes in the game's data files, which `athenaeum build` writes
+# to its `overlay` folder. The server reads its data files through it, and patches clients to it.
+
+# default: "" (--dat-overlay)
+# The overlay folder. Empty: the world's own `overlay` folder, when it has one.
+path = ""
+
+# default: true (--no-dat-overlay-patching when false)
+# Send a client that keeps overlays the world's records. Off, such a client lacking them is refused.
+patching = true
+
+# default: 60000 (--dat-overlay-records-per-minute)
+# How many records a minute such a client is sent, at most 32 a world tick. 0 keeps the original
+# servers' 1,000 a minute shared by every client; a retail client always has that.
+records_per_minute = 60000
+
+# ----------------------------------------------------------------------------------------------
+[ddd]
+# The data download to retail clients.
+
+# default: false (--enable-dat-patching)
+# Send a retail client that lacks a world's overlay its records, in place of refusing it. It must
+# run with its data files writable (-rodat off), on a copy kept for this world. Yalain doesn't patch
+# a client's own data files otherwise.
+enable_dat_patching = false
 
 # ----------------------------------------------------------------------------------------------
 [testing]

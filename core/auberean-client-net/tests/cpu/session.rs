@@ -283,6 +283,46 @@ fn the_client_reads_the_data_queue_first_and_keeps_only_chat_from_the_logon_queu
     );
 }
 
+/// **Saying it keeps a world's overlays takes no stamp**: the data counter's next message carries the
+/// stamp it would have had without it, and the two keep their own sequence numbers.
+///
+/// Behaviour: data.overlay.says-it-keeps-them
+#[test]
+fn saying_it_keeps_overlays_leaves_the_data_counter_where_it_was() {
+    let mut run = Run::new();
+    run.run_until(25.0);
+    let says = ClientMessage::OverlayHeld(auberean_protocol::login::OverlayHeld::default());
+    let held = ClientMessage::DataHeld(DataHeld {
+        language: 0x8000_0001,
+        files: Vec::new(),
+    });
+    assert!(run.session.send(&says));
+    assert!(run.session.send(&held));
+    run.run_until(30.0);
+    let sent: Vec<(u32, u64, u64)> = run
+        .double
+        .report()
+        .received
+        .iter()
+        .flatten()
+        .filter(|m| m.blob_id >> 56 == 0x23)
+        .map(|m| {
+            let mtype = u32::from_le_bytes([m.raw[0], m.raw[1], m.raw[2], m.raw[3]]);
+            (mtype, (m.blob_id >> 32) & 0xFFFF, m.blob_id & 0xFFFF_FFFF)
+        })
+        .collect();
+    let [.., (said_type, said_stamp, said_seq), (held_type, held_stamp, held_seq)] = sent[..]
+    else {
+        panic!("both reached the server: {sent:?}");
+    };
+    assert_eq!(said_type, says.message_type());
+    assert_eq!(held_type, held.message_type());
+    // The session's login has already sent its data versions, at stamp 0.
+    assert_eq!(said_stamp, 1, "the data counter's next stamp");
+    assert_eq!(held_stamp, 1, "the same stamp, since the first took none");
+    assert_ne!(said_seq, held_seq);
+}
+
 /// Each message the client sends is stamped from its counter: the data versions from the data
 /// counter, from 0; the entry into the world and the log-off from the unordered counter, from 1;
 /// world messages from the ordered counter, which starts again when the client enters the world.

@@ -555,7 +555,7 @@ impl Modes {
     /// a body not yet where it was asked to be takes the next step. The body is then drawn from the
     /// two trackers, and [`Modes::gather_triggers`] closes the frame. `false` when there is
     /// nothing to animate (no table, or no tracker).
-    // D2-15176
+    // D2-15176, D2-06441
     pub fn update(&mut self, dt: f32, host: &mut dyn Host) -> bool {
         let Some(table) = self.table.clone() else {
             return false;

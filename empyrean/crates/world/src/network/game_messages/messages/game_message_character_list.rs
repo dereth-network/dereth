@@ -29,11 +29,6 @@ fn property_manager_get_long(w: &World, key: &str) -> i64 {
     crate::managers::property_manager::get_long(w, key, 0, true).item
 }
 
-/// `PropertyManager.GetBool(key).Item`.
-fn property_manager_get_bool(w: &World, key: &str) -> bool {
-    crate::managers::property_manager::get_bool(w, key, false, true).item
-}
-
 /// `character.IsPlussed`.
 fn character_is_plussed(character: &CharacterSummary) -> bool {
     character.is_plussed
@@ -81,7 +76,8 @@ pub fn game_message_character_list(
         .collect::<Vec<_>>();
 
     let slot_count: u32 = property_manager_get_long(w, "max_chars_per_account").cs_cast();
-    let use_turbine_chat = u32::from(property_manager_get_bool(w, "use_turbine_chat"));
+    // DIVERGE: V498, a world with no rooms in use tells the client so.
+    let use_turbine_chat = u32::from(crate::federation::chat_rooms_in_use(w));
 
     let body = proto::LoginCharacterSet {
         status: 0,

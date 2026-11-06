@@ -36,6 +36,77 @@ fn fonts() -> egui::FontDefinitions {
     f
 }
 
+/// Whether the key shortcuts are held for is down: Cmd on macOS as well as Ctrl.
+#[must_use]
+pub fn command_key(m: winit::keyboard::ModifiersState) -> bool {
+    m.control_key() || (cfg!(target_os = "macos") && m.super_key())
+}
+
+/// A physical key by its name (`KeyR`, `Delete`, `Digit1`), for the keys [`key_of`] knows.
+#[must_use]
+pub fn key_named(name: &str) -> Option<KeyCode> {
+    use KeyCode as C;
+    let letters = [
+        C::KeyA,
+        C::KeyB,
+        C::KeyC,
+        C::KeyD,
+        C::KeyE,
+        C::KeyF,
+        C::KeyG,
+        C::KeyH,
+        C::KeyI,
+        C::KeyJ,
+        C::KeyK,
+        C::KeyL,
+        C::KeyM,
+        C::KeyN,
+        C::KeyO,
+        C::KeyP,
+        C::KeyQ,
+        C::KeyR,
+        C::KeyS,
+        C::KeyT,
+        C::KeyU,
+        C::KeyV,
+        C::KeyW,
+        C::KeyX,
+        C::KeyY,
+        C::KeyZ,
+    ];
+    let digits = [
+        C::Digit0,
+        C::Digit1,
+        C::Digit2,
+        C::Digit3,
+        C::Digit4,
+        C::Digit5,
+        C::Digit6,
+        C::Digit7,
+        C::Digit8,
+        C::Digit9,
+    ];
+    let others = [
+        C::Escape,
+        C::Enter,
+        C::Tab,
+        C::Space,
+        C::Delete,
+        C::Backspace,
+        C::Equal,
+        C::Minus,
+        C::ArrowUp,
+        C::ArrowDown,
+        C::ArrowLeft,
+        C::ArrowRight,
+    ];
+    letters
+        .into_iter()
+        .chain(digits)
+        .chain(others)
+        .find(|c| format!("{c:?}").eq_ignore_ascii_case(name))
+}
+
 /// egui's key for a physical key, for the keys the panels use.
 #[must_use]
 pub fn key_of(code: KeyCode) -> Option<egui::Key> {
@@ -148,6 +219,52 @@ impl Gui {
         [self.pointer.x * self.scale, self.pointer.y * self.scale]
     }
 
+    /// The pointer to a pixel of the window, as a script moves it.
+    pub fn point(&mut self, px: [f32; 2]) {
+        self.pointer = egui::pos2(px[0] / self.scale, px[1] / self.scale);
+        self.events.push(egui::Event::PointerMoved(self.pointer));
+    }
+
+    /// A button down or up, as a script presses it.
+    pub fn button(&mut self, button: egui::PointerButton, pressed: bool) {
+        self.events.push(egui::Event::PointerButton {
+            pos: self.pointer,
+            button,
+            pressed,
+            modifiers: self.modifiers,
+        });
+    }
+
+    /// A key pressed and let go, as a script presses it.
+    pub fn key(&mut self, code: KeyCode, modifiers: egui::Modifiers) {
+        if let Some(k) = key_of(code) {
+            for pressed in [true, false] {
+                self.events.push(egui::Event::Key {
+                    key: k,
+                    physical_key: Some(k),
+                    pressed,
+                    repeat: false,
+                    modifiers,
+                });
+            }
+        }
+    }
+
+    /// Text typed, as a script types it.
+    pub fn wheel(&mut self, notches: f32) {
+        self.events.push(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Line,
+            delta: egui::vec2(0.0, notches),
+            phase: egui::TouchPhase::Move,
+            modifiers: self.modifiers,
+        });
+    }
+
+    /// Text typed, as a script types it.
+    pub fn type_text(&mut self, text: &str) {
+        self.events.push(egui::Event::Text(text.to_string()));
+    }
+
     /// A window event, kept for the next pass.
     pub fn event(&mut self, e: &WindowEvent) {
         let s = self.scale;
@@ -197,8 +314,8 @@ impl Gui {
                     alt: st.alt_key(),
                     ctrl: st.control_key(),
                     shift: st.shift_key(),
-                    mac_cmd: false,
-                    command: st.control_key(),
+                    mac_cmd: cfg!(target_os = "macos") && st.super_key(),
+                    command: command_key(st),
                 };
                 self.events
                     .push(egui::Event::ModifiersChanged(self.modifiers));
@@ -216,7 +333,7 @@ impl Gui {
                         });
                     }
                 }
-                if pressed && !self.modifiers.ctrl {
+                if pressed && !self.modifiers.ctrl && !self.modifiers.command {
                     if let Some(t) = event
                         .text
                         .as_ref()

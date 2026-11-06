@@ -128,7 +128,8 @@ nearest it that a walk does reach, within 3 metres of it, the distance most peop
 
 The promise completes on arrival with `{ distance, portals, recalls, replans, walked, seconds }` and
 fails `no_path` (nothing known reaches the target), `no_target`, `no_route` (a walk found no way),
-`stuck`, `too_many_replans`, `interrupted` (the player moved the character), `stopped` (`nav.stop()`),
+`door_shut` (a door on the way would not open, locked or blocked, and no walk goes round it: the
+last `door` leg names it), `stuck`, `too_many_replans`, `interrupted` (the player moved the character), `stopped` (`nav.stop()`),
 `replaced`, `declined` (the player said no to leaving the Academy), or at a hand-back `no_token`
 (the person gave no token), `not_taken` (they would not take it back) or `not_sent_on`. A journey
 is a movement: one runs at a time across all plugins, and starting any movement replaces it.

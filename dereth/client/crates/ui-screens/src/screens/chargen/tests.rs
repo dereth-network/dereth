@@ -177,6 +177,47 @@ fn wizard() -> CharGenScreen {
     }
 }
 
+/// Behaviour: presentation.era.unspent-skill-credits-warn-where-they-are-lost
+/// Finish asks about the attribute credits, then about the skill credits on a world that loses
+/// them, each once; a no leaves the wizard to ask again on the next Finish.
+#[test]
+fn finishing_with_skill_credits_left_asks_first_where_they_are_lost() {
+    let mut s = wizard();
+    s.choose_heritage(1);
+    s.choose_town(0);
+    s.name_entered = true;
+    assert!(s.state.set_name("Kupo"));
+    s.era_features.creation_credit_carry_over = false;
+    s.state.remaining_atrb_credits = 5;
+    s.state.remaining_skill_credits = 4;
+
+    assert!(!s.do_finish(true));
+    assert_eq!(s.open_dialog, Some(CharGenDialog::CreditWarning));
+    assert!(!s.warned_of_lost_skill_credits, "the attributes' first");
+    assert_eq!(s.close_dialog(true), None);
+    assert_eq!(s.open_dialog, Some(CharGenDialog::CreditWarning));
+    assert!(s.warned_of_lost_skill_credits, "then the skill credits'");
+    assert!(s.take_actions().is_empty(), "nothing sent yet");
+    assert_eq!(s.close_dialog(true), None);
+    assert_eq!(s.take_actions().len(), 1, "both answered, it goes");
+
+    // Answered no, the next Finish asks again.
+    let mut s = wizard();
+    s.choose_heritage(1);
+    s.choose_town(0);
+    s.name_entered = true;
+    assert!(s.state.set_name("Kupo"));
+    s.era_features.creation_credit_carry_over = false;
+    s.state.remaining_atrb_credits = 0;
+    s.state.remaining_skill_credits = 4;
+    assert!(!s.do_finish(true));
+    assert_eq!(s.close_dialog(false), None);
+    assert!(s.take_actions().is_empty());
+    assert!(!s.do_finish(true));
+    assert_eq!(s.open_dialog, Some(CharGenDialog::CreditWarning));
+    assert!(s.take_actions().is_empty());
+}
+
 /// Oracle: the client's switch, read case by case. The ids are neither contiguous nor ordered
 /// by heritage number, so this is a table copied case by case and not a pattern.
 #[test]

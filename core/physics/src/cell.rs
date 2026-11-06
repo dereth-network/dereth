@@ -136,13 +136,14 @@ impl Cell {
 
     /// Return whether `local` lies in this cell. A land cell contains the point when it finds a
     /// terrain polygon. An environment cell first transforms the point into cell-local space and
-    /// tests its cell BSP; a cell with **no portals at all** returns false outright.
+    /// tests its cell BSP; a cell with **no portals at all** returns false outright, unless its
+    /// world's closed rooms hold points ([`EnvCellGeometry::holds_without_portals`]).
     #[must_use]
     pub fn point_in_cell(&self, local: Vec3) -> bool {
         match self {
             Self::Land { id, block } => block.find_terrain_poly(id.index(), local).is_some(),
             Self::Env { geom, .. } => {
-                if geom.portals.is_empty() {
+                if geom.portals.is_empty() && !geom.holds_without_portals {
                     return false;
                 }
                 let p = math::globaltolocal(&geom.frame, local);

@@ -23,6 +23,10 @@ use crate::pack::TableId;
 
 /// The `format` meta value this build writes and reads.
 pub const FORMAT: &str = "dereth world overlay v1";
+/// Required when the journal introduces recipe vital preconditions. Older readers refuse it.
+pub const FORMAT_RECIPE_VITALS: &str = "dereth world overlay v2 recipe vitals";
+/// Source loot requires an aware overlay reader.
+pub const FORMAT_SOURCE_LOOT: &str = "dereth world overlay v3 source loot";
 
 /// One applied content file.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -99,7 +103,7 @@ impl OverlayFile {
         let Some(format) = self.meta_value("format")? else {
             return Ok(None);
         };
-        if format != FORMAT {
+        if format != FORMAT && format != FORMAT_RECIPE_VITALS && format != FORMAT_SOURCE_LOOT {
             return Err(OverlayError::Mismatch(format!(
                 "{} is a `{format}` file; this build reads `{FORMAT}`",
                 self.path.display()
@@ -192,6 +196,25 @@ impl OverlayFile {
         )
         .map_err(sql_err)?;
         let seq = tx.last_insert_rowid();
+        if records
+            .iter()
+            .any(|(t, _, _)| matches!(*t, TableId::GROUPED_TREASURE | TableId::LOOT_POLICY))
+        {
+            tx.execute(
+                "UPDATE meta SET value=?1 WHERE key='format'",
+                [FORMAT_SOURCE_LOOT],
+            )
+            .map_err(sql_err)?;
+        } else if records
+            .iter()
+            .any(|(table, _, _)| *table == TableId::RECIPE_VITAL)
+        {
+            tx.execute(
+                "UPDATE meta SET value=?1 WHERE key='format' AND value<>'dereth world overlay v3 source loot'",
+                [FORMAT_RECIPE_VITALS],
+            )
+            .map_err(sql_err)?;
+        }
         {
             let mut st = tx
                 .prepare("INSERT OR REPLACE INTO records (tbl, key, data) VALUES (?1, ?2, ?3)")

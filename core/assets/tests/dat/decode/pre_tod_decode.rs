@@ -79,12 +79,12 @@ fn the_february_2005_skill_table_has_the_old_weapon_skills() {
     }
 }
 
-/// A physics script table from February 2005 answers in the later script-type numbering: the
-/// types from 30 on were one lower then, so the human body's hide and unhide scripts (the
-/// materialize at login) sit under the types the later file lists them under, and a type below
-/// 30 is unmoved.
+/// A physics script table from February 2005 keeps the file's own script types: what a client
+/// receives is looked up as sent, whoever sends it. The types from 30 on were one lower then, so
+/// the human body's hide and unhide scripts (the materialize at login) sit one below the types the
+/// later file lists them under, and a type below 30 is unmoved.
 #[test]
-fn a_february_2005_physics_script_table_answers_in_the_later_script_types() {
+fn a_february_2005_physics_script_table_keeps_the_files_own_script_types() {
     use dereth_assets::PhysicsScriptTable;
     const HUMAN: u32 = 0x3400_0004;
     const UNHIDE: u32 = 117;
@@ -99,14 +99,14 @@ fn a_february_2005_physics_script_table_answers_in_the_later_script_types() {
     };
     for key in [UNHIDE, HIDE] {
         assert_eq!(
-            scripts(&old, key),
+            scripts(&old, key - 1),
             scripts(&later, key),
             "script type {key}"
         );
     }
     assert!(
-        !old.script_table.contains_key(&30),
-        "type 30 is later than 2005"
+        old.script_table.contains_key(&30),
+        "the file's 30 is the later 31"
     );
     let low: Vec<u32> = old
         .script_table

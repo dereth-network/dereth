@@ -64,6 +64,7 @@ fn hall() -> Harness {
             object: Some(VAULT),
             template: VAULT_TEMPLATE,
             description: Description {
+                name_text: None,
                 package: 0x1A01,
                 look: 0x1F00_0ED5,
                 enter_fx: 0,
@@ -96,9 +97,13 @@ fn hall() -> Harness {
         },
     );
     for t in [ESPER_GLYPH, GEVOTH_GLYPH] {
-        h.server
-            .catalog
-            .insert(yalain_testkit::test_template(t, 0x18F, Props::default()));
+        h.server.catalog.insert(yalain_content::Template {
+            facts: yalain_content::Facts {
+                name: Some((0x2B0C_0002, 0x2500_0002)),
+                ..yalain_content::Facts::default()
+            },
+            ..yalain_testkit::test_template(t, 0x18F, Props::default())
+        });
     }
     h
 }
@@ -275,4 +280,91 @@ fn a_vault_refuses_while_another_goes_through_and_too_soon_after() {
     );
     assert!(held(&h, world_b, ESPER_GLYPH).is_some(), "kept");
     assert!(h.server.players[&world_b].trip.is_none(), "not taken");
+}
+
+/// A move of a glyph, as a client asks for it to go down.
+fn put_down(me: u64, glyph: u64) -> auberean_protocol::ClientMessage {
+    use yalain_world::inventory::{move_graph, Move};
+    let down = Move {
+        move_type: yalain_world::drops::DROP,
+        merge: true,
+        unlock: true,
+        check_take: true,
+        all_taken: true,
+        grab: true,
+        contain: true,
+        auto_merge: true,
+        from: me,
+        actual_from: me,
+        item: glyph,
+        split_item: glyph,
+        quantity: 1,
+        quantity_left: 1,
+        ..Move::default()
+    };
+    server_call(
+        yalain_world::drops::function::MOVE_ITEM,
+        &[move_graph(&down)],
+    )
+}
+
+/// A glyph stays in the pack for the whole of its trip, as it plays and through portal space, and
+/// is used up on arrival; one on its way to the ground opens no vault.
+/// Behaviour: server.places.a-glyph-stays-for-its-trip
+#[test]
+fn a_glyph_cannot_be_put_down_on_its_trip_and_one_put_down_opens_nothing() {
+    for when in [0.05, 2.5] {
+        let mut h = hall();
+        let (a, me, world, glyph) = with_glyph(&mut h, "one", ESPER_GLYPH);
+        send_use(&mut h, a, me, glyph, VAULT, when);
+        h.bots[a].send(true, queue::WEENIE, &put_down(me, glyph));
+        run_for(&mut h, 6.0);
+        assert_eq!(held(&h, world, ESPER_GLYPH), None, "used up");
+        assert!(h.server.things.get(glyph).is_none(), "gone at {when}");
+    }
+    let mut h = hall();
+    let (a, me, world, glyph) = with_glyph(&mut h, "one", ESPER_GLYPH);
+    let was = h.server.players[&world].position.origin;
+    h.bots[a].send(true, queue::WEENIE, &put_down(me, glyph));
+    h.run(2);
+    send_use(&mut h, a, me, glyph, VAULT, 6.0);
+    assert_eq!(
+        h.server.players[&world].position.origin, was,
+        "it went nowhere"
+    );
+}
+
+/// A player taken out of the world on its way through a vault leaves it free for the next.
+/// Behaviour: server.places.a-vault-is-free-once-its-traveler-has-left
+#[test]
+fn a_vault_is_free_for_the_next_once_its_traveler_has_left_the_world() {
+    let mut h = hall();
+    let (a, ida, _, glyph) = with_glyph(&mut h, "one", ESPER_GLYPH);
+    let (b, idb, _, second) = with_glyph(&mut h, "two", ESPER_GLYPH);
+    send_use(&mut h, a, ida, glyph, VAULT, 0.5);
+    let clock = h.clock();
+    let name = h
+        .server
+        .players
+        .values()
+        .find(|p| p.character == ida)
+        .expect("in")
+        .name
+        .clone();
+    yalain_world::characters::force_logoff(&mut h.server, &mut h.net, clock, &name)
+        .expect("out of the world");
+    run_for(&mut h, vaults::BETWEEN_TRIPS + 5.0);
+    let from = h.bots[b].inbox.len();
+    send_use(&mut h, b, idb, second, VAULT, 0.5);
+    assert!(
+        !answers(&h, b, from)
+            .iter()
+            .any(|(status, ..)| *status == refusal::IN_USE),
+        "not held for one no longer there"
+    );
+    assert!(h
+        .server
+        .players
+        .values()
+        .any(|p| p.character == idb && p.trip.is_some()));
 }

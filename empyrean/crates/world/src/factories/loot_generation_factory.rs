@@ -26,6 +26,7 @@ use empyrean_common::dotnet::math::round;
 use empyrean_common::dotnet::CsCast;
 use empyrean_common::era::{LootRules, LootTables};
 use empyrean_common::thread_safe_random::ThreadSafeRandom;
+use empyrean_content::loot::DeathLootProfile;
 use empyrean_content::models::world::{TreasureDeath, TreasureMaterialColor};
 use empyrean_dat::file_types::ClothingTable;
 use empyrean_entity::enums::{
@@ -97,10 +98,54 @@ fn loot_generation_factory() {
     crate::factories::loot_generation_factory_rare::init_rares();
 }
 
+/// Resolve a death profile without forcing source groups into ACE's schema.
+/// Contextual retuning belongs only to ACE profiles.
+pub fn death_loot_profile(
+    w: &World,
+    id: u32,
+    source: Option<empyrean_entity::ObjectGuid>,
+) -> Option<DeathLootProfile> {
+    if w.era.loot_rules == LootRules::Ac1999 {
+        return match w.content.get_death_loot_profile(id) {
+            Some(p @ DeathLootProfile::Ac1999(..)) => Some(p),
+            Some(DeathLootProfile::Ace(_)) => {
+                log::error!("ac1999 loot {id} requires a six-group profile");
+                None
+            }
+            None => None,
+        };
+    }
+    match source {
+        Some(source) => era_death_treasure(w, id, source).map(DeathLootProfile::Ace),
+        None => w
+            .content
+            .get_cached_death_treasure(id)
+            .map(DeathLootProfile::Ace),
+    }
+}
+/// Generate uninserted objects using the descriptor's explicit algorithm.
+pub fn create_death_loot(w: &mut World, profile: &DeathLootProfile) -> Vec<WorldObject> {
+    match profile {
+        DeathLootProfile::Ace(p) => create_random_loot_objects(w, p),
+        DeathLootProfile::Ac1999(row, p) if w.era.loot_rules == LootRules::Ac1999 => {
+            crate::source_loot::generate(w, row, p)
+        }
+        DeathLootProfile::Ac1999(..) => {
+            log::error!("source loot requires the ac1999 loot rules");
+            Vec::new()
+        }
+    }
+}
+
 /// Rolls a corpse's loot: the item, magic item and mundane item groups in turn (each a chance,
 /// then a count), plus the mundane add-on (coalesced mana or aetheria).
 // ACE: LootGenerationFactory.CreateRandomLootObjects
 pub fn create_random_loot_objects(w: &mut World, profile: &TreasureDeath) -> Vec<WorldObject> {
+    // DIVERGE: an ac1999 world base rolls its death treasure from its own profiles
+    // (`LootRules::Ac1999`, V466); ACE's tables make nothing.
+    if w.era.loot_rules == LootRules::Ac1999 {
+        return Vec::new();
+    }
     //stopwatch.Value.Restart();
 
     // DIVERGE: the Infiltration era rolls each group's items its own way (`LootRules`).
@@ -425,6 +470,10 @@ pub fn roll_wcid_in(
     category: TreasureItemCategory,
     mut treasure_item_type: TreasureItemType,
 ) -> Option<TreasureRoll> {
+    // DIVERGE: `LootRules::Ac1999` (V466).
+    if rules == LootRules::Ac1999 {
+        return None;
+    }
     if treasure_item_type == TreasureItemType::Undef {
         treasure_item_type = roll_item_type(treasure_death, category);
     }

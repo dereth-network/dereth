@@ -57,6 +57,8 @@ pub mod slider {
     pub const SIDEWAYS: u32 = 0x4000_0002;
     pub const VERTICAL: u32 = 0x4000_0003;
     pub const TURN: u32 = 0x4000_0004;
+    /// How hard the wind blows.
+    pub const WIND: u32 = 0x4000_000B;
 }
 
 /// The pose kind a bone nothing animates rests in.
@@ -83,6 +85,10 @@ pub trait BodyRecords: Animations + LookRecords {
     /// gives each body a generator of its own.
     fn dice(&self) -> Option<&Random> {
         None
+    }
+    /// How hard the world's wind blows at the moment, which each body's wind slider follows.
+    fn wind(&self) -> f32 {
+        0.0
     }
 }
 
@@ -268,8 +274,18 @@ impl Host for Ctx<'_> {
     /// The first part whose animation of the combination has a period gives the cycles a second.
     // D2-06569, D2-06672
     fn combo_cycle_velocity(&mut self, key: &BehaviorKey) -> f32 {
-        for id in self.combo_animations(key) {
-            let p = period(self.records, id, &self.state(key));
+        // Every behavior asks this every frame, and the first part with a period answers it.
+        let Some(table) = self.table else {
+            return 0.0;
+        };
+        let anim_key = table.combo(key).anim_key;
+        let state = self.state(key);
+        for part in self.parts.iter() {
+            let id = part.animator(anim_key);
+            if id.is_none() {
+                continue;
+            }
+            let p = period(self.records, id, &state);
             if p != 0.0 {
                 return 1.0 / p;
             }
@@ -292,10 +308,6 @@ impl Host for Ctx<'_> {
 
     fn is_the_player(&self) -> bool {
         self.is_player
-    }
-
-    fn do_behavior_on_object(&mut self, _target: u64, _behavior: u32) -> bool {
-        false
     }
 
     fn triggers(&mut self) -> Option<&mut FrameTriggers> {
@@ -667,20 +679,6 @@ impl Body {
         self.scripts.do_script(records, script)
     }
 
-    /// A slider's value now (0 for one never moved).
-    // D2-05897, D2-06393
-    #[must_use]
-    pub fn slider_current(&self, slider: u32) -> f32 {
-        self.sliders.current(slider)
-    }
-
-    /// The value a slider is moving to.
-    // D2-05898, D2-06394
-    #[must_use]
-    pub fn slider_desired(&self, slider: u32) -> f32 {
-        self.sliders.desired(slider)
-    }
-
     /// What the behaviors asked of the object since last taken.
     pub fn take_events(&mut self) -> Vec<Event> {
         std::mem::take(&mut self.events)
@@ -705,29 +703,38 @@ impl Body {
     /// size along its axes (its look's times its own). The sideways and forward sliders take the
     /// speed over the size along their axis, so a smaller body's legs cycle faster at one speed.
     /// Each slider moves at once (in 0.05 s) from just past standing still toward the same side,
-    /// slowly (0.3 s) across a change of more than 0.75 m/s, else in 0.1 s.
+    /// slowly (0.3 s) across a change of more than 0.75 m/s, else in 0.1 s. Sideways, the first of
+    /// those that holds wins; forward, a change of more than 0.75 m/s wins over just past still, so
+    /// stopping and running again eases in.
     // D2-15327
     pub fn set_motion(&mut self, velocity: Vec3, turn: f32, scale: Vec3) {
         let tiny = |c: f32| if c.abs() < 0.001 { 0.0 } else { c };
         let (mut x, y, z) = (tiny(velocity.x), tiny(velocity.y), tiny(velocity.z));
         x *= (1.0 - (turn * 0.017_455_1).abs()).max(0.0);
         // `now` is where the slider stands, as a speed (times the size).
-        let speed_time = |now: f32, target: f32| {
-            if (now > 0.0 && now < 0.05 && target > 0.0)
-                || (now < 0.0 && now > -0.05 && target < 0.0)
-            {
-                0.05
-            } else if (now - target).abs() > 0.75 {
-                0.3
-            } else {
-                0.1
-            }
+        let just_past_still = |now: f32, target: f32| {
+            (now > 0.0 && now < 0.05 && target > 0.0) || (now < 0.0 && now > -0.05 && target < 0.0)
         };
+        let far = |now: f32, target: f32| (now - target).abs() > 0.75;
         let s = &mut self.sliders;
         let now = s.current(slider::SIDEWAYS) * scale.x;
-        s.do_slider(0, slider::SIDEWAYS, x / scale.x, speed_time(now, x));
+        let time = if just_past_still(now, x) {
+            0.05
+        } else if far(now, x) {
+            0.3
+        } else {
+            0.1
+        };
+        s.do_slider(0, slider::SIDEWAYS, x / scale.x, time);
         let now = s.current(slider::FORWARD) * scale.y;
-        s.do_slider(0, slider::FORWARD, y / scale.y, speed_time(now, y));
+        let time = if far(now, y) {
+            0.3
+        } else if just_past_still(now, y) {
+            0.05
+        } else {
+            0.1
+        };
+        s.do_slider(0, slider::FORWARD, y / scale.y, time);
         let v = z.max(-10.0);
         let cur = s.current(slider::VERTICAL);
         s.do_slider(
@@ -767,6 +774,12 @@ impl Body {
         if self.mode != self.applied_mode {
             let m = self.mode;
             self.set_mode(records, m);
+        }
+        // D2-06487
+        let wind = records.wind();
+        #[allow(clippy::float_cmp)] // the client compares them exactly
+        if self.sliders.current(slider::WIND) != wind {
+            self.sliders.do_slider(0, slider::WIND, wind, 1.0);
         }
         self.sliders.update(dt);
         self.scripts
@@ -848,6 +861,7 @@ impl Body {
                 .skeleton
                 .as_ref()
                 .map_or_else(|| vec![None; n], |s| s.parents.clone());
+            // D2-12875
             let bone_types: Vec<u32> = part.setup.bones.iter().map(|b| b.id).collect();
             let mut acc = Pose::new(n);
             let sliders_now = self.sliders.clone();
@@ -868,6 +882,19 @@ impl Body {
         if posed {
             self.poses = poses;
         }
+    }
+
+    /// One bone's transform in the body's current pose, with no copy of a pose already worked out.
+    pub(crate) fn pose_of_bone(
+        &self,
+        records: &dyn BodyRecords,
+        group: usize,
+        bone: usize,
+    ) -> Option<Mat4> {
+        if self.poses.len() == self.parts.len() {
+            return self.poses.get(group)?.bones.get(bone).copied();
+        }
+        self.pose(records).get(group)?.bones.get(bone).copied()
     }
 
     /// Each part group's pose at the behaviors' current times: the one the last step blended, or

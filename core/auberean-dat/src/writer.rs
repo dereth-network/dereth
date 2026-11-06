@@ -86,15 +86,6 @@ impl Writer {
         self.u32(v.0);
     }
 
-    /// A record's header: its id, then its category word when its type has one.
-    // D2-12692
-    pub fn record_header(&mut self, id: u32, kind: crate::RecordType, category: u32) {
-        self.u32(id);
-        if kind.is_categorized() {
-            self.u32(category);
-        }
-    }
-
     /// A 32-bit count.
     pub fn count(&mut self, n: usize) {
         self.u32(u32::try_from(n).unwrap_or(u32::MAX));

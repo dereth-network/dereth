@@ -106,7 +106,7 @@ fn snapshot_of_a_fresh_world_then_opened() {
 fn status_json_is_exact_and_escaped() {
     assert_eq!(
         sample().to_json(),
-        "{\"world_name\":\"Test \\\"Shard\\\"\",\"version\":\"0.0.0\",\"source_url\":\"https://example.org/src\",\"uptime_seconds\":42,\"world_open\":true,\"shutting_down\":false,\"connections\":3,\"authenticated_connections\":2,\"players_online\":1,\"landblocks_loaded\":5,\"content_hash\":\"ab12\",\"corrections_digest\":\"v1:0123456789abcdef\",\"era\":\"infiltration\",\"features\":{\"ratings\":false,\"consolidated_weapon_skills\":false,\"item_spell_auras\":false,\"assessed_armor_and_ratings\":false,\"swear_to_lower_level\":false,\"pre_order_items_and_rares\":false,\"dual_wield\":false,\"weapon_masteries\":false,\"innate_augmentations\":false,\"aetheria\":false,\"luminance\":false,\"contracts\":false,\"titles\":false,\"cloaks\":false,\"trinkets\":false,\"journal\":false,\"trade\":true,\"housing\":true,\"apartments\":true,\"tinkering\":true,\"cantrips\":true,\"spell_research\":false,\"chess\":true,\"swear_xp_cost\":true},\"dats\":{\"portal\":2072,\"cell\":982,\"local\":994,\"highres\":null,\"patching\":false},\"client_versions\":[\"1802\"],\"websocket_url\":\"wss://play.example.org/ws\",\"not_ported\":{\"ACE: A.B\":2,\"ACE: C.D\":1}}\n"
+        "{\"world_name\":\"Test \\\"Shard\\\"\",\"version\":\"0.0.0\",\"source_url\":\"https://example.org/src\",\"uptime_seconds\":42,\"world_open\":true,\"shutting_down\":false,\"connections\":3,\"authenticated_connections\":2,\"players_online\":1,\"landblocks_loaded\":5,\"content_hash\":\"ab12\",\"corrections_digest\":\"v1:0123456789abcdef\",\"era\":\"infiltration\",\"features\":{\"ratings\":false,\"consolidated_weapon_skills\":false,\"item_spell_auras\":false,\"assessed_armor_and_ratings\":false,\"swear_to_lower_level\":false,\"pre_order_items_and_rares\":false,\"dual_wield\":false,\"weapon_masteries\":false,\"innate_augmentations\":false,\"aetheria\":false,\"luminance\":false,\"contracts\":false,\"titles\":false,\"cloaks\":false,\"trinkets\":false,\"journal\":false,\"trade\":true,\"housing\":true,\"apartments\":true,\"tinkering\":true,\"cantrips\":true,\"spell_research\":false,\"chess\":true,\"swear_xp_cost\":true,\"lifestone_protection\":true,\"creation_credit_carry_over\":true,\"skill_alteration\":true,\"augmentations\":false,\"pk_lite\":true,\"marketplace_recall\":true,\"endurance_benefits\":true,\"lifestone_recall\":true,\"pk_arena_recalls\":false,\"player_corpse_hour_minimum\":true,\"component_burn_skill_discount\":true,\"war_and_life_projectile_criticals\":true,\"war_magic_skill_damage_bonus\":true,\"transfer_overflow_reduces_source\":true,\"item_enchantment_redirection\":true,\"spell_tabs\":true,\"fellowship_options\":true,\"corpse_permissions\":true,\"corpse_location_notices\":true,\"chat_log\":true,\"corpse_command\":true,\"allegiance_messages\":true,\"allegiance_oath_confirmation\":true,\"allegiance_boot\":true,\"appraisal_without_skills\":true,\"trade_notes_cash_anywhere\":true,\"allegiance_officers_and_bans\":true,\"allegiance_name\":false,\"fellowship_share_loot\":true,\"fellowship_auto_accept\":true,\"fellowship_open\":true,\"allegiance_chat\":true,\"creation_skill_bonus_as_experience\":false,\"global_chat_rooms\":false,\"spell_charge\":false,\"spell_economy\":false,\"allegiance_titles_and_lock\":false,\"allegiance_house_commands\":false},\"dats\":{\"portal\":2072,\"cell\":982,\"local\":994,\"highres\":null,\"patching\":false},\"client_versions\":[\"1802\"],\"websocket_url\":\"wss://play.example.org/ws\",\"not_ported\":{\"ACE: A.B\":2,\"ACE: C.D\":1}}\n"
     );
 }
 
@@ -141,6 +141,11 @@ fn the_status_names_the_era_its_systems_the_dats_and_the_client_versions() {
     assert_eq!(s.era, "eor");
     assert_eq!(s.client_versions, ["1802"]);
     assert_eq!(s.dats, DatIterations::of(&w.dats));
+    w.era = empyrean_common::era::EraId::Launch.rules();
+    let launch = StatusSnapshot::take(&w, "Dereth", 1);
+    assert_eq!(launch.era, "launch");
+    assert_eq!(launch.features, empyrean_common::era::EraFeatures::LAUNCH);
+    assert!(launch.to_json().contains("\"era\":\"launch\""));
     w.era = empyrean_common::era::EraId::Infiltration.rules();
     let s = StatusSnapshot::take(&w, "Dereth", 1);
     assert_eq!(s.era, "infiltration");
@@ -150,7 +155,12 @@ fn the_status_names_the_era_its_systems_the_dats_and_the_client_versions() {
     assert_eq!(s.features, empyrean_common::era::EraFeatures::INFILTRATION);
     assert!(
         json.contains(",\"features\":{\"ratings\":false,")
-            && json.contains(",\"swear_xp_cost\":true},"),
+            && json.contains(",\"swear_xp_cost\":true,")
+            && json.contains(",\"allegiance_name\":false,")
+            && json.contains(",\"allegiance_chat\":true,")
+            && json.contains(
+                ",\"creation_skill_bonus_as_experience\":false,\"global_chat_rooms\":false,\"spell_charge\":false,\"spell_economy\":false,\"allegiance_titles_and_lock\":false,\"allegiance_house_commands\":false},"
+            ),
         "{json}"
     );
     // A system the world's configuration turns on is announced as on.

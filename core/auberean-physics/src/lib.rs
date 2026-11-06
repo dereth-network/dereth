@@ -28,6 +28,7 @@ pub mod ethereal;
 pub mod geom;
 pub mod interior;
 pub mod land;
+pub mod material;
 pub mod mesh;
 pub mod missile;
 pub mod motion;

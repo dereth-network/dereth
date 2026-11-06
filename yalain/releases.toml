@@ -1,8 +1,8 @@
 # What upgrading to each Yalain release involves, beyond replacing its program.
 #
 # `cargo xtask package yalain` writes it, with what the code says, into the release's
-# release.json (its `upgrade` object), which a launcher hosting a world reads before it installs
-# anything. From the code, at this release and at the previous release's tag: the database's
+# release.json (its `upgrade` object), which the server's updater (`yalain update`, `server.update`)
+# and a launcher hosting a world read before they install anything. From the code, at this release and at the previous release's tag: the database's
 # schema version (and so the migration between the two; Yalain backs the database up before it
 # migrates), and the world database release the program serves by default (and so whether it must
 # be fetched, `yalain world fetch`, before the new program starts). Declared here, because the
@@ -23,3 +23,8 @@
 version = "0.1.1"
 upgrades_from = "0.1.1"
 notes = "The first release: its database schema is version 2."
+
+[[release]]
+version = "0.2.0"
+upgrades_from = "0.1.1"
+notes = "Worlds can now update themselves: server.update is off until you set it. They can take WebSocket connections, off until you turn on [server.websocket]. A world on the Dereth Network now carries the Global room, in General unless federation.global_room says otherwise; set it empty to carry none. Admins are now a flag on an account, with admin characters: the first start backs the database up and moves it to schema 4, an account at level 5 or higher with a ticket becomes an admin, and level 5 with no ticket and levels 1 to 4 become players, each named in a warning with set-accountadmin as the way back. The admins list now raises a name only on the start that makes its account; use set-accountadmin for accounts that already exist."

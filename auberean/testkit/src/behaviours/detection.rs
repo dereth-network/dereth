@@ -10,6 +10,24 @@ use super::{Behaviour, Evidence, Tier, RETAIL};
 /// This subject's rows, in id order.
 pub static ROWS: &[Behaviour] = &[
     behaviour! {
+        id: "detection.cells.a-cell-and-its-landblock-answer-for-what-stands-in-them",
+        says: "A cell and a landblock answer with the objects whose own cell they hold, those that \
+               move when asked; an object knows how many cells' lists it is in and whether each is \
+               loaded; an object held is in no list.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DETECT-CELL-OBJECTS"),
+        station: "auberean-physics::cpu::contact::detections::rooms::a_cell_and_its_landblock_answer_for_what_stands_in_them",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "detection.cells.a-point-finds-the-interior-cell-holding-it",
+        says: "A point lying in an interior cell finds it, the lowest id of those that hold it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DETECT-CELL-POINT"),
+        station: "auberean-physics::cpu::contact::detections::rooms::a_point_finds_the_interior_cell_holding_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "detection.intersect.a-detection-made-at-once-finds-what-is-in-its-volume",
         says: "A detection made at once searches the cells the box around its volume reaches from \
                its origin, in each landblock that box reaches, and notes once each object there \
@@ -59,10 +77,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "detection.sight.a-line-of-sight-from-the-land-goes-into-a-cave-by-its-mouth",
+        says: "A line of sight from the land through the world's cave mouth ends in the cave.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DETECT-LOS-CAVE"),
+        station: "auberean-physics::dat::camera::a_line_of_sight_from_the_land_goes_into_a_cave_by_its_mouth",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "detection.sight.a-line-of-sight-goes-out-through-a-doorway-onto-the-land",
         says: "A line of sight leaving a room through a doorway out goes on over the land from the \
-               doorway, where what stands outside stops it in the land cell it stands over; when \
-               the line's start lies over another land cell than the doorway does, the land traces \
+               doorway, where what stands outside stops it, reported in the last land cell of the \
+               box around the line; when the line's start lies over another land cell than the doorway does, the land traces \
                the line again from its start.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DETECT-LOS-OUT"),
@@ -83,6 +109,35 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "detection.sight.a-line-of-sight-over-the-land-goes-in-through-the-doorways-of-rooms-it-touches",
+        says: "A line of sight over the land asks the rooms touching each land cell it crosses: \
+               through a room's doorway out it goes on inside, where the room's wall stops it, in \
+               the room, facing back; past the doorway it goes on over the land.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DETECT-LOS-LAND-ROOMS"),
+        station: "auberean-physics::cpu::contact::detections::rooms::a_line_of_sight_over_the_land_goes_in_through_the_doorways_of_rooms_it_touches",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "detection.sight.a-line-tracing-doorways-passes-what-stands-on-the-land",
+        says: "What stands on the land stops a line tracing physics shapes, facing back along it, \
+               and passes a line tracing doorways only.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DETECT-LOS-LAND-OBJECTS"),
+        station: "auberean-physics::cpu::contact::detections::rooms::a_line_tracing_doorways_passes_what_stands_on_the_land",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "detection.sight.a-room-with-a-doorway-out-touches-the-land-cells-under-its-sphere",
+        says: "A room the block sees from outside, with a doorway out and a physics tree, touches \
+               the land cells under the box around its tree's sphere; a land cell past the block's \
+               edge counts as the cell at the same place in this block.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DETECT-LAND-TOUCHING"),
+        station: "auberean-physics::cpu::contact::detections::rooms::a_room_with_a_doorway_out_touches_the_land_cells_under_its_sphere",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "detection.sight.objects-and-walls-stop-a-line-of-sight",
         says: "A line of sight from a loaded cell stops at the solid side of an interior cell's \
                walls, at the ground, and at an object standing across it unless it is of a kind \
@@ -91,6 +146,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DETECT-LOS"),
         station: "auberean-physics::cpu::contact::detections::objects_and_walls_stop_a_line_of_sight",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "detection.sight.the-land-stops-a-line-of-sight-at-its-triangles-facing-up",
+        says: "The land stops a line of sight at the first of its triangles the line crosses, from \
+               either side, and the line's impact faces the way the ground does.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DETECT-LOS-GROUND"),
+        station: "auberean-physics::cpu::contact::detections::rooms::the_land_stops_a_line_of_sight_at_its_triangles_facing_up",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -132,6 +196,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DETECT-UPDATE"),
         station: "auberean-physics::cpu::contact::detections::a_bodys_updates_check_its_spheres_against_the_world",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "detection.world.an-object-with-no-game-object-is-of-every-kind",
+        says: "A detection takes an object with no game object for any kind it reports, unless it \
+               ignores it or has other targets.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DETECT-NO-GAME-OBJECT"),
+        station: "auberean-physics::cpu::contact::detections::an_object_with_no_game_object_is_of_every_kind_a_detection_reports",
         tier: Tier::Cpu,
     },
 ];

@@ -3,6 +3,7 @@
 //! preferences behind the options window's client page; the interface's text through the client's
 //! data cache.
 
+mod data;
 mod preferences;
 mod screens;
 mod text;

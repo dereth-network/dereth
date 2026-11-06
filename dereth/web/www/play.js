@@ -1,9 +1,13 @@
-// The playable client's page: the front page (the launcher, `front.js`), the canvas the worker
-// draws into, and the page's input events forwarded to the worker in the client's terms.
+// The playable client's page: the front page (the launcher's own, `host.js`, answered by the
+// launcher's worker, `front-worker.js`), the canvas a game's worker draws into, and the page's input
+// events forwarded to that worker in the client's terms.
 //
-// Each start hands the worker a canvas of its own: a canvas's drawing can be handed to a worker only
-// once, and a browser may keep it tied to the client that drew into it. When the client ends, its
-// canvas is put away and a new one takes its place for the next start.
+// The first play of a game makes the worker for that game, `play-worker.js` or `auberean-worker.js`,
+// each loading its own module, so a module is fetched only for a play of its game. Each start hands
+// the worker a canvas of its own: a canvas's drawing can be handed to a worker only once, and a
+// browser may keep it tied to the client that drew into it. When the client ends, its canvas is put
+// away and a new one takes its place for the next start, of either game. The worker stays for the
+// next play of its game: a browser with a device in a worker may not survive that worker's end.
 //
 // The server is a WebSocket URL: a server's own wss:// endpoint, or ws://127.0.0.1:<port>/ for
 // dereth-web-relay on this machine. An http:// or https:// address is taken as the server's status
@@ -17,7 +21,7 @@
 // `?log` (or `?log=debug`, ...) shows the client's log and its frame rate over the canvas, for
 // reporting a problem, and `?gpu=webgl` draws with WebGL 2 where a browser's WebGPU misbehaves.
 
-import { startFront } from './front.js';
+import { startHost } from './host.js';
 
 const $ = (id) => document.getElementById(id);
 const t0 = performance.now();
@@ -42,7 +46,13 @@ function show(text) {
 // The canvas the client draws into, or the next one, not yet handed to the worker.
 let view = $('view');
 let handedOff = false;
-const worker = new Worker(`play-worker.js${location.search}`, { type: 'module' });
+
+// The launcher's worker, for as long as the page is open; each game's, from its first play; and the
+// one playing now.
+const launcher = new Worker(`front-worker.js${location.search}`, { type: 'module' });
+const GAMES = { dereth: 'play-worker.js', auberean: 'auberean-worker.js' };
+const workers = {};
+let worker = null;
 
 // The drawing buffer's size, which the client chooses; the page only scales it to fit. In full
 // screen the client draws at the page's own size (below), so it fills the page.
@@ -92,7 +102,7 @@ function page() {
 
 function pageChanged() {
   fit();
-  worker.postMessage({ cmd: 'page', page: page() });
+  worker?.postMessage({ cmd: 'page', page: page() });
 }
 addEventListener('resize', pageChanged);
 // Moving the window to a screen of another pixel ratio, or zooming the page, changes the page's
@@ -117,7 +127,7 @@ async function openAudio(rate) {
     node.connect(ctx.destination);
     audio = { ctx, node };
     if (ctx.state !== 'running') await ctx.resume();
-    worker.postMessage({ cmd: 'audio', started: true });
+    worker?.postMessage({ cmd: 'audio', started: true });
   } catch (e) {
     show(`no sound: ${e?.message ?? e}`);
   }
@@ -131,13 +141,13 @@ function call(name, ...args) {
     const id = nextCall;
     nextCall += 1;
     pending.set(id, { resolve, reject });
-    worker.postMessage({ call: name, args, id });
+    launcher.postMessage({ call: name, args, id });
   });
 }
 
 let front = null;
 
-worker.onmessage = (ev) => {
+launcher.onmessage = (ev) => {
   const m = ev.data;
   if (m.reply !== undefined) {
     const p = pending.get(m.reply);
@@ -146,6 +156,22 @@ worker.onmessage = (ev) => {
     else p?.resolve(m.value);
     return;
   }
+  if (m.log) show(m.log);
+};
+launcher.onerror = (e) => show(`worker error: ${e.message}`);
+
+// The client ended (its own Exit, or a lost connection) or could not start: its worker has let go of
+// what it held, and the front page comes back, saying what went wrong.
+async function ended(error) {
+  worker = null;
+  freshView();
+  $('launch').style.display = '';
+  await call('resume').catch((e) => show(`front page: ${e?.message ?? e}`));
+  front?.back(error);
+}
+
+function fromGame(ev) {
+  const m = ev.data;
   if (m.pcm) audio?.node.port.postMessage(m.pcm, [m.pcm.buffer]);
   if (m.log) show(m.log);
   if (m.error) show(`error: ${m.error}`);
@@ -167,24 +193,33 @@ worker.onmessage = (ev) => {
   // A camera drag holds the pointer, or has ended.
   if (m.pointerLock === true) lockPointer();
   if (m.pointerLock === false) unlockPointer();
-  // The client ended (its own Exit, or a lost connection) or could not start: the front page
-  // comes back, saying what went wrong. Data files already open stay open for the next start.
-  if (m.ended) {
-    freshView();
-    $('launch').style.display = '';
-    front?.back(m.error);
-  }
-};
-worker.onerror = (e) => show(`worker error: ${e.message}`);
+  if (m.ended) ended(m.error);
+}
 
 // ---- the front page ------------------------------------------------------------------------------
 
-// Start the client on what the front page chose: the data files, the server, the account, what
-// the launcher says about the world, and the folder its overlay is kept in.
-function launch(choice) {
+// Start the client of `game` on what the front page chose: the data files, the server, the account,
+// what the launcher says about the world, and the folder its overlay is kept in. What the launcher
+// holds in this browser's storage is the game's for the play.
+async function launch({ game, ...choice }) {
+  const opened = audio;
   if (!audio) openAudio(48000);
   $('launch').style.display = 'none';
   if (handedOff) freshView();
+  await call('suspend');
+  if (!workers[game]) {
+    const made = new Worker(`${GAMES[game]}${location.search}`, { type: 'module' });
+    made.onmessage = fromGame;
+    made.onerror = (e) => {
+      show(`worker error: ${e.message}`);
+      delete workers[game];
+      made.terminate();
+      if (worker === made) ended(`The game stopped: ${e.message}`);
+    };
+    workers[game] = made;
+  }
+  worker = workers[game];
+  if (opened) worker.postMessage({ cmd: 'audio', started: true });
   const canvas = view.transferControlToOffscreen();
   handedOff = true;
   worker.postMessage({
@@ -200,7 +235,7 @@ function launch(choice) {
   view.focus();
 }
 
-front = startFront({
+front = startHost({
   call,
   start: launch,
   params,
@@ -211,7 +246,7 @@ front.begin().catch((e) => show(`front page: ${e?.message ?? e}`));
 
 // ---- input -----------------------------------------------------------------------------------
 
-const send = (input) => worker.postMessage({ input });
+const send = (input) => worker?.postMessage({ input });
 
 // Canvas pixels, from the pointer's place in the scaled canvas.
 function at(ev) {
@@ -324,6 +359,8 @@ function typed(ev) {
 const KEPT = new Set(['F5', 'F11', 'F12']);
 
 function key(ev, pressed) {
+  // The keys of a game in play are not the launcher's page's, under it.
+  ev.stopPropagation();
   if (ev.metaKey || KEPT.has(ev.code)) return;
   if (ev.code === 'AltLeft' || ev.code === 'AltRight') send({ kind: 'alt', held: pressed });
   // Ctrl+V lets the paste event through, which carries the text; the key follows it.
@@ -353,6 +390,7 @@ document.addEventListener('paste', (ev) => {
 // worker runs on its own thread meanwhile). The server, or the relay, also holds the connection's
 // goodbye, which goes out if this one does not.
 addEventListener('pagehide', () => {
+  if (!worker) return;
   worker.postMessage({ cmd: 'logoff' });
   const until = performance.now() + 300;
   while (performance.now() < until) {

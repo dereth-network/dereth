@@ -1,16 +1,22 @@
-//! The operator's moderation, as Empyrean's: access levels, bans, gags, boots, and accounts made
-//! and changed while the world runs.
+//! The operator's moderation and the admin model: admin accounts, bans, gags, boots, and accounts
+//! made and changed while the world runs.
 //!
-//! - **Access levels** per account, as Empyrean numbers them ([`Access`]): a player (every new
-//!   account), then advocate, sentinel, envoy, developer and admin. Unlike Empyrean, no account is
-//!   made an admin for being the first: an open world makes an account for anyone who logs in, so
-//!   only the operator raises one.
+//! - **The admin flag** per account ([`Account::admin`]), as the game's own model has it: one admin
+//!   class, no levels. Every new account is a player's. Only the operator raises one (the console,
+//!   or the server's configuration); no account is made an admin for being the first, since an open
+//!   world makes an account for anyone who logs in. An account with no secret cannot be raised: an
+//!   open world gives such an account to the first ticket it sees.
+//! - **Admin characters** are separate characters of an admin's account, made from the admin
+//!   template ([`crate::player::ADMIN_ENTITY`]): asked for at creation (refused with the client's own
+//!   answer for any other account), or made so at the console (`set-characteradmin`). A character
+//!   enters as one only while its account is an admin's; every check is on the account's flag, never
+//!   on anything a client says.
 //! - **Commands** ([`Command`], [`parse`]), with Empyrean's words and answers: `accountcreate`,
-//!   `accountget`, `accountlist`, `set-accountpassword`, `set-accountaccess`, `ban`, `unban`,
-//!   `banlist`, `gag`, `ungag`, `boot` and `gamecast`. Each needs Empyrean's level
-//!   ([`Command::needs`]); the console has every level. Each change is kept in the store at once,
-//!   and every command is logged with who gave it (never a secret). Each line of an answer is
-//!   what was done or why nothing was ([`answered`]), which the console's tags tell apart.
+//!   `accountget`, `accountlist`, `set-accountpassword`, `set-accountadmin`, `set-characteradmin`,
+//!   `ban`, `unban`, `banlist`, `gag`, `ungag`, `boot` and `gamecast`. Each needs an admin's account;
+//!   the console is one. Each change is kept in the store at once, and every command is logged with
+//!   who gave it (never a secret). Each line of an answer is what was done or why nothing was
+//!   ([`answered`]), which the console's tags tell apart.
 //! - **A broadcast** (`gamecast`) shows every player in the world `Broadcast from <who>>
 //!   <message>`, as Empyrean's, `<who>` the issuer's character or `System` from the console.
 //! - **A ban** keeps an account out until it ends: its game login is booted with the client's
@@ -30,9 +36,9 @@
 //! but only for a character of the admin's class, and it sends them encrypted under a key only
 //! Turbine's servers held, so a server cannot read them. The commands are said instead, as the
 //! Dereth Network's are: a line said aloud or into a room that begins with `@` and a command's
-//! word (`@ban ...`, `@boot char ...`), by a character whose account is an advocate's or above,
-//! is heard by nobody and answered in its chat window ([`said`]). From a player's account the
-//! line is said as any other, but for one command any account may give:
+//! word (`@ban ...`, `@boot char ...`), by a character of an admin's account, is heard by nobody and
+//! answered in its chat window ([`said`]). From a player's account the line is said as any other,
+//! and logged, but for one command any account may give:
 //! - **`@passwd <old> <new>`** changes the account's own password, as Empyrean's does
 //!   ([`passwd`]): the old one must match, the new one is kept as a bcrypt secret, and the command
 //!   may be given once every five seconds. It is given in game only.
@@ -48,107 +54,29 @@ use yalain_store::{Account, Ban, Store};
 
 use crate::{Clock, Server, Stage, Timer};
 
-/// An account's access level, as Empyrean numbers them.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-pub enum Access {
-    #[default]
-    Player,
-    Advocate,
-    Sentinel,
-    Envoy,
-    Developer,
-    Admin,
-}
-
-impl Access {
-    /// Every level, lowest first.
-    pub const ALL: [Self; 6] = [
-        Self::Player,
-        Self::Advocate,
-        Self::Sentinel,
-        Self::Envoy,
-        Self::Developer,
-        Self::Admin,
-    ];
-
-    /// The level's number, as the store keeps it.
-    #[must_use]
-    pub const fn number(self) -> u32 {
-        self as u32
-    }
-
-    /// The level a kept number names; a number above the highest is an admin's.
-    #[must_use]
-    pub fn from_number(n: u32) -> Self {
-        usize::try_from(n)
-            .ok()
-            .and_then(|i| Self::ALL.get(i).copied())
-            .unwrap_or(Self::Admin)
-    }
-
-    /// The level a word names: its name in any case, or its number.
-    #[must_use]
-    pub fn parse(word: &str) -> Option<Self> {
-        if let Ok(n) = word.parse::<usize>() {
-            return Self::ALL.get(n).copied();
-        }
-        Self::ALL
-            .into_iter()
-            .find(|a| a.name().eq_ignore_ascii_case(word))
-    }
-
-    /// The level's name.
-    #[must_use]
-    pub const fn name(self) -> &'static str {
-        match self {
-            Self::Player => "Player",
-            Self::Advocate => "Advocate",
-            Self::Sentinel => "Sentinel",
-            Self::Envoy => "Envoy",
-            Self::Developer => "Developer",
-            Self::Admin => "Admin",
-        }
-    }
-
-    /// "a" or "an", as Empyrean writes it before the level's name.
-    const fn article(self) -> &'static str {
-        match self {
-            Self::Advocate | Self::Envoy | Self::Admin => "an",
-            _ => "a",
-        }
-    }
-}
-
-impl fmt::Display for Access {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.name())
-    }
-}
-
-/// How the access levels are written for the operator, as Empyrean writes them.
-pub const ACCESS_LEVELS: &str =
-    "0 = Player | 1 = Advocate | 2 = Sentinel | 3 = Envoy | 4 = Developer | 5 = Admin";
-
 /// Who gives a command.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Issuer {
-    /// The server's console: every level.
+    /// The server's console: an admin always.
     Console,
-    /// An account, at its level, by its character in the world.
+    /// An account, by its character in the world.
     Account {
         name: String,
-        access: Access,
+        /// The account's flag, as the server keeps it.
+        admin: bool,
+        /// Its named groups.
+        groups: Vec<String>,
         character: String,
     },
 }
 
 impl Issuer {
-    /// The issuer's level.
+    /// May the issuer give admin commands?
     #[must_use]
-    pub const fn access(&self) -> Access {
+    pub const fn is_admin(&self) -> bool {
         match self {
-            Self::Console => Access::Admin,
-            Self::Account { access, .. } => *access,
+            Self::Console => true,
+            Self::Account { admin, .. } => *admin,
         }
     }
 
@@ -165,8 +93,20 @@ impl fmt::Display for Issuer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Console => f.write_str("the console"),
-            Self::Account { name, access, .. } => write!(f, "account {name} ({access})"),
+            Self::Account { name, admin, .. } => {
+                let what = if *admin { "admin" } else { "player" };
+                write!(f, "account {name} ({what})")
+            }
         }
+    }
+}
+
+/// How an account's rights read, as Empyrean's answers name them.
+const fn rights(admin: bool) -> &'static str {
+    if admin {
+        "an Admin"
+    } else {
+        "a Player"
     }
 }
 
@@ -194,11 +134,11 @@ impl BootBy {
 /// An operator's command.
 #[derive(Clone, PartialEq)]
 pub enum Command {
-    /// `accountcreate <name> <secret> [access]`.
+    /// `accountcreate <name> <secret> [admin]`.
     AccountCreate {
         name: String,
         ticket: String,
-        access: Access,
+        admin: bool,
     },
     /// `accountget <name>`.
     AccountGet { name: String },
@@ -206,8 +146,12 @@ pub enum Command {
     AccountList,
     /// `set-accountpassword <name> <secret>`.
     SetAccountPassword { name: String, ticket: String },
-    /// `set-accountaccess <name> [access]` (a player's when none is given, as Empyrean's).
-    SetAccountAccess { name: String, access: Access },
+    /// `set-accountadmin <name> [on|off]` (on when neither is given).
+    SetAccountAdmin { name: String, admin: bool },
+    /// `set-characteradmin <name> [on|off]` (on when neither is given).
+    SetCharacterAdmin { name: String, admin: bool },
+    /// `set-accountgroups <name> [group,group...]` (none when none are given).
+    SetAccountGroups { name: String, groups: Vec<String> },
     /// `ban <account> <days> <hours> <minutes> [reason]`.
     Ban {
         name: String,
@@ -238,10 +182,10 @@ pub enum Command {
 impl fmt::Debug for Command {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::AccountCreate { name, access, .. } => f
+            Self::AccountCreate { name, admin, .. } => f
                 .debug_struct("AccountCreate")
                 .field("name", name)
-                .field("access", access)
+                .field("admin", admin)
                 .finish_non_exhaustive(),
             Self::SetAccountPassword { name, .. } => f
                 .debug_struct("SetAccountPassword")
@@ -249,8 +193,14 @@ impl fmt::Debug for Command {
                 .finish_non_exhaustive(),
             Self::AccountGet { name } => write!(f, "AccountGet({name})"),
             Self::AccountList => f.write_str("AccountList"),
-            Self::SetAccountAccess { name, access } => {
-                write!(f, "SetAccountAccess({name}, {access})")
+            Self::SetAccountAdmin { name, admin } => {
+                write!(f, "SetAccountAdmin({name}, {admin})")
+            }
+            Self::SetCharacterAdmin { name, admin } => {
+                write!(f, "SetCharacterAdmin({name}, {admin})")
+            }
+            Self::SetAccountGroups { name, groups } => {
+                write!(f, "SetAccountGroups({name}, {groups:?})")
             }
             Self::Ban {
                 name,
@@ -270,19 +220,18 @@ impl fmt::Debug for Command {
 }
 
 impl Command {
-    /// The level the command needs, as Empyrean's: the account commands an admin's, `gamecast`
-    /// an envoy's, the rest a sentinel's.
+    /// Is this the operator's alone, at the console? What makes an admin, or changes its groups: an
+    /// admin kept out of a command by its groups could otherwise put itself in them. So is a new
+    /// account made an admin's.
     #[must_use]
-    pub const fn needs(&self) -> Access {
-        match self {
-            Self::AccountCreate { .. }
-            | Self::AccountGet { .. }
-            | Self::AccountList
-            | Self::SetAccountPassword { .. }
-            | Self::SetAccountAccess { .. } => Access::Admin,
-            Self::Gamecast { .. } => Access::Envoy,
-            _ => Access::Sentinel,
-        }
+    pub const fn console_only(&self) -> bool {
+        matches!(
+            self,
+            Self::SetAccountAdmin { .. }
+                | Self::SetCharacterAdmin { .. }
+                | Self::SetAccountGroups { .. }
+                | Self::AccountCreate { admin: true, .. }
+        )
     }
 
     /// The command's word, as [`WORDS`] has it.
@@ -293,7 +242,9 @@ impl Command {
             Self::AccountGet { .. } => "accountget",
             Self::AccountList => "accountlist",
             Self::SetAccountPassword { .. } => "set-accountpassword",
-            Self::SetAccountAccess { .. } => "set-accountaccess",
+            Self::SetAccountAdmin { .. } => "set-accountadmin",
+            Self::SetCharacterAdmin { .. } => "set-characteradmin",
+            Self::SetAccountGroups { .. } => "set-accountgroups",
             Self::Ban { .. } => "ban",
             Self::Unban { .. } => "unban",
             Self::BanList => "banlist",
@@ -306,19 +257,22 @@ impl Command {
 }
 
 /// The commands and how each is written, as `help` lists them.
-pub const HELP: &str = "accountcreate <name> <secret> [access], accountget <name>, accountlist, \
-                        set-accountpassword <name> <secret>, set-accountaccess <name> [access] \
-                        (access: 0 = Player | 1 = Advocate | 2 = Sentinel | 3 = Envoy | 4 = \
-                        Developer | 5 = Admin), ban <account> <days> <hours> <minutes> [reason], \
-                        unban <account>, banlist, gag <character>, ungag <character>, boot \
-                        {char|account|iid} <who>[, reason], gamecast <message>";
+pub const HELP: &str = "accountcreate <name> <secret> [admin], accountget <name>, accountlist, \
+                        set-accountpassword <name> <secret>, set-accountadmin <name> [on|off], \
+                        set-characteradmin <name> [on|off], set-accountgroups <name> \
+                        [group,group...], ban <account> <days> <hours> <minutes> \
+                        [reason], unban <account>, banlist, gag <character>, ungag <character>, \
+                        boot {char|account|iid} <who>[, reason], gamecast <message>";
 
 /// The words of the commands this module reads.
-pub const WORDS: [&str; 12] = [
+pub const WORDS: [&str; 15] = [
     "accountcreate",
     "accountget",
     "accountlist",
     "set-accountpassword",
+    "set-accountadmin",
+    "set-characteradmin",
+    "set-accountgroups",
     "set-accountaccess",
     "ban",
     "unban",
@@ -382,6 +336,11 @@ pub fn name_of(words: &[Word]) -> String {
     }
 }
 
+/// Is a word `on` or `off`, in any case?
+fn is_on_off(word: &str) -> bool {
+    word.eq_ignore_ascii_case("on") || word.eq_ignore_ascii_case("off")
+}
+
 /// The command a line holds: `None` when its first word is none of [`WORDS`] (in any case);
 /// otherwise the command, or how it is written when the line does not read. A name or a secret
 /// with spaces is written between double quotes.
@@ -397,22 +356,27 @@ pub fn parse(line: &str) -> Option<Result<Command, String>> {
     // What follows the command's word, as typed.
     let rest = line.trim_start()[word.len()..].trim().to_owned();
     let usage = |u: &str| Err(format!("{word} {u}"));
-    let level = |w: Option<&&str>| match w {
-        None => Ok(Access::Player),
-        Some(w) => Access::parse(w).ok_or_else(|| {
-            format!("{w} is no access level: it is a number or a name ({ACCESS_LEVELS})")
-        }),
+    let on_off = |w: Option<&Word>| match w {
+        None => Some(true),
+        Some(w) if !w.quoted && w.text.eq_ignore_ascii_case("on") => Some(true),
+        Some(w) if !w.quoted && w.text.eq_ignore_ascii_case("off") => Some(false),
+        Some(_) => None,
     };
     let number = |w: &str| w.parse::<f64>().ok().filter(|n| n.is_finite());
     Some(match (word.as_str(), &args[..]) {
-        ("accountcreate", [name, ticket, more @ ..]) if more.len() <= 1 => {
-            level(more.first()).map(|access| Command::AccountCreate {
+        ("accountcreate", [name, ticket]) => Ok(Command::AccountCreate {
+            name: (*name).to_owned(),
+            ticket: (*ticket).to_owned(),
+            admin: false,
+        }),
+        ("accountcreate", [name, ticket, w]) if w.eq_ignore_ascii_case("admin") => {
+            Ok(Command::AccountCreate {
                 name: (*name).to_owned(),
                 ticket: (*ticket).to_owned(),
-                access,
+                admin: true,
             })
         }
-        ("accountcreate", _) => usage("<name> <secret> [access]"),
+        ("accountcreate", _) => usage("<name> <secret> [admin]"),
         ("accountget", [name]) => Ok(Command::AccountGet {
             name: (*name).to_owned(),
         }),
@@ -424,13 +388,36 @@ pub fn parse(line: &str) -> Option<Result<Command, String>> {
             ticket: (*ticket).to_owned(),
         }),
         ("set-accountpassword", _) => usage("<name> <secret>"),
-        ("set-accountaccess", [name, more @ ..]) if more.len() <= 1 => {
-            level(more.first()).map(|access| Command::SetAccountAccess {
+        ("set-accountaccess", _) => {
+            Err("Access levels are gone: set-accountadmin <name> [on|off].".to_owned())
+        }
+        ("set-accountadmin", [_, ..]) => {
+            let flag = quoted.last().filter(|w| !w.quoted && is_on_off(&w.text));
+            let name = name_of(&quoted[1..quoted.len() - usize::from(flag.is_some())]);
+            match on_off(flag) {
+                Some(admin) if !name.is_empty() => Ok(Command::SetAccountAdmin { name, admin }),
+                _ => usage("<name> [on|off]"),
+            }
+        }
+        ("set-accountadmin", _) => usage("<name> [on|off]"),
+        ("set-characteradmin", [_, ..]) => {
+            let flag = quoted.last().filter(|w| !w.quoted && is_on_off(&w.text));
+            let name = name_of(&quoted[1..quoted.len() - usize::from(flag.is_some())]);
+            match on_off(flag) {
+                Some(admin) if !name.is_empty() => Ok(Command::SetCharacterAdmin { name, admin }),
+                _ => usage("<name> [on|off]"),
+            }
+        }
+        ("set-characteradmin", _) => usage("<name> [on|off]"),
+        ("set-accountgroups", [name, more @ ..]) if more.len() <= 1 => {
+            Ok(Command::SetAccountGroups {
                 name: (*name).to_owned(),
-                access,
+                groups: more
+                    .first()
+                    .map_or_else(Vec::new, |g| crate::admin_groups::read_list(g)),
             })
         }
-        ("set-accountaccess", _) => usage("<name> [access]"),
+        ("set-accountgroups", _) => usage("<name> [group,group...]"),
         ("ban", [name, d, h, m, reason @ ..]) => match (number(d), number(h), number(m)) {
             (Some(days), Some(hours), Some(minutes)) => Ok(Command::Ban {
                 name: (*name).to_owned(),
@@ -660,9 +647,21 @@ pub enum Ticket {
     Banned,
 }
 
-/// Check a friends ticket by the login's rule ([`crate::login::admits`]): a banned account's is
-/// refused as banned, and only once its secret matched.
-pub fn ticket<S: Store>(s: &mut Server<S>, name: &str, secret: &[u8], now: i64) -> Ticket {
+/// Check a friends ticket by the login's rule ([`crate::login::admits`]), from an address as the
+/// login keeps it ([`crate::login::address_key`]): a banned account's is refused as banned, and only
+/// once its secret matched. It counts among the secrets checked as a login does: its host checks
+/// one only when [`crate::login::secret_check_due`] says.
+pub fn ticket<S: Store>(
+    s: &mut Server<S>,
+    name: &str,
+    secret: &[u8],
+    address: &str,
+    now: i64,
+) -> Ticket {
+    if !crate::login::may_check_secret(s, address, name) {
+        return Ticket::Refused;
+    }
+    crate::login::secret_checked(s);
     match crate::login::admits(
         s.cfg.accounts,
         s.cfg.secret_cost,
@@ -679,17 +678,17 @@ pub fn ticket<S: Store>(s: &mut Server<S>, name: &str, secret: &[u8], now: i64) 
 
 // ---- the commands -----------------------------------------------------------------------------
 
-/// What a command beyond its issuer's level is answered with, as Empyrean answers it.
-#[must_use]
-pub fn beyond(needs: Access) -> String {
-    format!("That command needs {} {needs}'s access.", needs.article())
-}
+/// What an admin command from anyone else is answered with.
+pub const NOT_AN_ADMIN: &str = "That command needs an admin's account.";
+
+/// What a command that is the operator's alone is answered with in game.
+pub const CONSOLE_ONLY: &str = "That command is the operator's, at the console.";
 
 /// A line of a command's answer: what was done, or why nothing was.
 pub type Answer = Result<String, String>;
 
-/// Run a command for its issuer: the lines that answer it. A command beyond the issuer's level
-/// does nothing. Every command run is logged with its issuer and answer.
+/// Run a command for its issuer: the lines that answer it. A command from anyone but an admin does
+/// nothing. Every command run is logged with its issuer and answer.
 pub fn run<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -712,22 +711,34 @@ pub fn answered<S: Store>(
     by: &Issuer,
     c: &Command,
 ) -> Vec<Answer> {
-    if by.access() < c.needs() {
-        tracing::info!(issuer = %by, command = ?c, "refused: beyond the issuer's access level");
-        return vec![Err(beyond(c.needs()))];
+    if !by.is_admin() {
+        tracing::warn!(issuer = %by, command = ?c, "refused: not an admin's account");
+        return vec![Err(NOT_AN_ADMIN.to_owned())];
+    }
+    if c.console_only() && !matches!(by, Issuer::Console) {
+        tracing::warn!(issuer = %by, command = ?c, "refused: the operator's, at the console");
+        return vec![Err(CONSOLE_ONLY.to_owned())];
+    }
+    if let Some(refused) = crate::admin_groups::refusal(s, by, c.word()) {
+        tracing::warn!(issuer = %by, command = ?c, "refused: {refused}");
+        return vec![Err(refused)];
     }
     let lines = match c {
         Command::AccountCreate {
             name,
             ticket,
-            access,
-        } => vec![account_create(s, clock, name, ticket, *access)],
+            admin,
+        } => vec![account_create(s, clock, name, ticket, *admin)],
         Command::AccountGet { name } => vec![account_get(s, name, clock)],
         Command::AccountList => account_list(s, clock),
         Command::SetAccountPassword { name, ticket } => {
-            vec![set_account_password(s, name, ticket)]
+            vec![set_account_password(s, by, name, ticket)]
         }
-        Command::SetAccountAccess { name, access } => vec![set_account_access(s, name, *access)],
+        Command::SetAccountAdmin { name, admin } => vec![set_account_admin(s, net, name, *admin)],
+        Command::SetCharacterAdmin { name, admin } => {
+            vec![set_character_admin(s, net, name, *admin)]
+        }
+        Command::SetAccountGroups { name, groups } => vec![set_account_groups(s, name, groups)],
         Command::Ban {
             name,
             days,
@@ -793,7 +804,7 @@ fn account_create<S: Store>(
     clock: Clock,
     name: &str,
     ticket: &str,
-    access: Access,
+    admin: bool,
 ) -> Answer {
     if matches!(s.store.account_by_name(name), Ok(Some(_))) {
         return Err("Account already exists. Try a new name.".to_owned());
@@ -806,31 +817,36 @@ fn account_create<S: Store>(
         clock.unix,
     )
     .and_then(|a| {
-        s.store.set_account_access(a.id, access.number())?;
+        s.store.set_account_admin(a.id, admin)?;
         Ok(a)
     });
     match made {
         Ok(a) => Ok(format!(
-            "Account successfully created for {} ({}) with access rights as {} {access}.",
+            "Account successfully created for {} ({}) with access rights as {}.",
             a.name,
             a.id,
-            access.article()
+            rights(admin)
         )),
         Err(e) => Err(format!("Account {name} was not created: {e}")),
     }
 }
 
-/// An account's line: its name, id, level and any ban.
+/// An account's line: its name, id, whether an admin's, and any ban.
 fn account_line(a: &Account, now: i64) -> String {
     let ban = match &a.ban {
         Some(b) if now < b.until => format!(", banned until {}", utc(b.until)),
         _ => String::new(),
     };
     format!(
-        "User: {}, ID: {}, Access: {}{ban}",
+        "User: {}, ID: {}, Access: {}{}{ban}",
         a.name,
         a.id,
-        Access::from_number(a.access)
+        if a.admin { "Admin" } else { "Player" },
+        if a.groups.is_empty() {
+            String::new()
+        } else {
+            format!(", groups {}", a.groups.join(", "))
+        }
     )
 }
 
@@ -854,10 +870,20 @@ fn account_list<S: Store>(s: &mut Server<S>, clock: Clock) -> Vec<Answer> {
     }
 }
 
-fn set_account_password<S: Store>(s: &mut Server<S>, name: &str, ticket: &str) -> Answer {
+fn set_account_password<S: Store>(
+    s: &mut Server<S>,
+    by: &Issuer,
+    name: &str,
+    ticket: &str,
+) -> Answer {
     let Ok(Some(a)) = s.store.account_by_name(name) else {
         return Err(format!("Account {name} does not exist."));
     };
+    // Another admin's secret would be another admin's rights, groups and all.
+    if a.admin && !matches!(by, Issuer::Console) {
+        tracing::warn!(issuer = %by, account = %a.name, "refused: an admin's secret, at the console");
+        return Err(CONSOLE_ONLY.to_owned());
+    }
     let Some(secret) = crate::login::secret_for(ticket.as_bytes(), s.cfg.secret_cost) else {
         return Err(format!(
             "Account password for {name} was not changed: no secret could be made."
@@ -872,24 +898,128 @@ fn set_account_password<S: Store>(s: &mut Server<S>, name: &str, ticket: &str) -
     }
 }
 
-fn set_account_access<S: Store>(s: &mut Server<S>, name: &str, access: Access) -> Answer {
+fn set_account_admin<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    name: &str,
+    admin: bool,
+) -> Answer {
     let Ok(Some(a)) = s.store.account_by_name(name) else {
         return Err(format!("Account {name} does not exist."));
     };
-    if let Err(e) = s.store.set_account_access(a.id, access.number()) {
+    // An open world gives an account without a secret to the first ticket it sees.
+    if admin && a.secret.is_none() {
+        return Err(format!(
+            "Account {} has no secret, so anyone could claim it: set one with \
+             set-accountpassword first.",
+            a.name
+        ));
+    }
+    if let Err(e) = s.store.set_account_admin(a.id, admin) {
         return Err(format!("Account {name} was not updated: {e}"));
     }
-    // Its logins now hold the new level.
+    // Its logins hold the new flag at once, and its characters' rights follow it.
     for session in s.sessions.values_mut() {
         if session.account.id == a.id {
-            session.account.access = access.number();
+            session.account.admin = admin;
+        }
+    }
+    if !admin {
+        let worlds: Vec<ConnId> = s
+            .players
+            .iter()
+            .filter(|(_, p)| {
+                s.sessions
+                    .get(&p.login)
+                    .is_some_and(|x| x.account.id == a.id)
+            })
+            .map(|(w, _)| *w)
+            .collect();
+        for world in worlds {
+            crate::admin_calls::revoke(s, net, world);
+        }
+        for c in s.store.characters(a.id).unwrap_or_default() {
+            crate::admin_calls::forget_kept(s, c.id);
         }
     }
     Ok(format!(
-        "Account {} updated with access rights set as {} {access}.",
+        "Account {} updated with access rights set as {}.",
         a.name,
-        access.article()
+        rights(admin)
     ))
+}
+
+fn set_character_admin<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    name: &str,
+    admin: bool,
+) -> Answer {
+    let Ok(Some(c)) = s.store.character_named(name) else {
+        return Err(format!("Character {name} does not exist."));
+    };
+    if c.deleted_at.is_some() {
+        return Err(format!("Character {name} does not exist."));
+    }
+    if admin {
+        let account = s.store.account(c.account).ok().flatten();
+        if !account.is_some_and(|a| a.admin) {
+            return Err(format!(
+                "{}'s account is not an admin's: set-accountadmin first.",
+                c.name
+            ));
+        }
+    }
+    let entity = if admin {
+        crate::player::ADMIN_ENTITY
+    } else {
+        crate::player::PLAYER_ENTITY
+    };
+    if let Err(e) = s.store.set_character_entity(c.id, entity) {
+        return Err(format!("Character {name} was not updated: {e}"));
+    }
+    let in_world = s
+        .players
+        .iter_mut()
+        .find(|(_, p)| p.character == c.id)
+        .map(|(w, p)| {
+            // Its admin commands stop at once; its look as an admin character changes as it enters.
+            p.admin_character = p.admin_character && admin;
+            *w
+        });
+    if !admin {
+        crate::admin_calls::forget_kept(s, c.id);
+    }
+    let told = in_world.map_or("", |world| {
+        if !admin {
+            crate::admin_calls::revoke(s, net, world);
+        }
+        " It takes effect the next time it enters the world."
+    });
+    Ok(format!(
+        "{} is {} admin character.{told}",
+        c.name,
+        if admin { "now an" } else { "no longer an" }
+    ))
+}
+
+fn set_account_groups<S: Store>(s: &mut Server<S>, name: &str, groups: &[String]) -> Answer {
+    let Ok(Some(a)) = s.store.account_by_name(name) else {
+        return Err(format!("Account {name} does not exist."));
+    };
+    if let Err(e) = s.store.set_account_groups(a.id, groups) {
+        return Err(format!("Account {name} was not updated: {e}"));
+    }
+    for session in s.sessions.values_mut() {
+        if session.account.id == a.id {
+            session.account.groups = groups.to_vec();
+        }
+    }
+    Ok(if groups.is_empty() {
+        format!("Account {} is in no group.", a.name)
+    } else {
+        format!("Account {} is in the groups {}.", a.name, groups.join(", "))
+    })
 }
 
 /// A number of days, hours or minutes as Empyrean writes one: a whole number without a point.
@@ -1102,6 +1232,20 @@ pub(crate) fn end_login<S: Store>(
     s.after(clock, BOOT_CLOSE_AFTER, Timer::Close { conn: login });
 }
 
+/// End a login with the server's own words: the message that ends it, the connection closed a
+/// moment later.
+pub(crate) fn end_login_saying<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    login: ConnId,
+    words: &str,
+    clock: Clock,
+) {
+    let m = ServerMessage::AccountBooted(Text(StringInfo::literal(words)));
+    net.send(login, queue::EVENT, BlobKind::LOGIN, m.encode());
+    s.after(clock, BOOT_CLOSE_AFTER, Timer::Close { conn: login });
+}
+
 /// End a login: its client told its character was booted, its connection closed a moment later.
 fn boot_login<S: Store>(s: &mut Server<S>, net: &mut ServerNet, login: ConnId, clock: Clock) {
     end_login(s, net, login, BOOTED, clock);
@@ -1139,8 +1283,10 @@ pub fn utc(secs: i64) -> String {
 // ---- in game ----------------------------------------------------------------------------------
 
 /// A line a character in the world said (aloud or into a room): when it is `@` and a command's
-/// word, from an account at an advocate's level or above, the command is run and answered in its
-/// chat window, and nobody hears the line; true then. Anything else is said as usual.
+/// word, from an admin's account, the command is run and answered in its chat window, and nobody
+/// hears the line; true then. From any other account the line is said as usual and counted: it was
+/// an admin command, refused. The first from a character in each stay in the world is logged too,
+/// since a client can send them as fast as it can talk. Anything else is said as usual.
 pub(crate) fn said<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -1160,14 +1306,8 @@ pub(crate) fn said<S: Store>(
         return false;
     };
     if let Some(args) = passwd_args(rest) {
-        for line in passwd(s, world, &account, &args, clock) {
-            crate::login::notice(net, world, &line);
-        }
+        crate::login::notices(net, world, &passwd(s, world, &account, &args, clock));
         return true;
-    }
-    let access = Access::from_number(account.access);
-    if access == Access::Player {
-        return false;
     }
     let Some(parsed) = parse(rest) else {
         return false;
@@ -1179,9 +1319,28 @@ pub(crate) fn said<S: Store>(
         .unwrap_or_default();
     let by = Issuer::Account {
         name: account.name,
-        access,
+        admin: account.admin,
+        groups: account.groups,
         character,
     };
+    if !by.is_admin() {
+        s.admin_calls.refused_lines += 1;
+        let first = s
+            .players
+            .get_mut(&world)
+            .is_some_and(|p| !std::mem::replace(&mut p.refused_admin_line, true));
+        if first {
+            s.admin_calls.logged_lines += 1;
+            // The first word alone: what follows may hold a secret.
+            let word = rest.split_whitespace().next().unwrap_or_default();
+            tracing::warn!(
+                issuer = %by,
+                word,
+                "refused: not an admin's account (any more from it this stay are only counted)"
+            );
+        }
+        return false;
+    }
     let lines = match parsed {
         Ok(c) => run(s, net, clock, &by, &c),
         Err(usage) => {
@@ -1189,9 +1348,7 @@ pub(crate) fn said<S: Store>(
             vec![usage]
         }
     };
-    for line in lines {
-        crate::login::notice(net, world, &line);
-    }
+    crate::login::notices(net, world, &lines);
     true
 }
 

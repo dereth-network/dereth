@@ -66,12 +66,12 @@ pub struct PlaySettings {
 #[must_use]
 pub fn from_sound_info(req: &PlayRequest, info: &SoundInfo, wave_seconds: f32) -> PlaySettings {
     let looping = match req.looping {
-        Looping::Inherit => info.flags & SOUND_LOOPS != 0,
+        Looping::Inherit => info.test_bit_mask(SOUND_LOOPS),
         Looping::ForceOn => true,
         Looping::ForceOff => false,
     };
     let kind = match req.kind {
-        PlayType::Inherit if info.flags & SOUND_SELF_EXCLUSIVE != 0 => {
+        PlayType::Inherit if info.test_bit_mask(SOUND_SELF_EXCLUSIVE) => {
             PlayType::SelfExclusiveBudgeted
         }
         PlayType::Inherit => PlayType::NonExclusiveBudgeted,
@@ -107,7 +107,7 @@ pub fn from_sound_info(req: &PlayRequest, info: &SoundInfo, wave_seconds: f32) -
 // D2-07792
 #[must_use]
 pub fn from_music_info(req: &PlayRequest, info: &MusicInfo) -> PlaySettings {
-    let bit = |b: u32| info.flags & b != 0;
+    let bit = |b: u32| info.test_bit_mask(b);
     let looping = match req.looping {
         Looping::Inherit => !bit(MUSIC_PRIMARY) && bit(MUSIC_LOOPS),
         Looping::ForceOn => true,
@@ -174,9 +174,9 @@ pub fn from_music_info(req: &PlayRequest, info: &MusicInfo) -> PlaySettings {
 #[must_use]
 pub fn path_kind(setting: Setting<'_>) -> PathKind {
     match setting {
-        Setting::Sound(s) if s.flags & SOUND_PLACED != 0 => PathKind::PlacedSound,
+        Setting::Sound(s) if s.test_bit_mask(SOUND_PLACED) => PathKind::PlacedSound,
         Setting::Sound(_) => PathKind::FlatSound,
-        Setting::Music(m) if m.flags & MUSIC_PLACED != 0 => PathKind::PlacedMusic,
+        Setting::Music(m) if m.test_bit_mask(MUSIC_PLACED) => PathKind::PlacedMusic,
         Setting::Music(m) if m.kind == KIND_TRACK => PathKind::FlatSound,
         Setting::Music(_) => PathKind::FlatMusic,
     }

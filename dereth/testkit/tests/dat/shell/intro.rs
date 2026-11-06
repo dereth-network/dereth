@@ -14,7 +14,16 @@ use super::*;
 // ---------------------------------------------------------------------------------------------
 
 /// A client on the intro sequence.
+///
+/// The first picture is a movie, and the movie is a file beside the dats, not in them. Without it
+/// the client skips that picture on its first frame, as it should, and every count below is off.
 pub(super) fn a_client_on_the_intro() -> HeadlessClient {
+    let movie = dereth_dat::testing::dat_dir().join("turbine_logo_ac.avi");
+    assert!(
+        movie.exists(),
+        "the intro scenarios need the install's movie beside the dats: {}",
+        movie.display()
+    );
     let c = HeadlessClient::new(ClientSpec::screen(dereth_ui::framework::mode::INTRO, 3));
     assert_eq!(
         c.view()

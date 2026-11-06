@@ -20,7 +20,6 @@ fn target(triple: &str) -> Target {
 const WINDOWS: &str = "x86_64-pc-windows-msvc";
 const LINUX: &str = "x86_64-unknown-linux-gnu";
 const MAC_ARM: &str = "aarch64-apple-darwin";
-const MAC_X64: &str = "x86_64-apple-darwin";
 const V: &str = "0.2.0";
 
 fn b64(text: &str) -> String {
@@ -125,7 +124,7 @@ fn a_tauri_cli_key_signs_here_and_a_tauri_cli_signature_verifies_here() {
 /// secret half is one every launcher accepts.
 #[test]
 fn the_launchers_configured_public_key_is_a_minisign_public_key() {
-    let conf = std::fs::read_to_string(workspace_root().join("dereth/launcher/tauri.conf.json"))
+    let conf = std::fs::read_to_string(workspace_root().join("launcher/tauri.conf.json"))
         .expect("tauri.conf.json");
     let key = sign::launcher_public_key(&conf).expect("a pubkey");
     let text = String::from_utf8(
@@ -171,7 +170,6 @@ fn platforms_are_keyed_as_the_updater_names_them_and_files_come_from_the_tag() {
     assert_eq!(target(WINDOWS).updater_platform(), "windows-x86_64");
     assert_eq!(target(LINUX).updater_platform(), "linux-x86_64");
     assert_eq!(target(MAC_ARM).updater_platform(), "darwin-aarch64");
-    assert_eq!(target(MAC_X64).updater_platform(), "darwin-x86_64");
     assert_eq!(
         dereth::download_url("https://github.com/dereth-network/dereth/", V, "a.zip"),
         "https://github.com/dereth-network/dereth/releases/download/dereth-v0.2.0/a.zip"
@@ -256,7 +254,7 @@ fn the_windows_launcher_zip_holds_the_launcher_and_the_client_in_one_folder() {
 #[test]
 fn the_launchers_release_configuration_names_no_machine_folder() {
     let ws = workspace_root();
-    let app = ws.join("dereth").join("launcher");
+    let app = ws.join("launcher");
     let stage = ws.join("target").join("package").join("stage").join("x");
     let client = stage.join("bin").join("dereth-client");
     let tool = stage.join("bin").join("dereth-plugin");
@@ -270,17 +268,17 @@ fn the_launchers_release_configuration_names_no_machine_folder() {
         assert_eq!(
             c["externalBin"],
             serde_json::json!([
-                "../../target/package/stage/x/bin/dereth-client",
-                "../../target/package/stage/x/bin/dereth-plugin"
+                "../target/package/stage/x/bin/dereth-client",
+                "../target/package/stage/x/bin/dereth-plugin"
             ])
         );
         assert_eq!(
-            c["resources"]["../../target/package/stage/x/notices/NOTICE.txt"],
+            c["resources"]["../target/package/stage/x/notices/NOTICE.txt"],
             "NOTICE.txt"
         );
         // The retail client's friends library, beside the notices.
         assert_eq!(
-            c["resources"]["../../target/package/stage/x/auberean_friends.dll"],
+            c["resources"]["../target/package/stage/x/auberean_friends.dll"],
             "auberean_friends.dll"
         );
         let text = c.to_string();
@@ -305,7 +303,7 @@ fn a_release_carries_the_plugin_authors_tool_beside_the_client() {
         "Contents/MacOS/dereth-plugin"
     );
     assert_eq!(dereth::tool_in_release(target(LINUX)), "dereth-plugin");
-    for t in [WINDOWS, MAC_ARM, MAC_X64] {
+    for t in [WINDOWS, MAC_ARM] {
         let (required, _) = dereth::contents(target(t));
         let tool = dereth::tool_in_release(target(t));
         assert!(required.contains(&tool), "{t}: {required:?}");
@@ -626,14 +624,18 @@ fn dereth_builds_natively_and_names_what_is_missing() {
     };
     assert!(targets::plan_dereth(target(WINDOWS), &host(Os::Windows)).is_ok());
     assert!(targets::plan_dereth(target(LINUX), &host(Os::Windows)).is_err());
-    assert!(targets::plan_dereth(target(MAC_X64), &host(Os::Mac)).is_ok());
+    assert!(targets::plan_dereth(target(MAC_ARM), &host(Os::Mac)).is_ok());
     let missing = targets::Host {
-        installed: Some(vec![MAC_ARM.to_owned()]),
+        installed: Some(vec![WINDOWS.to_owned()]),
         ..host(Os::Mac)
     };
-    let e = targets::plan_dereth(target(MAC_X64), &missing).expect_err("not installed");
+    let e = targets::plan_dereth(target(MAC_ARM), &missing).expect_err("not installed");
     assert!(e.contains("rustup target add"), "{e}");
     assert!(targets::find_dereth("aarch64-unknown-linux-gnu").is_err());
+    assert!(
+        targets::find_dereth("x86_64-apple-darwin").is_err(),
+        "Intel Macs are no longer released for"
+    );
 }
 
 /// A Linux host whose glibc is newer than the release's floor is refused while the packages are
@@ -675,10 +677,10 @@ fn a_linux_host_with_a_newer_glibc_is_refused_before_anything_is_built() {
 
 // ---------------------------------------------------------------- version and tag
 
-/// The client, the launcher, the web client, the headless client and the plugin author's tool
-/// carry one version, which the tag must name exactly.
+/// The client, the web client, the headless client and the plugin author's tool carry one version,
+/// which the tag must name exactly.
 #[test]
-fn the_client_and_the_launcher_carry_one_version_which_the_tag_names() {
+fn dereths_crates_carry_one_version_which_the_tag_names() {
     let ws = workspace_root();
     let v = Product::Dereth.version(&ws).expect("the two agree");
     version::parse_release_version(&v).expect("a release version");
@@ -700,10 +702,10 @@ fn every_file_the_dereth_package_reads_from_the_tree_is_there() {
     for path in [
         "dereth/about.toml",
         "dereth/about.hbs",
-        "dereth/launcher/Cargo.toml",
-        "dereth/launcher/tauri.conf.json",
-        "dereth/launcher/assets/fonts/OFL-Cinzel.txt",
-        "dereth/launcher/assets/fonts/OFL-EBGaramond.txt",
+        "launcher/Cargo.toml",
+        "launcher/tauri.conf.json",
+        "launcher/assets/fonts/OFL-Cinzel.txt",
+        "launcher/assets/fonts/OFL-EBGaramond.txt",
         "LICENSE",
     ] {
         assert!(ws.join(path).is_file(), "{path}");
@@ -834,7 +836,6 @@ fn the_plugin_authors_tool_is_a_release_file_for_each_platform() {
             "dereth-plugin-0.2.0-windows-x86_64.zip",
             "dereth-plugin-0.2.0-linux-x86_64.tar.gz",
             "dereth-plugin-0.2.0-macos-aarch64.tar.gz",
-            "dereth-plugin-0.2.0-macos-x86_64.tar.gz",
         ]
     );
     for triple in targets::DERETH_TRIPLES {

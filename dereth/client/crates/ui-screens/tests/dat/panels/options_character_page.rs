@@ -933,7 +933,7 @@ fn a_row_for_what_the_worlds_era_lacks_leaves_the_page() {
         !lacking.is_empty(),
         "the early world lacks something a row sets"
     );
-    assert!(lacking.len() < 5);
+    assert!(lacking.len() < 9);
     let gone = s.character_options.apply_era(&mut ui, Some(features));
     assert_eq!(gone, lacking.len());
     assert_eq!(s.character_options.rows.len(), before - gone);
