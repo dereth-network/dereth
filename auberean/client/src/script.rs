@@ -1,6 +1,9 @@
 //! A developer's script of input (`--dev-script FILE`): keys, buttons and mouse motion handed to the
 //! shell at set moments, and screenshots of the window, for trying the world the same way twice.
-//! Never a player's.
+//! Never a player's. While it plays the window hears the script alone: a real key or mouse does
+//! nothing, the real pointer is not taken for mouse look, and it plays the same in a window that is
+//! not the active one, behind others or on a locked screen. When its steps are done the window
+//! hears the devices again.
 //!
 //! One step a line; `#` starts a comment:
 //!
@@ -207,6 +210,11 @@ impl Script {
         })
     }
 
+    /// Whether steps are left, or a key or a button still to let up.
+    pub fn playing(&self) -> bool {
+        self.at < self.steps.len() || !self.release.is_empty() || !self.buttons.is_empty()
+    }
+
     /// What to do at `now`, in `phase`, with the player where `status` says.
     pub fn step(&mut self, now: f64, phase: Phase, status: &Status) -> Asked {
         let mut a = Asked::default();
@@ -343,5 +351,41 @@ impl Script {
             self.at += 1;
         }
         a
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Behaviour: none (tooling: a developer's script of input)
+    use super::*;
+
+    fn script(text: &str) -> Script {
+        Script {
+            steps: parse(text).expect("the script reads"),
+            at: 0,
+            until: None,
+            release: Vec::new(),
+            buttons: Vec::new(),
+            shots: PathBuf::new(),
+        }
+    }
+
+    #[test]
+    fn a_script_can_hold_either_alt_key() {
+        assert_eq!(
+            parse("down altleft\nup altright"),
+            Ok(vec![Step::Down(Key::AltLeft), Step::Up(Key::AltRight)])
+        );
+    }
+
+    #[test]
+    fn a_script_plays_until_its_last_key_is_let_up() {
+        let mut s = script("press w");
+        let status = Status::default();
+        assert!(s.playing());
+        s.step(0.0, Phase::Characters, &status);
+        assert!(s.playing(), "the key goes up on the next frame");
+        s.step(0.1, Phase::Characters, &status);
+        assert!(!s.playing());
     }
 }

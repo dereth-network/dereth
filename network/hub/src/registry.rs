@@ -419,7 +419,7 @@ pub fn is_address(s: &str) -> bool {
 }
 
 /// The game a world's registry record names: `dereth` when it names none.
-fn game_of(registry: &Value) -> Game {
+pub(crate) fn game_of(registry: &Value) -> Game {
     registry["game"]
         .as_str()
         .and_then(|g| g.parse().ok())

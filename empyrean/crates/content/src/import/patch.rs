@@ -387,6 +387,9 @@ fn is_root(table: &str) -> bool {
             | "encounter"
             | "cook_book"
             | "recipe"
+            | "recipe_requirements_vital"
+            | "empyrean_grouped_treasure"
+            | "empyrean_loot_policy"
             | "event"
             | "house_portal"
             | "points_of_interest"
@@ -405,6 +408,9 @@ fn is_root(table: &str) -> bool {
 fn single_table(table: &str) -> Option<TableId> {
     Some(match table {
         "recipe" => TableId::RECIPE,
+        "recipe_requirements_vital" => TableId::RECIPE_VITAL,
+        "empyrean_grouped_treasure" => TableId::GROUPED_TREASURE,
+        "empyrean_loot_policy" => TableId::LOOT_POLICY,
         "event" => TableId::EVENT,
         "house_portal" => TableId::HOUSE_PORTAL,
         "points_of_interest" => TableId::POINTS_OF_INTEREST,
@@ -478,6 +484,9 @@ fn record_of(
                 _ => None,
             }
         }
+        "recipe_requirements_vital" => with(store, TableId::RECIPE_VITAL, "id")?,
+        "empyrean_grouped_treasure" => with(store, TableId::GROUPED_TREASURE, "id")?,
+        "empyrean_loot_policy" => with(store, TableId::LOOT_POLICY, "id")?,
         "recipe_mod" => with(store, TableId::RECIPE, "recipe_Id")?,
         t if t.starts_with("recipe_requirements_") => with(store, TableId::RECIPE, "recipe_Id")?,
         t if t.starts_with("recipe_mods_") => {
@@ -562,6 +571,9 @@ pub(crate) fn root_rows(store: &mut Store, key: RecKey) -> Result<Vec<(usize, u3
 
 const TABLE_OF: &[(TableId, &str)] = &[
     (TableId::RECIPE, "recipe"),
+    (TableId::RECIPE_VITAL, "recipe_requirements_vital"),
+    (TableId::GROUPED_TREASURE, "empyrean_grouped_treasure"),
+    (TableId::LOOT_POLICY, "empyrean_loot_policy"),
     (TableId::EVENT, "event"),
     (TableId::HOUSE_PORTAL, "house_portal"),
     (TableId::POINTS_OF_INTEREST, "points_of_interest"),

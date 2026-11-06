@@ -212,3 +212,16 @@ fn the_file_list_and_the_cache_count_are_aces_all_files_and_file_cache() {
     let _ = cell.read_from_dat::<empyrean_dat::file_types::CellLandblock>(0xA9B4_FFFF);
     assert_eq!(cell.file_cache_count(), before + 1);
 }
+
+/// The 1999 pair is the Launch era's, so it is no mismatch; any other pair from before Throne of
+/// Destiny is compared with February 2005's.
+#[test]
+fn a_pair_from_1999_is_compared_with_itself() {
+    use empyrean_dat::dat_manager::{
+        pre_tod_iterations, ITERATION_CELL_FEBRUARY_2005, ITERATION_PORTAL_FEBRUARY_2005,
+    };
+    let february = (ITERATION_CELL_FEBRUARY_2005, ITERATION_PORTAL_FEBRUARY_2005);
+    assert_eq!(pre_tod_iterations(Some(105), Some(67)), (67, 105));
+    assert_eq!(pre_tod_iterations(Some(2112), Some(1593)), february);
+    assert_eq!(pre_tod_iterations(None, Some(67)), february);
+}

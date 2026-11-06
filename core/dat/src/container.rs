@@ -21,6 +21,9 @@ use crate::btree::{BtEntry, BtNode};
 use crate::error::DatError;
 use crate::layout::{ContainerLayout, HeaderLayout};
 
+/// The most one read of a chain asks for, in bytes.
+const READ_AHEAD: usize = 32 * 1024;
+
 /// Where a container's bytes are kept: a positional read that fills `buf` from `offset` or fails.
 ///
 /// A file on disk is the usual storage. A platform with no file system the client can open by path
@@ -518,6 +521,18 @@ impl DatFile {
         Self::iterations_of(Self::header_only(path, storage, None)?)
     }
 
+    /// [`DatFile::read_iterations_as`] over bytes kept in `storage`.
+    ///
+    /// # Errors
+    /// As [`DatFile::read_iterations_as`].
+    pub fn read_iterations_from_as(
+        path: PathBuf,
+        storage: Box<dyn DatStorage>,
+        layout: &ContainerLayout,
+    ) -> Result<FileIterations, DatError> {
+        Self::iterations_of(Self::header_only(path, storage, Some(layout))?)
+    }
+
     fn iterations_of(me: Self) -> Result<FileIterations, DatError> {
         /// The list is 12 bytes in every retail file; anything this large is not one.
         const MAX_LIST: u32 = 64 * 1024;
@@ -852,24 +867,54 @@ impl DatFile {
         self.read_chain(id, e.offset, e.size as usize)
     }
 
-    /// Each block is `[next:4][payload:blockSize-4]`; a
-    /// link with bit 31 set means the walk stepped into a free block, which is a hard failure.
+    /// Each block is `[next:4][payload:blockSize-4]`; a link with bit 31 set means the walk stepped
+    /// into a free block, which is a hard failure.
+    ///
+    /// A chain's blocks mostly lie in a row, so one read takes as many of the blocks still wanted as
+    /// [`READ_AHEAD`] allows, and the walk uses them for as long as the links stay in it. What the
+    /// chain doesn't use is never looked at. A read that doesn't fit (past the file's end) falls back
+    /// to the one block, which alone says whether the chain is broken.
     fn read_chain(&self, id: DataId, mut offset: u32, size: usize) -> Result<Vec<u8>, DatError> {
         let per = self.header.payload_per_block();
+        let block_size = self.header.block_size as usize;
+        let most = (READ_AHEAD / block_size).max(1);
         let mut out = Vec::with_capacity(size);
-        let mut block = vec![0u8; self.header.block_size as usize];
+        let mut buf = vec![0u8; (size.div_ceil(per.max(1))).clamp(1, most) * block_size];
         let mut remaining = size;
         while remaining > 0 && offset != 0 {
-            let take = remaining.min(per);
-            // One read of link + payload, exactly as SyncRead(dst - 4, n + 4, offset) does.
-            self.read_exact_at(u64::from(offset), &mut block[..take + 4])?;
-            let link = u32::from_le_bytes([block[0], block[1], block[2], block[3]]);
-            if link & 0x8000_0000 != 0 {
-                return Err(DatError::FreeBlockInChain { id, offset });
+            let wanted = |blocks: usize| {
+                let whole = (blocks - 1) * per;
+                (blocks - 1) * block_size + remaining.saturating_sub(whole).min(per) + 4
+            };
+            let blocks = remaining.div_ceil(per).clamp(1, most);
+            let mut len = wanted(blocks);
+            let read = self.read_exact_at(u64::from(offset), &mut buf[..len]);
+            if read.is_err() && blocks > 1 {
+                len = wanted(1);
+                self.read_exact_at(u64::from(offset), &mut buf[..len])?;
+            } else {
+                read?;
             }
-            out.extend_from_slice(&block[4..take + 4]);
-            remaining -= take;
-            offset = link;
+            let mut at = 0;
+            loop {
+                let take = remaining.min(per);
+                let link = u32::from_le_bytes([buf[at], buf[at + 1], buf[at + 2], buf[at + 3]]);
+                if link & 0x8000_0000 != 0 {
+                    return Err(DatError::FreeBlockInChain { id, offset });
+                }
+                out.extend_from_slice(&buf[at + 4..at + 4 + take]);
+                remaining -= take;
+                let in_a_row = u64::from(link) == u64::from(offset) + block_size as u64;
+                offset = link;
+                if remaining == 0 || offset == 0 || !in_a_row {
+                    break;
+                }
+                let next = at + block_size;
+                if next + remaining.min(per) + 4 > len {
+                    break;
+                }
+                at = next;
+            }
         }
         if remaining != 0 {
             return Err(DatError::ChainTooShort {

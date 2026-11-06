@@ -45,6 +45,8 @@ pub(crate) struct HorizonKeys {
     strings: dereth_horizon::strings::Strings,
     /// The chat lines the mouse-turning keys print, for the interface to show.
     pub lines: Vec<&'static str>,
+    /// The systems the world has; a key for what it lacks is not listed.
+    era: Option<dereth_primitives::EraFeatures>,
 }
 
 /// The game's names for keys, from its string tables.
@@ -113,6 +115,14 @@ fn same(a: &[ControlChord], b: &[ControlChord]) -> bool {
 }
 
 impl HorizonKeys {
+    /// The systems the world has, once the world says or they change.
+    pub fn set_era(&mut self, features: dereth_primitives::EraFeatures) {
+        if self.era != Some(features) {
+            self.era = Some(features);
+            self.stale = true;
+        }
+    }
+
     /// Carry out what the page asked, and take the key it is waiting for, if one came.
     pub fn serve(&mut self, input: &mut InputShell, requests: Vec<KeyRequest>) {
         for request in requests {
@@ -336,6 +346,7 @@ impl HorizonKeys {
             store,
         };
         let rows = presentation::horizon_page_rows()
+            .filter(|r| r.needs().met(self.era.as_ref()))
             .map(|r| {
                 let (map, action) = (r.map, r.action());
                 let keys = input.keys_for_action(action, map);

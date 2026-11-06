@@ -67,6 +67,10 @@ fn wearer() -> (Harness, usize, u64, ConnId) {
         0x1067,
         Props::default(),
     ));
+    h.server
+        .catalog
+        .implements
+        .insert(SWORD, yalain_world::skill_use::implement::SWORD);
     for d in [
         effect(NAMED, 0x0100_0783, Some(NAMED_NAME)),
         effect(UNSEEN, 0x0140_0782, None),

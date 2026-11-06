@@ -135,7 +135,19 @@ impl Panel for Examine {
                     false,
                     None,
                 );
-                if let Some(duration) = spell::duration_text(s.duration) {
+                if let Some(charge) = g.spell_charge(id) {
+                    text(
+                        &mut f,
+                        rect(150, 51, 146, 20),
+                        spell::charge_text(charge),
+                        "15-6",
+                        CREAM,
+                        2,
+                        false,
+                        None,
+                    );
+                }
+                if let Some(duration) = spell::duration_text_for(s.duration, g.era_features()) {
                     text(
                         &mut f,
                         rect(150, 76, 146, 20),
@@ -397,11 +409,17 @@ impl Panel for Examine {
             text(
                 &mut f,
                 rect(6, 52, 237, 16),
-                a.burden
-                    .filter(|v| *v >= 0)
-                    .map_or("Unknown Burden".into(), |v| {
-                        format!("{} Burden Units", number(v))
-                    }),
+                a.burden.filter(|v| *v >= 0).map_or_else(
+                    || {
+                        if a.launch_wording {
+                            "Unknown Mass"
+                        } else {
+                            "Unknown Burden"
+                        }
+                        .into()
+                    },
+                    |v| format!("{} Burden Units", number(v)),
+                ),
                 "16-7",
                 CREAM,
                 1,
@@ -493,6 +511,18 @@ impl Panel for Examine {
             } => {
                 let dy = ctx.layout.side_height() as i32 - 362;
                 self.inscription_focus = rect(4, 285 + dy, 292, 55).contains(x, y);
+                if self.inscription_focus {
+                    let refusal = self
+                        .object
+                        .or_else(|| ctx.game.selected_object())
+                        .and_then(|object| inscription_refusal(object, ctx.game));
+                    if let Some(text) = refusal {
+                        return vec![PanelAction::Host(HostAction::LocalFeedback {
+                            severity: crate::panels::FeedbackSeverity::Information,
+                            text,
+                        })];
+                    }
+                }
             }
             ControlEvent::Activate(id) if id == "close" => {
                 let mut actions = self.commit_inscription(ctx);
@@ -699,6 +729,77 @@ mod spell_tests {
                 .unwrap();
             assert_eq!(description, expected);
         }
+    }
+}
+
+/// What a press on the inscription says when the player cannot write there.
+fn inscription_refusal(object: ObjectId, g: &dyn GameView) -> Option<String> {
+    let a = g.appraisal(object)?;
+    let pane = appraisal_pane(a.creature, a.template, a.character_title);
+    if pane != AppraisalPane::Item || can_inscribe(object, &a, g) {
+        return None;
+    }
+    let scribe = a.scribe_name.as_deref().unwrap_or("");
+    let own = g
+        .character_name()
+        .is_some_and(|name| scribe.eq_ignore_ascii_case(name));
+    Some(if scribe.is_empty() && !a.inscribable {
+        "This item is not inscribable.".into()
+    } else if scribe.is_empty() || own {
+        "Item must be in your inventory to inscribe.".into()
+    } else {
+        format!("Only {scribe} can change the inscription")
+    })
+}
+
+#[cfg(test)]
+mod inscription_refusal_tests {
+    //! Behaviour: none (classic front-end adapter; no retail behaviour claim).
+    use super::*;
+
+    #[derive(Debug)]
+    struct View(AppraisalView, Option<(bool, u32)>);
+    impl GameView for View {
+        fn appraisal(&self, _: ObjectId) -> Option<AppraisalView> {
+            Some(self.0.clone())
+        }
+        fn inscription_mouse_facts(&self, _: ObjectId) -> Option<(bool, u32)> {
+            self.1
+        }
+        fn character_name(&self) -> Option<&str> {
+            Some("Me")
+        }
+    }
+    #[test]
+    fn a_press_on_an_inscription_the_player_cannot_write_says_why() {
+        let says = |inscribable: bool, scribe: Option<&str>| {
+            let view = View(
+                AppraisalView {
+                    inscribable,
+                    scribe_name: scribe.map(str::to_owned),
+                    ..Default::default()
+                },
+                Some((inscribable, 0)),
+            );
+            inscription_refusal(ObjectId(8), &view)
+        };
+        assert_eq!(
+            says(false, None).as_deref(),
+            Some("This item is not inscribable.")
+        );
+        assert_eq!(
+            says(true, None).as_deref(),
+            Some("Item must be in your inventory to inscribe."),
+            "nobody's writing, on something not carried"
+        );
+        assert_eq!(
+            says(true, Some("Me")).as_deref(),
+            Some("Item must be in your inventory to inscribe.")
+        );
+        assert_eq!(
+            says(true, Some("Asheron")).as_deref(),
+            Some("Only Asheron can change the inscription")
+        );
     }
 }
 

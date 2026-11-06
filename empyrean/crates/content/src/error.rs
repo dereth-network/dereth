@@ -8,6 +8,8 @@ use crate::pack::TableId;
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum PackError {
+    #[error("invalid source loot: {0}")]
+    InvalidLoot(String),
     #[error("magic {0:#018x}, expected {expected:#018x}", expected = crate::pack::format::MAGIC)]
     BadMagic(u64),
 

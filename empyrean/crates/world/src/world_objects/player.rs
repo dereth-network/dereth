@@ -150,6 +150,10 @@ pub fn handle_action_emote(w: &mut crate::World, this: empyrean_entity::ObjectGu
 // ACE: Player.HandleActionEnterPkLite
 /// `/pkl`: a permanent non-PK becomes PK Lite after the entry animation.
 pub fn handle_action_enter_pk_lite(w: &mut crate::World, this: empyrean_entity::ObjectGuid) {
+    // DIVERGE: `EraFeatures::pk_lite` (V461).
+    if !crate::world_objects::era_gates::has(w, this, w.era.features.pk_lite, "PK Lite") {
+        return;
+    }
     use crate::entity::actions::action_chain::ActionChain;
     use crate::entity::actions::i_actor::Actor;
     use empyrean_common::dotnet::CsCast;
@@ -191,6 +195,10 @@ pub fn handle_action_enter_pk_lite(w: &mut crate::World, this: empyrean_entity::
     let mut action_chain = ActionChain::new();
     action_chain.add_delay_seconds(w, f64::from(anim_time));
     action_chain.add_action(Actor::Object(this), move |w: &mut crate::World| {
+        // DIVERGE: `EraFeatures::pk_lite` (V461), again after the stance change.
+        if !w.era.features.pk_lite {
+            return;
+        }
         crate::world_objects::player_magic::set_is_busy(w, this, true);
 
         let name = crate::dispatch::name::name(w, this).unwrap_or_default();
@@ -212,6 +220,10 @@ pub fn handle_action_enter_pk_lite(w: &mut crate::World, this: empyrean_entity::
         inner_chain.add_delay_seconds(w, f64::from(anim_time));
         inner_chain.add_action(Actor::Object(this), move |w: &mut crate::World| {
             crate::world_objects::player_magic::set_is_busy(w, this, false);
+            // DIVERGE: `EraFeatures::pk_lite` (V461), again at the change of status.
+            if !w.era.features.pk_lite {
+                return;
+            }
 
             if crate::managers::property_manager::get_bool(w, "allow_pkl_bump", false, true).item {
                 // check for collisions
@@ -1268,6 +1280,32 @@ pub fn log_out(
     true
 }
 
+/// The gesture a character leaves the world with.
+///
+/// DIVERGE: V495. A motion table that has no logout gesture is one from before the gesture existed;
+/// its characters leave with the gesture they bind to a lifestone with.
+#[must_use]
+pub fn logout_motion(
+    w: &crate::World,
+    motion_table_id: u32,
+) -> empyrean_entity::enums::MotionCommand {
+    use empyrean_entity::enums::{MotionCommand, MotionStance};
+    let length = |motion| {
+        crate::physics::motion_table::get_animation_length(
+            w,
+            motion_table_id,
+            MotionStance::NonCombat,
+            motion,
+            1.0,
+        )
+    };
+    if length(MotionCommand::LogOut) == 0.0 && length(MotionCommand::Sanctuary) > 0.0 {
+        MotionCommand::Sanctuary
+    } else {
+        MotionCommand::LogOut
+    }
+}
+
 /// Starts the log-out: busy and logging out, into the final log-off queue, out of the fellowship,
 /// trade and the Turbine chat channels (unless the session ended abruptly), the pet destroyed;
 /// then `LogOut_Final` unless the player is dying.
@@ -1379,7 +1417,7 @@ pub fn log_out_final(
     this: empyrean_entity::ObjectGuid,
     skip_animations: bool,
 ) {
-    use empyrean_entity::enums::{MotionCommand, MotionStance, PhysicsState, PropertyBool};
+    use empyrean_entity::enums::{MotionStance, PhysicsState, PropertyBool};
 
     use crate::entity::actions::action_chain::ActionChain;
     use crate::entity::actions::i_actor::Actor;
@@ -1408,13 +1446,13 @@ pub fn log_out_final(
 
     crate::world_objects::world_object::enqueue_broadcast_physics_state(w, this);
 
-    let motion_command = MotionCommand::LogOut;
     // `var motion = new Motion(this, motionCommand);` is never used.
     let stance_non_combat = MotionStance::NonCombat;
     let motion_table_id = w.objects.get(this).map_or(
         0,
         crate::world_objects::world_object::WorldObject::motion_table_id,
     );
+    let motion_command = logout_motion(w, motion_table_id);
     let anim_length = crate::physics::motion_table::get_animation_length(
         w,
         motion_table_id,
@@ -1732,6 +1770,21 @@ pub fn examine(
         }
 
         success = chance > ThreadSafeRandom::next_float(0.0, 1.0);
+    } else if !w.era.features.appraisal_without_skills {
+        // DIVERGE: V487, a world before May 2002 rolls the appraisal skill for the item's kind
+        // against its difficulty, as a creature's appraisal rolls against its Deception.
+        let difficulty = chat::object(w, obj).resist_item_appraisal().unwrap_or(0);
+        if difficulty > 0 {
+            let skill = item_appraisal_skill(chat::object(w, obj));
+            let current: i32 = empyrean_common::dotnet::CsCast::cs_cast(
+                crate::world_objects::world_object_magic::creature_get_creature_skill_current(
+                    w, this, skill,
+                ),
+            );
+            let chance =
+                crate::world_objects::skill_check::get_skill_chance(current, difficulty, 0.03);
+            success = chance > ThreadSafeRandom::next_float(0.0, 1.0);
+        }
     }
 
     let o = chat::object(w, obj);
@@ -1754,6 +1807,31 @@ pub fn examine(
     crate::network::game_messages::game_message::enqueue_send(w, session, msg);
 
     on_appraisal(w, this, obj, success);
+}
+
+/// Not ACE: the appraisal skill an item is appraised with before May 2002: weapons with Weapon
+/// Appraisal, armor and clothing with Armor Appraisal, casters and items with spells with Magic
+/// Item Appraisal, anything else with Item Appraisal (the skills Tinkering later renamed).
+#[must_use]
+pub fn item_appraisal_skill(
+    item: &crate::world_objects::world_object::WorldObject,
+) -> empyrean_entity::enums::Skill {
+    use empyrean_entity::enums::{ItemType, Skill};
+    let kind = item.item_type();
+    let has_spells = item
+        .biota
+        .properties_spell_book
+        .as_ref()
+        .is_some_and(|b| !b.is_empty());
+    if kind.intersects(ItemType::Caster) || has_spells {
+        Skill::MagicItemTinkering
+    } else if kind.intersects(ItemType::Weapon) {
+        Skill::WeaponTinkering
+    } else if kind.intersects(ItemType::Vestements) {
+        Skill::ArmorTinkering
+    } else {
+        Skill::ItemTinkering
+    }
 }
 
 // ACE: Player.OnAppraisal

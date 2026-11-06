@@ -1,8 +1,8 @@
 //! The port of ACE's `Source/ACE.Common`, with the .NET-semantics shims, clocks, configuration and
 //! the not-ported instrument every server crate uses.
 //!
-//! **Depends on** the shared `dereth-primitives`, `dereth-protocol` and `dereth-transport`. **Used
-//! by** every other server crate: `empyrean-entity`, `empyrean-tables`, `empyrean-content`,
+//! **Depends on** the shared `dereth-primitives`, `dereth-protocol` and `dereth-transport`, and the
+//! game servers' `dereth-server-websocket` for its settings. **Used by** every other server crate: `empyrean-entity`, `empyrean-tables`, `empyrean-content`,
 //! `empyrean-store`, `empyrean-dat`, `empyrean-net`, `empyrean-world`, `empyrean-command`,
 //! `empyrean-server`, `empyrean-import` and `empyrean-testkit`.
 //!

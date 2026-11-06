@@ -669,14 +669,12 @@ pub fn treasure_generator(
     // so they can be searched in any order..
     // DIVERGE: the era's profile for a chest or ground generator (`era_death_treasure`).
     let death_treasure =
-        crate::factories::loot_generation_factory::era_death_treasure(w, data_id, generator);
+        crate::factories::loot_generation_factory::death_loot_profile(w, data_id, Some(generator));
     if let Some(death_treasure) = death_treasure {
         // TODO: get randomly generated death treasure from LootGenerationFactory
         //log.DebugFormat("{0}.TreasureGenerator(): found death treasure {1}", _generator.Name, Biota.WeenieClassId);
-        let items = crate::factories::loot_generation_factory::create_random_loot_objects(
-            w,
-            &death_treasure,
-        );
+        let items =
+            crate::factories::loot_generation_factory::create_death_loot(w, &death_treasure);
         return Some(insert_all(w, items));
     }
 

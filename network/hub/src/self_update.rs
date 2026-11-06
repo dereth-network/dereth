@@ -211,7 +211,6 @@ pub fn target_for(arch: &str, os: &str, env: &str) -> Option<&'static str> {
         ("aarch64", "linux", "gnu") => Some("aarch64-unknown-linux-gnu"),
         ("x86_64", "windows", "msvc") => Some("x86_64-pc-windows-msvc"),
         ("aarch64", "macos", _) => Some("aarch64-apple-darwin"),
-        ("x86_64", "macos", _) => Some("x86_64-apple-darwin"),
         _ => None,
     }
 }
@@ -1498,11 +1497,6 @@ mod tests {
             (
                 ("aarch64", "macos", ""),
                 "dereth-network-hub-0.1.2-aarch64-apple-darwin.tar.gz",
-                "dereth-network-hub",
-            ),
-            (
-                ("x86_64", "macos", ""),
-                "dereth-network-hub-0.1.2-x86_64-apple-darwin.tar.gz",
                 "dereth-network-hub",
             ),
         ] {

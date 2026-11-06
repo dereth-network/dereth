@@ -138,12 +138,6 @@ impl Preferences {
         }
     }
 
-    /// Read from another file from now on.
-    // D2-16047
-    pub fn set_preferences_file(&mut self, file: Profile) {
-        self.file = Some(file);
-    }
-
     /// The file read from.
     #[must_use]
     pub fn file(&self) -> Option<&Profile> {
@@ -224,13 +218,6 @@ impl Preferences {
     /// Set a yes-or-no (any number) for this run, kept as its decimal text.
     // D2-16062
     pub fn set_bool(&mut self, section: u32, key: u32, value: i32) {
-        self.note(section, key);
-        self.store(section, key, value.to_string());
-    }
-
-    /// Set an unsigned number for this run, kept as its decimal text.
-    // D2-16063
-    pub fn set_uint32(&mut self, section: u32, key: u32, value: u32) {
         self.note(section, key);
         self.store(section, key, value.to_string());
     }

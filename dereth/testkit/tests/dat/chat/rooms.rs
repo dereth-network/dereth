@@ -297,16 +297,19 @@ fn wide_entry(c: &mut HeadlessClient, hand: &mut Hand, text: &str) {
 }
 
 /// One journey of `input` through a host that spells its text in `code_page`.
-fn conversion_journey(code_page: u32, input: &str, native: &[u8], room_text: &str) -> bool {
+fn conversion_journey(
+    host: std::sync::Arc<dyn dereth_primitives::HostEncoding>,
+    input: &str,
+    native: &[u8],
+    room_text: &str,
+) -> bool {
     let mut c = a_bare_client(true);
     character_set(&mut c, true);
     describe(&mut c, true, true);
     // **The host is constructed, not the machine's.** Reading the machine's own code page and
     // measuring against it would make the claim depend on the locale of whatever ran it. Naming
     // the code page here is the same claim without that.
-    c.world_mut().chat.text_conversion = dereth_client_model::HostText::new(std::sync::Arc::new(
-        dereth_client_runtime::platform::text::HostAcp::for_ansi_code_page(code_page),
-    ));
+    c.world_mut().chat.text_conversion = dereth_client_model::HostText::new(host);
     room_list(&mut c);
     to_gameplay(&mut c);
 
@@ -395,21 +398,79 @@ fn conversion_journey(code_page: u32, input: &str, native: &[u8], room_text: &st
     spelled && framed && kept && same_spelling && on_the_other_queue && not_also_a_say
 }
 
+/// The three ideographs the scenario below types, as code page 932 spells them.
+const IDEOGRAPHS: [(u16, [u8; 2]); 3] = [
+    (0x65e5, [0x93, 0xfa]),
+    (0x672c, [0x96, 0x7b]),
+    (0x8a9e, [0x8c, 0xea]),
+];
+
+/// A host that spells [`IDEOGRAPHS`], for a machine whose system has no code page 932 to ask.
+#[derive(Debug)]
+struct IdeographHost;
+
+impl dereth_primitives::HostEncoding for IdeographHost {
+    fn narrow(&self, utf16: &[u16]) -> Option<Vec<u8>> {
+        let mut bytes = Vec::new();
+        for unit in utf16 {
+            match u8::try_from(*unit) {
+                Ok(byte) if byte.is_ascii() => bytes.push(byte),
+                _ => {
+                    let (_, spelled) = IDEOGRAPHS.iter().find(|(wide, _)| wide == unit)?;
+                    bytes.extend(spelled);
+                }
+            }
+        }
+        Some(bytes)
+    }
+
+    fn widen(&self, bytes: &[u8]) -> Option<Vec<u16>> {
+        let mut units = Vec::new();
+        let mut rest = bytes;
+        while let Some(first) = rest.first() {
+            if first.is_ascii() {
+                units.push(u16::from(*first));
+                rest = &rest[1..];
+            } else {
+                let (wide, _) = IDEOGRAPHS.iter().find(|(_, s)| rest.starts_with(s))?;
+                units.push(*wide);
+                rest = &rest[2..];
+            }
+        }
+        Some(units)
+    }
+
+    fn acp(&self) -> u32 {
+        932
+    }
+
+    fn english_ws_field(&self, utf16: &[u16]) -> Option<Vec<u8>> {
+        self.narrow(utf16)
+    }
+}
+
 /// What the host can spell is what goes on the wire, for an ordinary line and for a room line
 /// alike -- and a word it cannot spell is written out in the client's own escape rather than lost.
 pub fn the_hosts_own_spelling_is_what_goes_on_the_wire() {
+    use dereth_client_runtime::platform::text::HostAcp;
+
     // A host that spells the western alphabet: the accented letter it has and the ideograph it has
     // not are both written out in the escape, because one unspellable unit escapes the whole word.
     let western = conversion_journey(
-        1252,
+        std::sync::Arc::new(HostAcp::for_ansi_code_page(1252)),
         "cafe\u{e9}\u{4e00}",
         b"cafe<00e9><4e00>",
         "cafe<00e9><4e00>",
     );
     // A host that spells the ideographs: the same three characters keep their own bytes going out
-    // and come back as themselves on the room message.
+    // and come back as themselves on the room message. Windows has the code page itself.
+    let eastern_host: std::sync::Arc<dyn dereth_primitives::HostEncoding> = if cfg!(windows) {
+        std::sync::Arc::new(HostAcp::for_ansi_code_page(932))
+    } else {
+        std::sync::Arc::new(IdeographHost)
+    };
     let eastern = conversion_journey(
-        932,
+        eastern_host,
         "\u{65e5}\u{672c}\u{8a9e}",
         &[0x93, 0xfa, 0x96, 0x7b, 0x8c, 0xea],
         "\u{65e5}\u{672c}\u{8a9e}",

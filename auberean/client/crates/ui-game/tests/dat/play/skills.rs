@@ -218,6 +218,7 @@ fn a_panel_is_laid_out_as_a_tree_and_a_skill_trained_through_its_question() {
         ..Examination::default()
     });
     assert!(out.contains(&asked), "{out:?}");
+    assert!(out.contains(&Request::OpenExaminationPanel), "{out:?}");
     w.tick(&[request_changed(EXAMINE_SKILL, 0xB)]);
     let ui = &w.ui;
     assert_eq!(ui.node(foot).expect("node").state, Token::of("untrained"));
@@ -268,6 +269,34 @@ fn a_panel_is_laid_out_as_a_tree_and_a_skill_trained_through_its_question() {
         ..Examination::default()
     });
     assert!(out.contains(&asked), "{out:?}");
+}
+
+/// The scripts' notice of the player's points carries the experience to spend as the script machine
+/// holds a 64-bit number below a notice's receiver, its high word first: the foot shows the number,
+/// with both words in it, not its words swapped.
+///
+/// Behaviour: ui.skills.the-foot-shows-the-experience-the-points-notice-carries
+#[test]
+fn the_foot_shows_the_experience_the_points_notice_carries() {
+    let mut w = World::new();
+    w.skills = Some(melee());
+    w.key(tb::SKILL_PANEL);
+    w.tick(&[request_changed(EXAMINE_PANEL, MELEE)]);
+    w.tick(&[request_changed(EXAMINE_SKILL, 0xA)]);
+    const EXPERIENCE: u64 = 0x1_0000_0119;
+    let points = Notice {
+        native: notice::UPDATE_SKILL_PANEL,
+        about: Some(1),
+        words: vec![1, 0x119, 7, 0],
+        records: Vec::new(),
+    };
+    w.tick(&[points]);
+    w.tick(&[request_changed(EXAMINE_SKILL, 0xA)]);
+    let misc = w.text_of("MiscText").replace(',', "");
+    assert!(
+        misc.contains(&EXPERIENCE.to_string()),
+        "the foot says {misc:?}"
+    );
 }
 
 impl World {

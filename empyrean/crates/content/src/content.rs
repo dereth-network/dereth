@@ -13,6 +13,7 @@ use empyrean_entity::enums::WeenieType;
 
 use crate::entity::HouseListResults;
 use crate::import::WorldContent;
+use crate::loot::{DeathLootProfile, GroupedTreasureDeath, SourceLootPolicy};
 use crate::models::world::*;
 use crate::overlay::ContentOverlay;
 use crate::pack::Pack;
@@ -189,6 +190,8 @@ world_database_api! {
     fn get_cookbooks_by_recipe_id(&self, recipe_id: u32) -> Vec<Option<Arc<CookBook>>>;
     fn get_cached_recipe(&self, recipe_id: u32) -> Option<Arc<Recipe>>;
     fn get_recipe(&self, recipe_id: u32) -> Option<Arc<Recipe>>;
+    /// Optional current-vital preconditions, separate from the recipe costs.
+    fn get_recipe_vital_requirement(&self, recipe_id: u32) -> Option<RecipeVitalRequirement>;
 
     // Encounter
     fn get_encounter_cache_count(&self) -> i32;
@@ -234,6 +237,9 @@ world_database_api! {
     fn get_all_spell_names(&self) -> DotNetDict<u32, String>;
 
     // Treasure
+    fn get_grouped_treasure(&self, data_id: u32) -> Option<GroupedTreasureDeath>;
+    fn get_source_loot_policy(&self) -> Option<Arc<SourceLootPolicy>>;
+    fn get_death_loot_profile(&self, data_id: u32) -> Option<DeathLootProfile>;
     fn cache_all_treasures_death(&self);
     fn get_death_treasure_cache_count(&self) -> i32;
     fn get_cached_death_treasure(&self, data_id: u32) -> Option<Arc<TreasureDeath>>;
@@ -290,12 +296,15 @@ adders! {
     /// A cook book row; its recipe is joined from [`MemContent::recipe`] rows at query time.
     cook_book: CookBook => cook_books;
     recipe: Recipe => recipes;
+    recipe_vital_requirement: RecipeVitalRequirement => recipe_vital_requirements;
     event: Event => events;
     house_portal: HousePortal => house_portals;
     point_of_interest: PointsOfInterest => points_of_interest;
     quest: Quest => quests;
     spell: Spell => spells;
     treasure_death: TreasureDeath => treasure_death;
+    grouped_treasure: GroupedTreasureDeath => grouped_treasure;
+    source_loot_policy: SourceLootPolicy => loot_policies;
     treasure_gem_count: TreasureGemCount => treasure_gem_count;
     treasure_material_base: TreasureMaterialBase => treasure_material_base;
     treasure_material_color: TreasureMaterialColor => treasure_material_color;

@@ -46,7 +46,6 @@ impl FileSearch {
     }
 
     /// The folder the file was found in.
-    // D2-17661
     #[must_use]
     pub fn get_found_path(&self) -> String {
         self.found.clone()
@@ -55,7 +54,6 @@ impl FileSearch {
     /// Whether `file` is in `path` (the folder already found when `path` is empty). The folder and
     /// the name are run together as they are; a folder given while one is already found is not
     /// looked in. The folder is kept as the one found.
-    // D2-17662
     pub fn is_file_here(&mut self, host: &dyn LookHost, file: &str, path: &str) -> bool {
         if file.is_empty() {
             return false;
@@ -83,7 +81,6 @@ impl FileSearch {
     /// Look for `file`: in `path`, then, when `further`, in the working folder, the folder
     /// `PROJECT_DAT` names, and the registry's folder. Whether it was found (see
     /// [`FileSearch::get_found_path`]).
-    // D2-17663
     pub fn look_for_file(
         &mut self,
         host: &dyn LookHost,

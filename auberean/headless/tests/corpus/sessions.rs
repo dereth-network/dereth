@@ -5,7 +5,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 
+use auberean_client_sdk::protocol::types::IterationRun;
 use auberean_client_sdk::protocol::ClientMessage;
+use auberean_client_sdk::runtime::download::SERVER_LIBRARY_ITERATIONS;
 use auberean_testkit::double::recorded::{first_packets, game_logins, script};
 
 use crate::client_data;
@@ -77,6 +79,28 @@ fn recorded(o: &Outcome, mtype: u32) -> Vec<(f64, ClientMessage)> {
         .filter(|(_, m)| m.mtype == mtype)
         .filter_map(|(t, m)| ClientMessage::decode(&m.raw).ok().map(|c| (*t, c)))
         .collect()
+}
+
+/// The data versions a client sent, less the iterations of a server's library, which it lists
+/// whatever it holds and the recorded client didn't. Nothing else of them is taken out.
+fn without_a_servers_library(m: &ClientMessage) -> ClientMessage {
+    let mut m = m.clone();
+    if let ClientMessage::DataHeld(held) = &mut m {
+        let library = SERVER_LIBRARY_ITERATIONS;
+        for file in &mut held.files {
+            let runs = &mut file.iterations.runs;
+            let before = runs.len();
+            runs.retain(|r| {
+                !matches!(r, IterationRun::Run { count, first }
+                    if i64::from(*first) == i64::from(library.start)
+                        && i64::from(*count) == i64::from(library.end - library.start))
+            });
+            if runs.len() != before {
+                file.iterations.total -= (library.end - library.start).cast_unsigned();
+            }
+        }
+    }
+    m
 }
 
 /// Every recorded 2017 game login replays through the client to its end: its login connection
@@ -175,7 +199,7 @@ fn the_models_surroundings_and_inventory_agree_with_the_server() {
 }
 
 /// What the client sends on its own equals what the recorded client sent wherever it is not
-/// particular to the session: its data versions, its entries into the world and log-offs, the scene
+/// particular to the session: its data versions (but those it lists for a server's library), its entries into the world and log-offs, the scene
 /// drawn, and its position reports' cadence and flags; every blob's ordering type; and the stamps
 /// of the data versions, the entries and the log-offs. (The ordered stamps of the scene drawn and
 /// the position reports count every ordered message before them, the script calls the replay
@@ -199,7 +223,7 @@ fn what_the_client_sends_on_its_own_equals_the_recorded_client() {
         *t.entry("data versions sent").or_default() += held_o.len() as u64;
         for ((_, r), m) in held_r.iter().zip(&held_o) {
             *t.entry("data versions byte for byte").or_default() +=
-                u64::from(r.encode() == m.encode());
+                u64::from(r.encode() == without_a_servers_library(m).encode());
         }
         for (mtype, name, same) in [
             (0x1002B, "entries recorded", "entries byte for byte"),

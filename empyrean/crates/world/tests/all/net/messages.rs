@@ -624,7 +624,7 @@ fn build_event(class: &str, ses: &mut SessionData, a: &[Value]) -> GameMessage {
         "GameEventRegisterTrade" => game_event_register_trade::game_event_register_trade(ses, g(u(&a[0])), g(u(&a[1]))),
         "GameEventResetTrade" => game_event_reset_trade::game_event_reset_trade(ses, g(u(&a[0]))),
         "GameEventSetTurbineChatChannels" => {
-            game_event_set_turbine_chat_channels::game_event_set_turbine_chat_channels(ses, u(&a[0]), u(&a[1]))
+            game_event_set_turbine_chat_channels::game_event_set_turbine_chat_channels(ses, u(&a[0]), u(&a[1]), &game_event_set_turbine_chat_channels::ALL_ROOMS)
         }
         "GameEventStartGame" => game_event_start_game::game_event_start_game(ses, g(u(&a[0])), ChessColor(i(&a[1]))),
         "GameEventTell" => game_event_tell::game_event_tell_from(ses, s(&a[0]), s(&a[1]), u(&a[2]), u(&a[3]), ChatMessageType(u(&a[4]))),
@@ -887,6 +887,34 @@ fn character_list_serializes_deletion_times_and_server_options() {
 /// seconds left until it is deleted, at least 1 while the deletion is pending; a character not
 /// pending deletion is listed with 0.
 /// Divergence: V444
+/// Divergence: V498
+#[test]
+fn a_world_without_chat_rooms_uses_none_unless_the_network_room_needs_one() {
+    use empyrean_common::era::EraId;
+    use empyrean_world::entity::turbine_chat_channel as channel;
+    use empyrean_world::federation::{chat_rooms_in_use, room_open, RoomSlot};
+
+    let mut w = world();
+    w.era = EraId::Launch.rules();
+    assert!(!chat_rooms_in_use(&w), "Launch has no rooms at all");
+    assert!(!room_open(&w, channel::GENERAL));
+
+    w.era = EraId::Infiltration.rules();
+    assert!(chat_rooms_in_use(&w), "the allegiance room is older");
+    assert!(!room_open(&w, channel::GENERAL));
+
+    w.era = EraId::Eor.rules();
+    assert!(chat_rooms_in_use(&w));
+    assert!(room_open(&w, channel::GENERAL));
+
+    w.era = EraId::Launch.rules();
+    w.federation.settings.enabled = true;
+    w.federation.settings.global_room = Some(RoomSlot::Trade);
+    assert!(chat_rooms_in_use(&w), "the network's Global room stays on");
+    assert!(room_open(&w, channel::TRADE));
+    assert!(!room_open(&w, channel::GENERAL));
+}
+
 #[test]
 fn character_list_sends_the_seconds_left_until_a_pending_deletion() {
     let w = world(); // unix time 1_000_000
@@ -2881,7 +2909,8 @@ message_roundtrip_test!(
     game_event_set_turbine_chat_channels::game_event_set_turbine_chat_channels(
         &mut ses(),
         0x000B_0001,
-        6
+        6,
+        &game_event_set_turbine_chat_channels::ALL_ROOMS
     ),
     |d| {
         assert_eq!(

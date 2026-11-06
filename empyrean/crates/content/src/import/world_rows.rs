@@ -9,6 +9,7 @@ use std::collections::{BTreeMap, HashMap};
 use crate::error::ImportError;
 use crate::import::mysqldump::{DumpSink, Row, TableDef};
 use crate::import::WorldContent;
+use crate::loot::{GroupedTreasureDeath, SourceLootPolicy};
 use crate::models::world::*;
 use crate::records::FromRow;
 
@@ -26,7 +27,7 @@ macro_rules! world_rows {
             pub declared: Vec<String>,
         }
 
-        /// The dump table names of every ACE world table, in model order.
+        /// Supported dump table names, including optional extensions, in model order.
         pub const WORLD_TABLES: &[&str] = &[$(<$ty as FromRow>::TABLE),*];
 
         impl WorldRows {
@@ -62,6 +63,7 @@ world_rows! {
     points_of_interest: PointsOfInterest,
     quest: Quest,
     recipe: Recipe,
+    recipe_vital: RecipeVitalRequirement,
     recipe_mod: RecipeMod,
     recipe_mods_bool: RecipeModsBool,
     recipe_mods_did: RecipeModsDID,
@@ -77,6 +79,8 @@ world_rows! {
     recipe_requirements_string: RecipeRequirementsString,
     spell: Spell,
     treasure_death: TreasureDeath,
+    grouped_treasure: GroupedTreasureDeath,
+    loot_policy: SourceLootPolicy,
     treasure_gem_count: TreasureGemCount,
     treasure_material_base: TreasureMaterialBase,
     treasure_material_color: TreasureMaterialColor,
@@ -316,18 +320,27 @@ impl WorldRows {
         orphans(&mut orph, "recipe_requirements_int", rn);
         orphans(&mut orph, "recipe_requirements_string", rs);
 
+        let mut recipe_vital = group(self.recipe_vital, |r| r.id);
+        let mut recipe_vital_requirements = Vec::new();
+        for recipe in &recipes {
+            recipe_vital_requirements.extend(take!(recipe_vital, recipe.id));
+        }
+        orphans(&mut orph, "recipe_requirements_vital", recipe_vital);
         let content = WorldContent {
             weenies,
             landblock_instances: instances,
             encounters: self.encounter,
             cook_books: self.cook_book,
             recipes,
+            recipe_vital_requirements,
             events: self.event,
             house_portals: self.house_portal,
             points_of_interest: self.points_of_interest,
             quests: self.quest,
             spells: self.spell,
             treasure_death: self.treasure_death,
+            grouped_treasure: self.grouped_treasure,
+            loot_policies: self.loot_policy,
             treasure_gem_count: self.treasure_gem_count,
             treasure_material_base: self.treasure_material_base,
             treasure_material_color: self.treasure_material_color,

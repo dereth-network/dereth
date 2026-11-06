@@ -111,6 +111,8 @@ pub fn database() -> Files {
 pub struct Portal {
     pub dat: DatFile,
     pub ctx: Context,
+    /// The script library, read once: a catalog asks it of every template.
+    library: std::sync::OnceLock<Library>,
 }
 
 impl std::fmt::Debug for Portal {
@@ -120,6 +122,18 @@ impl std::fmt::Debug for Portal {
 }
 
 impl Portal {
+    /// The script library.
+    ///
+    /// # Panics
+    /// The library does not read.
+    #[must_use]
+    pub fn library(&self) -> Library {
+        self.dat
+            .read_checked(RECORD, Library::from_record)
+            .expect("the library reads")
+            .value
+    }
+
     /// The target install's portal file.
     ///
     /// # Panics
@@ -134,7 +148,11 @@ impl Portal {
             .expect("a portal file");
         let dat = DatFile::open(&p).expect("the portal file opens");
         let ctx = Context::from_portal(&dat).expect("its context reads");
-        Self { dat, ctx }
+        Self {
+            dat,
+            ctx,
+            library: std::sync::OnceLock::new(),
+        }
     }
 
     fn entity(&self, id: u32) -> Option<Entity> {
@@ -177,12 +195,23 @@ impl Portal {
                 .and_then(|l| l.names.name(p))
                 .map(str::to_string)
         };
+        let class = Props::class_of(id, &|e| self.entity(e)).map_or_else(Vec::new, |c| {
+            yalain_world_db::install::class_properties(
+                self.library.get_or_init(|| self.library()),
+                c,
+            )
+        });
+        let props = Props::of(id, &|e| self.entity(e), &name)
+            .with_places_of(self.qualities(yalain_content::qualities_id(id)).as_ref())
+            .with_worn_of(id)
+            .with_take_gate_of(id)
+            .with_class(&class);
         Template {
             id,
             description: describe(id, &|e| self.entity(e), &|q| self.qualities(q))
                 .expect("the template is described"),
-            facts: facts(id, &|e| self.entity(e), &self.fact_ids()),
-            props: Props::of(id, &|e| self.entity(e), &name),
+            facts: facts(id, &|e| self.entity(e), &self.fact_ids()).named_by(&props),
+            props,
         }
     }
 
@@ -192,8 +221,7 @@ impl Portal {
     /// The library or the skills' names do not read.
     #[must_use]
     pub fn skills(&self) -> SkillTable {
-        let lib = Library::from_record(&self.dat.read(RECORD).expect("the library"))
-            .expect("the library reads");
+        let lib = self.library();
         let names: EnumMap = auberean_assets::decode(
             SKILL_NAMES,
             &self.dat.read(SKILL_NAMES).expect("the skills' names"),
@@ -214,8 +242,7 @@ impl Portal {
     /// The library does not read.
     #[must_use]
     pub fn effects(&self, states: &[u32]) -> yalain_world::effect_defs::EffectTable {
-        let lib = Library::from_record(&self.dat.read(RECORD).expect("the library"))
-            .expect("the library reads");
+        let lib = self.library();
         let graph = |id: u32| -> Option<Graph> {
             let st: ScriptState =
                 auberean_assets::decode(id, &self.dat.read(id).ok()?, &self.ctx).ok()?;
@@ -232,8 +259,7 @@ impl Portal {
     /// The library does not read.
     #[must_use]
     pub fn mounts(&self, templates: &[u32]) -> yalain_world::mounts::Mounts {
-        let lib = Library::from_record(&self.dat.read(RECORD).expect("the library"))
-            .expect("the library reads");
+        let lib = self.library();
         let states: Vec<(u32, u32)> = self
             .dat
             .entries_in(0x6F00_0000, 0x6FFF_FFFF)
@@ -272,8 +298,7 @@ impl Portal {
     /// The library does not read.
     #[must_use]
     pub fn derives(&self, template: u32, names: &[&str]) -> bool {
-        let lib = Library::from_record(&self.dat.read(RECORD).expect("the library"))
-            .expect("the library reads");
+        let lib = self.library();
         let package = self.template(template).description.package;
         names
             .iter()
@@ -292,8 +317,7 @@ impl Portal {
         templates: &[u32],
         targets: &[(u32, u32)],
     ) -> yalain_world::usable::interactions::Interactions {
-        let lib = Library::from_record(&self.dat.read(RECORD).expect("the library"))
-            .expect("the library reads");
+        let lib = self.library();
         let states: Vec<u32> = templates
             .iter()
             .filter_map(|t| {
@@ -329,13 +353,21 @@ impl Portal {
         self.named_effects(templates, yalain_world::item_use::WORN)
     }
 
+    /// The effects these templates' deaths name, as the server reads them at start.
+    ///
+    /// # Panics
+    /// The library does not read.
+    #[must_use]
+    pub fn death_effects(&self, templates: &[u32]) -> yalain_world::item_use::ItemUses {
+        self.named_effects(templates, yalain_world::item_use::DIED)
+    }
+
     fn named_effects(
         &self,
         templates: &[u32],
         props: (&str, &str),
     ) -> yalain_world::item_use::ItemUses {
-        let lib = Library::from_record(&self.dat.read(RECORD).expect("the library"))
-            .expect("the library reads");
+        let lib = self.library();
         let ids: Vec<u32> = self
             .dat
             .entries_in(0x6F00_0000, 0x6FFF_FFFF)
@@ -367,8 +399,7 @@ impl Portal {
     /// The library does not read.
     #[must_use]
     pub fn crafting(&self, skills: &[u32], recipes: &[u32]) -> yalain_world::craft::Crafting {
-        let lib = Library::from_record(&self.dat.read(RECORD).expect("the library"))
-            .expect("the library reads");
+        let lib = self.library();
         let graph = |id: u32| -> Option<Graph> {
             let st: ScriptState =
                 auberean_assets::decode(id, &self.dat.read(id).ok()?, &self.ctx).ok()?;
@@ -397,8 +428,7 @@ impl Portal {
     /// The table does not read.
     #[must_use]
     pub fn levels(&self) -> LevelTable {
-        let lib = Library::from_record(&self.dat.read(RECORD).expect("the library"))
-            .expect("the library reads");
+        let lib = self.library();
         let st: ScriptState = auberean_assets::decode(
             LEVEL_TABLE,
             &self.dat.read(LEVEL_TABLE).expect("the level table"),
@@ -424,9 +454,11 @@ impl Portal {
             .entries_in(0x6F00_0000, 0x6FFF_FFFF)
             .map(|e| e.id)
             .collect();
+        let lib = self.library();
         let install = DatInstall::new(
             Box::new(|id| self.dat.read(id).ok()),
             self.ctx.clone(),
+            &lib,
             states,
         )
         .expect("the install reads");
@@ -467,6 +499,16 @@ impl Portal {
             });
             if !icon.is_empty() {
                 catalog.icons.insert(id, icon);
+            }
+            let tables = yalain_world::equip::dye_table(&t.props)
+                .into_iter()
+                .chain(yalain_content::treasure_looks::table_of(id));
+            for table in tables {
+                catalog.icon_tables.entry(table).or_insert_with(|| {
+                    yalain_content::icon_tables(table, &|did| {
+                        auberean_assets::decode(did, &self.dat.read(did).ok()?, &self.ctx).ok()
+                    })
+                });
             }
             catalog.insert(t);
         }

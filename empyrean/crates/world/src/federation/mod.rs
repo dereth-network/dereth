@@ -69,7 +69,10 @@ use crate::World;
 
 pub use dereth_network_protocol::address::looks_remote;
 pub use directory::{deleted, renamed};
-pub use rooms::{global_slot, mirrored_slots, room_said, KeptRooms, UNCARRIED_SECS};
+pub use rooms::{
+    chat_rooms_in_use, global_slot, mirrored_slots, network_room, room_open, room_said, KeptRooms,
+    UNCARRIED_SECS,
+};
 pub use social::{
     add_friend, friend_rows, on_login, on_logout, remove_all_friends, remove_friend,
     settings_changed, squelch,
@@ -202,7 +205,7 @@ pub const MAX_REMOTE_FRIENDS: usize = 100;
 pub const MAX_REMOTE_SQUELCHES: usize = 100;
 
 /// The most whole worlds one character may squelch.
-pub const MAX_SQUELCHED_WORLDS: usize = 50;
+pub const MAX_SQUELCHED_WORLDS: usize = dereth_network_protocol::limits::MAX_SQUELCHED_WORLDS;
 
 /// How long a stand-in id no character's record names (as a friend or a squelch) is kept after
 /// it was last used, in seconds: a day. Past that its identity is forgotten (the id itself is

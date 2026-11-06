@@ -9,7 +9,8 @@ use auberean_dat::DatKind;
 use auberean_protocol::login::{DataRecord, DataRefused, DataRequest};
 use auberean_protocol::{queue, ClientMessage, ServerMessage};
 use yalain_testkit::Harness;
-use yalain_world::download::{CELL_FILE, ENGLISH_FILE, PORTAL_FILE};
+use yalain_world::download::{DataFiles, CELL_FILE, ENGLISH_FILE, PORTAL_FILE};
+use yalain_world::reload::WorldTables;
 
 use super::character_select::{at_character_list, STEPS};
 
@@ -142,4 +143,268 @@ fn a_landblock_sent_brings_its_landblock_information_right_after_it() {
         assert_eq!(r.dat_file, CELL_FILE);
         assert_eq!(inflated(r), held[&(DatKind::Cell, r.id)]);
     }
+}
+
+const ROOM: u32 = 0x4000_0026;
+
+/// A record of this many bytes that compresses well.
+fn plain(id: u32, n: usize) -> Vec<u8> {
+    let mut v = id.to_le_bytes().to_vec();
+    v.resize(n, 9);
+    v
+}
+
+/// A client at its list asking for these, all in one pass of the world.
+fn asked(h: &mut Harness, b: usize, ids: impl IntoIterator<Item = u32>) {
+    for id in ids {
+        let r = ClientMessage::DataRequest(DataRequest { kind: ROOM, id });
+        h.bots[b].send(false, queue::DATABASE, &r);
+    }
+}
+
+fn refusals(h: &Harness, b: usize, from: usize) -> usize {
+    h.bots[b].inbox[from..]
+        .iter()
+        .filter(|r| matches!(r.message(), Some(ServerMessage::DataRefused(_))))
+        .count()
+}
+
+const MIB: usize = 1024 * 1024;
+
+/// The most a budget lets compress over three steps, one record of [`MIB`] begun past its end.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn most_compressed(at_once: f64, per_second: f64) -> u64 {
+    (at_once + 3.0 * yalain_testkit::STEP * per_second) as u64 + MIB as u64
+}
+
+fn long_records(n: u32, each: usize) -> BTreeMap<(DatKind, u32), Vec<u8>> {
+    (0..n)
+        .map(|i| ((DatKind::Local, 0x2500_0000 + i), plain(i, each)))
+        .collect()
+}
+
+/// A very long record is compressed before the world runs: however often it is asked for, a pass
+/// of the world compresses nothing for it, and every answer inflates to the record.
+/// Behaviour: server.data.answers-never-hold-up-the-world
+#[test]
+fn a_very_long_record_is_compressed_once_before_the_world_runs() {
+    let id = 0x2500_0000;
+    let record = plain(id, yalain_world::download::PREPARED_FROM);
+    let mut h = Harness::new();
+    let mut f = BTreeMap::new();
+    f.insert((DatKind::Local, id), record.clone());
+    h.server.data = Some(Box::new(f));
+    yalain_world::download::prepare(&mut h.server);
+    let b = at_character_list(&mut h, "one");
+    let from = h.bots[b].inbox.len();
+    asked(&mut h, b, [id; 5]);
+    h.run(10);
+    assert_eq!(
+        h.server.downloads.compressed, 0,
+        "nothing compressed in a pass"
+    );
+    let answers: Vec<DataRecord> = h.bots[b].inbox[from..]
+        .iter()
+        .filter_map(|r| match r.message() {
+            Some(ServerMessage::DataRecord(d)) => Some(d),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(answers.len(), 5, "each is answered");
+    for d in answers {
+        let mut back = Vec::new();
+        flate2::read::ZlibDecoder::new(&d.bytes[..])
+            .read_to_end(&mut back)
+            .expect("inflates");
+        assert_eq!(back, record);
+    }
+}
+
+/// What one connection's answers may compress at once has a limit, and what is past it is refused;
+/// time fills it again.
+/// Behaviour: server.data.answers-never-hold-up-the-world
+#[test]
+fn what_a_connections_answers_compress_at_once_has_a_limit() {
+    let mut h = Harness::new();
+    h.server.data = Some(Box::new(long_records(40, MIB)));
+    let b = at_character_list(&mut h, "one");
+    let from = h.bots[b].inbox.len();
+    asked(&mut h, b, (0..40).map(|i| 0x2500_0000 + i));
+    h.run(3);
+    let most = most_compressed(
+        yalain_world::download::CONNECTION_AT_ONCE,
+        yalain_world::download::CONNECTION_PER_SECOND,
+    );
+    let done = h.server.downloads.compressed;
+    assert!(done >= 8 * MIB as u64, "up to the limit: {done}");
+    assert!(done <= most, "no further: {done} of {most}");
+    h.run(10);
+    assert!(refusals(&h, b, from) > 0, "the rest are refused");
+    h.run_to(yalain_net::LocalTime(h.now.0 + 5.0));
+    let from = h.bots[b].inbox.len();
+    asked(&mut h, b, [0x2500_0000]);
+    h.run(10);
+    assert_eq!(refusals(&h, b, from), 0, "answered again in a while");
+}
+
+/// So has what all the world's answers compress at once, however many connections ask.
+/// Behaviour: server.data.answers-never-hold-up-the-world
+#[test]
+fn what_all_the_worlds_answers_compress_at_once_has_a_limit() {
+    let mut h = Harness::new();
+    h.server.data = Some(Box::new(long_records(8, MIB)));
+    let clients: Vec<usize> = ["a1", "a2", "a3", "a4", "a5", "a6"]
+        .map(|account| at_character_list(&mut h, account))
+        .to_vec();
+    for b in &clients {
+        asked(&mut h, *b, (0..8).map(|i| 0x2500_0000 + i));
+    }
+    h.run(3);
+    let most = most_compressed(
+        yalain_world::download::WORLD_AT_ONCE,
+        yalain_world::download::WORLD_PER_SECOND,
+    );
+    let done = h.server.downloads.compressed;
+    assert!(done >= 16 * MIB as u64, "up to the limit: {done}");
+    assert!(done <= most, "no further: {done} of {most}");
+}
+
+/// What a connection has waiting to be sent has a limit too: past it, requests are let go and
+/// nothing more is queued.
+/// Behaviour: server.data.answers-never-hold-up-the-world
+#[test]
+fn what_a_connection_has_waiting_to_be_sent_has_a_limit() {
+    // A record that does not compress, of the length prepared at the start.
+    let id = 0x2500_0000u32;
+    let mut x = 0x2545_F491_4F6C_DD1Du64;
+    let mut record = Vec::with_capacity(yalain_world::download::PREPARED_FROM + 8);
+    while record.len() < yalain_world::download::PREPARED_FROM {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        record.extend_from_slice(&x.to_le_bytes());
+    }
+    let mut h = Harness::new();
+    let mut f = BTreeMap::new();
+    f.insert((DatKind::Local, id), record);
+    h.server.data = Some(Box::new(f));
+    yalain_world::download::prepare(&mut h.server);
+    let b = at_character_list(&mut h, "one");
+    let conn = *h.server.sessions.keys().next().expect("logged in");
+    asked(&mut h, b, [id; 40]);
+    h.run(4);
+    let one = yalain_world::download::PREPARED_FROM / 400;
+    let waiting = h.net.large_waiting(conn);
+    assert!(
+        waiting >= yalain_world::download::MOST_WAITING / 2,
+        "a good part of the limit: {waiting}"
+    );
+    assert!(
+        waiting <= yalain_world::download::MOST_WAITING + one,
+        "no further: {waiting}"
+    );
+    asked(&mut h, b, [id; 40]);
+    h.run(4);
+    assert!(
+        h.net.large_waiting(conn) <= waiting,
+        "nothing more is queued"
+    );
+}
+
+/// Files with a world's overlay over them, which holds a word on every record they have.
+#[derive(Debug)]
+struct Overlaid(BTreeMap<(DatKind, u32), Vec<u8>>);
+
+impl DataFiles for Overlaid {
+    fn read(&self, file: DatKind, id: u32) -> Option<Vec<u8>> {
+        self.0.read(file, id)
+    }
+
+    fn very_long(&self) -> Vec<(DatKind, u32)> {
+        self.0.very_long()
+    }
+
+    fn overlaid(&self, _file: DatKind, _id: u32) -> bool {
+        true
+    }
+}
+
+/// The record a client gets when it asks for `id` of a kind that lives in the language's file.
+fn answer(h: &mut Harness, id: u32) -> Vec<u8> {
+    let b = at_character_list(h, "one");
+    let from = h.bots[b].inbox.len();
+    asked(h, b, [id]);
+    h.run(10);
+    let d = h.bots[b].inbox[from..]
+        .iter()
+        .find_map(|r| match r.message() {
+            Some(ServerMessage::DataRecord(d)) => Some(d),
+            _ => None,
+        })
+        .expect("it is answered");
+    let mut back = Vec::new();
+    if d.size == 0 {
+        back = d.bytes;
+    } else {
+        flate2::read::ZlibDecoder::new(&d.bytes[..])
+            .read_to_end(&mut back)
+            .expect("inflates");
+    }
+    back
+}
+
+/// A reload that opened the files again answers from them from then on, and a very long record a
+/// world's overlay holds is read for each answer: compressed before the world ran, it would still
+/// be answered as it was.
+/// Behaviour: server.data.a-reload-answers-from-the-overlay-as-it-now-is
+#[test]
+fn a_reload_answers_from_the_overlay_as_it_now_is() {
+    let (id, n) = (0x2500_0000, yalain_world::download::PREPARED_FROM);
+    let of = |fill: u8| {
+        let mut v = plain(id, n);
+        v[n - 1] = fill;
+        let mut f = BTreeMap::new();
+        f.insert((DatKind::Local, id), v);
+        f
+    };
+    let mut h = Harness::new();
+    h.server.data = Some(Box::new(Overlaid(of(1))));
+    yalain_world::download::prepare(&mut h.server);
+    assert_eq!(answer(&mut h, id)[n - 1], 1, "the overlay as it was");
+    assert!(
+        h.server.downloads.compressed > 0,
+        "nothing was kept for it before the world ran"
+    );
+
+    let t = WorldTables {
+        files: Some(Box::new(Overlaid(of(2)))),
+        ..WorldTables::default()
+    };
+    let clock = h.clock();
+    h.server.reload(&mut h.net, clock, t);
+    assert_eq!(answer(&mut h, id)[n - 1], 2, "the overlay as it now is");
+}
+
+/// What a world's overlay holds no word on stays compressed from before the world ran, whatever a
+/// reload opens: the install's files don't change.
+/// Behaviour: server.data.a-reload-answers-from-the-overlay-as-it-now-is
+#[test]
+fn a_very_long_record_no_overlay_holds_stays_compressed_over_a_reload() {
+    let (id, n) = (0x2500_0000, yalain_world::download::PREPARED_FROM);
+    let mut f = BTreeMap::new();
+    f.insert((DatKind::Local, id), plain(id, n));
+    let mut h = Harness::new();
+    h.server.data = Some(Box::new(f.clone()));
+    yalain_world::download::prepare(&mut h.server);
+    let t = WorldTables {
+        files: Some(Box::new(f)),
+        ..WorldTables::default()
+    };
+    let clock = h.clock();
+    h.server.reload(&mut h.net, clock, t);
+    assert_eq!(answer(&mut h, id).len(), n);
+    assert_eq!(
+        h.server.downloads.compressed, 0,
+        "nothing compressed in a pass"
+    );
 }

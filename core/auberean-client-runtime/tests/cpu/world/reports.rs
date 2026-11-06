@@ -80,6 +80,64 @@ fn reports_go_on_a_change_a_jump_and_every_fifth_of_a_second_while_moving() {
     assert!(!b.should_report(now + 0.01));
 }
 
+/// A turn too small to be a turn sends nothing: headings count as the same within 0.0002 radians,
+/// the way round through north included.
+///
+/// Behaviour: session.position.a-turn-under-the-heading-tolerance-is-not-reported
+#[test]
+fn a_turn_under_the_heading_tolerance_is_not_reported() {
+    let turned = |from: f32, to: f32| {
+        let mut b = placed();
+        let mut now = 0.0;
+        let mut reports = Vec::new();
+        b.ask(Motion {
+            forward: 0.0,
+            sideways: 0.0,
+            heading: from,
+            active: false,
+        });
+        run(&mut b, &mut now, 0.1, 0.01, &mut reports);
+        b.report(now, 0.0);
+        b.follow(
+            0x7574_0031,
+            Vec3 {
+                x: 100.0,
+                y: 100.0,
+                z: 50.0,
+            },
+            to,
+        );
+        b.should_report(now + 1.0)
+    };
+    assert!(!turned(90.0, 90.01), "under the tolerance");
+    assert!(turned(90.0, 90.02), "over the tolerance");
+    assert!(!turned(359.999, 0.0), "over north");
+}
+
+/// While the body turns toward a heading the report says that heading, not where it faces yet, and
+/// the check that follows compares where it faces with what was said, so it keeps reporting until
+/// the body gets there.
+///
+/// Behaviour: session.position.a-report-says-where-the-body-is-turning-to
+#[test]
+fn a_report_says_where_the_body_is_turning_to() {
+    let mut b = placed();
+    let here = Vec3 {
+        x: 100.0,
+        y: 100.0,
+        z: 50.0,
+    };
+    b.follow(0x7574_0031, here, 90.0);
+    b.turning_to(Some(180.0));
+    let r = b.report(0.0, 0.0);
+    assert_eq!(r.heading_motion >> 24, heading_byte(180.0));
+    assert!(b.should_report(1.0), "still facing 90");
+    b.follow(0x7574_0031, here, 180.0);
+    b.turning_to(None);
+    assert!(!b.should_report(2.0), "there");
+    assert_eq!(b.report(3.0, 0.0).heading_motion >> 24, heading_byte(180.0));
+}
+
 /// A report carries the heading in its top byte (255 to a full turn), the asked motion as bytes
 /// (sideways, forward, up; 127 for none), the moving flag while the player moves or turns, and the
 /// body's stamps.

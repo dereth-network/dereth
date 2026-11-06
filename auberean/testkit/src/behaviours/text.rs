@@ -196,6 +196,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "text.references.a-number-that-cannot-be-written-is-blank",
+        says: "A number variable that cannot be written still sets its variable, to nothing, so the line around it is written without it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-NUMBER-FAILED-BLANK"),
+        station: "auberean-text::cpu::references::a_number_that_cannot_be_written_is_blank_in_its_line",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "text.references.bucket",
         says: "A string reference's bucket among n is its literal text's hash (each unit added to the \
                hash times 16, the top four bits folded back in), else its table's and its token's \

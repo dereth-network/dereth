@@ -79,8 +79,8 @@ const FLAGS: &[(u32, Bit)] = &[
     (label::INSTANT_SCROLL, Bit::Options(0x2000)),
     (label::GOLD_MELTING, Bit::Opposite(0x400)),
     (label::LATENCY_GRAPH, Bit::Options(super::LATENCY_GRAPH)),
-    (label::FELLOWS_ON_MAP, Bit::Options(0x8000)),
-    (label::PET_PANEL, Bit::Options(0x1_0000)),
+    (label::FELLOWS_ON_MAP, Bit::Opposite(0x8000)),
+    (label::PET_PANEL, Bit::Opposite(0x1_0000)),
     (label::CLASSIC_EXAMINATION, Bit::Options(0x2_0000)),
     (label::RADAR_MONSTERS, Bit::Radar(0x1)),
     (label::RADAR_NPCS, Bit::Radar(0x2)),
@@ -527,7 +527,7 @@ impl CharacterPage {
                     else {
                         return;
                     };
-                    ui.update(list);
+                    ui.list_update_and_draw(list);
                 }
                 self.update_buttons(ui);
             }
@@ -558,7 +558,7 @@ impl CharacterPage {
 
     /// The player's options as the client last read them: shown again when read again (the
     /// scripts read them again, the radar's coordinates were shown or hidden, the bar's rows set).
-    // D2-02832
+    // D2-02832, D2-00158
     pub fn update(&mut self, ui: &mut Ui, v: Option<&Values>) {
         let Some(v) = v else { return };
         if self.shown.is_none_or(|s| s.read != v.read) {

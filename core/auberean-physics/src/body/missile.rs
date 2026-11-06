@@ -11,7 +11,7 @@
 use auberean_primitives::random::Random;
 use dereth_primitives::{Position, Vec3};
 
-use super::{Body, Notice};
+use super::{Body, Notice, Wind};
 use crate::collision::CollisionReport;
 use crate::geom::{self, Heading};
 use crate::land::Land;
@@ -30,7 +30,7 @@ pub struct Seen {
     pub position: Position,
     pub heading: Heading,
     pub velocity: Vec3,
-    /// It moves.
+    /// Its body is not static.
     pub dynamic: bool,
     /// It is itself a guided missile.
     pub guided: bool,
@@ -85,7 +85,7 @@ impl Objects for NoObjects {
 #[derive(Clone, Debug, Default)]
 pub struct ObjectTable {
     seen: std::collections::BTreeMap<u64, (Seen, f32, Vec3)>,
-    pub wind: Vec3,
+    pub wind: Wind,
     /// The client's one generator (a table of its own by default).
     pub dice: Random,
 }
@@ -116,8 +116,11 @@ impl ObjectTable {
         );
     }
 
-    /// Notes an object that does not move, standing at `at`, `height` tall at scale `scale`.
-    pub fn note_still(&mut self, id: u64, at: Position, height: f32, scale: Vec3) {
+    /// Notes body `body` as object `id`, one that stands where it is put at scale `scale` rather
+    /// than moving as a body, a player or creature or not. Standing still does not make it static:
+    /// that is its state's to say.
+    pub fn note_still(&mut self, id: u64, body: &Body, scale: Vec3, player_or_creature: bool) {
+        let at = body.position;
         self.seen.insert(
             id,
             (
@@ -125,11 +128,11 @@ impl ObjectTable {
                     position: at,
                     heading: geom::frame_heading(&at.frame),
                     velocity: Vec3::ZERO,
-                    dynamic: false,
-                    guided: false,
-                    player_or_creature: false,
+                    dynamic: !body.is_static(),
+                    guided: body.missile.is_some(),
+                    player_or_creature,
                 },
-                height,
+                body.height(),
                 scale,
             ),
         );
@@ -170,7 +173,7 @@ impl Objects for ObjectTable {
         self.dice.check(chance)
     }
     fn wind(&self) -> Vec3 {
-        self.wind
+        self.wind.0
     }
 }
 
@@ -311,13 +314,6 @@ fn with_guidance<R>(
 }
 
 impl Body {
-    /// Whether the body flies as a missile.
-    // D2-06188
-    #[must_use]
-    pub const fn has_missile_manager(&self) -> bool {
-        self.missile.is_some()
-    }
-
     /// The body's guidance, taken out to run; made when it has none, which wakes its movement.
     fn take_guidance(&mut self) -> Box<Guidance> {
         if let Some(g) = self.missile.take() {
@@ -351,7 +347,6 @@ impl Body {
     }
 
     /// New flight settings; its lifespan and fuel start again.
-    // D2-06241
     pub fn missile_init_missile_parameters(
         &mut self,
         land: &Land,
@@ -367,7 +362,6 @@ impl Body {
     }
 
     /// New aim; the target is looked for again.
-    // D2-06242
     pub fn missile_init_targeting_parameters(
         &mut self,
         land: &Land,
@@ -383,7 +377,6 @@ impl Body {
     }
 
     /// Sets the missile up, then places and launches it when due; true when both took.
-    // D2-05912
     pub fn missile_init_place_and_fire(
         &mut self,
         land: &Land,
@@ -404,12 +397,10 @@ impl Body {
         self.missile_order(Guidance::place_and_fire)
     }
 
-    // D2-06206
     pub fn missile_place(&mut self) -> bool {
         self.missile_order(Guidance::place)
     }
 
-    // D2-06207
     pub fn missile_fire(&mut self) -> bool {
         self.missile_order(Guidance::fire)
     }
@@ -425,7 +416,6 @@ impl Body {
 
     /// The direction the missile would launch in and how fast; a failure (or no guidance, 5) is
     /// told to the game object.
-    // D2-06208
     pub fn missile_inquire_direction(
         &mut self,
         land: &Land,
@@ -446,14 +436,12 @@ impl Body {
     }
 
     /// The velocity the missile flies at, when it is one.
-    // D2-06209
     #[must_use]
     pub fn missile_inquire_current_velocity(&self) -> Option<Vec3> {
         self.missile.as_deref().map(|g| g.velocity)
     }
 
     /// New settings and aim in flight; a failure (or no guidance, 5) is told to the game object.
-    // D2-06210
     pub fn missile_retarget(
         &mut self,
         land: &Land,
@@ -491,8 +479,33 @@ impl Body {
         true
     }
 
+    /// What a description says of a body flying as a missile (the guidance made first when it has
+    /// none, which wakes its movement): where it aims, whether it is lit and in flight, the object
+    /// it aims at when there is one, and the velocity it flies at.
+    #[allow(clippy::too_many_arguments)]
+    pub fn take_missile_description(
+        &mut self,
+        land: &Land,
+        world: &mut World,
+        objects: &mut dyn Objects,
+        target_position: Position,
+        activated: bool,
+        moving: bool,
+        target: Option<(u64, bool, Vec3)>,
+        velocity: Vec3,
+    ) {
+        with_guidance(self, land, world, objects, |g, h| {
+            g.targeting.set_target_position(target_position);
+            g.set_activated(activated);
+            g.set_moving(h, moving);
+            if let Some((object, scaled, offset)) = target {
+                g.targeting.set_target_object(object, 0.0, scaled, offset);
+            }
+        });
+        self.set_missile_velocity(velocity, false);
+    }
+
     /// The server aimed the missile again: new settings and where its target is.
-    // D2-06239
     pub fn receive_retarget_missile(
         &mut self,
         land: &Land,

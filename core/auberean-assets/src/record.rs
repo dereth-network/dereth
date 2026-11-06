@@ -60,6 +60,8 @@ macro_rules! records {
     };
 }
 
+// One cache per type, each made with its type's allocator: a type here is what the caches hold.
+// D2-05180
 records! {
     CELL_MESH => CellMesh(mesh::CellMesh),
     SCENE => Scene(visual::Scene),

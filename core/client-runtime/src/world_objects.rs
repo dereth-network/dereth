@@ -582,7 +582,7 @@ pub fn sync_objects<H: ObjectAppearance>(
     let storm_player = stream.world.player;
     for intensity in storms {
         let played = storm_player.is_some_and(|p| {
-            ws.play_script_type(
+            ws.play_own_script(
                 p,
                 dereth_client_model::portal_storm::PS_PORTAL_STORM,
                 intensity,
@@ -688,7 +688,7 @@ fn play_hidden_script(
     hidden: bool,
 ) -> bool {
     let script_type = if hidden { 118 } else { 117 };
-    let played = ws.play_script_type(id, script_type, 1.0);
+    let played = ws.play_own_script(id, script_type, 1.0);
     counters.script(played);
     played
 }

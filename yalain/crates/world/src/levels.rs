@@ -84,6 +84,16 @@ impl LevelTable {
             .and_then(|i| self.levels.get(i))
     }
 
+    /// What a level takes to reach the next; nothing at the highest.
+    #[must_use]
+    pub fn to_next(&self, level: i32) -> Option<u64> {
+        Some(
+            self.level(level + 1)?
+                .xp
+                .saturating_sub(self.level(level)?.xp),
+        )
+    }
+
     /// The highest level.
     #[must_use]
     pub fn max_level(&self) -> i32 {

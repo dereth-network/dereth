@@ -1,7 +1,7 @@
 [package]
 name = "auberean-headless"
 description = "The client with no window: logs in to a server on loopback, enters the world and plays a script of actions, on the SDK alone."
-version = "0.1.2" # Auberean's own version, shared by the client and the headless client (not the workspace's)
+version = "0.1.4" # Auberean's own version, shared by the client and the headless client (not the workspace's)
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

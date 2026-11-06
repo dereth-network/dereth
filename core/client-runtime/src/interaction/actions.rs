@@ -813,10 +813,14 @@ impl Interaction {
                 // A key bound to one of these reads the option and writes its opposite through
                 // the same setter the Character Options page uses, so the change hook, the
                 // fellowship exclusions and the save-at-once split all apply. Lock-UI has an
-                // action name but no arm, and falls through unhandled.
+                // action name but no arm, and falls through unhandled. An option the world's
+                // Character Options page leaves out does not change: its saved value waits for
+                // the system to come back.
                 id if player_option_action(id.0).is_some() => {
                     if let Some(ordinal) = player_option_action(id.0) {
-                        self.toggle_player_option(game, &mut req, ordinal, srv);
+                        if option_offered(ordinal, &self.era_features) {
+                            self.toggle_player_option(game, &mut req, ordinal, srv);
+                        }
                     }
                 }
                 _ => {

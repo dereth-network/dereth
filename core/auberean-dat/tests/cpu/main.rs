@@ -6,6 +6,7 @@ mod container;
 mod disk;
 mod download;
 mod iterations;
+mod overlay;
 mod stamp;
 mod tree;
 mod types;

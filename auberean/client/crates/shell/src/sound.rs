@@ -22,6 +22,7 @@ use auberean_audio::space::Listener;
 use auberean_audio::{SoundFiles, SoundPlayer};
 use auberean_client_sdk::dat::DatFile;
 use auberean_draw::effects::FxSound;
+use auberean_draw::portal::PassageSound;
 use auberean_primitives::random::Random;
 use auberean_scene::seen::Seen;
 use auberean_scene::WorldData;
@@ -33,10 +34,43 @@ use crate::interface::{SoundOrder, SoundSlot};
 /// The data files, as the sound manager reads them: each in the client's order.
 struct Files(Vec<Arc<DatFile>>);
 
+/// How the sounds an object makes are heard.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Heard {
+    Heard,
+    /// Silent for now, to play again.
+    Silent,
+    /// The object is gone: they stop for good.
+    Gone,
+}
+
+/// How an object's sounds are heard: `in_world` whether the client's object is in the world (`None`
+/// once the client no longer holds it), `muted` what its body answers (`None` with no body).
+// D2-06178, D2-07696
+#[must_use]
+pub fn heard(in_world: Option<bool>, muted: Option<bool>) -> Heard {
+    let Some(in_world) = in_world else {
+        return Heard::Gone;
+    };
+    if muted.unwrap_or(!in_world) {
+        Heard::Silent
+    } else {
+        Heard::Heard
+    }
+}
+
 impl SoundFiles for Files {
     fn read(&self, id: u32) -> Option<Vec<u8>> {
         self.0.iter().find_map(|f| f.read(id).ok())
     }
+}
+
+/// The rain's steady sound, how loud it was last set, and when the next clap of thunder may come.
+#[derive(Default)]
+struct RainSound {
+    steady: Option<u32>,
+    volume: f32,
+    next_thunder: f64,
 }
 
 /// The shell's sound.
@@ -54,6 +88,10 @@ pub struct Sound {
     ambient: Ambient,
     ambient_on: bool,
     land_points: HashMap<(u8, u8), Arc<[LandPoint]>>,
+    /// The rain's sounds.
+    rain: RainSound,
+    /// The loops of portal space, while they play.
+    portal_loops: Vec<u32>,
     /// The loudest sample the device was handed since last read (as `f32` bits), and the blocks
     /// it was handed and of them those filled with silence because the game held the mixer.
     peak: Arc<AtomicU32>,
@@ -130,6 +168,8 @@ impl Sound {
             ambient: Ambient::new(block_length),
             ambient_on: false,
             land_points: HashMap::new(),
+            rain: RainSound::default(),
+            portal_loops: Vec::new(),
             peak,
             blocks,
             underruns,
@@ -194,6 +234,7 @@ impl Sound {
                     self.manager.stop(h, fade);
                 }
             }
+            SoundOrder::Groove(level) => self.manager.set_groove(level),
             SoundOrder::Preference {
                 key,
                 value,
@@ -238,10 +279,78 @@ impl Sound {
                     self.manager.stop(h, 0.0);
                 }
             }
+            // D2-06924, D2-06932
+            FxSound::Volume { effect, volume } => {
+                for &h in self.kept.get(&(object, effect)).into_iter().flatten() {
+                    self.manager.set_volume(h, volume);
+                }
+            }
         }
     }
 
-    /// Every sound object `object` makes stops: it left the world.
+    /// The rain's sounds at `amount` of rain heard (0 under cover or out of the world): a steady
+    /// sound as loud as the rain, and over 0.4 a clap of thunder at a random loudness from a
+    /// quarter up every 15 to 60 seconds.
+    // D2-11010
+    pub fn rain(&mut self, amount: f32, now: f64, random: &Random, by_enum: &dyn Fn(u32) -> u32) {
+        use auberean_draw::rain::{STEADY_SOUND, THUNDER};
+        let amount = amount.clamp(0.0, 1.0);
+        if amount > 0.4 && now > self.rain.next_thunder {
+            let k = usize::try_from(random.roll_int(0, 3)).unwrap_or(0);
+            let id = by_enum(THUNDER[k.min(3)]);
+            if id != 0 {
+                let mut req = auberean_audio::request::PlayRequest::new(id);
+                req.volume = random.roll_float(0.25, 1.0);
+                self.manager.play(&self.files, &req);
+            }
+            self.rain.next_thunder = f64::from(random.roll_float(15.0, 60.0)) + now;
+        }
+        if (amount - self.rain.volume).abs() < 0.0002 {
+            return;
+        }
+        match self.rain.steady {
+            None => {
+                let mut req = auberean_audio::request::PlayRequest::new(by_enum(STEADY_SOUND));
+                req.volume = amount;
+                self.rain.steady = self.manager.play(&self.files, &req);
+            }
+            Some(h) if amount.abs() < 0.0002 => {
+                self.manager.stop(h, 0.0);
+                self.rain.steady = None;
+            }
+            Some(h) => self.manager.set_volume(h, amount),
+        }
+        self.rain.volume = amount;
+    }
+
+    /// Portal space started or stopped: started, its start sound and its two loops kept; stopped,
+    /// its stop sound and its loops stopped at once. All heard where the listener is.
+    // D2-11047, D2-11051
+    pub fn portal(&mut self, order: PassageSound, by_enum: &dyn Fn(u32) -> u32) {
+        use auberean_audio::request::PlayRequest;
+        use auberean_draw::portal::{LOOP_SOUNDS, START_SOUND, STOP_SOUND};
+        match order {
+            PassageSound::Start => {
+                self.manager
+                    .play(&self.files, &PlayRequest::new(by_enum(START_SOUND)));
+                for l in LOOP_SOUNDS {
+                    let handle = self
+                        .manager
+                        .play(&self.files, &PlayRequest::new(by_enum(l)));
+                    self.portal_loops.extend(handle);
+                }
+            }
+            PassageSound::Stop => {
+                self.manager
+                    .play(&self.files, &PlayRequest::new(by_enum(STOP_SOUND)));
+                for h in std::mem::take(&mut self.portal_loops) {
+                    self.manager.stop(h, 0.0);
+                }
+            }
+        }
+    }
+
+    /// Every sound object `object` makes stops: it is gone.
     pub fn object_gone(&mut self, object: u64) {
         self.kept.retain(|(o, _), _| *o != object);
         self.manager.stop_for_emitter(object);
@@ -329,7 +438,7 @@ impl Sound {
             f32::from(u8::try_from((h.cell >> 16) & 0xFF).unwrap_or(0)) * bl,
         ];
         let at = |p: auberean_primitives::Vec3| [p.x + corner[0], p.y + corner[1], p.z];
-        let cells: Vec<[f32; 3]> = h.cells.iter().map(|c| at(*c)).collect();
+        let cells: Vec<(u32, [f32; 3])> = h.cells.iter().map(|(k, c)| (*k, at(*c))).collect();
         let around = Surroundings {
             cell: h.cell,
             player: at(h.place),

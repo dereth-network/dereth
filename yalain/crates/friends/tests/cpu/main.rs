@@ -9,7 +9,7 @@ mod presence;
 mod streams;
 mod tells;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::net::{IpAddr, Ipv4Addr};
 use std::time::Duration;
 
@@ -18,9 +18,9 @@ use auberean_friends::{
     Ticket, PREAMBLE, PROTO,
 };
 use dereth_network_protocol::limits::Limits;
-use dereth_network_protocol::wire::PROTOCOL;
-use dereth_network_protocol::{Address, Message, WorldInfo};
-use yalain_federation::{Federation, Settings};
+use dereth_network_protocol::wire::{WireError, PROTOCOL};
+use dereth_network_protocol::{Address, Message, RoomsMessage, WorldInfo};
+use yalain_federation::{Federation, GlobalLine, Settings};
 use yalain_friends::{Config, Out, Service, StreamId, GAGGED};
 use yalain_store::{Character, MemoryStore, Store};
 
@@ -76,6 +76,7 @@ impl World {
                 enabled: true,
                 slug: SLUG.into(),
                 software: "yalain test".into(),
+                ..Settings::default()
             },
             1_790_000_000,
         );
@@ -274,6 +275,23 @@ impl World {
         self.flush();
     }
 
+    /// An admin renames a character: the store first, then the service, as the host tells it.
+    pub fn rename(&mut self, old: &str, new: &str) {
+        let (_, character) = self.ids(old);
+        self.store
+            .rename_character(character, new)
+            .expect("renamed");
+        self.service.renamed(
+            self.now,
+            character,
+            old,
+            new,
+            &mut self.store,
+            self.fed.as_mut(),
+        );
+        self.flush();
+    }
+
     /// A character made, with a stream, in the world: its stream, its welcome taken.
     pub fn player(&mut self, name: &str) -> StreamId {
         self.character(name);
@@ -351,23 +369,52 @@ impl World {
         self.flush();
     }
 
-    /// What the world sends the hub now.
+    /// What the world sends the hub now, the directory's listings aside.
     pub fn frames(&mut self) -> Vec<Message> {
         let t = self.now.as_secs_f64();
         self.fed.as_mut().map_or_else(Vec::new, |f| {
             f.take_frames(t)
                 .iter()
-                .map(|f| Message::from_json(f).expect("a message the hub reads"))
+                .filter_map(|f| match Message::from_json(f) {
+                    Err(WireError::Unknown(what)) if what == "listing" => None,
+                    m => Some(m.expect("a message the hub reads")),
+                })
                 .collect()
         })
+    }
+
+    /// The hub says the world carries the Global room in `room`.
+    pub fn carry_global_in(&mut self, room: &str) {
+        let frame = RoomsMessage::Setup {
+            id: None,
+            global: Some(room.to_owned()),
+            mirrored: Vec::new(),
+        }
+        .to_json();
+        let t = self.now.as_secs_f64();
+        let f = self.fed.as_mut().expect("the link's half");
+        f.on_frame(&mut self.service, t, &frame);
+    }
+
+    /// The `@dng` lines kept for the host to say.
+    pub fn global_lines(&mut self) -> Vec<GlobalLine> {
+        self.fed
+            .as_mut()
+            .expect("the link's half")
+            .take_global_lines()
     }
 
     /// What a character's `@dn` and the words after it answer.
     pub fn said(&mut self, name: &str, words: &str) -> Vec<String> {
         let (_, id) = self.ids(name);
-        let lines = self
-            .service
-            .said(&mut self.store, self.fed.as_mut(), id, name, words);
+        let lines = self.service.said(
+            self.now,
+            &mut self.store,
+            self.fed.as_mut(),
+            id,
+            name,
+            words,
+        );
         self.flush();
         lines
     }

@@ -80,6 +80,15 @@ pub fn skill_tools(skill: u32) -> Option<(u32, [u32; 2])> {
     })
 }
 
+/// The mining craft skills.
+pub const SKILLS: [u32; 5] = [
+    0x6F00_069B,
+    0x6F00_069C,
+    0x6F00_069D,
+    0x6F00_069E,
+    0x6F00_069F,
+];
+
 /// A mining tool's durability when its template names none.
 pub const TOOL_DURABILITY: u32 = 100;
 
@@ -87,6 +96,8 @@ pub const TOOL_DURABILITY: u32 = 100;
 pub mod refusal {
     /// The node has given all its uses.
     pub const USED_UP: u32 = 10_060;
+    /// No place in the pack for what it would give.
+    pub const NO_ROOM: u32 = 10_057;
     /// Only the one who summoned the node may mine it.
     pub const SUMMONER_ONLY: u32 = 10_066;
 }
@@ -151,15 +162,24 @@ pub fn answers(skill: u32) -> Option<((u32, u32), (u32, u32))> {
     })
 }
 
+/// The nodes delving stones conjure: crystal, iron, silver, stone, wood.
+pub const SUMMONED_NODES: [u32; 5] = [
+    0x4700_0C8A,
+    0x4700_0C8C,
+    0x4700_0C8E,
+    0x4700_0C90,
+    0x4700_0C92,
+];
+
 /// The node a delving stone's summoning effect conjures.
 #[must_use]
 pub fn summoned_by(effect: &str) -> Option<u32> {
     Some(match effect {
-        "Eff_SummonMine_Crystal_Delving" => 0x4700_0C8A,
-        "Eff_SummonMine_Iron_Delving" => 0x4700_0C8C,
-        "Eff_SummonMine_Silver_Delving" => 0x4700_0C8E,
-        "Eff_SummonMine_Stone_Delving" => 0x4700_0C90,
-        "Eff_SummonMine_Wood_Delving" => 0x4700_0C92,
+        "Eff_SummonMine_Crystal_Delving" => SUMMONED_NODES[0],
+        "Eff_SummonMine_Iron_Delving" => SUMMONED_NODES[1],
+        "Eff_SummonMine_Silver_Delving" => SUMMONED_NODES[2],
+        "Eff_SummonMine_Stone_Delving" => SUMMONED_NODES[3],
+        "Eff_SummonMine_Wood_Delving" => SUMMONED_NODES[4],
         _ => return None,
     })
 }
@@ -349,6 +369,14 @@ fn in_hand<S: Store>(s: &Server<S>, world: ConnId) -> Option<(u64, u32)> {
     })
 }
 
+/// Whether a character's pack and its bags hold an item in every place.
+fn pack_full_of<S: Store>(s: &Server<S>, me: u64) -> bool {
+    s.players
+        .values()
+        .find(|p| p.character == me)
+        .is_some_and(|p| crate::inventory::pack_full(&p.play.items))
+}
+
 /// Why a player at a node may not mine it (none: it may).
 fn refusal_at<S: Store>(s: &Server<S>, me: u64, node: u64) -> Option<u32> {
     let n = node_of(s, node)?;
@@ -356,6 +384,8 @@ fn refusal_at<S: Store>(s: &Server<S>, me: u64, node: u64) -> Option<u32> {
         Some(refusal::SUMMONER_ONLY)
     } else if n.uses >= n.max_uses {
         Some(refusal::USED_UP)
+    } else if pack_full_of(s, me) {
+        Some(refusal::NO_ROOM)
     } else {
         None
     }
@@ -776,6 +806,8 @@ pub fn at_quest_mine<S: Store>(
         Some(crate::item_use::refusal::MYSTERIOUS_USE)
     } else if phase == 0 {
         Some(quest_refusal::WRONG_QUEST)
+    } else if pack_full_of(s, me) {
+        Some(refusal::NO_ROOM)
     } else {
         None
     };
@@ -863,7 +895,10 @@ pub fn quest_mine_done<S: Store>(
             to: None,
             races: Vec::new(),
             effects_last: false,
+            wants: None,
             fellows: false,
+            levels: None,
+            xp_share: 0.0,
         };
         crate::quests::run(s, net, world, &step, None, clock);
     }

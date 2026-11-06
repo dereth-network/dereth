@@ -323,6 +323,22 @@ fn looks(c: &Client) -> Vec<u64> {
         .collect()
 }
 
+/// A selection made from a panel (the radar, a name, the pack, a fellow) sends no look: the head
+/// stays on what the selection keys and the world's clicks last chose.
+///
+/// Behaviour: session.interface.a-panels-selection-is-not-looked-at
+#[test]
+fn a_panels_selection_is_not_looked_at() {
+    let (_double, mut client, _) = in_the_world();
+    client.act(Action::Select { target: 0x40 });
+    assert_eq!(looks(&client), [0x40]);
+    client.act(Action::SetSelection { target: 0x41 });
+    client.act(Action::SetSelection { target: 0 });
+    assert_eq!(looks(&client), [0x40], "no look sent");
+    assert_eq!(client.looking_at, 0x40, "the head stays");
+    assert_eq!(client.selection_looks, [0x40]);
+}
+
 /// A selection turns the player to look at what it selected, and the client tells the server so
 /// each time; with the option to look at the selection off, it tells the server once that the
 /// player looks at nothing, and then nothing more. The world is told each look, to turn the

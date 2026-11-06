@@ -155,12 +155,28 @@ pub struct TerrainBlock {
 /// A view of the heights and splits around one block, reaching one vertex into its neighbors.
 struct Neighborhood<'a> {
     land: &'a LandConstants,
-    source: &'a dyn LandSource,
+    /// The block and the eight around it, by `dx + 1` and `dy + 1`.
+    blocks: [[Option<&'a Landblock>; 3]; 3],
     bx: i32,
     by: i32,
 }
 
-impl Neighborhood<'_> {
+impl<'a> Neighborhood<'a> {
+    fn new(land: &'a LandConstants, source: &'a dyn LandSource, bx: i32, by: i32) -> Self {
+        let block = |dx: i32, dy: i32| source.landblock(bx + dx, by + dy);
+        Self {
+            land,
+            blocks: [-1, 0, 1].map(|dx| [-1, 0, 1].map(|dy| block(dx, dy))),
+            bx,
+            by,
+        }
+    }
+
+    /// The block `(dx, dy)` from this one, each -1, 0 or 1.
+    fn block(&self, dx: i32, dy: i32) -> Option<&'a Landblock> {
+        self.blocks[usize::try_from(dx + 1).ok()?][usize::try_from(dy + 1).ok()?]
+    }
+
     fn side(&self) -> i32 {
         // LINT-OK: a block side is a few dozen vertices.
         i32::try_from(self.land.grid().vertices_per_side()).unwrap_or(i32::MAX)
@@ -182,7 +198,7 @@ impl Neighborhood<'_> {
             }
         };
         let ((dx, i), (dy, j)) = (wrap(i), wrap(j));
-        let Some(lb) = self.source.landblock(self.bx + dx, self.by + dy) else {
+        let Some(lb) = self.block(dx, dy) else {
             return 0.0;
         };
         let k = usize::try_from(n * i + j).unwrap_or(0);
@@ -206,7 +222,7 @@ impl Neighborhood<'_> {
             }
         };
         let (dx, dy) = (block(i), block(j));
-        if self.source.landblock(self.bx + dx, self.by + dy).is_none() {
+        if self.block(dx, dy).is_none() {
             return false;
         }
         (self.land.spec.split)(self.bx * squares + i, self.by * squares + j)
@@ -557,6 +573,64 @@ pub fn square_layers(
     layers
 }
 
+/// A block's physics materials, x major over its vertices: the ground's by its slope there, and the
+/// road's.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct VertexMaterials {
+    pub ground: Vec<u32>,
+    pub road: Vec<u32>,
+}
+
+/// The physics material of `surface` at slope `pitch` (the squared length of the normal's level
+/// part): that of its first group the slope falls in, else none.
+// D2-12466
+#[must_use]
+pub fn surface_material(surface: &SurfaceType, pitch: f32) -> u32 {
+    surface
+        .groups
+        .iter()
+        .find(|g| g.min_pitch * g.min_pitch <= pitch && pitch <= g.max_pitch * g.max_pitch)
+        .map_or(0, |g| g.physics_material.0)
+}
+
+/// Block `(x, y)`'s physics materials, or `None` when the world has no landblock there.
+// D2-07550, D2-07551
+#[must_use]
+pub fn vertex_materials(
+    land: &LandConstants,
+    surfaces: Surfaces<'_>,
+    source: &dyn LandSource,
+    x: i32,
+    y: i32,
+) -> Option<VertexMaterials> {
+    let lb = source.landblock(x, y)?;
+    let hood = Neighborhood::new(land, source, x, y);
+    let n = hood.side();
+    let mut out = VertexMaterials::default();
+    for i in 0..n {
+        for j in 0..n {
+            let normal = hood.normal(i, j);
+            let pitch = normal.x * normal.x + normal.y * normal.y;
+            let word = lb.vertices[usize::try_from(n * i + j).unwrap_or(0)];
+            out.ground.push(
+                surfaces
+                    .terrain_surface(land.word.terrain.of(word))
+                    .map_or(0, |s| surface_material(s, pitch)),
+            );
+            let road = land.word.road.of(word);
+            out.road.push(
+                surfaces
+                    .surface
+                    .roads
+                    .iter()
+                    .find(|s| s.index == road)
+                    .map_or(0, |s| surface_material(s, pitch)),
+            );
+        }
+    }
+    Some(out)
+}
+
 /// Build block `(x, y)`'s terrain, or `None` when the world has no landblock there.
 // D2-03759, D2-03763, D2-10985
 #[must_use]
@@ -566,6 +640,21 @@ pub fn build_block(
     source: &dyn LandSource,
     x: i32,
     y: i32,
+) -> Option<TerrainBlock> {
+    build_block_blending(land, surfaces, source, x, y, true)
+}
+
+/// [`build_block`], its squares' grounds blended or, with `blending` off, each square its one
+/// corner's ground.
+// D2-10894
+#[must_use]
+pub fn build_block_blending(
+    land: &LandConstants,
+    surfaces: Surfaces<'_>,
+    source: &dyn LandSource,
+    x: i32,
+    y: i32,
+    blending: bool,
 ) -> Option<TerrainBlock> {
     let lb = source.landblock(x, y)?;
     let grid = land.grid();
@@ -584,12 +673,7 @@ pub fn build_block(
         grid.cells_per_side,
         Some(&holes),
     );
-    let hood = Neighborhood {
-        land,
-        source,
-        bx: x,
-        by: y,
-    };
+    let hood = Neighborhood::new(land, source, x, y);
     let n = hood.side();
     let mut normals = Vec::with_capacity(side * side);
     let mut terrain = Vec::with_capacity(side * side);
@@ -630,7 +714,7 @@ pub fn build_block(
                 square_layers(
                     corners.map(|k| &terrain[k]),
                     corners.map(|k| &road[k]),
-                    true,
+                    blending,
                 )
             };
             squares.push(SquareLook { hole, layers });

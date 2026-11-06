@@ -1463,6 +1463,40 @@ fn the_chat_log_says_when_it_cannot_open_and_writes_each_line_after_the_local_ti
     assert!(text.ends_with(&want), "{text:?} ends with {want:?}");
 }
 
+/// The player's commands to save and load the panels' places reach the play screen as notices, each
+/// naming the file; the player's files are written and read back by a bare name.
+///
+/// Behaviour: script.chat.the-layout-commands-reach-the-panels-with-their-file
+#[test]
+fn the_layout_commands_reach_the_panels_with_their_file() {
+    let (mut c, _) = in_the_world();
+    let folder = Folder::default();
+    let local = folder.clone();
+    c.with_host(|h| h.set_local(Some(Box::new(local))));
+    c.notices.clear();
+    c.process_text("/saveui mine");
+    c.process_text("/loadui mine");
+    let natives: Vec<u32> = c.notices.iter().map(|n| n.native).collect();
+    assert_eq!(natives, [0x85 << 16 | 0x1C, 0x85 << 16 | 0x1D]);
+    for n in &c.notices {
+        assert_eq!(n.about, c.model.player, "it is about the player");
+        assert!(
+            n.objects
+                .iter()
+                .flatten()
+                .any(|o| matches!(o, auberean_script::native_object::NativeObject::TextInfo(_))),
+            "it carries the name"
+        );
+    }
+    assert!(c.write_player_file("mine.txt", b"<CHAT1> X:1 Y: 2 W: 3 H: 4\n"));
+    assert_eq!(
+        c.read_player_file("mine.txt").as_deref(),
+        Some(&b"<CHAT1> X:1 Y: 2 W: 3 H: 4\n"[..])
+    );
+    assert_eq!(c.read_player_file("other.txt"), None);
+    assert_eq!(folder.0.lock().unwrap().len(), 1);
+}
+
 mod rooms {
     //! Rooms through the chat service, on 2017 runs whose player wrote to the general channel:
     //! the player's lines typed again to the general channel's command go to the service as the

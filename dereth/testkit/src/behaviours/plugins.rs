@@ -728,6 +728,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "plugins.nav.a-door-that-will-not-open-ends-the-journey-and-says-so",
+        says: "A door on a journey's way that will not open does not hold the journey. One the \
+               server answers as locked is used once and planned round; one that stays shut with \
+               no answer gets four uses, is planned round, and with no other way gets four more. \
+               Where no walk then goes round it, the journey fails naming a shut door.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-NAV-DOOR-SHUT"),
+        station: "dereth-client-runtime::lib::travel::tests::a_door_that_never_opens_and_never_answers_ends_the_journey_after_a_bounded_number_of_uses",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "plugins.nav.a-follow-holds-within-range-until-stopped",
         says: "A follow closes on its object to within range and holds there until it is stopped, which \
                lets the run lock go and fails the follow as stopped.",

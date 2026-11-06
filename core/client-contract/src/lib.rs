@@ -44,8 +44,6 @@ pub mod ctime;
 pub mod disconnect;
 pub mod era;
 pub mod examination;
-/// `PlayerModule`'s window-placement blob, shared with `dereth_ui_screens::hud::floaty`.
-/// `dereth_client_runtime::hud` owns the blob.
 pub mod floaty;
 /// The gameplay screen's 3D viewport element id.
 pub mod gameplay;

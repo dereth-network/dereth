@@ -8,7 +8,7 @@ use auberean_assets::region::{AmbientSound, ContinuousSound, IntermittentSound, 
 use auberean_audio::ambient::desc::Description;
 use auberean_audio::ambient::objects::{bits, Gathered, Intermittent};
 use auberean_audio::ambient::{
-    is_emitter, Ambient, LandPoint, LandPoints, Place, Speaker, Surroundings, INTERIOR_KIND,
+    is_emitter, Ambient, LandPoint, LandPoints, Place, Speaker, Surroundings,
 };
 use auberean_audio::manager::stop;
 use auberean_audio::request::{Channel, PlayRequest, PlayType};
@@ -146,13 +146,19 @@ fn land() -> Land {
 }
 
 const BLOCK: f32 = 160.0;
+/// The kind of a plain interior cell.
+const INTERIOR_KIND: u32 = 2;
 
 /// A player outdoors in block (10, 10) at `(x, y)` of the block.
 fn outdoors(x: f32, y: f32) -> (u32, Place) {
     (0x0A0A_0001, [10.0 * BLOCK + x, 10.0 * BLOCK + y, 0.0])
 }
 
-fn around<'a>(at: (u32, Place), cells: &'a [Place], blocks: &'a [(u8, u8)]) -> Surroundings<'a> {
+fn around<'a>(
+    at: (u32, Place),
+    cells: &'a [(u32, Place)],
+    blocks: &'a [(u8, u8)],
+) -> Surroundings<'a> {
     Surroundings {
         cell: at.0,
         player: at.1,
@@ -336,9 +342,9 @@ fn interior_cells_name_their_kind_and_the_landscape_is_heard_only_when_it_can_be
     // heard.
     let at = (0x0A0A_0105, [10.0 * BLOCK + 5.0, 10.0 * BLOCK + 80.0, 0.0]);
     let cells = [
-        at.1,
-        [at.1[0] + 10.0, at.1[1], 0.0],
-        [at.1[0], at.1[1] + 10.0, 0.0],
+        (INTERIOR_KIND, at.1),
+        (INTERIOR_KIND, [at.1[0] + 10.0, at.1[1], 0.0]),
+        (INTERIOR_KIND, [at.1[0], at.1[1] + 10.0, 0.0]),
     ];
     let mut s = around(at, &cells, &blocks);
     s.outside = false;
@@ -353,6 +359,15 @@ fn interior_cells_name_their_kind_and_the_landscape_is_heard_only_when_it_can_be
     b.update(&s, &mut land, 0.0, &mut ear2, &r);
     let kinds: Vec<u32> = b.descriptions().iter().map(|d| d.kind).collect();
     assert_eq!(kinds, vec![INTERIOR_KIND, FOREST, MEADOW]);
+    // A cell that names a kind of its own is heard as that kind.
+    let mut c = ambient();
+    let mut ear3 = listening();
+    let named = [(FOREST, at.1), (FOREST, [at.1[0] + 10.0, at.1[1], 0.0])];
+    let mut s = around(at, &named, &blocks);
+    s.outside = false;
+    c.update(&s, &mut land, 0.0, &mut ear3, &r);
+    assert_eq!(c.dominant_kind(), Some(FOREST));
+    assert_eq!(c.descriptions().len(), 1);
 }
 
 /// Behaviour: audio.ambient.quiet-descriptions-go
@@ -373,7 +388,7 @@ fn a_description_heard_below_a_hundredth_falls_quiet_and_goes_at_the_next_check(
     a.use_time(0.9, &mut ear, &r);
     // Inside, out of the landscape: the forest and meadow fall quiet.
     let hall = (0x0A0A_0105, [10.0 * BLOCK + 5.0, 10.0 * BLOCK + 80.0, 0.0]);
-    let cells = [hall.1];
+    let cells = [(INTERIOR_KIND, hall.1)];
     let mut s = around(hall, &cells, &blocks);
     s.outside = false;
     // Move the player 4 meters so the places are weighed again.

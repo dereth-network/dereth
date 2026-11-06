@@ -78,6 +78,30 @@ impl Field for DeleteCharacter {
     }
 }
 
+/// The client: bring back this deleted character of this account, while it is still greyed out.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RestoreCharacter {
+    pub character: u64,
+    pub name: WideString,
+    pub account: NarrowString,
+}
+
+impl Field for RestoreCharacter {
+    // D2-05343
+    fn read(r: &mut Reader<'_>) -> Result<Self> {
+        Ok(Self {
+            character: r.u64()?,
+            name: WideString::read(r)?,
+            account: NarrowString::read(r)?,
+        })
+    }
+    fn write(&self, w: &mut Writer) {
+        w.u64(self.character);
+        self.name.write(w);
+        self.account.write(w);
+    }
+}
+
 /// The client: create a character with these choices. A default one is a fresh result: no name,
 /// every number 0, no physique.
 // D2-11931
@@ -253,10 +277,22 @@ pub struct CharacterRefused {
 }
 
 impl CharacterRefused {
+    /// "The server has crashed."
+    pub const SERVER_CRASH: u32 = 3;
+    /// "You have been logged off."
+    pub const LOGGED_OFF: u32 = 4;
+    /// "There has been an error."
+    pub const ERROR: u32 = 9;
     /// The character is still in the world.
     pub const IN_WORLD: u32 = 11;
     /// The character is not on this account.
     pub const NOT_OWNED: u32 = 13;
+    /// "You are trying to enter with an old character."
+    pub const OLD_CHARACTER: u32 = 15;
+    /// "This character is corrupt. Contact tech support for help."
+    pub const CORRUPT_CHARACTER: u32 = 16;
+    /// The server found no place for the character.
+    pub const COULD_NOT_PLACE: u32 = 18;
     /// The server has no room.
     pub const SERVER_FULL: u32 = 19;
     /// The character was booted from the world (the reason a boot ends a login with).
@@ -290,6 +326,8 @@ impl CharacterCreated {
     pub const OK: u32 = 1;
     pub const NAME_IN_USE: u32 = 3;
     pub const NAME_REFUSED: u32 = 4;
+    /// The account may not make an admin character.
+    pub const ADMIN_REFUSED: u32 = 7;
     pub const NO_FREE_SLOT: u32 = 8;
 }
 
@@ -521,6 +559,7 @@ impl Field for DataQuery {
 }
 
 /// The iterations a client has of one data file.
+// D2-05165
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DataFileIterations {
     pub dat_file: u64,
@@ -528,6 +567,7 @@ pub struct DataFileIterations {
 }
 
 impl Field for DataFileIterations {
+    // D2-12845
     fn read(r: &mut Reader<'_>) -> Result<Self> {
         Ok(Self {
             dat_file: r.u64()?,
@@ -541,6 +581,7 @@ impl Field for DataFileIterations {
 }
 
 /// The client's answer: its language and, per data file, the iterations it has.
+// D2-05129
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DataHeld {
     pub language: u32,
@@ -558,6 +599,82 @@ impl Field for DataHeld {
     fn write(&self, w: &mut Writer) {
         w.u32(self.language);
         write_list(w, &self.files);
+    }
+}
+
+/// One data file, by its id in the data download, and a hash naming what it holds.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct OverlayBase {
+    pub dat_file: u64,
+    pub fingerprint: [u8; 32],
+}
+
+impl Field for OverlayBase {
+    fn read(r: &mut Reader<'_>) -> Result<Self> {
+        let dat_file = r.u64()?;
+        let mut fingerprint = [0; 32];
+        fingerprint.copy_from_slice(r.bytes(32)?);
+        Ok(Self {
+            dat_file,
+            fingerprint,
+        })
+    }
+    fn write(&self, w: &mut Writer) {
+        w.u64(self.dat_file);
+        w.bytes(&self.fingerprint);
+    }
+}
+
+/// This client's own, ahead of [`DataHeld`]: it takes a world's records, and these are its files,
+/// each by its layout. A retail client never sends it; a server that doesn't know it goes on
+/// without it, which a word more on [`DataHeld`] wouldn't let it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct OverlayHeld {
+    pub flags: u32,
+    pub bases: Vec<OverlayBase>,
+}
+
+impl OverlayHeld {
+    /// It checks its files against the records a world's overlay was made over itself, when it is
+    /// told them, so its files may be laid out otherwise.
+    pub const CHECKS_RECORDS: u32 = 1;
+
+    /// Whether it does.
+    #[must_use]
+    pub const fn checks_records(&self) -> bool {
+        self.flags & Self::CHECKS_RECORDS != 0
+    }
+}
+
+impl Field for OverlayHeld {
+    fn read(r: &mut Reader<'_>) -> Result<Self> {
+        Ok(Self {
+            flags: r.u32()?,
+            bases: read_list(r)?,
+        })
+    }
+    fn write(&self, w: &mut Writer) {
+        w.u32(self.flags);
+        write_list(w, &self.bases);
+    }
+}
+
+/// The server, to a client that said [`OverlayHeld::CHECKS_RECORDS`] and holds files laid out
+/// otherwise: the records each file must hold, by their digest, for the world's overlay to lie
+/// over it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct OverlayBases {
+    pub bases: Vec<OverlayBase>,
+}
+
+impl Field for OverlayBases {
+    fn read(r: &mut Reader<'_>) -> Result<Self> {
+        Ok(Self {
+            bases: read_list(r)?,
+        })
+    }
+    fn write(&self, w: &mut Writer) {
+        write_list(w, &self.bases);
     }
 }
 

@@ -370,15 +370,17 @@ impl Scripts {
                 .host
                 .int_quality(id, ITEM_KIND)
                 .is_some_and(|k| k & MELTS_AT_ONCE == MELTS_AT_ONCE),
+            offered_name: None,
         })
     }
 
     /// Everything the inventory panels show: the player's pack in its segments and what it wears,
-    /// the containers in `open`, and each item in them and in `also` (items shown outside a
-    /// container: those a trade's partner offers, still in the partner's pack), and the player's
-    /// selection (dragged from the world by its icon).
+    /// the containers in `open`, and each item in them and in `also` (items a trade offers, by the
+    /// number offered: its name is written for that number too, and those of the partner's are
+    /// still in the partner's pack), and the player's selection (dragged from the world by its
+    /// icon).
     // D2-00488, D2-01125, D2-00554, D2-01112, D2-01493
-    pub fn inventory(&mut self, open: &BTreeSet<u64>, also: &BTreeSet<u64>) -> Inventory {
+    pub fn inventory(&mut self, open: &BTreeSet<u64>, also: &BTreeMap<u64, u32>) -> Inventory {
         let Some(player) = self
             .host
             .model
@@ -427,13 +429,21 @@ impl Scripts {
         inv.worn = self.worn(player);
         shown.extend(inv.worn.iter().map(|(_, id)| *id));
         shown.extend(
-            also.iter()
+            also.keys()
                 .filter(|id| self.host.model.object(**id).is_some()),
         );
         for id in shown {
             if let std::collections::btree_map::Entry::Vacant(e) = inv.items.entry(id) {
                 if let Some(f) = self.item(player, id) {
                     e.insert(f);
+                }
+            }
+        }
+        for (id, offered) in also {
+            if inv.items.contains_key(id) {
+                let name = self.name_for(*id, *offered);
+                if let Some(f) = inv.items.get_mut(id) {
+                    f.offered_name = Some(name);
                 }
             }
         }
@@ -511,6 +521,8 @@ pub struct ItemFacts {
     pub worn: bool,
     /// Dropped on the money bag it melts without a question.
     pub melts_at_once: bool,
+    /// A trade offers it: its name for the number offered.
+    pub offered_name: Option<String>,
 }
 
 /// The inventory as the panels show it.
@@ -536,6 +548,8 @@ pub struct Inventory {
     pub open: BTreeSet<u64>,
     /// The player's selection when it was last asked.
     pub selection: u64,
+    /// The last name asked for a number of an item: the item, the number, the name.
+    pub amount_name: Option<(u64, u32, String)>,
 }
 
 impl Inventory {
