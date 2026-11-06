@@ -248,6 +248,7 @@ pub fn main(options: &Options) -> ExitCode {
     } else {
         log::info!("DAT Patching Disabled...");
     }
+    start_bulk_patch(&config);
 
     log::info!("Initializing DatabaseManager...");
     let clock = Arc::new(SystemClock::new());
@@ -1189,6 +1190,37 @@ fn send(commands: &Sender<WorldCommand>, command: WorldCommand) {
 /// Not ACE: starts the status endpoint when `--status` or `server.status_address` names an
 /// address. Each request takes its snapshot on the world thread through `commands`. With
 /// `server.publish_portals` on, it also serves `content`'s portal table.
+/// Not ACE (V509): the patch stream's TCP listener, for a world whose overlay is patched into
+/// clients, on the game's host at `[dat_overlay] bulk_port` (the game port's number when 0).
+fn start_bulk_patch(config: &MasterConfiguration) {
+    let overlay = &config.dat_overlay;
+    if overlay.path.trim().is_empty() || !overlay.patching || !overlay.bulk {
+        return;
+    }
+    let n = &config.server.network;
+    let port = if overlay.bulk_port == 0 {
+        n.port
+    } else {
+        overlay.bulk_port
+    };
+    let addr = std::net::ToSocketAddrs::to_socket_addrs(&format!("{}:{port}", n.host))
+        .ok()
+        .and_then(|mut a| a.next());
+    let Some(addr) = addr else {
+        log::warn!(
+            "The patch stream cannot listen on {}:{port}; patches go as 0xF7E2s",
+            n.host
+        );
+        return;
+    };
+    match empyrean_world::managers::bulk_patch::start(addr) {
+        Ok(bound) => log::info!("The patch stream listens on TCP {bound}"),
+        Err(e) => {
+            log::warn!("The patch stream cannot listen on TCP {addr}: {e}; patches go as 0xF7E2s")
+        }
+    }
+}
+
 fn start_status_endpoint(
     options: &Options,
     config: &MasterConfiguration,

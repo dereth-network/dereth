@@ -903,6 +903,24 @@ impl DddPatcher {
         self.pending.len()
     }
 
+    /// The downloads still pending, as `(dat_file_type, dat_file_id, id)`: what a declined patch
+    /// stream asks the server to send as `0xF7E2`s (CD-044).
+    #[must_use]
+    pub fn pending_wire(&self) -> Vec<(u32, u32, u32)> {
+        self.pending
+            .keys()
+            .map(|&(target, id)| {
+                let (t, f) = match target {
+                    DatTarget::Portal => (0, 1),
+                    DatTarget::Cell => (1, 2),
+                    DatTarget::Local => (1, 3),
+                    DatTarget::HighRes => (HIFI, 1),
+                };
+                (t, f, id)
+            })
+            .collect()
+    }
+
     #[must_use]
     pub fn applied(&self) -> u32 {
         self.applied

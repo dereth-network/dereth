@@ -1123,6 +1123,12 @@ impl<T: Transport> Session<T> {
         self.send_bare(&dereth_protocol::admin::DddEndDdd);
     }
 
+    /// `0xF7EE`: the patch stream could not be taken or finished; the server sends what
+    /// `decline` names as `0xF7E2`s (CD-044).
+    pub fn send_ddd_bulk_decline(&mut self, decline: &dereth_protocol::admin::DddBulkDecline) {
+        self.send_bare(decline);
+    }
+
     /// The cache's async get from other sources -- ask the server for one resource the dat
     /// files do not hold, as `0xF7E3 DDD_RequestDataMessage` on queue 5.
     ///

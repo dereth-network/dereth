@@ -70,13 +70,28 @@ pub struct ActionHandlerInfo {
     pub attribute: GameActionAttribute,
 }
 
-/// `messageHandlers.TryGetValue(opcode)`.
+/// `messageHandlers.TryGetValue(opcode)`, then the messages ACE has no handler for.
 pub fn message_handler(opcode: u32) -> Option<&'static MessageHandlerInfo> {
     let t = dispatch_table::MESSAGE_HANDLERS;
     t.binary_search_by_key(&opcode, |h| h.attribute.opcode)
         .ok()
         .map(|i| &t[i])
+        .or_else(|| {
+            EMPYREAN_MESSAGE_HANDLERS
+                .iter()
+                .find(|h| h.attribute.opcode == opcode)
+        })
 }
+
+/// Game messages ACE never dispatches, which Empyrean handles.
+pub static EMPYREAN_MESSAGE_HANDLERS: &[MessageHandlerInfo] = &[
+    // A client that could not take its patch stream (V509).
+    MessageHandlerInfo {
+        name: "DDD_BulkDecline",
+        handler: crate::network::handlers::ddd_handler::ddd_bulk_decline,
+        attribute: GameMessageAttribute::new(0xF7EE, SessionState::AuthConnected),
+    },
+];
 
 /// `actionHandlers.TryGetValue(opcode)`, then the game actions ACE has no handler for.
 pub fn action_handler(opcode: u32) -> Option<&'static ActionHandlerInfo> {

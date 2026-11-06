@@ -356,6 +356,49 @@ pub fn try_get_dat_file_contents_for_transmission(
     }
 }
 
+/// Not ACE (V509): [`try_get_dat_file_contents_for_transmission`] off the world thread, for the
+/// bulk stream: no cache, and a compressed file deflated at zlib `level`.
+#[must_use]
+pub fn dat_file_contents(
+    dats: &DatManager,
+    dat_file_id: u32,
+    dat_database_type: DatDatabaseType,
+    compress_at: Option<i32>,
+) -> Option<DatFileContents> {
+    let dat_database = dat_database(dats, dat_database_type)?;
+    let dat_file = try_get_dat_file(dat_database, dat_file_id)?;
+    let buffer = dat_database
+        .get_reader_for_file(dat_file_id)
+        .unwrap_or_default();
+    let Some(level) = compress_at else {
+        return Some(DatFileContents {
+            contents: buffer,
+            dat_file,
+            is_compressed: false,
+        });
+    };
+    if buffer.is_empty() {
+        // As `compress`: an empty file deflates to nothing.
+        return Some(DatFileContents {
+            contents: prepend_uncompressed_file_size(&[], dat_file.file_size),
+            dat_file,
+            is_compressed: true,
+        });
+    }
+    let mut output = vec![0u8; zlib_rs::compress_bound(buffer.len())];
+    let (compressed, rc) =
+        zlib_rs::compress_slice(&mut output, &buffer, zlib_rs::DeflateConfig::new(level));
+    if rc != zlib_rs::ReturnCode::Ok {
+        return None;
+    }
+    let contents = prepend_uncompressed_file_size(compressed, dat_file.file_size);
+    Some(DatFileContents {
+        contents,
+        dat_file,
+        is_compressed: true,
+    })
+}
+
 /// The public `GetMissingIterations`'s return value and its two `out`s.
 #[derive(Debug, Clone, Default)]
 pub struct MissingIterationsResult {

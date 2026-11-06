@@ -14,6 +14,10 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+- On Empyrean worlds, the data patch at login comes over one TCP stream at full speed instead of a
+  rate-limited trickle, and falls back to the old way when the stream can't be reached.
+  `--no-bulk-patch` turns it off.
+
 ## 0.4.13 (2026-11-05)
 
 - Classic: resting the pointer on a button, bar or slot says what it does.

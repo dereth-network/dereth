@@ -14,6 +14,11 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+- A Dereth client is patched to a world with a data overlay over one TCP stream, as fast as the
+  connection carries it, instead of at the overlay's rate. The stream listens on the game port's
+  number over TCP (`[dat_overlay] bulk_port` to change it, `bulk = false` to turn it off); a client
+  that cannot reach it is patched as before.
+
 ## 0.3.9 (2026-11-05)
 
 - Fixed a crash wielding an item that requires a skill the character doesn't have.

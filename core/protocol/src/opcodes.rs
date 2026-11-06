@@ -814,6 +814,10 @@ op! {
         /// manifest, which only this client and Empyrean send and read (see
         /// [`crate::admin::DddOverlayManifest`]); it has no row in [`OPCODES`].
         DDD_OVERLAY_MANIFEST = 0xF7EC;
+        /// `0xF7ED` DDD_BulkOfferMessage: not a retail message ([`crate::admin::DddBulkOffer`]).
+        DDD_BULK_OFFER = 0xF7ED;
+        /// `0xF7EE` DDD_BulkDeclineMessage: not a retail message ([`crate::admin::DddBulkDecline`]).
+        DDD_BULK_DECLINE = 0xF7EE;
     }
 }
 

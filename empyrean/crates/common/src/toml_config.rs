@@ -514,6 +514,24 @@ pub const SECTIONS: &[Section] = &[
                      does not overflow between the frames it reads it in.",
                 )
             },
+            Key {
+                unset: "true",
+                ..e(
+                    "bulk",
+                    "Bulk",
+                    "Offer a client that can take it (the Dereth client) the patch as one TCP stream,\n\
+                     as fast as the connection carries it. The two limits above are then only the\n\
+                     fallback's, for a client that cannot reach the stream.",
+                )
+            },
+            Key {
+                unset: "0",
+                ..e(
+                    "bulk_port",
+                    "BulkPort",
+                    "The TCP port of that stream, on the game's host. 0: the game port's number.",
+                )
+            },
         ],
     },
     Section {

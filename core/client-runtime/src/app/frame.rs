@@ -151,7 +151,12 @@ impl<S: Shell> App<S> {
         // "checked before the batch so a run with no traffic still ends" -- is once-a-frame
         // work, not per-event work. Running the whole call per session event would silently make
         // all four conditional on this frame having had traffic.
-        self.process_logon_event_queue(shell, Vec::new());
+        // CD-044: what the patch stream brought since the last frame goes in as its `0xF7E2`s.
+        #[cfg(not(target_arch = "wasm32"))]
+        let streamed = self.take_bulk_records();
+        #[cfg(target_arch = "wasm32")]
+        let streamed = Vec::new();
+        self.process_logon_event_queue(shell, streamed);
         spans.step(FrameStep::PacketStep);
         self.events.push(FrameEvent::Step(FrameStep::PacketStep));
         if let Some(link) = self.link.as_mut() {

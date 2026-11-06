@@ -645,6 +645,9 @@ impl DddInterrogationResponse {
     pub const FLAG_RECORDS: u32 = 0x0000_0002;
     /// The iteration lists are those of one world's overlay, which [`OverlayBase::world`] names.
     pub const FLAG_WORLD: u32 = 0x0000_0004;
+    /// The client can take the patch as a stream over TCP ([`DddBulkOffer`]); a server that
+    /// knows no such stream patches it as before.
+    pub const FLAG_BULK: u32 = 0x0000_0008;
 
     /// The world the iteration lists are of, by [`OverlayBase::world`]'s hash, when the client
     /// names one.
@@ -1070,6 +1073,80 @@ impl Message for DddOverlayManifest {
     }
 }
 
+/// `0xF7ED DDD_BulkOfferMessage`: not a retail message. Sent after `0xF7E7` to a client that set
+/// [`DddInterrogationResponse::FLAG_BULK`], in place of the patch's `0xF7E2`s: the client connects
+/// to `port` over TCP at the server's address, sends [`BULK_MAGIC`], [`BULK_VERSION`] and
+/// `token`, and reads the records as [`DddData`] bodies, each behind its length as a `u32`, until
+/// a length of 0. A client that cannot take the stream answers [`DddBulkDecline`], and the
+/// server sends what is still pending as `0xF7E2`s.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct DddBulkOffer {
+    /// The server's TCP port for the stream.
+    pub port: u32,
+    /// Single use: the stream it opens carries this session's patch and nothing else.
+    pub token: [u8; 16],
+    /// The records the stream will carry.
+    pub records: u32,
+    /// The bytes of their [`DddData::data`], as the stream sends them.
+    pub bytes: u64,
+}
+
+/// What a client sends on [`DddBulkOffer`]'s stream before anything comes back.
+pub const BULK_MAGIC: [u8; 4] = *b"DBLK";
+/// The stream's version, after [`BULK_MAGIC`].
+pub const BULK_VERSION: u32 = 1;
+
+impl Message for DddBulkOffer {
+    const OPCODE: Opcode = Opcode::DDD_BULK_OFFER;
+
+    fn read(r: &mut Reader<'_>) -> Result<Self, MessageError> {
+        let port = r.u32()?;
+        let mut token = [0u8; 16];
+        token.copy_from_slice(r.bytes(16)?);
+        Ok(Self {
+            port,
+            token,
+            records: r.u32()?,
+            bytes: r.u64()?,
+        })
+    }
+
+    fn write(&self, w: &mut Writer) -> Result<(), MessageError> {
+        w.u32(self.port);
+        w.bytes(&self.token);
+        w.u32(self.records);
+        w.u64(self.bytes);
+        Ok(())
+    }
+}
+
+/// `0xF7EE DDD_BulkDeclineMessage`: not a retail message. A client that could not take or
+/// finish [`DddBulkOffer`]'s stream names the records it still waits for, by
+/// `(dat_file_type, dat_file_id, id)`, and the server sends those as `0xF7E2`s.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct DddBulkDecline {
+    pub pending: Vec<(u32, u32, u32)>,
+}
+
+impl Message for DddBulkDecline {
+    const OPCODE: Opcode = Opcode::DDD_BULK_DECLINE;
+
+    fn read(r: &mut Reader<'_>) -> Result<Self, MessageError> {
+        Ok(Self {
+            pending: r.packed_list(|r| Ok((r.u32()?, r.u32()?, r.u32()?)))?,
+        })
+    }
+
+    fn write(&self, w: &mut Writer) -> Result<(), MessageError> {
+        w.packed_list(&self.pending, |w, (t, f, id)| {
+            w.u32(*t);
+            w.u32(*f);
+            w.u32(*id);
+            Ok(())
+        })
+    }
+}
+
 empty_message!(
     /// `0xF7EA DDD_OnEndDDD` — **the end-of-patching message, in both directions**.
     ///
@@ -1324,6 +1401,29 @@ mod tests {
         assert_eq!(bytes.len(), plain.len() + 32);
         let back: DddOverlayManifest = round_trip(&bytes);
         assert_eq!(back, named);
+    }
+
+    /// Behaviour: none (the bulk offer and decline's own round trips)
+    #[test]
+    fn the_bulk_offer_and_decline_round_trip() {
+        let offer = DddBulkOffer {
+            port: 9000,
+            token: [7; 16],
+            records: 7261,
+            bytes: 0x1_2345_6789,
+        };
+        let bytes = write_body(&offer).unwrap();
+        assert_eq!(bytes.len(), 4 + 16 + 4 + 8);
+        assert_eq!(round_trip::<DddBulkOffer>(&bytes), offer);
+        assert_eq!(DddBulkOffer::OPCODE.0, 0xF7ED);
+        let decline = DddBulkDecline {
+            pending: vec![(0, 1, 0x0600_1234), (1, 2, 0xA9B4_0100)],
+        };
+        assert_eq!(
+            round_trip::<DddBulkDecline>(&write_body(&decline).unwrap()),
+            decline
+        );
+        assert_eq!(DddBulkDecline::OPCODE.0, 0xF7EE);
     }
 
     #[test]

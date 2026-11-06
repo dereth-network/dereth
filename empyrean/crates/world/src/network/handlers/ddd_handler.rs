@@ -7,14 +7,16 @@ use empyrean_common::dotnet::binary_reader::{BinaryReader, ReadError};
 use empyrean_common::dotnet::format;
 use empyrean_dat::DatDatabaseType;
 use empyrean_entity::enums::ChatMessageType;
-use empyrean_net::{SessionId, SessionTerminationReason};
+use empyrean_net::{GameMessageGroup, SessionId, SessionTerminationReason};
 
+use crate::managers::bulk_patch;
 use crate::managers::dat_overlay;
 use crate::managers::ddd_manager::{self, dat_file_type, HI_FI_STRING_AS_INT};
 use crate::managers::property_manager;
 use crate::network::game_event::events::game_event_communication_transient_string::game_event_communication_transient_string;
 use crate::network::game_event::events::game_event_popup_string::game_event_popup_string;
 use crate::network::game_messages::game_message::{enqueue_send, enqueue_send_many, GameMessage};
+use crate::network::game_messages::game_message_opcode::GameMessageOpcode;
 use crate::network::game_messages::messages::game_message_boot_account::game_message_boot_account;
 use crate::network::game_messages::messages::game_message_ddd_begin_ddd::game_message_ddd_begin_ddd;
 use crate::network::game_messages::messages::game_message_ddd_end_ddd::game_message_ddd_end_ddd;
@@ -502,6 +504,16 @@ pub fn ddd_interrogation_response_with(
             format(total_file_size / 1024, "N0")
         );
 
+        // DIVERGE (V509): a client that can take the patch as a TCP stream is offered one in place
+        // of its records' `0xF7E2`s.
+        let bulk = overlay_patching
+            && overlay.bulk
+            && bulk_patch::port().is_some()
+            && extension.as_ref().is_some_and(|r| {
+                r.flags & dereth_protocol::admin::DddInterrogationResponse::FLAG_BULK != 0
+            });
+        let mut bulk_items = Vec::new();
+
         // DIVERGE (V437): a client that keeps overlays takes the world's cell records in the
         // patch.
         let cell = overlay_patching.then_some((DatDatabaseType::Cell, "CellDat"));
@@ -527,7 +539,9 @@ pub fn ddd_interrogation_response_with(
                 let mut files = iteration.clone();
                 files.sort_unstable();
                 for file_id in files {
-                    if db.contains_file(file_id) {
+                    if db.contains_file(file_id) && bulk {
+                        bulk_items.push((file_id, dat_database_type));
+                    } else if db.contains_file(file_id) {
                         //session.Network.EnqueueSend(new GameMessageDDDDataMessage(fileId, DatDatabaseType.Portal));
                         ddd_manager::add_to_queue(w, session, file_id, dat_database_type);
                     } else {
@@ -537,6 +551,9 @@ pub fn ddd_interrogation_response_with(
                     }
                 }
             }
+        }
+        if !bulk_items.is_empty() {
+            offer_bulk(w, session, bulk_items, &dats);
         }
     } else if client_is_missing_iterations && !enable_dat_patching {
         // DIVERGE (V437): a client that keeps no overlay of its own, missing a world's overlay, is
@@ -561,6 +578,102 @@ pub fn ddd_interrogation_response_with(
     Ok(())
 }
 
+/// Not ACE (V509): `items` offered to `session` as a TCP stream (`0xF7ED`), with a ticket that
+/// goes back to the `0xF7E2` queue unless its client collects it.
+fn offer_bulk(
+    w: &mut World,
+    session: SessionId,
+    items: Vec<(u32, DatDatabaseType)>,
+    dats: &std::sync::Arc<empyrean_dat::DatManager>,
+) {
+    let sizes = &w.ddd_manager.dat_file_sizes;
+    let mut bytes = 0u64;
+    let tickets: Vec<bulk_patch::BulkItem> = items
+        .iter()
+        .map(|&(id, db)| {
+            let z = sizes.get(&db).and_then(|s| s.get(&id)).copied();
+            let compress = z.is_some_and(|z| z.compressed_file_size > 0);
+            bytes += z.map_or(0, |z| {
+                let n = if compress {
+                    z.compressed_file_size
+                } else {
+                    z.uncompressed_file_size
+                };
+                u64::from(n.cast_unsigned())
+            });
+            bulk_patch::BulkItem { id, db, compress }
+        })
+        .collect();
+    let who = account(w, session);
+    let offered = bulk_patch::port().zip(bulk_patch::offer(
+        tickets,
+        std::sync::Arc::clone(dats),
+        &who,
+    ));
+    let Some((port, token)) = offered else {
+        for (id, db) in items {
+            ddd_manager::add_to_queue(w, session, id, db);
+        }
+        return;
+    };
+    let records = u32::try_from(items.len()).unwrap_or(u32::MAX);
+    let deadline = w.now.utc.add_seconds(bulk_patch::TICKET_SECONDS);
+    if let Some(s) = w.sessions.get_mut(session) {
+        s.bulk = Some(bulk_patch::BulkPending {
+            token,
+            deadline,
+            claimed: false,
+            items,
+        });
+    }
+    enqueue_send(
+        w,
+        session,
+        GameMessage::from_proto(
+            GameMessageOpcode::DDD_BulkOffer,
+            GameMessageGroup::DatabaseQueue,
+            &dereth_protocol::admin::DddBulkOffer {
+                port,
+                token,
+                records,
+                bytes,
+            },
+        ),
+    );
+    log::info!(
+        "[DDD] client {who} offered the patch as a stream on port {port}: {records} records, {} kB",
+        bytes / 1024
+    );
+}
+
+/// Not ACE (V509): `0xF7EE`, a client that could not take or finish its stream: what it names
+/// as still pending goes as `0xF7E2`s.
+pub fn ddd_bulk_decline(
+    w: &mut World,
+    message: &mut Payload<'_>,
+    session: SessionId,
+) -> HandlerResult {
+    let rest = message.read_bytes(message.remaining());
+    let named = dereth_protocol::read_body::<dereth_protocol::admin::DddBulkDecline>(&rest)
+        .map(|d| d.pending)
+        .unwrap_or_default();
+    let Some(pending) = w.sessions.get_mut(session).and_then(|s| s.bulk.take()) else {
+        return Ok(());
+    };
+    bulk_patch::withdraw(&pending.token);
+    let again = bulk_patch::declined(&pending, &named);
+    log::info!(
+        "[DDD] client {} declined its patch stream: {} of its {} records go as 0xF7E2s",
+        account(w, session),
+        again.len(),
+        pending.items.len()
+    );
+    for (id, db) in again {
+        ddd_manager::add_to_queue(w, session, id, db);
+    }
+    Ok(())
+}
+
 // ACE: DDDHandler.DDD_EndDDD
 /// The client has patched: answer only when `BeginDDD` was sent.
 pub fn ddd_end_ddd(w: &mut World, _message: &mut Payload<'_>, session: SessionId) -> HandlerResult {
@@ -569,6 +682,10 @@ pub fn ddd_end_ddd(w: &mut World, _message: &mut Payload<'_>, session: SessionId
     if w.sessions.get(session).is_some_and(|s| s.begin_ddd_sent) {
         if let Some(s) = w.sessions.get_mut(session) {
             s.begin_ddd_sent = false;
+            // Not ACE (V509): a stream's ticket is done with.
+            if let Some(p) = s.bulk.take() {
+                bulk_patch::withdraw(&p.token);
+            }
         }
 
         enqueue_send(w, session, game_message_ddd_end_ddd());

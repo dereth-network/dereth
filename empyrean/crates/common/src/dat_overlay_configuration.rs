@@ -29,6 +29,13 @@ pub struct DatOverlayConfiguration {
     /// buffer a tenth of a second keeps the patch from overflowing it and losing datagrams.
     #[serde(rename = "BytesPerSecond")]
     pub bytes_per_second: u32,
+    /// Offer a client that can take it (the Dereth client) the patch as one TCP stream, at the
+    /// speed the connection carries; the rate limits above are then the fallback's.
+    #[serde(rename = "Bulk")]
+    pub bulk: bool,
+    /// The TCP port of [`Self::bulk`]'s stream; 0 is the game port's number.
+    #[serde(rename = "BulkPort")]
+    pub bulk_port: u32,
 }
 
 /// The default [`DatOverlayConfiguration::bytes_per_second`]: 1 MiB.
@@ -44,6 +51,8 @@ impl Default for DatOverlayConfiguration {
             patching: true,
             records_per_minute: DEFAULT_RECORDS_PER_MINUTE,
             bytes_per_second: DEFAULT_BYTES_PER_SECOND,
+            bulk: true,
+            bulk_port: 0,
         }
     }
 }

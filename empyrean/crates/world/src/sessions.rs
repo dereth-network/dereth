@@ -104,6 +104,8 @@ pub struct SessionData {
     /// Not ACE (V437): this session's client answered for another world than this one and was
     /// asked again; it is asked once.
     pub overlay_asked_again: bool,
+    /// Not ACE (V509): the patch this session was offered as a TCP stream.
+    pub bulk: Option<crate::managers::bulk_patch::BulkPending>,
 }
 
 impl Default for SessionData {
@@ -135,6 +137,7 @@ impl Default for SessionData {
             overlay_bytes_per_second: 0,
             overlay_window: (DotNetDateTime::MIN_VALUE, 0),
             overlay_asked_again: false,
+            bulk: None,
         }
     }
 }
@@ -606,6 +609,8 @@ pub fn tick_outbound(w: &mut World) {
             s.last_character_select_ping_reply = DotNetDateTime::MIN_VALUE;
         }
 
+        // Not ACE (V509): an offered stream nobody collects goes back to the queue.
+        crate::managers::bulk_patch::expire(w, session);
         process_ddd_queue(w, session);
     }
 }

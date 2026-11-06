@@ -38,13 +38,6 @@ pub fn game_message_ddd_data_message(
         GameMessageGroup::DatabaseQueue,
     );
 
-    let (dat_file_type, dat_file_id_of_dat): (i32, i32) = match dat_database_type {
-        DatDatabaseType::Portal => (0, 1),
-        DatDatabaseType::Cell => (1, 2),
-        DatDatabaseType::Language => (1, 3),
-        DatDatabaseType::HighRes => (HI_FI_STRING_AS_INT, 1), // HiFi
-    };
-
     let dats = std::sync::Arc::clone(&w.dats);
     let Some(contents) = ddd_manager::try_get_dat_file_contents_for_transmission(
         &mut w.ddd_manager,
@@ -56,13 +49,30 @@ pub fn game_message_ddd_data_message(
         return msg;
     };
 
+    msg.write_proto(&ddd_data_body(contents, dat_database_type));
+    msg
+}
+
+/// Not ACE: the `0xF7E2` body for `contents`, which the bulk stream sends as well (V509).
+#[must_use]
+pub fn ddd_data_body(
+    contents: ddd_manager::DatFileContents,
+    dat_database_type: DatDatabaseType,
+) -> proto::DddData {
+    let (dat_file_type, dat_file_id_of_dat): (i32, i32) = match dat_database_type {
+        DatDatabaseType::Portal => (0, 1),
+        DatDatabaseType::Cell => (1, 2),
+        DatDatabaseType::Language => (1, 3),
+        DatDatabaseType::HighRes => (HI_FI_STRING_AS_INT, 1), // HiFi
+    };
+
     let dat_file = contents.dat_file;
     let file_id = dat_file.object_id;
     let file_type = ddd_manager::dat_file_get_file_type(dat_file.object_id, dat_database_type)
         .unwrap_or_else(|| client_fallback_file_type(dat_database_type));
 
     let length = i32::try_from(contents.contents.len()).unwrap_or(i32::MAX);
-    let body = proto::DddData {
+    proto::DddData {
         dat_file_type: dat_file_type.cast_unsigned(), // DatFileType
         dat_file_id: dat_file_id_of_dat.cast_unsigned(), // DatFileID
         resource_type: file_type,
@@ -72,9 +82,7 @@ pub fn game_message_ddd_data_message(
         version: 3,                                        // version
         data_size: length.wrapping_add(4).cast_unsigned(), // length + size of this message
         data: contents.contents,
-    };
-    msg.write_proto(&body);
-    msg
+    }
 }
 
 /// Not ACE's (a fix, V290): the type the client keys a downloaded id by when its id ranges give it none,

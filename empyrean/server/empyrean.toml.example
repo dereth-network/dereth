@@ -403,6 +403,16 @@ records_per_minute = 60000
 # does not overflow between the frames it reads it in.
 bytes_per_second = 1048576
 
+# default: true (Empyrean only)
+# Offer a client that can take it (the Dereth client) the patch as one TCP stream,
+# as fast as the connection carries it. The two limits above are then only the
+# fallback's, for a client that cannot reach the stream.
+bulk = true
+
+# default: 0 (Empyrean only)
+# The TCP port of that stream, on the game's host. 0: the game port's number.
+bulk_port = 0
+
 # ----------------------------------------------------------------------------------------------
 [status]
 # The status ping: a launcher that knows only the world's host and port asks, in two small

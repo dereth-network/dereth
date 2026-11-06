@@ -502,6 +502,9 @@ pub struct Config {
     /// exists because a headless regression must not take the machine's audio endpoint, and
     /// `--headless` therefore implies it.
     pub sound: bool,
+    /// `--no-bulk-patch`: never ask a server for the patch as a TCP stream (CD-044), so the
+    /// patch comes as retail's `0xF7E2`s.
+    pub bulk_patch: bool,
     /// `--ui-mode <hex>`: queue one of the eight UI-flow modes once the shell is up, so a screen
     /// that the flow would only reach through the network can be looked at by hand.
     ///
@@ -589,6 +592,7 @@ impl Default for Config {
             plugin_policy: None,
             ui: true,
             sound: true,
+            bulk_patch: true,
             ui_mode: None,
             log_filter: None,
             log_file: false,
@@ -1021,6 +1025,11 @@ const REBUILD_SWITCHES: &[Switch] = &[
     },
     Switch {
         long: "no-sound",
+        short: None,
+        arity: Arity::None,
+    },
+    Switch {
+        long: "no-bulk-patch",
         short: None,
         arity: Arity::None,
     },
@@ -1852,6 +1861,7 @@ impl Config {
             "plugin-dev" => self.plugin_dev = true,
             "no-connect" => self.connect = false,
             "no-sound" => self.sound = false,
+            "no-bulk-patch" => self.bulk_patch = false,
             "ui-mode" => {
                 self.ui = true;
                 self.ui_mode = Some(

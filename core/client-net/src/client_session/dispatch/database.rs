@@ -15,7 +15,8 @@
 use crate::client_session::{DropReason, SessionEvent};
 use dereth_primitives::IncomingMessage;
 use dereth_protocol::admin::{
-    DddBeginDdd, DddData, DddError, DddInterrogation, DddInterrogationResponse, DddOverlayManifest,
+    DddBeginDdd, DddBulkOffer, DddData, DddError, DddInterrogation, DddInterrogationResponse,
+    DddOverlayManifest,
 };
 use dereth_protocol::{read_body, Message, Opcode};
 
@@ -50,6 +51,8 @@ pub enum DddEvent {
     PatchtimePending,
     /// `0xF7EC` — the world's overlay manifest, ahead of its `0xF7E7`.
     OverlayManifest(Box<DddOverlayManifest>),
+    /// `0xF7ED` — the patch's records offered as a TCP stream, after `0xF7E7` (CD-044).
+    BulkOffer(DddBulkOffer),
 }
 
 /// The queue-5 dispatcher's decision: an event for the caller, and optionally a reply to send.
@@ -114,6 +117,7 @@ pub fn dispatch(state: &mut DddState, m: &IncomingMessage) -> DddDispatch {
         o if o == DddOverlayManifest::OPCODE => decoded(decode!(DddOverlayManifest, |v| {
             DddEvent::OverlayManifest(Box::new(v))
         })),
+        o if o == DddBulkOffer::OPCODE => decoded(decode!(DddBulkOffer, DddEvent::BulkOffer)),
         _ => DddDispatch {
             event: SessionEvent::Dropped {
                 queue: m.queue,
