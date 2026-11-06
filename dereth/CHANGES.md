@@ -14,6 +14,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+- Fixed the paper doll and the character previews showing an item a world's patch changed in its old look.
+
 ## 0.4.14 (2026-11-05)
 
 ## 0.4.13 (2026-11-05)
