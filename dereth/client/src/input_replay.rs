@@ -208,7 +208,7 @@ fn parse_pad(fields: &[&str]) -> Result<PadEdit, &'static str> {
     }
 }
 
-fn parse_event(fields: &[&str]) -> Result<HostEvent, &'static str> {
+pub(crate) fn parse_event(fields: &[&str]) -> Result<HostEvent, &'static str> {
     match fields {
         ["move", x, y] => Ok(HostEvent::CursorMoved {
             x: coordinate(x)?,
