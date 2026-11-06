@@ -3565,3 +3565,31 @@ fn the_rouge_mirra_goes_as_the_other_mirras() {
     hand_in(&mut h, &portal, 0x4700_076A, 0x4700_3331);
     assert_eq!(quest_state(&h, QUEST).map(|q| q.0), Some(status::COMPLETED));
 }
+
+/// What the best transmutation perk pays for what a store sells is no more than its price, so no
+/// buying and selling back makes money. Every store of the world database, each sale in coins.
+/// Behaviour: server.inventory.money-bag-pays-a-perk
+#[test]
+fn no_store_sale_pays_back_more_than_it_cost_at_the_best_transmutation_perk() {
+    let t = &compiled().tables;
+    let portal = yalain_testkit::authored::Portal::open();
+    let mut checked = 0;
+    let mut over = Vec::new();
+    for sale in t
+        .stores
+        .sales
+        .iter()
+        .filter(|s| s.currency == yalain_world::pack::COINS)
+    {
+        let Some(value) = portal.template(sale.product).props.int("Item_Value") else {
+            continue;
+        };
+        checked += 1;
+        let back = (f64::from(i32::try_from(value).unwrap_or(0)) * 1.18).floor();
+        if back > f64::from(sale.cost) {
+            over.push((sale.store, sale.product, sale.cost, value));
+        }
+    }
+    assert!(checked > 100, "{checked}");
+    assert!(over.is_empty(), "{} pay back more: {over:x?}", over.len());
+}
