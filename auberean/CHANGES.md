@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that a player would notice. 
 not how it was done.
 
 ## Unreleased
+- Screenshots are taken at full detail, far objects included.
 - Your own particles no longer show in first person; far flames stop with their objects.
 - Fixed other players staying on the ground when they jump.
 - Examining a recipe shows its time and difficulty lines again.

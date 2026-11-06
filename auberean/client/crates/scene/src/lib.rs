@@ -3813,6 +3813,14 @@ impl<'w> Scene<'w> {
         )
     }
 
+    /// Draw at full detail, or not: while a screenshot is taken nothing degrades or goes with its
+    /// distance. The frame in hand was chosen under the other setting, so it is made again.
+    // D2-10548, D2-10549
+    pub fn set_full_detail(&mut self, on: bool) {
+        auberean_draw::mesh::set_full_detail(on);
+        self.built = None;
+    }
+
     /// The frame to draw: the world around the camera and the bodies in it. `None` before the
     /// player has a body.
     pub fn frame(&mut self, now: f64) -> Option<&Frame> {

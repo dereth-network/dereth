@@ -816,6 +816,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "draw.mesh.a-screenshot-is-drawn-at-full-detail",
+        says: "While a screenshot is taken nothing degrades or goes with its distance from the \
+               camera: far objects come out at full detail, and the next frame is as before.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SHOT-FULL-DETAIL"),
+        station: "auberean-draw::dat::outdoors::a_screenshot_is_drawn_at_full_detail",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "draw.mesh.a-vertex-format-lays-its-elements-out-in-order",
         says: "A stored vertex holds its position, blend weights, normal, point size, diffuse and \
                specular colors, tangent-space vectors and coordinate pairs in that order, sized \
