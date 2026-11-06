@@ -66,7 +66,7 @@ use auberean_protocol::ServerMessage;
 use auberean_script::args::Arg;
 use auberean_script::native_object::TextInfo;
 use yalain_net::{BlobKind, ConnId, ServerNet};
-use yalain_store::Store;
+use yalain_store::{Store, StoredPosition};
 
 use crate::effect_defs::{aura_target, combo_flag, vital, Aura, Combo, EffectDef, Kind};
 use crate::graph::{tag, Builder, Slot};
@@ -120,6 +120,9 @@ pub const AURA_FLAGS: u32 = 0x251;
 pub const AURA_CATEGORIES: u32 = 0x21;
 /// A pulse's record: timed, pulsed, gone at logout (2017: 0xC52 on every pulse).
 pub const PULSE_FLAGS: u32 = 0xC52;
+
+/// A pulse's record from an aura a pet holds: as a player's, but for one bit (2017: 0x452 on all 154).
+pub const PET_PULSE_FLAGS: u32 = 0x452;
 
 /// An aura's next pulse: the first within one period of its turning on (2017: 0.6-121.6 s, 5% to
 /// 95%), then every 121 to 124 seconds (12,036 pulses: quartiles 121.0, 122.4, 123.9).
@@ -2029,7 +2032,7 @@ pub fn aura_on<S: Store>(
     let fx = if pulses_on_held(&a) {
         Vec::new()
     } else {
-        pulse_records(s, net, world, me, &a, spellcraft, clock)
+        pulse_records(s, net, world, (me, PULSE_FLAGS), &a, spellcraft, clock)
     };
     let e = EffectState {
         eid,
@@ -2061,7 +2064,7 @@ fn pulse_records<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     world: ConnId,
-    me: u64,
+    (me, flags): (u64, u32),
     a: &Aura,
     spellcraft: f32,
     clock: Clock,
@@ -2078,7 +2081,7 @@ fn pulse_records<S: Store>(
             ..Cast::default()
         };
         let shape = Shape {
-            flags: PULSE_FLAGS,
+            flags,
             categories: None,
             timeout: None,
             acting: me,
@@ -2464,8 +2467,24 @@ fn pulse_once<S: Store>(
         return false;
     };
     let reached = pulse_reaches(s, world, &a);
-    for to in &reached {
-        let fx = pulse_records(s, net, *to, aura.caster, &a, aura.spellcraft, clock);
+    let caster = (aura.caster, PULSE_FLAGS);
+    pulse_out(s, net, caster, &a, aura.spellcraft, &reached, clock);
+    true
+}
+
+/// A pulse goes out: its pulsed effects on the players it reaches, shown; every other player holding
+/// a record of an earlier pulse of this caster's is told the pulse missed it.
+fn pulse_out<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    (caster, flags): (u64, u32),
+    a: &Aura,
+    spellcraft: f32,
+    reached: &[ConnId],
+    clock: Clock,
+) {
+    for to in reached {
+        let fx = pulse_records(s, net, *to, (caster, flags), a, spellcraft, clock);
         for f in fx {
             show_fx_on(s, net, On::Player(*to), f);
         }
@@ -2479,9 +2498,7 @@ fn pulse_once<S: Store>(
                 .play
                 .effects
                 .iter()
-                .filter(|e| {
-                    e.caster == aura.caster && a.pulsed.contains(&e.state) && e.flags == PULSE_FLAGS
-                })
+                .filter(|e| e.caster == caster && a.pulsed.contains(&e.state) && e.flags == flags)
                 .map(|e| e.eid)
                 .collect::<Vec<_>>();
             (*c, eids)
@@ -2491,7 +2508,113 @@ fn pulse_once<S: Store>(
     for (to, eids) in missed {
         progress::private(net, to, &pulse_missed_call(&eids));
     }
-    true
+}
+
+/// The effects of an aura a thing in the world holds, with those that would harm whoever it reaches
+/// left out: what it reaches is its owner and its owner's friends.
+fn kindly<S: Store>(s: &Server<S>, state: u32) -> Option<Aura> {
+    let mut a = aura_def(s, state)?;
+    a.pulsed.retain(|st| {
+        s.effect_table
+            .get(*st)
+            .is_some_and(|d| d.internal_flags & crate::effect_defs::HARMFUL == 0)
+    });
+    Some(a)
+}
+
+/// The players an aura a pet holds reaches: when it reaches players, its owner and its owner's
+/// fellows, each in the world, alive, out of portal space and within the aura's range of the pet.
+fn pet_pulse_reaches<S: Store>(
+    s: &Server<S>,
+    owner: u64,
+    at: &StoredPosition,
+    a: &Aura,
+) -> Vec<ConnId> {
+    if a.targets & (aura_target::PLAYER | aura_target::OTHER_PLAYER | aura_target::MASTER) == 0 {
+        return Vec::new();
+    }
+    let fellows: Vec<u64> = s
+        .fellowships
+        .of(owner)
+        .map(|i| s.fellowships.list[i].fellows.iter().map(|f| f.id).collect())
+        .unwrap_or_default();
+    let mut out: Vec<ConnId> = s
+        .players
+        .iter()
+        .filter(|(_, p)| p.character == owner || fellows.contains(&p.character))
+        .filter(|(_, p)| {
+            p.trip.is_none()
+                && p.dying.is_none()
+                && !crate::combat::is_dead(p)
+                && crate::presence::distance(at, &p.position).is_some_and(|d| d <= a.range)
+        })
+        .map(|(c, _)| *c)
+        .collect();
+    out.sort_unstable();
+    out
+}
+
+/// An aura a pet holds pulses, at the pet's level: what it reaches holds its pulsed effects as from
+/// the pet, and one holding an earlier pulse's record it now misses is told.
+pub fn pet_pulses<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    (pet, owner, at): (u64, u64, StoredPosition),
+    aura: u32,
+    spellcraft: f32,
+    clock: Clock,
+) {
+    let Some(a) = kindly(s, aura) else {
+        return;
+    };
+    let reached = pet_pulse_reaches(s, owner, &at, &a);
+    pulse_out(
+        s,
+        net,
+        (pet, PET_PULSE_FLAGS),
+        &a,
+        spellcraft,
+        &reached,
+        clock,
+    );
+}
+
+/// A pet that held an aura is gone: the records of its pulses come off whoever holds them, at once
+/// (2017: within 0.3 s of its death, 20 of 23 deaths seen; 2 had run out by then).
+pub fn pet_pulses_end<S: Store>(s: &mut Server<S>, net: &mut ServerNet, pet: u64) {
+    let held: Vec<(ConnId, Vec<u32>)> = s
+        .players
+        .iter()
+        .map(|(c, p)| {
+            let eids = p
+                .play
+                .effects
+                .iter()
+                .filter(|e| e.caster == pet && e.flags == PET_PULSE_FLAGS)
+                .map(|e| e.eid)
+                .collect::<Vec<_>>();
+            (*c, eids)
+        })
+        .filter(|(_, eids)| !eids.is_empty())
+        .collect();
+    for (to, eids) in held {
+        let mut stop = Vec::new();
+        for eid in eids {
+            if let Some(Some(fx)) = take_off(s, net, On::Player(to), eid) {
+                stop.push(fx);
+            }
+        }
+        stop_fx(s, net, to, &stop);
+    }
+}
+
+/// How long until an aura a pet holds next pulses, in seconds: its second pulse comes soon after its
+/// first as it appears (2017: 5.6 to 11.4 s, 27 of 33), the rest a couple of minutes apart (121 to
+/// 130 s: 62 of 76, the others one missed).
+#[must_use]
+pub fn next_pet_pulse<S: Store>(s: &mut Server<S>, second: bool) -> f64 {
+    let (least, most) = if second { (5.6, 11.4) } else { (121.0, 130.0) };
+    least + f64::from(s.rng.between(0.0, 1.0)) * (most - least)
 }
 
 /// Turn an aura off: the records of its pulses its user holds, oldest first, then its own; the

@@ -8595,6 +8595,33 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.pets.aura-ends-with-the-pet",
+        says: "When the pet holding an aura is gone the records of its pulses come off whoever holds \
+               them, at once, and no more come.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PETS-AURA-END"),
+        station: "yalain-testkit::cpu::play::pet_skills::a_spirits_aura_comes_off_with_the_spirit",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.pets.aura-never-harms",
+        says: "A pet's aura puts nothing that harms on those it reaches. This server's own guard.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-PETS-AURA-KIND"),
+        station: "yalain-testkit::cpu::play::pet_skills::a_pets_aura_puts_nothing_harmful_on_its_owner",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.pets.aura-reaches-owner-and-fellows",
+        says: "A pet whose template's skill puts an aura on its user holds it from as it appears: its \
+               pulses reach its owner and its owner's fellows within the aura's range of the pet, at \
+               the pet's level, and no one else.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PETS-AURA-REACH"),
+        station: "yalain-testkit::cpu::play::pet_skills::a_spirits_aura_reaches_its_owner_and_fellows_in_range_and_no_stranger",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.pets.called-back",
         says: "A pet called back drops its fight and is at peace until it is with its owner again; \
                the order has no answer.",

@@ -18,6 +18,11 @@
 //! as many live pets of a class as the skill allows; a pet counts toward every class it shares a bit
 //! with, and others do not count. Aimed at a creature, its pet appears beside it and goes after it.
 //!
+//! **Its aura**: a skill of its template's that puts an aura on its user has the pet hold that aura
+//! from as it appears, pulsing at its level: at once, soon after, then a couple of minutes apart.
+//! Its pulses reach its owner and its owner's fellows within the aura's range of the pet, as records
+//! from the pet, and never put on anything that harms. Those records go when the pet does.
+//!
 //! **Effects on it**: a skill aimed at pets lands on its user's own, of the class it names, and never
 //! harms it. What it leaves there can open one of the pet's attacks and bar another, as each attack
 //! says. A pet whose template's skills include no attack takes no order to attack and fights nothing.
@@ -770,6 +775,7 @@ fn summon_kind<S: Store>(
         patrol: None,
         actions: 0,
     });
+    let holds = held_auras(s, &t);
     s.things.insert(t);
     s.pets.by_id.insert(
         id,
@@ -792,7 +798,58 @@ fn summon_kind<S: Store>(
     if let Some(seconds) = seconds {
         s.after(clock, seconds, crate::Timer::PetExpires { pet: id });
     }
+    for aura in holds {
+        let pulse = crate::Timer::PetAura {
+            pet: id,
+            aura,
+            second: true,
+        };
+        s.after(clock, 0.0, pulse);
+    }
     Some(id)
+}
+
+/// The auras a pet holds from as it appears: those its template's skills put on their user.
+fn held_auras<S: Store>(s: &Server<S>, t: &Thing) -> Vec<u32> {
+    let Some(stats) = t.creature.as_ref().map(|c| &c.stats) else {
+        return Vec::new();
+    };
+    stats
+        .skills
+        .iter()
+        .filter_map(|(skill, _)| s.skill_table.skills.get(skill))
+        .filter_map(|d| d.usage.as_ref())
+        .flat_map(|u| u.user_effects.iter().copied())
+        .filter(|e| crate::effects::is_aura(s, *e))
+        .collect()
+}
+
+/// An aura a pet holds pulses, and pulses again a while later, for as long as the pet is alive.
+pub fn aura_pulses<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    (pet, aura, second): (u64, u32, bool),
+    clock: Clock,
+) {
+    let Some(owner) = s.pets.by_id.get(&pet).map(|p| p.owner) else {
+        return;
+    };
+    let Some(t) = s.things.get(pet).filter(|t| t.alive()) else {
+        return;
+    };
+    let Some(at) = t.at else {
+        return;
+    };
+    #[allow(clippy::cast_precision_loss)]
+    let level = t.creature.as_ref().map_or(1.0, |c| c.stats.level as f32);
+    crate::effects::pet_pulses(s, net, (pet, owner, at), aura, level, clock);
+    let next = crate::effects::next_pet_pulse(s, second);
+    let pulse = crate::Timer::PetAura {
+        pet,
+        aura,
+        second: false,
+    };
+    s.after(clock, next, pulse);
 }
 
 /// May a player hire on this contract now? Its mercenary's template must make a pet, and the player
@@ -983,6 +1040,7 @@ pub fn expires<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64) {
     if let Some(world) = conn_of(s, pet.owner) {
         progress::private(net, world, &removed(id));
     }
+    crate::effects::pet_pulses_end(s, net, id);
     crate::death::vanish(s, net, id);
 }
 
@@ -1292,6 +1350,7 @@ pub fn dies<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, killer: u
     if let Some(world) = conn_of(s, pet.owner) {
         progress::private(net, world, &removed(id));
     }
+    crate::effects::pet_pulses_end(s, net, id);
     if let Some(t) = s.things.get_mut(id) {
         t.health = 0;
         if let Some(c) = t.creature.as_mut() {
@@ -1330,6 +1389,7 @@ pub fn owner_dies<S: Store>(s: &mut Server<S>, net: &mut ServerNet, owner: u64, 
 pub fn owner_leaves<S: Store>(s: &mut Server<S>, net: &mut ServerNet, owner: u64) {
     for id in s.pets.of(owner) {
         s.pets.by_id.remove(&id);
+        crate::effects::pet_pulses_end(s, net, id);
         crate::death::vanish(s, net, id);
     }
     s.pets.owed.remove(&owner);

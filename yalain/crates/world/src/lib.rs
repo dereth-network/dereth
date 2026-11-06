@@ -568,6 +568,8 @@ pub enum Timer {
     CreatureEffectTick { creature: u64, eid: u32, since: f64 },
     /// A player's aura (its record's id) pulses.
     AuraPulse { world: ConnId, eid: u32 },
+    /// An aura a pet holds pulses (the next is its second, or not).
+    PetAura { pet: u64, aura: u32, second: bool },
     /// Back from a resurrection, the auras it held pulse again.
     AurasPulseAgain { world: ConnId },
     /// A player another raised may move.
@@ -954,6 +956,9 @@ impl<S: Store> Server<S> {
                     since,
                 } => effects::creature_tick(self, net, creature, eid, since, clock),
                 Timer::AuraPulse { world, eid } => effects::pulse(self, net, world, eid, clock),
+                Timer::PetAura { pet, aura, second } => {
+                    pets::aura_pulses(self, net, (pet, aura, second), clock);
+                }
                 Timer::RaisedMoves { world } => resurrections::raised_moves(self, net, world),
                 Timer::AurasPulseAgain { world } => {
                     effects::auras_pulse_again(self, net, world, clock);

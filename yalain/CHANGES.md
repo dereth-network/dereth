@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- A Spirit's buff now reaches its owner and fellows.
 
 ## 0.2.2 (2026-11-07)
 - Resurrection skills work: the dead can accept and get up where they fell.
