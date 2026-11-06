@@ -102,6 +102,35 @@ fn a_skill_with_no_experience_in_it_is_untrained_at_once_and_its_credits_come_ba
     assert_eq!(h.server.players[&world].play.credits, 1 + COST);
 }
 
+/// A perk given up lowers a vital that stood above what is left of its greatest, and the player is
+/// told; below that, nothing moves.
+/// Behaviour: server.skills.perk-given-up-lowers-a-vital
+#[test]
+fn a_vitality_perk_given_up_brings_health_above_what_is_left_back_within_it() {
+    use yalain_world::player::quality;
+    let (mut h, b, world) = trained(0);
+    h.server
+        .skill_table
+        .skills
+        .get_mut(&SKILL)
+        .expect("the skill")
+        .perk = Some(yalain_world::skills::Perk {
+        kind: 40,
+        value: 50.0,
+        priority: 1,
+    });
+    let base = yalain_world::quals::int(&h.server.players[&world].qualities, quality::HEALTH_MAX)
+        .expect("a greatest");
+    let p = h.server.players.get_mut(&world).expect("in the world");
+    yalain_world::quals::set_int(&mut p.qualities, quality::HEALTH, base + 40);
+    ask(&mut h, b, function::UNTRAIN, &[Arg::Int(SKILL)]);
+    assert!(!holds(&h, world));
+    assert_eq!(
+        yalain_world::quals::int(&h.server.players[&world].qualities, quality::HEALTH),
+        Some(base)
+    );
+}
+
 /// A skill with experience in it waits: the repository names it with the experience to earn and
 /// the player is told; an award short of it leaves it; the award that makes it up untrains it, the
 /// skill's experience given back to spend and its credits back.

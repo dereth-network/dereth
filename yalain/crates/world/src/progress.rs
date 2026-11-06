@@ -412,6 +412,13 @@ pub fn level_up<S: Store>(
     let gained_hero_credits: i32 = (was + 1..=now)
         .filter_map(|l| s.levels.level(l).map(|x| x.hero_credits))
         .sum();
+    let tables = s.players.get(&world).map_or_else(Default::default, |p| {
+        let starting = s.start.skills.get(&p.race).cloned().unwrap_or_default();
+        crate::skills::RepositoryTables::of(
+            &s.skill_table,
+            &crate::skills::held(&starting, &p.play.skills),
+        )
+    });
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
@@ -433,7 +440,7 @@ pub fn level_up<S: Store>(
     private(
         net,
         world,
-        &crate::skills::repository_update(p.play.credits, p.play.hero_credits),
+        &crate::skills::repository_untraining(p.play.credits, p.play.hero_credits, &tables, None),
     );
     send_int(net, world, quality::HEALTH_MAX, health);
     send_int(net, world, quality::VIGOR_MAX, vigor);

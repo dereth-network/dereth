@@ -658,6 +658,204 @@ fn a_hero_with_the_first_transmutation_master_is_paid_as_in_2017() {
     assert_eq!(sell(&mut h, ONE_THOUSAND, 5), 5_150);
 }
 
+/// A player holding a skill, as a saved character's list holds it.
+fn holding(h: &mut yalain_testkit::Harness, world: yalain_net::ConnId, skills: &[u32]) {
+    let p = h.server.players.get_mut(&world).expect("in the world");
+    for skill in skills {
+        p.play.skills.push(yalain_world::state::SkillState {
+            skill: *skill,
+            granted: 0,
+            mask: yalain_world::skills::mask::TRAINED,
+            cost: 0,
+            children: 0,
+            dependents: 0,
+            spent: 0,
+        });
+    }
+}
+
+/// The perks of a vital's greatest add their value to it, and the repository tells the client
+/// which perk gives each kind: Vitality at its second rank, Intelligence and Heroism at their first,
+/// 100, 50 and 10; without them the greatest is what the qualities hold. What is kept isn't touched:
+/// its own vital stays where it was, and giving the perk up brings a vital above it back within it.
+/// Behaviour: server.skills.perks-raise-a-vitals-greatest
+#[test]
+fn the_perks_of_a_vitals_greatest_raise_it_and_the_repository_says_so() {
+    use yalain_world::effects::{max_vital, vitals_within_their_greatest};
+    use yalain_world::player::quality;
+    let portal = Portal::open();
+    let mut h = yalain_testkit::Harness::new();
+    h.server.skill_table = portal.skills();
+    let (_, _) = h.player_in_world("one", "Elara");
+    let world = *h.server.players.keys().next().expect("in the world");
+    let greatest = |h: &yalain_testkit::Harness, q: u32| {
+        let p = &h.server.players[&world];
+        max_vital(&h.server, p, q)
+    };
+    let (health, vigor, focus) = (
+        greatest(&h, quality::HEALTH_MAX),
+        greatest(&h, quality::VIGOR_MAX),
+        greatest(&h, quality::FOCUS_MAX),
+    );
+    let before = yalain_world::quals::int(&h.server.players[&world].qualities, quality::HEALTH);
+    holding(&mut h, world, &[2152, 2074, 2141]);
+    assert_eq!(greatest(&h, quality::HEALTH_MAX), health + 100);
+    assert_eq!(greatest(&h, quality::VIGOR_MAX), vigor + 50);
+    assert_eq!(greatest(&h, quality::FOCUS_MAX), focus + 10);
+    assert_eq!(
+        yalain_world::quals::int(&h.server.players[&world].qualities, quality::HEALTH),
+        before,
+        "nothing kept moves"
+    );
+    let p = &h.server.players[&world];
+    let starting = h
+        .server
+        .start
+        .skills
+        .get(&p.race)
+        .cloned()
+        .unwrap_or_default();
+    let tables = yalain_world::skills::RepositoryTables::of(
+        &h.server.skill_table,
+        &yalain_world::skills::held(&starting, &p.play.skills),
+    );
+    assert!(tables.perks.contains(&(40, 2152)));
+    assert!(tables.perks.contains(&(39, 2074)));
+    assert!(tables.perks.contains(&(41, 2141)));
+    let p = h.server.players.get_mut(&world).expect("in the world");
+    yalain_world::quals::set_int(&mut p.qualities, quality::HEALTH, health + 100);
+    p.play.skills.clear();
+    vitals_within_their_greatest(&mut h.server, &mut h.net, world);
+    assert_eq!(
+        yalain_world::quals::int(&h.server.players[&world].qualities, quality::HEALTH),
+        Some(health),
+        "given up, within what is left"
+    );
+}
+
+/// Of a kind's perks the table names the one of the highest priority, whichever came first; the
+/// kinds and categories a character doesn't hold stay out; the skills of the categories a client
+/// reads into its attacks aren't told.
+/// Behaviour: server.skills.repository-tables
+#[test]
+fn the_repository_tables_name_the_best_perk_of_a_kind_and_leave_out_attack_categories() {
+    use yalain_world::skills::{held, RepositoryTables, CATEGORIES_NOT_TOLD};
+    let t = Portal::open().skills();
+    let of = |ids: &[u32]| {
+        let kept: Vec<_> = ids
+            .iter()
+            .map(|skill| yalain_world::state::SkillState {
+                skill: *skill,
+                granted: 0,
+                mask: yalain_world::skills::mask::TRAINED,
+                cost: 0,
+                children: 0,
+                dependents: 0,
+                spent: 0,
+            })
+            .collect();
+        RepositoryTables::of(&t, &held(&[], &kept))
+    };
+    assert_eq!(of(&[2152, 2150]).perks, vec![(40, 2152)]);
+    assert_eq!(of(&[2150, 2152]).perks, vec![(40, 2152)]);
+    assert_eq!(of(&[]), RepositoryTables::default());
+    let by_category = |c: u32| {
+        t.skills
+            .iter()
+            .find(|(_, d)| d.category == c && d.perk.is_none())
+            .map(|(id, _)| *id)
+            .expect("a skill of the category")
+    };
+    assert_eq!(of(&[by_category(5)]).categories, vec![(5, by_category(5))]);
+    for c in CATEGORIES_NOT_TOLD {
+        assert!(of(&[by_category(c)]).categories.is_empty(), "{c}");
+    }
+}
+
+/// Nocturnal Blood adds to the vigor rates by night and Diurnal Blood by day, 0.3 each, and neither
+/// to health's.
+/// Behaviour: server.skills.blood-perks-raise-vigor-by-the-hour
+#[test]
+fn the_blood_perks_raise_the_vigor_rates_at_their_own_hour() {
+    use yalain_world::regen::{rate, rate_of};
+    let portal = Portal::open();
+    let mut h = yalain_testkit::Harness::new();
+    h.server.skill_table = portal.skills();
+    let (_, _) = h.player_in_world("one", "Elara");
+    let world = *h.server.players.keys().next().expect("in the world");
+    holding(&mut h, world, &[2031]);
+    let p = &h.server.players[&world];
+    let at = |which: u32, night: bool| rate_of(&h.server, p, which, night);
+    assert!((at(rate::PEACE_VIGOR, true) - at(rate::PEACE_VIGOR, false) - 0.3).abs() < 1e-5);
+    assert!((at(rate::COMBAT_VIGOR, true) - at(rate::COMBAT_VIGOR, false) - 0.3).abs() < 1e-5);
+    assert!((at(rate::PEACE_HEALTH, true) - at(rate::PEACE_HEALTH, false)).abs() < 1e-5);
+    h.server
+        .players
+        .get_mut(&world)
+        .unwrap()
+        .play
+        .skills
+        .clear();
+    holding(&mut h, world, &[1979]);
+    let p = &h.server.players[&world];
+    let at = |which: u32, night: bool| rate_of(&h.server, p, which, night);
+    assert!((at(rate::PEACE_VIGOR, false) - at(rate::PEACE_VIGOR, true) - 0.3).abs() < 1e-5);
+}
+
+/// Fast Learner pays a kill's experience times its value, floored; without it, the same.
+/// Behaviour: server.skills.fast-learner
+#[test]
+fn fast_learner_raises_what_a_kill_pays_floored() {
+    let portal = Portal::open();
+    let mut h = yalain_testkit::Harness::new();
+    h.server.skill_table = portal.skills();
+    let (_, _) = h.player_in_world("one", "Elara");
+    let world = *h.server.players.keys().next().expect("in the world");
+    let pay = |h: &yalain_testkit::Harness, xp| {
+        yalain_world::skills::with_fast_learner(&h.server, world, xp)
+    };
+    assert_eq!(pay(&h, 1_000), 1_000);
+    holding(&mut h, world, &[1983]);
+    assert_eq!(pay(&h, 1_000), 1_010);
+    assert_eq!(pay(&h, 150), 151);
+}
+
+/// A session start tells the perks its character holds, as the updates after it do.
+/// Behaviour: server.skills.session-start-tells-its-perks
+#[test]
+fn a_session_start_and_an_update_tell_the_perks_a_character_holds() {
+    const WORDS: [u8; 12] = [0, 1, 0, 0x44, 0, 0, 0, 0, 1, 0, 0xFF, 0xFF];
+    let portal = Portal::open();
+    let mut h = yalain_testkit::Harness::new();
+    h.server.skill_table = portal.skills();
+    h.server.start.skills.insert(1, vec![(2150, 0)]);
+    h.server.start.skills.insert(2, vec![(2150, 0)]);
+    h.server.start.skills.insert(4, vec![(2150, 0)]);
+    let (b, _) = h.player_in_world("one", "Elara");
+    let holds_perk = |raw: &[u8]| {
+        let at = raw
+            .windows(WORDS.len())
+            .position(|w| w == WORDS)
+            .expect("a table");
+        let n = u16::from_le_bytes([raw[at + 12], raw[at + 13]]);
+        n == 1
+            && u32::from_le_bytes(raw[at + 16..at + 20].try_into().unwrap()) == 40
+            && u32::from_le_bytes(raw[at + 20..at + 24].try_into().unwrap()) == 2150
+    };
+    let start = h
+        .world_messages(b, 0)
+        .into_iter()
+        .find(|m| {
+            matches!(m, auberean_protocol::ServerMessage::PlayerCall(c) if c.function.0 == yalain_world::session::function::SESSION_START)
+        })
+        .expect("a session start");
+    assert!(holds_perk(&start.encode()), "the session start");
+    let world = *h.server.players.keys().next().expect("in the world");
+    let p = &h.server.players[&world];
+    let update = yalain_world::skills::repository_of(&h.server, p);
+    assert!(holds_perk(&update.encode()), "an update");
+}
+
 /// A new character of each of the five races, either sex, holds the items its data names: the
 /// weapons (and a Drudge's robe) in its pack, the clothes it is to wear worn where they go. It is
 /// made wearing them, each in the color its physique chose, and is drawn so at its entry and again

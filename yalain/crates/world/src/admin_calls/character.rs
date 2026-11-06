@@ -465,8 +465,9 @@ fn skill_train<S: Store>(cx: &mut Cx<'_, S>, a: &Args<'_>) -> Vec<String> {
     };
     p.play.credits = p.play.credits.saturating_sub(GIVEN);
     p.play.hero_credits = p.play.hero_credits.saturating_sub(GIVEN);
-    let (c, h) = (p.play.credits, p.play.hero_credits);
-    progress::private(cx.net, world, &skills::repository_update(c, h));
+    if let Some(p) = cx.s.players.get(&world) {
+        progress::private(cx.net, world, &skills::repository_of(cx.s, p));
+    }
     crate::world::keep_player(cx.s, world);
     vec![format!("Asked to train skill {skill:08X}.")]
 }
@@ -511,8 +512,10 @@ fn skill_credits<S: Store>(cx: &mut Cx<'_, S>, a: &Args<'_>) -> Vec<String> {
         return Vec::new();
     };
     p.play.credits = p.play.credits.saturating_add(add);
-    let (c, h) = (p.play.credits, p.play.hero_credits);
-    progress::private(cx.net, cx.world, &skills::repository_update(c, h));
+    let c = p.play.credits;
+    if let Some(p) = cx.s.players.get(&cx.world) {
+        progress::private(cx.net, cx.world, &skills::repository_of(cx.s, p));
+    }
     crate::world::keep_player(cx.s, cx.world);
     vec![format!("You hold {c} skill credits.")]
 }
@@ -568,8 +571,10 @@ fn hero_credits<S: Store>(cx: &mut Cx<'_, S>, a: &Args<'_>) -> Vec<String> {
         return Vec::new();
     };
     p.play.hero_credits = p.play.hero_credits.saturating_add(n);
-    let (c, h) = (p.play.credits, p.play.hero_credits);
-    progress::private(cx.net, cx.world, &skills::repository_update(c, h));
+    let h = p.play.hero_credits;
+    if let Some(p) = cx.s.players.get(&cx.world) {
+        progress::private(cx.net, cx.world, &skills::repository_of(cx.s, p));
+    }
     vec![format!("You hold {h} hero skill credits.")]
 }
 

@@ -1278,7 +1278,8 @@ fn a_tessera_used_gives_a_hero_skill_credit_and_is_spent() {
     assert!(
         h.world_messages(b, from)
             .iter()
-            .any(|m| *m == yalain_world::skills::repository_update(1, 39)),
+            .any(|m| *m
+                == yalain_world::skills::repository_untraining(1, 39, &Default::default(), None)),
         "the repository with a hero skill credit more"
     );
     assert_eq!(h.server.players[&world].play.hero_credits, 39);

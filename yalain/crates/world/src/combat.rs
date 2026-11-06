@@ -2092,12 +2092,13 @@ pub(crate) fn lose_health<S: Store>(
     world: ConnId,
     damage: i32,
 ) -> (f32, f32) {
+    let Some(p) = s.players.get(&world) else {
+        return (1.0, 1.0);
+    };
+    let max = crate::effects::own_greatest(s, p, quality::HEALTH_MAX).max(1);
     let Some(p) = s.players.get_mut(&world) else {
         return (1.0, 1.0);
     };
-    let max = quals::int(&p.qualities, quality::HEALTH_MAX)
-        .unwrap_or(100)
-        .max(1);
     let health = quals::int(&p.qualities, quality::HEALTH).unwrap_or(max);
     let least = i32::from(p.admin.never_say_die);
     let now = (health - damage).clamp(least, max.max(health));

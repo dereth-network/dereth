@@ -106,6 +106,8 @@ pub struct SessionStart {
     /// The skills it holds: the skill and its granted level (0 for a skill to raise, 1 for one
     /// held as a gift).
     pub skills: Vec<crate::skills::Held>,
+    /// The repository's perk and category tables.
+    pub tables: crate::skills::RepositoryTables,
     /// Its options record, packed ([`crate::options::Options::to_packed`]).
     pub options: Vec<u8>,
     /// Its container segments: each segment's room and how much of it is taken.
@@ -164,6 +166,7 @@ const NONE: Slot = Slot::Ref(None);
 
 fn skills_graph(
     skills: &[crate::skills::Held],
+    tables: &crate::skills::RepositoryTables,
     (credits, hero_credits): (u32, u32),
     last_used: &[(u32, f64)],
 ) -> Arg {
@@ -171,11 +174,11 @@ fn skills_graph(
     let repo = b.reserve(package::SKILL_REPOSITORY.0);
     let perks = b.native(
         native::WORD_WORD_HASH,
-        hash(Elem::Word, Elem::Word, TABLE_SIZE, &[]),
+        crate::skills::word_table(&tables.perks),
     );
     let categories = b.native(
         native::WORD_WORD_HASH,
-        hash(Elem::Word, Elem::Word, TABLE_SIZE, &[]),
+        crate::skills::word_table(&tables.categories),
     );
     let table = b.next_id();
     let first = table + 1;
@@ -484,6 +487,7 @@ impl SessionStart {
             ),
             skills_graph(
                 &self.skills,
+                &self.tables,
                 (self.credits, self.hero_credits),
                 &self.last_used,
             ),

@@ -336,7 +336,7 @@ fn a_tables_level_and_raise_cost_follow_the_library() {
 /// Behaviour: server.skills.hero-skills-paid-in-hero-credits
 #[test]
 fn a_hero_skill_is_trained_only_by_a_hero_and_paid_in_hero_skill_credits() {
-    use yalain_world::skills::{flag, refusal, repository_update, Credits};
+    use yalain_world::skills::{flag, refusal, repository_untraining, Credits};
     const HERO_SKILL: u32 = 1126;
     let mut h = Harness::new();
     let b = trainee(&mut h);
@@ -391,7 +391,7 @@ fn a_hero_skill_is_trained_only_by_a_hero_and_paid_in_hero_skill_credits() {
     assert!(
         h.world_messages(b, from)
             .iter()
-            .any(|m| *m == repository_update(1, 5)),
+            .any(|m| *m == repository_untraining(1, 5, &Default::default(), None)),
         "the repository with the hero credits left"
     );
     let repo = calls_of(&h, b, from)
@@ -432,7 +432,7 @@ fn a_hero_skill_is_trained_only_by_a_hero_and_paid_in_hero_skill_credits() {
 #[test]
 fn a_level_from_45_brings_its_hero_skill_credits() {
     use yalain_world::levels::{Level, LevelTable};
-    use yalain_world::skills::repository_update;
+    use yalain_world::skills::repository_untraining;
     let mut h = Harness::new();
     let b = trainee(&mut h);
     h.server.levels = LevelTable {
@@ -459,7 +459,7 @@ fn a_level_from_45_brings_its_hero_skill_credits() {
     assert!(
         h.world_messages(b, from)
             .iter()
-            .any(|m| *m == repository_update(4, 203)),
+            .any(|m| *m == repository_untraining(4, 203, &Default::default(), None)),
         "the repository with both"
     );
 }

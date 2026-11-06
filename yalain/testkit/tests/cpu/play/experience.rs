@@ -129,6 +129,61 @@ fn a_kills_experience_is_paid_in_parts_by_the_health_each_damager_took_a_pets_to
     );
 }
 
+/// A kill's part is paid times the Fast Learner its player holds, floored, and the text says so.
+/// Behaviour: server.death.experience-with-fast-learner
+#[test]
+fn a_kills_part_is_paid_times_the_fast_learner_its_player_holds() {
+    use yalain_world::skills::{Perk, SkillDef};
+    const FAST_LEARNER: u32 = 1983;
+    let (mut h, b, me, [prey, _, _]) = world(1000);
+    h.server.skill_table.skills.insert(
+        FAST_LEARNER,
+        SkillDef {
+            perk: Some(Perk {
+                kind: 20,
+                value: 1.03,
+                priority: 1,
+            }),
+            ..SkillDef::default()
+        },
+    );
+    for p in h.server.players.values_mut() {
+        p.play.skills.push(yalain_world::state::SkillState {
+            skill: FAST_LEARNER,
+            granted: 0,
+            mask: yalain_world::skills::mask::TRAINED,
+            cost: 0,
+            children: 0,
+            dependents: 0,
+            spent: 0,
+        });
+    }
+    let was = total_of(&h, me);
+    let from = h.bots[b].inbox.len();
+    let clock = h.clock();
+    combat::hurt_creature(&mut h.server, &mut h.net, prey, me, 10_000, clock);
+    h.run(10);
+    assert_eq!(
+        told(&h, b, from),
+        vec![
+            Told::Text(text::GAINED.0, Some(1030)),
+            Told::Total(was + 1030),
+            Told::Text(text::KILLED.0, None),
+        ]
+    );
+    // What a quest or an allegiance pays is no kill's.
+    let was = total_of(&h, me);
+    let world = *h.server.players.keys().next().expect("in the world");
+    yalain_world::progress::award(
+        &mut h.server,
+        &mut h.net,
+        world,
+        1000,
+        yalain_world::progress::Award::Step,
+    );
+    assert_eq!(total_of(&h, me), was + 1000);
+}
+
 /// The part of a damager the creature could not reach is held back alone, and the player it was
 /// for told once "You receive no experience, since that wasn't a fair fight." in its place among
 /// the parts: the pet's held back, the player's own is paid; the player's held back, its pet's is

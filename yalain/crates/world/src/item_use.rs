@@ -833,7 +833,9 @@ fn carry_out<S: Store>(
     if tessera {
         if let Some(p) = s.players.get_mut(&world) {
             p.play.hero_credits = p.play.hero_credits.saturating_add(1);
-            let m = crate::skills::repository_update(p.play.credits, p.play.hero_credits);
+        }
+        if let Some(p) = s.players.get(&world) {
+            let m = crate::skills::repository_of(s, p);
             progress::private(net, world, &m);
         }
     }

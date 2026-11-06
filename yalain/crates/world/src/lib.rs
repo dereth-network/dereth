@@ -375,6 +375,8 @@ pub struct Server<S: Store> {
     pub regen_rng: rng::Rng,
     /// The character levels.
     pub levels: levels::LevelTable,
+    /// The world's calendar, which says when it is night; none, never.
+    pub calendar: Option<auberean_world::calendar::GameClock>,
     /// The skills' definitions and advancement tables.
     pub skill_table: skills::SkillTable,
     /// The effects' definitions, and the recipes' and craft skills'.
@@ -695,6 +697,18 @@ pub enum Timer {
 }
 
 impl<S: Store> Server<S> {
+    /// Is it night in the world at this game time, by its calendar?
+    #[must_use]
+    pub fn is_night(&self, game_time: f64) -> bool {
+        self.calendar.as_ref().is_some_and(|c| {
+            let mut c = c.clone();
+            c.use_time(game_time);
+            c.night() != 0
+        })
+    }
+}
+
+impl<S: Store> Server<S> {
     /// A server over this store, with the first ids this run gives set aside there.
     ///
     /// # Errors
@@ -757,6 +771,7 @@ impl<S: Store> Server<S> {
             regen_rng: rng::Rng::new(cfg_seed ^ 0x7265_6765_6E00),
             levels: levels::LevelTable::default(),
             skill_table: skills::SkillTable::default(),
+            calendar: None,
             effect_table: effect_defs::EffectTable::default(),
             creature_effects: effects::CreatureRecords::default(),
             crafting: craft::Crafting::default(),

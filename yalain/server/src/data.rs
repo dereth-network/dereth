@@ -278,6 +278,23 @@ pub fn level_table(p: &Portal) -> Result<yalain_world::levels::LevelTable, Strin
     yalain_world::levels::LevelTable::from_state(lib, &g)
 }
 
+/// The world's calendar, by its region's first sky.
+#[must_use]
+pub fn calendar(p: &Portal) -> Option<auberean_world::calendar::GameClock> {
+    use auberean_assets::region::{GameTime, Region, SkyDesc};
+    const REGION_MAPPING: u32 = 0x4000_0007;
+    let (_, path) = p.files.iter().find(|(n, _)| *n == DatName::Portal)?;
+    let file = auberean_dat::DatFile::open(path).ok()?;
+    let db = auberean_assets::database::Database::new(vec![std::sync::Arc::new(file)]);
+    let record = db.data_id_by_enum(yalain_world::player::REGION, REGION_MAPPING);
+    let sky = db.get::<Region>(record)?.skies.first()?.record.0;
+    let game_time = db.get::<SkyDesc>(sky)?.game_time.0;
+    let calendar = db.get::<GameTime>(game_time)?;
+    Some(auberean_world::calendar::GameClock::new(
+        (*calendar.arc()).clone(),
+    ))
+}
+
 /// The vitae cost table (the experience to raise vitae by one at full vitae, by level from 1),
 /// read with the script library's field names.
 ///

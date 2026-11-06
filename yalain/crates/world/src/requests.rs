@@ -214,13 +214,24 @@ fn fight_ends_trade<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: Con
     }
 }
 
+/// A player's vitals with its greatest as its skills make them.
+fn with_skills_greatest<S: Store>(s: &Server<S>, p: &crate::world::Player, v: Vitals) -> Vitals {
+    use crate::player::quality;
+    let whole = |q: u32| crate::effects::own_greatest(s, p, q).max(0).cast_unsigned();
+    Vitals {
+        max_health: whole(quality::HEALTH_MAX),
+        max_vigor: whole(quality::VIGOR_MAX),
+        ..v
+    }
+}
+
 /// The vitals of an object the world knows, by id: a player's from its qualities, a creature a
 /// camp keeps alive from its own, a placed creature's or a person's from its template. As a client
 /// may be told of it.
 #[must_use]
 pub fn vitals_of<S: Store>(s: &Server<S>, viewer: ConnId, id: u64) -> Option<Vitals> {
     if let Some(p) = crate::presence::player_for(s, viewer, id).and_then(|w| s.players.get(&w)) {
-        return Vitals::of_qualities(&p.qualities);
+        return Vitals::of_qualities(&p.qualities).map(|v| with_skills_greatest(s, p, v));
     }
     if let Some(t) = s.things.get(id) {
         // A creature, or a dye plant (2017: its health and vigor, 102 of 102 selections).
@@ -516,7 +527,7 @@ fn profile_bytes<S: Store>(
     let my_level = examine::level_of(&me.qualities);
     let seen = crate::presence::player_for(s, world, req.object).and_then(|w| s.players.get(&w));
     let profile = if let Some(q) = seen {
-        let v = Vitals::of_qualities(&q.qualities).unwrap_or_default();
+        let v = with_skills_greatest(s, q, Vitals::of_qualities(&q.qualities).unwrap_or_default());
         profile::player(
             req.asked,
             &crate::player::world_name(&q.name, q.sex),

@@ -3233,6 +3233,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.death.experience-with-fast-learner",
+        says: "A kill's part is paid times the Fast Learner its player holds, floored, and the \
+               text says so.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-KILL-FAST-LEARNER"),
+        station: "yalain-testkit::cpu::play::experience::a_kills_part_is_paid_times_the_fast_learner_its_player_holds",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.death.lifestone-protection",
         says: "A resurrected player is protected for three minutes: the protection added on its \
                client (its record: the protection's saved state, three minutes) as it is \
@@ -4118,6 +4127,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-FELLOW-SHARE-COUNT"),
         station: "yalain-testkit::cpu::play::fellowships::the_share_counts_every_fellow_of_a_level_to_share_near_or_not_and_pays_those_within_160_m",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.fellowship.share-with-fast-learner",
+        says: "A fellow's share of a kill is paid times the Fast Learner that fellow holds; \
+               another's stays.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SHARE-FAST-LEARNER"),
+        station: "yalain-testkit::cpu::play::fellowships::a_fellows_share_of_a_kill_is_paid_times_its_own_fast_learner",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -11465,6 +11483,24 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "server.skills.blood-perks-raise-vigor-by-the-hour",
+        says: "Nocturnal Blood adds to the vigor rates by night and Diurnal Blood by day, 0.3 each, \
+               and neither to health's.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PERK-BLOOD"),
+        station: "yalain-testkit::dat::skills::the_blood_perks_raise_the_vigor_rates_at_their_own_hour",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.skills.fast-learner",
+        says: "Fast Learner pays a kill's experience times its value, floored; without it, the \
+               same.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PERK-FAST-LEARNER"),
+        station: "yalain-testkit::dat::skills::fast_learner_raises_what_a_kill_pays_floored",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.skills.hero-credits-by-level",
         says: "Reaching a level that brings hero skill credits (from level 45, 100 a level in the \
                client's level table) adds them with the level's skill credit, the repository \
@@ -11503,6 +11539,25 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-SKILL-LIST"),
         station: "yalain-testkit::cpu::play::own_requests::the_trained_skills_list_has_a_line_for_each_trained_skill_only",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.skills.perk-given-up-lowers-a-vital",
+        says: "A perk given up lowers a vital that stood above what is left of its greatest, and \
+               the player is told.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PERK-GIVEN-UP"),
+        station: "yalain-testkit::cpu::play::untraining::a_vitality_perk_given_up_brings_health_above_what_is_left_back_within_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.skills.perks-raise-a-vitals-greatest",
+        says: "The perks of a vital's greatest add their value to it, and the repository tells the \
+               client which perk gives each kind; what is kept isn't touched, and giving the perk \
+               up brings a vital above it back within it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PERK-VITALS"),
+        station: "yalain-testkit::dat::skills::the_perks_of_a_vitals_greatest_raise_it_and_the_repository_says_so",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "server.skills.perks-read-from-their-definitions",
@@ -11550,6 +11605,34 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-RECALL-SKILLS"),
         station: "yalain-testkit::dat::skills::the_recall_skills_read_as_the_lifestones",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.skills.repository-tables",
+        says: "Of a kind's perks the table names the one of the highest priority; kinds and \
+               categories a character doesn't hold stay out; the skills of the categories a client \
+               reads into its attacks aren't told.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-REPOSITORY-TABLES"),
+        station: "yalain-testkit::dat::skills::the_repository_tables_name_the_best_perk_of_a_kind_and_leave_out_attack_categories",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.skills.repository-tables-as-2017",
+        says: "Every 2017 session start's perk table, word for word, is what the skills it holds \
+               build; a category table is the same but for the categories a client reads into its \
+               attacks, which this server doesn't tell.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-REPOSITORY-TABLES-2017"),
+        station: "yalain-testkit::corpus::world_entry::every_recorded_session_starts_perk_table_is_what_its_skills_build",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.skills.session-start-tells-its-perks",
+        says: "A session start tells the perks its character holds, as the updates after it do.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SESSION-START-PERKS"),
+        station: "yalain-testkit::dat::skills::a_session_start_and_an_update_tell_the_perks_a_character_holds",
         tier: Tier::Dat,
     },
     behaviour! {

@@ -337,6 +337,15 @@ pub mod perk_kind {
     pub const TRANSMUTATION: u32 = 19;
     /// Each use of a summoned node gives this many more units.
     pub const MINED_UNITS: u32 = 27;
+    /// Vigor regained by night, and by day.
+    pub const NOCTURNAL: u32 = 1;
+    pub const DIURNAL: u32 = 2;
+    /// Experience a kill pays, times this.
+    pub const FAST_LEARNER: u32 = 20;
+    /// What a vital's greatest gains: vigor, health, focus.
+    pub const INTELLIGENCE: u32 = 39;
+    pub const VITALITY: u32 = 40;
+    pub const HEROISM: u32 = 41;
 }
 
 /// What a character holding these skills has of a kind of perk: of those it holds, the one with the
@@ -935,32 +944,113 @@ impl SkillTable {
     }
 }
 
-/// The repository with its credits and hero skill credits and empty perk and category tables, its
-/// skills left out (the client keeps the ones it has).
-#[must_use]
-pub fn repository_update(credits: u32, hero_credits: u32) -> ServerMessage {
-    repository_untraining(credits, hero_credits, None)
+/// A repository's perk and category tables: each kind of perk to the skill that gives it, each
+/// attribute's category to the skill that rates it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RepositoryTables {
+    pub perks: Vec<(u32, u32)>,
+    pub categories: Vec<(u32, u32)>,
 }
 
-/// The repository with its credits and hero skill credits and the skill being untrained with the
-/// experience to earn.
+/// The attribute categories a client reads into its attacks: their skills are not told, as this
+/// server's fights don't hold them yet.
+pub const CATEGORIES_NOT_TOLD: [u32; 2] = [3, 6];
+
+impl RepositoryTables {
+    /// The tables of a character holding these skills, as the client builds them from them: of a
+    /// kind's perks the one with the highest priority, the first found on a tie (2017: 429 of 429
+    /// session starts' perk tables); of a category's skills the first (no 2017 character held two).
+    #[must_use]
+    pub fn of(table: &SkillTable, skills: &[Held]) -> Self {
+        let mut perks: Vec<(u32, u32, i32)> = Vec::new();
+        let mut categories: Vec<(u32, u32)> = Vec::new();
+        for h in skills {
+            let Some(d) = table.skills.get(&h.skill) else {
+                continue;
+            };
+            if let Some(perk) = d.perk {
+                match perks.iter_mut().find(|p| p.0 == perk.kind) {
+                    Some(p) if perk.priority > p.2 => {
+                        (p.1, p.2) = (h.skill, perk.priority);
+                    }
+                    Some(_) => {}
+                    None => perks.push((perk.kind, h.skill, perk.priority)),
+                }
+            } else if d.category != 0
+                && !CATEGORIES_NOT_TOLD.contains(&d.category)
+                && !categories.iter().any(|c| c.0 == d.category)
+            {
+                categories.push((d.category, h.skill));
+            }
+        }
+        Self {
+            perks: perks.into_iter().map(|(k, s, _)| (k, s)).collect(),
+            categories,
+        }
+    }
+}
+
+/// A word-to-word table of a repository.
+pub fn word_table(entries: &[(u32, u32)]) -> NativeObject {
+    let items: Vec<(Item, Item)> = entries
+        .iter()
+        .map(|(k, v)| (Item::Word(*k), Item::Word(*v)))
+        .collect();
+    hash(Elem::Word, Elem::Word, TABLE_SIZE, &items)
+}
+
+/// What a kill pays a player whose perk raises it: floored; none held, the same.
+#[must_use]
+pub fn with_fast_learner<S: Store>(s: &Server<S>, world: ConnId, xp: u64) -> u64 {
+    let Some(p) = s.players.get(&world) else {
+        return xp;
+    };
+    let starting = s.start.skills.get(&p.race).cloned().unwrap_or_default();
+    let skills = held(&starting, &p.play.skills);
+    match perk_value(&s.skill_table, &skills, perk_kind::FAST_LEARNER) {
+        #[allow(
+            clippy::cast_precision_loss,
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss
+        )]
+        Some(v) => (xp as f64 * v).floor() as u64,
+        None => xp,
+    }
+}
+
+/// A player's repository update: its credits and tables, its skills left out (the client keeps the
+/// ones it has).
+#[must_use]
+pub fn repository_of<S: Store>(s: &Server<S>, p: &crate::world::Player) -> ServerMessage {
+    repository_of_untraining(s, p, None)
+}
+
+/// A player's repository update with the skill being untrained and the experience to earn.
+#[must_use]
+pub fn repository_of_untraining<S: Store>(
+    s: &Server<S>,
+    p: &crate::world::Player,
+    untraining: Option<(u32, u64)>,
+) -> ServerMessage {
+    let starting = s.start.skills.get(&p.race).cloned().unwrap_or_default();
+    let tables = RepositoryTables::of(&s.skill_table, &held(&starting, &p.play.skills));
+    repository_untraining(p.play.credits, p.play.hero_credits, &tables, untraining)
+}
+
+/// The repository with its credits and hero skill credits, its tables and the skill being untrained
+/// with the experience to earn.
 #[must_use]
 pub fn repository_untraining(
     credits: u32,
     hero_credits: u32,
+    tables: &RepositoryTables,
     untraining: Option<(u32, u64)>,
 ) -> ServerMessage {
     let (skill, xp) = untraining.unwrap_or((0, 0));
     let mut b = Builder::new();
     let repo = b.reserve(package::SKILL_REPOSITORY.0);
-    let perks = b.native(
-        native::WORD_WORD_HASH,
-        hash(Elem::Word, Elem::Word, TABLE_SIZE, &[]),
-    );
-    let categories = b.native(
-        native::WORD_WORD_HASH,
-        hash(Elem::Word, Elem::Word, TABLE_SIZE, &[]),
-    );
+    let perks = b.native(native::WORD_WORD_HASH, word_table(&tables.perks));
+    let categories = b.native(native::WORD_WORD_HASH, word_table(&tables.categories));
     b.fill(
         repo,
         &[
@@ -1205,9 +1295,10 @@ pub fn train<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v:
     };
     p.play.credits -= cost;
     p.play.hero_credits -= hero_cost;
-    let (credits, hero_credits) = (p.play.credits, p.play.hero_credits);
     keep(p, &starting, &skills);
-    progress::private(net, world, &repository_update(credits, hero_credits));
+    if let Some(p) = s.players.get(&world) {
+        progress::private(net, world, &repository_of(s, p));
+    }
     progress::private(net, world, &info_update(&new, None));
     let said = text_with(
         (text::TRAINED_IT, TEXTS),
@@ -1352,7 +1443,6 @@ pub fn untrain<S: Store>(
         return;
     }
     let total = quals::long(&p.qualities, progress::q::TOTAL_XP).unwrap_or(0);
-    let (credits, hero_credits) = (p.play.credits, p.play.hero_credits);
     let name = skill_name(&s.skill_table, skill);
     let Some(p) = s.players.get_mut(&world) else {
         return;
@@ -1362,11 +1452,13 @@ pub fn untrain<S: Store>(
         xp: h.xp,
         total_at_start: total,
     });
-    progress::private(
-        net,
-        world,
-        &repository_untraining(credits, hero_credits, Some((skill, h.xp))),
-    );
+    if let Some(p) = s.players.get(&world) {
+        progress::private(
+            net,
+            world,
+            &repository_of_untraining(s, p, Some((skill, h.xp))),
+        );
+    }
     let said = text_with(
         (untraining::UNDER_WAY, TEXTS),
         vec![
@@ -1459,9 +1551,11 @@ fn untrained<S: Store>(
         p.play.credits += h.cost;
     }
     p.untraining = None;
-    let (credits, hero_credits) = (p.play.credits, p.play.hero_credits);
     keep(p, &starting, &skills);
-    progress::private(net, world, &repository_update(credits, hero_credits));
+    if let Some(p) = s.players.get(&world) {
+        progress::private(net, world, &repository_of(s, p));
+    }
+    crate::effects::vitals_within_their_greatest(s, net, world);
     crate::world::keep_player(s, world);
 }
 
@@ -1492,10 +1586,11 @@ pub fn cancel_untraining<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world
     let Some(u) = p.untraining.take() else {
         return;
     };
-    let (credits, hero_credits) = (p.play.credits, p.play.hero_credits);
     let starting = s.start.skills.get(&p.race).cloned().unwrap_or_default();
     let skills = held(&starting, &p.play.skills);
-    progress::private(net, world, &repository_update(credits, hero_credits));
+    if let Some(p) = s.players.get(&world) {
+        progress::private(net, world, &repository_of(s, p));
+    }
     if let Some(h) = skills.iter().find(|h| h.skill == u.skill) {
         progress::private(net, world, &info_update(h, None));
     }

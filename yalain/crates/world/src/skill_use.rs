@@ -1137,7 +1137,7 @@ fn check<S: Store>(
         return Err(refusal::WRONG_IMPLEMENT);
     }
     let vigor = quals::int(&p.qualities, quality::VIGOR).unwrap_or(0);
-    let max_vigor = quals::int(&p.qualities, quality::VIGOR_MAX).unwrap_or(vigor);
+    let max_vigor = crate::effects::own_greatest(s, p, quality::VIGOR_MAX);
     #[allow(clippy::cast_precision_loss)]
     if (vigor as f32) < u.min_vigor {
         return Err(refusal::NO_VIGOR);
@@ -1612,7 +1612,7 @@ fn pay<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, u: &Usag
         return;
     };
     let vigor = quals::int(&p.qualities, quality::VIGOR).unwrap_or(0);
-    let max = quals::int(&p.qualities, quality::VIGOR_MAX).unwrap_or(vigor);
+    let max = crate::effects::own_greatest(s, p, quality::VIGOR_MAX);
     let left = (vigor - cost_now(s, p, u, max)).max(0);
     let Some(p) = s.players.get_mut(&world) else {
         return;

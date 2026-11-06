@@ -351,6 +351,84 @@ fn a_kill_is_shared_by_the_fellows_of_a_level_to_share() {
     let _ = (b, c);
 }
 
+/// A fellow's share of a kill is paid times the Fast Learner that fellow holds; another's stays.
+/// Behaviour: server.fellowship.share-with-fast-learner
+#[test]
+fn a_fellows_share_of_a_kill_is_paid_times_its_own_fast_learner() {
+    use yalain_world::skills::{Perk, SkillDef};
+    const FAST_LEARNER: u32 = 1983;
+    let (mut h, [(a, aid), (b, bid), _]) = three();
+    create(&mut h, a, "Band");
+    join(&mut h, (a, aid), (b, bid));
+    h.add_creatures(1);
+    h.run(20);
+    let beetle = h
+        .server
+        .things
+        .by_id
+        .values()
+        .find(|t| t.creature.is_some())
+        .map(|t| t.id)
+        .expect("a beetle");
+    let level = h
+        .server
+        .players
+        .values()
+        .find(|p| p.character == aid)
+        .map(|p| yalain_world::examine::level_of(&p.qualities))
+        .expect("in the world");
+    if let Some(t) = h.server.things.get_mut(beetle) {
+        t.health = 301;
+        t.max_health = 301;
+        if let Some(cr) = t.creature.as_mut() {
+            cr.stats.death_xp = 1000;
+            cr.stats.level = level;
+            cr.stats.attacks_first = false;
+        }
+    }
+    h.server.skill_table.skills.insert(
+        FAST_LEARNER,
+        SkillDef {
+            perk: Some(Perk {
+                kind: 20,
+                value: 1.5,
+                priority: 1,
+            }),
+            ..SkillDef::default()
+        },
+    );
+    let p = h
+        .server
+        .players
+        .values_mut()
+        .find(|p| p.character == bid)
+        .expect("in the world");
+    p.play.skills.push(yalain_world::state::SkillState {
+        skill: FAST_LEARNER,
+        granted: 0,
+        mask: yalain_world::skills::mask::TRAINED,
+        cost: 0,
+        children: 0,
+        dependents: 0,
+        spent: 0,
+    });
+    let total = |h: &Harness, id: u64| {
+        let p = h
+            .server
+            .players
+            .values()
+            .find(|p| p.character == id)
+            .expect("in the world");
+        yalain_world::quals::long(&p.qualities, yalain_world::progress::q::TOTAL_XP).unwrap_or(0)
+    };
+    let (was_a, was_b) = (total(&h, aid), total(&h, bid));
+    let clock = h.clock();
+    yalain_world::combat::hurt_creature(&mut h.server, &mut h.net, beetle, aid, 301, clock);
+    h.run(10);
+    assert_eq!(total(&h, aid) - was_a, 600);
+    assert_eq!(total(&h, bid) - was_b, 900);
+}
+
 /// In a fellowship that shares experience, each part of a kill a fellow earns is shared out: every
 /// fellow of a level to share is paid the share of the experience (0.6 for two) times the part's
 /// share of the health taken, rounded to the nearest, each part in turn, without a text; the

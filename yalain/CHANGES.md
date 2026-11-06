@@ -23,6 +23,7 @@ what they see, not how it was done.
 - A Spirit's buff now reaches its owner and fellows.
 - New characters' starting clothes are real items you can take off and put back on.
 - Fixed recipes and spells given for an item handed over never working.
+- Perks now raise max vitals, vigor regen and kill experience.
 
 ## 0.2.2 (2026-11-07)
 - Resurrection skills work: the dead can accept and get up where they fell.

@@ -798,6 +798,7 @@ struct Play {
     /// The files a client's requests for records are served from.
     files: yalain_world::download::InstallFiles,
     levels: yalain_world::levels::LevelTable,
+    calendar: Option<auberean_world::calendar::GameClock>,
     skills: yalain_world::skills::SkillTable,
     effects: yalain_world::effect_defs::EffectTable,
     item_effects: std::collections::HashMap<u32, Vec<yalain_world::profile::ItemEffect>>,
@@ -997,6 +998,7 @@ fn run<S: Store>(
     server.world_patch = yalain_world::world_patch::WorldPatch::of(&files).map(std::sync::Arc::new);
     server.data = Some(Box::new(files));
     server.levels = play.levels;
+    server.calendar = play.calendar;
     server.skill_table = play.skills;
     server.effect_table = play.effects;
     server.item_effects = play.item_effects;
@@ -1818,6 +1820,8 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         tracing::info!("the ground under the camps, and the interior cells: {ground:?}; {walls:?}");
         let levels = data::level_table(portal)?;
         tracing::info!(levels = levels.levels.len(), "the level table read");
+        let calendar = data::calendar(portal);
+        tracing::info!(read = calendar.is_some(), "the calendar");
         let vitae_costs = data::vitae_costs(portal)?;
         let item_effects = data::item_effects(portal, &catalog)?;
         // The mounts, their effects read with the rest.
@@ -1924,6 +1928,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             ground,
             walls,
             levels,
+            calendar,
             skills,
             effects,
             item_effects,

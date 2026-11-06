@@ -200,6 +200,7 @@ fn the_session_start_reads_back_against_the_client_library() {
         server_faction: 0,
         local_faction: 1,
         skills: yalain_world::skills::held(&skills, &[]),
+        tables: Default::default(),
         options: Options::new_character(&skills).to_packed(),
         segments: NEW_SEGMENTS.to_vec(),
         money: 0,

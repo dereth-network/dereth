@@ -336,8 +336,12 @@ fn vitals_now<S: Store>(s: &Server<S>, id: u64) -> Option<Vitals> {
     Some(Vitals {
         health: int(quality::HEALTH),
         vigor: int(quality::VIGOR),
-        max_health: int(quality::HEALTH_MAX),
-        max_vigor: int(quality::VIGOR_MAX),
+        max_health: crate::effects::own_greatest(s, p, quality::HEALTH_MAX)
+            .max(0)
+            .cast_unsigned(),
+        max_vigor: crate::effects::own_greatest(s, p, quality::VIGOR_MAX)
+            .max(0)
+            .cast_unsigned(),
         level: crate::examine::level_of(&p.qualities)
             .max(1)
             .cast_unsigned(),

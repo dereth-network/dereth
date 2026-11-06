@@ -592,3 +592,102 @@ fn the_recorded_new_characters_are_made_in_their_clothes_as_2017_made_them() {
         "the recorded garments: a human's three, a Tumerok's two"
     );
 }
+
+/// Every 2017 session start's perk table, word for word, is what the skills it holds build: of a
+/// kind's perks the highest priority; and a category table is the same but for the categories a
+/// client reads into its attacks, which this server doesn't tell.
+/// Behaviour: server.skills.repository-tables-as-2017
+#[test]
+fn every_recorded_session_starts_perk_table_is_what_its_skills_build() {
+    use yalain_world::skills::{held, RepositoryTables, CATEGORIES_NOT_TOLD};
+    const WORDS: [u8; 12] = [0, 1, 0, 0x44, 0, 0, 0, 0, 1, 0, 0xFF, 0xFF];
+    const REFS: [u8; 12] = [0, 1, 0, 0x44, 0, 0, 0, 0, 0x11, 0, 0xFF, 0xFF];
+    let find = |raw: &[u8], what: &[u8], from: usize| {
+        raw[from..]
+            .windows(what.len())
+            .position(|w| w == what)
+            .map(|at| at + from)
+    };
+    let word = |raw: &[u8], at: usize| {
+        u32::from_le_bytes([raw[at], raw[at + 1], raw[at + 2], raw[at + 3]])
+    };
+    // Each table: where it stands, its pairs in the order they are packed, and where it ends.
+    let table = |raw: &[u8], at: usize| {
+        let n = (word(raw, at + 12) & 0xFFFF) as usize;
+        let pairs: Vec<(u32, u32)> = (0..n)
+            .map(|i| (word(raw, at + 16 + 8 * i), word(raw, at + 20 + 8 * i)))
+            .collect();
+        (pairs, at + 16 + 8 * n)
+    };
+    let tables = |raw: &[u8]| {
+        let head = find(raw, &[0, 0, 0x33, 0x02], 0)?;
+        let first = find(raw, &WORDS, head)?;
+        let (perks, end) = table(raw, first);
+        let second = find(raw, &WORDS, end)?;
+        let (categories, _) = table(raw, second);
+        let skills = find(raw, &REFS, second).map(|at| table(raw, at).0);
+        Some((perks, categories, skills))
+    };
+    let path = auberean_testkit::data::require_capture_index();
+    let portal = yalain_testkit::authored::Portal::open();
+    let skill_table = portal.skills();
+    let con = open(&path);
+    let mut q = con
+        .prepare(
+            "SELECT m.raw FROM message m JOIN session s USING(session_id) \
+             JOIN capture c USING(capture_id) \
+             WHERE m.dir='s2c' AND m.mtype=65638 AND c.file LIKE '2017%' \
+             AND substr(m.raw, 5, 4) = x'27001282'",
+        )
+        .expect("a query");
+    let rows: Vec<Vec<u8>> = q
+        .query_map([], |r| r.get(0))
+        .expect("rows")
+        .flatten()
+        .collect();
+    let (mut starts, mut with_perks, mut same_order, mut withheld) = (0, 0, 0, 0);
+    for raw in rows {
+        let Some((perks, categories, Some(skills))) = tables(&raw) else {
+            continue;
+        };
+        starts += 1;
+        let kept: Vec<yalain_world::state::SkillState> = skills
+            .iter()
+            .map(|(skill, _)| yalain_world::state::SkillState {
+                skill: *skill,
+                granted: 0,
+                mask: 0,
+                cost: 0,
+                children: 0,
+                dependents: 0,
+                spent: 0,
+            })
+            .collect();
+        let t = RepositoryTables::of(&skill_table, &held(&[], &kept));
+        let told_raw = yalain_world::skills::repository_untraining(0, 0, &t, None).encode();
+        let (ours, ours_categories, _) = tables(&told_raw).expect("our tables");
+        with_perks += usize::from(!perks.is_empty());
+        let sorted = |v: &[(u32, u32)]| {
+            let mut v = v.to_vec();
+            v.sort_unstable();
+            v
+        };
+        assert_eq!(sorted(&perks), sorted(&t.perks), "the perks");
+        // Word for word, in the order the table packs them.
+        assert_eq!(perks, ours, "the perks, as packed");
+        same_order += usize::from(perks == ours);
+        let told: Vec<(u32, u32)> = categories
+            .iter()
+            .copied()
+            .filter(|(c, _)| !CATEGORIES_NOT_TOLD.contains(c))
+            .collect();
+        withheld += usize::from(told.len() < categories.len());
+        assert_eq!(told, ours_categories, "the categories, as packed");
+    }
+    assert!(starts > 400, "{starts} session starts");
+    assert!(with_perks > 80, "{with_perks} with perks");
+    println!(
+        "{starts} starts, {with_perks} with perks, {same_order} of the same order, \
+         {withheld} with attack categories withheld"
+    );
+}

@@ -53,16 +53,34 @@ pub fn gain(greatest: i32, rate: f32, seconds: f64, fills_in: f64) -> i32 {
     )
 }
 
+/// What a player's perk adds to a vigor rate: the night's by night, the day's by day (the client
+/// counts the same way).
+fn blood<S: Store>(s: &Server<S>, p: &crate::world::Player, which: u32, night: bool) -> f32 {
+    if which != rate::PEACE_VIGOR && which != rate::COMBAT_VIGOR {
+        return 0.0;
+    }
+    use crate::skills::perk_kind;
+    let kind = if night {
+        perk_kind::NOCTURNAL
+    } else {
+        perk_kind::DIURNAL
+    };
+    let starting = s.start.skills.get(&p.race).cloned().unwrap_or_default();
+    let skills = crate::skills::held(&starting, &p.play.skills);
+    #[allow(clippy::cast_possible_truncation)]
+    crate::skills::perk_value(&s.skill_table, &skills, kind).map_or(0.0, |v| v as f32)
+}
+
 /// One of a player's regeneration rates as its effects make it: the quality (or the rate a player
 /// holds without it) plus what its effects add, times what they multiply.
 #[must_use]
-pub fn rate_of<S: Store>(s: &Server<S>, p: &crate::world::Player, which: u32) -> f32 {
+pub fn rate_of<S: Store>(s: &Server<S>, p: &crate::world::Player, which: u32, night: bool) -> f32 {
     let held = if which == rate::COMBAT_HEALTH || which == rate::COMBAT_VIGOR {
         rate::COMBAT
     } else {
         rate::PEACE
     };
-    let base = quals::float(&p.qualities, which).unwrap_or(held);
+    let base = quals::float(&p.qualities, which).unwrap_or(held) + blood(s, p, which, night);
     let (add, mult) = effects::modifier(
         &s.effect_table,
         &p.play.effects,
@@ -76,21 +94,21 @@ pub fn rate_of<S: Store>(s: &Server<S>, p: &crate::world::Player, which: u32) ->
 type Vital = (u32, Option<i32>, f32, f32, f64);
 
 /// The player's two vitals as its effects make them, health first.
-fn vitals<S: Store>(s: &Server<S>, p: &crate::world::Player) -> [Vital; 2] {
+fn vitals<S: Store>(s: &Server<S>, p: &crate::world::Player, night: bool) -> [Vital; 2] {
     let greatest = |q: u32| quals::int(&p.qualities, q).map(|_| effects::max_vital(s, p, q));
     [
         (
             quality::HEALTH,
             greatest(quality::HEALTH_MAX),
-            rate_of(s, p, rate::PEACE_HEALTH),
-            rate_of(s, p, rate::COMBAT_HEALTH),
+            rate_of(s, p, rate::PEACE_HEALTH, night),
+            rate_of(s, p, rate::COMBAT_HEALTH, night),
             HEALTH_FILLS_IN,
         ),
         (
             quality::VIGOR,
             greatest(quality::VIGOR_MAX),
-            rate_of(s, p, rate::PEACE_VIGOR),
-            rate_of(s, p, rate::COMBAT_VIGOR),
+            rate_of(s, p, rate::PEACE_VIGOR, night),
+            rate_of(s, p, rate::COMBAT_VIGOR, night),
             VIGOR_FILLS_IN,
         ),
     ]
@@ -116,7 +134,8 @@ pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, now: f64) {
         } else {
             0.0
         };
-        let stepping = (due && p.next_regen != 0.0).then(|| vitals(s, p));
+        let night = s.is_night(net.game_time(yalain_net::LocalTime(now)));
+        let stepping = (due && p.next_regen != 0.0).then(|| vitals(s, p, night));
         let Some(p) = s.players.get_mut(&world) else {
             continue;
         };

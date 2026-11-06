@@ -701,13 +701,15 @@ pub fn enter<S: Store>(
     crate::quests::ran_out_before_leaving(&s.quests, &mut p.play.quests, clock.unix - away_s);
     crate::quests::time_stood_still(&mut p.play.quests, away_s, clock.unix);
     let effects = crate::effects::registry(s, &p);
+    let held = crate::skills::held(
+        &s.start.skills.get(&c.race).cloned().unwrap_or_default(),
+        &p.play.skills,
+    );
     let start = SessionStart {
         server_faction: 0,
         local_faction: conflict,
-        skills: crate::skills::held(
-            &s.start.skills.get(&c.race).cloned().unwrap_or_default(),
-            &p.play.skills,
-        ),
+        tables: crate::skills::RepositoryTables::of(&s.skill_table, &held),
+        skills: held,
         options: p.options.to_packed(),
         segments: crate::inventory::pack_segments(&p.play.items),
         money: crate::store::money(&p.qualities),

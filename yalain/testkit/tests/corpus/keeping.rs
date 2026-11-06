@@ -100,6 +100,7 @@ fn ours(w: Worn) -> Vec<Arg> {
         server_faction: 0,
         local_faction: 1,
         skills: Vec::new(),
+        tables: Default::default(),
         options: Vec::new(),
         segments: NEW_SEGMENTS.to_vec(),
         money: 0,

@@ -339,6 +339,7 @@ fn paid_in_parts<S: Store>(
             let focus = crate::fellowship::focus_shares(s, owner, worth.focus, (taken, all));
             for (w, amount) in shares {
                 let f = focus.iter().find(|(x, _)| *x == w).map_or(0, |(_, f)| *f);
+                let amount = crate::skills::with_fast_learner(s, w, amount);
                 if amount > 0 || f > 0 {
                     progress::award_with_focus(s, net, w, amount, f, Award::Share);
                 }
@@ -352,8 +353,9 @@ fn paid_in_parts<S: Store>(
             let part = crate::xp::part(award, taken, all);
             let focus = crate::xp::part(i64::from(worth.focus), taken, all);
             let focus = i32::try_from(focus).unwrap_or(i32::MAX);
+            let part = crate::skills::with_fast_learner(s, world, part.cast_unsigned());
             if part > 0 || focus > 0 {
-                progress::award_with_focus(s, net, world, part.cast_unsigned(), focus, Award::Part);
+                progress::award_with_focus(s, net, world, part, focus, Award::Part);
             }
         }
     }
@@ -1476,9 +1478,12 @@ pub(crate) fn returns_keeping<S: Store>(
     kept_focus: f32,
 ) {
     let costs = s.vitae_costs.clone();
-    let most_focus = s.players.get(&world).map_or(0, |p| {
-        crate::focus::back_with(crate::focus::greatest(s, p), kept_focus)
-    });
+    let Some(p) = s.players.get(&world) else {
+        return;
+    };
+    let max_health = crate::effects::own_greatest(s, p, crate::player::quality::HEALTH_MAX);
+    let max_vigor = crate::effects::own_greatest(s, p, crate::player::quality::VIGOR_MAX);
+    let most_focus = crate::focus::back_with(crate::focus::greatest(s, p), kept_focus);
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
@@ -1494,8 +1499,6 @@ pub(crate) fn returns_keeping<S: Store>(
         }
     }
     let share = vitae / 100.0;
-    let max_health = quals::int(&p.qualities, crate::player::quality::HEALTH_MAX).unwrap_or(100);
-    let max_vigor = quals::int(&p.qualities, crate::player::quality::VIGOR_MAX).unwrap_or(100);
     #[allow(clippy::cast_precision_loss)]
     let back =
         |max: i32| dereth_primitives::num::to_i32((max as f32 * share).floor() * RETURNS_WITH);
@@ -1527,14 +1530,15 @@ pub(crate) fn returned_with<S: Store>(
 ) {
     s.next_context = s.next_context.wrapping_add(1);
     let context = s.next_context;
+    let Some(p) = s.players.get(&world) else {
+        return;
+    };
+    let max = crate::effects::own_greatest(s, p, crate::player::quality::HEALTH_MAX).max(1);
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
     p.dying = None;
     let id = p.character;
-    let max = quals::int(&p.qualities, crate::player::quality::HEALTH_MAX)
-        .unwrap_or(100)
-        .max(1);
     let health = quals::int(&p.qualities, crate::player::quality::HEALTH).unwrap_or(max);
     #[allow(clippy::cast_precision_loss)]
     let hurt = 1.0 - health as f32 / max as f32;

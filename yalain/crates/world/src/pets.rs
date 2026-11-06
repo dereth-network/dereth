@@ -1035,8 +1035,7 @@ fn tend<S: Store>(s: &mut Server<S>, net: &mut ServerNet, pet: &Pet, clock: Cloc
             .filter(|(_, p)| {
                 low(
                     crate::quals::int(&p.qualities, crate::player::quality::HEALTH).unwrap_or(0),
-                    crate::quals::int(&p.qualities, crate::player::quality::HEALTH_MAX)
-                        .unwrap_or(0),
+                    crate::effects::own_greatest(s, p, crate::player::quality::HEALTH_MAX),
                 )
             })
             .map(|(c, _)| crate::effects::On::Player(*c)),

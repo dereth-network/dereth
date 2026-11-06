@@ -450,15 +450,73 @@ pub fn skill_rating(
     u32::try_from(out.max(0)).unwrap_or(rating)
 }
 
-/// A player's greatest health or vigor with its effects (the client counts them the same way).
+/// What a player's skills add to a vital's greatest, by the attribute category and the kind of perk
+/// each vital names: its rating times the skill's measure of it, and the perk's value, each a whole
+/// number (the client counts the same way; 2017: no character held such a skill of health or focus).
+fn added_by_skills<S: Store>(s: &Server<S>, p: &crate::world::Player, max_quality: u32) -> i32 {
+    let (category, kind) = match max_quality {
+        quality::HEALTH_MAX => (1, crate::skills::perk_kind::VITALITY),
+        quality::VIGOR_MAX => (2, crate::skills::perk_kind::INTELLIGENCE),
+        quality::FOCUS_MAX => (4, crate::skills::perk_kind::HEROISM),
+        _ => return 0,
+    };
+    let starting = s.start.skills.get(&p.race).cloned().unwrap_or_default();
+    let skills = crate::skills::held(&starting, &p.play.skills);
+    let attribute = skills.iter().find_map(|h| {
+        let d = s.skill_table.skills.get(&h.skill)?;
+        (d.category == category).then(|| {
+            #[allow(clippy::cast_precision_loss)]
+            let rating = crate::skill_use::effective_rating(s, p, &skills, h.skill) as f32;
+            dereth_primitives::num::to_i32(rating * d.attribute_mod)
+        })
+    });
+    let perk = crate::skills::perk_value(&s.skill_table, &skills, kind)
+        .map_or(0, dereth_primitives::num::to_i32_f64);
+    attribute.unwrap_or(0) + perk
+}
+
+/// A player's greatest of a vital before its effects: what its qualities hold and what its skills
+/// add (focus's has a base of 100).
 #[must_use]
-pub fn max_vital<S: Store>(s: &Server<S>, p: &crate::world::Player, max_quality: u32) -> i32 {
-    // Focus's greatest is a base of 100 and the character's own focus quality above it.
-    let base = if max_quality == quality::FOCUS_MAX {
+pub fn own_greatest<S: Store>(s: &Server<S>, p: &crate::world::Player, max_quality: u32) -> i32 {
+    let own = if max_quality == quality::FOCUS_MAX {
         crate::focus::BASE + quals::int(&p.qualities, max_quality).unwrap_or(0)
     } else {
         quals::int(&p.qualities, max_quality).unwrap_or(100)
     };
+    own + added_by_skills(s, p, max_quality)
+}
+
+/// Bring a player's vitals within their greatest, as a perk given up lowers one: each above is
+/// lowered and sent.
+pub fn vitals_within_their_greatest<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+) {
+    for (cur, max) in [
+        (quality::HEALTH, quality::HEALTH_MAX),
+        (quality::VIGOR, quality::VIGOR_MAX),
+    ] {
+        let Some(p) = s.players.get(&world) else {
+            return;
+        };
+        let greatest = max_vital(s, p, max);
+        let Some(p) = s.players.get_mut(&world) else {
+            return;
+        };
+        if quals::int(&p.qualities, cur).is_some_and(|now| now > greatest) {
+            quals::set_int(&mut p.qualities, cur, greatest);
+            crate::progress::send_int(net, world, cur, greatest);
+        }
+    }
+}
+
+/// A player's greatest health or vigor with its effects (the client counts them the same way).
+#[must_use]
+pub fn max_vital<S: Store>(s: &Server<S>, p: &crate::world::Player, max_quality: u32) -> i32 {
+    // Focus's greatest is a base of 100 and the character's own focus quality above it.
+    let base = own_greatest(s, p, max_quality);
     let (add, mult) = modifier(&s.effect_table, &p.play.effects, 0x4_0000 | max_quality);
     if add == 0.0 && (mult - 1.0).abs() < f32::EPSILON {
         return base;
