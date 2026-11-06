@@ -496,8 +496,9 @@ pub static DIVERGENCES: &[Divergence] = &[
         title: "On macOS a window's size is in points",
         change: "On macOS the size of the client's window and the pointer's place in it are in \
                  points, and the picture is drawn at that size and scaled to fill the window, so \
-                 a Retina screen shows it as large as any other. The final client ran only where \
-                 a window's size is in the screen's pixels.",
+                 a Retina screen shows it as large as any other; full screen is drawn at the \
+                 monitor's own pixels. The final client ran only where a window's size is in the \
+                 screen's pixels.",
         why: "A resolution in the screen's pixels is half as wide and half as tall on a Retina \
               screen, which makes the login window very small.",
     },

@@ -612,7 +612,7 @@ fn a_window_that_draws_at_a_share_of_its_screen_offers_the_render_scale_at_its_s
     use dereth_client_contract::options::{render_scale, store};
 
     /// A window that draws full screen at the share it holds, where it holds one.
-    struct Scaled(Option<u32>);
+    struct Scaled(Option<u32>, bool);
     impl WindowHost for Scaled {
         fn client_size(&self) -> (u32, u32) {
             (64, 64)
@@ -626,6 +626,9 @@ fn a_window_that_draws_at_a_share_of_its_screen_offers_the_render_scale_at_its_s
         fn render_scale(&self) -> Option<u32> {
             self.0
         }
+        fn profile_keeps_render_scale(&self) -> bool {
+            self.1
+        }
     }
 
     let data = std::sync::Arc::new(dereth_dat::testing::open_store().unwrap_or_else(|| {
@@ -638,7 +641,11 @@ fn a_window_that_draws_at_a_share_of_its_screen_offers_the_render_scale_at_its_s
     std::fs::create_dir_all(&folder).unwrap();
     let profile = folder.join("UserPreferences.ini");
     std::fs::write(&profile, "[Display]\r\nRenderScale=50\r\n").unwrap();
-    for (share, held) in [(Some(67), Some(67)), (None, None)] {
+    for (share, in_profile, held) in [
+        (Some(67), false, Some(67)),
+        (None, false, None),
+        (Some(100), true, Some(50)),
+    ] {
         let cfg = Config {
             headless: true,
             frames: None,
@@ -653,7 +660,7 @@ fn a_window_that_draws_at_a_share_of_its_screen_offers_the_render_scale_at_its_s
             Some(std::sync::Arc::clone(&data)),
             move |_| {
                 Ok(Platform {
-                    window: Box::new(Scaled(share)),
+                    window: Box::new(Scaled(share, in_profile)),
                     ..Platform::headless(64, 64)
                 })
             },

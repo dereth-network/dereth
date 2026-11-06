@@ -152,6 +152,11 @@ pub trait WindowHost {
         None
     }
 
+    /// Whether the profile keeps the render scale, for a host with nowhere else to keep it.
+    fn profile_keeps_render_scale(&self) -> bool {
+        false
+    }
+
     /// Ask for a client rectangle and answer with the one the window system granted.
     fn request_inner_size(&self, width: u32, height: u32) -> (u32, u32) {
         (width, height)

@@ -619,6 +619,14 @@ impl<S: Shell> App<S> {
         use dereth_client_contract::options::{interface, store};
         self.duties.preferences_started = true;
         self.register_display_modes();
+        // A window that draws full screen at a share of its screen's pixels offers the render
+        // scale, at the share it starts at. Where the profile keeps it, it is registered before
+        // the profile is read, and otherwise after, so the file cannot change it.
+        let render_scale = self.window.render_scale();
+        let in_profile = self.window.profile_keeps_render_scale();
+        if let (Some(start), true) = (render_scale, in_profile) {
+            dereth_client_contract::options::render_scale::register_in_profile(start);
+        }
         let ini = crate::platform::files::read_to_string(&self.cfg.preferences_file)
             .ok()
             .and_then(|t| {
@@ -633,10 +641,7 @@ impl<S: Shell> App<S> {
             // and the registered defaults are then what the page shows.
             None => tracing::info!("no UserPreferences.ini; registered defaults stand"),
         }
-        // A window that draws full screen at a share of its screen's pixels offers the render
-        // scale, at the share it starts at. The profile does not keep it, so it is registered
-        // after the profile is read.
-        if let Some(start) = self.window.render_scale() {
+        if let (Some(start), false) = (render_scale, in_profile) {
             dereth_client_contract::options::render_scale::register(start);
         }
         if let Some(first) = self.cfg.new_player_interface {

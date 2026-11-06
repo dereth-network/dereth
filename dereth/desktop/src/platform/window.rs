@@ -514,7 +514,8 @@ impl DesktopWindow {
             let size = window.inner_size();
             let middle = (f64::from(size.width / 2), f64::from(size.height / 2));
             // The hold is the window system's business: its own pixels from here on.
-            let at = self.units.pixels(at, window.scale_factor());
+            let units = self.units.at(window.fullscreen().is_some());
+            let at = units.pixels(at, window.scale_factor());
             let (put_back, now) = PutBack::new(at, middle, at_once);
             window.set_cursor_visible(false);
             if let Some((x, y)) = now {
@@ -556,7 +557,8 @@ impl DesktopWindow {
         if self.hold.replace(Hold::Free) == Hold::Free {
             return;
         }
-        let at = at.map(|at| self.units.pixels(at, self.window.scale_factor()));
+        let units = self.units.at(self.window.fullscreen().is_some());
+        let at = at.map(|at| units.pixels(at, self.window.scale_factor()));
         let put = |at: Option<(f64, f64)>| {
             if let Some((x, y)) = at {
                 let _ = self
@@ -629,6 +631,8 @@ pub struct WinitWindow {
     pins_size_limits: bool,
     /// The windowed size last asked for, and what is left of its second ask.
     held: HeldSize,
+    /// The render scale last seen.
+    share: std::cell::Cell<u32>,
     /// Whether this is a window the player sizes, down to a login size, and the size it closed
     /// at is theirs to keep (client divergence CD-resizable-window).
     player_sizes: bool,
@@ -648,6 +652,8 @@ pub struct WinitWindow {
 enum ClientUnits {
     Pixels,
     Points,
+    /// A share of the window system's pixels, in percent.
+    Share(u32),
 }
 
 impl ClientUnits {
@@ -659,11 +665,32 @@ impl ClientUnits {
         }
     }
 
+    /// What the client counts in with the window full screen or not: a window goes by points,
+    /// but the picture of a full screen is drawn at the render scale's share of the monitor's own
+    /// pixels.
+    fn at(self, full_screen: bool) -> Self {
+        self.at_share(
+            full_screen,
+            dereth_client_contract::options::render_scale::percent(),
+        )
+    }
+
+    const fn at_share(self, full_screen: bool, percent: u32) -> Self {
+        match self {
+            Self::Points if full_screen => Self::Share(percent),
+            other => other,
+        }
+    }
+
     /// A client size, as the window system is asked for it.
     fn size(self, (width, height): (u32, u32)) -> winit::dpi::Size {
         match self {
             Self::Pixels => winit::dpi::PhysicalSize::new(width, height).into(),
             Self::Points => winit::dpi::LogicalSize::new(width, height).into(),
+            Self::Share(percent) => {
+                let whole = |v: u32| v.saturating_mul(100) / percent.max(1);
+                winit::dpi::PhysicalSize::new(whole(width), whole(height)).into()
+            }
         }
     }
 
@@ -675,6 +702,13 @@ impl ClientUnits {
                 let size = size.to_logical::<u32>(scale);
                 (size.width, size.height)
             }
+            Self::Share(percent) => {
+                let share = |v: u32| {
+                    u32::try_from((u64::from(v) * u64::from(percent) + 50) / 100)
+                        .unwrap_or(u32::MAX)
+                };
+                (share(size.width), share(size.height))
+            }
         }
     }
 
@@ -683,6 +717,10 @@ impl ClientUnits {
         match self {
             Self::Pixels => (x, y),
             Self::Points => (x / scale, y / scale),
+            Self::Share(percent) => {
+                let share = f64::from(percent) / 100.0;
+                (x * share, y * share)
+            }
         }
     }
 
@@ -691,6 +729,10 @@ impl ClientUnits {
         match self {
             Self::Pixels => (x, y),
             Self::Points => (x * scale, y * scale),
+            Self::Share(percent) => {
+                let share = f64::from(percent.max(1)) / 100.0;
+                (x / share, y / share)
+            }
         }
     }
 
@@ -1082,6 +1124,7 @@ pub fn open_window(
         held,
         player_sizes: look.resizable && look.login_size.is_some(),
         drags: std::cell::Cell::new(look.resizable),
+        share: std::cell::Cell::new(100),
     };
     if let Some(handle) = opened.raw_handle() {
         let weak = std::rc::Rc::downgrade(&opened.shared);
@@ -1234,6 +1277,7 @@ fn route_window_event(
     mut event: winit::event::WindowEvent,
 ) {
     let (requested, full_screen) = presentation;
+    let units = units.at(window.fullscreen().is_some());
     if let winit::event::WindowEvent::ScaleFactorChanged {
         inner_size_writer, ..
     } = &mut event
@@ -1299,6 +1343,15 @@ fn coalesce_resized(queue: &mut Vec<HostEvent>, width: u32, height: u32) {
 }
 
 impl WindowHost for WinitWindow {
+    /// A window that goes by points draws full screen at a share of the monitor's own pixels.
+    fn render_scale(&self) -> Option<u32> {
+        (self.shared.units == ClientUnits::Points).then_some(100)
+    }
+
+    fn profile_keeps_render_scale(&self) -> bool {
+        true
+    }
+
     fn has_window(&self) -> bool {
         true
     }
@@ -1368,6 +1421,7 @@ impl WindowHost for WinitWindow {
         let window = &self.shared.window;
         self.shared
             .units
+            .at(window.fullscreen().is_some())
             .client_size(window.inner_size(), window.scale_factor())
     }
 
@@ -1508,6 +1562,13 @@ impl WindowHost for WinitWindow {
             .event_loop
             .borrow_mut()
             .pump_app_events(Some(std::time::Duration::ZERO), &mut drain);
+        // A new render scale, full screen, changes what the client draws at with no word from the
+        // window system.
+        let share = dereth_client_contract::options::render_scale::percent();
+        if self.share.replace(share) != share && self.shared.window.fullscreen().is_some() {
+            let (width, height) = self.client_size();
+            coalesce_resized(&mut queue, width, height);
+        }
         // A held pointer that moved during the drain is put back, as the final client put it
         // back once a frame under mouse look.
         self.shared.put_pointer_back();
@@ -2161,10 +2222,31 @@ mod tests {
         );
 
         let points = ClientUnits::Points;
+        // Full screen is the monitor's own pixels, at the render scale's share of them.
+        assert_eq!(points.at_share(false, 50), ClientUnits::Points);
+        assert_eq!(points.at_share(true, 100), ClientUnits::Share(100));
+        assert_eq!(ClientUnits::Pixels.at_share(true, 50), ClientUnits::Pixels);
+        let native = PhysicalSize::new(6720, 2836);
+        assert_eq!(
+            ClientUnits::Share(100).client_size(native, 2.0),
+            (6720, 2836)
+        );
+        assert_eq!(
+            ClientUnits::Share(50).client_size(native, 2.0),
+            (3360, 1418)
+        );
+        assert_eq!(
+            ClientUnits::Share(50).pointer((1000.0, 500.0), 2.0),
+            (500.0, 250.0)
+        );
+        assert_eq!(
+            ClientUnits::Share(50).pixels((500.0, 250.0), 2.0),
+            (1000.0, 500.0)
+        );
         let retina = 2.0;
         // A window of 1437 by 902 points is 2874 by 1804 of the screen's pixels.
         assert_eq!(
-            points.client_size(PhysicalSize::new(2874, 1804), retina),
+            points.client_size(PhysicalSize::new(2874, 1804), 2.0),
             (1437, 902)
         );
         assert_eq!(

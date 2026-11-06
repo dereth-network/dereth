@@ -712,7 +712,8 @@ pub static ROWS: &[Behaviour] = &[
         id: "presentation.window.a-mac-window-counts-its-size-in-points",
         says: "On macOS the client's window counts its size and the pointer in points, so it \
                opens as large on a Retina screen as on any other, and the pointer lands on the \
-               same place in the picture. A window counted in pixels is untouched.",
+               same place in the picture. Full screen is drawn at the monitor's own pixels. A \
+               window counted in pixels is untouched.",
         since: THIS_CLIENT,
         divergence: "CD-mac-window-goes-by-points",
         evidence: Evidence::Private("AC-EVID-WINDOW-MAC-POINTS"),
