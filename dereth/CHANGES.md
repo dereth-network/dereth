@@ -15,6 +15,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ## Unreleased
 
 - Better Lighting: something new coming into view, such as a block loading as you walk, no longer flashes the whole picture back to the standard look for a frame.
+
 ## 0.4.14 (2026-11-05)
 
 ## 0.4.13 (2026-11-05)
