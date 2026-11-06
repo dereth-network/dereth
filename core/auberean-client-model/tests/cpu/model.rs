@@ -106,6 +106,173 @@ fn temporary_ids_are_given_out_from_the_first_free() {
     assert_eq!(m.allocate_temporary_id(), Some(ids::temporary(3)));
 }
 
+/// What an object is told of where it is counts only when stamped later than the newest position
+/// stamp heard: leaving the world or being held, stamped earlier than the place it was last given,
+/// changes nothing; stamped later, it does. The player itself never leaves.
+///
+/// Behaviour: model.state.a-stale-leaving-or-holding-changes-nothing
+#[test]
+fn a_stale_leaving_or_holding_changes_nothing() {
+    use auberean_protocol::physics::{Attach, Leave, ObjectEvent};
+    use auberean_protocol::types::ObjectStamp;
+    let mut m = Model::default();
+    let thing = 0x8130_0000_0000_0011;
+    let holder = 0x2130_0000_0000_0007;
+    let stamp = |id, other_stamp| ObjectStamp {
+        id,
+        instance_stamp: 1,
+        other_stamp,
+    };
+    m.apply(&create_item(holder, 1, 1));
+    m.apply(&create_item(thing, 1, 1));
+    let leave = |s| {
+        item(
+            2,
+            0,
+            ServerMessage::ObjectLeaves(ObjectEvent {
+                sender: stamp(thing, 0),
+                action: Leave { stamp: s },
+            }),
+        )
+    };
+    let hold = |s| {
+        item(
+            2,
+            0,
+            ServerMessage::Parent(ObjectEvent {
+                sender: stamp(thing, 0),
+                action: Attach {
+                    parent: stamp(holder, s),
+                    location: 1,
+                    orientation: 0,
+                },
+            }),
+        )
+    };
+    m.apply(&leave(5));
+    assert!(!m.object(thing).expect("kept").in_world, "stamped later");
+    m.apply(&hold(3));
+    assert_eq!(m.object(thing).and_then(|o| o.parent), None, "an older one");
+    m.apply(&hold(5));
+    assert_eq!(m.object(thing).and_then(|o| o.parent), None, "the same one");
+    m.apply(&hold(6));
+    assert_eq!(m.object(thing).and_then(|o| o.parent), Some((holder, 1)));
+    m.apply(&leave(4));
+    assert!(m.object(thing).and_then(|o| o.parent).is_some(), "older");
+    m.apply(&leave(0x8008));
+    assert!(
+        m.object(thing).and_then(|o| o.parent).is_some(),
+        "half the circle on is behind"
+    );
+    m.apply(&leave(7));
+    assert!(m.object(thing).and_then(|o| o.parent).is_none(), "later");
+}
+
+/// A creation of an object the client still has, after it left the world, puts it back in the
+/// world where the creation says it stands: a player who went on ahead through a door is there when
+/// the client arrives.
+///
+/// Behaviour: model.state.a-creation-brings-back-an-object-that-left
+#[test]
+fn a_creation_brings_back_an_object_that_left() {
+    use auberean_protocol::physics::{Leave, ObjectEvent};
+    use auberean_protocol::types::{ObjectStamp, PhysicsDesc, Placement};
+    let mut m = Model::default();
+    let other = 0x2130_0000_0000_0007;
+    let mut c = crate::create(other, 1, 1);
+    c.physics.bits |= PhysicsDesc::POSITION;
+    c.physics.position = Placement {
+        cell: 0x7D64_0021,
+        ..Placement::default()
+    };
+    c.physics.stamps = [4, 5, 6, 7];
+    m.apply(&item(3, 0, ServerMessage::CreateObject(c.clone())));
+    m.apply(&item(
+        2,
+        0,
+        ServerMessage::ObjectLeaves(ObjectEvent {
+            sender: ObjectStamp {
+                id: other,
+                instance_stamp: 1,
+                other_stamp: 0,
+            },
+            action: Leave { stamp: 5 },
+        }),
+    ));
+    let gone = m.object(other).expect("kept");
+    assert!(!gone.in_world && gone.place.is_none());
+
+    // The same incarnation made again in a room, where it arrived meanwhile.
+    c.physics.position.cell = 0x0BF1_0100;
+    c.physics.stamps = [6, 6, 6, 7];
+    m.apply(&item(3, 0, ServerMessage::CreateObject(c.clone())));
+    let back = m.object(other).expect("kept");
+    assert!(back.in_world);
+    assert_eq!(back.place.map(|p| p.cell), Some(0x0BF1_0100));
+    assert_eq!(back.creations, 2);
+
+    // A description with no place says nothing about that: it stays out.
+    m.apply(&item(
+        2,
+        0,
+        ServerMessage::ObjectLeaves(ObjectEvent {
+            sender: ObjectStamp {
+                id: other,
+                instance_stamp: 1,
+                other_stamp: 0,
+            },
+            action: Leave { stamp: 7 },
+        }),
+    ));
+    c.physics.position.cell = 0;
+    m.apply(&item(3, 0, ServerMessage::CreateObject(c)));
+    assert!(!m.object(other).expect("kept").in_world);
+}
+
+/// An object made already held takes the position stamp its description gives, as one in the world
+/// does: a let-go older than that changes nothing, and a later one lets it go.
+///
+/// Behaviour: model.state.an-object-made-held-takes-its-position-stamp
+#[test]
+fn an_object_made_held_takes_its_position_stamp() {
+    use auberean_protocol::physics::ObjectEvent;
+    use auberean_protocol::types::ObjectStamp;
+    let mut m = Model::default();
+    let thing = 0x8130_0000_0000_0011;
+    let holder = 0x2130_0000_0000_0007;
+    m.apply(&create_item(holder, 1, 1));
+    let mut made = create_item(thing, 1, 1);
+    let ServerMessage::CreateObject(c) = &mut made.message else {
+        panic!("a creation");
+    };
+    c.physics.parent.parent = holder;
+    c.physics.stamps[0] = 5;
+    m.apply(&made);
+    let let_go = |other_stamp| {
+        item(
+            2,
+            0,
+            ServerMessage::DeParent(ObjectEvent {
+                sender: ObjectStamp {
+                    id: holder,
+                    instance_stamp: 1,
+                    other_stamp: 0,
+                },
+                action: ObjectStamp {
+                    id: thing,
+                    instance_stamp: 1,
+                    other_stamp,
+                },
+            }),
+        )
+    };
+    assert_eq!(m.object(thing).map(|o| o.position_stamp), Some(5));
+    m.apply(&let_go(4));
+    assert!(m.object(thing).and_then(|o| o.parent).is_some(), "older");
+    m.apply(&let_go(6));
+    assert!(m.object(thing).and_then(|o| o.parent).is_none(), "later");
+}
+
 /// A held item is let go of by a message its holder sends: the item is the one the message names
 /// (in the incarnation it names), not the sender; the holder keeps what holds it.
 ///
@@ -130,7 +297,10 @@ fn a_let_go_takes_the_named_item_out_of_its_holders_hand() {
         ServerMessage::Parent(ObjectEvent {
             sender: stamp(sword, 4),
             action: Attach {
-                parent: stamp(holder, 1),
+                parent: ObjectStamp {
+                    other_stamp: 1,
+                    ..stamp(holder, 1)
+                },
                 location: 1,
                 orientation: 0,
             },
@@ -142,7 +312,10 @@ fn a_let_go_takes_the_named_item_out_of_its_holders_hand() {
             0,
             ServerMessage::DeParent(ObjectEvent {
                 sender: stamp(holder, 1),
-                action: stamp(sword, instance),
+                action: ObjectStamp {
+                    other_stamp: 2,
+                    ..stamp(sword, instance)
+                },
             }),
         )
     };

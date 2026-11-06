@@ -433,9 +433,14 @@ pub struct StoreFiles {
 }
 
 /// How long a used door is waited for to stand open, seconds; and how many uses it gets before
-/// the walk goes round it for now. A door is judged locked only on the server's answer.
+/// the walk goes round it for now. A door is judged locked only on the server's answer. With no
+/// way round, a door with no such answer gets this many uses once more, and that is the most a
+/// journey gives it.
 const DOOR_WAIT: f64 = 4.0;
 const DOOR_TRIES: u32 = 4;
+
+/// What a journey fails with when its walk has no route and a door on the way would not open.
+const DOOR_SHUT: &str = "door_shut";
 
 /// What the walk does at a closed door its route passes through.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -606,11 +611,13 @@ struct Trip {
     /// The door being opened: when it was last used (wall seconds) and how many times.
     door: Option<(ObjectId, f64, u32)>,
     /// Doors planned round on this trip: those the server said are locked, and those that did not
-    /// open after [`DOOR_TRIES`] uses (something in the way, or slow), which are tried again when
-    /// no other way remains.
+    /// open after [`DOOR_TRIES`] uses (something in the way, or slow), which are tried again once
+    /// when no other way remains.
     locked: BTreeSet<u32>,
     /// Doors whose use the server answered as locked (`OpenFailDueToLock`).
     lock_answers: BTreeSet<u32>,
+    /// Doors that have had their second go: if they stay shut, the journey has no way through them.
+    tried_again: BTreeSet<u32>,
     /// Recalls that did not land on this trip: not offered again.
     disabled: BTreeSet<Recall>,
     /// Something solid appeared near the route since it was planned.
@@ -1850,8 +1857,16 @@ impl Travel {
                 let Some(t) = self.trip.as_mut() else { return };
                 t.follower = None;
                 t.stats.replans += 1;
+                // Where only a drop leads on, the journey names it: a jump there is the player's
+                // to make. A door on the way that would not open is named next, as what stands in
+                // the way.
+                let why = match e {
+                    NoPath::OnlyByDrop { .. } => format!("only_by_drop: {e}"),
+                    _ if !t.locked.is_empty() => String::from(DOOR_SHUT),
+                    _ => String::from("no_route"),
+                };
                 if t.stats.replans > MAX_REPLANS {
-                    self.end(out, Some(here), Some("no_route"));
+                    self.end(out, Some(here), Some(&why));
                     return;
                 }
                 // The places taken out where the body stopped may have been the only way: put
@@ -1864,30 +1879,30 @@ impl Travel {
                     self.walk_toward(here, &to, out);
                     return;
                 }
-                if t.locked.iter().all(|d| t.lock_answers.contains(d)) {
-                    // Where only a drop leads on, the journey names it: a jump there is the
-                    // player's to make.
-                    let why = match e {
-                        NoPath::OnlyByDrop { .. } => format!("only_by_drop: {e}"),
-                        _ => String::from("no_route"),
-                    };
+                // A door that did not open may only have been slow, or had something standing in
+                // it: with no way round, try those doors once more. One the server said is locked,
+                // and one that has had its second go, stays planned round.
+                let again: BTreeSet<u32> = t
+                    .locked
+                    .iter()
+                    .filter(|d| !t.lock_answers.contains(d) && !t.tried_again.contains(d))
+                    .copied()
+                    .collect();
+                if again.is_empty() {
                     self.end(out, Some(here), Some(&why));
                     return;
                 }
-                // A door that did not open may only have been slow, or had something standing in
-                // it: with no way round, try those doors once more. One the server said is locked
-                // stays planned round.
-                let answered = t.lock_answers.clone();
                 tracing::info!(
                     target: "travel",
                     "trying the {} doors that did not open again",
-                    t.locked.len() - answered.len()
+                    again.len()
                 );
-                t.locked.retain(|d| answered.contains(d));
+                t.locked.retain(|d| !again.contains(d));
+                t.tried_again.extend(&again);
                 let mut list = std::mem::take(&mut self.obstacles);
                 for o in &mut list {
                     if o.obstacle.kind == ObstacleKind::Door(DoorState::Locked)
-                        && !answered.contains(&o.obstacle.id.0)
+                        && again.contains(&o.obstacle.id.0)
                     {
                         o.obstacle.kind = ObstacleKind::Door(DoorState::Closed);
                     }
@@ -2876,6 +2891,7 @@ impl Trip {
             door: None,
             locked: BTreeSet::new(),
             lock_answers: BTreeSet::new(),
+            tried_again: BTreeSet::new(),
             disabled: BTreeSet::new(),
             route_dirty: None,
             stats: TripStats::default(),
@@ -3057,6 +3073,222 @@ mod tests {
         // The server said it is locked: round it at once, however few the tries.
         assert_eq!(at_door(false, true, Some((10.0, 1)), 10.5), AtDoor::Locked);
         assert_eq!(at_door(false, true, None, 10.0), AtDoor::Locked);
+    }
+
+    /// A walk at a door: the clock turned by hand, half a second a frame, and the routes answered
+    /// by hand, as the planning would with the door planned round or not.
+    mod at_a_door {
+        use super::*;
+
+        pub(super) const DOOR: ObjectId = ObjectId(0x7A9B_401A);
+
+        pub(super) fn at(x: f32) -> Position {
+            Position::new(
+                CellId(0x0106_0104),
+                Frame::new(Vec3::new(x, 0.0, 0.0), Quat::IDENTITY),
+            )
+        }
+
+        fn waypoint(x: f32, door: Option<ObjectId>) -> dereth_navigation::Waypoint {
+            dereth_navigation::Waypoint {
+                position: at(x),
+                action: door.map(WaypointAction::OpenDoor),
+            }
+        }
+
+        /// A route from the body to the far end of the room, the door within reach of the start.
+        pub(super) fn through_the_door() -> NavPath {
+            NavPath {
+                waypoints: vec![
+                    waypoint(0.0, None),
+                    waypoint(0.1, Some(DOOR)),
+                    waypoint(9.0, None),
+                ],
+                legs: Vec::new(),
+                goal_offset: 0.0,
+                cuts: Vec::new(),
+            }
+        }
+
+        /// A route to the far end of the room with no door on it.
+        pub(super) fn round_the_door() -> NavPath {
+            NavPath {
+                waypoints: vec![waypoint(0.0, None), waypoint(9.0, None)],
+                legs: Vec::new(),
+                goal_offset: 0.0,
+                cuts: Vec::new(),
+            }
+        }
+
+        pub(super) struct Walk {
+            pub travel: Travel,
+            pub wall: f64,
+            pub uses: u32,
+        }
+
+        impl Walk {
+            /// A journey on foot, stopped at a closed door that its route goes through.
+            pub fn new() -> Self {
+                let mut travel = Travel::new(StoreFiles::default());
+                travel.planning = Some(Planning::held());
+                let mut trip = Trip::new(
+                    1,
+                    Purpose::Go,
+                    TravelTarget::Place(at(9.0)),
+                    TravelAllow::default(),
+                    0.0,
+                    0.0,
+                );
+                trip.step = Some(Step::Walk {
+                    target: at(9.0),
+                    last: true,
+                });
+                travel.trip = Some(trip);
+                let mut walk = Self {
+                    travel,
+                    wall: 0.0,
+                    uses: 0,
+                };
+                walk.door_is(DoorState::Closed);
+                walk.travel.follow_route(through_the_door(), true);
+                walk
+            }
+
+            /// The world's objects now: the door, standing as `state` says.
+            pub fn door_is(&mut self, state: DoorState) {
+                self.travel.set_obstacles(
+                    vec![WorldObstacle {
+                        obstacle: Obstacle {
+                            id: DOOR,
+                            position: at(0.1),
+                            setup: Arc::new(SetupGeometry::default()),
+                            scale: 1.0,
+                            kind: ObstacleKind::Door(state),
+                        },
+                        name: String::from("Door"),
+                    }],
+                    Some(&at(0.0)),
+                );
+            }
+
+            /// Whether the journey now plans round the door.
+            pub fn planned_round(&self) -> bool {
+                self.travel
+                    .trip
+                    .as_ref()
+                    .is_some_and(|t| t.locked.contains(&DOOR.0))
+            }
+
+            /// One frame with the body at the start, `route` answering a route asked for.
+            pub fn frame(&mut self, route: impl Fn(&Self) -> Walked) {
+                self.wall += 0.5;
+                self.travel.wall = self.wall;
+                self.travel.now = self.wall;
+                let mut out = Vec::new();
+                self.travel.trip_frame(&at(0.0), true, &mut out);
+                // Each route the frame asked for is answered at once, and an answer may ask again.
+                while let Some((_, toward)) =
+                    self.travel.trip.as_mut().and_then(|t| t.walking.take())
+                {
+                    let answer = route(self);
+                    self.travel.walked(&at(0.0), toward, answer, 0.0, &mut out);
+                }
+                self.uses += u32::try_from(
+                    out.iter()
+                        .filter(|c| matches!(c, TravelCommand::Use(d) if *d == DOOR))
+                        .count(),
+                )
+                .unwrap_or(0);
+            }
+
+            /// Frames until the journey ends, or a game hour of them: why it ended.
+            pub fn until_it_ends(&mut self, route: impl Fn(&Self) -> Walked) -> Option<String> {
+                for _ in 0..7200 {
+                    self.frame(&route);
+                    if self.travel.trip.is_none() {
+                        break;
+                    }
+                }
+                self.travel.take_events().into_iter().find_map(|e| match e {
+                    TravelEvent::Failed { reason, .. } => Some(reason),
+                    _ => None,
+                })
+            }
+        }
+
+        /// The planner's answer with no way round the door: through it unless planned round.
+        pub(super) fn only_through_it(walk: &Walk) -> Walked {
+            if walk.planned_round() {
+                Err(NoPath::Unreachable)
+            } else {
+                Ok((through_the_door(), true))
+            }
+        }
+    }
+
+    /// Behaviour: plugins.nav.a-door-that-will-not-open-ends-the-journey-and-says-so
+    #[test]
+    fn a_door_that_never_opens_and_never_answers_ends_the_journey_after_a_bounded_number_of_uses() {
+        let mut walk = at_a_door::Walk::new();
+        let why = walk.until_it_ends(at_a_door::only_through_it);
+        assert_eq!(why.as_deref(), Some(DOOR_SHUT));
+        assert_eq!(walk.uses, 2 * DOOR_TRIES, "its uses, then its second go");
+        assert!(walk.wall < 60.0, "over in {} s", walk.wall);
+    }
+
+    /// Behaviour: plugins.nav.a-door-that-will-not-open-ends-the-journey-and-says-so
+    #[test]
+    fn a_door_the_server_answers_as_locked_is_used_once_and_ends_a_journey_with_no_way_round() {
+        let mut walk = at_a_door::Walk::new();
+        walk.frame(at_a_door::only_through_it);
+        assert_eq!(walk.uses, 1);
+        walk.travel.door_answered_locked(at_a_door::DOOR);
+        let why = walk.until_it_ends(at_a_door::only_through_it);
+        assert_eq!(why.as_deref(), Some(DOOR_SHUT));
+        assert_eq!(walk.uses, 1, "a locked door is not tried again");
+    }
+
+    /// Behaviour: plugins.nav.a-door-that-will-not-open-ends-the-journey-and-says-so
+    #[test]
+    fn a_locked_door_with_a_way_round_is_walked_round_and_the_journey_goes_on() {
+        let mut walk = at_a_door::Walk::new();
+        walk.frame(at_a_door::only_through_it);
+        walk.travel.door_answered_locked(at_a_door::DOOR);
+        walk.frame(|_| Ok((at_a_door::round_the_door(), true)));
+        assert_eq!(walk.uses, 1);
+        let t = walk.travel.trip.as_ref().expect("the journey goes on");
+        let route = t.follower.as_ref().expect("it walks on").path();
+        assert_eq!(route.waypoints.len(), 2, "the route with no door on it");
+    }
+
+    /// Behaviour: plugins.nav.a-door-that-will-not-open-ends-the-journey-and-says-so
+    #[test]
+    fn a_door_slow_to_open_opens_on_its_second_go_and_the_walk_goes_through_it() {
+        let mut walk = at_a_door::Walk::new();
+        while walk.uses <= DOOR_TRIES {
+            walk.frame(at_a_door::only_through_it);
+            assert!(walk.wall < 60.0, "its second go never began");
+        }
+        assert_eq!(walk.uses, DOOR_TRIES + 1, "the first use of its second go");
+        walk.door_is(DoorState::Open);
+        walk.frame(at_a_door::only_through_it);
+        walk.frame(at_a_door::only_through_it);
+        let t = walk.travel.trip.as_ref().expect("the journey goes on");
+        assert!(t.door.is_none(), "the walk is through with the door");
+        assert_eq!(t.follower.as_ref().map(Follower::next_waypoint), Some(2));
+        assert_eq!(walk.uses, DOOR_TRIES + 1, "and uses it no more");
+    }
+
+    /// Behaviour: plugins.nav.a-door-that-will-not-open-ends-the-journey-and-says-so
+    #[test]
+    fn a_walk_with_no_route_and_no_door_shut_on_it_still_fails_as_no_route() {
+        let mut walk = at_a_door::Walk::new();
+        let t = walk.travel.trip.as_mut().expect("a journey");
+        t.follower = None;
+        t.walking = Some((1, at_a_door::at(9.0)));
+        let why = walk.until_it_ends(|_| Err(NoPath::Unreachable));
+        assert_eq!(why.as_deref(), Some("no_route"));
+        assert_eq!(walk.uses, 0);
     }
 
     #[test]

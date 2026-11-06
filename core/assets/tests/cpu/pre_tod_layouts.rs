@@ -103,3 +103,23 @@ fn a_pre_tod_env_cell_starts_with_flags_and_aligns_after_its_lists() {
     assert_eq!(cell.visible_cells, [0x0101]);
     assert!(EnvCell::decode_payload(id, &b).is_err());
 }
+
+#[test]
+fn launch_asset_encoding_is_explicitly_unavailable() {
+    use dereth_assets::{AssetError, CellLandblock};
+    use dereth_primitives::EraId;
+    let block = CellLandblock {
+        id: DataId(0x0101_FFFF),
+        lbi_exists: 0,
+        terrain: [0; 81],
+        height: [0; 81],
+    };
+    assert!(matches!(
+        block.encode_for(EraId::Launch),
+        Err(AssetError::Unsupported { .. })
+    ));
+    assert_eq!(
+        block.encode_for(EraId::Infiltration).unwrap(),
+        block.encode_for(EraId::Eor).unwrap()
+    );
+}

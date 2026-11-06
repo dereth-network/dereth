@@ -1,0 +1,24 @@
+ac1999
+https://gitlab.com/adamplumb/ac1999
+
+Empyrean's Launch-era world base is converted, by `empyrean-import ac1999`, from ac1999's world
+database and treasure tables, and Empyrean's source loot generator (the ac1999 loot rules) is
+ported from ac1999's server, its treasure generator and random ranges. Both are the work of
+ac1999's authors.
+
+`empyrean-relay` speaks ac1999's protocol, and its readers and writers for that protocol are ported
+from ac1999's server (its client events, chat, object and player messages, books, vendors,
+fellowships, allegiances and appraisal), using facts about those messages stated on the message
+pages of its knowledge base. Those ports were made and changed for Empyrean in 2026.
+
+ac1999 is free software: you can redistribute it and/or modify it under the terms of the GNU
+Affero General Public License as published by the Free Software Foundation, version 3 of the
+License (the license ac1999 ships as Server/LICENSE, which every converted bundle carries in its
+source/ folder).
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without
+even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License along with this program.
+If not, see <https://www.gnu.org/licenses/>.

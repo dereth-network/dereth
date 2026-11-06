@@ -140,6 +140,10 @@ impl CellLandblock {
     /// None today; an era whose landblocks are laid out otherwise may refuse one.
     pub fn encode_for(&self, era: EraId) -> Result<Vec<u8>, AssetError> {
         match era {
+            EraId::Launch => Err(AssetError::Unsupported {
+                what: "Launch asset encoding",
+                value: 0,
+            }),
             EraId::Infiltration | EraId::Eor => Ok(self.encode()),
         }
     }
@@ -211,6 +215,10 @@ impl LandblockInfo {
     /// None today; an era whose statics records are laid out otherwise may refuse one.
     pub fn encode_for(&self, era: EraId) -> Result<Vec<u8>, AssetError> {
         match era {
+            EraId::Launch => Err(AssetError::Unsupported {
+                what: "Launch asset encoding",
+                value: 0,
+            }),
             EraId::Infiltration | EraId::Eor => Ok(self.encode()),
         }
     }
@@ -281,6 +289,10 @@ impl EnvCell {
     /// None today; an era whose cells are laid out otherwise may refuse one.
     pub fn encode_for(&self, era: EraId) -> Result<Vec<u8>, AssetError> {
         match era {
+            EraId::Launch => Err(AssetError::Unsupported {
+                what: "Launch asset encoding",
+                value: 0,
+            }),
             EraId::Infiltration => Ok(self.encode_older()),
             EraId::Eor => Ok(self.encode()),
         }
@@ -353,6 +365,10 @@ impl Surface {
     /// None today; an era whose surfaces are laid out otherwise may refuse one.
     pub fn encode_for(&self, era: EraId, id: DataId) -> Result<Vec<u8>, AssetError> {
         match era {
+            EraId::Launch => Err(AssetError::Unsupported {
+                what: "Launch asset encoding",
+                value: 0,
+            }),
             EraId::Infiltration => {
                 let mut o = Out(Vec::with_capacity(28));
                 o.id(id);
@@ -387,6 +403,10 @@ impl SurfaceTexture {
     /// [`AssetError::Unsupported`] for an era whose image textures carry their pixels.
     pub fn encode_for(&self, era: EraId) -> Result<Vec<u8>, AssetError> {
         match era {
+            EraId::Launch => Err(AssetError::Unsupported {
+                what: "Launch asset encoding",
+                value: 0,
+            }),
             EraId::Infiltration => Err(AssetError::Unsupported {
                 what: "image texture naming its images, in files whose textures hold pixels",
                 value: u32::try_from(self.source_levels.len()).unwrap_or(u32::MAX),
@@ -425,6 +445,10 @@ impl RenderSurface {
     /// format, or pixels that are not the picture's size.
     pub fn encode_for(&self, era: EraId, pixels: &[u8]) -> Result<Vec<u8>, AssetError> {
         match era {
+            EraId::Launch => Err(AssetError::Unsupported {
+                what: "Launch asset encoding",
+                value: 0,
+            }),
             EraId::Infiltration => {
                 if self.format != PFID_CUSTOM_B8G8R8 {
                     return Err(AssetError::Unsupported {
@@ -456,6 +480,10 @@ impl RenderSurface {
     /// are not the picture's size.
     pub fn encode_texture_for(&self, era: EraId, pixels: &[u8]) -> Result<Vec<u8>, AssetError> {
         match era {
+            EraId::Launch => Err(AssetError::Unsupported {
+                what: "Launch asset encoding",
+                value: 0,
+            }),
             EraId::Infiltration => {
                 let (image_type, bytes_per_pixel) = (0..=u32::from(u8::MAX))
                     .find_map(|t| {
@@ -645,6 +673,10 @@ impl GfxObj {
     /// triangle-strip block, or one naming a detail record other than the one its id reaches.
     pub fn encode_for(&self, era: EraId) -> Result<Vec<u8>, AssetError> {
         match era {
+            EraId::Launch => Err(AssetError::Unsupported {
+                what: "Launch asset encoding",
+                value: 0,
+            }),
             EraId::Infiltration => {
                 if self.flags & 4 != 0 {
                     return Err(AssetError::Unsupported {
@@ -894,6 +926,10 @@ impl Setup {
     /// None today; an era whose composite objects are laid out otherwise may refuse one.
     pub fn encode_for(&self, era: EraId) -> Result<Vec<u8>, AssetError> {
         match era {
+            EraId::Launch => Err(AssetError::Unsupported {
+                what: "Launch asset encoding",
+                value: 0,
+            }),
             EraId::Infiltration | EraId::Eor => Ok(self.encode()),
         }
     }
@@ -923,6 +959,10 @@ impl GfxObjDegradeInfo {
     /// None today; an era whose detail records are laid out otherwise may refuse one.
     pub fn encode_for(&self, era: EraId) -> Result<Vec<u8>, AssetError> {
         match era {
+            EraId::Launch => Err(AssetError::Unsupported {
+                what: "Launch asset encoding",
+                value: 0,
+            }),
             EraId::Infiltration | EraId::Eor => Ok(self.encode()),
         }
     }
@@ -979,6 +1019,10 @@ impl Environment {
     /// None today; an era whose environments are laid out otherwise may refuse one.
     pub fn encode_for(&self, era: EraId) -> Result<Vec<u8>, AssetError> {
         match era {
+            EraId::Launch => Err(AssetError::Unsupported {
+                what: "Launch asset encoding",
+                value: 0,
+            }),
             EraId::Infiltration => Ok(self.encode_in(ContainerEra::Classic)),
             EraId::Eor => Ok(self.encode()),
         }

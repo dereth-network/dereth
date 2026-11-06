@@ -94,12 +94,20 @@ pub fn interpolate_rotation(out: &mut Frame, a: &Frame, b: &Frame, t: f32) {
 }
 
 /// Set a frame's rotation, made unit length only when its squared length exceeds `0.0002²`; a
-/// rotation of no length is kept as it is.
+/// rotation of no length is kept as it is. Worked out in double precision, so that a rotation
+/// already unit length comes out unchanged.
 pub fn set_rotate_plain(f: &mut Frame, q: Quat) {
-    let n2 = q.z * q.z + q.y * q.y + q.x * q.x + q.w * q.w;
-    f.rotation = if n2 > EPSILON * EPSILON {
+    let [w, x, y, z] = [q.w, q.x, q.y, q.z].map(f64::from);
+    let n2 = z * z + y * y + x * x + w * w;
+    f.rotation = if n2 > f64::from(EPSILON * EPSILON) {
         let k = 1.0 / n2.sqrt();
-        Quat::new(k * q.w, k * q.x, k * q.y, k * q.z)
+        #[allow(clippy::cast_possible_truncation)]
+        Quat::new(
+            (k * w) as f32,
+            (k * x) as f32,
+            (k * y) as f32,
+            (k * z) as f32,
+        )
     } else {
         q
     };

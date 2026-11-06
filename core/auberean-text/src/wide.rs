@@ -214,7 +214,6 @@ fn units(s: &str) -> impl Iterator<Item = u16> + '_ {
 }
 
 /// Append a 32-bit word as `0x%08X`: `0x` and eight upper-case hexadecimal digits.
-// D2-09253
 pub fn append_hex32(text: &mut Vec<u16>, v: i32) {
     text.extend(units(&format!("0x{v:08X}")));
 }

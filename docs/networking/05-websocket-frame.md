@@ -1,8 +1,8 @@
 # The WebSocket frame
 
 **Provenance: this project's own extension.** Retail speaks UDP only. Nothing here is retail's or
-ACE's: it is how a browser client, which cannot send UDP, carries the same datagrams, and how an
-Empyrean server with WebSocket enabled takes them. The datagrams themselves (their header,
+ACE's: it is how a browser client, which cannot send UDP, carries the same datagrams, and how a
+server with WebSocket enabled takes them. The datagrams themselves (their header,
 checksums, ISAAC and everything above) are exactly those of `01-packet-format.md` onward.
 
 The code is `dereth_transport::web_frame`.
@@ -15,8 +15,8 @@ session's **will**: the datagrams to deliver for it if its WebSocket closes.
 
 Two things speak it on the server side:
 
-- **An Empyrean server** with `[server.websocket]` enabled accepts the connection itself. Each
-  WebSocket is one client endpoint of the server, beside its UDP clients.
+- **An Empyrean or Yalain server** with `[server.websocket]` enabled accepts the connection itself.
+  Each WebSocket is one client endpoint of the server, beside its UDP clients.
 - **`dereth-web-relay`**, a proxy run beside a server that speaks only UDP (ACE, GDLE, or an
   Empyrean without WebSocket) by its operator, or on a player's own machine, carries the datagrams
   to that server.
@@ -49,6 +49,24 @@ which the connect response comes from and the client's reply to it goes to (see
   the browser client uses 9000 and 9001 whatever the server listens on. So a page needs a URL and
   nothing else.
 
+**A server of Asheron's Call 2** has four ports, its login service's pair and its world service's,
+and one connection numbers them all in a row:
+
+| Port | Is |
+|---|---|
+| P | the login service's even port |
+| P + 1 | the login service's odd port |
+| P + 2 | the world service's even port |
+| P + 3 | the world service's odd port |
+| P + 4 | the friends service's stream: its bytes in order, not datagrams, and an empty message for its end ([08-friends-stream.md](../network/08-friends-stream.md) section 9) |
+
+The first datagram is the login, as above, so its port is P. A client told to go to the world gets a
+referral naming **P + 2**, in the connection's own numbering, whatever port the world service really
+has, and sends its world login there over the same connection. Whatever address the referral names
+beside the port means nothing on a connection. One connection means one URL, one count against
+the per-address limit, one will for both sessions, and a world login from its login's address, as
+the login's cookie asks. Any other port is dropped.
+
 ## 3. The will (port 0)
 
 A message addressed to port 0 is not a datagram. Its body lists the datagrams to deliver for the
@@ -74,17 +92,17 @@ that is closed or crashes still leaves the world at once, rather than after the 
 
 ## 4. Where it is served
 
-**An Empyrean server** serves the frame on the path of its choosing (any request path is accepted)
-at `wss://host:port/`, or at `ws://` where plain WebSocket is allowed. `SETUP.md` describes the
-configuration, a reverse proxy in front of it, and the limits it applies. The server's status
-endpoint reports the URL as `websocket_url`, so a launcher or a page can find it.
+**An Empyrean or Yalain server** serves the frame on the path of its choosing (any request path is
+accepted) at `wss://host:port/`, or at `ws://` where plain WebSocket is allowed. Each's `SETUP.md`
+describes the configuration, a reverse proxy in front of it, and the limits it applies. The server's
+status endpoint reports the URL as `websocket_url`, so a launcher or a page can find it.
 
 **`dereth-web-relay`** serves it on any path: on a player's machine at `ws://127.0.0.1:<port>/`
 and only there; beside a server at the `wss://` address its operator gives it, through a TLS proxy
 or with its own certificate.
 
 **Refusals.** Both refuse a browser page whose `Origin` they were not told to accept. A
-connection without an `Origin` header is not a browser page: Empyrean and a player's relay accept
+connection without an `Origin` header is not a browser page: the servers and a player's relay accept
 it, and a relay beside a server refuses it. The browser client refuses a `ws://`
 URL to anything but the loopback address, because the game protocol is not encrypted: ISAAC only
 keys the checksums, and the login carries the account's password.

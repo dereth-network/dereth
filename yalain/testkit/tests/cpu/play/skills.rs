@@ -9,6 +9,7 @@ use yalain_testkit::play::server_call;
 use yalain_testkit::Harness;
 use yalain_world::calls::{self, Value};
 use yalain_world::skills::{raise_cost, table_level, SkillDef, SkillTable};
+use yalain_world::state::SkillState;
 
 const TRAIN: u32 = 0x8214_0002;
 const RAISE: u32 = 0x8214_000C;
@@ -41,6 +42,70 @@ fn table() -> SkillTable {
         (0..=50u64).map(|n| 2 * n * n.saturating_sub(1)).collect(),
     );
     SkillTable { skills, tables }
+}
+
+/// At no vigor a player's rating in a skill that says so falls to the least there is, and what it
+/// adds to a skill it is a parent of goes too; a skill that does not say so keeps its own. With any
+/// vigor at all each has its whole rating.
+/// Behaviour: server.skills.rating-at-no-vigor
+#[test]
+fn at_no_vigor_a_skill_that_says_so_rates_nothing_and_others_keep_their_rating() {
+    use yalain_world::player::quality;
+    use yalain_world::quals;
+    use yalain_world::skill_use::rating_of_for_test as rating;
+    use yalain_world::skills::flag::NOTHING_AT_NO_VIGOR;
+    const PENALIZED: u32 = 16;
+    const FREE: u32 = 17;
+    const CHILD: u32 = 18;
+    let mut t = table();
+    let def = |id, flags, parents| SkillDef {
+        id,
+        cap: 200,
+        table: TABLE,
+        flags,
+        parents,
+        ..SkillDef::default()
+    };
+    t.skills
+        .insert(PENALIZED, def(PENALIZED, NOTHING_AT_NO_VIGOR, Vec::new()));
+    t.skills.insert(FREE, def(FREE, 0, Vec::new()));
+    t.skills.insert(CHILD, def(CHILD, 0, vec![(PENALIZED, 0)]));
+    let mut h = Harness::new();
+    h.server.skill_table = t;
+    let (_, me) = h.player_in_world("one", "Elara");
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .expect("in the world")
+        .0;
+    let trained = |skill, granted| SkillState {
+        skill,
+        mask: yalain_world::skills::mask::TRAINED,
+        granted,
+        cost: 0,
+        children: 0,
+        dependents: 0,
+        spent: 0,
+    };
+    if let Some(p) = h.server.players.get_mut(&world) {
+        p.play.skills = vec![
+            trained(PENALIZED, 30),
+            trained(FREE, 30),
+            trained(CHILD, 20),
+        ];
+        quals::set_int(&mut p.qualities, quality::VIGOR, 1);
+    }
+    let of = |h: &Harness, skill| rating(&h.server, world, skill);
+    assert_eq!(of(&h, PENALIZED), 31.0, "granted, and the table's first");
+    assert_eq!(of(&h, CHILD), 24.0, "with a tenth of its parent");
+    if let Some(p) = h.server.players.get_mut(&world) {
+        quals::set_int(&mut p.qualities, quality::VIGOR, 0);
+    }
+    assert_eq!(of(&h, PENALIZED), 1.0);
+    assert_eq!(of(&h, FREE), 31.0);
+    assert_eq!(of(&h, CHILD), 21.0, "with none");
 }
 
 fn calls_of(h: &Harness, b: usize, from: usize) -> Vec<(u32, Vec<Value>)> {
@@ -125,8 +190,133 @@ fn raising_a_skill_spends_the_experience_to_its_tables_next_level() {
     assert_eq!(fs, vec![SHOW_TEXT], "short of experience: a text alone");
 }
 
+/// An active skill stops at 50 for a player who is no hero, whatever its experience and its parents
+/// come to; a hero's goes on to the skill's own cap, in its rating and in a raise. A passive skill
+/// has its own cap for anyone.
+/// Behaviour: server.skills.active-cap-for-who-is-no-hero
+#[test]
+fn an_active_skill_stops_at_fifty_for_who_is_no_hero_and_goes_on_for_a_hero() {
+    use yalain_world::skills::{refusal, Held};
+    const PARENT: u32 = 16;
+    let mut t = table();
+    t.tables.insert(
+        TABLE,
+        (0..=100u64).map(|n| 2 * n * n.saturating_sub(1)).collect(),
+    );
+    let at = |n: u64| 2 * n * n.saturating_sub(1);
+    let def = |id: u32, active: bool, parents: Vec<(u32, u32)>| SkillDef {
+        id,
+        cap: 150,
+        table: TABLE,
+        active,
+        parents,
+        ..SkillDef::default()
+    };
+    t.skills.insert(SKILL, def(SKILL, true, vec![(PARENT, 0)]));
+    t.skills.insert(PARENT, def(PARENT, false, vec![]));
+    let held = |skill: u32, xp: u64| Held {
+        skill,
+        granted: 0,
+        xp,
+        mask: 0x3,
+        cost: 0,
+        children: 0,
+        dependents: 0,
+    };
+    // A parent of 50 gives 5: 62 of its own comes to 67.
+    let skills = [held(SKILL, at(62)), held(PARENT, at(50))];
+    assert_eq!(t.rating(&skills, SKILL, true), 67, "a hero's");
+    assert_eq!(t.rating(&skills, SKILL, false), 50, "no hero's");
+    assert_eq!(t.rating(&skills, PARENT, false), 50);
+    let passive = [held(PARENT, at(62))];
+    assert_eq!(t.rating(&passive, PARENT, false), 62, "passive");
+    let at_fifty = [held(SKILL, at(50))];
+    assert_eq!(
+        t.raise(&at_fifty, SKILL, 1_000_000, false),
+        Err(refusal::CAP)
+    );
+    assert_eq!(
+        t.raise(&at_fifty, SKILL, 1_000_000, true),
+        Ok(at(51) - at(50)),
+        "a hero raises on"
+    );
+
+    // Asked of the server, by a hero and by a player who is none.
+    let raises = |hero: bool| {
+        let mut h = Harness::new();
+        let b = trainee(&mut h);
+        h.server.skill_table = t.clone();
+        h.server
+            .skill_table
+            .skills
+            .get_mut(&SKILL)
+            .unwrap()
+            .parents
+            .clear();
+        ask(&mut h, b, TRAIN);
+        for p in h.server.players.values_mut() {
+            yalain_world::quals::set_bool(&mut p.qualities, yalain_world::focus::HERO, hero);
+            yalain_world::quals::set_long(&mut p.qualities, 301, 1_000_000);
+            let s = p.play.skills.iter_mut().find(|s| s.skill == SKILL).unwrap();
+            s.spent = at(50);
+        }
+        let from = ask(&mut h, b, RAISE);
+        calls_of(&h, b, from)
+            .iter()
+            .map(|(f, _)| *f)
+            .collect::<Vec<u32>>()
+    };
+    assert_eq!(raises(true), vec![UPDATE_INFO, SHOW_TEXT], "a hero's raise");
+    assert_eq!(raises(false), vec![SHOW_TEXT], "refused at 50");
+}
+
 /// A skill's level in its table: the highest level whose experience it holds (none still reaches
 /// level 1); a raise costs the experience to the next, none at the top.
+/// A rating with effects: a parent's counts, as changed, toward its child; the cap still holds.
+/// Behaviour: server.skills.rating-with-effects
+#[test]
+fn a_skills_rating_counts_its_own_and_its_parents_effects_up_to_its_cap() {
+    use yalain_world::skills::{mask, Held};
+    const PARENT: u32 = 16;
+    let mut t = table();
+    t.skills.insert(
+        PARENT,
+        SkillDef {
+            id: PARENT,
+            cap: 200,
+            table: TABLE,
+            ..SkillDef::default()
+        },
+    );
+    t.skills.get_mut(&SKILL).expect("the skill").parents = vec![(PARENT, 1)];
+    let held = |skill, granted| Held {
+        skill,
+        granted,
+        xp: 0,
+        mask: mask::TRAINED,
+        cost: 0,
+        children: 0,
+        dependents: 0,
+    };
+    let skills = [held(SKILL, 20), held(PARENT, 10)];
+    assert_eq!(t.rating(&skills, SKILL, false), 20 + 1 + 1);
+    // The parent's raised rating counts as a tenth, at most its 50.
+    let parent_raised = |sk: u32, r: u32| if sk == PARENT { r + 19 } else { r };
+    assert_eq!(
+        t.rating_with(&skills, SKILL, false, &parent_raised),
+        20 + 3 + 1
+    );
+    let own_raised = |sk: u32, r: u32| if sk == SKILL { r + 6 } else { r };
+    assert_eq!(t.rating_with(&skills, SKILL, false, &own_raised), 22 + 6);
+    let far = |sk: u32, r: u32| if sk == SKILL { r + 600 } else { r };
+    assert_eq!(t.rating_with(&skills, SKILL, false, &far), 50, "its cap");
+    // No effect, as without.
+    assert_eq!(
+        t.rating_with(&skills, SKILL, false, &|_, r| r),
+        t.rating(&skills, SKILL, false)
+    );
+}
+
 /// Behaviour: server.skills.advancement-table
 #[test]
 fn a_tables_level_and_raise_cost_follow_the_library() {

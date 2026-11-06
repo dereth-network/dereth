@@ -1,0 +1,97 @@
+name: landed
+
+# Everything public CI checks, on the machines of whoever runs this forge, before a commit is ever
+# mirrored: the build, clippy and the docs on every system, the rules once, and the tests as public
+# CI runs them, with no data and an empty cache. These machines keep their build between runs, so a
+# run rebuilds only what changed.
+#
+# A runner declares the label a job names (`windows`, `macos`, `linux`) and runs jobs directly on the
+# machine, in a shell. It has bash, git, rustup and curl on its PATH, and these in its environment:
+#
+#   DERETH_CI_HOME         a folder on a fast disk this workflow owns, written with forward slashes
+#   DERETH_CI_CHECK_HOOK   optional: a program given the checkout's path, for that machine's own
+#                          gates after the rest. Its output joins the log and its failure fails the job.
+on:
+  push:
+    branches: [landed]
+  workflow_dispatch:
+
+# A newer push replaces a run still in progress.
+concurrency:
+  group: landed
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: checks (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows, macos, linux]
+    runs-on: ${{ matrix.os }}
+    # Below the forge's own three-hour limit on a job. Only a first build or a hang comes near it,
+    # and a first build that hits it keeps what it built for the next run.
+    timeout-minutes: 170
+    defaults:
+      run:
+        shell: bash
+    env:
+      CARGO_NET_OFFLINE: 'true'
+    steps:
+      - name: The commit, in this runner's own tree
+        env:
+          CARGO_NET_OFFLINE: 'false'
+          TOKEN: ${{ github.token }}
+          SERVER: ${{ github.server_url }}
+          REPOSITORY: ${{ github.repository }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          test -n "$DERETH_CI_HOME" || { echo "DERETH_CI_HOME is not set on this runner"; exit 1; }
+          tree="$DERETH_CI_HOME/tree"
+          git init -q "$tree"
+          cd "$tree"
+          # The header reaches git through its environment: never a command line or a stored config.
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraHeader
+          GIT_CONFIG_VALUE_0="Authorization: Basic $(printf 'x-access-token:%s' "$TOKEN" | base64 | tr -d '\n')"
+          export GIT_CONFIG_VALUE_0
+          # The whole history and its tags: the rules read the previous release's tag.
+          git fetch -q --force --tags "$SERVER/$REPOSITORY.git" "$COMMIT"
+          git checkout -q --force --detach "$COMMIT"
+          # Only the build survives from one run to the next.
+          git clean -q -ffdx -e target/
+      - name: The workspace Rust version
+        env:
+          CARGO_NET_OFFLINE: 'false'
+        run: |
+          cd "$DERETH_CI_HOME/tree"
+          toolchain=$(sed -n 's/^rust-version *= *"\([^"]*\)".*/\1/p' Cargo.toml)
+          test -n "$toolchain"
+          rustup toolchain install "$toolchain" --profile minimal --component clippy,rustfmt
+          rustup override set "$toolchain"
+      - name: Fetch locked dependencies
+        env:
+          CARGO_NET_OFFLINE: 'false'
+        run: cd "$DERETH_CI_HOME/tree" && cargo fetch --locked
+      - name: Build
+        run: cd "$DERETH_CI_HOME/tree" && cargo xtask ci tier0 --only build
+      - name: Clippy
+        if: ${{ !cancelled() }}
+        run: cd "$DERETH_CI_HOME/tree" && cargo xtask ci tier0 --only clippy
+      # On every system here, unlike public CI: the docs of code only one system compiles.
+      - name: Docs
+        if: ${{ !cancelled() }}
+        run: cd "$DERETH_CI_HOME/tree" && cargo xtask ci tier0 --only docs
+      - name: Rules
+        if: ${{ !cancelled() && matrix.os == 'linux' }}
+        run: cd "$DERETH_CI_HOME/tree" && cargo xtask ci tier0 --only rules
+      - name: Tests with no data
+        if: ${{ !cancelled() }}
+        run: cd "$DERETH_CI_HOME/tree" && cargo xtask ci no-data
+      - name: This machine's own checks
+        if: ${{ !cancelled() }}
+        run: |
+          if [ -n "${DERETH_CI_CHECK_HOOK:-}" ]; then
+            "$DERETH_CI_CHECK_HOOK" "$DERETH_CI_HOME/tree"
+          else
+            echo "this machine has none"
+          fi

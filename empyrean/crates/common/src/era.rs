@@ -13,6 +13,10 @@
 //! six outdoor starter areas of that era's character-generation table, and its characters start
 //! with recalls enabled. The rule that picks among them (by town, one of the town's two areas at
 //! random) is ClassicACE's.
+//!
+//! [`EraId::Launch`] is November 1999, experimental. Its table names each of its formulas
+//! ([`EraFormulas::LAUNCH`]) rather than taking a later era's, and every later system, action and
+//! rule is off in its feature table, each one a key a world can turn back on.
 
 use serde::{Deserialize, Serialize};
 
@@ -34,6 +38,7 @@ impl EraExt for EraId {
         match self {
             Self::Eor => 0,
             Self::Infiltration => 1,
+            Self::Launch => 2,
         }
     }
 
@@ -45,6 +50,7 @@ impl EraExt for EraId {
         match self {
             Self::Eor => &EOR,
             Self::Infiltration => &INFILTRATION,
+            Self::Launch => &LAUNCH,
         }
     }
 }
@@ -97,6 +103,8 @@ pub struct TownStart {
 /// Where a new character starts.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum StartPositions {
+    /// The selected character-generation location, with recalls enabled and no academy exit.
+    AtCharGenLocation,
     /// ACE's rule: the character-generation table's starter area (the Training Academy), with
     /// recalls disabled until the character leaves it, and the town's "Free Ride" spell as the
     /// instantiation point.
@@ -111,6 +119,9 @@ pub enum StartPositions {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct EraRules {
     pub id: EraId,
+    /// The skills a character may train after creation. `None`: ACE's rule (any the dat skill
+    /// table has).
+    pub training_skills: Option<&'static [u32]>,
     /// Where new characters start.
     pub start_positions: StartPositions,
     /// Whether accounts own Throne of Destiny, as the character list tells the client. Without it
@@ -125,12 +136,16 @@ pub struct EraRules {
     pub creation_skills: Option<&'static [u32]>,
     /// The heritages a new character may be. `None`: any the dat character-generation table has.
     pub heritages: Option<&'static [u32]>,
-    /// The systems the world has, each a gate at ACE's sites: the era's table
+    /// The systems, actions and rules the world has, each a gate at ACE's sites: the era's table
     /// ([`EraId::features`]) with the world's `[era]` settings over it ([`with_features`]).
     pub features: EraFeatures,
     /// Server properties whose default the era changes (ClassicACE's per-ruleset defaults); a
     /// value the operator has set still wins.
     pub property_defaults: &'static [(&'static str, bool)],
+    /// The same for the server's integer properties.
+    pub long_property_defaults: &'static [(&'static str, i64)],
+    /// The same for the server's text properties.
+    pub string_property_defaults: &'static [(&'static str, &'static str)],
     /// The combat, death and experience formulas of the era.
     pub formulas: EraFormulas,
     /// The items and spells a new character is given for its trained skills.
@@ -145,6 +160,9 @@ pub struct EraRules {
 /// The loot tables and mutation scripts random loot is made with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LootRules {
+    /// The ac1999 world base's versioned six-group generator, carried in the content pack: ACE's
+    /// tables roll nothing, and death treasure comes from the base's own profiles.
+    Ac1999,
     /// ACE's.
     EndOfRetail,
     /// ClassicACE's for its Infiltration ruleset: weapons from the pre-2013 weapon tables by skill,
@@ -156,6 +174,9 @@ pub enum LootRules {
 /// Which starter-gear table new characters are given from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StarterGearSet {
+    /// Launch's: no skill table; the kit, the original skills' equipment and the spells with their
+    /// account-formula components are granted at creation.
+    Launch,
     /// ACE's `starterGear.json`.
     EndOfRetail,
     /// ClassicACE's `starterGear.infiltration.json`: the old weapon skills' starter weapons (by
@@ -163,7 +184,8 @@ pub enum StarterGearSet {
     Infiltration,
 }
 
-/// Formulas that changed during retail's life. [`EOR`]'s are ACE's.
+/// Formulas that changed during retail's life. [`EOR`]'s are ACE's. The rules a world may switch
+/// on or off are [`EraFeatures`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct EraFormulas {
@@ -172,18 +194,43 @@ pub struct EraFormulas {
     /// Weapon-speed enchantments that multiply (Rockslide and its kin) scale a weapon's speed.
     /// Without it only the additive ones (Swift Killer, Leaden Weapon) count.
     pub multiplicative_weapon_speed: bool,
-    /// Melee damage before the weapon-skill consolidation: daggers (rather than Finesse Weapons)
-    /// take Coordination; an unarmed humanoid scales with Strength at 0.004 per point rather than
-    /// 0.011 and adds a twentieth of its Unarmed Combat skill to its maximum damage; a bare
-    /// punch or kick does 1 (plus the hand or foot armour's own damage) rather than 2.
+    /// Melee damage before the weapon-skill consolidation: the attribute follows the old weapon
+    /// skill rather than Finesse Weapons ([`Self::daggers_use_coordination`]); an unarmed
+    /// humanoid scales with Strength at 0.004 per point rather than 0.011 and adds a twentieth of
+    /// its Unarmed Combat skill to its maximum damage; a bare punch or kick does 1 (plus the hand
+    /// or foot armour's own damage) rather than 2.
     pub older_melee_damage: bool,
+    /// With [`Self::older_melee_damage`], dagger damage takes Coordination (from March 2000).
+    /// Without it daggers take Strength, as every other melee weapon does.
+    pub daggers_use_coordination: bool,
     /// A creature's war-magic projectiles do half their damage.
     pub creature_projectiles_halved: bool,
+    /// A weapon's hit on a creature leaves out the creature's innate resistances: they are for
+    /// magic, and its armor says what a weapon does to it. Protections and vulnerabilities on it
+    /// still count.
+    pub physical_hits_skip_innate_resistance: bool,
+    /// A levelled creature with no experience of its own set pays [`Self::kill_xp_for_level`].
+    pub kill_xp_from_level: bool,
     /// Shields before the Shield skill: a shield's armour level counts in full whatever the
     /// skill, in any stance, and absorbs magic in melee stance as a missile launcher does.
     pub shields_without_skill: bool,
-    /// From level 21 a player dropping items at death drops `level / this` plus 0 to 2.
+    /// A player dropping items at death drops `level / this` of them (and 0 to 2 more), from
+    /// level 21 with [`Self::death_loss_exemptions`], from level 1 (at least one) without.
     pub death_items_level_divisor: i32,
+    /// The lighter death loss of levels 1 to 35 (May 2002): no loss to level 5, coins only to
+    /// level 10, at most one item to level 20, and wielded items kept below level 35. Without it
+    /// every death loses half the coins carried and `max(level / divisor, 1)` items, 0 to 2 more
+    /// above level 10, wielded items among them.
+    pub death_loss_exemptions: bool,
+    /// The most player corpses a character can have in the world: one more makes the oldest
+    /// decay at once and leave its items on the ground. `None`: no limit but ACE's per-landblock
+    /// one.
+    pub player_corpse_limit: Option<u32>,
+    /// How long a monster's corpse lies, and what becomes of the loot left on it.
+    pub monster_corpses: MonsterCorpses,
+    /// A corpse emptied of items rots in seconds (December 1999). Without it an empty corpse lasts
+    /// its full time.
+    pub empty_corpses_rot_early: bool,
     /// The most unassigned experience a character can hold; `None`: no cap.
     pub unassigned_xp_cap: Option<i64>,
     /// The most total experience a character can have. `Some`: experience keeps arriving at the
@@ -194,14 +241,36 @@ pub struct EraFormulas {
 }
 
 impl EraFormulas {
+    /// What a creature of `level` pays for its kill with [`Self::kill_xp_from_level`]:
+    /// `7.6356 * level^1.58006`, rounded. This curve is ac1999's fit, not a retail table.
+    #[must_use]
+    pub fn kill_xp_for_level(level: i32) -> u32 {
+        const COEFFICIENT: f64 = 7.6356;
+        const EXPONENT: f64 = 1.58006;
+        if level <= 0 {
+            return 0;
+        }
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let xp = (COEFFICIENT * dereth_primitives::num::math::pow(f64::from(level), EXPONENT) + 0.5)
+            as u32;
+        xp
+    }
+
     /// ACE's.
     pub const END_OF_RETAIL: Self = Self {
         vitae: EraId::Eor.vitae_recovery(),
         multiplicative_weapon_speed: false,
         older_melee_damage: false,
+        physical_hits_skip_innate_resistance: false,
+        kill_xp_from_level: false,
         creature_projectiles_halved: false,
         shields_without_skill: false,
+        daggers_use_coordination: true,
         death_items_level_divisor: 20,
+        death_loss_exemptions: true,
+        player_corpse_limit: None,
+        monster_corpses: MonsterCorpses::LootDecaysWithCorpse,
+        empty_corpses_rot_early: true,
         unassigned_xp_cap: None,
         total_xp_cap: None,
     };
@@ -211,13 +280,82 @@ impl EraFormulas {
         vitae: EraId::Infiltration.vitae_recovery(),
         multiplicative_weapon_speed: true,
         older_melee_damage: true,
+        physical_hits_skip_innate_resistance: false,
+        kill_xp_from_level: false,
         creature_projectiles_halved: true,
         shields_without_skill: true,
+        daggers_use_coordination: true,
         death_items_level_divisor: 10,
+        death_loss_exemptions: true,
+        player_corpse_limit: None,
+        monster_corpses: MonsterCorpses::LootDecaysWithCorpse,
+        empty_corpses_rot_early: true,
         // Total and unassigned experience were 32-bit counts.
         unassigned_xp_cap: Some(u32::MAX as i64),
         total_xp_cap: Some(u32::MAX as i64),
     };
+
+    /// November 1999. Every rule is named here, none taken from a later table. Where no period
+    /// source gives the launch value (the Strength damage coefficient, weapon speeds, the
+    /// multiplying speed spells, creature projectile damage), ACE's stays.
+    pub const LAUNCH: Self = Self {
+        vitae: VitaeRecovery::BeforeThroneOfDestiny,
+        multiplicative_weapon_speed: false,
+        older_melee_damage: true,
+        // "Weapons that use the dagger skill have never used coordination ...; they used
+        // strength" (March 2000).
+        daggers_use_coordination: false,
+        physical_hits_skip_innate_resistance: true,
+        kill_xp_from_level: true,
+        creature_projectiles_halved: false,
+        shields_without_skill: true,
+        death_items_level_divisor: 10,
+        death_loss_exemptions: false,
+        // "You can only have two corpses in the world at a time" (May 2000, as the standing rule).
+        player_corpse_limit: Some(2),
+        monster_corpses: MonsterCorpses::NinetySecondsLootLeftBehind,
+        empty_corpses_rot_early: false,
+        unassigned_xp_cap: Some(u32::MAX as i64),
+        total_xp_cap: Some(u32::MAX as i64),
+    };
+}
+
+/// How long a monster's corpse lies, how long it is its killer's, and what becomes of the loot
+/// left on it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MonsterCorpses {
+    /// ACE's (November 2002 on): the corpse's own rot time, five minutes unless the content gives
+    /// another, its killer's until half of it is left, and the loot left on it decays with it.
+    LootDecaysWithCorpse,
+    /// Before June 2000: 90 seconds, its killer's for the first 15, after which the corpse decays
+    /// and leaves its unclaimed loot on the ground.
+    NinetySecondsLootLeftBehind,
+}
+
+impl MonsterCorpses {
+    /// The seconds a new monster corpse lies; `None`: the corpse's own.
+    #[must_use]
+    pub const fn seconds(self) -> Option<f64> {
+        match self {
+            Self::LootDecaysWithCorpse => None,
+            Self::NinetySecondsLootLeftBehind => Some(90.0),
+        }
+    }
+
+    /// Whether the loot left on a decayed monster corpse stays on the ground.
+    #[must_use]
+    pub const fn loot_left_behind(self) -> bool {
+        matches!(self, Self::NinetySecondsLootLeftBehind)
+    }
+
+    /// The rot time left below which anyone may loot a monster corpse; `None`: ACE's half life.
+    #[must_use]
+    pub const fn open_to_all_below(self) -> Option<f64> {
+        match self {
+            Self::LootDecaysWithCorpse => None,
+            Self::NinetySecondsLootLeftBehind => Some(90.0 - 15.0),
+        }
+    }
 }
 
 /// ClassicACE's Infiltration property defaults, without `max_level` (the era's cap) and the data
@@ -254,6 +392,7 @@ pub enum LootTables {
 
 /// End of retail: ACE's rules.
 pub static EOR: EraRules = EraRules {
+    training_skills: None,
     id: EraId::Eor,
     start_positions: StartPositions::FromCharGen,
     account_has_tod: true,
@@ -263,6 +402,8 @@ pub static EOR: EraRules = EraRules {
     heritages: None,
     features: EraFeatures::END_OF_RETAIL,
     property_defaults: &[],
+    long_property_defaults: &[],
+    string_property_defaults: &[],
     formulas: EraFormulas::END_OF_RETAIL,
     starter_gear: StarterGearSet::EndOfRetail,
     welcome_letter: None,
@@ -335,6 +476,7 @@ pub static INFILTRATION_TOWNS: [TownStart; 3] = [
 
 /// February 2005 (Infiltration).
 pub static INFILTRATION: EraRules = EraRules {
+    training_skills: None,
     id: EraId::Infiltration,
     start_positions: StartPositions::Towns(&INFILTRATION_TOWNS),
     account_has_tod: false,
@@ -344,12 +486,45 @@ pub static INFILTRATION: EraRules = EraRules {
     heritages: Some(&INFILTRATION_HERITAGES),
     features: EraFeatures::INFILTRATION,
     property_defaults: &INFILTRATION_PROPERTY_DEFAULTS,
+    long_property_defaults: &[],
+    string_property_defaults: &[],
     formulas: EraFormulas::INFILTRATION,
     starter_gear: StarterGearSet::Infiltration,
     // The Welcome Letter.
     welcome_letter: Some(1077),
     loot_rules: LootRules::Infiltration,
 };
+
+/// November 1999 (Launch), experimental. Skill costs and the experience curves come from the
+/// world's dats, so it wants the 1999 set. Random loot is the world base's: an ac1999 world base
+/// carries its own generator ([`LootRules::Ac1999`]).
+pub static LAUNCH: EraRules = EraRules {
+    id: EraId::Launch,
+    training_skills: Some(&LAUNCH_SKILLS),
+    start_positions: StartPositions::AtCharGenLocation,
+    account_has_tod: false,
+    max_level: Some(126),
+    loot: LootTables::AsTables,
+    creation_skills: Some(&LAUNCH_SKILLS),
+    heritages: Some(&INFILTRATION_HERITAGES),
+    features: EraFeatures::LAUNCH,
+    // DIVERGE: V506 an item's only requirements in 1999 are the gates on its magic.
+    property_defaults: &[("use_wield_requirements", false)],
+    // DIVERGE: V496 five characters an account until later years gave more.
+    long_property_defaults: &[("max_chars_per_account", 5)],
+    // DIVERGE: V499 no greeter to send a new character to.
+    string_property_defaults: &[("popup_welcome", "")],
+    formulas: EraFormulas::LAUNCH,
+    starter_gear: StarterGearSet::Launch,
+    welcome_letter: None,
+    loot_rules: LootRules::Ac1999,
+};
+
+/// Launch skills, including the original appraisal skills and excluding Salvaging.
+pub static LAUNCH_SKILLS: [u32; 35] = [
+    1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 18, 19, 20, 21, 22, 23, 24, 27, 28, 29, 30,
+    31, 32, 33, 34, 35, 36, 37, 38, 39,
+];
 
 impl StartPositions {
     /// The town a starter area named `name` stands for: the town of that name, else the first.
@@ -380,6 +555,13 @@ pub struct EraConfiguration {
     /// The era this world plays; its `world.pack` must have been built for the same era.
     #[serde(rename = "Profile", with = "era_name")]
     pub profile: EraId,
+    /// Start the world even when its data files are not the ones its era expects
+    /// ([`EraId::expected_dats`]). The server logs the files it found either way.
+    #[serde(rename = "AnyDatFiles")]
+    pub any_dat_files: bool,
+    /// The characters an account may hold, over the era's own number.
+    #[serde(rename = "MaxCharactersPerAccount")]
+    pub max_characters_per_account: Option<u32>,
     /// The systems the world turns on or off over its era's table: one key per system, named as
     /// [`EraFeatures::NAMES`] spells it (`Aetheria`, `SpellResearch`, ... in the serde form).
     #[serde(flatten, with = "feature_settings")]
@@ -493,6 +675,153 @@ mod tests {
     //! (creation skills and heritages), V390 (the
     //! level cap)
     use super::*;
+
+    /// Divergence: V471
+    #[test]
+    fn launch_component_burn_has_no_direct_skill_discount() {
+        assert!(!LAUNCH.features.component_burn_skill_discount);
+        assert!(INFILTRATION.features.component_burn_skill_discount);
+        assert!(EOR.features.component_burn_skill_discount);
+    }
+
+    /// Divergence: V469
+    #[test]
+    fn launch_item_redirection_is_separate_from_item_spell_auras() {
+        assert!(!LAUNCH.features.item_enchantment_redirection);
+        assert!(INFILTRATION.features.item_enchantment_redirection);
+        assert!(EOR.features.item_enchantment_redirection);
+        assert!(!INFILTRATION.features.item_spell_auras);
+        let mut features = LAUNCH.features;
+        features.item_spell_auras = true;
+        assert!(
+            !with_features(&LAUNCH, features)
+                .features
+                .item_enchantment_redirection
+        );
+    }
+
+    /// Divergence: V465
+    #[test]
+    fn launch_has_no_lifestone_immunity_while_later_eras_keep_it() {
+        assert!(!LAUNCH.features.player_corpse_hour_minimum);
+        assert!(INFILTRATION.features.player_corpse_hour_minimum);
+        assert!(EOR.features.player_corpse_hour_minimum);
+        assert!(!LAUNCH.features.lifestone_protection);
+        assert!(INFILTRATION.features.lifestone_protection);
+        assert!(EOR.features.lifestone_protection);
+    }
+
+    /// Divergence: V464
+    #[test]
+    fn launch_disables_later_original_school_magic_bonuses_independently_of_monster_scaling() {
+        assert!(!LAUNCH.features.war_and_life_projectile_criticals);
+        assert!(!LAUNCH.features.war_magic_skill_damage_bonus);
+        assert!(!LAUNCH.formulas.creature_projectiles_halved);
+        for rules in [&EOR, &INFILTRATION] {
+            assert!(rules.features.war_and_life_projectile_criticals);
+            assert!(rules.features.war_magic_skill_damage_bonus);
+        }
+        assert!(!EOR.formulas.creature_projectiles_halved);
+        assert!(INFILTRATION.formulas.creature_projectiles_halved);
+    }
+
+    /// Divergence: V473, V474, V475, V476
+    /// Launch names every formula it plays rather than taking the end of retail's, and keeps
+    /// ACE's where no period source gives the launch value.
+    #[test]
+    fn launch_plays_its_own_dated_formulas() {
+        let f = LAUNCH.formulas;
+        assert_eq!(f, EraFormulas::LAUNCH);
+        assert!(f.older_melee_damage && !f.daggers_use_coordination);
+        assert_eq!(f.death_items_level_divisor, 10);
+        assert!(!f.death_loss_exemptions);
+        assert_eq!(f.player_corpse_limit, Some(2));
+        assert_eq!(f.monster_corpses.seconds(), Some(90.0));
+        assert!(f.monster_corpses.loot_left_behind());
+        assert_eq!(f.monster_corpses.open_to_all_below(), Some(75.0));
+        assert!(!f.empty_corpses_rot_early);
+        let eor = EraFormulas::END_OF_RETAIL;
+        assert_eq!(
+            f.multiplicative_weapon_speed,
+            eor.multiplicative_weapon_speed
+        );
+        assert_eq!(
+            f.creature_projectiles_halved,
+            eor.creature_projectiles_halved
+        );
+        for later in [eor, EraFormulas::INFILTRATION] {
+            assert!(later.daggers_use_coordination);
+            assert!(later.death_loss_exemptions && later.empty_corpses_rot_early);
+            assert_eq!(later.player_corpse_limit, None);
+            assert_eq!(later.monster_corpses, MonsterCorpses::LootDecaysWithCorpse);
+            assert_eq!(later.monster_corpses.seconds(), None);
+        }
+    }
+
+    /// Divergence: V461
+    #[test]
+    fn launch_has_its_caps_skills_heritages_and_none_of_the_later_actions() {
+        assert!(EraId::Launch < EraId::Infiltration);
+        assert_eq!(EraId::Launch.pack_code(), 2);
+        assert_eq!(EraId::Infiltration.pack_code(), 1);
+        assert_eq!(EraId::Eor.pack_code(), 0);
+        assert_eq!(LAUNCH.max_level, Some(126));
+        assert_eq!(LAUNCH.creation_skills, Some(&LAUNCH_SKILLS[..]));
+        assert_eq!(LAUNCH.heritages, Some(&[1, 2, 3][..]));
+        assert_eq!(LAUNCH.training_skills, LAUNCH.creation_skills);
+        assert!(!LAUNCH_SKILLS.contains(&40));
+        let later_actions = |f: EraFeatures| {
+            [
+                f.creation_credit_carry_over,
+                f.skill_alteration,
+                f.augmentations,
+                f.pk_lite,
+                f.marketplace_recall,
+                f.lifestone_recall,
+                f.pk_arena_recalls,
+            ]
+        };
+        assert_eq!(later_actions(LAUNCH.features), [false; 7]);
+        assert_eq!(LAUNCH.loot_rules, LootRules::Ac1999);
+        assert_eq!(LAUNCH.starter_gear, StarterGearSet::Launch);
+        assert_eq!(LAUNCH.formulas.vitae, VitaeRecovery::BeforeThroneOfDestiny);
+        assert_eq!(LAUNCH.formulas.total_xp_cap, Some(4_294_967_295));
+        assert!(!LAUNCH.formulas.creature_projectiles_halved);
+        assert_eq!(LAUNCH.features, EraFeatures::LAUNCH);
+        assert_eq!(later_actions(EOR.features), [true; 7]);
+        // February 2005 has no gems, which came in July 2005, nor arena recalls, January 2006.
+        assert_eq!(
+            later_actions(INFILTRATION.features),
+            [true, true, false, true, true, true, false]
+        );
+        for rules in [&EOR, &INFILTRATION] {
+            assert_eq!(rules.training_skills, None);
+        }
+    }
+
+    /// Divergence: V461
+    /// A Launch world's `[era]` keys turn the later actions and rules on one by one, as they turn
+    /// systems on.
+    #[test]
+    fn launch_configuration_turns_later_actions_and_rules_on_one_by_one() {
+        let c: EraConfiguration = serde_json::from_str(
+            r#"{"Profile":"launch","Trade":true,"MarketplaceRecall":true,"WarMagicSkillDamageBonus":true}"#,
+        )
+        .unwrap();
+        assert_eq!(c.profile, EraId::Launch);
+        let f = c.rules().features;
+        assert!(f.trade && f.marketplace_recall && f.war_magic_skill_damage_bonus);
+        assert!(!f.pk_lite && !f.lifestone_recall && !f.war_and_life_projectile_criticals);
+        assert_eq!(
+            c.rules().formulas,
+            LAUNCH.formulas,
+            "the rest is the profile's"
+        );
+        assert_eq!(
+            serde_json::from_str::<EraConfiguration>(&serde_json::to_string(&c).unwrap()).unwrap(),
+            c
+        );
+    }
 
     #[test]
     fn every_era_round_trips_its_name_and_pack_code() {

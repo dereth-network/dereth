@@ -65,6 +65,7 @@ pub const TIERS: &[Tier] = &[
             ("auberean-ui-game", "retail-dats", "dat"),
             ("auberean-interface", "retail-dats", "dat"),
             ("athenaeum-foundry", "retail-dats", "dat"),
+            ("athenaeum-editor", "retail-dats", "dat"),
             ("auberean-audio", "retail-dats", "dat"),
         ],
     },

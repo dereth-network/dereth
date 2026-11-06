@@ -70,6 +70,7 @@ fn hall() -> Harness {
             object: Some(STOCKPILE),
             template: STOCKPILE_TEMPLATE,
             description: Description {
+                name_text: None,
                 package: 0x1A01,
                 look: 0x1F00_0ED5,
                 enter_fx: 0,
@@ -132,6 +133,7 @@ fn hall() -> Harness {
         journals: vec![(0x7E76_0E2A, 0x2500_1446)],
         challenge: -1,
         duration: 600.0,
+        timed_phase: 0,
         retry: 590_400.0,
         xp: 0,
         cancellable: false,
@@ -142,6 +144,11 @@ fn hall() -> Harness {
         min_level: 0,
         fails_on_death: false,
         once: false,
+        fellows: yalain_content::quests::Fellows::default(),
+        last_waits: false,
+        hero_only: false,
+        pay: yalain_content::quests::CompletionPay::default(),
+        required: None,
     });
     h.server.quests.steps.push(Step {
         quest: ENTER_QUEST,
@@ -160,7 +167,10 @@ fn hall() -> Harness {
         to: None,
         races: Vec::new(),
         effects_last: false,
+        wants: None,
         fellows: true,
+        levels: None,
+        xp_share: 0.0,
     });
     h
 }
@@ -377,7 +387,10 @@ fn an_item_used_on_an_object_while_its_step_waits_for_another_phase_is_answered_
         }),
         races: Vec::new(),
         effects_last: false,
+        wants: None,
         fellows: false,
+        levels: None,
+        xp_share: 0.0,
     });
     let (a, me, world, glyph) = holding(&mut h, "one", GLYPH_TEMPLATE);
     h.server
@@ -643,4 +656,28 @@ fn a_pollen_on_a_plant_and_the_requiescat_on_a_held_weapon_play_and_are_used_up(
         Some(weapon),
         "the weapon kept"
     );
+}
+
+/// An item put down while its use on an object plays: nothing comes of it, and it is not used up.
+/// Behaviour: server.interactions.an-item-gone-while-it-plays-does-nothing
+#[test]
+fn an_item_put_down_while_its_use_plays_does_nothing() {
+    use yalain_world::drops;
+    use yalain_world::inventory::{move_graph, Move};
+    let mut h = garden();
+    let (a, me, world, pollen) = holding(&mut h, "one", POLLEN_TEMPLATE);
+    east_of_stockpile(&mut h, world, 3.5);
+    let fa = h.bots[a].inbox.len();
+    send_use(&mut h, a, me, pollen, STOCKPILE);
+    assert_eq!(played(&h, a, fa, me).len(), 1, "it plays");
+    let m = Move {
+        move_type: drops::DROP,
+        item: pollen,
+        quantity: 1,
+        ..Move::default()
+    };
+    h.ask(a, drops::function::MOVE_ITEM, &[move_graph(&m)], 2);
+    run_for(&mut h, 3.0);
+    assert!(answers(&h, a, fa).is_empty(), "no answer of it done");
+    assert!(h.server.things.get(pollen).is_some(), "still in the world");
 }

@@ -403,6 +403,63 @@ fn an_eras_property_defaults_replace_aces_and_the_database_still_wins() {
     assert!(b(&w, "corpse_destroy_pyreals"));
 }
 
+/// Divergence: V499
+#[test]
+fn a_launch_world_has_no_first_login_welcome_unless_the_operator_writes_one() {
+    let welcome = |w: &World| pm::get_string(w, "popup_welcome", "x", true).item;
+    let launch = |config: &ShardConfigHandle| {
+        let mut w = world_at(1000);
+        w.era = empyrean_common::era::EraId::Launch.rules();
+        pm::install_shard_config(&mut w, config.clone());
+        pm::initialize(&mut w, true);
+        w
+    };
+    assert_eq!(
+        welcome(&launch(&shard_config_handle(Box::new(MemShard::new())))),
+        ""
+    );
+
+    let config = shard_config_handle(Box::new(MemShard::new()));
+    db(&config).add_string("popup_welcome", "Hello.", None);
+    assert_eq!(welcome(&launch(&config)), "Hello.", "the operator's");
+
+    let later = started(&shard_config_handle(Box::new(MemShard::new())));
+    assert!(
+        welcome(&later).contains("Society Greeter"),
+        "other eras keep ACE's"
+    );
+}
+
+/// Divergence: V496
+#[test]
+fn a_launch_account_holds_five_characters_unless_the_operator_says_otherwise() {
+    let limit = |w: &World| pm::get_long(w, "max_chars_per_account", 0, true).item;
+    let launch = |config: &ShardConfigHandle| {
+        let mut w = world_at(1000);
+        w.era = empyrean_common::era::EraId::Launch.rules();
+        pm::install_shard_config(&mut w, config.clone());
+        pm::initialize(&mut w, true);
+        w
+    };
+
+    let w = launch(&shard_config_handle(Box::new(MemShard::new())));
+    assert_eq!(limit(&w), 5, "the era's own");
+    pm::apply_configured_character_limit(&w, None);
+    assert_eq!(limit(&w), 5, "no setting leaves it");
+
+    let other = started(&shard_config_handle(Box::new(MemShard::new())));
+    assert_eq!(limit(&other), 11, "other eras keep ACE's");
+
+    let config = shard_config_handle(Box::new(MemShard::new()));
+    db(&config).add_long("max_chars_per_account", 8, None);
+    let w = launch(&config);
+    assert_eq!(limit(&w), 8, "the value the operator set at run time");
+    pm::apply_configured_character_limit(&w, Some(12));
+    assert_eq!(limit(&w), 12, "the configuration file wins");
+    pm::do_work(&w);
+    assert_eq!(limit(&w), 12, "and stays after the next sync");
+}
+
 #[test]
 fn get_of_an_unknown_key_reads_the_database_then_caches_as_ace_does() {
     let config = shard_config_handle(Box::new(MemShard::new()));

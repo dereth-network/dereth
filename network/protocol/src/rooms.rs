@@ -14,13 +14,35 @@
 //! it does not know. A world that knows nothing of them keeps its own settings, and a hub that knows
 //! nothing of them never tells a world its rooms.
 
+use crate::game::Game;
 use serde::{Deserialize, Serialize};
 
-use crate::wire::{WireError, MAX_ID_CHARS, MAX_MESSAGE_BYTES};
+use crate::wire::{WireError, GLOBAL_ROOM, MAX_ID_CHARS, MAX_MESSAGE_BYTES};
 
 /// A world's own rooms, by their names on the link: the TurbineChat rooms a world may carry the
 /// Global room in, and those the hub may mirror into Discord for it alone.
 pub const OWN_ROOMS: &[&str] = &["general", "trade", "lfg", "roleplay"];
+
+/// What each of [`OWN_ROOMS`] is called in a game, in their order: the rooms a player of that game
+/// sees. Asheron's Call 2 has no LFG or Roleplay channel, and carries both names in PvP.
+#[must_use]
+pub const fn own_room_titles(game: Game) -> [&'static str; 4] {
+    match game {
+        Game::Dereth => ["General", "Trade", "LFG", "Roleplay"],
+        Game::Auberean => ["General", "Trade", "PvP", "PvP"],
+    }
+}
+
+/// Whether the link's names `a` and `b` are one room of a world of `game`: the same name, or two
+/// of [`OWN_ROOMS`] the game calls alike.
+#[must_use]
+pub fn same_room(game: Game, a: &str, b: &str) -> bool {
+    let title = |name: &str| {
+        let at = OWN_ROOMS.iter().position(|room| *room == name)?;
+        Some(own_room_titles(game)[at])
+    };
+    a == b || title(a).is_some_and(|t| title(b) == Some(t))
+}
 
 /// The word that says a world carries the Global room in none of its rooms.
 pub const OFF: &str = "off";
@@ -29,6 +51,111 @@ pub const OFF: &str = "off";
 #[must_use]
 pub fn is_global_room(s: &str) -> bool {
     s == OFF || OWN_ROOMS.contains(&s)
+}
+
+/// What a world answers `@dn global` with when it carries the Global room in none of its rooms.
+pub const NOT_CARRIED: &str = "This world does not carry the Global room.";
+
+/// How long the lines of one of a world's own rooms stay on the world, unsent, after the hub says
+/// it does not mirror the room into Discord, in seconds. The next line after it goes to the hub
+/// again, so a room its operator has mirrored since is carried within the minute.
+pub const UNCARRIED_SECS: f64 = 60.0;
+
+/// A world's `federation.global_room`: which of its own rooms carries the Global room until its hub
+/// keeps one. Left out, `unset`, the world's game's own choice; empty, none; otherwise one of
+/// [`OWN_ROOMS`], in any case.
+///
+/// # Errors
+/// A name that is not one of the four rooms.
+pub fn read_setting(
+    named: Option<&str>,
+    unset: &'static str,
+) -> Result<Option<&'static str>, String> {
+    match named.map(str::trim) {
+        None => Ok(Some(unset)),
+        Some("") => Ok(None),
+        Some(name) => {
+            let word = name.to_ascii_lowercase();
+            OWN_ROOMS
+                .iter()
+                .find(|r| **r == word)
+                .map(|r| Some(*r))
+                .ok_or_else(|| {
+                    format!(
+                        "federation.global_room {name:?}: general, trade, lfg, roleplay or empty"
+                    )
+                })
+        }
+    }
+}
+
+/// A world's rooms as its hub last told them (`rooms`), kept with the network's records so that it
+/// carries them while the hub is away.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KeptRooms {
+    /// The room that carries the Global room (one of the world's own rooms, or [`OFF`]); none while
+    /// the hub held none for the world.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub global: Option<String>,
+    /// The world's own rooms the hub mirrors into Discord for it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mirrored: Vec<String>,
+}
+
+impl KeptRooms {
+    /// What a world keeps once its hub has told it `global` and `mirrored`: a hub that holds no
+    /// room leaves the one it last told the world.
+    #[must_use]
+    pub fn told(before: Option<&Self>, global: Option<&str>, mirrored: &[String]) -> Self {
+        Self {
+            global: global
+                .map(str::to_owned)
+                .or_else(|| before.and_then(|r| r.global.clone())),
+            mirrored: mirrored
+                .iter()
+                .filter(|r| OWN_ROOMS.contains(&r.as_str()))
+                .cloned()
+                .collect(),
+        }
+    }
+}
+
+/// Where a line said in `room` goes past its world, as its speaker is told.
+fn reach(room: &str) -> &'static str {
+    if room == GLOBAL_ROOM {
+        "the other worlds"
+    } else {
+        "Discord"
+    }
+}
+
+/// What a speaker is told when its line in `room` stayed on its world because it sent too quickly.
+#[must_use]
+pub fn too_quickly_line(room: &str) -> String {
+    format!(
+        "Your line did not reach {}: you are sending too quickly.",
+        reach(room)
+    )
+}
+
+/// What a speaker is told when its line in `room` stayed on its world because the hub refused it:
+/// the speaker's own pace was kept there, so it is the world's share of the room that is spent.
+#[must_use]
+pub fn held_back_line(room: &str) -> String {
+    format!(
+        "Your line did not reach {}: the Dereth Network is holding back this world's lines for now.",
+        reach(room)
+    )
+}
+
+/// What a speaker is told when its line in `room` stayed on its world because the character is
+/// younger than the operator's minimum age.
+#[must_use]
+pub fn too_new_line(room: &str) -> String {
+    format!(
+        "Your line did not reach {}: this character is too new to send to the Dereth Network yet.",
+        reach(room)
+    )
 }
 
 /// One of the rooms messages.
@@ -157,6 +284,72 @@ mod tests {
 
     fn malformed(text: &str) -> bool {
         matches!(RoomsMessage::from_json(text), Err(WireError::Malformed(_)))
+    }
+
+    /// Spec: hub: an operator is shown each room by what a player of the world's game calls it.
+    #[test]
+    fn each_of_a_worlds_rooms_has_the_name_its_game_gives_it() {
+        assert_eq!(OWN_ROOMS.len(), own_room_titles(Game::Dereth).len());
+        assert!(same_room(Game::Auberean, "lfg", "roleplay"));
+        assert!(same_room(Game::Auberean, "trade", "trade"));
+        assert!(!same_room(Game::Auberean, "trade", "general"));
+        assert!(!same_room(Game::Dereth, "lfg", "roleplay"));
+        assert!(!same_room(Game::Auberean, "lfg", "global"));
+        assert!(same_room(Game::Dereth, "global", "global"));
+        assert_eq!(
+            own_room_titles(Game::Dereth),
+            ["General", "Trade", "LFG", "Roleplay"]
+        );
+        assert_eq!(
+            own_room_titles(Game::Auberean),
+            ["General", "Trade", "PvP", "PvP"]
+        );
+    }
+
+    /// Spec: world behaviour: `federation.global_room` left out is the game's own choice, empty is none, and
+    /// anything but the four rooms is refused.
+    #[test]
+    fn the_global_room_setting_takes_the_four_rooms_or_empty() {
+        assert_eq!(read_setting(None, "general"), Ok(Some("general")));
+        assert_eq!(read_setting(None, "roleplay"), Ok(Some("roleplay")));
+        assert_eq!(read_setting(Some(""), "general"), Ok(None));
+        assert_eq!(read_setting(Some("  "), "general"), Ok(None));
+        for room in OWN_ROOMS {
+            assert_eq!(read_setting(Some(room), "general"), Ok(Some(*room)));
+        }
+        assert_eq!(read_setting(Some(" Trade "), "general"), Ok(Some("trade")));
+        for bad in ["off", "global", "pvp", "society"] {
+            let why = read_setting(Some(bad), "general").expect_err(bad);
+            assert!(why.starts_with("federation.global_room"), "{why}");
+        }
+    }
+
+    /// Spec: world behaviour: a hub that holds no room for the world leaves the one it last told it, and a
+    /// mirrored room it does not know is left out.
+    #[test]
+    fn a_world_keeps_the_last_room_its_hub_held() {
+        let before = KeptRooms::told(None, Some("trade"), &["general".to_owned()]);
+        assert_eq!(before.global.as_deref(), Some("trade"));
+        let after = KeptRooms::told(Some(&before), None, &["pvp".to_owned(), "lfg".to_owned()]);
+        assert_eq!(after.global.as_deref(), Some("trade"));
+        assert_eq!(after.mirrored, ["lfg"]);
+        assert_eq!(KeptRooms::told(None, None, &[]), KeptRooms::default());
+    }
+
+    /// Spec: world behaviour: a speaker is told of the other worlds for a Global line, of Discord for one of
+    /// the world's own rooms.
+    #[test]
+    fn a_speakers_line_names_where_the_line_did_not_go() {
+        assert_eq!(
+            too_quickly_line(GLOBAL_ROOM),
+            "Your line did not reach the other worlds: you are sending too quickly."
+        );
+        assert_eq!(
+            too_quickly_line("general"),
+            "Your line did not reach Discord: you are sending too quickly."
+        );
+        assert!(held_back_line("trade").starts_with("Your line did not reach Discord: "));
+        assert!(too_new_line(GLOBAL_ROOM).contains("the other worlds: this character is too new"));
     }
 
     /// Spec: link messages: every rooms message round-trips through its JSON form.

@@ -159,6 +159,19 @@ impl DatFile {
         Self::from_storage(PathBuf::new(), Box::new(bytes))
     }
 
+    /// This file with `layer` over it: every record read asks the overlay first. `layer` must have
+    /// been made over this file ([`crate::overlay::WorldOverlay::over`]).
+    #[must_use]
+    pub fn layered(&self, layer: Arc<dereth_dat::overlay::Layer>) -> Self {
+        Self(self.0.layered(layer), self.1.clone())
+    }
+
+    /// This file as it is on disk, with no overlay over it.
+    #[must_use]
+    pub fn base(&self) -> Self {
+        Self(self.0.base(), self.1.clone())
+    }
+
     /// The shared container underneath, for what this game's view does not offer.
     #[must_use]
     pub fn shared(&self) -> &dereth_dat::DatFile {
@@ -225,6 +238,29 @@ impl DatFile {
         self.0.read(DataId(id))
     }
 
+    /// The start of a record's bytes: as much of it as its first block holds. What asks for a few
+    /// words at a record's head need not read the whole chain of a long record.
+    ///
+    /// # Errors
+    /// As [`DatFile::read`], but for a chain's later links, which are not walked.
+    pub fn read_start(&self, id: u32) -> Result<Vec<u8>, DatError> {
+        let e = self.entry(id).ok_or(DatError::NotFound(DataId(id)))?;
+        let most = e.size.min(self.header().block_size - 4) as usize;
+        // An overlay's record lies in its own container, not at this offset of the file.
+        if self
+            .0
+            .layer()
+            .is_some_and(|l| l.record(DataId(id)).is_some())
+        {
+            let mut whole = self.read(id)?;
+            whole.truncate(most);
+            return Ok(whole);
+        }
+        let mut block = vec![0; most];
+        self.0.read_raw(u64::from(e.offset) + 4, &mut block)?;
+        Ok(block)
+    }
+
     /// A record's bytes, by its entry.
     ///
     /// # Errors
@@ -258,7 +294,12 @@ impl DatFile {
     /// A missing or malformed list.
     // D2-17649, D2-17659
     pub fn iterations(&self) -> Result<Vec<i32>, DatError> {
-        dereth_dat::iteration::decode_signed(&self.read(ITERATION_LIST)?)
+        let mut list = dereth_dat::iteration::decode_signed(&self.read(ITERATION_LIST)?)?;
+        // An overlay keeps its list as unsigned words, the negative ones after the positive.
+        if self.0.layer().is_some() {
+            list.sort_unstable();
+        }
+        Ok(list)
     }
 }
 

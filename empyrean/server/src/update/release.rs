@@ -10,7 +10,11 @@
 
 use serde::{Deserialize, Serialize};
 
+use dereth_server_update::release::{BuildFacts, UpgradeDeclaration};
+
 use super::version::Version;
+
+pub use dereth_server_update::release::{ConfigChange, IndexAsset, Kind, Migration};
 
 /// The schema versions a build brings its databases to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -73,60 +77,21 @@ impl Facts {
 /// architecture.
 #[must_use]
 pub fn target_triple() -> String {
-    if let Some(t) = option_env!("EMPYREAN_BUILD_TARGET") {
-        return t.to_owned();
+    dereth_server_update::release::target_triple(option_env!("EMPYREAN_BUILD_TARGET"))
+}
+
+impl BuildFacts for Facts {
+    fn version(&self) -> &str {
+        &self.version
     }
-    match (std::env::consts::ARCH, std::env::consts::OS) {
-        ("x86_64", "windows") => "x86_64-pc-windows-msvc".to_owned(),
-        ("x86_64", "linux") => "x86_64-unknown-linux-gnu".to_owned(),
-        ("aarch64", "linux") => "aarch64-unknown-linux-gnu".to_owned(),
-        ("aarch64", "macos") => "aarch64-apple-darwin".to_owned(),
-        ("x86_64", "macos") => "x86_64-apple-darwin".to_owned(),
-        (arch, os) => format!("{arch}-{os}"),
+
+    fn target(&self) -> &str {
+        &self.target
     }
-}
 
-/// How a release relates to the one before it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Kind {
-    /// The first release: nothing before it.
-    Initial,
-    /// Same major and minor as the release before it. Declares nothing.
-    Patch,
-    Minor,
-    Major,
-}
-
-/// A configuration key a release renames, removes or newly requires.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ConfigChange {
-    /// The dotted `empyrean.toml` key (`server.update`).
-    pub key: String,
-    /// `renamed`, `removed` or `required`.
-    pub change: String,
-    /// A renamed key's new name.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub to: Option<String>,
-    /// What the operator should know.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub note: String,
-}
-
-impl ConfigChange {
-    /// Whether the operator must act before the release starts (a newly required key).
-    #[must_use]
-    pub fn is_required(&self) -> bool {
-        self.change == "required"
+    fn set_version(&mut self, version: &str) {
+        version.clone_into(&mut self.version);
     }
-}
-
-/// A migration a release applies, relative to the release before it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Migration {
-    pub database: String,
-    pub from: i64,
-    pub to: i64,
 }
 
 /// The `upgrade` object of a release's `release.json`.
@@ -165,40 +130,53 @@ impl Declaration {
     }
 }
 
-/// One archive a `release.json` lists.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-pub struct IndexAsset {
-    pub target: String,
-    pub file: String,
-    pub sha256: String,
-    #[serde(default)]
-    pub size: u64,
+impl UpgradeDeclaration<Facts> for Declaration {
+    fn kind(&self) -> Kind {
+        self.kind
+    }
+
+    fn upgrades_from(&self) -> &str {
+        &self.upgrades_from
+    }
+
+    fn config(&self) -> &[ConfigChange] {
+        &self.config
+    }
+
+    fn databases_older_than(&self, mine: &Facts) -> bool {
+        self.databases.shard < mine.databases.shard || self.databases.auth < mine.databases.auth
+    }
+
+    fn migrations_from(&self, mine: &Facts) -> Vec<Migration> {
+        let mut migrations = Vec::new();
+        for (database, from, to) in [
+            ("shard", mine.databases.shard, self.databases.shard),
+            ("authentication", mine.databases.auth, self.databases.auth),
+        ] {
+            if to != from {
+                migrations.push(Migration {
+                    database: database.to_owned(),
+                    from,
+                    to,
+                });
+            }
+        }
+        migrations
+    }
+
+    fn world_pack_rebuild_from(&self, mine: &Facts) -> bool {
+        self.world_pack != mine.world_pack
+    }
+
+    fn mismatch(&self, facts: &Facts) -> Option<String> {
+        (facts.databases != self.databases || facts.world_pack != self.world_pack).then(|| {
+            format!(
+                "server reports databases {:?} and world pack {:?}, but its release declares {:?} and {:?}",
+                facts.databases, facts.world_pack, self.databases, self.world_pack
+            )
+        })
+    }
 }
 
 /// A release's `release.json`: what the updater reads of it.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-pub struct ReleaseIndex {
-    pub version: String,
-    #[serde(default)]
-    pub prerelease: bool,
-    pub assets: Vec<IndexAsset>,
-    /// Absent from releases made before declarations existed.
-    #[serde(default)]
-    pub upgrade: Option<Declaration>,
-}
-
-impl ReleaseIndex {
-    /// Reads a `release.json`.
-    ///
-    /// # Errors
-    /// When it is not one.
-    pub fn parse(text: &str) -> Result<Self, String> {
-        serde_json::from_str(text).map_err(|e| format!("release.json cannot be read: {e}"))
-    }
-
-    /// The archive for `target`.
-    #[must_use]
-    pub fn asset_for(&self, target: &str) -> Option<&IndexAsset> {
-        self.assets.iter().find(|a| a.target == target)
-    }
-}
+pub type ReleaseIndex = dereth_server_update::release::ReleaseIndex<Declaration>;

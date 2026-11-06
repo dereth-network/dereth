@@ -4,6 +4,7 @@
 use auberean_assets::ui::AttributeValue as V;
 use auberean_primitives::DataId;
 use auberean_ui::text::Color;
+use auberean_ui::types::button_id;
 use auberean_ui::types::text::key;
 use auberean_ui::{Token, Ui};
 
@@ -14,7 +15,7 @@ use auberean_text::StringInfo;
 use auberean_ui::types::text::text_msg;
 use auberean_ui::{Assets, Image};
 
-use crate::fixture::{element, records, state, ui, Records, FONT, LAYOUT};
+use crate::fixture::{element, image, records, solid, state, ui, Records, FONT, LAYOUT};
 
 /// A text element `name` at `rect` with these attributes and the test font.
 fn text(name: &str, rect: [i16; 4], attrs: Vec<(&str, V)>) -> auberean_assets::ui::Element {
@@ -201,6 +202,162 @@ fn the_view_scrolls_by_page_and_to_either_end() {
     );
 }
 
+/// A tooltip's owner and template, the pointer resting on the owner since time 0.
+fn resting_on_a_tooltips_owner() -> Ui {
+    let owner = element(
+        "Owner",
+        "field",
+        [100, 100, 199, 199],
+        5,
+        vec![state(
+            "stateless",
+            0,
+            vec![
+                ("tooltips_on", V::Bool(true)),
+                ("tooltip_ID", V::Id(Token::of("Tip").0)),
+            ],
+            vec![],
+            vec![],
+        )],
+    );
+    let tip = element(
+        "Tip",
+        "field",
+        [0, 0, 57, 27],
+        0,
+        vec![state(
+            "stateless",
+            0,
+            vec![("tooltip_text_ID", V::Id(Token::of("TipText").0))],
+            vec![],
+            vec![text("TipText", [4, 4, 53, 23], vec![])],
+        )],
+    );
+    let mut u = ui(vec![owner, tip], vec![]);
+    let l = u.load_layout(LAYOUT).unwrap();
+    let o = u.create_root(l, Token::of("Owner")).unwrap();
+    u.set_tooltip(o, "Hello");
+    u.use_time(0.0);
+    u.pointer_move(150, 150);
+    u
+}
+
+/// The pointer passes through a tooltip: resting under it, it still finds what lies beneath.
+///
+/// Behaviour: ui.pointer.the-pointer-passes-through-a-tooltip
+#[test]
+fn the_pointer_passes_through_a_tooltip() {
+    let mut u = resting_on_a_tooltips_owner();
+    let owner = u.hit(150, 150).expect("the owner");
+    u.use_time(0.3);
+    let tip = u.tooltip().expect("the tooltip shows");
+    let at = u.screen_rect(tip).expect("where it stands");
+    assert!(at.contains(150, 150), "over the pointer: {at:?}");
+    assert_eq!(u.hit(150, 150), Some(owner), "under it the owner");
+}
+
+/// The left button held back from anywhere holds a tooltip back: pressed where no element is (over
+/// the world) and dragged onto the owner, no tooltip shows while it is down.
+///
+/// Behaviour: ui.tooltip.the-left-button-down-anywhere-holds-a-tooltip-back
+#[test]
+fn the_left_button_down_over_the_world_holds_a_tooltip_back() {
+    let mut u = resting_on_a_tooltips_owner();
+    u.pointer_move(10, 10);
+    u.pointer_button(button_id::LEFT, true);
+    u.pointer_move(150, 150);
+    u.use_time(5.0);
+    u.use_time(6.0);
+    assert!(u.tooltip().is_none(), "held back while the button is down");
+}
+
+/// A tooltip is drawn in front of everything, also of the first on the screen at its own depth.
+///
+/// Behaviour: ui.draw.of-equal-depths-the-first-on-the-screen-is-drawn-in-front
+#[test]
+fn a_tooltip_stays_in_front_of_the_first_at_its_depth() {
+    let owner = element(
+        "Owner",
+        "field",
+        [0, 0, 99, 99],
+        10,
+        vec![state(
+            "stateless",
+            0,
+            vec![
+                ("tooltips_on", V::Bool(true)),
+                ("tooltip_ID", V::Id(Token::of("Tip").0)),
+            ],
+            vec![image(1, 0)],
+            vec![],
+        )],
+    );
+    let tip = element(
+        "Tip",
+        "field",
+        [0, 0, 57, 27],
+        10,
+        vec![state(
+            "stateless",
+            0,
+            vec![("tooltip_text_ID", V::Id(Token::of("TipText").0))],
+            vec![image(2, 0)],
+            vec![text("TipText", [4, 4, 53, 23], vec![])],
+        )],
+    );
+    let mut u = ui(
+        vec![owner, tip],
+        vec![
+            (1, solid(100, 100, [0, 0, 255, 255])),
+            (2, solid(58, 28, [0, 255, 0, 255])),
+        ],
+    );
+    let l = u.load_layout(LAYOUT).unwrap();
+    let o = u.create_root(l, Token::of("Owner")).unwrap();
+    u.set_tooltip(o, "Hello");
+    u.use_time(0.0);
+    u.pointer_move(10, 10);
+    u.use_time(0.3);
+    let shown = u.tooltip().expect("the tooltip");
+    let at = u.screen_rect(shown).unwrap();
+    let mut screen = auberean_ui::draw::Surface::new(1024, 768);
+    auberean_ui::draw::draw(&u, &mut screen);
+    assert_eq!(screen.get(at.x0 + 1, at.y0 + 1), [0, 255, 0, 255]);
+}
+
+/// The player's tooltip delay is how long the pointer rests: lengthened, nothing shows after the
+/// quarter second; shortened to no more than the rest so far, it shows at once.
+///
+/// Behaviour: ui.tooltip.the-players-delay-and-switch-rule-tooltips
+#[test]
+fn the_players_tooltip_delay_is_how_long_the_pointer_rests() {
+    let mut u = resting_on_a_tooltips_owner();
+    u.set_tooltip_preferences(Some(2.0), None);
+    u.use_time(1.0);
+    assert!(u.tooltip().is_none(), "two seconds now, not a quarter");
+    u.set_tooltip_preferences(Some(1.5), None);
+    assert!(u.tooltip().is_none(), "rested one second of one and a half");
+    u.set_tooltip_preferences(Some(1.0), None);
+    assert!(u.tooltip().is_some(), "rested exactly as long as asked");
+}
+
+/// Switched off, no tooltip shows however long the pointer rests, and the one up goes; switched
+/// back on, the element under the pointer shows its own at once.
+///
+/// Behaviour: ui.tooltip.the-players-delay-and-switch-rule-tooltips
+#[test]
+fn the_players_tooltip_switch_turns_them_off_and_back_on() {
+    let mut u = resting_on_a_tooltips_owner();
+    u.use_time(0.3);
+    assert!(u.tooltip().is_some());
+    u.set_tooltip_preferences(None, Some(false));
+    assert!(u.tooltip().is_none(), "the one up goes");
+    u.use_time(5.0);
+    assert!(u.tooltip().is_none(), "none shows, however long");
+    u.set_tooltip_preferences(None, Some(true));
+    assert!(u.tooltip().is_some(), "back on, at once");
+}
+
 /// Once the pointer has rested a quarter of a second on an element that shows tooltips, its
 /// tooltip template comes up in front with the element's tip text, below and right of the pointer;
 /// it goes when the pointer moves to another element.
@@ -266,6 +423,73 @@ fn a_tooltip_shows_once_the_pointer_rests_and_goes_when_it_leaves() {
     );
     u.pointer_move(350, 350);
     assert!(u.tooltip().is_none(), "gone once the pointer leaves");
+
+    u.pointer_move(150, 150);
+    u.use_time(0.7);
+    assert!(u.tooltip().is_some(), "shown again");
+    u.remove(o);
+    assert!(
+        u.tooltip().is_none(),
+        "gone with its element, the pointer unmoved"
+    );
+}
+
+/// A window hidden takes the tooltip of an element in it, the pointer unmoved.
+///
+/// Behaviour: ui.tooltip.a-tooltip-goes-with-the-window-its-owner-lies-in
+#[test]
+fn a_tooltip_goes_with_the_window_its_owner_lies_in() {
+    let owner = element(
+        "Owner",
+        "field",
+        [0, 0, 99, 99],
+        5,
+        vec![state(
+            "stateless",
+            0,
+            vec![
+                ("tooltips_on", V::Bool(true)),
+                ("tooltip_ID", V::Id(Token::of("Tip").0)),
+            ],
+            vec![],
+            vec![],
+        )],
+    );
+    let window = element(
+        "Window",
+        "field",
+        [100, 100, 199, 199],
+        5,
+        vec![state("stateless", 0, vec![], vec![], vec![owner])],
+    );
+    let tip = element(
+        "Tip",
+        "field",
+        [0, 0, 57, 27],
+        0,
+        vec![state(
+            "stateless",
+            0,
+            vec![("tooltip_text_ID", V::Id(Token::of("TipText").0))],
+            vec![],
+            vec![text("TipText", [4, 4, 53, 23], vec![])],
+        )],
+    );
+    let mut u = ui(vec![window, tip], vec![]);
+    let l = u.load_layout(LAYOUT).unwrap();
+    let w = u.create_root(l, Token::of("Window")).unwrap();
+    let o = u
+        .child_recursive(w, Token::of("Owner"))
+        .expect("in the window");
+    u.set_tooltip(o, "Hello");
+    u.use_time(0.0);
+    u.pointer_move(150, 150);
+    u.use_time(0.3);
+    assert!(u.tooltip().is_some(), "shown while the pointer rests");
+    u.set_visible(w, false);
+    assert!(u.tooltip().is_none(), "gone with the window");
+    u.use_time(5.0);
+    assert!(u.tooltip().is_none(), "and stays gone");
 }
 
 /// The test's records with string downloads: a reference to [`LACKING`] waits until the test
@@ -354,6 +578,18 @@ fn a_reference_waits_for_its_string_tables_and_what_follows_waits_behind_it() {
     u.use_time(2.0);
     assert_eq!(typed(&u, h), "t1t2 after", "added in order once they came");
     assert!(said_done(&mut u, h));
+}
+
+/// An element's entry of its string table goes in the way a string reference does, written by the
+/// client, not as the table stores it.
+///
+/// Behaviour: ui.text.an-entry-of-the-string-table-is-a-reference
+#[test]
+fn an_entry_of_the_string_table_is_a_reference() {
+    let (mut u, _) = downloading(text("Entry", [0, 0, 199, 19], vec![]));
+    let h = entry(&mut u);
+    u.set_string(h, 7);
+    assert_eq!(typed(&u, h), "t7");
 }
 
 /// A text element's waiting strings are dropped when its text is replaced, and when it goes:
@@ -456,8 +692,8 @@ fn font_of(chars: impl IntoIterator<Item = u16>, width: u32) -> Arc<auberean_ass
 
 /// A string with a character the element's font lacks switches the element to the first fallback
 /// font that holds all of it (the Unicode font, then the second); when neither holds it, or the
-/// element has no font, the font stays. Each string starts from the element's own font, and
-/// measuring a string switches the font as adding it does.
+/// element has no font, the font stays. The fallback lasts for that string: the next one, a typed
+/// character or a measured string starts from the element's own font.
 ///
 /// Behaviour: ui.text.a-character-the-font-lacks-switches-to-a-fallback-font
 #[test]
@@ -501,7 +737,7 @@ fn a_character_the_font_lacks_switches_to_a_fallback_font() {
     u.add_string(a, "ab");
     assert_eq!(font(&u, a), FONT, "a string the font holds keeps it");
     u.add_string(a, "café");
-    assert_eq!(font(&u, a), UNICODE);
+    assert_eq!(font(&u, a), FONT, "the font is back after the string");
     assert_eq!(
         widths(&u, a),
         [6, 6, 7, 7, 7, 7],
@@ -509,16 +745,16 @@ fn a_character_the_font_lacks_switches_to_a_fallback_font() {
     );
     u.add_string(a, "x");
     assert_eq!(
-        font(&u, a),
-        FONT,
-        "each string is added in the element's own font first"
+        widths(&u, a),
+        [6, 6, 7, 7, 7, 7, 6],
+        "the next string in the element's own font"
     );
 
     let b = make(&mut u, "B");
     u.add_string(b, "\u{416}");
     assert_eq!(
-        font(&u, b),
-        SECOND,
+        widths(&u, b),
+        [9],
         "the first fallback lacks it: the second"
     );
 
@@ -532,12 +768,115 @@ fn a_character_the_font_lacks_switches_to_a_fallback_font() {
 
     let e = make(&mut u, "E");
     let measured = u.inq_size_with_margins(e, "é");
-    assert_eq!(font(&u, e), UNICODE, "measuring switches the font too");
-    assert_eq!(measured.map(|m| m.0), Some(7));
+    assert_eq!(font(&u, e), FONT, "measuring leaves the font as it was");
+    assert_eq!(
+        measured.map(|m| m.0),
+        Some(7),
+        "measured in the fallback font"
+    );
 
     let bare = make(&mut u, "Bare");
     u.add_string(bare, "é");
     assert_eq!(font(&u, bare), 0, "an element without a font keeps none");
+}
+
+/// With the mapping naming a default font, an element with no font of its own starts in it; one
+/// with a font of its own has that.
+///
+/// Behaviour: ui.text.an-element-with-no-font-starts-in-the-default-font
+#[test]
+fn an_element_with_no_font_starts_in_the_default_font() {
+    const DEFAULT: u32 = 0x4200_0012;
+    let bare = element(
+        "Bare",
+        "text",
+        [0, 0, 299, 19],
+        0,
+        vec![state("stateless", 0, vec![], vec![], vec![])],
+    );
+    let mut r = records(vec![bare, text("Own", [0, 0, 299, 19], vec![])], vec![]);
+    r.fonts.insert(DEFAULT, font_of(0x20u16..0x7F, 9));
+    r.enums.insert((0x4000_003E, 0x4000_000B), DEFAULT);
+    let mut u = Ui::new(Arc::new(r), 1024, 768);
+    let l = u.load_layout(LAYOUT).unwrap();
+    let h = u.create_root(l, Token::of("Bare")).unwrap();
+    assert_eq!(u.text_state(h).unwrap().font, DEFAULT);
+    u.add_string(h, "ab");
+    assert_eq!(u.text_state(h).unwrap().glyphs.glyphs[0].width, 9);
+    let own = u.create_root(l, Token::of("Own")).unwrap();
+    assert_eq!(u.text_state(own).unwrap().font, FONT);
+}
+
+/// A one-line entry keeps the caret in view: the view stays while the caret is within the width
+/// past it, then stands one width before the caret; going back past its start puts the view at
+/// the caret.
+///
+/// Behaviour: ui.text.a-one-line-entry-keeps-the-caret-in-view
+#[test]
+fn a_one_line_entry_keeps_the_caret_in_view() {
+    let e = text(
+        "Entry",
+        [0, 0, 19, 19],
+        vec![("editable", V::Bool(true)), ("one_line", V::Bool(true))],
+    );
+    let mut u = ui(vec![e], vec![]);
+    let h = entry(&mut u);
+    let view = |u: &Ui| u.text_state(h).unwrap().view_x;
+    u.pointer_move(10, 10);
+    u.pointer_press();
+    u.pointer_release();
+    let advance = {
+        u.type_text("a");
+        let w = u.text_state(h).unwrap().glyphs.glyphs[0].width;
+        u.backspace();
+        w
+    };
+    let width = 20;
+    let fit = width / advance;
+    for _ in 0..fit {
+        u.type_text("a");
+        assert_eq!(view(&u), 0, "within the width the view stays");
+    }
+    for _ in 0..4 {
+        u.type_text("a");
+    }
+    let at_end = (fit + 4) * advance - width;
+    assert_eq!(view(&u), at_end, "one width before the caret");
+    u.character_input(0, key::HOME);
+    assert_eq!(view(&u), 0, "back at the start");
+    u.character_input(0, key::END);
+    assert_eq!(view(&u), at_end, "at the end again");
+}
+
+/// An element shown with `activate_on_show` takes the keyboard, unless the use key is held: it may
+/// be what showed the element, and letting it go would press what took the keyboard.
+///
+/// Behaviour: ui.element.the-use-key-held-keeps-a-shown-element-off-the-keyboard
+#[test]
+fn the_use_key_held_keeps_a_shown_element_off_the_keyboard() {
+    use auberean_ui::types::key_id;
+    let mut u = ui(
+        vec![text(
+            "Entry",
+            [10, 20, 109, 39],
+            vec![
+                ("editable", V::Bool(true)),
+                ("activate_on_show", V::Bool(true)),
+            ],
+        )],
+        vec![],
+    );
+    let l = u.load_layout(LAYOUT).unwrap();
+    let entry = u.create_root(l, Token::of("Entry")).unwrap();
+    u.set_visible(entry, false);
+    u.deactivate();
+    u.key(key_id::USE, true);
+    u.set_visible(entry, true);
+    assert_eq!(u.active(), None, "held, it stays off the keyboard");
+    u.key(key_id::USE, false);
+    u.set_visible(entry, false);
+    u.set_visible(entry, true);
+    assert_eq!(u.active(), Some(entry), "let go, it takes the keyboard");
 }
 
 /// An editable entry that takes the keyboard turns the host's input method on over the part of it

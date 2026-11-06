@@ -380,3 +380,56 @@ fn a_nodes_lines_run_from_its_side_to_each_childs() {
         "a removed child goes"
     );
 }
+
+fn layer(
+    width: u32,
+    height: u32,
+    texels: &[[u8; 4]],
+    alpha_only: bool,
+) -> auberean_ui::source::Image {
+    auberean_ui::source::Image {
+        width,
+        height,
+        bgra: texels.iter().flatten().copied().collect(),
+        alpha_only,
+    }
+}
+
+/// An icon's layer goes over those below by its own alpha: none leaves the texel, whole replaces it
+/// and its alpha, between mixes the colors and keeps the alpha below, truncating as the client
+/// does; a layer of another size is stretched to fit; one of alpha alone adds nothing.
+///
+/// Behaviour: ui.media.an-icons-layers-mix-by-their-own-alpha
+#[test]
+fn an_icons_layers_mix_by_their_own_alpha() {
+    use auberean_ui::media::lay_over;
+    let under = [100, 100, 100, 40];
+    let mut base = layer(4, 1, &[under; 4], false);
+    let top = layer(
+        4,
+        1,
+        &[
+            [200, 200, 200, 0],
+            [10, 20, 30, 255],
+            [200, 0, 100, 128],
+            [100, 100, 100, 1],
+        ],
+        false,
+    );
+    lay_over(&mut base, &top);
+    assert_eq!(base.texel(0, 0), under, "no alpha: left");
+    assert_eq!(base.texel(1, 0), [10, 20, 30, 255], "whole: replaced");
+    // d - (d - s) * 128 / 256, toward zero, the alpha below kept.
+    assert_eq!(base.texel(2, 0), [150, 50, 100, 40], "mixed");
+    assert_eq!(base.texel(3, 0), under, "the same color stays");
+
+    let mut wide = layer(4, 2, &[under; 8], false);
+    let half = layer(2, 1, &[[1, 1, 1, 255], [2, 2, 2, 255]], false);
+    lay_over(&mut wide, &half);
+    assert_eq!(wide.texel(1, 1), [1, 1, 1, 255], "stretched");
+    assert_eq!(wide.texel(2, 0), [2, 2, 2, 255], "stretched");
+
+    let mut kept = layer(1, 1, &[under], false);
+    lay_over(&mut kept, &layer(1, 1, &[[255, 255, 255, 200]], true));
+    assert_eq!(kept.texel(0, 0), under, "alpha alone adds nothing");
+}

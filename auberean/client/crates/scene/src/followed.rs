@@ -53,6 +53,7 @@ fn viewer_of(p: &Position, base: Vec3) -> Viewer {
             p.frame.origin.z + base.z,
         ),
         look: Vec3::new(m[3], m[4], m[5]),
+        rotation: None,
     }
 }
 

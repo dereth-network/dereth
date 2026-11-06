@@ -17,19 +17,30 @@
 //!   1);
 //! - **writing with a timestamp** writes the local time first, `<Mar 05 2013, 14:07:09>  ` (when
 //!   the host has a clock), then the line as above;
+//! - **reading** a file that is not open opens it to read first (answering 0 when that fails), and
+//!   gives its lines. It reads as narrow text in the Windows Latin code page, not as the 16-bit
+//!   units files are written in: a carriage return before a line feed is dropped, a Ctrl+Z ends the
+//!   text, a line longer than 4095 characters goes on as a next one, and a line stops at a zero, so
+//!   a file a script wrote reads as its mark and first letter. Reading uses the file up: its name
+//!   stays open, but it gives nothing more until it is closed, and a file open to write gives
+//!   nothing;
 //! - **closing** a file answers whether it was open.
 
 use std::collections::BTreeMap;
 
 use auberean_script::local::{LocalSystem, LocalTime};
 use auberean_script::native::{Call, NativeFn, Status, Stop};
-use auberean_script::native_object::NativeObject;
-use auberean_script::value::{tag, NativeId};
+use auberean_script::native_object::{native_type, Item, NativeObject};
+use auberean_script::value::{tag, NativeId, NULL};
 
 use crate::host::ClientHost;
 
 /// The file natives' package.
 const PACKAGE: u32 = 0x26;
+
+/// The native package of the original's mail, and the file this client keeps the reports in.
+const MAIL: u32 = 0x21;
+const REPORTS: &str = "bug-reports.txt";
 
 /// The byte-order mark a file starts with.
 const MARK: [u8; 2] = [0xFF, 0xFE];
@@ -39,6 +50,8 @@ const MARK: [u8; 2] = [0xFF, 0xFE];
 pub enum Open {
     Read,
     Write,
+    /// Read or asked to be read: nothing more comes of it.
+    UsedUp,
 }
 
 /// The files scripts have open, by path (as the scripts spelled it).
@@ -76,6 +89,49 @@ fn line_bytes(text: &[u16]) -> Vec<u8> {
 }
 
 /// The month names a timestamp uses.
+/// What the Windows Latin code page holds at 0x80 to 0x9F; the rest of its bytes are themselves.
+const LATIN_80: [u16; 32] = [
+    0x20AC, 0x81, 0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021, 0x02C6, 0x2030, 0x0160, 0x2039,
+    0x0152, 0x8D, 0x017D, 0x8F, 0x90, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014,
+    0x02DC, 0x2122, 0x0161, 0x203A, 0x0153, 0x9D, 0x017E, 0x0178,
+];
+
+/// The most characters one read of a line gives.
+const LINE_READ: usize = 4095;
+
+/// A file's bytes as lines: a Ctrl+Z ends them, a carriage return before a line feed goes, a read
+/// stops after a line feed or at its limit, and each line stops at its first zero or line feed.
+#[must_use]
+pub fn text_lines(bytes: &[u8]) -> Vec<Vec<u16>> {
+    let mut chars = Vec::with_capacity(bytes.len());
+    let mut at = bytes.iter().copied().peekable();
+    while let Some(b) = at.next() {
+        match b {
+            0x1A => break,
+            b'\r' if at.peek() == Some(&b'\n') => {}
+            0x80..=0x9F => chars.push(LATIN_80[usize::from(b - 0x80)]),
+            _ => chars.push(u16::from(b)),
+        }
+    }
+    let mut lines = Vec::new();
+    let mut rest = chars.as_slice();
+    while !rest.is_empty() {
+        let read = rest
+            .iter()
+            .take(LINE_READ)
+            .position(|&u| u == u16::from(b'\n'))
+            .map_or(rest.len().min(LINE_READ), |k| k + 1);
+        let (one, more) = rest.split_at(read);
+        let end = one
+            .iter()
+            .position(|&u| u == 0 || u == u16::from(b'\n'))
+            .unwrap_or(one.len());
+        lines.push(one[..end].to_vec());
+        rest = more;
+    }
+    lines
+}
+
 const MONTHS: [&str; 12] = [
     "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
@@ -168,6 +224,24 @@ impl Files {
         disk.append_line(name, &bytes)
     }
 
+    /// Read a file's lines, opening it to read when it is not open: none when that fails.
+    // D2-08576
+    pub fn read(
+        &mut self,
+        disk: &mut dyn LocalSystem,
+        path: &[u16],
+        name: &str,
+    ) -> Option<Vec<Vec<u16>>> {
+        if !self.open.contains_key(path) && !self.open(disk, path, name, true, false) {
+            return None;
+        }
+        let was = self.open.insert(path.to_vec(), Open::UsedUp);
+        if was != Some(Open::Read) {
+            return Some(Vec::new());
+        }
+        Some(text_lines(&disk.read_file(name).unwrap_or_default()))
+    }
+
     /// Close a file: whether it was open.
     // D2-08570
     pub fn close(&mut self, path: &[u16]) -> bool {
@@ -177,6 +251,7 @@ impl Files {
 
 const NATIVES: &[(u32, NativeFn)] = &[
     (0x01, write),
+    (0x02, read),
     (0x03, open),
     (0x04, close),
     (0x05, write_stamped),
@@ -187,6 +262,10 @@ pub fn natives() -> impl Iterator<Item = (NativeId, NativeFn)> {
     NATIVES
         .iter()
         .map(|(n, f)| (NativeId::new(PACKAGE, *n), *f))
+        .chain(std::iter::once((
+            NativeId::new(MAIL, 0x01),
+            send_mail as NativeFn,
+        )))
 }
 
 fn host<'a>(c: &'a mut Call<'_>) -> Result<&'a mut ClientHost, Stop> {
@@ -238,6 +317,24 @@ fn open(c: &mut Call<'_>) -> Result<Status, Stop> {
     Ok(Status::Success)
 }
 
+/// A report for the original's mail (four strings: the address, the subject, the body and where to
+/// answer why not, `fp[-2]` to `fp[-5]`): this client mails nothing and keeps it in a file of the
+/// client's folder. It answers whether it was kept (`fp[-6]`).
+// D2-08506
+fn send_mail(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let lines: [Vec<u16>; 3] = [text(c, -2)?, text(c, -3)?, text(c, -4)?];
+    let done = {
+        let h = host(c)?;
+        let mut bytes = Vec::new();
+        for l in &lines {
+            bytes.extend(line_bytes(l));
+        }
+        crate::host::Checked(&mut h.local).append_line(REPORTS, &bytes)
+    };
+    c.write(-6, u32::from(done), tag::MIXED)?;
+    Ok(Status::Success)
+}
+
 /// Write a line (`fp[-3]`) to the file at a path (`fp[-2]`); answers whether it was written
 /// (`fp[-4]`).
 // D2-08582
@@ -266,6 +363,42 @@ fn write_stamped(c: &mut Call<'_>) -> Result<Status, Stop> {
         |files, disk, name, now| files.write_stamped(disk, &path, name, now.as_ref(), &line),
         false,
     )?;
+    c.write(-4, u32::from(ok), tag::MIXED)?;
+    Ok(Status::Success)
+}
+
+/// Read the file at a path (`fp[-2]`) into the array an out reference (`fp[-3]`) holds, whatever it
+/// held gone, a new string a line; answers whether it read (`fp[-4]`).
+// D2-08584, D2-08572, D2-08578
+fn read(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let path = text(c, -2)?;
+    let out = c.cx.at(-3)?;
+    let prog = std::sync::Arc::clone(c.vm.program());
+    let (array, _) = c.vm.read_slot(c.host, c.cx, out, 0, &prog)?;
+    if array == NULL {
+        return Ok(Status::Crash);
+    }
+    let lines = with_disk(
+        c,
+        &path,
+        |files, disk, name, _| files.read(disk, &path, name),
+        None,
+    )?;
+    let ok = lines.is_some();
+    let items: Vec<Item> = lines
+        .unwrap_or_default()
+        .into_iter()
+        .map(|line| {
+            Item::Ref(
+                c.vm.heap
+                    .add_native(native_type::WP_STRING, NativeObject::Text(line)),
+            )
+        })
+        .collect();
+    match c.vm.heap.native_mut(array)? {
+        NativeObject::Sequence { items: held, .. } => *held = items,
+        _ => return Err(c.fail("the out reference is not to an array")),
+    }
     c.write(-4, u32::from(ok), tag::MIXED)?;
     Ok(Status::Success)
 }

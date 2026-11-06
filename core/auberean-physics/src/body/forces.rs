@@ -15,13 +15,17 @@
 
 use dereth_physics::geom::Plane;
 use dereth_physics::V3;
-use dereth_primitives::Vec3;
+use dereth_primitives::{CellId, Position, Vec3};
 
 use auberean_assets::animation::{ModeKey, MotionParams};
+use auberean_assets::property::{Property, PropertyCollection, PropertyList};
 
 use super::{Animate, Body, Notice};
+use crate::collision::manager::BodyKey;
+use crate::land::Land;
 use crate::motion::values::default_values;
 use crate::motion::{shows, Owner, AIR, EARTH, PEACE, SEA_FLOOR, WATER};
+use crate::world::World;
 
 /// The element of a body walking on air.
 pub const WALK_ON_AIR: u32 = 0x4000_0007;
@@ -37,8 +41,8 @@ const STILL_SQ: f32 = 0.0002;
 const JUMP_LEAD_IN_SPEED: f32 = 2.0;
 
 /// What the pushers a body is in or touches do to it this tick: whether it walks on air, and the
-/// velocity and acceleration they give it. Filled before each tick by whatever tracks the pushers;
-/// none by default.
+/// velocity and acceleration they give it. Added to before each tick from the objects its
+/// collisions touch ([`Body::take_pushers`]); none by default.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Pushers {
     pub walk_on_air: bool,
@@ -102,19 +106,32 @@ impl Body {
         self.mode
     }
 
-    /// Goes to an element. The body is in it at once: no animation stands between. Another
-    /// element than the one it is in wakes its animation, asks its animation to go there (the
-    /// air's pose while it jumps or falls) and is news to the children it holds when next drawn.
+    /// Goes to an element. Another element than the one it is in wakes its animation and is news
+    /// to the children it holds when next drawn; another than the one it is going to asks its
+    /// animation to go there (the air's pose while it jumps or falls). A body with no figure is
+    /// there at once; one with a figure is there when its figure is ([`Body::figure_stands_in`]).
     // D2-05882, D2-06377
     pub fn do_element(&mut self, element: u32) {
         if element != self.element {
             self.set_animation_active(true);
             self.element_changed = true;
+        }
+        if element != self.mode.element {
             // Its animation goes there too.
             self.notices
                 .push(Notice::Animate(Animate::Element(element)));
         }
         self.mode.element = element;
+        if !self.element_follows_figure {
+            self.element = element;
+        }
+    }
+
+    /// The element its figure stands in: the body's own from here on, which lags the element it
+    /// is going to through the step of animation that takes it there.
+    // D2-15163
+    pub fn figure_stands_in(&mut self, element: u32) {
+        self.element_follows_figure = true;
         self.element = element;
     }
 
@@ -207,6 +224,48 @@ impl Body {
         }
     }
 
+    /// The cell `at` is in updates the body's material with what holds there: its gravity is the
+    /// body's, its properties are the surroundings' to the body's collisions.
+    // D2-06156, D2-13693
+    pub(crate) fn update_cell_material(
+        &mut self,
+        land: &Land,
+        world: &mut World,
+        key: BodyKey,
+        at: &Position,
+    ) {
+        self.material_cell = Some(at.cell);
+        let material = self.material.get_or_insert_with(Box::default);
+        land.update_cell_material(at.cell, at, &mut material.properties, world.property_list());
+        let gravity = material
+            .properties
+            .get(world.property_list(), crate::material::GRAVITY)
+            .and_then(|p| p.value.inq_vector())
+            .map(|v| Vec3::new(v.x, v.y, v.z));
+        world.add_environmental_properties(key, material);
+        self.update_gravity(gravity);
+    }
+
+    /// The cell the body last took its material from; none before the first.
+    #[must_use]
+    pub const fn material_cell(&self) -> Option<CellId> {
+        self.material_cell
+    }
+
+    /// What the cells the body has been in made of it; none before the first.
+    // D2-06044
+    #[must_use]
+    pub fn current_properties(&self) -> Option<&PropertyCollection> {
+        self.material.as_ref().map(|m| &m.properties)
+    }
+
+    /// One property of what the cells the body has been in made of it.
+    // D2-06045
+    #[must_use]
+    pub fn current_property(&self, list: &PropertyList, id: u32) -> Option<&Property> {
+        self.current_properties()?.get(list, id)
+    }
+
     /// The element from the water around the body (see the module's description).
     // D2-06135
     pub fn calc_element(&mut self) {
@@ -270,7 +329,7 @@ impl Body {
 
     /// This tick's acceleration in the landblock's frame: gravity, lift, and the motion
     /// interpreter's acceleration turned by the body's heading.
-    // D2-05953
+    // D2-05953, D2-06306, D2-06512
     pub fn calc_acceleration(&mut self) {
         let mut a = Vec3::ZERO;
         let values = self.desired_motion_values();
@@ -312,6 +371,25 @@ impl Body {
             }
         }
         self.acceleration = a.add(self.to_world(self.minterp.get_acceleration()));
+    }
+
+    /// What the objects the body touches push it with this tick, for where it is now.
+    pub(crate) fn take_pushers(
+        &mut self,
+        world: &crate::world::World,
+        key: crate::collision::manager::BodyKey,
+    ) {
+        let element = self.desired_element();
+        if let Some(c) = world.collisions(key) {
+            let mut p = self.pushers;
+            c.update_pusher_values(
+                element,
+                &mut p.walk_on_air,
+                &mut p.velocity,
+                &mut p.acceleration,
+            );
+            self.pushers = p;
+        }
     }
 
     /// The pushers' share of this tick's motion: their velocity and acceleration, and the speed
@@ -396,8 +474,9 @@ impl Body {
         ground(self.desired_element()) && ground(self.element())
     }
 
-    /// Jumps: off the ground, up at the jump impulse of walking on the earth times the jump scale
-    /// and the body's own height scale (at least half; not its look's), into the air.
+    /// Jumps: off the ground, the behaviors a move cancels stopped, up at the jump impulse of
+    /// walking on the earth times the jump scale and the body's own height scale (at least half;
+    /// not its look's), into the air.
     // D2-06134
     pub fn jump(&mut self) -> bool {
         if !self.contact {
@@ -409,6 +488,7 @@ impl Body {
         }
         self.contact = false;
         self.set_misc_active(true);
+        self.stop_move_to_cancels_behaviors();
         let scale = self.object_scale.z.max(0.5);
         let values = self.motion_values_for_element(EARTH);
         self.velocity.z = self.jump_scale * values.jump_impulse * scale;
@@ -505,7 +585,7 @@ impl Body {
         self.min_impact
     }
 
-    // D2-05877, D2-06408, D2-05841
+    // D2-05877, D2-06408, D2-05841, D2-15853
     pub fn set_global_modifier(&mut self, modifier: u32) {
         self.minterp.global_mod = modifier;
     }
@@ -540,31 +620,14 @@ impl Body {
         self.minterp.local_desired_velocity
     }
 
-    /// The motion interpreter's acceleration this tick, in the body's frame.
-    // D2-06512
-    #[must_use]
-    pub const fn local_acceleration(&self) -> Vec3 {
-        self.minterp.acceleration
-    }
-
     /// The rate of turn's acceleration this tick.
-    // D2-06514, D2-06328
+    // D2-06514, D2-06328, D2-07039
     #[must_use]
     pub const fn omega_acceleration(&self) -> Vec3 {
         Vec3 {
             x: 0.0,
             y: 0.0,
             z: self.turn_acceleration,
-        }
-    }
-
-    // D2-06327, D2-06430
-    #[must_use]
-    pub const fn omega_velocity(&self) -> Vec3 {
-        Vec3 {
-            x: 0.0,
-            y: 0.0,
-            z: self.turn_rate,
         }
     }
 

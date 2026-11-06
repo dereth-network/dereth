@@ -341,3 +341,13 @@ fn a_name_reads_and_writes_as_a_number_in_the_c_librarys_forms() {
     assert_eq!(Name::F64(1e10).to_text(), b"10000000000");
     assert_eq!(Name::F64(1e17).to_text(), b"1e+017");
 }
+
+/// Behaviour: data.tree.a-paths-folder-runs-to-its-last-separator
+#[test]
+fn a_paths_folder_runs_to_its_last_separator() {
+    use auberean_dat::tree::directory_of;
+    assert_eq!(directory_of(b"a\\b/c.txt"), b"a\\b/");
+    assert_eq!(directory_of(b"c:file"), b"c:");
+    assert_eq!(directory_of(b"file"), b"");
+    assert_eq!(directory_of(b""), b"");
+}

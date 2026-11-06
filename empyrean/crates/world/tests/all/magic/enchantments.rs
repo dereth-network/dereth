@@ -36,6 +36,8 @@ use empyrean_world::world_objects::managers::enchantment_manager_with_caching as
 use empyrean_world::world_objects::world_object::WorldObject;
 use empyrean_world::World;
 
+mod launch_targeting;
+
 // ------------------------------------------------------------------ fixture
 
 const S: SessionId = SessionId {

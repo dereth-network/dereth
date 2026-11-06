@@ -1,7 +1,7 @@
 //! The operator's network commands at the console, and what is kept across a restart.
 
 use dereth_network_protocol::Message;
-use yalain_federation::{Federation, Settings, State, HELP};
+use yalain_federation::{Federation, Settings, State, HELP, IN_GAME_HELP};
 use yalain_store::Store;
 
 use crate::{addr, World, SLUG};
@@ -27,7 +27,8 @@ fn the_console_shows_the_link_and_the_blocks_and_blocks_and_lifts() {
         w.operator(&[]),
         lines(&[
             "This world is on the Dereth Network as dawnsong. The hub is not connected. 0 worlds \
-             are online. 0 messages are waiting for the hub.",
+             are online. 0 messages are waiting for the hub. The Global room is carried in no \
+             room. Rooms mirrored into Discord: none.",
             "Nothing is blocked.",
         ])
     );
@@ -48,7 +49,8 @@ fn the_console_shows_the_link_and_the_blocks_and_blocks_and_lifts() {
         w.operator(&["unblock"]),
         lines(&[
             "This world is on the Dereth Network as dawnsong. The hub is connected. 1 world is \
-             online. 0 messages are waiting for the hub.",
+             online. 0 messages are waiting for the hub. The Global room is carried in no room. \
+             Rooms mirrored into Discord: none.",
             "Blocked: coldeve, mal dark@frost.",
         ])
     );
@@ -111,8 +113,8 @@ fn a_block_takes_hold_at_once_and_lifting_it_gives_back_what_it_took() {
     );
     assert_eq!(w.service.states.len(), 1);
     assert!(
-        !w.service.states[0].2 && !w.service.states[0].3,
-        "offline, as a state"
+        !w.service.states[0].2 && w.service.states[0].3,
+        "offline, a change from what it was shown"
     );
     // Its presence is no longer shown, and its watches are answered offline.
     w.service.states.clear();
@@ -172,6 +174,7 @@ fn the_setting_and_the_blocks_are_kept_and_read_back_at_start() {
             enabled: true,
             slug: SLUG.into(),
             software: "yalain test".into(),
+            ..Settings::default()
         },
         1,
         &mut w.store,
@@ -184,5 +187,81 @@ fn the_setting_and_the_blocks_are_kept_and_read_back_at_start() {
         w.store.network_characters().expect("read"),
         vec![w.ids["Dee"]],
         "Ann is off; the deleted Dee is forgotten with its character"
+    );
+}
+
+/// `dn admin block` is `dn block` as the game says it, at the console or by an admin in game; a name
+/// may carry the mark a line said from Discord shows; `dn admin` alone is the help.
+/// Behaviour: server.network.operator-admin-words
+#[test]
+fn the_operators_words_read_the_same_after_admin_and_in_game() {
+    let mut off = World::with(false);
+    assert_eq!(
+        off.operator(&["admin", "block", "coldeve"]),
+        lines(&["This world is not on the Dereth Network."])
+    );
+    let mut w = World::new();
+    w.link(&[("coldeve", true)]);
+    w.frames();
+    assert_eq!(
+        w.operator(&["ADMIN", "BLOCK", "coldeve"]),
+        lines(&["coldeve is blocked for everyone on this world."])
+    );
+    assert_eq!(
+        w.operator(&["admin", "unblock", "coldeve", "(Discord)"]),
+        lines(&["coldeve is no longer blocked."])
+    );
+    assert_eq!(
+        w.operator(&["admin", "block"]),
+        w.operator(&[]),
+        "with nothing after it, the state of the link and the blocks"
+    );
+    assert_eq!(w.operator(&["admin"]), lines(HELP));
+    let said = w
+        .fed
+        .operator_said(&mut w.store, &mut w.service, 1, &["block", "Mal@Frost"]);
+    assert_eq!(
+        said,
+        lines(&["mal@frost is blocked for everyone on this world."])
+    );
+    let help = w.fed.operator_said(&mut w.store, &mut w.service, 1, &[]);
+    assert_eq!(help, lines(IN_GAME_HELP));
+    assert!(help.iter().all(|l| l.starts_with("@dn ")), "{help:?}");
+}
+
+/// A world's `hello` names its WebSocket endpoint when it has one, and nothing when it has none.
+/// Behaviour: server.network.websocket-url-told-to-the-hub
+#[test]
+fn the_hello_names_the_worlds_websocket_endpoint_when_it_has_one() {
+    let hello_with = |websocket_url: Option<&str>| {
+        let mut w = World::new();
+        w.fed = Federation::new(
+            Settings {
+                enabled: true,
+                slug: SLUG.into(),
+                software: "yalain test".into(),
+                websocket_url: websocket_url.map(str::to_owned),
+                ..Settings::default()
+            },
+            1,
+        );
+        w.fed.on_link_up();
+        w.frames()
+    };
+    let named = hello_with(Some("wss://play.example.org/ws"));
+    assert!(
+        matches!(named.as_slice(), [Message::Hello { websocket_url: Some(u), .. }] if u == "wss://play.example.org/ws"),
+        "{named:?}"
+    );
+    let none = hello_with(None);
+    assert!(
+        matches!(
+            none.as_slice(),
+            [Message::Hello {
+                websocket_url: None,
+                ..
+            }]
+        ),
+        "{none:?}"
     );
 }

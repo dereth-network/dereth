@@ -99,13 +99,11 @@ impl FinderBase {
     }
 
     /// The body's width, likewise.
-    // D2-13517
     pub fn set_width(&mut self, w: f32) {
         self.width = body_size(w);
     }
 
     /// Starts from a node (0: none); answers whether it was found.
-    // D2-13518
     pub fn set_start<S: PathMaps + ?Sized>(
         &mut self,
         id: u32,
@@ -122,7 +120,6 @@ impl FinderBase {
     }
 
     /// Ends at a node (0: none, which is not a failure); answers whether it was found.
-    // D2-13519
     pub fn set_end<S: PathMaps + ?Sized>(
         &mut self,
         id: u32,
@@ -139,7 +136,6 @@ impl FinderBase {
     }
 
     /// Starts from a place: kept, and the node under it looked up.
-    // D2-13523
     pub fn set_start_position<S: PathMaps + ?Sized>(
         &mut self,
         p: &Position,
@@ -158,7 +154,6 @@ impl FinderBase {
     }
 
     /// Ends at a place: kept, and the node under it looked up (none is not a failure).
-    // D2-13524
     pub fn set_end_position<S: PathMaps + ?Sized>(
         &mut self,
         p: &Position,
@@ -194,7 +189,6 @@ impl FinderBase {
     }
 
     /// The way found for an answer.
-    // D2-13537
     #[must_use]
     pub fn inq_solution(&self, soln: u32) -> Option<&Path> {
         self.path_solutions.get(&soln)
@@ -327,7 +321,6 @@ impl NormalFinder {
     }
 
     /// A copy of another request, ending nowhere (see [`NormalFinder::assign_from`]).
-    // D2-13562
     #[must_use]
     pub fn copy_of(other: &NormalFinder) -> Self {
         let mut f = Self::new();

@@ -51,6 +51,9 @@ pub mod text_edit;
 pub mod widgets;
 pub mod world_overlay;
 
+#[cfg(test)]
+mod launch_art_tests;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]

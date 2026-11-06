@@ -72,6 +72,7 @@ fn world(death_xp: i64) -> (Harness, usize, u64, [u64; 3]) {
             goal: None,
             effect: 0,
             assist: None,
+            next_tend: 0.0,
         },
     );
     (h, b, me, [prey, pet, other])
@@ -111,7 +112,7 @@ fn a_kills_experience_is_paid_in_parts_by_the_health_each_damager_took_a_pets_to
     let clock = h.clock();
     // The player takes 100, its pet 151, another creature 30; the player's blow of 50 finds 19.
     combat::hurt_creature(&mut h.server, &mut h.net, prey, me, 100, clock);
-    pets::struck(&mut h.server, &mut h.net, prey, pet, 151, clock);
+    pets::struck(&mut h.server, &mut h.net, prey, (pet, 0), 151, clock);
     combat::hurt_creature(&mut h.server, &mut h.net, prey, other, 30, clock);
     combat::hurt_creature(&mut h.server, &mut h.net, prey, me, 50, clock);
     h.run(10);
@@ -176,7 +177,7 @@ fn the_part_of_a_damager_the_creature_could_not_reach_is_held_back_and_the_other
         let from = h.bots[b].inbox.len();
         let clock = h.clock();
         combat::hurt_creature(&mut h.server, &mut h.net, prey, me, 100, clock);
-        pets::struck(&mut h.server, &mut h.net, prey, pet, 200, clock);
+        pets::struck(&mut h.server, &mut h.net, prey, (pet, 0), 200, clock);
         h.run(10);
         assert_eq!(told(&h, b, from), want, "could not reach {unreached:?}");
     }
@@ -201,4 +202,55 @@ fn a_part_worth_nothing_sends_no_text_and_no_totals() {
     combat::hurt_creature(&mut h.server, &mut h.net, prey, me, 1, clock);
     h.run(10);
     assert_eq!(told(&h, b, from), vec![Told::Text(text::KILLED.0, None)]);
+}
+
+/// A pet's skill and a player's basic attack count at a creature's draw by their points too; a blow
+/// of a skill with none counts as it fell.
+/// Behaviour: server.creatures.a-skills-harm-counts-by-its-points
+#[test]
+fn a_pets_skill_and_a_basic_attack_count_at_a_draw_by_their_points() {
+    let (mut h, _, me, [prey, pet, _]) = world(1000);
+    let harm = |h: &Harness| -> Vec<i64> {
+        h.server
+            .things
+            .get(prey)
+            .and_then(|t| t.creature.as_ref())
+            .expect("a creature")
+            .harm
+            .iter()
+            .map(|e| e.2)
+            .collect()
+    };
+    if let Some(t) = h.server.things.get_mut(prey) {
+        t.max_health = 1_000_000;
+        t.health = 1_000_000;
+    }
+    let clock = h.clock();
+    pets::struck(&mut h.server, &mut h.net, prey, (pet, 1076), 1000, clock);
+    pets::struck(&mut h.server, &mut h.net, prey, (pet, 0), 1000, clock);
+    assert_eq!(harm(&h), [1035, 1000]);
+    let world = h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .map(|(c, _)| *c)
+        .expect("in the world");
+    combat::lands(
+        &mut h.server,
+        &mut h.net,
+        combat::Landing {
+            world,
+            target: prey,
+            skill: 2189,
+            outcome: yalain_world::rules::Outcome::Hit,
+            damage: 1000,
+            back: 0,
+            index: 0,
+            thrown: false,
+            anim_hook: 1,
+        },
+        clock,
+    );
+    assert_eq!(harm(&h)[2], 1050);
 }

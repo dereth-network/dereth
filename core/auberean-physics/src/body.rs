@@ -23,6 +23,7 @@ use std::sync::Arc;
 use dereth_primitives::num::math;
 
 use auberean_assets::animation::{ModeKey, MotionDesc, MotionParams, MotionSet};
+use auberean_assets::property::PhysicsMaterial;
 use dereth_physics::geom::{Plane, Sphere};
 use dereth_physics::transition::insert::find_transitional_position;
 use dereth_physics::transition::{ObjectInfoState, Transition};
@@ -91,6 +92,7 @@ pub struct Ticker {
 
 impl Ticker {
     #[must_use]
+    // D2-05760
     pub const fn new(now: f64) -> Self {
         Self {
             reached: now,
@@ -100,7 +102,7 @@ impl Ticker {
 
     /// How many ticks the frame at time `now` runs: none before a tenth of a second has passed,
     /// none (and the backlog dropped) after more than a second, or when time ran backward.
-    // D2-13684
+    // D2-13684, D2-05761, D2-05763
     pub fn ticks(&mut self, now: f64) -> u32 {
         let mut d = now - self.reached;
         if d < 0.0 || d > MAX_BACKLOG {
@@ -278,6 +280,8 @@ pub struct Body {
     transient: u32,
     /// The element it is in, and the element and mode it is going to.
     element: u32,
+    /// It has a figure, whose word on the element it is in is taken.
+    element_follows_figure: bool,
     mode: ModeKey,
     /// Where it was two ticks back.
     pos_anim: Position,
@@ -297,6 +301,10 @@ pub struct Body {
     pub walk_on_air: bool,
     /// Gravity where the body is.
     pub local_gravity: Vec3,
+    /// What the cells the body has been in made of it ([`crate::material`]); none until the first.
+    pub material: Option<Box<PhysicsMaterial>>,
+    /// The cell that last updated the material.
+    material_cell: Option<CellId>,
     /// The water plane of the body's cell, the body's depth under it, and whether there is one.
     pub water: Option<Plane>,
     depth: f32,
@@ -316,6 +324,10 @@ pub struct Body {
     pub children: Option<parent::ChildList>,
     /// Its element changed since it was last drawn with its children.
     pub element_changed: bool,
+    /// The cell it stands in is among the free blocks.
+    cell_on_free_list: bool,
+    /// It was past the player's physics range when last looked at.
+    out_of_physics_range: bool,
     /// Its guidance, when it flies as a missile ([`missile`]).
     pub missile: Option<Box<Guidance>>,
     /// What it last went off on as a missile (0 for no object), for the host to read.
@@ -330,6 +342,9 @@ pub struct Body {
     /// The object its targeted effects aim at, and the look its effects clone (none: 0).
     pub fx_target: u64,
     pub look_to_clone: u32,
+    /// The appearance table and values laid over the look its effects clone.
+    pub clone_appearance: u32,
+    pub clone_values: Vec<(u32, f32)>,
     /// Its setup's radius and height, unscaled: what it measures itself by (its spheres' until
     /// the host gives them).
     pub setup_radius: f32,
@@ -346,7 +361,6 @@ pub struct Body {
     /// Its entry in the world it ticks in ([`Body::tick_in`]).
     pub(crate) key: Option<BodyKey>,
     /// Where it was last put that is to count as its placement.
-    // D2-06051
     pub placement: Option<Position>,
     /// The part group its look puts together, once the host gives it one ([`rep`]).
     pub parts: Option<Box<crate::parts::PartGroup>>,
@@ -362,11 +376,22 @@ pub struct Body {
 #[must_use]
 pub fn heading_rotation(heading: f32) -> Quat {
     let half = -heading.to_radians() * 0.5;
-    Quat::new(math::cosf(half), 0.0, 0.0, math::sinf(half))
+    let mut f = Frame::default();
+    let mut q = Quat::new(math::cosf(half), 0.0, 0.0, math::sinf(half));
+    // Unit length as a frame keeps it: made unit length again, it stays as it is.
+    for _ in 0..4 {
+        dereth_physics::math::set_rotate_plain(&mut f, q);
+        if f.rotation == q {
+            break;
+        }
+        q = f.rotation;
+    }
+    q
 }
 
 impl Body {
     /// A body standing at `position`, facing `heading`, at rest on the ground.
+    // D2-06352, D2-06981
     #[must_use]
     pub fn new(config: BodyConfig, position: Position, heading: f32) -> Self {
         let mut minterp = MotionInterp::with_description(0, Arc::new(config.description()));
@@ -412,6 +437,7 @@ impl Body {
             state: flags::NEW,
             transient: transient::NEW,
             element: EARTH,
+            element_follows_figure: false,
             mode: ModeKey {
                 element: EARTH,
                 mode: PEACE,
@@ -426,6 +452,8 @@ impl Body {
             pushers: Pushers::default(),
             walk_on_air: false,
             local_gravity: DEFAULT_GRAVITY,
+            material: None,
+            material_cell: None,
             water: None,
             depth: 0.0,
             has_water: false,
@@ -436,6 +464,8 @@ impl Body {
             parent: 0,
             children: None,
             element_changed: false,
+            cell_on_free_list: false,
+            out_of_physics_range: false,
             missile: None,
             struck: None,
             tracking: None,
@@ -443,6 +473,8 @@ impl Body {
             notices: Vec::new(),
             fx_target: 0,
             look_to_clone: 0,
+            clone_appearance: 0,
+            clone_values: Vec::new(),
             setup_radius,
             setup_height,
             update_times: [0; 4],
@@ -516,7 +548,6 @@ impl Body {
 
     /// One physics tick of `dt` seconds. A body out of the world, frozen, not mobile or carried by
     /// a parent does not move (its movement updates stop), unless it flies as a missile.
-    // D2-06344, D2-06265, D2-06213, D2-06243, D2-05952, D2-06137
     pub fn tick(&mut self, land: &Land, dt: f32) {
         let mut world = std::mem::take(&mut self.world);
         let key = match self.own_key.filter(|k| world.handle(*k).is_some()) {
@@ -551,6 +582,7 @@ impl Body {
         self.step(land, world, key, objects, dt);
     }
 
+    // D2-06344, D2-06265, D2-06213, D2-06243, D2-05952, D2-06137, D2-05990
     fn step(
         &mut self,
         land: &Land,
@@ -560,10 +592,25 @@ impl Body {
         dt: f32,
     ) {
         self.tell_world(world, key);
+        if self.material_cell != Some(self.position.cell) {
+            let at = self.position;
+            self.update_cell_material(land, world, key, &at);
+        }
         self.advance(land, world, key, objects, dt);
+        if let Some(terrain) = world.take_terrain(key) {
+            self.set_terrain_type(terrain);
+        }
         if world.position(key) != Some(self.position) {
             world.place(land, key, self.position);
         }
+    }
+
+    /// What the body stands on has a new terrain type: its motion takes the values for it, and its
+    /// effects from now on play their variants for it.
+    // D2-06336, D2-06447
+    pub fn set_terrain_type(&mut self, terrain: u32) {
+        self.minterp.set_terrain_type(terrain);
+        self.notices.push(Notice::TerrainType(terrain));
     }
 
     fn advance(
@@ -605,6 +652,7 @@ impl Body {
         self.update_motion(now, dt);
         self.calc_acceleration();
         self.turn_acceleration = self.minterp.omega_acceleration.z;
+        self.take_pushers(world, key);
         self.calc_external_forces(dt);
         let values = self.minterp.motion_values(&*self);
         let mut d = Vec3::ZERO;
@@ -682,6 +730,14 @@ impl Body {
             world.set_undetectable(key, on);
         }
         world.set_ignore_collisions(key, self.has(flags::IGNORE_COLLISIONS));
+        world.set_mobile(key, self.has(flags::MOBILE));
+        world.set_reporting(key, self.has(flags::REPORT_COLLISIONS));
+        if self.min_impact != (0.0, 0.0) {
+            if let Some(c) = world.collisions_mut(key) {
+                c.set_min_reported_impact_xy(self.min_impact.0);
+                c.set_min_reported_impact_z(self.min_impact.1);
+            }
+        }
     }
 
     /// Drag, where the motion values have it: the velocity decays by `(1 - drag)` a second, all of
@@ -846,10 +902,11 @@ impl Body {
 
     /// What the transition knows of the body before it moves: following another exactly (else
     /// sliding along edges when it does), touching the ground (its contact plane, with whether it
-    /// is water, the landscape or an interior's own) and on walkable ground, flying as a missile;
-    /// and the plane it slid along.
+    /// is water, the landscape or an interior's own) and on walkable ground, turning freely when
+    /// its setup lets it (it takes its end facing before it moves), flying as a missile; and the
+    /// plane it slid along.
     // D2-06046
-    fn object_info(&self, t: &mut Transition) -> u32 {
+    pub fn object_info(&self, t: &mut Transition) -> u32 {
         let mut state = 0;
         if !self.has(flags::SYNCHRONIZE) && self.does_edge_slide() {
             state |= ObjectInfoState::EDGE_SLIDE;
@@ -871,6 +928,9 @@ impl Body {
         }
         if let Some(n) = self.sliding_normal.filter(|_| self.has_sliding()) {
             t.init_sliding_normal(n);
+        }
+        if self.allows_free_heading() {
+            state |= ObjectInfoState::FREE_ROTATE;
         }
         if self.missile.is_some() {
             state |= ObjectInfoState::PATH_CLIPPED;
@@ -895,6 +955,9 @@ impl Body {
     ) {
         let r = rules();
         let ci = t.collision_info.clone();
+        if t.sphere_path.curr_pos.cell != self.position.cell {
+            self.update_cell_material(land, world, key, &t.sphere_path.curr_pos);
+        }
         self.position = t.sphere_path.curr_pos;
         if let Some(q) = rotation {
             self.position.frame.rotation = q;
@@ -1061,6 +1124,7 @@ impl Owner for Body {
     // D2-06144
     fn set_velocity(&mut self, v: Vec3) {
         self.velocity = v;
+        self.set_movement_active(true);
     }
     // D2-06123
     fn apply_impulse(&mut self, v: Vec3) -> bool {
@@ -1113,10 +1177,20 @@ impl Body {
         self.previous = (position, heading);
     }
 
+    /// The player's mouse turns the body at once, `degrees` to the right: it is drawn turned this
+    /// frame, whatever the share of its tick, so it keeps its place before the camera turning with
+    /// it. (Drawn between its last two ticks' headings, a turn made between ticks would come and go
+    /// behind the camera as the tick runs.)
+    pub fn turn_at_once(&mut self, degrees: f32) {
+        self.heading = (self.heading + degrees).rem_euclid(360.0);
+        self.previous.1 = (self.previous.1 + degrees).rem_euclid(360.0);
+    }
+
     /// Where the body is drawn `alpha` of a tick past its last tick (from [`Ticker::alpha`]):
     /// between where it was before that tick and where it is, the origin along the line between
-    /// them (across a block's edge, in the block it is in now) and the heading turned the short
-    /// way; in the cell it is in now. A body whose movement has stopped is drawn where it is.
+    /// them (across a block's edge, in the block it is in now), the heading turned the short way
+    /// and the frame's whole rotation with it; in the cell it is in now. A body whose movement has
+    /// stopped is drawn where it is.
     // D2-05830, D2-05829, D2-06219
     #[must_use]
     pub fn drawn(&self, alpha: f32) -> (Position, f32) {
@@ -1139,7 +1213,8 @@ impl Body {
         let heading = (was + turn * alpha).rem_euclid(360.0);
         let mut at = now;
         at.frame.origin = origin;
-        at.frame.rotation = heading_rotation(heading);
+        // A missile flying along its path keeps its pitch.
+        crate::geom::slerp_rotation(&mut at.frame, &before.frame, &now.frame, alpha);
         (at, heading)
     }
 }

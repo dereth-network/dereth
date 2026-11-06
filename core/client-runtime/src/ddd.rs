@@ -1209,7 +1209,12 @@ impl DddPatcher {
         let belongs = if target == DatTarget::Cell {
             dereth_dat::classify_cell_id(id).map(|t| t.dat())
         } else {
-            id_home(id)
+            let era = self
+                .target
+                .as_ref()
+                .and_then(|t| t.base(target))
+                .map_or(dereth_dat::ContainerEra::Modern, DatFile::era);
+            id_home(era, id)
         };
         if belongs != Some(target.kind()) {
             return DataOutcome::Refused(DddRefusal::WrongDatFile {
@@ -1461,10 +1466,11 @@ impl DddPatcher {
 /// Resource-type classification uses a range table over the portal and language id spaces; the cell dat
 /// is keyed by landblock instead, so an id that is not a portal or local type falls through to
 /// `classify_cell_id`. That is the same two-step `RetailDatStore::resolve` takes, minus the
-/// membership check — a patch is allowed to *add* an id the file does not have yet.
+/// membership check — a patch is allowed to *add* an id the file does not have yet. Files from before
+/// Throne of Destiny (`era`) hold a few ids outside the later ranges.
 #[must_use]
-fn id_home(id: DataId) -> Option<DatKind> {
-    if let Some(t) = dereth_dat::divine_type(id) {
+fn id_home(era: dereth_dat::ContainerEra, id: DataId) -> Option<DatKind> {
+    if let Some(t) = dereth_dat::divine_type_in(era, id) {
         let kind = t.dat();
         if kind != DatKind::None {
             return Some(kind);
@@ -1645,6 +1651,66 @@ mod tests {
         drop(base);
         drop(patcher);
         drop(scratch);
+    }
+
+    /// Behaviour: none (a world's download of a record only older files hold: the second set of regions)
+    #[test]
+    fn a_region_of_the_older_files_second_set_is_taken_over_those_files_only() {
+        let id = DataId(0x130F_0000);
+        let take = |name: &str, base: Vec<u8>| {
+            let scratch = dereth_dat::testing::ScratchDir::new(name).expect("scratch directory");
+            let path = scratch.path().join("a-file");
+            std::fs::write(&path, base).expect("the base");
+            let base = DatFile::open(&path).expect("the base");
+            let overlay =
+                OverlayDir::new(&scratch.path().join("overlay")).expect("an overlay folder");
+            let mut patcher = DddPatcher::new(Some(OverlayTarget::with_bases(
+                overlay,
+                [(DatTarget::Portal, base)],
+                "a world",
+            )));
+            patcher.on_interrogation();
+            patcher.on_begin(&DddBeginDdd {
+                data_expected: 4,
+                revisions: vec![dereth_protocol::admin::PatchRevision {
+                    dat_file_type: 0,
+                    dat_file_id: 1,
+                    iteration: 106,
+                    ids_to_download: vec![id.raw()],
+                    ids_to_purge: Vec::new(),
+                }],
+            });
+            let (outcome, _) = patcher.on_data(&DddData {
+                dat_file_type: 0,
+                dat_file_id: 1,
+                resource_type: 0x13,
+                resource_id: id.raw(),
+                iteration: 106,
+                compressed: 0,
+                version: 1,
+                data_size: 8,
+                data: vec![1, 2, 3, 4],
+            });
+            outcome
+        };
+        let classic = dereth_dat::testing::classic_container(0x100, 105, &[(0x0100_0000, vec![7])]);
+        let outcome = take("ddd-classic-region", classic);
+        assert!(
+            matches!(outcome, DataOutcome::Applied { .. }),
+            "{outcome:?}"
+        );
+        let scratch = dereth_dat::testing::ScratchDir::new("ddd-modern-base").expect("scratch");
+        let modern_path = scratch.path().join("a-modern-file");
+        dereth_dat::write::DatWriter::create(&modern_path, 0x400, 1, 2, 64 * 1024).expect("create");
+        let modern = std::fs::read(&modern_path).expect("the file");
+        let outcome = take("ddd-modern-region", modern);
+        assert!(
+            matches!(
+                outcome,
+                DataOutcome::Refused(DddRefusal::WrongDatFile { .. })
+            ),
+            "{outcome:?}"
+        );
     }
 
     /// A language file in `dir` holding the iteration list and two records, written in the order

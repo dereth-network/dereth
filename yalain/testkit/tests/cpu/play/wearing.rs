@@ -315,8 +315,8 @@ fn a_second_chest_piece_replaces_the_first_which_goes_where_it_was() {
 
 /// A weapon another player holds is made hung from its hand: for a player already beside it when
 /// it is wielded (no holder updates, no attaching) and for one that comes into view later; put
-/// away, the holder lets go of it for those who see it (the item not unmade); wielded again, those
-/// who know the item are told its holders and see it attached.
+/// away, the holder lets go of it for those who see it (the item not unmade) and those who know it
+/// are told it has no wearer; wielded again, they are told its holders and see it attached.
 /// Behaviour: server.presence.others-held-weapons-are-made-in-hand
 #[test]
 fn a_weapon_another_player_holds_is_made_in_its_hand_for_those_who_see_it() {
@@ -366,7 +366,7 @@ fn a_weapon_another_player_holds_is_made_in_its_hand_for_those_who_see_it() {
             if e.sender.id == me && e.action.id == bow)),
         "the holder lets go of it"
     );
-    assert!(holders(&h, w, fw, bow).is_empty(), "no holder updates");
+    assert_eq!(holders(&h, w, fw, bow), [(WEARER, 0)], "no wearer now");
 
     let fw = h.bots[w].inbox.len();
     use_it(&mut h, a, me, bow);
@@ -428,7 +428,8 @@ fn use_answers(h: &Harness, b: usize, from: usize) -> Vec<(u32, u32, u32)> {
 }
 
 /// A chest piece that names a race other than the wearer's, a skill, a least level and a hidden
-/// quest is refused, each in turn as the one before is met: the race (10015), the skill (10013),
+/// quest is refused, each in turn as the one before is met: for monarchs alone (10038), before all
+/// of them, the race (10015), the skill (10013),
 /// the level (10009), the quest as mysterious (10043); each answered alone, with the use's flags
 /// and no effective target, the piece left in the pack. With all of them met it is worn.
 /// Behaviour: server.equip.requirements-refuse
@@ -472,6 +473,7 @@ fn a_chest_piece_whose_race_skill_level_or_quest_the_wearer_lacks_is_refused_in_
             journals: Vec::new(),
             challenge: -999,
             duration: 0.0,
+            timed_phase: 0,
             retry: 0.0,
             xp: 0,
             cancellable: false,
@@ -482,8 +484,15 @@ fn a_chest_piece_whose_race_skill_level_or_quest_the_wearer_lacks_is_refused_in_
             min_level: 0,
             fails_on_death: false,
             once: false,
+            fellows: yalain_content::quests::Fellows::default(),
+            last_waits: false,
+            hero_only: false,
+            pay: yalain_content::quests::CompletionPay::default(),
+            required: None,
         }],
         steps: Vec::new(),
+        gives: Vec::new(),
+        rooms: Vec::new(),
     };
     yalain_world::quals::set_int(
         &mut h.server.players.get_mut(&world).unwrap().qualities,
@@ -498,6 +507,30 @@ fn a_chest_piece_whose_race_skill_level_or_quest_the_wearer_lacks_is_refused_in_
         assert_eq!(held(h, me, item).0, 0, "{what}: still in the pack");
     };
     refused(&mut h, fa, equip::refusal::WRONG_RACE, "the race first");
+    // For monarchs alone, before all that, and a monarch goes on to the rest.
+    let mut monarchs = h
+        .server
+        .catalog
+        .get(GUARDED)
+        .expect("in the catalog")
+        .clone();
+    monarchs.props.set("Usage_MonarchOnly", Prop::Bool(true));
+    h.server.catalog.insert(monarchs.clone());
+    let fa = h.bots[a].inbox.len();
+    use_it(&mut h, a, me, item);
+    refused(&mut h, fa, use_refusal::MONARCH_ONLY, "for monarchs");
+    h.server
+        .allegiances
+        .nodes
+        .insert(me, yalain_world::allegiance::Node::default());
+    let fa = h.bots[a].inbox.len();
+    use_it(&mut h, a, me, item);
+    refused(
+        &mut h,
+        fa,
+        equip::refusal::WRONG_RACE,
+        "a monarch: the race",
+    );
     let edit = |h: &mut Harness, f: &dyn Fn(&mut yalain_world::world::Player)| {
         f(h.server.players.get_mut(&world).unwrap());
     };
@@ -604,6 +637,7 @@ fn a_treasure_chest_piece_is_refused_by_its_own_least_level_then_its_own_arcane_
         min_level: Some(50),
         arcane_lore: Some(26),
         effect: None,
+        ..yalain_world::treasure::Own::default()
     };
     let refused = |h: &mut Harness, why: u32, what: &str| {
         let fa = h.bots[a].inbox.len();

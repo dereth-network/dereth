@@ -5,7 +5,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::merge::merge;
+use crate::merge::{merge, Merged};
 use crate::rows::{read, Database, Located, Prov, Row, Source, Trigger, Update};
 use crate::{Files, Problem};
 
@@ -28,7 +28,7 @@ pub const SAMPLES: [&str; 7] = [
 
 /// The rules a derived row or field may name; each is stated in the database's format
 /// description.
-pub const RULES: [&str; 19] = [
+pub const RULES: [&str; 20] = [
     "camp-regen-generator",
     "camp-regen-median",
     "camp-regen-hall",
@@ -39,6 +39,7 @@ pub const RULES: [&str; 19] = [
     "quest-definition",
     "quest-setup-static",
     "quest-death-effect",
+    "quest-kill-fellows",
     "quest-retry-measured",
     "talk-token-role",
     "talk-quest-number",
@@ -67,16 +68,26 @@ pub fn is_handle(s: &str) -> bool {
 /// held only to its reading: a row left out would make others' references look broken.
 #[must_use]
 pub fn check(files: &Files) -> Vec<Problem> {
-    let db = match read(files) {
-        Ok(db) => db,
-        Err(p) => return p,
-    };
-    let mut problems = check_database(&db);
-    if let Err(p) = merge(&db) {
-        problems.extend(p);
+    match read(files) {
+        Ok(db) => check_read(&db).0,
+        Err(p) => p,
     }
+}
+
+/// [`check`] of a database already read: every problem, sorted, and the rows merged when they
+/// merge.
+#[must_use]
+pub fn check_read(db: &Database) -> (Vec<Problem>, Option<Merged>) {
+    let mut problems = check_database(db);
+    let merged = match merge(db) {
+        Ok(m) => Some(m),
+        Err(p) => {
+            problems.extend(p);
+            None
+        }
+    };
     problems.sort();
-    problems
+    (problems, merged)
 }
 
 /// A reference's pack and key (`pack:key` or `key`, this pack).
@@ -224,9 +235,28 @@ pub fn check_database(db: &Database) -> Vec<Problem> {
                     None => {}
                 }
             }
+            Row::Place(r) => {
+                if r.row.is_some() != r.holds.is_some() {
+                    problems.push(at(
+                        "row, holds: a room of a row names both its row and its creature's cell"
+                            .into(),
+                    ));
+                }
+            }
             Row::Step(r) => {
                 if matches!(r.update, Update::Advance) && r.phase.is_none() {
                     problems.push(at("phase: an advance names the phase it moves to".into()));
+                }
+                if matches!(r.update, Update::Fail) && r.needs == 0 {
+                    problems.push(at("needs: only a quest under way fails".into()));
+                }
+                if let Some(wants) = r.wants {
+                    if !matches!(r.trigger, Trigger::Give(..)) {
+                        problems.push(at("wants: only a give's step wants a count".into()));
+                    }
+                    if wants == 0 {
+                        problems.push(at("wants: a count of at least 1".into()));
+                    }
                 }
                 if let Some(why) = r.to.as_deref().and_then(|to| place_ref(to, &l.pack)) {
                     problems.push(at(format!("to: {why}")));
@@ -237,9 +267,29 @@ pub fn check_database(db: &Database) -> Vec<Problem> {
                     ));
                 }
             }
+            Row::Give(r) => {
+                if r.wants == Some(0) {
+                    problems.push(at("wants: a count of at least 1".into()));
+                }
+                if r.item.is_none() && r.wants.is_some() {
+                    problems.push(at("wants: a count of no item in particular".into()));
+                }
+                if r.counts.len() > r.gives.len() {
+                    problems.push(at("counts: a count for each item given".into()));
+                }
+            }
             Row::Talk(r) => check_talk(r, l, &objects, &mut |m| problems.push(at(m))),
             Row::Loot(r) if r.counts.iter().any(|c| !(0.0..=1.0).contains(c)) => {
                 problems.push(at("counts: shares between 0 and 1".into()));
+            }
+            Row::Loot(r)
+                if r.level.is_some()
+                    != matches!(r.value.as_slice(), [low, high] if low <= high && *low > 0)
+                    || (r.level.is_none() && !r.value.is_empty()) =>
+            {
+                problems.push(at(
+                    "level, value: a chest's draw names its level and [low, high]".into(),
+                ));
             }
             _ => {}
         }
@@ -286,8 +336,11 @@ fn check_talk(
             out("object: a placed person is named key@XXYY".into());
         }
     }
-    if r.phase.is_some() && r.update != Some(yalain_content::talk::TalkUpdate::Advance) {
-        out("phase: only an advance names a phase".into());
+    if r.phase.is_some()
+        && r.update != Some(yalain_content::talk::TalkUpdate::Advance)
+        && r.role != Some(yalain_content::talk::Role::Remind)
+    {
+        out("phase: only an advance or a reminder names a phase".into());
     }
 }
 
@@ -298,6 +351,7 @@ fn scope_key(l: &Located) -> Option<String> {
     Some(match &l.row {
         Row::Object(r) => format!("{}@{lb:04X}", r.key),
         Row::Camp(r) => format!("{}@{lb:04X}", r.key),
+        Row::Clearing(r) => format!("clearing {}@{lb:04X}", r.key),
         Row::Place(r) => format!("place {}", r.key),
         Row::Talk(r) => format!("talk {}", r.key),
         Row::Route(r) => format!("route {}", r.key),
