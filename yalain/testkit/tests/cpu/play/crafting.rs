@@ -299,6 +299,33 @@ fn making_a_recipe_plays_its_animation_then_makes_its_product_and_uses_up_its_in
 }
 
 /// Making a recipe while attacking is refused at once with the answer alone: not at peace.
+/// A recipe whose product this world can't make uses up nothing: its ingredients stay and it is
+/// answered as failed.
+/// Behaviour: server.makes.nothing-used-up-for-what-cannot-be-made
+#[test]
+fn a_recipe_whose_product_cannot_be_made_uses_up_nothing() {
+    let (mut h, b, me, world) = in_world();
+    let iron = with_recipe_and_iron(&mut h, world, me, 20);
+    h.server.catalog.templates.remove(&MINES_SWORD);
+    let from = execute(&mut h, b, MINES_RECIPE, &[(1, iron)]);
+    wait(&mut h, 5.0);
+    let p = h.server.players.get(&world).expect("in the world");
+    assert!(
+        p.play
+            .items
+            .iter()
+            .any(|i| i.id == iron && i.quantity == 20),
+        "kept"
+    );
+    assert!(!p.play.items.iter().any(|i| i.template == MINES_SWORD));
+    assert!(
+        calls_of(&h, b, from)
+            .iter()
+            .any(|(f, v)| *f == function::EXECUTED && v.contains(&Value::Int(MINES_RECIPE))),
+        "answered"
+    );
+}
+
 /// Behaviour: server.craft.refused
 #[test]
 fn making_a_recipe_while_attacking_is_refused_with_the_answer_alone() {
@@ -482,6 +509,14 @@ fn a_recipe_made_pays_the_experience_of_its_spinner_and_tells_the_pool_then_the_
             first: 1,
             values: vec![5, 6, 8, 9, 11],
         });
+    }
+    for t in h.server.crafting.templates() {
+        if h.server.catalog.get(t).is_none() {
+            let props = yalain_content::Props::default();
+            h.server
+                .catalog
+                .insert(yalain_testkit::test_template(t, 0x200, props));
+        }
     }
     let from = execute_at(&mut h, b, KNIFE_RECIPE, &[], 3);
     h.run(4);

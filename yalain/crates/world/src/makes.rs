@@ -5,13 +5,25 @@
 //!
 //! A row or a rule that makes a thing of a template goes in this list too. Tests build their own
 //! catalogs, so they don't show one left out; the world's real start is what they ask of.
+//!
+//! What could still fail to be described (a world database or a dat overlay of someone's own) takes
+//! nothing from the player: a use, a give, a step or a recipe that would make what can't be made is
+//! refused and uses up nothing. [`can_make`] is what they ask.
 
 use std::collections::BTreeMap;
 
 use yalain_content::quests::Trigger;
 use yalain_content::{ContentObject, CraftStart, DeathSpawn, Props, QuestTable, StoreTable};
 
-use crate::{death, inventory, mounts, pets, plants, usable};
+use yalain_store::Store;
+
+use crate::{death, inventory, mounts, pets, plants, usable, Server};
+
+/// Can this world make a thing of this template?
+#[must_use]
+pub fn can_make<S: Store>(s: &Server<S>, template: u32) -> bool {
+    s.catalog.get(template).is_some()
+}
 
 /// What the server's own rules make, whatever the world holds: the corpse, the races' starting
 /// packs and the book a new character is given, the mounts, a summoned portal, every kind of pet,

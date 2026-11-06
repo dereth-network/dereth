@@ -516,3 +516,72 @@ fn an_axe_orb_hits_four_times_a_swing_and_a_taunt_orbs_strike_harms_nothing() {
         }
     }
 }
+
+/// An item whose use names a pet no item's use makes (a decoy) is refused and kept, not used up for
+/// nothing.
+/// Behaviour: server.makes.nothing-used-up-for-what-cannot-be-made
+#[test]
+fn an_item_summoning_a_pet_no_use_makes_is_refused_and_kept() {
+    use yalain_world::item_use::UsageEffect;
+    const DECOY: u32 = 0x4700_1C72;
+    const SUMMON: u32 = 0x7000_0F00;
+    let mut h = Harness::new();
+    h.add_creatures(1);
+    let (b, me) = h.player_in_world("one", "Kestrel");
+    h.run(10);
+    h.server.effect_table.effects.insert(
+        SUMMON,
+        EffectDef {
+            state: SUMMON,
+            kind: Kind::Pet {
+                class: 16,
+                lifetime: Scale::default(),
+            },
+            duration: Scale::default(),
+            priority: Scale::default(),
+            fx: 0,
+            external_flags: 0,
+            internal_flags: 0,
+            enum_value: 0,
+            eq_class: 0,
+            name: None,
+        },
+    );
+    let mut props = Props::default();
+    props.set("Item_IsDestroyOnUse", Prop::Bool(true));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(DECOY, 0x777, props));
+    h.server.item_uses.insert(
+        DECOY,
+        vec![UsageEffect {
+            state: SUMMON,
+            spellcraft: 1.0,
+        }],
+    );
+    let world = *h.server.players.keys().next().expect("in");
+    let item =
+        yalain_world::inventory::give(&mut h.server, &mut h.net, world, DECOY, 1).expect("given");
+    h.run(2);
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(0x8216_0016, &[yalain_testkit::play::use_of(item, me)]),
+    );
+    h.run(20);
+    assert!(
+        h.server.players[&world]
+            .play
+            .items
+            .iter()
+            .any(|i| i.id == item),
+        "kept"
+    );
+    assert!(
+        h.texts(b, from)
+            .iter()
+            .any(|(_, t)| *t == yalain_world::pets::text::SUMMONING_FAILS.0),
+        "told"
+    );
+}

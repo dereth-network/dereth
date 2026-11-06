@@ -6178,6 +6178,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Live,
     },
     behaviour! {
+        id: "server.makes.nothing-used-up-for-what-cannot-be-made",
+        says: "A use, a give, a quest step, a recipe or a map that would make what this world can't make \
+               is refused and uses nothing up: the seed, gem, item given, ingredient or map is kept.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-MAKES-KEEPS"),
+        station: "yalain-testkit::cpu::play::death_spawns::a_gem_whose_row_makes_what_cannot_be_made_is_refused_and_kept",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.makes.the-install-holds-what-the-server-makes",
         says: "Every kind of pet is a creature in the install, every map node gives a material, and all \
                the server's own rules make reads from it.",

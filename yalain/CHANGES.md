@@ -32,6 +32,7 @@ what they see, not how it was done.
 - Expert butchery cuts now come with skill, not the creature's level.
 - Fixed summoning skills and contracts making no pet, and dye plants, practice gems and gifts giving nothing.
 - Only a Tessera gives a hero skill credit now.
+- What can't be made no longer uses up your item.
 
 ## 0.2.1 (2026-11-05)
 - Fixed sold consignments still showing as in stock.

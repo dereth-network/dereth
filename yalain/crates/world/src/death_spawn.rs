@@ -93,6 +93,20 @@ pub fn names_one<S: Store>(s: &Server<S>, props: &yalain_content::Props) -> bool
         .any(|e| s.death_spawns.contains_key(e))
 }
 
+/// Can this world make everything a template's use names of a world's rows, as creatures?
+#[must_use]
+pub fn can_make_all<S: Store>(s: &Server<S>, props: &yalain_content::Props) -> bool {
+    let (name, _) = crate::item_use::USED;
+    (1..=8)
+        .filter_map(|i| props.text(&format!("{name}{i}")))
+        .filter_map(|e| s.death_spawns.get(e))
+        .all(|spawn| {
+            s.catalog
+                .get(spawn.template)
+                .is_some_and(|t| yalain_content::CreatureStats::from_props(&t.props).is_some())
+        })
+}
+
 /// What an item's use makes around its user, by the effects its template names.
 pub fn used<S: Store>(
     s: &mut Server<S>,

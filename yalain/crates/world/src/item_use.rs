@@ -407,6 +407,21 @@ pub fn begin<S: Store>(
     if refuse(s, net, world, u, &props, clock) {
         return true;
     }
+    if cannot_make(s, template, &props) {
+        s.unhandled.note(format!(
+            "a use of {template:08X}, which makes what can't be made"
+        ));
+        let me = s.players.get(&world).map_or(0, |p| p.character);
+        let flags = answer_flags(&props, use_behavior(&props).is_some()) & !flags::CARRIED_OUT;
+        progress::private(
+            net,
+            world,
+            &crate::chat::show_text(1, progress::text(crate::pets::text::SUMMONING_FAILS)),
+        );
+        let no = crate::places::use_refused(u, me, Some(flags), 0.0, crate::places::USE_STATUS_OK);
+        progress::private(net, world, &no);
+        return true;
+    }
     let Some(behavior) = item_behavior(s, u.item, template, &props) else {
         carry_out(s, net, world, u.clone(), false, clock);
         return true;
@@ -441,6 +456,26 @@ pub fn begin<S: Store>(
         },
     );
     true
+}
+
+/// Would using an item of this template make what can't be made? A seed whose plant isn't described,
+/// a row's creature that isn't, or an effect that summons a pet no item's use makes. The item is then
+/// kept: nothing is used up for nothing.
+fn cannot_make<S: Store>(s: &Server<S>, template: u32, props: &Props) -> bool {
+    if let Some(species) = crate::plants::sown_by(template) {
+        return !crate::makes::can_make(s, species.plant);
+    }
+    if crate::death_spawn::names_one(s, props) {
+        return !crate::death_spawn::can_make_all(s, props);
+    }
+    s.item_uses.get(&template).is_some_and(|list| {
+        list.iter().any(|e| {
+            matches!(
+                s.effect_table.get(e.state).map(|d| &d.kind),
+                Some(Kind::Pet { .. })
+            )
+        })
+    })
 }
 
 /// A use refused, if the player may not use an item of these properties now: answered with its

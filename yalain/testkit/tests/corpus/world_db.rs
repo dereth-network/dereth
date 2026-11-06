@@ -489,6 +489,15 @@ fn served(t: &Tables) -> (Harness, usize, u64) {
     h.server.stores = t.stores.clone();
     h.server.quests = t.quests.clone();
     h.server.talk = t.talk.clone();
+    // What its quests give can be made, as on a real start.
+    let gifts = t.quests.steps.iter().flat_map(|s| s.gives.iter());
+    for gift in gifts.chain(t.quests.gives.iter().flat_map(|g| g.gives.iter())) {
+        if h.server.catalog.get(*gift).is_none() {
+            let props = yalain_content::Props::default();
+            let made = yalain_testkit::test_template(*gift, 0x1067, props);
+            h.server.catalog.insert(made);
+        }
+    }
     let (b, me) = h.player_in_world("world", "Rowan");
     (h, b, me)
 }

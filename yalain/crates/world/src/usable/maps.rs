@@ -309,6 +309,13 @@ pub fn used<S: Store>(
     let (me, here, name) = (p.character, p.position, p.name.clone());
     let d = ground_distance(&here, &to);
     if d <= def.radius {
+        // A node that can't be made takes no map: it's kept, and the summoning fails.
+        if !crate::makes::can_make(s, def.node) {
+            show(s, net, world, SHOWN_AS, crate::pets::text::SUMMONING_FAILS);
+            let no = crate::places::use_refused(u, me, None, 0.0, crate::places::USE_STATUS_OK);
+            progress::private(net, world, &no);
+            return true;
+        }
         found(s, net, world, u, &def, me, &name, clock);
         crate::world::keep_player(s, world);
         return true;

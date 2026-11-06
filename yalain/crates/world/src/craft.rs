@@ -2111,6 +2111,23 @@ fn result<S: Store>(
     let Some(outcome) = def.outcome(value, roll).cloned() else {
         return;
     };
+    // What can't be made uses nothing up.
+    let cannot = outcome.actions.iter().any(|a| match a {
+        Action::Produce { template, .. } => !crate::makes::can_make(s, *template),
+        Action::Custom => matches!(def.custom, Custom::Refine { product }
+            if !crate::makes::can_make(s, product)),
+        _ => false,
+    });
+    if cannot {
+        let line = progress::text(NOTHING_PRODUCED);
+        progress::private(
+            net,
+            world,
+            &crate::chat::show_text(progress::TEXT_KIND, line),
+        );
+        progress::private(net, world, &executed(error::FAILED, m.recipe));
+        return;
+    }
     let makes_item = outcome.actions.iter().any(|a| match a {
         Action::Produce { .. } => true,
         Action::Custom => matches!(def.custom, Custom::Refine { .. }),
