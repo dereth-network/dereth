@@ -1597,6 +1597,39 @@ fn an_objects_own_scale_is_served_in_place_of_its_templates() {
     assert_eq!(scale_with("scale = 0.0\n"), (own, true), "left as it was");
 }
 
+/// A placed object's least level reads and compiles over its template's, and the content's text
+/// keeps it; left out, the object has its template's.
+/// Behaviour: server.places.portal-least-level-row
+#[test]
+fn a_static_objects_least_level_is_read_and_compiled() {
+    let mut files = fixture();
+    let level = |files: &Files| {
+        let merged = merge(&read(files).unwrap()).unwrap();
+        let t = compile(&merged, &Fake::new()).unwrap();
+        assert_eq!(
+            yalain_content::ContentPack::from_text(&t.content.to_text()).unwrap(),
+            t.content,
+            "the content's text keeps it"
+        );
+        t.content
+            .objects
+            .iter()
+            .find(|o| o.object == Some(0x4077_B700_0000_0001))
+            .unwrap()
+            .facts
+            .min_level
+    };
+    assert_eq!(level(&files), None);
+    edit(
+        &mut files,
+        "town/server/landblocks/77B7.toml",
+        "to = \"inn\"\nprov = { from = \"authored\" }",
+        "to = \"inn\"\nmin_level = 6\nprov = { from = \"authored\" }",
+    );
+    assert_eq!(check(&files), Vec::new());
+    assert_eq!(level(&files), Some(6));
+}
+
 #[test]
 fn a_static_objects_quest_gate_is_read_checked_and_compiled() {
     let mut files = fixture();

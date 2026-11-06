@@ -617,9 +617,13 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     label: install.label(o.template),
                     placed: prov_text(&o.prov),
                     destination,
-                    facts: yalain_content::Facts {
-                        portal: portal_flags(o.recall, o.summon),
-                        ..facts(o.template, &entity, &ids)
+                    facts: {
+                        let f = facts(o.template, &entity, &ids);
+                        yalain_content::Facts {
+                            portal: portal_flags(o.recall, o.summon),
+                            min_level: o.min_level.or(f.min_level),
+                            ..f
+                        }
                     },
                     walks,
                     gate,

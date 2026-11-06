@@ -658,6 +658,7 @@ impl Session {
                     route_start: 0,
                     route_backward: false,
                     requires: None,
+                    min_level: None,
                     recall: false,
                     summon: false,
                     prov: p.clone(),

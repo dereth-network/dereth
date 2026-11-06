@@ -484,11 +484,26 @@ fn quest_keeps_out<S: Store>(
     o: &yalain_content::ContentObject,
     clock: Clock,
 ) -> Option<u32> {
+    if let Some(why) = under_its_level(s, world, o) {
+        return Some(why);
+    }
     if let Some(g) = o.gate {
         return crate::item_use::needs_quest(s, world, g.quest, g.status, clock);
     }
     let props = &s.catalog.get(o.template)?.props;
     crate::item_use::quest_gate(s, world, props, clock)
+}
+
+/// The refusal of a player below a placed object's least level, the one its examination names.
+fn under_its_level<S: Store>(
+    s: &Server<S>,
+    world: ConnId,
+    o: &yalain_content::ContentObject,
+) -> Option<u32> {
+    let least = o.facts.min_level?;
+    let p = s.players.get(&world)?;
+    (crate::examine::level_of(&p.qualities) < least)
+        .then_some(crate::item_use::refusal::LEVEL_TOO_LOW)
 }
 
 /// Is a template one a player talks to by using it (a storekeeper, a person or object a quest

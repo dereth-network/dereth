@@ -855,6 +855,68 @@ fn a_portals_effects_are_put_on_as_the_player_comes_out() {
     );
 }
 
+/// A placed portal's least level refuses a player below it, as a quest does: a use at once with no
+/// walk and no trip, a walk-in, each 10009 with flags 820; at that level it takes the player.
+/// Behaviour: server.places.portal-least-level
+#[test]
+fn a_placed_portal_refuses_a_player_below_its_least_level_at_a_use_and_a_walk_in() {
+    use auberean_primitives::Vec3;
+    use yalain_testkit::play::report;
+    use yalain_world::world::IDLE_MOTION;
+    const GATEWAY: u32 = 0x4700_115B;
+    let mut h = Harness::new();
+    let to = Place {
+        cell: 0x7000_0001,
+        origin: [10.0, 10.0, 50.0],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    let mut gated = object(PORTAL, GATEWAY, [61.0, 259.2, -44.6], Some(to));
+    gated.facts.min_level = Some(6);
+    gated.description.package = 0x1A01;
+    h.server.content = ContentPack {
+        objects: vec![gated],
+        ..ContentPack::default()
+    };
+    h.server.walk_in_packages.insert(0x1A01);
+    let (a, me) = h.player_in_world("one", "Elara");
+    h.run(10);
+    for p in h.server.players.values_mut() {
+        yalain_world::quals::set_int(&mut p.qualities, 302, 5);
+    }
+    let refused = |h: &Harness, from: usize, what: &str| {
+        let answers = use_answers(h, a, from);
+        assert_eq!(answers.len(), 1, "{what}: answered once");
+        assert_eq!((answers[0].0, answers[0].1), (10_009, 820), "{what}");
+        assert!(
+            !calls(h, a, from).contains(&trip::ENTER_PORTAL_SPACE),
+            "{what}: no trip"
+        );
+    };
+    let from = h.bots[a].inbox.len();
+    let asks = server_call(function::USE, &[use_of(PORTAL, me)]);
+    h.bots[a].send(true, queue::WEENIE, &asks);
+    h.run(10);
+    refused(&h, from, "a use");
+    let cell = h.server.players.values().next().expect("in").position.cell;
+    let at = |x: f32, y: f32| report(cell, Vec3::new(x, y, -44.6), 0, IDLE_MOTION, 0);
+    let from = h.bots[a].inbox.len();
+    h.bots[a].send(true, queue::WEENIE, &at(61.0, 258.2));
+    h.run(10);
+    h.bots[a].send(true, queue::WEENIE, &at(61.0, 258.21));
+    h.run(10);
+    refused(&h, from, "a walk-in");
+    for p in h.server.players.values_mut() {
+        yalain_world::quals::set_int(&mut p.qualities, 302, 6);
+    }
+    let from = h.bots[a].inbox.len();
+    h.bots[a].send(true, queue::WEENIE, &asks);
+    h.run(60);
+    assert!(
+        calls(&h, a, from).contains(&trip::ENTER_PORTAL_SPACE),
+        "at its level, the trip"
+    );
+}
+
 /// A generic portal its placed instance keeps closed by a quest (its template needs none) is
 /// refused as a portal its template keeps closed is: a use from 19 m at once, with no walk and no
 /// trip, and a walk-in, each 10043 for a hidden quest with flags 820 and the distance to the

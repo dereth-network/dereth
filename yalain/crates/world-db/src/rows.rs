@@ -137,6 +137,8 @@ pub struct Object {
     /// The quest a player must hold, and where, to use it (a portal its placed instance keeps
     /// closed).
     pub requires: Option<(u32, Gate)>,
+    /// The least level a player must be to use it (over its template's).
+    pub min_level: Option<i32>,
     /// A portal a player who used it may recall to, and summon a portal to.
     pub recall: bool,
     pub summon: bool,
@@ -665,6 +667,7 @@ pub const FIELDS: [(&str, &[&str]); 20] = [
             "route_start",
             "route_direction",
             "requires",
+            "min_level",
             "recall",
             "summon",
             "prov",
@@ -1196,6 +1199,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 route_start: f.u32("route_start").unwrap_or(0),
                 route_backward,
                 requires: f.gate("requires"),
+                min_level: f.int("min_level").and_then(|v| i32::try_from(v).ok()),
                 recall: f.bool("recall").unwrap_or(false),
                 summon: f.bool("summon").unwrap_or(false),
                 prov: f.req_prov()?,

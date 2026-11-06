@@ -9054,6 +9054,25 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.portal-least-level",
+        says: "A placed portal's least level refuses a player below it, as a quest does: a use at \
+               once with no walk and no trip, a walk-in, each 10009 with flags 820; at that level \
+               it takes the player.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PORTAL-LEAST-LEVEL"),
+        station: "yalain-testkit::cpu::entry::places::a_placed_portal_refuses_a_player_below_its_least_level_at_a_use_and_a_walk_in",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.places.portal-least-level-row",
+        says: "A placed object's least level reads and compiles over its template's, and the \
+               content's text keeps it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PORTAL-LEAST-LEVEL-ROW"),
+        station: "yalain-world-db::cpu::database::a_static_objects_least_level_is_read_and_compiled",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.places.portal-recall",
         says: "Portal Recall takes a player to where the last portal it used that may be recalled to took \
                it, past portals that may not be; its text comes before the new place.",

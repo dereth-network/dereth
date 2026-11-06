@@ -204,6 +204,9 @@ pub fn object(o: &Object, to: Option<&str>, p: &Prov) -> Table {
         };
         put(&mut t, "requires", Value::InlineTable(g));
     }
+    if let Some(level) = o.min_level {
+        put(&mut t, "min_level", Value::from(i64::from(level)));
+    }
     if o.recall {
         put(&mut t, "recall", Value::from(true));
     }
