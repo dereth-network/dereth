@@ -650,6 +650,7 @@ fn opened_corpse(h: &mut Harness, world: ConnId, me: u64, n: usize) -> (u64, Vec
         butchered: false,
         killer_level: 1,
         expires: 1.0e12,
+        ..Default::default()
     });
     h.server.things.insert(corpse);
     inventory::open(&mut h.server, &mut h.net, world, id);

@@ -121,6 +121,7 @@ fn corpse_by(h: &mut Harness, world: yalain_net::ConnId, killer: u64, killer_lev
         creature: TEST_CREATURE,
         butchered: false,
         killer_level,
+        ..Default::default()
     });
     h.server.things.insert(corpse);
     id
@@ -664,5 +665,48 @@ fn a_knife_is_not_put_down_while_it_cuts_and_one_gone_pays_nothing() {
             .expect("the corpse")
             .butchered,
         "the corpse is left"
+    );
+}
+
+/// A corpse still another's is refused the knife as it is refused opening, and its material stays.
+/// Behaviour: server.loot.a-knife-asks-too
+#[test]
+fn a_knife_is_refused_a_corpse_still_another_players() {
+    let (mut h, b, me, world, knife, _) = at_a_corpse();
+    let (_, other) = h.player_in_world("two", "Rowan");
+    let corpse = corpse_by(&mut h, world, other, 0);
+    let now = h.now.0;
+    if let Some(c) = h
+        .server
+        .things
+        .get_mut(corpse)
+        .and_then(|t| t.corpse.as_mut())
+    {
+        c.unlocks = now + 60.0;
+    }
+    let from = butcher(&mut h, b, me, knife, corpse, 0.0);
+    assert_eq!(
+        use_answers(&h, b, from).first().map(|a| a.0),
+        Some(yalain_world::butchery::refusal::NO_RIGHT)
+    );
+    let cut = h
+        .server
+        .things
+        .get(corpse)
+        .and_then(|t| t.corpse.as_ref())
+        .is_some_and(|c| c.butchered);
+    assert!(!cut, "still to butcher");
+    if let Some(c) = h
+        .server
+        .things
+        .get_mut(corpse)
+        .and_then(|t| t.corpse.as_mut())
+    {
+        c.unlocks = now - 1.0;
+    }
+    let from = butcher(&mut h, b, me, knife, corpse, 3.0);
+    assert!(
+        use_answers(&h, b, from).iter().any(|a| a.0 == 0),
+        "once it is free"
     );
 }

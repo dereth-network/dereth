@@ -80,6 +80,10 @@ const LONG_REF_HASH: u16 = 0x40;
 /// The fellowship's flags: shares experience; how loot goes (by the looting method, 1 to 4).
 pub mod flag {
     pub const SHARES_XP: u32 = 0x1;
+    pub const SHARES_LOOT: u32 = 0x2;
+    pub const TURNS_LOOT: u32 = 0x4;
+    pub const TURNS_GROUP_LOOT: u32 = 0x8;
+    pub const DRAWS_LOOT: u32 = 0x10;
 }
 
 /// The most fellows.
@@ -161,6 +165,12 @@ impl Fellowship {
     #[must_use]
     pub fn shares_xp(&self) -> bool {
         self.flags & flag::SHARES_XP != 0
+    }
+
+    /// Do its fellows share the loot of a kill no turn or draw gave to one of them?
+    #[must_use]
+    pub fn shares_loot(&self) -> bool {
+        self.flags & (flag::SHARES_LOOT | flag::TURNS_GROUP_LOOT) != 0
     }
 
     #[must_use]

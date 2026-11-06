@@ -1,9 +1,9 @@
 //! A player's inventory: the items in its pack, items given to it, taken from corpses, bought, and
 //! turned into money.
 //!
-//! **Opening a corpse** (in reach, 2 m; the player is walked there first): the corpse flashes and
-//! opens for every client that sees it; the opener gets the contents (in slot order) and then each
-//! item it does not know yet. No use answer is sent. **Closing** it: it closes for all, the closer
+//! **Opening a corpse** (by one with a right to it, [`crate::death::may_loot`]; in reach, 2 m; the
+//! player is walked there first): the corpse flashes and opens for every client that sees it; the
+//! opener gets the contents (in slot order) and then each item it does not know yet. No use answer is sent. **Closing** it: it closes for all, the closer
 //! gets the answer; it closes so too when the opener walks away from it, as from an open chest.
 //!
 //! **Taking an item** (the client uses the item inside the open corpse): the player plays its
@@ -1696,6 +1696,10 @@ fn open_quality<S: Store>(s: &mut Server<S>, id: u64, open: bool) -> ServerMessa
 pub fn open<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, corpse: u64) {
     if let Some(old) = open_corpse_of(s, world).filter(|o| *o != corpse) {
         close(s, net, world, old);
+    }
+    let name = crate::social::name_of(s, world);
+    if let Some(c) = s.things.get_mut(corpse).and_then(|t| t.corpse.as_mut()) {
+        c.first_looted_by.get_or_insert(name);
     }
     let fx = ServerMessage::DoFx(ObjectEvent {
         sender: visual(s, corpse),

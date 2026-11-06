@@ -521,6 +521,7 @@ pub(super) fn act(s: &mut Script) -> String {
                 butchered: false,
                 killer_level: 1,
                 expires: 1.0e12,
+                ..Default::default()
             });
             s.h.server.things.insert(c);
             s.wealth += WORTH * count as u64;

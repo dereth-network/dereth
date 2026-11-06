@@ -5639,11 +5639,126 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.loot.a-killer-dead",
+        says: "A killer's death leaves its fellows their right to its corpse.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-LOOT-KILLER-DEAD"),
+        station: "yalain-testkit::cpu::play::corpse_rights::a_dead_killers_fellow_may_open_its_corpse",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.loot.a-killer-gone",
+        says: "A killer gone from the world leaves its corpse to the time: its fellows are fellows \
+               no longer, anyone may open it once the time is up, and the killer may if it comes \
+               back first.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-LOOT-KILLER-GONE"),
+        station: "yalain-testkit::cpu::play::corpse_rights::a_corpse_whose_killer_left_the_world_is_freed_by_the_time_and_is_still_its_if_it_returns",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.loot.a-knife-asks-too",
+        says: "A knife is refused a corpse the player has no right to yet, and its material stays.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-LOOT-KNIFE"),
+        station: "yalain-testkit::cpu::play::butchery::a_knife_is_refused_a_corpse_still_another_players",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.loot.a-pets-kill-is-its-owners",
+        says: "A creature a pet kills is its owner's kill, so its corpse is the owner's to open and \
+               not another's.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-LOOT-PET"),
+        station: "yalain-testkit::cpu::play::pets::a_corpse_a_pet_made_opens_to_its_owner_and_not_to_another",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.loot.asked-again-at-the-corpse",
+        says: "A right to a corpse is asked again on arriving at it: one lost on the walk is \
+               refused.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-LOOT-AT-ARRIVAL"),
+        station: "yalain-testkit::cpu::play::corpse_rights::a_fellow_who_left_on_the_way_to_a_corpse_is_refused_at_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.loot.corpse-closes-when-its-opener-walks-away",
         says: "An open corpse whose opener goes more than six meters from it closes: its opener is                told, as when it asks to close it.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-CORPSE-WALK-AWAY"),
         station: "yalain-testkit::cpu::play::fights::an_open_corpse_closes_when_its_opener_walks_away",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.loot.every-road-asks",
+        says: "A client refused a corpse gets nothing out of it by any road: taking everything, \
+               turning it into money, taking or wearing an item it names.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-LOOT-EVERY-ROAD"),
+        station: "yalain-testkit::cpu::play::corpse_rights::a_client_refused_a_corpse_takes_nothing_from_it_by_any_road",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.loot.fellows-as-they-stand",
+        says: "A fellow's right to a corpse goes by the fellowship as it stands when it asks: it is \
+               gone once either has left or the fellowship is no more, and there for one who has \
+               joined since the kill.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-LOOT-AS-THEY-STAND"),
+        station: "yalain-testkit::cpu::play::corpse_rights::a_fellows_right_to_a_corpse_goes_with_the_fellowship_as_it_stands_when_it_asks",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.loot.fellows-if-sharing",
+        says: "In a fellowship that shares loot a killer's fellows may open its corpse as it may; \
+               in one that does not they may not.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-LOOT-FELLOWS"),
+        station: "yalain-testkit::cpu::play::corpse_rights::a_kills_fellows_may_open_its_corpse_only_where_the_fellowship_shares_loot",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.loot.first-opening-frees-it",
+        says: "The first to open a corpse ends every right in it: closed again, it opens to anyone.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-LOOT-FIRST-OPENING"),
+        station: "yalain-testkit::cpu::play::corpse_rights::a_corpse_once_opened_and_closed_opens_to_anyone",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.loot.freed-two-minutes-after-the-death",
+        says: "Two minutes after the death a corpse nobody opened opens to anyone, and not before.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-LOOT-TIMER"),
+        station: "yalain-testkit::cpu::play::corpse_rights::a_corpse_nobody_opened_opens_to_anyone_two_minutes_after_the_death",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.loot.kept-for-whom-the-kill-went-to",
+        says: "The right to a corpse is the kill's: it goes to the player that did the most damage \
+               and not to the last blow.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-LOOT-KILLS-OWNER"),
+        station: "yalain-testkit::cpu::play::corpse_rights::a_corpse_goes_with_the_kill_to_the_most_damage_and_not_to_the_last_blow",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.loot.locked-corpses-still-rot",
+        says: "A corpse nobody may open yet leaves the world when it would have, its killer gone or \
+               not, and what it holds goes with it; a lock never keeps it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-LOOT-ROT"),
+        station: "yalain-testkit::cpu::play::corpse_rights::a_locked_corpse_nobody_touches_leaves_the_world_on_time",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.loot.locked-to-its-killer",
+        says: "A corpse nobody has opened opens to its killer and to nobody else; anyone else is \
+               given nothing to look in.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-LOOT-LOCKED"),
+        station: "yalain-testkit::cpu::play::corpse_rights::a_corpse_opens_to_its_killer_and_refuses_anyone_else",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -5673,6 +5788,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-TRANSMUTE-KEPT"),
         station: "yalain-testkit::cpu::play::fights::turning_a_corpses_items_into_money_keeps_an_item_worth_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.loot.refused-where-it-stands",
+        says: "A client using a corpse it has no right to is refused with no permission where it \
+               stands, however far from it, and is not walked there.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-LOOT-REFUSED"),
+        station: "yalain-testkit::cpu::play::corpse_rights::a_far_client_refused_a_corpse_is_not_walked_to_it",
         tier: Tier::Cpu,
     },
     behaviour! {

@@ -316,6 +316,9 @@ fn portal_scene<S: Store>(s: &Server<S>, f: u32, scene: u32) -> ServerMessage {
     call(f, &[Arg::Object(b.graph()), Arg::LongFloat(0f64.to_bits())])
 }
 
+/// The use answer's status for a corpse the player has no right to yet.
+pub const USE_STATUS_NO_RIGHT: u32 = 10000;
+
 /// The use answer's status and control flags for a corpse another player has open.
 pub const USE_STATUS_IN_USE: u32 = 10001;
 pub const USE_FLAGS_IN_USE: u32 = 956;
@@ -356,6 +359,39 @@ pub(crate) fn stop_walking<S: Store>(s: &mut Server<S>, net: &mut ServerNet, wor
     to_all_knowing(s, net, id, &stop);
 }
 
+/// A player using a corpse it has no right to is refused where it stands: is this that?
+fn corpse_refused<S: Store>(
+    s: &Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    u: &Use,
+    clock: Clock,
+) -> bool {
+    let Some(at) = s
+        .things
+        .get(u.item)
+        .filter(|t| t.kind == crate::things::Kind::Corpse)
+        .and_then(|t| t.at)
+    else {
+        return false;
+    };
+    let me = s.players.get(&world).map_or(0, |p| p.character);
+    if crate::death::may_loot(s, me, u.item, clock.local.0) {
+        return false;
+    }
+    let distance = presence::distance(&u.from, &at).unwrap_or(0.0);
+    let no = use_answer(
+        u,
+        me,
+        Some(USE_FLAGS_IN_USE),
+        false,
+        distance,
+        USE_STATUS_NO_RIGHT,
+    );
+    send(net, world, BlobKind::PRIVATE, &no);
+    true
+}
+
 /// A player uses a thing of the world (in reach where reach matters).
 fn use_thing<S: Store>(
     s: &mut Server<S>,
@@ -368,6 +404,9 @@ fn use_thing<S: Store>(
         return;
     };
     let me = s.players.get(&world).map_or(0, |p| p.character);
+    if corpse_refused(s, net, world, &u, clock) {
+        return;
+    }
     match t.kind {
         // One viewer at a time: a corpse another player has open refuses the use.
         crate::things::Kind::Corpse if crate::inventory::viewed_by_another(s, world, u.item) => {
@@ -758,6 +797,9 @@ pub fn use_object<S: Store>(
         // A thing of the world: a corpse to open (walked to it first), an item to take, a creature
         // to attack.
         if let (Some(at), crate::things::Kind::Corpse) = (t.at, t.kind) {
+            if corpse_refused(s, net, world, &u, clock) {
+                return;
+            }
             if presence::distance(&p.position, &at)
                 .is_some_and(|d| d <= crate::inventory::CORPSE_REACH)
             {

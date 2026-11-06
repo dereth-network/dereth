@@ -43,6 +43,8 @@ pub const WORK_SECONDS: f64 = 1.95;
 
 /// Why a butchery is refused, as the use's answer says.
 pub mod refusal {
+    /// The corpse is another's yet.
+    pub const NO_RIGHT: u32 = 10_000;
     /// Another player is on its way to open the corpse.
     pub const LOCKED: u32 = 1030;
     /// The corpse has been butchered.
@@ -226,7 +228,9 @@ pub fn begin<S: Store>(
         .get(&world)
         .and_then(|p| p.play.craft_skills.iter().find(|c| c.skill == SKILL))
         .map_or(1, |c| c.level);
-    let refused = if needs.is_some_and(|n| level < n) {
+    let refused = if !crate::death::may_loot(s, me, corpse, clock.local.0) {
+        Some(refusal::NO_RIGHT)
+    } else if needs.is_some_and(|n| level < n) {
         Some(refusal::CRAFT_TOO_LOW)
     } else {
         refusal_at(s, world, corpse)

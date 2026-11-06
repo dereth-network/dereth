@@ -58,6 +58,7 @@ fn corpse_of(h: &mut Harness, me: u64, template: u32, n: usize) -> (u64, Vec<u64
         butchered: false,
         killer_level: 1,
         expires: 1.0e12,
+        ..Default::default()
     });
     h.server.things.insert(c);
     (id, items)

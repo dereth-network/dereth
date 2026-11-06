@@ -30,6 +30,12 @@
 //! **A corpse leaves the world** three minutes after it appeared if nobody touched it, fifteen
 //! seconds after it was closed empty, a minute after it was closed with items left.
 //!
+//! **Who may loot it** ([`may_loot`]): its killer and, in a fellowship that shares loot, the killer's
+//! fellows as they stand at that moment. The first to open it ends the rights, as does two minutes
+//! after the death, whoever is about by then; so no corpse is ever closed to everyone for longer
+//! than that, and it leaves the world when it would have anyway. A creature killed by no player, and
+//! a player's own corpse, which holds nothing, are open to all.
+//!
 //! **A character that leaves the world dead** comes back as it next enters, with no box and nothing
 //! to ask for ([`back_after_entry`]).
 //!
@@ -104,6 +110,9 @@ pub const ROTS_UNTOUCHED: f64 = 180.0;
 pub const ROTS_EMPTY: f64 = 15.0;
 pub const ROTS_LEFT: f64 = 60.0;
 
+/// How long after a death its corpse is kept for those with a right to it, in seconds.
+pub const LOOT_LOCK: f64 = 120.0;
+
 /// The most items a corpse holds.
 pub const MOST_ITEMS: usize = 21;
 
@@ -128,6 +137,25 @@ pub fn credited<S: Store>(s: &Server<S>, id: u64, blow: u64) -> u64 {
         }
     }
     best.map_or(blow, |(by, _)| by)
+}
+
+/// May this character open or cut this corpse now?
+#[must_use]
+pub fn may_loot<S: Store>(s: &Server<S>, me: u64, corpse: u64, now: f64) -> bool {
+    let Some(c) = s.things.get(corpse).and_then(|t| t.corpse.as_ref()) else {
+        return false;
+    };
+    if c.first_looted_by.is_some() || now >= c.unlocks {
+        return true;
+    }
+    if c.claimant != 0 {
+        return c.claimant == me;
+    }
+    if c.killer == me || c.killer == 0 || s.things.get(c.killer).is_some() {
+        return true;
+    }
+    let f = s.fellowships.of(me);
+    f.is_some_and(|i| s.fellowships.list[i].shares_loot()) && f == s.fellowships.of(c.killer)
 }
 
 /// A creature dies by a player's blow.
@@ -611,6 +639,8 @@ pub fn corpse_appears<S: Store>(
         creature: dead.template,
         butchered: false,
         killer_level,
+        unlocks: clock.local.0 + LOOT_LOCK - CORPSE_AFTER,
+        ..Corpse::default()
     });
     corpse.named = Some(corpse_name(dead.facts.name));
     corpse.pose = Some(pose);
@@ -1153,6 +1183,7 @@ pub fn player_corpse<S: Store>(
         creature: 0,
         butchered: false,
         killer_level: 0,
+        ..Corpse::default()
     });
     // Drawn as the player, "Corpse of" the character's name as the world shows it.
     corpse.drawn_as = Some(look);
