@@ -4,7 +4,8 @@
 //! **Depends on** the messages (`auberean-protocol`), the script machine's values
 //! (`auberean-script`), the client's written form of names and its word patterns
 //! (`auberean-text`, `auberean-assets`), the client's table of record kinds and its data files
-//! (`auberean-dat`), `auberean-primitives`, the server's connections (`yalain-net`), the store's
+//! (`auberean-dat`), the overlay folder a world's own records are sent from (`dereth-dat`),
+//! `auberean-primitives`, the server's connections (`yalain-net`), the store's
 //! trait (`yalain-store`), the content (`yalain-content`), the shared physics its creatures move through
 //! (`auberean-physics`, `auberean-world`, `dereth-physics`), the chat service's packet
 //! (`dereth-protocol`), the original's float-to-integer conversion (`dereth-primitives`), the
@@ -78,6 +79,7 @@ pub mod chat;
 pub mod combat;
 pub mod craft;
 pub mod death;
+pub mod death_spawn;
 pub mod download;
 pub mod drops;
 pub mod effect_defs;
@@ -143,6 +145,7 @@ pub mod walkers;
 pub mod walls;
 pub mod workshops;
 pub mod world;
+pub mod world_patch;
 pub mod xp;
 
 use std::collections::HashMap;
@@ -150,7 +153,7 @@ use std::net::IpAddr;
 
 use yalain_content::{Catalog, ContentPack, LootTable, SpawnTable};
 use yalain_net::{ConnId, LocalTime, NetEvent, ServerNet};
-use yalain_store::{Account, Store};
+use yalain_store::{Account, Store, StoreResult};
 
 pub use chargen::CharGenRules;
 pub use start::StartRules;
@@ -194,8 +197,15 @@ pub struct ServerConfig {
     pub referral: bool,
     /// Send each player its own position and head back as it reports them.
     pub echo_positions: bool,
+    /// Hold what a player reports of its place to what a body can do: a land cell its point does not
+    /// lie in is ignored, and a player told it stands where it stood when a place is further than it
+    /// could have gone, as the 2017 servers told a client gone astray. An admin character is not
+    /// held.
+    pub holds_reports: bool,
     /// The seed of the world's dice.
     pub seed: u64,
+    /// What the operator chose for a world's overlay.
+    pub dat_overlay: world_patch::DatOverlaySettings,
     /// The bcrypt cost account secrets are kept at ([`login::SECRET_COST`] unless the operator
     /// gives another).
     pub secret_cost: u32,
@@ -229,7 +239,9 @@ impl Default for ServerConfig {
             delete_seconds: 3600,
             referral: true,
             echo_positions: true,
+            holds_reports: true,
             seed: 0x5EED_00A2,
+            dat_overlay: world_patch::DatOverlaySettings::default(),
             secret_cost: login::SECRET_COST,
             save_seconds: saves::SAVE_SECONDS,
             shutdown_seconds: shutdown::LEAD,
@@ -287,6 +299,11 @@ pub struct Server<S: Store> {
     /// and the logins waiting for it to be stored before they see their characters.
     pub admin_library: Option<admin_library::AdminLibrary>,
     pub storing_library: std::collections::HashSet<ConnId>,
+    /// The world's overlay as clients are patched to it, when it has one; the clients that said
+    /// they keep overlays, and those being patched.
+    pub world_patch: Option<std::sync::Arc<world_patch::WorldPatch>>,
+    pub overlay_clients: HashMap<ConnId, auberean_protocol::login::OverlayHeld>,
+    pub patches: world_patch::Patches,
     /// World connections and the login connection each belongs to.
     pub worlds: HashMap<ConnId, ConnId>,
     /// The characters in the world, by the connection their world travels on.
@@ -401,6 +418,12 @@ pub struct Server<S: Store> {
     pub creature_weapons: HashMap<String, u32>,
     /// What the world database says of those weapons beyond their templates, by the same names.
     pub creature_weapon_rules: HashMap<String, yalain_content::WeaponRule>,
+    /// What creatures' death effects make, by the effects' names.
+    pub death_spawns: HashMap<String, yalain_content::DeathSpawn>,
+    /// Those made so far that live, by the effects' names.
+    pub death_spawned: HashMap<String, Vec<u64>>,
+    /// The effects creatures' templates put on whoever kills them.
+    pub death_effects: item_use::ItemUses,
     /// The packages whose items are destroyed on use by their kind (keys, potions, ...).
     pub destroyed_on_use: std::collections::HashSet<u32>,
     /// The packages of the treasure items that carry properties of their own (equipment, potions).
@@ -483,6 +506,8 @@ pub enum Timer {
     },
     /// A pet's lifetime is over.
     PetExpires { pet: u64 },
+    /// What a world's row makes has stood its time.
+    MadeEnds { creature: u64 },
     /// A creature's heal or buff on itself takes effect.
     CreatureHelps { creature: u64, skill: u32, on: u64 },
     /// A creature's strike reaches the player it was at.
@@ -495,6 +520,7 @@ pub enum Timer {
     ThingStrikeLands {
         by: u64,
         target: u64,
+        skill: u32,
         harm: effects::Harm,
     },
     /// A dead player's corpse is made.
@@ -515,6 +541,15 @@ pub enum Timer {
     Opening { creature: u64, closes: bool },
     /// An effect on a player runs out.
     EffectEnds { world: ConnId, eid: u32 },
+    /// The look of the effects on an item may be up.
+    ItemEffectEnds { item: u64, fx: u32 },
+    /// A skill's effects reach the item it was aimed at, after its use is over.
+    SkillOnItemLands {
+        world: ConnId,
+        skill: u32,
+        item: u64,
+        spellcraft: f32,
+    },
     /// An effect on a player changes its vitals again (the last change at `since`, world
     /// seconds).
     EffectTick { world: ConnId, eid: u32, since: f64 },
@@ -646,16 +681,16 @@ pub enum Timer {
 }
 
 impl<S: Store> Server<S> {
-    #[must_use]
-    pub fn new(cfg: ServerConfig, mut store: S, rules: CharGenRules) -> Self {
+    /// A server over this store, with the first ids this run gives set aside there.
+    ///
+    /// # Errors
+    /// The store will not set them aside: a world without them could give an id a kept item holds.
+    pub fn new(cfg: ServerConfig, mut store: S, rules: CharGenRules) -> StoreResult<Self> {
         let cfg_seed = cfg.seed;
-        // The first ids this run gives, set aside before any is given.
         let mut things = things::Things::default();
-        match store.reserve_thing_numbers(things::ID_BLOCK) {
-            Ok(first) => things.add_block(first, things::ID_BLOCK),
-            Err(e) => tracing::error!("no ids could be set aside for the world's things: {e}"),
-        }
-        Self {
+        let first = store.reserve_thing_numbers(things::ID_BLOCK)?;
+        things.add_block(first, things::ID_BLOCK);
+        Ok(Self {
             cfg,
             store,
             rules,
@@ -669,6 +704,9 @@ impl<S: Store> Server<S> {
             admin_rooms: admin_calls::Rooms::default(),
             admin_library: None,
             storing_library: std::collections::HashSet::new(),
+            world_patch: None,
+            overlay_clients: HashMap::new(),
+            patches: world_patch::Patches::default(),
             worlds: HashMap::new(),
             players: HashMap::new(),
             shutdown: shutdown::Shutdown::No,
@@ -727,6 +765,9 @@ impl<S: Store> Server<S> {
             vault_trips: usable::vaults::VaultTrips::new(),
             creature_weapons: HashMap::new(),
             creature_weapon_rules: HashMap::new(),
+            death_spawns: HashMap::new(),
+            death_spawned: HashMap::new(),
+            death_effects: HashMap::new(),
             destroyed_on_use: std::collections::HashSet::new(),
             treasure: treasure::Kinds::default(),
             tesserae: std::collections::HashSet::new(),
@@ -749,7 +790,7 @@ impl<S: Store> Server<S> {
             interactions: usable::interactions::Interactions::default(),
             walkers: walkers::Walkers::default(),
             placed: reload::Placed::default(),
-        }
+        })
     }
 
     /// The server with its start rules and its world's objects.
@@ -812,6 +853,7 @@ impl<S: Store> Server<S> {
     /// Run what is due by now, and the world's step when one is due.
     pub fn tick(&mut self, net: &mut ServerNet, clock: Clock) {
         self.game_now = net.game_time(clock.local);
+        world_patch::send_due(self, net, clock);
         while let Some(i) = self.timers.iter().position(|(at, _)| at.0 <= clock.local.0) {
             let (_, t) = self.timers.remove(i);
             self.saves.piece_begins();
@@ -832,6 +874,7 @@ impl<S: Store> Server<S> {
                     pets::lands(self, net, pet, target, skill, clock);
                 }
                 Timer::PetExpires { pet } => pets::expires(self, net, pet),
+                Timer::MadeEnds { creature } => death_spawn::ends(self, net, creature),
                 Timer::CreatureHelps {
                     creature,
                     skill,
@@ -844,9 +887,12 @@ impl<S: Store> Server<S> {
                     target,
                     harm,
                 } => combat::creature_strike_lands(self, net, creature, target, harm, clock),
-                Timer::ThingStrikeLands { by, target, harm } => {
-                    combat::thing_strike_lands(self, net, by, target, harm, clock);
-                }
+                Timer::ThingStrikeLands {
+                    by,
+                    target,
+                    skill,
+                    harm,
+                } => combat::thing_strike_lands(self, net, (by, skill), target, harm, clock),
                 Timer::PlayerCorpse { world } => death::player_corpse(self, net, world, clock),
                 Timer::BackAfterEntry { world } => death::back_after_entry(self, net, world, clock),
                 Timer::SentBack { world, corpse } => {
@@ -855,6 +901,24 @@ impl<S: Store> Server<S> {
                 Timer::ProtectionEnds { world, eid } => effects::runs_out(self, net, world, eid),
                 Timer::Skill { world, id, step } => {
                     skill_use::step(self, net, world, id, step, clock);
+                }
+                Timer::ItemEffectEnds { item, fx } => {
+                    effects::item_effect_ends(self, net, item, fx, clock);
+                }
+                Timer::SkillOnItemLands {
+                    world,
+                    skill,
+                    item,
+                    spellcraft,
+                } => {
+                    if let Some(u) = self
+                        .skill_table
+                        .skills
+                        .get(&skill)
+                        .and_then(|d| d.usage.clone())
+                    {
+                        skill_use::lands_on_item(self, net, world, &u, item, spellcraft, clock);
+                    }
                 }
                 Timer::EffectEnds { world, eid } => {
                     if !mounts::record_ends(self, net, world, eid) {
@@ -957,6 +1021,8 @@ impl<S: Store> Server<S> {
             .last_step
             .is_none_or(|t| clock.local.0 - t.0 >= spawn::STEP_SECONDS);
         self.saves.piece_begins();
+        login::checks_due(self, net, clock);
+        self.saves.piece_begins();
         if due {
             self.last_step = Some(clock.local);
             spawn::step(self, net, clock);
@@ -977,6 +1043,8 @@ impl<S: Store> Server<S> {
         market::look(self, net, clock);
         self.saves.piece_begins();
         storms::look(self, net, clock);
+        self.saves.piece_begins();
+        presence::views_owed(self, net, clock);
         self.saves.piece_begins();
         saves::end_of_pass(self, net, clock);
     }

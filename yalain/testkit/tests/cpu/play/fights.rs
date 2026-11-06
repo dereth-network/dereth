@@ -365,6 +365,76 @@ fn equipment_a_creature_drops_carries_a_least_level_of_its_own_by_the_creatures_
     }
 }
 
+/// Jewelry a creature leaves is worth what any treasure of its level is, whatever its template says
+/// (2017: the same bands, 198 pieces by their droppers' levels, against a template's 10).
+/// Behaviour: server.loot.treasure-value-by-level
+#[test]
+fn jewelry_a_creature_leaves_is_worth_what_treasure_of_its_level_is() {
+    let (mut h, b, _, _) = fight();
+    h.server.treasure.jewelry.insert(0x200);
+    if let Some(t) = h.server.catalog.templates.get_mut(&TEST_ITEM) {
+        t.props.set("Item_Value", yalain_content::Prop::Int(10));
+    }
+    assert!(h.run_until(200, |h| h.world_messages(b, 0).iter().any(
+        |m| matches!(m, ServerMessage::CreateObject(o) if o.weenie.entity_did == CORPSE)
+    )));
+    let values: Vec<_> = h
+        .server
+        .things
+        .by_id
+        .values()
+        .filter(|t| t.template == TEST_ITEM)
+        .map(|t| t.value)
+        .collect();
+    assert!(!values.is_empty(), "the corpse holds the piece");
+    for v in values {
+        assert!((1..=4).contains(&v), "a level 2 creature's: {v}");
+    }
+}
+
+/// A least level only its class says doesn't stop a drop having its own, and numbers by it; one its
+/// template sets does.
+/// Behaviour: server.loot.treasure-own-properties-over-a-class
+#[test]
+fn a_least_level_only_its_class_says_gives_way_to_a_drops_own() {
+    use yalain_content::{Prop, Props};
+    let dropped = |props: Props| {
+        let (mut h, b, _, _) = fight();
+        h.server.treasure.equipment.insert(0x200);
+        if let Some(t) = h.server.catalog.templates.get_mut(&TEST_ITEM) {
+            t.props = props;
+        }
+        assert!(h.run_until(200, |h| h.world_messages(b, 0).iter().any(
+            |m| matches!(m, ServerMessage::CreateObject(o) if o.weenie.entity_did == CORPSE)
+        )));
+        let mut own: Vec<_> = h
+            .server
+            .things
+            .by_id
+            .values()
+            .filter(|t| t.template == TEST_ITEM)
+            .map(|t| t.own)
+            .collect();
+        own.pop().expect("the corpse holds the item")
+    };
+    let mut armor = Props::default();
+    armor.set("Item_ArmorLevel", Prop::Int(10));
+    let class = dropped(
+        armor
+            .clone()
+            .with_class(&[("Usage_MinLevel", Prop::Int(15))]),
+    );
+    let least = class.min_level.expect("its own least level");
+    assert!((2..=5).contains(&least), "a level 2 creature's: {least}");
+    assert!(
+        class.made.and_then(|m| m.armor).is_some(),
+        "its own numbers"
+    );
+    armor.set("Usage_MinLevel", Prop::Int(15));
+    let set = dropped(armor);
+    assert_eq!((set.min_level, set.made), (None, None));
+}
+
 /// A treasure weapon, shield or piece of armor has numbers of its own by its level, where its template
 /// holds a placeholder: a weapon's damage near a made one's, its delay and vigor among the recorded;
 /// armor's rating; a robe's three slots; anything else nothing.

@@ -301,6 +301,26 @@ fn an_object_is_made_at_once_while_its_records_are_asked_for() {
     assert!(!c.data_download().requests.pending().is_empty());
 }
 
+/// Scripts look for an object in vain from its creation until the next upkeep.
+///
+/// Behaviour: data.cache.scripts-find-an-object-after-the-next-upkeep
+#[test]
+fn scripts_find_an_object_after_the_next_upkeep() {
+    let mut c = client(true);
+    let id = 0x8130_0000_1000_0001;
+    c.take_message(
+        NOW,
+        ServerMessage::CreateObject(CreateObject {
+            id,
+            ..CreateObject::default()
+        }),
+    );
+    let being_made = |c: &mut Client| c.with_host(|h| h.being_made.contains(&id));
+    assert_eq!(being_made(&mut c), Some(true));
+    c.upkeep();
+    assert_eq!(being_made(&mut c), Some(false));
+}
+
 /// An object is made from the records its creation read: they go into their caches, the records
 /// they name too, and the object holds them while it lives. The next object made from them finds
 /// them in memory and reads none; once the objects are destroyed, nothing holds them.

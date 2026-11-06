@@ -58,6 +58,8 @@ pub struct Items3d {
     target: u64,
     old_index: u32,
     facts: Facts,
+    /// The last answer heard from the world.
+    answer: Option<u64>,
 }
 
 impl Items3d {
@@ -89,6 +91,7 @@ impl Items3d {
             target: super::NO_OBJECT,
             old_index: 0,
             facts: facts.cloned().unwrap_or_default(),
+            answer: facts.and_then(|f| f.picked),
         }
     }
 
@@ -339,11 +342,16 @@ impl Child for Items3d {
     /// A frame: the scripts' answers kept; the world's field found once it is made.
     fn update(&mut self, ui: &mut Ui, view: &View<'_>, _out: &mut Vec<gameplay::Request>) {
         if let Some(f) = view.inventory {
-            if f.version != self.facts.version
-                || f.player != self.facts.player
-                || f.picked != self.facts.picked
-            {
+            if f.version != self.facts.version || f.player != self.facts.player {
+                let picked = self.facts.picked;
                 self.facts = f.clone();
+                self.facts.picked = picked;
+            }
+            // An answer counts when it comes: the last search's, still there as this one is
+            // asked, does not answer it.
+            if f.picked != self.answer {
+                self.answer = f.picked;
+                self.facts.picked = f.picked;
             }
         }
         if self.field.is_none() {

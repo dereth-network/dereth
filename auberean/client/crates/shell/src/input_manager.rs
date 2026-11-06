@@ -4,10 +4,13 @@
 //! - While the window is not the active one, nothing hears the devices: a press or a release, the
 //!   wheel, mouse motion or the pointer. The window going inactive lets go of everything held, so
 //!   nothing stays held. Where the pointer went is heard when the window is active again.
+//! - A window coming active takes up the devices only at the end of its pass over the window's
+//!   messages, so a button pressed before then, the click that brought it forward, is never heard,
+//!   nor is that press's release.
 //! - While the pointer is held nothing hears where it is, and taking hold of it puts it at the
 //!   middle of the display.
 
-use crate::input::Event;
+use crate::input::{Button, Event};
 
 /// The window's state as it decides what hears the devices.
 #[derive(Clone, Debug)]
@@ -16,6 +19,10 @@ pub struct InputManager {
     pointer_held: bool,
     /// Where the pointer went while the window was not active.
     missed: Option<(f32, f32)>,
+    /// The window has come active and its next frame has not yet come.
+    taking_up_devices: bool,
+    /// The buttons whose press was not heard, and so neither is their release.
+    unheard: Vec<Button>,
 }
 
 impl Default for InputManager {
@@ -25,6 +32,8 @@ impl Default for InputManager {
             active: true,
             pointer_held: false,
             missed: None,
+            taking_up_devices: false,
+            unheard: Vec::new(),
         }
     }
 }
@@ -36,6 +45,8 @@ impl InputManager {
     pub fn admit(&mut self, e: &Event) -> bool {
         match *e {
             Event::Focus(on) => {
+                self.taking_up_devices = on && !self.active;
+                self.unheard.clear();
                 self.active = on;
                 true
             }
@@ -44,12 +55,29 @@ impl InputManager {
                 false
             }
             Event::Pointer { .. } => !self.pointer_held,
+            Event::Button { button, down: true } if self.active && self.taking_up_devices => {
+                self.unheard.push(button);
+                false
+            }
+            Event::Button {
+                button,
+                down: false,
+            } if self.unheard.contains(&button) => {
+                self.unheard.retain(|b| *b != button);
+                false
+            }
             Event::Key { .. }
             | Event::Button { .. }
             | Event::Wheel { .. }
             | Event::Motion { .. } => self.active,
-            _ => true,
+            Event::Text(_) | Event::Resized { .. } | Event::Close => true,
         }
+    }
+
+    /// A frame begins: a window that came active has the devices from here on.
+    // D2-04924, D2-08335
+    pub fn frame_begins(&mut self) {
+        self.taking_up_devices = false;
     }
 
     /// The pointer's place to hear now that the window is active again, if it moved meanwhile.

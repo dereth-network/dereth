@@ -59,6 +59,10 @@ pub struct Own {
     pub hand: u32,
     /// The name table of the effect it is named for ("of the Inferno").
     pub suffix: Option<u32>,
+    /// The character it is bound to, having been used in combat (0: nobody).
+    pub bound_to: u64,
+    /// A recipe attuned it to whoever holds it.
+    pub attuned: bool,
 }
 
 /// What a treasure item drew of its look: the appearance table, and each key's value (no key, 0,
@@ -99,6 +103,8 @@ impl Own {
             && self.look.is_none()
             && self.hand == 0
             && self.suffix.is_none()
+            && self.bound_to == 0
+            && !self.attuned
     }
 }
 
@@ -690,7 +696,7 @@ pub fn endow<S: yalain_store::Store>(
         let set = s
             .catalog
             .get(template)
-            .is_some_and(|t| t.props.int("Usage_MinLevel").is_some());
+            .is_some_and(|t| t.props.sets_least_level());
         if !set {
             let least = min_level(&mut s.rng, base);
             own.min_level = Some(least);

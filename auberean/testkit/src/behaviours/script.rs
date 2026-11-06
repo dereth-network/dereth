@@ -181,6 +181,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "script.glue.a-hash-table-optimizes-only-a-size-that-does-not-suit",
+        says: "A hash table asked to optimize its size keeps a bucket count within a factor of two of its entries and answers no; otherwise it moves to the smallest count that holds them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-HASH-OPTIMIZE-GUARD"),
+        station: "auberean-glue::cpu::natives::a_hash_table_optimizes_only_a_size_that_does_not_suit",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "script.glue.a-line-of-sight-is-set-up-and-read",
         says: "A line of sight is set up through its natives as the engine's own: what it passes through copied, its test kind set, its start from a ray in a cell, a place and an offset, or one place to another across landblocks, objects added to pass through but the invalid id; after a test it answers whether it was unblocked or reached an unloaded landblock, its final ray and cell, and its end less the final cell's landblock offset.",
         since: RETAIL,
@@ -271,6 +279,22 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-STRINGINFO-TREE"),
         station: "auberean-glue::cpu::strings::a_string_reference_reads_itself_from_a_text_tree_by_its_keywords",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.glue.a-strings-case-changes-accented-letters-too",
+        says: "A string changes case as the C library does in the English locale: accented letters change too, and a letter with no single partner stays as it is.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-STRING-CASE-LOCALE"),
+        station: "auberean-glue::cpu::strings::a_strings_case_changes_accented_letters_too",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.glue.a-strings-float-is-read-as-the-c-library-reads-one",
+        says: "A string's leading float is read as the C library reads one: past white space, as far as a number goes, its exponent marked with e or d and read only with digits; the words for infinity and not-a-number read as zero.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-STRING-TO-FLOAT-WCSTOD"),
+        station: "auberean-glue::cpu::strings::a_strings_float_is_read_as_the_c_library_reads_one",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -1004,6 +1028,22 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "script.model.a-gift-whose-object-came-first-says-the-item",
+        says: "A gift whose object came in the frame of the answer to its move is called \"the item\" in the line about it; one the client had before is named.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-GIFT-LINE"),
+        station: "auberean-client-runtime::corpus::inventory::a_gift_whose_object_came_first_says_the_item",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "script.model.a-moves-answer-does-not-find-its-item-being-made",
+        says: "A move's answer asking for the item it moves finds nothing while the item is being made, and finds it after; it finds any other object, and another script finds the item at once.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-BEING-MADE"),
+        station: "auberean-client-runtime::cpu::scripts::lookup::a_moves_answer_does_not_find_its_item_being_made",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "script.model.a-physics-object-passes-requests-to-its-body",
         says: "What a script asks of an object's physics object (its speed or acceleration scale, \
                cloaking, reporting or ignoring collisions, looking at an object, a push, stopping \
@@ -1158,6 +1198,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "script.model.an-object-in-a-pack-keeps-what-its-scripts-set-of-its-body",
+        says: "An object in a pack has a body as one in the world does: what its scripts set of it as it is made stays for when it comes out. One the client was not sent has none.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CONTAINED-HAS-BODY"),
+        station: "auberean-client-runtime::cpu::scripts::physics_object::an_object_in_a_pack_keeps_what_its_scripts_set_of_its_body",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "script.model.an-object-without-a-template-derives-from-its-packages-qualities",
         says: "The qualities record an object's own qualities derive from is its entity template's \
                when its description names a template; with no template, its package's (the \
@@ -1196,6 +1244,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SCRIPT-MY-PACKAGE"),
         station: "auberean-client-runtime::cpu::scripts::distributor::an_objects_package_is_its_scripts_or_none",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.model.an-objects-position-is-its-own",
+        says: "A script asking an object's position gets its own: another object's cell and place while it is in the world, the player's body for the player, the zero position for one with no place.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-OBJECT-OWN-POSITION"),
+        station: "auberean-client-runtime::cpu::scripts::physics_object::an_objects_position_is_its_own",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -1646,6 +1702,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-CQUALITY-CLOCK-STRINGS"),
         station: "auberean-client-runtime::cpu::scripts::game_time::the_clock_writes_the_date_and_time_as_string_references",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.natives.two-options-are-on-with-their-bit-clear",
+        says: "The pet panel's and fellows on the map's options read their bit the other way: \
+               a cleared profile has them on, and turning one off sets its bit.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-OPTIONS-OFF-WHEN-SET"),
+        station: "auberean-glue::cpu::options::two_options_are_on_with_their_bit_clear",
         tier: Tier::Cpu,
     },
     behaviour! {

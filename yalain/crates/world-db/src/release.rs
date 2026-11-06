@@ -20,7 +20,8 @@
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use sha2::{Digest, Sha256};
 
@@ -288,6 +289,77 @@ pub fn archive(files: &Files, manifest: &str) -> Vec<u8> {
     entries.push(("manifest.json", manifest.as_bytes()));
     entries.sort_by(|a, b| a.0.cmp(b.0));
     stored_zip(&entries)
+}
+
+/// The SHA-256 of the archive `files` were unpacked from, `manifest.json` among them, so that a
+/// release's folder can be held to the hash of its archive. `None` with no manifest: no release's.
+#[must_use]
+pub fn unpacked_sha256(files: &Files) -> Option<String> {
+    let mut rest = files.clone();
+    let manifest = rest.remove("manifest.json")?;
+    Some(sha256_hex(&archive(&rest, &manifest)))
+}
+
+/// Every file of a release's folder, as a fetch unpacked them.
+#[must_use]
+pub fn unpacked(dir: &Path) -> Option<Files> {
+    let mut out = Files::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        for e in std::fs::read_dir(&d).ok()? {
+            let p = e.ok()?.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else {
+                let rel = p
+                    .strip_prefix(dir)
+                    .ok()?
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                out.insert(rel, std::fs::read_to_string(&p).ok()?);
+            }
+        }
+    }
+    Some(out)
+}
+
+/// A folder holds the files of the archive with this SHA-256.
+///
+/// # Errors
+/// What is there instead, in words.
+pub fn holds_archive(dir: &Path, sha: &str) -> Result<(), String> {
+    if !dir.join("world.toml").is_file() {
+        return Err(format!("{} holds no world", dir.display()));
+    }
+    let actual = unpacked(dir)
+        .and_then(|files| unpacked_sha256(&files))
+        .ok_or_else(|| format!("{} is not a release's folder", dir.display()))?;
+    if actual == sha {
+        Ok(())
+    } else {
+        Err(format!(
+            "{} is not that release: its files hash to {actual}, the release's to {sha}",
+            dir.display()
+        ))
+    }
+}
+
+/// The pinned release's folder in the per-user cache, held to the pin's SHA-256 so that nothing else
+/// passes under its name, once a run.
+///
+/// # Errors
+/// No cache folder, or what [`holds_archive`] says.
+pub fn pinned_in_cache() -> Result<PathBuf, String> {
+    static CHECKED: OnceLock<Result<PathBuf, String>> = OnceLock::new();
+    CHECKED
+        .get_or_init(|| {
+            let dir = cache_dir_for(Host::current(), |n| std::env::var_os(n))
+                .ok_or("no per-user cache folder")?
+                .join(PINNED_TAG);
+            holds_archive(&dir, PINNED_ZIP_SHA256)?;
+            Ok(dir)
+        })
+        .clone()
 }
 
 /// The DOS date of 1980-01-01 and the time 00:00.

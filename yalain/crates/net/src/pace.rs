@@ -3,7 +3,7 @@
 //!
 //! Sent all at once, such a message fills the client's socket and loses most of it, and the client
 //! asks for lost packets again only 114 at a time, once every 0.6 s, while a server keeps a sent
-//! packet for resending 120 s and its last 4,096 at most: the download never completes. So a
+//! packet for resending 120 s and only so many at most: the download never completes. So a
 //! message longer than one interval's budget leaves the connection's own queue for this one and is
 //! sent from it a part at a time:
 //!
@@ -37,12 +37,17 @@ pub const BYTES_PER_INTERVAL: usize = 32 * 1024;
 
 /// The most sequenced packets a server has out unacknowledged before its large messages wait: ten
 /// of the client's requests to send again, which it makes one each 0.6 s, so a whole window lost
-/// is asked for again within six seconds, far inside the time and the 4,096 packets a server keeps
+/// is asked for again within six seconds, far inside the time and the packets a server keeps
 /// for resending.
 #[allow(clippy::cast_possible_truncation)]
 pub const WINDOW: u32 = 10 * MAX_NAK_IDS as u32;
 
 const _: () = assert!((WINDOW as usize) < SENT_CACHE_MAX_PACKETS);
+
+/// The most fragments a connection may have waiting before it is closed: about 45 MB, above what a
+/// download's own limit and one more record of it ever leave waiting, so only a client that has
+/// stopped taking what it is sent comes to it.
+pub const MOST_WAITING: usize = 100_000;
 
 /// The default rate: the January 2013 servers' ([`BYTES_PER_INTERVAL`] each half second).
 #[allow(clippy::cast_possible_truncation)]
@@ -133,6 +138,12 @@ impl Pace {
     #[must_use]
     pub fn waiting(&self) -> usize {
         self.fragments.len()
+    }
+
+    /// How many fragments of one queue are waiting.
+    #[must_use]
+    pub fn waiting_on(&self, queue: u16) -> usize {
+        self.by_queue.get(&queue).copied().unwrap_or(0)
     }
 
     /// The connection is in interval `interval`: a new one starts its budget again.

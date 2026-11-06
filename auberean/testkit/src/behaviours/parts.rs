@@ -157,6 +157,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "parts.holding.a-carried-system-follows-the-first-groups-bone",
+        says: "A particle system carried at a holding location follows the first part group's \
+               bone of the location's number, whichever group names the location, and no bone \
+               when that group has none of that number; with no such location, its first bone.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PARTS-CARRIED-BONE"),
+        station: "auberean-animation::dat::holding::a_carried_system_follows_the_first_groups_bone_whichever_group_names_the_place",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "parts.holding.the-human-male-holds-things-where-its-setups-say",
         says: "A body holds a thing at the holding location of the first part group whose setup \
                names that kind, on its bone as the body is posed; a bone kind is found at the first \

@@ -31,6 +31,7 @@ fn person(origin: [f32; 3]) -> ContentObject {
         object: Some(PERSON),
         template: TEMPLATE,
         description: Description {
+            name_text: None,
             package: 0x13A4,
             look: 0x1F00_0100,
             enter_fx: 0,
@@ -299,8 +300,11 @@ fn a_step_says_its_line_then_the_lines_heard_with_its_update_in_order() {
             effects_last: false,
             wants: None,
             fellows: false,
+            levels: None,
+            xp_share: 0.0,
         }],
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let (mut h, b, me) = world(talk, quests);
     let from = use_person(&mut h, b, me);

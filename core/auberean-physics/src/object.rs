@@ -391,6 +391,14 @@ fn marks_ethereal(collections: &[Arc<PropertyCollection>]) -> bool {
         })
 }
 
+/// Does a whole scale differ between its axes, by 0.0002 or more? A mover meets nothing of an object
+/// with a physics tree at such a scale: it walks through it, and nothing stands on it.
+// D2-06150, D2-06214
+#[must_use]
+pub fn uneven(s: Vec3) -> bool {
+    !((s.x - s.y).abs() < 0.0002 && (s.x - s.z).abs() < 0.0002)
+}
+
 /// The solid parts of a placed entity of the world's records: one for each part of its look whose
 /// mesh has a physics tree (every part of every part group, with the meshes its look swaps in),
 /// every one standing where the entity stands, in `cell`, at the object's scale (the entity's

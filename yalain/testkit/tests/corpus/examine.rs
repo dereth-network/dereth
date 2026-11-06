@@ -349,6 +349,20 @@ fn crafter_in(bytes: &[u8], request_len: usize) -> Option<String> {
     None
 }
 
+/// Is a template's a shield: a weapon's numbers and a rating?
+fn is_shield(p: &yalain_content::Props) -> bool {
+    p.get("Weapon_Damage").is_some() && p.get("Item_ArmorLevel").is_some()
+}
+
+/// A template's properties with what its class says in code, as the server reads them.
+fn with_class(inst: &Install, template: u32, p: yalain_content::Props) -> yalain_content::Props {
+    let class = yalain_content::Props::class_of(template, &|id| entity(inst, id))
+        .map_or_else(Vec::new, |c| {
+            yalain_world_db::install::class_properties(&inst.lib, c)
+        });
+    p.with_class(&class)
+}
+
 /// Every item profile 2017 sent for an item made from a template (its create with no name of its
 /// own), wherever the item was, is the profile built from the template's properties and look (or,
 /// for the human starting weapons, their classes' facts), the effects the template names (read
@@ -387,6 +401,7 @@ fn item_profiles_are_built_from_their_templates_as_2017_built_them() {
     let mut icons: HashMap<u32, Vec<[u32; 3]>> = HashMap::new();
     let mut tally: BTreeMap<String, usize> = BTreeMap::new();
     let mut bow = (0, 0);
+    let mut shields = 0;
     let mut effects = HashMap::new();
     let mut session = -1;
     while let Some(r) = rows.next().expect("a row") {
@@ -445,7 +460,12 @@ fn item_profiles_are_built_from_their_templates_as_2017_built_them() {
         let p = props
             .entry(i.template)
             .or_insert_with(|| {
-                yalain_content::Props::of(i.template, &|id| entity(inst, id), &prop_name)
+                let p = yalain_content::Props::of(i.template, &|id| entity(inst, id), &prop_name);
+                if is_shield(&p) {
+                    with_class(inst, i.template, p)
+                } else {
+                    p
+                }
             })
             .clone();
         let is_item = profile::starting_weapon(i.template).is_some()
@@ -505,6 +525,16 @@ fn item_profiles_are_built_from_their_templates_as_2017_built_them() {
                 "differs otherwise".into()
             }
         };
+        if is_shield(&p) {
+            let effects = what.starts_with("effects");
+            assert!(
+                exact || effects,
+                "a plain shield {:#x}: {what}: {}",
+                i.template,
+                first_difference(bytes, &ours)
+            );
+            shields += usize::from(exact);
+        }
         *tally.entry(what).or_default() += 1;
     }
     println!("2017 item profiles (template items) against ours:");
@@ -512,6 +542,7 @@ fn item_profiles_are_built_from_their_templates_as_2017_built_them() {
         println!("  {n:7}  {k}");
     }
     println!("  the human starting bow: {} of {}", bow.0, bow.1);
+    println!("  plain shields: {shields}");
     let built = tally
         .get("as built from the template")
         .copied()
@@ -519,6 +550,7 @@ fn item_profiles_are_built_from_their_templates_as_2017_built_them() {
     let other = tally.get("differs otherwise").copied().unwrap_or(0);
     assert!(built > 0);
     assert_eq!(bow.0, bow.1, "the starting bow's profiles");
+    assert!(shields >= 6, "plain shields' profiles as built: {shields}");
     // The residue measured on 2026-10-29 (322 of 4,272): descriptions their tables lack, durability
     // worn by use, stacks' plural names, jewelry's and shields' stats.
     assert!(
@@ -946,7 +978,11 @@ fn made_items_profiles_are_built_from_their_recipes_item_level_as_2017_built_the
             continue;
         }
         let def = crafting.recipes.get(&recipe).cloned().expect("read");
-        let props = yalain_content::Props::of(template, &|id| entity(inst, id), &prop_name);
+        let props = with_class(
+            inst,
+            template,
+            yalain_content::Props::of(template, &|id| entity(inst, id), &prop_name),
+        );
         let facts_of = facts(template, &|id| entity(inst, id), &inst.ids);
         compared += 1;
         // The outcome it came from: of those making this template, whichever builds what was sent.
@@ -1080,10 +1116,10 @@ fn made_items_profiles_are_built_from_their_recipes_item_level_as_2017_built_the
     for (k, n) in &list {
         println!("  {n:6}  {k}");
     }
-    // The residue measured on 2026-11-04 (4 of 330): a chest piece a point off the curve, a helm
-    // dyed since, a knife made as another making was asked for, a shield's races.
+    // The residue measured on 2026-11-05 (3 of 330): a chest piece a point off the curve, a helm
+    // dyed since, a knife made as another making was asked for.
     assert!(
-        compared == built || compared - built <= 4,
+        compared == built || compared - built <= 3,
         "made items' profiles built: {built} of {compared}"
     );
 }

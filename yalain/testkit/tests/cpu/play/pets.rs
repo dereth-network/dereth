@@ -37,7 +37,7 @@ const USE_REFUSED: u32 = 0x8204_001A;
 const LASHER_NUMBERS: [i32; 6] = [0x80_0000 | 0x20, 0, 0x0220_0010, 0, 0x42A0_0090, 0];
 
 /// Nature's Aid, its pet effect and the Lasher, as the data defines them.
-fn with_natures_aid(h: &mut Harness) {
+pub(super) fn with_natures_aid(h: &mut Harness) {
     let usage = Usage {
         min_range: -1.0,
         max_range: 1.0,
@@ -356,6 +356,63 @@ fn a_pet_renamed_is_named_in_the_written_form_and_the_same_name_shows_nothing_ne
     );
     assert!(h.functions(b, from).contains(&function::UPDATE_NAME));
     assert!(!shown(&h, from), "the same name: nothing shown");
+}
+
+/// A name past the longest, or holding a digit or a mark, is refused with the client's own words and
+/// changes nothing; the longest a name may be, an accented letter and a space are taken, and shown.
+/// Behaviour: server.pets.a-name-can-be-refused
+#[test]
+fn a_pet_name_too_long_or_not_allowed_is_refused_and_the_pet_keeps_its_name() {
+    let mut h = Harness::new();
+    let (b, _, pet) = with_lasher(&mut h);
+    let name = |n: &str| {
+        let mut g = yalain_world::graph::Builder::new();
+        #[allow(clippy::cast_possible_truncation)]
+        g.native(
+            auberean_script::native_object::native_type::WP_STRING as u16,
+            auberean_script::native_object::NativeObject::Text(n.encode_utf16().collect()),
+        );
+        Arg::Object(g.graph())
+    };
+    let shown = |h: &Harness, from: usize| {
+        h.world_messages(b, from).iter().any(|m| {
+            matches!(m, ServerMessage::UpdateStringInfoVisual(q)
+                if q.object.id == pet && q.quality == pets::NAME_QUALITY)
+        })
+    };
+    let ok = "q".repeat(26);
+    let long = "q".repeat(27);
+    for (typed, refused) in [
+        (ok.as_str(), None),
+        ("bärbel", None),
+        ("pet eins", None),
+        (long.as_str(), Some(pets::text::NAME_TOO_LONG)),
+        ("pet1", Some(pets::text::NAME_NOT_ALLOWED)),
+        ("2", Some(pets::text::NAME_NOT_ALLOWED)),
+        ("<b>x", Some(pets::text::NAME_NOT_ALLOWED)),
+        ("   ", Some(pets::text::NAME_NOT_ALLOWED)),
+    ] {
+        let from = order(&mut h, b, function::NAME, &[name(typed), Arg::LongInt(pet)]);
+        let answered = h.functions(b, from).contains(&function::UPDATE_NAME);
+        let told = h.texts(b, from);
+        match refused {
+            None => {
+                assert!(answered, "{typed:?} taken");
+                assert!(shown(&h, from), "{typed:?} shown");
+                assert!(told.is_empty(), "{typed:?} refused: {told:?}");
+            }
+            Some(why) => {
+                assert!(!answered, "{typed:?} not taken");
+                assert!(!shown(&h, from), "{typed:?} not shown");
+                assert_eq!(told, vec![(1, why.0)], "{typed:?}");
+            }
+        }
+    }
+    assert_eq!(
+        h.server.pets.by_id[&pet].name.as_deref(),
+        Some("Pet Eins"),
+        "the last name it took"
+    );
 }
 
 /// A pet ordered to die (0: all) is taken off its owner's list and falls as a creature does, in
@@ -949,7 +1006,7 @@ fn a_pets_strike_reaching_a_creature_dead_by_then_does_nothing() {
     yalain_world::combat::thing_strike_lands(
         &mut h.server,
         &mut h.net,
-        pet,
+        (pet, 0),
         beetle,
         yalain_world::effects::Harm::plain(5),
         clock,
@@ -1110,6 +1167,7 @@ fn a_pet_goes_with_its_owner_through_a_portal() {
             object: Some(PORTAL),
             template: 0x4700_1154,
             description: yalain_content::Description {
+                name_text: None,
                 package: 0x1A00,
                 look: 0x1F00_0ED5,
                 enter_fx: 0,
@@ -1431,4 +1489,110 @@ fn a_dead_lasher_keeps_its_kingdom_in_its_dead_physics_type() {
         })
         .collect();
     assert_eq!(physics, [0x1080_0030]);
+}
+
+/// Another player's pet goes as its owner: while the owner may not be harmed, a pet's order at it is
+/// refused and its owner's own blow is too, and it takes nothing; where the two may fight, it can be
+/// fought.
+/// Behaviour: server.pets.another-players-pet-goes-as-its-owner
+#[test]
+fn another_players_pet_takes_no_harm_while_its_owner_may_not_be_harmed() {
+    let mut h = Harness::new();
+    with_natures_aid(&mut h);
+    let (a, me) = ranger(&mut h, "one", "Kestrel");
+    let (b, _) = ranger(&mut h, "two", "Merrow");
+    let pet_of_client = |h: &mut Harness, c: usize| {
+        let from = summon(h, c, 1);
+        h.calls(c, from)
+            .iter()
+            .find(|(f, _)| *f == function::ADD)
+            .and_then(|(_, v)| pet_of(v))
+            .expect("a pet added")
+    };
+    let mine = pet_of_client(&mut h, a);
+    let theirs = pet_of_client(&mut h, b);
+    let health = |h: &Harness, id: u64| h.server.things.get(id).map_or(0, |t| t.health);
+    let refused = |h: &Harness, from: usize| {
+        h.functions(a, from)
+            .contains(&yalain_world::combat::function::BASIC_ATTACKS_FAILED)
+    };
+    let whole = health(&h, theirs);
+    let from = order(&mut h, a, function::ATTACK, &[Arg::LongInt(theirs)]);
+    assert!(refused(&h, from), "the order refused");
+    h.run(400);
+    assert_eq!(health(&h, theirs), whole, "its pet leaves it alone");
+    let c = h.server.things.get(mine).and_then(|t| t.creature.as_ref());
+    assert_ne!(
+        c.and_then(|c| c.target),
+        Some(theirs),
+        "and is not after it"
+    );
+    let start = yalain_world::combat::function::START_ATTACK;
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .expect("in")
+        .0;
+    let from = h.bots[a].inbox.len();
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &server_call(start, &[Arg::LongInt(theirs)]),
+    );
+    h.run(4);
+    assert!(refused(&h, from), "its owner's own blow refused at once");
+    assert!(
+        h.server.players[&world].attacking.is_none(),
+        "no attack begun"
+    );
+    h.run(400);
+    assert_eq!(health(&h, theirs), whole, "nor does its owner touch it");
+    // Its owner's blows stop as soon as the two may no longer fight.
+    for p in h.server.players.values_mut() {
+        p.conflict = 4;
+    }
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &server_call(start, &[Arg::LongInt(theirs)]),
+    );
+    h.run(4);
+    assert!(
+        h.server.players[&world].attacking.is_some(),
+        "an attack begun"
+    );
+    for p in h.server.players.values_mut() {
+        p.conflict = 1;
+    }
+    let from = h.bots[a].inbox.len();
+    h.run(40);
+    assert!(refused(&h, from), "its next blow refused");
+    assert!(
+        h.server.players[&world].attacking.is_none(),
+        "the attack ended"
+    );
+    if let Some(t) = h.server.things.get_mut(theirs) {
+        t.health = whole;
+    }
+    // Where all may fight, it is fought.
+    for p in h.server.players.values_mut() {
+        p.conflict = 4;
+    }
+    let from = order(&mut h, a, function::ATTACK, &[Arg::LongInt(theirs)]);
+    assert!(!refused(&h, from), "the order taken");
+    h.run(400);
+    assert!(health(&h, theirs) < whole, "and it is hurt");
+    // Peace again: the pet already after it stops.
+    for p in h.server.players.values_mut() {
+        p.conflict = 1;
+    }
+    h.run(100);
+    let c = h.server.things.get(mine).and_then(|t| t.creature.as_ref());
+    assert_ne!(
+        c.and_then(|c| c.target),
+        Some(theirs),
+        "peace ends the fight"
+    );
 }

@@ -80,6 +80,8 @@ pub struct WorldTables {
     pub weapons: std::collections::HashMap<String, u32>,
     /// What the database says of those weapons beyond their templates.
     pub weapon_rules: std::collections::HashMap<String, yalain_content::WeaponRule>,
+    /// What creatures' death effects make.
+    pub death_spawns: std::collections::HashMap<String, yalain_content::DeathSpawn>,
     /// The operator's banned names read again, when the server was given a list.
     pub names: Option<NameRules>,
     /// What the install says of the placed objects' packages and templates, read again with
@@ -87,6 +89,11 @@ pub struct WorldTables {
     pub kinds: Option<PlacedKinds>,
     /// The ground under the camps, read again with them, when the host read it.
     pub ground: Option<Box<dyn Ground + Send>>,
+    /// The files clients' requests for records are served from, opened again through the world's
+    /// overlay as it now is, when the host opened them.
+    pub files: Option<Box<dyn crate::download::DataFiles + Send>>,
+    /// The world's overlay as clients are patched to it, as it now is, with those files.
+    pub patch: Option<crate::world_patch::WorldPatch>,
 }
 
 /// What the install says of the placed objects' script packages and templates: which are
@@ -271,6 +278,7 @@ impl<S: Store> Server<S> {
         r.note(table::WEAPONS, changed, true);
         self.creature_weapons = t.weapons;
         self.creature_weapon_rules = t.weapon_rules;
+        self.death_spawns = t.death_spawns;
 
         if let Some(names) = t.names {
             r.note(table::BANNED_NAMES, names != self.names, true);
@@ -318,6 +326,10 @@ impl<S: Store> Server<S> {
 
         if let Some(g) = t.ground {
             self.ground = Some(g);
+        }
+        if let Some(f) = t.files {
+            self.data = Some(f);
+            self.world_patch = t.patch.map(std::sync::Arc::new);
         }
         let changed = take_camps(self, net, clock, t.spawns);
         r.note(table::CAMPS, changed.is_some(), true);

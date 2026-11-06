@@ -117,6 +117,8 @@ pub struct ItemState {
     pub own: crate::treasure::Own,
     /// Its own permanent effects (a made item's): each saved state and the spellcraft it is at.
     pub enchantments: Vec<(u32, f32)>,
+    /// The effects skills put on it for a while.
+    pub timed: Vec<crate::things::TimedEffect>,
     /// The value it was given (a treasure item's draw, a made item's), 0 when its template's is
     /// its value.
     pub value: u32,
@@ -165,8 +167,8 @@ pub struct PlayState {
 /// nothing after the skills; 3 nothing after the recipes; 4 nothing after the scenes; 5 nothing
 /// after the skills' last uses; 6 an item's instance stamp and maker only; 7 nothing after an
 /// item's durability; 8 nothing after a map's place; 9 nothing after an item's bonuses; 10 nothing
-/// after an item's binding; 11 nothing after the hero credits; 12 nothing after the time played; 13 nothing after the cloak; 14 nothing after the suffix; 15 no value of an item's own; 16 no look an item drew, nor the hand it was last in; 17 no effect an item is named for).
-const VERSION: u32 = 18;
+/// after an item's binding; 11 nothing after the hero credits; 12 nothing after the time played; 13 nothing after the cloak; 14 nothing after the suffix; 15 no value of an item's own; 16 no look an item drew, nor the hand it was last in; 17 no effect an item is named for; 18 not whom an item is bound to, nor that a recipe attuned it; 19 no effects a skill put on an item).
+const VERSION: u32 = 20;
 
 /// Do these bytes say a newer build kept them (a world that went back to an older build)?
 #[must_use]
@@ -195,6 +197,12 @@ const OWN_LOOK: u32 = 0x100;
 const OWN_HAND: u32 = 0x200;
 /// An item's own property: the effect it is named for.
 const OWN_SUFFIX: u32 = 0x400;
+/// Holds whom it is bound to.
+const OWN_BOUND_TO: u32 = 0x800;
+/// A recipe attuned it.
+const OWN_ATTUNED: u32 = 0x1000;
+/// Holds the effects skills put on it.
+const OWN_TIMED: u32 = 0x2000;
 
 /// An item's durability as kept: none (never worn) is a value no durability takes.
 const UNWORN: u32 = u32::MAX;
@@ -298,6 +306,7 @@ impl ItemState {
             binds_on_use: t.binds_on_use,
             own: t.own,
             enchantments: t.enchantments.clone(),
+            timed: t.timed.clone(),
             value: t.value,
             inscription: t.inscription.clone(),
         }
@@ -313,6 +322,7 @@ impl ItemState {
         item.binds_on_use = self.binds_on_use;
         item.own = self.own;
         item.enchantments.clone_from(&self.enchantments);
+        item.timed.clone_from(&self.timed);
         item.value = self.value;
         item.inscription.clone_from(&self.inscription);
         // A made item saved before an item's own value was kept has it in what its level gave it.
@@ -390,7 +400,10 @@ impl ItemState {
             }
             | if own.look.is_some() { OWN_LOOK } else { 0 }
             | if own.hand != 0 { OWN_HAND } else { 0 }
-            | if own.suffix.is_some() { OWN_SUFFIX } else { 0 };
+            | if own.suffix.is_some() { OWN_SUFFIX } else { 0 }
+            | if own.bound_to != 0 { OWN_BOUND_TO } else { 0 }
+            | if own.attuned { OWN_ATTUNED } else { 0 }
+            | if self.timed.is_empty() { 0 } else { OWN_TIMED };
         w32(out, has);
         if let Some(v) = own.min_level {
             w32(out, v.cast_unsigned());
@@ -441,6 +454,17 @@ impl ItemState {
         if let Some(table) = own.suffix {
             w32(out, table);
         }
+        if own.bound_to != 0 {
+            out.extend_from_slice(&own.bound_to.to_le_bytes());
+        }
+        if !self.timed.is_empty() {
+            w32(out, u32::try_from(self.timed.len()).unwrap_or(0));
+            for e in &self.timed {
+                w32(out, e.state);
+                w32(out, e.spellcraft.to_bits());
+                out.extend_from_slice(&e.until.to_bits().to_le_bytes());
+            }
+        }
     }
 
     fn read(r: &mut In<'_>, version: u32) -> Option<Self> {
@@ -475,6 +499,7 @@ impl ItemState {
         let binds_on_use = version >= 10 && r.u32()? != 0;
         let mut own = crate::treasure::Own::default();
         let mut enchantments = Vec::new();
+        let mut timed = Vec::new();
         let mut value = 0;
         let mut inscription = None;
         if version >= 11 {
@@ -525,6 +550,19 @@ impl ItemState {
             if has & OWN_SUFFIX != 0 {
                 own.suffix = Some(r.u32()?);
             }
+            if has & OWN_BOUND_TO != 0 {
+                own.bound_to = r.u64()?;
+            }
+            own.attuned = has & OWN_ATTUNED != 0;
+            if has & OWN_TIMED != 0 {
+                for _ in 0..r.u32()? {
+                    timed.push(crate::things::TimedEffect {
+                        state: r.u32()?,
+                        spellcraft: r.f32()?,
+                        until: r.f64()?,
+                    });
+                }
+            }
         }
         Some(Self {
             id,
@@ -536,6 +574,7 @@ impl ItemState {
             binds_on_use,
             own,
             enchantments,
+            timed,
             value,
             inscription,
         })

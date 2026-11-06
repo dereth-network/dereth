@@ -99,7 +99,7 @@ fn a_shop_shows_its_sales_and_buys_them() {
 
     // The axe selected and bought: one may be bought.
     let out = w.press(r[0], button_id::LEFT);
-    assert!(out.contains(&Request::Select(AXE)), "{out:?}");
+    assert!(out.contains(&Request::SetSelection(AXE)), "{out:?}");
     assert!(!w.ghosted(purchase));
     w.shop.version = 1;
     w.shop.max_purchase.insert(AXE, 1);
@@ -249,10 +249,13 @@ fn consignments_are_collected_put_up_and_restocked() {
     let ore = w.pack_icon(ORE);
     w.drag(ore, rows[0]);
     let (_, out) = w.split(10);
+    assert!(dialog(&out).is_none(), "it waits for the name: {out:?}");
+    let out = answer_name(&mut w, 10, "10 Ore");
     let (q, text) = dialog(&out).expect("the restock question");
+    assert!(text.contains("10 Ore"), "{text}");
     assert!(
-        text.contains('6'),
-        "ten at twelve with a five-hundredths charge: {text}"
+        text.contains('7'),
+        "ten at twelve with a five-hundredths charge just over its decimal value: {text}"
     );
     let out = w.tick(&[answer(q, true)]);
     assert_eq!(
@@ -286,4 +289,65 @@ fn consignments_are_collected_put_up_and_restocked() {
         }]
     );
     assert!(!w.shown(window), "put up, hidden");
+}
+
+/// Part of a stack is called by its name for that many, which the scripts answer: the new-sale
+/// window shows it once it comes and its question says it; a restock's question waits for it.
+///
+/// Behaviour: ui.shop.part-of-a-stack-is-named-for-its-amount
+#[test]
+fn part_of_a_stack_is_named_for_its_amount() {
+    let name_asked = |out: &[Request], quantity| {
+        out.contains(&Request::Inventory(
+            auberean_ui_game::inventory::Request::NameAmount {
+                item: ORE,
+                quantity,
+            },
+        ))
+    };
+    let mut w = World::new();
+    w.shop.version = 1;
+    w.shop.consignment_charge = 0.05;
+    let mut mine = store();
+    mine.name = StringInfo::literal("My stall");
+    mine.sales = vec![sale(ORE, 1, "Ore", 5, 0)];
+    w.tick(&[said(
+        notice::VIEW_CONSIGNMENT,
+        vec![0],
+        vec![Some(Record::Store(mine))],
+    )]);
+    let field = w.el("Consignment");
+
+    // A new sale of three of them.
+    w.click(w.under(field, "NewConsignmentButton"));
+    let window = w.el("NewSaleField");
+    let ore = w.pack_icon(ORE);
+    w.drag(ore, w.under(window, "NewSale"));
+    let (_, out) = w.split(3);
+    assert!(name_asked(&out, 3), "{out:?}");
+    assert_eq!(w.text(w.under(window, "NewSaleDesc")), "", "not known yet");
+    answer_name(&mut w, 3, "3 Ore");
+    assert_eq!(w.text(w.under(window, "NewSaleDesc")), "3 Ore");
+    let price = w.under(window, "NewSalePrice");
+    w.ui.set_text(price, "7");
+    let out = w.click(w.under(window, "AddSaleButton"));
+    let (q, text) = dialog(&out).expect("the sale question");
+    assert!(text.contains("3 Ore"), "{text}");
+    w.tick(&[answer(q, false)]);
+    w.click(w.under(window, "NewSaleCloseButton"));
+
+    // All of them need no asking.
+    w.click(w.under(field, "NewConsignmentButton"));
+    let ore = w.pack_icon(ORE);
+    w.drag(ore, w.under(window, "NewSale"));
+    let (_, out) = w.split(12);
+    assert!(!name_asked(&out, 12), "{out:?}");
+    assert_eq!(w.text(w.under(window, "NewSaleDesc")), "Ore");
+}
+
+/// The scripts answer what the ore is called for a number of it.
+fn answer_name(w: &mut World, quantity: u32, name: &str) -> Vec<Request> {
+    w.inventory.amount_name = Some((ORE, quantity, name.to_owned()));
+    w.inventory.version += 1;
+    w.tick(&[])
 }

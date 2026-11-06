@@ -23,14 +23,15 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
-use athenaeum_foundry::edit::{NewKind, NewRow};
+use athenaeum_foundry::edit::{ClearingShape, NewKind, NewRow, NEW_CLEARING};
+use athenaeum_foundry::overlay::outline;
 use athenaeum_foundry::{Entry, Layer, Session};
 use dereth_builder::camera::{FlyCamera, Held};
 use dereth_primitives::num::math;
 use dereth_primitives::Vec3;
 use winit::keyboard::KeyCode;
 use yalain_world_db::compile::{rotation_heading, Install};
-use yalain_world_db::rows::{ObjectKind, Prov, Row, Source};
+use yalain_world_db::rows::{At, Clearing, ObjectKind, Prov, Row, Source};
 use yalain_world_db::{layer, Problem};
 
 use crate::characters::Recipe;
@@ -131,6 +132,69 @@ struct Grip {
     facing: f32,
 }
 
+/// A clearing being drawn: the ground where the press was, and under the pointer now.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Drawing {
+    from: [f32; 3],
+    to: [f32; 3],
+}
+
+/// The most a clearing's radius or side may be, meters.
+const CLEARING_MOST: f32 = 240.0;
+/// What is drawn in less than this many meters is a click: a clearing of the usual size.
+const CLEARING_LEAST: f32 = 1.0;
+
+/// A clearing drawn on the world's grid: its middle, and its shape.
+fn drawn_clearing(d: Drawing, rectangle: bool) -> ([f32; 3], ClearingShape) {
+    let (dx, dy) = (d.to[0] - d.from[0], d.to[1] - d.from[1]);
+    if rectangle {
+        let side = |n: f32| n.abs().clamp(CLEARING_LEAST, CLEARING_MOST);
+        if dx.abs() < CLEARING_LEAST && dy.abs() < CLEARING_LEAST {
+            let size = [NEW_CLEARING * 2.0, NEW_CLEARING * 2.0];
+            return (d.from, ClearingShape::Rectangle { size, heading: 0.0 });
+        }
+        let middle = [d.from[0] + dx / 2.0, d.from[1] + dy / 2.0, d.from[2]];
+        let size = [side(dx), side(dy)];
+        return (middle, ClearingShape::Rectangle { size, heading: 0.0 });
+    }
+    let radius = math::hypotf(dx, dy);
+    let radius = if radius < CLEARING_LEAST {
+        NEW_CLEARING
+    } else {
+        radius.min(CLEARING_MOST)
+    };
+    (d.from, ClearingShape::Round { radius })
+}
+
+/// A clearing of this shape, as a row to show.
+fn clearing_of(shape: ClearingShape) -> Clearing {
+    let (radius, size, heading) = match shape {
+        ClearingShape::Round { radius } => (Some(radius), None, None),
+        ClearingShape::Rectangle { size, heading } => (None, Some(size), Some(heading)),
+    };
+    Clearing {
+        key: String::new(),
+        at: At {
+            x: 0.0,
+            y: 0.0,
+            z: None,
+        },
+        heading,
+        radius,
+        size,
+        prov: Prov::AUTHORED,
+    }
+}
+
+/// Whether a row has a way it faces.
+fn turns(row: &Row) -> bool {
+    match row {
+        Row::Object(_) | Row::Place(_) => true,
+        Row::Clearing(c) => c.size.is_some(),
+        _ => false,
+    }
+}
+
 /// Which rows the list and the world show.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Shown {
@@ -138,6 +202,7 @@ struct Shown {
     objects: bool,
     camps: bool,
     places: bool,
+    clearings: bool,
     only_world: bool,
 }
 
@@ -151,6 +216,7 @@ pub fn kind_word(row: &Row) -> &'static str {
         Row::Object(_) => "object",
         Row::Camp(_) => "camp",
         Row::Place(_) => "place",
+        Row::Clearing(_) => "clearing",
         _ => "row",
     }
 }
@@ -179,6 +245,7 @@ fn color_of(row: &Row) -> egui::Color32 {
         "portal" => egui::Color32::from_rgb(200, 130, 255),
         "object" => egui::Color32::from_rgb(120, 190, 255),
         "camp" => egui::Color32::from_rgb(255, 110, 100),
+        "clearing" => egui::Color32::from_rgb(170, 225, 120),
         _ => egui::Color32::from_rgb(235, 235, 235),
     }
 }
@@ -281,6 +348,11 @@ pub struct Editor<'w> {
     ghost: Option<[f32; 3]>,
     /// The way the row being placed faces, once R has turned it; until then it faces the camera.
     place_heading: Option<f32>,
+    /// The clearing being drawn, and whether clearings are drawn as rectangles.
+    drawing: Option<Drawing>,
+    pub clearing_rectangle: bool,
+    /// The world's revision whose clearings the scene shows.
+    clearings_shown: Option<u64>,
 }
 
 impl std::fmt::Debug for Editor<'_> {
@@ -416,6 +488,7 @@ fn heading_of(row: &Row) -> f32 {
         Row::Place(p) => p
             .heading
             .unwrap_or_else(|| p.rotation.map_or(0.0, rotation_heading)),
+        Row::Clearing(c) => c.heading.unwrap_or(0.0),
         _ => 0.0,
     }
 }
@@ -427,6 +500,7 @@ fn field_text(row: &Row, field: &str) -> String {
     match (row, field) {
         (Row::Object(o), "template") => hex(o.template),
         (Row::Object(o), "scale") => o.scale.map(num).unwrap_or_default(),
+        (Row::Object(o), "name_text") => o.name_text.clone().unwrap_or_default(),
         (Row::Object(o), "kind") => if o.kind == ObjectKind::Npc {
             "npc"
         } else {
@@ -451,6 +525,11 @@ fn field_text(row: &Row, field: &str) -> String {
         (Row::Camp(c), "regen") => num(c.regen as f32),
         (Row::Camp(c), "spawns") => spawns_toml(&c.spawns),
         (Row::Camp(c), "cell") => c.cell.map(hex).unwrap_or_default(),
+        (Row::Clearing(c), "radius") => c.radius.map(num).unwrap_or_default(),
+        (Row::Clearing(c), "size") => c
+            .size
+            .map(|[x, y]| format!("[{}, {}]", num(x), num(y)))
+            .unwrap_or_default(),
         (Row::Place(p), "key") => p.key.clone(),
         (Row::Place(p), "cell") => p.cell.map(hex).unwrap_or_default(),
         (Row::Place(p), "destination") => p
@@ -490,9 +569,9 @@ fn is_indoors(row: &Row) -> bool {
 #[must_use]
 pub fn field_toml(field: &str, typed: &str) -> String {
     let t = typed.trim();
-    let words = matches!(field, "to" | "destination" | "kind");
+    let words = matches!(field, "to" | "destination" | "kind" | "name_text");
     if words && !t.is_empty() && !t.starts_with('"') {
-        format!("\"{t}\"")
+        format!("\"{}\"", t.replace('\\', "\\\\").replace('"', "\\\""))
     } else {
         t.to_string()
     }
@@ -510,9 +589,20 @@ fn kind_shown(kind: &str) -> &'static str {
 /// The fields the inspector lets a person change, by kind.
 fn editable(row: &Row) -> &'static [&'static str] {
     match row {
-        Row::Object(_) => &["template", "kind", "scale", "to", "name", "id", "cell"],
+        Row::Object(_) => &[
+            "template",
+            "kind",
+            "scale",
+            "to",
+            "name_text",
+            "name",
+            "id",
+            "cell",
+        ],
         Row::Camp(_) => &["radius", "population", "regen", "cell"],
         Row::Place(_) => &["key", "cell", "destination"],
+        Row::Clearing(c) if c.radius.is_some() => &["radius"],
+        Row::Clearing(_) => &["size"],
         _ => &[],
     }
 }
@@ -543,6 +633,7 @@ impl<'w> Editor<'w> {
                 objects: true,
                 camps: true,
                 places: true,
+                clearings: true,
                 only_world: false,
             },
             fields: Vec::new(),
@@ -592,6 +683,9 @@ impl<'w> Editor<'w> {
             inside: None,
             ghost: None,
             place_heading: None,
+            drawing: None,
+            clearing_rectangle: false,
+            clearings_shown: None,
         };
         e.read_characters();
         e
@@ -654,6 +748,7 @@ impl<'w> Editor<'w> {
             Row::Object(_) => self.shown.objects,
             Row::Camp(_) => self.shown.camps,
             Row::Place(_) => self.shown.places,
+            Row::Clearing(_) => self.shown.clearings,
             _ => false,
         }
     }
@@ -891,7 +986,7 @@ impl<'w> Editor<'w> {
     /// Place a new row of the chosen kind at a point of the world's grid, facing `heading`.
     pub fn place_at(&mut self, g: [f32; 3], heading: f32) {
         let template = parse_id(&self.template);
-        if self.new_kind != NewKind::Place && template.is_none() {
+        if self.new_kind.has_template() && template.is_none() {
             self.status = format!("{:?} is not a template id (0x47...)", self.template);
             return;
         }
@@ -906,6 +1001,21 @@ impl<'w> Editor<'w> {
             },
             cell,
         );
+        if let Some(item) = self.report(r) {
+            self.status = format!("placed {item}");
+            self.select(Some(item));
+        }
+    }
+
+    /// Put down the clearing drawn.
+    fn place_drawn(&mut self, d: Drawing) {
+        if self.inside.is_some() {
+            self.status = "a clearing is of the land: draw it outdoors".into();
+            return;
+        }
+        let (middle, shape) = drawn_clearing(d, self.clearing_rectangle);
+        let (lb, at) = view::local(middle);
+        let r = self.session.place_clearing(lb, [at[0], at[1]], shape);
         if let Some(item) = self.report(r) {
             self.status = format!("placed {item}");
             self.select(Some(item));
@@ -945,12 +1055,13 @@ impl<'w> Editor<'w> {
         self.tool = Tool::Select;
         self.ghost = None;
         self.place_heading = None;
+        self.drawing = None;
     }
 
     /// What the row being placed would look like, when it has a look.
     fn ghost_standing(&mut self) -> Option<Standing> {
         let at = self.ghost.filter(|_| self.tool == Tool::Place)?;
-        if self.new_kind == NewKind::Place {
+        if !self.new_kind.has_template() {
             return None;
         }
         let (look, scale) = self.look(parse_id(&self.template)?)?;
@@ -1055,7 +1166,7 @@ impl<'w> Editor<'w> {
             let (lb, cell, at) = self.where_is(to);
             let r = self.session.move_into(&other, lb, at, cell);
             if let Some(moved) = self.report(r) {
-                if matches!(o.row.row, Row::Object(_) | Row::Place(_)) {
+                if turns(&o.row.row) {
                     let r = self.session.turn(&moved, heading_of(&o.row.row) + by);
                     self.report(r);
                 }
@@ -2194,6 +2305,15 @@ impl<'w> Editor<'w> {
         self.surface_met(v.eye, dir)
     }
 
+    /// The land itself under a pixel, whatever stands on it.
+    fn land_at(&mut self, px: [f32; 2]) -> Option<[f32; 3]> {
+        let v = self.view();
+        let scene = &mut self.scene;
+        view::hit_ground(v.eye, v.ray(px), 2000.0, 2.0, &mut |x, y| {
+            scene.ground(x, y)
+        })
+    }
+
     /// What a look outdoors first meets to stand on: the ground, or what the world has built on it.
     /// A look that meets a wall gets what is at the wall's foot.
     fn surface_met(&mut self, from: [f32; 3], dir: [f32; 3]) -> Option<[f32; 3]> {
@@ -2334,7 +2454,9 @@ impl<'w> Editor<'w> {
                     // A Mac's keyboard calls Backspace delete.
                     KeyCode::Delete | KeyCode::Backspace => self.delete_selected(),
                     KeyCode::Escape => {
-                        if self.tool == Tool::Place {
+                        if self.drawing.take().is_some() {
+                            // Only the drawing: the tool stays in hand.
+                        } else if self.tool == Tool::Place {
                             self.stop_placing();
                         } else if self.grip.take().is_none() && self.drag.take().is_none() {
                             self.select(None);
@@ -2349,13 +2471,21 @@ impl<'w> Editor<'w> {
                 .change_speed(dereth_primitives::num::to_i32(input.wheel.signum()));
         }
         self.ghost = if self.tool == Tool::Place && !over_panels {
-            self.ground_at(input.pointer)
+            if self.new_kind == NewKind::Clearing {
+                self.land_at(input.pointer)
+            } else {
+                self.ground_at(input.pointer)
+            }
         } else {
             None
         };
         // Selecting, dragging and placing with the left button.
         if input.left_pressed && !over_panels {
             match self.tool {
+                Tool::Place if self.new_kind == NewKind::Clearing => match self.ghost {
+                    Some(g) => self.drawing = Some(Drawing { from: g, to: g }),
+                    None => self.status = "no ground there".into(),
+                },
                 Tool::Place => {
                     if let Some(g) = self.ghost {
                         let facing = self.placing_heading();
@@ -2403,6 +2533,17 @@ impl<'w> Editor<'w> {
                 }
             }
         }
+        if let Some(mut d) = self.drawing.take() {
+            if input.left_down {
+                d.to = self.ghost.unwrap_or(d.to);
+                self.drawing = Some(d);
+            } else {
+                self.place_drawn(d);
+                if !input.shift {
+                    self.stop_placing();
+                }
+            }
+        }
         if let Some(mut d) = self.drag.take() {
             if input.left_down {
                 let far = math::hypotf(input.pointer[0] - d.from[0], input.pointer[1] - d.from[1]);
@@ -2432,7 +2573,7 @@ impl<'w> Editor<'w> {
             return None;
         }
         let at = entry_global(&e, &mut self.scene);
-        let turns = matches!(e.row.row, Row::Object(_) | Row::Place(_));
+        let turns = turns(&e.row.row);
         Some((e, at, turns))
     }
 
@@ -2676,6 +2817,11 @@ impl<'w> Editor<'w> {
                     }
                 }
             }
+            if let Row::Clearing(c) = &e.row.row {
+                if d < NEAR || selected {
+                    self.paint_outline(painter, c, [g[0], g[1]], color);
+                }
+            }
             if let Row::Object(o) = &e.row.row {
                 if let Some(to) = &o.to {
                     if let Some(p) = self.place_of(to, &e.row.pack) {
@@ -2769,6 +2915,20 @@ impl<'w> Editor<'w> {
         };
         let p = egui::pos2(p[0] / s, p[1] / s);
         let color = egui::Color32::from_rgb(255, 255, 120);
+        if self.new_kind == NewKind::Clearing {
+            let d = self.drawing.unwrap_or(Drawing { from: g, to: g });
+            let (middle, shape) = drawn_clearing(d, self.clearing_rectangle);
+            let row = clearing_of(shape);
+            self.paint_outline(painter, &row, [middle[0], middle[1]], color);
+            painter.text(
+                p + egui::vec2(0.0, -16.0),
+                egui::Align2::CENTER_BOTTOM,
+                "clearing: drag to draw, Shift to keep placing, Esc to stop",
+                egui::FontId::proportional(13.0),
+                color,
+            );
+            return;
+        }
         painter.circle_stroke(p, 8.0, egui::Stroke::new(2.0, color));
         let h = self.placing_heading().to_radians();
         let ahead = [
@@ -2783,7 +2943,7 @@ impl<'w> Editor<'w> {
             );
         }
         let (look, word) = match parse_id(&self.template) {
-            Some(t) if self.new_kind != NewKind::Place => (self.look(t).is_some(), self.label(t)),
+            Some(t) if self.new_kind.has_template() => (self.look(t).is_some(), self.label(t)),
             _ => (true, self.new_kind.word().to_string()),
         };
         let text = if look {
@@ -2800,6 +2960,27 @@ impl<'w> Editor<'w> {
         );
     }
 
+    /// A clearing's edge on the ground about the point `center` of the world's grid.
+    fn paint_outline(
+        &mut self,
+        painter: &egui::Painter,
+        c: &Clearing,
+        center: [f32; 2],
+        color: egui::Color32,
+    ) {
+        let v = self.view();
+        let s = self.scale;
+        let mut last: Option<egui::Pos2> = None;
+        for [x, y] in outline(c, center, 48) {
+            let z = self.scene.ground(x, y).unwrap_or(0.0) + 0.2;
+            let p = v.project([x, y, z]).map(|p| egui::pos2(p[0] / s, p[1] / s));
+            if let (Some(a), Some(b)) = (last, p) {
+                painter.line_segment([a, b], egui::Stroke::new(1.5, color));
+            }
+            last = p;
+        }
+    }
+
     /// The place a portal's `to` names (`key`, or `pack:key`), from a row of `pack`.
     fn place_of(&self, to: &str, pack: &str) -> Option<Entry> {
         let (pack, key) = to.split_once(':').unwrap_or((pack, to));
@@ -2810,8 +2991,21 @@ impl<'w> Editor<'w> {
             .cloned()
     }
 
+    /// What the land grows as the world's clearings now leave it, when the world changed.
+    fn show_clearings(&mut self) {
+        let revision = self.session.revision();
+        if self.clearings_shown == Some(revision) {
+            return;
+        }
+        self.clearings_shown = Some(revision);
+        if let Err(e) = self.scene.show_clearings(&self.session.clearings()) {
+            self.status = e;
+        }
+    }
+
     /// The world's frame from the camera, with the rows near it standing in it.
     pub fn frame(&mut self) -> &auberean_draw::scene::Frame {
+        self.show_clearings();
         self.find_inside();
         self.near();
         let rows = self.standing();
@@ -2866,11 +3060,16 @@ impl<'w> Editor<'w> {
                             NewKind::Static,
                             NewKind::Camp,
                             NewKind::Place,
+                            NewKind::Clearing,
                         ] {
                             ui.selectable_value(&mut self.new_kind, k, k.word());
                         }
                     });
-                if self.new_kind != NewKind::Place {
+                if self.new_kind == NewKind::Clearing {
+                    ui.selectable_value(&mut self.clearing_rectangle, false, "Round");
+                    ui.selectable_value(&mut self.clearing_rectangle, true, "Rectangle");
+                }
+                if self.new_kind.has_template() {
                     ui.add(egui::TextEdit::singleline(&mut self.template).desired_width(90.0))
                         .on_hover_text(
                             "the template: a person's, an object's, or the creature a camp keeps",
@@ -2891,7 +3090,11 @@ impl<'w> Editor<'w> {
                 let placing = self.tool == Tool::Place;
                 if ui
                     .selectable_label(placing, "Place")
-                    .on_hover_text("then click the ground; Shift keeps placing, R turns, Esc stops")
+                    .on_hover_text(if self.new_kind == NewKind::Clearing {
+                        "then drag on the ground; Shift keeps placing, Esc stops"
+                    } else {
+                        "then click the ground; Shift keeps placing, R turns, Esc stops"
+                    })
                     .clicked()
                 {
                     if placing {
@@ -3079,6 +3282,7 @@ impl<'w> Editor<'w> {
             ui.checkbox(&mut self.shown.objects, "objects");
             ui.checkbox(&mut self.shown.camps, "camps");
             ui.checkbox(&mut self.shown.places, "places");
+            ui.checkbox(&mut self.shown.clearings, "clearings");
         });
         ui.checkbox(&mut self.shown.only_world, "only this world's");
         ui.separator();
@@ -3272,7 +3476,28 @@ impl<'w> Editor<'w> {
         } else if dragging {
             self.held = Some((item.clone(), [x, y, z, h]));
         }
-        if matches!(e.row.row, Row::Object(_) | Row::Place(_)) {
+        if let Row::Clearing(c) = &e.row.row {
+            let shape = if let Some(r) = c.radius {
+                ui.button("Make it a rectangle")
+                    .clicked()
+                    .then_some(ClearingShape::Rectangle {
+                        size: [r * 2.0, r * 2.0],
+                        heading: 0.0,
+                    })
+            } else {
+                let [x, y] = c.size.unwrap_or([0.0, 0.0]);
+                ui.button("Make it round")
+                    .clicked()
+                    .then_some(ClearingShape::Round {
+                        radius: (x.max(y) / 2.0).max(CLEARING_LEAST),
+                    })
+            };
+            if let Some(shape) = shape {
+                let r = self.session.shape_clearing(&item, shape);
+                self.report(r);
+            }
+        }
+        if turns(&e.row.row) {
             let mut turned = false;
             ui.horizontal(|ui| {
                 ui.label("heading");

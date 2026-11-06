@@ -196,7 +196,8 @@ pub fn creature_dies<S: Store>(
         progress::killed(net, world, name);
         // A killer the creature could not reach moves no quest on.
         if !unfair {
-            crate::quests::killed(s, net, world, template, &death_effects, clock);
+            crate::quests::killed(s, net, world, (id, template), &death_effects, clock);
+            crate::death_spawn::killed(s, net, world, id, template, &death_effects, clock);
         }
     }
     if let Some(w) = blow_fellow {
@@ -975,6 +976,7 @@ pub fn player_dies<S: Store>(
         return;
     }
     let me = p.character;
+    crate::places::walk_cut_short(s, net, world);
     crate::fellowship::died(s, net, me);
     // A skill's use under way is cut short (2017: the use over, the move interrupted).
     crate::skill_use::interrupt(
@@ -1125,6 +1127,7 @@ pub fn player_corpse<S: Store>(
             .unwrap_or_else(|| yalain_content::Template {
                 id: CORPSE_TEMPLATE,
                 description: yalain_content::Description {
+                    name_text: None,
                     package: CORPSE_PACKAGE,
                     look: 0,
                     enter_fx: 0,

@@ -122,8 +122,8 @@ A reader takes only the systems its own table and the writer's version both have
 - version 0 names no table, so nothing is known.
 
 The same bitfield is what the Dereth client's `--era-features` takes, in text: the version in
-decimal, a colon, and the bytes in hex, first byte first. The end of retail is `3:ffff5fffffff0f`;
-the February 2005 world is `3:0000dfffffff0f`, and Launch `3:0000a000000000`. Their first three
+decimal, a colon, and the bytes in hex, first byte first. The end of retail is `5:ffff5fffffffff32`;
+the February 2005 world is `5:0000dff7fefff700`, and Launch `5:0000a0000000000d`. Their first three
 bytes are what version 1 wrote for them (`ffff5f`, `0000df`).
 
 ## 5. Limits and the switch

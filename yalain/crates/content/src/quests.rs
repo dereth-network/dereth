@@ -200,6 +200,8 @@ pub enum Update {
     Complete,
     /// Fails it, from any phase but none.
     Fail,
+    /// Moves it nowhere: the step only says, gives and sends.
+    Nothing,
 }
 
 /// What a step requires of another quest.
@@ -220,6 +222,13 @@ pub struct Place {
     pub cell: u32,
     pub origin: [f32; 3],
     pub heading: u8,
+}
+
+/// A room of a row of like rooms: where a player lands in it, and the cell its creature stands in.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Room {
+    pub place: Place,
+    pub holds: u32,
 }
 
 /// One step of a quest.
@@ -257,6 +266,10 @@ pub struct Step {
     /// For a give, exactly how many of the item it wants; any other count is refused and handed
     /// back. With none it runs for whatever is given, and takes all of it.
     pub wants: Option<u32>,
+    /// The levels it is for, the least and the most (none: every level).
+    pub levels: Option<(i32, i32)>,
+    /// It pays this share of what the player's level takes to reach the next, whole.
+    pub xp_share: f32,
 }
 
 /// What a person or an object does with an item given it that moves no quest (a toll, a donation,
@@ -288,6 +301,8 @@ pub struct QuestTable {
     pub quests: Vec<QuestDef>,
     pub steps: Vec<Step>,
     pub gives: Vec<Give>,
+    /// Rows of like rooms: a step leading to one of a row's rooms leads to one of them.
+    pub rooms: Vec<Vec<Room>>,
 }
 
 fn hex(s: &str) -> Result<u32, String> {
@@ -454,6 +469,7 @@ impl QuestTable {
                 Update::Advance(n) => format!("advance:{n}"),
                 Update::Complete => "complete".to_string(),
                 Update::Fail => "fail".to_string(),
+                Update::Nothing => "none".to_string(),
             };
             let gives = s
                 .gives
@@ -496,14 +512,17 @@ impl QuestTable {
             });
             let _ = writeln!(
                 out,
-                "step\t{:08X}\t{}\t{trigger}\t{}\t{update}\t{}\t{gives}\t{}\t{requires}\t{takes}\t{to}\t{effects}\t{text}\t{}\t{}",
+                "step\t{:08X}\t{}\t{trigger}\t{}\t{update}\t{}\t{gives}\t{}\t{requires}\t{takes}\t{to}\t{effects}\t{text}\t{}\t{}\t{}\t{}",
                 s.quest,
                 s.needs,
                 s.tell.as_ref().map(Words::to_text).unwrap_or_default(),
                 s.xp,
                 s.placed,
                 u8::from(s.fellows),
-                s.wants.map_or_else(String::new, |n| n.to_string())
+                s.wants.map_or_else(String::new, |n| n.to_string()),
+                s.levels
+                    .map_or_else(String::new, |(a, b)| format!("{a}:{b}")),
+                s.xp_share,
             );
         }
         for g in &self.gives {
@@ -544,6 +563,20 @@ impl QuestTable {
                 g.placed,
             );
         }
+        for row in &self.rooms {
+            let rooms = row
+                .iter()
+                .map(|r| {
+                    let p = r.place;
+                    format!(
+                        "{:08X}:{}:{}:{}:{}:{:08X}",
+                        p.cell, p.origin[0], p.origin[1], p.origin[2], p.heading, r.holds
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(",");
+            let _ = writeln!(out, "rooms\t{rooms}");
+        }
         out
     }
 
@@ -560,6 +593,27 @@ impl QuestTable {
             let at = |e: String| format!("line {}: {e}", n + 1);
             let c: Vec<&str> = line.split('\t').collect();
             match c[0] {
+                "rooms" if c.len() == 2 => {
+                    let row = c[1]
+                        .split(',')
+                        .map(|r| {
+                            let f: Vec<&str> = r.split(':').collect();
+                            if f.len() != 6 {
+                                return Err(format!("a room is CELL:X:Y:Z:HEADING:HOLDS, not {r}"));
+                            }
+                            Ok(Room {
+                                place: Place {
+                                    cell: hex(f[0])?,
+                                    origin: [num(f[1])?, num(f[2])?, num(f[3])?],
+                                    heading: num(f[4])?,
+                                },
+                                holds: hex(f[5])?,
+                            })
+                        })
+                        .collect::<Result<_, _>>()
+                        .map_err(at)?;
+                    t.rooms.push(row);
+                }
                 "quest" if (13..=25).contains(&c.len()) => t.quests.push(QuestDef {
                     id: hex(c[1]).map_err(at)?,
                     name: pair(c[2]).map_err(at)?,
@@ -622,7 +676,7 @@ impl QuestTable {
                         _ => 0,
                     },
                 }),
-                "step" if (9..=16).contains(&c.len()) => {
+                "step" if (9..=18).contains(&c.len()) => {
                     let (kind, tpl) = c[3]
                         .split_once(':')
                         .ok_or_else(|| at(format!("a trigger is kind:template, not {}", c[3])))?;
@@ -688,6 +742,7 @@ impl QuestTable {
                         None if c[5] == "bestow" => Update::Bestow,
                         None if c[5] == "complete" => Update::Complete,
                         None if c[5] == "fail" => Update::Fail,
+                        None if c[5] == "none" => Update::Nothing,
                         _ => return Err(at(format!("an update {}", c[5]))),
                     };
                     t.steps.push(Step {
@@ -729,6 +784,20 @@ impl QuestTable {
                             None
                         } else {
                             Some(num(col(15)).map_err(at)?)
+                        },
+                        levels: match col(16).split_once(':') {
+                            Some((a, b)) => Some((
+                                a.parse().map_err(|_| at(format!("a level {a}")))?,
+                                b.parse().map_err(|_| at(format!("a level {b}")))?,
+                            )),
+                            None => None,
+                        },
+                        xp_share: if col(17).is_empty() {
+                            0.0
+                        } else {
+                            col(17)
+                                .parse()
+                                .map_err(|_| at(format!("a share {}", col(17))))?
                         },
                     });
                 }

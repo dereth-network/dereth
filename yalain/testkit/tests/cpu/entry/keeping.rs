@@ -564,6 +564,7 @@ fn every_quest_held_is_listed_at_entry_with_what_is_left_of_its_wait() {
             .collect(),
         steps: Vec::new(),
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let now = h.unix;
     let held = |quest, status, phase, ago: i64| QuestState {
@@ -717,6 +718,92 @@ fn an_items_bind_on_use_mark_is_kept_across_a_logout() {
     assert_eq!((mark(marked), mark(plain)), (Some(true), Some(false)));
 }
 
+/// Whom an item is bound to, and a recipe's attunement, stay with the item across a logout.
+/// Behaviour: server.items.bound-and-attuned-kept
+#[test]
+fn whom_an_item_is_bound_to_and_its_attunement_are_kept_across_a_logout() {
+    const CHEST: u32 = 0x4700_7301;
+    let mut h = Harness::new();
+    let (b, me) = h.player_in_world("one", "Elara");
+    scene_drawn(&mut h, b);
+    h.server.catalog.insert(yalain_testkit::test_template(
+        CHEST,
+        0x180,
+        yalain_content::Props::default(),
+    ));
+    let bound = h.arm(b, me, CHEST);
+    let attuned = h.arm(b, me, CHEST);
+    let plain = h.arm(b, me, CHEST);
+    if let Some(t) = h.server.things.get_mut(bound) {
+        t.own.bound_to = me;
+    }
+    if let Some(t) = h.server.things.get_mut(attuned) {
+        t.own.attuned = true;
+    }
+    log_off(&mut h, b, me);
+    h.enter_world(b, "one", me);
+    h.run(10);
+    let own = |id: u64| {
+        h.server
+            .things
+            .get(id)
+            .map(|t| (t.own.bound_to, t.own.attuned))
+    };
+    assert_eq!(own(bound), Some((me, false)));
+    assert_eq!(own(attuned), Some((0, true)));
+    assert_eq!(own(plain), Some((0, false)));
+}
+
+/// An effect a skill put on an item is kept across a logout, on its own time: its strength and its
+/// end as they were, the item one item, and a logout it has run out in leaves nothing.
+/// Behaviour: server.items.an-effect-on-an-item-is-kept
+#[test]
+fn an_effect_on_an_item_is_kept_across_a_logout_on_its_own_time() {
+    const SWORD: u32 = 0x4700_7A44;
+    const LONG: u32 = 0x7000_7A05;
+    const SHORT: u32 = 0x7000_7A06;
+    let mut h = Harness::new();
+    let (b, me) = h.player_in_world("one", "Elara");
+    scene_drawn(&mut h, b);
+    h.server.catalog.insert(yalain_testkit::test_template(
+        SWORD,
+        0x1067,
+        yalain_content::Props::default(),
+    ));
+    for state in [LONG, SHORT] {
+        h.server
+            .effect_table
+            .effects
+            .insert(state, yalain_testkit::plain_effect(state));
+    }
+    let sword = h.arm(b, me, SWORD);
+    let (long, short) = (h.server.game_now + 1000.0, h.server.game_now + 10.0);
+    let on = |state: u32, until: f64| yalain_world::things::TimedEffect {
+        state,
+        spellcraft: 30.0,
+        until,
+    };
+    h.server.things.get_mut(sword).expect("it").timed = vec![on(LONG, long), on(SHORT, short)];
+    log_off(&mut h, b, me);
+    h.advance(20.0);
+    h.enter_world(b, "one", me);
+    h.run(10);
+    let held = |h: &Harness| {
+        h.server
+            .players
+            .values()
+            .find(|p| p.character == me)
+            .map_or(0, |p| p.play.items.iter().filter(|i| i.id == sword).count())
+    };
+    assert_eq!(held(&h), 1, "one item");
+    let t = h.server.things.get(sword).expect("it");
+    assert_eq!(t.timed, vec![on(LONG, long)], "as it was, the other gone");
+    assert_eq!(
+        yalain_world::effects::running_on_item(&h.server, t).len(),
+        1
+    );
+}
+
 /// A hidden quest a character holds is never in its session start's list, under way or done; the
 /// shown ones beside it are.
 /// Behaviour: server.quests.hidden-never-listed
@@ -742,6 +829,7 @@ fn a_hidden_quest_is_never_listed_at_entry() {
         ],
         steps: Vec::new(),
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let now = h.unix;
     let held = |quest, status, phase| QuestState {
@@ -790,6 +878,7 @@ fn a_quest_with_no_time_left_when_its_player_left_is_listed_failed() {
         quests: vec![timed(TIMED), timed(STILL_TIMED)],
         steps: Vec::new(),
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let now = h.unix;
     let given = |quest, ago: i64| QuestState {
@@ -846,6 +935,7 @@ fn a_timed_quests_time_stands_still_while_its_player_is_away() {
         ],
         steps: Vec::new(),
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let given = h.unix - 100;
     for p in h.server.players.values_mut() {
@@ -951,6 +1041,7 @@ fn a_wait_to_be_taken_again_runs_while_its_player_is_away() {
             .collect(),
         steps: Vec::new(),
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let now = h.unix;
     let held = |quest, status, ago: i64| QuestState {
@@ -1013,6 +1104,7 @@ fn a_quest_under_way_in_a_save_keeps_the_time_it_had_left_when_it_was_kept() {
         }],
         steps: Vec::new(),
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     log_off(&mut h, b, me);
     // As a save holds it: given 3000 s before it was kept, of which 2800 s were not played, and
@@ -1082,6 +1174,7 @@ fn a_quest_at_a_phase_its_time_does_not_run_in_is_not_failed_at_entry() {
         quests: vec![timed(IN_FIRST, 1), timed(IN_SECOND, 2)],
         steps: Vec::new(),
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let at = |quest, phase, updated| QuestState {
         quest,

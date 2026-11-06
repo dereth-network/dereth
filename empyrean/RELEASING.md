@@ -1,6 +1,6 @@
 # Releasing Empyrean
 
-An Empyrean release is the two binaries, `empyrean-server` and `empyrean-import`, with their
+An Empyrean release is the three binaries, `empyrean-server`, `empyrean-import` and `empyrean-relay`, with their
 guides and notices, for five targets, published as a GitHub release of this repository. There are
 two commands and one review:
 
@@ -62,7 +62,7 @@ elsewhere, each with one folder of the same name holding exactly:
 
 | File | What |
 |---|---|
-| `empyrean-server`, `empyrean-import` (`.exe` on Windows) | The binaries. |
+| `empyrean-server`, `empyrean-import`, `empyrean-relay` (`.exe` on Windows) | The binaries. |
 | `README.md`, `SETUP.md`, `DIVERGENCES.md`, `ACE-BUGS.md` | The guides and registers. |
 | `empyrean.toml.example` | Every configuration key with its default. |
 | `LICENSE` | AGPL-3.0-only. |

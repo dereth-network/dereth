@@ -68,6 +68,11 @@ impl Store for FaultStore {
         self.inner.set_account_secret(account, secret)
     }
 
+    fn account(&mut self, id: u64) -> StoreResult<Option<Account>> {
+        self.read()?;
+        self.inner.account(id)
+    }
+
     fn accounts(&mut self) -> StoreResult<Vec<Account>> {
         self.read()?;
         self.inner.accounts()

@@ -24,8 +24,11 @@ use auberean_assets::requests::{Batch, Event, Listener, Outcome, Requests, Sourc
 use auberean_client_model::Effect;
 use auberean_dat::disk::download::{cache_pack, Download, MissingIteration, Output, PORTAL_SET};
 use auberean_dat::disk::{StoreSet, VersionSet};
+use auberean_dat::overlay::{layout_of, records_of};
 use auberean_dat::{QualifiedId, Writer};
-use auberean_protocol::login::{DataFileIterations, DataHeld, DataRequest, Empty};
+use auberean_protocol::login::{
+    DataFileIterations, DataHeld, DataRequest, Empty, OverlayBase, OverlayHeld,
+};
 use auberean_protocol::types::IterationSet;
 use auberean_protocol::wire::{Field, Reader};
 use auberean_protocol::ClientMessage;
@@ -40,6 +43,9 @@ const PORTAL_FILE: u64 = (PORTAL_SET as u64) << 32;
 /// The caption the client shows its own errors under.
 pub const ERROR_CAPTION: &str = "AC2 Error";
 
+/// The notice that says a world's overlay wasn't made over this client's files.
+pub const OTHER_FILES_NOTICE: u32 = 0x4F56_0001;
+
 /// What the client says when it shows notice `notice` of its own (from the strings it carries
 /// beside its data files, not in them): for the notice a record that could not be stored shows,
 /// that it could not save; `None` for a notice it has no line for.
@@ -49,6 +55,9 @@ pub fn notice_line(notice: u32) -> Option<&'static str> {
     match notice {
         auberean_dat::disk::download::SAVE_FAILED_NOTICE => Some(
             "Failed to save data. Are you out of disk space, or are your data files read-only?",
+        ),
+        OTHER_FILES_NOTICE => Some(
+            "This world's data overlay was made against other data files than yours. Install the data files the world names.",
         ),
         _ => None,
     }
@@ -202,6 +211,7 @@ impl DataDownload {
         if !matches!(
             fx,
             Effect::DataQuery
+                | Effect::OverlayBases(_)
                 | Effect::DownloadBegins(_)
                 | Effect::DataRecord(_)
                 | Effect::DataRefused(_)
@@ -215,12 +225,24 @@ impl DataDownload {
             download,
             requests,
             cache,
+            fatal,
             ..
         } = self;
         let stores = cache.stores();
         match fx {
             Effect::DataQuery => {
                 if let Some(lists) = download.on_server_interrogation(stores) {
+                    send.push(ClientMessage::OverlayHeld(OverlayHeld {
+                        flags: OverlayHeld::CHECKS_RECORDS,
+                        bases: files
+                            .files
+                            .iter()
+                            .map(|f| OverlayBase {
+                                dat_file: crate::data::file_id(f),
+                                fingerprint: layout_of(f),
+                            })
+                            .collect(),
+                    }));
                     let held = lists
                         .into_iter()
                         .map(|(dat_file, mut set)| {
@@ -238,6 +260,18 @@ impl DataDownload {
                         language: files.language,
                         files: held,
                     }));
+                }
+            }
+            Effect::OverlayBases(b) => {
+                let holds = |base: &OverlayBase| {
+                    files
+                        .files
+                        .iter()
+                        .find(|f| crate::data::file_id(f) == base.dat_file)
+                        .is_some_and(|f| records_of(f).is_ok_and(|r| r == base.fingerprint))
+                };
+                if !b.bases.iter().all(holds) {
+                    *fatal = Some(OTHER_FILES_NOTICE);
                 }
             }
             Effect::DownloadBegins(b) => {

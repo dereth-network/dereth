@@ -114,6 +114,7 @@ fn fade_batch(anchor: Vec3) -> ObjectBatch {
     ObjectBatch {
         vertices: Arc::new(Vec::new()),
         posed: None,
+        played: None,
         indices: Arc::new(Vec::new()),
         transform: Mat4::IDENTITY,
         layer: r,
@@ -152,11 +153,13 @@ fn an_objects_opacity_follows_the_camera_and_its_landblock() {
         b.clone(),
         ObjectBatch {
             posed: None,
+            played: None,
             block: Some((0xC1, 0x56)),
             ..b.clone()
         },
         ObjectBatch {
             posed: None,
+            played: None,
             visible: None,
             anchor: Some(Vec3::new(0.0, 39.0, 0.0)),
             ..b
@@ -319,4 +322,37 @@ fn the_waters_reflection_fades_an_object_at_its_own_edge() {
     assert!((b.reflected_alpha(Vec3::ZERO) - 0.5).abs() < 1e-4);
     b.tint.a = 0.5;
     assert!((b.reflected_alpha(Vec3::ZERO) - 0.25).abs() < 1e-4);
+}
+
+/// With the camera on the land, each step draws what stands on the land first, then what stands
+/// in the cells it looks into, each list farthest first, however near the cells' objects are.
+///
+/// Behaviour: draw.inside.what-stands-in-a-cell-seen-from-the-land-draws-after-the-land
+#[test]
+fn what_stands_in_a_cell_seen_from_the_land_draws_after_what_stands_on_it() {
+    use auberean_draw::scene::{in_order, Cull, Pass};
+    let eye = Vec3::new(0.0, 0.0, 0.0);
+    let at = |y: f32, looked: bool| {
+        let mut b = fade_batch(Vec3::new(0.0, y, 0.0));
+        if looked {
+            b.cull = Cull::LookedIn {
+                block: (1, 1),
+                cell: 0x100,
+                lo: Vec3::new(0.0, 0.0, 0.0),
+                hi: Vec3::new(1.0, 1.0, 1.0),
+            };
+        }
+        b
+    };
+    let batches = [
+        at(3.0, true),
+        at(20.0, false),
+        at(9.0, true),
+        at(5.0, false),
+    ];
+    let order: Vec<f32> = in_order(batches.iter().collect(), Pass::Translucent, eye)
+        .iter()
+        .map(|b| b.distance_from(eye))
+        .collect();
+    assert_eq!(order, [20.0, 5.0, 9.0, 3.0]);
 }

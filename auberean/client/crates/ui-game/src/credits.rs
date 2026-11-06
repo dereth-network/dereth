@@ -48,9 +48,11 @@ pub struct Credits {
     pictures: Vec<u32>,
     xs: Vec<i32>,
     ys: Vec<i32>,
-    last_picture: Option<usize>,
-    last_x: Option<usize>,
-    last_y: Option<usize>,
+    last_picture: usize,
+    last_x: usize,
+    last_y: usize,
+    /// The song before the credits has been stopped.
+    silenced: bool,
     /// How long the text takes to scroll through, and when it is over.
     duration: f32,
     end: f64,
@@ -61,14 +63,13 @@ pub struct Credits {
     wait_context: u32,
 }
 
-/// The next of a list, going round (the first is the one after the start).
-fn next<T: Copy>(list: &[T], last: &mut Option<usize>) -> Option<T> {
+/// The next of a list, going round (the first shown is the one after the first in the list).
+fn next<T: Copy>(list: &[T], last: &mut usize) -> Option<T> {
     if list.is_empty() {
         return None;
     }
-    let i = last.map_or(0, |l| (l + 1) % list.len());
-    *last = Some(i);
-    list.get(i).copied()
+    *last = (*last + 1) % list.len();
+    list.get(*last).copied()
 }
 
 impl Credits {
@@ -102,9 +103,10 @@ impl Credits {
             pictures: Vec::new(),
             xs: Vec::new(),
             ys: Vec::new(),
-            last_picture: None,
-            last_x: None,
-            last_y: None,
+            last_picture: 0,
+            last_x: 0,
+            last_y: 0,
+            silenced: false,
             duration: 0.0,
             end: now,
             paper_height: 0,
@@ -335,6 +337,12 @@ impl Screen for Credits {
     /// A key pressed ends the credits; the clock moves them on (and ends them at their end).
     // D2-01785
     fn tick(&mut self, ui: &mut Ui, data: &mut Data, out: &mut Vec<pregame::Request>) {
+        // The song playing as the credits open stops for theirs.
+        // D2-01787
+        if !self.silenced {
+            self.silenced = true;
+            out.push(pregame::Request::Silence);
+        }
         for m in pregame::take(ui, self.frame) {
             let ended = match m {
                 Mail::Global {

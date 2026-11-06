@@ -2,7 +2,7 @@
 //!
 //! A row claims what the September 2013 client computes for the world from its data files.
 
-use super::{Behaviour, Evidence, Tier, RETAIL};
+use super::{Behaviour, Evidence, Tier, RETAIL, TOOLING};
 
 /// This subject's rows, in id order.
 pub static ROWS: &[Behaviour] = &[
@@ -230,6 +230,16 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-WORLD-CELL-BAKE"),
         station: "auberean-world::cpu::inside::a_cells_record_lights_are_baked_as_they_stand_at_that_moment",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "world.inside.a-dim-suns-share-falls-with-its-brightness",
+        says: "The share of the sun a cell's nearest stored direction takes is its product with \
+               the light, whose length is the sun's brightness, and the next direction takes the \
+               rest.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WORLD-SUN-SHARE"),
+        station: "auberean-world::dat::inside::a_dim_suns_nearest_direction_takes_a_share_scaled_by_its_brightness",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "world.inside.a-draw-keeps-the-lights-that-weigh-most-there",
@@ -596,6 +606,15 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-WORLD-SCENERY-SCENE"),
         station: "auberean-world::cpu::scenery::a_vertex_grows_its_terrain_kinds_scene",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "world.scenery.every-terrain-kind-has-a-barren-field",
+        says: "Every terrain kind has a scene field under which it grows nothing: a block whose \
+               vertices all hold it has no scenery and no frills.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SCENERY-BARREN"),
+        station: "auberean-world::dat::clearance::a_block_of_barren_vertices_grows_nothing_at_all",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "world.scenery.placed-objects-keep-their-clearance-boxes-and-cylinders",

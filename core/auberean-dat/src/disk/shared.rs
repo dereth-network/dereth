@@ -6,6 +6,8 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+use dereth_dat::overlay::Layer;
+
 use super::controller::{ObjectInfo, OpenSpec, Store, OPEN_EXPANDABLE};
 use super::device::Files;
 use super::device::OpenMode;
@@ -102,6 +104,41 @@ impl SharedStore {
     // D2-05110
     pub fn delete_data_by_mask(&self, id: u32, mask: u32) -> bool {
         self.lock().delete_data_by_mask(id, mask)
+    }
+
+    /// Store what a world's overlay holds, as a download stores what it brings: its deletions, then
+    /// its records, then its revisions among the file's data versions, or in their place when
+    /// they are the world's own list. A record's bytes are the overlay's, so every read after this
+    /// finds them. Whether all of it was stored.
+    pub fn take_overlay(&self, layer: &Layer) -> bool {
+        for t in layer.tombstones() {
+            if t.mask == 0 {
+                self.delete_data(t.id);
+            } else {
+                self.delete_data_by_mask(t.id, t.mask);
+            }
+        }
+        for (id, _) in layer.records() {
+            let Ok(bytes) = layer.read(id) else {
+                return false;
+            };
+            if !self.save_data(id.raw(), &bytes) {
+                return false;
+            }
+        }
+        let exact = layer.manifest().exact_iterations;
+        if !exact && layer.own_iterations().is_empty() {
+            return true;
+        }
+        let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+        if exact {
+            *held = VersionSet::new();
+        }
+        for v in layer.own_iterations() {
+            held.add(v.cast_signed());
+        }
+        held.sort();
+        self.lock().save_iteration_list(&mut held)
     }
 
     /// Whether the file is open.
@@ -250,7 +287,9 @@ impl StoreSet {
     /// Stores over files only read, each written in memory ([`Overlay`]): the portal, the
     /// high-resolution pictures (subset `HiFi`), cell and local files put in their slots by their
     /// headers' data sets, every one by its id. A file whose list of data versions does not read
-    /// is left out. Records stored are dated by `clock`.
+    /// is left out. Records stored are dated by `clock`. A file read through a world's overlay
+    /// takes what the overlay holds as it opens ([`SharedStore::take_overlay`]): the stores read
+    /// the file's bytes, so they would never see it otherwise.
     #[must_use]
     pub fn over_files(files: &[Arc<DatFile>], clock: &Arc<dyn Fn() -> u32 + Send + Sync>) -> Self {
         let mut set = Self::default();
@@ -279,6 +318,9 @@ impl StoreSet {
             );
             let mut one = OverlayFiles(Some(Overlay::new(f.clone())));
             if s.init_file(&mut one, &mut spec) != Opened::Ready {
+                continue;
+            }
+            if f.shared().layer().is_some_and(|l| !s.take_overlay(l)) {
                 continue;
             }
             let s = Arc::new(s);

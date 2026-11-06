@@ -19,7 +19,7 @@
 //!
 //! See `docs/networking/02-reliability-and-flow.md` §§1-4.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::net::IpAddr;
 
 use dereth_primitives::LocalTime;
@@ -576,7 +576,15 @@ impl ReceiverData {
 /// `SentPacketHistory` in the retail client is evicted **only** by cumulative ACK / NAK flush or
 /// connection teardown; there is no size or age cap. This adds one while keeping the ACK/NAK
 /// eviction semantics.
-pub const SENT_CACHE_MAX_PACKETS: usize = 4096;
+pub const SENT_CACHE_MAX_PACKETS: usize = 32_768;
+
+/// And by what it holds, so a peer that asks for nothing back costs the same whatever it is sent:
+/// each packet counts its payload and [`SENT_CACHE_PACKET_COST`]. The limit in packets is reached
+/// first by a connection's ordinary small packets, this one by a run of full ones.
+pub const SENT_CACHE_MAX_BYTES: usize = 8 * 1024 * 1024;
+
+/// What a cached packet counts for beyond its payload.
+pub const SENT_CACHE_PACKET_COST: usize = 128;
 
 /// And by age: as long as the connection can last. A peer that has heard nothing for just under
 /// the timeout can still come back and ask, and it takes a while to ask for everything (ten requests
@@ -585,13 +593,25 @@ pub const SENT_CACHE_MAX_PACKETS: usize = 4096;
 pub const SENT_CACHE_MAX_AGE: f64 =
     crate::flow::CONNECTION_TIMEOUT + 10.0 * crate::flow::NAK_INTERVAL;
 
+/// What a packet counts for in the cache.
+fn cached_size(packet: &OutPacket) -> usize {
+    SENT_CACHE_PACKET_COST
+        + packet
+            .fragments
+            .iter()
+            .map(|f| f.payload.len())
+            .sum::<usize>()
+}
+
 /// `SentPacketHistory` — the retransmit cache.
 ///
 /// See `docs/networking/02-reliability-and-flow.md` §4.1.
 #[derive(Debug, Default)]
 pub struct SentPacketHistory {
-    /// The sent-packet list, a plain FIFO searched linearly in the original.
-    packets: Vec<(u32, LocalTime, OutPacket)>,
+    /// The sent-packet list in send order, a plain FIFO searched linearly in the original.
+    packets: VecDeque<(u32, LocalTime, OutPacket)>,
+    /// What the list counts for against [`SENT_CACHE_MAX_BYTES`].
+    bytes: usize,
     /// For every cached ephemeral fragment, sequence id -> latest blob id,
     /// keeping only the newest stamp. The client never *sends* ephemeral blobs, so this path is
     /// dead in the retail client and matters only to the shared server build.
@@ -625,33 +645,53 @@ impl SentPacketHistory {
                 }
             }
         }
-        self.packets.push((packet.header.seq_id, now, packet));
+        self.bytes += cached_size(&packet);
+        self.packets.push_back((packet.header.seq_id, now, packet));
         self.evict(now);
     }
 
     /// The bound. Applied after every insert; never touches a packet the ACK/NAK path still needs
     /// in the ordinary case, because the retail cadences flush far faster than these limits.
     fn evict(&mut self, now: LocalTime) {
-        self.packets
-            .retain(|(_, sent, _)| now.seconds_since(*sent) <= SENT_CACHE_MAX_AGE);
-        if self.packets.len() > SENT_CACHE_MAX_PACKETS {
-            let excess = self.packets.len() - SENT_CACHE_MAX_PACKETS;
-            self.packets.drain(..excess);
+        while let Some((_, sent, _)) = self.packets.front() {
+            let over = self.packets.len() > SENT_CACHE_MAX_PACKETS
+                || self.bytes > SENT_CACHE_MAX_BYTES
+                || now.seconds_since(*sent) > SENT_CACHE_MAX_AGE;
+            if !over {
+                break;
+            }
+            self.pop_oldest();
         }
+    }
+
+    fn pop_oldest(&mut self) -> Option<OutPacket> {
+        let (_, _, packet) = self.packets.pop_front()?;
+        self.bytes = self.bytes.saturating_sub(cached_size(&packet));
+        Some(packet)
+    }
+
+    /// Where a sequence is in the list. The list is in send order, so its sequences rise from the
+    /// first, wrapping.
+    fn position(&self, seq: u32) -> Option<usize> {
+        let first = self.packets.front()?.0;
+        let to = seq.wrapping_sub(first);
+        let i = self
+            .packets
+            .partition_point(|(s, _, _)| s.wrapping_sub(first) < to);
+        (self.packets.get(i)?.0 == seq).then_some(i)
     }
 
     /// Is this sequence still cached?
     #[must_use]
     pub fn contains(&self, seq: u32) -> bool {
-        self.packets.iter().any(|(s, _, _)| *s == seq)
+        self.position(seq).is_some()
     }
 
     /// The cached packet for a NAKed sequence.
     #[must_use]
     pub fn get(&self, seq: u32) -> Option<&OutPacket> {
-        self.packets
-            .iter()
-            .find(|(s, _, _)| *s == seq)
+        self.position(seq)
+            .and_then(|i| self.packets.get(i))
             .map(|(_, _, p)| p)
     }
 
@@ -687,11 +727,13 @@ impl SentPacketHistory {
         // A prefix pop, not a filter: the list is in send order, and the original stops at the
         // first packet it keeps rather than scanning past it. The two differ across a sequence
         // wrap, where "older" is not the same relation as "earlier in the list".
-        while let Some((seq, _, _)) = self.packets.first() {
+        while let Some((seq, _, _)) = self.packets.front() {
             if *seq == flush_num || !lhs_newer(flush_num, *seq) {
                 break;
             }
-            let (_, _, packet) = self.packets.remove(0);
+            let Some(packet) = self.pop_oldest() else {
+                break;
+            };
             for frag in &packet.fragments {
                 dropped_ids.push(crate::blob::NetBlobId(frag.header.blob_id()));
             }
@@ -1160,6 +1202,77 @@ mod tests {
         store.add_sent_packet(p, LocalTime(SENT_CACHE_MAX_AGE + 1.0));
         assert_eq!(store.len(), 1, "the oldest packet aged out");
         assert!(store.contains(2));
+    }
+
+    fn sent(seq: u32, payload: usize) -> OutPacket {
+        let mut p = OutPacket::new(ProtoHeader {
+            seq_id: seq,
+            ..Default::default()
+        });
+        p.add_fragment(Fragment::new(FragmentHeader::default(), vec![0; payload]))
+            .expect("frag");
+        p
+    }
+
+    /// Behaviour: link.flow.sent-cache-bounds
+    ///
+    /// A crowd's small packets are all kept up to the limit in packets, the oldest going first.
+    #[test]
+    fn the_cache_keeps_small_packets_to_its_limit_in_packets() {
+        let mut store = SentPacketHistory::new();
+        let most = u32::try_from(SENT_CACHE_MAX_PACKETS).expect("a count");
+        for seq in 0..most + 3 {
+            store.add_sent_packet(sent(seq, 60), LocalTime(0.0));
+        }
+        assert_eq!(store.len(), SENT_CACHE_MAX_PACKETS);
+        assert!(!store.contains(2), "the oldest went");
+        assert!(store.contains(3));
+        assert!(store.get(most + 2).is_some());
+    }
+
+    /// Behaviour: link.flow.sent-cache-bounds
+    ///
+    /// A run of full packets stops at the limit in bytes, well short of the limit in packets, and
+    /// a flush gives back what the packets counted for.
+    #[test]
+    fn the_cache_holds_no_more_than_its_limit_in_bytes() {
+        let mut store = SentPacketHistory::new();
+        let size = 1000;
+        let fits = SENT_CACHE_MAX_BYTES / (size + SENT_CACHE_PACKET_COST);
+        let count = u32::try_from(fits).expect("a count");
+        for seq in 0..count + 10 {
+            store.add_sent_packet(sent(seq, size), LocalTime(0.0));
+        }
+        assert_eq!(store.len(), fits);
+        assert!(!store.contains(9));
+        assert!(store.contains(10));
+        store.flush(count + 9);
+        assert_eq!(store.len(), 1, "the named one stays");
+        for seq in 0..count - 1 {
+            store.add_sent_packet(sent(count + 10 + seq, size), LocalTime(0.0));
+        }
+        assert_eq!(store.len(), fits, "emptied, it holds as much again");
+    }
+
+    /// Behaviour: link.flow.sent-cache-bounds
+    ///
+    /// A sequence is found across a wrap, and one never sent or already gone isn't.
+    #[test]
+    fn the_cache_finds_a_sequence_across_a_wrap() {
+        let mut store = SentPacketHistory::new();
+        for seq in [u32::MAX - 1, u32::MAX, 0, 1, 3] {
+            store.add_sent_packet(sent(seq, 4), LocalTime(0.0));
+        }
+        for seq in [u32::MAX - 1, u32::MAX, 0, 1, 3] {
+            assert!(store.contains(seq), "{seq}");
+            assert_eq!(store.get(seq).map(|p| p.header.seq_id), Some(seq));
+        }
+        assert!(!store.contains(2));
+        assert!(!store.contains(4));
+        assert!(!store.contains(u32::MAX - 2));
+        assert_eq!(store.flush(0), 2);
+        assert!(store.contains(0));
+        assert!(!store.contains(u32::MAX));
     }
 
     /// Behaviour: link.flow.each-closed-server-interval-is-reported-with-its-byte-count

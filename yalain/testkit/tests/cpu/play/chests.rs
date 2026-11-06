@@ -68,6 +68,7 @@ fn hall(template: u32, lockable: bool, opens_on_unlock: bool) -> Harness {
             object: Some(CHEST),
             template,
             description: Description {
+                name_text: None,
                 package: PACKAGE,
                 look: 0x1F00_0F58,
                 enter_fx: 0,
@@ -126,6 +127,7 @@ fn hall(template: u32, lockable: bool, opens_on_unlock: bool) -> Harness {
         extras: vec![(CRYSTAL, 1.0)],
         placed: "authored for a test".into(),
         confidence: "authored".into(),
+        chest: None,
     });
     h
 }
@@ -594,6 +596,7 @@ fn an_item_in_the_pack_its_quest_keeps_is_refused_by_its_use() {
         quests: vec![def(false)],
         steps: Vec::new(),
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let (a, me) = h.player_in_world("one", "Elara");
     h.run(10);
@@ -717,6 +720,7 @@ fn an_item_its_quest_keeps_is_refused_when_taken_until_the_quest_is_where_it_nee
         quests: vec![def(false)],
         steps: Vec::new(),
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let (a, me) = h.player_in_world("one", "Elara");
     h.run(10);
@@ -794,5 +798,361 @@ fn an_item_its_quest_keeps_is_refused_when_taken_until_the_quest_is_where_it_nee
     assert!(
         taken(&h, gem),
         "an item naming no status: taken with the quest under way"
+    );
+}
+
+/// A key gone from the pack when it has turned opens nothing, shows nothing and is not used up; one
+/// gone as the chest opens shows nothing, and the chest shuts locked.
+/// Behaviour: server.places.a-key-gone-opens-no-chest
+#[test]
+fn a_key_out_of_the_pack_before_a_chest_opens_shows_nothing_and_is_not_used_up() {
+    for (when, moved) in [(0.05, false), (1.5, true)] {
+        let mut h = hall(CACHE, true, true);
+        let (a, me) = h.player_in_world("one", "Elara");
+        h.run(10);
+        let key = give_key(&mut h, me);
+        let from = h.bots[a].inbox.len();
+        send_use(&mut h, a, me, key, CHEST, when);
+        assert_eq!(
+            seen(&h, a, from).contains(&"flash".to_string()),
+            moved,
+            "it has begun to open"
+        );
+        let world = *h.server.players.keys().next().expect("in");
+        h.server
+            .players
+            .get_mut(&world)
+            .expect("in")
+            .play
+            .items
+            .retain(|i| i.id != key);
+        run_for(&mut h, 8.0);
+        assert!(h.server.things.get(key).is_some(), "not used up");
+        let told = seen(&h, a, from);
+        assert!(
+            !told
+                .iter()
+                .any(|t| t == "gem" || t == "crystal" || t == "open"),
+            "{told:?}"
+        );
+        let c = &h.server.chests.by_id[&CHEST];
+        assert!(!c.unlocked, "still locked");
+        assert!(c.opener.is_none(), "nobody has it open");
+        assert_eq!(c.phase, yalain_world::usable::chests::Phase::Closed, "shut");
+    }
+}
+
+/// A key's asking to go down while it turns is refused: it turns, the chest opens and the key is
+/// used up.
+/// Behaviour: server.places.a-key-gone-opens-no-chest
+#[test]
+fn a_key_is_not_put_down_while_it_turns_at_a_chest() {
+    use yalain_world::inventory::{move_graph, Move};
+    let mut h = hall(CACHE, true, true);
+    let (a, me) = h.player_in_world("one", "Elara");
+    h.run(10);
+    let key = give_key(&mut h, me);
+    let from = h.bots[a].inbox.len();
+    send_use(&mut h, a, me, key, CHEST, 0.05);
+    let down = Move {
+        move_type: yalain_world::drops::DROP,
+        merge: true,
+        unlock: true,
+        check_take: true,
+        all_taken: true,
+        grab: true,
+        contain: true,
+        auto_merge: true,
+        from: me,
+        actual_from: me,
+        item: key,
+        split_item: key,
+        quantity: 1,
+        quantity_left: 1,
+        ..Move::default()
+    };
+    let call = server_call(
+        yalain_world::drops::function::MOVE_ITEM,
+        &[move_graph(&down)],
+    );
+    h.bots[a].send(true, auberean_protocol::queue::WEENIE, &call);
+    run_for(&mut h, 6.0);
+    let told = seen(&h, a, from);
+    assert!(told.contains(&"key gone".to_string()), "{told:?}");
+    assert!(told.contains(&"open".to_string()), "{told:?}");
+}
+
+/// A chest whose opener leaves the world is shut for the next to open, whether it stood open or was
+/// still opening.
+/// Behaviour: server.places.a-chest-its-opener-left-opens-again
+#[test]
+fn a_chest_whose_opener_leaves_the_world_opens_for_the_next() {
+    for still_opening in [false, true] {
+        let mut h = hall(SMALL, false, false);
+        let (a, me) = h.player_in_world("one", "Elara");
+        let (b, them) = h.player_in_world("two", "Babyfare");
+        h.run(10);
+        send_use(
+            &mut h,
+            a,
+            me,
+            CHEST,
+            0,
+            if still_opening { 0.2 } else { 3.0 },
+        );
+        let world = *h
+            .server
+            .players
+            .iter()
+            .find(|(_, p)| p.character == me)
+            .expect("in")
+            .0;
+        yalain_world::world::leave(&mut h.server, &mut h.net, world);
+        run_for(&mut h, 3.0);
+        let c = &h.server.chests.by_id[&CHEST];
+        assert!(c.opener.is_none(), "nobody has it open");
+        assert_eq!(c.phase, yalain_world::usable::chests::Phase::Closed, "shut");
+        let fb = h.bots[b].inbox.len();
+        send_use(&mut h, b, them, CHEST, 0, 3.0);
+        assert!(
+            seen(&h, b, fb).contains(&"opened 0".to_string()),
+            "{:?}",
+            seen(&h, b, fb)
+        );
+    }
+}
+
+/// What a chest draws is treasure of the level its profile's row names, each piece worth a draw from
+/// the row's band and carrying what that level gives it; its extras aren't; a profile whose row names
+/// none leaves its draw as its template has it.
+/// Behaviour: server.places.a-chests-draw-is-treasure-of-its-level
+#[test]
+fn a_chests_draw_is_treasure_of_the_level_its_row_names() {
+    let opened = |chest: Option<yalain_content::ChestTreasure>| {
+        let mut h = hall(SMALL, false, false);
+        for p in &mut h.server.loot.profiles {
+            p.chest = chest;
+        }
+        h.server.treasure.equipment.insert(0x3A1);
+        let (a, me) = h.player_in_world("one", "Elara");
+        h.run(10);
+        let props = &mut h
+            .server
+            .catalog
+            .templates
+            .get_mut(&SMALL)
+            .expect("made")
+            .props;
+        props.set("Lock_Lockable", Prop::Bool(false));
+        send_use(&mut h, a, me, CHEST, 0, 1.6);
+        let c = h.server.chests.by_id[&CHEST].contents.clone();
+        c.iter()
+            .map(|i| {
+                let t = h.server.things.get(*i).expect("made");
+                (t.template, t.value, t.own.min_level)
+            })
+            .collect::<Vec<_>>()
+    };
+    let got = opened(Some(yalain_content::ChestTreasure {
+        level: 45,
+        value: (130, 189),
+    }));
+    assert!(got.iter().any(|(t, _, _)| *t == GEM), "{got:?}");
+    for (t, v, least) in &got {
+        if *t == GEM {
+            assert!((130..=189).contains(v), "{v}");
+            assert!(least.is_some_and(|l| (45..=48).contains(&l)), "{least:?}");
+        } else {
+            assert_eq!((*t, *v, *least), (CRYSTAL, 0, None), "an extra");
+        }
+    }
+    let plain = opened(None);
+    assert!(
+        plain.iter().all(|(_, v, least)| *v == 0 && least.is_none()),
+        "{plain:?}"
+    );
+}
+
+/// A hidden quest of one phase, as a chest's own quest is, its id and its name in the install.
+const CHEST_QUEST: u32 = 0x8000_02CE;
+
+fn hidden_quest(h: &mut Harness) {
+    h.server
+        .quests
+        .quests
+        .push(yalain_content::quests::QuestDef {
+            id: CHEST_QUEST,
+            name: (0, 0),
+            description: (0, 0),
+            icon: 0,
+            play_fx: false,
+            journals: vec![(1, 0)],
+            challenge: 0,
+            duration: 0.0,
+            timed_phase: 0,
+            retry: 0.0,
+            xp: 0,
+            cancellable: false,
+            placed: "authored for a test".into(),
+            hidden: true,
+            effects: Vec::new(),
+            subquests: Vec::new(),
+            min_level: 0,
+            fails_on_death: false,
+            once: false,
+            fellows: yalain_content::quests::Fellows::default(),
+            last_waits: false,
+            hero_only: false,
+            pay: yalain_content::quests::CompletionPay::default(),
+            required: None,
+        });
+    h.server
+        .quest_ids
+        .insert("QuestTestChestControl".into(), CHEST_QUEST);
+}
+
+/// A chest kept by its own quest, whose use completes that quest; and a player holding it.
+fn control_chest() -> (Harness, usize, u64) {
+    let mut h = hall(SMALL, false, false);
+    hidden_quest(&mut h);
+    let mut chest = Props::default();
+    chest
+        .set("GeneratorProfile", Prop::Word(PROFILE))
+        .set("Usage_RequiredQuest", Prop::Word(CHEST_QUEST))
+        .set("Usage_RequiredQuestStatus", Prop::Word(0x1000_0000))
+        .set(
+            "Usage_Effect1",
+            Prop::Text("Eff_CompleteQuestTestChestControl".into()),
+        );
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(SMALL, PACKAGE, chest));
+    let (a, me) = h.player_in_world("one", "Elara");
+    h.run(10);
+    for p in h.server.players.values_mut() {
+        p.play.quests.push(yalain_world::state::QuestState {
+            quest: CHEST_QUEST,
+            status: yalain_world::quests::status::UNDERWAY,
+            phase: 1,
+            started: 0,
+            updated: 0,
+        });
+    }
+    (h, a, me)
+}
+
+/// A chest whose kind completes its own quest opens for its holder, the quest over as it begins, and
+/// refuses it after with the refusal of a hidden quest.
+/// Behaviour: server.places.a-chests-use-comes-on-its-opener
+#[test]
+fn a_chest_that_completes_its_own_quest_opens_once() {
+    let (mut h, a, me) = control_chest();
+    let fa = h.bots[a].inbox.len();
+    send_use(&mut h, a, me, CHEST, 0, 0.1);
+    let held = |h: &Harness| {
+        let p = h.server.players.values().next().expect("in the world");
+        yalain_world::quests::phase_of(&p.play.quests, CHEST_QUEST)
+    };
+    assert_eq!(held(&h), 0, "over as it begins to open");
+    run_for(&mut h, 2.0);
+    assert!(seen(&h, a, fa).iter().any(|s| s.starts_with("opened")));
+    close(&mut h, a, 2.0);
+    let fa = h.bots[a].inbox.len();
+    send_use(&mut h, a, me, CHEST, 0, 2.0);
+    assert_eq!(
+        seen(&h, a, fa),
+        [format!(
+            "done {} flags {}",
+            yalain_world::item_use::refusal::MYSTERIOUS_USE,
+            chests::WRONG_QUEST_FLAGS
+        )]
+    );
+}
+
+/// A use accepted on the way to a chest doesn't open it if another of its kind has completed the
+/// quest that keeps them both.
+/// Behaviour: server.places.a-chests-use-comes-on-its-opener
+#[test]
+fn a_chest_walked_to_refuses_once_its_quest_is_over() {
+    let (mut h, a, me) = control_chest();
+    const OTHER: u64 = CHEST + 1;
+    let mut far = h.server.content.objects[0].clone();
+    far.object = Some(OTHER);
+    far.origin[0] += 20.0;
+    h.server.content.objects.push(far);
+    h.run(10);
+    send_use(&mut h, a, me, OTHER, 0, 0.1);
+    let (&conn, p) = h.server.players.iter().next().expect("in the world");
+    assert!(p.walking_to.is_some(), "on its way");
+    let clock = h.clock();
+    let u = p.walking_to.clone().expect("walking").0;
+    let mut here = u.clone();
+    here.item = CHEST;
+    yalain_world::usable::chests::at_chest(&mut h.server, &mut h.net, conn, here, clock);
+    let fa = h.bots[a].inbox.len();
+    yalain_world::usable::chests::at_chest(&mut h.server, &mut h.net, conn, u, clock);
+    run_for(&mut h, 2.0);
+    assert!(
+        h.server
+            .chests
+            .by_id
+            .get(&OTHER)
+            .is_none_or(|c| c.contents.is_empty()),
+        "nothing made in the other"
+    );
+    assert!(seen(&h, a, fa).iter().any(|s| s.starts_with("done")));
+}
+
+/// What a chest's kind names by an effect the install holds comes on its opener with the opening,
+/// and once though its quest is named too.
+/// Behaviour: server.places.a-chests-use-comes-on-its-opener
+#[test]
+fn a_chests_quest_effect_held_as_a_state_moves_its_quest_once() {
+    use yalain_world::effect_defs::{EffectDef, Kind as EffectKind, Scale};
+    const STATE: u32 = 0x6F00_7700;
+    let (mut h, a, me) = control_chest();
+    let mut phases = h.server.quests.quests[0].clone();
+    phases.journals = vec![(1, 0), (2, 0), (3, 0)];
+    phases.hidden = false;
+    h.server.quests.quests[0] = phases;
+    let mut chest = h.server.catalog.get(SMALL).expect("the kind").props.clone();
+    chest.set(
+        "Usage_Effect1",
+        Prop::Text("Eff_IncrementQuestTestChestControl".into()),
+    );
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(SMALL, PACKAGE, chest));
+    h.server.item_uses.insert(
+        SMALL,
+        vec![yalain_world::item_use::UsageEffect {
+            state: STATE,
+            spellcraft: 1.0,
+        }],
+    );
+    h.server.effect_table.effects.insert(
+        STATE,
+        EffectDef {
+            state: STATE,
+            kind: EffectKind::Quest {
+                quest: CHEST_QUEST,
+                update: yalain_world::quests::update::INCREMENT,
+            },
+            duration: Scale::default(),
+            priority: Scale::default(),
+            fx: 0,
+            external_flags: 0,
+            internal_flags: 0,
+            enum_value: 0,
+            eq_class: 0,
+            name: None,
+        },
+    );
+    send_use(&mut h, a, me, CHEST, 0, 0.1);
+    let p = h.server.players.values().next().expect("in the world");
+    assert_eq!(
+        yalain_world::quests::phase_of(&p.play.quests, CHEST_QUEST),
+        2,
+        "one move, not two"
     );
 }

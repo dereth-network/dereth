@@ -17,7 +17,7 @@ use auberean_script::native_object::{Item, NativeObject};
 use auberean_script::opcode::{length, low_byte, signed, tag_of};
 use auberean_script::value::{join, tag, FunctionId};
 use yalain_content::stores::SaleGate;
-use yalain_content::{FactIds, Props, FACT_NAMES};
+use yalain_content::{FactIds, Prop, Props, FACT_NAMES};
 
 use crate::compile::{Install, InstallSale, QuestDefinition};
 
@@ -540,6 +540,105 @@ fn read_setup(lib: &Library, start: usize, end: usize) -> Setup {
                 text = None;
                 float = None;
             }
+        }
+        at += length(&lib.code, at).unwrap_or(1);
+    }
+    out
+}
+
+/// The calls an item's class makes that say what its properties would, and the property each says:
+/// a weapon's damage, variance, vigor and speed; its value; a garment's and a shield's armor and
+/// delay; its least level and race.
+const CLASS_SETTERS: [(u32, &str); 11] = [
+    (0x019E_000D, "Weapon_Damage"),
+    (0x019E_000E, "Weapon_Variance"),
+    (0x019E_001E, "Weapon_VigorCost"),
+    (0x019E_0017, "Weapon_Speed"),
+    (0x0172_004C, "Item_Value"),
+    (0x0180_000E, "Item_ArmorLevel"),
+    (0x019D_000F, "Item_ArmorLevel"),
+    (0x0180_0009, "Item_CombatDelay"),
+    (0x019D_000C, "Item_CombatDelay"),
+    (0x0172_00EA, "Usage_MinLevel"),
+    (0x0172_0001, "Usage_RequiredRace"),
+];
+
+/// What the code of an item's class literally says of its properties, the class's own over its bases',
+/// for a template that names them nowhere else (2017: the weapons that keep what their class says,
+/// damage and variance, 3 of 3 exactly).
+#[must_use]
+pub fn class_properties(lib: &Library, package: u32) -> Vec<(&'static str, Prop)> {
+    let mut out: Vec<(&'static str, Prop)> = Vec::new();
+    let mut at = lib.export_of(package);
+    let mut guard = 0;
+    while let Some(i) = at {
+        let Some(p) = lib.packages.get(i) else {
+            break;
+        };
+        for f in p.functions.iter().filter(|f| {
+            matches!(
+                f.name.as_str(),
+                "constructor" | "ClientServerInit" | "ServerOnlyInit"
+            )
+        }) {
+            let Some(offset) = f.offset else {
+                continue;
+            };
+            let start = (offset / 4) as usize;
+            let end = (start + (f.size / 4) as usize).min(lib.code.len());
+            for (name, value) in class_literals(lib, start, end) {
+                if !out.iter().any(|(n, _)| *n == name) {
+                    out.push((name, value));
+                }
+            }
+        }
+        at = p.parent;
+        guard += 1;
+        if guard > lib.packages.len() {
+            break;
+        }
+    }
+    out
+}
+
+/// The class setters' literals in the code in `start..end`, each call reading the literal pushed
+/// before it.
+fn class_literals(lib: &Library, start: usize, end: usize) -> Vec<(&'static str, Prop)> {
+    let mut out = Vec::new();
+    let mut literal: Option<Prop> = None;
+    let mut at = start;
+    while at < end {
+        let word = lib.code[at];
+        match low_byte(word) {
+            0x03 | 0x83 => literal = Some(Prop::Int(i64::from(signed(word)))),
+            0x02 if tag_of(word) == tag::FLOAT => {
+                literal = lib
+                    .code
+                    .get(at + 1)
+                    .map(|v| Prop::Float(f32::from_bits(*v)));
+            }
+            0x02 => literal = lib.code.get(at + 1).map(|v| Prop::Int(i64::from(*v))),
+            0x23 => {}
+            0x0B | 0x4F | 0x51 | 0x53 => {
+                let id = lib.code.get(at + 1).copied().unwrap_or(0);
+                let called = id & 0x7FFF_FFFF;
+                if let Some((_, name)) = CLASS_SETTERS.iter().find(|(s, _)| *s == called) {
+                    match (*name, literal.take()) {
+                        // A class that sets its value at nothing is worth nothing, whatever its
+                        // bases set.
+                        ("Item_Value", Some(Prop::Int(0))) => out.push((*name, Prop::Int(0))),
+                        // Any other zero says nothing: its template isn't armor, or any race's.
+                        (_, Some(Prop::Int(0)) | None) => {}
+                        // A race is a set of flags, not a number.
+                        ("Usage_RequiredRace", Some(Prop::Int(i))) => {
+                            out.push((*name, Prop::Word(u32::try_from(i).unwrap_or(0))));
+                        }
+                        (_, Some(v)) => out.push((*name, v)),
+                    }
+                }
+                literal = None;
+            }
+            _ => literal = None,
         }
         at += length(&lib.code, at).unwrap_or(1);
     }

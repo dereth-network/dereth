@@ -9,6 +9,7 @@ use auberean_physics::body::Body;
 use auberean_physics::land::{Block, Land};
 use auberean_physics::solid::Ethereality;
 use auberean_physics::world::{World, WorldObject, MOVER_ETHEREAL, STATIC_ETHEREAL};
+use dereth_primitives::Vec3;
 
 use crate::contact::objects::{at, body, post, run_north, GROUND_Z};
 
@@ -186,6 +187,72 @@ fn a_body_and_what_it_runs_into_both_keep_the_touch() {
             .any(|c| c.object == 0x51 && c.begin),
         "the touch begins: {reports:?}"
     );
+}
+
+/// A body that does not report its collisions keeps the touch and says nothing of it, and when it
+/// starts reporting again the touch begins.
+///
+/// Behaviour: collision.solid.a-body-that-does-not-report-keeps-its-touches-unsaid
+#[test]
+fn a_body_that_does_not_report_keeps_its_touches_unsaid() {
+    let land = crate::contact::objects::land();
+    let mut world = World::new();
+    let mut standing = body(70.0, 80.0);
+    world.insert_body(&land, 0x51, &mut standing);
+    let mut runner = body(70.0, 70.0);
+    let r = world.insert_body(&land, 0x50, &mut runner);
+    runner.set_report_collisions(false);
+    run_north(&mut runner, &land, &mut world, 40);
+    assert!(
+        world
+            .collisions(r)
+            .is_some_and(|c| c.contacts.contains_key(&0x51)),
+        "the runner keeps the touch"
+    );
+    world.report_collisions(r, false);
+    assert!(world.take_reports(r).is_empty(), "and says nothing of it");
+    runner.set_report_collisions(true);
+    run_north(&mut runner, &land, &mut world, 1);
+    world.report_collisions(r, false);
+    let begun = world
+        .take_reports(r)
+        .iter()
+        .flat_map(|p| p.records.iter())
+        .any(|c| c.object == 0x51 && c.begin);
+    assert!(begun, "reporting again, the touch begins");
+}
+
+/// What a falling body reports of its move, stopped during the move or not.
+fn reported_normal(stopped: bool) -> Option<Vec3> {
+    use dereth_physics::transition::Transition;
+    let land = crate::contact::objects::land();
+    let mut world = World::new();
+    let mut falling = body(70.0, 70.0);
+    let key = world.insert_body(&land, 0x50, &mut falling);
+    falling.velocity = Vec3::new(0.0, 0.0, -6.0);
+    let mut t = Transition {
+        kill_velocity: stopped,
+        ..Transition::default()
+    };
+    t.collision_info.collision_normal_valid = true;
+    t.collision_info.collision_normal = Vec3::new(0.0, 0.0, 1.0);
+    falling.handle_all_collisions(&land, &mut world, key, &t, false);
+    world.report_collisions(key, false);
+    world
+        .take_reports(key)
+        .iter()
+        .find_map(|r| r.collided())
+        .map(|(normal, _)| normal)
+}
+
+/// A fall stopped during the move (a landing that could not be kept) reports no impact, since the
+/// body has no speed left when it tells of the move; one that kept its speed does.
+///
+/// Behaviour: collision.body.a-fall-stopped-during-the-move-reports-no-impact
+#[test]
+fn a_fall_stopped_during_the_move_reports_no_impact() {
+    assert_eq!(reported_normal(false), Some(Vec3::new(0.0, 0.0, 1.0)));
+    assert_eq!(reported_normal(true), None);
 }
 
 /// An object whose description pushes moves what touches it: a body run into a post that pushes

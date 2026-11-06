@@ -51,6 +51,89 @@ fn selecting_a_player_is_answered_with_its_vitals() {
     assert_eq!(words, [0x4000_0001, 100, 0, 100, 100, 0, 100]);
 }
 
+/// Selecting a person whose template names no health or vigor is answered with a person's own
+/// numbers, so the meters under its name show full rather than empty; a template that names them
+/// keeps them.
+///
+/// Behaviour: server.selection.a-person-with-no-vitals-of-its-own-has-30-and-130
+#[test]
+fn a_person_with_no_vitals_of_its_own_has_30_and_130() {
+    use yalain_content::{ContentObject, ContentPack, Description, Kind};
+    let mut h = Harness::new();
+    let (a, id) = h.player_in_world("one", "Elara");
+    let at = h
+        .server
+        .players
+        .values()
+        .find(|p| p.character == id)
+        .expect("in the world")
+        .position;
+    let person = |object: u64, facts: Facts| ContentObject {
+        object: Some(object),
+        template: 0x4700_2F80,
+        description: Description {
+            name_text: None,
+            package: 0x13A4,
+            look: 0x1F00_0100,
+            enter_fx: 0,
+            scale: None,
+            name: None,
+            numbers: [0; 6],
+            source: "authored for a test".into(),
+        },
+        cell: at.cell,
+        origin: [at.origin[0] + 1.0, at.origin[1], at.origin[2]],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+        kind: Kind::Npc,
+        label: String::new(),
+        placed: "authored for a test".into(),
+        destination: None,
+        facts,
+        walks: None,
+        gate: None,
+    };
+    let (plain, tough) = (0x40DF_8A00_0000_001E, 0x40DF_8A00_0000_001F);
+    h.server.content = ContentPack {
+        objects: vec![
+            person(plain, Facts::default()),
+            person(
+                tough,
+                Facts {
+                    max_health: Some(500),
+                    max_vigor: Some(600),
+                    ..Facts::default()
+                },
+            ),
+        ],
+        ..ContentPack::default()
+    };
+    let mut words_of = |who: u64| {
+        let from = h.bots[a].inbox.len();
+        h.bots[a].send(
+            true,
+            queue::WEENIE,
+            &server_call(function::SET_SELECTION, &[Arg::LongInt(who)]),
+        );
+        let values = h
+            .wait_for(a, from, |m| match m {
+                ServerMessage::PlayerCall(c) if c.function.0 == answered::SELECTION_INFO => {
+                    c.args.as_ref().and_then(|x| calls::values(&x.0).ok())
+                }
+                _ => None,
+            })
+            .expect("answered");
+        let Some(Node::Native { ty: 171, bytes }) = values[0].root() else {
+            panic!("a selection's information: {values:?}")
+        };
+        bytes
+            .chunks(4)
+            .map(|c| u32::from_le_bytes(c.try_into().expect("words")))
+            .collect::<Vec<u32>>()
+    };
+    assert_eq!(words_of(plain), [0x4000_0001, 30, 0, 30, 130, 0, 130]);
+    assert_eq!(words_of(tough), [0x4000_0001, 500, 0, 500, 600, 0, 600]);
+}
+
 /// The bytes of an examination request about an object, asking for the tabs given.
 fn about(object: u64, asked: u32) -> Arg {
     let mut bytes = Vec::new();
@@ -157,6 +240,7 @@ fn an_object_for_monarchs_alone_says_so_when_examined() {
         object: Some(SIGN),
         template,
         description: yalain_content::Description {
+            name_text: None,
             package: 0x13C1,
             look: 0x1F00_0ED5,
             enter_fx: 0,
@@ -428,6 +512,7 @@ fn an_item_names_its_maker_its_durability_and_its_effects() {
             table: EFFECT_TABLE,
             spellcraft: Some(50),
             amount: None,
+            ends: None,
         }],
     );
     let item = h.arm(a, me, BLADE);
@@ -577,6 +662,7 @@ fn an_effects_spellcraft_shows_unless_it_happens_at_once_or_never_varies() {
             table: 0x2500_7103,
             spellcraft: Some(100),
             amount: None,
+            ends: None,
         }]
     );
 }
@@ -1173,6 +1259,49 @@ fn a_dyed_items_icon_takes_its_dyes_color() {
     );
 }
 
+/// A shield no one made shows its template's numbers as a shield's: its rating leading, the delay
+/// it wears with, and its effects when wielded indented once, under no heading of armor or weapons.
+/// Behaviour: server.examination.a-plain-shield-shows-shield-stats
+#[test]
+fn a_plain_shield_shows_shield_stats_from_its_template() {
+    use profile::{item_line as l, ItemEffect, ItemView, Node, When};
+    use yalain_content::Prop;
+    let mut props = yalain_content::Props::default();
+    props.set("Item_ArmorLevel", Prop::Int(69));
+    props.set("Weapon_Damage", Prop::Int(142));
+    props.set("Weapon_Variance", Prop::Float(0.21));
+    props.set("Weapon_Speed", Prop::Int(15));
+    props.set("Weapon_VigorCost", Prop::Int(15));
+    let mut view = ItemView::of(&props, 1, None);
+    assert_eq!(view.shield, Some(69));
+    assert_eq!(view.armor, None);
+    assert_eq!(view.weapon, Some((142, 0.21, 0, 15)), "no delay of its own");
+    props.set("Item_CombatDelay", Prop::Int(10));
+    assert_eq!(ItemView::of(&props, 1, None).weapon.map(|w| w.2), Some(10));
+
+    view.effects.push(ItemEffect {
+        when: When::Equipped,
+        table: 1,
+        spellcraft: None,
+        amount: None,
+        ends: None,
+    });
+    let nodes = profile::item(0x3FF, &view).nodes;
+    let line = |id: u32| {
+        nodes
+            .iter()
+            .position(|n| matches!(n, Node::Text { text, .. } if text.string_id == id))
+    };
+    assert!(line(l::SHIELD_STATS).is_some());
+    assert_eq!(line(l::ARMOR_STATS), None);
+    assert_eq!(line(l::WEAPON_STATS), None);
+    let rating = line(l::SHIELD_RATING).expect("its rating");
+    assert!(matches!(nodes[rating + 1], Node::Int { value: 69, .. }));
+    assert!(rating < line(l::DAMAGE).expect("its damage"), "it leads");
+    let heading = line(l::EFFECTS_WIELDED).expect("its effects");
+    assert!(matches!(nodes[heading - 1], Node::Tab { count: 1, .. }));
+}
+
 /// A stack with a value of its own shows what all its pieces are worth, as a sale of it pays.
 /// Behaviour: server.inventory.a-stack-pays-for-each-piece
 #[test]
@@ -1408,4 +1537,69 @@ fn a_treasure_item_is_named_for_its_enchantment_in_its_create_and_its_profile() 
     assert!(has(STEADY) && has(TABLE), "its word and its suffix");
     assert!(!has(treasure_name::PREFIX_TEXT.0));
     assert_eq!(shape(&mut h, false, None), jewelry_name(NAME, None));
+}
+
+/// A person, or an object, a world gave a name of its own is examined under that name, as it is
+/// shown over its head; the template's stays for the rest.
+/// Behaviour: server.examination.a-rows-own-name
+#[test]
+fn a_row_with_a_name_of_its_own_is_examined_under_it() {
+    use yalain_content::{ContentObject, ContentPack, Description, Facts, Kind};
+
+    const PERSON: u64 = 0x40DF_8A00_0000_0021;
+    const OTHER: u64 = 0x40DF_8A00_0000_0022;
+    let template_name = (0x1111_2222, 0x2500_1E91);
+    let row = |object: u64, kind: Kind, name_text: Option<&str>| ContentObject {
+        object: Some(object),
+        template: 0x4700_2F80,
+        description: Description {
+            name_text: name_text.map(str::to_owned),
+            package: 0x13A4,
+            look: 0x1F00_0100,
+            enter_fx: 0,
+            scale: None,
+            name: None,
+            numbers: [0; 6],
+            source: "authored for a test".into(),
+        },
+        cell: 0x0299_0109,
+        origin: [61.0, 241.0, -44.6],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+        kind,
+        label: String::new(),
+        placed: "authored for a test".into(),
+        destination: None,
+        facts: Facts {
+            name: Some(template_name),
+            ..Facts::default()
+        },
+        walks: None,
+        gate: None,
+    };
+    let mut h = Harness::new();
+    h.server.content = ContentPack {
+        objects: vec![
+            row(PERSON, Kind::Npc, Some("Old Tom")),
+            row(OTHER, Kind::Npc, None),
+        ],
+        ..ContentPack::default()
+    };
+    let (a, _) = h.player_in_world("one", "Elara");
+    h.run(10);
+    let says = |h: &mut Harness, object: u64| {
+        let from = h.bots[a].inbox.len();
+        h.bots[a].send(
+            true,
+            queue::WEENIE,
+            &server_call(function::EXAMINE, &[about(object, 0x3FF)]),
+        );
+        h.run(30);
+        profile_nodes(h, a, from).concat()
+    };
+    // What follows the request repeated is the profile of a person of that name.
+    let of_name = |name| profile::npc(0, name, &Facts::default()).packed(&[]);
+    let own = says(&mut h, PERSON);
+    assert!(own.ends_with(&of_name(profile::literal("Old Tom"))));
+    let plain = says(&mut h, OTHER);
+    assert!(plain.ends_with(&of_name(profile::string(template_name.1, template_name.0))));
 }

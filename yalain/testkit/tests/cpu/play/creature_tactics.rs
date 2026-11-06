@@ -454,6 +454,133 @@ fn a_creature_turns_on_the_player_that_has_hurt_it_most_lately() {
     );
 }
 
+/// Two players beside a creature of 1,000 health, which fights the first.
+fn beside_a_creature_of_a_thousand() -> (Harness, u64, u64, u64) {
+    let (mut h, _, me, id) = noticed(&[], [61.0, 240.2, -44.6]);
+    hardy(&mut h, me);
+    let (c, other) = h.player_in_world("two", "Babyfare");
+    drawn(&mut h, c);
+    hardy(&mut h, other);
+    h.server
+        .things
+        .get_mut(id)
+        .expect("the creature")
+        .max_health = 1000;
+    (h, me, other, id)
+}
+
+/// A taunt effect landing on a creature counts for its caster, a share of the creature's whole
+/// health, up or down, for twenty seconds, and each adds its own; on a player it does nothing, and
+/// a player who has done no harm at all is drawn by it.
+/// Behaviour: server.creatures.a-taunt-counts-at-the-draw
+#[test]
+fn a_taunt_landing_counts_for_its_caster_for_twenty_seconds_by_its_share_of_whole_health() {
+    const TAUNT: u32 = 0x6F00_7304;
+    const LOW: u32 = 0x6F00_7305;
+    let (mut h, me, other, id) = beside_a_creature_of_a_thousand();
+    for (state, share) in [(TAUNT, 0.25), (LOW, 0.05)] {
+        h.server
+            .effect_table
+            .effects
+            .insert(state, effect_of(state, Kind::Taunt(share)));
+    }
+    let land = |h: &mut Harness, on: On, state: u32, by: u64| {
+        let clock = h.clock();
+        let cast = Cast {
+            caster: by,
+            spellcraft: 1.0,
+            ..Cast::default()
+        };
+        effects::apply_on(&mut h.server, &mut h.net, on, state, cast, clock)
+    };
+    let taunts = |h: &Harness| -> Vec<(u64, i64)> {
+        let c = h.server.things.get(id).and_then(|t| t.creature.as_ref());
+        c.expect("a creature")
+            .taunts
+            .iter()
+            .map(|e| (e.1, e.2))
+            .collect()
+    };
+    assert!(land(&mut h, On::Creature(id), TAUNT, other));
+    assert!(land(&mut h, On::Creature(id), LOW, other));
+    assert_eq!(taunts(&h), [(other, 250), (other, 50)]);
+    let player = On::Player(conn(&h, me));
+    assert!(!land(&mut h, player, TAUNT, other));
+    assert!(
+        h.run_until(300, |h| target_of(h, id) == Some(other)),
+        "drawn by its taunts, no harm done"
+    );
+    h.now.0 += yalain_world::ai::TAUNT_REMEMBERED;
+    assert!(land(&mut h, On::Creature(id), LOW, me));
+    assert_eq!(taunts(&h), [(me, 50)], "the old ones gone");
+}
+
+/// How often, of `n` times it thinks again fighting `me` with what `prepare` gives it, a creature
+/// turned on `other`.
+fn turns_to(
+    h: &mut Harness,
+    (id, me, other): (u64, u64, u64),
+    prepare: &dyn Fn(&mut yalain_world::things::Creature, f64),
+) -> f64 {
+    let n = 8000;
+    let mut turned = 0;
+    for _ in 0..n {
+        let now = h.now.0;
+        let c = h
+            .server
+            .things
+            .get_mut(id)
+            .and_then(|t| t.creature.as_mut())
+            .expect("a creature");
+        c.target = Some(me);
+        c.target_since = now;
+        c.next_attack = now;
+        c.considered = f64::NEG_INFINITY;
+        c.harm.clear();
+        c.taunts.clear();
+        prepare(c, now);
+        yalain_world::ai::reconsider_for_test(&mut h.server, id, now);
+        turned += i32::from(target_of(h, id) == Some(other));
+    }
+    f64::from(turned) / f64::from(n)
+}
+
+/// At the draw a taunt weighs as harm: with all the weight on the taunter a creature turns at the
+/// draw's own chance and no more; twenty seconds on it weighs nothing; even with its target's harm
+/// it takes a share. A detaunt takes from its caster's weight, and one left with none isn't drawn.
+/// Behaviour: server.creatures.a-detaunt-takes-from-the-draw
+#[test]
+fn a_taunt_weighs_as_harm_at_the_draw_and_a_detaunt_takes_from_it() {
+    let (mut h, me, other, id) = beside_a_creature_of_a_thousand();
+    let who = (id, me, other);
+    let alone = turns_to(&mut h, who, &|c, now| {
+        c.taunts.push((now - 19.0, other, 50));
+    });
+    assert!((alone - 0.30).abs() < 0.03, "{alone}");
+    let gone = turns_to(&mut h, who, &|c, now| {
+        c.taunts.push((now - 21.0, other, 50));
+        c.harm.push((now, me, 40));
+    });
+    assert!(gone < 0.001, "{gone}");
+    let even = turns_to(&mut h, who, &|c, now| {
+        c.taunts.push((now, other, 50));
+        c.harm.push((now, me, 50));
+    });
+    assert!(even > 0.05 && even < 0.26, "{even}");
+    let none_left = turns_to(&mut h, who, &|c, now| {
+        c.harm.push((now, other, 50));
+        c.taunts.push((now, other, -80));
+        c.harm.push((now, me, 50));
+    });
+    assert!(none_left < 0.001, "{none_left}");
+    let some_left = turns_to(&mut h, who, &|c, now| {
+        c.harm.push((now, me, 90));
+        c.harm.push((now, other, 80));
+        c.taunts.push((now, other, -50));
+    });
+    assert!(some_left > 0.01 && some_left < even, "{some_left} {even}");
+}
+
 /// A creature draws its target again among the players that hurt it by their harm, the nearest of
 /// them three times as likely: of two that did it the same harm, the nearer about three times in
 /// four; of a nearer one that did a third of the other's, about one time in two.

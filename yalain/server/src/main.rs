@@ -45,6 +45,8 @@
 //!   --save-interval S     keep each character in the world every S seconds, 1 or more (default
 //!                         300); it is kept as it leaves, and at some events, besides
 //!   --shutdown-interval S how many seconds a shutdown counts down, 0 to 99999 (default 120)
+//!   --watchdog S          stop with a failure when the world has run no pass for S seconds, 0 for
+//!                         never (default 300)
 //!   --max-sessions N      how many logins the world holds at once (default 128); a login past
 //!                         them is told the server is full
 //!   --min-character-age S  seconds a character must have played before it sends to the Dereth
@@ -69,9 +71,18 @@
 //!                         first plays, then carry on (the `characters` module)
 //!   --world-db DIR        the world database to serve, compiled against --dats at start: a
 //!                         folder, or `pinned` (the default) for the release this build pins,
-//!                         fetched into the per-user cache with `yalain world fetch`; a world
+//!                         fetched into the per-user cache as it starts if it is not there; a world
 //!                         that names a base database (`[base]`, as Athenaeum's do) is served
-//!                         over that release in the cache
+//!                         over that release in the cache; its `overlay` folder, which
+//!                         `athenaeum build` makes, is read over --dats, and one made against other
+//!                         files stops the server
+//!   --dat-overlay DIR     the world's overlay folder, in place of the world's own `overlay`
+//!   --no-dat-overlay-patching  a client that keeps overlays and lacks the world's is refused, not
+//!                         sent it
+//!   --dat-overlay-records-per-minute N  how fast such a client is sent it (default 60000; 0 for
+//!                         the original servers' rate)
+//!   --enable-dat-patching a retail client lacking the world's overlay is sent it, at the original
+//!                         servers' rate, not refused: it must run with its files writable
 //!   --world-base DIR      the base database a --world-db world lies over, in place of the
 //!                         release it names in the cache
 //!   --no-referral         carry the world on the login connection instead of referring the
@@ -224,6 +235,8 @@ struct Options {
     serve_admin_library: bool,
     /// The bcrypt cost of account secrets (`--secret-cost`).
     secret_cost: u32,
+    /// Seconds with no pass of the world before it is stopped (`--watchdog`), 0 for never.
+    watchdog_seconds: u32,
     /// Seconds between a character's saves (`--save-interval`).
     save_seconds: u32,
     /// Seconds a shutdown counts down (`--shutdown-interval`).
@@ -253,6 +266,8 @@ struct Options {
     /// Recipe files of characters to make with their builds (`--make-character`).
     recipes: Vec<PathBuf>,
     world_db: String,
+    dat_overlay: Option<PathBuf>,
+    dat_overlay_settings: yalain_world::world_patch::DatOverlaySettings,
     world_base: Option<PathBuf>,
     referral: bool,
     echo: bool,
@@ -365,6 +380,7 @@ fn parse_from(args: impl IntoIterator<Item = String>) -> Result<Options, String>
         admin_commands: Vec::new(),
         serve_admin_library: false,
         secret_cost: yalain_world::login::SECRET_COST,
+        watchdog_seconds: yalain_world::guard::NO_PASS_SECONDS,
         save_seconds: yalain_world::saves::SAVE_SECONDS,
         shutdown_seconds: yalain_world::shutdown::LEAD,
         max_sessions: yalain_world::login::MAX_SESSIONS,
@@ -381,6 +397,8 @@ fn parse_from(args: impl IntoIterator<Item = String>) -> Result<Options, String>
         money: Vec::new(),
         recipes: Vec::new(),
         world_db: "pinned".into(),
+        dat_overlay: None,
+        dat_overlay_settings: yalain_world::world_patch::DatOverlaySettings::default(),
         world_base: None,
         referral: true,
         echo: true,
@@ -459,6 +477,9 @@ fn parse_from(args: impl IntoIterator<Item = String>) -> Result<Options, String>
                     return Err("--save-interval takes seconds, 1 or more".into());
                 }
                 o.save_seconds = n;
+            }
+            "--watchdog" => {
+                o.watchdog_seconds = value()?.parse().map_err(|e| format!("--watchdog: {e}"))?;
             }
             "--shutdown-interval" => {
                 let n: u32 = value()?
@@ -564,6 +585,14 @@ fn parse_from(args: impl IntoIterator<Item = String>) -> Result<Options, String>
                 ));
             }
             "--world-db" => o.world_db = value()?,
+            "--dat-overlay" => o.dat_overlay = Some(PathBuf::from(value()?)),
+            "--no-dat-overlay-patching" => o.dat_overlay_settings.patching = false,
+            "--dat-overlay-records-per-minute" => {
+                let v = value()?;
+                o.dat_overlay_settings.records_per_minute =
+                    v.parse().map_err(|e| format!("{a}: {v}: {e}"))?;
+            }
+            "--enable-dat-patching" => o.dat_overlay_settings.enable_dat_patching = true,
             "--world-base" => o.world_base = Some(PathBuf::from(value()?)),
             "--no-referral" => o.referral = false,
             "--no-echo" => o.echo = false,
@@ -803,6 +832,8 @@ struct Play {
     held_answers: std::collections::HashMap<u32, (u32, u32)>,
     weapons: std::collections::HashMap<String, u32>,
     weapon_rules: std::collections::HashMap<String, yalain_content::WeaponRule>,
+    death_spawns: std::collections::HashMap<String, yalain_content::DeathSpawn>,
+    death_effects: yalain_world::item_use::ItemUses,
 }
 
 /// The exit code of a server whose ports another program holds, beside the line that says so
@@ -870,6 +901,7 @@ fn run<S: Store>(
         echo_positions: o.echo,
         seed,
         secret_cost: o.secret_cost,
+        dat_overlay: o.dat_overlay_settings,
         admin_commands: o.admin_commands.clone(),
         save_seconds: o.save_seconds,
         shutdown_seconds: o.shutdown_seconds,
@@ -935,14 +967,9 @@ fn run<S: Store>(
         tracing::info!("the game clock is held at {game_time} s");
     }
     let mut server = Server::new(cfg, store, rules)
+        .map_err(|e| format!("the database will not set ids aside for the world's things: {e}"))?
         .with_world(start, content)
         .with_play(play.catalog, play.spawns, play.loot);
-    // Nothing the world makes may be given an id until the store has set ids aside.
-    if server.things.low() {
-        return Err("the database will not set ids aside for the world's things"
-            .to_owned()
-            .into());
-    }
     server.ground = Some(Box::new(play.ground));
     server.walls = Some(play.walls);
     server.stand_placed();
@@ -964,6 +991,7 @@ fn run<S: Store>(
         );
         server.admin_library = Some(library);
     }
+    server.world_patch = yalain_world::world_patch::WorldPatch::of(&files).map(std::sync::Arc::new);
     server.data = Some(Box::new(files));
     server.levels = play.levels;
     server.skill_table = play.skills;
@@ -1002,6 +1030,8 @@ fn run<S: Store>(
     server.held_answers = play.held_answers;
     server.creature_weapons = play.weapons;
     server.creature_weapon_rules = play.weapon_rules;
+    server.death_spawns = play.death_spawns;
+    server.death_effects = play.death_effects;
     for path in &o.recipes {
         make_character(&mut server, path, unix_now());
     }
@@ -1077,9 +1107,12 @@ fn run<S: Store>(
             ask,
         ),
     };
+    let passes = yalain_world::guard::Passes::default();
+    watch_the_world(&passes, o.watchdog_seconds);
     // A panic anywhere in the loop ends it the same way: see `yalain_world::guard`.
     let run_loop = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         loop {
+            passes.pass();
             if o.seconds
                 .is_some_and(|s| started.elapsed().as_secs_f64() >= s)
             {
@@ -1172,8 +1205,15 @@ fn run<S: Store>(
                         let dats = o.dats.clone().unwrap_or_default();
                         let (db, base) = (o.world_db.clone(), o.world_base.clone());
                         let banned = o.banned_names.clone();
+                        let overlay = o.dat_overlay.clone();
                         reloading = Some(console::start(move || {
-                            reload_world(&dats, &db, base.as_deref(), banned.as_deref())
+                            reload_world(
+                                &dats,
+                                &db,
+                                overlay.as_deref(),
+                                base.as_deref(),
+                                banned.as_deref(),
+                            )
                         }));
                     }
                     // The network's lines, as its own console has them.
@@ -1237,6 +1277,7 @@ fn run<S: Store>(
                 }
             }
             let now = local();
+            passes.at(yalain_world::guard::Part::Network);
             // The status ping is answered on the login port before the transport reads anything.
             let mut pinged = Vec::new();
             let seconds = started.elapsed().as_secs();
@@ -1267,7 +1308,9 @@ fn run<S: Store>(
             for a in asks.try_iter() {
                 update::answer(a, &mut server, &mut net, clock);
             }
+            passes.at(yalain_world::guard::Part::World);
             server.pump(&mut net, clock);
+            passes.at(yalain_world::guard::Part::Sending);
             if let Some(r) = &mut reporter {
                 let state = if server.shutdown == yalain_world::shutdown::Shutdown::No {
                     hub::State::Online
@@ -1340,6 +1383,7 @@ fn run<S: Store>(
             }
         }
     }));
+    passes.over();
     let panicked = run_loop
         .err()
         .map(|p| yalain_world::guard::words(p.as_ref()));
@@ -1383,6 +1427,32 @@ fn run<S: Store>(
         world_ended,
         typed,
     })
+}
+
+/// A thread outside the world's that stops the server when the world runs no pass for `seconds`: the
+/// failure's exit, so a service manager starts it again and no staged update goes in. It can reach
+/// nothing the world holds, so each character goes back to its last save.
+fn watch_the_world(passes: &yalain_world::guard::Passes, seconds: u32) {
+    if seconds == 0 {
+        return;
+    }
+    let passes = passes.clone();
+    std::thread::spawn(move || {
+        yalain_world::guard::watch(
+            &passes,
+            seconds,
+            || std::thread::sleep(Duration::from_secs(1)),
+            |part| {
+                tracing::error!(
+                    "THE WORLD HAS RUN NO PASS FOR {seconds} SECONDS, last in {}. It is stopping: \
+                     nothing since the last saves can be written, and characters go back to them. \
+                     This is a bug.",
+                    part.words()
+                );
+                std::process::exit(1);
+            },
+        );
+    });
 }
 
 /// How many times, a second apart, a server stopping tries to save what saves have not taken.
@@ -1596,6 +1666,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         places_by_name,
         weapons: listed_weapons,
         weapon_rules,
+        death_spawns,
         ..
     } = compiled;
     let play = (|| {
@@ -1760,10 +1831,11 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             "the mounts read"
         );
         // The effects the items' uses put on, read with the rest.
-        let (item_uses, worn_effects) = data::item_uses(portal, &catalog)?;
+        let (item_uses, worn_effects, death_effects) = data::item_uses(portal, &catalog)?;
         states.extend(item_uses.values().flatten().map(|e| e.state));
         states.extend(yalain_world::item_use::FOOD_EFFECTS);
         states.extend(worn_effects.values().flatten().map(|e| e.state));
+        states.extend(death_effects.values().flatten().map(|e| e.state));
         // The treasure potions' effects, put on when they are drunk.
         states.extend(yalain_world::treasure::POTION_EFFECTS.iter().flatten());
         // What the practice dummies hold.
@@ -1881,6 +1953,8 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             held_answers,
             weapons,
             weapon_rules: weapon_rules.into_iter().collect(),
+            death_spawns: death_spawns.into_iter().collect(),
+            death_effects,
         })
     })();
     play.map(|p| (content, p))
@@ -1890,12 +1964,13 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
 fn reload_world(
     dats: &Path,
     world_db: &str,
+    dat_overlay: Option<&Path>,
     base: Option<&Path>,
     banned_names: Option<&Path>,
 ) -> Result<(PathBuf, WorldTables), String> {
     let names = banned_names.map(read_banned_names).transpose()?;
     // A portal file of its own: this reload is the only reader of it, on its own thread.
-    let portal = data::Portal::open(dats)?;
+    let portal = data::Portal::open(dats, world::overlay_of(world_db, dat_overlay)?)?;
     let (dir, compiled) = compile_world(&portal, world_db, base)?;
     for w in &compiled.warnings {
         tracing::warn!("{w}");
@@ -1917,6 +1992,7 @@ fn reload_world(
         crafting: p.craft,
         weapons: p.weapons,
         weapon_rules: p.weapon_rules,
+        death_spawns: p.death_spawns,
         names,
         kinds: Some(yalain_world::reload::PlacedKinds {
             brokers: p.brokers,
@@ -1929,6 +2005,8 @@ fn reload_world(
             chests: p.chests,
         }),
         ground: Some(Box::new(p.ground)),
+        patch: yalain_world::world_patch::WorldPatch::of(&p.files),
+        files: Some(Box::new(p.files)),
     };
     Ok((dir, tables))
 }
@@ -1970,7 +2048,7 @@ fn main() -> std::process::ExitCode {
         }
         Err(e) => {
             eprintln!("yalain: {e}");
-            eprintln!("usage: yalain --dats <install folder> [--bind IP] [--login-port P] [--world-port P] [--advertise IP] [--data FILE | --memory] [--world-name NAME] [--listed-accounts] [--banned-names FILE] [--add-account NAME:TICKET] [--secret-cost N] [--save-interval S] [--shutdown-interval S] [--max-sessions N] [--max-sessions-per-address N] [--unlimited-sessions-from IP] [--download-rate N] [--motd TEXT] [--status IP:PORT] [--no-status-ping] [--status-ping-hellos N] [--status-ping-asks N] [--status-ping-replies N] [--config FILE] [--add-character ACCOUNT:NAME:RACE:SEX] [--place ACCOUNT:NAME:CELL:X:Y:Z:HEADING] [--money ACCOUNT:NAME:AMOUNT] [--make-character FILE] [--world-db DIR|pinned] [--world-base DIR] [--no-referral] [--no-echo] [--game-time S] [--hold-clock] [--hub URL --hub-slug SLUG --hub-key-file FILE [--federation] [--global-room ROOM]] [--no-friends] [--seconds S] [--verbose] [--stop-at-console-end] [--update off|patch|minor] [--update-check-hours H] [--update-warning-seconds S] [--update-source URL]");
+            eprintln!("usage: yalain --dats <install folder> [--bind IP] [--login-port P] [--world-port P] [--advertise IP] [--data FILE | --memory] [--world-name NAME] [--listed-accounts] [--banned-names FILE] [--add-account NAME:TICKET] [--secret-cost N] [--save-interval S] [--shutdown-interval S] [--watchdog S] [--max-sessions N] [--max-sessions-per-address N] [--unlimited-sessions-from IP] [--download-rate N] [--motd TEXT] [--status IP:PORT] [--no-status-ping] [--status-ping-hellos N] [--status-ping-asks N] [--status-ping-replies N] [--config FILE] [--add-character ACCOUNT:NAME:RACE:SEX] [--place ACCOUNT:NAME:CELL:X:Y:Z:HEADING] [--money ACCOUNT:NAME:AMOUNT] [--make-character FILE] [--world-db DIR|pinned] [--world-base DIR] [--dat-overlay DIR] [--no-dat-overlay-patching] [--dat-overlay-records-per-minute N] [--enable-dat-patching] [--no-referral] [--no-echo] [--game-time S] [--hold-clock] [--hub URL --hub-slug SLUG --hub-key-file FILE [--federation] [--global-room ROOM]] [--no-friends] [--seconds S] [--verbose] [--stop-at-console-end] [--update off|patch|minor] [--update-check-hours H] [--update-warning-seconds S] [--update-source URL]");
             eprintln!("       yalain world check|release|fetch|compile ...");
             eprintln!(
                 "       yalain update --check|--apply [--config FILE] [--policy off|patch|minor]"
@@ -1986,7 +2064,16 @@ fn main() -> std::process::ExitCode {
         return std::process::ExitCode::FAILURE;
     };
 
-    let loaded = data::Portal::open(&dats)
+    let loaded = world::overlay_of(&o.world_db, o.dat_overlay.as_deref())
+        .and_then(|overlay| {
+            if let Some(w) = &overlay {
+                tracing::info!(
+                    "reading the data files through world {}'s overlay",
+                    w.world()
+                );
+            }
+            data::Portal::open(&dats, overlay)
+        })
         .and_then(|p| Ok((data::chargen_rules(&p)?, data::start_rules(&p)?, p)));
     let (rules, start, portal) = match loaded {
         Ok(r) => r,
@@ -2011,7 +2098,9 @@ fn main() -> std::process::ExitCode {
             return std::process::ExitCode::FAILURE;
         }
     };
-    let compiled = match compile_world(&portal, &o.world_db, o.world_base.as_deref()) {
+    let compiled = match world::fetch_for_start(&o.world_db, o.world_base.as_deref())
+        .and_then(|()| compile_world(&portal, &o.world_db, o.world_base.as_deref()))
+    {
         Ok((d, t)) => {
             for w in &t.warnings {
                 tracing::warn!("{w}");
@@ -2099,6 +2188,25 @@ fn version_text() -> String {
         option_env!("YALAIN_BUILD_TARGET").unwrap_or("unknown"),
         update::SOURCE_URL,
     )
+}
+
+#[cfg(test)]
+mod watchdog_tests {
+    //! Behaviour: none (the option's reading; the watch itself is held in the world's tests)
+    use super::parse_from;
+
+    fn with(more: &[&str]) -> Result<u32, String> {
+        let args = ["--dats", "here"].iter().chain(more);
+        parse_from(args.map(|a| (*a).to_owned())).map(|o| o.watchdog_seconds)
+    }
+
+    #[test]
+    fn the_watchdog_defaults_to_five_minutes_and_takes_a_number_of_seconds() {
+        assert_eq!(with(&[]), Ok(300));
+        assert_eq!(with(&["--watchdog", "0"]), Ok(0));
+        assert_eq!(with(&["--watchdog", "45"]), Ok(45));
+        assert!(with(&["--watchdog", "soon"]).is_err());
+    }
 }
 
 #[cfg(test)]

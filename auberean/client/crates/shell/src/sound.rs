@@ -279,6 +279,12 @@ impl Sound {
                     self.manager.stop(h, 0.0);
                 }
             }
+            // D2-06924, D2-06932
+            FxSound::Volume { effect, volume } => {
+                for &h in self.kept.get(&(object, effect)).into_iter().flatten() {
+                    self.manager.set_volume(h, volume);
+                }
+            }
         }
     }
 

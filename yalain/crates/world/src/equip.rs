@@ -64,6 +64,18 @@ pub const EQUIP_PROFILE: (u16, usize) = (0x1F5, 7);
 pub const DISPLAY_MESSAGE: u32 = 0x8212_0024;
 pub const BINDS_WARNING: (u32, u32) = (0xD71B_6077, 0x2500_04A9);
 
+/// An item bound, to its holder: "By using it, you have bound #1 to you. It can no longer be
+/// equipped by anyone else, and cannot be sold in shops.", and the variable that names it.
+pub const BOUND_TEXT: (u32, u32) = (0xF696_A984, 0x2500_0014);
+const BOUND_TEXT_ITEM: u32 = 0x9352_2CD0;
+
+/// The status of an item bound to another player: the client writes why.
+pub const BOUND_TO_ANOTHER: u32 = 10074;
+
+/// The chance that a blow struck with what a player holds binds it, marked to (one in about ten:
+/// 2, 5, 11 and 12 attacks before each of the 4 weapons bound in view).
+pub const SWING_BINDS: f32 = 0.1;
+
 /// The slider of a player's weapon being drawn.
 pub const WEAPON_DRAWN: u32 = 0x4000_001F;
 
@@ -504,6 +516,10 @@ fn refused_item<S: Store>(
 ) -> Option<u32> {
     let t = s.catalog.get(h.template)?;
     let own = s.things.get(h.id).map(|i| i.own).unwrap_or_default();
+    let me = s.players.get(&world).map_or(0, |p| p.character);
+    if own.bound_to != 0 && own.bound_to != me {
+        return Some(BOUND_TO_ANOTHER);
+    }
     refused(s, world, &t.props, own, clock)
 }
 
@@ -684,7 +700,7 @@ fn wear<S: Store>(
         (q::CONTAINER, player),
     ] {
         let m = iid_update(s, item, quality, value);
-        net.send(world, queue::EVENT, BlobKind::VISUAL, m.encode());
+        crate::inventory::to_holder(s, net, world, item, &m);
     }
     if let Some(t) = s.things.get_mut(item) {
         t.wielded = Some((player, location));
@@ -814,7 +830,7 @@ fn take_off_to<S: Store>(
         show_look(s, net, world);
     }
     let m = iid_update(s, item, q::EQUIPPER, 0);
-    net.send(world, queue::EVENT, BlobKind::VISUAL, m.encode());
+    crate::inventory::to_holder(s, net, world, item, &m);
     if let Some(t) = s.things.get_mut(item) {
         t.wielded = None;
         t.container = Some((player, slot));
@@ -993,7 +1009,7 @@ fn wield<S: Store>(
         net.send_ephemeral(world, queue::EVENT, stream, attach.clone());
     }
     for (c, _) in watching.iter().filter(|(_, knows)| *knows) {
-        net.send(*c, queue::EVENT, BlobKind::VISUAL, attach.clone());
+        crate::presence::on_its_stream(s, net, *c, item, attach.clone());
     }
     if let Some(p) = s.players.get_mut(&world) {
         if let Some(h) = p.play.items.iter_mut().find(|h| h.id == item) {
@@ -1143,9 +1159,11 @@ fn put_away<S: Store>(
         });
         to_all_seeing(s, net, player, &sheathed);
     }
-    let m = iid_update(s, item, q::EQUIPPER, 0);
-    net.send(world, queue::EVENT, BlobKind::VISUAL, m.encode());
-    // Those who see it see the item let go of: the holder lets go of the item.
+    let m = iid_update(s, item, q::EQUIPPER, 0).encode();
+    net.send(world, queue::EVENT, BlobKind::VISUAL, m.clone());
+    // Those who see it see the item let go of: the holder lets go of the item, and those who know
+    // the item are told it has no holder (2017: 543 of 659 of the next visual messages about an item
+    // after its holder let go of it took the next stamp, those read holding no wearer).
     let player_stamp = s.players.get(&world).map(crate::world::Player::stamp);
     let item_stamp = s.things.get(item).map(|t| ObjectStamp {
         id: item,
@@ -1161,8 +1179,11 @@ fn put_away<S: Store>(
             action: child,
         })
         .encode();
-        for (c, _) in crate::presence::watching(s, world, player, item) {
-            net.send(c, queue::EVENT, BlobKind::VISUAL, gone.clone());
+        for (c, knows) in crate::presence::watching(s, world, player, item) {
+            net.send(c, queue::EVENT, BlobKind::UNORDERED, gone.clone());
+            if knows {
+                net.send(c, queue::EVENT, BlobKind::VISUAL, m.clone());
+            }
         }
     }
     if let Some(p) = s.players.get_mut(&world) {
@@ -1316,10 +1337,33 @@ pub fn binds_warning() -> ServerMessage {
     .expect("a string reference packs")
 }
 
-/// A player fights (attacks, or is hit): what it wears and wields that binds when used in combat
-/// is bound to it, with nothing said (2017: the 2 marked items fought with were equipped unmarked
-/// after, 54 and 133 attacks between; 10 of 10 not fought with kept the mark).
-pub fn in_combat<S: Store>(s: &mut Server<S>, world: ConnId) {
+/// A player is hit: the blow lands on one piece of what it wears, and that piece binds if it is
+/// marked to (2017: 30 of 30 armor pieces told within 1.1 s after a hit taken; each of the 5 sets
+/// in view told its first piece on its first hit, the next ones in 2.0, 2.8 and 3.6 hits, the
+/// pieces in no fixed order. Which piece a blow lands on is not told, so a piece at even odds).
+pub fn hit_taken<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
+    let Some(p) = s.players.get(&world) else {
+        return;
+    };
+    let worn: Vec<u64> = p
+        .play
+        .items
+        .iter()
+        .filter(|h| h.location & BODY_PLACES != 0)
+        .map(|h| h.id)
+        .collect();
+    // No dice for a player with nothing left to bind.
+    if !worn.iter().any(|id| binds_on_use(s, *id)) {
+        return;
+    }
+    let piece = worn[s.rng.below(worn.len())];
+    if binds_on_use(s, piece) {
+        bind(s, net, world, piece);
+    }
+}
+
+/// A player's blow lands: what it holds that is marked to bind may bind.
+pub fn blow_landed<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
     let Some(p) = s.players.get(&world) else {
         return;
     };
@@ -1327,12 +1371,38 @@ pub fn in_combat<S: Store>(s: &mut Server<S>, world: ConnId) {
         .play
         .items
         .iter()
-        .filter(|h| h.location != 0)
+        .filter(|h| h.location != 0 && h.location & BODY_PLACES == 0)
         .map(|h| h.id)
         .collect();
     for id in held {
-        if let Some(t) = s.things.get_mut(id) {
-            t.binds_on_use = false;
+        if binds_on_use(s, id) && s.rng.chance(SWING_BINDS) {
+            bind(s, net, world, id);
         }
     }
+}
+
+/// An item binds to its holder, and the holder is told.
+fn bind<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, item: u64) {
+    let Some(me) = s.players.get(&world).map(|p| p.character) else {
+        return;
+    };
+    let Some(t) = s.things.get_mut(item) else {
+        return;
+    };
+    t.binds_on_use = false;
+    t.own.bound_to = me;
+    let (template, made) = (t.template, t.own.made);
+    let Some(entry) = s.catalog.get(template) else {
+        return;
+    };
+    let name = made.map_or_else(
+        || crate::profile::item_name(&entry.facts),
+        |m| crate::profile::made_name(&entry.facts, m.prefix),
+    );
+    let told = progress::text_with(BOUND_TEXT, vec![progress::nested(BOUND_TEXT_ITEM, name)]);
+    progress::private(
+        net,
+        world,
+        &crate::chat::show_text(crate::social::NOTICE, told),
+    );
 }

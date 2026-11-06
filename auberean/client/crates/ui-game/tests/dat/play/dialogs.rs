@@ -238,6 +238,48 @@ fn quest(id: u32, st: u32, given: f64, name: &str) -> Quest {
     }
 }
 
+/// A message or a question goes up with its button holding the keyboard, so the use key answers it;
+/// a dialog with no such button leaves the keyboard alone.
+///
+/// Behaviour: ui.dialogs.the-use-key-answers-a-dialog-as-it-goes-up
+#[test]
+fn the_use_key_answers_a_dialog_as_it_goes_up() {
+    use auberean_ui::types::key_id;
+    let mut w = World::new();
+    let parent = Some(w.play.frame());
+    let mut n = Vec::new();
+    let message = dialog::new_context();
+    w.dialogs.make_dialog(
+        &mut w.ui,
+        parent,
+        &request(message, kind::MESSAGE, "Read me.", false),
+        &mut n,
+    );
+    assert_eq!(w.dialogs.up(), Some(message));
+    assert_eq!(
+        w.ui.active(),
+        Some(w.button("OkButton")),
+        "the button holds it"
+    );
+    w.ui.key(key_id::USE, true);
+    w.ui.key(key_id::USE, false);
+    w.tick(&[]);
+    assert_eq!(w.dialogs.up(), None, "the use key read the message");
+
+    let question = dialog::new_context();
+    w.dialogs.make_dialog(
+        &mut w.ui,
+        parent,
+        &request(question, kind::CONFIRMATION, "Sure?", false),
+        &mut n,
+    );
+    assert_eq!(w.ui.active(), Some(w.button("YesButton")), "yes holds it");
+    w.ui.key(key_id::USE, true);
+    w.ui.key(key_id::USE, false);
+    w.tick(&[]);
+    assert_eq!(w.dialogs.up(), None, "the use key answered yes");
+}
+
 /// The dialogs' answers reach the panel that asked: death's dialog brings the player back; a
 /// question of the player's scripts answered yes is answered with what it carried, no not at all;
 /// the journal's question whether to give a quest up, answered yes, gives it up. While a dialog

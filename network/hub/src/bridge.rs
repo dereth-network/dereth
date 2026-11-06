@@ -1133,8 +1133,9 @@ impl Registry {
     ///
     /// # Errors
     /// 404 for no such world; 409 for a locked world, for a channel that mirrors another room
-    /// (`channel_taken`), or for a world's own room that carries the Global room there
-    /// (`carries_global`); database errors.
+    /// (`channel_taken`), for a world's own room that carries the Global room there
+    /// (`carries_global`), or for a room the world mirrors under another of its names
+    /// (`same_room`); database errors.
     pub fn set_mirror(
         &self,
         slug: Option<&str>,
@@ -1160,8 +1161,8 @@ impl Registry {
                 "The hub's operator has locked this world",
             ));
         }
-        if let Some(id) = id {
-            self.check_own_room(id, room)?;
+        if let Some(row) = &row {
+            self.check_own_room(row, room)?;
         }
         if self.channel_taken_by_another(&placement.channel, id, room)? {
             return Err(channel_taken());
@@ -1582,7 +1583,7 @@ pub(crate) fn operator_mirrors(
         ("PUT", [room]) => {
             Bridged::of_world(&row.slug, room).map_err(RegistryError::bad)?;
             // Refused before Discord is asked anything.
-            shared.registry().check_own_room(&row.id, room)?;
+            shared.registry().check_own_room(&row, room)?;
             put_mirror(shared, service, Some(&row.slug), room, body, op)?;
             Ok((200, world_view(shared, service, &row)?))
         }

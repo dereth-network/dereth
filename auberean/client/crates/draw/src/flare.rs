@@ -87,6 +87,21 @@ pub fn sky_flares(day: &DayDesc, t: f32) -> Vec<SkyFlare> {
     out
 }
 
+/// The triangle that asks whether a sky object is seen, on a picture `width` by `height` from the
+/// object's place `at` on the screen (-1 to 1 each way): it covers the middle of that one pixel
+/// and no other's, so anything drawn over that pixel hides the object.
+// D2-10370
+#[must_use]
+pub fn seen_marker(at: (f32, f32), width: u32, height: u32) -> [(f32, f32); 3] {
+    #[allow(clippy::cast_precision_loss)]
+    let (w, h) = (width.max(1) as f32, height.max(1) as f32);
+    let middle = |v: f32, n: f32| ((v + 1.0) * n / 2.0).floor().mul_add(1.0, 0.5) * 2.0 / n - 1.0;
+    let (x, y) = (middle(at.0, w), middle(at.1, h));
+    // Reaching past the pixel's middle by less than a pixel each way.
+    let (dx, dy) = (2.0 / w * 0.9, 2.0 / h * 0.9);
+    [(x, y + dy), (x - dx, y - dy / 2.0), (x + dx, y - dy / 2.0)]
+}
+
 /// How strongly a flare shows, kept from frame to frame: 0 to 1, and when it was last drawn.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct FlareFade {

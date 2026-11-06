@@ -181,7 +181,7 @@ and the chat line both read right. Offline is `0`. A friend on another world is 
 | `tell` to its character | shown as `UTellEv User=<the teller's address>`, after the text rules (section 6), when the character is present, on the network, ignores neither the teller nor the teller's world, the operator blocks neither, and the paces of [03](03-world-behaviour.md) section 8 allow. Answered at once: `delivered`; `afk` when the character is away or not to be disturbed, with the default text *Away from keyboard.* or *Not to be disturbed.*; `squelched` when ignored; `rate_limited` past a pace; `offline` for everything else, alike |
 | `tell.result` | answers the waiting `SendToUserEx` |
 | `person.result` | shown to the character that asked, if it is in the world, by [03](03-world-behaviour.md) section 9; a world's own quiet request shows nothing |
-| `person.friends` | says whether the character is linked: *This character is now linked to a Discord account.* when that changes while it is in the world. A view saying a character that never asked for its link is linked is answered with a quiet `person {op: "unlink"}`. The view's person friends are listed as section 8 says. The view is watched while a character is present, so a character with no friends stream is not told, and its `@dn` does not say it is linked |
+| `person.friends` | says whether the character is linked: *This character is now linked to a Discord account.* when that changes while it is in the world. A view saying a character that never asked for its link is linked is answered with a quiet `person {op: "unlink"}`. The view's person friends are listed as section 8 says. The view is watched while a character is in the world and not hidden, with a friends stream or not |
 | `reach` | answered as [03](03-world-behaviour.md) section 1, *A person's Discord*, has it. For a teller of this world, by the squelch list the world keeps for the character, which it holds whether or not the character is in the world |
 | `channel.result` | shown to the character that asked |
 | `channel.invite` | shown as a tell from the inviter would be, by [03](03-world-behaviour.md) section 4 |
@@ -279,7 +279,7 @@ General, Trade or PvP, every character's, and the link's four names for a world'
 PvP is the room nobody needs: in every recorded session of every era, no line was sent to it and
 none was heard from it. Anyone may speak there: the client asks nothing of a speaker but the channel.
 Two of the link's names being one room, a world tells the hub the name it was given, and a room the
-hub mirrors under both goes under the first.
+hub mirrors under both, which it no longer lets an operator make, goes under the first.
 
 **The setting.** `[federation] global_room`, in the form of [03](03-world-behaviour.md) section 3's:
 `general`, `trade`, `lfg`, `roleplay` or empty; anything else stops the server. **Left out it is
