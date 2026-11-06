@@ -316,9 +316,9 @@ impl Federation {
         }
     }
 
-    /// Every present character on the network asks for its view again (after a welcome).
+    /// Every character in the world on the network asks for its view again (after a welcome).
     pub(crate) fn watch_every_person(&mut self, friends: &impl Friends) {
-        for name in friends.everyone_present() {
+        for name in friends.everyone_in_sight() {
             if self.is_on(&name) {
                 self.watch_person(&name, true);
             }

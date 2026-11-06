@@ -148,13 +148,13 @@ impl Scripts {
     }
 }
 
-/// Whether an object has a body: the player, or an object in the world.
+/// Whether an object has a body: whatever the client was sent, in the world or in a pack.
 fn has_body(c: &mut Call<'_>, object: u64) -> Result<bool, Stop> {
     Ok(holds_body(host(c)?, object))
 }
 
 pub(crate) fn holds_body(h: &ClientHost, object: u64) -> bool {
-    h.model.player == Some(object) || h.model.object(object).is_some_and(|o| o.in_world)
+    h.model.player == Some(object) || crate::physics_object::has_physics_object(h, object)
 }
 
 /// Scale an object's body, held between a tenth and ten times; whether it has a body.

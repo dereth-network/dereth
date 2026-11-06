@@ -100,12 +100,16 @@ pub struct Wire {
 }
 
 impl Wire {
-    /// Hand every datagram waiting, on any socket or connection, to `each`. Returns how many there
-    /// were.
+    /// Hand the datagrams waiting on the sockets and the connections to `each`, at most
+    /// [`crate::udp::MOST_A_PASS`] of each socket's and as many of the connections', so that the
+    /// world's work comes round however fast they arrive. Returns how many there were.
     pub fn receive(&mut self, mut each: impl FnMut(Port, SocketAddr, &[u8])) -> usize {
         let mut n = self.ports.receive(&mut each);
         if let Some(ws) = &self.websocket {
-            while let Some(d) = ws.try_recv() {
+            for _ in 0..crate::udp::MOST_A_PASS {
+                let Some(d) = ws.try_recv() else {
+                    break;
+                };
                 if d.port == FRIENDS {
                     n += 1;
                     self.friends.push((d.from, d.bytes));

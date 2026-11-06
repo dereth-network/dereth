@@ -23,6 +23,7 @@ fn shard() -> ContentObject {
         object: Some(SHARD),
         template: 0x4700_1BFF,
         description: Description {
+            name_text: None,
             package: 0x19C,
             look: 0x1F00_0ED5,
             enter_fx: 0,

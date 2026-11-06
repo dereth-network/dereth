@@ -24,6 +24,9 @@
 //! game runs: [`disk`] is the client's disk controller (the block allocator, the directory's
 //! splits and merges, a write recorded first so a crash is put right on the next opening).
 //!
+//! A world's records lie over the files in a folder of their own ([`overlay`]), so what a player
+//! installed is never written.
+//!
 //! The client's own text files (the key maps beside the program, the gameplay options a player
 //! exports) are bracketed text trees: [`tree`] reads and writes them.
 //!
@@ -34,6 +37,7 @@ pub mod checked;
 pub mod container;
 pub mod disk;
 pub mod error;
+pub mod overlay;
 pub mod qualified;
 pub mod reader;
 pub mod stamp;

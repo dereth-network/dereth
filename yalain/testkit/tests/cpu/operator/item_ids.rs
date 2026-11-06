@@ -3,9 +3,10 @@
 
 use yalain_net::ConnId;
 use yalain_store::{MemoryStore, Store};
+use yalain_testkit::faults::FaultStore;
 use yalain_testkit::{test_rules, Harness, TEST_ITEM};
 use yalain_world::state::PlayState;
-use yalain_world::{inventory, ServerConfig};
+use yalain_world::{inventory, Server, ServerConfig};
 
 fn run(store: MemoryStore, seed: u64) -> Harness {
     let cfg = ServerConfig {
@@ -135,6 +136,46 @@ fn the_next_block_of_ids_is_kept_before_the_first_runs_out() {
     assert!(
         next > top + ID_BLOCK / 2,
         "{next:#x} is above all the last run gave or could give ({top:#x})"
+    );
+}
+
+/// A store that will not set the first block aside: no server comes of it, so no id is given.
+/// Behaviour: server.inventory.no-world-without-ids-set-aside
+#[test]
+fn a_store_that_will_not_set_ids_aside_gives_no_server() {
+    let store = FaultStore {
+        writes_fail: true,
+        ..FaultStore::default()
+    };
+    let refused = Server::new(ServerConfig::default(), store, test_rules());
+    assert!(refused.is_err());
+}
+
+/// The store stops answering, and the world gives more ids than several blocks hold; the store comes
+/// back and the world saves. Whenever it then dies, the next run gives nothing the last one gave.
+/// Behaviour: server.inventory.item-ids-never-given-twice
+#[test]
+fn ids_given_while_the_store_would_not_answer_are_all_set_aside_before_the_next_save() {
+    use yalain_world::things::ID_BLOCK;
+    let mut h = Harness::with(ServerConfig::default(), FaultStore::default(), test_rules());
+    h.run(2);
+    h.server.store.writes_fail = true;
+    let mut top = 0;
+    for _ in 0..3 * ID_BLOCK {
+        top = h.server.things.new_id();
+    }
+    while !h.server.saves.failing() {
+        h.step();
+    }
+    h.server.store.writes_fail = false;
+    while h.server.saves.failing() {
+        h.step();
+    }
+    assert!(!h.server.things.low(), "as saves work again");
+    let first = h.server.store.reserve_thing_numbers(1).expect("set aside");
+    assert!(
+        first + yalain_world::things::THING_IDS - 1 > top,
+        "{first:#x} is above all it gave ({top:#x})"
     );
 }
 

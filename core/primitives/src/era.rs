@@ -321,8 +321,7 @@ era_features! {
     /// Without it a note sells at 10% over its value and cashes at face value only at the
     /// vendor that issued it, at 80% elsewhere.
     trade_notes_cash_anywhere,
-    /// Allegiance officers and account bans (May 2004), and officer titles and the allegiance
-    /// lock (May 2006).
+    /// Allegiance officers and account bans (May 2004).
     allegiance_officers_and_bans,
     /// Naming the allegiance (May 2006).
     allegiance_name,
@@ -354,6 +353,14 @@ era_features! {
     /// scales what the spell does and how long it lasts, with a line saying how strong the magic
     /// feels and a duration range on the spell panels (removed June 13, 2002).
     spell_economy,
+    // Version 5 of the table starts here.
+    /// Officer titles, the allegiance lock with its approved vassal, and gagging a member of the
+    /// allegiance room (May 2006). Also needs [`EraFeatures::allegiance_officers_and_bans`].
+    allegiance_titles_and_lock,
+    /// `@allegiance house`: opening and closing the monarch's villa or mansion to the allegiance,
+    /// as guests and for storage (after June 2005). Its storage also needs
+    /// [`EraFeatures::apartments`].
+    allegiance_house_commands,
 }
 
 impl EraFeatures {
@@ -382,7 +389,9 @@ impl EraFeatures {
 
     /// February 2005: none of the systems from ratings to the journal, nor spell research; trade,
     /// housing, apartments, tinkering, cantrips, chess and the oath's experience cost, which that
-    /// world had, and every action and rule of the second and third tables.
+    /// world had, and the actions and rules of the later tables that it had: not augmentations
+    /// (July 2005), the arena recalls (January 2006) or the allegiance's name, titles, lock and
+    /// house commands (after June 2005).
     pub const INFILTRATION: Self = Self {
         trade: true,
         housing: true,
@@ -394,12 +403,10 @@ impl EraFeatures {
         lifestone_protection: true,
         creation_credit_carry_over: true,
         skill_alteration: true,
-        augmentations: true,
         pk_lite: true,
         marketplace_recall: true,
         endurance_benefits: true,
         lifestone_recall: true,
-        pk_arena_recalls: true,
         player_corpse_hour_minimum: true,
         component_burn_skill_discount: true,
         war_and_life_projectile_criticals: true,
@@ -418,7 +425,6 @@ impl EraFeatures {
         appraisal_without_skills: true,
         trade_notes_cash_anywhere: true,
         allegiance_officers_and_bans: true,
-        allegiance_name: true,
         fellowship_share_loot: true,
         fellowship_auto_accept: true,
         fellowship_open: true,
@@ -446,10 +452,10 @@ impl EraFeatures {
     /// The version of the systems' table, as [`EraFeatureBits`] carries it. Systems are only ever
     /// appended to the table, never moved or removed, so each version's systems are the first
     /// ones of every later version's; the version goes up by one whenever one is appended.
-    pub const TABLE_VERSION: u16 = 4;
+    pub const TABLE_VERSION: u16 = 5;
 
     /// How many systems each version of the table has, version 1 first.
-    pub const COUNT_BY_VERSION: [usize; Self::TABLE_VERSION as usize] = [24, 39, 52, 60];
+    pub const COUNT_BY_VERSION: [usize; Self::TABLE_VERSION as usize] = [24, 39, 52, 60, 62];
 
     /// How many systems version `version` of the table has, as far as this build can say: its own
     /// count for a version it knows, every system it has for a later one (whose first systems are
@@ -719,8 +725,8 @@ mod tests {
     }
 
     /// February 2005 has trade, housing, apartments, tinkering, cantrips, chess and the oath's
-    /// experience cost, and neither spell research nor any of the later systems; it keeps every
-    /// action and rule of the second table.
+    /// experience cost, and neither spell research nor any of the later systems; of the later
+    /// tables' actions and rules it has those dated before it.
     #[test]
     fn infiltration_has_the_systems_february_2005_had_and_none_of_the_later_ones() {
         let f = EraId::Infiltration.features();
@@ -736,10 +742,15 @@ mod tests {
         for (i, (name, value)) in f.iter().enumerate() {
             let later_table = i >= EraFeatures::count_at_version(1);
             let later_rule = [
+                "augmentations",
+                "pk_arena_recalls",
+                "allegiance_name",
                 "creation_skill_bonus_as_experience",
                 "global_chat_rooms",
                 "spell_charge",
                 "spell_economy",
+                "allegiance_titles_and_lock",
+                "allegiance_house_commands",
             ]
             .contains(&name);
             assert_eq!(
@@ -748,7 +759,7 @@ mod tests {
                 "{name}"
             );
         }
-        assert_eq!(EraFeatures::NAMES.len(), 60);
+        assert_eq!(EraFeatures::NAMES.len(), 62);
         assert_eq!(f, f.implied());
     }
 
@@ -860,7 +871,9 @@ mod tests {
         assert!(text.starts_with("ratings=false,"), "{text}");
         assert!(text.contains(",chess=true,swear_xp_cost=true,"), "{text}");
         assert!(
-            text.ends_with(",global_chat_rooms=false,spell_charge=false,spell_economy=false"),
+            text.ends_with(
+                ",spell_economy=false,allegiance_titles_and_lock=false,allegiance_house_commands=false"
+            ),
             "{text}"
         );
         assert_eq!(
@@ -971,15 +984,15 @@ mod tests {
         }
         assert_eq!(
             EraFeatureBits::of(EraFeatures::END_OF_RETAIL).to_string(),
-            "4:ffff5fffffffff02"
+            "5:ffff5fffffffff32"
         );
         assert_eq!(
             EraFeatureBits::of(EraFeatures::INFILTRATION).to_string(),
-            "4:0000dfffffffff00"
+            "5:0000dff7fefff700"
         );
         assert_eq!(
             EraFeatureBits::of(EraFeatures::LAUNCH).to_string(),
-            "4:0000a0000000000d"
+            "5:0000a0000000000d"
         );
     }
 
@@ -1024,7 +1037,7 @@ mod tests {
     fn a_second_table_peer_reads_the_third_table_as_it_read_the_second() {
         let second_table = [
             (EraId::Eor, [0xff, 0xff, 0x5f, 0xff, 0x7f]),
-            (EraId::Infiltration, [0x00, 0x00, 0xdf, 0xff, 0x7f]),
+            (EraId::Infiltration, [0x00, 0x00, 0xdf, 0xf7, 0x7e]),
             (EraId::Launch, [0x00, 0x00, 0xa0, 0x00, 0x00]),
         ];
         for (era, v2) in second_table {
@@ -1055,7 +1068,7 @@ mod tests {
             (EraId::Eor, [0xff, 0xff, 0x5f, 0xff, 0xff, 0xff, 0x0f]),
             (
                 EraId::Infiltration,
-                [0x00, 0x00, 0xdf, 0xff, 0xff, 0xff, 0x0f],
+                [0x00, 0x00, 0xdf, 0xf7, 0xfe, 0xff, 0x07],
             ),
             (EraId::Launch, [0x00, 0x00, 0xa0, 0x00, 0x00, 0x00, 0x00]),
         ];
@@ -1077,6 +1090,39 @@ mod tests {
         }
     }
 
+    /// A fourth-table peer reads a fifth-table announcement as it read a fourth one, and a
+    /// fourth-table announcement read here leaves the fifth table's systems to the era's table.
+    #[test]
+    fn a_fourth_table_peer_reads_the_fifth_table_as_it_read_the_fourth() {
+        let fourth_table = [
+            (EraId::Eor, [0xff, 0xff, 0x5f, 0xff, 0xff, 0xff, 0xff, 0x02]),
+            (
+                EraId::Infiltration,
+                [0x00, 0x00, 0xdf, 0xf7, 0xfe, 0xff, 0xf7, 0x00],
+            ),
+            (
+                EraId::Launch,
+                [0x00, 0x00, 0xa0, 0x00, 0x00, 0x00, 0x00, 0x0d],
+            ),
+        ];
+        for (era, v4) in fourth_table {
+            let bits = EraFeatureBits::of(era.features());
+            for i in 0..60 {
+                let old = v4[i / 8] & (1 << (i % 8)) != 0;
+                assert_eq!(bits.bit(i), Some(old), "{era} bit {i}");
+            }
+            let over = EraFeatureBits {
+                table_version: 4,
+                bytes: v4.to_vec(),
+            }
+            .overrides();
+            for name in &EraFeatures::NAMES[60..] {
+                assert_eq!(over.get(name), None, "{era} {name} is unknown, never off");
+            }
+            assert_eq!(over.apply(era.features()), era.features(), "{era}");
+        }
+    }
+
     /// A newer table's bits past this build's are skipped; an older table's missing systems,
     /// and bits not sent, are unknown and left to the era's table.
     #[test]
@@ -1084,7 +1130,7 @@ mod tests {
         // A newer writer: two more systems, both on, past this table's last bit.
         let newer = EraFeatureBits {
             table_version: EraFeatures::TABLE_VERSION + 1,
-            bytes: vec![0xff, 0xff, 0x5f, 0xff, 0xff, 0xff, 0xff, 0x32],
+            bytes: vec![0xff, 0xff, 0x5f, 0xff, 0xff, 0xff, 0xff, 0xf2],
         };
         assert_eq!(
             newer.overrides().apply(EraFeatures::NONE),
@@ -1113,6 +1159,7 @@ mod tests {
         assert_eq!(EraFeatures::count_at_version(2), 39);
         assert_eq!(EraFeatures::count_at_version(3), 52);
         assert_eq!(EraFeatures::count_at_version(4), 60);
+        assert_eq!(EraFeatures::count_at_version(5), 62);
         assert_eq!(EraFeatures::count_at_version(u16::MAX), EraFeatures::COUNT);
     }
 
@@ -1122,7 +1169,7 @@ mod tests {
             assert!(EraFeatureBits::parse(bad).is_err(), "{bad}");
         }
         assert_eq!(
-            EraFeatureBits::parse(" 4:FFff5FfFfFfFfF02 "),
+            EraFeatureBits::parse(" 5:FFff5FfFfFfFfF32 "),
             Ok(EraFeatureBits::of(EraFeatures::END_OF_RETAIL))
         );
         assert_eq!(

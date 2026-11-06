@@ -1248,6 +1248,18 @@ pub fn plain_effect(state: u32) -> yalain_world::effect_defs::EffectDef {
     }
 }
 
+/// An effect that attunes the item it is on to whoever holds it while it runs.
+#[must_use]
+pub fn attuning_effect(state: u32) -> yalain_world::effect_defs::EffectDef {
+    use yalain_world::effect_defs::Scale;
+    yalain_world::effect_defs::EffectDef {
+        duration: Scale(vec![(0.0, 1800.0)]),
+        priority: Scale(vec![(0.0, 1.0)]),
+        eq_class: 114,
+        ..plain_effect(state)
+    }
+}
+
 /// What the tests craft (see the constants above), as the September 2013 data defines it.
 #[must_use]
 pub fn test_crafting() -> yalain_world::craft::Crafting {
@@ -1381,6 +1393,7 @@ pub fn test_template(
     yalain_content::Template {
         id,
         description: yalain_content::Description {
+            name_text: None,
             package,
             look: 0x1F00_0000 | (id & 0xFFFF),
             enter_fx: 0x4100_0010,
@@ -1461,6 +1474,7 @@ pub fn test_loot() -> yalain_content::LootTable {
             extras: Vec::new(),
             placed: "authored for the tests".into(),
             confidence: "authored".into(),
+            chest: None,
         }],
     }
 }
@@ -1540,7 +1554,13 @@ impl<S: Store> Harness<S> {
     pub fn with(cfg: ServerConfig, store: S, rules: CharGenRules) -> Self {
         let now = LocalTime(1000.0);
         let world = SocketAddrV4::new(Ipv4Addr::LOCALHOST, WORLD_PORT);
+        // A test puts a player where it needs one by a report; those that test the holding say so.
+        let cfg = ServerConfig {
+            holds_reports: false,
+            ..cfg
+        };
         let mut server = Server::new(cfg, store, rules)
+            .expect("the store sets ids aside")
             .with_world(test_start(), yalain_content::ContentPack::default());
         server.skill_table = test_skills();
         server.effect_table = test_effects();
@@ -1675,6 +1695,28 @@ impl<S: Store> Harness<S> {
     pub fn run(&mut self, n: usize) {
         for _ in 0..n {
             self.step();
+        }
+    }
+}
+
+/// Every test of the world holds this at its end: each client took every object's visual messages
+/// in turn, none waiting for a stamp that never came, and none carrying a visual stamp outside the
+/// visual kind.
+impl<S: Store> Drop for Harness<S> {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            return;
+        }
+        for (b, bot) in self.bots.iter().enumerate() {
+            let mut order = invariants::VisualOrder::new();
+            for r in bot.inbox.iter().filter(|r| r.world) {
+                order.see(r.blob_id, &r.bytes);
+            }
+            assert_eq!(
+                (order.held(), order.misrouted()),
+                (Vec::new(), Vec::new()),
+                "client {b}: the visual messages it holds, and those sent outside the visual kind"
+            );
         }
     }
 }

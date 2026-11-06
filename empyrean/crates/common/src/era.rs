@@ -788,8 +788,13 @@ mod tests {
         assert_eq!(LAUNCH.formulas.total_xp_cap, Some(4_294_967_295));
         assert!(!LAUNCH.formulas.creature_projectiles_halved);
         assert_eq!(LAUNCH.features, EraFeatures::LAUNCH);
+        assert_eq!(later_actions(EOR.features), [true; 7]);
+        // February 2005 has no gems, which came in July 2005, nor arena recalls, January 2006.
+        assert_eq!(
+            later_actions(INFILTRATION.features),
+            [true, true, false, true, true, true, false]
+        );
         for rules in [&EOR, &INFILTRATION] {
-            assert_eq!(later_actions(rules.features), [true; 7]);
             assert_eq!(rules.training_skills, None);
         }
     }

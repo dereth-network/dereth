@@ -1,8 +1,12 @@
 //! A mesh's vertices read out of its stored vertex array, and the level of detail drawn at a
 //! distance.
 
+use std::sync::{Arc, LazyLock, Mutex, OnceLock, PoisonError};
+
 use auberean_assets::mesh::{Mesh, VertexArray};
 use auberean_assets::setup::DetailDistances;
+use auberean_primitives::Vec3;
+use auberean_world::math::Mat4;
 
 /// One vertex as drawing uses it.
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
@@ -29,6 +33,175 @@ pub struct MeshVertex {
 pub struct PosedVertex {
     pub position: [f32; 3],
     pub normal: [f32; 3],
+}
+
+/// How a list's vertices are worked out, the first time they are asked for.
+type MakeVertices = Box<dyn FnOnce() -> Arc<Vec<PosedVertex>> + Send>;
+
+/// A mesh's vertices in one pose, worked out the first time they are asked for on whichever thread
+/// asks, and the boxes measured of them so far.
+#[derive(Debug)]
+pub struct PosedList {
+    vertices: LazyLock<Arc<Vec<PosedVertex>>, MakeVertices>,
+    boxes: Mutex<[Option<TurnedBox>; 2]>,
+    positions: OnceLock<Vec<Vec3>>,
+    #[cfg(test)]
+    measured: std::sync::atomic::AtomicU32,
+}
+
+/// A turning and a spin by their bits.
+fn turn_bits(linear: &Mat4, (s, c): (f32, f32)) -> [u32; 11] {
+    let m = &linear.0;
+    [
+        m[0][0], m[0][1], m[0][2], m[1][0], m[1][1], m[1][2], m[2][0], m[2][1], m[2][2], s, c,
+    ]
+    .map(f32::to_bits)
+}
+
+/// A mesh's fragments in the order they are drawn: those whose material's first layer marks how
+/// near it is, then the others, each kind in its stored order. What draws without marking it never
+/// lies under a part of its own mesh drawn after it.
+// D2-05492
+pub fn depth_writers_first<T>(
+    fragments: &mut [T],
+    first_layer: impl Fn(&T) -> Option<&crate::material::DrawLayer>,
+) {
+    fragments.sort_by_key(|f| !first_layer(f).is_some_and(|l| l.depth_write));
+}
+
+/// What a frame goes on to ask of a draw of a list, to be worked out ahead on any thread: its
+/// vertices, its boxes under its place's turning and each spin, where its vertices stand. What
+/// asking later finds is the same either way.
+#[derive(Debug)]
+pub struct PosedAsk {
+    list: Arc<PosedList>,
+    linear: Mat4,
+    spins: [(f32, f32); 2],
+    positions: bool,
+}
+
+impl PosedAsk {
+    /// What a frame will ask of a list placed under `linear`, or `None` when the list keeps it all.
+    #[must_use]
+    pub fn of(
+        list: &Arc<PosedList>,
+        linear: &Mat4,
+        spins: [(f32, f32); 2],
+        positions: bool,
+    ) -> Option<Self> {
+        let waits = spins.iter().any(|spin| list.box_waits(linear, *spin))
+            || (positions && list.positions.get().is_none());
+        waits.then(|| Self {
+            list: list.clone(),
+            linear: *linear,
+            spins,
+            positions,
+        })
+    }
+
+    /// Work it out.
+    pub fn answer(&self) {
+        for spin in self.spins {
+            let _ = self.list.turned_box(&self.linear, spin);
+        }
+        if self.positions {
+            let _ = self.list.positions();
+        }
+    }
+}
+
+/// A box measured of a list, and the turning it was measured under, by its bits.
+#[derive(Clone, Copy, Debug)]
+struct TurnedBox {
+    turn: [u32; 11],
+    lo: [f32; 3],
+    hi: [f32; 3],
+}
+
+impl PosedList {
+    #[must_use]
+    pub fn new(vertices: Vec<PosedVertex>) -> Self {
+        Self::made_by(move || vertices)
+    }
+
+    /// A list `make` works out when its vertices are first asked for.
+    #[must_use]
+    pub fn made_by(make: impl FnOnce() -> Vec<PosedVertex> + Send + 'static) -> Self {
+        Self {
+            vertices: LazyLock::new(Box::new(move || Arc::new(make()))),
+            boxes: Mutex::default(),
+            positions: OnceLock::new(),
+            #[cfg(test)]
+            measured: std::sync::atomic::AtomicU32::new(0),
+        }
+    }
+
+    /// The vertices, to keep or hand on as they are.
+    #[must_use]
+    pub fn shared(&self) -> &Arc<Vec<PosedVertex>> {
+        &self.vertices
+    }
+
+    /// Whether a box of the vertices under `linear` and `spin` has yet to be measured.
+    fn box_waits(&self, linear: &Mat4, spin: (f32, f32)) -> bool {
+        let turn = turn_bits(linear, spin);
+        let boxes = self.boxes.lock().unwrap_or_else(PoisonError::into_inner);
+        !boxes.iter().flatten().any(|b| b.turn == turn)
+    }
+
+    /// Where the vertices stand, made once.
+    #[must_use]
+    pub fn positions(&self) -> &[Vec3] {
+        self.positions.get_or_init(|| {
+            self.vertices
+                .iter()
+                .map(|v| Vec3::new(v.position[0], v.position[1], v.position[2]))
+                .collect()
+        })
+    }
+
+    /// The box of the vertices under `linear`, a place's turning, then `spin`, a sine and cosine
+    /// about z. A list stands still, so it is measured once under each: a body keeps its list for
+    /// as long as its pose, and a pose outlasts several frames.
+    #[must_use]
+    pub fn turned_box(&self, linear: &Mat4, (s, c): (f32, f32)) -> Option<([f32; 3], [f32; 3])> {
+        let turn = turn_bits(linear, (s, c));
+        let mut boxes = self.boxes.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(found) = boxes.iter().flatten().find(|b| b.turn == turn) {
+            return Some((found.lo, found.hi));
+        }
+        if self.vertices.is_empty() {
+            return None;
+        }
+        #[cfg(test)]
+        self.measured
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
+        for v in self.vertices.iter() {
+            let [x, y, z] = v.position;
+            let d = linear.direction(Vec3::new(x, y, z));
+            let p = [d.x * c - d.y * s, d.x * s + d.y * c, d.z];
+            crate::scene::widen(&mut lo, &mut hi, p);
+        }
+        // The older of the two makes way.
+        boxes[1] = boxes[0];
+        boxes[0] = Some(TurnedBox { turn, lo, hi });
+        Some((lo, hi))
+    }
+}
+
+impl PartialEq for PosedList {
+    fn eq(&self, other: &Self) -> bool {
+        **self.vertices == **other.vertices
+    }
+}
+
+impl std::ops::Deref for PosedList {
+    type Target = [PosedVertex];
+
+    fn deref(&self) -> &[PosedVertex] {
+        &self.vertices
+    }
 }
 
 /// Where each element sits in a stored vertex, from the format word.
@@ -300,4 +473,123 @@ pub fn level_at(mesh: &Mesh, t: f32, model_detail: u32) -> Option<usize> {
     let marked = marked_levels(mesh, model_detail);
     let last = marked.len().checked_sub(1)?;
     marked.get(level_place(t, last)).copied()
+}
+
+#[cfg(test)]
+mod posed_list_tests {
+    //! Behaviour: none (how long a measure of a body's vertices is kept)
+    use super::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    fn at(position: [f32; 3]) -> PosedVertex {
+        PosedVertex {
+            position,
+            normal: [0.0, 0.0, 1.0],
+        }
+    }
+
+    fn turned(sine: f32, cosine: f32) -> Mat4 {
+        Mat4([
+            [cosine, sine, 0.0, 0.0],
+            [-sine, cosine, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [40.0, 50.0, 60.0, 1.0],
+        ])
+    }
+
+    #[test]
+    fn a_lists_box_is_what_walking_it_finds_turned_and_spun_with_its_place_left_out() {
+        let points = [[1.0, 0.0, 2.0], [-3.0, 0.5, -1.0], [0.25, 4.0, 0.5]];
+        let list = PosedList::new(points.iter().map(|p| at(*p)).collect());
+        let place = turned(0.6, 0.8);
+        let (s, c) = (0.28, 0.96);
+        let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
+        for [x, y, z] in points {
+            let d = place.direction(Vec3::new(x, y, z));
+            let p = [d.x * c - d.y * s, d.x * s + d.y * c, d.z];
+            crate::scene::widen(&mut lo, &mut hi, p);
+        }
+        assert_eq!(list.turned_box(&place, (s, c)), Some((lo, hi)));
+    }
+
+    #[test]
+    fn a_list_is_measured_once_under_each_of_two_turnings_and_again_for_a_third() {
+        let list = PosedList::new(vec![at([1.0, 2.0, 3.0]), at([-1.0, 0.0, 1.0])]);
+        let walks = || list.measured.load(Ordering::Relaxed);
+        let (one, three) = (turned(0.0, 1.0), turned(0.8, 0.6));
+        let first = list.turned_box(&one, (0.0, 1.0));
+        let second = list.turned_box(&one, (0.6, 0.8));
+        assert_eq!(walks(), 2);
+        assert_eq!(list.turned_box(&one, (0.0, 1.0)), first);
+        assert_eq!(list.turned_box(&one, (0.6, 0.8)), second);
+        assert_eq!(walks(), 2, "both are kept");
+        let moved = Mat4({
+            let mut m = one.0;
+            m[3] = [1.0, 2.0, 3.0, 1.0];
+            m
+        });
+        assert_eq!(
+            list.turned_box(&moved, (0.0, 1.0)),
+            first,
+            "the place is left out"
+        );
+        assert_eq!(walks(), 2, "a place alone measures nothing");
+        let _ = list.turned_box(&three, (0.0, 1.0));
+        assert_eq!(walks(), 3, "another turning is measured");
+    }
+
+    #[test]
+    fn a_lists_positions_are_its_vertices_places_in_order() {
+        let list = PosedList::new(vec![at([1.0, 2.0, 3.0]), at([-1.0, 0.0, 1.0])]);
+        assert_eq!(
+            list.positions(),
+            [Vec3::new(1.0, 2.0, 3.0), Vec3::new(-1.0, 0.0, 1.0)]
+        );
+    }
+
+    #[test]
+    fn a_list_is_made_when_first_asked_for_and_only_once() {
+        let made = Arc::new(AtomicU32::new(0));
+        let counts = made.clone();
+        let list = PosedList::made_by(move || {
+            counts.fetch_add(1, Ordering::Relaxed);
+            vec![at([1.0, 2.0, 3.0])]
+        });
+        assert_eq!(made.load(Ordering::Relaxed), 0, "not until asked");
+        assert_eq!(list.len(), 1);
+        assert_eq!(list.shared().len(), 1);
+        assert_eq!(made.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn an_answered_ask_leaves_nothing_to_measure_again() {
+        let list = Arc::new(PosedList::new(vec![
+            at([1.0, 2.0, 3.0]),
+            at([-1.0, 0.0, 1.0]),
+        ]));
+        let (place, spin) = (turned(0.6, 0.8), (0.28, 0.96));
+        let ask = PosedAsk::of(&list, &place, [(0.0, 1.0), spin], true).expect("all to work out");
+        ask.answer();
+        assert_eq!(list.measured.load(Ordering::Relaxed), 2);
+        assert!(list.positions.get().is_some());
+        assert!(PosedAsk::of(&list, &place, [(0.0, 1.0), spin], true).is_none());
+        let plain = PosedList::new(vec![at([1.0, 2.0, 3.0]), at([-1.0, 0.0, 1.0])]);
+        assert_eq!(
+            list.turned_box(&place, spin),
+            plain.turned_box(&place, spin)
+        );
+        assert_eq!(
+            list.measured.load(Ordering::Relaxed),
+            2,
+            "what asking finds"
+        );
+    }
+
+    #[test]
+    fn a_list_with_no_vertex_has_no_box() {
+        assert_eq!(
+            PosedList::new(Vec::new()).turned_box(&Mat4::IDENTITY, (0.0, 1.0)),
+            None
+        );
+    }
 }

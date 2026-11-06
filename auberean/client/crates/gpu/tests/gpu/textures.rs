@@ -141,6 +141,7 @@ fn wall() -> Frame {
             fov_y: 60.0,
             near: 0.1,
             far: 500.0,
+            roll: 0.0,
             orthographic: None,
         },
     )
@@ -187,6 +188,7 @@ fn floor() -> Frame {
             fov_y: 60.0,
             near: 0.1,
             far: 1000.0,
+            roll: 0.0,
             orthographic: None,
         },
     )

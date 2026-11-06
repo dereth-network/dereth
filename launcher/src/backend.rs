@@ -254,6 +254,8 @@ struct Running {
     /// client that stops as it starts can say why ([`QUICK_EXIT`]).
     log: Option<PathBuf>,
     started: Instant,
+    /// The relay the client plays through, which goes when it does.
+    relay: Option<Child>,
 }
 
 /// A client that stops with an error within this long of its start stopped as it started: the
@@ -1088,6 +1090,7 @@ impl Backend {
             let b = lock(shared);
             b.all_worlds()
                 .filter(|w| w.status_method != StatusMethod::EmpyreanHttp)
+                .filter(|w| !w.relayed)
                 .map(|w| w.slug)
                 .collect()
         };
@@ -1105,6 +1108,8 @@ impl Backend {
                 .iter()
                 .filter(|s| !b.probing.contains(*s))
                 .filter_map(|s| b.world(s))
+                // A world played through a relay is asked nothing until the player presses Play.
+                .filter(|w| !w.relayed)
                 .filter_map(|w| {
                     // Empyrean and Yalain answer the status ping on their login port.
                     let ping = w.status_method != StatusMethod::EmpyreanHttp
@@ -1211,6 +1216,12 @@ impl Backend {
         lock(shared).poll_running();
     }
 
+    /// Whether the worlds played through a relay are listed, kept with the launcher's state.
+    pub fn set_relayed_worlds(&mut self, on: bool) {
+        self.state.settings.relayed_worlds = Some(on);
+        self.save();
+    }
+
     /// The page shows the worlds, or no longer does ([`Self::pings_due`]).
     pub fn set_worlds_shown(&mut self, shown: bool) {
         self.worlds_shown = shown;
@@ -1244,7 +1255,10 @@ impl Backend {
                 Ok(None) => None,
             };
             if let Some(succeeded) = ended {
-                let r = self.running.remove(i);
+                let mut r = self.running.remove(i);
+                if let Some(relay) = r.relay.take() {
+                    crate::relayed::stop_after(relay, crate::relayed::LOG_OFF_WAIT);
+                }
                 if let (false, true, Some(log)) =
                     (succeeded, r.started.elapsed() < QUICK_EXIT, &r.log)
                 {
@@ -1343,9 +1357,38 @@ impl Backend {
     /// Start the client on a choice. Nothing is checked against the world first: what a world
     /// accepts is not known well enough yet to stop anyone.
     pub fn launch(&mut self, choice: Choice) -> LaunchOutcome {
+        self.launch_at(choice, None)
+    }
+
+    /// [`Self::launch`] on a world played through a relay, with the relay `started`, which then
+    /// goes when the client does.
+    pub fn launch_through(
+        &mut self,
+        choice: Choice,
+        mut started: crate::relayed::Started,
+    ) -> LaunchOutcome {
+        let out = self.launch_at(choice, Some(started.port));
+        match (&out, self.running.last_mut()) {
+            (LaunchOutcome::Launched { .. }, Some(running)) => running.relay = Some(started.child),
+            _ => crate::relayed::stop(&mut started.child),
+        }
+        out
+    }
+
+    /// The launcher's data folder.
+    pub fn data_folder(&self) -> &Path {
+        &self.folders.data
+    }
+
+    /// Starts the client a choice names, towards the relay on `relay`'s port when there is one.
+    fn launch_at(&mut self, choice: Choice, relay: Option<u16>) -> LaunchOutcome {
         let err = |m: String| LaunchOutcome::Error { message: m };
         let Some(world) = self.world(&choice.world_slug) else {
             return err("That world is no longer listed.".into());
+        };
+        let world = match relay {
+            Some(port) => dereth_launch::relayed::on_relay(world, port),
+            None => world,
         };
         let install = match self.client_for(choice.client) {
             Ok(i) => i,
@@ -1554,6 +1597,7 @@ impl Backend {
             activity: Activity::new(world, choice.client, None, now()),
             log,
             started: Instant::now(),
+            relay: None,
         });
         LaunchOutcome::Launched {
             world: world.name.clone(),
@@ -4598,6 +4642,83 @@ mod tests {
             activity: Activity::new(world, kind, None, 1_700_000_000),
             log: None,
             started: Instant::now(),
+            relay: None,
+        }
+    }
+
+    /// A world played through a relay is listed only for a player who turned it on, which is kept
+    /// with the launcher's state, and is asked nothing: nothing but a launch contacts it.
+    #[test]
+    fn a_relayed_world_is_listed_when_turned_on_and_never_probed() {
+        let (b, dir) = backend("relayed");
+        assert!(b.world("ac1999").is_none(), "off to begin with");
+        let shared: Shared = Arc::new(Mutex::new(b));
+        lock(&shared).set_relayed_worlds(true);
+        let world = lock(&shared).world("ac1999").expect("listed");
+        assert!(world.relayed);
+        Backend::probe_all(&shared);
+        Backend::probe(&shared, vec!["ac1999".to_owned()]);
+        let b = lock(&shared);
+        assert!(!b.probing.contains("ac1999") && !b.probed.contains_key("ac1999"));
+        let saved =
+            std::fs::read_to_string(dir.join("state").join(dereth_launch::state::STATE_FILE))
+                .unwrap();
+        assert!(saved.contains("\"relayed_worlds\": true"), "{saved}");
+        drop(b);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// The relay goes when the client it serves ends.
+    #[test]
+    fn a_relay_stops_when_its_client_ends() {
+        let (mut b, dir) = backend("relay-stops");
+        let world = b.world("eulmore").unwrap();
+        let mut game = running_game(&world, ClientKind::Dereth);
+        let mut relay = if cfg!(windows) {
+            let mut c = Command::new("cmd");
+            c.args(["/C", "pause"]);
+            c
+        } else {
+            let mut c = Command::new("sh");
+            c.args(["-c", "read x"]);
+            c
+        };
+        let relay = relay
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let id = relay.id();
+        game.relay = Some(relay);
+        // The game ends by itself: wait for it, then let the launcher see it.
+        game.child.wait().unwrap();
+        b.running.push(game);
+        b.poll_running();
+        assert!(b.running.is_empty(), "the game ended");
+        // Its relay follows once it has had its moment; the guard only stops a hang.
+        let until = Instant::now() + Duration::from_secs(120);
+        while process_alive(id) && Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        assert!(!process_alive(id), "and its relay with it");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Whether a process of this id still runs.
+    fn process_alive(id: u32) -> bool {
+        if cfg!(windows) {
+            let out = Command::new("tasklist")
+                .args(["/FI", &format!("PID eq {id}"), "/NH"])
+                .output()
+                .unwrap();
+            String::from_utf8_lossy(&out.stdout).contains(&id.to_string())
+        } else {
+            Command::new("kill")
+                .args(["-0", &id.to_string()])
+                .stderr(std::process::Stdio::null())
+                .status()
+                .unwrap()
+                .success()
         }
     }
 

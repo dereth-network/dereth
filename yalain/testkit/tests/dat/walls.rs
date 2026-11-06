@@ -6,6 +6,7 @@ use auberean_dat::locate::{install_dats, DatName};
 use auberean_dat::DatFile;
 use auberean_physics::land::Land;
 use auberean_world::records::WorldRecords;
+use dereth_primitives::num::math;
 use yalain_store::StoredPosition;
 use yalain_testkit::{Harness, TEST_CREATURE};
 use yalain_world::walls::{RecordBlocks, Standing, Walker, Walls};
@@ -892,4 +893,240 @@ fn a_careful_search_tries_a_walks_short_legs() {
     };
     let (quick, careful) = (moves_of(false), moves_of(true));
     assert!(careful > quick * 2, "{careful} moves against {quick}");
+}
+
+/// How far a creature stands from a player goes with its body: its largest sphere at its look's
+/// scale and its template's, a human's for a body not known.
+/// Behaviour: server.creatures.stops-by-its-body
+#[test]
+fn a_bodys_radius_is_its_largest_sphere_at_its_looks_scale_and_its_own() {
+    let w = walls();
+    let digger = w.walkers.get(&DIGGER).expect("the Digger's body").clone();
+    let largest = digger.spheres.iter().map(|s| s[3]).fold(0.0, f32::max);
+    assert!(largest > 0.0);
+    let radius = yalain_world::walls::body_radius(Some(&w), DIGGER, 2.0);
+    assert!(
+        (radius - largest * digger.scale * 2.0).abs() < 1e-5,
+        "{radius}"
+    );
+    let unknown = yalain_world::walls::body_radius(Some(&w), 0x4700_0000, 2.0);
+    assert!((unknown - 0.8).abs() < 1e-5, "{unknown}");
+    assert!((yalain_world::walls::body_radius(None, DIGGER, 1.0) - 0.4).abs() < 1e-5);
+}
+
+/// A wasp, which flies.
+const WASP: u32 = 0x4700_2966;
+
+/// Walls that know the wasp's body.
+fn wasp_walls() -> Walls {
+    let records = records();
+    let wasp = walker_of(&records, WASP);
+    let mut w = walls();
+    w.walkers.insert(WASP, wasp);
+    w
+}
+
+/// A place where wasps are made, over the floor of a room.
+fn over_a_floor() -> StoredPosition {
+    StoredPosition {
+        cell: 0x02A0_0103,
+        origin: [0.0, -45.0, 102.1],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    }
+}
+
+/// A body says it flies by its motion description: two meters up at rest, one in a fight. One that
+/// walks says nothing.
+/// Behaviour: server.creatures.flies-as-its-body-says
+#[test]
+fn a_bodys_motion_description_says_how_high_it_flies() {
+    let records = records();
+    let hover = walker_of(&records, WASP).flies.expect("a wasp flies");
+    assert_eq!((hover.at_rest, hover.fighting), (2.0, 1.0));
+    assert_eq!(walker_of(&records, DIGGER).flies, None);
+}
+
+/// With no floor touching it a flyer still moves, and keeps its height over what is under it: lower
+/// in a fight.
+/// Behaviour: server.creatures.flies-at-its-height
+#[test]
+fn a_flyer_moves_where_no_floor_touches_it_and_keeps_its_height() {
+    let mut w = wasp_walls();
+    let from = over_a_floor();
+    let rest = w.step(WASP, 1.0, &from, [0.0, 1.25]).expect("a step");
+    assert!(rest.moved > 1.0, "it moved {} m", rest.moved);
+    let fight = w
+        .step_fighting(WASP, 1.0, &from, [0.0, 1.25])
+        .expect("a step");
+    assert!(fight.moved > 1.0, "it moved {} m", fight.moved);
+    let lower = rest.at.origin[2] - fight.at.origin[2];
+    assert!((lower - 1.0).abs() < 0.05, "{lower} m lower in a fight");
+    // And a walker of the same size, set down there, comes to the floor those heights are over.
+    let mut on_it = rest.at;
+    on_it.origin[2] -= 2.0;
+    let walked = w.step(DIGGER, 1.0, &on_it, [0.0, 0.5]).expect("a step");
+    assert!(walked.moved > 0.4, "the floor is {} m under", 2.0);
+    assert!(
+        (walked.at.origin[2] - on_it.origin[2]).abs() < 0.3,
+        "floor at {}, wasp at {}",
+        walked.at.origin[2],
+        rest.at.origin[2]
+    );
+}
+
+/// A flyer meets walls as a walker does: however it goes, it ends in the room it names. Past a
+/// floor's edge with no wall over it, too.
+/// Behaviour: server.creatures.flyers-meet-walls
+#[test]
+fn a_flyer_never_goes_through_a_wall() {
+    let at_an_edge = StoredPosition {
+        cell: 0x0499_0138,
+        origin: [118.9, 136.6, 102.23],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    let mut w = wasp_walls();
+    for from in [over_a_floor(), at_an_edge] {
+        for k in 0u8..8 {
+            let a = f32::from(k) * core::f32::consts::FRAC_PI_4;
+            let mut at = from;
+            let mut went = 0.0;
+            for _ in 0..80 {
+                let d = [math::sinf(a) * 1.25, math::cosf(a) * 1.25];
+                let s = w.step(WASP, 1.0, &at, d).expect("a step");
+                went += s.moved;
+                at = s.at;
+                assert!(inside(&w, &at), "{k}: out of its cell at {at:?}");
+            }
+            assert!(went < 80.0, "{k}: nothing held it, {went} m");
+        }
+    }
+}
+
+/// A flyer after a player in the next room goes through the doorway, as a walker does.
+/// Behaviour: server.creatures.flyers-through-doorways
+#[test]
+fn a_flyer_after_a_player_in_the_next_room_flies_through_the_doorway() {
+    let start = hall(0x010C, 16.0, 428.0, -43.1);
+    let there = hall(0x010D, 6.0, 431.0, -43.5);
+    let (mut h, _, id) = beetle_at(start);
+    let records = records();
+    let wasp = walker_of(&records, WASP);
+    let walls = h.server.walls.as_mut().expect("the walls");
+    walls.walkers.insert(TEST_CREATURE, wasp);
+    let _ = walls.joined(&start, &there);
+    for p in h.server.players.values_mut() {
+        p.position = there;
+    }
+    let me = h
+        .server
+        .players
+        .values()
+        .next()
+        .expect("a player")
+        .character;
+    let clock = h.clock();
+    yalain_world::ai::go_after(&mut h.server, &mut h.net, id, me, clock);
+    let reached = h.run_until(160, |h| {
+        let at = place_of(h, id);
+        let (dx, dy) = (
+            at.origin[0] - there.origin[0],
+            at.origin[1] - there.origin[1],
+        );
+        at.cell == there.cell && (dx * dx + dy * dy).sqrt() <= yalain_world::ai::MELEE_REACH
+    });
+    assert!(reached, "it reached the player: {:?}", place_of(&h, id));
+}
+
+/// A flyer appearing on open ground appears at its height.
+/// Behaviour: server.creatures.flies-from-where-it-appears
+#[test]
+fn a_flyer_of_a_camp_on_open_ground_appears_at_its_height() {
+    let mut h = Harness::new();
+    h.add_creatures(1);
+    let camp = &mut h.server.spawns.camps[0];
+    camp.spots.clear();
+    camp.radius = 3.0;
+    let ground = camp.origin[2];
+    let records = records();
+    let mut w = walls();
+    w.walkers.insert(TEST_CREATURE, walker_of(&records, WASP));
+    h.server.walls = Some(w);
+    h.player_in_world("one", "Elara");
+    let at = h
+        .server
+        .things
+        .by_id
+        .values()
+        .find(|t| t.template == TEST_CREATURE)
+        .and_then(|t| t.at)
+        .expect("the camp's creature");
+    assert!((at.origin[2] - (ground + 2.0)).abs() < 0.01, "{at:?}");
+}
+
+/// A flyer after a player goes at its fighting height.
+/// Behaviour: server.creatures.flies-lower-in-a-fight
+#[test]
+fn a_flyer_after_a_player_comes_down_to_its_fighting_height() {
+    let home = over_a_floor();
+    let (mut h, _, id) = beetle_at(home);
+    let records = records();
+    let wasp = walker_of(&records, WASP);
+    h.server
+        .walls
+        .as_mut()
+        .expect("the walls")
+        .walkers
+        .insert(TEST_CREATURE, wasp);
+    let clock = h.clock();
+    let me = h
+        .server
+        .players
+        .values()
+        .next()
+        .expect("a player")
+        .character;
+    let mut far = home;
+    far.origin[1] -= 12.0;
+    for p in h.server.players.values_mut() {
+        p.position = far;
+    }
+    yalain_world::ai::go_after(&mut h.server, &mut h.net, id, me, clock);
+    h.run(25);
+    let at = h.server.things.get(id).and_then(|t| t.at).expect("placed");
+    let rest = h
+        .server
+        .walls
+        .as_mut()
+        .expect("the walls")
+        .step(TEST_CREATURE, 1.0, &at, [0.0, 0.1])
+        .expect("a step");
+    let lower = rest.at.origin[2] - at.origin[2];
+    assert!(
+        (lower - 1.0).abs() < 0.05,
+        "{lower} m under its height at rest"
+    );
+}
+
+/// The place a practice gem may be used has no rooms: no landblock within its 100 meters holds an
+/// interior cell, so what a gem makes stands outdoors.
+/// Behaviour: server.creatures.a-gems-dummy-lasts-its-time
+#[test]
+fn the_place_a_practice_gem_may_be_used_has_no_rooms() {
+    let records = records();
+    let hall = records
+        .landblock_info(0x02, 0x98)
+        .expect("the training hall");
+    assert!(hall.cell_count > 0, "it has rooms");
+    // The place is at (62, 40) of landblock C6A2, a landblock being 192 m on a side.
+    for (x, y) in [
+        (0xC5, 0xA1),
+        (0xC5, 0xA2),
+        (0xC6, 0xA1),
+        (0xC6, 0xA2),
+        (0xC7, 0xA1),
+        (0xC7, 0xA2),
+    ] {
+        let cells = records.landblock_info(x, y).map_or(0, |i| i.cell_count);
+        assert_eq!(cells, 0, "{x:02X}{y:02X}");
+    }
 }

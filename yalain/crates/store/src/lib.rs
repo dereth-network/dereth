@@ -204,6 +204,12 @@ pub trait Store {
     /// No account has this id, or the database failed.
     fn set_account_secret(&mut self, account: u64, secret: Vec<u8>) -> StoreResult<()>;
 
+    /// The account with this id.
+    ///
+    /// # Errors
+    /// The database failed.
+    fn account(&mut self, id: u64) -> StoreResult<Option<Account>>;
+
     /// Every account, by name (without regard to case).
     ///
     /// # Errors

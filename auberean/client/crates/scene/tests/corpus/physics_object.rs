@@ -259,10 +259,7 @@ fn what_the_scripts_ask_of_a_body_is_carried_out() {
         "the scripts read it back"
     );
     scene.frame(t);
-    assert!(
-        !scene.seen.bodies.iter().any(|s| s.id == creature),
-        "not drawn"
-    );
+    assert!(scene.drawn_batches(creature).is_none(), "not drawn");
     // Away from the player: 4 m/s along the line from the player to it, 1 up (the push is
     // carried out after the frame's ticks, from where both then stand).
     ask(

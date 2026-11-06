@@ -27,6 +27,8 @@ yalain --dats <install folder> [options]
                         their commands in the clear
   --secret-cost N       the bcrypt cost account secrets are kept at, 4 to 31 (default 8)
   --save-interval S     keep each character in the world every S seconds (default 300)
+  --watchdog S          stop with a failure if the world runs no pass for S seconds, 0 for never
+                        (default 300)
   --shutdown-interval S how many seconds a shutdown counts down, 0 to 99999 (default 120)
   --max-sessions N      how many logins the world holds at once (default 128); a login past
                         them is told the server is full
@@ -52,7 +54,7 @@ yalain --dats <install folder> [options]
                         first plays, then carry on
   --world-db DIR        the world database to serve, compiled against --dats at start: a
                         folder, or `pinned` (the default) for the release this build pins,
-                        fetched into the per-user cache with `yalain world fetch`; a world
+                        fetched into the per-user cache as it starts if it is not there; a world
                         that names a base database (`[base]`, as Athenaeum's do) is served
                         over that release in the cache
   --world-base DIR      the base database a --world-db world lies over, in place of the

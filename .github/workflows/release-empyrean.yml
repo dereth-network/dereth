@@ -154,8 +154,10 @@ jobs:
           smoke() {
             run "$dir/empyrean-server$exe" --version | tee version-server.txt
             run "$dir/empyrean-import$exe" --version | tee version-import.txt
+            run "$dir/empyrean-relay$exe" --version | tee version-relay.txt
             grep -qx "empyrean-server $VERSION" version-server.txt
             grep -qx "empyrean-import $VERSION" version-import.txt
+            grep -qx "empyrean-relay $VERSION" version-relay.txt
             grep -qx "target: $TARGET" version-server.txt
             rm -f "$dir/smoke.toml"
             run "$dir/empyrean-server$exe" --write-config "$dir/smoke.toml"

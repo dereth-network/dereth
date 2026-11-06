@@ -13,6 +13,7 @@
 //! - [`server::ServerNet`]: the connections, sans-IO.
 //! - [`endpoint::Endpoint`]: one connection's transport, either end (the test kit's clients use
 //!   the client end).
+//! - [`handshakes`]: the logins answered whose clients have not answered back.
 //! - [`login`]: the game login body.
 //! - [`referral`]: which address a referral sends a client to.
 //! - [`pace`]: the pace a server sends its large messages at.
@@ -24,6 +25,7 @@
 
 pub mod blob;
 pub mod endpoint;
+pub mod handshakes;
 pub mod login;
 pub mod memory;
 pub mod pace;

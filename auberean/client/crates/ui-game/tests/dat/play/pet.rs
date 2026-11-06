@@ -4,7 +4,7 @@ use auberean_text::StringInfo;
 use auberean_ui::Token;
 use auberean_ui_game::gameplay::{Record, Request};
 use auberean_ui_game::pet::{
-    next_mode, notice, previous_mode, shown_name, PetRequest, Pets, MODES, SHOW_PET_UI,
+    next_mode, notice, previous_mode, shown_name, PetRequest, Pets, HIDE_PET_UI, MODES,
 };
 
 use super::stage::{long, said, World, ICON};
@@ -38,6 +38,56 @@ fn the_modes_turn_in_order_and_names_lose_their_owner() {
     assert_eq!(shown_name("Rufus"), "Rufus");
 }
 
+/// A pet shows the panel on a cleared profile; the bit of the player's options set hides it.
+///
+/// Behaviour: ui.pet.the-options-bit-hides-the-pet-panel
+#[test]
+fn the_options_bit_hides_the_pet_panel() {
+    for (bits, shown) in [(0, true), (HIDE_PET_UI, false)] {
+        let mut w = World::new();
+        w.options.bits |= bits;
+        w.tick(&[]);
+        let panel = w.el("PetPanel");
+        let name = Some(Record::Text(StringInfo::literal("Rufus (Ann's pet)")));
+        let [hi, lo] = long(PET);
+        w.tick(&[said(
+            notice::ADD_PET,
+            vec![hi, lo, 0, ICON, MODES[0].0],
+            vec![None, None, name],
+        )]);
+        assert_eq!(w.shown(panel), shown, "bits {bits:#x}");
+    }
+}
+
+/// The mode buttons step from the mode last asked, not the one the pet has taken: Next twice before
+/// the pet answers is two steps on, and Previous then one back.
+///
+/// Behaviour: ui.pet.the-mode-buttons-step-from-the-mode-asked
+#[test]
+fn the_mode_buttons_step_from_the_mode_asked() {
+    let mut w = World::new();
+    w.tick(&[]);
+    let panel = w.el("PetPanel");
+    let name = Some(Record::Text(StringInfo::literal("Rufus (Ann's pet)")));
+    let [hi, lo] = long(PET);
+    w.tick(&[said(
+        notice::ADD_PET,
+        vec![hi, lo, 0, ICON, MODES[0].0],
+        vec![None, None, name],
+    )]);
+    let list = w.under(panel, "PetPanelListBox");
+    let row = w.ui.list_items(list)[0];
+    let (x, y) = w.middle(row);
+    w.ui.pointer_move(x, y);
+    w.click(w.under(row, "NextMode"));
+    w.ui.pointer_move(x, y);
+    w.click(w.under(row, "NextMode"));
+    assert_eq!(w.state(w.under(row, "Mode")), Token::of(MODES[2].1));
+    w.ui.pointer_move(x, y);
+    w.click(w.under(row, "PreviousMode"));
+    assert_eq!(w.state(w.under(row, "Mode")), Token::of(MODES[1].1));
+}
+
 /// With the player's option on, a pet the scripts add shows in a row (its name without its
 /// owner's part, its mode's look) and the panel shows, its commands lit. The next-mode button
 /// shows the next mode at once and asks the scripts for it within five seconds, again every five
@@ -49,7 +99,6 @@ fn the_modes_turn_in_order_and_names_lose_their_owner() {
 #[test]
 fn the_pet_panel_lists_pets_and_commands_them() {
     let mut w = World::new();
-    w.options.bits |= SHOW_PET_UI;
     w.tick(&[]);
     let panel = w.el("PetPanel");
     assert!(!w.shown(panel), "no pets");

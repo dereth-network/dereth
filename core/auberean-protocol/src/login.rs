@@ -602,6 +602,82 @@ impl Field for DataHeld {
     }
 }
 
+/// One data file, by its id in the data download, and a hash naming what it holds.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct OverlayBase {
+    pub dat_file: u64,
+    pub fingerprint: [u8; 32],
+}
+
+impl Field for OverlayBase {
+    fn read(r: &mut Reader<'_>) -> Result<Self> {
+        let dat_file = r.u64()?;
+        let mut fingerprint = [0; 32];
+        fingerprint.copy_from_slice(r.bytes(32)?);
+        Ok(Self {
+            dat_file,
+            fingerprint,
+        })
+    }
+    fn write(&self, w: &mut Writer) {
+        w.u64(self.dat_file);
+        w.bytes(&self.fingerprint);
+    }
+}
+
+/// This client's own, ahead of [`DataHeld`]: it takes a world's records, and these are its files,
+/// each by its layout. A retail client never sends it; a server that doesn't know it goes on
+/// without it, which a word more on [`DataHeld`] wouldn't let it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct OverlayHeld {
+    pub flags: u32,
+    pub bases: Vec<OverlayBase>,
+}
+
+impl OverlayHeld {
+    /// It checks its files against the records a world's overlay was made over itself, when it is
+    /// told them, so its files may be laid out otherwise.
+    pub const CHECKS_RECORDS: u32 = 1;
+
+    /// Whether it does.
+    #[must_use]
+    pub const fn checks_records(&self) -> bool {
+        self.flags & Self::CHECKS_RECORDS != 0
+    }
+}
+
+impl Field for OverlayHeld {
+    fn read(r: &mut Reader<'_>) -> Result<Self> {
+        Ok(Self {
+            flags: r.u32()?,
+            bases: read_list(r)?,
+        })
+    }
+    fn write(&self, w: &mut Writer) {
+        w.u32(self.flags);
+        write_list(w, &self.bases);
+    }
+}
+
+/// The server, to a client that said [`OverlayHeld::CHECKS_RECORDS`] and holds files laid out
+/// otherwise: the records each file must hold, by their digest, for the world's overlay to lie
+/// over it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct OverlayBases {
+    pub bases: Vec<OverlayBase>,
+}
+
+impl Field for OverlayBases {
+    fn read(r: &mut Reader<'_>) -> Result<Self> {
+        Ok(Self {
+            bases: read_list(r)?,
+        })
+    }
+    fn write(&self, w: &mut Writer) {
+        write_list(w, &self.bases);
+    }
+}
+
 /// What the client must fetch and drop of one data file.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct MissingIterations {

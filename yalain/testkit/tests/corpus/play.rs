@@ -291,6 +291,8 @@ fn a_day_of_heals_and_crafts() -> Vec<ServerMessage> {
         effects_last: false,
         wants: None,
         fellows: false,
+        levels: None,
+        xp_share: 0.0,
         to: None,
     };
     let clock = h.clock();
@@ -565,6 +567,7 @@ fn a_visit() -> Vec<ServerMessage> {
         object: Some(id),
         template,
         description: Description {
+            name_text: None,
             package: 0x13A4,
             look: 0x1F00_0100,
             enter_fx: 0,
@@ -657,9 +660,12 @@ fn a_visit() -> Vec<ServerMessage> {
             effects_last: false,
             wants: None,
             fellows: false,
+            levels: None,
+            xp_share: 0.0,
             to: None,
         }],
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let (b, me) = h.player_in_world("two", "Rowan");
     for p in h.server.players.values_mut() {
@@ -1477,8 +1483,12 @@ mod crafts {
             if items.len() < c.slots.len() {
                 count("one item named for two slots");
             }
-            // Stocked for it, its workshop's record on but where the recording had it off, and a
-            // pack with room for what it makes: one character here makes what many did.
+            // Stocked for it, with the money it costs, its workshop's record on but where the
+            // recording had it off, and a pack with room for what it makes: one character here
+            // makes what many did.
+            if let Some(p) = h.server.players.get_mut(&world) {
+                yalain_world::quals::set_int(&mut p.qualities, yalain_world::store::MONEY, 1 << 24);
+            }
             h.server
                 .players
                 .get_mut(&world)

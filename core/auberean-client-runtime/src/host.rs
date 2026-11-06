@@ -23,7 +23,7 @@
 //!   answers 1, or 8 for an object that is not here).
 
 use std::any::Any;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 use auberean_assets::names::FileNames;
@@ -122,6 +122,13 @@ pub struct ClientHost {
     /// Instance to object, and object to instance.
     pub links: HashMap<u32, u64>,
     pub instances: HashMap<u64, u32>,
+    /// Objects created since the last upkeep, the soonest the world's upkeep could have made them.
+    /// This client has them from the moment they are created; a move's answer must not find the
+    /// item it moves among them, since it names the item only when it can find it.
+    pub being_made: HashSet<u64>,
+    /// The item whose move is being answered: a script asking for it while it is being made finds
+    /// nothing.
+    pub answering_a_move: Option<u64>,
     /// What scripts sent to the server: the function, its packed arguments, encrypted or not.
     pub sends: Vec<(u32, Vec<u8>, bool)>,
     /// Notices to the panels, by native, counted.
@@ -672,6 +679,8 @@ pub fn new_host(portal: Arc<DatFile>, program: Arc<Program>) -> ClientHost {
         model: Model::new(),
         links: HashMap::new(),
         instances: HashMap::new(),
+        being_made: HashSet::new(),
+        answering_a_move: None,
         sends: Vec::new(),
         notices: BTreeMap::new(),
         panel_notices: Vec::new(),
@@ -1569,14 +1578,19 @@ fn is_the_player(c: &mut Call<'_>) -> Result<Status, Stop> {
 }
 
 /// The instance of an object by id (`fp[-3..-2]`), or the null reference when the client does
-/// not have it.
-// D2-04665, D2-08057
+/// not have it yet.
+// D2-04665, D2-08057, D2-05641
 fn weenie_object(c: &mut Call<'_>) -> Result<Status, Stop> {
     if c.receiver()? == NULL {
         return Ok(Status::Crash);
     }
     let id = c.long_at(-3)?;
-    let r = instance(c, id)?;
+    let h = host(c)?;
+    let r = if h.answering_a_move == Some(id) && h.being_made.contains(&id) {
+        NULL
+    } else {
+        instance(c, id)?
+    };
     c.write(-4, r, tag::REFERENCE)?;
     Ok(Status::Success)
 }
@@ -1598,16 +1612,21 @@ fn instance(c: &mut Call<'_>, id: u64) -> Result<u32, Stop> {
     Ok(i)
 }
 
-/// Where the player is: a new position (below the receiver), the player's cell and frame; the
-/// zero position before the player has a place.
+/// Where the receiver's object stands: a new position (below the receiver), its body's cell and
+/// frame; the zero position when it has no place.
 // D2-04671, D2-08172
 fn my_position(c: &mut Call<'_>) -> Result<Status, Stop> {
     if c.receiver()? == NULL {
         return Ok(Status::Crash);
     }
-    let (cell, o, q) = host(c)?
-        .my_position
-        .unwrap_or((0, [0.0; 3], [1.0, 0.0, 0.0, 0.0]));
+    let r = c.receiver()?;
+    let object = host(c)?.links.get(&r).copied();
+    let zero = (0, [0.0; 3], [1.0, 0.0, 0.0, 0.0]);
+    let (cell, o, q) = match object {
+        Some(id) if host(c)?.model.player == Some(id) => host(c)?.my_position.unwrap_or(zero),
+        Some(id) => crate::combat::standing(c, id)?.map_or(zero, |(cell, at)| (cell, at, zero.2)),
+        None => zero,
+    };
     let frame = [
         o[0].to_bits(),
         o[1].to_bits(),

@@ -397,6 +397,7 @@ fn going_into_portal_space_turns_auras_off() {
             object: Some(PORTAL),
             template: 0x4700_1154,
             description: Description {
+                name_text: None,
                 package: 0x1A00,
                 look: 0x1F00_0ED5,
                 enter_fx: 0,

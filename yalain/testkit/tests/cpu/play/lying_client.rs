@@ -406,6 +406,7 @@ fn a_world() -> (Harness, (usize, u64), (usize, u64), Vec<u64>) {
             object: Some(BROKER),
             template: BROKER_TEMPLATE,
             description: Description {
+                name_text: None,
                 package: 0x13A3,
                 look: 0x1F00_0100,
                 enter_fx: 0,
@@ -885,6 +886,14 @@ fn a_client_flooding_calls_has_what_is_over_dropped_and_others_go_on() {
             })
             .count()
     };
+    // Sayings are what can be counted here: its limit on talk is out of the way of this one.
+    let now = h.now;
+    for p in h.server.players.values_mut() {
+        p.talk = Some((
+            yalain_world::call_limit::Bucket::with(f64::MAX, 1.0, now),
+            None,
+        ));
+    }
     let flood = 3 * BURST as usize;
     let from = h.bots[victim].inbox.len();
     for i in 0..flood {
@@ -929,4 +938,147 @@ fn a_client_flooding_calls_has_what_is_over_dropped_and_others_go_on() {
     }
     h.run(4);
     assert_eq!(heard_from(&h, victim, from, id), some, "heard again");
+}
+
+/// The fragments of a message long enough to leave this many waiting.
+fn long_message(fragments: usize) -> Vec<u8> {
+    vec![0; fragments * dereth_transport::wire::MAX_FRAG_DATA]
+}
+
+fn selection_answered(h: &Harness, b: usize, from: usize) -> bool {
+    h.functions(b, from)
+        .contains(&yalain_world::examine::function::SELECTION_INFO)
+}
+
+/// A connection far behind in what it has been sent doesn't have its calls read until it has come
+/// back from there, whatever they ask; what it reports of its place still counts, and it is not cut
+/// off for being behind.
+/// Behaviour: server.net.far-behind-a-connections-calls-wait
+#[test]
+fn a_connection_far_behind_has_its_calls_put_off_and_its_reports_read() {
+    use yalain_world::call_limit::MOST_BEHIND;
+    let mut h = Harness::new();
+    let (b, me) = h.player_in_world("one", "Kestrel");
+    h.run(10);
+    let world = *h.server.players.keys().next().expect("in");
+    let before = h.server.players[&world].position;
+    h.net.send(
+        world,
+        queue::EVENT,
+        yalain_net::BlobKind::PRIVATE,
+        long_message(MOST_BEHIND + 200),
+    );
+    h.run(2);
+    assert!(h.net.large_waiting_on(world, queue::EVENT) >= MOST_BEHIND);
+    let select = server_call(requests::function::SET_SELECTION, &[Arg::LongInt(me)]);
+    h.bots[b].send(true, queue::WEENIE, &select);
+    let mut near = before.origin;
+    near[0] += 1.0;
+    let (x, y, z) = (near[0], near[1], near[2]);
+    let m = yalain_testkit::play::report(
+        before.cell,
+        auberean_primitives::Vec3::new(x, y, z),
+        0,
+        yalain_world::world::IDLE_MOTION,
+        0,
+    );
+    h.bots[b].send(true, queue::WEENIE, &m);
+    let from = h.bots[b].inbox.len();
+    h.run(5);
+    assert_eq!(h.server.players[&world].position.origin, near, "taken");
+    // It comes back, by what its client takes, and is read again.
+    assert!(
+        h.run_until(200_000, |h| h.net.large_waiting_on(world, queue::EVENT)
+            < MOST_BEHIND),
+        "comes back"
+    );
+    h.run_until(200_000, |h| {
+        h.net.large_waiting_on(world, queue::EVENT) == 0
+    });
+    h.run(50);
+    assert!(!selection_answered(&h, b, from), "that one was not read");
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(true, queue::WEENIE, &select);
+    assert!(
+        h.run_until(1_000, |h| selection_answered(h, b, from)),
+        "read again"
+    );
+}
+
+/// One long reply puts off nothing: what's asked next is read and answered, in its turn.
+/// Behaviour: server.net.far-behind-a-connections-calls-wait
+#[test]
+fn one_long_reply_puts_off_nothing_asked_after_it() {
+    use yalain_world::call_limit::MOST_BEHIND;
+    let mut h = Harness::new();
+    let (b, me) = h.player_in_world("one", "Kestrel");
+    h.run(10);
+    let world = *h.server.players.keys().next().expect("in");
+    h.net.send(
+        world,
+        queue::EVENT,
+        yalain_net::BlobKind::PRIVATE,
+        long_message(MOST_BEHIND - 200),
+    );
+    h.run(1);
+    let from = h.bots[b].inbox.len();
+    let select = server_call(requests::function::SET_SELECTION, &[Arg::LongInt(me)]);
+    h.bots[b].send(true, queue::WEENIE, &select);
+    assert!(
+        h.run_until(200_000, |h| selection_answered(h, b, from)),
+        "answered once what's before it has gone"
+    );
+}
+
+/// The data download's own queue isn't what a player's calls wait on, on a connection that carries
+/// both, and its limit stands.
+/// Behaviour: server.net.far-behind-a-connections-calls-wait
+#[test]
+fn a_download_under_way_puts_off_no_call() {
+    use yalain_world::call_limit::MOST_BEHIND;
+    let mut h = Harness::new();
+    let (b, me) = h.player_in_world("one", "Kestrel");
+    h.run(10);
+    let world = *h.server.players.keys().next().expect("in");
+    h.net.send(
+        world,
+        queue::DATABASE,
+        yalain_net::BlobKind::LOGIN,
+        long_message(MOST_BEHIND + 200),
+    );
+    h.run(1);
+    assert!(h.net.large_waiting(world) >= MOST_BEHIND);
+    assert_eq!(h.net.large_waiting_on(world, queue::EVENT), 0);
+    let from = h.bots[b].inbox.len();
+    let select = server_call(requests::function::SET_SELECTION, &[Arg::LongInt(me)]);
+    h.bots[b].send(true, queue::WEENIE, &select);
+    assert!(
+        h.run_until(200, |h| selection_answered(h, b, from)),
+        "at once"
+    );
+}
+
+/// A connection that has stopped taking what it is sent is closed before what waits for it passes
+/// its bound, and its character goes as one whose client went away does.
+/// Behaviour: server.net.a-connection-past-all-it-may-hold-is-closed
+#[test]
+fn a_connection_past_all_it_may_have_waiting_is_closed() {
+    let mut h = Harness::new();
+    let (_, _) = h.player_in_world("one", "Kestrel");
+    h.run(10);
+    let world = *h.server.players.keys().next().expect("in");
+    for _ in 0..3 {
+        h.net.send(
+            world,
+            queue::EVENT,
+            yalain_net::BlobKind::PRIVATE,
+            long_message(yalain_net::pace::MOST_WAITING / 2),
+        );
+    }
+    h.run(3);
+    assert_eq!(h.net.large_waiting(world), 0, "closed, and gone with it");
+    assert!(
+        h.server.players.get(&world).is_none_or(|p| p.logging_off),
+        "the character on its way out"
+    );
 }

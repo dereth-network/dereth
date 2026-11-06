@@ -6,8 +6,9 @@
 //!
 //! What is said (a step's line, a keeper's greeting, a person's line) goes out as the string
 //! reference a row gives; a row with only new prose (`tell_text`, `greeting_text`, `line_text`)
-//! has it said as literal text, which the client shows unchanged. Names are still the install's:
-//! an object's or a sale's `name_text` alone is served under the template's own name.
+//! has it said as literal text, which the client shows unchanged. An object's `name_text` alone is
+//! its name as literal text too, as a player's is told; a sale's alone is served under the
+//! template's own name.
 //!
 //! Each table row's `placed` column carries its provenance, so a running server can say where a
 //! creature or a sale came from.
@@ -19,13 +20,13 @@ use auberean_assets::script::Qualities;
 use dereth_primitives::num::math;
 use yalain_content::quests::{
     Give as TableGive, Need as TableNeed, Place as StepPlace, QuestDef, QuestTable,
-    Step as TableStep, Trigger as TableTrigger, Update as TableUpdate,
+    Room as TableRoom, Step as TableStep, Trigger as TableTrigger, Update as TableUpdate,
 };
 use yalain_content::stores::{Keeper as TableKeeper, Sale as TableSale, SaleGate, StoreTable};
 use yalain_content::talk::{Line, TalkTable};
 use yalain_content::{
-    describe, facts, Camp as TableCamp, ContentObject, ContentPack, FactIds, Kind, LootProfile,
-    LootTable, Place as TablePlace, SpawnTable, Words,
+    describe, facts, Camp as TableCamp, ChestTreasure, ContentObject, ContentPack, FactIds, Kind,
+    LootProfile, LootTable, Place as TablePlace, SpawnTable, Words,
 };
 
 use crate::merge::Merged;
@@ -127,6 +128,8 @@ pub struct Tables {
     /// What a row says of a weapon beyond its template (the share of creatures given two, its
     /// stance), by the weapon's name.
     pub weapon_rules: BTreeMap<String, yalain_content::WeaponRule>,
+    /// What creatures' death effects make, by the effects' names.
+    pub death_spawns: BTreeMap<String, yalain_content::DeathSpawn>,
     /// The places templates name: where a person who sends players by a map sends the holder of
     /// a map of that template.
     pub places_named: BTreeMap<u32, TablePlace>,
@@ -424,8 +427,9 @@ fn subquest_definitions(quests: &mut yalain_content::QuestTable, install: &dyn I
 }
 
 /// How a quest's completion pays: as its setup says, unless its row says otherwise. A row's amount
-/// is paid in place of the setup's share. A row's share is paid whole, as nearly every share a setup
-/// names is (89 of 91), and at most what it comes to at the row's level.
+/// is paid in place of the setup's share, weighed as the setup says unless the row says it is whole. A
+/// row's share is paid whole, as nearly every share a setup names is (89 of 91), and at most what it
+/// comes to at the row's level, within the row's least and most.
 fn quest_pay(
     setup: yalain_content::quests::CompletionPay,
     q: &crate::rows::Quest,
@@ -437,6 +441,8 @@ fn quest_pay(
         return CompletionPay {
             share,
             most_at_level: q.xp_share_level.map(|level| (share, level)),
+            least: q.xp_least.unwrap_or(0),
+            most: q.xp_most.unwrap_or(0),
             flat: true,
             ..CompletionPay::default()
         };
@@ -444,6 +450,7 @@ fn quest_pay(
     if q.xp.is_some() {
         return CompletionPay {
             share: 0.0,
+            flat: q.xp_whole.unwrap_or(setup.flat),
             ..setup
         };
     }
@@ -499,6 +506,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
             _ => {}
         }
     }
+    let mut rooms: BTreeMap<(String, String), Vec<TableRoom>> = BTreeMap::new();
     for l in &merged.rows {
         let lb = l.landblock.unwrap_or(0);
         match &l.row {
@@ -524,8 +532,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 if let Some(n) = o.name {
                     d.name = Some(pair(n));
                     d.source.push_str(", name as recorded");
-                } else if o.name_text.is_some() {
-                    cx.warn(l, "name_text: served without it until the world's overlay holds the text; give a string reference");
+                }
+                if o.name.is_none() {
+                    d.name_text.clone_from(&o.name_text);
                 }
                 let destination = match &o.to {
                     None => None,
@@ -701,6 +710,13 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     extras: r.extras.clone(),
                     placed: prov_text(&r.prov),
                     confidence: confidence_word(&r.prov),
+                    chest: match (r.level, r.value.as_slice()) {
+                        (Some(level), [low, high]) => Some(ChestTreasure {
+                            level,
+                            value: (*low, *high),
+                        }),
+                        _ => None,
+                    },
                 });
             }
             Row::Keeper(k) => {
@@ -881,6 +897,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                         Update::Advance => TableUpdate::Advance(s.phase.unwrap_or(0)),
                         Update::Complete => TableUpdate::Complete,
                         Update::Fail => TableUpdate::Fail,
+                        Update::Nothing => TableUpdate::Nothing,
                     },
                     xp: s.xp.unwrap_or(0),
                     gives: s.gives.clone(),
@@ -907,6 +924,10 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     effects_last: s.effects_last,
                     fellows: s.fellows,
                     wants: s.wants,
+                    levels: (s.least_level.is_some() || s.most_level.is_some())
+                        .then_some((s.least_level.unwrap_or(0), s.most_level.unwrap_or(i32::MAX))),
+                    #[allow(clippy::cast_possible_truncation)]
+                    xp_share: s.xp_share.unwrap_or(0.0) as f32,
                     to,
                 });
             }
@@ -1015,7 +1036,38 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     }
                 }
             }
+            Row::DeathSpawn(r) => {
+                if cx.template(l, "template", r.template) {
+                    t.death_spawns.insert(
+                        r.effect.clone(),
+                        yalain_content::DeathSpawn {
+                            template: r.template,
+                            count: r.count,
+                            chance: r.chance,
+                            offset: [r.offset.x, r.offset.y],
+                            lasts: r.lasts,
+                        },
+                    );
+                }
+            }
             Row::Place(p) => {
+                if let (Some(row), Some(holds), Some(at)) = (
+                    &p.row,
+                    p.holds,
+                    p.row.is_some().then(|| cx.place_row(l)).flatten(),
+                ) {
+                    rooms
+                        .entry((l.pack.clone(), row.clone()))
+                        .or_default()
+                        .push(TableRoom {
+                            place: StepPlace {
+                                cell: at.cell,
+                                origin: at.origin,
+                                heading: heading_byte(rotation_heading(at.rotation)),
+                            },
+                            holds,
+                        });
+                }
                 if p.named_by.is_empty() && p.destination.is_none() {
                     continue;
                 }
@@ -1049,7 +1101,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     t.content.conflict.insert(r.landblock, r.conflict);
                 }
             }
-            Row::Talk(_) | Row::Route(_) | Row::Remove(_) => {}
+            Row::Talk(_) | Row::Route(_) | Row::Remove(_) | Row::Clearing(_) => {}
         }
     }
     for (l, scene) in door_scenes {
@@ -1107,6 +1159,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
         });
     }
     subquest_definitions(&mut t.quests, install);
+    t.quests.rooms = rooms.into_values().collect();
     if cx.problems.is_empty() {
         t.warnings = cx.warnings;
         Ok(t)

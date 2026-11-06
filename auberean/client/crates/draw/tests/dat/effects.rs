@@ -706,6 +706,43 @@ fn an_object_going_stops_its_effects() {
     );
 }
 
+/// An effect asked again while it plays moves the looping sounds it keeps to its new strength;
+/// a sound it only played once is not kept, so nothing is asked of it.
+///
+/// Behaviour: draw.effects.an-effects-kept-sounds-follow-its-strength
+#[test]
+fn an_effects_kept_sounds_follow_its_strength() {
+    use auberean_draw::effects::FxSound;
+    const LOOPING: u32 = 0x8100_02B3;
+    let r = &install().records;
+    let human = Look::of_record(r, DataId(0x1F00_0023)).expect("the human male's look");
+    let spot = FxSpot {
+        home: (2, 0x98),
+        place: Mat4::IDENTITY,
+        scale: Vec3::new(1.0, 1.0, 1.0),
+        now: 0.0,
+    };
+    let systems = ParticleSystems::default();
+    let mut fx = ObjectEffects::of_look(&human).expect("its effects");
+    let (took, _) = fx.do_fx(&systems, r, LOOPING, 1.0, &spot, FxWho::default(), &NoRig);
+    assert!(took, "the effect plays");
+    let first = fx.take_sounds();
+    assert!(
+        first
+            .iter()
+            .any(|s| matches!(s, FxSound::Play { kept: true, .. })),
+        "it keeps a sound going: {first:?}"
+    );
+    let _ = fx.do_fx(&systems, r, LOOPING, 0.5, &spot, FxWho::default(), &NoRig);
+    assert_eq!(
+        fx.take_sounds(),
+        vec![FxSound::Volume {
+            effect: LOOPING,
+            volume: 0.5
+        }]
+    );
+}
+
 /// The wounded effect (`0x41000002`) of effect table `0x1E00012E` lays value 2 of four appearance
 /// tables over its object, at the strength it is played at: played at 0.3 the four go on at 0.3;
 /// played again at 0.6 while it plays, again at 0.6 (each time in the effect's order); its time
@@ -1115,6 +1152,153 @@ fn an_effects_color_goes_back_as_it_ends() {
     assert!(white(&fx.take_sliders()), "put back all the same");
 }
 
+/// An effect that simply runs out leaves the color as it is, unless an entry's color lasts a time:
+/// `0x8100028E`, which takes the alpha to nothing and says to restore, keeps it, since only a stop
+/// asked for puts it back; `0x8100028F`, whose color lasts, goes back to white as it runs out.
+///
+/// Behaviour: draw.effects.an-effect-running-out-restores-only-a-color-that-lasts
+#[test]
+fn an_effect_running_out_restores_only_a_color_that_lasts() {
+    use auberean_draw::effects::{FxSpot, FxWho, NoRig};
+    let r = &install().records;
+    let human = Look::of_record(r, DataId(0x1F00_0023)).expect("the human male's look");
+    let systems = ParticleSystems::default();
+    let spot = FxSpot {
+        home: (0, 0),
+        place: Mat4::IDENTITY,
+        scale: Vec3::new(1.0, 1.0, 1.0),
+        now: 1.0,
+    };
+    let run_out = |effect: u32| {
+        let mut fx = ObjectEffects::of_look(&human).expect("its effects");
+        let (took, _) = fx.do_fx(&systems, r, effect, 1.0, &spot, FxWho::default(), &NoRig);
+        assert!(took, "{effect:08X}");
+        fx.take_sliders();
+        fx.use_time(r, 1.0);
+        fx.use_time(r, 1_000.0);
+        let after = fx.take_sliders();
+        assert!(!fx.states().contains_key(&effect), "{effect:08X} ran out");
+        after.iter().any(|s| s.value == 1.0 && s.time == 0.1)
+    };
+    assert!(
+        !run_out(0x8100_028E),
+        "says to restore, but only a stop does"
+    );
+    assert!(run_out(0x8100_028F), "its color lasts a time");
+}
+
+/// How long an effect lasts asks whether what it plays runs until stopped: an entry whose music
+/// loops (`0x810002B3` of table `0x1E00007A`) lasts until it is stopped, and so does one whose
+/// particle system does, even fired and forgotten; a system with a life of its own doesn't hold it.
+///
+/// Behaviour: draw.effects.an-effect-lasts-while-its-sound-or-system-runs-until-stopped
+#[test]
+fn an_effect_lasts_until_stopped_when_its_sound_or_system_does() {
+    use auberean_assets::fx::FxNode;
+    use auberean_draw::effects::{calc_duration, particle_is_looping, stored_fx_data};
+    let r = &install().records;
+    let dice = auberean_world::chargen::Random::default();
+    let list = stored_fx_data(r, 0x1E00_007A, 0x8100_02B3);
+    let music = &list.first().expect("the entry").default;
+    assert_eq!(calc_duration(r, music, &dice, None, false), None);
+    let system = |looping: bool| {
+        ids_of(0x39)
+            .into_iter()
+            .find(|id| particle_is_looping(r, *id) == looping)
+            .map(DataId)
+            .expect("a system")
+    };
+    let of = |p: DataId, fire_and_forget: bool| FxNode {
+        particles: Some(vec![p]),
+        fire_and_forget: Some(fire_and_forget),
+        ..FxNode::default()
+    };
+    let endless = system(true);
+    let finite = system(false);
+    assert_eq!(
+        calc_duration(r, &of(endless, false), &dice, None, false),
+        None
+    );
+    assert_eq!(
+        calc_duration(r, &of(endless, true), &dice, None, false),
+        None
+    );
+    assert_eq!(
+        calc_duration(r, &of(finite, false), &dice, None, false),
+        Some(0.0)
+    );
+}
+
+/// Stopping an effect that turned a streak on turns it off, whether or not the effect still plays:
+/// `0x810002AE` of the human male's table.
+///
+/// Behaviour: draw.streak.stopping-the-effect-that-turned-a-streak-on-turns-it-off
+#[test]
+fn stopping_the_effect_that_turned_a_streak_on_turns_it_off() {
+    use auberean_draw::effects::{FxSpot, FxWho, NoRig};
+    const SWING: u32 = 0x8100_02AE;
+    let r = &install().records;
+    let human = Look::of_record(r, DataId(0x1F00_0023)).expect("the human male's look");
+    let systems = ParticleSystems::default();
+    let spot = FxSpot {
+        home: (0, 0),
+        place: Mat4::IDENTITY,
+        scale: Vec3::new(1.0, 1.0, 1.0),
+        now: 1.0,
+    };
+    let mut fx = ObjectEffects::of_look(&human).expect("its effects");
+    let (took, _) = fx.do_fx(&systems, r, SWING, 1.0, &spot, FxWho::default(), &NoRig);
+    assert!(took);
+    let on = fx.take_streak_asks();
+    let (_, location) = *on
+        .iter()
+        .find(|(start, _)| *start)
+        .expect("it turns one on");
+    fx.stop_fx(r, SWING, false);
+    assert_eq!(
+        fx.take_streak_asks(),
+        [(false, location)],
+        "playing or just ended"
+    );
+    fx.stop_fx(r, SWING, false);
+    assert_eq!(
+        fx.take_streak_asks(),
+        [(false, location)],
+        "no longer playing"
+    );
+}
+
+/// An effect played on an object carries the repulsor its entry names: `0x810001C7` of the human
+/// male's table.
+///
+/// Behaviour: draw.particles.an-effect-carries-the-repulsor-its-entry-names
+#[test]
+fn an_effect_played_carries_the_repulsor_its_entry_names() {
+    use auberean_draw::effects::{FxSpot, FxWho, NoRig};
+    let r = &install().records;
+    let human = Look::of_record(r, DataId(0x1F00_0023)).expect("the human male's look");
+    let systems = ParticleSystems::default();
+    let spot = FxSpot {
+        home: (0, 0),
+        place: Mat4::IDENTITY,
+        scale: Vec3::new(1.0, 1.0, 1.0),
+        now: 1.0,
+    };
+    let mut fx = ObjectEffects::of_look(&human).expect("its effects");
+    let before = fx.repulsor_count();
+    let (took, _) = fx.do_fx(
+        &systems,
+        r,
+        0x8100_01C7,
+        1.0,
+        &spot,
+        FxWho::default(),
+        &NoRig,
+    );
+    assert!(took);
+    assert_eq!(fx.repulsor_count(), before + 1);
+}
+
 /// An effect with a decal (`0x810002C7` of the shared table) lays it: its material, its life, its
 /// size and its color from the entry; with the decal effects preference off, none.
 ///
@@ -1370,4 +1554,53 @@ fn a_placed_objects_systems_stand_on_its_bones_at_rest() {
     };
     assert!(drawn_along_y(0x1F00_00AE) > 5.0, "out on the bones");
     assert_eq!(drawn_along_y(0x1F00_002B), 0.0, "no bone, no system");
+}
+
+/// Puffs of cloud go by in portal space, drawn only while the camera is within the system's fade
+/// distance of the tube's start: entering at once they show in the first moment and not once the
+/// camera has rushed on. Coming in over a phase, none go until the tunnel is nearly in view.
+///
+/// Behaviour: draw.portal.puffs-of-cloud-show-near-the-tunnels-start
+#[test]
+fn puffs_of_cloud_show_near_the_tunnels_start() {
+    use auberean_draw::portal::Passage;
+    use auberean_draw::scene::{Pass, SceneBuilder};
+    use auberean_primitives::random::Random;
+    let r = &install().records;
+    let region = r.region().expect("the region");
+    let mut builder = SceneBuilder::new(r, &region);
+    let mut drawn = |at_once: bool| {
+        let mut portal = Passage::new(Random::default());
+        portal.want(true, at_once, 0.0);
+        let mut out = Vec::new();
+        for step in 0..300_u16 {
+            let now = f64::from(step) / 60.0;
+            let look = portal.think(now);
+            let Some(frame) = portal.frame(r, &mut builder, &look, now) else {
+                continue;
+            };
+            let puffs = frame
+                .objects
+                .iter()
+                .filter(|b| b.step == Some(Pass::Particles))
+                .count();
+            let eye = portal.rings().first().map_or(0.0, |(_, _, at)| {
+                (at.x * at.x + at.y * at.y + at.z * at.z).sqrt()
+            });
+            out.push((now, puffs, eye));
+        }
+        out
+    };
+    let at_once = drawn(true);
+    assert!(
+        at_once.iter().any(|(_, puffs, _)| *puffs > 0),
+        "they show as it starts"
+    );
+    for (now, puffs, eye) in &at_once {
+        assert!(*eye < 70.0 || *puffs == 0, "{puffs} at {now}, {eye} m out");
+    }
+    let coming_in = drawn(false);
+    for (now, puffs, _) in coming_in.iter().filter(|(now, _, _)| *now < 0.9) {
+        assert_eq!(*puffs, 0, "none at {now} while it comes into view");
+    }
 }

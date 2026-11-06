@@ -66,6 +66,10 @@ impl Store for MemoryStore {
         Ok(())
     }
 
+    fn account(&mut self, id: u64) -> StoreResult<Option<Account>> {
+        Ok(self.accounts.iter().find(|a| a.id == id).cloned())
+    }
+
     fn accounts(&mut self) -> StoreResult<Vec<Account>> {
         let mut v = self.accounts.clone();
         v.sort_by_key(|a| a.name.to_lowercase());

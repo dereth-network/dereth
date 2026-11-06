@@ -8,9 +8,7 @@ use std::collections::BTreeMap;
 use auberean_assets::ui::UiScene;
 use auberean_client_sdk::protocol::types::CharacterIdentity;
 use auberean_primitives::{DataId, Vec3};
-use auberean_scene::view::{
-    figure_box, scene_camera, ViewCamera, ViewFigure, ViewLight, ViewScene,
-};
+use auberean_scene::view::{scene_camera, ViewCamera, ViewFigure, ViewLight, ViewScene};
 use auberean_world::chargen::{self, Avatar, Choice, Random};
 use auberean_world::look::{Desc, Look};
 use auberean_world::math::Mat4;
@@ -303,8 +301,13 @@ pub fn shaping_scene(
     let scene: UiScene = records.get(scene_id)?;
     let fov = scene_camera(&scene, CAMERA).map_or(65.0, |c| c.fov_y);
     let desc = creation.look(records, race, sex)?;
-    let (low, high) = figure_box(records, &desc)?;
+    // The view of the whole figure is framed by its height before its scale, so the figure grows
+    // and shrinks in it with the height chosen; the view close up follows it.
+    let (low, high, scale) = auberean_scene::view::figure_box_and_scale(records, &desc)?;
     let mut h = high.z - low.z;
+    if zoomed {
+        h *= scale.z;
+    }
     match race {
         chargen::HUMAN => h *= 0.95,
         chargen::TUMEROK => h *= 0.84,

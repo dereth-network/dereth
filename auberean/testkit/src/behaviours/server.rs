@@ -37,6 +37,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.accounts.new-accounts-bounded",
+        says: "An open world makes a bounded number of new accounts for each address and \
+               for the world; a login past it is told the world has no room and none is \
+               made, and accounts already made go on logging in.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-NEW-ACCOUNTS-BOUNDED"),
+        station: "yalain-testkit::cpu::operator::sessions::new_names_past_what_an_address_may_make_are_told_the_world_has_no_room",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.accounts.older-secrets-kept-again-as-bcrypt",
         says: "A secret kept as earlier versions kept it (a salted SHA-256) admits its ticket \
                once more and is then kept as bcrypt at the world's cost, as Empyrean moves an \
@@ -77,6 +87,18 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-ACCOUNTS-LOGIN-HOLD"),
         station: "yalain-testkit::cpu::entry::tickets::five_refused_logins_from_one_address_hold_its_logins_back_for_a_minute",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.accounts.secret-checks-bounded",
+        says: "Secrets are checked one at a time at a pace, the world's work between them, \
+               logins waiting their turn and an admin's going first. Past as many as may wait, \
+               or what its address may ask, a login is told the world has no room, and a \
+               friends ticket is refused. An address the operator exempts and this machine's \
+               own have no limit of their own.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-SECRET-CHECKS-BOUNDED"),
+        station: "yalain-testkit::cpu::operator::sessions::logins_past_the_secrets_an_address_may_have_checked_are_told_the_world_has_no_room",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -574,6 +596,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.allegiance.ranks-read-in-one-pass",
+        says: "Ranks and trees read from the whole table at once come out as walking it member by \
+               member does, a stored circle ending as it did.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ALLEGIANCE-ONE-PASS"),
+        station: "yalain-testkit::cpu::play::allegiance::ranks_and_trees_read_at_once_come_out_as_a_walk_member_by_member",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.allegiance.recorded-officers-and-names",
         says: "Every recorded profile flags as officers exactly the members in its officer set, the \
                monarch among them, and every recorded export of the tree files each name under \
@@ -593,6 +624,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.allegiance.tree-export-out-of-an-allowance",
+        says: "A tree's export comes out of a connection's allowance of rows, by its members: an \
+               ordinary member's are all answered, and one past the allowance isn't.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-TREE-EXPORT-ALLOWANCE"),
+        station: "yalain-testkit::cpu::play::allegiance::the_tree_export_comes_out_of_an_allowance_by_its_members",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.allegiance.tree-exported",
         says: "Exporting the allegiance's tree sends the asker every member's place in it, with its \
                patron and its vassals, the members by name and by id, the allegiance's chat room, \
@@ -600,6 +640,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-ALLEG-EXPORT"),
         station: "yalain-testkit::cpu::play::allegiance::the_tree_export_sends_the_whole_allegiance_and_the_files_name",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.areas.another-players-pet-goes-as-its-owner",
+        says: "A hostile skill aimed at another player's pet is refused, and an area leaves it out, while its \
+               owner may not be harmed; where the two may fight, each reaches it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-AREAS-OTHERS-PET"),
+        station: "yalain-testkit::cpu::play::areas::a_skill_and_an_area_spare_another_players_pet_while_its_owner_may_not_be_harmed",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -867,6 +916,25 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.chat.line-too-long-goes-nowhere",
+        says: "A line of talk past the most one may carry, by the size of its whole call or packet, reaches \
+               nobody, however it is said; its speaker is told or its room request refused, and it may \
+               go on talking. Our own limit: no recording reaches it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-TALK-TOO-LONG"),
+        station: "yalain-testkit::cpu::entry::long_lines::a_line_past_the_longest_reaches_nobody_and_its_speaker_is_told",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.chat.longest-line-heard-at-once",
+        says: "The longest line a client can send, of each kind, is heard whole and goes out at once, so \
+               nothing a listener is told next waits behind it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-TALK-LONGEST"),
+        station: "yalain-testkit::cpu::entry::long_lines::the_longest_line_a_client_can_send_is_heard_whole_and_holds_nothing_back",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.chat.messages-as-2017-sent-them",
         says: "The chat messages the server builds are those the 2017 servers sent: the empty \
                allegiance profile, a new character's channels, each emote's behavior, each typed \
@@ -948,6 +1016,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.chat.talk-has-a-limit",
+        says: "A player's sayings, tells, emotes and room lines spend one limit between them: \
+               past it a line goes nowhere and the player is told, at most every few seconds.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-TALK-LIMIT"),
+        station: "yalain-testkit::cpu::entry::chat::a_player_past_the_talk_limit_is_told_once_and_heard_again_a_moment_later",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.chat.tell-delivered-or-refused",
         says: "A tell reaches the player of the name typed (with or without its grammar mark, in \
                any case) as the teller's tell with its id and world name; the teller is shown its \
@@ -987,6 +1064,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-TYPED-EMOTE"),
         station: "yalain-testkit::cpu::entry::chat::a_typed_emote_reaches_the_emoter_and_the_players_who_see_it_with_its_name_and_words",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.combat.a-basic-attacks-target-effects-land",
+        says: "A basic attack that names target effects puts them on what it lands on, at its user's \
+               rating in it, as a special's do. Our choice: of the players' basic attacks one names \
+               any, and it has no story in view.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-BASIC-TARGET-EFFECTS"),
+        station: "yalain-testkit::cpu::play::creature_effects::a_basic_attack_that_names_a_target_effect_lands_it",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -1122,12 +1209,39 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "server.craft.a-knife-stays-while-it-cuts",
+        says: "A knife at work on a corpse stays in the pack until the cut is over: it isn't put down, \
+               sold or traded. One gone by the end all the same pays nothing and leaves the corpse.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-KNIFE-STAYS"),
+        station: "yalain-testkit::cpu::play::butchery::a_knife_is_not_put_down_while_it_cuts_and_one_gone_pays_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.a-product-wants-a-place-in-the-pack",
         says: "A recipe's product with no place in the pack is refused at the craft's result with its \
                own answer, and nothing is made or used up.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-CRAFT-NO-ROOM"),
         station: "yalain-testkit::cpu::play::crafting::a_product_with_no_place_in_the_pack_is_refused_at_the_result_and_uses_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.craft.a-recipe-wants-its-cost",
+        says: "A recipe whose cost its maker's money is short of is refused with the client's own \
+               word for it: nothing made, used up or paid. With the money it is made and paid for.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CRAFT-COST"),
+        station: "yalain-testkit::cpu::play::crafting::a_recipe_whose_cost_its_maker_lacks_is_refused_and_makes_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.craft.a-recipe-wants-its-cost-at-its-end",
+        says: "A recipe's cost is asked for again as the making comes due: money spent since leaves \
+               it refused, nothing made or used up.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CRAFT-COST-END"),
+        station: "yalain-testkit::cpu::play::crafting::money_spent_during_a_making_leaves_it_refused_at_its_end",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -1334,6 +1448,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.craft.made-item-attuned",
+        says: "An item of a making whose outcome attunes it, the spinner within the action's range, \
+               is attuned to whoever holds it: refused a drop, a trade and a sale as an attunable \
+               template's item is. Our choice: the action's body and any such item are out of view; \
+               the recipes' text says their result will be attuned.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-CRAFT-ATTUNED"),
+        station: "yalain-testkit::cpu::play::crafting::a_made_item_its_recipe_attunes_is_attuned_when_the_spinner_is_in_range",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.made-item-binds-on-use",
         says: "An item a recipe's outcome binds (on the product's ordinal, the spinner chosen within \
                the action's range) is made to bind when used in combat.",
@@ -1477,6 +1602,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.craft.none-from-death-or-portal-space",
+        says: "A dead player, or one in portal space, is refused a recipe with the client's word \
+               for too busy; nothing made or used up.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CRAFT-NOT-DEAD"),
+        station: "yalain-testkit::cpu::play::crafting::a_recipe_is_refused_to_the_dead_and_in_portal_space",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.nothing-made-of-an-ingredient-gone",
         says: "A recipe's ingredients are looked at again when the making ends: one put \
                down, traded or sold meanwhile makes nothing, and one stack named for two \
@@ -1530,6 +1664,14 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-RECIPE-BINDS"),
         station: "yalain-testkit::dat::effects::a_recipe_that_binds_its_product_reads_the_bind_on_its_ordinal",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.craft.recipe-charges-and-targets-read",
+        says: "A mine's recipe reads its charges and the template it must be made at from its definition.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CRAFT-RECIPE-READ"),
+        station: "yalain-testkit::corpus::world_db::a_mines_recipe_reads_its_charges_and_its_mine",
+        tier: Tier::Corpus,
     },
     behaviour! {
         id: "server.craft.recipe-pays-experience",
@@ -1841,6 +1983,84 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.a-detaunt-takes-from-the-draw",
+        says: "A detaunt on a creature takes its share of the creature's whole health, at the low end \
+               of its script's range, from its caster's weight at the draw for twenty seconds, down to \
+               nothing, where it isn't drawn. Our choice: too few cases to measure, so a taunt's rule \
+               with the sign turned.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-DETAUNT"),
+        station: "yalain-testkit::cpu::play::creature_tactics::a_taunt_weighs_as_harm_at_the_draw_and_a_detaunt_takes_from_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.a-gems-dummy-lasts-its-time",
+        says: "What a practice gem makes goes when the time its row gives is up, and its use makes it \
+               however many stand; the place a gem may be used holds no rooms.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-GEM-DUMMY-TIME"),
+        station: "yalain-testkit::cpu::play::death_spawns::a_gems_dummy_is_gone_when_its_time_is_up",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.a-skills-harm-counts-by-its-points",
+        says: "A skill's taunt bonus or damage-notice figure counts its harm for that many percent more \
+               at a creature's draw. This server's own stand-in: nothing recorded says what the \
+               figures do, and one point to one percent is a first guess to be revised.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-HARM-POINTS"),
+        station: "yalain-testkit::cpu::play::specials::a_skills_harm_counts_at_a_draw_by_its_points_and_takes_only_its_damage",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.a-taunt-counts-at-the-draw",
+        says: "A landed taunt counts for its caster at a creature's draw as harm, for twenty seconds, \
+               each its script's share of the creature's whole health at the low end of its range. It \
+               forces no turn: the draw's chance and the nearest's weight stand. Rests on one player's \
+               1,041 taunts, of two skills alone (Soft Underbelly and Growl); the others' shares are \
+               their scripts'.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TAUNT-DRAW"),
+        station: "yalain-testkit::cpu::play::creature_tactics::a_taunt_landing_counts_for_its_caster_for_twenty_seconds_by_its_share_of_whole_health",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.an-effect-makes-its-holder-hated",
+        says: "A creature that never attacks first comes at a player holding an effect its class \
+               hates, or one every creature hates; a creature of another class leaves it alone.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CONCEAL-HATES"),
+        station: "yalain-testkit::cpu::play::concealing::a_creature_that_never_attacks_first_comes_at_a_player_it_hates",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.an-effect-spares-its-holder",
+        says: "A creature of the class an effect spares doesn't take on its holder, come to its kin's \
+               fight with it, or turn to it, until the holder hurts it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CONCEAL-SPARES"),
+        station: "yalain-testkit::cpu::play::concealing::a_creature_leaves_alone_a_player_it_spares_until_struck",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.an-effects-words-name-its-class",
+        says: "An effect of the kind whose saved state names no class is for the classes its words name, \
+               each of two where it names two; one naming no class does nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CONCEAL-WORDS"),
+        station: "yalain-testkit::cpu::play::concealing::an_effect_is_for_the_classes_its_words_name",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.an-items-use-makes-what-it-names",
+        says: "An item whose use names an effect a world's row makes creatures by makes them at the \
+               row's offset from its user, as the use is done.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ITEM-USE-SPAWN"),
+        station: "yalain-testkit::cpu::play::death_spawns::an_items_use_makes_what_its_effect_names_before_its_user",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.armor-debuff-in-a-special",
         says: "What a landed special's effect takes from a creature's armor counts in the next hit \
                of a special, on the whole server with the install's own skills.",
@@ -1983,6 +2203,89 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.death-effect-on-killer",
+        says: "A creature's death effect that lasts and moves no quest goes on its killer, from the creature, for its whole duration, and on no one else.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-DEATH-EFFECT-ON-KILLER"),
+        station: "yalain-testkit::cpu::play::death_spawns::a_death_effect_that_lasts_goes_on_the_killer_from_the_creature",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.death-spawn-around-killer",
+        says: "What a creature's death effect makes stands at its offset from the killer, as the killer faces, each by its chance.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-DEATH-SPAWN-AROUND-KILLER"),
+        station: "yalain-testkit::cpu::play::death_spawns::a_death_spawn_stands_at_its_offset_from_the_killer_as_the_killer_faces",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.death-spawn-near-the-death",
+        says: "What a creature's death makes appears only where its killer stands near the death; a \
+               killer far from it, or in another block's cells, makes nothing.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-SPAWN-NEAR-DEATH"),
+        station: "yalain-testkit::cpu::play::death_spawns::a_killer_far_from_the_death_makes_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.death-spawns-limited",
+        says: "Our choice: only so many of one death effect's creatures live at once.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-DEATH-SPAWNS-LIMITED"),
+        station: "yalain-testkit::cpu::play::death_spawns::only_so_many_of_a_death_effects_creatures_live_at_once",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.flies-as-its-body-says",
+        says: "A body flies if its motion description gives it a height in the air: two meters at \
+               rest, one in a fight for the wasps.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-FLIES-BODY"),
+        station: "yalain-testkit::dat::walls::a_bodys_motion_description_says_how_high_it_flies",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.creatures.flies-at-its-height",
+        says: "A creature that flies moves with no floor touching it, and keeps its height over \
+               what is under it. Our choice of how, from where 2017's flew.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-FLIES-HEIGHT"),
+        station: "yalain-testkit::dat::walls::a_flyer_moves_where_no_floor_touches_it_and_keeps_its_height",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.creatures.flies-from-where-it-appears",
+        says: "A creature that flies, appearing on open ground, appears at its height.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-FLIES-APPEARS"),
+        station: "yalain-testkit::dat::walls::a_flyer_of_a_camp_on_open_ground_appears_at_its_height",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.creatures.flies-lower-in-a-fight",
+        says: "A creature that flies goes at its fighting height while after a player.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-FLIES-FIGHT"),
+        station: "yalain-testkit::dat::walls::a_flyer_after_a_player_comes_down_to_its_fighting_height",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.creatures.flyers-meet-walls",
+        says: "A creature that flies meets walls as one that walks does.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-FLYERS-WALLS"),
+        station: "yalain-testkit::dat::walls::a_flyer_never_goes_through_a_wall",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.creatures.flyers-through-doorways",
+        says: "A creature that flies goes after a player through a doorway, as one that walks does.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-FLYERS-DOORS"),
+        station: "yalain-testkit::dat::walls::a_flyer_after_a_player_in_the_next_room_flies_through_the_doorway",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.creatures.free-range-no-home-leash",
         says: "A creature free of its home goes after a player however far from home the fight \
                takes it; one kept near home gives up past its distance from home.",
@@ -2054,6 +2357,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-INDOOR-REST"),
         station: "yalain-testkit::cpu::play::resting::indoors_a_creature_at_rest_stays_where_it_is",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.is-dead-reads-numbers-only",
+        says: "Whether a player is dead is read from its numbers alone, not its whole qualities. \
+               Our choice.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-IS-DEAD-NUMBERS"),
+        station: "yalain-testkit::cpu::play::creatures::whether_a_player_is_dead_is_read_from_its_numbers_alone",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -2187,6 +2499,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.reach-goes-with-its-body",
+        says: "A creature standing stays where it is and swings while its target is within 3 m past \
+               its body's radius, and runs again beyond. Our choice, from the edge of 2017's swings.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-REACH-BODY"),
+        station: "yalain-testkit::cpu::play::creatures::a_creature_stands_and_swings_while_a_player_is_within_its_reach_and_runs_beyond",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.redraw-by-harm-and-nearness",
         says: "A creature that players have hurt lately draws its target again now and then among them \
                by the harm each did it, the nearest three times as likely.",
@@ -2230,12 +2551,39 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.spots-doubled-when-short",
+        says: "A camp with fewer spots than creatures places them all: each spot is held, and the rest \
+               share them. Our choice.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-SPOTS-SHORT"),
+        station: "yalain-testkit::cpu::play::creatures::a_camp_with_fewer_spots_than_creatures_still_places_them_all",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.spots-hold-one",
         says: "A camp's next creature appears at a spot none of its living creatures holds, while one \
                is free, so a camp as many as its spots fills every one.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-CAMP-SPOTS-HOLD-ONE"),
         station: "yalain-testkit::cpu::play::creatures::a_camp_as_many_as_its_spots_fills_every_one",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.stops-by-its-body",
+        says: "A creature running at a player who stands goes on to 0.7 m past its body's radius, and \
+               swings from there. Our choice, from where 2017's stood.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-STOP-BODY"),
+        station: "yalain-testkit::cpu::play::creatures::a_creature_runs_at_a_standing_player_to_where_its_body_stops_and_swings_from_there",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.stops-further-from-one-moving",
+        says: "A creature running at a player on the move stops 2 m past its body's radius. Our choice, \
+               from where 2017's swung.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-STOP-MOVING"),
+        station: "yalain-testkit::cpu::play::creatures::a_creature_running_at_a_player_on_the_move_stops_further_off",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -2247,6 +2595,15 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-STUCK-PUT-OUT"),
         station: "yalain-testkit::dat::walls::a_creature_standing_in_something_is_put_where_it_fits_and_walks_on",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.creatures.swings-at-who-keeps-away",
+        says: "A creature running at a player within its reach swings on the run when its attack is \
+               due. Our choice.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-SWINGS-RUNNING"),
+        station: "yalain-testkit::cpu::play::creatures::a_creature_swings_on_the_run_at_a_player_who_keeps_within_its_reach",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "server.creatures.turn-on-the-most-harm",
@@ -2351,6 +2708,79 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.data.a-client-that-keeps-overlays-is-sent-what-it-lacks",
+        says: "A client that says it keeps overlays and lacks revisions of the world's overlay is                told them and sent their records after a pause, and sees its characters once it                has stored them; a client holding them is sent nothing.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-PATCH-SENT"),
+        station: "yalain-testkit::dat::world_patch::a_client_that_keeps_overlays_is_sent_what_it_lacks_and_then_its_characters",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.data.a-client-the-overlay-doesnt-suit-is-refused-with-the-reason",
+        says: "A client holding other files than the overlay was made against is refused with the                reason, unless it checks them itself; so is one patched to another world, and one                that keeps overlays while the operator has patching off.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-PATCH-REFUSED"),
+        station: "yalain-testkit::dat::world_patch::a_client_holding_other_files_is_refused_unless_it_checks_them_itself",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.data.a-reload-answers-from-the-overlay-as-it-now-is",
+        says: "A reload opens the files clients' requests are served from again, through the \
+               world's overlay as it now is, and what the overlay holds is never answered as it \
+               was before; what no overlay holds stays compressed from before the world ran.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-OVERLAY-RELOAD"),
+        station: "yalain-testkit::cpu::entry::data_download::a_reload_answers_from_the_overlay_as_it_now_is",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.data.a-retail-client-lacking-a-worlds-overlay-is-refused-unless-patching-is-on",
+        says: "A client that says nothing of overlays and lacks the world's is refused with what                to play instead, unless the operator turned its patching on, when it is sent it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-PATCH-RETAIL"),
+        station: "yalain-testkit::dat::world_patch::a_retail_client_lacking_the_overlay_is_refused_unless_the_operator_patches_it",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.data.a-world-with-clearings-and-no-overlay-is-told",
+        says: "A world whose rows hold clearings and that has no overlay starts with a warning \
+               that says what makes one.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-OVERLAY-WARNED"),
+        station: "yalain::bin.yalain::data::tests::clearings_with_no_overlay_are_warned_about",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.data.an-overlay-not-for-this-world-stops-the-start",
+        says: "An overlay made against other files than the server's, or another world's, stops \
+               the server from starting: a world is never served the installed files in place of \
+               its own.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-OVERLAY-REFUSED"),
+        station: "yalain::bin.yalain::data::tests::an_overlay_not_for_this_world_and_these_files_stops_the_start",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.data.answers-from-a-worlds-overlay",
+        says: "The records a client asks for are read through the world's overlay, in the cell \
+               and portal files both: what it replaces and adds is served, what it deletes is \
+               refused, and every other record is the install's. A world with no overlay reads \
+               the install.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-OVERLAY-READS"),
+        station: "yalain::bin.yalain::data::tests::the_records_a_client_asks_for_are_read_through_the_worlds_overlay",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.data.answers-from-a-worlds-overlay-over-real-sockets",
+        says: "The server's executable, started on a world's folder holding an overlay, answers \
+               a client on loopback that asks for a landblock with the overlay's bytes.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-OVERLAY-LIVE"),
+        station: "yalain::live::session::a_client_on_loopback_gets_a_landblock_from_the_worlds_overlay",
+        tier: Tier::Live,
+    },
+    behaviour! {
         id: "server.data.answers-never-hold-up-the-world",
         says: "Answering requests for data records never holds up the world: a very long \
                record is compressed once before the world runs, what else answers compress \
@@ -2369,6 +2799,14 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-DATA-LANDBLOCK"),
         station: "yalain-testkit::cpu::entry::data_download::a_landblock_sent_brings_its_landblock_information_right_after_it",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.data.patch-records-go-at-the-operators-rate",
+        says: "A client that keeps overlays is sent the world's records at the operator's rate,                and retail clients at the original servers' thousand a minute between them.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-PATCH-RATE"),
+        station: "yalain-testkit::dat::world_patch::a_clients_records_go_at_its_rate_and_retail_clients_share_theirs",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "server.data.recorded-requests-answered-as-2017",
@@ -2452,6 +2890,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-CORPSE-BLOCK-LATER"),
         station: "yalain-testkit::cpu::play::fights::a_corpse_seen_later_is_followed_by_its_settling_too",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.death.dead-player-starts-no-attack",
+        says: "A dead player is refused an attack run, told why: what it aims at isn't struck.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-DEAD-NO-ATTACK"),
+        station: "yalain-testkit::cpu::play::dying::a_dead_player_starts_no_attack_run",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -2939,12 +3385,48 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.examination.a-plain-shield-shows-shield-stats",
+        says: "A shield no one made shows its template's numbers under Shield Stats: its rating first, \
+               the combat delay it wears with, its damage last; its effects when wielded indented once.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SHIELD-STATS-PLAIN"),
+        station: "yalain-testkit::cpu::entry::examine::a_plain_shield_shows_shield_stats_from_its_template",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.examination.a-rows-own-name",
+        says: "A placed row a world gave a name of its own is examined under that name, as it is                shown over its head; one with none under its template's.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-EXAMINE-OWN-NAME"),
+        station: "yalain-testkit::cpu::entry::examine::a_row_with_a_name_of_its_own_is_examined_under_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.examination.an-inscription-is-shown",
         says: "An inscribed item's profile shows, on a tab of its own, who wrote on it by its \
                name in the world, and the words.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-INSCRIPTION-SHOWN"),
         station: "yalain-testkit::cpu::entry::examine::an_inscribed_item_shows_who_wrote_it_and_the_words_when_examined",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.examination.an-item-says-whom-it-is-bound-to",
+        says: "A bound item's examination says it is bound to the viewer, or to another player, in \
+               place of saying it binds, wherever it is held.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-BOUND-LINES"),
+        station: "yalain-testkit::cpu::play::binding::an_items_examination_says_whom_it_is_bound_to",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.examination.an-item-shows-the-effects-skills-put-on-it",
+        says: "An item under a skill's effect shows it among its enchantments with its spellcraft and a \
+               countdown to its end, its rating and damage drawn as enchanted, and a rating a weapon \
+               is given on a line of its own; an attuning effect is not listed.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ITEM-EFFECT-LINES"),
+        station: "yalain-testkit::cpu::play::item_effects::an_items_profile_shows_what_a_skill_put_on_it",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -3100,6 +3582,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.fellowship.a-place-is-its-leaders-to-offer",
+        says: "A place taken joins only if the one who offered it still leads a fellowship; one who \
+               has gone over to another's offers nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-FELLOW-PLACE"),
+        station: "yalain-testkit::cpu::play::fellowships::a_place_offered_by_one_no_longer_a_leader_takes_no_one",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.fellowship.asking-runs-out",
         says: "A recruit's asking unanswered for twenty seconds runs out: the recruit is told, and \
                the place can no longer be taken.",
@@ -3137,6 +3628,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-FELLOW-MADE"),
         station: "yalain-testkit::cpu::play::fellowships::a_fellowship_made_is_sent_to_its_maker_and_a_bad_name_is_refused",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.fellowship.name-past-the-longest-refused",
+        says: "A fellowship name longer than the client's chat entry can hold is refused. Our own limit: the \
+               recorded names are far inside it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-FELLOW-NAME-LONG"),
+        station: "yalain-testkit::cpu::entry::long_lines::a_fellowship_name_past_the_chat_entrys_length_is_refused",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -3707,6 +4207,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.gives.a-walk-holds-no-one",
+        says: "A person is held by a give being handed to it, not by one still on its way, from \
+               however far and for however long.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-GIVE-WALK-HOLDS"),
+        station: "yalain-testkit::cpu::play::gives::a_give_still_on_its_way_keeps_no_one_from_the_person",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.gives.any-count-taken-whole",
         says: "A give's step that names no count runs for whatever is given and takes all of it.",
         since: RETAIL,
@@ -3741,6 +4250,14 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-GIVE-HERO"),
         station: "yalain-testkit::cpu::play::gives::a_give_that_makes_a_hero_does_so_when_the_transformation_is_through",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.gives.journal-hand-ins",
+        says: "An item a journal says to hand in, given at its phase, finishes the quest.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-JOURNAL-HAND-INS"),
+        station: "yalain-testkit::corpus::world_db::hand_ins_a_journal_names_finish_their_quests",
+        tier: Tier::Corpus,
     },
     behaviour! {
         id: "server.gives.kept-in-2017",
@@ -3892,6 +4409,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.gives.ryvenna-gems",
+        says: "A jeweler's 33 gems come one after another in the order characters did them, any size taken, none \
+               given twice.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-GEM-CHAIN-2017"),
+        station: "yalain-testkit::corpus::world_db::ryvennas_gems_follow_one_another_in_the_order_characters_did_them",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.gives.subquests",
         says: "Items given that close a phase's subquests each tell the quest's record with its phase \
                kept, and the last, in any order, moves it on.",
@@ -3909,6 +4435,15 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-LAST-SUB-LINE"),
         station: "yalain-testkit::cpu::play::gives::the_give_closing_a_phase_is_said_as_the_next_phase_where_a_line_says_it",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.gives.ulkas-mines",
+        says: "A guard's death gives a player who paid the toll its hidden quest and with it the mine's quest and \
+               recipe; each gem counts and the last ends the quest and the toll.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-ULKAS-MINES-2017"),
+        station: "yalain-testkit::corpus::world_db::an_ulkas_mine_is_given_by_a_guard_after_its_toll_and_its_last_gem_ends_the_toll",
+        tier: Tier::Corpus,
     },
     behaviour! {
         id: "server.gives.vitae-tap",
@@ -3965,6 +4500,15 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-PACK-OVERFLOW"),
         station: "yalain-testkit::cpu::play::pack::a_gift_past_a_full_pack_is_held_and_its_move_says_so",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.inventory.a-new-characters-weapon-sells-for-its-scripts-value",
+        says: "A new character's starting weapon, whose value only its script sets, sells at the \
+               money bag for that value, on the executable reading the install.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-STARTING-WEAPON-VALUE"),
+        station: "yalain::live::session::a_new_characters_starting_sword_sold_at_the_money_bag_brings_its_gold",
+        tier: Tier::Live,
     },
     behaviour! {
         id: "server.inventory.a-part-split-off-holds-the-stacks-numbers",
@@ -4025,6 +4569,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.inventory.a-scripts-value-stands-where-the-data-names-none",
+        says: "A template whose data names no value is worth what its class's code sets; a \
+               value in the data, though it be nothing, stands over the class's.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SCRIPT-VALUE"),
+        station: "yalain-testkit::cpu::play::pack::an_item_only_its_class_values_sells_for_that_value",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.inventory.a-stack-pays-for-each-piece",
         says: "Each piece of a stack with a value of its own brings that value, sold whole or \
                piece by piece, and its profile shows the value of them all.",
@@ -4059,6 +4612,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-ATTUNABLE-DROP"),
         station: "yalain-testkit::cpu::play::drops::an_attunable_item_is_refused_at_once_and_stays_in_the_pack",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.inventory.an-inscription-past-its-longest-is-refused",
+        says: "Words past the longest an inscription takes are refused with the text the install holds \
+               for it, and what the item held stays.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-INSCRIPTION-LONGEST"),
+        station: "yalain-testkit::cpu::play::own_requests::an_inscription_past_its_longest_is_refused_and_the_old_one_stays",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -4102,6 +4664,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-PUT-DOWN"),
         station: "yalain-testkit::cpu::play::drops::an_item_put_down_stands_ahead_of_the_player",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.inventory.an-item-under-an-attuning-effect-stays",
+        says: "An item under an effect that attunes it is refused its drop until the effect has run out.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ITEM-EFFECT-DROP"),
+        station: "yalain-testkit::cpu::play::drops::an_item_under_an_attuning_effect_is_refused_its_drop_until_it_ends",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -4226,12 +4796,30 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.inventory.money-bag-pays-for-part-of-a-stack",
+        says: "Part of a stack dragged to the money bag pays for the pieces that went, and the \
+               rest stays in the pack with its count told.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MONEY-BAG-PART"),
+        station: "yalain-testkit::cpu::play::pack::part_of_a_stack_dragged_to_the_money_bag_pays_for_what_went_and_the_rest_stays",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.inventory.money-bag-refused-while-busy",
         says: "An item dragged to the money bag while another action is under way is not sold: the player \
                is told it is too busy and the drag is answered with the item.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-MONEY-BAG-BUSY"),
         station: "yalain-testkit::cpu::play::pack::a_drag_to_the_money_bag_while_busy_is_refused",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.inventory.money-bag-refuses-an-item-of-no-worth",
+        says: "An item worth nothing dragged to the money bag is refused and kept: the player is \
+               told it cannot be transformed into money and nothing is paid.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MONEY-BAG-NO-WORTH"),
+        station: "yalain-testkit::cpu::play::pack::an_item_worth_nothing_dragged_to_the_money_bag_is_refused_and_kept",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -4259,6 +4847,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-TRANSMUTE-PAST-ROOM"),
         station: "yalain-testkit::cpu::play::integrity::a_corpse_turned_into_money_with_a_full_pack_says_it_ran_past_the_room",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.inventory.no-world-without-ids-set-aside",
+        says: "A store that will not set the first ids aside gives no server: the world does not \
+               start, rather than give an id a kept item may hold.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-NO-WORLD-WITHOUT-IDS"),
+        station: "yalain-testkit::cpu::operator::item_ids::a_store_that_will_not_set_ids_aside_gives_no_server",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -4454,6 +5051,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.items.a-blow-binds-the-piece-it-lands-on",
+        says: "A hit binds at most one marked piece worn, the one it lands on; hits go on until all \
+               are bound. Our choice: which piece a blow lands on is not told, so even odds among \
+               those worn.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-BOUND-PIECE"),
+        station: "yalain-testkit::cpu::play::binding::a_hit_binds_one_piece_of_what_is_worn_each_told_once",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.items.a-jump-cuts-a-use-short",
         says: "An item's use whose behavior is playing (a potion's drink) is cut short by a jump or \
                its user's death: answered as interrupted, nothing done, the item kept.",
@@ -4479,6 +5086,24 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-ITEM-DRINK"),
         station: "yalain-testkit::cpu::play::items::a_potion_is_drunk_and_at_the_drinks_end_takes_effect_and_is_spent",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.items.a-weapon-binds-as-its-blows-land",
+        says: "Starting a fight binds nothing. Each blow a player lands may bind what it holds marked \
+               to, one in ten; armor is not bound by the blows its wearer strikes. Our choice: the \
+               chance rests on 4 weapons.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-BOUND-WEAPON"),
+        station: "yalain-testkit::cpu::play::binding::a_weapon_binds_as_its_blows_land_and_armor_does_not",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.items.an-effect-on-an-item-is-kept",
+        says: "An effect a skill put on an item is kept with the item across a logout, on its own time.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ITEM-EFFECT-KEPT"),
+        station: "yalain-testkit::cpu::entry::keeping::an_effect_on_an_item_is_kept_across_a_logout_on_its_own_time",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -4520,21 +5145,45 @@ pub static ROWS: &[Behaviour] = &[
         id: "server.items.binds-on-use-warning",
         says: "An item that binds when used in combat is equipped with the mark in its profile and \
                the warning \"This item will become bound to you when used in combat ...\" (not on \
-               top), at every equip; once its holder fights with it on, it is bound, equipped \
-               with no mark and no warning.",
+               top), at every equip; once a blow binds it, its holder is told \"By using it, you \
+               have bound ...\", and it is equipped with no mark and no warning.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-BINDS-WARNING"),
-        station: "yalain-testkit::cpu::play::binding::an_item_that_binds_in_combat_warns_at_every_equip_until_fought_with",
+        station: "yalain-testkit::cpu::play::binding::an_item_that_binds_in_combat_warns_at_every_equip_until_a_blow_binds_it",
         tier: Tier::Cpu,
     },
     behaviour! {
         id: "server.items.binds-when-hit",
-        says: "Being hit binds what a player wears and wields that binds when used in combat; what \
-               it only carries keeps its mark.",
+        says: "Being hit binds a marked piece a player wears; what it only carries keeps its mark.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-BINDS-WARNING-HIT"),
         station: "yalain-testkit::cpu::play::binding::being_hit_binds_what_is_worn_but_not_what_is_carried",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.items.bound-and-attuned-kept",
+        says: "Whom an item is bound to, and a recipe's attunement, are kept with it across a logout.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-BOUND-KEPT"),
+        station: "yalain-testkit::cpu::entry::keeping::whom_an_item_is_bound_to_and_its_attunement_are_kept_across_a_logout",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.items.bound-to-another-is-not-equipped",
+        says: "An item bound to another player is refused its equip with status 10074, which the \
+               client writes as bound to another; its own holder wears it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-BOUND-EQUIP"),
+        station: "yalain-testkit::cpu::play::binding::an_item_bound_to_another_is_not_equipped",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.items.class-properties",
+        says: "A template that names nothing itself has what its class's code says: its value, armor, delay, weapon damage, speed, vigor, least level and race.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ITEM-CLASS-PROPERTIES"),
+        station: "yalain-testkit::dat::effects::a_template_with_no_properties_has_what_its_class_says",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "server.items.food-heals-and-wears",
@@ -4952,6 +5601,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.loot.treasure-own-properties-over-a-class",
+        says: "A least level only a template's class says gives way to a drop's own, with its numbers; \
+               one the template itself sets doesn't.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TREASURE-CLASS-LEAST"),
+        station: "yalain-testkit::cpu::play::fights::a_least_level_only_its_class_says_gives_way_to_a_drops_own",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.loot.treasure-paired-enchantments",
         says: "A counter that lowers armor comes with the Armor Ward and Burning Edge's fire with its \
                edge, each pair one draw from the level that reached it, showing two lines; neither \
@@ -4981,6 +5639,15 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-TREASURE-SLAYER"),
         station: "yalain-testkit::cpu::play::fights::a_slayer_harms_the_creatures_it_names_by_its_spellcraft_and_no_others",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.loot.treasure-value-by-level",
+        says: "Treasure a creature leaves, jewelry among it, is worth what its dropper's level draws, \
+               whatever its template says.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TREASURE-VALUE-JEWELRY"),
+        station: "yalain-testkit::cpu::play::fights::jewelry_a_creature_leaves_is_worth_what_treasure_of_its_level_is",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -5040,6 +5707,33 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.market.a-bound-item-is-not-sold",
+        says: "An item bound by use in combat is refused its sale (45009), nothing taken and the item \
+               kept; one marked to bind and not yet bound goes up.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-BOUND-SALE"),
+        station: "yalain-testkit::cpu::play::market::an_item_bound_by_use_is_refused_its_sale_and_one_still_to_bind_goes_up",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.market.a-brokers-store-goes-by-pages",
+        says: "A broker's store shows a page's sales at a time and names how many it lists, and its \
+               pages turn through them all.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-BROKER-PAGES"),
+        station: "yalain-testkit::cpu::play::market::a_brokers_long_store_goes_by_pages_that_turn_through_it_all",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.market.a-character-holds-so-many-consignments",
+        says: "A character holding the most consignments it may is told so and nothing is taken; one \
+               collected makes room again.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-MARKET-MOST"),
+        station: "yalain-testkit::cpu::play::market::a_character_at_its_most_consignments_is_refused_and_told",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.market.a-consigned-item-keeps-what-it-holds",
         says: "An item on sale holds what it held in the pack: taken back unsold it comes as a new \
                item with the old one's value and own numbers, a restart leaves it as it was, and \
@@ -5065,6 +5759,42 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.market.a-consignment-says-how-many-are-left",
+        says: "A consignment tells its seller how many are left and how many have sold, as the                client reads them: it adds the two for how many went up, and shows a row in stock                while any are left.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MARKET-LEFT"),
+        station: "yalain-testkit::cpu::play::market::a_consignment_tells_its_seller_how_many_are_left_and_how_many_sold",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.market.a-seller-is-told-of-a-sale",
+        says: "A sale bought while its seller is in the world tells the seller which sale and how \
+               many have sold, at that broker, and the buyer isn't told; the client's handler reads \
+               it. Our choice of when: no recording holds the message.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-MARKET-SELLER-TOLD"),
+        station: "yalain-testkit::cpu::play::market::a_seller_in_the_world_is_told_of_a_sale_as_it_is_bought",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.market.an-attuned-item-is-not-sold",
+        says: "An item attuned to its holder, by its template or a recipe, is refused its sale \
+               (45009), nothing taken and the item kept. Our choice: an attunable template's item \
+               counts as attuned to whoever holds it; no such sale in view.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ATTUNED-SALE"),
+        station: "yalain-testkit::cpu::play::market::an_attuned_item_is_refused_its_sale_by_its_template_or_a_recipe",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.market.an-item-under-an-attuning-effect-is-not-sold",
+        says: "An item under an effect that attunes it is refused its sale until the effect has run out.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ITEM-EFFECT-SALE"),
+        station: "yalain-testkit::cpu::play::market::an_item_under_an_attuning_effect_is_refused_its_sale_until_it_ends",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.market.catalog-consignments-and-player-sales",
         says: "Using a broker answers the use, then shows its catalog; an item put up for sale \
                takes a hundredth of what it would fetch, moves to the broker and shows the \
@@ -5084,6 +5814,25 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-MARKET-LIMITS"),
         station: "yalain-testkit::cpu::play::market::a_brokers_dealings_need_reach_and_room",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.market.pages-drawn-from-an-allowance",
+        says: "A connection's market pages come out of an allowance of rows, by the sales shown and \
+               the listing read for them: pages of a player's size always answered, one of a very long \
+               listing as its rows come back.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-MARKET-PAGES"),
+        station: "yalain-testkit::cpu::play::market::market_pages_come_out_of_an_allowance_of_rows",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.market.waits-for-a-use-under-way",
+        says: "Nothing is put up for sale while a use under way counts on the pack. Our own rule: no \
+               recording tells.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-MARKET-USE-UNDER-WAY"),
+        station: "yalain-testkit::cpu::play::market::nothing_is_put_up_for_sale_while_a_trip_counts_on_the_pack",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -5191,6 +5940,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.net.a-connection-past-all-it-may-hold-is-closed",
+        says: "A connection with more waiting than any download and its reply can leave is closed, and \
+               its character goes as one whose client went away does.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-PAST-ALL"),
+        station: "yalain-testkit::cpu::play::lying_client::a_connection_past_all_it_may_have_waiting_is_closed",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.net.cookies-and-seeds-from-the-hosts-source",
         says: "Every cookie and checksum seed the server sends a client, a login's handshake, a \
                referral and the world's handshake, is taken from the random source its host gave \
@@ -5212,6 +5970,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.net.far-behind-a-connections-calls-wait",
+        says: "While a connection has far too much waiting behind a long message on its event queue, \
+               its calls aren't read and its reports are; one long reply that fits puts nothing off, \
+               and a download on its own queue puts off nothing.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-FAR-BEHIND"),
+        station: "yalain-testkit::cpu::play::lying_client::a_connection_far_behind_has_its_calls_put_off_and_its_reports_read",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.net.game-clock-held",
         says: "A server set to hold its game clock reads one time from then on, and the clock \
                every connection sends says that time, so every client shows the same moment of \
@@ -5219,6 +5987,35 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-CLOCK-HELD"),
         station: "yalain-testkit::cpu::entry::transport::a_held_game_clock_stands_still_for_the_server_and_in_what_it_sends",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.net.handshake-answered-once-per-ask",
+        says: "A login is sent its handshake once for each time it asks, and never of the \
+               server's own accord; while it waits it is sent the same one, and past its \
+               wait it asks anew.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-HANDSHAKE-ONE-ANSWER"),
+        station: "yalain-net::cpu::handshakes::a_login_is_answered_once_each_time_it_asks_and_never_unasked",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.net.handshake-holds-nothing-until-answered",
+        says: "A login not yet answered back is no connection: what waits is bounded per \
+               service and per address, the oldest giving way, so a client that answers \
+               gets in however many wait.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-HANDSHAKE-HOLDS-NOTHING"),
+        station: "yalain-net::cpu::handshakes::logins_nobody_answers_hold_no_place_from_a_client_that_answers",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.net.handshake-replaces-only-once-answered",
+        says: "A login naming the address of a connection already up ends it only once that \
+               address has answered its handshake.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-HANDSHAKE-REPLACES"),
+        station: "yalain-net::cpu::handshakes::a_login_from_an_address_in_use_replaces_its_connection_only_once_answered",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -5310,8 +6107,8 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "server.net.referral-cookie-used-once",
         says: "A referral's cookie lets in one world connection. A resend while its handshake \
-               waits makes no second connection; a world login with it after that makes none and \
-               ends nothing.",
+               waits is answered with that handshake; a world login with it after that makes none \
+               and ends nothing.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-COOKIE-ONCE"),
         station: "yalain-net::cpu::cookies::a_referrals_cookie_lets_in_one_world_connection_and_a_resend_changes_nothing",
@@ -5741,11 +6538,12 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.network.person-view-watched",
-        says: "A present character on the network asks for its person view, again at each welcome, \
-               and stops when it leaves or goes off the network.",
+        says: "A character in the world on the network asks for its person view, with a friends \
+               stream or not, again at each welcome, and stops when it leaves the world, is hidden \
+               or goes off the network.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-PERSON-VIEW"),
-        station: "yalain-federation::cpu::persons::the_person_view_is_watched_while_a_character_is_present_on_the_network",
+        station: "yalain-federation::cpu::persons::the_person_view_is_watched_while_a_character_is_in_the_world_on_the_network",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -6035,6 +6833,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.operator.a-file-with-an-item-twice-is-refused",
+        says: "A character file that holds one item id twice is refused whole, since each \
+               row would become an item of its own: no character, no account, no item comes \
+               of it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-IMPORT-ITEM-TWICE"),
+        station: "yalain-testkit::cpu::operator::characters::a_character_file_holding_one_item_id_twice_is_refused",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.operator.a-flood-of-calls-is-dropped",
         says: "A client sending game calls past 2,000 at once and 200 a second has what is \
                over dropped unread, and the others go on as ever. No client of January 2017 \
@@ -6122,6 +6930,16 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-STOP-LETS-GO"),
         station: "yalain-testkit::cpu::operator::shutdown::a_stop_tells_every_client_it_was_logged_off_and_ends_its_connection",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.operator.a-world-that-runs-no-pass-is-stopped",
+        says: "A world that runs no pass for its limit is stopped once, from outside its thread, \
+               and a world still running passes never is; its limit is a setting, and nothing \
+               means never.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WORLD-WATCH"),
+        station: "yalain-testkit::cpu::operator::shutdown::a_world_that_runs_no_pass_for_the_limit_is_stopped_once",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -6338,6 +7156,16 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-GLOBAL-SETTING"),
         station: "yalain::bin.yalain::config::tests::the_global_room_setting_takes_the_four_rooms_or_empty_and_refuses_anything_else",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.operator.imported-items-stay-bound-to-their-character",
+        says: "A character brought from another world has a new id, and what was bound to \
+               it is bound to that id: it may still wear it. An item bound to anyone else \
+               stays theirs.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-IMPORT-BOUND"),
+        station: "yalain-testkit::cpu::operator::characters::an_imported_characters_bound_items_stay_bound_to_it",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -6880,12 +7708,68 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Live,
     },
     behaviour! {
+        id: "server.pets.a-contract-hires-a-mercenary",
+        says: "A contract bought hires its mercenary at once, dismisses the one before it and is used \
+               up. This server's own stand-in for summons in no data it holds.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-MERC-HIRE"),
+        station: "yalain-testkit::cpu::play::trade::a_contract_hires_its_mercenary_at_once_and_is_used_up_and_the_next_takes_its_place",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.pets.a-contract-that-cannot-hire-costs-nothing",
+        says: "A contract that can't hire now is refused, nothing paid; one kept in the pack stays until \
+               it can.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-MERC-REFUSED"),
+        station: "yalain-testkit::cpu::play::trade::a_contract_that_cannot_hire_now_is_refused_and_costs_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.pets.a-mercenary-ends",
+        says: "A mercenary goes after an hour, with its owner's death and with its owner leaving the \
+               world. The hour is this server's own number.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-MERC-ENDS"),
+        station: "yalain-testkit::cpu::play::trade::a_mercenary_ends_with_its_time_its_owners_death_and_its_owner_leaving",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.pets.a-mercenary-tends",
+        says: "A medic tends its owner when hurt below three quarters, a keeper its owner's other pets, \
+               at most each half minute. This server's own reading of their contracts' words.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-MERC-TENDS"),
+        station: "yalain-testkit::cpu::play::trade::a_medic_tends_its_owner_and_a_keeper_its_owners_pets",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.pets.a-name-can-be-refused",
+        says: "A name too long or holding a digit or a mark is refused in the client's own words and the pet \
+               keeps the name it has; a name up to the longest, an accented letter and a space are \
+               taken.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PETS-NAME-REFUSED"),
+        station: "yalain-testkit::cpu::play::pets::a_pet_name_too_long_or_not_allowed_is_refused_and_the_pet_keeps_its_name",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.pets.aggressive-unprovoked",
         says: "An aggressive pet takes on the nearest creature within its reach without being told \
                to.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-PETS-AGGRESSIVE"),
         station: "yalain-testkit::cpu::play::pet_kinds::an_aggressive_pet_takes_on_the_nearest_creature_unbidden",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.pets.another-players-pet-goes-as-its-owner",
+        says: "Another player's pet may be ordered at, struck or aimed at only as its owner may be harmed; \
+               refused otherwise, it takes nothing, and a fight it is in ends when the two may no longer \
+               fight.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PETS-OTHERS"),
+        station: "yalain-testkit::cpu::play::pets::another_players_pet_takes_no_harm_while_its_owner_may_not_be_harmed",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -7144,6 +8028,34 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.a-chest-its-opener-left-opens-again",
+        says: "A chest whose opener leaves the world, open or still opening, is shut for the next to \
+               open. Our own rule: no recording shows a chest its opener left behind.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-CHEST-OPENER-LEFT"),
+        station: "yalain-testkit::cpu::play::chests::a_chest_whose_opener_leaves_the_world_opens_for_the_next",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.places.a-chests-draw-is-treasure-of-its-level",
+        says: "What a chest draws is treasure of the level its profile's row names, each piece worth a \\
+               draw from the row's band; its extras aren't, and a profile with no such row stays plain.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CHEST-TREASURE"),
+        station: "yalain-testkit::cpu::play::chests::a_chests_draw_is_treasure_of_the_level_its_row_names",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.places.a-chests-use-comes-on-its-opener",
+        says: "What a chest's kind names for its use comes on its opener as it begins to open, a quest \
+               named by what it does to it moved once; a kind that completes the quest that keeps it \
+               refuses that player after, at the chest as well as at the asking.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CHEST-USE-EFFECT"),
+        station: "yalain-testkit::cpu::play::chests::a_chest_that_completes_its_own_quest_opens_once",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.places.a-door-plays-its-scene",
         says: "A door played as a scene takes the player through it: teleporting, frozen, the scene \
                begun with no flash or glows; the scene ended, the use answered and the player at the \
@@ -7151,6 +8063,53 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-DOOR-SCENE"),
         station: "yalain-testkit::cpu::entry::places::a_door_plays_its_scene_in_place_of_portal_space_and_takes_the_player_through",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.places.a-glyph-stays-for-its-trip",
+        says: "A glyph stays in the pack for the whole of its trip, refused going down, and is used up on \
+               arrival; one on its way to the ground opens no vault. Our own rule: no recording tells.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-GLYPH-STAYS"),
+        station: "yalain-testkit::cpu::play::vaults::a_glyph_cannot_be_put_down_on_its_trip_and_one_put_down_opens_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.places.a-key-gone-opens-no-chest",
+        says: "A key out of its turner's pack when it has turned, or by the time the chest has opened, \
+               is not used up, and the chest shows nothing and stays locked: the use is refused as the \
+               wrong key, and a chest already moving shuts. Our own rule: no recording tells.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-KEY-GONE-CHEST"),
+        station: "yalain-testkit::cpu::play::chests::a_key_out_of_the_pack_before_a_chest_opens_shows_nothing_and_is_not_used_up",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.places.a-key-gone-opens-nothing",
+        says: "A key out of its turner's pack when it has turned, or by the time the door has opened, \
+               is not used up, and leaves the door locked: the use is refused as the wrong key, and a \
+               door already moving shuts at once. Our own rule: no recording tells.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-KEY-GONE"),
+        station: "yalain-testkit::cpu::play::doors::a_key_is_not_put_down_while_it_turns_and_one_gone_opens_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.places.a-keys-answer-names-it",
+        says: "A key's answer names the key, glyphs among them, whose names only their qualities record \\
+               holds; a key with no name opens with no text about the lock.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-KEY-ANSWER-NAME"),
+        station: "yalain-testkit::dat::effects::a_glyph_and_treasure_are_named_though_only_their_qualities_say",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.places.a-land-cell-holds-its-point",
+        says: "A land cell its reported point does not lie in is no place: the player stays where \
+               it was.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-LAND-CELL-HOLDS-POINT"),
+        station: "yalain-testkit::cpu::play::reported_places::a_land_cell_its_point_does_not_lie_in_is_no_place",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -7162,6 +8121,34 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-PLACE-OFF-LAND"),
         station: "yalain-testkit::cpu::play::drops::a_place_reported_far_off_the_land_is_not_taken",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.places.a-place-too-far-is-told-back",
+        says: "A report that goes further than a body could have leaves the player where it stood: \
+               its client alone is told that place under a newer force-position stamp, and reports \
+               from before it heard count for nothing. An admin character is not held.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PLACE-TOLD-BACK"),
+        station: "yalain-testkit::cpu::play::reported_places::a_place_too_far_leaves_the_player_where_it_stood_and_its_client_is_told",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.places.a-vault-is-free-once-its-traveler-has-left",
+        says: "A player taken out of the world on its way through a vault leaves the vault free for \
+               the next.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-VAULT-LEFT"),
+        station: "yalain-testkit::cpu::play::vaults::a_vault_is_free_for_the_next_once_its_traveler_has_left_the_world",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.places.a-walk-ends-with-a-trip-or-a-death",
+        says: "A player on its way to something that is taken into portal space or dies is on its way \
+               no longer: its use is answered, and nothing is left refusing its next use.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WALK-ENDS"),
+        station: "yalain-testkit::cpu::play::dying::a_death_ends_a_walk_and_leaves_no_use_refused_after_it",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -7833,6 +8820,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.player-fights.dead-attacker-harms-no-one",
+        says: "A dead player strikes no other player, whatever the place allows.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-DEAD-HARMS-NO-ONE"),
+        station: "yalain-testkit::cpu::play::player_fights::a_dead_player_strikes_no_other_player",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.player-fights.death-names-the-killer",
         says: "A player killed by another is announced, to everyone who sees it, as killed by that \
                player: the killer's name as the world writes it, and its object.",
@@ -7860,6 +8855,23 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-PVP-HIT"),
         station: "yalain-testkit::cpu::play::player_fights::a_hit_on_another_player_takes_its_health_and_tells_it_as_pk_damage",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.player-fights.no-skill-from-portal-space",
+        says: "A player in portal space is refused a skill's use; what it aims at isn't struck.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-NO-SKILL-AWAY"),
+        station: "yalain-testkit::cpu::play::player_fights::a_skill_is_refused_in_portal_space",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.player-fights.no-swing-from-portal-space",
+        says: "A player in portal space begins no run; one under way swings at nothing until it is \
+               out.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-NO-SWING-AWAY"),
+        station: "yalain-testkit::cpu::play::player_fights::a_run_waits_while_its_player_is_in_portal_space",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -7923,6 +8935,36 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-PVP-WHO"),
         station: "yalain-testkit::cpu::play::player_fights::who_may_harm_whom_follows_the_clients_check_of_a_harmful_act",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.presence.a-check-of-visual-order-waits-as-a-client-waits",
+        says: "The check every world test ends with takes visual messages as a client does: each \
+               waits for its object and the stamps before its own, one at a stamp already passed \
+               is dropped, and a visual stamp under a private message is told as wrong.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-VISUAL-ORDER-CHECK"),
+        station: "yalain-testkit::cpu::entry::presence::the_check_of_visual_order_waits_as_a_client_waits",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.presence.a-players-arrival-ends-for-all-who-see-it",
+        says: "The end of a player's arrival effect reaches every client that knows the player, \
+               so that a client already watching takes the player's later visual messages at \
+               once.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ARRIVAL-ENDS-FOR-ALL"),
+        station: "yalain-testkit::cpu::entry::presence::the_end_of_an_arrival_reaches_a_client_already_watching_and_nothing_after_it_waits",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.presence.a-view-moves-at-the-worlds-pace",
+        says: "A player's own reports bring its view up to date no oftener than four times \
+               a second, however often they cross its lines; what is owed comes when that \
+               has passed.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-VIEW-PACE"),
+        station: "yalain-testkit::cpu::entry::presence::reports_crossing_the_view_bring_it_up_to_date_at_the_worlds_pace",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -8133,6 +9175,24 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.a-kills-trip-keeps-its-step",
+        says: "A trip keeps what it is for: nothing sends its player anywhere else on the way, and \
+               a kill's step moves its quest as it lands.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TRIP-KEPT"),
+        station: "yalain-testkit::cpu::play::kill_quests::a_recall_on_a_kills_trip_leaves_it_and_its_step",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.a-kills-update-comes-on-landing",
+        says: "A kill whose step leads somewhere is told as the killer comes out there, once, the \
+               trip starting at the death; a quest moved meanwhile is left where it is.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-KILL-UPDATE-ON-LANDING"),
+        station: "yalain-testkit::cpu::play::kill_quests::a_kills_update_comes_as_the_killer_lands",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.a-last-phase-that-waits-holds",
         says: "A kill does not end a quest whose last phase waits for something else; it stays at \
                that phase.",
@@ -8221,6 +9281,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.a-step-leads-to-one-of-its-rooms",
+        says: "A step leading to a room of a row of like rooms sends the player to one with no player \
+               in it and its creature standing, else one with no player, else any.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-GAUNTLET-ROOMS"),
+        station: "yalain-testkit::cpu::play::kill_quests::a_kills_step_sends_the_killer_to_a_free_room_of_its_row",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.a-step-may-fail-its-quest",
         says: "A step may fail a quest under way, told as a failure; a quest with no wait may be given again by the next use.",
         since: RETAIL,
@@ -8294,6 +9363,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.quests.aua-gives-the-skyport-maintenance",
+        says: "Aua gives her maintenance quest, its shards and stibnite move it by their own effects, \
+               the alembic takes each, and she takes the infusion. Her lines say so; no recording \
+               shows it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-SKYPORT-MAINT"),
+        station: "yalain-testkit::corpus::world_db::aua_gives_her_quest_and_the_alembic_makes_the_infusion",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.quests.cancel-a-quest",
         says: "A quest under way that may be cancelled is cancelled on request: one update of the \
                cancel kind with the quest's record, and the quest no longer under way.",
@@ -8345,6 +9424,16 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-QUEST-XP"),
         station: "yalain-testkit::cpu::play::quests::a_completion_pays_its_experience_weighed_by_challenge_against_level",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.crafters-second-halves",
+        says: "A crafter's second half runs as its journal says: the person it names moves the quest \
+               on, the last item handed to that person brings what the crafter wants, and the crafter \
+               takes it. No recording shows it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-BESTOWAL-CHAINS"),
+        station: "yalain-testkit::corpus::world_db::a_crafters_second_half_runs_as_its_journal_says",
+        tier: Tier::Corpus,
     },
     behaviour! {
         id: "server.quests.done-once-from-setup",
@@ -8483,6 +9572,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.kill-step-leads-on",
+        says: "A kill whose step leads somewhere sends the killer there.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-KILL-LEADS-ON"),
+        station: "yalain-testkit::cpu::play::kill_quests::a_kills_step_that_leads_somewhere_sends_the_killer",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.least-level-from-the-setup",
         says: "A quest's least level is the one its setup names unless its row names another, and its \
                setup also says whether it is for heroes alone and which quest it requires at which \
@@ -8500,6 +9597,16 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-QUEST-LEAST-LEVEL"),
         station: "yalain-testkit::cpu::play::quest_uses::a_quest_is_not_given_under_its_least_level_and_the_person_says_why",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.mine-ways-down",
+        says: "Each Ulkas mine's way down leads to its base, open to anyone, and each second way in \
+               leads where the first does, asking for the same toll. The portals' names say so; only \
+               the emerald mine's and the sapphire mine's ways down were recorded.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-MINE-WAYS-DOWN"),
+        station: "yalain-testkit::corpus::world_db::every_ulkas_mine_portal_leads_somewhere",
+        tier: Tier::Corpus,
     },
     behaviour! {
         id: "server.quests.monarch-only-is-read",
@@ -8555,6 +9662,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.quests.practice-gems",
+        says: "A person hands out a practice gem by the player's level, moving no quest, and none while one is held; its use gives the quest.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-PRACTICE-GEMS-2017"),
+        station: "yalain-testkit::cpu::play::quests::a_gift_a_quest_done_at_once_keeps_comes_once_in_its_wait",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.ran-out-before-leaving",
         says: "A quest with no time left when its character left the world is failed when the \
                character enters, its wait counted from when the time ran out.",
@@ -8597,6 +9712,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.seskris-talismans",
+        says: "Seskri's quest moves by each talisman's own effect, she names what is left at each \
+               phase, and she takes the last. No recording shows a talisman.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-SCLAVUS-CABALS"),
+        station: "yalain-testkit::corpus::world_db::seskris_quest_moves_by_its_talismans_and_ends_with_the_last",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.quests.step-effects-after-the-update",
         says: "A step whose effects come last (the Esper Warder's bestowal of three weapon recipes) tells the \
                quest's update first and then the recipes learned; other steps tell their effects first.",
@@ -8615,6 +9739,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.step-levels",
+        says: "A step for some levels runs for players of those levels alone; a step that moves no quest says, gives and sends.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-STEP-LEVELS"),
+        station: "yalain-testkit::cpu::play::quests::a_step_for_some_levels_runs_for_those_alone",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.step-on-a-quest-given",
         says: "A quest given, a hidden one too, runs the step waiting on its giving; one withheld from a player \
                without what it requires runs none.",
@@ -8629,6 +9761,14 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-QUEST-GIVEN-ROW"),
         station: "yalain-world-db::cpu::database::a_step_on_a_quest_given_compiles_and_reads_back_as_written",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.step-share",
+        says: "A step may pay a share of what the player's level takes to reach the next, whole, a failing step among them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-STEP-SHARE"),
+        station: "yalain-testkit::cpu::play::quests::a_failing_step_pays_its_share_of_the_level",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -8657,6 +9797,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-WDB-ANTECHAMBER-2017"),
         station: "yalain-testkit::corpus::world_db::three_obelisks_touched_in_their_order_lead_on_and_a_wrong_touch_starts_over",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.the-rouge-mirra",
+        says: "The Rouge mirra goes as the three recorded mirras went: cleansed at the font, charged \
+               at Exelaris, handed to the golem.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-MIRRA-ROUGE"),
+        station: "yalain-testkit::corpus::world_db::the_rouge_mirra_goes_as_the_other_mirras",
         tier: Tier::Corpus,
     },
     behaviour! {
@@ -8849,6 +9998,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.selection.a-person-with-no-vitals-of-its-own-has-30-and-130",
+        says: "Selecting a person whose template names no health or vigor is answered with 30 health and 130 vigor, at their greatest; a template that names them keeps them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SELECTION-PERSON"),
+        station: "yalain-testkit::cpu::entry::examine::a_person_with_no_vitals_of_its_own_has_30_and_130",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.selection.examining-what-another-holds",
         says: "An item in another player's pack answers no examination until the examiner knows \
                of it, as an offer in a trade makes it known.",
@@ -8868,6 +10025,34 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.skills.a-skill-aimed-at-an-item-lands-on-it",
+        says: "A skill aimed at an item lands on the item named, or naming its user on the first fit one in \
+               hand: a story naming it, its look at the first effect, its effects at the user's rating.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ITEM-EFFECT-LANDS"),
+        station: "yalain-testkit::cpu::play::item_effects::a_skill_aimed_at_a_shield_lands_on_it_named_or_by_naming_its_user",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.skills.a-skill-aimed-at-an-item-refused",
+        says: "A skill aimed at an item is refused, by the client's own texts, anywhere else: a thing that \
+               is no item, another's item, an item in the pack when it asks for one in hand, one of \
+               another kind.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ITEM-EFFECT-REFUSED"),
+        station: "yalain-testkit::cpu::play::item_effects::a_skill_aimed_at_an_item_is_refused_elsewhere",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.skills.a-skill-on-an-item-lands-with-what-is-held",
+        says: "A skill's effect reaches an item later with a polearm in hand than with anything else, \
+               the look with it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ITEM-EFFECT-POLEARM"),
+        station: "yalain-testkit::cpu::play::item_effects::a_skills_effect_reaches_a_polearm_later_than_a_sword",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.skills.active-cap-for-who-is-no-hero",
         says: "An active skill stops at 50 for a player who is no hero, in its rating and in a \
                raise; a hero's goes on to the skill's own cap.",
@@ -8884,6 +10069,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-SKILL-TABLE"),
         station: "yalain-testkit::cpu::play::skills::a_tables_level_and_raise_cost_follow_the_library",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.skills.an-effect-on-an-item-ends-and-does-not-stack",
+        says: "An effect on an item ends with its time whoever holds it, and used again it does not stack: \
+               the stronger stands, its look played only at the first.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ITEM-EFFECT-ENDS"),
+        station: "yalain-testkit::cpu::play::item_effects::an_effect_on_an_item_does_not_stack_and_ends_with_its_time",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -9023,6 +10217,41 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.skills.untrain-leaves-a-trained-child",
+        says: "A skill with a trained child isn't untrained, and its credits stay spent, until the \
+               child is.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-UNTRAIN-CHILD"),
+        station: "yalain-testkit::cpu::play::untraining::a_skill_with_a_trained_child_is_not_untrained_until_the_child_is",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.skills.untrain-leaves-a-trained-dependent",
+        says: "A skill a trained skill names as its prerequisite isn't untrained while that one \
+               stands.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-UNTRAIN-DEPENDENT"),
+        station: "yalain-testkit::cpu::play::untraining::a_skill_a_trained_skill_depends_on_is_not_untrained",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.skills.untrain-only-whats-the-players",
+        says: "A skill its definition says can't be untrained, or its holder's record says isn't \
+               its to untrain, stays.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-UNTRAIN-WHOSE"),
+        station: "yalain-testkit::cpu::play::untraining::a_skill_not_the_players_to_untrain_stays",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.skills.untraining-holds-its-skill",
+        says: "A skill being untrained takes no more experience, and no skill is trained on it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-UNTRAINING-HOLDS"),
+        station: "yalain-testkit::cpu::play::untraining::a_skill_being_untrained_is_not_raised_and_nothing_is_trained_on_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.skills.used-skills-read-from-their-definitions",
         says: "Each used skill's definition gives how it is used: the distances it reaches, its \
                waits, its vigor, the implements it is used with, what it plays and its hooks \
@@ -9064,6 +10293,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.social.options-kept-within-bounds",
+        says: "A character keeps its aliases and options up to bounds well past what a player uses: \
+               what goes past them is not taken and changes nothing kept; a character already past \
+               them enters with what fits, aliases of a player's size all kept, in order.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-OPTIONS-BOUNDS"),
+        station: "yalain-testkit::cpu::play::own_requests::a_character_with_options_past_the_bounds_enters_with_the_aliases_a_player_uses",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.social.recorded-families-by-shape",
         says: "The recorded 2017 families of these answers (an oath taken on each side, fellows \
                joining and leaving, a fellowship left or disbanded, a trade's items exchanged, a \
@@ -9091,6 +10330,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-USE-PLAYER"),
         station: "yalain-testkit::cpu::play::own_requests::using_another_player_is_refused_and_the_other_is_told_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.specials.barred-by-an-effect",
+        says: "A special is refused while its user holds an effect that bars it (status 30025), and \
+               goes once the effect is off.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SPECIAL-BAR-REFUSED"),
+        station: "yalain-testkit::cpu::play::specials::a_special_under_an_effect_that_bars_it_is_refused_until_the_effect_is_off",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -9247,6 +10495,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-VIGOR-HELD-AURA"),
         station: "yalain-testkit::cpu::play::specials::an_aura_on_what_is_held_lowers_its_cost_rounded_down",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.store.a-keeper-opens-for-all-who-see-it",
+        says: "A storekeeper opening and closing for a sale is told to every client that knows \
+               it, each taking the keeper's visual messages in turn.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-KEEPER-OPENS-FOR-ALL"),
+        station: "yalain-testkit::cpu::play::trade::a_keeper_opening_for_a_sale_is_told_to_those_beside_it",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -9484,12 +10741,29 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.trade.a-bound-item-may-be-traded",
+        says: "An item bound by use goes in a trade, still bound to who bound it: 2 items that showed \
+               bound to their seller, 3 trades, each done with status 0, none refused.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-BOUND-TRADE"),
+        station: "yalain-testkit::cpu::play::trading::a_bound_item_goes_in_a_trade_still_bound_and_an_attuned_one_stops_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.trade.an-attuned-item-is-refused",
         says: "An item bound to its holder among a trade's offers stops the trade once both accept: \
                its move refused, the trade reset, nothing moved, the trade still open.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-TRADE-ATTUNED"),
         station: "yalain-testkit::cpu::play::trading::an_attuned_item_offered_fails_the_trade_and_nothing_moves",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.trade.an-item-under-an-attuning-effect-stays",
+        says: "An item under an effect that attunes it stops a trade until the effect has run out.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ITEM-EFFECT-TRADE"),
+        station: "yalain-testkit::cpu::play::trading::an_item_under_an_attuning_effect_stops_a_trade_until_it_ends",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -9550,6 +10824,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-TRADE-EXCHANGE"),
         station: "yalain-testkit::cpu::play::trading::both_accepting_moves_the_offered_item_to_the_front_of_the_others_pack",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.trade.waits-for-a-use-under-way",
+        says: "A trade cannot complete while a use under way counts on a side's pack: it fails and nothing \
+               moves. Our own rule: no recording tells.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-TRADE-USE-UNDER-WAY"),
+        station: "yalain-testkit::cpu::play::trading::a_trade_fails_while_a_trip_counts_on_a_sides_pack_and_nothing_moves",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -10024,6 +11307,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.world-db.release-folder-holds-to-its-archive-hash",
+        says: "A release's folder, as a fetch unpacks it, hashes to its archive's SHA-256, one \
+               file changed or missing does not, and the archive's bytes for given files stay as \
+               they are.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WDB-FOLDER-HASH"),
+        station: "yalain-world-db::cpu::release::a_release_folder_hashes_to_its_archive_and_the_archive_format_holds",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.world-db.release-notes-from-the-change-log",
         says: "A world database release's notes are its change log's sections from after the \
                last release up to the release, newest first, with the archive's SHA-256; a \
@@ -10054,6 +11347,45 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.world.a-folder-that-is-not-the-pin-is-fetched-again",
+        says: "A cached folder named for a release whose hash is known, and holding something \
+               else, is fetched again with the other folder kept beside it; if the fetch fails it \
+               stays where it was and the world does not start on it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WDB-WRONG-FOLDER"),
+        station: "yalain::bin.yalain::world::tests::a_cached_folder_that_is_not_the_release_it_is_named_for_is_fetched_again",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.world.a-missing-release-is-fetched-at-start",
+        says: "A world about to start on a release the cache lacks fetches it, beside the \
+               releases already there; one the cache has is not read from the source.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WDB-START-FETCH"),
+        station: "yalain::bin.yalain::world::tests::a_world_starting_on_a_release_not_in_the_cache_fetches_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.world.a-release-fetched-twice-at-once-is-kept-whole",
+        says: "A release fetched by two programs at once is kept whole: the one that finishes \
+               second takes the first's and succeeds, and another's unfinished folder is left to \
+               it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WDB-FETCH-TWICE"),
+        station: "yalain::bin.yalain::world::tests::a_release_that_appears_during_a_fetch_is_kept_and_the_fetch_succeeds",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.world.a-release-not-fetched-at-start-changes-nothing",
+        says: "A fetch at the start of a world that fails, with no source or an archive whose \
+               hash is wrong, says so and what to do next, and leaves the cache exactly as it \
+               was.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WDB-START-FETCH-FAILS"),
+        station: "yalain::bin.yalain::world::tests::a_fetch_at_start_that_fails_says_so_and_changes_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.world.a-save-is-whole-or-not-at-all",
         says: "A character's save, and a purge, is kept whole or not at all: one that fails part \
                way leaves the save before it whole, as Empyrean keeps each batch of saves in one \
@@ -10072,6 +11404,34 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-KEEP-WIELDED"),
         station: "yalain-testkit::cpu::entry::keeping::a_bow_wielded_at_logoff_is_in_hand_again_at_the_next_entry",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.world.a-world-fetches-its-release-as-it-starts",
+        says: "The executable fetches the release a world lies over as it starts, when the cache \
+               lacks it, and serves it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WDB-START-FETCH-LIVE"),
+        station: "yalain::live::configured::a_world_over_a_release_not_in_the_cache_fetches_it_and_starts",
+        tier: Tier::Live,
+    },
+    behaviour! {
+        id: "server.world.a-world-keeps-the-release-it-names",
+        says: "The release fetched at a start is the one the world reads: `pinned` follows the \
+               build's pin, a world over a version of its own keeps it, and a folder of its own \
+               reads nothing from the cache.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WDB-START-WHICH"),
+        station: "yalain::bin.yalain::world::tests::the_release_fetched_at_start_is_the_one_the_world_reads",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.world.a-world-that-cannot-fetch-its-release-does-not-start",
+        says: "The executable on a pin neither cached nor to be had stops at its start, says so, \
+               and makes no store.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WDB-START-NO-FETCH-LIVE"),
+        station: "yalain::live::configured::a_world_on_a_pin_it_cannot_fetch_says_so_and_does_not_start",
+        tier: Tier::Live,
     },
     behaviour! {
         id: "server.world.database-backed-up-before-a-schema-upgrade",

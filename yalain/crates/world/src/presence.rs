@@ -25,7 +25,7 @@ use yalain_store::{Store, StoredPosition};
 
 use crate::player;
 use crate::world::{Player, CONTENT_ID_BASE};
-use crate::Server;
+use crate::{Clock, Server};
 
 /// What a client knows of one object: the streams the object's positions and head turns reach
 /// it on.
@@ -219,6 +219,41 @@ pub fn player_seen(p: &Player) -> ServerMessage {
         o.physics.velocity_scale = v;
     }
     ServerMessage::CreateObject(o)
+}
+
+/// How often a player's own reports bring its view up to date, in seconds. Bringing it up to date
+/// walks all the world has placed, so what a client reports doesn't set how often that's done. 2017's
+/// clients reported at most 35 places in a second, 11 or fewer in 99.9% of seconds, and crossed
+/// fewer lines than that: what's owed comes a moment later, at the world's next pass past this.
+pub const VIEW_EVERY: f64 = 0.25;
+
+/// A player's report took it to where its view changes: its view is brought up to date now, or as
+/// soon as [`VIEW_EVERY`] has passed.
+pub fn view_moved<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: Clock) {
+    let Some(p) = s.players.get_mut(&world) else {
+        return;
+    };
+    if clock.local.0 - p.view_brought < VIEW_EVERY {
+        p.view_owed = true;
+        return;
+    }
+    p.view_brought = clock.local.0;
+    p.view_owed = false;
+    refresh(s, net, world);
+}
+
+/// The views owed since their players last reported, brought up to date as they come due.
+pub fn views_owed<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
+    let due: Vec<ConnId> = s
+        .players
+        .iter()
+        .filter(|(_, p)| p.view_owed && clock.local.0 - p.view_brought >= VIEW_EVERY)
+        .map(|(world, _)| *world)
+        .collect();
+    for world in due {
+        s.saves.piece_begins();
+        view_moved(s, net, world, clock);
+    }
 }
 
 /// Bring a player's view up to date: make what has come into it and stop telling it of what has
@@ -649,6 +684,29 @@ pub fn to_thing_knowers<S: Store>(
     for (conn, p) in &s.players {
         if p.known.contains_key(&id) {
             net.send(*conn, queue::EVENT, kind, bytes.clone());
+        }
+    }
+}
+
+/// Send a message about an object to a client that knows it, on its stream of that object.
+pub(crate) fn on_its_stream<S: Store>(
+    s: &Server<S>,
+    net: &mut ServerNet,
+    conn: ConnId,
+    id: u64,
+    bytes: Vec<u8>,
+) {
+    if let Some(seen) = s.players.get(&conn).and_then(|p| p.known.get(&id)) {
+        net.send_ephemeral(conn, queue::EVENT, seen.position_stream, bytes);
+    }
+}
+
+/// An object leaves: every client that knows it is told, on its stream of that object.
+pub(crate) fn leaves<S: Store>(s: &Server<S>, net: &mut ServerNet, id: u64, m: &ServerMessage) {
+    let bytes = m.encode();
+    for (conn, p) in &s.players {
+        if let Some(seen) = p.known.get(&id) {
+            net.send_ephemeral(*conn, queue::EVENT, seen.position_stream, bytes.clone());
         }
     }
 }

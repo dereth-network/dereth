@@ -340,6 +340,10 @@ pub struct Settings {
     /// The game the page last showed, which it opens in again ([`Realm`]).
     #[serde(default, skip_serializing_if = "Realm::is_dereth")]
     pub realm: Realm,
+    /// Whether the worlds played through a relay are listed ([`crate::relayed`]). `None`: the
+    /// player has not said, and [`crate::relayed::SHOWN_BY_DEFAULT`] decides.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relayed_worlds: Option<bool>,
 }
 
 fn yes() -> bool {
@@ -396,6 +400,7 @@ impl Default for Settings {
             auto_update: true,
             discord_presence: true,
             realm: Realm::Dereth,
+            relayed_worlds: None,
         }
     }
 }
@@ -1176,7 +1181,9 @@ impl LauncherState {
     pub fn forget_unlisted(&mut self, listed: &std::collections::HashSet<&str>) -> bool {
         let custom: std::collections::HashSet<String> =
             self.custom_worlds.iter().map(|w| w.slug.clone()).collect();
-        let keep = |slug: &str| listed.contains(slug) || custom.contains(slug);
+        let keep = |slug: &str| {
+            listed.contains(slug) || custom.contains(slug) || crate::relayed::is_relayed(slug)
+        };
         let before = self.recent.len() + self.favourites.len() + self.favorite_worlds.len();
         self.recent.retain(|r| keep(&r.world_slug));
         self.favourites.retain(|f| keep(&f.world_slug));

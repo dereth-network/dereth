@@ -40,6 +40,7 @@ fn place(id: u64, template: u32, kind: Kind, origin: [f32; 3]) -> ContentObject 
         object: Some(id),
         template,
         description: Description {
+            name_text: None,
             package: 0x103E,
             look: 0x1F00_0100,
             enter_fx: 0,
@@ -111,6 +112,8 @@ fn step(quest: u32, needs: u32, trigger: Trigger, update: Update) -> Step {
         effects_last: false,
         wants: None,
         fellows: false,
+        levels: None,
+        xp_share: 0.0,
         to: None,
     }
 }
@@ -166,6 +169,7 @@ fn world() -> Harness {
             },
         ],
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     h.server.talk = TalkTable {
         lines: vec![
@@ -562,6 +566,44 @@ fn a_person_takes_one_give_at_a_time() {
     assert_eq!(answers(&h, c, fc)[0].status, 0);
 }
 
+/// A person is held by the give being handed to it, not by one still on its way: a player walking
+/// to it from afar, however long, keeps no one else waiting.
+///
+/// Behaviour: server.gives.a-walk-holds-no-one
+#[test]
+fn a_give_still_on_its_way_keeps_no_one_from_the_person() {
+    let mut h = world();
+    let (b, me) = player(&mut h, "one", "Elara");
+    let (c, other) = player(&mut h, "two", "Bran");
+    let (mine, slot) = hold(&mut h, me, JUNK, 1);
+    let (theirs, their_slot) = hold(&mut h, other, JUNK, 1);
+    h.bots[b].send(true, queue::WEENIE, &give(me, mine, slot, FAR, 1));
+    h.run(steps(60.0));
+    assert!(
+        h.server.players[&world_of(&h, me)].giving.is_some(),
+        "on its way"
+    );
+    // The other stands no nearer: refused for that, in time, and never as the person being busy.
+    let from = h.bots[c].inbox.len();
+    h.bots[c].send(
+        true,
+        queue::WEENIE,
+        &give(other, theirs, their_slot, FAR, 1),
+    );
+    h.run(4);
+    assert!(
+        answers(&h, c, from)
+            .iter()
+            .all(|a| a.status != status::TARGET_BUSY),
+        "{:?}",
+        answers(&h, c, from)
+    );
+    assert!(
+        h.server.players[&world_of(&h, other)].giving.is_some(),
+        "on its way too"
+    );
+}
+
 /// A walk to give that ends at rest out of reach (the player stands where it last stood still) is
 /// refused as one that could not get there: no handing over, the item never leaves the pack.
 ///
@@ -895,6 +937,7 @@ fn items_given_close_a_phases_subquests_and_the_last_moves_it_on() {
         quests,
         steps: steps_,
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let (b, me) = player(&mut h, "one", "Elara");
     at_phase(&mut h, DOCTRINES, 1);
@@ -968,6 +1011,7 @@ fn the_give_closing_a_phase_is_said_as_the_next_phase_where_a_line_says_it() {
         quests,
         steps: steps_,
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let (b, me) = player(&mut h, "one", "Elara");
     at_phase(&mut h, MAIN, 1);
@@ -1018,6 +1062,7 @@ fn an_item_a_give_brings_moves_its_quest_on_after_the_step() {
             step(CLAIM_QUEST, 6, Trigger::Take(CLAIM), Update::Advance(7)),
         ],
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let (b, me) = player(&mut h, "one", "Elara");
     at_phase(&mut h, CLAIM_QUEST, 5);
@@ -1091,6 +1136,7 @@ fn a_give_that_makes_a_hero_does_so_when_the_transformation_is_through() {
             ..step(ELYSA, 4, Trigger::Give(GEM, OBJECT_T), Update::Complete)
         }],
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let (b, me) = player(&mut h, "one", "Elara");
     at_phase(&mut h, ELYSA, 4);
@@ -1139,6 +1185,7 @@ fn a_hero_step_under_way_runs_as_its_player_leaves() {
             ..step(ELYSA, 4, Trigger::Give(GEM, OBJECT_T), Update::Complete)
         }],
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let (b, me) = player(&mut h, "one", "Elara");
     at_phase(&mut h, ELYSA, 4);

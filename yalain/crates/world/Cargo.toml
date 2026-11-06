@@ -1,7 +1,7 @@
 [package]
 name = "yalain-world"
 description = "The game server's state and rules, sans-IO: accounts, characters, the world, its creatures and its play, driven by the server's network events and an injected clock."
-version = "0.2.0" # Yalain's own version, shared by every yalain-* crate (not the workspace's)
+version = "0.2.1" # Yalain's own version, shared by every yalain-* crate (not the workspace's)
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -14,6 +14,7 @@ autotests = false
 auberean-assets.workspace = true
 # The client's table of record kinds, and the data files records are served from.
 auberean-dat.workspace = true
+dereth-dat.workspace = true
 # The walls, floors and solid things creatures meet, and the transition that moves them.
 auberean-physics.workspace = true
 auberean-world.workspace = true

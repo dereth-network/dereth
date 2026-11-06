@@ -26,7 +26,14 @@
 //! - **The client's address** is the connection's peer, or, from a trusted proxy, the last address
 //!   in its `X-Forwarded-For` header; with the peer's port it is the session's address.
 //! - **Limits.** Connections open at once from one client address, and an idle timeout, after
-//!   which the connection is closed.
+//!   which the connection is closed. A connection takes a thread only with a turn at a handshake:
+//!   so many at once from one address, as many as it may hold open, and [`MAX_HANDSHAKES`] in all;
+//!   past them it is closed as it is accepted. A handshake has [`HANDSHAKE_TIMEOUT`] in all, however
+//!   slowly its bytes come. A proxy's clients are told apart only by their handshakes, so a trusted
+//!   proxy is held to the limit in all alone. IPv6 addresses count by their /64, what one household
+//!   is given.
+//! - **A client that stops reading** is closed once what is waiting for it has gone nowhere for
+//!   [`WRITE_STALL`]: nothing here waits on it, and what waits for it stays small.
 //! - **The will.** When a connection closes, however it closes, its will's datagrams are delivered
 //!   as if the client had sent them, so a page that went away logs off at once.
 //!
@@ -53,8 +60,14 @@ use crate::settings::WebSocketSettings;
 /// How long a connection's read waits before it looks at what is queued for it.
 pub const POLL: Duration = Duration::from_millis(2);
 
-/// How long the TLS and WebSocket handshakes may take.
+/// How long the TLS and WebSocket handshakes may take, together.
 pub const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// How many handshakes may be under way at once, from everywhere.
+pub const MAX_HANDSHAKES: usize = 256;
+
+/// How long what is waiting for a client may go nowhere before its connection is closed.
+pub const WRITE_STALL: Duration = Duration::from_secs(10);
 
 /// How long a closed connection's address stays reserved.
 pub const RETIRED_FOR: Duration = Duration::from_secs(600);
@@ -80,6 +93,12 @@ pub struct EndpointConfig {
     /// `None` is unlimited.
     pub max_per_ip: Option<u32>,
     pub idle_timeout: Duration,
+    /// Handshakes under way at once, from everywhere.
+    pub max_handshakes: usize,
+    /// How long a handshake may take.
+    pub handshake_timeout: Duration,
+    /// How long what is waiting for a client may go nowhere.
+    pub write_stall: Duration,
 }
 
 impl EndpointConfig {
@@ -108,6 +127,9 @@ impl EndpointConfig {
             trusted_proxies: s.trusted_proxy_addresses().map_err(|e| e.to_string())?,
             max_per_ip: u32::try_from(s.maximum_connections_per_ip_address).ok(),
             idle_timeout: Duration::from_secs(u64::from(s.idle_timeout.max(1))),
+            max_handshakes: MAX_HANDSHAKES,
+            handshake_timeout: HANDSHAKE_TIMEOUT,
+            write_stall: WRITE_STALL,
         })
     }
 
@@ -121,6 +143,9 @@ impl EndpointConfig {
             trusted_proxies: Vec::new(),
             max_per_ip: None,
             idle_timeout: Duration::from_secs(60),
+            max_handshakes: MAX_HANDSHAKES,
+            handshake_timeout: HANDSHAKE_TIMEOUT,
+            write_stall: WRITE_STALL,
         }
     }
 }
@@ -176,6 +201,17 @@ pub fn client_ip(peer: IpAddr, forwarded_for: Option<&str>, trusted: &[IpAddr]) 
         .unwrap_or(peer)
 }
 
+/// What a limit on one address counts by: the address, or an IPv6 address's /64.
+#[must_use]
+pub fn holder_of(ip: IpAddr) -> IpAddr {
+    match ip.to_canonical() {
+        IpAddr::V6(v6) => IpAddr::V6(std::net::Ipv6Addr::from(
+            u128::from(v6) & !u128::from(u64::MAX),
+        )),
+        v4 => v4,
+    }
+}
+
 /// Whether a connection last heard from at `heard` has gone quiet for longer than `timeout` by `now`.
 #[must_use]
 pub fn gone_idle(heard: Instant, now: Instant, timeout: Duration) -> bool {
@@ -200,8 +236,59 @@ struct Shared {
     open: HashMap<SocketAddr, Open>,
     /// Addresses of closed connections, and when they closed.
     retired: HashMap<SocketAddr, Instant>,
-    /// Open connections per client address.
+    /// Open connections per holder ([`holder_of`]).
     per_ip: HashMap<IpAddr, u32>,
+    /// Handshakes under way per holder, and in all.
+    handshaking: HashMap<IpAddr, u32>,
+    handshakes: usize,
+}
+
+/// A connection's turn at a handshake, given back however its thread ends.
+#[derive(Debug)]
+struct HandshakeTurn {
+    shared: Arc<Mutex<Shared>>,
+    /// Its holder, unless it comes through a trusted proxy.
+    holder: Option<IpAddr>,
+}
+
+impl HandshakeTurn {
+    /// A turn for a connection from `peer`, if the limits leave it one.
+    fn take(shared: &Arc<Mutex<Shared>>, config: &EndpointConfig, peer: IpAddr) -> Option<Self> {
+        let holder = (!config.trusted_proxies.contains(&peer)).then(|| holder_of(peer));
+        let mut s = lock(shared);
+        if s.handshakes >= config.max_handshakes {
+            return None;
+        }
+        if let (Some(holder), Some(max)) = (holder, config.max_per_ip) {
+            if s.handshaking.get(&holder).copied().unwrap_or(0) >= max {
+                return None;
+            }
+        }
+        s.handshakes += 1;
+        if let Some(holder) = holder {
+            *s.handshaking.entry(holder).or_insert(0) += 1;
+        }
+        drop(s);
+        Some(Self {
+            shared: Arc::clone(shared),
+            holder,
+        })
+    }
+}
+
+impl Drop for HandshakeTurn {
+    fn drop(&mut self) {
+        let mut s = lock(&self.shared);
+        s.handshakes = s.handshakes.saturating_sub(1);
+        if let Some(holder) = self.holder {
+            if let Some(n) = s.handshaking.get_mut(&holder) {
+                *n = n.saturating_sub(1);
+                if *n == 0 {
+                    s.handshaking.remove(&holder);
+                }
+            }
+        }
+    }
 }
 
 /// Who can ask the endpoint how an open connection numbers its ports, from any thread.
@@ -349,6 +436,10 @@ fn accept_loop(
     while !stop.load(Ordering::SeqCst) {
         match listener.accept() {
             Ok((stream, peer)) => {
+                let Some(turn) = HandshakeTurn::take(shared, config, peer.ip()) else {
+                    tracing::debug!("WebSocket {peer}: closed as it came, past the limits");
+                    continue;
+                };
                 let (config, tx, shared, stop) = (
                     Arc::clone(config),
                     tx.clone(),
@@ -359,7 +450,7 @@ fn accept_loop(
                     .name(format!("websocket-{peer}"))
                     .spawn(move || {
                         if let Err(e) =
-                            connection(stream, peer, &config, ports, &tx, &shared, &stop)
+                            connection(stream, peer, turn, &config, ports, &tx, &shared, &stop)
                         {
                             tracing::debug!("WebSocket {peer}: {e}");
                         }
@@ -381,10 +472,40 @@ fn accept_loop(
     }
 }
 
+/// A connection's socket: until `until` is cleared, a read waits no later than it.
+#[derive(Debug)]
+struct Socket {
+    tcp: TcpStream,
+    until: Option<Instant>,
+}
+
+impl Read for Socket {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if let Some(until) = self.until {
+            let left = until.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return Err(io::ErrorKind::TimedOut.into());
+            }
+            self.tcp.set_read_timeout(Some(left))?;
+        }
+        self.tcp.read(buf)
+    }
+}
+
+impl Write for Socket {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.tcp.write(buf)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.tcp.flush()
+    }
+}
+
 /// A connection's stream: plain, or TLS over it.
 enum Stream {
-    Plain(TcpStream),
-    Tls(Box<rustls::StreamOwned<rustls::ServerConnection, TcpStream>>),
+    Plain(Socket),
+    Tls(Box<rustls::StreamOwned<rustls::ServerConnection, Socket>>),
 }
 
 impl std::fmt::Debug for Stream {
@@ -397,10 +518,10 @@ impl std::fmt::Debug for Stream {
 }
 
 impl Stream {
-    fn tcp(&self) -> &TcpStream {
+    fn socket(&mut self) -> &mut Socket {
         match self {
             Self::Plain(s) => s,
-            Self::Tls(s) => &s.sock,
+            Self::Tls(s) => &mut s.sock,
         }
     }
 }
@@ -435,14 +556,16 @@ impl Write for Stream {
 enum Ended {
     Closed,
     Idle,
+    NotReading,
     Stopped,
 }
 
 // The handshake callback's error type is the library's own response.
-#[allow(clippy::result_large_err)]
+#[allow(clippy::result_large_err, clippy::too_many_arguments)]
 fn connection(
     stream: TcpStream,
     peer: SocketAddr,
+    turn: HandshakeTurn,
     config: &EndpointConfig,
     ports: u16,
     tx: &Sender<Inbound>,
@@ -450,10 +573,15 @@ fn connection(
     stop: &AtomicBool,
 ) -> Result<(), String> {
     stream.set_nonblocking(false).map_err(|e| e.to_string())?;
+    // A write gives way as a read does: what waits for a client never holds up what comes from it.
     stream
-        .set_read_timeout(Some(HANDSHAKE_TIMEOUT))
+        .set_write_timeout(Some(POLL))
         .map_err(|e| e.to_string())?;
     stream.set_nodelay(true).map_err(|e| e.to_string())?;
+    let stream = Socket {
+        tcp: stream,
+        until: Some(Instant::now() + config.handshake_timeout),
+    };
     let stream = match &config.tls {
         Some(tls) => Stream::Tls(Box::new(rustls::StreamOwned::new(
             rustls::ServerConnection::new(Arc::clone(tls)).map_err(|e| e.to_string())?,
@@ -484,17 +612,20 @@ fn connection(
     };
     let mut ws: WebSocket<Stream> =
         tungstenite::accept_hdr(stream, check).map_err(|e| format!("handshake: {e}"))?;
-    ws.get_ref()
-        .tcp()
+    let socket = ws.get_mut().socket();
+    socket.until = None;
+    socket
+        .tcp
         .set_read_timeout(Some(POLL))
         .map_err(|e| e.to_string())?;
 
     let ip = client_ip(peer.ip(), forwarded.as_deref(), &config.trusted_proxies);
     let address = SocketAddr::new(ip, peer.port());
+    let holder = holder_of(ip);
     let (out_tx, out_rx) = mpsc::channel::<Queued>();
     {
         let mut s = lock(shared);
-        let count = s.per_ip.get(&ip).copied().unwrap_or(0);
+        let count = s.per_ip.get(&holder).copied().unwrap_or(0);
         if config.max_per_ip.is_some_and(|max| count >= max) || s.open.contains_key(&address) {
             drop(s);
             tracing::info!(
@@ -507,7 +638,7 @@ fn connection(
             let _ = ws.flush();
             return Ok(());
         }
-        s.per_ip.insert(ip, count + 1);
+        s.per_ip.insert(holder, count + 1);
         s.retired.remove(&address);
         s.open.insert(
             address,
@@ -517,6 +648,7 @@ fn connection(
             },
         );
     }
+    drop(turn);
     tracing::info!(
         "WebSocket {address}: open{}",
         if peer.ip() == ip {
@@ -529,15 +661,7 @@ fn connection(
     let mut run = PortRun::new(ports);
     let mut will: Vec<Queued> = Vec::new();
     let result = carry(
-        &mut ws,
-        address,
-        config.idle_timeout,
-        tx,
-        &out_rx,
-        &mut run,
-        &mut will,
-        shared,
-        stop,
+        &mut ws, address, config, tx, &out_rx, &mut run, &mut will, shared, stop,
     );
     for (port, bytes) in will.drain(..) {
         let _ = tx.send(Inbound {
@@ -550,10 +674,10 @@ fn connection(
         let mut s = lock(shared);
         s.open.remove(&address);
         s.retired.insert(address, Instant::now());
-        if let Some(n) = s.per_ip.get_mut(&ip) {
+        if let Some(n) = s.per_ip.get_mut(&holder) {
             *n = n.saturating_sub(1);
             if *n == 0 {
-                s.per_ip.remove(&ip);
+                s.per_ip.remove(&holder);
             }
         }
     }
@@ -588,7 +712,7 @@ fn note_numbering(run: &PortRun, numbered: &mut bool, shared: &Mutex<Shared>, ad
 fn carry(
     ws: &mut WebSocket<Stream>,
     address: SocketAddr,
-    idle_timeout: Duration,
+    config: &EndpointConfig,
     tx: &Sender<Inbound>,
     out_rx: &Receiver<Queued>,
     run: &mut PortRun,
@@ -598,6 +722,8 @@ fn carry(
 ) -> Result<Ended, String> {
     let mut last_heard = Instant::now();
     let mut numbered = false;
+    // Since when what is waiting for the client has gone nowhere.
+    let mut stalled: Option<Instant> = None;
     loop {
         if stop.load(Ordering::SeqCst) {
             let _ = ws.close(None);
@@ -637,25 +763,34 @@ fn carry(
             }
             Err(e) => return Err(e.to_string()),
         }
-        if gone_idle(last_heard, Instant::now(), idle_timeout) {
+        if gone_idle(last_heard, Instant::now(), config.idle_timeout) {
             let _ = ws.close(None);
             let _ = ws.flush();
             return Ok(Ended::Idle);
         }
-        while let Ok((index, bytes)) = out_rx.try_recv() {
+        // What the socket isn't taking stays in the queue, and this loop comes round to the client.
+        while stalled.is_none() {
+            let Ok((index, bytes)) = out_rx.try_recv() else {
+                break;
+            };
             let Some(port) = run.port(index) else {
                 continue;
             };
             let framed = web_frame::encode(port, &bytes);
             match ws.write(Message::Binary(framed.into())) {
                 Ok(()) => {}
-                Err(e) if would_block(&e) => {}
+                Err(e) if would_block(&e) => break,
                 Err(e) => return Err(e.to_string()),
             }
         }
         match ws.flush() {
-            Ok(()) => {}
-            Err(e) if would_block(&e) => {}
+            Ok(()) => stalled = None,
+            Err(e) if would_block(&e) => {
+                let since = *stalled.get_or_insert_with(Instant::now);
+                if gone_idle(since, Instant::now(), config.write_stall) {
+                    return Ok(Ended::NotReading);
+                }
+            }
             Err(tungstenite::Error::ConnectionClosed | tungstenite::Error::AlreadyClosed) => {
                 return Ok(Ended::Closed)
             }

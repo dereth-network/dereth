@@ -86,3 +86,40 @@ fn cloud_shadows_slide_with_the_running_time() {
         "a long-running clock keeps its fraction"
     );
 }
+
+/// Whether a sky object is seen is asked of the one pixel at its place: the marker covers that
+/// pixel's middle and no neighbor's, wherever on the picture it falls.
+///
+/// Behaviour: draw.flare.a-flare-asks-of-one-pixel-whether-its-object-is-seen
+#[test]
+fn a_flare_asks_of_one_pixel_whether_its_object_is_seen() {
+    use auberean_draw::flare::seen_marker;
+    let inside = |t: &[(f32, f32); 3], p: (f32, f32)| {
+        let side =
+            |a: (f32, f32), b: (f32, f32)| (b.0 - a.0) * (p.1 - a.1) - (b.1 - a.1) * (p.0 - a.0);
+        let s = [side(t[0], t[1]), side(t[1], t[2]), side(t[2], t[0])];
+        s.iter().all(|v| *v > 0.0) || s.iter().all(|v| *v < 0.0)
+    };
+    let (w, h) = (1280_u32, 720_u32);
+    #[allow(clippy::cast_precision_loss)]
+    let pixel = |i: i32, j: i32| {
+        (
+            (i as f32 + 0.5) * 2.0 / w as f32 - 1.0,
+            (j as f32 + 0.5) * 2.0 / h as f32 - 1.0,
+        )
+    };
+    for (i, j) in [(640, 360), (3, 700), (1000, 12)] {
+        let (x, y) = pixel(i, j);
+        // Anywhere within the pixel.
+        let t = seen_marker((x + 0.0003, y - 0.0005), w, h);
+        let mut covered = Vec::new();
+        for di in -3..=3 {
+            for dj in -3..=3 {
+                if inside(&t, pixel(i + di, j + dj)) {
+                    covered.push((di, dj));
+                }
+            }
+        }
+        assert_eq!(covered, [(0, 0)], "at pixel {i} {j}");
+    }
+}

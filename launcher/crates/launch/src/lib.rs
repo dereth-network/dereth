@@ -93,6 +93,7 @@ pub mod pad;
 pub mod plugins;
 pub mod probe;
 pub mod registry;
+pub mod relayed;
 pub mod releases;
 pub mod serverlist;
 pub mod state;

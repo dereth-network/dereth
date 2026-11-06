@@ -72,6 +72,25 @@ pub struct Part {
     pub detail: Option<[DetailDistances; 3]>,
     /// What the object's look does to the part's materials, when it changes them.
     pub look: Option<Arc<PartLook>>,
+    /// Where the part takes its pose from, when its object plays.
+    pub played: Option<PlayedBy>,
+}
+
+/// The body a part of a placed object takes its pose from: an object placed by the world whose look
+/// has a behavior table plays it through one body kept for the look, which every object showing
+/// that look shares, so they all move together. `Part::transform` is the part where it stands
+/// when nothing poses it.
+// D2-06554, D2-05768
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PlayedBy {
+    /// The look the body is made from.
+    pub look: DataId,
+    /// The part group of the look the part belongs to.
+    pub group: u32,
+    /// The mesh's place in the group's setup, whose bone carries an unweighted mesh.
+    pub mesh: usize,
+    /// The object's own frame, with its scale, which carries the pose.
+    pub object: Mat4,
 }
 
 /// The entity kinds a landblock or cell makes into drawn objects; the others only reserve room.
@@ -118,7 +137,7 @@ pub fn parts_of(records: &dyn PlaceRecords, id: DataId, world: &Mat4, scale: Vec
                 setup: id,
                 ..crate::look::Group::default()
             });
-            draw_tree(records, &look, world, scale, false)
+            draw_tree(records, &look, world, scale, false, None)
         }
         0x1F => {
             let Ok(look) = Look::of_record(records, id) else {
@@ -129,7 +148,8 @@ pub fn parts_of(records: &dyn PlaceRecords, id: DataId, world: &Mat4, scale: Vec
                 scale.y * look.scale.y,
                 scale.z * look.scale.z,
             );
-            draw_tree(records, &look, world, s, true)
+            let played = (!look.behavior_table.is_none()).then_some(id);
+            draw_tree(records, &look, world, s, true, played)
         }
         _ => Vec::new(),
     }
@@ -139,7 +159,7 @@ pub fn parts_of(records: &dyn PlaceRecords, id: DataId, world: &Mat4, scale: Vec
 /// not applied), each mesh as the look swaps it.
 #[must_use]
 pub fn look_parts(records: &dyn PlaceRecords, look: &Look, world: &Mat4, scale: Vec3) -> Vec<Part> {
-    draw_tree(records, look, world, scale, true)
+    draw_tree(records, look, world, scale, true, None)
 }
 
 /// The parts of a look's group tree from its root, each part's mesh as the look swaps it and its
@@ -153,6 +173,7 @@ fn draw_tree(
     world: &Mat4,
     scale: Vec3,
     with_look: bool,
+    played: Option<DataId>,
 ) -> Vec<Part> {
     let base = Mat4::from_parts(Vec3::ZERO, auberean_primitives::Quat::IDENTITY, scale).then(world);
     let mut out = Vec::new();
@@ -197,6 +218,12 @@ fn draw_tree(
                     look: part_look
                         .clone()
                         .filter(|l| !l.materials.is_empty() || l.opacity.is_some()),
+                    played: played.map(|look| PlayedBy {
+                        look,
+                        group: key,
+                        mesh: i,
+                        object: base,
+                    }),
                 });
             }
         }

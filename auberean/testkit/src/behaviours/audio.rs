@@ -120,6 +120,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "audio.manager.a-silent-makers-sound-takes-no-budget",
+        says: "A sound that plays one at a time and counts against the budget takes no place in \
+               it while its maker is silent.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-AUDIO-BUDGET-MUTED"),
+        station: "auberean-audio::cpu::manager::a_silent_makers_one_at_a_time_sound_takes_no_place_in_the_budget",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "audio.manager.a-silent-makers-sounds-stop-and-play-again",
         says: "A sound whose maker has gone silent stops and is kept; it plays again when its \
                maker can be heard. Sounds of other makers are not touched.",
@@ -144,6 +153,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-AUDIO-FREQUENCY"),
         station: "auberean-audio::cpu::manager::a_playing_sounds_frequency_changes_its_rate",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "audio.manager.a-stopped-primary-piece-waits-no-longer",
+        says: "A piece waiting for the primary track that is stopped waits no longer, and the one \
+               playing starts again when it ends.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-AUDIO-STOPPED-QUEUE"),
+        station: "auberean-audio::cpu::music::a_waiting_primary_piece_that_is_stopped_leaves_the_one_playing_to_repeat",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -449,8 +467,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "audio.options.sound-off-ends-what-is-not-playing",
+        says: "With the sound off, a paused sound is done as it turns off, and music, having no \
+               length of its own, is done on its next turn or when asked for.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-AUDIO-SOUND-OFF-ENDS"),
+        station: "auberean-audio::cpu::manager::sound_off_ends_a_paused_sound_and_music_with_no_length_of_its_own",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "audio.options.sound-off-silences-everything",
-        says: "Sound off, applied, silences every sound, those asked for while it is off too, which live on without a sound; sound on lets them be heard again.",
+        says: "Sound off, applied, stops every sound playing and holds its voice no longer; on \
+               again, each plays from its start, with any asked for meanwhile that has a length.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-AUDIO-OPTIONS-SOUND-OFF"),
         station: "auberean-audio::cpu::manager::sound_off_silences_every_sound_until_it_is_on_again",

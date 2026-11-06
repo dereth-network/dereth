@@ -432,7 +432,7 @@ mod tests {
             crate::datset::SetKind::Modern,
             "drawn from the later files"
         );
-        assert_eq!(d.era_features.as_deref(), Some("4:0000dfffffffff00"));
+        assert_eq!(d.era_features.as_deref(), Some("5:0000dff7fefff700"));
         let words = d.args();
         assert_eq!(
             words[..4],
@@ -458,7 +458,7 @@ mod tests {
         let argv = plan(&req(&w, &i)).unwrap().argv("pw");
         assert_eq!(argv[argv.len() - 2..], ["--era", "infiltration"]);
         // And the systems its status lists, as the whole set over the era's table: Infiltration's
-        // `4:0000dfffffffff00` with trade off and aetheria on.
+        // `5:0000dff7fefff700` with trade off and aetheria on.
         w.era_features = Some("trade=false,aetheria=true".into());
         let argv = plan(&req(&w, &i)).unwrap().argv("pw");
         assert_eq!(
@@ -467,7 +467,7 @@ mod tests {
                 "--era",
                 "infiltration",
                 "--era-features",
-                "4:0002deffffffff00"
+                "5:0002def7fefff700"
             ]
         );
 
@@ -484,7 +484,7 @@ mod tests {
                 "--era",
                 "infiltration",
                 "--era-features",
-                "4:0002deffffffff00"
+                "5:0002def7fefff700"
             ]
         );
 

@@ -1,7 +1,9 @@
 //! The settings' text.
 
 use auberean_scene::camera::AvatarInFirstPerson;
-use auberean_shell::settings::{in_picture, in_picture_pixels, Presentation};
+use auberean_shell::settings::{
+    held_to_picture, in_picture_pixels, on_picture, on_window, Presentation,
+};
 use auberean_shell::Settings;
 
 /// The camera, mouse and avatar options are read by the client's own names, each within its range
@@ -275,12 +277,13 @@ fn the_rendering_options_read_by_the_clients_names_and_kept() {
 }
 
 /// Full screen never changes the monitor's display mode: the window stays the monitor's size, the
-/// picture is drawn at the size asked for and fills it, and the pointer lands on the same place in
-/// the picture. A window's picture is the window's size, whatever was asked for.
+/// picture is drawn at the size asked for and shows at its own shape in the middle, black bars
+/// around it, and the pointer lands on the same place in the picture. A window's picture is the
+/// window's size, whatever was asked for.
 ///
-/// Behaviour: desktop.settings.full-screen-fills-the-monitor-at-the-size-asked-for
+/// Behaviour: desktop.settings.full-screen-keeps-the-pictures-shape-at-the-size-asked-for
 #[test]
-fn full_screen_fills_the_monitor_at_the_size_asked_for() {
+fn full_screen_keeps_the_pictures_shape_at_the_size_asked_for() {
     let monitor = (3840, 2160);
     let asked = (1024, 768);
     let mut p = Presentation {
@@ -291,20 +294,57 @@ fn full_screen_fills_the_monitor_at_the_size_asked_for() {
         antialiasing: true,
     };
     assert_eq!(p.drawn_in(monitor), asked);
+    // 4:3 on a 16:9 monitor: bars of 480 at each side.
+    let shown = p.shown_in(asked, monitor);
+    assert_eq!(shown, [480.0, 0.0, 2880.0, 2160.0]);
     assert_eq!(
-        in_picture((1920.0, 540.0), monitor, asked),
+        on_picture((1920.0, 540.0), shown, asked),
         (512.0, 192.0),
         "the monitor's point on the picture"
     );
     assert_eq!(
-        in_picture((512.0, 192.0), asked, monitor),
+        on_window((512.0, 192.0), shown, asked),
         (1920.0, 540.0),
         "and back"
     );
+    assert_eq!(
+        on_picture((480.0, 0.0), shown, asked),
+        (0.0, 0.0),
+        "the picture's corner is where it shows"
+    );
+    let on_bar = on_picture((100.0, 540.0), shown, asked);
+    assert_eq!(
+        held_to_picture(on_bar, asked),
+        ((0.0, 192.0), false),
+        "a point on a bar is off the picture, and held to its edge"
+    );
+    assert_eq!(
+        held_to_picture((512.0, 192.0), asked),
+        ((512.0, 192.0), true),
+        "a point on the picture stays"
+    );
+    assert_eq!(
+        held_to_picture((1024.0, 768.0), asked),
+        ((1023.0, 767.0), false),
+        "the picture ends before its size"
+    );
+    // A shape wider than the monitor's: bars at the top and the foot.
+    assert_eq!(
+        p.shown_in((1920, 800), (1920, 1080)),
+        [0.0, 140.0, 1920.0, 800.0]
+    );
+    // The monitor's own shape: no bars.
+    assert_eq!(
+        p.shown_in((1920, 1080), monitor),
+        [0.0, 0.0, 3840.0, 2160.0]
+    );
+    // A window's picture is the window's size, and fills it.
     p.full_screen = false;
     assert_eq!(p.drawn_in((1280, 960)), (1280, 960));
+    let shown = p.shown_in((1280, 960), (1280, 960));
+    assert_eq!(shown, [0.0, 0.0, 1280.0, 960.0]);
     assert_eq!(
-        in_picture((7.5, 9.5), (1280, 960), (1280, 960)),
+        on_picture((7.5, 9.5), shown, (1280, 960)),
         (7.5, 9.5),
         "a window's point is the picture's"
     );
@@ -317,9 +357,43 @@ fn a_mac_window_counts_its_size_in_points() {
     assert_eq!(in_picture_pixels((1280, 960), 1.0), (1280, 960));
     assert_eq!(in_picture_pixels((1, 1), 2.0), (1, 1), "never no picture");
     let (window, picture) = ((2560, 1920), (1280, 960));
+    let shown = Presentation {
+        size: picture,
+        full_screen: false,
+        triple_buffering: false,
+        sync_to_display: true,
+        antialiasing: true,
+    }
+    .shown_in(picture, window);
     assert_eq!(
-        in_picture((2000.0, 1000.0), window, picture),
+        on_picture((2000.0, 1000.0), shown, picture),
         (1000.0, 500.0),
         "the pointer lands on the same place in the picture"
+    );
+}
+
+/// The land's blending is on unless the file says otherwise, and the command line's say goes over
+/// the file's.
+///
+/// Behaviour: desktop.settings.the-lands-blending-is-read-from-the-file-and-the-line
+#[test]
+fn the_lands_blending_is_read_from_the_file_and_the_line() {
+    use auberean_shell::command_line::{parse_command_line, ClientLine};
+    assert!(Settings::read("").terrain_blending);
+    let off = "[Graphics]\nLandscapeTerrainBlending=0\n";
+    assert!(!Settings::read(off).terrain_blending);
+    let on_line = |words: &str, text: &str| {
+        let mut line = ClientLine::default();
+        let said = format!("ac2client.exe -h host -a acct {words}");
+        assert!(parse_command_line(&mut line, &said, true), "{said}");
+        let mut s = Settings::read(text);
+        line.apply_to(&mut s);
+        s
+    };
+    assert!(on_line("-lb", off).terrain_blending, "the line turns it on");
+    assert!(!on_line("-nolb", "").terrain_blending, "and off");
+    assert!(
+        !on_line("", off).terrain_blending,
+        "saying nothing leaves it"
     );
 }

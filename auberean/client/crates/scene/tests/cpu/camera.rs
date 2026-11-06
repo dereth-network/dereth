@@ -490,6 +490,60 @@ fn a_change_of_view_glides_over_the_transition_time() {
     assert!(closev(end, want, 1e-3), "there after the second: {end:?}");
 }
 
+/// A camera riding a bone or part way through a glide leans with its frame: a frame with no lean
+/// reads none, and one turned about the way it looks reads that turn, its right going up. The
+/// view's axes carry it: leaned a quarter turn, its right is the level view's up.
+///
+/// Behaviour: desktop.camera.the-view-leans-as-its-frame-does
+#[test]
+fn the_view_leans_as_its_frame_does() {
+    use auberean_draw::scene::view_axes;
+    use auberean_scene::camera::{lean_of, stand};
+    use dereth_primitives::{CellId, Quat};
+    let level = stand(CellId(0x7F7F_0001), Vec3::ZERO, Vec3::new(0.3, 0.9, -0.2));
+    assert_eq!(lean_of(&level), 0.0);
+    let (s, c) = (math::sinf(0.15), math::cosf(0.15));
+    // Turned about its own forward, y: the frame's x goes down for a positive turn, up for this.
+    let about_forward = Quat {
+        w: c,
+        x: 0.0,
+        y: -s,
+        z: 0.0,
+    };
+    let mut leaned = stand(CellId(0x7F7F_0001), Vec3::ZERO, Vec3::new(0.0, 1.0, 0.0));
+    leaned.frame.rotation = about_forward;
+    let want = 0.3_f32.to_degrees();
+    assert!(close(lean_of(&leaned), want, 1e-3), "{}", lean_of(&leaned));
+    let f = auberean_primitives::Vec3::new(0.0, 1.0, 0.0);
+    let (flat_right, flat_up) = view_axes(f, 0.0);
+    let (right, up) = view_axes(f, 90.0);
+    let near = |a: auberean_primitives::Vec3, b: auberean_primitives::Vec3| {
+        (a.x - b.x).abs() < 1e-5 && (a.y - b.y).abs() < 1e-5 && (a.z - b.z).abs() < 1e-5
+    };
+    assert!(near(right, flat_up), "{right:?}");
+    assert!(
+        near(
+            up,
+            auberean_primitives::Vec3::new(-flat_right.x, -flat_right.y, -flat_right.z)
+        ),
+        "{up:?}"
+    );
+}
+
+/// Only the walls and the ground stop the camera in the map view, or while it looks at a bone: an
+/// object between it and the bone doesn't push it in. Otherwise objects stop it too.
+///
+/// Behaviour: desktop.camera.objects-dont-stop-a-camera-on-a-bone
+#[test]
+fn objects_dont_stop_a_camera_looking_at_a_bone() {
+    let mut c = camera();
+    assert!(!c.check_env_only());
+    c.targeting.target_bone = 3;
+    assert!(c.check_env_only());
+    c.targeting.target_bone = 0;
+    assert!(!c.check_env_only());
+}
+
 /// With the auto distance option a camera 1.5 m or nearer pulls back after 2.5 seconds of running,
 /// growing each frame until 4 m out, and comes back after a second standing.
 ///
@@ -716,6 +770,7 @@ impl Objects for TwoObjects {
             OTHER => Some(Viewer {
                 origin: Vec3::new(10.0, 0.0, 0.0),
                 look: Vec3::new(1.0, 0.0, 0.0),
+                rotation: None,
             }),
             _ => None,
         }
@@ -746,6 +801,86 @@ fn run(c: &mut CameraControl, world: &TwoObjects, seconds: f32) -> Viewer {
         c.last = Some(v);
     }
     v
+}
+
+/// The player and an object facing back at it, south of its look.
+struct FacingBack {
+    player: Subject,
+}
+
+impl Objects for FacingBack {
+    fn place(&self, id: u64, bone: u32) -> Option<Viewer> {
+        match id {
+            PLAYER => self.player.place(id, bone),
+            OTHER => Some(Viewer {
+                origin: Vec3::new(0.0, 10.0, 0.0),
+                look: Vec3::new(0.0, -1.0, 0.0),
+                rotation: None,
+            }),
+            _ => None,
+        }
+    }
+
+    fn facts(&self, id: u64) -> Option<Facts> {
+        match id {
+            PLAYER => self.player.facts(id),
+            OTHER => Some(Facts {
+                height: 1.5,
+                scale_z: 1.2,
+                ..Facts::default()
+            }),
+            _ => None,
+        }
+    }
+}
+
+/// A glide to a view facing back the other way turns the whole frame, swinging round to the side
+/// and leaning on the way, where a turn of the look alone would dip straight at the ground.
+///
+/// Behaviour: desktop.camera.a-glide-turns-the-whole-view
+#[test]
+fn a_glide_turns_the_whole_view_rather_than_its_look() {
+    use auberean_physics::geom::{rotation_axes, set_vector_heading, slerp_rotation};
+    use dereth_primitives::{Frame, Quat};
+    let world = FacingBack { player: player() };
+    let mut c = camera();
+    let mut v = c.viewer_with(&world.player, &world);
+    for _ in 0..10 {
+        c.update_with(0.01, &world.player, &world);
+        v = c.viewer_with(&world.player, &world);
+        c.last = Some(v);
+    }
+    let before = v.look;
+    c.set_free_camera(&world, OTHER, 30.0, 1.0);
+    for _ in 0..50 {
+        c.update_with(0.01, &world.player, &world);
+        v = c.viewer_with(&world.player, &world);
+        c.last = Some(v);
+    }
+    let w = c.targeting.weight;
+    assert!(w > 0.2 && w < 0.8, "under way: {w}");
+    let frame_of = |look| {
+        let mut f = Frame::new(Vec3::ZERO, Quat::IDENTITY);
+        set_vector_heading(&mut f, look);
+        f
+    };
+    let mut want = Frame::new(Vec3::ZERO, Quat::IDENTITY);
+    slerp_rotation(
+        &mut want,
+        &frame_of(before),
+        &frame_of(Vec3::new(0.0, -1.0, 0.0)),
+        w,
+    );
+    let m = rotation_axes(want.rotation);
+    assert!(
+        closev(v.look, Vec3::new(m[3], m[4], m[5]), 1e-4),
+        "the frames' turn: {:?}",
+        v.look
+    );
+    println!("look under way {:?} at {w}", v.look);
+    assert!(v.look.z > -0.5, "never at the ground: {:?}", v.look);
+    let right = rotation_axes(v.rotation.expect("the whole turn"));
+    assert!(right[2].abs() > 0.01, "it leans on the way: {}", right[2]);
 }
 
 /// The cameras the effects and the animations ask for, at their places once their glides are
@@ -854,4 +989,40 @@ fn the_scripts_cameras_hang_from_look_at_and_come_back() {
         "toward the player: {:?}",
         v.look
     );
+}
+
+/// A new default distance or tilt takes the camera there at once; another option, or the same
+/// ones again, leaves it where it was put.
+///
+/// Behaviour: desktop.camera.a-new-default-distance-or-tilt-applies-at-once
+#[test]
+fn a_new_default_distance_or_tilt_applies_at_once() {
+    let mut c = camera();
+    c.distance = 9.0;
+    let same = c.options;
+    c.set_options(same);
+    assert!(
+        close(c.distance, 9.0, 1e-6),
+        "the same options move nothing"
+    );
+    let quicker = Options {
+        zoom_speed: same.zoom_speed * 2.0,
+        ..same
+    };
+    c.set_options(quicker);
+    assert!(close(c.distance, 9.0, 1e-6), "another option moves nothing");
+    let further = Options {
+        distance: 6.0,
+        ..quicker
+    };
+    c.set_options(further);
+    assert!(close(c.distance, 6.0, 1e-6), "{}", c.distance);
+    let higher = Options {
+        tilt: 0.5,
+        ..further
+    };
+    c.distance = 9.0;
+    c.set_options(higher);
+    assert!(close(c.offset.z, 0.5, 1e-6), "{}", c.offset.z);
+    assert!(close(c.distance, 6.0, 1e-6), "{}", c.distance);
 }

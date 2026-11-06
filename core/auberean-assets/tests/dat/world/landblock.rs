@@ -1,5 +1,8 @@
 //! The cell files: landblocks, their placed objects, their light and their interior cells.
 
+use auberean_assets::landblock::{Landblock, LandblockInfo};
+use auberean_assets::{decode, encode};
+use auberean_dat::locate::DatName;
 use auberean_dat::RecordType;
 
 use crate::common::assert_every_record_decodes;
@@ -14,6 +17,37 @@ fn every_landblock_decodes_exactly() {
 #[test]
 fn every_landblock_info_decodes_exactly() {
     assert_every_record_decodes(&[RecordType::LANDBLOCK_INFO]);
+}
+
+/// **A landblock and its placed objects' record, read and written again, are their own bytes: what a
+/// world changes in one, it changes and no more.**
+///
+/// Behaviour: data.landblock-info.every-record-packs-back-to-its-bytes
+#[test]
+fn every_landblock_and_landblock_info_packs_back_to_its_bytes() {
+    let (mut lands, mut infos) = (0usize, 0usize);
+    for install in crate::common::installs() {
+        let cells = install
+            .dats
+            .iter()
+            .filter(|(n, _)| matches!(n, DatName::Cell(_)));
+        for (_, dat) in cells {
+            for e in dat.entries() {
+                if e.id & 0xFFFF == 0xFFFF {
+                    let bytes = dat.read(e.id).unwrap();
+                    let r: Landblock = decode(e.id, &bytes, &install.ctx).unwrap();
+                    assert_eq!(encode(e.id, &r), bytes, "{:#x}", e.id);
+                    lands += 1;
+                } else if e.id & 0xFFFF == 0xFFFE {
+                    let bytes = dat.read(e.id).unwrap();
+                    let r: LandblockInfo = decode(e.id, &bytes, &install.ctx).unwrap();
+                    assert_eq!(encode(e.id, &r), bytes, "{:#x}", e.id);
+                    infos += 1;
+                }
+            }
+        }
+    }
+    assert!(lands > 60_000 && infos > 3_000, "{lands} {infos}");
 }
 
 /// Behaviour: data.light-info.every-record-decodes

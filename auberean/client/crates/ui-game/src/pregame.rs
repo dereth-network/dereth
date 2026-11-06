@@ -220,6 +220,8 @@ pub enum Request {
     Zoom(bool),
     /// The key maps applied: the client keeps them.
     Keys(crate::keyboard::KeyMaps),
+    /// Key maps bound from now on, nothing written.
+    LiveKeys(crate::keyboard::KeyMaps),
     /// A sound across the screens (a sound table's record), or the one playing stopped.
     Sound(u32),
     Silence,

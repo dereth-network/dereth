@@ -475,6 +475,81 @@ fn a_character_file_keeps_what_each_item_holds_of_its_own() {
     assert_eq!(of(77).own, yalain_world::treasure::Own::default());
 }
 
+/// A character brought from another world has a new id, and what was bound to it is bound to it
+/// still, whoever else's bound item it holds stays another's.
+/// Behaviour: server.operator.imported-items-stay-bound-to-their-character
+#[test]
+fn an_imported_characters_bound_items_stay_bound_to_it() {
+    let mut a = world();
+    let (_, id) = a.player_in_world("one", "Wanderer");
+    let w = world_of(&a, id);
+    let mine =
+        yalain_world::inventory::give(&mut a.server, &mut a.net, w, TEST_ITEM, 1).expect("given");
+    let theirs =
+        yalain_world::inventory::give(&mut a.server, &mut a.net, w, TEST_ITEM, 1).expect("given");
+    a.server.things.get_mut(mine).expect("made").own.bound_to = id;
+    a.server.things.get_mut(theirs).expect("made").own.bound_to = id ^ 0xFF;
+    a.run(5);
+    let file = characters::export(&mut a.server, "Wanderer").expect("exported");
+
+    let mut b = world();
+    let (_, here) = b.player_in_world("two", "Elara");
+    let unix = b.unix;
+    characters::import(&mut b.server, &file, "three", None, unix).expect("imported");
+    let new = id_of(&mut b, "Wanderer");
+    assert_ne!(new, id);
+    assert_ne!(new, here);
+    let state = b
+        .server
+        .store
+        .world_state(new)
+        .expect("reads")
+        .expect("kept");
+    let play = PlayState::from_bytes(&state.play).expect("reads");
+    let mut bound: Vec<u64> = play.item_states.iter().map(|k| k.own.bound_to).collect();
+    bound.retain(|x| *x != 0);
+    bound.sort_unstable();
+    let mut wanted = vec![new, id ^ 0xFF];
+    wanted.sort_unstable();
+    assert_eq!(bound, wanted);
+}
+
+/// A file that holds one item id twice is refused whole: no character, no account, no item.
+/// Behaviour: server.operator.a-file-with-an-item-twice-is-refused
+#[test]
+fn a_character_file_holding_one_item_id_twice_is_refused() {
+    let mut a = world();
+    let (_, id) = a.player_in_world("one", "Wanderer");
+    let w = world_of(&a, id);
+    yalain_world::inventory::give(&mut a.server, &mut a.net, w, TEST_ITEM, 3);
+    a.run(5);
+    let mut file = characters::export(&mut a.server, "wanderer").expect("exported");
+    let mut play = PlayState::from_bytes(&file.state.play).expect("reads");
+    let again = *play
+        .items
+        .iter()
+        .find(|x| x.template == TEST_ITEM)
+        .expect("held");
+    play.items.push(again);
+    file.state.play = play.to_bytes();
+
+    let mut b = world();
+    let unix = b.unix;
+    let said = characters::import(&mut b.server, &file, "three", None, unix);
+    assert!(said.is_err(), "{said:?}");
+    assert!(
+        b.server.store.name_taken("Wanderer").is_ok_and(|t| !t),
+        "no character kept"
+    );
+    assert!(
+        b.server
+            .store
+            .account_by_name("three")
+            .is_ok_and(|acc| acc.is_none()),
+        "no account made"
+    );
+}
+
 /// A character exported from one world and imported onto an account of another, under a new
 /// name, is a new character there holding what it held: its level and items (with new ids), its
 /// name shown as the new one. A name that is taken is refused and nothing is kept.
