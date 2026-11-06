@@ -667,6 +667,8 @@ impl Session {
                     route_backward: false,
                     requires: None,
                     min_level: None,
+                    hero: false,
+                    kingdom: None,
                     recall: false,
                     summon: false,
                     prov: p.clone(),

@@ -233,6 +233,8 @@ pub const EXAMINE_ACTION: u32 = 0x22;
 pub mod refusal {
     /// The player is below the item's least level.
     pub const LEVEL_TOO_LOW: u32 = 10_009;
+    /// The player is not of the kingdom the object needs.
+    pub const WRONG_KINGDOM: u32 = 10_011;
     /// The player has never had the quest the item needs.
     pub const LACKING_QUEST: u32 = 10_019;
     /// The player's quest is not where the item needs it.
@@ -247,6 +249,8 @@ pub mod refusal {
     pub const MYSTERIOUS_TAKE: u32 = 10_042;
     /// A use whose hidden quest is not where the item or object needs it.
     pub const MYSTERIOUS_USE: u32 = 10_043;
+    /// "Only a Hero of Dereth can use that item."
+    pub const HERO_ONLY: u32 = 10_049;
     /// A mount's item, with something in the player's hands.
     pub const HANDS_NOT_EMPTY: u32 = 10_045;
     /// A mount's item, with a mount already on.
@@ -585,8 +589,8 @@ fn mounted<S: Store>(s: &Server<S>, p: &crate::world::Player) -> bool {
 
 /// Why a quest is not where an item needs it, if it is not: needed under way (at a phase, when
 /// the status names one) or completed, the player never had it (10019) or has it otherwise
-/// (10020); needed able to be given, the player has it under way or completed and not yet to be
-/// taken again (10020).
+/// (10020); needed had in any way, the player never had it (10019) or cancelled it (10020); needed
+/// able to be given, the player has it under way or completed and not yet to be taken again (10020).
 #[must_use]
 pub fn quest_refusal(
     held: &[crate::state::QuestState],
@@ -610,6 +614,10 @@ pub fn quest_refusal(
     let Some(q) = had else {
         return Some(refusal::LACKING_QUEST);
     };
+    if needed == yalain_content::QuestGate::HAD {
+        let had = [status::UNDERWAY, status::FAILED, status::COMPLETED].contains(&q.status);
+        return (!had).then_some(refusal::WRONG_QUEST_STATUS);
+    }
     let phase = needed & 0x0FFF_FFFF;
     let fits = q.status == raw && (raw != status::UNDERWAY || phase == 0 || q.phase == phase);
     (!fits).then_some(refusal::WRONG_QUEST_STATUS)

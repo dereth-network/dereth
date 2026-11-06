@@ -3819,6 +3819,24 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.examination.place-requirements",
+        says: "A placed object's requirements read as the recorded pages did, word for word: its \
+               least level, its kingdom, heroes alone, its quest's line by the status its gate \
+               names; a hidden quest leaves the section with no line.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PLACE-PAGE"),
+        station: "yalain-testkit::cpu::entry::examine::a_placed_objects_requirements_read_as_the_recorded_pages_did",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.examination.place-requirements-no-destination",
+        says: "A placed object that leads nowhere names what it keeps players out by.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PLACE-PAGE-NOWHERE"),
+        station: "yalain-testkit::cpu::entry::examine::a_placed_object_leading_nowhere_names_its_kingdom_when_examined",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.examination.player-profile",
         says: "Examining a player is answered with its profile: the request repeated, then its \
                name, its first craft title, its race and sex, its level, its kingdom, its health \
@@ -9365,6 +9383,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.portal-hero-only",
+        says: "A placed portal for heroes alone refuses anyone else, at a use and a walk-in, 10049 \
+               with flags 820 and no trip; a hero it takes.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PORTAL-HERO"),
+        station: "yalain-testkit::cpu::entry::places::a_placed_portal_for_heroes_alone_refuses_anyone_else_at_a_use_and_a_walk_in",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.places.portal-instance-gate-statuses",
         says: "A placed instance's quest gate asks for its quest under way at a phase, under way at \
                any phase, or completed: never had is refused 10019, held otherwise 10020.",
@@ -9395,6 +9422,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.portal-kingdom",
+        says: "A placed portal of one kingdom refuses a player of no kingdom or another, 10011 with \
+               flags 820 and no trip; one of that kingdom it takes.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PORTAL-KINGDOM"),
+        station: "yalain-testkit::cpu::entry::places::a_placed_portal_of_a_kingdom_refuses_anyone_not_of_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.places.portal-least-level",
         says: "A placed portal's least level refuses a player below it, as a quest does: a use at \
                once with no walk and no trip, a walk-in, each 10009 with flags 820; at that level \
@@ -9414,12 +9450,39 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.portal-quest-had",
+        says: "A gate on a quest had in any way lets through a player with it failed, completed or \
+               under way; one who never had it hears 10019, one who cancelled it 10020.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PORTAL-QUEST-HAD"),
+        station: "yalain-testkit::cpu::entry::places::a_gate_on_a_quest_had_lets_failed_completed_and_under_way_through",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.places.portal-recall",
         says: "Portal Recall takes a player to where the last portal it used that may be recalled to took \
                it, past portals that may not be; its text comes before the new place.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-PORTAL-RECALL"),
         station: "yalain-testkit::cpu::play::recalls::portal_recall_returns_to_the_last_portal_used_that_may_be_recalled_to",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.places.portal-requirement-rows",
+        says: "A placed object's kingdom and heroes alone read and compile, the content's text \
+               keeps them, and a quest gate can ask for a quest had in any way; a kingdom is one of \
+               the three.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PORTAL-REQ-ROWS"),
+        station: "yalain-world-db::cpu::database::a_static_objects_kingdom_heroes_and_had_quest_are_read_and_compiled",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.places.portal-requirement-rows-person",
+        says: "A person keeps no one out by a kingdom or heroes alone: it is talked to.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PORTAL-REQ-PERSON"),
+        station: "yalain-world-db::cpu::database::a_person_holds_no_kingdom_or_heroes_alone",
         tier: Tier::Cpu,
     },
     behaviour! {

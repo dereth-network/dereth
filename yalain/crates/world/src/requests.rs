@@ -605,6 +605,14 @@ fn profile_bytes<S: Store>(
             ),
             yalain_content::Kind::Static => {
                 let lifestone = crate::places::is_lifestone(s, o.description.package);
+                let quest = o.gate.and_then(|g| {
+                    let def = s.quests.quest(g.quest)?;
+                    Some(if def.hidden {
+                        profile::QuestLine::Hidden
+                    } else {
+                        profile::QuestLine::Named(profile::quest_line(g.status), def.name)
+                    })
+                });
                 let recall = if lifestone {
                     profile::line::LIFESTONE_RECALL
                 } else {
@@ -616,6 +624,7 @@ fn profile_bytes<S: Store>(
                         named.unwrap_or_else(|| profile::item_name(f)),
                         recall,
                         f,
+                        quest,
                     )
                 } else {
                     // An object for monarchs alone goes by its plain name (2017: 14 of 14).
@@ -639,6 +648,8 @@ fn profile_bytes<S: Store>(
                     let mut p = profile::npc(req.asked, name, f);
                     if monarchs {
                         profile::monarch_lines(&mut p);
+                    } else {
+                        profile::requirement_lines(&mut p, f, quest);
                     }
                     p
                 }

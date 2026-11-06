@@ -201,11 +201,18 @@ pub fn object(o: &Object, to: Option<&str>, p: &Prov) -> Table {
             Gate::Done => g.insert("done", Value::from(true)),
             Gate::UnderWay => g.insert("underway", Value::from(true)),
             Gate::Phase(n) => g.insert("phase", Value::from(i64::from(n))),
+            Gate::Had => g.insert("had", Value::from(true)),
         };
         put(&mut t, "requires", Value::InlineTable(g));
     }
     if let Some(level) = o.min_level {
         put(&mut t, "min_level", Value::from(i64::from(level)));
+    }
+    if o.hero {
+        put(&mut t, "hero", Value::from(true));
+    }
+    if let Some(kingdom) = o.kingdom {
+        put(&mut t, "kingdom", Value::from(i64::from(kingdom)));
     }
     if o.recall {
         put(&mut t, "recall", Value::from(true));

@@ -1646,6 +1646,70 @@ fn an_objects_own_scale_is_served_in_place_of_its_templates() {
     assert_eq!(scale_with("scale = 0.0\n"), (own, true), "left as it was");
 }
 
+/// A placed object's kingdom and heroes alone read and compile, the content's text keeps them, and a
+/// quest gate can ask for a quest had in any way; a person can hold none of them, and a kingdom is
+/// one of the three.
+/// Behaviour: server.places.portal-requirement-rows
+#[test]
+fn a_static_objects_kingdom_heroes_and_had_quest_are_read_and_compiled() {
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/landblocks/77B7.toml",
+        "to = \"inn\"\nprov = { from = \"authored\" }",
+        "to = \"inn\"\nhero = true\nkingdom = 2\nrequires = { quest = 0x40000088, had = true }\nprov = { from = \"authored\" }",
+    );
+    assert_eq!(check(&files), Vec::new());
+    let merged = merge(&read(&files).unwrap()).unwrap();
+    let t = compile(&merged, &Fake::new()).unwrap();
+    assert_eq!(
+        yalain_content::ContentPack::from_text(&t.content.to_text()).unwrap(),
+        t.content,
+        "the content's text keeps them"
+    );
+    let o = t
+        .content
+        .objects
+        .iter()
+        .find(|o| o.object == Some(0x4077_B700_0000_0001))
+        .unwrap();
+    assert!(o.facts.hero);
+    assert_eq!(o.facts.kingdom, Some(2));
+    assert_eq!(
+        o.gate,
+        Some(yalain_content::QuestGate {
+            quest: 0x4000_0088,
+            status: yalain_content::QuestGate::HAD,
+        })
+    );
+    edit(
+        &mut files,
+        "town/server/landblocks/77B7.toml",
+        "kingdom = 2",
+        "kingdom = 3",
+    );
+    assert!(check(&files)
+        .iter()
+        .any(|p| p.to_string().contains("kingdom: 1 the Shadow")));
+}
+
+/// A person keeps no one out by a kingdom or heroes alone: it is talked to.
+/// Behaviour: server.places.portal-requirement-rows-person
+#[test]
+fn a_person_holds_no_kingdom_or_heroes_alone() {
+    let mut files = fixture();
+    let person = files
+        .iter()
+        .find(|(_, v)| v.contains("kind = \"npc\""))
+        .map(|(k, _)| k.clone())
+        .expect("a person in the fixture");
+    let text = files.get_mut(&person).unwrap();
+    *text = text.replacen("kind = \"npc\"", "kind = \"npc\"\nhero = true", 1);
+    assert!(check(&files)
+        .iter()
+        .any(|p| p.to_string().contains("hero, kingdom: a person")));
+}
+
 /// A placed object's least level reads and compiles over its template's, and the content's text
 /// keeps it; left out, the object has its template's.
 /// Behaviour: server.places.portal-least-level-row

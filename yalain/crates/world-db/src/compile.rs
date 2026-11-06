@@ -564,6 +564,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                         Gate::Done => QUEST_COMPLETED,
                         Gate::UnderWay => QUEST_UNDERWAY,
                         Gate::Phase(n) => QUEST_UNDERWAY | n,
+                        Gate::Had => yalain_content::QuestGate::HAD,
                     },
                 });
                 if let Some((quest, _)) = o.requires {
@@ -625,6 +626,8 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                         yalain_content::Facts {
                             portal: portal_flags(o.recall, o.summon),
                             min_level: o.min_level.or(f.min_level),
+                            hero: o.hero,
+                            kingdom: o.kingdom,
                             ..f
                         }
                     },

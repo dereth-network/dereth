@@ -173,6 +173,8 @@ fn a_rows_letter_says_where_it_came_from() {
             route_backward: false,
             requires: None,
             min_level: None,
+            hero: false,
+            kingdom: None,
             recall: false,
             summon: false,
             prov: Prov::AUTHORED,

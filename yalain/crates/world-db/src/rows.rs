@@ -139,6 +139,10 @@ pub struct Object {
     pub requires: Option<(u32, Gate)>,
     /// The least level a player must be to use it (over its template's).
     pub min_level: Option<i32>,
+    /// Only a hero may use it.
+    pub hero: bool,
+    /// The kingdom a player must be of to use it, as a description's faction names it.
+    pub kingdom: Option<u32>,
     /// A portal a player who used it may recall to, and summon a portal to.
     pub recall: bool,
     pub summon: bool,
@@ -154,6 +158,8 @@ pub enum Gate {
     UnderWay,
     /// Under way at this phase.
     Phase(u32),
+    /// Failed, completed or under way.
+    Had,
 }
 
 /// `[[camp]]`: a generator, as the recordings saw it.
@@ -738,6 +744,8 @@ pub const FIELDS: [(&str, &[&str]); 22] = [
             "route_direction",
             "requires",
             "min_level",
+            "hero",
+            "kingdom",
             "recall",
             "summon",
             "prov",
@@ -1294,6 +1302,8 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 route_backward,
                 requires: f.gate("requires"),
                 min_level: f.int("min_level").and_then(|v| i32::try_from(v).ok()),
+                hero: f.bool("hero").unwrap_or(false),
+                kingdom: f.int("kingdom").and_then(|v| u32::try_from(v).ok()),
                 recall: f.bool("recall").unwrap_or(false),
                 summon: f.bool("summon").unwrap_or(false),
                 prov: f.req_prov()?,
@@ -2249,19 +2259,20 @@ impl<'a> Fields<'a> {
     fn gate(&mut self, name: &str) -> Option<(u32, Gate)> {
         self.typed(
             name,
-            "{ quest, done = true }, { quest, underway = true } or { quest, phase }",
+            "{ quest, done = true }, { quest, underway = true }, { quest, phase } or { quest, had = true }",
             |v| {
                 let t = v.as_table()?;
                 if t.keys()
-                    .any(|k| !["quest", "done", "underway", "phase"].contains(&k.as_str()))
+                    .any(|k| !["quest", "done", "underway", "phase", "had"].contains(&k.as_str()))
                 {
                     return None;
                 }
                 let quest = as_u32(t.get("quest")?)?;
-                let gate = match (t.get("done"), t.get("underway"), t.get("phase")) {
-                    (Some(d), None, None) if d.as_bool() == Some(true) => Gate::Done,
-                    (None, Some(u), None) if u.as_bool() == Some(true) => Gate::UnderWay,
-                    (None, None, Some(p)) => Gate::Phase(as_u32(p).filter(|p| *p > 0)?),
+                let gate = match (t.get("done"), t.get("underway"), t.get("phase"), t.get("had")) {
+                    (Some(d), None, None, None) if d.as_bool() == Some(true) => Gate::Done,
+                    (None, Some(u), None, None) if u.as_bool() == Some(true) => Gate::UnderWay,
+                    (None, None, Some(p), None) => Gate::Phase(as_u32(p).filter(|p| *p > 0)?),
+                    (None, None, None, Some(h)) if h.as_bool() == Some(true) => Gate::Had,
                     _ => return None,
                 };
                 Some((quest, gate))

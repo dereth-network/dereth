@@ -74,6 +74,16 @@ pub mod line {
     pub const REQUIREMENTS: u32 = 0x4F39_B658;
     pub const MINIMUM_LEVEL: u32 = 0x4ED2_0478;
     pub const IN_AN_ALLEGIANCE: u32 = 0x9D7D_54C6;
+    pub const IN_A_KINGDOM: u32 = 0xF2F5_0D95;
+    pub const KINGDOM_NAMED: u32 = 0x9923_CC4A;
+    pub const KINGDOM_COUNT_VAR: u32 = 0x073E_ACEA;
+    pub const KINGDOM_NAME_VAR: u32 = 0x9D06_6C50;
+    pub const A_HERO: u32 = 0xE9AE_E04E;
+    pub const QUEST_DONE: u32 = 0x510A_7F47;
+    pub const QUEST_UNDER_WAY: u32 = 0xDB7C_0ACC;
+    pub const QUEST_AT_A_POINT: u32 = 0x6C86_F753;
+    pub const QUEST_HAD: u32 = 0x8D31_AAA4;
+    pub const QUEST_NAME_VAR: u32 = 0x2356_2D3A;
     pub const A_MONARCH: u32 = 0x8ADC_E384;
     /// The kingdoms' table, and the neutral kingdom's name.
     pub const KINGDOMS: u32 = 0x2500_000F;
@@ -767,6 +777,97 @@ pub fn monarch_lines(p: &mut Profile) {
     p.brk(REQUIREMENTS);
 }
 
+/// What a placed object's requirements say of the quest it needs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QuestLine {
+    /// A hidden quest: the section stands with no line for it (2017: 12 of 12 objects whose quest
+    /// is hidden).
+    Hidden,
+    /// One of the quest's lines, and the quest's name (string, table).
+    Named(u32, (u32, u32)),
+}
+
+/// Which line says a quest is needed at a status, written as [`yalain_content::QuestGate`] writes it.
+#[must_use]
+pub const fn quest_line(status: u32) -> u32 {
+    match status {
+        yalain_content::QuestGate::HAD => line::QUEST_HAD,
+        0x3000_0000 => line::QUEST_DONE,
+        0x1000_0000 => line::QUEST_UNDER_WAY,
+        _ => line::QUEST_AT_A_POINT,
+    }
+}
+
+/// A placed object's requirements, as 2017's pages laid them out: its least level, its kingdom, for
+/// heroes alone, its quest. Whether there is such a section.
+pub fn requirement_lines(p: &mut Profile, f: &Facts, quest: Option<QuestLine>) -> bool {
+    if f.min_level.is_none() && f.kingdom.is_none() && !f.hero && quest.is_none() {
+        return false;
+    }
+    p.brk(REQUIREMENTS);
+    p.text(
+        REQUIREMENTS,
+        look::LABEL,
+        string(line::TABLE, line::REQUIREMENTS),
+    );
+    p.brk(REQUIREMENTS);
+    if let Some(level) = f.min_level {
+        p.tab(REQUIREMENTS, 0);
+        p.text(
+            REQUIREMENTS,
+            look::LABEL,
+            string(line::TABLE, line::MINIMUM_LEVEL),
+        );
+        p.int(REQUIREMENTS, look::VALUE, level);
+        p.brk(REQUIREMENTS);
+    }
+    if let Some(k) = f.kingdom {
+        p.tab(REQUIREMENTS, 0);
+        p.text(
+            REQUIREMENTS,
+            look::LABEL,
+            with_vars(
+                line::TABLE,
+                line::IN_A_KINGDOM,
+                vec![number(line::KINGDOM_COUNT_VAR, 1)],
+            ),
+        );
+        p.text(
+            REQUIREMENTS,
+            look::VALUE,
+            with_vars(
+                line::TABLE,
+                line::KINGDOM_NAMED,
+                vec![nested(
+                    line::KINGDOM_NAME_VAR,
+                    string(line::KINGDOMS, kingdom(k)),
+                )],
+            ),
+        );
+        p.brk(REQUIREMENTS);
+    }
+    if f.hero {
+        p.tab(REQUIREMENTS, 0);
+        p.tab(REQUIREMENTS, 0);
+        p.text(REQUIREMENTS, look::VALUE, string(line::TABLE, line::A_HERO));
+        p.brk(REQUIREMENTS);
+    }
+    if let Some(QuestLine::Named(said, (sid, table))) = quest {
+        p.tab(REQUIREMENTS, 0);
+        p.text(
+            REQUIREMENTS,
+            look::VALUE,
+            with_vars(
+                line::TABLE,
+                said,
+                vec![nested(line::QUEST_NAME_VAR, string(table, sid))],
+            ),
+        );
+        p.brk(REQUIREMENTS);
+    }
+    true
+}
+
 /// An item's name composed of its template's name with no prefix or suffix.
 #[must_use]
 pub fn item_name(f: &Facts) -> TextInfo {
@@ -866,7 +967,13 @@ pub fn portal_line(flags: u32) -> u32 {
 /// A portal's or a lifestone's profile: its name, what may be recalled to it, its description,
 /// and the level a player needs to use it.
 #[must_use]
-pub fn place(asked: u32, name: TextInfo, recall: u32, f: &Facts) -> Profile {
+pub fn place(
+    asked: u32,
+    name: TextInfo,
+    recall: u32,
+    f: &Facts,
+    quest: Option<QuestLine>,
+) -> Profile {
     let mut p = Profile::new(asked);
     p.text(GENERAL, look::VALUE, name);
     p.brk(GENERAL);
@@ -878,25 +985,8 @@ pub fn place(asked: u32, name: TextInfo, recall: u32, f: &Facts) -> Profile {
         .map_or_else(|| literal(""), |(s, t)| string(t, s));
     p.text(GENERAL, look::LABEL, desc);
     p.brk(GENERAL);
-    match f.min_level {
-        Some(level) => {
-            p.brk(REQUIREMENTS);
-            p.text(
-                REQUIREMENTS,
-                look::LABEL,
-                string(line::TABLE, line::REQUIREMENTS),
-            );
-            p.brk(REQUIREMENTS);
-            p.tab(REQUIREMENTS, 0);
-            p.text(
-                REQUIREMENTS,
-                look::LABEL,
-                string(line::TABLE, line::MINIMUM_LEVEL),
-            );
-            p.int(REQUIREMENTS, look::VALUE, level);
-            p.brk(REQUIREMENTS);
-        }
-        None => p.brk(GENERAL),
+    if !requirement_lines(&mut p, f, quest) {
+        p.brk(GENERAL);
     }
     p
 }

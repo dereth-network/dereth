@@ -178,6 +178,17 @@ pub fn check_database(db: &Database) -> Vec<Problem> {
                             .into(),
                     ));
                 }
+                if (r.hero || r.kingdom.is_some()) && r.kind == crate::rows::ObjectKind::Npc {
+                    problems.push(at(
+                        "hero, kingdom: a person is talked to; only a static object keeps a player out"
+                            .into(),
+                    ));
+                }
+                if r.kingdom.is_some_and(|k| ![1, 2, 4].contains(&k)) {
+                    problems.push(at(
+                        "kingdom: 1 the Shadow, 2 the Order, 4 the Dominion".into()
+                    ));
+                }
                 match &r.route {
                     Some(_) if r.kind != crate::rows::ObjectKind::Npc => {
                         problems.push(at("route: only a person walks a route".into()))

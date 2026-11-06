@@ -424,6 +424,10 @@ pub struct Facts {
     /// A placed portal's flags: whether a player's portal recall returns to where it leads, and
     /// whether a summoned portal opens to it.
     pub portal: u32,
+    /// A placed object only a hero may use.
+    pub hero: bool,
+    /// The kingdom a player must be of to use a placed object, as a description's faction names it.
+    pub kingdom: Option<u32>,
 }
 
 /// A portal's flags.
@@ -465,6 +469,12 @@ impl Facts {
         if self.portal != 0 {
             out.push(format!("portal={:X}", self.portal));
         }
+        if self.hero {
+            out.push("hero=1".into());
+        }
+        if let Some(k) = self.kingdom {
+            out.push(format!("kingdom={k:X}"));
+        }
         out.join(";")
     }
 
@@ -495,6 +505,8 @@ impl Facts {
                 "faction" => f.faction = Some(hex32(v)?),
                 "group" => f.group = v == "1",
                 "portal" => f.portal = hex32(v)?,
+                "hero" => f.hero = v == "1",
+                "kingdom" => f.kingdom = Some(hex32(v)?),
                 other => return Err(format!("an unknown fact {other}")),
             }
         }
@@ -620,7 +632,7 @@ pub struct ContentObject {
 
 /// A quest a use needs: the quest, and the status it must be at, written as a template's
 /// `Usage_RequiredQuestStatus` is (completed `0x30000000`; under way `0x10000000`, with the phase
-/// in the low bits when one is needed).
+/// in the low bits when one is needed; [`QuestGate::HAD`]: failed, completed or under way).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct QuestGate {
     pub quest: u32,
@@ -628,6 +640,9 @@ pub struct QuestGate {
 }
 
 impl QuestGate {
+    /// The status a gate names when any of failed, completed or under way will do.
+    pub const HAD: u32 = 0;
+
     /// The gate as text: the quest and the status in hex, `:` between.
     #[must_use]
     pub fn to_text(&self) -> String {
