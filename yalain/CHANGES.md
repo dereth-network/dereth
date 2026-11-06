@@ -23,6 +23,7 @@ what they see, not how it was done.
 - Fellowships' looting methods now work.
 - Examining a corpse says who may loot it and who first did.
 - Characters who aren't heroes stop at level 50.
+- Stuns, slows and roots leave their target immune for a minute.
 
 ## 0.2.1 (2026-11-05)
 - Fixed sold consignments still showing as in stock.

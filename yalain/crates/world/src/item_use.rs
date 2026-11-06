@@ -858,6 +858,7 @@ pub(crate) fn put_on<S: Store>(
     match def.kind {
         // What it does is the server's own (an antidote's cure, a portal): not made here.
         Kind::Other
+        | Kind::Immunity { .. }
         | Kind::Pet { .. }
         | Kind::Aura(_)
         | Kind::Recall(_)

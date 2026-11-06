@@ -932,7 +932,7 @@ impl<S: Store> Server<S> {
                 }
                 Timer::EffectEnds { world, eid } => {
                     if !mounts::record_ends(self, net, world, eid) {
-                        effects::ends(self, net, world, eid);
+                        effects::ends(self, net, world, eid, clock);
                     }
                 }
                 Timer::EffectTick { world, eid, since } => {

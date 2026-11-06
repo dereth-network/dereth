@@ -593,6 +593,7 @@ pub fn apply_on<S: Store>(
         }
         (
             Kind::Other
+            | Kind::Immunity { .. }
             | Kind::Counter { .. }
             | Kind::Reply { .. }
             | Kind::Watcher(_)
@@ -1091,6 +1092,11 @@ pub fn add_on<S: Store>(
     Some(eid)
 }
 
+/// Is a record of this effect kept from its holder's client?
+const fn hidden(def: &EffectDef) -> bool {
+    matches!(def.kind, Kind::Immunity { .. })
+}
+
 /// Is this appearance shown by one record alone (the one just added)?
 fn shows_once<S: Store>(s: &Server<S>, on: On, fx: u32) -> bool {
     records_of(s, on)
@@ -1152,7 +1158,9 @@ pub(crate) fn add_quietly<S: Store>(
     };
     records_mut(s, on)?.push(e);
     if let On::Player(world) = on {
-        progress::private(net, world, &add_call(&e));
+        if !hidden(def) {
+            progress::private(net, world, &add_call(&e));
+        }
     }
     send_speed(s, net, on, speed_before, &e);
     schedule_on(s, on, &e, now, clock);
@@ -1405,7 +1413,8 @@ pub(crate) fn take_off<S: Store>(
     let records = records_mut(s, on)?;
     let i = records.iter().position(|e| e.eid == eid)?;
     let e = records.remove(i);
-    if let On::Player(world) = on {
+    let def = s.effect_table.get(e.state);
+    if let (On::Player(world), false) = (on, def.is_some_and(hidden)) {
         progress::private(net, world, &remove_call(eid));
     }
     send_speed(s, net, on, speed_before, &e);
@@ -1414,10 +1423,60 @@ pub(crate) fn take_off<S: Store>(
 }
 
 /// A player's record's time is up: it is taken off, if it is still on.
-pub fn ends<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, eid: u32) {
+pub fn ends<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    eid: u32,
+    clock: Clock,
+) {
+    let on = On::Player(world);
+    let ended = records_of(s, on).iter().find(|e| e.eid == eid).copied();
     if remove(s, net, world, eid) {
+        if let Some(e) = ended {
+            immunity_ended(s, net, on, &e, clock);
+        }
         crate::world::keep_player(s, world);
     }
+}
+
+/// An immunity under way has run out: unless the same has come on again since, what it leaves goes
+/// on its holder, replacing one it holds already, past anything that would keep it off.
+fn immunity_ended<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    on: On,
+    ended: &EffectState,
+    clock: Clock,
+) {
+    let Some(Kind::Immunity { then }) = s.effect_table.get(ended.state).map(|d| d.kind.clone())
+    else {
+        return;
+    };
+    if records_of(s, on).iter().any(|e| e.state == ended.state) {
+        return;
+    }
+    let Some(def) = s.effect_table.get(then).cloned() else {
+        return;
+    };
+    let held: Vec<u32> = records_of(s, on)
+        .iter()
+        .filter(|e| e.state == then)
+        .map(|e| e.eid)
+        .collect();
+    for eid in held {
+        remove_on(s, net, on, eid);
+    }
+    let cast = Cast {
+        caster: ended.caster,
+        spellcraft: ended.spellcraft,
+        pk: ended.pk,
+        skill: ended.skill,
+        item: ended.item,
+        giver: None,
+        answers: true,
+    };
+    add_on(s, net, on, &def, cast, Shape::TIMED, clock);
 }
 
 /// A creature's record's time is up: a change over time's last tick (for the seconds since the
@@ -1441,6 +1500,7 @@ pub fn creature_ends<S: Store>(
         creature_change(s, net, creature, &e, clock.local.0 - since, clock);
     }
     remove_on(s, net, on, eid);
+    immunity_ended(s, net, on, &e, clock);
     let empty = records_of(s, on).is_empty();
     if empty {
         s.creature_effects.on.remove(&creature);
@@ -1720,7 +1780,13 @@ pub fn resurrected<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: Conn
 /// effect, the records by category, the qualities and appearances the top effects apply.
 #[must_use]
 pub fn registry<S: Store>(s: &Server<S>, p: &crate::world::Player) -> session::Registry {
-    let records = p.play.effects.clone();
+    let records: Vec<EffectState> = p
+        .play
+        .effects
+        .iter()
+        .filter(|e| !s.effect_table.get(e.state).is_some_and(hidden))
+        .copied()
+        .collect();
     let top = tops(&s.effect_table, &records);
     let mut categories: Vec<(u32, u32)> = records.iter().map(|e| (e.categories, e.eid)).collect();
     categories.sort_unstable();

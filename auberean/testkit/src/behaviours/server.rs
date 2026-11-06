@@ -3193,6 +3193,34 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.effects.crowd-control-immunity",
+        says: "A stun that lands leaves its target open to another for five seconds, then keeps \
+               every stun off, whoever's, for sixty; other kinds still land; the slowing and \
+               holding kinds go the same way.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CC-IMMUNITY"),
+        station: "yalain-testkit::cpu::play::creature_effects::a_stun_keeps_its_kind_off_a_creature_for_a_minute_after_five_seconds",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.effects.crowd-control-immunity-on-a-player",
+        says: "On a player a stun's immunity goes the same way; its client is told only of the \
+               minute.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CC-IMMUNITY-PLAYER"),
+        station: "yalain-testkit::cpu::play::creature_effects::a_stun_keeps_its_kind_off_a_player_and_only_the_minute_is_told",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.effects.crowd-control-immunity-read",
+        says: "A stun skill names the short immunity; it reads as hidden and leaving the long one, \
+               whose data gives its minute.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CC-IMMUNITY-READ"),
+        station: "yalain-testkit::dat::effects::the_crowd_control_immunities_read_as_the_data_defines_them",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.effects.harm-over-time-kills",
         says: "A change over time a creature put on a player kills it when it takes the last of its \
                health, the creature its killer.",
