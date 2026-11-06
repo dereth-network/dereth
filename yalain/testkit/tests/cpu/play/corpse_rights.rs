@@ -581,30 +581,37 @@ fn sorted(mut ids: Vec<u64>) -> Vec<u64> {
 #[test]
 fn a_fellowship_taking_turns_gives_each_corpse_to_the_next_fellow_by_id() {
     let (mut h, a, b) = two();
-    make_fellowship(&mut h, a, &[b], TURNS);
-    let ids = sorted(vec![a.1, b.1]);
-    let mut gone_to = Vec::new();
-    let mut last = 0;
-    for _ in 0..3 {
+    let c = h.player_in_world("three", "Third");
+    make_fellowship(&mut h, a, &[b, c], TURNS);
+    let ids = sorted(vec![a.1, b.1, c.1]);
+    let mut corpses = Vec::new();
+    for _ in 0..4 {
         another(&mut h);
-        last = corpse_of_kill(&mut h, a.1);
-        gone_to.push(claimant_of(&h, last));
+        corpses.push(corpse_of_kill(&mut h, a.1));
     }
-    assert_eq!(gone_to, vec![ids[0], ids[1], ids[0]]);
-    let (holder, not) = if ids[0] == a.1 { (a, b) } else { (b, a) };
-    let (opened, said) = use_corpse(&mut h, not, last);
+    let gone_to: Vec<u64> = corpses.iter().map(|c| claimant_of(&h, *c)).collect();
+    assert_eq!(gone_to, vec![ids[0], ids[1], ids[2], ids[0]]);
+    // One that went to a fellow other than its killer.
+    let corpse = corpses[..3]
+        .iter()
+        .copied()
+        .find(|c| claimant_of(&h, *c) != a.1)
+        .expect("one went to another");
+    let holder = if claimant_of(&h, corpse) == b.1 { b } else { c };
+    stand_at(&mut h, corpse);
+    let (opened, said) = use_corpse(&mut h, a, corpse);
     assert!(!opened, "not the next fellow's, even the killer's");
     assert_eq!(said, vec![places::USE_STATUS_NO_RIGHT]);
-    let told = yalain_world::death::corpse_block(h.server.things.get(last).expect("the corpse"));
+    let told = yalain_world::death::corpse_block(h.server.things.get(corpse).expect("the corpse"));
     assert!(told.iter().any(|m| matches!(
         m,
         ServerMessage::UpdateInstanceIdVisual(q)
             if q.quality == death::q::CLAIMANT && q.value == holder.1
     )));
-    assert!(use_corpse(&mut h, holder, last).0);
-    close(&mut h, holder, last);
+    assert!(use_corpse(&mut h, holder, corpse).0);
+    close(&mut h, holder, corpse);
     assert!(
-        use_corpse(&mut h, not, last).0,
+        use_corpse(&mut h, a, corpse).0,
         "freed by its first opening"
     );
 }
@@ -755,4 +762,65 @@ fn an_empty_corpses_examination_says_it_holds_nothing_before_it_is_opened() {
     assert!(says(&theirs, l::YOU_CANNOT_LOOT));
     assert!(says(&theirs, l::CONTAINS) && !says(&theirs, l::CONTENTS_UNKNOWN));
     assert!(!says(&theirs, l::FIRST_LOOTED_BY));
+}
+
+/// A corpse no player's kill made opens to anyone, and so does a player's own corpse, which holds
+/// nothing.
+/// Behaviour: server.loot.no-players-kill-opens-to-anyone
+#[test]
+fn a_corpse_of_no_players_kill_and_a_players_own_corpse_open_to_anyone() {
+    let (mut h, a, b) = two();
+    // Killed by another creature.
+    let beetle = living(&h);
+    h.add_creatures(1);
+    h.run(10);
+    let other = h
+        .server
+        .things
+        .by_id
+        .values()
+        .find(|t| t.template == yalain_testkit::TEST_CREATURE && t.alive() && t.id != beetle)
+        .map(|t| t.id)
+        .expect("another creature");
+    let corpse = corpse_of_kill(&mut h, other);
+    let now = h.now.0;
+    assert!(
+        death::may_loot(&h.server, b.1, corpse, now),
+        "a creature's kill"
+    );
+    // Its corpse's killer named, nobody's.
+    if let Some(c) = h
+        .server
+        .things
+        .get_mut(corpse)
+        .and_then(|t| t.corpse.as_mut())
+    {
+        c.killer = 0;
+    }
+    assert!(
+        death::may_loot(&h.server, b.1, corpse, now),
+        "nobody's kill"
+    );
+    // A player killed by another.
+    let conn = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == a.1)
+        .expect("in the world")
+        .0;
+    let clock = h.clock();
+    death::player_dies(&mut h.server, &mut h.net, conn, Some(b.1), clock);
+    h.advance(death::PLAYER_CORPSE_AFTER + 0.5);
+    h.run(5);
+    let own = h
+        .server
+        .things
+        .by_id
+        .values()
+        .find(|t| t.corpse.as_ref().is_some_and(|c| c.originator == a.1))
+        .map(|t| t.id)
+        .expect("its corpse");
+    let now = h.now.0;
+    assert!(death::may_loot(&h.server, a.1, own, now), "its own");
 }

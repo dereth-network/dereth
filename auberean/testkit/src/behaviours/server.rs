@@ -5807,6 +5807,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.loot.no-players-kill-opens-to-anyone",
+        says: "A corpse no player's kill made opens to anyone, and so does a player's own corpse, \
+               which holds nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-LOOT-NO-PLAYER"),
+        station: "yalain-testkit::cpu::play::corpse_rights::a_corpse_of_no_players_kill_and_a_players_own_corpse_open_to_anyone",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.loot.one-viewer-at-a-time",
         says: "A corpse is open to one player at a time: another player's use of it while it is \
                open is refused and opens nothing, until the first closes it.",
