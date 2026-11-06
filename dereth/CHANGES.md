@@ -15,6 +15,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ## Unreleased
 
 - Better Lighting: walking from one landblock into the next no longer draws the ground a block out of place for a frame, which could hide your character inside a hill.
+
 ## 0.4.14 (2026-11-05)
 
 ## 0.4.13 (2026-11-05)
