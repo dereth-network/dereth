@@ -6388,6 +6388,25 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.market.a-deleted-character-keeps-its-consignments-for-its-hour",
+        says: "A character deleted keeps what it has with brokers, on sale, through the hour it may \
+               come back in, and it goes when the character does.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MARKET-SELLER-HOUR"),
+        station: "yalain-testkit::cpu::play::market::a_character_deleted_keeps_its_consignments_until_it_is_gone",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.market.a-gone-characters-consignments-go-with-it",
+        says: "What a character that is gone had with brokers goes with it: its item on sale leaves the \
+               world, its uncollected price is paid to no one, a buyer's item stays the buyer's, and \
+               asking for the sale takes nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MARKET-SELLER-GONE"),
+        station: "yalain-testkit::cpu::play::market::a_gone_characters_consignments_go_with_it_and_a_buyers_item_stays",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.market.a-sale-past-its-time-is-not-sold",
         says: "A consignment unsold eleven days after it went up leaves its store and can't be \
                bought; its seller's lists mark it expired and a seller in the world is told. It \

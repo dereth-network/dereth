@@ -43,6 +43,11 @@
 //! moves and nothing is written when that happens: it comes of the time the record already holds, so
 //! a stop or a crash can't touch it. The item stays with its broker, whole, for as long as it takes
 //! its seller to collect it, with room in the pack as any collection needs.
+//!
+//! **A seller that is gone.** A character deleted keeps what it has with brokers through the hour it
+//! may come back in, on sale as before. When it is gone, that goes with it as its pack does: what is
+//! unsold leaves its store and the world, and the price of what it sold and did not collect is paid
+//! to no one. What a buyer bought stays the buyer's.
 
 use std::collections::BTreeMap;
 
@@ -1220,6 +1225,31 @@ pub fn collect<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, 
     let m = consignment_message(s, function::UPDATE_CONSIGNMENT, me, keeper);
     progress::private(net, world, &m);
     crate::world::keep_player(s, world);
+}
+
+/// A character is gone for good: what it has with brokers goes with it. While the store can't answer
+/// nothing is done, and its rows only wait for no one.
+pub fn seller_gone<S: Store>(s: &mut Server<S>, net: &mut ServerNet, character: u64) {
+    if !ensure(s) {
+        return;
+    }
+    let unsold: Vec<u64> = s
+        .market
+        .list
+        .iter()
+        .filter(|c| c.owner == character && c.in_stock())
+        .map(|c| c.item)
+        .collect();
+    let before = s.market.list.len();
+    s.market.list.retain(|c| c.owner != character);
+    if s.market.list.len() == before {
+        return;
+    }
+    // A sold row's item is its buyer's, and stays.
+    for item in unsold {
+        crate::death::vanish(s, net, item);
+    }
+    keep(s);
 }
 
 /// A player entering the world is reminded of its consignments, one reminder per broker.

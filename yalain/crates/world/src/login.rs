@@ -774,7 +774,9 @@ pub(crate) fn send_lists<S: Store>(
     };
     for c in s.store.characters(account.id).unwrap_or_default() {
         let Some(greyed) = greyed_for(s.cfg.delete_seconds, c.deleted_at, clock.unix) else {
-            let _ = s.store.purge_character(c.id);
+            if s.store.purge_character(c.id).is_ok() {
+                crate::market::seller_gone(s, net, c.id);
+            }
             continue;
         };
         if greyed == 0 {

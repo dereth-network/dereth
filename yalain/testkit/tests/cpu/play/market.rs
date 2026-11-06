@@ -1993,3 +1993,119 @@ fn taking_back_what_is_left_of_a_sale_keeps_the_price_of_what_sold() {
     assert_eq!(last_money(&h, a, from), Some(1_010), "one sold at 10");
     assert!(h.server.market.list.is_empty());
 }
+
+/// A character out of the world: its name gives it to a deletion at once.
+fn gone_at_once(h: &mut Harness, name: &str) {
+    let clock = h.clock();
+    yalain_world::characters::delete_now(&mut h.server, &mut h.net, clock, name)
+        .expect("deleted at once");
+    h.run(2);
+}
+
+/// A character that is gone: what it had on sale goes with it as its pack does, its sale gone from
+/// its store and its item from the world, and what it had sold and not collected is paid to no one;
+/// a buyer's item stays its buyer's; and none of it comes back at a restart.
+/// Behaviour: server.market.a-gone-characters-consignments-go-with-it
+#[test]
+fn a_gone_characters_consignments_go_with_it_and_a_buyers_item_stays() {
+    let mut h = world();
+    let (a, ida) = h.player_in_world("one", "Seller");
+    let (b, idb) = h.player_in_world("two", "Buyer");
+    at_the_broker(&mut h, ida);
+    at_the_broker(&mut h, idb);
+    money(&mut h, ida, 500);
+    money(&mut h, idb, 500);
+    let bought = put_up_a_made_item(&mut h, a, ida);
+    buy(&mut h, b, idb, bought);
+    let kept = yalain_world::inventory::make_item(&mut h.server, GEM, 1, 41).expect("made");
+    let p = h
+        .server
+        .players
+        .values_mut()
+        .find(|p| p.character == ida)
+        .expect("in the world");
+    p.play.items.push(yalain_world::state::Held {
+        id: kept,
+        template: GEM,
+        slot: 0,
+        location: 0,
+        quantity: 1,
+    });
+    h.ask(
+        a,
+        function::SELL,
+        &[
+            Arg::Int(STORE),
+            Arg::Int(100),
+            Arg::Int(1),
+            Arg::LongInt(kept),
+            Arg::LongInt(BROKER),
+        ],
+        10,
+    );
+    assert_eq!(h.server.market.list.len(), 2, "one sold, one on sale");
+    h.server
+        .market
+        .list
+        .iter()
+        .for_each(|c| assert_eq!(c.owner, ida));
+
+    gone_at_once(&mut h, "Seller");
+
+    assert!(h.server.market.list.is_empty(), "nothing of it is kept");
+    assert!(h.server.market.item_states.is_empty(), "nor what they held");
+    assert!(
+        h.server.things.get(kept).is_none(),
+        "its item on sale is gone"
+    );
+    assert!(h.server.things.get(bought).is_some(), "the buyer's stays");
+    let buyer = h
+        .server
+        .players
+        .values()
+        .find(|p| p.character == idb)
+        .expect("in the world");
+    assert!(buyer.play.items.iter().any(|i| i.id == bought));
+
+    // Asked for after that, the sale is no sale, and nothing is taken.
+    let held = buyer.play.items.len();
+    money(&mut h, idb, 500);
+    buy(&mut h, b, idb, kept);
+    let buyer = h
+        .server
+        .players
+        .values()
+        .find(|p| p.character == idb)
+        .expect("in the world");
+    assert_eq!(yalain_world::store::money(&buyer.qualities), 500);
+    assert_eq!(buyer.play.items.len(), held);
+
+    restart_the_market(&mut h, kept);
+    assert!(h.server.market.list.is_empty(), "none of it at a restart");
+    assert!(h.server.things.get(kept).is_none());
+}
+
+/// A character deleted and waiting out its hour keeps its sales, on sale, for its coming back.
+/// Behaviour: server.market.a-deleted-character-keeps-its-consignments-for-its-hour
+#[test]
+fn a_character_deleted_keeps_its_consignments_until_it_is_gone() {
+    let mut h = world();
+    let (a, ida) = h.player_in_world("one", "Seller");
+    at_the_broker(&mut h, ida);
+    money(&mut h, ida, 500);
+    let item = put_up_a_made_item(&mut h, a, ida);
+    let clock = h.clock();
+    yalain_world::characters::delete(&mut h.server, &mut h.net, clock, "Seller").expect("deleted");
+    h.run(2);
+    assert_eq!(h.server.market.list.len(), 1, "still on sale");
+    assert!(h.server.things.get(item).is_some());
+    // Its hour over, its account's list of characters takes it away, and its sale.
+    h.advance(f64::from(h.server.cfg.delete_seconds) + 1.0);
+    h.at_character_list("one");
+    assert!(
+        h.server.store.character(ida).expect("reads").is_none(),
+        "the hour is over"
+    );
+    assert!(h.server.market.list.is_empty(), "its sale with it");
+    assert!(h.server.things.get(item).is_none());
+}
