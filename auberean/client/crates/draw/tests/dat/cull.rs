@@ -155,3 +155,51 @@ fn every_doorway_runs_clockwise_from_inside_its_cell() {
     assert!(other.is_empty(), "{} turn inward: {other:X?}", other.len());
     assert_eq!(sides, 0);
 }
+
+/// On the land before a cave's mouth (block `0x6967`), the rooms show through the mouth while it is
+/// in view: facing it the first room is drawn, and what is drawn outdoors is too; with its back to
+/// it no room is, and everything else on the land still is.
+///
+/// Behaviour: draw.inside.a-caves-rooms-show-through-its-mouth
+#[test]
+fn the_rooms_of_a_cave_show_through_its_mouth() {
+    let r = &install().records;
+    let region = r.region().expect("the region");
+    let mut builder = SceneBuilder::new(r, &region);
+    let block = (0x69, 0x67);
+    let spot = |heading: f32| Spot {
+        block,
+        position: Vec3::new(109.75, 92.0, 101.0),
+        heading,
+        pitch: 0.0,
+        time_of_day: 0.5,
+        day: None,
+    };
+    let looked = |f: &Frame| {
+        let sight = f.sight(4.0 / 3.0).expect("rooms to look into");
+        let drawn = f
+            .objects
+            .iter()
+            .filter(|b| {
+                matches!(b.cull, Cull::Looked { .. } | Cull::LookedIn { .. }) && sight.shows(b)
+            })
+            .count();
+        let land = f
+            .objects
+            .iter()
+            .filter(|b| matches!(b.cull, Cull::Box { .. }))
+            .all(|b| sight.shows(b));
+        (drawn, land)
+    };
+    let mut seen = Vec::new();
+    for heading in (0..360).step_by(45) {
+        #[allow(clippy::cast_precision_loss)]
+        let f = builder.frame(&spot(heading as f32), 60.0);
+        let (drawn, land) = looked(&f);
+        assert!(land, "everything on the land stays drawn");
+        seen.push(drawn);
+    }
+    println!("rooms' draws by heading, every 45 degrees: {seen:?}");
+    assert!(seen.iter().any(|&d| d > 0), "the mouth in view: {seen:?}");
+    assert!(seen.contains(&0), "the mouth out of view: {seen:?}");
+}

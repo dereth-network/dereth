@@ -609,19 +609,17 @@ pub(crate) fn draw_glyph(
     let rows = i32::try_from(font.max_height).unwrap_or(0);
     let stride = i32::try_from(font.total_width).unwrap_or(0);
     let packed = color.bgra();
-    for row in 0..rows {
+    // The rows and columns of the glyph that lie inside the clip.
+    let (first_row, last_row) = (0.max(clip.y0 - y), (rows - 1).min(clip.y1 - y));
+    let (first_col, last_col) = (0.max(clip.x0 - x), (width - 2).min(clip.x1 - x));
+    for row in first_row..=last_row {
         let py = y + row;
-        if py < clip.y0 || py > clip.y1 {
-            continue;
-        }
-        for col in 0..(width - 1) {
+        let row_at = i64::from(row) * i64::from(stride);
+        for col in first_col..=last_col {
             let px = x + col;
-            if px < clip.x0 || px > clip.x1 {
-                continue;
-            }
             let column = i64::from(offset) + i64::from(col);
             let coverage = if font.antialiased {
-                usize::try_from(i64::from(row) * i64::from(stride) + column)
+                usize::try_from(row_at + column)
                     .ok()
                     .and_then(|i| font.pixels.get(i))
                     .copied()

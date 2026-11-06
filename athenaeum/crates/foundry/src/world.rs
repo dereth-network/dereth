@@ -71,6 +71,9 @@ pub fn base_dir(version: Option<&str>, given: Option<&Path>) -> Result<PathBuf, 
         return Ok(d.to_path_buf());
     }
     let tag = version.unwrap_or(PINNED_TAG);
+    if yalain_world_db::release::parse_tag(tag).as_deref() != Some(tag) {
+        return Err(format!("{tag} is not a release of the world database"));
+    }
     let dir =
         release_dir(tag).ok_or("no per-user cache folder: set LOCALAPPDATA (Windows) or HOME")?;
     if dir.join("world.toml").is_file() {

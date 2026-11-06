@@ -232,6 +232,7 @@ fn world_of(recorded: &[ServerMessage]) -> ContentPack {
             object: Some(o.id),
             template: w.entity_did,
             description: Description {
+                name_text: None,
                 package: w.package_id,
                 look: o.visual.parent,
                 enter_fx: 0,
@@ -308,7 +309,7 @@ fn shape_of(m: &ServerMessage) -> String {
                 Some(Node::Text(_)) => "t".to_string(),
                 Some(Node::TextInfo(_)) => "x".to_string(),
                 Some(Node::Native { ty, .. }) => format!("n{ty:X}"),
-                Some(Node::Other) | None => "o".to_string(),
+                Some(Node::Other | Node::Singleton(_)) | None => "o".to_string(),
             },
         })
         .collect::<Vec<_>>()

@@ -73,6 +73,17 @@ pub struct BodyReading {
 /// The bodies' readings, by object.
 pub type Readings = HashMap<u64, BodyReading>;
 
+/// What the cells a body has been in made of it, as a front end last read it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BodyMaterial {
+    /// The cell it was read in: it changes only when the body changes cell.
+    pub cell: u32,
+    pub properties: auberean_assets::property::PropertyCollection,
+}
+
+/// The bodies' materials, by object: a body that has stood in no cell has none.
+pub type Materials = HashMap<u64, BodyMaterial>;
+
 /// The interface's function a changed quality is told to: its kind, then its number.
 pub const STAT_CHANGED: u32 = 0x007F << 16 | 0x0044;
 
@@ -137,13 +148,13 @@ impl Scripts {
     }
 }
 
-/// Whether an object has a body: the player, or an object in the world.
+/// Whether an object has a body: whatever the client was sent, in the world or in a pack.
 fn has_body(c: &mut Call<'_>, object: u64) -> Result<bool, Stop> {
     Ok(holds_body(host(c)?, object))
 }
 
 pub(crate) fn holds_body(h: &ClientHost, object: u64) -> bool {
-    h.model.player == Some(object) || h.model.object(object).is_some_and(|o| o.in_world)
+    h.model.player == Some(object) || crate::physics_object::has_physics_object(h, object)
 }
 
 /// Scale an object's body, held between a tenth and ten times; whether it has a body.

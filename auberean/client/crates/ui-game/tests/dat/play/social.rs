@@ -379,7 +379,7 @@ fn a_fellows_row_follows_its_notices_and_keys_select_fellows() {
     ui.key(fellows::action::SELECT_FELLOW_1, true);
     let out = tick(&mut ui, &mut p, &mut t, &w, &[]);
     ui.key(fellows::action::SELECT_FELLOW_1, false);
-    assert!(out.contains(&Request::Select(OTHER)), "{out:?}");
+    assert!(out.contains(&Request::SetSelection(OTHER)), "{out:?}");
 }
 
 /// Someone offering the player a place is asked about; yes takes it, no turns it down.
@@ -613,6 +613,35 @@ fn breaking_and_swearing_ask_first() {
     assert!(!ghosted(&ui, swear), "another player selected: Swear lit");
     let out = click(&mut ui, &mut p, &mut t, &w, swear);
     assert!(social(&out).contains(&Social::Swear), "{out:?}");
+}
+
+/// A player selected with the friends page showing lights Add at once, though the notice of the
+/// new selection comes before the frame's view of it, and Add then asks for that player.
+///
+/// Behaviour: ui.social.the-friends-page-lists-friends-by-state
+#[test]
+fn selecting_a_player_with_the_friends_page_showing_lights_add() {
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut t = 0.0;
+    let none = world(0);
+    open(&mut ui, &mut p, &mut t, &none);
+    let tab = friends_tab(&ui);
+    click(&mut ui, &mut p, &mut t, &none, tab);
+    let page = el(&ui, "FriendsPage");
+    let add = child(&ui, page, "FriendsAddButton");
+    assert!(ghosted(&ui, add), "no one selected");
+    let picked = Notice {
+        native: notice::SELECTION_CHANGED,
+        about: Some(ME),
+        words: vec![hi(OTHER), lo(OTHER)],
+        ..Notice::default()
+    };
+    let w = world(OTHER);
+    tick(&mut ui, &mut p, &mut t, &w, &[picked]);
+    assert!(!ghosted(&ui, add), "another player selected");
+    let out = click(&mut ui, &mut p, &mut t, &w, add);
+    assert_eq!(social(&out), [Social::AddFriend("Other".to_owned())]);
 }
 
 /// The chat service's friends: those online (lit by their state) under one heading, those

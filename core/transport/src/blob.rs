@@ -7,6 +7,8 @@
 //!
 //! See `docs/networking/04-netblobs-and-queues.md` §§1-3.
 
+use std::collections::BTreeMap;
+
 use crate::wire::{Fragment, FragmentHeader, MAX_FRAG_DATA};
 
 /// The 64-bit NetBlobID, split across the fragment header's `Sequence` (low dword) and `Id` (high
@@ -180,12 +182,10 @@ pub enum BlobState {
     Received,
 }
 
-/// A bound this crate imposes and the original does not.
-///
-/// The fragment count is a `u16` from the wire, so count × 448 is up to **29 MB from a single
-/// packet**. The original allocates that eagerly on the first fragment stored. This crate refuses a
-/// blob whose declared size exceeds this and grows its buffer lazily besides, so a hostile
-/// fragment count costs only what it actually sends. The bound is a deliberate deviation.
+/// The largest message this crate reassembles. A fragment that declares a message longer than
+/// this is dropped, so a message's reassembly buffer is never larger than this. The fragment count
+/// is a `u16` from the wire, so the declared length can be as much as count × 448; this bounds what
+/// one message's reassembly can ever reach.
 pub const MAX_REASSEMBLY_BYTES: usize = 8 * 1024 * 1024;
 
 /// `NetBlob`.
@@ -213,12 +213,16 @@ pub struct NetBlob {
     pub queue_id: u16,
     /// Send priority. **Lower is sent first.**
     pub priority: u32,
-    /// Which fragment indices have been stored.
+    /// The fragments received so far, by index, each holding only its own payload bytes.
     ///
-    /// The original keeps no such record, which is why a retransmitted fragment increments its
-    /// received-fragment count again and can complete a blob early **with a hole**. This is the
-    /// de-duplication, and it is a deliberate deviation rather than an accident.
-    seen: Vec<bool>,
+    /// Storing them apart keeps what a half-received message holds proportional to the bytes that
+    /// have actually arrived, rather than to the offset the furthest fragment names: a message that
+    /// has sent one fragment holds one fragment's bytes, wherever in the message that fragment sits.
+    /// The whole message is laid out contiguously only once every fragment is in ([`Self::take_payload`]).
+    /// Keyed by index, so a fragment that arrives a second time is dropped rather than counted again.
+    parts: BTreeMap<u16, Vec<u8>>,
+    /// The bytes held in `parts`, so the reassembler can bound what one connection holds at once.
+    pub received_bytes: usize,
 }
 
 impl NetBlob {
@@ -238,7 +242,8 @@ impl NetBlob {
             sender: 0,
             queue_id,
             priority: 0,
-            seen: Vec::new(),
+            parts: BTreeMap::new(),
+            received_bytes: 0,
         }
     }
 
@@ -256,7 +261,8 @@ impl NetBlob {
             sender,
             queue_id: 0,
             priority: 0,
-            seen: Vec::new(),
+            parts: BTreeMap::new(),
+            received_bytes: 0,
         }
     }
 
@@ -325,7 +331,6 @@ impl NetBlob {
             self.buf_size = buf_size;
             self.c_max_fragments = u32::from(h.num_frags);
             self.queue_id = h.queue_id;
-            self.seen = vec![false; num_frags];
         } else {
             if u32::from(h.num_frags) != self.c_max_fragments || h.queue_id != self.queue_id {
                 return false;
@@ -344,24 +349,18 @@ impl NetBlob {
             return false;
         }
 
-        // The deliberate deviation: the original would store this again and count it again.
-        if self
-            .seen
-            .get(usize::from(h.blob_num))
-            .copied()
-            .unwrap_or(false)
-        {
+        // A fragment that has already arrived is dropped rather than counted again, so a message
+        // completes only when every one of its distinct indices is in.
+        if self.parts.contains_key(&h.blob_num) {
             return false;
         }
 
-        // The buffer is grown lazily rather than allocated at `num_frags * 448`, so a hostile
-        // `num_frags` costs only what it actually sends. `buf_size` still carries the documented
-        // value, so every bounds test above behaves as the original's does.
-        if self.buf.len() < end {
-            self.buf.resize(end, 0);
-        }
-        self.buf[offset..end].copy_from_slice(&frag.payload);
-        self.seen[usize::from(h.blob_num)] = true;
+        // Only this fragment's own payload is kept, filed under its index; nothing is reserved for
+        // the gaps around it. So what a half-received message holds is the bytes that have arrived,
+        // never the whole span up to the furthest fragment's offset. `buf_size` still carries the
+        // declared length, so every bounds test above behaves the same.
+        self.received_bytes += payload_size;
+        self.parts.insert(h.blob_num, frag.payload.clone());
         self.num_fragments += 1;
 
         // The final fragment corrects the over-allocation.
@@ -377,11 +376,22 @@ impl NetBlob {
         self.c_max_fragments != 0 && self.num_fragments == self.c_max_fragments
     }
 
-    /// The reassembled message, trimmed to `buf_size`.
+    /// The reassembled message: the received fragments laid out contiguously, `buf_size` long.
+    ///
+    /// The one contiguous allocation happens here, when the message is complete and about to be
+    /// handed on, not while it is still arriving.
     #[must_use]
     pub fn take_payload(&mut self) -> Vec<u8> {
-        self.buf.resize(self.buf_size, 0);
-        std::mem::take(&mut self.buf)
+        let mut out = vec![0u8; self.buf_size];
+        for (blob_num, payload) in std::mem::take(&mut self.parts) {
+            let offset = usize::from(blob_num) * MAX_FRAG_DATA;
+            let end = offset + payload.len();
+            if end <= out.len() {
+                out[offset..end].copy_from_slice(&payload);
+            }
+        }
+        self.received_bytes = 0;
+        out
     }
 }
 
@@ -613,22 +623,30 @@ mod tests {
         assert!(b.is_complete());
     }
 
-    /// `num_frags = 0xFFFF` is a 29 MB allocation from one packet in the original. Here it costs
-    /// what it sends, and a declared size beyond the cap is refused outright.
+    /// A declared message longer than the cap is refused outright, and a half-received message
+    /// holds only the bytes that have arrived -- never the whole span up to the furthest
+    /// fragment's offset, wherever in the message that fragment sits.
     #[test]
-    fn reassembly_allocation_is_bounded() {
+    fn a_half_received_message_holds_only_what_has_arrived() {
         let id = NetBlobId(1);
         let mut b = NetBlob::for_recv(1);
         // 0xFFFF * 448 = 29,360,127 bytes declared -- above MAX_REASSEMBLY_BYTES, refused.
         assert!(!b.receive_add_fragment(&frag(id, 0xFFFF, 0, vec![0; 448])));
         assert_eq!(b.c_max_fragments, 0);
-        assert!(b.buf.is_empty());
+        assert_eq!(b.received_bytes, 0);
 
-        // A large but permitted blob allocates only what has actually arrived.
+        // One fragment of a long message holds one fragment's bytes.
         let mut b = NetBlob::for_recv(1);
         assert!(b.receive_add_fragment(&frag(id, 1000, 0, vec![0; 448])));
         assert_eq!(b.buf_size, 1000 * 448);
-        assert_eq!(b.buf.len(), 448, "lazily grown, not eagerly allocated");
+        assert_eq!(b.received_bytes, 448);
+
+        // The same holds when that one fragment sits at the far end of the message: the offset does
+        // not reserve the bytes before it.
+        let mut b = NetBlob::for_recv(1);
+        assert!(b.receive_add_fragment(&frag(id, 1000, 998, vec![7; 1])));
+        assert_eq!(b.received_bytes, 1, "the offset reserves nothing");
+        assert!(!b.is_complete());
     }
 
     /// `num_frags = 0` cannot start a blob.

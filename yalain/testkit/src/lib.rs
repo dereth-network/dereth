@@ -19,6 +19,7 @@
 #[cfg(feature = "retail-dats")]
 pub mod authored;
 pub mod bot;
+pub mod faults;
 pub mod invariants;
 pub mod play;
 #[cfg(feature = "retail-dats")]
@@ -27,7 +28,7 @@ pub mod session;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
 use yalain_net::memory::MemoryNet;
-use yalain_net::{LocalTime, NetConfig, Port, ServerNet, Service};
+use yalain_net::{fixed_stream, LocalTime, NetConfig, Port, ServerNet, Service};
 use yalain_store::{MemoryStore, Store, StoredPosition};
 use yalain_world::start::StartArea;
 use yalain_world::{CharGenRules, Clock, Server, ServerConfig, StartRules};
@@ -169,7 +170,7 @@ pub fn test_skills() -> yalain_world::skills::SkillTable {
                 missile: 0x4700_00BE,
                 missile_speed: 35.0,
                 radius: 0.0,
-                ..strike
+                ..strike.clone()
             }],
         )
     };
@@ -244,7 +245,7 @@ pub fn test_skills() -> yalain_world::skills::SkillTable {
                 5.0,
                 0x4_0000,
                 0xC81,
-                vec![plays(0x8100_00CD), strike],
+                vec![plays(0x8100_00CD), strike.clone()],
             ),
         ),
         (
@@ -326,7 +327,7 @@ pub fn test_skills() -> yalain_world::skills::SkillTable {
                 1,
                 0x4100_00B0 + i,
                 0x14A0,
-                vec![plays(0), bolt],
+                vec![plays(0), bolt.clone()],
             ),
         ));
     }
@@ -357,7 +358,15 @@ pub fn test_skills() -> yalain_world::skills::SkillTable {
         ));
         autos.push((
             199 + i,
-            basic(1.0, 80.0, 0x4, 1, 0x4100_00E2 + i, 0x14A0, vec![arrow]),
+            basic(
+                1.0,
+                80.0,
+                0x4,
+                1,
+                0x4100_00E2 + i,
+                0x14A0,
+                vec![arrow.clone()],
+            ),
         ));
     }
     for (id, usage) in autos {
@@ -1014,6 +1023,8 @@ pub fn butchery_skill() -> yalain_world::craft::CraftSkillDef {
         }),
         pool_share: 0.01,
         cannot_raise: false,
+        bonus_stat: 0,
+        common_name: (0, 0),
     }
 }
 
@@ -1219,6 +1230,36 @@ pub fn creature_effects() -> Vec<yalain_world::effect_defs::EffectDef> {
     ]
 }
 
+/// An effect that only lasts on its holder, doing nothing (a workshop's, say).
+#[must_use]
+pub fn plain_effect(state: u32) -> yalain_world::effect_defs::EffectDef {
+    use yalain_world::effect_defs::{EffectDef, Kind, Scale};
+    EffectDef {
+        state,
+        kind: Kind::Other,
+        duration: Scale::default(),
+        priority: Scale::default(),
+        fx: 0,
+        external_flags: 0,
+        internal_flags: 0,
+        enum_value: 0,
+        eq_class: 0,
+        name: None,
+    }
+}
+
+/// An effect that attunes the item it is on to whoever holds it while it runs.
+#[must_use]
+pub fn attuning_effect(state: u32) -> yalain_world::effect_defs::EffectDef {
+    use yalain_world::effect_defs::Scale;
+    yalain_world::effect_defs::EffectDef {
+        duration: Scale(vec![(0.0, 1800.0)]),
+        priority: Scale(vec![(0.0, 1.0)]),
+        eq_class: 114,
+        ..plain_effect(state)
+    }
+}
+
 /// What the tests craft (see the constants above), as the September 2013 data defines it.
 #[must_use]
 pub fn test_crafting() -> yalain_world::craft::Crafting {
@@ -1236,7 +1277,7 @@ pub fn test_crafting() -> yalain_world::craft::Crafting {
             ordinal: 1,
             quantity: 20,
             items: vec![IRON],
-            classes: Vec::new(),
+            ..Ingredient::default()
         }],
         checks: vec![Check {
             upto: 2.0,
@@ -1258,6 +1299,8 @@ pub fn test_crafting() -> yalain_world::craft::Crafting {
                     Action::Destroy {
                         ordinal: 1,
                         quantity: 20,
+                        by_spinner: None,
+                        spinners: None,
                     },
                     Action::Text {
                         text: (0xE7E3_18D9, 0x2500_1AEF),
@@ -1350,6 +1393,7 @@ pub fn test_template(
     yalain_content::Template {
         id,
         description: yalain_content::Description {
+            name_text: None,
             package,
             look: 0x1F00_0000 | (id & 0xFFFF),
             enter_fx: 0x4100_0010,
@@ -1430,6 +1474,7 @@ pub fn test_loot() -> yalain_content::LootTable {
             extras: Vec::new(),
             placed: "authored for the tests".into(),
             confidence: "authored".into(),
+            chest: None,
         }],
     }
 }
@@ -1509,13 +1554,24 @@ impl<S: Store> Harness<S> {
     pub fn with(cfg: ServerConfig, store: S, rules: CharGenRules) -> Self {
         let now = LocalTime(1000.0);
         let world = SocketAddrV4::new(Ipv4Addr::LOCALHOST, WORLD_PORT);
+        // A test puts a player where it needs one by a report; those that test the holding say so.
+        let cfg = ServerConfig {
+            holds_reports: false,
+            ..cfg
+        };
         let mut server = Server::new(cfg, store, rules)
+            .expect("the store sets ids aside")
             .with_world(test_start(), yalain_content::ContentPack::default());
         server.skill_table = test_skills();
         server.effect_table = test_effects();
         server.crafting = test_crafting();
         Self {
-            net: ServerNet::new(NetConfig::retail_ids(world), 0x5EED, 1.25e8, now),
+            net: ServerNet::new(
+                NetConfig::retail_ids(world),
+                fixed_stream(0x5EED),
+                1.25e8,
+                now,
+            ),
             server,
             wire: MemoryNet::default(),
             bots: Vec::new(),
@@ -1639,6 +1695,28 @@ impl<S: Store> Harness<S> {
     pub fn run(&mut self, n: usize) {
         for _ in 0..n {
             self.step();
+        }
+    }
+}
+
+/// Every test of the world holds this at its end: each client took every object's visual messages
+/// in turn, none waiting for a stamp that never came, and none carrying a visual stamp outside the
+/// visual kind.
+impl<S: Store> Drop for Harness<S> {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            return;
+        }
+        for (b, bot) in self.bots.iter().enumerate() {
+            let mut order = invariants::VisualOrder::new();
+            for r in bot.inbox.iter().filter(|r| r.world) {
+                order.see(r.blob_id, &r.bytes);
+            }
+            assert_eq!(
+                (order.held(), order.misrouted()),
+                (Vec::new(), Vec::new()),
+                "client {b}: the visual messages it holds, and those sent outside the visual kind"
+            );
         }
     }
 }

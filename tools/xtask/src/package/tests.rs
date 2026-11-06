@@ -17,7 +17,6 @@ const WINDOWS: &str = "x86_64-pc-windows-msvc";
 const LINUX_X64: &str = "x86_64-unknown-linux-gnu";
 const LINUX_ARM: &str = "aarch64-unknown-linux-gnu";
 const MAC_ARM: &str = "aarch64-apple-darwin";
-const MAC_X64: &str = "x86_64-apple-darwin";
 
 // ---------------------------------------------------------------- the allowlist
 
@@ -37,6 +36,7 @@ fn the_allowlist_is_the_binaries_the_documents_and_the_notices() {
             "SETUP.md",
             "THIRD-PARTY-LICENSES.html",
             "empyrean-import",
+            "empyrean-relay",
             "empyrean-server",
             "empyrean.toml.example",
         ]
@@ -44,6 +44,7 @@ fn the_allowlist_is_the_binaries_the_documents_and_the_notices() {
     let windows = allowlist(target(WINDOWS));
     assert!(windows.contains(&"empyrean-server.exe".to_owned()));
     assert!(windows.contains(&"empyrean-import.exe".to_owned()));
+    assert!(windows.contains(&"empyrean-relay.exe".to_owned()));
     assert!(!windows.contains(&"empyrean-server".to_owned()));
 }
 
@@ -70,6 +71,11 @@ fn every_file_the_package_reads_from_the_tree_is_there() {
     }
     let lifestoned = std::fs::read_to_string(ws.join(LIFESTONED_NOTICE)).expect("the notice");
     assert!(lifestoned.contains("MIT License"), "{lifestoned}");
+    let ac1999 = std::fs::read_to_string(ws.join(AC1999_NOTICE)).expect("the notice");
+    assert!(
+        ac1999.contains("https://gitlab.com/adamplumb/ac1999"),
+        "{ac1999}"
+    );
     assert!(ws.join(ABOUT_CONFIG).is_file());
     let template = std::fs::read_to_string(ws.join(ABOUT_TEMPLATE)).expect("the template");
     assert!(template.contains(notice::SECTION_START));
@@ -472,9 +478,9 @@ fn archives_are_named_for_version_and_target_and_the_release_folder_holds_nothin
         target(MAC_ARM).archive_root("0.1.0"),
         "empyrean-0.1.0-aarch64-apple-darwin"
     );
-    assert_eq!(
-        classify("empyrean-0.1.0-x86_64-apple-darwin.tar.gz", "0.1.0"),
-        Ok(Asset::Archive(target(MAC_X64)))
+    assert!(
+        classify("empyrean-0.1.0-x86_64-apple-darwin.tar.gz", "0.1.0").is_err(),
+        "Intel Macs are no longer released for"
     );
     assert_eq!(
         classify(
@@ -619,7 +625,7 @@ fn each_host_builds_what_it_can_and_says_why_it_cannot() {
         Ok(Builder::Cargo)
     );
     assert_eq!(
-        targets::plan(target(MAC_X64), &host(Os::Mac, false)),
+        targets::plan(target(MAC_ARM), &host(Os::Mac, false)),
         Ok(Builder::Cargo)
     );
     assert_eq!(
@@ -1073,8 +1079,7 @@ const SYSTEM: &[&str] = &[
     "/System/Library/Frameworks/Security.framework/Versions/A/Security",
 ];
 
-/// A signed arm64 binary linking only system libraries at macOS 11 passes; an unsigned x86-64
-/// one passes too (only Apple silicon demands the signature).
+/// A signed arm64 binary linking only system libraries at macOS 11 passes.
 #[test]
 fn a_macho_linking_only_the_system_at_the_floor_passes() {
     let arm = macho(headers::CPU_TYPE_ARM64, SYSTEM, Some((11, 0)), true);
@@ -1082,8 +1087,6 @@ fn a_macho_linking_only_the_system_at_the_floor_passes() {
     assert_eq!(parsed.dylibs, SYSTEM);
     assert_eq!(parsed.min_os, Some((11, 0, 0)));
     assert!(headers::check_binary(&arm, target(MAC_ARM), Role::Server).is_ok());
-    let intel = macho(headers::CPU_TYPE_X86_64, SYSTEM, Some((10, 12)), false);
-    assert!(headers::check_binary(&intel, target(MAC_X64), Role::Server).is_ok());
 }
 
 /// A Homebrew library, an unsigned arm64 binary, a minimum above the floor and the wrong CPU are
@@ -1144,7 +1147,8 @@ fn the_crate_list_is_read_from_cargo_tree_once_per_crate() {
 }
 
 /// NOTICE.txt offers the exact commit's source and the release's, says no game data is inside,
-/// and carries the ACE attribution, the Lifestoned notice and the crate list.
+/// and carries the ACE, ClassicACE and ac1999 attributions, the Lifestoned notice and the crate
+/// list.
 #[test]
 fn the_notice_offers_the_commits_source_and_carries_every_attribution() {
     let crates = notice::parse_cargo_tree(
@@ -1159,6 +1163,7 @@ fn the_notice_offers_the_commits_source_and_carries_every_attribution() {
         crates: &crates,
         mit_licence: "MIT License\n\nCopyright (c) the contributors\n",
         lifestoned_notice: "MIT License\n\nCopyright (c) 2018 Scribble\n",
+        ac1999_notice: "ac1999\nhttps://gitlab.com/adamplumb/ac1999\n",
     });
     for needle in [
         &format!("https://github.com/dereth-network/dereth/tree/{commit}") as &str,
@@ -1168,6 +1173,7 @@ fn the_notice_offers_the_commits_source_and_carries_every_attribution() {
         "no Asheron's Call client files",
         "https://github.com/ACEmulator/ACE",
         "https://github.com/bDekaru/ClassicACE",
+        "https://gitlab.com/adamplumb/ac1999",
         "Copyright (c) 2018 Scribble",
         "public domain",
         "  log 0.4.22 (MIT OR Apache-2.0)",

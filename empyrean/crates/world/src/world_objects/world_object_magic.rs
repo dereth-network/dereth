@@ -436,7 +436,7 @@ pub fn try_resist_spell(
     }
 
     if let Some(target_player) = target_player {
-        if obj(w, target_player).is_some_and(WorldObject::under_lifestone_protection) {
+        if crate::world_objects::player_death::under_lifestone_protection(w, target_player) {
             player_handle_lifestone_protection(w, target_player);
             resisted = true;
         }
@@ -949,6 +949,11 @@ pub fn handle_cast_spell_boost(
     };
 
     let mut try_boost = ThreadSafeRandom::next(min_boost_value, max_boost_value);
+    // DIVERGE: V502, the cast's worth.
+    try_boost = round_to_i32(crate::world_objects::spell_potency::scaled(
+        w,
+        f64::from(try_boost),
+    ));
     let target_creature =
         target_creature.expect("ACE: targetCreature is null (NullReferenceException)");
     try_boost = round_to_i32(
@@ -1288,6 +1293,10 @@ pub fn handle_cast_spell_transfer(
     let mut src_vital_change = round_to_u32(f64::from(
         f32_of(source_current) * spell.proportion() * drain_mod,
     ));
+    // DIVERGE: V502, the cast's worth, which takes no more than the spell's own amount.
+    if let Some(p) = w.cast_potency {
+        src_vital_change = round_to_u32(p.transfer_drain(f64::from(src_vital_change)));
+    }
 
     // TransferCap caps both srcVitalChange and destVitalChange
     // https://asheron.fandom.com/wiki/Announcements_-_2003/01_-_The_Slumbering_Giant#Letter_to_the_Players
@@ -1311,6 +1320,9 @@ pub fn handle_cast_spell_transfer(
     let mut dest_vital_change = round_to_u32(f64::from(
         f32_of(src_vital_change) * (1.0 - spell.loss_percent()) * boost_mod,
     ));
+    if let Some(p) = w.cast_potency {
+        dest_vital_change = round_to_u32(p.magnitude(f64::from(dest_vital_change)));
+    }
 
     // scale srcVitalChange to destVitalChange?
     let missing_dest = vital_missing(w, destination, creature_vital_key(spell.destination()));
@@ -1323,9 +1335,12 @@ pub fn handle_cast_spell_transfer(
     }
 
     if dest_vital_change > max_dest_vital_change {
-        let scalar = f32_of(max_dest_vital_change) / f32_of(dest_vital_change);
-
-        src_vital_change = round_to_u32(f64::from(f32_of(src_vital_change) * scalar));
+        // DIVERGE: without `EraFeatures::transfer_overflow_reduces_source` (V468) the overflow is
+        // wasted and the source pays in full.
+        if w.era.features.transfer_overflow_reduces_source {
+            let scalar = f32_of(max_dest_vital_change) / f32_of(dest_vital_change);
+            src_vital_change = round_to_u32(f64::from(f32_of(src_vital_change) * scalar));
+        }
         dest_vital_change = max_dest_vital_change;
     }
 
@@ -3301,6 +3316,16 @@ pub fn try_cast_item_enchantment_with_redirects(
     let target_creature = as_creature(w, target);
     let target_player = as_player(w, target);
 
+    // DIVERGE: without `EraFeatures::item_enchantment_redirection` (V469) an item enchantment
+    // cast on a creature does not pass to its equipment; refused here too, before resistance,
+    // aggression or effects.
+    if !w.era.features.item_enchantment_redirection
+        && target_creature.is_some()
+        && spell.is_item_targeted_enchantment()
+    {
+        return;
+    }
+
     // if negative item spell, can be resisted by the wielder
     if spell.is_harmful() {
         let mut target_resist = target_creature;
@@ -4165,7 +4190,9 @@ fn spell_projectile_set_fields(
     let spawn_pos = obj(w, sp)
         .and_then(WorldObject::location)
         .map(|l| Position::from_position(&l));
+    let potency = w.cast_potency;
     let f = crate::world_objects::spell_projectile::fields_mut(w, sp);
+    f.potency = potency;
     f.from_proc = from_proc;
     f.is_weapon_spell = is_weapon_spell;
     f.spawn_pos = spawn_pos;

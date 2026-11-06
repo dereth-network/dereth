@@ -77,6 +77,7 @@ impl ShellStatus {
 }
 
 /// The lines typed, newest first, and where stepping stands (-1: before the newest).
+// D2-07664, D2-07667
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct History {
     lines: Vec<String>,
@@ -160,7 +161,7 @@ impl History {
 /// The commands the player's scripts made known: each name to the function that carries it out
 /// and whether a line naming it is expanded; the names the help knows. The player's own table,
 /// made empty with the player's shell and dropped with it.
-// D2-07679, D2-07678
+// D2-07679, D2-07678, D2-12937, D2-12933
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Commands {
     pub names: BTreeMap<String, u32>,
@@ -489,7 +490,7 @@ impl Typing<'_> {
     /// The help for command `name`, or for every command when `name` is empty, shown: the help's
     /// text as help text (kind 8) when it has any; for a name the help does not know, the
     /// unrecognized-command line naming it (kind 1).
-    // D2-08083
+    // D2-08083, D2-08072, D2-04674
     pub fn display_help_text(&mut self, name: &str) -> Result<(), Stop> {
         let (status, text) = self.help_text(name)?;
         let shown = match status {

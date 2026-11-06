@@ -1362,7 +1362,9 @@ impl World {
     }
 
     /// The container arm of the same two lines: `TYPE_CONTAINER` (`0x200`) makes the client walk
-    /// the contained-items list and offer every child.
+    /// the contained-items list and offer every child. Whatever says it is in this container is
+    /// offered too: an object that arrived before its container is on no list, since a container
+    /// the client has not met has none.
     ///
     /// Returns how many objects were offered — the denominator for the count of changes.
     pub fn update_spell_components_under(&mut self, id: ObjectId) -> (usize, usize) {
@@ -1374,6 +1376,14 @@ impl World {
             .is_some_and(|w| w.inq_type() & item_type::CONTAINER != 0);
         if is_container {
             queue.extend(self.exhaustive_contained_items(id));
+            let unlisted: Vec<ObjectId> = self
+                .tables
+                .weenies
+                .iter()
+                .filter(|(c, w)| w.pwd.container_id == Some(id) && !queue.contains(c))
+                .map(|(c, _)| c)
+                .collect();
+            queue.extend(unlisted);
         }
         for c in queue {
             offered += 1;
@@ -1509,23 +1519,11 @@ pub fn spell_target_type(base: &SpellBase) -> u32 {
     formula_target_type(&decrypt_formula(&base.raw_comps, base.comp_key))
 }
 
-/// Returns the target type a **decrypted** formula names, or 0 unless it is complete.
-///
-/// The target component is the last filled slot of the run that starts at slot 5: the walk goes up
-/// from slot 5 while the slot is non-zero, stopping at slot 8, and takes the slot before the one it
-/// stopped at. A formula with only its five required slots therefore aims with slot 4, and a full
-/// eight-slot formula with slot 7. That component is mapped by
-/// [`dereth_rules::weenie::spell_target_type_of_component`].
+/// Returns the target type a **decrypted** formula names, or 0 unless it is complete; the shared
+/// rule the server applies too.
 #[must_use]
 pub fn formula_target_type(comps: &[u32; 8]) -> u32 {
-    if !formula_is_complete(comps) {
-        return 0;
-    }
-    let mut i = 5;
-    while i < 8 && comps[i] != 0 {
-        i += 1;
-    }
-    dereth_rules::weenie::spell_target_type_of_component(comps[i - 1])
+    dereth_rules::weenie::formula_target_type(comps)
 }
 
 #[derive(Debug, Clone)]

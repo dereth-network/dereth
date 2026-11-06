@@ -3,6 +3,10 @@
 
 use std::path::{Path, PathBuf};
 
+use dereth_dat::{FileSet, ModernDat};
+
+use crate::container::LAYOUT;
+
 /// The data files of an install.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum DatName {
@@ -52,6 +56,24 @@ impl DatName {
             }
         }
     }
+}
+
+/// The files a world's overlay lies over, by the role each plays: the first region's cell file and
+/// the English file are the only ones of their kind it knows.
+pub const FILE_SET: FileSet = FileSet::new(
+    [
+        Some("portal.dat"),
+        Some("cell_1.dat"),
+        Some("local_English.dat"),
+        Some("highres.dat"),
+    ],
+    LAYOUT,
+);
+
+/// The name of the file that plays `role` in [`FILE_SET`].
+#[must_use]
+pub const fn role_file(role: ModernDat) -> &'static str {
+    FILE_SET.holder_name(role)
 }
 
 /// Whether a folder holds an install (its portal file).

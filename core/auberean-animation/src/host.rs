@@ -97,10 +97,11 @@ pub enum Event {
         time: f32,
         ramp: f32,
     },
-    /// The camera turns to an object; `words` are the two the client passes along
-    /// (`0x40000002`, `0x40000001`), `ramp` half a second.
+    /// The camera turns to an object as the object plays `behavior`, if it can; `words` are the
+    /// two the client passes along (`0x40000002`, `0x40000001`), `ramp` half a second.
     TargetedCamera {
         target: u64,
+        behavior: u32,
         words: (u32, u32),
         time: f32,
         ramp: f32,
@@ -155,8 +156,6 @@ pub trait Host {
     fn behavior_flags(&self, behavior: u32) -> Option<u64>;
     /// Whether the object is the player's own.
     fn is_the_player(&self) -> bool;
-    /// Ask another object to play a behavior; whether it could.
-    fn do_behavior_on_object(&mut self, target: u64, behavior: u32) -> bool;
     /// The effects animations set off, when the object keeps them.
     fn triggers(&mut self) -> Option<&mut FrameTriggers>;
     /// Gather what an effect script sets off by `time` (in cycles) into `g`.

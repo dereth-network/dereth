@@ -292,6 +292,10 @@ fn the_shared_taboo_matcher_refuses_what_aces_regex_refuses() {
 }
 
 fn dats() -> Arc<DatManager> {
+    dats_builder().build().expect("fake dats")
+}
+
+fn dats_builder() -> FakeDats {
     empyrean_testkit::dats::with_stat_tables(FakeDats::new())
         .with_xp_table(sample::xp_table())
         .with_char_gen(char_gen())
@@ -308,8 +312,6 @@ fn dats() -> Arc<DatManager> {
                 palette_ids: vec![DataId(0x0400_0A01), DataId(0x0400_0A02)],
             },
         )
-        .build()
-        .expect("fake dats")
 }
 
 fn clothing(wcid: u32, valid: EquipMask, priority: CoverageMask) -> ContentWeenie {
@@ -2046,7 +2048,8 @@ mod real_content {
             let cell = loc.landblock_id().raw();
             assert!(cell_is_valid(&w, cell), "{}: {cell:08X}", area.name);
             match w.era.start_positions {
-                empyrean_common::era::StartPositions::FromCharGen => {
+                empyrean_common::era::StartPositions::AtCharGenLocation
+                | empyrean_common::era::StartPositions::FromCharGen => {
                     assert_eq!(cell, area.locations[0].cell.0, "{}", area.name);
                 }
                 empyrean_common::era::StartPositions::Towns(towns) => {
@@ -2267,3 +2270,85 @@ fn an_out_of_range_template_is_answered_corrupt() {
         assert!(characters(&w).is_empty());
     }
 }
+
+/// Divergence: V461
+#[test]
+fn launch_discards_only_validated_creation_remainders_and_saves_the_result() {
+    use empyrean_common::era::{EraId, StartPositions};
+    for era in [EraId::Launch, EraId::Infiltration, EraId::Eor] {
+        for (skills, expected) in [
+            (sacs(&[]), 50),
+            (standard_sacs(), 23),
+            (
+                sacs(&[
+                    (6, SPECIALIZED),
+                    (21, SPECIALIZED),
+                    (31, SPECIALIZED),
+                    (36, SPECIALIZED),
+                ]),
+                0,
+            ),
+        ] {
+            let mut w = world();
+            w.era = era.rules();
+            if era == EraId::Launch {
+                launch_starters::configure(&mut w, None);
+            }
+            let message = request("Aldric", 1, ABILITIES, skills);
+            let (result, p) = create(&mut w, &message);
+            assert_eq!(result, CreateResult::Success);
+            let credits = p.player.available_skill_credits().unwrap();
+            if era == EraId::Launch {
+                assert_eq!(credits, 0);
+                assert_eq!(recalls_disabled(&p), None);
+                let loc = p.player.get_position(PositionType::Location).unwrap();
+                let inst = p.player.get_position(PositionType::Instantiation).unwrap();
+                assert_eq!(
+                    (loc.landblock_id(), loc.pos(), loc.rotation()),
+                    (inst.landblock_id(), inst.pos(), inst.rotation())
+                );
+                assert_eq!(w.era.start_positions, StartPositions::AtCharGenLocation);
+            } else {
+                assert_eq!(credits, expected);
+            }
+            let sent = send(&mut w, &message);
+            assert_eq!(sent.codes(), [Cgvr::Ok]);
+            let id = characters(&w)[0].0;
+            assert_eq!(
+                int(&saved_biota(&w, id), PropertyInt::AvailableSkillCredits),
+                Some(credits)
+            );
+        }
+    }
+}
+
+/// Divergence: V461
+#[test]
+fn launch_refuses_overspending_and_unavailable_creation_skills() {
+    use empyrean_common::era::EraId;
+    let mut w = world();
+    w.era = EraId::Launch.rules();
+    let overspent = request(
+        "Aldric",
+        1,
+        ABILITIES,
+        sacs(&[
+            (6, SPECIALIZED),
+            (21, SPECIALIZED),
+            (31, SPECIALIZED),
+            (36, SPECIALIZED),
+            (22, SPECIALIZED),
+        ]),
+    );
+    assert_eq!(
+        create(&mut w, &overspent).0,
+        CreateResult::TooManySkillCreditsUsed
+    );
+    let unavailable = request("Aldric", 1, ABILITIES, sacs(&[(40, TRAINED)]));
+    assert_eq!(
+        create(&mut w, &unavailable).0,
+        CreateResult::InvalidSkillRequested
+    );
+}
+
+mod launch_starters;

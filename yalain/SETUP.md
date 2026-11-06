@@ -71,7 +71,9 @@ https://github.com/dereth-network/yalain-world/releases, checks the archive's SH
 value built into `yalain`, checks the database, and unpacks it into a per-user cache folder, one
 folder per release. It needs an internet connection once. A release already in the cache is not
 downloaded again (`<tag> is already cached`). An archive whose SHA-256 does not match, or a
-database that does not check, stops it with an error, and nothing is cached.
+database that does not check, stops it with an error, and nothing is cached. A folder under the
+pinned release's name whose files are not that release is fetched again, and the old folder is
+kept beside it as `<tag>.replaced`.
 
 The cache is a per-user folder:
 
@@ -104,15 +106,22 @@ yalain world fetch --from yalain-world-<tag>.zip
 
 `--world-db` chooses:
 
-- **Nothing, or `--world-db pinned`:** the release this build pins, from the cache. If it has not
-  been fetched, the server stops and says to run `yalain world fetch`. A release fetched with
-  `--dir` is not looked for there: serve it as a folder (`--world-db <folder>/<tag>`).
+- **Nothing, or `--world-db pinned`:** the release this build pins, from the cache. If it is not
+  there, the server fetches it as it starts, as `yalain world fetch` does, and a world that lies
+  over a release does the same for that one. If that fails it stops and says why, and nothing is
+  changed. A release fetched with `--dir` is not looked for there: serve it as a folder (`--world-db <folder>/<tag>`).
 - **`--world-db <folder>`:** the database in that folder, as it is. This is how to serve an
   unreleased checkout of the database's repository, or a release you unpacked yourself.
 - **A world made in [Athenaeum](../athenaeum/README.md)** names a base database (its `[base]`) and
   holds only its own changes. Give its folder to `--world-db`, and the server lays it over the
   release its `[base]` names (or the pinned one, if it names none), from the cache. `--world-base
   <folder>` takes the base from that folder instead.
+  If the world changes the game's own records, `athenaeum build` writes them to its `overlay`
+  folder (`--dat-overlay` names another), and the server reads its data files through that. An
+  overlay built against another install, or another world's, stops the server: build it again
+  against this one's `--dats`. Auberean is sent what it lacks as it logs in. A client holding other
+  data files is refused, and so is a retail client unless you turn on `[ddd] enable_dat_patching`:
+  then it must run with `-rodat off`, on a copy of its files kept for this world.
 
 Two commands help when you change a database:
 
@@ -171,25 +180,32 @@ to others.
 | `--no-referral` | keep each client on its login connection instead of sending it to the world's port |
 | `--listed-accounts` | admit only accounts made with `--add-account` (section 5) |
 | `--add-account <name>:<ticket>` | make an account with that ticket, then carry on (section 5) |
+| `--admin <name>` | make an account an admin's when this start makes it with `--add-account` (section 5) |
+| `--admin-command <command>:<group,group>` | keep an account-level admin command to named groups (section 5) |
+| `--serve-admin-library` | serve admin accounts' retail clients the library their admin commands need (section 5) |
 | `--secret-cost <n>` | the bcrypt cost tickets are kept at, 4 to 31 (default 8; section 5) |
 | `--save-interval <s>` | save each character in the world every that many seconds, 1 or more (default 300; section 3.3) |
+| `--watchdog <s>` | stop with a failure if the world runs no pass for that many seconds, 0 for never (default 300) |
 | `--shutdown-interval <s>` | how long `shutdown` counts down, 0 to 99999 seconds (default 120; section 3.3) |
 | `--max-sessions <n>` | how many logins the world holds at once (default 128; section 3.7) |
 | `--max-sessions-per-address <n>` | how many logins one address holds at once (default `unlimited`; section 3.7) |
 | `--unlimited-sessions-from <ip>` | an address the per-address limit does not hold back; may be given many times (section 3.7) |
+| `--download-rate <n>` | the bytes a second a client is sent a large data download at, 4096 to 262144 (default 65536, the retail servers' rate: about two minutes over the largest record) |
 | `--motd <text>` | a message shown to each player as its character enters the world; `\n` starts a new line (default: none) |
 | `--status <ip>:<port>` | serve the status endpoint at this address (default: off; section 3.8) |
+| `--websocket` and the `--websocket-…` options | also take WebSocket connections, for clients in a browser (default: off; section 4.1) |
 | `--config <file>` | read the options from this configuration file (section 3.6) |
 | `--banned-names <file>` | refuse new character names holding the words it lists (below) |
 | `--no-friends` | serve no friends service (section 4) |
-| `--hub`, `--hub-slug`, `--hub-key-file`, `--federation` | the Dereth Network (section 8) |
+| `--hub`, `--hub-slug`, `--hub-key-file`, `--federation`, `--global-room`, `--min-character-age` | the Dereth Network (section 8) |
 | `--verbose` | log at the debug level (section 7) |
 | `--seconds <s>` | stop after that many seconds |
 | `--stop-at-console-end` | stop, saving everyone, when the console's input ends (section 3.3) |
+| `--update <policy>`, `--update-check-hours <h>`, `--update-warning-seconds <s>`, `--update-source <url>` | which new releases the server installs by itself, and how (section 3.10) |
 | `--no-status-ping`, `--status-ping-hellos <n>`, `--status-ping-asks <n>`, `--status-ping-replies <n>` | turn the status ping off, or set its limits (section 3.9) |
 
-`yalain --version` prints the version, and `yalain --release-facts` what a launcher's updates read
-(section 3.10). The server exits with 0 when it stops as asked, 1 when it fails, and **3** when
+`yalain --version` prints the version, `yalain --release-facts` what an update reads, and
+`yalain update` checks for and installs a new release (section 3.10). The server exits with 0 when it stops as asked, 1 when it fails, and **3** when
 another program holds one of its ports (section 6.3).
 
 **Banned names.** The file holds one pattern a line, in small letters; `*` stands for any run of
@@ -344,9 +360,14 @@ shard_db_path = "yalain.sqlite"
 | `[server] world_base_path` | `--world-base` | Yalain only |
 | `[server] shutdown_interval` | `--shutdown-interval` | seconds |
 | `[server] player_save_interval` | `--save-interval` | Yalain only; seconds |
+| `[server] watchdog_seconds` | `--watchdog` | Yalain only; seconds, 0 for never |
 | `[server] log_level` | `--verbose` | `debug` (or `trace`) logs at the debug level; others at `info` |
 | `[server] status_address` | `--status` | empty: off |
 | `[server] stop_at_console_end` | `--stop-at-console-end` | Yalain only |
+| `[server] update` | `--update` | default `"off"`; `"patch"` or `"minor"` (section 3.10) |
+| `[server] update_check_hours` | `--update-check-hours` | default 6 |
+| `[server] update_warning_seconds` | `--update-warning-seconds` | default 300 |
+| `[server] update_source` | `--update-source` | default empty: the repository the build came from |
 | `[server.network] host` | `--bind` | |
 | `[server.network] port` | `--login-port` | |
 | `[server.network] world_port` | `--world-port` | Yalain only; default `port` + 2 |
@@ -356,9 +377,13 @@ shard_db_path = "yalain.sqlite"
 | `[server.network] maximum_allowed_sessions` | `--max-sessions` | |
 | `[server.network] maximum_allowed_sessions_per_ip_address` | `--max-sessions-per-address` | -1: unlimited |
 | `[server.network] allow_unlimited_sessions_from_ip_addresses` | `--unlimited-sessions-from` | a list |
+| `[server.network] download_bytes_per_second` | `--download-rate` | Yalain only; default 65536, 4096 to 262144. The floor hasn't been tried against a retail client, and at the top about a quarter of the packets were sent twice |
 | `[server.accounts] allow_auto_account_creation` | `--listed-accounts` when false | |
 | `[server.accounts] password_hash_work_factor` | `--secret-cost` | |
 | `[server.accounts] accounts` | `--add-account` | Yalain only; a list of `name:ticket` |
+| `[server.accounts] admins` | `--admin` | Yalain only; a list of account names, each raised only as `accounts` makes it |
+| `[server.accounts] admin_commands` | `--admin-command` | Yalain only; a list of `command:group,group` |
+| `[server.accounts] serve_admin_library` | `--serve-admin-library` | Yalain only |
 | `[server.accounts] banned_names_path` | `--banned-names` | Yalain only |
 | `[status] udp_ping` | `--no-status-ping` when false | the status ping (section 3.9) |
 | `[status] hellos_per_minute`, `asks_per_minute`, `replies_per_second` | `--status-ping-hellos`, `--status-ping-asks`, `--status-ping-replies` | default 4, 4 and 50 |
@@ -369,12 +394,18 @@ shard_db_path = "yalain.sqlite"
 | `[federation] hub_url` | `--hub` | `wss://` (the heartbeat goes to its `https://`), or `ws://` on this machine |
 | `[federation] slug` | `--hub-slug` | |
 | `[federation] key_file` | `--hub-key-file` | default `network.key` |
+| `[federation] min_character_age_seconds` | `--min-character-age` | 0: seconds a character must have played before it sends to the network |
+| `[federation] global_room` | `--global-room` | `general` (the default), `trade`, `lfg`, `roleplay`, or empty for none (section 8.4) |
+| `[dat_overlay] path` | `--dat-overlay` | empty: the world's own `overlay` folder |
+| `[dat_overlay] patching` | `--no-dat-overlay-patching` when false | `true`: a client that keeps overlays is sent the world's records |
+| `[dat_overlay] records_per_minute` | `--dat-overlay-records-per-minute` | 60000; 0 for the original servers' 1,000 a minute, shared |
+| `[ddd] enable_dat_patching` | `--enable-dat-patching` | `false`: a retail client lacking a world's overlay is refused |
 | `[testing] add_characters`, `place_characters`, `character_money`, `make_characters` | `--add-character`, `--place`, `--money`, `--make-character` | Yalain only; lists |
 | `[testing] game_time`, `hold_clock`, `echo_positions`, `run_seconds` | `--game-time`, `--hold-clock`, `--no-echo` when false, `--seconds` | Yalain only |
 
 A relative path is read from the file's folder, not the working folder. Empyrean's keys that
-Yalain has no setting for (its world pack and overlay, its engine's caches and preloaded
-landblocks, its WebSocket endpoint, its own updates, its admin channel, the era, and the rest) are logged as warnings and ignored, so a file copied from an Empyrean world reads;
+Yalain has no setting for (its world pack and content overlay, its engine's caches and preloaded
+landblocks, its WebSocket endpoint, its admin channel, the era, and the rest) are logged as warnings and ignored, so a file copied from an Empyrean world reads;
 so is any key the server does not know.
 
 The command line is read after the file, so an option given in both takes the command line's
@@ -387,7 +418,8 @@ in the source tree's `yalain/server/` lists every key with its default.
 The world holds at most 128 logins at once, as Empyrean does; `--max-sessions <n>` sets another
 number. A login past them is refused before its account is checked: the client shows *The logon
 server is full. Try again later.*, the September 2013 client's own line, and the connection is
-closed. A login that leaves frees its place at once.
+closed. A login that leaves frees its place at once. An admin's account with its right ticket is
+let in past this limit.
 
 `--max-sessions-per-address <n>` limits the logins one address holds at once in the same way
 (Empyrean's default, and Yalain's, is no limit). Players behind one router share an address, so a
@@ -403,11 +435,30 @@ With `--status <ip>:<port>` (for example `--status 127.0.0.1:9100`), the server 
 - `GET /health`: `ok`, for a monitor or a health check;
 - `GET /status` (also `GET /v1/world`): the world as JSON: `world_name`, `server` (`yalain`),
   `version`, `game` (`auberean`), `uptime_seconds`, `state` (`online`, or `maintenance` while a
-  shutdown counts down), `players_online` (characters in the world), `logins`, `max_logins` and
-  `connections`.
+  shutdown counts down), `players_online` (characters in the world), `logins`, `max_logins`,
+  `connections`, `saves_failing` (true while the database will not take saves: watch this one) and
+  `websocket_url` (section 4.1; `null` with the endpoint off).
+
+**If saves fail** (the disk is full, the file is read-only or another program has it locked), nothing is
+lost while the server runs: it holds what it could not write and tries again every five seconds. The log
+says `SAVES ARE FAILING` at once and every minute, `saves_failing` is true, and every player is told. Fix
+the cause and it catches up by itself. A server told to stop while saves fail tries for 30 seconds more,
+then names the characters it lost and exits with a failure, and no staged update is installed.
+
+**If the world panics** (a bug in the server), it stops. The log says `THE WORLD PANICKED`, with the place
+and the calls above it; every player is told. What finished before the panic is written, and nothing after:
+each character goes back to its last save, and the server exits with a failure, so a service with
+`Restart=on-failure` comes back by itself. A staged update isn't installed. Please report the log's lines.
+
+**A character that will not read** is refused at the door and never written over; the log names it. The
+player reads the client's own words for why. Its rows in `world_state` and `play_state` stay as they were,
+for you to restore a backup or to look at. A world record that will not read (`consignments`,
+`allegiances`) is copied to `<name>.unreadable` in `world_record` before the world starts it empty.
 
 It has **no authentication**. Keep it on `127.0.0.1` or a private network, and do not open its
-port in the firewall. It is off by default.
+port in the firewall. It is off by default. A web page on an origin in
+`server.websocket.allowed_origins` may read `/status` too, so it can find the WebSocket address; no
+other page can.
 
 ### 3.9 The status ping
 
@@ -426,16 +477,95 @@ question, so the ping cannot be used to flood someone else.
 Each Yalain release says what upgrading to it involves, in its `release.json`'s `upgrade`: the
 oldest version that can upgrade straight to it, whether the database's layout changes, whether it
 serves a newer world database, configuration keys it removes or needs, and notes. A launcher
-hosting the world reads it before updating. `yalain --release-facts` prints what a program is:
+hosting the world reads it before updating, and so does the server's own updater. `yalain
+--release-facts` prints what a program is:
 
 ```
 {"version":"0.1.0","target":"x86_64-unknown-linux-gnu","databases":{"store":2},"world_database":"v0.23.0"}
 ```
 
-To update by hand: stop the server, replace `yalain`, run `yalain world fetch` if the release
-serves a newer world database, and start it. A release that changes the database's layout backs
-it up first (section 3.5); to go back, put the old program and that backup back. A patch release
-never changes the database's layout or the configuration.
+A patch release never changes the database's layout or the configuration.
+
+**Automatic updates.** The server can keep itself up to date, within limits you set, and undo an
+update that does not come up. It is off until you turn it on:
+
+```toml
+[server]
+update = "patch"          # "off" (the default), "patch" or "minor"
+update_check_hours = 6    # how often it looks
+update_warning_seconds = 300   # the in-game countdown before it restarts
+```
+
+| `update` | What it installs by itself |
+|---|---|
+| `"off"` | Nothing. |
+| `"patch"` | Patch releases of the version it runs (`0.1.0` to `0.1.3`). These change the program alone: no migration and no configuration change (the world database's own patches are fetched). |
+| `"minor"` | Also minor releases of the same major version (`0.1.3` to `0.2.0`), with their database migrations and newer world databases. |
+
+Never installed by itself, only reported in the log: a major release, a pre-release, a release that
+needs a configuration key you must set, a release that cannot be upgraded to straight from the
+version you run (the intermediate one is installed first, on a later check), and a release that
+already failed here.
+
+**What happens.** A minute after start-up, and then every `update_check_hours`, the server asks
+GitHub for the releases of the repository it was built from, or of the one `update_source` names:
+another GitHub repository (`https://github.com/<owner>/<name>`), or a mirror that serves GitHub's
+releases API for one (`https://<host>/repos/<owner>/<name>`). When one qualifies, with the world
+still running, it:
+
+1. downloads this platform's archive, `release.json` and `SHA256SUMS`, and refuses the release if a
+   SHA-256 does not match. That is the only check of where the files came from: releases are not
+   signed, so the log says the release was checked by SHA-256 only;
+2. unpacks it into `.yalain-update/` beside the server, runs the new `yalain` once to confirm it
+   runs on this machine and is what the release declares, and, for a release that serves a newer
+   world database, has the new `yalain` fetch it (`yalain world fetch`);
+3. starts the shutdown countdown (`update_warning_seconds`), which players see as the usual shutdown
+   lines (also written to the log). `cancel-shutdown` cancels the update too; the next check tries
+   again;
+4. when the countdown ends and everything is saved: backs up the database
+   (`yalain.sqlite.backup-update-v<old>-v<new>-<UTC timestamp>`, the newest three kept), moves each
+   replaced file aside as `<name>.previous-v<old>`, puts the new files in place, and starts the new
+   server for a health check: it must open and migrate the database, load the world, open its
+   listeners and report itself ready;
+5. passes: the new server starts for real. Fails: the old files and the backed-up database are put
+   back, the failure is logged and recorded in `.yalain-update/state.json` (so that release is not
+   tried again automatically), and the old server starts again.
+
+A server stopped with Ctrl-C or a signal while an update waits installs nothing.
+
+**The folder must be writable** by the account the server runs as: the updater renames and writes
+the files beside `yalain`, and writes `.yalain-update/`.
+
+**Running as a service.** The server restarts itself into the new release; nothing needs to be
+configured for it. On Linux and macOS the process replaces itself with the new program, keeping its
+process ID, so a service manager sees the same main process keep running. On Windows, which cannot
+replace a running process, the old process starts the new server as its child, in the same console,
+and waits for it, holding no files, ports or databases; what is typed at the console is passed on
+to the new server.
+
+**By hand**, with any `update` setting:
+
+```
+yalain update --check [--config yalain.toml] [--policy patch|minor]
+yalain update --apply [--config yalain.toml] [--policy patch|minor]
+```
+
+`--check` lists every newer release, says why each would or would not be installed, and what
+installing the chosen one involves (migrations, the world database's fetch, configuration changes).
+`--apply` does steps 1 to 5 on a **stopped** server (it refuses while the server's login port is in
+use) and leaves the server stopped, so you or the service manager start it. It needs the world's
+`yalain.toml` to start the new server for its health check. Without `--policy`, the policy is
+`update`, or `minor` when `update` is `"off"`.
+
+**Going back.** A release that fails its health check is undone by itself. To go back later: stop
+the server, put `yalain.previous-v<old>` back as `yalain`, and put the backup made before the update
+back as the database (remove its `-wal` and `-shm` files first). What was played since the update
+is lost. A release that needs another first, or a major release, is installed the same way by hand:
+stop the server, replace `yalain`, run `yalain world fetch` if the release serves a newer world
+database, and start it.
+
+**A world the launcher hosts** keeps `update = "off"`: the launcher updates it, and refuses to start
+it otherwise.
 
 ---
 
@@ -472,6 +602,50 @@ or another. If something else already holds the TCP port, the server stops at st
 
 The Dereth Network needs no inbound port: the heartbeat and the link both go out from the server
 to the hub.
+
+With the WebSocket endpoint on (section 4.1), open its TCP port too when it serves `wss://` itself.
+Behind a reverse proxy, open only the proxy's port (443), and keep the endpoint on loopback or a
+private address that only the proxy can reach.
+
+### 4.1 WebSocket connections
+
+A browser cannot send UDP. With `[server.websocket]` enabled, the server also accepts each game
+datagram as one WebSocket message: the same packets, the same sessions and the same world. It is
+off by default. The settings are Empyrean's `[server.websocket]`, key for key, read by the same code,
+so [Empyrean's guide](../empyrean/SETUP.md#47-websocket-browser-clients) serves for this one: its
+reverse proxy and Cloudflare recipes apply as they stand, on the same keys.
+
+| Key | Default | Option | What it does |
+|---|---|---|---|
+| `enabled` | `false` | `--websocket` | Listen for WebSocket connections. |
+| `listen` | `"0.0.0.0:9443"` | `--websocket-listen` | The address and port. |
+| `tls_certificate`, `tls_private_key` | empty | `--websocket-tls-certificate`, `--websocket-tls-private-key` | PEM files for `wss://`. |
+| `behind_tls_proxy` | `false` | `--websocket-behind-tls-proxy` | A proxy in front terminates TLS. |
+| `trusted_proxies` | `[]` | `--websocket-trusted-proxy` | Proxies whose `X-Forwarded-For` names the client. |
+| `allowed_origins` | `[]` | `--websocket-allowed-origin` | The web pages allowed to connect, by origin; empty refuses every page. |
+| `maximum_connections_per_ip_address` | `4` | `--websocket-max-per-address` | Connections open at once from one client; `-1` is unlimited. |
+| `idle_timeout` | `60` | `--websocket-idle-timeout` | Seconds without a message before a connection is closed. |
+| `public_url` | empty | `--websocket-public-url` | The URL reported on `/status` and told to the hub; empty derives it from `listen`. |
+
+**The connection must be encrypted.** The game protocol is not, and the login carries the account's
+password. So set `tls_certificate` and `tls_private_key`, or run behind a reverse proxy that
+terminates TLS, on loopback or with `behind_tls_proxy = true`. Plain `ws://` on any other address is
+refused: the server stops at its start and says why, as it does for half a certificate, a `listen`
+that is no address or a trusted proxy that is none. Each stops it with exit code 1, a `listen` port
+another program holds included: no other game port would help.
+
+**One connection reaches the whole world.** A player's page opens one connection and needs one URL.
+It logs in and is sent to the world over that same connection, so the world's UDP ports do not have
+to be open for it, and the limit counts a player once. Each player's address is the connection's, or
+behind a proxy in `trusted_proxies` the one the proxy names.
+
+**The friends service rides the WebSocket too,** for a player in a browser on `wss://` or on this
+computer: no port of its own to open. On a plain `ws://` from elsewhere its ticket would go in the
+clear, so that player goes without friends.
+
+With the Dereth Network linked (section 8.2), the world tells its hub the URL too, and the hub lists
+it while the world is linked. The hub takes only a `wss://` URL, or a plain one to `127.0.0.1` for a
+world and its players on one machine; any other is left out, and the log says why.
 
 ---
 
@@ -515,11 +689,53 @@ one who cannot is refused there as well.
 ticket: it takes the first ticket it logs in with. A world of listed accounts makes no account
 for it; make the account first with `--add-account`, in the same command if you like.
 
-**Access levels.** Each account has a level, as Empyrean numbers them: 0 Player (every new
-account), 1 Advocate, 2 Sentinel, 3 Envoy, 4 Developer, 5 Admin. Only the console raises one
-(`set-accountaccess`, or `accountcreate` with a level); unlike Empyrean, the first account made is
-not made an admin, since an open world makes an account for anyone who logs in. Staff (an advocate
-or above) can give the moderation commands in game (section 6.1).
+**Admins.** Asheron's Call 2 has one kind of admin and no levels. An account either is an admin's
+or is a player's; every new account is a player's, and only you raise one: `set-accountadmin <name>`
+at the console, `accountcreate <name> <ticket> admin`, or `--add-account <name>:<ticket> --admin <name>`
+(`[server.accounts] accounts` and `admins`) at start. No account is made an admin for being the first.
+
+`--admin` raises a name only on the start that makes its account from a ticket in the same
+configuration: only then is the account's secret surely yours. It does nothing for an account already
+there, and logs a warning, because on an open world anyone may have logged in with that name first and
+holds it with their own ticket. That goes for a name whose account a later start lists, and for one
+named ahead of its account. To raise an account that already exists, check it is yours and use
+`set-accountadmin <name>` at the console. So the list never undoes the console: `set-accountadmin <name>
+off` lasts through restarts, and taking a name off the list changes nothing.
+
+**Admin characters.** An admin plays an ordinary character like anyone else, and keeps a separate
+admin character for admin work: `set-characteradmin <name>` at the console makes one of an admin
+account's characters an admin character (`off` undoes it), and it takes effect when the character
+next enters the world. A client that can ask for one at creation gets one on an admin's account; any
+other account is refused with the client's own answer. An admin character is drawn from the game's
+admin template, so the client gives it the game's admin commands. It stays an admin character only
+while its account is an admin's: on any other account it enters as a player.
+
+What makes an admin stays yours: `set-accountadmin`, `set-characteradmin`, `set-accountgroups` and
+`accountcreate ... admin` work only at the console, and an admin in game cannot give another admin's
+account a new password.
+
+**Named groups.** Eight commands act on accounts or the whole server: `ban`, `boot`, `fingerchar`,
+`fingerid`, `fingeraccount`, `serverparam`, `userlimit` and `dumpadmintable`. Each is open to every
+admin unless you keep it to named groups with `--admin-command ban:moderators,leads` (`[server.accounts]
+admin_commands`). `set-accountgroups <account> moderators,leads` puts an account in its groups, and
+`set-accountgroups <account>` takes it out of them all. What does the same work follows the same
+groups: `set-accountpassword`, `unban` and `banlist` follow `ban`, and `accountget` and `accountlist`
+follow `fingeraccount`. The console is never refused.
+
+**A retail client's admin commands.** The original client sends its admin commands encrypted, under a
+key only the original servers could read. `--serve-admin-library` (`[server.accounts]
+serve_admin_library`) serves an admin account's client a script library that sends them in the clear,
+through the login's data download: about 7 MB, once, which holds its login for about two minutes at
+the default `--download-rate`. That client must run with `-rodat off` and on a copy of the install kept
+for this world, since the download writes into its data files. Auberean sends them in the clear already,
+so it tells the server it holds the library and is sent none of it; a release before this one takes the
+download at every login. Without the option, the `@` commands work from any client.
+
+**Upgrading from access levels.** A database from before this keeps its accounts. One at the highest
+level (5, Admin) with a ticket becomes an admin. One in between (Advocate, Sentinel, Envoy or Developer),
+or at the highest with no ticket yet, becomes a player and is named in a warning at the first start, for
+you to raise if you want it to be an admin.
+The file is backed up first, as for any upgrade.
 
 **Bans.** A banned account cannot log in until its ban ends: the client says the account is
 banned, at its friends login and at its game login. A ban that has run out is lifted at the
@@ -546,7 +762,7 @@ command, in any case. Answers appear in the log (section 7).
 | `place <name> to <where>` | set where a character out of the world enters next (section 6.2) |
 | `make-character <file>`, `apply-build <file>`, `deletecharacter <name> [now]`, `forcelogoff <name>`, `export-character <name> <file>`, `import-character <file> <account> [new name]` | the operator's characters (section 6.2) |
 | `dn`, `dn block ...`, `dn unblock ...`, `dn verify <token>`, `dn help` | the Dereth Network (section 8.3) |
-| `accountcreate`, `accountget`, `accountlist`, `set-accountpassword`, `set-accountaccess`, `ban`, `unban`, `banlist`, `gag`, `ungag`, `boot`, `gamecast` | accounts, moderation and messages to everyone (section 6.1) |
+| `accountcreate`, `accountget`, `accountlist`, `set-accountpassword`, `set-accountadmin`, `set-characteradmin`, `set-accountgroups`, `ban`, `unban`, `banlist`, `gag`, `ungag`, `boot`, `gamecast` | accounts, moderation and messages to everyone (section 6.1) |
 | `help` or `?` | list the commands |
 
 A word that is no command is answered with a warning that lists them. Each command's answer is
@@ -584,20 +800,22 @@ These are Empyrean's console commands, with its answers. Each change is saved at
 command's answer is logged (in the form of section 6.3 at the console, with who gave it in game); a
 ticket typed into one is never logged.
 
-| Command | What it does | Level |
-| --- | --- | --- |
-| `accountcreate <name> <ticket> [level]` | make an account, a player's unless a level is given (a number or a name) | Admin |
-| `accountget <name>` | an account's id, level and any ban | Admin |
-| `accountlist` | every account, with its id, level and any ban | Admin |
-| `set-accountpassword <name> <ticket>` | give an account a new ticket; the old one no longer logs in | Admin |
-| `set-accountaccess <name> [level]` | set an account's level (a player's when none is given); a logged-in account has it at once | Admin |
-| `ban <account> <days> <hours> <minutes> [reason]` | keep an account out for that long; a logged-in account is booted | Sentinel |
-| `unban <account>` | lift a ban | Sentinel |
-| `banlist` | the accounts banned now, who banned them, until when and why | Sentinel |
-| `gag <character>` | stop a character's chat for five minutes of its time in the world | Sentinel |
-| `ungag <character>` | let it talk again | Sentinel |
-| `boot char <name>`, `boot account <name>`, `boot iid <0x id>`, each with `, <reason>` if you like | end a login; its character leaves the world as when a client goes away | Sentinel |
-| `gamecast <message>` | show every player in the world `Broadcast from System> <message>` | Envoy |
+| Command | What it does |
+| --- | --- |
+| `accountcreate <name> <ticket> [admin]` | make an account, a player's unless given the word `admin` |
+| `accountget <name>` | an account's id, whether it is an admin's, and any ban |
+| `accountlist` | every account, the same |
+| `set-accountpassword <name> <ticket>` | give an account a new ticket; the old one no longer logs in |
+| `set-accountadmin <name> [on\|off]` | make an account an admin's, or a player's again; a logged-in account has it at once |
+| `set-characteradmin <name> [on\|off]` | make a character of an admin's account an admin character, or a player again |
+| `set-accountgroups <name> [group,group...]` | put an account in its named groups (none when none are given) |
+| `ban <account> <days> <hours> <minutes> [reason]` | keep an account out for that long; a logged-in account is booted |
+| `unban <account>` | lift a ban |
+| `banlist` | the accounts banned now, who banned them, until when and why |
+| `gag <character>` | stop a character's chat for five minutes of its time in the world |
+| `ungag <character>` | let it talk again |
+| `boot char <name>`, `boot account <name>`, `boot iid <0x id>`, each with `, <reason>` if you like | end a login; its character leaves the world as when a client goes away |
+| `gamecast <message>` | show every player in the world `Broadcast from System> <message>` |
 
 A gagged character is told so, and then says, tells (in the game and through the friends
 service), emotes and speaks into rooms to nobody. Its gag counts down only while it is in the
@@ -608,16 +826,16 @@ A booted player's client shows that its character was booted from the world, and
 closes a second later. Its character lingers as when a client goes away; to take it out of the
 world at once, use `forcelogoff` (section 6.2).
 
-`gamecast` said in game by staff shows the message as from their character
+`gamecast` said in game by an admin shows the message as from their character
 (`Broadcast from Kara> Back in five minutes.`).
 
-**In game.** Staff say the same commands in game after `@` (`@boot char Kara, spamming`), aloud or
-into a chat room, up to their own level. Nobody hears the line, and the answer appears in the
-speaker's chat window. A player's line beginning with `@ban` is just said. Any player can say
+**In game.** Any character of an admin's account can say the same commands after `@` (`@boot char
+Kara, spamming`), aloud or into a chat room. Nobody hears the line, and the answer appears in the
+speaker's chat window. A player's line beginning with `@ban` is just said, and the attempt is logged. Any player can say
 `@passwd <old> <new>` to change their own account's password, at most once every five seconds; the
-old one must match. The client's own admin
-commands (`/boot`, `/ban`) do not reach Yalain: the client sends them encrypted with a key only
-the original servers had.
+old one must match. An admin character's own commands (`/boot`, `/ban`) reach Yalain from Auberean, and from
+a retail client given the library above; a retail client without it sends them encrypted, and they are
+not read.
 
 ### 6.2 Characters
 
@@ -793,8 +1011,8 @@ address players reach and the **login port**. Section 2.4 of
 once. Put it alone in a file (whitespace around it is ignored) that only the server's user can
 read. The key is the world's identity at the hub: whoever holds it can speak for the world.
 
-**Verify it.** A newly registered world is pending, and its key works only to verify it. Yalain
-has no in-game verification, so verify with a page on the endpoint's own host, as section 2.5 of
+**Verify it.** A newly registered world is pending, and its key works only to verify it. Verify it
+with `dn verify` (section 8.3), or with a page on the endpoint's own host, as section 2.5 of
 [the hub's specification](../docs/network/05-hub.md#25-proving-the-operator-runs-the-world) says.
 
 **Start the server** with the three options:
@@ -834,7 +1052,8 @@ heartbeat. Over it:
   Name@world, text`);
 - they list friends on other worlds (`/friend add Name@world`) and see them come online and go;
 - each character on the network is listed in the network's character directory, with its level,
-  race, sex, health and vigor, and its allegiance.
+  race, sex, health and vigor, and its allegiance;
+- the network's Global room is carried in one of the world's chat rooms (section 8.4).
 
 What linking needs:
 
@@ -857,6 +1076,11 @@ a slash:
 | `@dn on` | put this character on the network, as `Name@slug` |
 | `@dn off` | take it off |
 | `@dn` | its status: on or off, the hub connected or not, its friends on other worlds |
+| `@dn link`, `@dn unlink` | link it to the player's Discord account, or undo that |
+| `@dn friends`, `@dn friends add <Name@world>`, `@dn friends remove <Name@world>` | its friends on other worlds |
+| `@dn squelch <world>`, `@dn unsquelch <world>` | squelch a whole world for it, or undo that |
+| `@dng <text>`, `@dn global <text>` | say a line in the Global room, from wherever it is talking |
+| `@dn channel create`, `invite`, `join`, `leave`, `members`, `list` | channels across worlds |
 | `@dn help` | the commands |
 
 The line is heard by nobody, and the world answers in the player's chat window. The setting is
@@ -868,8 +1092,9 @@ every player with the friends service.
 | Command | What it does |
 | --- | --- |
 | `dn` | the world's link (connected, connecting or not connected), how many worlds are online, how many messages wait for the hub, and what is blocked |
-| `dn block <world>` or `dn block <Name@world>` | block a world, or one character of it, for everyone on this world |
+| `dn block <world>` or `dn block <Name@world>` | block a world, or one character of it, for everyone on this world (`dn admin block ...` too; `@dn admin block ...` in game, from an admin) |
 | `dn unblock <world>` or `dn unblock <Name@world>` | lift a block |
+| `dn admin global`, `dn admin global <general\|trade\|lfg\|roleplay\|off>` | where the world carries the Global room, or ask the hub to carry it there (`@dn admin global ...` in game, from an admin; section 8.4) |
 | `dn verify <token>` | verify this world with the token the site gave you |
 | `dn help` | list these commands |
 
@@ -880,7 +1105,7 @@ store, across restarts.
 
 **Verifying the world.** The site gives the world's operator a token (`dnv_...`) to prove the
 world is theirs. Type `dn verify <token>` at the console, or say `@dn verify <token>` in game from
-an admin's account (staff below an admin are told the command needs an admin's access). The world
+an admin's account. The world
 asks the hub, which sends a challenge to the world's login port; the world answers it over
 HTTPS, so the login port must be reachable from the internet. One line then says how it went: the
 world is verified and on the network, or why not. A second `dn verify` before the hub answers is
@@ -888,6 +1113,40 @@ refused.
 
 Without `--federation`, every `dn` command, `dn help` among them, answers *This world is not on
 the Dereth Network.*
+
+### 8.4 The Global room
+
+The Dereth Network's Global room is one room shared by every world that carries it, of either game.
+A world carries it in one of its own chat rooms, whose players then hear the other worlds' lines
+there as that room's own. Each line in that room from a character on the network goes to the other
+worlds. It is on from the start, in General; turn it off, or move it, as you like.
+
+`[federation] global_room` (`--global-room`) names the room:
+
+| `global_room` | carried in |
+| --- | --- |
+| left out, or `"general"` | General |
+| `"trade"` | Trade |
+| `"roleplay"`, `"lfg"` | PvP |
+| `""` | none: the world carries no Global room |
+
+Anything else stops the server at start. The names are the same on every world of the network, and
+Asheron's Call 2 has no LFG or Roleplay room, so both mean PvP, the room nobody here needs. No
+recorded session of the game ever said a line there. General is where a world's players already
+talk, so another world's lines mix with theirs and are shown as `[General]`. A quiet world may
+like that; a busy one may prefer `"roleplay"`, where they read `[PvP]`, and its players can filter
+them apart. New characters see all of these rooms in their main chat window.
+
+**The hub has the last word.** The setting is read until the hub keeps a room for the world: a hub
+that keeps none is told this one, once, and keeps it. After that, the setting is not read (the log
+says so, once, if it differs), so to move the room, say `@dn admin global trade` in game as an
+admin, type `dn admin global trade` at the console, or use the hub's operator page. `off` carries it
+nowhere. The world keeps the hub's last word, so it carries the room there while the hub is away.
+
+**What leaves the game.** A hub may mirror the Global room, and the world's own rooms, into Discord,
+and a linked person may say a line there as its own character; the world says that line only under
+the rules a character's own line meets. Tell your players, since their lines in that room leave the
+world and stay in those channels.
 
 ---
 
@@ -913,13 +1172,13 @@ On an open world (section 5), the first login with a new name makes the account.
 | --- | --- |
 | `yalain: --dats names the install to read the data from` | Give `--dats <install folder>`. |
 | `yalain: reading the character data: no portal data file in <folder>` | `--dats` names a folder without `portal.dat`. Name the install's folder, the one holding the `.dat` files. |
-| `yalain: the world database: the world database <tag> is not in <folder>: run yalain world fetch ...` | The pinned release is not in the cache. Run `yalain world fetch` as the user the server runs as, or give `--world-db <folder>`. |
+| `yalain: the world database: could not download <tag>, which this world needs: ...` | The release is not in the cache and the server could not fetch it: the rest of the line says why. Run `yalain world fetch` as the user the server runs as when it can reach it, or give `--world-db <folder>`. |
 | `yalain: the world database: ... problems in <folder>` | The database does not check or merge. Run `yalain world check <folder>` for the list. |
 | `yalain: --config <file>: the configuration file does not exist` | `--config` names a missing file. |
 | `yalain: yalain.toml: ...` | The configuration file is not TOML, or a key's value is not one its setting takes (section 3.6). |
 | `yalain.toml: <key>: not a setting of the server; ignored` | A misspelled key, or one the server does not have. The server starts without it. |
 | `yalain.toml: <key>: Empyrean's setting, which Yalain does not have; ignored` | A key of `empyrean.toml` Yalain has no setting for (section 3.6). The server starts without it. |
-| A player's client says the logon server is full | The world holds `--max-sessions` logins, or the player's address holds `--max-sessions-per-address` (section 3.7). |
+| A player's client says the logon server is full | The world holds `--max-sessions` logins (an admin's account passes this one), or the player's address holds `--max-sessions-per-address` (section 3.7). |
 | `yalain: --status <address>: ...` | The status endpoint's port is in use, or the address is not one of this machine. |
 | `yalain: binding the ports: ... [ports-taken]`, exit code 3 | A port, or the port above it, or the friends service's TCP port, is in use (another server running?). |
 | `yalain: binding the ports: ...`, exit code 1 | `--bind` is not an address of this machine, or the system refused the port. |

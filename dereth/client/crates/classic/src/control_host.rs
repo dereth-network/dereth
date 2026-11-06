@@ -416,6 +416,25 @@ impl ControlHost {
     pub fn contains_control(&self, x: i32, y: i32) -> bool {
         self.popup_open() || self.control_at(x, y).is_some()
     }
+    /// The id of the control under `(x, y)`, the topmost where they overlap.
+    pub fn control_id_at(&self, x: i32, y: i32) -> Option<&str> {
+        self.control_at(x, y).map(|c| c.id.as_str())
+    }
+    /// The row of the list under `(x, y)`.
+    pub fn list_row_at(&self, x: i32, y: i32) -> Option<usize> {
+        let c = self.control_at(x, y)?;
+        let ControlKind::HitList {
+            row_count,
+            row_height,
+            offset,
+            ..
+        } = c.kind
+        else {
+            return None;
+        };
+        let row = (y - c.rect.y + offset) / row_height.max(1);
+        usize::try_from(row).ok().filter(|row| *row < row_count)
+    }
     pub fn item_at(&self, x: i32, y: i32) -> Option<ObjectId> {
         let control = self.control_at(x, y)?;
         let index = Self::item_slot(control, x, y)?;
@@ -428,6 +447,21 @@ impl ControlHost {
     }
     pub fn popup_open(&self) -> bool {
         self.choice.is_some()
+    }
+    /// The open dropdown under `(x, y)` and its row there. It may lie outside its window.
+    pub fn popup_row_at(&self, x: i32, y: i32) -> Option<(&str, usize)> {
+        let (id, _) = self.choice.as_ref()?;
+        let c = self.controls.iter().find(|c| c.id == *id)?;
+        let ControlKind::Choice { options, .. } = &c.kind else {
+            return None;
+        };
+        let popup = self.choice_popup(c, options.len());
+        popup.rows.contains(x, y).then(|| {
+            (
+                id.as_str(),
+                ((y - popup.rows.y) / popup.row_height) as usize,
+            )
+        })
     }
     fn popup_label(&self, text: &str, font: &str, width: i32) -> String {
         let measure = |text: &str| {
@@ -1280,7 +1314,8 @@ impl ControlHost {
                             false,
                             false,
                         );
-                        if let Some(t) = self.tree.scrollbar_thumb(node) {
+                        if let Some(t) = self.tree.scrollbar_thumb(node).filter(|_| *thumb_size > 0)
+                        {
                             out.image(thumb, t, false, false);
                         }
                     } else {
@@ -1299,12 +1334,14 @@ impl ControlHost {
                             false,
                             false,
                         );
-                        out.image(
-                            thumb,
-                            rect(r.x + arrow_size + p, r.y, *thumb_size, r.h),
-                            false,
-                            false,
-                        );
+                        if *thumb_size > 0 {
+                            out.image(
+                                thumb,
+                                rect(r.x + arrow_size + p, r.y, *thumb_size, r.h),
+                                false,
+                                false,
+                            );
+                        }
                     }
                 }
                 ControlKind::Choice { options, selected } if c.list_skin.is_some() => {
@@ -1462,6 +1499,19 @@ impl ControlHost {
                                         out.fill(area, color);
                                     }
                                 }
+                            }
+                        }
+                        if layout.lines.iter().all(|line| line.text.is_empty())
+                            && self.tree.focus() != Some(node)
+                        {
+                            if let Some(idle) = &c.idle_text {
+                                let clip = [
+                                    text_clip.x,
+                                    text_clip.y,
+                                    text_clip.x + text_clip.w,
+                                    text_clip.y + text_clip.h,
+                                ];
+                                out.label(origin.0, origin.1, idle, &c.font, color, Some(clip));
                             }
                         }
                         for line in &layout.lines {
@@ -1969,6 +2019,48 @@ mod tests {
         );
         assert!(host.take_sounds().is_empty());
     }
+    /// Behaviour: none (a bar told to draw no thumb)
+    #[test]
+    fn a_scrollbar_with_a_thumb_of_no_size_draws_its_arrows_and_no_thumb() {
+        for (id, vertical, r, thumb) in [
+            ("v", true, rect(0, 0, 20, 100), "0600125C"),
+            ("h", false, rect(0, 0, 100, 20), "06001255"),
+        ] {
+            let pictures = |thumb_size: i32| {
+                let mut frame = PanelFrame::new(100, 100);
+                frame.control(
+                    id,
+                    r,
+                    ControlKind::ScrollBar {
+                        min: 0,
+                        max: 0,
+                        value: 0,
+                        page: 100,
+                        step: 10,
+                        vertical,
+                        arrow_size: 20,
+                        thumb_size,
+                    },
+                    true,
+                );
+                let mut host = ControlHost::default();
+                host.sync(&frame);
+                host.draw(&frame)
+                    .commands
+                    .iter()
+                    .filter_map(|c| match c {
+                        Command::Image { did, .. } => Some(did.clone()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+            };
+            assert!(pictures(28).iter().any(|d| d == thumb), "{id} with a thumb");
+            let none = pictures(0);
+            assert!(!none.iter().any(|d| d == thumb), "{id}: {none:?}");
+            assert!(none.len() >= 3, "{id} keeps its track and arrows: {none:?}");
+        }
+    }
+
     #[test]
     fn scrollbar_arrows_press_and_thumb_releases_have_distinct_sounds() {
         let mut frame = PanelFrame::new(100, 160);
@@ -2203,6 +2295,71 @@ mod tests {
         assert_eq!(cycle_choice(1, 3, false, some), 2);
         assert_eq!(cycle_choice(1, 3, true, |i: usize| i == 1), 1);
         assert_eq!(cycle_choice(0, 0, true, all), 0);
+    }
+    #[test]
+    fn an_empty_edit_shows_its_idle_text_until_it_has_the_focus() {
+        let mut frame = PanelFrame::new(300, 50);
+        frame.edit("box", rect(0, 0, 200, 20), "", 10, false, true);
+        frame.controls[0].idle_text = Some("Type here".into());
+        let mut host = ControlHost::default();
+        host.sync(&frame);
+        let shows = |host: &ControlHost| {
+            host.draw(&frame)
+                .commands
+                .iter()
+                .any(|c| matches!(c, crate::Command::Text { text, .. } if text == "Type here"))
+        };
+        assert!(shows(&host));
+        host.focus_control("box");
+        assert!(!shows(&host));
+    }
+    #[test]
+    fn a_list_tells_the_row_under_the_pointer_as_it_is_scrolled() {
+        let mut frame = PanelFrame::new(300, 300);
+        frame.control(
+            "rows",
+            rect(0, 25, 280, 96),
+            ControlKind::HitList {
+                row_count: 5,
+                row_height: 32,
+                selected: None,
+                offset: 32,
+            },
+            true,
+        );
+        let mut host = ControlHost::default();
+        host.sync(&frame);
+        assert_eq!(host.list_row_at(10, 30), Some(1));
+        assert_eq!(host.list_row_at(10, 60), Some(2));
+        assert_eq!(host.list_row_at(290, 30), None, "beside it");
+    }
+    #[test]
+    fn an_open_dropdown_tells_the_row_under_the_pointer() {
+        let mut frame = PanelFrame::new(300, 300);
+        frame.control(
+            "pick",
+            rect(10, 10, 100, 20),
+            ControlKind::Choice {
+                options: vec!["a".into(), "b".into(), "c".into()],
+                selected: 0,
+            },
+            true,
+        );
+        let mut host = ControlHost::default();
+        host.sync(&frame);
+        assert_eq!(host.popup_row_at(20, 35), None, "shut");
+        host.handle(
+            Input::PointerDown { x: 20, y: 15 },
+            dereth_primitives::LocalTime(0.0),
+        );
+        host.handle(
+            Input::PointerUp { x: 20, y: 15 },
+            dereth_primitives::LocalTime(0.0),
+        );
+        assert!(host.popup_open());
+        assert_eq!(host.popup_row_at(20, 35), Some(("pick", 0)));
+        assert_eq!(host.popup_row_at(20, 55), Some(("pick", 1)));
+        assert_eq!(host.popup_row_at(200, 55), None, "beside it");
     }
     #[test]
     fn chat_popup_shortens_long_names_without_changing_the_choice() {

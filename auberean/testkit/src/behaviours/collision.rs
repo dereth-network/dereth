@@ -8,6 +8,14 @@ use super::{Behaviour, Evidence, Tier, RETAIL};
 /// This subject's rows, in id order.
 pub static ROWS: &[Behaviour] = &[
     behaviour! {
+        id: "collision.body.a-fall-stopped-during-the-move-reports-no-impact",
+        says: "A fall stopped during the move, a landing that could not be kept, has no speed left when the body tells of the move, so it reports no collision normal or impact.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-COLLISION-KILL-VELOCITY"),
+        station: "auberean-physics::cpu::contact::solid::a_fall_stopped_during_the_move_reports_no_impact",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "collision.contact.a-body-on-the-ground-is-on-the-landscape",
         says: "After each move a body's collisions note what it touches: the plane, whether it is \
                under water, and whether the plane is the landscape's ground or an interior's own \
@@ -20,9 +28,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "collision.contact.a-held-property-is-unchanged-or-changed",
-        says: "A property of something touched, touched again with the same value, is reported \
-               unchanged; with a new value of the same kind it takes the value and is reported \
-               changed; a value of another kind is ignored.",
+        says: "A property of something touched, touched again with the same value (a vector's \
+               parts within a tolerance), is reported unchanged; with a new value of the same \
+               kind it takes the value and is reported changed; a value of another kind is \
+               ignored.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-COLL-PROPERTY"),
         station: "auberean-physics::cpu::contact::collision::a_held_property_is_unchanged_or_changed",
@@ -289,6 +298,23 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "collision.objects.a-body-in-step-passes-what-cannot-move",
+        says: "A body keeping in step with another passes a body that cannot move, which stops one that is not.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-COLLISION-IN-STEP-STILL"),
+        station: "auberean-physics::cpu::contact::objects::a_body_in_step_passes_a_body_that_cannot_move",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "collision.objects.a-body-is-in-the-lists-of-cells-not-yet-in",
+        says: "A moving object reaching over a block's edge stands in the lists of the next \
+               block's cells whether or not that block is in.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-INIT-DYNAMIC"),
+        station: "auberean-physics::cpu::contact::objects::a_body_is_in_the_lists_of_cells_not_yet_in",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "collision.objects.a-body-runs-across-a-dais-reaching-into-its-cell",
         says: "A cell files what it places in every cell the box around what the thing draws \
                reaches: a body standing on the human training hall's dais in the cell beside the \
@@ -316,12 +342,40 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "collision.objects.a-cells-object-at-an-uneven-scale-holds-nothing-up",
+        says: "An object a cell places with a physics tree at an uneven scale holds nothing up: a \
+               body dropped on a flat one 6 x 6 x 0.1, its top 0.3 m above the cell's floor, falls \
+               past it to the floor.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PHYS-UNEVEN-CELL"),
+        station: "auberean-physics::dat::objects::a_cells_object_at_an_uneven_scale_holds_nothing_up",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "collision.objects.a-polygon-clips-to-a-plane",
         says: "A polygon clipped to a plane's positive side keeps its corners on that side and in \n               the plane and gains the crossing of each edge that leaves one side for the other; \n               one wholly behind is negative, one lying in the plane is in it only when corners \n               in the plane are kept.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-CLIP"),
         station: "auberean-physics::cpu::contact::objects::a_polygon_clips_to_a_plane",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "collision.objects.a-solid-over-a-block-edge-is-in-the-next-blocks-cells",
+        says: "A solid reaching over a block's edge is met from the land cells it reaches in the \n               block next to it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-LAND-OVERHANG"),
+        station: "auberean-physics::cpu::contact::objects::a_solid_over_a_block_edge_is_in_the_next_blocks_cells",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "collision.objects.a-tree-tested-at-a-scale-along-each-axis-reaches-that-far",
+        says: "A tree tested at a scale along each axis reaches that far: one at four times its \
+               length, its width and six tenths its height meets a sphere 16 m along its length \
+               but not 17 m, and 4.5 m across but not 5.5 m.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PHYS-TREE-AXES"),
+        station: "auberean-physics::dat::objects::a_tree_tested_at_a_scale_along_each_axis_reaches_that_far",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "collision.objects.an-object-outside-stands-in-every-land-cell-under-it",
@@ -332,14 +386,13 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
-        id: "collision.objects.an-object-placed-at-a-scale-along-each-axis-collides-at-it",
-        says: "An object placed at a scale along each axis collides at it: one placed four times \
-               its length, its width and six tenths its height meets a body 16 m along its length \
-               but not 17 m, 4.5 m across but not 5.5 m, and a body dropped on it 10 m along its \
-               length lands on its top.",
+        id: "collision.objects.an-object-with-a-tree-at-an-uneven-scale-is-walked-through",
+        says: "An object with a physics tree at an uneven scale is walked through: a body runs \
+               through the arch of one placed four times its length, its width and six tenths its \
+               height, and through a wall section a tenth taller than its look.",
         since: RETAIL,
-        evidence: Evidence::Private("AC2-EVID-PHYS-TREE-AXES"),
-        station: "auberean-physics::dat::objects::an_object_placed_at_a_scale_along_each_axis_collides_at_it",
+        evidence: Evidence::Private("AC2-EVID-PHYS-UNEVEN-PASSED"),
+        station: "auberean-physics::dat::objects::an_object_with_a_tree_at_an_uneven_scale_is_walked_through",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -411,6 +464,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "collision.solid.a-body-that-does-not-report-keeps-its-touches-unsaid",
+        says: "A body whose state says it does not report its collisions keeps its touches, and neither they nor its normal, water or ground are reported; turning it on begins the touches kept.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-COLLISION-REPORT-FLAG"),
+        station: "auberean-physics::cpu::contact::solid::a_body_that_does_not_report_keeps_its_touches_unsaid",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "collision.solid.a-bodys-collision-state-is-its-type-and-what-it-passes-through",
         says: "A body's collision settings as they stand are its physics type, what it passes \
                through being placed, and what it would pass through moving (its desired types, \
@@ -418,6 +479,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-COLLISION-STATE"),
         station: "auberean-physics::cpu::contact::solid::a_bodys_collision_state_is_its_type_and_what_it_passes_through",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "collision.solid.a-bodys-collisions-take-its-slowest-impact",
+        says: "The slowest impact a body's collisions report is the one its speed and jump scales \n               set.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PHYS-MIN-IMPACT"),
+        station: "auberean-physics::cpu::contact::solid::a_bodys_collisions_take_its_slowest_impact",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -476,6 +545,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "collision.solid.outdoor-tree-scenery-asks-what-a-mover-passes",
+        says: "Scenery placed outside is an object like any other whatever its shape: tree-shaped \
+               scenery marked as something some mover passes through lets those movers by and holds \
+               the others up.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PHYS-OUTDOOR-TREES-ASK"),
+        station: "auberean-physics::dat::objects::outdoor_tree_scenery_lets_by_only_those_that_pass_through_its_mark",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "collision.solid.scenery-takes-its-entitys-properties",
         says: "What a landblock or cell places takes the properties of the entities it is made \
                from, the outdoor scenery's type added outside: scenery whose entity is of the \
@@ -484,6 +563,22 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-STATIC-PROPERTIES"),
         station: "auberean-physics::cpu::contact::solid::scenery_takes_its_entitys_properties",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "collision.solid.what-a-body-touches-pushes-it",
+        says: "An object whose description pushes moves what touches it, by the push for where the \n               body is, each tick it touches.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PHYS-TOUCH-PUSHERS"),
+        station: "auberean-physics::cpu::contact::solid::what_a_body_touches_pushes_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "collision.solid.what-stands-still-is-met-before-what-moves",
+        says: "In a cell's collision list what stands still comes first, in the order it came, then \n               what moves.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CELL-LIST-ORDER"),
+        station: "auberean-physics::cpu::contact::solid::what_stands_still_is_met_before_what_moves",
         tier: Tier::Cpu,
     },
 ];

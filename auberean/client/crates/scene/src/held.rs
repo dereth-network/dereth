@@ -127,6 +127,19 @@ pub(crate) fn bone_position(
 }
 
 impl HeldObjects {
+    /// The decals the bodies' effects laid since last asked, each with where its body stands.
+    pub(crate) fn take_decals(
+        &mut self,
+        out: &mut Vec<(Position, auberean_draw::effects::FxDecal)>,
+    ) {
+        for b in self.held.values_mut() {
+            if let Some(fx) = b.effects.as_mut() {
+                let place = b.body.position;
+                out.extend(fx.fx.take_decals().into_iter().map(|d| (place, d)));
+            }
+        }
+    }
+
     /// The sounds every body's effects played or stopped since last taken, each with its object.
     pub(crate) fn take_sounds(&mut self, out: &mut Vec<(u64, auberean_draw::effects::FxSound)>) {
         for fx in self.held.values_mut().filter_map(|b| b.effects.as_mut()) {
@@ -399,6 +412,7 @@ impl HeldObjects {
             let place = place_in_block(at, *scale, block);
             let poses = f.pose(anims);
             let start = out.len();
+            drawer.next_body(false);
             out.extend(drawer.batches(records, f, &poses, &place));
             let heading = auberean_physics::geom::frame_heading(&at.frame).degrees();
             noted.push((*id, start..out.len(), rel, heading));

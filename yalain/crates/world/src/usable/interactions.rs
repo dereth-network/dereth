@@ -351,7 +351,12 @@ pub fn played<S: Store>(
     u: &Use,
     clock: Clock,
 ) {
-    let Some(item) = s.things.get(u.item).map(|t| t.template) else {
+    // The item may have left the pack while the behavior played.
+    let held = s
+        .players
+        .get(&world)
+        .is_some_and(|p| p.play.items.iter().any(|h| h.id == u.item));
+    let Some(item) = s.things.get(u.item).map(|t| t.template).filter(|_| held) else {
         return;
     };
     let Some((target, _, _)) = target_of(s, world, u.target) else {

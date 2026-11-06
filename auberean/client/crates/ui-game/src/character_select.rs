@@ -514,6 +514,7 @@ impl CharacterSelect {
             let index = self.selected_index(ui);
             let set = data.characters.as_ref();
             let who = index.and_then(|i| set.and_then(|s| s.identity(i)).cloned());
+            let greyed = index.is_some_and(|i| set.is_some_and(|s| s.greyed_out_for(i) != 0));
             let why = match who {
                 None => {
                     let text = pregame::message_by_token(ui, NO_CHARACTER, &[]);
@@ -522,7 +523,7 @@ impl CharacterSelect {
                 }
                 Some(c) if c.id == INVALID_ID => "ID_Character_Err_InvalidID",
                 Some(c) if c.name.is_empty() => "ID_Character_Err_NoName",
-                Some(c) if c.greyed != 0 => "ID_Character_Err_EnterWDel",
+                Some(_) if greyed => "ID_Character_Err_EnterWDel",
                 Some(c) => {
                     self.ghost_buttons(ui, true);
                     out.push(Request::Play { character: c.id });
@@ -727,8 +728,8 @@ impl Screen for CharacterSelect {
         self.init_arms();
         let Some(list) = self.list else { return };
         ui.list_flush(list);
-        for c in &set.characters {
-            let template = if c.greyed != 0 {
+        for (i, c) in set.characters.iter().enumerate() {
+            let template = if set.greyed_out_for(i) != 0 {
                 name::DELETED_LIST_BOX_ITEM
             } else if c.id == INVALID_ID {
                 continue;

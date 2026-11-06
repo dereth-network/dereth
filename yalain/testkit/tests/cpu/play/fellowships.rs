@@ -692,6 +692,7 @@ fn a_kill_by_a_player_the_creature_could_not_reach_pays_no_one_and_moves_no_ques
             journals: vec![(5, 6)],
             challenge: 1,
             duration: 0.0,
+            timed_phase: 0,
             retry: 0.0,
             xp: 0,
             cancellable: false,
@@ -702,6 +703,11 @@ fn a_kill_by_a_player_the_creature_could_not_reach_pays_no_one_and_moves_no_ques
             min_level: 0,
             fails_on_death: false,
             once: false,
+            fellows: yalain_content::quests::Fellows::default(),
+            last_waits: false,
+            hero_only: false,
+            pay: yalain_content::quests::CompletionPay::default(),
+            required: None,
         });
         h.server.quests.steps.push(Step {
             quest: QUEST,
@@ -719,7 +725,10 @@ fn a_kill_by_a_player_the_creature_could_not_reach_pays_no_one_and_moves_no_ques
             takes: Vec::new(),
             races: Vec::new(),
             effects_last: false,
+            wants: None,
             fellows: false,
+            levels: None,
+            xp_share: 0.0,
             to: None,
         });
         let from = [h.bots[a].inbox.len(), h.bots[b].inbox.len()];
@@ -756,4 +765,21 @@ fn a_kill_by_a_player_the_creature_could_not_reach_pays_no_one_and_moves_no_ques
             assert!(held, "the quest moved on");
         }
     }
+}
+
+/// A place offered by one who has since joined another's fellowship is no place: the one it was
+/// offered to stays out, and the other's fellowship takes no one its leader didn't ask.
+/// Behaviour: server.fellowship.a-place-is-its-leaders-to-offer
+#[test]
+fn a_place_offered_by_one_no_longer_a_leader_takes_no_one() {
+    let (mut h, [a, b, c]) = three();
+    create(&mut h, a.0, "Theirs");
+    create(&mut h, b.0, "Others");
+    h.ask(a.0, function::RECRUIT, &[Arg::LongInt(c.1)], 10);
+    h.ask(a.0, function::LEAVE, &[], 10);
+    join(&mut h, b, a);
+    h.ask(c.0, function::ACCEPT, &[Arg::LongInt(a.1)], 10);
+    assert!(h.server.fellowships.of(c.1).is_none(), "stays out");
+    let i = h.server.fellowships.of(b.1).expect("the other's");
+    assert_eq!(h.server.fellowships.list[i].fellows.len(), 2);
 }

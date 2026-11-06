@@ -84,7 +84,7 @@ fn the_list_is_read_through_its_link_headers_down_to_the_running_version() {
     web.links.lock().unwrap().insert(nth(3), link(4));
     web.put(&nth(4), page(&["empyrean-v0.3.2"]));
 
-    let source = Source::configured(&api).unwrap();
+    let source = source::configured(&api).unwrap();
     let found = source::list(&source::agent(), &source, &v("0.3.4")).unwrap();
     assert_eq!(versions(&found), ["0.4.0", "0.3.5", "0.3.4", "0.3.3"]);
     assert_eq!(

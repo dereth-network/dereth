@@ -9,7 +9,7 @@
 //! ```text
 //! auberean-viewer --install DIR --block 6FA9 --at 45.2,90.5,85.3 --heading 178 --time 0.4 --out FILE.png
 //!            [--size 1280x960] [--fov 75] [--behind 4.5] [--tilt 14.32] [--eye 2.06] [--day 0x1A000001]
-//!            [--game-time SECONDS]
+//!            [--game-time SECONDS] [--overlay-dat-dir DIR]
 //! ```
 //!
 //! `--walk SECONDS` puts the player's body at `--at` instead, walks it (standing half a second,
@@ -47,6 +47,7 @@ use std::process::ExitCode;
 
 use auberean_assets::Context;
 use auberean_dat::locate::{install_dats, DatName};
+use auberean_dat::overlay::WorldOverlay;
 use auberean_dat::DatFile;
 use auberean_primitives::{DataId, Vec3};
 use auberean_world::records::WorldRecords;
@@ -58,6 +59,7 @@ mod walk;
 #[derive(Debug)]
 struct Args {
     install: PathBuf,
+    overlay: Option<PathBuf>,
     block: (i32, i32),
     at: Vec3,
     heading: f32,
@@ -88,6 +90,7 @@ struct Args {
 fn parse() -> Result<Args, String> {
     let mut a = Args {
         install: PathBuf::new(),
+        overlay: None,
         block: (0, 0),
         at: Vec3::ZERO,
         heading: 0.0,
@@ -120,6 +123,7 @@ fn parse() -> Result<Args, String> {
         let num = |s: String| s.parse::<f32>().map_err(|e| format!("{s}: {e}"));
         match k.as_str() {
             "--install" => a.install = PathBuf::from(v()?),
+            "--overlay-dat-dir" => a.overlay = Some(PathBuf::from(v()?)),
             "--block" => {
                 let s = v()?;
                 let n = u32::from_str_radix(s.trim_start_matches("0x"), 16)
@@ -211,12 +215,22 @@ fn parse() -> Result<Args, String> {
     Ok(a)
 }
 
-fn open(install: &Path) -> Result<WorldRecords, String> {
-    let mut files: Vec<(DatName, DatFile)> = install_dats(install)
-        .map_err(|e| format!("{}: {e}", install.display()))?
-        .into_iter()
-        .filter_map(|(n, p)| DatFile::open(&p).ok().map(|d| (n, d)))
-        .collect();
+fn open(install: &Path, overlay: Option<&Path>) -> Result<WorldRecords, String> {
+    let overlay = overlay
+        .map(WorldOverlay::open)
+        .transpose()
+        .map_err(|e| e.to_string())?;
+    let mut files: Vec<(DatName, DatFile)> = Vec::new();
+    for (n, p) in install_dats(install).map_err(|e| format!("{}: {e}", install.display()))? {
+        let Ok(d) = DatFile::open(&p) else {
+            continue;
+        };
+        let d = match &overlay {
+            Some(w) => w.over(d).map_err(|e| e.to_string())?,
+            None => d,
+        };
+        files.push((n, d));
+    }
     let mut take = |name: &DatName| {
         let k = files.iter().position(|(n, _)| n == name)?;
         Some(files.swap_remove(k).1)
@@ -224,8 +238,13 @@ fn open(install: &Path) -> Result<WorldRecords, String> {
     let portal = take(&DatName::Portal).ok_or("no portal file")?;
     let cell = take(&DatName::Cell(1)).ok_or("no cell file")?;
     let highres = take(&DatName::HighRes);
+    let language = take(&DatName::Local("English".to_owned()));
     let ctx = Context::from_portal(&portal).map_err(|e| format!("{e:?}"))?;
-    Ok(WorldRecords::new(portal, cell, highres, ctx))
+    let records = WorldRecords::new(portal, cell, highres, ctx);
+    if let Some(file) = language {
+        records.use_language_file(file);
+    }
+    Ok(records)
 }
 
 /// The volumes of shadow the objects the world places cast in `frame` (those its builder marked
@@ -277,7 +296,7 @@ fn write_png(path: &PathBuf, pic: &auberean_gpu::Picture) -> Result<(), String> 
 
 fn run() -> Result<(), String> {
     let a = parse()?;
-    let records = open(&a.install)?;
+    let records = open(&a.install, a.overlay.as_deref())?;
     let region = records.region().map_err(|e| format!("{e:?}"))?;
     if a.walk.is_some() {
         return walk::run(&a, &records, &region);

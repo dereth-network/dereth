@@ -1,0 +1,35 @@
+[package]
+name = "dereth-server-websocket"
+description = "A game server's WebSocket endpoint: its settings, and with the endpoint feature the listener that carries game datagrams to and from browser clients."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+autotests = false
+
+[features]
+# The listener itself: every server's executable takes it, while its configuration crates read the
+# settings alone and carry no TLS.
+endpoint = ["dep:dereth-transport", "dep:tungstenite", "dep:rustls", "dep:tracing"]
+
+[dependencies]
+serde.workspace = true
+# The endpoint: the frame's codec, the WebSocket handshake and framing (blocking, one thread per
+# connection), wss:// with rustls on its ring provider, and its log lines.
+dereth-transport = { workspace = true, optional = true }
+tungstenite = { version = "0.30", default-features = false, features = ["handshake"], optional = true }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"], optional = true }
+tracing = { workspace = true, optional = true }
+
+[dev-dependencies]
+# The endpoint's own tests are its clients.
+tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
+
+[lints]
+workspace = true
+
+[[test]]
+name = "cpu"
+path = "tests/cpu/main.rs"
+required-features = ["endpoint"]

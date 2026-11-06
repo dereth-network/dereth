@@ -1291,6 +1291,12 @@ impl NativeObject {
                 ty,
                 bytes: vec![0; 16],
             },
+            // A new icon description has no layers: its count, zero, is all it packs.
+            // D2-13884, D2-13895, D2-13896
+            Format::Record(native_type::ICON_DESC) => Self::Packed {
+                ty,
+                bytes: vec![0; 4],
+            },
             // A new one has the defaults.
             Format::Record(native_type::BEHAVIOR_PARAMS) => Self::Behavior(Box::default()),
             // D2-12177, D2-12175
@@ -1383,7 +1389,7 @@ impl NativeObject {
     }
 
     /// Write this native object's packed form.
-    // D2-16450, D2-01027, D2-01873
+    // D2-16450, D2-01027, D2-01873, D2-01874
     // D2-04486, D2-00757, D2-04276, D2-00756, D2-16449, D2-01063, D2-01067, D2-04590, D2-04594, D2-04371
     pub fn write(&self, w: &mut Out) -> core::result::Result<(), String> {
         match self {
@@ -1434,13 +1440,14 @@ impl NativeObject {
             Self::Act(a) => a.write(w),
             Self::Acts(list) => crate::story::write_acts(w, list),
             Self::Profile { bytes, .. } => w.bytes(bytes),
-            // D2-12268
+            // D2-12268, D2-12269
             Self::QuestList(list) => {
                 w.u32(u32::try_from(list.len()).map_err(|e| e.to_string())?);
                 for q in list {
                     q.write(w);
                 }
             }
+            // D2-13895, D2-13896
             Self::Packed { bytes, .. } => w.bytes(bytes),
             // A packed iterator's place is a count of steps (the table writes it so).
             // D2-04364, D2-04365, D2-04398, D2-04406, D2-04474, D2-04477

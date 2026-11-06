@@ -32,16 +32,16 @@ fn only_commits_that_change_what_the_client_ships_are_kept() {
                 "dereth/client/tests/gpu/rendering/mips.rs",
                 "dereth/testkit/src/behaviours/rendering.rs",
                 "core/physics/src/tests.rs",
-                "dereth/launcher/src/update_tests.rs",
+                "launcher/src/update_tests.rs",
             ],
         ),
         commit(
             "The launcher's release notes",
-            &["dereth/launcher/RELEASING.md", "dereth/CHANGES.md"],
+            &["launcher/RELEASING.md", "dereth/CHANGES.md"],
         ),
         commit(
             "Dereth 0.1.1",
-            &["dereth/client/Cargo.toml", "dereth/launcher/Cargo.toml"],
+            &["dereth/client/Cargo.toml", "launcher/Cargo.toml"],
         ),
         commit(
             "Empyrean 0.2.0-rc.1: its upgrade fixture",
@@ -61,10 +61,6 @@ fn only_commits_that_change_what_the_client_ships_are_kept() {
             ],
         ),
         commit(
-            "The launcher remembers its window",
-            &["dereth/launcher/src/main.rs"],
-        ),
-        commit(
             "The web relay keeps the socket open",
             &["tools/web-relay/src/main.rs"],
         ),
@@ -79,11 +75,6 @@ fn only_commits_that_change_what_the_client_ships_are_kept() {
 #[test]
 fn a_commit_is_grouped_by_the_launcher_then_a_fix_then_its_words() {
     let cases = [
-        (
-            "launcher: the window remembers its size",
-            &["dereth/launcher/src/window.rs"][..],
-            Group::Launcher,
-        ),
         (
             "The client no longer stops when a texture is missing",
             &["dereth/client/crates/render/src/texture.rs"][..],
@@ -120,6 +111,12 @@ fn a_commit_is_grouped_by_the_launcher_then_a_fix_then_its_words() {
             "{subject}"
         );
     }
+    let launcher = commit(
+        "launcher: the window remembers its size",
+        &["launcher/src/window.rs"],
+    );
+    assert_eq!(group(Product::Launcher, &launcher), Some(Group::Launcher));
+    assert_eq!(group(Product::Dereth, &launcher), None);
 }
 
 /// When the words name several headings, the commit's folders choose among them; when the words
@@ -346,7 +343,7 @@ fn the_notes_are_highlights_then_grouped_changes_then_one_compare_link() {
     let bare = render(Product::Dereth, Some("  \n"), &[], "dereth-v0.1.1", None);
     assert_eq!(
         bare,
-        "## All changes\n\nNo change to the client or the launcher since dereth-v0.1.1.\n\n"
+        "## All changes\n\nNo change to the client since dereth-v0.1.1.\n\n"
     );
 }
 

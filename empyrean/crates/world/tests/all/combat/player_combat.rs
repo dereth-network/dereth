@@ -681,6 +681,58 @@ fn an_era_before_the_consolidation_uses_the_older_melee_damage() {
     assert_eq!(kick.base_damage.max_damage, 1, "a bare kick");
 }
 
+/// Divergence: V473
+/// At launch a dagger's damage scales with Strength, as every melee weapon's does; from March 2000
+/// (Infiltration here) with Coordination. A sword takes Strength in both, and the unarmed rules
+/// are the older ones in both.
+#[test]
+fn launch_daggers_take_strength_and_later_daggers_coordination() {
+    use empyrean_common::era::{EraExt, EraId};
+    use empyrean_world::world_objects::skill_formula;
+    let with_skill = |skill: i64| {
+        move |spec: &mut Value| {
+            for p in spec["equipped"][0]["ints"].as_array_mut().expect("ints") {
+                if p[0] == 48 {
+                    p[1] = serde_json::json!(skill);
+                }
+            }
+        }
+    };
+    let strength = skill_formula::get_attribute_mod(100, false);
+    let coordination = skill_formula::get_attribute_mod(150, false);
+    assert_ne!(strength, coordination);
+    // Dagger (4), then Sword (11).
+    for (skill, launch, later) in [(4, strength, coordination), (11, strength, strength)] {
+        let mut w = world();
+        let mut weapon = None;
+        let g = era_player(&mut w, |s| {
+            with_skill(skill)(s);
+            weapon = Some(wielded(s));
+        });
+        let weapon = weapon.expect("a weapon");
+        w.era = EraId::Launch.rules();
+        assert_eq!(
+            creature_combat::get_attribute_mod(&mut w, g, Some(weapon)),
+            launch,
+            "skill {skill} at launch"
+        );
+        w.era = EraId::Infiltration.rules();
+        assert_eq!(
+            creature_combat::get_attribute_mod(&mut w, g, Some(weapon)),
+            later,
+            "skill {skill} in February 2005"
+        );
+    }
+    let mut w = world();
+    let g = era_player(&mut w, |s| s["equipped"] = serde_json::json!([]));
+    w.era = EraId::Launch.rules();
+    assert_eq!(
+        creature_combat::get_attribute_mod(&mut w, g, None),
+        1.0 + 45.0 * 0.004,
+        "the older unarmed factor"
+    );
+}
+
 /// Divergence: V401
 /// A multiplicative weapon-speed enchantment (Rockslide, half the time) changes nothing at the
 /// end of retail, which reads only the additive ones, and halves the weapon's speed value before
@@ -1436,3 +1488,5 @@ mod weapon_and_rating_queries {
         assert_eq!((d.max_damage, d.variance), (0, 0.0));
     }
 }
+
+mod endurance;

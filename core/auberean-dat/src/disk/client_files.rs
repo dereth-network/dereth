@@ -12,6 +12,9 @@
 //! Each is checked against the program's data versions ([`CLIENT_VERSIONS`]); the engine's
 //! version is never checked, the game's always but where the spec says only the engine's
 //! counts.
+//!
+//! The desktop client opens its files itself, only for reading, and does not use this: its tests
+//! are what run it.
 
 use std::sync::Arc;
 
@@ -143,7 +146,6 @@ impl ClientFiles {
 
     /// Open the region's cell file, `cell_<region>.dat`, in place of the one open, made anew when
     /// it is not found; nothing to do for the region already open. Whether it is open.
-    // D2-05143
     pub fn set_region(&mut self, files: &mut dyn Files, look: &dyn LookHost, region: u32) -> bool {
         if self.region == Some(region) {
             return true;
@@ -186,7 +188,6 @@ impl ClientFiles {
     /// # Errors
     /// [`NO_LANGUAGE_NOTICE`] when the language has no name or its file is not found; `0` when it
     /// does not open.
-    // D2-05140
     pub fn set_language_internal(
         &mut self,
         files: &mut dyn Files,

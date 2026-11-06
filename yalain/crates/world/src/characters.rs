@@ -222,14 +222,14 @@ fn build<S: Store>(
     // Its skills: each trained with its credits, then raised with its experience to the rating.
     let starting = s.start.skills.get(&c.race).cloned().unwrap_or_default();
     let mut skills = held(&starting, &play.skills);
+    let hero = r
+        .hero
+        .unwrap_or_else(|| crate::focus::is_hero(&st.qualities));
     for &(skill, rating) in &r.skills {
         let is_trained = skills
             .iter()
             .any(|h| h.skill == skill && h.mask & crate::skills::mask::TRAINED != 0);
         if !is_trained {
-            let hero = r
-                .hero
-                .unwrap_or_else(|| crate::focus::is_hero(&st.qualities));
             let (_, _, (cost, hero_cost)) = trained(
                 &s.skill_table,
                 &mut skills,
@@ -245,14 +245,14 @@ fn build<S: Store>(
             play.credits -= cost;
             play.hero_credits -= hero_cost;
         }
-        while s.skill_table.rating(&skills, skill) < rating {
+        while s.skill_table.rating(&skills, skill, hero) < rating {
             let cost = s
                 .skill_table
-                .raise(&skills, skill, available)
+                .raise(&skills, skill, available, hero)
                 .map_err(|code| {
                     format!(
                         "skill {skill} not raised to {rating} (it is {}): {}",
-                        s.skill_table.rating(&skills, skill),
+                        s.skill_table.rating(&skills, skill, hero),
                         refusal_words(code)
                     )
                 })?;
@@ -297,18 +297,28 @@ fn build<S: Store>(
         if holds >= quantity {
             continue;
         }
-        if !crate::inventory::fits_in_pack(&play.items, 1) {
-            return Err("the items do not fit in the pack".into());
+        // A template that stacks is one stack; any other is that many items.
+        let most = s
+            .catalog
+            .get(template)
+            .and_then(|t| t.props.int("Item_MaxStackSize"))
+            .unwrap_or(0);
+        let more = quantity - holds;
+        let (items, each) = if most > 1 { (1, more) } else { (more, 1) };
+        for _ in 0..items {
+            if !crate::inventory::fits_in_pack(&play.items, 1) {
+                return Err("the items do not fit in the pack".into());
+            }
+            // Put in the pack as an item given to a player is.
+            let slot = crate::inventory::room_for_one(&mut play.items);
+            play.items.push(Held {
+                id: s.things.new_id(),
+                template,
+                slot,
+                location: 0,
+                quantity: each,
+            });
         }
-        // Put in the pack as an item given to a player is.
-        let slot = crate::inventory::room_for_one(&mut play.items);
-        play.items.push(Held {
-            id: s.things.new_id(),
-            template,
-            slot,
-            location: 0,
-            quantity: quantity - holds,
-        });
     }
     crate::inventory::close_up(&mut play.items);
     // Its quests.
@@ -399,7 +409,7 @@ pub fn make<S: Store>(s: &mut Server<S>, r: &Recipe, now: i64) -> Result<String,
             c.name
         ));
     }
-    let kept = s.store.world_state(c.id).map_err(|e| e.to_string())?;
+    let kept = crate::saves::state_of(s, c.id).map_err(|e| e.to_string())?;
     if kept.as_ref().is_some_and(|k| k.instances > 0) {
         return Err(format!(
             "{} has played: bring it up to the build instead, or delete it at once and make it again",
@@ -417,9 +427,7 @@ pub fn make<S: Store>(s: &mut Server<S>, r: &Recipe, now: i64) -> Result<String,
         }
     }
     build(s, &c, r, &mut st, now)?;
-    s.store
-        .set_world_state(c.id, &st)
-        .map_err(|e| e.to_string())?;
+    crate::saves::put(s, c.id, st).map_err(|e| e.to_string())?;
     Ok(format!("character {} given its build", c.name))
 }
 
@@ -484,7 +492,7 @@ fn in_world_or_entering<S: Store>(s: &Server<S>, id: u64) -> bool {
 /// will first enter with (where it was put, and what it was given, kept).
 fn state_out_of_world<S: Store>(s: &mut Server<S>, c: &Character) -> Result<WorldState, String> {
     Ok(
-        match s.store.world_state(c.id).map_err(|e| e.to_string())? {
+        match crate::saves::state_of(s, c.id).map_err(|e| e.to_string())? {
             Some(st) if !st.qualities.is_empty() => st,
             kept => {
                 let mut st = crate::world::first_state(s, c);
@@ -535,9 +543,7 @@ pub fn apply<S: Store>(s: &mut Server<S>, r: &Recipe, now: i64) -> Result<String
     }
     let mut st = state_out_of_world(s, &c)?;
     build(s, &c, r, &mut st, now)?;
-    s.store
-        .set_world_state(c.id, &st)
-        .map_err(|e| e.to_string())?;
+    crate::saves::put(s, c.id, st).map_err(|e| e.to_string())?;
     Ok(format!("{} brought up to its build", c.name))
 }
 
@@ -583,15 +589,11 @@ pub fn place<S: Store>(s: &mut Server<S>, who: &str, to: &Destination) -> Result
         }
         Destination::At(at) => (*at, format!("{:08X} {:?}", at.cell, at.origin)),
     };
-    let mut st = s
-        .store
-        .world_state(c.id)
+    let mut st = crate::saves::state_of(s, c.id)
         .map_err(|e| e.to_string())?
         .unwrap_or_default();
     st.position = Some(at);
-    s.store
-        .set_world_state(c.id, &st)
-        .map_err(|e| e.to_string())?;
+    crate::saves::put(s, c.id, st).map_err(|e| e.to_string())?;
     Ok(format!("{} enters at {said} next", c.name))
 }
 
@@ -627,7 +629,9 @@ pub fn delete_now<S: Store>(
         crate::admin::end_login(s, net, login, crate::admin::BOOTED, clock);
         booted = ", taken out of the world and booted first";
     }
+    crate::saves::write_out(s).map_err(|e| e.to_string())?;
     s.store.purge_character(c.id).map_err(|e| e.to_string())?;
+    s.saves.forget(c.id);
     // An account at its character list sees it gone at once.
     let mut selecting: Vec<ConnId> = s
         .sessions
@@ -723,10 +727,11 @@ pub fn build_of<S: Store>(s: &Server<S>, c: &Character, st: &WorldState) -> Resu
     };
     let starting = s.start.skills.get(&c.race).cloned().unwrap_or_default();
     let skills = held(&starting, &play.skills);
+    let hero = crate::focus::is_hero(&st.qualities);
     let mut trained: Vec<(u32, u32)> = skills
         .iter()
         .filter(|h| h.mask & crate::skills::mask::TRAINED != 0)
-        .map(|h| (h.skill, s.skill_table.rating(&skills, h.skill)))
+        .map(|h| (h.skill, s.skill_table.rating(&skills, h.skill, hero)))
         .collect();
     trained.sort_unstable();
     let mut items: Vec<(u32, u32)> = Vec::new();
@@ -767,8 +772,8 @@ pub fn build_of<S: Store>(s: &Server<S>, c: &Character, st: &WorldState) -> Resu
 /// ids for its items, its name or `new_name`. Kept whole or not at all. Returns what was done.
 ///
 /// # Errors
-/// The account cannot hold it, the name is no name or is taken, its state does not read, or the
-/// store's.
+/// The account cannot hold it, the name is no name or is taken, its state does not read or holds
+/// one item id twice, or the store's.
 pub fn import<S: Store>(
     s: &mut Server<S>,
     file: &CharacterFile,
@@ -786,6 +791,14 @@ pub fn import<S: Store>(
         ));
     }
     let mut play = PlayState::from_bytes(&file.state.play)?;
+    // Each row becomes an item of its own, so one id held twice would make two of one item.
+    let mut seen = std::collections::HashSet::new();
+    if let Some(h) = play.items.iter().find(|h| !seen.insert(h.id)) {
+        return Err(format!(
+            "the file holds item {:#x} twice: nothing was brought",
+            h.id
+        ));
+    }
     let account = account_for(s, account, now)?;
     let n = s.store.next_character_number().map_err(|e| e.to_string())?;
     let old = file.character.id;
@@ -813,6 +826,9 @@ pub fn import<S: Store>(
         None => false,
     });
     let me = |x: u64| if x == old { id } else { x };
+    for k in &mut play.item_states {
+        k.own.bound_to = me(k.own.bound_to);
+    }
     for e in &mut play.effects {
         e.caster = me(e.caster);
         e.acting = me(e.acting);
@@ -820,6 +836,9 @@ pub fn import<S: Store>(
             e.item = *new;
         }
     }
+    // A cloak and a suffix are this world's own admins' business.
+    play.cloaked = false;
+    play.suffix.clear();
     let mut state = file.state.clone();
     if !play.items.is_empty() || !file.state.play.is_empty() {
         state.play = play.to_bytes();

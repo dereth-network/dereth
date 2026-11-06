@@ -63,6 +63,46 @@ fn wrap(degrees: f64) -> f32 {
     }
 }
 
+/// A number as C's `%.3f` writes it in the client's library, infinities and not-a-numbers rounded
+/// at the same place.
+#[must_use]
+pub fn fixed_three(v: f32) -> String {
+    if v.is_nan() {
+        return if v.is_sign_negative() {
+            "-1.#IO"
+        } else {
+            "1.#QO"
+        }
+        .to_owned();
+    }
+    if v.is_infinite() {
+        return if v < 0.0 { "-1.#IO" } else { "1.#IO" }.to_owned();
+    }
+    format!("{:.3}", f64::from(v))
+}
+
+/// A vector as text: `(x, y, z)`, three places each.
+// D2-13128, D2-13129
+#[must_use]
+pub fn vector_text(v: Vec3) -> String {
+    format!(
+        "({}, {}, {})",
+        fixed_three(v.x),
+        fixed_three(v.y),
+        fixed_three(v.z)
+    )
+}
+
+/// A plane as text: its normal, then its distance, and the end of the line.
+#[must_use]
+pub fn plane_text(plane: &Plane) -> String {
+    format!(
+        "N = {}, d = {}\n",
+        vector_text(plane.normal),
+        fixed_three(plane.d)
+    )
+}
+
 /// A heading: degrees clockwise from north. A copy is the same heading.
 // D2-13349, D2-13350
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
@@ -218,6 +258,51 @@ impl Heading {
     #[must_use]
     pub fn is_zero(self) -> bool {
         self.is_in_range(Self::ZERO, Self::EPSILON)
+    }
+
+    /// The compass point nearest this heading: within 11.25 degrees of north, south, east or west,
+    /// its letter; else, in the quarter it falls in, the two letters of the point between them, within
+    /// 11.25 degrees of it, or those with the nearer of the two letters first.
+    // D2-13364
+    #[must_use]
+    pub fn compass(self) -> String {
+        const WITHIN: f32 = 11.25;
+        for (center, letter) in [(0.0, "N"), (180.0, "S"), (90.0, "E"), (270.0, "W")] {
+            if self.is_in_range(Self(center), Self(WITHIN)) {
+                return letter.to_owned();
+            }
+        }
+        let north = self.abs().0 < 90.0;
+        let centered = |h: f32| if h > 180.0 { h - 360.0 } else { h };
+        let east = centered(self.0) > 0.0;
+        let middle = Self::lerp(
+            Self(if north { 0.0 } else { 180.0 }),
+            Self(if east { 90.0 } else { 270.0 }),
+            0.5,
+        );
+        let past = centered(self.minus(middle).0);
+        let side = if north { 'N' } else { 'S' };
+        let along = if east { 'E' } else { 'W' };
+        if past > WITHIN {
+            // Clockwise of the middle of the quarter.
+            let first = match (north, east) {
+                (true, true) => 'E',
+                (true, false) => 'N',
+                (false, true) => 'S',
+                (false, false) => 'W',
+            };
+            format!("{first}{side}{along}")
+        } else if past < -WITHIN {
+            let first = match (north, east) {
+                (true, true) => 'N',
+                (true, false) => 'W',
+                (false, true) => 'E',
+                (false, false) => 'S',
+            };
+            format!("{first}{side}{along}")
+        } else {
+            format!("{side}{along}")
+        }
     }
 
     /// The heading of a direction in the ground plane (`+y` north, `+x` east), from its angle.
@@ -582,11 +667,40 @@ pub fn set_vector_heading(frame: &mut Frame, v: Vec3) {
 }
 
 /// Faces a frame toward a heading, keeping its tilt.
-// D2-13173
+// D2-13173, D2-05828
 pub fn set_heading(frame: &mut Frame, h: Heading) {
     let m = rotation_axes(frame.rotation);
     let r = h.radians();
     set_vector_heading(frame, Vec3::new(math::sinf(r), math::cosf(r), m[5]));
+}
+
+/// Turns a frame by the rotation vector `v` (its direction the axis, its length the angle in
+/// radians) after its rotation, kept unit length. A vector shorter than 0.0002 leaves it.
+// D2-13168
+pub fn grotate(frame: &mut Frame, v: Vec3) {
+    let wide = f64::from;
+    #[allow(clippy::cast_possible_truncation)]
+    let narrow = |x: f64| x as f32;
+    let (x, y, z) = (wide(v.x), wide(v.y), wide(v.z));
+    let len2 = x * x + y * y + z * z;
+    let least = wide(0.0002_f32);
+    if len2 < least * least {
+        return;
+    }
+    let len = len2.sqrt();
+    let (sin, cos) = (math::sin(len * 0.5) / len, math::cos(len * 0.5));
+    let (ax, ay, az) = (x * sin, y * sin, z * sin);
+    let b = frame.rotation;
+    let (bw, bx, by, bz) = (wide(b.w), wide(b.x), wide(b.y), wide(b.z));
+    set_rotate(
+        frame,
+        Quat::new(
+            narrow(cos * bw - ax * bx - ay * by - az * bz),
+            narrow(ax * bw + cos * bx + ay * bz - az * by),
+            narrow(ay * bw + cos * by + az * bx - ax * bz),
+            narrow(az * bw + cos * bz + ax * by - ay * bx),
+        ),
+    );
 }
 
 /// Sets a frame's rotation, made unit length.
@@ -630,7 +744,6 @@ pub fn slerp_rotation(frame: &mut Frame, a: &Frame, b: &Frame, t: f32) {
 
 /// A direction of length at most one as three bytes, its parts held to -1 to 1 (a part that is not
 /// a number counting as -1) and each mapped to 0 to 255: east in the high byte, up in the low.
-// D2-13126
 #[must_use]
 pub fn unit_vector_to_u24(v: Vec3) -> u32 {
     let byte = |c: f32| {
@@ -742,5 +855,18 @@ mod tests {
         let b = at(0x1010_0001, 4.0, 0.0, 6.0);
         assert_eq!(cylinder_distance(0.5, 2.0, &a, 0.5, 2.0, &b), 5.0);
         assert_eq!(cylinder_distance(3.0, 7.0, &a, 3.0, 2.0, &b), 0.0);
+    }
+
+    /// A frame turned by a rotation vector stays a unit, and a tiny one leaves it be.
+    #[test]
+    fn a_frame_turns_by_a_rotation_vector() {
+        let mut f = Frame::new(Vec3::ZERO, Quat::IDENTITY);
+        grotate(&mut f, Vec3::new(0.0, 0.0, std::f32::consts::FRAC_PI_2));
+        let half = std::f32::consts::FRAC_1_SQRT_2;
+        assert!((f.rotation.w - half).abs() < 1e-5, "{:?}", f.rotation);
+        assert!((f.rotation.z - half).abs() < 1e-5, "{:?}", f.rotation);
+        let before = f.rotation;
+        grotate(&mut f, Vec3::new(0.0, 0.0001, 0.0));
+        assert_eq!(f.rotation, before);
     }
 }

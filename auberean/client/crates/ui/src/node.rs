@@ -148,7 +148,6 @@ impl Nodes {
     /// (else the middle of its right side, its left when flipped, across; the middle of its top
     /// side, its bottom when flipped, down), going out first by its `node_away_x` and `_y`, to
     /// each child's point.
-    // D2-11187
     #[must_use]
     pub fn child_lines(&self, ui: &Ui, id: NodeId, across: bool, flipped: bool) -> Vec<Line> {
         let Some(n) = self.get(id) else {

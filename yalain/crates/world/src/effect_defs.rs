@@ -14,7 +14,8 @@
 //! players around it every so often; a pet summoned, of a class, for a lifetime or for good; a
 //! teleport, which sends its target to its place when its time is up; a recall, which is its
 //! skill's ([`crate::skill_use`]): to a place its user keeps (a link), to one of a list of named
-//! places, or to its allegiance's hall.
+//! places, or to its allegiance's hall; a taunt, which changes a creature's mind about its caster
+//! once ([`crate::ai`]), by the low end of the range its data gives over spellcraft.
 //!
 //! **A combination** looks for the target's effects of its types (or classes): found, it adds its
 //! effect for that case at the cast's spellcraft adjusted by its own amount, gives its user the
@@ -54,7 +55,7 @@ impl Scale {
                 if (x1 - x0).abs() < f32::EPSILON {
                     y1
                 } else {
-                    y0 + (y1 - y0) * (x - x0) / (x1 - x0)
+                    y0 + (y1 - y0) * ((x - x0) / (x1 - x0))
                 }
             })
         })
@@ -84,6 +85,9 @@ pub mod numeric {
 /// An effect's internal flags: taken off at a resurrection.
 pub const REMOVED_ON_DEATH: u32 = 0x40_0000;
 
+/// An effect's internal flags: it does its target harm.
+pub const HARMFUL: u32 = 0x200_0000;
+
 /// An effect's internal flags: one its holder's client is shown (an item's effect without it is
 /// never put on its wearer).
 pub const CLIENT_VISIBLE: u32 = 0x1;
@@ -98,6 +102,68 @@ pub const CATEGORY_FLAGS: [(u32, u32); 5] = [
     (0x800_0000, 0x8),
     (0x1000, 0x10),
 ];
+
+/// What a counter's external flags say of its chance: the same at any spellcraft, or along a line.
+mod counter_flag {
+    pub const CONSTANT: u32 = 0x40;
+    pub const VARIABLE: u32 = 0x80;
+}
+
+/// What a taunt's own flags say it adjusts by: its low bits, as a share of the creature's whole
+/// health, up or down. Every taunt of the data is one of these two.
+const TAUNT_KIND: u32 = 7;
+mod taunt_kind {
+    pub const TAUNT: u32 = 2;
+    pub const DETAUNT: u32 = 4;
+}
+
+/// What a reply's external flags say of its chance: the same at any spellcraft, or along a line.
+mod reply_flag {
+    pub const CONSTANT: u32 = 0x10;
+    pub const VARIABLE: u32 = 0x20;
+}
+
+/// What the external flags of an effect that watches vitals change say: how much it absorbs and
+/// how much it sends back (the same at any spellcraft, or along a line), that it watches health,
+/// that those are shares of the harm rather than amounts, that attacks are what it watches.
+mod watcher_flag {
+    pub const ABSORB_CONSTANT: u32 = 0x1;
+    pub const ABSORB_VARIABLE: u32 = 0x2;
+    pub const SEND_BACK_CONSTANT: u32 = 0x4;
+    pub const SEND_BACK_VARIABLE: u32 = 0x8;
+    pub const HEALTH: u32 = 0x100;
+    pub const SHARES: u32 = 0x2000;
+    pub const ATTACKS: u32 = 0x4000;
+}
+
+/// The wards and what they keep off, as their descriptions say: the classes of fire and of what
+/// lowers vigor are those the install's own protections from them name, of poison those its poisons
+/// are in, of what lowers armor those that hold its armor-lowering effects. Their own data names
+/// neither. Our choice.
+fn ward_of(state: u32) -> Option<Kind> {
+    const FIRE: &[u32] = &[48, 1119, 5013];
+    const VIGOR: &[u32] = &[49, 5014, 26, 4015, 5043, 5050];
+    const POISON: &[u32] = &[53, 5007, 5022, 5046];
+    const ARMOR: &[u32] = &[22, 5061];
+    let (classes, chance): (&[u32], f32) = match state {
+        0x6F00_2671 => (VIGOR, 0.15),
+        0x6F00_2672 => (FIRE, 0.15),
+        0x6F00_2675 => (POISON, 0.15),
+        0x6F00_266E | 0x6F00_2670 | 0x6F00_2674 => (ARMOR, 1.0),
+        _ => return None,
+    };
+    Some(Kind::Ward {
+        classes: classes.to_vec(),
+        chance: Scale(vec![(0.0, chance)]),
+    })
+}
+
+/// What a reflective effect's external flags say of keeping effects off: its chance the same at
+/// any spellcraft, or along a line.
+mod keeps_off_flag {
+    pub const CONSTANT: u32 = 0x1;
+    pub const VARIABLE: u32 = 0x2;
+}
 
 /// A combination's flags (its effect's external flags): what it takes off of the effects it found.
 pub mod combo_flag {
@@ -144,6 +210,29 @@ pub struct Aura {
     pub range: f32,
 }
 
+/// One side of an effect that watches attacks on its holder: its chance, how much at a spellcraft
+/// (none: nothing), and up to how much a draw adds to that.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Share {
+    pub chance: f32,
+    pub amount: Scale,
+    pub spread: f32,
+}
+
+/// An effect that watches attacks on its holder: what it takes off their harm and what it sends
+/// back to the attacker.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Watcher {
+    pub absorbs: Share,
+    pub sends_back: Share,
+    /// What sending back another player's attack is multiplied by.
+    pub against_a_player: f32,
+    /// Its amounts are shares of the harm, rather than amounts of it.
+    pub shares: bool,
+    /// It watches health, and attacks (its data may have it watch neither).
+    pub watches: bool,
+}
+
 /// What an effect does.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Kind {
@@ -160,6 +249,9 @@ pub enum Kind {
     },
     /// Several changes to qualities at once.
     Chained(Vec<EffectDef>),
+    /// A weapon's: its hits harm creatures of these superclasses by its spellcraft times the number
+    /// with each.
+    Slayer(Vec<(u32, f32)>),
     /// Moves a quest on: the quest and the update.
     Quest { quest: u32, update: u32 },
     /// The player learns a recipe.
@@ -177,6 +269,24 @@ pub enum Kind {
     Teleport(yalain_store::StoredPosition),
     /// A recall: where its skill takes its user.
     Recall(Recall),
+    /// Held by its wearer, it may answer an attack that reaches them: an effect put on the attacker,
+    /// by a chance at its spellcraft.
+    Counter { effect: u32, chance: Scale },
+    /// Held by its wearer, it may answer a harmful effect of these classes (none named: of any)
+    /// coming at them: an effect put on who sent it, by a chance at its spellcraft.
+    Reply {
+        effect: u32,
+        chance: Scale,
+        classes: Vec<u32>,
+    },
+    /// Held by its wearer, it takes from an attack's harm and sends some back.
+    Watcher(Box<Watcher>),
+    /// Held by its wearer, it may keep off effects of these classes (none named: of any), by a
+    /// chance at its spellcraft.
+    Ward { classes: Vec<u32>, chance: Scale },
+    /// A creature's mind changed about its caster, once, by this share of the creature's whole
+    /// health: more inclined to it, or less (below 0).
+    Taunt(f32),
     /// Anything else (kept as a record only).
     Other,
 }
@@ -236,6 +346,7 @@ impl EffectDef {
             .flatten()
             .collect(),
             Kind::Aura(a) => a.pulsed.clone(),
+            Kind::Counter { effect, .. } | Kind::Reply { effect, .. } => vec![*effect],
             _ => Vec::new(),
         }
     }
@@ -277,6 +388,31 @@ impl EffectDef {
                 stats.iter().map(|s| (*s, mult, m)).collect()
             }
             Kind::Chained(list) => list.iter().flat_map(|d| d.changes(spellcraft)).collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// A change held inside a chain that is another effect's saved state, until the table has read
+    /// it.
+    const fn reference_to(state: u32) -> Self {
+        Self {
+            state,
+            kind: Kind::Other,
+            duration: Scale(Vec::new()),
+            priority: Scale(Vec::new()),
+            fx: 0,
+            external_flags: 0,
+            internal_flags: 0,
+            enum_value: 0,
+            eq_class: 0,
+            name: None,
+        }
+    }
+
+    /// The saved states a chain holds of other effects.
+    fn chained_states(&self) -> Vec<u32> {
+        match &self.kind {
+            Kind::Chained(list) => list.iter().map(|d| d.state).filter(|s| *s != 0).collect(),
             _ => Vec::new(),
         }
     }
@@ -342,7 +478,113 @@ impl EffectDef {
             nav.states_of_ref(r)
         };
         let flags = word("m_uiExternalFlags")?;
-        let kind = if is("InstantVitalEffect") {
+        let number = |name: &str| nav.number(o, name).unwrap_or(0.0);
+        let kind = if let Some(ward) = ward_of(state) {
+            ward
+        } else if is("AITauntDetauntEffect") {
+            match word("m_flags").unwrap_or(0) & TAUNT_KIND {
+                taunt_kind::TAUNT => Kind::Taunt(number("m_fMinFractionalMod")),
+                taunt_kind::DETAUNT => Kind::Taunt(-number("m_fMinFractionalMod")),
+                _ => Kind::Other,
+            }
+        } else if let Some(effect) = state_of("m_effGenerate").filter(|_| {
+            is("ReflectiveVitalEffect")
+                && flags & (counter_flag::CONSTANT | counter_flag::VARIABLE) != 0
+        }) {
+            let begin = number("m_fGenerateProbBegin");
+            Kind::Counter {
+                effect,
+                chance: if flags & counter_flag::VARIABLE == 0 {
+                    Scale(vec![(0.0, begin)])
+                } else {
+                    Scale(vec![
+                        (number("m_fGenerateSpellcraftBegin"), begin),
+                        (
+                            number("m_fGenerateSpellcraftEnd"),
+                            number("m_fGenerateProbEnd"),
+                        ),
+                    ])
+                },
+            }
+        } else if let Some(effect) = state_of("m_effGenerate").filter(|_| {
+            is("ReflectiveEffect") && flags & (reply_flag::CONSTANT | reply_flag::VARIABLE) != 0
+        }) {
+            let begin = number("m_fGenerateProbBegin");
+            Kind::Reply {
+                effect,
+                chance: if flags & reply_flag::VARIABLE == 0 {
+                    Scale(vec![(0.0, begin)])
+                } else {
+                    Scale(vec![
+                        (number("m_fGenerateSpellcraftBegin"), begin),
+                        (
+                            number("m_fGenerateSpellcraftEnd"),
+                            number("m_fGenerateProbEnd"),
+                        ),
+                    ])
+                },
+                classes: words("m_clsGenerateList"),
+            }
+        } else if is("ReflectiveVitalEffect")
+            && flags
+                & (watcher_flag::ABSORB_CONSTANT
+                    | watcher_flag::ABSORB_VARIABLE
+                    | watcher_flag::SEND_BACK_CONSTANT
+                    | watcher_flag::SEND_BACK_VARIABLE)
+                != 0
+        {
+            let line = |constant: u32, variable: u32, side: &str| {
+                let begin = number(&format!("m_f{side}MagBegin"));
+                let amount = if flags & constant != 0 {
+                    Scale(vec![(0.0, begin)])
+                } else if flags & variable != 0 {
+                    Scale(vec![
+                        (number(&format!("m_f{side}SpellcraftBegin")), begin),
+                        (
+                            number(&format!("m_f{side}SpellcraftEnd")),
+                            number(&format!("m_f{side}MagEnd")),
+                        ),
+                    ])
+                } else {
+                    Scale::default()
+                };
+                Share {
+                    chance: number(&format!("m_f{side}ProbBegin")),
+                    amount,
+                    spread: number(&format!("m_f{side}Var")),
+                }
+            };
+            Kind::Watcher(Box::new(Watcher {
+                absorbs: line(
+                    watcher_flag::ABSORB_CONSTANT,
+                    watcher_flag::ABSORB_VARIABLE,
+                    "Absorb",
+                ),
+                sends_back: line(
+                    watcher_flag::SEND_BACK_CONSTANT,
+                    watcher_flag::SEND_BACK_VARIABLE,
+                    "Reflect",
+                ),
+                against_a_player: number("m_fReflectPKMod"),
+                shares: flags & watcher_flag::SHARES != 0,
+                watches: flags & watcher_flag::HEALTH != 0 && flags & watcher_flag::ATTACKS != 0,
+            }))
+        } else if is("ReflectiveEffect")
+            && flags & (keeps_off_flag::CONSTANT | keeps_off_flag::VARIABLE) != 0
+        {
+            let begin = number("m_fAbsorbProbBegin");
+            Kind::Ward {
+                classes: words("m_clsAbsorbList"),
+                chance: if flags & keeps_off_flag::CONSTANT != 0 {
+                    Scale(vec![(0.0, begin)])
+                } else {
+                    Scale(vec![
+                        (number("m_fAbsorbSpellcraftBegin"), begin),
+                        (number("m_fAbsorbSpellcraftEnd"), number("m_fAbsorbProbEnd")),
+                    ])
+                },
+            }
+        } else if is("InstantVitalEffect") {
             Kind::InstantVital {
                 flags,
                 change: scale("m_changeData"),
@@ -353,11 +595,34 @@ impl EffectDef {
                 per_second: scale("m_changeData"),
             }
         } else if is("ChainedNumericEffect") {
-            Kind::Chained(
-                nav.list(o, "m_listEffect")?
+            // Each held inside it, or another effect's saved state, read with the table.
+            let mut held = Vec::new();
+            let list = nav.field(o, "m_listEffect")?;
+            let items = if list == 0 || list == NULL {
+                Vec::new()
+            } else {
+                nav.items(list)?
+            };
+            for r in items {
+                let r = Nav::reference(r)?;
+                held.push(match nav.singleton(r) {
+                    Some(chained) => Self::reference_to(chained),
+                    None => Self::from_object(0, lib, nav, nav.object(r)?)?,
+                });
+            }
+            Kind::Chained(held)
+        } else if is("SlayerEffect") {
+            let classes = nav
+                .field(o, "m_SlayerHash")
+                .and_then(|r| nav.entries(r))
+                .unwrap_or_default();
+            Kind::Slayer(
+                classes
                     .into_iter()
-                    .map(|c| Self::from_object(0, lib, nav, c))
-                    .collect::<Result<_, _>>()?,
+                    .filter_map(|(k, v)| {
+                        Some((Nav::word(k).ok()?, f32::from_bits(Nav::word(v).ok()?)))
+                    })
+                    .collect(),
             )
         } else if is("AIPetEffect") {
             // A pet effect is a numeric effect whose magnitude is its lifetime.
@@ -492,7 +757,19 @@ impl EffectTable {
             let Some(g) = graph(s) else { continue };
             if let Ok(d) = EffectDef::from_state(s, lib, &g) {
                 todo.extend(d.adds());
+                todo.extend(d.chained_states());
                 t.effects.insert(s, d);
+            }
+        }
+        // A chain's changes held by other effects' saved states.
+        let read = t.effects.clone();
+        for d in t.effects.values_mut() {
+            if let Kind::Chained(list) = &mut d.kind {
+                for held in list.iter_mut().filter(|h| h.state != 0) {
+                    if let Some(chained) = read.get(&held.state) {
+                        *held = chained.clone();
+                    }
+                }
             }
         }
         t

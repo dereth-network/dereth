@@ -11,8 +11,9 @@
 //! newest given first. A row shows the quest's name and its time left (or none, or that it may be
 //! taken no more); the quest that changed last is open, showing its description, its journal entry
 //! and its challenge (or how it ended) and, for one under way that may be given up, a cancel
-//! button, which asks first. Pressing a quest's row opens or closes it; hiding the window closes
-//! the open one.
+//! button, which asks first. A quest that changed has its row's name and time marked until the row
+//! is pressed or the window hidden. Pressing a quest's row opens or closes it; hiding the window
+//! closes the open one.
 
 use std::any::Any;
 
@@ -91,6 +92,7 @@ pub struct Quest {
     /// The seconds left before it runs out (under way) or may be taken again.
     pub seconds_remaining: i32,
     /// The player may give it up.
+    // D2-12250
     pub cancellable: bool,
 }
 
@@ -385,9 +387,11 @@ impl Journal {
             return;
         };
         for (list, quests) in [(u, &mut self.underway), (f, &mut self.finished)] {
+            let mut open = None;
             for (i, d) in quests.iter_mut().enumerate() {
                 if d.quest.id == self.selected {
                     d.expanded = true;
+                    open = Some(i);
                 }
                 if d.element.is_some() {
                     Self::update_element(ui, d, list);
@@ -396,6 +400,9 @@ impl Journal {
                 }
             }
             ui.list_changes_done(list);
+            if let Some(i) = open {
+                ui.list_scroll_to_row(list, i32::try_from(i).unwrap_or(i32::MAX), true);
+            }
         }
     }
 
@@ -428,7 +435,7 @@ impl Journal {
                 match quest.status {
                     status::UNDER_WAY => {
                         if let Some(d) = self.underway.iter_mut().find(|d| d.quest.id == id) {
-                            d.expanded = true;
+                            d.updated = true;
                             d.quest = quest;
                         } else {
                             if let Some(i) = self.finished.iter().position(|d| d.quest.id == id) {
@@ -438,7 +445,7 @@ impl Journal {
                                     ui.list_changes_done(l);
                                 }
                             }
-                            fresh.expanded = true;
+                            fresh.updated = true;
                             insert_sorted(&mut self.underway, fresh, true);
                             pages.push(name::UNDERWAY_TAB);
                         }
@@ -452,7 +459,7 @@ impl Journal {
                                 ui.list_changes_done(l);
                             }
                         }
-                        fresh.expanded = true;
+                        fresh.updated = true;
                         insert_sorted(&mut self.finished, fresh, true);
                         pages.push(name::FINISHED_TAB);
                     }
@@ -478,7 +485,7 @@ impl Journal {
                 self.dirty = true;
             }
             change::ADDED => {
-                fresh.expanded = true;
+                fresh.updated = true;
                 insert_sorted(&mut self.underway, fresh, true);
                 flash = true;
                 pages.push(name::UNDERWAY_TAB);
@@ -612,6 +619,12 @@ impl Child for Journal {
                     let w = ui.node(from).map_or(0, |n| n.rect.width());
                     let h = ui.text_state(from).map_or(0, |t| t.paper_h);
                     ui.resize_to(from, w, h);
+                    for list in [self.underway_list, self.finished_list]
+                        .into_iter()
+                        .flatten()
+                    {
+                        ui.list_update_and_draw(list);
+                    }
                 }
                 if element == name::CANCEL_BUTTON && what == msg::BUTTON_RELEASE_ON {
                     self.ask_cancel(ui, id, out);
@@ -830,6 +843,7 @@ impl Child for QuestWindow {
         }
     }
 
+    // D2-02701
     fn close(self: Box<Self>, ui: &mut Ui) {
         if let Some(j) = self.journal {
             Box::new(j).close(ui);

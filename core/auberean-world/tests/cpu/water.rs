@@ -83,3 +83,24 @@ fn a_block_holds_water_above_its_lowest_ground() {
         "the default kind has no water"
     );
 }
+
+/// A sky object shows by its water effect word: 0 above and under water alike, 1 only with the
+/// camera under water, anything else never.
+///
+/// Behaviour: world.water.a-sky-object-shows-by-its-water-effect
+#[test]
+fn a_sky_object_shows_by_its_water_effect() {
+    let piece = |water_effect| auberean_world::sky::SkyPiece {
+        index: 0,
+        object: DataId(0),
+        heading: 0.0,
+        pitch: 0.0,
+        color: auberean_world::color::Color::WHITE,
+        after: false,
+        rotation: auberean_primitives::Quat::IDENTITY,
+        water_effect,
+    };
+    assert!(piece(0).shows(false) && piece(0).shows(true));
+    assert!(!piece(1).shows(false) && piece(1).shows(true));
+    assert!(!piece(2).shows(false) && !piece(2).shows(true));
+}

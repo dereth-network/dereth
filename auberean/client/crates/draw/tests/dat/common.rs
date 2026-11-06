@@ -36,12 +36,14 @@ pub fn install() -> &'static Install {
         let portal = take(&DatName::Portal).expect("a portal file");
         let cell = take(&DatName::Cell(1)).expect("a cell file");
         let highres = take(&DatName::HighRes);
+        let language = take(&DatName::Local("English".to_owned()));
         let ids = portal.entries().map(|e| e.id).collect();
         let ctx = Context::from_portal(&portal).expect("the property list");
-        Install {
-            records: WorldRecords::new(portal, cell, highres, ctx),
-            ids,
+        let records = WorldRecords::new(portal, cell, highres, ctx);
+        if let Some(file) = language {
+            records.use_language_file(file);
         }
+        Install { records, ids }
     })
 }
 

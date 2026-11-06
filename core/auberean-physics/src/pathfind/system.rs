@@ -48,20 +48,17 @@ impl Pathing {
 
     /// The search's counters as text: the client writes nothing (the routine that would is
     /// empty).
-    // D2-08823
     #[must_use]
     pub fn dump_search_stats() -> String {
         String::new()
     }
 
     /// The cache as text: only its heading.
-    // D2-08824
     #[must_use]
     pub fn dump_cache() -> String {
         "PathCache: ".to_owned()
     }
 
-    // D2-13504
     pub fn path_node<S: PathMaps + ?Sized>(&mut self, source: &mut S, id: u32) -> Option<NodeRef> {
         self.db.node(source, id)
     }
@@ -88,7 +85,6 @@ impl Pathing {
     }
 
     /// What the ground at the node under a place is like.
-    // D2-13508
     pub fn inq_node_data_by_position<S: PathMaps + ?Sized>(
         &mut self,
         source: &mut S,
