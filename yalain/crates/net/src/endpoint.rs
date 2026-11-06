@@ -273,7 +273,7 @@ impl Endpoint {
     /// Queue one message with the blob id it carries. A server's large message goes by its
     /// [`Pace`].
     pub fn send_blob(&mut self, queue: u16, blob_id: u64, payload: Vec<u8>) {
-        let paced = self.role == Role::Server && self.pace.takes(queue, payload.len());
+        let paced = self.role == Role::Server && self.pace.takes(queue, blob_id, payload.len());
         let mut b = NetBlob::for_send(payload, queue);
         b.id = NetBlobId(blob_id);
         b.saved_net_blob_id = b.id;

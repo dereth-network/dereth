@@ -6394,6 +6394,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.net.large-message-holds-only-its-kind",
+        says: "A small message of another ordering kind on a large message's queue goes past it at \
+               once; one of the large message's own kind waits behind it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-NET-PACE-KIND"),
+        station: "yalain-net::cpu::pace::a_large_message_holds_back_only_the_messages_of_its_kind_on_its_queue",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.net.large-message-holds-only-its-queue",
         says: "A message sent after a large one on another queue goes at once; one on the large \
                message's own queue goes after it, so each queue keeps its order.",
