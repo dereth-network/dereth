@@ -1023,6 +1023,82 @@ fn a_skill_aimed_at_the_users_pet_changes_which_attack_the_pet_uses() {
     assert_eq!(thrown(&h, from), Some(DOUBLE), "its effect opens the other");
 }
 
+/// A pet whose skills only help takes no order to attack and fights nothing.
+/// Behaviour: server.pets.one-that-only-helps-never-attacks
+#[test]
+fn a_pet_that_only_helps_takes_no_order_to_attack() {
+    let guardian = Summoned {
+        effect: 0x7000_0829,
+        template: 0x4700_0847,
+        class: 0x2000_0000,
+        lifetime: 0.0,
+        // A skill below the attacks': it helps.
+        skill: 2,
+    };
+    let mut h = Harness::new();
+    with_kind(&mut h, &guardian, 1);
+    h.server.pets.read_rows(
+        [pets::PetKind::new(
+            guardian.effect,
+            guardian.template,
+            1096,
+            &[],
+        )],
+        [],
+    );
+    let (b, me) = summoner(&mut h);
+    h.run(20);
+    let pet = {
+        let from = summon(&mut h, b);
+        pet_added(&h, b, from)
+    }
+    .expect("a pet");
+    let beetle = beetles(&h)[0];
+    put_near(&mut h, beetle, me, 3.0, 3.0);
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(function::ATTACK, &[Arg::LongInt(beetle)]),
+    );
+    h.run(120);
+    assert_eq!(target_of(&h, pet), None);
+    assert_eq!(h.server.things.get(beetle).map(|t| t.health), Some(100_000));
+}
+
+/// An owner coming out of a portal somewhere else brings the pets that follow it; one that stays
+/// is left where it stands.
+/// Behaviour: server.pets.one-that-stays-stays-behind
+#[test]
+fn a_pet_that_stays_stays_behind_when_its_owner_arrives_elsewhere() {
+    let mut h = Harness::new();
+    with_kind(&mut h, &RIFT, 1);
+    let (b, me) = summoner(&mut h);
+    h.run(20);
+    let rift = {
+        let from = summon(&mut h, b);
+        pet_added(&h, b, from)
+    }
+    .expect("a pet");
+    let at = h
+        .server
+        .things
+        .get(rift)
+        .and_then(|t| t.at)
+        .expect("placed");
+    let world = h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .map(|(c, _)| *c)
+        .expect("in the world");
+    if let Some(p) = h.server.players.get_mut(&world) {
+        p.position.origin[0] += 30.0;
+    }
+    pets::owner_arrives(&mut h.server, &mut h.net, world, 1.0);
+    assert_eq!(h.server.things.get(rift).and_then(|t| t.at), Some(at));
+}
+
 /// A kind's health at a level is its row's, between its levels the line, and never less than its
 /// template's.
 /// Behaviour: server.pets.health-by-kind-and-level

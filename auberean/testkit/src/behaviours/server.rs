@@ -8524,6 +8524,23 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.pets.one-that-only-helps-never-attacks",
+        says: "A pet whose skills only help takes no order to attack and fights nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PETS-ONLY-HELPS"),
+        station: "yalain-testkit::cpu::play::pet_kinds::a_pet_that_only_helps_takes_no_order_to_attack",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.pets.one-that-stays-stays-behind",
+        says: "A pet that stays where it is made is left there when its owner comes out of a \
+               portal elsewhere.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PETS-STAYS-BEHIND"),
+        station: "yalain-testkit::cpu::play::pet_kinds::a_pet_that_stays_stays_behind_when_its_owner_arrives_elsewhere",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.pets.orbs",
         says: "An Axe Orb's swing hits four times; a Taunt Orb's strike does no harm and may turn \
                the creature on it.",

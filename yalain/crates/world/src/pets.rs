@@ -46,7 +46,7 @@
 //! as it dies its own, kingdom and all, with the dead bit); its corpse comes a
 //! second and a half later and its body leaves three seconds after that. An owner leaving the
 //! world takes its pets out of the world with it (nothing more sent to the owner). A pet goes with
-//! its owner through portals.
+//! its owner through portals, except one that stays where it is made.
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -1236,6 +1236,9 @@ fn order_attack<S: Store>(
 
 /// A pet takes on a target: its combat mode (when it was at peace), its target.
 fn take_on<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, target: u64) {
+    if never_attacks(s, id) {
+        return;
+    }
     let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) else {
         return;
     };
@@ -1338,6 +1341,10 @@ pub fn owner_arrives<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: Co
         return;
     };
     for id in s.pets.of(owner) {
+        let effect = s.pets.by_id.get(&id).map_or(0, |p| p.effect);
+        if s.pets.kind_of(effect).is_some_and(|k| k.stays) {
+            continue;
+        }
         calm(s, net, id);
         relocate(s, net, id, beside(&at), time);
     }
@@ -1451,7 +1458,7 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, pet: &Pet, clock: Clock
             p.order = Order::Follow;
         }
     }
-    let fighting = if order == Order::Return {
+    let fighting = if order == Order::Return || never_attacks(s, id) {
         None
     } else {
         let current = s
@@ -2002,6 +2009,23 @@ pub fn lands<S: Store>(
 /// A creature a pet taunted may turn on it, as on a pet that strikes it.
 fn taunted<S: Store>(s: &mut Server<S>, net: &mut ServerNet, target: u64, pet: u64, clock: Clock) {
     turn_on_pet(s, net, target, pet, clock);
+}
+
+/// Does this pet never attack: its template names skills, and none of them attacks, whatever is on
+/// it?
+fn never_attacks<S: Store>(s: &Server<S>, id: u64) -> bool {
+    let Some(stats) = s
+        .things
+        .get(id)
+        .and_then(|t| t.creature.as_ref())
+        .map(|c| &c.stats)
+    else {
+        return false;
+    };
+    !stats.skills.is_empty()
+        && stats.skills.iter().all(|(skill, rating)| {
+            crate::missiles::attack_skill(&s.skill_table, *skill, *rating).is_none()
+        })
 }
 
 /// A pet's attacks: its template's skills that attack, as the effects on it allow (what its owner
