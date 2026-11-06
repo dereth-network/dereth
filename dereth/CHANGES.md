@@ -19,6 +19,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - macOS: the client asks for Game Mode.
 - macOS: drag the window to any size; it reopens that size, in points on Retina.
 - macOS: full screen draws at the screen's own pixels, with a new render scale option.
+- macOS: fixed the game running at 10 frames a second after starting behind another window.
 - Better Lighting: smoke now covers distant trees instead of fading into the haze.
 - Better Lighting: glows and torches add as they do in the ordinary picture.
 

@@ -633,6 +633,8 @@ pub struct WinitWindow {
     held: HeldSize,
     /// The render scale last seen.
     share: std::cell::Cell<u32>,
+    /// Whether the client was last told the window is the active one.
+    focused: std::cell::Cell<bool>,
     /// Whether this is a window the player sizes, down to a login size, and the size it closed
     /// at is theirs to keep (client divergence CD-resizable-window).
     player_sizes: bool,
@@ -1125,6 +1127,7 @@ pub fn open_window(
         player_sizes: look.resizable && look.login_size.is_some(),
         drags: std::cell::Cell::new(look.resizable),
         share: std::cell::Cell::new(100),
+        focused: std::cell::Cell::new(false),
     };
     if let Some(handle) = opened.raw_handle() {
         let weak = std::rc::Rc::downgrade(&opened.shared);
@@ -1322,6 +1325,20 @@ fn route_window_event(
     command_key::let_go(&event, queue);
     let scale = window.scale_factor();
     queue.extend(host_event(&event).map(|e| units.host_event(e, scale)));
+}
+
+/// What the client has been told of the window being the active one once it reads `drained`,
+/// starting from `told`, and what it must be told besides for that to be what the window says now.
+fn focus_to_tell(told: bool, drained: &[HostEvent], now: bool) -> (bool, Option<bool>) {
+    let told = drained
+        .iter()
+        .rev()
+        .find_map(|e| match e {
+            HostEvent::Focused(f) => Some(*f),
+            _ => None,
+        })
+        .unwrap_or(told);
+    (now, (told != now).then_some(now))
 }
 
 /// A resize on the queue: one right after another replaces it, so a drag that held the drain up
@@ -1562,6 +1579,14 @@ impl WindowHost for WinitWindow {
             .event_loop
             .borrow_mut()
             .pump_app_events(Some(std::time::Duration::ZERO), &mut drain);
+        // On a Mac, a window that becomes the active one as it starts up can go unsaid.
+        if cfg!(target_os = "macos") {
+            let told = self.focused.get();
+            let focused = self.shared.window.has_focus();
+            let (told, tell) = focus_to_tell(told, &queue, focused);
+            self.focused.set(told);
+            queue.extend(tell.map(HostEvent::Focused));
+        }
         // A new render scale, full screen, changes what the client draws at with no word from the
         // window system.
         let share = dereth_client_contract::options::render_scale::percent();
@@ -2193,6 +2218,22 @@ mod tests {
             window_attributes(&cfg, &look(false), None).min_inner_size,
             None
         );
+    }
+
+    /// A window active with no word of it is told once, after whatever the drain brought.
+    ///
+    /// Behaviour: none (the window system's word going missing; nothing retail to compare).
+    #[test]
+    fn a_window_active_with_no_word_of_it_is_told_once() {
+        use HostEvent::Focused;
+        assert_eq!(focus_to_tell(false, &[], true), (true, Some(true)));
+        assert_eq!(focus_to_tell(true, &[], true), (true, None));
+        assert_eq!(focus_to_tell(false, &[Focused(true)], true), (true, None));
+        assert_eq!(
+            focus_to_tell(true, &[Focused(true), Focused(false)], true),
+            (true, Some(true))
+        );
+        assert_eq!(focus_to_tell(true, &[Focused(false)], false), (false, None));
     }
 
     /// A window counted in points opens as large on a Retina screen as on any other, and the
