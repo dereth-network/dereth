@@ -15,6 +15,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ## Unreleased
 
 - Better Lighting: a Cloud Detail menu, Off to High: Medium and High draw the Remastered sky's clouds with two and four times the steps, smoothing the stripes along their edges; Off draws retail's flat cloud deck.
+
 ## 0.4.14 (2026-11-05)
 
 ## 0.4.13 (2026-11-05)
