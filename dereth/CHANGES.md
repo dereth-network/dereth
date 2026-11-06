@@ -15,6 +15,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ## Unreleased
 
 - macOS: Command takes the place of Control for shortcuts, copy and paste among them, and the key bindings pages show it as Cmd.
+
 ## 0.4.14 (2026-11-05)
 
 ## 0.4.13 (2026-11-05)
