@@ -939,6 +939,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.characters.starting-pack-from-the-install",
+        says: "A new character of each of the five races holds the weapons among its race's starting \
+               items in the install's character data.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CHAR-STARTING-PACK"),
+        station: "yalain-testkit::dat::skills::a_new_character_of_each_race_holds_the_weapons_its_data_names",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.chat.emote-plays-its-behavior",
         says: "An emote plays the behavior the emote table gives it on the emoter, for it and every \
                client that knows it, carrying the emote's id and a context; each client writes the \

@@ -635,3 +635,71 @@ fn a_hero_with_the_first_transmutation_master_is_paid_as_in_2017() {
     assert_eq!(sell(&mut h, FOUR_THOUSAND, 1), 4_120);
     assert_eq!(sell(&mut h, ONE_THOUSAND, 5), 5_150);
 }
+
+/// A new character of each of the five races holds the weapons its data names, and no clothes: a
+/// Drudge two, the others three.
+/// Behaviour: server.characters.starting-pack-from-the-install
+#[test]
+fn a_new_character_of_each_race_holds_the_weapons_its_data_names() {
+    use auberean_protocol::login::{CharacterCreated, CreateCharacter};
+    use auberean_protocol::table::{Table, SMALL};
+    use auberean_protocol::text::{NarrowString, WideString};
+    use auberean_protocol::{queue, ClientMessage, ServerMessage};
+    let p = Portal::open();
+    let rules = p.start_rules();
+    let lib = p.library();
+    let mut catalog = yalain_content::Catalog::default();
+    for t in rules.items.values().flatten() {
+        catalog.insert(p.template(*t));
+    }
+    catalog.implements =
+        yalain_world::skill_use::implements_of_catalog(&catalog, |package, class| {
+            lib.package_id(class)
+                .is_some_and(|c| lib.derives_from(package, c))
+        });
+    for (race, want) in [
+        (1, vec![0x4700_051B, 0x4700_051C, 0x4700_051D]),
+        (2, vec![0x4700_0515, 0x4700_0516, 0x4700_0517]),
+        (4, vec![0x4700_0521, 0x4700_0522, 0x4700_0523]),
+        (8, vec![0x4700_052C, 0x4700_052D]),
+        (16, vec![0x4700_0526, 0x4700_0527, 0x4700_0528]),
+    ] {
+        let mut h = yalain_testkit::Harness::new();
+        let areas = h.server.start.by_race.clone();
+        h.server.start = rules.clone();
+        h.server.start.by_race = areas;
+        h.server.start.areas = yalain_testkit::test_start().areas;
+        h.server.catalog = catalog.clone();
+        let account = format!("race{race}");
+        let b = h.at_character_list(&account);
+        let before = h.bots[b].inbox.len();
+        let m = ClientMessage::CreateCharacter(CreateCharacter {
+            account: NarrowString::from(account.as_str()),
+            name: WideString::from("Newcomer"),
+            entity_did: 0x4700_110F,
+            start_area: 0x4000_0001,
+            race,
+            sex: 0x1000,
+            class: 2,
+            implement: 1,
+            physique: Table::from_inserted(SMALL, [(1, 1.0), (2, 1.0)]),
+        });
+        h.bots[b].send(false, queue::LOGON, &m);
+        assert!(h.run_until(1000, |h| h.bots[b].inbox.len() > before));
+        let Some(ServerMessage::CharacterCreated(CharacterCreated { identity, .. })) =
+            h.bots[b].inbox[before].message()
+        else {
+            panic!("race {race} is not answered with a character");
+        };
+        assert_ne!(identity.id, 0, "race {race} makes a character");
+        h.enter_world(b, &account, identity.id);
+        let me = h
+            .server
+            .players
+            .values()
+            .find(|p| p.character == identity.id)
+            .expect("in the world");
+        let held: Vec<u32> = me.play.items.iter().map(|i| i.template).collect();
+        assert_eq!(held, want, "race {race}");
+    }
+}

@@ -122,6 +122,23 @@ impl std::fmt::Debug for Portal {
 }
 
 impl Portal {
+    /// The character data's rules.
+    ///
+    /// # Panics
+    /// The data does not read.
+    #[must_use]
+    pub fn start_rules(&self) -> yalain_world::StartRules {
+        let lib = self.library.get_or_init(|| self.library());
+        let bytes = self
+            .dat
+            .read(0x7000_0390)
+            .expect("character generation data");
+        let st: auberean_assets::script::ScriptState =
+            auberean_assets::decode(0x7000_0390, &bytes, &self.ctx).expect("reads");
+        let g = auberean_script::graph::Graph::decode(&st.graph, lib).expect("its graph reads");
+        yalain_world::StartRules::from_matrix(lib, &g).expect("the rules read")
+    }
+
     /// The script library.
     ///
     /// # Panics
@@ -491,16 +508,18 @@ impl Portal {
             .iter()
             .flat_map(|p| p.items.iter().map(|(t, _)| *t));
         // Everything the server's rules and the world's rows make, as a real start asks for it.
-        let made = yalain_world::makes::by_the_server().into_iter().chain(
-            yalain_world::makes::by_the_rows(yalain_world::makes::Rows {
-                objects: &t.content.objects,
-                stores: &t.stores,
-                quests: &t.quests,
-                crafting: &t.crafting,
-                death_spawns: &t.death_spawns,
-                pets: &t.pet_kinds,
-            }),
-        );
+        let made = yalain_world::makes::by_the_server(&self.start_rules())
+            .into_iter()
+            .chain(yalain_world::makes::by_the_rows(
+                yalain_world::makes::Rows {
+                    objects: &t.content.objects,
+                    stores: &t.stores,
+                    quests: &t.quests,
+                    crafting: &t.crafting,
+                    death_spawns: &t.death_spawns,
+                    pets: &t.pet_kinds,
+                },
+            ));
         let mut seen = std::collections::HashSet::new();
         for id in spawned
             .chain(dropped)

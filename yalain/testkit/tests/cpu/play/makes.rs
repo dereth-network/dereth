@@ -13,7 +13,7 @@ use yalain_world::{pets, plants, usable};
 /// Behaviour: server.makes.the-server-names-what-it-makes
 #[test]
 fn the_server_names_every_pet_plant_and_map_node_it_makes() {
-    let named = by_the_server();
+    let named = by_the_server(&yalain_testkit::test_start());
     for k in pets::fallback_kinds() {
         assert!(named.contains(&k.template), "{:08X}", k.template);
     }

@@ -1761,7 +1761,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             craft_skills = craft.skills.len(),
             "the effects and crafting read"
         );
-        let more: Vec<u32> = yalain_world::makes::by_the_server()
+        let more: Vec<u32> = yalain_world::makes::by_the_server(&data::start_rules(portal)?)
             .into_iter()
             .chain(yalain_world::makes::by_the_rows(
                 yalain_world::makes::Rows {

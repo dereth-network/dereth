@@ -198,19 +198,6 @@ pub fn insert_at(held: &mut [Held], slot: u32) {
 /// The book every new character is given as it first enters.
 pub const GUIDE_BOOK: u32 = 0x4700_06CD;
 
-/// A new character's starting pack by race, from the character data's starting inventory
-/// (human: bow, sword, stave; Lugian: sword, hammer, scepter; Tumerok: drum, spear, sword). The
-/// clothes it starts in are part of its look.
-#[must_use]
-pub fn starting_pack(race: u32) -> &'static [u32] {
-    match race {
-        1 => &[0x4700_051D, 0x4700_051C, 0x4700_051B],
-        2 => &[0x4700_0515, 0x4700_0516, 0x4700_0517],
-        4 => &[0x4700_0521, 0x4700_0522, 0x4700_0523],
-        _ => &[],
-    }
-}
-
 /// Kinds of moves.
 pub mod move_type {
     /// Made in the pack by the server (a gift).

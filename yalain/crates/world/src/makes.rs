@@ -29,10 +29,8 @@ pub fn can_make<S: Store>(s: &Server<S>, template: u32) -> bool {
 /// packs and the book a new character is given, the mounts, a summoned portal, every kind of pet,
 /// the dye plants and what they give, and the nodes maps conjure.
 #[must_use]
-pub fn by_the_server() -> Vec<u32> {
-    let starting = [1, 2, 4]
-        .into_iter()
-        .flat_map(|race| inventory::starting_pack(race).iter().copied());
+pub fn by_the_server(start: &crate::StartRules) -> Vec<u32> {
+    let starting = start.items.values().flatten().copied();
     let plants = plants::SPECIES
         .iter()
         .flat_map(|p| [p.plant, p.seed, p.harvest].into_iter().chain(p.pollen));

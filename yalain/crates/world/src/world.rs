@@ -624,9 +624,12 @@ pub fn enter<S: Store>(
     });
     send(net, world, BlobKind::VISUAL, &stop);
     if new_character {
-        // A new character's pack: its race's starting weapons, from the character data.
-        for template in crate::inventory::starting_pack(c.race) {
-            if s.catalog.get(*template).is_some() {
+        // A new character's pack: the weapons among its race's starting items, from the character
+        // data. The clothes it starts in are part of its look.
+        for template in s.start.items.get(&c.race).into_iter().flatten() {
+            if s.catalog.get(*template).is_some()
+                && crate::skill_use::implement_of(&s.catalog, *template).is_some()
+            {
                 let id = s.things.new_id();
                 let slot = u32::try_from(p.play.items.len()).unwrap_or(0);
                 p.play.items.push(crate::state::Held {

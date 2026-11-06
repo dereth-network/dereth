@@ -84,6 +84,12 @@ pub fn test_start() -> StartRules {
         ],
     };
     let mut r = StartRules::default();
+    r.items
+        .insert(1, vec![0x4700_051B, 0x4700_051C, 0x4700_051D]);
+    r.items
+        .insert(2, vec![0x4700_0515, 0x4700_0516, 0x4700_0517]);
+    r.items
+        .insert(4, vec![0x4700_0521, 0x4700_0522, 0x4700_0523]);
     r.areas.insert(
         TEST_START_AREA,
         StartArea {

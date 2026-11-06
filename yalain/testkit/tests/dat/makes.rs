@@ -41,7 +41,7 @@ fn every_seed_and_node_the_server_names_reads_from_the_install() {
     for n in usable::maps::nodes() {
         assert!(p.template(n).props.word("Mine_Object").is_some(), "{n:08X}");
     }
-    for t in by_the_server() {
+    for t in by_the_server(&p.start_rules()) {
         assert_eq!(p.template(t).id, t);
     }
 }
