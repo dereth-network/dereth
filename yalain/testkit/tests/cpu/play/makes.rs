@@ -14,7 +14,7 @@ use yalain_world::{pets, plants, usable};
 #[test]
 fn the_server_names_every_pet_plant_and_map_node_it_makes() {
     let named = by_the_server();
-    for k in pets::KINDS {
+    for k in pets::fallback_kinds() {
         assert!(named.contains(&k.template), "{:08X}", k.template);
     }
     for p in plants::SPECIES {
@@ -48,6 +48,7 @@ fn every_node_a_maps_effect_names_is_among_the_nodes() {
 /// Behaviour: server.makes.the-rows-name-what-they-make
 #[test]
 fn a_give_rows_gift_and_a_death_spawn_are_named_with_the_other_rows() {
+    const PET: u32 = 0x4700_0862;
     const GIFT: u32 = 0x4700_10DA;
     const TAKEN: u32 = 0x4700_1775;
     const DUMMY: u32 = 0x4700_2DAE;
@@ -83,8 +84,12 @@ fn a_give_rows_gift_and_a_death_spawn_are_named_with_the_other_rows() {
         quests: &quests,
         crafting: &CraftStart::default(),
         death_spawns: &death_spawns,
+        pets: &std::collections::BTreeMap::from([(
+            0x7000_092A,
+            yalain_world::pets::PetKind::new(0x7000_092A, PET, 1096, &[]),
+        )]),
     });
-    for t in [GIFT, TAKEN, DUMMY] {
+    for t in [GIFT, TAKEN, DUMMY, PET] {
         assert!(named.contains(&t), "{t:08X}");
     }
 }

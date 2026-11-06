@@ -3616,6 +3616,7 @@ fn everything_the_worlds_rows_make_reads_from_the_install() {
         quests: &t.quests,
         crafting: &t.crafting,
         death_spawns: &t.death_spawns,
+        pets: &t.pet_kinds,
     });
     for template in named {
         assert_eq!(portal.template(template).id, template);

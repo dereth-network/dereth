@@ -834,6 +834,8 @@ struct Play {
     weapon_rules: std::collections::HashMap<String, yalain_content::WeaponRule>,
     death_spawns: std::collections::HashMap<String, yalain_content::DeathSpawn>,
     death_effects: yalain_world::item_use::ItemUses,
+    pet_kinds: Vec<yalain_content::PetKind>,
+    pet_limits: Vec<(u32, Vec<(usize, u32)>)>,
 }
 
 /// The exit code of a server whose ports another program holds, beside the line that says so
@@ -1032,6 +1034,16 @@ fn run<S: Store>(
     server.creature_weapon_rules = play.weapon_rules;
     server.death_spawns = play.death_spawns;
     server.death_effects = play.death_effects;
+    server.pets.read_rows(play.pet_kinds, play.pet_limits);
+    let unmade = yalain_world::pets::skills_with_no_kind(&server);
+    if !unmade.is_empty() {
+        tracing::warn!(
+            skills = unmade.len(),
+            first = ?unmade.iter().take(8).collect::<Vec<_>>(),
+            "summoning skills name a pet this world has no [[pet]] row for: they tell their users \
+             the summoning fails"
+        );
+    }
     for path in &o.recipes {
         make_character(&mut server, path, unix_now());
     }
@@ -1667,6 +1679,8 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         weapons: listed_weapons,
         weapon_rules,
         death_spawns,
+        pet_kinds,
+        pet_limits,
         ..
     } = compiled;
     let play = (|| {
@@ -1756,6 +1770,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
                     quests: &quests,
                     crafting: &crafting,
                     death_spawns: &death_spawns,
+                    pets: &pet_kinds,
                 },
             ))
             .chain(craft.templates())
@@ -1947,6 +1962,8 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             weapon_rules: weapon_rules.into_iter().collect(),
             death_spawns: death_spawns.into_iter().collect(),
             death_effects,
+            pet_kinds: pet_kinds.into_values().collect(),
+            pet_limits: pet_limits.into_iter().collect(),
         })
     })();
     play.map(|p| (content, p))
@@ -1985,6 +2002,8 @@ fn reload_world(
         weapons: p.weapons,
         weapon_rules: p.weapon_rules,
         death_spawns: p.death_spawns,
+        pet_kinds: p.pet_kinds,
+        pet_limits: p.pet_limits,
         names,
         kinds: Some(yalain_world::reload::PlacedKinds {
             brokers: p.brokers,

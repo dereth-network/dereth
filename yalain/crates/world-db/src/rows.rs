@@ -443,6 +443,8 @@ pub enum Row {
     Shard(Shard),
     Weapon(Weapon),
     DeathSpawn(DeathSpawn),
+    Pet(Pet),
+    PetLimit(PetLimit),
     Route(Route),
     Area(Area),
     Clearing(Clearing),
@@ -481,6 +483,68 @@ pub struct DeathSpawn {
     pub offset: At,
     /// How long each stands, in seconds; it stays until killed when left out.
     pub lasts: Option<f32>,
+    pub prov: Prov,
+}
+
+/// `[[pet]]`: what a pet effect, or a contract, makes, as its effect's description has it and as
+/// the recordings show it fight.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Pet {
+    /// The effect's saved state (or the contract's template).
+    pub effect: u32,
+    pub template: u32,
+    /// The flags of a pet's data as its owner is told them.
+    pub flags: u32,
+    /// It stays where it is made.
+    pub stays: bool,
+    /// How many its effect makes at once.
+    pub count: u32,
+    /// Its greatest health at levels, lowest first; its template's when left out.
+    pub health: Vec<(i32, i32)>,
+    /// What a hit takes: this times its level squared. The server's general number when left out.
+    pub per_level_squared: Option<f32>,
+    pub variance: Option<f32>,
+    pub lands: Option<f32>,
+    /// Hits a swing on its one target.
+    pub swing: Option<u32>,
+    /// Its missile lands on every creature this near where it falls.
+    pub area: Option<f32>,
+    /// Its strikes taunt and do no harm.
+    pub taunts: bool,
+    pub outdoors_only: bool,
+    /// Its corpse after its death, in seconds; the server's general number when left out.
+    pub corpse_after: Option<f32>,
+    /// It leaves no corpse.
+    pub no_corpse: bool,
+    pub tends: Option<PetTendsRow>,
+    pub hire: Option<PetHireRow>,
+    pub prov: Prov,
+}
+
+/// A `[[pet]]`'s `tends`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PetTendsRow {
+    /// Its owner, or its owner's other pets.
+    pub pets: bool,
+    pub effect: u32,
+    pub every: f32,
+    pub below: f32,
+}
+
+/// A `[[pet]]`'s `hire`: a contract's terms.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PetHireRow {
+    pub class: u32,
+    pub seconds: f32,
+    pub level: f32,
+}
+
+/// `[[pet_limit]]`: what a summoning skill allows its user.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PetLimit {
+    pub skill: u32,
+    /// As many as `most` of pets that share a bit of `classes`.
+    pub limits: Vec<(u32, u32)>,
     pub prov: Prov,
 }
 
@@ -584,6 +648,8 @@ impl Row {
             Self::Shard(_) => "shard",
             Self::Weapon(_) => "weapon",
             Self::DeathSpawn(_) => "death_spawn",
+            Self::Pet(_) => "pet",
+            Self::PetLimit(_) => "pet_limit",
             Self::Route(_) => "route",
             Self::Area(_) => "area",
             Self::Clearing(_) => "clearing",
@@ -610,6 +676,8 @@ impl Row {
             Self::Shard(r) => Some(&r.prov),
             Self::Weapon(r) => Some(&r.prov),
             Self::DeathSpawn(r) => Some(&r.prov),
+            Self::Pet(r) => Some(&r.prov),
+            Self::PetLimit(r) => Some(&r.prov),
             Self::Route(r) => Some(&r.prov),
             Self::Area(r) => Some(&r.prov),
             Self::Clearing(r) => Some(&r.prov),
@@ -619,7 +687,7 @@ impl Row {
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 20] = [
+pub const KINDS: [&str; 22] = [
     "object",
     "camp",
     "loot",
@@ -640,10 +708,12 @@ pub const KINDS: [&str; 20] = [
     "area",
     "clearing",
     "death_spawn",
+    "pet",
+    "pet_limit",
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 20] = [
+pub const FIELDS: [(&str, &[&str]); 22] = [
     (
         "object",
         &[
@@ -869,6 +939,30 @@ pub const FIELDS: [(&str, &[&str]); 20] = [
             "effect", "template", "count", "chance", "offset", "lasts", "prov",
         ],
     ),
+    (
+        "pet",
+        &[
+            "effect",
+            "template",
+            "flags",
+            "stays",
+            "count",
+            "health",
+            "per_level_squared",
+            "variance",
+            "lands",
+            "swing",
+            "area",
+            "taunts",
+            "outdoors_only",
+            "corpse_after",
+            "no_corpse",
+            "tends",
+            "hire",
+            "prov",
+        ],
+    ),
+    ("pet_limit", &["skill", "limits", "prov"]),
 ];
 
 /// A shared-format error as a problem at its file and line.
@@ -1485,6 +1579,74 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 chance,
                 offset: f.req_at("offset")?,
                 lasts,
+                prov: f.req_prov()?,
+            })
+        }
+        "pet" => {
+            let share = |v: Option<f64>| v.map(to_f32);
+            let (count, swing) = (f.u32("count").unwrap_or(1), f.u32("swing"));
+            let lands = share(f.float("lands"));
+            if count == 0 || swing == Some(0) {
+                f.bad(
+                    "count",
+                    "a pet makes at least one, and hits at least once a swing",
+                );
+                return None;
+            }
+            if lands.is_some_and(|l| !(0.0..=1.0).contains(&l)) {
+                f.bad("lands", "a share is a number from 0 to 1");
+                return None;
+            }
+            let health = f.list_of(
+                "health",
+                "a list of { level, health }, lowest level first",
+                &["level", "health"],
+                |t| {
+                    Some((
+                        i32::try_from(t.get("level")?.as_integer()?).ok()?,
+                        i32::try_from(t.get("health")?.as_integer()?).ok()?,
+                    ))
+                },
+            );
+            if health.windows(2).any(|w| w[0].0 >= w[1].0) {
+                f.bad("health", "levels go up");
+                return None;
+            }
+            Row::Pet(Pet {
+                effect: f.req_id("effect")?,
+                template: f.req_id("template")?,
+                flags: f.u32("flags").unwrap_or(0),
+                stays: f.bool("stays").unwrap_or(false),
+                count,
+                health,
+                per_level_squared: share(f.float("per_level_squared")),
+                variance: share(f.float("variance")),
+                lands,
+                swing,
+                area: share(f.float("area")),
+                taunts: f.bool("taunts").unwrap_or(false),
+                outdoors_only: f.bool("outdoors_only").unwrap_or(false),
+                corpse_after: share(f.float("corpse_after")),
+                no_corpse: f.bool("no_corpse").unwrap_or(false),
+                tends: f.pet_tends(),
+                hire: f.pet_hire(),
+                prov: f.req_prov()?,
+            })
+        }
+        "pet_limit" => {
+            let limits = f.list_of(
+                "limits",
+                "a list of { most, classes }",
+                &["most", "classes"],
+                |t| Some((as_u32(t.get("most")?)?, as_u32(t.get("classes")?)?)),
+            );
+            if limits.is_empty() {
+                f.bad("limits", "a limit names what it limits");
+                return None;
+            }
+            Row::PetLimit(PetLimit {
+                skill: f.req_id("skill")?,
+                limits,
                 prov: f.req_prov()?,
             })
         }
@@ -2143,6 +2305,46 @@ impl<'a> Fields<'a> {
     }
 
     /// The row's provenance, read in the shared format's grammar.
+    fn pet_tends(&mut self) -> Option<PetTendsRow> {
+        let v = self.get("tends")?;
+        let t = v.as_table();
+        let read = t.and_then(|t| {
+            let whom = t.get("whom")?.as_str()?;
+            Some(PetTendsRow {
+                pets: match whom {
+                    "owner" => false,
+                    "owners-pets" => true,
+                    _ => return None,
+                },
+                effect: as_u32(t.get("effect")?)?,
+                every: to_f32(as_number(t.get("every")?)?),
+                below: to_f32(as_number(t.get("below")?)?),
+            })
+        });
+        if read.is_none() {
+            self.bad(
+                "tends",
+                "{ whom = \"owner\" or \"owners-pets\", effect, every, below }",
+            );
+        }
+        read
+    }
+
+    fn pet_hire(&mut self) -> Option<PetHireRow> {
+        let v = self.get("hire")?;
+        let read = v.as_table().and_then(|t| {
+            Some(PetHireRow {
+                class: as_u32(t.get("class")?)?,
+                seconds: to_f32(as_number(t.get("seconds")?)?),
+                level: to_f32(as_number(t.get("level")?)?),
+            })
+        });
+        if read.is_none() {
+            self.bad("hire", "{ class, seconds, level }");
+        }
+        read
+    }
+
     fn req_prov(&mut self) -> Option<Prov> {
         let Some(v) = self.get("prov") else {
             return self.missing("prov");

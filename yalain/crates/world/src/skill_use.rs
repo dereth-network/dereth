@@ -1196,7 +1196,7 @@ fn check<S: Store>(
     if u.ui_flags & ui_flag::USE_WHILE_MOVING == 0 && moving(p) {
         return Err(refusal::MOVING);
     }
-    if crate::pets::too_many(s, p.character, &u.user_effects) {
+    if crate::pets::too_many(s, p.character, r.skill, &u.user_effects) {
         return Err(crate::pets::TOO_MANY_PETS);
     }
     Ok(u)
@@ -2664,15 +2664,14 @@ fn end<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: C
             Some(crate::effect_defs::Kind::Pet { .. })
         );
         if pet {
-            summons.extend(crate::pets::summon(
-                s,
-                net,
-                world,
-                x.req.skill,
-                *state,
-                x.spellcraft,
-                clock,
-            ));
+            let what = crate::pets::Summoning {
+                skill: x.req.skill,
+                effect: *state,
+                rating: x.spellcraft,
+                at: None,
+                after: None,
+            };
+            summons.extend(crate::pets::summon(s, net, world, what, clock));
             continue;
         }
         crate::effects::apply(

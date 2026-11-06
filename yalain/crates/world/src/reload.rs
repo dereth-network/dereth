@@ -82,6 +82,9 @@ pub struct WorldTables {
     pub weapon_rules: std::collections::HashMap<String, yalain_content::WeaponRule>,
     /// What creatures' death effects make.
     pub death_spawns: std::collections::HashMap<String, yalain_content::DeathSpawn>,
+    /// The kinds of pet the rows make, and what each summoning skill allows its user.
+    pub pet_kinds: Vec<yalain_content::PetKind>,
+    pub pet_limits: Vec<(u32, Vec<(usize, u32)>)>,
     /// The operator's banned names read again, when the server was given a list.
     pub names: Option<NameRules>,
     /// What the install says of the placed objects' packages and templates, read again with
@@ -279,6 +282,7 @@ impl<S: Store> Server<S> {
         self.creature_weapons = t.weapons;
         self.creature_weapon_rules = t.weapon_rules;
         self.death_spawns = t.death_spawns;
+        self.pets.read_rows(t.pet_kinds, t.pet_limits);
 
         if let Some(names) = t.names {
             r.note(table::BANNED_NAMES, names != self.names, true);

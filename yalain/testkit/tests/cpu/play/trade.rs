@@ -1034,7 +1034,7 @@ fn contracts(h: &Harness, world: yalain_net::ConnId) -> usize {
         .play
         .items
         .iter()
-        .filter(|i| yalain_world::pets::is_contract(i.template))
+        .filter(|i| h.server.pets.is_contract(i.template))
         .count()
 }
 

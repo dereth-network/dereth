@@ -498,6 +498,7 @@ impl Portal {
                 quests: &t.quests,
                 crafting: &t.crafting,
                 death_spawns: &t.death_spawns,
+                pets: &t.pet_kinds,
             }),
         );
         let mut seen = std::collections::HashSet::new();

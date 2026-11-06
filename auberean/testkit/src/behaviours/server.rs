@@ -8341,6 +8341,24 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.pets.a-row-makes-a-kind",
+        says: "A world's row makes a kind of pet the server has no list entry for, as many as it \
+               says, and replaces a listed kind of the same effect.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PETS-ROWS"),
+        station: "yalain-testkit::cpu::play::pet_kinds::a_row_makes_a_kind_and_replaces_a_listed_one",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.pets.a-summoning-that-cannot-make-says-so",
+        says: "A summoning that can't make what it names is told of, says \"The summoning \
+               fails.\" and is taken off the owner's list as the use ends.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PETS-CANT-MAKE"),
+        station: "yalain-testkit::cpu::play::pet_kinds::a_summoning_that_cant_make_what_it_names_says_the_summoning_fails",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.pets.aggressive-unprovoked",
         says: "An aggressive pet takes on the nearest creature within its reach without being told \
                to.",
@@ -8421,6 +8439,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-PETS-FOLLOW"),
         station: "yalain-testkit::cpu::play::pets::a_pet_follows_its_owner_and_is_put_beside_it_when_far",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.pets.health-by-kind-and-level",
+        says: "A kind's greatest health at a level is its row's, and never less than its \
+               template's.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PETS-HEALTH"),
+        station: "yalain-testkit::cpu::play::pet_kinds::a_kinds_health_is_its_rows_at_its_level_and_at_least_its_templates",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -8603,6 +8630,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-PETS-CAP"),
         station: "yalain-testkit::cpu::play::pets::a_second_lasher_is_refused_as_too_many_pets",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.pets.too-many-of-the-classes-a-skill-names",
+        says: "A skill allows so many pets of each class it names, a pet counting toward \
+               every class it shares a bit with.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PETS-CLASS-BITS"),
+        station: "yalain-testkit::cpu::play::pet_kinds::a_skill_counts_every_pet_sharing_a_class_it_limits",
         tier: Tier::Cpu,
     },
     behaviour! {

@@ -363,6 +363,7 @@ fn a_real_start_describes_everything_a_worlds_rows_make() {
         quests: &t.quests,
         crafting: &t.crafting,
         death_spawns: &t.death_spawns,
+        pets: &t.pet_kinds,
     });
     assert!(!named.is_empty());
     let log = answered(&named, "yalain-live-catalog-rows");

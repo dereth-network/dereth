@@ -40,7 +40,7 @@ pub fn by_the_server() -> Vec<u32> {
         .chain([death::CORPSE_TEMPLATE, inventory::GUIDE_BOOK])
         .chain(mounts::ITEMS)
         .chain([usable::portals::TEMPLATE])
-        .chain(pets::KINDS.iter().map(|k| k.template))
+        .chain(pets::fallback_kinds().iter().map(|k| k.template))
         .chain(plants)
         .chain(usable::maps::nodes())
         .collect()
@@ -57,6 +57,7 @@ pub struct Rows<'a> {
     pub quests: &'a QuestTable,
     pub crafting: &'a CraftStart,
     pub death_spawns: &'a BTreeMap<String, DeathSpawn>,
+    pub pets: &'a BTreeMap<u32, yalain_content::PetKind>,
 }
 
 /// What a world's rows make or hand on: placed objects (a chest's lock and contents, a door's), what
@@ -70,6 +71,7 @@ pub fn by_the_rows(rows: Rows<'_>) -> Vec<u32> {
     rows.objects
         .iter()
         .map(|o| o.template)
+        .chain(rows.pets.values().map(|k| k.template))
         .chain(rows.stores.sales.iter().map(|s| s.product))
         .chain(steps.clone().flat_map(|s| s.gives.iter().copied()))
         .chain(steps.filter_map(|s| match s.trigger {

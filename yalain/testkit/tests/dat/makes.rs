@@ -10,7 +10,7 @@ use yalain_world::{pets, plants, usable};
 #[test]
 fn every_kind_of_pet_is_a_creature_the_install_describes() {
     let p = Portal::open();
-    for k in pets::KINDS {
+    for k in pets::fallback_kinds() {
         let mut props = p.template(k.template).props;
         props.set(
             yalain_content::props::creature_property::LEVEL,

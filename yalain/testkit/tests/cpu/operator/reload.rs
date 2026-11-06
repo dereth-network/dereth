@@ -88,6 +88,8 @@ pub(super) fn tables_of(h: &Harness) -> WorldTables {
         weapons: s.creature_weapons.clone(),
         weapon_rules: s.creature_weapon_rules.clone(),
         death_spawns: s.death_spawns.clone(),
+        pet_kinds: Vec::new(),
+        pet_limits: Vec::new(),
         names: None,
         kinds: None,
         ground: None,

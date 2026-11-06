@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- A summoning that can't make its pet says so.
 - Items put down now disappear after ten minutes.
 - Fixed a player getting stuck walking to an item that had gone.
 - Mine recipes now have to be made at the mine.
