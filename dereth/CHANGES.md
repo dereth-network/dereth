@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`launcher/RELEASING.md`](launcher/RELEASING.md)).
 
 ## Unreleased
+- Fixed a crash on exit on Linux with Wayland and NVIDIA.
 - Launch: spells ask for the tapers of your own account.
 - A window nobody can see no longer runs flat out.
 - macOS: Command works as Control, for shortcuts and copy and paste too.

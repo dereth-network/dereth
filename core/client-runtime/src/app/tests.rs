@@ -884,6 +884,68 @@ fn screens_before_the_world_drawn_at_the_players_size_are_full_screen_and_a_swit
     assert!(!app.applied_full_screen);
 }
 
+/// A window that says when it closes.
+#[derive(Debug)]
+struct ClosingWindow {
+    inner: NullWindow,
+    drop_log: std::rc::Rc<std::cell::RefCell<Vec<&'static str>>>,
+}
+
+impl Drop for ClosingWindow {
+    fn drop(&mut self) {
+        self.drop_log.borrow_mut().push("window");
+    }
+}
+
+impl WindowHost for ClosingWindow {
+    fn client_size(&self) -> (u32, u32) {
+        self.inner.client_size()
+    }
+    fn screen_metrics(
+        &self,
+        frame_metrics: (i32, i32, i32),
+    ) -> dereth_client_contract::window::ScreenMetrics {
+        self.inner.screen_metrics(frame_metrics)
+    }
+}
+
+/// Behaviour: none (the order the host's objects go in at exit).
+#[test]
+#[cfg_attr(not(feature = "retail-dats"), ignore = "reads retail data")]
+fn at_exit_the_device_goes_before_the_window_it_presents_to() {
+    let store = std::sync::Arc::new(dereth_dat::testing::open_store().unwrap());
+    let cfg = Config {
+        headless: true,
+        connect: false,
+        sound: false,
+        ..Config::default()
+    };
+    let drop_log = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let (window_log, device_log) = (drop_log.clone(), drop_log.clone());
+    let app = App::<NullShell>::bring_up_with_store(
+        cfg,
+        Some(store),
+        move |_| {
+            let mut platform = Platform::headless(64, 64);
+            platform.window = Box::new(ClosingWindow {
+                inner: NullWindow::new(64, 64),
+                drop_log: window_log,
+            });
+            Ok(platform)
+        },
+        move |_, _, _, _| {
+            let mut device = crate::present::NullPresentation::new(64, 64);
+            device.drop_log = Some(device_log);
+            Ok(Box::new(device))
+        },
+    )
+    .unwrap();
+    let mut shell = NullShell;
+    let log = app.shutdown(&mut shell);
+    assert_eq!(log.order(), crate::shutdown::Step::ORDER);
+    assert_eq!(*drop_log.borrow(), ["device", "window"]);
+}
+
 /// Behaviour: none (hosting a connected simulation behind another view).
 #[test]
 #[cfg_attr(not(feature = "retail-dats"), ignore = "reads retail data")]

@@ -7,8 +7,12 @@ impl<S: Shell> App<S> {
     ///
     /// The order is [`crate::shutdown::Step::ORDER`]; the recording it returns is what
     /// `dereth/client/tests/gpu/presentation/shutdown.rs` asserts on, because an ordering nothing checks is a comment.
-    pub fn shutdown(self, shell: &mut S) -> crate::shutdown::CleanupLog {
-        self.shutdown_retaining_presentation(shell).1
+    pub fn shutdown(mut self, shell: &mut S) -> crate::shutdown::CleanupLog {
+        let log = self.release_session(shell);
+        // The device goes first, while the window it presents to is still open. Vulkan on Wayland
+        // reads the display connection as it destroys the swap chain, so the other order crashes.
+        drop(self.present);
+        log
     }
 
     /// Release the session and its resources, returning the device to its host.
@@ -16,6 +20,12 @@ impl<S: Shell> App<S> {
         mut self,
         shell: &mut S,
     ) -> (Box<S::Present>, crate::shutdown::CleanupLog) {
+        let log = self.release_session(shell);
+        (self.present, log)
+    }
+
+    /// Everything shutting down does but letting the device go.
+    fn release_session(&mut self, shell: &mut S) -> crate::shutdown::CleanupLog {
         use crate::shutdown::{Outcome, Step};
         if let Some(effect) = self.resolution.cancel() {
             self.apply_resolution_effect(effect);
@@ -98,7 +108,7 @@ impl<S: Shell> App<S> {
         log.push(Step::LanguageInfo, Outcome::NotInThisBuild);
         // 5. UI cleanup: the flow and every root element it holds, then the element manager.
         //    **Before the database**, because UI elements hold dat objects.
-        shell.cleanup_ui(&mut UiContext::new(&mut self));
+        shell.cleanup_ui(&mut UiContext::new(self));
         log.push(Step::CleanupUi, Outcome::Ran);
         // 6. Preference cleanup, whose last two operations are
         //    save preferences, then run the remaining preference cleanup.
@@ -182,7 +192,7 @@ impl<S: Shell> App<S> {
                 }
             },
         );
-        (self.present, log)
+        log
     }
 
     /// Write [`crate::config::DISPLAY_WINDOW_SIZE`] into the profile being saved: the window's last
