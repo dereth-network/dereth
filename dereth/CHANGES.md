@@ -21,6 +21,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - macOS: Horizon draws at the screen's own pixels, sharp in a window too, with a new render scale option.
 - Horizon: lighter text outlines, easier to read over a bright sky.
 - macOS: fixed the game running at 10 frames a second after starting behind another window.
+- macOS: logging out of full screen puts the window back where it was.
 - Better Lighting: smoke now covers distant trees instead of fading into the haze.
 - Better Lighting: glows and torches add as they do in the ordinary picture.
 

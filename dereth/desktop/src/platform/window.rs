@@ -633,6 +633,8 @@ pub struct WinitWindow {
     held: HeldSize,
     /// What the client last drew in.
     view: std::cell::Cell<ClientUnits>,
+    /// Where the window last stood when not full screen.
+    before_own_full_screen: std::cell::Cell<Option<Rect>>,
     /// Whether the client was last told the window is the active one.
     focused: std::cell::Cell<bool>,
     /// Whether this is a window the player sizes, down to a login size, and the size it closed
@@ -924,6 +926,18 @@ fn is_wayland(window: &winit::window::Window) -> bool {
 }
 
 impl WinitWindow {
+    /// Where the window stands now, as the window system says.
+    fn placed_rect(&self) -> Option<Rect> {
+        let p = self.shared.window.outer_position().ok()?;
+        let o = self.shared.window.outer_size();
+        Some(Rect {
+            left: p.x,
+            top: p.y,
+            right: p.x + i32::try_from(o.width).unwrap_or(0),
+            bottom: p.y + i32::try_from(o.height).unwrap_or(0),
+        })
+    }
+
     fn counted(&self) -> Counted<'_> {
         Counted {
             window: &self.shared.window,
@@ -1125,6 +1139,7 @@ pub fn open_window(
         player_sizes: look.resizable && look.login_size.is_some(),
         drags: std::cell::Cell::new(look.resizable),
         view: std::cell::Cell::new(ClientUnits::of(look)),
+        before_own_full_screen: std::cell::Cell::new(None),
         focused: std::cell::Cell::new(false),
     };
     if let Some(handle) = opened.raw_handle() {
@@ -1456,14 +1471,14 @@ impl WindowHost for WinitWindow {
     /// a framed window wherever the window manager chooses, and *that* is where the player's
     /// window is.
     fn window_rect(&self) -> Option<Rect> {
-        let p = self.shared.window.outer_position().ok()?;
-        let o = self.shared.window.outer_size();
-        Some(Rect {
-            left: p.x,
-            top: p.y,
-            right: p.x + i32::try_from(o.width).unwrap_or(0),
-            bottom: p.y + i32::try_from(o.height).unwrap_or(0),
-        })
+        // Full screen by the window system's own button, the window's place is the monitor's, and
+        // the place it comes back to is where it was.
+        if cfg!(target_os = "macos") && self.full_screen_of_its_own() {
+            if let Some(before) = self.before_own_full_screen.get() {
+                return Some(before);
+            }
+        }
+        self.placed_rect()
     }
 
     /// `GetSystemMetrics(SM_CXDLGFRAME / SM_CYCAPTION / SM_CYDLGFRAME)`,
@@ -1593,6 +1608,9 @@ impl WindowHost for WinitWindow {
             let (told, tell) = focus_to_tell(told, &queue, focused);
             self.focused.set(told);
             queue.extend(tell.map(HostEvent::Focused));
+        }
+        if cfg!(target_os = "macos") && self.shared.window.fullscreen().is_none() {
+            self.before_own_full_screen.set(self.placed_rect());
         }
         // A new render scale or interface changes what the client draws at with no word from the
         // window system.
