@@ -16,6 +16,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 - Better Lighting: an art pack can draw the moons again as round worlds, lit from the sun's side as they wax and wane over months of their own, with lights twinkling on their night sides and clouds of their own.
 - /moon sets the phase of the moons this client draws, both or one at a time, until /moon reset.
+
 ## 0.4.14 (2026-11-05)
 
 ## 0.4.13 (2026-11-05)
