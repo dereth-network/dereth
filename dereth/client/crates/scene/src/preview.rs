@@ -945,6 +945,15 @@ mod imp {
             }
         }
 
+        /// Whether the space dresses its objects from `assets`.
+        #[must_use]
+        pub fn built_over(
+            &self,
+            assets: &Arc<dereth_world_data::anim_assets::DatAnimAssets>,
+        ) -> bool {
+            Arc::ptr_eq(&self.assets, assets)
+        }
+
         /// Create a physics object for the setup with object id zero and dynamic state.
         ///
         /// Returns the object's index, which is what the by-index lookup takes. `None` when the

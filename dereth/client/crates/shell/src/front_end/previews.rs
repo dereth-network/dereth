@@ -186,6 +186,8 @@ impl<H: Host> Ui<'_, '_, H> {
         let id = crate::gpu::PreviewId::PaperDoll;
         let fresh = self.cx.present_mut().preview_ensure(id, &assets);
         if fresh {
+            // A space made anew holds no doll, whatever was built in the one it replaced.
+            self.front.paper_doll_built = None;
             self.cx.present_mut().preview_use_sharp_mode(id);
             self.cx.present_mut().preview_set_light(
                 id,
@@ -635,7 +637,9 @@ impl<H: Host> Ui<'_, '_, H> {
     ) {
         let assets = std::sync::Arc::clone(self.cx.anim_assets());
         let id = crate::gpu::PreviewId::CharGen;
-        self.cx.present_mut().preview_ensure(id, &assets);
+        if self.cx.present_mut().preview_ensure(id, &assets) {
+            self.front.preview_chargen = None;
+        }
         // The space's own 45-degree lens, as the paper doll's: the classic interface's creation
         // model has a lens of its own in the same space.
         self.cx

@@ -237,7 +237,9 @@ impl Previews {
                 self.built.remove(&id);
                 continue;
             };
-            present.preview_ensure(id, &assets);
+            if present.preview_ensure(id, &assets) {
+                self.built.remove(&id);
+            }
             if self.built.get(&id) != Some(&descriptor) {
                 present.preview_remove_all_objects(id);
                 self.built.remove(&id);
