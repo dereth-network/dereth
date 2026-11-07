@@ -860,7 +860,8 @@ fn the_release_workflow_builds_and_labels_every_lyceum_target() {
         );
     }
     let dereth = read(".github/workflows/release-dereth.yml");
-    for key in ["MOLTENVK_URL:", "MOLTENVK_SHA256:", "CARGO_ABOUT_VERSION:"] {
+    assert!(workflow.contains("uses: ./.github/actions/release-tools"));
+    for key in ["MOLTENVK_URL:", "MOLTENVK_SHA256:"] {
         let line = |text: &str| {
             text.lines()
                 .find(|l| l.trim_start().starts_with(key))

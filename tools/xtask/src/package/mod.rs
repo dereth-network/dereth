@@ -249,6 +249,10 @@ pub fn build_facts(ws: &Path, allow_dirty: bool) -> Result<BuildFacts, String> {
 /// `remaps` are the local folders whose paths would otherwise be compiled into panic messages
 /// (the checkout, cargo's crate cache, the toolchain's own library source), each with the
 /// neutral name it is given instead.
+/// What a Linux release build adds: its programs go out without their symbol table, which makes a
+/// large part of a Linux program's size. A Rust backtrace on Linux then names no functions.
+pub const LINUX_STRIP: [&str; 2] = ["CARGO_PROFILE_RELEASE_STRIP", "symbols"];
+
 pub fn build_env(
     facts: &BuildFacts,
     target: Target,
@@ -282,6 +286,9 @@ pub fn build_env(
             "MACOSX_DEPLOYMENT_TARGET".to_owned(),
             format!("{}.{}", targets::MACOS_FLOOR.0, targets::MACOS_FLOOR.1),
         ));
+    }
+    if target.os == Os::Linux {
+        env.push(LINUX_STRIP.map(str::to_owned).into());
     }
     env
 }

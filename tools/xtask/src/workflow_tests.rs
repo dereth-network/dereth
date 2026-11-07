@@ -218,3 +218,114 @@ fn dereth_s_release_runs_the_relay_at_empyrean_s_version() {
     assert!(package.contains("$relay_notices/LICENSE-empyrean-relay"));
     assert!(package.contains("$relay_notices/NOTICE-empyrean-relay.txt"));
 }
+
+/// **A game's release waits for the launcher's draft only at its last step**: each package job builds
+/// first, alongside the job that waits for the draft, takes that job's files from this run once they
+/// are there, and packages; only the job that reads the draft holds a token that can write.
+#[test]
+fn a_game_s_release_builds_before_it_waits_for_the_launcher_s_draft() {
+    for (file, product) in [
+        (".github/workflows/release-dereth.yml", "dereth"),
+        (".github/workflows/release-auberean.yml", "auberean"),
+    ] {
+        let workflow = read(file);
+        let launcher = job(&workflow, "launcher");
+        assert!(launcher.contains("contents: write"), "{file}");
+        assert!(
+            launcher.contains("--fetch launcher-release --wait"),
+            "{file}"
+        );
+        let package = job(&workflow, "package");
+        assert!(
+            package.contains("\n    needs: version\n"),
+            "{file}: not after the launcher job"
+        );
+        assert!(!package.contains("write"), "{file}: read-only");
+        assert!(package.contains("actions: read"), "{file}");
+        let build = package
+            .find(&format!(
+                "cargo xtask package {product} --build-only --target"
+            ))
+            .unwrap_or_else(|| panic!("{file}: the build"));
+        let wait = package
+            .find("name: Wait for the launcher job's files")
+            .unwrap_or_else(|| panic!("{file}: the wait"));
+        let files = package
+            .find(&format!("name: launcher-release-{product}"))
+            .unwrap_or_else(|| panic!("{file}: the files"));
+        let pack = package
+            .find(&format!("run: cargo xtask package {product} --target"))
+            .unwrap_or_else(|| panic!("{file}: the packaging"));
+        assert!(build < wait && wait < files && files < pack, "{file}");
+        let waiting = &package[wait..files];
+        assert!(
+            waiting.contains(&format!("ARTIFACT: launcher-release-{product}")),
+            "{file}"
+        );
+        assert!(
+            waiting.contains("JOB: the launcher release this tree names"),
+            "{file}: the job it watches"
+        );
+        assert!(
+            launcher.starts_with("    name: the launcher release this tree names\n"),
+            "{file}"
+        );
+        assert!(
+            waiting.contains("!= success"),
+            "{file}: gives up when that job does"
+        );
+    }
+}
+
+/// **The build tools are downloaded, not compiled**: cargo-about and the Tauri CLI come from one
+/// action, as their published programs at pinned versions, each checked against its SHA-256 before
+/// it is used; no workflow builds either from source.
+#[test]
+fn the_build_tools_are_pinned_programs_checked_before_use() {
+    let action = read(".github/actions/release-tools/action.yml");
+    assert!(action.contains("CARGO_ABOUT_VERSION: 0.9.2"));
+    assert!(action.contains("TAURI_CLI_VERSION: 2.12.0"));
+    for system in ["Windows-X64)", "Linux-X64)", "Linux-ARM64)", "macOS-ARM64)"] {
+        let arm = action
+            .split_once(system)
+            .unwrap_or_else(|| panic!("{system}"))
+            .1;
+        let arm = &arm[..arm.find(";;").unwrap()];
+        let pins: Vec<&str> = arm
+            .lines()
+            .filter_map(|l| l.trim().split_once("_sha=").map(|p| p.1))
+            .filter(|v| !v.is_empty())
+            .collect();
+        assert!(!pins.is_empty(), "{system}");
+        for pin in pins {
+            assert!(
+                pin.len() == 64 && pin.bytes().all(|b| b.is_ascii_hexdigit()),
+                "{system}: {pin}"
+            );
+        }
+    }
+    assert!(action.contains("echo \"$about_sha  $work/about.tar.gz\" | check"));
+    assert!(action.contains("echo \"$tauri_sha  $work/$tauri\" | check"));
+    let check = action.find("| check").unwrap();
+    assert!(
+        check < action.find("cp \"$work/$name/cargo-about").unwrap(),
+        "checked before it is used"
+    );
+    let workflows = workspace_root().join(".github/workflows");
+    let mut using = 0;
+    for entry in std::fs::read_dir(&workflows).unwrap() {
+        let path = entry.unwrap().path();
+        let text = std::fs::read_to_string(&path).unwrap();
+        let name = path.display().to_string();
+        assert!(
+            !text.contains("cargo install --locked \"cargo-about"),
+            "{name}"
+        );
+        assert!(!text.contains("tauri-cli@"), "{name}");
+        using += usize::from(text.contains("uses: ./.github/actions/release-tools"));
+    }
+    assert!(using >= 9, "{using}");
+    let launcher = read(".github/workflows/release-launcher.yml");
+    assert!(launcher
+        .contains("uses: ./.github/actions/release-tools\n        with:\n          tauri: true"));
+}

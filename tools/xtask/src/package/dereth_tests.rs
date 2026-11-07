@@ -930,6 +930,42 @@ fn a_release_build_compiles_the_plugin_engine_without_its_assertions() {
     }
 }
 
+/// A Linux release goes out without its programs' symbol tables; the others are built as before.
+#[test]
+fn a_linux_release_build_strips_its_programs_symbols() {
+    let facts = super::BuildFacts {
+        commit: "a".repeat(40),
+        branch: "dereth-v0.2.0".to_owned(),
+        number: "1".to_owned(),
+        epoch: 1_700_000_000,
+        source_url: "https://github.com/dereth-network/dereth".to_owned(),
+    };
+    let strips = |triple| {
+        dereth::build_env(&workspace_root(), &facts, target(triple))
+            .iter()
+            .any(|(k, v)| k == "CARGO_PROFILE_RELEASE_STRIP" && v == "symbols")
+    };
+    assert!(strips(LINUX));
+    assert!(!strips(WINDOWS));
+    assert!(!strips(MAC_ARM));
+}
+
+/// The launcher's own package and Auberean's build no Dereth client or tool: the launcher's bundle
+/// takes stand-ins at their names, and both packages take them out again.
+#[test]
+fn the_launcher_is_built_with_stand_ins_for_dereth_s_client_and_tool() {
+    let source =
+        std::fs::read_to_string(workspace_root().join("tools/xtask/src/package/dereth.rs"))
+            .unwrap();
+    let start = source
+        .find("pub(crate) fn build_launcher_as_dereth(")
+        .unwrap();
+    let body = &source[start..start + source[start..].find("\n}\n").unwrap()];
+    assert!(body.contains("job.stand_ins()?"), "{body}");
+    assert!(!body.contains("build_client"), "{body}");
+    assert!(!body.contains("build_tool"), "{body}");
+}
+
 #[test]
 fn a_release_build_is_told_the_repository_it_updates_from() {
     let facts = super::BuildFacts {

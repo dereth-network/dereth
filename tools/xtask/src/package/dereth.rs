@@ -3,8 +3,13 @@
 //!
 //! ```text
 //! cargo xtask package dereth --launcher <dir> [--target <triple>]... [--out <dir>] [--allow-dirty] [--moltenvk <dir>]
+//! cargo xtask package dereth --build-only [--target <triple>]... [--allow-dirty]
 //! cargo xtask package dereth --gather <dir>
 //! ```
+//!
+//! `--build-only` builds the client, the tool and the relay for each target as packaging builds
+//! them, and nothing else: a release job runs it while the launcher's release is still being made,
+//! so the packaging after it finds them built.
 //!
 //! For each target (the host's own by default; each builds on its own operating system) it builds
 //! the client with cargo and puts it in the launcher's release file for the launcher version in
@@ -415,9 +420,11 @@ struct Options {
     allow_dirty: bool,
     moltenvk: Option<PathBuf>,
     launcher: Option<PathBuf>,
+    build_only: bool,
 }
 
 pub const USAGE: &str = "usage: cargo xtask package dereth --launcher <dir> [--target <triple>]... [--out <dir>] [--allow-dirty] [--moltenvk <dir>]
+       cargo xtask package dereth --build-only [--target <triple>]... [--allow-dirty]
        cargo xtask package dereth --gather <dir>";
 
 fn parse_options(args: &[String]) -> Result<Options, String> {
@@ -435,9 +442,17 @@ fn parse_options(args: &[String]) -> Result<Options, String> {
             "--gather" => o.gather = Some(PathBuf::from(value()?)),
             "--moltenvk" => o.moltenvk = Some(PathBuf::from(value()?)),
             "--launcher" => o.launcher = Some(PathBuf::from(value()?)),
+            "--build-only" => o.build_only = true,
             "--allow-dirty" => o.allow_dirty = true,
             other => return Err(format!("unexpected argument `{other}`\n{USAGE}")),
         }
+    }
+    if o.build_only
+        && (o.gather.is_some() || o.out.is_some() || o.moltenvk.is_some() || o.launcher.is_some())
+    {
+        return Err(format!(
+            "--build-only packages nothing: it takes no --gather, --out, --moltenvk or --launcher\n{USAGE}"
+        ));
     }
     if o.gather.is_some()
         && (!o.targets.is_empty()
@@ -476,14 +491,18 @@ pub fn package(args: &[String]) -> i32 {
             } else {
                 options.targets.clone()
             };
-            build_packages(
-                &ws,
-                &triples,
-                options.out.as_deref(),
-                options.allow_dirty,
-                options.moltenvk.as_deref(),
-                options.launcher.as_deref(),
-            )
+            if options.build_only {
+                build_programs(&ws, &triples, options.allow_dirty)
+            } else {
+                build_packages(
+                    &ws,
+                    &triples,
+                    options.out.as_deref(),
+                    options.allow_dirty,
+                    options.moltenvk.as_deref(),
+                    options.launcher.as_deref(),
+                )
+            }
         }
     };
     match result {
@@ -662,6 +681,47 @@ pub fn build_packages(
     Ok(out_dir)
 }
 
+/// `--build-only`: the client, the tool and the relay for each of `triples`, built as
+/// [`build_packages`] builds them, so that its builds then find them built. Where they are staged.
+pub fn build_programs(ws: &Path, triples: &[String], allow_dirty: bool) -> Result<PathBuf, String> {
+    let version = Product::Dereth.version(ws)?;
+    version::parse_release_version(&version)?;
+    let launcher_version = Product::Launcher.version(ws)?;
+    let host = super::host();
+    let mut plans = Vec::new();
+    for triple in triples {
+        plans.push(
+            targets::find_dereth(triple)
+                .and_then(|t| targets::plan_dereth(t, &host).map(|()| t))
+                .map_err(|e| format!("{triple}: {e}"))?,
+        );
+    }
+    let facts = dereth_facts(ws, allow_dirty)?;
+    let base = target_dir().join("package");
+    for target in plans {
+        println!("\n=== dereth {version}'s programs for {}", target.triple);
+        let stage = launcher_stage(&base, target);
+        fresh_dir(&stage)?;
+        let job = Job {
+            ws,
+            target,
+            facts: &facts,
+            version: &version,
+            launcher_version: &launcher_version,
+            out_dir: &stage,
+            stage: &stage,
+            signer: None,
+            moltenvk: None,
+            library: Path::new(""),
+            appimagetool: None,
+        };
+        job.build_client()?;
+        job.build_tool()?;
+        job.build_relay()?;
+    }
+    Ok(base.join("stage"))
+}
+
 /// What a package with a client says when it wasn't given the launcher's release files.
 pub(crate) fn no_launcher_given(version: &str) -> String {
     format!(
@@ -712,6 +772,9 @@ pub fn build_env(ws: &Path, facts: &BuildFacts, target: Target) -> Vec<(String, 
             "MACOSX_DEPLOYMENT_TARGET".to_owned(),
             format!("{}.{}", targets::MACOS_FLOOR.0, targets::MACOS_FLOOR.1),
         ));
+    }
+    if target.os == Os::Linux {
+        env.push(super::LINUX_STRIP.map(str::to_owned).into());
     }
     env
 }
@@ -809,10 +872,10 @@ pub(super) fn crates_of(
 }
 
 /// The launcher as this package builds it for `target`, with everything that build takes in:
-/// Dereth's client and tool built and staged, Dereth's notices written, and the launcher built
-/// with the Tauri CLI from the same configuration and environment, in the staging folder `stage`.
-/// Auberean's package starts from this, so both packages carry the same launcher
-/// ([`super::auberean`]).
+/// stand-ins for Dereth's client and tool ([`Job::stand_ins`]), Dereth's notices written, and the
+/// launcher built with the Tauri CLI from the same configuration and environment, in the staging
+/// folder `stage`. The launcher's own package and Auberean's start from this, and both take the
+/// client and the tool out again ([`super::auberean`]).
 pub(crate) struct BuiltLauncher {
     /// `dereth.exe` on Windows, `Dereth.app` on macOS, the AppImage on Linux.
     pub bundle: PathBuf,
@@ -854,8 +917,7 @@ pub(crate) fn build_launcher_as_dereth(
         appimagetool: None,
     };
     fresh_dir(stage)?;
-    let client = job.build_client()?;
-    let tool = job.build_tool()?;
+    let (client, tool) = job.stand_ins()?;
     let notices = job.notices()?;
     let bundle = job.build_launcher(&client, &tool, &notices)?;
     Ok(BuiltLauncher {
@@ -974,6 +1036,28 @@ impl Job<'_> {
     /// the client is: it goes into the release file beside the client, and into a file of its own.
     fn build_tool(&self) -> Result<PathBuf, String> {
         self.build_console_program(TOOL)
+    }
+
+    /// Stand-ins for the client and the tool, staged where [`Self::build_client`] and
+    /// [`Self::build_tool`] stage them, for a launcher whose package takes both out again: the
+    /// launcher's bundle needs a program at each of their names, and nothing of the launcher's
+    /// program depends on what is there. Each is a copy of this program, which runs on the target
+    /// (a package builds on its own system), so the bundle's tools take it as the program it names.
+    fn stand_ins(&self) -> Result<(PathBuf, PathBuf), String> {
+        let this = std::env::current_exe().map_err(|e| format!("this program: {e}"))?;
+        let t = self.target;
+        let mut staged = Vec::new();
+        for name in ["dereth-client", TOOL] {
+            let at = self
+                .stage
+                .join("bin")
+                .join(format!("{name}-{}{}", t.triple, t.exe_suffix()));
+            copy(&this, &at)?;
+            staged.push(at);
+        }
+        let tool = staged.pop().ok_or("no tool")?;
+        let client = staged.pop().ok_or("no client")?;
+        Ok((client, tool))
     }
 
     /// The relay, built with cargo in the workspace as the client is, and staged as the client is:

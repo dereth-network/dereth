@@ -717,11 +717,17 @@ fn the_build_environment_stamps_the_commit_time_and_links_statically_on_windows(
         .expect("flags")
         .contains("crt-static"));
     assert_eq!(get(&linux, "MACOSX_DEPLOYMENT_TARGET"), None);
+    assert_eq!(
+        get(&linux, "CARGO_PROFILE_RELEASE_STRIP").as_deref(),
+        Some("symbols")
+    );
+    assert_eq!(get(&win, "CARGO_PROFILE_RELEASE_STRIP"), None);
     let mac = build_env(&facts, target(MAC_ARM), &remaps);
     assert_eq!(
         get(&mac, "MACOSX_DEPLOYMENT_TARGET").as_deref(),
         Some("11.0")
     );
+    assert_eq!(get(&mac, "CARGO_PROFILE_RELEASE_STRIP"), None);
 }
 
 /// A release build renames the target folder as well as the checkout, after it, so a target

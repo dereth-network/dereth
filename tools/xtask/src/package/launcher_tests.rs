@@ -246,7 +246,9 @@ fn a_games_release_workflow_takes_the_named_launcher_and_cannot_build_one() {
     ] {
         let w = std::fs::read_to_string(ws.join(file)).expect(file);
         for needed in [
-            "needs: [version, launcher]".to_owned(),
+            // Built first, then packaged with the launcher job's files once they are there.
+            format!("ARTIFACT: launcher-release-{product}"),
+            format!("cargo xtask package {product} --build-only --target"),
             "launcher=$(cargo xtask version launcher)".to_owned(),
             "cargo xtask package launcher --fetch launcher-release --wait".to_owned(),
             "if [ \"$GITHUB_REF_TYPE\" = tag ]; then\n            cargo xtask package launcher --fetch"

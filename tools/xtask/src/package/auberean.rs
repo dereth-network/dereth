@@ -18,8 +18,9 @@
 //! `package dereth` builds it ([`super::dereth::build_launcher_as_dereth`]): the same command,
 //! configuration and environment from the same commit, at the launcher's own version (Dereth's),
 //! so the two packages carry the same launcher program, byte for byte (on macOS, until each bundle
-//! is signed). That build takes Dereth's client and tool in, as Dereth's package has them; here
-//! they are taken out again, with MoltenVK on macOS (Auberean draws through Metal), and the
+//! is signed). That build takes stand-ins for Dereth's client and tool in, at the names Dereth's
+//! package gives them, so it builds neither; here they are taken out again, with MoltenVK on macOS
+//! (Auberean draws through Metal), and the
 //! Auberean client, the defaults file ([`DEFAULTS`]) and Auberean's notices put in. The macOS
 //! bundle is signed again; the Linux AppImage is unpacked and packed again with `appimagetool`.
 //!
@@ -270,9 +271,11 @@ struct Options {
     moltenvk: Option<PathBuf>,
     friends_dll: Option<PathBuf>,
     launcher: Option<PathBuf>,
+    build_only: bool,
 }
 
 pub const USAGE: &str = "usage: cargo xtask package auberean --launcher <dir> [--target <triple>]... [--out <dir>] [--allow-dirty]
+       cargo xtask package auberean --build-only [--target <triple>]... [--allow-dirty]
        cargo xtask package auberean --gather <dir>";
 
 fn parse_options(args: &[String], usage: &str, has_client: bool) -> Result<Options, String> {
@@ -291,9 +294,15 @@ fn parse_options(args: &[String], usage: &str, has_client: bool) -> Result<Optio
             "--moltenvk" if !has_client => o.moltenvk = Some(PathBuf::from(value()?)),
             "--friends-dll" if !has_client => o.friends_dll = Some(PathBuf::from(value()?)),
             "--launcher" if has_client => o.launcher = Some(PathBuf::from(value()?)),
+            "--build-only" if has_client => o.build_only = true,
             "--allow-dirty" => o.allow_dirty = true,
             other => return Err(format!("unexpected argument `{other}`\n{usage}")),
         }
+    }
+    if o.build_only && (o.gather.is_some() || o.out.is_some() || o.launcher.is_some()) {
+        return Err(format!(
+            "--build-only packages nothing: it takes no --gather, --out or --launcher\n{usage}"
+        ));
     }
     if o.gather.is_some()
         && (!o.targets.is_empty()
@@ -342,6 +351,16 @@ pub(crate) fn package_flavor(
             } else {
                 options.targets.clone()
             };
+            if options.build_only {
+                return build_client_only(
+                    flavor,
+                    &ws,
+                    &version,
+                    &launcher,
+                    &triples,
+                    options.allow_dirty,
+                );
+            }
             build_flavor(
                 flavor,
                 &ws,
@@ -369,6 +388,47 @@ pub(crate) fn package_flavor(
             1
         }
     }
+}
+
+/// `--build-only`: the client for each of `triples`, built as [`build_flavor`] builds it, so that
+/// its build then finds it built: a release job runs this while the launcher's release is still
+/// being made. Where it is staged.
+fn build_client_only(
+    flavor: &Flavor,
+    ws: &Path,
+    version: &str,
+    launcher_version: &str,
+    triples: &[String],
+    allow_dirty: bool,
+) -> Result<PathBuf, String> {
+    let name = flavor.product.command_name();
+    let host = super::host();
+    let facts = dereth::launcher_facts(ws, allow_dirty)?;
+    let base = target_dir().join("package").join("stage");
+    for triple in triples {
+        let target = targets::find_dereth(triple)
+            .and_then(|t| targets::plan_dereth(t, &host).map(|()| t))
+            .map_err(|e| format!("{triple}: {e}"))?;
+        println!("\n=== {name} {version}'s client for {}", target.triple);
+        let job = Job {
+            flavor,
+            ws,
+            target,
+            facts: &facts,
+            version,
+            launcher_version,
+            out_dir: &base,
+            stage: &base.join(format!("{name}-{}", target.triple)),
+            signer: None,
+            moltenvk: None,
+            appimagetool: None,
+            library: None,
+            launcher: None,
+        };
+        fresh_dir(job.stage)?;
+        job.build_client()?;
+    }
+    Ok(base)
 }
 
 /// The versions a package is built at: Auberean's own, and the launcher's.

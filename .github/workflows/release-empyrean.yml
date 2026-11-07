@@ -28,7 +28,6 @@ concurrency:
 
 env:
   # The build tools, pinned.
-  CARGO_ABOUT_VERSION: 0.9.2
   CARGO_ZIGBUILD_VERSION: 0.23.3
   ZIGLANG_VERSION: 0.15.2
   # The AGPL source offer the binaries and NOTICE.txt carry: this repository.
@@ -118,7 +117,7 @@ jobs:
       - name: Fetch locked dependencies
         run: cargo fetch --locked
       - name: Install cargo-about
-        run: cargo install --locked "cargo-about@$CARGO_ABOUT_VERSION" --features cli
+        uses: ./.github/actions/release-tools
       - name: Install zig and cargo-zigbuild (Linux targets, linked against glibc 2.28)
         if: runner.os == 'Linux'
         run: |

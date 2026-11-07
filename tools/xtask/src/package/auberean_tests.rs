@@ -383,15 +383,14 @@ fn the_release_workflow_builds_the_launcher_package_and_labels_every_target() {
     // The same tools as Dereth's release.
     let dereth = std::fs::read_to_string(ws.join(".github/workflows/release-dereth.yml"))
         .expect("Dereth's workflow");
-    for pin in ["CARGO_ABOUT_VERSION", "APPIMAGETOOL_SHA256"] {
-        let line = |w: &str| {
-            w.lines()
-                .find(|l| l.trim_start().starts_with(&format!("{pin}:")))
-                .map(str::trim)
-                .map(str::to_owned)
-        };
-        assert_eq!(line(&workflow), line(&dereth), "{pin}");
-    }
+    assert!(workflow.contains("uses: ./.github/actions/release-tools"));
+    let line = |w: &str| {
+        w.lines()
+            .find(|l| l.trim_start().starts_with("APPIMAGETOOL_SHA256:"))
+            .map(str::trim)
+            .map(str::to_owned)
+    };
+    assert_eq!(line(&workflow), line(&dereth), "APPIMAGETOOL_SHA256");
     assert!(
         !workflow.contains("repository:"),
         "only this repository is checked out"

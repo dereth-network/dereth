@@ -327,7 +327,8 @@ launcher files with the key above, then finishes and publishes it:
 The launcher has releases of its own, `launcher-v<version>`, from
 `.github/workflows/release-launcher.yml`, and a version of its own, in `launcher/Cargo.toml`.
 `cargo xtask package launcher` builds it (the Tauri CLI, with the friends library and on macOS
-MoltenVK as that build's inputs) and takes the client out, so each file holds the launcher alone:
+MoltenVK as that build's inputs, and stand-ins at the client's and the plugin tool's names, so
+neither is built) and takes those out, so each file holds the launcher alone:
 
 ```
 cargo xtask package launcher [--target <triple>]... [--out <dir>] [--allow-dirty] [--moltenvk <dir>] [--friends-dll <file>]
