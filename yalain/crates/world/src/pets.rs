@@ -51,7 +51,9 @@
 //! owner attacks, a protective one what goes after its owner, a self-defending one what strikes
 //! it. A pet that goes into a fight while still on its way to its owner is told its kind's own
 //! speed as it does. In a fight it closes to its attacks' reach and attacks about once a second,
-//! with one of its attacks that reach its target, all alike or as its kind weighs them. A
+//! with one of its attacks that reach its target, all alike or as its kind weighs them; after a
+//! missile that did not land (its target gone, or the ground between them) it draws among all its
+//! attacks, and closes in to use one drawn that does not reach. A
 //! creature a pet strikes fights the pet: at once when it fought nothing, and turning from another
 //! three times in five. What its skill puts on a target goes on what its strike reaches, cast by the
 //! pet at its level, on a creature its owner may harm and on nothing else; of a change over time its
@@ -332,6 +334,10 @@ pub struct Pet {
     pub assist: Option<u64>,
     /// When it may next tend.
     pub next_tend: f64,
+    /// Its last missile did not land: its target was gone by then, or the ground stood between them.
+    pub missed: bool,
+    /// The attack it is closing in to use, drawn when it was out of that attack's reach.
+    pub closing: Option<u32>,
 }
 
 /// Every pet in the world, each owner's debt of orders, and the kinds of pet the world makes.
@@ -815,6 +821,8 @@ fn summon_kind<S: Store>(
             effect: kind.effect,
             assist: None,
             next_tend: now,
+            missed: false,
+            closing: None,
         },
     );
     if let Some(seconds) = seconds {
@@ -2064,6 +2072,33 @@ fn fight<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, target: u64,
         .iter()
         .map(|o| attack_reach(&o.attack))
         .fold(crate::ai::MELEE_REACH, f32::max);
+    // Closing in to use an attack drawn out of its reach: on until it reaches.
+    let closing = s
+        .pets
+        .by_id
+        .get(&id)
+        .and_then(|p| p.closing)
+        .and_then(|skill| open.iter().find(|o| o.attack.skill == skill))
+        .map(|o| o.attack);
+    if closing.is_none() {
+        if let Some(p) = s.pets.by_id.get_mut(&id) {
+            p.closing = None;
+        }
+    }
+    if let Some(a) = closing.filter(|a| d > attack_reach(a)) {
+        let speed = run_speed(s, id);
+        crate::ai::step_toward(
+            s,
+            net,
+            id,
+            &there,
+            speed,
+            attack_reach(&a) * 0.8,
+            crate::ai::RUNNING,
+            clock,
+        );
+        return;
+    }
     if d > reach {
         if kind.stays {
             return;
@@ -2092,8 +2127,22 @@ fn fight<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, target: u64,
     if !due {
         return;
     }
-    // A pet whose template names no skills at all strikes as a creature does.
-    let skill = pick(s, &open, d).unwrap_or(crate::missiles::CREATURE_ATTACKS[0]);
+    let skill = if let Some(a) = closing {
+        if let Some(p) = s.pets.by_id.get_mut(&id) {
+            p.closing = None;
+            p.missed = false;
+        }
+        a
+    } else if let Some(a) = closes_for(s, id, &open, d, kind.stays) {
+        // Its last missile did not land, and it drew an attack that does not reach: it closes in.
+        if let Some(p) = s.pets.by_id.get_mut(&id) {
+            p.closing = Some(a.skill);
+        }
+        return;
+    } else {
+        // A pet whose template names no skills at all strikes as a creature does.
+        pick(s, &open, d).unwrap_or(crate::missiles::CREATURE_ATTACKS[0])
+    };
     if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
         c.next_attack = clock.local.0 + ATTACK_SECONDS;
     }
@@ -2309,6 +2358,9 @@ fn also_reached<S: Store>(s: &Server<S>, pet: u64, target: u64, skill: u32) -> V
 /// throw, 2,110 throws).
 pub const MISSILE_SPEED: f32 = 59.0;
 pub const MISSILE_WINDUP: f32 = 1.018;
+/// How far above where the pet and its target stand the line a missile's landing is read along runs,
+/// in meters.
+pub const MISSILE_RISE: f32 = 1.0;
 
 /// A pet throws its missile: the throw's story now (the pet's, naming its target), the landing
 /// told by what it lands on after the flight. Returns the flight, in seconds.
@@ -2385,8 +2437,20 @@ pub fn lands<S: Store>(
         .filter(|t| t.alive())
         .and_then(|t| t.at)
     else {
+        if let Some(p) = s.pets.by_id.get_mut(&pet) {
+            p.missed = true;
+        }
         return;
     };
+    // Whether it landed, as the pet's next attack reads it: the ground stood between them or not.
+    let from = s.things.get(pet).and_then(|t| t.at);
+    let blocked = match (from, s.walls.as_mut()) {
+        (Some(from), Some(w)) => w.ground_between(&from, &there, MISSILE_RISE) == Some(true),
+        _ => false,
+    };
+    if let Some(p) = s.pets.by_id.get_mut(&pet) {
+        p.missed = blocked;
+    }
     let mut hit = vec![target];
     if kind.area > 0.0 {
         hit.extend(
@@ -2539,6 +2603,35 @@ fn pick<S: Store>(s: &mut Server<S>, open: &[Open], distance: f32) -> Option<Att
     #[allow(clippy::cast_precision_loss)]
     let i = s.rng.weighted(from.iter().map(|o| o.weight as f32))?;
     from.get(i).map(|o| o.attack)
+}
+
+/// The attack a pet closes in to use, if it does: only after its last missile did not land, and
+/// never for one that stays; then one drawn among all its attacks by their weights (one that asks
+/// for an effect on the pet before any other), which does not reach its target (2017, a Lasher's
+/// throw from beyond 4 m: a bite followed 45 of the 117 whose missile was never told landing, 242 of
+/// the 3,495 told landing).
+fn closes_for<S: Store>(
+    s: &mut Server<S>,
+    id: u64,
+    open: &[Open],
+    distance: f32,
+    stays: bool,
+) -> Option<AttackSkill> {
+    if stays || !s.pets.by_id.get(&id).is_some_and(|p| p.missed) {
+        return None;
+    }
+    let asks = open.iter().any(|o| o.asks);
+    let from: Vec<&Open> = open.iter().filter(|o| o.asks || !asks).collect();
+    #[allow(clippy::cast_precision_loss)]
+    let i = s.rng.weighted(from.iter().map(|o| o.weight as f32))?;
+    let drawn = from.get(i)?.attack;
+    if distance > attack_reach(&drawn) {
+        return Some(drawn);
+    }
+    if let Some(p) = s.pets.by_id.get_mut(&id) {
+        p.missed = false;
+    }
+    None
 }
 
 /// The chance a creature fighting another turns on a pet that strikes it (2017: 590 of 958).

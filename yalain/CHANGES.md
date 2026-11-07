@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Lashers close in to bite after a throw that doesn't land.
 - Kingdom shrines now grant the kingdom skills a player's points have earned.
 - Creatures made above the floor now drop to it and can move.
 - Holding portal gems, amplification stones and warder stones now do what they say, and an item that can't do anything is kept.

@@ -8855,6 +8855,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.pets.close-in-after-a-missed-throw",
+        says: "A pet never closes in while its missiles land; after one that did not land it draws \
+               among all its attacks by their weights, and one it draws that does not reach its \
+               target it closes in to use; a pet that stays never closes in.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PET-CLOSE-AFTER-MISS"),
+        station: "yalain-testkit::cpu::play::pet_kinds::a_pet_closes_in_to_bite_only_after_a_throw_that_did_not_land",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.pets.defends-itself-by-mode",
         says: "A pet that supports its owner does not fight back what strikes it; in a mode that \
                defends itself it does; struck down, it is taken off its owner's list.",
@@ -9019,6 +9029,16 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-PETS-MISSILE"),
         station: "yalain-testkit::cpu::play::pet_kinds::a_pets_missile_lands_after_its_flight_as_a_story_of_what_it_lands_on",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.pets.missile-line-over-the-ground",
+        says: "A pet's missile is read as not landing when the ground stands between the pet and its \
+               target: the line between them, a meter up, runs under the ground; indoors it is not \
+               read.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PET-MISSILE-LINE"),
+        station: "yalain-testkit::dat::walls::the_ground_stands_between_two_places_only_where_their_line_runs_under_it",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "server.pets.mode-echoed",

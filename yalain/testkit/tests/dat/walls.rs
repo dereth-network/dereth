@@ -1289,3 +1289,44 @@ fn the_place_a_practice_gem_may_be_used_has_no_rooms() {
         assert_eq!(cells, 0, "{x:02X}{y:02X}");
     }
 }
+
+/// The ground stands between two places outdoors when the line between them, raised a meter, runs
+/// under it: between two places deep in a hillside it does, between two high in the air it does not,
+/// and indoors it is not read.
+/// Behaviour: server.pets.missile-line-over-the-ground
+#[test]
+fn the_ground_stands_between_two_places_only_where_their_line_runs_under_it() {
+    let mut w = walls();
+    let at = |x: f32, z: f32| StoredPosition {
+        cell: 0x4899_0023,
+        origin: [x, 55.9, z],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    let ground = |w: &mut Walls, x: f32| {
+        w.ground_between(&at(x, 1_000.0), &at(x + 0.5, 1_000.0), 0.0);
+        w.land()
+            .ground(
+                dereth_primitives::CellId(0x4899_0023).landblock(),
+                dereth_primitives::Vec3::new(x, 55.9, 1_000.0),
+            )
+            .expect("the ground")
+            .0
+    };
+    let (ga, gb) = (ground(&mut w, 40.0), ground(&mut w, 100.0));
+    let low = ga.min(gb);
+    assert_eq!(
+        w.ground_between(&at(40.0, low - 400.0), &at(100.0, low - 400.0), 1.0),
+        Some(true),
+        "deep under the ground"
+    );
+    assert_eq!(
+        w.ground_between(&at(40.0, ga + 400.0), &at(100.0, gb + 400.0), 1.0),
+        Some(false),
+        "high over it"
+    );
+    let inside = StoredPosition {
+        cell: 0x0298_0105,
+        ..at(40.0, 0.0)
+    };
+    assert_eq!(w.ground_between(&inside, &at(100.0, gb), 1.0), None);
+}

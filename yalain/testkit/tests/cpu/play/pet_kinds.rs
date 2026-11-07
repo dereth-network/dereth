@@ -1628,3 +1628,87 @@ fn struck_by(h: &Harness, b: usize, from: usize, pet: u64) -> Vec<Vec<u64>> {
         })
         .collect()
 }
+
+/// A pet with a throw and a bite, its kind drawing the bite far more often, never closes in while its
+/// throws land: from 12 m it throws, from where it stands. Once its last missile did not land, it
+/// draws among all its attacks, and drawing the bite, which does not reach, it closes in and bites.
+/// Behaviour: server.pets.close-in-after-a-missed-throw
+#[test]
+fn a_pet_closes_in_to_bite_only_after_a_throw_that_did_not_land() {
+    let mut h = Harness::new();
+    with_kind(&mut h, &LASHER, 1);
+    with_attacks(&mut h, &LASHER, &[MELEE, MISSILE]);
+    if let Some(k) = h.server.pets.kinds.get_mut(&LASHER.effect) {
+        k.attacks = vec![(MELEE, 1000), (MISSILE, 1)];
+    }
+    let (b, me) = summoner(&mut h);
+    if let Some(p) = h.server.players.values_mut().find(|p| p.character == me) {
+        quals::set_int(&mut p.qualities, quality::HEALTH_MAX, 100_000);
+        quals::set_int(&mut p.qualities, quality::HEALTH, 100_000);
+    }
+    h.run(20);
+    let pet = {
+        let from = summon(&mut h, b);
+        pet_added(&h, b, from)
+    }
+    .expect("a pet");
+    let beetle = beetles(&h)[0];
+    put_by_pet(&mut h, beetle, pet, 12.0);
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(function::ATTACK, &[Arg::LongInt(beetle)]),
+    );
+    let used = |h: &Harness, from: usize| -> Vec<u32> {
+        h.world_messages(b, from)
+            .iter()
+            .filter_map(|m| match m {
+                ServerMessage::DoStory(e) if e.sender.id == pet && e.action.skill != 0 => {
+                    Some(e.action.skill)
+                }
+                _ => None,
+            })
+            .collect()
+    };
+    let apart = |h: &Harness| {
+        let at = h.server.things.get(pet).and_then(|t| t.at).expect("placed");
+        let there = h
+            .server
+            .things
+            .get(beetle)
+            .and_then(|t| t.at)
+            .expect("placed");
+        yalain_world::presence::distance(&at, &there).expect("near")
+    };
+    assert!(
+        h.run_until(400, |h| used(h, from).len() >= 8),
+        "eight attacks"
+    );
+    assert!(used(&h, from).iter().all(|k| *k == MISSILE), "throws alone");
+    assert!((apart(&h) - 12.0).abs() < 0.5, "from where it stood");
+    // A missile lands; its last one, as the next attack reads it, did not.
+    let landings = |h: &Harness, from: usize| {
+        h.world_messages(b, from)
+            .iter()
+            .filter(|m| {
+                matches!(m, ServerMessage::DoStory(e) if e.sender.id == beetle && e.action.attacker == pet)
+            })
+            .count()
+    };
+    let from = h.bots[b].inbox.len();
+    assert!(h.run_until(400, |h| landings(h, from) > 0), "a landing");
+    let from = h.bots[b].inbox.len();
+    if let Some(p) = h.server.pets.by_id.get_mut(&pet) {
+        p.missed = true;
+    }
+    assert!(h.run_until(400, |h| !used(h, from).is_empty()), "an attack");
+    assert_eq!(used(&h, from)[0], MELEE, "the bite, closed in");
+    assert!(apart(&h) < 2.5, "within a bite: {}", apart(&h));
+    assert!(h
+        .server
+        .pets
+        .by_id
+        .get(&pet)
+        .is_some_and(|p| !p.missed && p.closing.is_none()));
+}

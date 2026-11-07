@@ -569,6 +569,48 @@ impl Walls {
         g
     }
 
+    /// Whether the ground stands between two places outdoors: a point every meter along the
+    /// straight line between them, each raised by `rise`, lies under the ground there. None when
+    /// either is indoors or the ground is not known along it.
+    pub fn ground_between(
+        &mut self,
+        a: &StoredPosition,
+        b: &StoredPosition,
+        rise: f32,
+    ) -> Option<bool> {
+        if indoors(a.cell) || indoors(b.cell) {
+            return None;
+        }
+        self.need(a.cell);
+        self.need(b.cell);
+        let (ax, ay) = block_of(a.cell);
+        let (bx, by) = block_of(b.cell);
+        #[allow(clippy::cast_precision_loss)]
+        let d = Vec3::new(
+            (f32::from(bx) - f32::from(ax)) * 160.0 + b.origin[0] - a.origin[0],
+            (f32::from(by) - f32::from(ay)) * 160.0 + b.origin[1] - a.origin[1],
+            b.origin[2] - a.origin[2],
+        );
+        let length = (d.x * d.x + d.y * d.y).sqrt();
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let points = length.floor() as u32;
+        let block = CellId(a.cell).landblock();
+        for i in 1..points {
+            #[allow(clippy::cast_precision_loss)]
+            let t = i as f32 / length;
+            let p = Vec3::new(
+                a.origin[0] + d.x * t,
+                a.origin[1] + d.y * t,
+                a.origin[2] + rise + d.z * t,
+            );
+            let (ground, _) = self.land.ground(block, p)?;
+            if ground > p.z {
+                return Some(true);
+            }
+        }
+        Some(false)
+    }
+
     /// Whether doorways join the cells of two places (the outdoors counting as one cell): none
     /// join an interior cell of one block to another block's, and two places outdoors are joined.
     pub fn joined(&mut self, from: &StoredPosition, goal: &StoredPosition) -> bool {

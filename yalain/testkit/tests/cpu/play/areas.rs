@@ -139,6 +139,8 @@ fn a_skill_and_an_area_spare_another_players_pet_while_its_owner_may_not_be_harm
             effect: 0,
             assist: None,
             next_tend: f64::MAX,
+            missed: false,
+            closing: None,
         },
     );
     place(&mut h, me, target, 6.0, 0.0);
