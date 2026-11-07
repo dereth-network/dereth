@@ -1740,7 +1740,7 @@ pub(crate) fn story_hooks_with(
 
 /// The live creatures a hook with an area reaches: those whose bodies are within its radius of
 /// its center's body and that its user may harm, by id.
-fn area_targets<S: Store>(
+pub(crate) fn area_targets<S: Store>(
     s: &Server<S>,
     world: ConnId,
     center: &yalain_store::StoredPosition,

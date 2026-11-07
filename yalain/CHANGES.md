@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Pets' skills reach as far as they should, area attacks hit everything nearby, and taunting pets also do damage.
 - Pets use all their attacks, not just the first one.
 - What a pet's hit carries now lands on its target, and Master Hive fires wasps.
 - A Spirit's buff now reaches its owner and fellows.

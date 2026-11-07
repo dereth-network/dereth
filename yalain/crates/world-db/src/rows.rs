@@ -515,7 +515,7 @@ pub struct Pet {
     pub swing: Option<u32>,
     /// Its missile lands on every creature this near where it falls.
     pub area: Option<f32>,
-    /// Its strikes taunt and do no harm.
+    /// Its strikes taunt; whether they harm is its skill's.
     pub taunts: bool,
     pub outdoors_only: bool,
     /// The attacks it uses, by skill, and the weight of each in its draw among those that reach;

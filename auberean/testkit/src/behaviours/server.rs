@@ -8613,6 +8613,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.pets.attack-reaches-as-its-skill-says",
+        says: "A pet's attack reaches as far as its skill's greatest range, whether or not it throws a \
+               missile; a pet that stays takes on what comes within its farthest attack's reach.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PETS-ATTACK-REACH"),
+        station: "yalain-testkit::cpu::play::pet_kinds::a_pets_attack_reaches_as_far_as_its_skill_says_missile_or_not",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.pets.aura-ends-with-the-pet",
         says: "When the pet holding an aura is gone the records of its pulses come off whoever holds \
                them, at once, and no more come.",
@@ -8869,6 +8878,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.pets.strike-falls-on-its-area",
+        says: "A pet's strike whose skill's hook has an area falls on every creature within its \
+               radius of the target that the owner may harm, each with its result in the one story; \
+               never on a player or a pet.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PETS-STRIKE-AREA"),
+        station: "yalain-testkit::cpu::play::pet_kinds::a_pets_strike_with_an_area_falls_on_every_creature_near_its_target",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.pets.strike-flag-by-skill",
         says: "A pet's strike carries the basic-attack flag by its skill.",
         since: RETAIL,
@@ -8939,6 +8958,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-PETS-ASSIST"),
         station: "yalain-testkit::cpu::play::pets::a_pet_takes_on_what_its_owner_attacks_and_the_creature_fights_the_pet",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.pets.taunt-harms-as-its-skill-does",
+        says: "A pet whose strikes taunt also does its skill's harm; only a skill that does no damage \
+               takes nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PETS-TAUNT-HARM"),
+        station: "yalain-testkit::cpu::play::pet_kinds::a_staying_pet_takes_on_a_creature_within_its_blows_reach_and_its_taunt_harms_as_its_skill_does",
         tier: Tier::Cpu,
     },
     behaviour! {

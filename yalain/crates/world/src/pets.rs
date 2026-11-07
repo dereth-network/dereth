@@ -167,7 +167,7 @@ pub fn fallback_kinds() -> Vec<PetKind> {
             .outdoors_only()
             .corpse(Some(2.8))
             .most_of_its_class(2),
-        // The Taunt Orb (its strikes taunt and do no harm) and Axe Orb (four hits a swing).
+        // The Taunt Orb (its strikes taunt; its skill does no harm) and Axe Orb (four hits a swing).
         PetKind::new(0x7000_1F1F, 0x4700_083E, 1096, &[])
             .taunting()
             .corpse(Some(1.1)),
@@ -1756,13 +1756,11 @@ fn fires<S: Store>(s: &Server<S>, id: u64) -> Option<Fires> {
     })
 }
 
-/// How far one attack reaches: a missile its own greatest range, any other a blow's reach.
+/// How far one attack reaches: its skill's own greatest range, missile or not, and at least a
+/// blow's reach (2017: the Sand Warrior's skill of 20 m, which throws nothing, 859 of its 878
+/// attacks on a target more than 4 m off, 696 of them from 8 m or more).
 fn attack_reach(a: &AttackSkill) -> f32 {
-    if a.missile {
-        a.max_range.max(crate::ai::MELEE_REACH)
-    } else {
-        crate::ai::MELEE_REACH
-    }
+    a.max_range.max(crate::ai::MELEE_REACH)
 }
 
 /// The owner of a pet hurt a creature: its supporting pets take it on (2017: they joined at the
@@ -1856,7 +1854,8 @@ fn fight<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, target: u64,
         launch(s, net, id, target, skill, d, clock);
     } else {
         strike(s, net, id, target, skill, &kind, clock);
-        if kind.taunts {
+        // A strike that does damage taunts as it lands; one that does none, as it is struck.
+        if kind.taunts && !harms(s, skill.skill) {
             leaves(s, net, id, target, skill.skill, clock);
             taunted(s, net, target, id, clock);
         }
@@ -1866,9 +1865,17 @@ fn fight<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, target: u64,
 /// How a pet's strike on a creature comes out, and what it takes: a share of strikes land (none
 /// critical); a hit takes its kind's number times the pet's level squared, varied either side,
 /// less the creature's armor, at least 1 (2017: Lasher hits 200 x U(0.5, 1.5) at levels 52-54,
-/// armor a point a point; no criticals in about 30,800 pet strikes). A taunt takes nothing.
-fn roll<S: Store>(s: &mut Server<S>, id: u64, target: u64, kind: &PetKind) -> (Outcome, i32) {
-    if kind.taunts {
+/// armor a point a point; no criticals in about 30,800 pet strikes). A skill that does no damage
+/// takes nothing (2017: the Taunt Orb's, 50 of 50 results with no health taken; Living Armor's,
+/// which leaves the same taunt and does damage, 247 hits that took health).
+fn roll<S: Store>(
+    s: &mut Server<S>,
+    id: u64,
+    target: u64,
+    kind: &PetKind,
+    harms: bool,
+) -> (Outcome, i32) {
+    if !harms {
         return (Outcome::Miss, 0);
     }
     if !s.rng.chance(kind.lands) {
@@ -1922,9 +1929,9 @@ pub const fn strikes_as_basic(skill: u32) -> bool {
     matches!(skill, 490 | 491 | 492 | 1023 | 1098 | 1818 | 1845 | 1846)
 }
 
-/// A pet strikes a creature in reach: one story of the pet's with a result for each of its hits
-/// (with the basic-attack flag by its skill), the hits landing together as its blow reaches the
-/// creature.
+/// A pet strikes a creature in reach: one story of the pet's with a result for each of its hits,
+/// and one for each other creature its skill's area reaches (with the basic-attack flag by its
+/// skill), the hits landing together as its blow reaches the creatures.
 fn strike<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -1935,20 +1942,26 @@ fn strike<S: Store>(
     clock: Clock,
 ) {
     let clock_free = crate::combat::CREATURE_TIME_SCALE * s.rng.between(0.9, 1.1);
+    let harms = harms(s, skill.skill);
     let mut rolls = Vec::new();
     for _ in 0..kind.hits.max(1) {
-        let (outcome, damage) = roll(s, id, target, kind);
-        rolls.push((outcome, answered(s, target, outcome, damage)));
+        let (outcome, damage) = roll(s, id, target, kind, harms);
+        rolls.push((target, outcome, answered(s, target, outcome, damage)));
     }
-    let swing = |(outcome, harm): (Outcome, crate::effects::Harm)| crate::combat::Swing {
-        skill: skill.skill,
-        behavior: skill.behavior,
-        time_scale: clock_free,
-        target,
-        outcome,
-        damage: harm.left,
-        back: harm.back,
-    };
+    for t in also_reached(s, id, target, skill.skill) {
+        let (outcome, damage) = roll(s, id, t, kind, harms);
+        rolls.push((t, outcome, answered(s, t, outcome, damage)));
+    }
+    let swing =
+        |(target, outcome, harm): (u64, Outcome, crate::effects::Harm)| crate::combat::Swing {
+            skill: skill.skill,
+            behavior: skill.behavior,
+            time_scale: clock_free,
+            target,
+            outcome,
+            damage: harm.left,
+            back: harm.back,
+        };
     let mut st = crate::combat::story(s, crate::combat::Attacker::Thing(id), swing(rolls[0]));
     if let ServerMessage::DoStory(e) = &mut st {
         e.action.bits = if strikes_as_basic(skill.skill) {
@@ -1962,7 +1975,7 @@ fn strike<S: Store>(
     }
     crate::combat::to_all_seeing(s, net, id, &st);
     let lands = crate::combat::pet_strike_seconds(skill.skill) / f64::from(clock_free);
-    for (outcome, harm) in rolls {
+    for (target, outcome, harm) in rolls {
         if outcome.landed() {
             s.after(
                 clock,
@@ -1976,6 +1989,50 @@ fn strike<S: Store>(
             );
         }
     }
+}
+
+/// Does a pet's skill do damage: not one its definition marks as doing none (a skill the server has
+/// no definition of does).
+fn harms<S: Store>(s: &Server<S>, skill: u32) -> bool {
+    s.skill_table
+        .skills
+        .get(&skill)
+        .and_then(|d| d.usage.as_ref())
+        .is_none_or(|u| u.ui_flags & crate::skill_use::ui_flag::NON_DAMAGING == 0)
+}
+
+/// The other creatures a pet's strike reaches besides its target: for a skill whose hook has an area,
+/// every live creature whose body is within its radius of the target's that the pet's owner may
+/// harm, never a pet (2017: the Wax Statue's skill reaches 30 m and falls on all within 10 m of what
+/// it strikes, as its hook's area says).
+fn also_reached<S: Store>(s: &Server<S>, pet: u64, target: u64, skill: u32) -> Vec<u64> {
+    let radius = s
+        .skill_table
+        .skills
+        .get(&skill)
+        .and_then(|d| d.usage.as_ref())
+        .and_then(|u| {
+            u.hooks
+                .iter()
+                .filter(|h| h.flags & crate::skill_use::hook_flag::AREA != 0)
+                .map(|h| h.radius)
+                .reduce(f32::max)
+        })
+        .unwrap_or(0.0);
+    if radius <= 0.0 {
+        return Vec::new();
+    }
+    let Some(world) = s.pets.by_id.get(&pet).and_then(|p| conn_of(s, p.owner)) else {
+        return Vec::new();
+    };
+    let Some(there) = s.things.get(target).and_then(|t| t.at) else {
+        return Vec::new();
+    };
+    let body = crate::reach::body_of(s, target);
+    crate::skill_use::area_targets(s, world, &there, body, radius)
+        .into_iter()
+        .filter(|t| *t != target && *t != pet && !s.pets.is_pet(*t))
+        .collect()
 }
 
 /// A pet's missile flies at this many meters a second, after a windup of this many seconds at the
@@ -2078,7 +2135,7 @@ pub fn lands<S: Store>(
     let mut hooks = Vec::new();
     let mut landed = Vec::new();
     for t in hit {
-        let (outcome, damage) = roll(s, pet, t, &kind);
+        let (outcome, damage) = roll(s, pet, t, &kind, harms(s, skill.skill));
         let harm = answered(s, t, outcome, damage);
         hooks.push(
             crate::combat::Swing {

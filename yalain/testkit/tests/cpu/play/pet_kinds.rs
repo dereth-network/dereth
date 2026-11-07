@@ -71,13 +71,22 @@ const TAUNT_ORB: Summoned = Summoned {
     template: 0x4700_083E,
     class: 8,
     lifetime: 0.0,
-    skill: MELEE,
+    skill: TAUNT_BLOW,
 };
+/// A blow its skill marks as doing no damage, as the Taunt Orb's: the test world's sword blow, so
+/// marked.
+const TAUNT_BLOW: u32 = 3011;
 
 /// The test world's beetles first (they bring the test catalog), then the summoning skill, its pet
 /// effect and the pet's template.
 fn with_kind(h: &mut Harness, k: &Summoned, beetles: u32) {
     h.add_creatures(beetles);
+    let mut blow = h.server.skill_table.skills[&194].clone();
+    blow.id = TAUNT_BLOW;
+    if let Some(u) = blow.usage.as_mut() {
+        u.ui_flags |= yalain_world::skill_use::ui_flag::NON_DAMAGING;
+    }
+    h.server.skill_table.skills.insert(TAUNT_BLOW, blow);
     let usage = Usage {
         min_range: -1.0,
         max_range: 1.0,
@@ -1263,8 +1272,21 @@ fn put_by_pet(h: &mut Harness, id: u64, pet: u64, dx: f32) {
 /// A Lasher-like pet with three attacks, ordered at a beetle: the attacks it uses, one a story, in
 /// `n` stories from the beetle `dx` meters off.
 fn attacks_used(h: &mut Harness, kind_attacks: &[(u32, u32)], dx: f32, n: usize) -> Vec<u32> {
+    attacks_of(h, &[MELEE, MELEE_TWO, MISSILE], kind_attacks, dx, n)
+}
+
+/// A Lasher-like pet whose template names these attacks, ordered at a beetle `dx` meters off that
+/// stands where it is put: the attacks it uses, one a story, in `n` stories, all from where it
+/// stood.
+fn attacks_of(
+    h: &mut Harness,
+    skills: &[u32],
+    kind_attacks: &[(u32, u32)],
+    dx: f32,
+    n: usize,
+) -> Vec<u32> {
     with_kind(h, &LASHER, 1);
-    with_attacks(h, &LASHER, &[MELEE, MELEE_TWO, MISSILE]);
+    with_attacks(h, &LASHER, skills);
     if let Some(k) = h.server.pets.kinds.get_mut(&LASHER.effect) {
         k.attacks = kind_attacks.to_vec();
     }
@@ -1343,4 +1365,144 @@ fn a_kind_that_lists_its_attacks_uses_those_alone_by_their_weights() {
     assert!(!used.contains(&MELEE_TWO), "unlisted");
     let missiles = used[..200].iter().filter(|k| **k == MISSILE).count();
     assert!((106..=134).contains(&missiles), "{missiles} of 200");
+}
+
+/// A blow that throws nothing and reaches 10 m: the test world's staff blow, as a creature's skill.
+const STAFF: u32 = 3010;
+
+fn with_staff(h: &mut Harness) {
+    let mut d = h.server.skill_table.skills[&62].clone();
+    d.id = STAFF;
+    h.server.skill_table.skills.insert(STAFF, d);
+}
+
+/// A pet's attack reaches as far as its skill says, whether or not it throws a missile: a blow
+/// that reaches 10 m is struck from 7 m, where the pet stands, and a plain blow never.
+/// Behaviour: server.pets.attack-reaches-as-its-skill-says
+#[test]
+fn a_pets_attack_reaches_as_far_as_its_skill_says_missile_or_not() {
+    let mut h = Harness::new();
+    with_staff(&mut h);
+    let far = attacks_of(&mut h, &[MELEE, STAFF], &[], 7.0, 20);
+    assert!(far.iter().all(|k| *k == STAFF), "{far:?}");
+    let mut h = Harness::new();
+    with_staff(&mut h);
+    let near = attacks_of(&mut h, &[MELEE, STAFF], &[], 1.5, 40);
+    assert!(near.contains(&MELEE) && near.contains(&STAFF), "{near:?}");
+}
+
+/// A pet that stays takes on what comes within its farthest attack's reach unbidden, a blow that
+/// throws nothing among them; one whose strikes taunt also does its skill's harm.
+/// Behaviour: server.pets.taunt-harms-as-its-skill-does
+#[test]
+fn a_staying_pet_takes_on_a_creature_within_its_blows_reach_and_its_taunt_harms_as_its_skill_does()
+{
+    let mut h = Harness::new();
+    with_staff(&mut h);
+    let (b, pet, beetles) = statue(&mut h, STAFF, 1);
+    put_by_pet(&mut h, beetles[0], pet, 8.0);
+    let from = h.bots[b].inbox.len();
+    assert!(
+        h.run_until(400, |h| !struck_by(h, b, from, pet).is_empty()),
+        "taken on from 8 m"
+    );
+    assert!(
+        h.run_until(600, |h| h
+            .server
+            .things
+            .get(beetles[0])
+            .is_some_and(|t| t.health < 1_000_000)),
+        "a taunt that does damage harms"
+    );
+}
+
+/// A strike whose skill's hook has an area falls on every creature within its radius of the
+/// target, each with its own result in the one story, and on no player or pet.
+/// Behaviour: server.pets.strike-falls-on-its-area
+#[test]
+fn a_pets_strike_with_an_area_falls_on_every_creature_near_its_target() {
+    const AREA_BLOW: u32 = 3012;
+    let mut h = Harness::new();
+    let mut d = h.server.skill_table.skills[&62].clone();
+    d.id = AREA_BLOW;
+    if let Some(u) = d.usage.as_mut() {
+        for hook in &mut u.hooks {
+            if hook.flags & 0x40 == 0 {
+                hook.flags |= yalain_world::skill_use::hook_flag::AREA;
+                hook.radius = 6.0;
+            }
+        }
+    }
+    h.server.skill_table.skills.insert(AREA_BLOW, d);
+    let (b, pet, beetles) = statue(&mut h, AREA_BLOW, 3);
+    put_by_pet(&mut h, beetles[0], pet, 8.0);
+    put_by_pet(&mut h, beetles[1], pet, 12.0);
+    put_by_pet(&mut h, beetles[2], pet, 20.0);
+    let from = h.bots[b].inbox.len();
+    assert!(h.run_until(400, |h| !struck_by(h, b, from, pet).is_empty()));
+    let named = &struck_by(&h, b, from, pet)[0];
+    assert!(
+        named.contains(&beetles[0]) && named.contains(&beetles[1]),
+        "{named:x?}"
+    );
+    assert!(!named.contains(&beetles[2]), "beyond its area");
+    assert!(
+        h.run_until(600, |h| beetles[..2].iter().all(|x| h
+            .server
+            .things
+            .get(*x)
+            .is_some_and(|t| t.health < 1_000_000))),
+        "both hurt"
+    );
+    assert_eq!(
+        h.server.things.get(beetles[2]).map(|t| t.health),
+        Some(1_000_000)
+    );
+}
+
+/// An aggressive, staying, taunting pet whose template names this one skill, summoned beside its
+/// owner with `count` beetles in the world: the owner's client, the pet, the beetles.
+fn statue(h: &mut Harness, skill: u32, count: u32) -> (usize, u64, Vec<u64>) {
+    let statue = Summoned {
+        effect: 0x7000_096E,
+        template: 0x4700_0867,
+        class: 0x2000,
+        lifetime: 0.0,
+        skill,
+    };
+    with_kind(h, &statue, count);
+    h.server.pets.read_rows(
+        [pets::PetKind::new(statue.effect, statue.template, 32, &[])
+            .staying()
+            .taunting()],
+        [],
+    );
+    let (b, me) = summoner(h);
+    // Out of its reach until each is put where the test wants it.
+    for (n, x) in beetles(h).into_iter().enumerate() {
+        #[allow(clippy::cast_precision_loss)]
+        put_near(h, x, me, 120.0 + 5.0 * n as f32, 0.0);
+    }
+    h.run(20);
+    let from = summon(h, b);
+    let pet = pet_added(h, b, from).expect("a pet");
+    (b, pet, beetles(h))
+}
+
+/// The targets each of a pet's own stories names, since a message.
+fn struck_by(h: &Harness, b: usize, from: usize, pet: u64) -> Vec<Vec<u64>> {
+    h.world_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::DoStory(e) if e.sender.id == pet && e.action.skill != 0 => Some(
+                e.action
+                    .hooks
+                    .iter()
+                    .map(|x| x.target)
+                    .filter(|t| *t != 0)
+                    .collect(),
+            ),
+            _ => None,
+        })
+        .collect()
 }

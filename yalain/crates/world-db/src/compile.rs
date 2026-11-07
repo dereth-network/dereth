@@ -1222,9 +1222,6 @@ fn pet_kind(r: &crate::rows::Pet) -> yalain_content::PetKind {
     k.stays = r.stays;
     k.area = r.area.unwrap_or(0.0);
     k.taunts = r.taunts;
-    if r.taunts {
-        k.lands = 0.0;
-    }
     k.outdoors_only = r.outdoors_only;
     k.attacks.clone_from(&r.attacks);
     k.made = r.count;

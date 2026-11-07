@@ -152,7 +152,7 @@ pub struct PetKind {
     pub stays: bool,
     /// Its missile lands on every creature this near where it falls (0: on its target alone).
     pub area: f32,
-    /// Its strikes taunt (no harm; the creature may turn on it).
+    /// Its strikes taunt: the creature may turn on it. Whether they harm is its skill's.
     pub taunts: bool,
     /// It cannot be set down indoors ("The summoning fails.").
     pub outdoors_only: bool,
@@ -241,7 +241,6 @@ impl PetKind {
     #[must_use]
     pub const fn taunting(mut self) -> Self {
         self.taunts = true;
-        self.lands = 0.0;
         self
     }
 
