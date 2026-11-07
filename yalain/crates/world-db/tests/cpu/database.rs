@@ -709,6 +709,62 @@ fn a_step_can_be_moved_by_an_item_given_to_a_person() {
 }
 
 #[test]
+fn an_arrival_may_name_the_one_placed_portal_it_came_through() {
+    let mut files = fixture();
+    let quests = "town/server/quests/40000088.toml";
+    edit(
+        &mut files,
+        quests,
+        "trigger = { arrive = 0x4700115B }",
+        "trigger = { arrive = 0x4700115B, from = 0x4077B70000000001 }",
+    );
+    assert_eq!(check(&files), []);
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(
+        t.quests.steps[2].trigger,
+        Trigger::ArriveFrom(0x4700_115B, 0x4077_B700_0000_0001)
+    );
+    assert_eq!(
+        yalain_content::QuestTable::from_text(&t.quests.to_text()).unwrap(),
+        t.quests,
+        "it reads back as written"
+    );
+    // The object must be placed, of the trigger's template, and lead somewhere.
+    let problems = |from: &str, to: &str| {
+        let mut f = files.clone();
+        edit(&mut f, quests, from, to);
+        check(&f)
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        problems("from = 0x4077B70000000001", "from = 0x4077B700000000FF"),
+        ["town/server/quests/40000088.toml:30: trigger: no placed object 0x4077B700000000FF"]
+    );
+    assert_eq!(
+        problems("arrive = 0x4700115B, from", "arrive = 0x4700115C, from"),
+        ["town/server/quests/40000088.toml:30: trigger: object 0x4077B70000000001 is not of template 0x4700115C"]
+    );
+    let mut f = files.clone();
+    edit(
+        &mut f,
+        "town/server/landblocks/77B7.toml",
+        "to = \"inn\"\nprov",
+        "prov",
+    );
+    let messages: Vec<String> = check(&f).iter().map(ToString::to_string).collect();
+    assert!(
+        messages.contains(
+            &"town/server/quests/40000088.toml:30: trigger: object 0x4077B70000000001 leads nowhere, so nobody arrives through it"
+                .to_string()
+        ),
+        "{messages:?}"
+    );
+    assert!(!problems("trigger = { arrive", "to = \"inn\"\ntrigger = { arrive").is_empty());
+}
+
+#[test]
 fn a_portals_recall_flags_and_a_places_name_compile_for_the_server() {
     let t = compile(&merge(&read(&fixture()).unwrap()).unwrap(), &Fake::new()).unwrap();
     let gate = |t: &yalain_world_db::compile::Tables| {

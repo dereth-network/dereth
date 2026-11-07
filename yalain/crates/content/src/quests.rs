@@ -182,6 +182,8 @@ pub enum Trigger {
     Give(u32, u32),
     /// Arriving through a portal of a template.
     Arrive(u32),
+    /// Arriving through one placed portal: its template, and the object's own id.
+    ArriveFrom(u32, u64),
     /// Taking an item of a template.
     Take(u32),
     /// Killing a creature of a template.
@@ -473,6 +475,7 @@ impl QuestTable {
                 Trigger::UseOn(i, t) => format!("useon:{i:08X}:{t:08X}"),
                 Trigger::Give(i, t) => format!("give:{i:08X}:{t:08X}"),
                 Trigger::Arrive(t) => format!("arrive:{t:08X}"),
+                Trigger::ArriveFrom(t, o) => format!("arrivefrom:{t:08X}:{o:016X}"),
                 Trigger::Take(t) => format!("take:{t:08X}"),
                 Trigger::Kill(t) => format!("kill:{t:08X}"),
                 Trigger::Done(q) => format!("done:{q:08X}"),
@@ -708,6 +711,14 @@ impl QuestTable {
                         }
                         "use" => Trigger::Use(hex(tpl).map_err(at)?),
                         "arrive" => Trigger::Arrive(hex(tpl).map_err(at)?),
+                        "arrivefrom" => {
+                            let (t, o) = tpl.split_once(':').ok_or_else(|| {
+                                at(format!("arrivefrom takes TEMPLATE:OBJECT, not {tpl}"))
+                            })?;
+                            let o = u64::from_str_radix(o, 16)
+                                .map_err(|e| at(format!("an object id: {e}")))?;
+                            Trigger::ArriveFrom(hex(t).map_err(at)?, o)
+                        }
                         "take" => Trigger::Take(hex(tpl).map_err(at)?),
                         "kill" => Trigger::Kill(hex(tpl).map_err(at)?),
                         "done" => Trigger::Done(hex(tpl).map_err(at)?),

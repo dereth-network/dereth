@@ -300,6 +300,8 @@ pub enum Trigger {
     UseOn(u32, u32),
     Give(u32, u32),
     Arrive(u32),
+    /// Arriving through one placed portal of the template: the object's id.
+    ArriveFrom(u32, u64),
     Take(u32),
     Kill(u32),
     Done(u32),
@@ -2253,11 +2255,15 @@ impl<'a> Fields<'a> {
         }
         self.typed(
             name,
-            "one of { use = T }, { use = ITEM, on = TARGET }, { give = ITEM, to = TARGET }, { arrive = T }, { take = T }, { kill = T }, { done = Q }, { given = Q }",
+            "one of { use = T }, { use = ITEM, on = TARGET }, { give = ITEM, to = TARGET }, { arrive = T }, { arrive = T, from = OBJECT }, { take = T }, { kill = T }, { done = Q }, { given = Q }",
             |v| {
                 let t = v.as_table()?;
                 if let (2, Some(item), Some(on)) = (t.len(), t.get("use"), t.get("on")) {
                     return Some(Trigger::UseOn(as_u32(item)?, as_u32(on)?));
+                }
+                if let (2, Some(tpl), Some(from)) = (t.len(), t.get("arrive"), t.get("from")) {
+                    let from = from.as_integer().and_then(|i| u64::try_from(i).ok())?;
+                    return Some(Trigger::ArriveFrom(as_u32(tpl)?, from));
                 }
                 if let (2, Some(item), Some(to)) = (t.len(), t.get("give"), t.get("to")) {
                     return Some(Trigger::Give(as_u32(item)?, as_u32(to)?));

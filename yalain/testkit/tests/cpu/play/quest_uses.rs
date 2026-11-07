@@ -949,3 +949,56 @@ fn a_person_whose_quests_follow_one_another_gives_the_next_at_once() {
     assert_eq!(given.len(), 1, "the first of them, none done");
     assert_eq!(given[0].1.id, CHAIN[0]);
 }
+
+/// A step made on arrival through one placed portal moves its quest when the player comes out of
+/// that portal's trip, and not when it comes through another portal of the same kind.
+/// Behaviour: server.quests.arrival-through-one-portal
+#[test]
+fn a_step_made_on_arrival_through_one_portal_waits_for_that_portal() {
+    const GATEWAY: u32 = 0x4000_01D5;
+    const PORTAL: u32 = 0x4700_1161;
+    const FAR_END: u64 = 0x4002_9900_0000_0071;
+    const OTHER: u64 = 0x4002_9900_0000_0072;
+    let back = yalain_content::Place {
+        cell: 0x0299_0109,
+        origin: [61.0, 240.0, -44.6],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    let portal = |id: u64, x: f32| ContentObject {
+        kind: Kind::Static,
+        destination: Some(back),
+        ..object(id, PORTAL, [x, 241.0, -44.6])
+    };
+    let mut h = Harness::new();
+    h.server.content = ContentPack {
+        objects: vec![portal(OTHER, 61.0), portal(FAR_END, 62.0)],
+        ..ContentPack::default()
+    };
+    h.server.quests = QuestTable {
+        quests: vec![quest(GATEWAY, 0x2500_1658, 1)],
+        steps: vec![step(
+            GATEWAY,
+            0,
+            Trigger::ArriveFrom(PORTAL, FAR_END),
+            Update::Complete,
+        )],
+        gives: Vec::new(),
+        rooms: Vec::new(),
+    };
+    let (b, me) = h.player_in_world("one", "Elara");
+    let through = |h: &mut Harness, portal: u64| {
+        let from = use_it(h, b, me, portal);
+        h.run(200);
+        updates(h, b, from)
+    };
+    assert!(
+        through(&mut h, OTHER).is_empty(),
+        "another portal of the kind"
+    );
+    let moved = through(&mut h, FAR_END);
+    assert_eq!(moved.len(), 1, "{moved:?}");
+    assert_eq!(
+        (moved[0].0, moved[0].1.id),
+        (yalain_world::quests::update::COMPLETE, GATEWAY)
+    );
+}

@@ -871,6 +871,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     Trigger::UseOn(i, x) => (TableTrigger::UseOn(i, x), vec![i, x]),
                     Trigger::Give(i, x) => (TableTrigger::Give(i, x), vec![i, x]),
                     Trigger::Arrive(x) => (TableTrigger::Arrive(x), vec![x]),
+                    Trigger::ArriveFrom(x, o) => (TableTrigger::ArriveFrom(x, o), vec![x]),
                     Trigger::Take(x) => (TableTrigger::Take(x), vec![x]),
                     Trigger::Kill(x) => (TableTrigger::Kill(x), vec![x]),
                     Trigger::Done(q) => (TableTrigger::Done(q), Vec::new()),

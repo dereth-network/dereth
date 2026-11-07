@@ -117,6 +117,8 @@ pub fn check_database(db: &Database) -> Vec<Problem> {
     let mut camps: BTreeSet<(String, String, u16)> = BTreeSet::new();
     let mut objects: BTreeSet<(String, String, u16)> = BTreeSet::new();
     let mut routes: BTreeMap<(String, String), usize> = BTreeMap::new();
+    // Each placed object's id: its templates, and whether a row of it leads somewhere.
+    let mut ids: BTreeMap<u64, (BTreeSet<u32>, bool)> = BTreeMap::new();
     for l in db.rows() {
         let lb = l.landblock.unwrap_or(0);
         match &l.row {
@@ -128,6 +130,11 @@ pub fn check_database(db: &Database) -> Vec<Problem> {
             }
             Row::Object(r) => {
                 objects.insert((l.pack.clone(), r.key.clone(), lb));
+                if let Some(id) = r.id {
+                    let e = ids.entry(id).or_default();
+                    e.0.insert(r.template);
+                    e.1 |= r.to.is_some();
+                }
             }
             Row::Route(r) => {
                 routes.insert((l.pack.clone(), r.key.clone()), r.waypoints.len());
@@ -273,10 +280,24 @@ pub fn check_database(db: &Database) -> Vec<Problem> {
                 if let Some(why) = r.to.as_deref().and_then(|to| place_ref(to, &l.pack)) {
                     problems.push(at(format!("to: {why}")));
                 }
-                if r.to.is_some() && matches!(r.trigger, Trigger::Arrive(_)) {
+                if r.to.is_some()
+                    && matches!(r.trigger, Trigger::Arrive(_) | Trigger::ArriveFrom(..))
+                {
                     problems.push(at(
                         "to: a step made on arrival takes the player nowhere further".into(),
                     ));
+                }
+                if let Trigger::ArriveFrom(template, from) = r.trigger {
+                    match ids.get(&from) {
+                        None => problems.push(at(format!("trigger: no placed object {from:#018X}"))),
+                        Some((t, _)) if !t.contains(&template) => problems.push(at(format!(
+                            "trigger: object {from:#018X} is not of template {template:#010X}"
+                        ))),
+                        Some((_, false)) => problems.push(at(format!(
+                            "trigger: object {from:#018X} leads nowhere, so nobody arrives through it"
+                        ))),
+                        Some(_) => {}
+                    }
                 }
             }
             Row::Give(r) => {

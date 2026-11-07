@@ -2478,15 +2478,18 @@ fn arrive<S: Store>(
             &use_done(u, me, USE_FLAGS_UNLOCKED, true, distance),
         );
     }
-    // Arriving through a portal may move quests on.
-    if let Some(template) = trip
+    // Arriving through a portal may move quests on: those of its template, then those of that one
+    // placed portal.
+    if let Some((template, object)) = trip
         .used
         .as_ref()
         .filter(|u| u.target == 0 && trip.step.is_none())
-        .and_then(|u| presence::content_by_id(&s.content.objects, u.item))
-        .map(|i| s.content.objects[i].template)
+        .and_then(|u| presence::content_by_id(&s.content.objects, u.item).map(|i| (i, u.item)))
+        .map(|(i, object)| (s.content.objects[i].template, object))
     {
         crate::quests::triggered(s, net, world, Trigger::Arrive(template), None, clock);
+        let from = Trigger::ArriveFrom(template, object);
+        crate::quests::triggered(s, net, world, from, None, clock);
     }
     // Its pets come out beside it.
     crate::pets::owner_arrives(s, net, world, time);

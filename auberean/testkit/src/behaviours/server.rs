@@ -10549,6 +10549,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.quests.arrival-through-one-portal",
+        says: "A step made on arrival through one placed portal moves its quest when the player comes \
+               out of that portal's trip, and not out of another portal of the same kind.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-ARRIVE-FROM"),
+        station: "yalain-testkit::cpu::play::quest_uses::a_step_made_on_arrival_through_one_portal_waits_for_that_portal",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.aua-gives-the-skyport-maintenance",
         says: "Aua gives her maintenance quest, its shards and stibnite move it by their own effects, \
                the alembic takes each, and she takes the infusion. Her lines say so; no recording \
