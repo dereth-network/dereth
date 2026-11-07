@@ -961,3 +961,139 @@ fn a_pets_drain_takes_health_from_the_creature_and_gives_the_pet_its_share() {
     assert!(drained, "the creature told the drain of {took}");
     assert!(told(&h, pet, -2 * took), "the pet told twice that back");
 }
+
+/// A trap's strike as the data has one: a blow within a few meters that leaves an effect.
+fn trap_skill() -> Usage {
+    Usage {
+        min_range: -1.0,
+        max_range: 3.0,
+        valid_targets: 0x30_0980,
+        behavior_other: [0x4100_0077; 3],
+        target_effects: vec![SLOW],
+        hooks: vec![Hook {
+            flags: 0x2008,
+            chance: 1.0,
+            radius: 3.0,
+            ..Hook::default()
+        }],
+        ..Usage::default()
+    }
+}
+
+/// Stand a thing this far east of a spot.
+fn put_by(h: &mut Harness, id: u64, by: yalain_store::StoredPosition, east: f32) {
+    let mut to = by;
+    to.origin[0] += east;
+    if let Some(t) = h.server.things.get_mut(id) {
+        t.at = Some(to);
+        if let Some(c) = t.creature.as_mut() {
+            c.home = to;
+            c.wander_to = None;
+            c.stats.movement.wander_chance = 0.0;
+        }
+    }
+}
+
+/// The stories a pet told the player since `from`.
+fn stories_by(h: &Harness, b: usize, from: usize, pet: u64) -> Vec<Vec<u64>> {
+    h.world_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::DoStory(e) if e.action.attacker == pet => Some(
+                e.action
+                    .hooks
+                    .iter()
+                    .map(|k| k.target)
+                    .filter(|t| *t != 0)
+                    .collect(),
+            ),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A pet whose kind ends on its strike (a trap) strikes nothing but a creature: beside a player at
+/// peace and another player's trap it stays, striking none. A creature in its reach takes one strike,
+/// and what the strike carries lands on it, cast by the trap, before the trap ends: taken off its
+/// owner's list and dead, with no second strike.
+/// Behaviour: server.pets.ends-on-its-strike
+#[test]
+fn a_trap_strikes_a_creature_once_and_ends_and_never_strikes_a_player_or_anothers_pet() {
+    let mut h = Harness::new();
+    with_pet(&mut h, 1, 32, Some(trap_skill()));
+    with_left_effects(&mut h);
+    if let Some(k) = h.server.pets.kinds.get_mut(&PET_EFFECT) {
+        k.stays = true;
+        k.ends_on_strike = true;
+        k.lands = 1.0;
+    }
+    let (b, me) = summoner(&mut h);
+    let target = beetle(&h);
+    let far = player(&mut h, me).position;
+    put_by(&mut h, target, far, 60.0);
+    let trap = summon(&mut h, b);
+    let at = h
+        .server
+        .things
+        .get(trap)
+        .and_then(|t| t.at)
+        .expect("set down");
+    // Another player at peace beside it, with a trap of its own beside it.
+    let (c, other) = in_world(&mut h, "two", "Wren");
+    h.arm(c, other, SWORD);
+    let p = player(&mut h, other);
+    p.play.skills.push(SkillState {
+        skill: SUMMON,
+        granted: 0,
+        mask: 0x1,
+        cost: 2,
+        children: 0,
+        dependents: 0,
+        spent: 0,
+    });
+    quals::set_int(&mut p.qualities, quality::VIGOR_MAX, 400);
+    quals::set_int(&mut p.qualities, quality::VIGOR, 400);
+    let theirs = summon(&mut h, c);
+    put_by(&mut h, theirs, at, 2.5);
+    let mut beside = at;
+    beside.origin[1] += 1.5;
+    player(&mut h, other).position = beside;
+    let from = h.bots[b].inbox.len();
+    let from_c = h.bots[c].inbox.len();
+    for _ in 0..20 {
+        h.step_by(0.5);
+    }
+    assert!(stories_by(&h, b, from, trap).is_empty(), "none struck");
+    assert!(
+        stories_by(&h, c, from_c, theirs).is_empty(),
+        "theirs struck none"
+    );
+    assert_eq!(h.server.pets.of(me), vec![trap], "it waits");
+    assert_eq!(h.server.pets.of(other), vec![theirs]);
+    // A creature comes within its reach.
+    put_by(&mut h, target, at, -1.5);
+    let from = h.bots[b].inbox.len();
+    let from_c = h.bots[c].inbox.len();
+    for _ in 0..40 {
+        h.step_by(0.25);
+    }
+    let told = stories_by(&h, b, from, trap);
+    assert_eq!(told, vec![vec![target]], "one strike, at the creature");
+    let left = effects::records_of(&h.server, On::Creature(target))
+        .iter()
+        .find(|e| e.state == SLOW)
+        .map(|e| e.caster);
+    assert_eq!(left, Some(trap), "what it carries landed, cast by the trap");
+    assert!(h.server.pets.of(me).is_empty(), "ended");
+    assert!(
+        h.calls(b, from).iter().any(|(f, _)| *f == function::REMOVE),
+        "its owner told"
+    );
+    assert!(h.server.things.get(trap).is_none_or(|t| !t.alive()));
+    let mut named: Vec<u64> = stories_by(&h, c, from_c, theirs).concat();
+    named.extend(stories_by(&h, b, from, trap).concat());
+    assert!(
+        named.iter().all(|t| *t == target),
+        "only ever the creature: {named:?}"
+    );
+}

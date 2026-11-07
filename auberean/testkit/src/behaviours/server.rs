@@ -8786,6 +8786,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.pets.ends-on-its-strike",
+        says: "A pet whose kind ends on its strike strikes only a creature its owner may harm, once: \
+               what the strike carries lands, then the pet ends, taken off its owner's list.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PETS-TRAP-ENDS"),
+        station: "yalain-testkit::cpu::play::pet_skills::a_trap_strikes_a_creature_once_and_ends_and_never_strikes_a_player_or_anothers_pet",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.pets.ethereality-where-it-stands",
         says: "A pet come into a landblock of another conflict status takes its owner's movement \
                ethereality for it, with its own bit, told to every client that knows it.",

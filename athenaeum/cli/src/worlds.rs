@@ -180,13 +180,18 @@ fn pets_cmd(args: &[String]) -> Result<(), String> {
     for l in session.pets() {
         match &l.row {
             yalain_world_db::rows::Row::Pet(r) => println!(
-                "pet {:#010x}\tin {}\ttemplate {:#010x}\tflags {}\tcount {}\t{}{}{}",
+                "pet {:#010x}\tin {}\ttemplate {:#010x}\tflags {}\tcount {}\t{}{}{}{}",
                 r.effect,
                 l.pack,
                 r.template,
                 r.flags,
                 r.count,
                 if r.stays { "stays" } else { "follows" },
+                if r.ends_on_strike {
+                    "\tends on its strike"
+                } else {
+                    ""
+                },
                 attacks_shown(&r.attacks),
                 if r.item_effects.is_empty() {
                     String::new()

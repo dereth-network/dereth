@@ -53,7 +53,8 @@
 //! three times in five. What its skill puts on a target goes on what its strike reaches, cast by the
 //! pet at its level, on a creature its owner may harm and on nothing else; of a change over time its
 //! strikes keep one running. A skill with no blow that makes another pet it fires at what it takes
-//! on, at the skill's own pace, while its owner may have more.
+//! on, at the skill's own pace, while its owner may have more. A pet whose kind ends on its strike
+//! (a trap) attacks once: it ends as that strike lands, after what the strike carries, hit or not.
 //!
 //! **The end**: killed, ordered to die, or with its owner's death (in the owner's death tick), the
 //! pet is taken off its owner's list and falls as a creature does, in one tick (its physics type
@@ -2052,15 +2053,35 @@ fn fight<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, target: u64,
     if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
         c.next_attack = clock.local.0 + ATTACK_SECONDS;
     }
-    if skill.missile {
-        launch(s, net, id, target, skill, d, clock);
+    let lands = if skill.missile {
+        launch(s, net, id, target, skill, d, clock)
     } else {
-        strike(s, net, id, target, skill, &kind, clock);
+        let lands = strike(s, net, id, target, skill, &kind, clock);
         // A strike that does damage taunts as it lands; one that does none, as it is struck.
         if kind.taunts && !harms(s, skill.skill) {
             leaves(s, net, id, target, skill.skill, clock);
             taunted(s, net, target, id, clock);
         }
+        lands
+    };
+    if kind.ends_on_strike {
+        spent(s, id, lands, clock);
+    }
+}
+
+/// A pet that ends on its strike has struck: it attacks no more, and ends as its strike lands. Its
+/// end comes after what the strike carries, which lands first in the same moment.
+fn spent<S: Store>(s: &mut Server<S>, id: u64, lands: f64, clock: Clock) {
+    if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
+        c.next_attack = f64::INFINITY;
+    }
+    s.after(clock, lands, crate::Timer::PetSpent { pet: id });
+}
+
+/// A pet's strike has landed and it ends on its strike: it dies as if ordered to.
+pub fn strike_ends<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock) {
+    if s.things.get(id).is_some_and(Thing::alive) {
+        dies(s, net, id, 0, clock);
     }
 }
 
@@ -2133,7 +2154,8 @@ pub const fn strikes_as_basic(skill: u32) -> bool {
 
 /// A pet strikes a creature in reach: one story of the pet's with a result for each of its hits,
 /// and one for each other creature its skill's area reaches (with the basic-attack flag by its
-/// skill), the hits landing together as its blow reaches the creatures.
+/// skill), the hits landing together as its blow reaches the creatures. Returns how long until
+/// they land, in seconds.
 fn strike<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -2142,7 +2164,7 @@ fn strike<S: Store>(
     skill: AttackSkill,
     kind: &PetKind,
     clock: Clock,
-) {
+) -> f64 {
     let clock_free = crate::combat::CREATURE_TIME_SCALE * s.rng.between(0.9, 1.1);
     let harms = harms(s, skill.skill);
     let mut rolls = Vec::new();
@@ -2191,6 +2213,7 @@ fn strike<S: Store>(
             );
         }
     }
+    lands
 }
 
 /// Does a pet's skill do damage: not one its definition marks as doing none (a skill the server has
@@ -2244,7 +2267,7 @@ pub const MISSILE_SPEED: f32 = 59.0;
 pub const MISSILE_WINDUP: f32 = 1.018;
 
 /// A pet throws its missile: the throw's story now (the pet's, naming its target), the landing
-/// told by what it lands on after the flight.
+/// told by what it lands on after the flight. Returns the flight, in seconds.
 fn launch<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -2253,7 +2276,7 @@ fn launch<S: Store>(
     skill: AttackSkill,
     distance: f32,
     clock: Clock,
-) {
+) -> f64 {
     let ts = crate::combat::CREATURE_TIME_SCALE * s.rng.between(0.9, 1.1);
     let mut st = crate::combat::story(
         s,
@@ -2290,6 +2313,7 @@ fn launch<S: Store>(
             skill,
         },
     );
+    f64::from(flight)
 }
 
 /// A pet's missile lands: what it lands on tells the landing, a result for its target and, for a

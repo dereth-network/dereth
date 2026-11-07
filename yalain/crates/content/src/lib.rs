@@ -154,6 +154,8 @@ pub struct PetKind {
     pub area: f32,
     /// Its strikes taunt: the creature may turn on it. Whether they harm is its skill's.
     pub taunts: bool,
+    /// It ends as its first strike lands, what the strike carries landing first.
+    pub ends_on_strike: bool,
     /// It cannot be set down indoors ("The summoning fails.").
     pub outdoors_only: bool,
     /// The attacks it uses and how often each, by skill and weight: these alone, of those that
@@ -194,6 +196,7 @@ impl PetKind {
             stays: false,
             area: 0.0,
             taunts: false,
+            ends_on_strike: false,
             outdoors_only: false,
             attacks: Vec::new(),
             corpse_after: Some(Self::CORPSE_AFTER),

@@ -405,6 +405,7 @@ pub fn pet(r: &yalain_world_db::rows::Pet, p: &Prov) -> Table {
     }
     for (name, on) in [
         ("taunts", r.taunts),
+        ("ends_on_strike", r.ends_on_strike),
         ("outdoors_only", r.outdoors_only),
         ("no_corpse", r.no_corpse),
     ] {

@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Traps end after their one strike.
 - A quest step can be done by coming through one particular portal.
 - Creatures that should leave no corpse, such as training dummies, no longer do.
 - Mining now counts the tool in your hand and the Mining Master perks.

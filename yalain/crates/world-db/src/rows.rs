@@ -519,6 +519,8 @@ pub struct Pet {
     pub area: Option<f32>,
     /// Its strikes taunt; whether they harm is its skill's.
     pub taunts: bool,
+    /// It ends as its first strike lands.
+    pub ends_on_strike: bool,
     pub outdoors_only: bool,
     /// The attacks it uses, by skill, and the weight of each in its draw among those that reach;
     /// left out, every attack its template names, all alike.
@@ -969,6 +971,7 @@ pub const FIELDS: [(&str, &[&str]); 22] = [
             "swing",
             "area",
             "taunts",
+            "ends_on_strike",
             "outdoors_only",
             "attacks",
             "corpse_after",
@@ -1660,6 +1663,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 swing,
                 area: share(f.float("area")),
                 taunts: f.bool("taunts").unwrap_or(false),
+                ends_on_strike: f.bool("ends_on_strike").unwrap_or(false),
                 outdoors_only: f.bool("outdoors_only").unwrap_or(false),
                 attacks,
                 corpse_after: share(f.float("corpse_after")),
