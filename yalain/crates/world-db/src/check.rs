@@ -119,6 +119,8 @@ pub fn check_database(db: &Database) -> Vec<Problem> {
     let mut routes: BTreeMap<(String, String), usize> = BTreeMap::new();
     // Each placed object's id: its templates, and whether a row of it leads somewhere.
     let mut ids: BTreeMap<u64, (BTreeSet<u32>, bool)> = BTreeMap::new();
+    // Each camp, by its key and landblock in whichever pack: the templates it makes.
+    let mut camp_makes: BTreeMap<(String, u16), BTreeSet<u32>> = BTreeMap::new();
     for l in db.rows() {
         let lb = l.landblock.unwrap_or(0);
         match &l.row {
@@ -127,6 +129,10 @@ pub fn check_database(db: &Database) -> Vec<Problem> {
             }
             Row::Camp(r) => {
                 camps.insert((l.pack.clone(), r.key.clone(), lb));
+                camp_makes
+                    .entry((r.key.clone(), lb))
+                    .or_default()
+                    .extend(r.spawns.iter().map(|(t, _)| *t));
             }
             Row::Object(r) => {
                 objects.insert((l.pack.clone(), r.key.clone(), lb));
@@ -286,6 +292,27 @@ pub fn check_database(db: &Database) -> Vec<Problem> {
                     problems.push(at(
                         "to: a step made on arrival takes the player nowhere further".into(),
                     ));
+                }
+                if let Trigger::KillIn(template, camp) = &r.trigger {
+                    let (key, lb) = match camp.split_once('@') {
+                        Some((k, b)) => (k, u16::from_str_radix(b, 16).ok()),
+                        None => (camp.as_str(), None),
+                    };
+                    let found: Vec<&BTreeSet<u32>> = camp_makes
+                        .iter()
+                        .filter(|((k, b), _)| k == key && lb.is_none_or(|lb| lb == *b))
+                        .map(|(_, makes)| makes)
+                        .collect();
+                    match found[..] {
+                        [] => problems.push(at(format!("trigger: no camp {camp}"))),
+                        [makes] if !makes.contains(template) => problems.push(at(format!(
+                            "trigger: camp {camp} makes no creature of template {template:#010X}"
+                        ))),
+                        [_] => {}
+                        _ => problems.push(at(format!(
+                            "trigger: several camps are {camp}: name one as {camp}@XXYY"
+                        ))),
+                    }
                 }
                 if let Trigger::ArriveFrom(template, from) = r.trigger {
                     match ids.get(&from) {

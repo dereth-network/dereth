@@ -1571,6 +1571,7 @@ pub fn test_camp(n: u32) -> yalain_content::Camp {
         placed: "authored for the tests".into(),
         confidence: "authored".into(),
         moves: yalain_content::CampMoves::default(),
+        name: None,
     }
 }
 

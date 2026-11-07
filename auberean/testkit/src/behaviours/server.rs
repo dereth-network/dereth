@@ -11060,6 +11060,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.kill-of-one-camps-creature",
+        says: "A camp that names its creatures has them told by that name, a string of the install, \
+               and their corpses named after it; a step made by a kill of that camp's creature moves \
+               its quest, and a kill of a creature of the same template from another camp does not.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-KILL-IN-CAMP"),
+        station: "yalain-testkit::cpu::play::kill_quests::a_named_camps_creature_goes_by_its_name_and_only_its_kill_moves_the_camps_step",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.kill-step-leads-on",
         says: "A kill whose step leads somewhere sends the killer there.",
         since: RETAIL,

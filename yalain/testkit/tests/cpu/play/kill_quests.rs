@@ -1160,3 +1160,118 @@ fn a_recall_on_a_kills_trip_leaves_it_and_its_step() {
     assert_eq!(phase(&h, me), 2);
     assert_eq!(h.server.players[&world].position.cell, ARENA.cell);
 }
+
+/// The live creature a camp (by its row in the spawn table) keeps.
+fn creature_of(h: &Harness, camp: usize) -> u64 {
+    h.server
+        .things
+        .by_id
+        .values()
+        .find(|t| {
+            t.creature
+                .as_ref()
+                .is_some_and(|c| c.camp == Some(camp) && c.mode != yalain_world::things::Mode::Dead)
+        })
+        .map(|t| t.id)
+        .expect("the camp's creature")
+}
+
+/// Hurt a creature to death by this character.
+fn slay(h: &mut Harness, creature: u64, by: u64) {
+    let t = h.server.things.get_mut(creature).expect("the creature");
+    t.health = 10;
+    t.max_health = 10;
+    let c = t.creature.as_mut().expect("a creature");
+    c.stats.attacks_first = false;
+    let clock = h.clock();
+    combat::hurt_creature(&mut h.server, &mut h.net, creature, by, 50, clock);
+    h.run(2);
+}
+
+/// **A creature a camp names is told by that name, and its corpse is named after it**; a step made
+/// by a kill of that camp's creature moves its quest, and a kill of a creature of the same template
+/// from another camp does not.
+/// Behaviour: server.quests.kill-of-one-camps-creature
+#[test]
+fn a_named_camps_creature_goes_by_its_name_and_only_its_kill_moves_the_camps_step() {
+    use auberean_protocol::types::WeenieDesc;
+    use auberean_protocol::ServerMessage;
+    const NAMED: (u32, u32) = (0xE77B_18D7, 0x2500_284B);
+    let (mut h, b, me) = world(quest(3));
+    holds(&mut h, me, status::UNDERWAY, 1);
+    let from = h.bots[b].inbox.len();
+    h.server.spawns.camps.push(yalain_content::Camp {
+        id: "named".into(),
+        name: Some(NAMED),
+        ..yalain_testkit::test_camp(1)
+    });
+    h.server
+        .camps
+        .push(yalain_world::spawn::CampState::default());
+    h.run(4);
+    let (other, named) = (creature_of(&h, 0), creature_of(&h, 1));
+    let told = |h: &Harness, from: usize, id: u64| {
+        h.world_messages(b, from)
+            .into_iter()
+            .find_map(|m| match m {
+                ServerMessage::CreateObject(o) if o.id == id => Some(o.weenie),
+                _ => None,
+            })
+            .expect("told of it")
+    };
+    let w = told(&h, from, named);
+    assert_ne!(w.mask & WeenieDesc::NAME, 0, "told with a name");
+    assert_eq!((w.name.string_id, w.name.table_id), NAMED);
+    let template = h.server.things.get(named).expect("named").template;
+    assert_eq!(
+        h.server.things.get(other).map(|t| t.template),
+        Some(template)
+    );
+    h.server.quests.steps.push(Step {
+        quest: QUEST,
+        needs: 1,
+        trigger: Trigger::KillIn(template, 1),
+        tell: None,
+        update: Update::Advance(2),
+        xp: 0,
+        gives: Vec::new(),
+        counts: Vec::new(),
+        effects: Vec::new(),
+        text: None,
+        placed: "authored for a test".into(),
+        requires: Vec::new(),
+        takes: Vec::new(),
+        races: Vec::new(),
+        effects_last: false,
+        wants: None,
+        fellows: false,
+        levels: None,
+        xp_share: 0.0,
+        to: None,
+    });
+    let from = h.bots[b].inbox.len();
+    slay(&mut h, other, me);
+    assert_eq!(phase(&h, me), 1, "another camp's creature of the template");
+    assert!(updates(&h, b, from).is_empty());
+    slay(&mut h, named, me);
+    assert_eq!(phase(&h, me), 2);
+    assert_eq!(updates(&h, b, from), vec![(0, update::ADVANCE | 2)]);
+    // Its corpse is named after it.
+    h.run(60);
+    let corpses: Vec<_> = h
+        .world_messages(b, from)
+        .into_iter()
+        .filter_map(|m| match m {
+            ServerMessage::CreateObject(o)
+                if o.weenie.entity_did == yalain_world::death::CORPSE_TEMPLATE =>
+            {
+                Some(o.weenie.name)
+            }
+            _ => None,
+        })
+        .collect();
+    assert!(
+        corpses.contains(&yalain_world::death::corpse_name(Some(NAMED))),
+        "{corpses:?}"
+    );
+}

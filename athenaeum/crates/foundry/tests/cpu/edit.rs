@@ -590,7 +590,7 @@ fn a_moved_camp_keeps_how_its_creatures_move_and_its_route_in_the_base() {
         "spawns = [{ template = 0x47002224, weight = 2 }]\nmovement = \"free-range\"\n\
          wanders = false\nwander_range = 12.5\nwander_chance = 0.25\nhomesick = 60.0\n\
          perception = 12.0\nuses_doors = false\nroute = \"r-1\"\nroute_start = 1\n\
-         route_direction = \"backward\"\n",
+         route_direction = \"backward\"\nname = { table = 0x2500284B, string = 0xE77B18D7 }\n",
     );
     files.insert(
         "seed/server/routes.toml".into(),
@@ -625,6 +625,11 @@ fn a_moved_camp_keeps_how_its_creatures_move_and_its_route_in_the_base() {
         panic!("a camp");
     };
     assert_eq!(c.route.as_deref(), Some("seed:r-1"));
+    let name = yalain_world_db::rows::StrRef {
+        table: 0x2500_284B,
+        string: 0xE77B_18D7,
+    };
+    assert_eq!(c.name, Some(name), "its name in {t}");
 
     // A route row, written as the database writes it, reads back the same.
     let db = yalain_world_db::rows::read(&files).unwrap();

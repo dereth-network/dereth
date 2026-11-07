@@ -1562,6 +1562,7 @@ mod tests {
             placed: String::new(),
             confidence: String::new(),
             moves: yalain_content::movement::CampMoves::default(),
+            name: None,
         };
         let spawns = SpawnTable {
             camps: vec![camp(0x75B9_0001), camp(0x76B9_0001)],

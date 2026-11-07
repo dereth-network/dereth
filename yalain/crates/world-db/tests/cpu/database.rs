@@ -764,6 +764,106 @@ fn an_arrival_may_name_the_one_placed_portal_it_came_through() {
     assert!(!problems("trigger = { arrive", "to = \"inn\"\ntrigger = { arrive").is_empty());
 }
 
+/// A camp names its creatures by a string of the install, and a step moved by a kill may name the
+/// one camp whose creature it wants.
+#[test]
+fn a_camp_may_name_its_creatures_and_a_kill_may_name_the_camp() {
+    const BEETLE: u32 = 0x4700_2224;
+    let mut files = fixture();
+    let quests = "town/server/quests/40000088.toml";
+    let fixes = "town-fixes/server/landblocks/77B7.toml";
+    edit(
+        &mut files,
+        fixes,
+        "prov = { from = \"authored\", note = \"moved up the hill\" }",
+        "name = { table = 0x2500284B, string = 0xE77B18D7 }\nprov = { from = \"authored\", note = \"moved up the hill\" }",
+    );
+    edit(
+        &mut files,
+        quests,
+        "trigger = { arrive = 0x4700115B }",
+        "trigger = { kill = 0x47002224, camp = \"beetles\" }",
+    );
+    assert_eq!(check(&files), []);
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let row = t
+        .spawns
+        .camps
+        .iter()
+        .position(|c| c.id == "beetles")
+        .unwrap();
+    assert_eq!(t.spawns.camps[row].name, Some((0xE77B_18D7, 0x2500_284B)));
+    assert_eq!(
+        t.quests.steps[2].trigger,
+        Trigger::KillIn(BEETLE, u32::try_from(row).unwrap())
+    );
+    assert_eq!(
+        yalain_content::SpawnTable::from_text(&t.spawns.to_text()).unwrap(),
+        t.spawns,
+        "the spawn table reads back as written"
+    );
+    assert_eq!(
+        yalain_content::QuestTable::from_text(&t.quests.to_text()).unwrap(),
+        t.quests,
+        "the quest table reads back as written"
+    );
+    // A spawn table written before camps named their creatures still reads, naming none.
+    let old: String = t
+        .spawns
+        .to_text()
+        .lines()
+        .map(|l| l.rsplit_once('\t').map_or(l, |(head, _)| head).to_string() + "\n")
+        .collect();
+    let read_old = yalain_content::SpawnTable::from_text(&old).unwrap();
+    assert!(read_old.camps.iter().all(|c| c.name.is_none()));
+
+    // The camp must be one the world has, and make creatures of the template.
+    let problems =
+        |f: &Files| -> Vec<String> { check(f).iter().map(ToString::to_string).collect() };
+    let mut f = files.clone();
+    edit(&mut f, quests, "camp = \"beetles\"", "camp = \"wasps\"");
+    assert_eq!(
+        problems(&f),
+        ["town/server/quests/40000088.toml:30: trigger: no camp wasps"]
+    );
+    let mut f = files.clone();
+    edit(&mut f, quests, "kill = 0x47002224", "kill = 0x47002225");
+    assert_eq!(
+        problems(&f),
+        ["town/server/quests/40000088.toml:30: trigger: camp beetles makes no creature of template 0x47002225"]
+    );
+    // A key two landblocks share names one of them with its landblock.
+    let mut f = files.clone();
+    f.insert(
+        "town/server/landblocks/77B8.toml".into(),
+        "[[camp]]\nkey = \"beetles\"\nat = [10.0, 10.0, 140.0]\npopulation = 1\nregen = 60.0\n\
+         spawns = [{ template = 0x47002224, weight = 1 }]\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    assert_eq!(
+        problems(&f),
+        ["town/server/quests/40000088.toml:30: trigger: several camps are beetles: name one as beetles@XXYY"]
+    );
+    edit(
+        &mut f,
+        quests,
+        "camp = \"beetles\"",
+        "camp = \"beetles@77B8\"",
+    );
+    assert_eq!(check(&f), []);
+    let t = compile(&merge(&read(&f).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let row = t
+        .spawns
+        .camps
+        .iter()
+        .position(|c| c.id == "beetles@77B8")
+        .unwrap();
+    assert_eq!(
+        t.quests.steps[2].trigger,
+        Trigger::KillIn(BEETLE, u32::try_from(row).unwrap())
+    );
+}
+
 #[test]
 fn a_portals_recall_flags_and_a_places_name_compile_for_the_server() {
     let t = compile(&merge(&read(&fixture()).unwrap()).unwrap(), &Fake::new()).unwrap();

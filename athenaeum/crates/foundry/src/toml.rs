@@ -310,6 +310,9 @@ pub fn camp(c: &Camp, parent: Option<&str>, p: &Prov) -> Table {
             put(&mut t, "route_direction", Value::from("backward"));
         }
     }
+    if let Some(n) = c.name {
+        put(&mut t, "name", strref(n));
+    }
     put(&mut t, "prov", prov(p));
     t
 }

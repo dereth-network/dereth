@@ -183,6 +183,8 @@ pub struct Camp {
     pub route: Option<String>,
     pub route_start: u32,
     pub route_backward: bool,
+    /// The name its creatures are told by in place of their template's.
+    pub name: Option<StrRef>,
     pub prov: Prov,
 }
 
@@ -294,7 +296,7 @@ pub struct Quest {
 /// What moves a quest step: using something of a template (or a held item of one on an object of
 /// another), arriving through a portal of a template, taking or killing something of a template,
 /// completing a quest.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Trigger {
     Use(u32),
     UseOn(u32, u32),
@@ -304,6 +306,9 @@ pub enum Trigger {
     ArriveFrom(u32, u64),
     Take(u32),
     Kill(u32),
+    /// Killing a creature of the template that one camp made: the camp's `key`, or `key@XXYY` for
+    /// the one in that landblock where several camps share the key.
+    KillIn(u32, String),
     Done(u32),
     Given(u32),
 }
@@ -801,6 +806,7 @@ pub const FIELDS: [(&str, &[&str]); 23] = [
             "route",
             "route_start",
             "route_direction",
+            "name",
             "prov",
         ],
     ),
@@ -1360,6 +1366,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 route: f.symbol("route"),
                 route_start: f.u32("route_start").unwrap_or(0),
                 route_backward,
+                name: f.strref("name"),
                 prov: f.req_prov()?,
             })
         }
@@ -2286,7 +2293,7 @@ impl<'a> Fields<'a> {
         }
         self.typed(
             name,
-            "one of { use = T }, { use = ITEM, on = TARGET }, { give = ITEM, to = TARGET }, { arrive = T }, { arrive = T, from = OBJECT }, { take = T }, { kill = T }, { done = Q }, { given = Q }",
+            "one of { use = T }, { use = ITEM, on = TARGET }, { give = ITEM, to = TARGET }, { arrive = T }, { arrive = T, from = OBJECT }, { take = T }, { kill = T }, { kill = T, camp = KEY }, { done = Q }, { given = Q }",
             |v| {
                 let t = v.as_table()?;
                 if let (2, Some(item), Some(on)) = (t.len(), t.get("use"), t.get("on")) {
@@ -2298,6 +2305,10 @@ impl<'a> Fields<'a> {
                 }
                 if let (2, Some(item), Some(to)) = (t.len(), t.get("give"), t.get("to")) {
                     return Some(Trigger::Give(as_u32(item)?, as_u32(to)?));
+                }
+                if let (2, Some(tpl), Some(camp)) = (t.len(), t.get("kill"), t.get("camp")) {
+                    let camp = camp.as_str().filter(|c| !c.is_empty())?;
+                    return Some(Trigger::KillIn(as_u32(tpl)?, camp.to_string()));
                 }
                 if t.len() != 1 {
                     return None;

@@ -3087,7 +3087,7 @@ fn an_ulkas_mine_is_given_by_a_guard_after_its_toll_and_its_last_gem_ends_the_to
                 &mut h.server,
                 &mut h.net,
                 world,
-                (0, guard),
+                (0, guard, None),
                 &[effect.to_string()],
                 clock,
             );

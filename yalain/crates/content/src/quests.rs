@@ -188,6 +188,9 @@ pub enum Trigger {
     Take(u32),
     /// Killing a creature of a template.
     Kill(u32),
+    /// Killing a creature of a template that one camp made: its template, and the camp's row in the
+    /// spawn table (from 0).
+    KillIn(u32, u32),
     /// Completing a quest.
     Done(u32),
     /// Being given a quest, shown or hidden.
@@ -478,6 +481,7 @@ impl QuestTable {
                 Trigger::ArriveFrom(t, o) => format!("arrivefrom:{t:08X}:{o:016X}"),
                 Trigger::Take(t) => format!("take:{t:08X}"),
                 Trigger::Kill(t) => format!("kill:{t:08X}"),
+                Trigger::KillIn(t, c) => format!("killin:{t:08X}:{c}"),
                 Trigger::Done(q) => format!("done:{q:08X}"),
                 Trigger::Given(q) => format!("given:{q:08X}"),
             };
@@ -721,6 +725,13 @@ impl QuestTable {
                         }
                         "take" => Trigger::Take(hex(tpl).map_err(at)?),
                         "kill" => Trigger::Kill(hex(tpl).map_err(at)?),
+                        "killin" => {
+                            let (t, c) = tpl.split_once(':').ok_or_else(|| {
+                                at(format!("killin takes TEMPLATE:CAMP, not {tpl}"))
+                            })?;
+                            let c = c.parse().map_err(|e| at(format!("a camp's row: {e}")))?;
+                            Trigger::KillIn(hex(t).map_err(at)?, c)
+                        }
                         "done" => Trigger::Done(hex(tpl).map_err(at)?),
                         "given" => Trigger::Given(hex(tpl).map_err(at)?),
                         other => return Err(at(format!("a trigger of kind {other}"))),

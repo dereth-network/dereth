@@ -911,6 +911,7 @@ fn a_practice_dummy_sends_back_a_share_of_each_attack_by_its_level() {
             placed: "authored for the tests".into(),
             confidence: "authored".into(),
             moves: yalain_content::CampMoves::default(),
+            name: None,
         });
         h.server
             .camps

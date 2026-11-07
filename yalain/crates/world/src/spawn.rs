@@ -304,6 +304,15 @@ pub fn make<S: Store>(
     };
     let id = s.things.new_id();
     let mut t = Thing::of(id, template, Kind::Creature);
+    // A camp that names its creatures has them told by that name, examined by it and their
+    // corpses named after it.
+    if let Some(name) = camp
+        .and_then(|i| s.spawns.camps.get(i))
+        .and_then(|c| c.name)
+    {
+        t.description.name = Some(name);
+        t.facts.name = Some(name);
+    }
     t.at = Some(at);
     t.heading_motion = u32::from(heading) << 24 | crate::world::IDLE_MOTION;
     t.max_health = max_health;

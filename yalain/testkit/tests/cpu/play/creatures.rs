@@ -254,6 +254,7 @@ fn kin_camp(h: &mut Harness, template: u32, table: u32, spots: &[[f32; 3]]) {
         placed: "authored for the tests".into(),
         confidence: "authored".into(),
         moves: yalain_content::CampMoves::default(),
+        name: None,
     });
     h.server
         .camps

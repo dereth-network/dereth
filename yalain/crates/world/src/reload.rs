@@ -710,6 +710,7 @@ fn fits(a: &Camp, b: &Camp) -> bool {
         && a.templates == b.templates
         && a.spots == b.spots
         && a.moves == b.moves
+        && a.name == b.name
 }
 
 /// Is a creature fighting a player (after one, or with one as its target)?

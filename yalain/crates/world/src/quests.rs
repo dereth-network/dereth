@@ -719,7 +719,10 @@ fn run_triggered<S: Store>(
     };
     // A step that leads somewhere is run by a use of a person or an object, or a kill; an item's use
     // on one is the trip's first, its update on arrival.
-    let leads_on = matches!(trigger, Trigger::Use(_) | Trigger::Kill(_)) && who.is_some();
+    let leads_on = matches!(
+        trigger,
+        Trigger::Use(_) | Trigger::Kill(_) | Trigger::KillIn(..)
+    ) && who.is_some();
     let used = matches!(trigger, Trigger::Use(_));
     // A use runs one step of the server's errands: the person's next comes at the next use.
     let mut errand_ran = false;
@@ -769,7 +772,8 @@ fn run_triggered<S: Store>(
         }
         let free = trip.is_none();
         let sent = step.to.zip(who);
-        if let (true, Some((place, (by, _))), Trigger::Kill(_)) = (free, sent, trigger) {
+        let kill = matches!(trigger, Trigger::Kill(_) | Trigger::KillIn(..));
+        if let (true, true, Some((place, (by, _)))) = (free, kill, sent) {
             // A kill's step goes with the trip, its update told on landing (2017: 47 of 47 Gauntlet
             // kills, in portal space's exit's tick; the trip within 0.1 s of the death, 42 of 42
             // whose death was seen).
@@ -988,13 +992,14 @@ pub fn took<S: Store>(
 pub const KILL_LEVELS: i32 = 10;
 
 /// A creature died with its kill credited to a player: the steps the kill triggers run for the
-/// killer, then the template's quest effects on each quest no step moved, then on the killer's
+/// killer (those of its template, then those of the one camp that made it, each quest moved at most
+/// once), then the template's quest effects on each quest no step moved, then on the killer's
 /// fellows the effects whose quests reach them.
 pub fn killed<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     killer: ConnId,
-    (creature, template): (u64, u32),
+    (creature, template, camp): (u64, u32, Option<usize>),
     effects: &[String],
     clock: Clock,
 ) {
@@ -1002,6 +1007,10 @@ pub fn killed<S: Store>(
     let who = Some((creature, None));
     let trigger = Trigger::Kill(template);
     run_triggered(s, net, killer, trigger, who, None, clock, &mut moved);
+    if let Some(camp) = camp.and_then(|c| u32::try_from(c).ok()) {
+        let trigger = Trigger::KillIn(template, camp);
+        run_triggered(s, net, killer, trigger, who, None, clock, &mut moved);
+    }
     let named: Vec<QuestEffect> = effects
         .iter()
         .filter_map(|n| effect_named(n, |q| s.quest_ids.get(q).copied()))

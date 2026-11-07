@@ -706,6 +706,7 @@ impl Session {
                     route: None,
                     route_start: 0,
                     route_backward: false,
+                    name: None,
                     prov: p.clone(),
                 };
                 let item = ItemKey::Camp {

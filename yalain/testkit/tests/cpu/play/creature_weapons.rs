@@ -59,6 +59,7 @@ fn world(props: Props, weapons: &[(&str, u32, Props)]) -> Harness {
         placed: "authored for the tests".into(),
         confidence: "authored".into(),
         moves: yalain_content::CampMoves::default(),
+        name: None,
     });
     h.server
         .camps

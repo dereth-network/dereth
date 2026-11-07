@@ -5,7 +5,9 @@
 //! sessions, or authored.
 //!
 //! A camp may also set how its creatures move over their templates' settings, and name a route
-//! they walk at rest ([`crate::movement`]).
+//! they walk at rest ([`crate::movement`]). A camp may give its creatures a name of their own in
+//! place of their template's, a string of the install (2017: creatures of two ordinary kinds were
+//! told by a name from their kind's own string table, and their corpses were named after it).
 //!
 //! The text form is tab-separated, one camp per line, so the table can be read and edited by hand.
 
@@ -35,6 +37,9 @@ pub struct Camp {
     pub confidence: String,
     /// How its creatures move: settings over their templates', and a route.
     pub moves: crate::movement::CampMoves,
+    /// The name its creatures are told by in place of their template's, as a text reference
+    /// (string id, table id).
+    pub name: Option<(u32, u32)>,
 }
 
 /// Every camp of the world.
@@ -43,9 +48,10 @@ pub struct SpawnTable {
     pub camps: Vec<Camp>,
 }
 
-/// The table's columns, in order. A table written before the last two (a camp's movement
-/// settings and route) still reads, its camps setting neither.
-pub const COLUMNS: [&str; 14] = [
+/// The table's columns, in order. A table written before the last (a camp's name) still reads, its
+/// camps naming none; so does one written before the two before it (a camp's movement settings and
+/// route), its camps setting neither.
+pub const COLUMNS: [&str; 15] = [
     "camp",
     "cell",
     "x",
@@ -60,10 +66,14 @@ pub const COLUMNS: [&str; 14] = [
     "confidence",
     "movement",
     "route",
+    "name",
 ];
 
 /// The columns of a table written before camps set movement.
 const COLUMNS_BEFORE_MOVES: usize = 12;
+
+/// The columns of a table written before camps named their creatures.
+const COLUMNS_BEFORE_NAMES: usize = 14;
 
 fn hex(s: &str) -> Result<u32, String> {
     u32::from_str_radix(s, 16).map_err(|e| format!("{s}: {e}"))
@@ -97,7 +107,7 @@ impl SpawnTable {
                 .join("|");
             let _ = writeln!(
                 out,
-                "{}\t{:08X}\t{}\t{}\t{}\t{}\t{}\t{}\t{templates}\t{spots}\t{}\t{}\t{}\t{}",
+                "{}\t{:08X}\t{}\t{}\t{}\t{}\t{}\t{}\t{templates}\t{spots}\t{}\t{}\t{}\t{}\t{}",
                 c.id,
                 c.cell,
                 c.origin[0],
@@ -110,6 +120,9 @@ impl SpawnTable {
                 c.confidence,
                 c.moves.settings.to_text(),
                 c.moves.route_text(),
+                c.name
+                    .map(|(sid, table)| format!("{table:08X}:{sid:08X}"))
+                    .unwrap_or_default(),
             );
         }
         out
@@ -127,10 +140,10 @@ impl SpawnTable {
             }
             let at = |e: String| format!("line {}: {e}", n + 1);
             let c: Vec<&str> = line.split('\t').collect();
-            if c.len() != COLUMNS.len() && c.len() != COLUMNS_BEFORE_MOVES {
+            if ![COLUMNS.len(), COLUMNS_BEFORE_NAMES, COLUMNS_BEFORE_MOVES].contains(&c.len()) {
                 return Err(at(format!("{} columns, not {}", c.len(), COLUMNS.len())));
             }
-            let moves = if c.len() == COLUMNS.len() {
+            let moves = if c.len() >= COLUMNS_BEFORE_NAMES {
                 crate::movement::CampMoves::from_text(c[12], c[13]).map_err(at)?
             } else {
                 crate::movement::CampMoves::default()
@@ -156,6 +169,15 @@ impl SpawnTable {
                 })
                 .collect::<Result<Vec<_>, String>>()
                 .map_err(at)?;
+            let name = match c.get(14).filter(|n| !n.is_empty()) {
+                None => None,
+                Some(n) => {
+                    let (table, sid) = n
+                        .split_once(':')
+                        .ok_or_else(|| at(format!("a name is table:string, not {n}")))?;
+                    Some((hex(sid).map_err(at)?, hex(table).map_err(at)?))
+                }
+            };
             camps.push(Camp {
                 id: c[0].to_string(),
                 cell: hex(c[1]).map_err(at)?,
@@ -172,6 +194,7 @@ impl SpawnTable {
                 placed: c[10].to_string(),
                 confidence: c[11].to_string(),
                 moves,
+                name,
             });
         }
         Ok(Self { camps })

@@ -496,6 +496,10 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
     let mut objects_at: BTreeMap<(String, String, u16), usize> = BTreeMap::new();
     // Camp keys a second landblock reuses are made unique with the landblock.
     let mut camp_keys: BTreeMap<&str, usize> = BTreeMap::new();
+    // Each camp's row in the spawn table, by its key and landblock; and the steps a kill of one
+    // camp's creature triggers, to point at that row once every camp has its own.
+    let mut camps_at: BTreeMap<(&str, u16), usize> = BTreeMap::new();
+    let mut kills_in: Vec<(&Located, usize, &str)> = Vec::new();
     // The scenes a new character holds, by their order.
     let mut door_scenes: Vec<(&Located, u32)> = Vec::new();
     let mut starts: Vec<(u32, u32)> = Vec::new();
@@ -671,6 +675,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 } else {
                     c.key.clone()
                 };
+                camps_at.insert((c.key.as_str(), lb), t.spawns.camps.len());
                 t.spawns.camps.push(TableCamp {
                     id,
                     cell: c.cell.unwrap_or_else(|| outdoor_cell(lb, c.at.x, c.at.y)),
@@ -688,6 +693,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                         start: c.route_start as usize,
                         backward: c.route_backward,
                     },
+                    name: c.name.map(pair),
                 });
             }
             Row::Loot(r) => {
@@ -874,6 +880,8 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     Trigger::ArriveFrom(x, o) => (TableTrigger::ArriveFrom(x, o), vec![x]),
                     Trigger::Take(x) => (TableTrigger::Take(x), vec![x]),
                     Trigger::Kill(x) => (TableTrigger::Kill(x), vec![x]),
+                    // The camp's row comes once every camp has its own.
+                    Trigger::KillIn(x, _) => (TableTrigger::KillIn(x, u32::MAX), vec![x]),
                     Trigger::Done(q) => (TableTrigger::Done(q), Vec::new()),
                     Trigger::Given(q) => (TableTrigger::Given(q), Vec::new()),
                 };
@@ -897,6 +905,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 };
                 if !ok {
                     continue;
+                }
+                if let Trigger::KillIn(_, camp) = &s.trigger {
+                    kills_in.push((l, t.quests.steps.len(), camp.as_str()));
                 }
                 t.quests.steps.push(TableStep {
                     quest: s.quest,
@@ -1159,6 +1170,28 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
     }
     starts.sort_unstable();
     t.story.at_start = starts.into_iter().map(|(_, id)| id).collect();
+    // A kill of one camp's creature: that camp's row.
+    for (l, step, camp) in kills_in {
+        let (key, lb) = match camp.split_once('@') {
+            Some((k, b)) => (k, u16::from_str_radix(b, 16).ok()),
+            None => (camp, None),
+        };
+        let mut rows = camps_at
+            .iter()
+            .filter(|((k, b), _)| *k == key && lb.is_none_or(|lb| lb == *b));
+        match (rows.next(), rows.next()) {
+            (Some((_, &row)), None) => {
+                if let TableTrigger::KillIn(_, c) = &mut t.quests.steps[step].trigger {
+                    *c = u32::try_from(row).unwrap_or(u32::MAX);
+                }
+            }
+            (None, _) => cx.problem(l, format!("trigger: no camp {camp} is served")),
+            (Some(_), Some(_)) => cx.problem(
+                l,
+                format!("trigger: several camps are {camp}: name one as {camp}@XXYY"),
+            ),
+        }
+    }
     // What people say, once every placed person has its place in the content pack.
     for l in &merged.rows {
         let Row::Talk(r) = &l.row else { continue };

@@ -231,7 +231,8 @@ pub fn creature_dies<S: Store>(
         progress::killed(net, world, name);
         // A killer the creature could not reach moves no quest on.
         if !unfair {
-            crate::quests::killed(s, net, world, (id, template), &death_effects, clock);
+            let kill = (id, template, camp);
+            crate::quests::killed(s, net, world, kill, &death_effects, clock);
             crate::death_spawn::killed(s, net, world, id, template, &death_effects, clock);
         }
     }

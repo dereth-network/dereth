@@ -508,6 +508,7 @@ fn a_hard_day() -> Vec<ServerMessage> {
         placed: "authored for a test".into(),
         confidence: "authored".into(),
         moves: yalain_content::CampMoves::default(),
+        name: None,
     });
     h.server
         .camps

@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Named bounty targets: a camp can name its creature, and a quest can ask for that kill alone.
 - Critical Shot, Nettle and the other critical specials now crit about one hit in five.
 - Fixed some camp creatures appearing outside the room they belong in.
 - Fixed creatures falling through floors made by large objects in dungeons.

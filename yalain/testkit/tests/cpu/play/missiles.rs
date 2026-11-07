@@ -47,6 +47,7 @@ fn shooter_at(h: &mut Harness, distance: f32, special: bool) {
         placed: "authored for the tests".into(),
         confidence: "authored".into(),
         moves: yalain_content::CampMoves::default(),
+        name: None,
     });
     h.server
         .camps
