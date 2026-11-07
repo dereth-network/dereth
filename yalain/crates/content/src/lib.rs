@@ -156,6 +156,10 @@ pub struct PetKind {
     pub taunts: bool,
     /// It cannot be set down indoors ("The summoning fails.").
     pub outdoors_only: bool,
+    /// The attacks it uses and how often each, by skill and weight: these alone, of those that
+    /// reach its target, drawn by their weights. None listed: every attack its template names,
+    /// all alike.
+    pub attacks: Vec<(u32, u32)>,
     /// Its corpse after its death, in seconds (none: its body leaves without one).
     pub corpse_after: Option<f64>,
     /// How many of it its effect makes at once.
@@ -188,6 +192,7 @@ impl PetKind {
             area: 0.0,
             taunts: false,
             outdoors_only: false,
+            attacks: Vec::new(),
             corpse_after: Some(Self::CORPSE_AFTER),
             made: 1,
             hire: None,

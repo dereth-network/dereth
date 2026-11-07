@@ -518,6 +518,9 @@ pub struct Pet {
     /// Its strikes taunt and do no harm.
     pub taunts: bool,
     pub outdoors_only: bool,
+    /// The attacks it uses, by skill, and the weight of each in its draw among those that reach;
+    /// left out, every attack its template names, all alike.
+    pub attacks: Vec<(u32, u32)>,
     /// Its corpse after its death, in seconds; the server's general number when left out.
     pub corpse_after: Option<f32>,
     /// It leaves no corpse.
@@ -963,6 +966,7 @@ pub const FIELDS: [(&str, &[&str]); 22] = [
             "area",
             "taunts",
             "outdoors_only",
+            "attacks",
             "corpse_after",
             "no_corpse",
             "tends",
@@ -1622,6 +1626,22 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 f.bad("health", "levels go up");
                 return None;
             }
+            let attacks = f.list_of(
+                "attacks",
+                "a list of { skill, weight }",
+                &["skill", "weight"],
+                |t| Some((as_u32(t.get("skill")?)?, as_u32(t.get("weight")?)?)),
+            );
+            let mut skills: Vec<u32> = attacks.iter().map(|a| a.0).collect();
+            skills.sort_unstable();
+            skills.dedup();
+            if skills.len() < attacks.len() || attacks.iter().any(|a| a.1 == 0) {
+                f.bad(
+                    "attacks",
+                    "each skill once, each with a weight of at least 1",
+                );
+                return None;
+            }
             Row::Pet(Pet {
                 effect: f.req_id("effect")?,
                 template: f.req_id("template")?,
@@ -1636,6 +1656,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 area: share(f.float("area")),
                 taunts: f.bool("taunts").unwrap_or(false),
                 outdoors_only: f.bool("outdoors_only").unwrap_or(false),
+                attacks,
                 corpse_after: share(f.float("corpse_after")),
                 no_corpse: f.bool("no_corpse").unwrap_or(false),
                 tends: f.pet_tends(),

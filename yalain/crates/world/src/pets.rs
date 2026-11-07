@@ -42,7 +42,8 @@
 //! owner), and one more than 100 m away is put beside its owner; a supporting pet takes on what its
 //! owner attacks, a protective one what goes after its owner, a self-defending one what strikes
 //! it. A pet that goes into a fight while still on its way to its owner is told its kind's own
-//! speed as it does. In a fight it closes to its attacks' reach and attacks about once a second. A
+//! speed as it does. In a fight it closes to its attacks' reach and attacks about once a second,
+//! with one of its attacks that reach its target, all alike or as its kind weighs them. A
 //! creature a pet strikes fights the pet: at once when it fought nothing, and turning from another
 //! three times in five. What its skill puts on a target goes on what its strike reaches, cast by the
 //! pet at its level, on a creature its owner may harm and on nothing else; of a change over time its
@@ -1717,13 +1718,12 @@ fn unbidden<S: Store>(s: &Server<S>, pet: &Pet, at: &StoredPosition) -> Option<u
     None
 }
 
-/// How far a pet's attacks reach: its missile's range, what it fires at, else a melee reach.
+/// How far a pet's attacks reach: the farthest of them and of what it fires at.
 fn reach_of<S: Store>(s: &Server<S>, id: u64) -> f32 {
     let fired = fires(s, id).map_or(0.0, |f| f.reach);
     attacks(s, id)
         .iter()
-        .filter(|a| a.missile)
-        .map(|a| a.max_range)
+        .map(|o| attack_reach(&o.attack))
         .fold(crate::ai::MELEE_REACH.max(fired), f32::max)
 }
 
@@ -1756,6 +1756,15 @@ fn fires<S: Store>(s: &Server<S>, id: u64) -> Option<Fires> {
     })
 }
 
+/// How far one attack reaches: a missile its own greatest range, any other a blow's reach.
+fn attack_reach(a: &AttackSkill) -> f32 {
+    if a.missile {
+        a.max_range.max(crate::ai::MELEE_REACH)
+    } else {
+        crate::ai::MELEE_REACH
+    }
+}
+
 /// The owner of a pet hurt a creature: its supporting pets take it on (2017: they joined at the
 /// owner's first hit that took health, in that same tick, 422 of 677 timed).
 pub fn owner_hurt<S: Store>(s: &mut Server<S>, owner: u64, creature: u64) {
@@ -1771,9 +1780,6 @@ pub fn owner_hurt<S: Store>(s: &mut Server<S>, owner: u64, creature: u64) {
 
 /// How often a pet attacks, in seconds (2017: the Lasher a median 1.18 s on one target).
 pub const ATTACK_SECONDS: f64 = 1.18;
-/// The share of a pet's attacks that are its missile's when it has one in reach (2017: the
-/// Lasher's Hunter's Intuition 70%).
-pub const MISSILE_SHARE: f32 = 0.7;
 
 /// A pet fights its target: within its attacks' reach it attacks, else it closes in (a pet that
 /// stays only turns to it, and waits).
@@ -1808,12 +1814,11 @@ fn fight<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, target: u64,
         }
         return;
     }
-    let attacks = attacks(s, id);
-    let missile = attacks.iter().find(|a| a.missile).copied();
-    let melee = attacks.iter().find(|a| !a.missile).copied();
-    let reach = missile.map_or(crate::ai::MELEE_REACH, |m| {
-        m.max_range.max(crate::ai::MELEE_REACH)
-    });
+    let open = attacks(s, id);
+    let reach = open
+        .iter()
+        .map(|o| attack_reach(&o.attack))
+        .fold(crate::ai::MELEE_REACH, f32::max);
     if d > reach {
         if kind.stays {
             return;
@@ -1842,14 +1847,8 @@ fn fight<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, target: u64,
     if !due {
         return;
     }
-    let use_missile = match (missile, melee) {
-        (Some(_), Some(_)) => d > crate::ai::MELEE_REACH || s.rng.chance(MISSILE_SHARE),
-        (Some(_), None) => true,
-        _ => false,
-    };
     // A pet whose template names no skills at all strikes as a creature does.
-    let skill =
-        if use_missile { missile } else { melee }.unwrap_or(crate::missiles::CREATURE_ATTACKS[0]);
+    let skill = pick(s, &open, d).unwrap_or(crate::missiles::CREATURE_ATTACKS[0]);
     if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
         c.next_attack = clock.local.0 + ATTACK_SECONDS;
     }
@@ -2137,9 +2136,19 @@ fn never_attacks<S: Store>(s: &Server<S>, id: u64) -> bool {
         })
 }
 
+/// One of a pet's attacks open to it now: the attack, its weight in the draw, and whether it asks
+/// for an effect on the pet.
+#[derive(Debug, Clone, Copy)]
+struct Open {
+    attack: AttackSkill,
+    weight: u32,
+    asks: bool,
+}
+
 /// A pet's attacks: its template's skills that attack, as the effects on it allow (what its owner
-/// put on it may open one and bar another): one that asks for an effect first.
-fn attacks<S: Store>(s: &Server<S>, id: u64) -> Vec<AttackSkill> {
+/// put on it may open one and bar another), those its kind lists alone with their weights (a kind
+/// that lists none: all, alike).
+fn attacks<S: Store>(s: &Server<S>, id: u64) -> Vec<Open> {
     let Some(stats) = s
         .things
         .get(id)
@@ -2147,6 +2156,20 @@ fn attacks<S: Store>(s: &Server<S>, id: u64) -> Vec<AttackSkill> {
         .map(|c| &c.stats)
     else {
         return Vec::new();
+    };
+    let listed = s
+        .pets
+        .by_id
+        .get(&id)
+        .and_then(|p| s.pets.kind_of(p.effect))
+        .map(|k| k.attacks.as_slice())
+        .unwrap_or_default();
+    let weight = |skill: u32| {
+        if listed.is_empty() {
+            Some(1)
+        } else {
+            listed.iter().find(|(k, _)| *k == skill).map(|(_, w)| *w)
+        }
     };
     let on = crate::effects::records_of(s, crate::effects::On::Creature(id));
     let carries = |state: &u32| on.iter().any(|e| e.state == *state);
@@ -2156,7 +2179,7 @@ fn attacks<S: Store>(s: &Server<S>, id: u64) -> Vec<AttackSkill> {
             .get(&skill)
             .and_then(|d| d.usage.as_ref())
     };
-    let mut open: Vec<AttackSkill> = stats
+    stats
         .skills
         .iter()
         .filter(|(skill, _)| {
@@ -2165,11 +2188,30 @@ fn attacks<S: Store>(s: &Server<S>, id: u64) -> Vec<AttackSkill> {
             })
         })
         .filter_map(|(skill, rating)| {
-            crate::missiles::attack_skill(&s.skill_table, *skill, *rating)
+            Some(Open {
+                attack: crate::missiles::attack_skill(&s.skill_table, *skill, *rating)?,
+                weight: weight(*skill)?,
+                asks: usage(*skill).is_some_and(|u| !u.required_effects.is_empty()),
+            })
         })
+        .collect()
+}
+
+/// The attack a pet uses at this attack: of its attacks that reach its target (one that asks for
+/// an effect on the pet before any other), one drawn by their weights (2017, by a pet's attacks in
+/// reach of where its target stood: the Sand Warrior's three alike within 4 m, 313, 338 and 336;
+/// the Sand Fiend's two 6,747 and 6,397; the Vindicator's two 3,197 and 3,122; the Avenger's two
+/// 3,019 and 3,175).
+fn pick<S: Store>(s: &mut Server<S>, open: &[Open], distance: f32) -> Option<AttackSkill> {
+    let near: Vec<&Open> = open
+        .iter()
+        .filter(|o| distance <= attack_reach(&o.attack))
         .collect();
-    open.sort_by_key(|a| usage(a.skill).is_none_or(|u| u.required_effects.is_empty()));
-    open
+    let asks = near.iter().any(|o| o.asks);
+    let from: Vec<&Open> = near.into_iter().filter(|o| o.asks || !asks).collect();
+    #[allow(clippy::cast_precision_loss)]
+    let i = s.rng.weighted(from.iter().map(|o| o.weight as f32))?;
+    from.get(i).map(|o| o.attack)
 }
 
 /// The chance a creature fighting another turns on a pet that strikes it (2017: 590 of 958).

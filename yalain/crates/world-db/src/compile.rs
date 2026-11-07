@@ -1061,8 +1061,31 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 }
             }
             Row::Pet(r) => {
-                if cx.template(l, "template", r.template) {
+                if !cx.template(l, "template", r.template) {
+                    continue;
+                }
+                let props =
+                    yalain_content::Props::of(r.template, &entity, &|id| install.property_name(id));
+                let named: Vec<u32> = (1..=20)
+                    .filter_map(|n| props.word(&format!("NPC_StartingSkill{n}")))
+                    .collect();
+                let strange: Vec<String> = r
+                    .attacks
+                    .iter()
+                    .filter(|(skill, _)| !named.contains(skill))
+                    .map(|(skill, _)| skill.to_string())
+                    .collect();
+                if strange.is_empty() {
                     t.pet_kinds.insert(r.effect, pet_kind(r));
+                } else {
+                    cx.problem(
+                        l,
+                        format!(
+                            "attacks: template {:08X} names no skill {}",
+                            r.template,
+                            strange.join(", ")
+                        ),
+                    );
                 }
             }
             Row::PetLimit(r) => {
@@ -1203,6 +1226,7 @@ fn pet_kind(r: &crate::rows::Pet) -> yalain_content::PetKind {
         k.lands = 0.0;
     }
     k.outdoors_only = r.outdoors_only;
+    k.attacks.clone_from(&r.attacks);
     k.made = r.count;
     k.corpse_after = if r.no_corpse {
         None

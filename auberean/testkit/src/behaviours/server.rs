@@ -8503,6 +8503,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.pets.a-kind-weighs-its-attacks",
+        says: "A kind of pet whose row lists its attacks uses those alone, each drawn by its weight \
+               among those that reach; each is a skill its template names.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PETS-ATTACK-WEIGHTS"),
+        station: "yalain-testkit::cpu::play::pet_kinds::a_kind_that_lists_its_attacks_uses_those_alone_by_their_weights",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.pets.a-mercenary-ends",
         says: "A mercenary goes after an hour, with its owner's death and with its owner leaving the \
                world. The hour is this server's own number.",
@@ -8583,6 +8592,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-PETS-OTHERS"),
         station: "yalain-testkit::cpu::play::pets::another_players_pet_takes_no_harm_while_its_owner_may_not_be_harmed",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.pets.attack-drawn-among-those-in-reach",
+        says: "At each attack a pet draws one of its attacks that reach its target, all alike: within \
+               a blow's reach its blows and its missiles, beyond it its missiles alone.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PETS-ATTACK-DRAW"),
+        station: "yalain-testkit::cpu::play::pet_kinds::a_pet_draws_its_attack_evenly_among_those_that_reach_its_target",
         tier: Tier::Cpu,
     },
     behaviour! {

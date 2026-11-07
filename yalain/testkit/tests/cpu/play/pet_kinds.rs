@@ -1217,3 +1217,130 @@ fn a_row_makes_a_kind_and_replaces_a_listed_one() {
         "the row"
     );
 }
+
+/// The test world's second plain melee attack.
+const MELEE_TWO: u32 = 1846;
+
+/// The pet's template names these attacks, at rating 1.
+fn with_attacks(h: &mut Harness, k: &Summoned, skills: &[u32]) {
+    let mut props = Props::default();
+    props
+        .set("GameplayStatistics_MaxHealth", Prop::Int(100_000))
+        .set("AICombat_NaturalDamage", Prop::Float(1.0))
+        .set("AICombat_NaturalVariance", Prop::Float(0.5));
+    for (n, skill) in skills.iter().enumerate() {
+        let n = n + 1;
+        props
+            .set(&format!("NPC_StartingSkill{n}"), Prop::Word(*skill))
+            .set(&format!("NPC_StartingSkill{n}Level"), Prop::Int(1));
+    }
+    h.server
+        .catalog
+        .insert(test_template(k.template, 0x1169, props));
+}
+
+/// Put a creature `dx` meters from a pet, standing where it is put whatever strikes it.
+fn put_by_pet(h: &mut Harness, id: u64, pet: u64, dx: f32) {
+    let at = h.server.things.get(pet).and_then(|t| t.at).expect("placed");
+    if let Some(t) = h.server.things.get_mut(id) {
+        let mut to = at;
+        to.origin[0] += dx;
+        t.at = Some(to);
+        if let Some(c) = t.creature.as_mut() {
+            c.home = to;
+            c.stats.attacks_first = false;
+            c.stats.fights = false;
+            c.stats.movement.kind = yalain_content::movement::MovementType::Stationary;
+            c.stats.movement.wander_chance = 0.0;
+            c.wander_to = None;
+            c.stats.max_health = 1_000_000;
+        }
+        t.max_health = 1_000_000;
+        t.health = 1_000_000;
+    }
+}
+
+/// A Lasher-like pet with three attacks, ordered at a beetle: the attacks it uses, one a story, in
+/// `n` stories from the beetle `dx` meters off.
+fn attacks_used(h: &mut Harness, kind_attacks: &[(u32, u32)], dx: f32, n: usize) -> Vec<u32> {
+    with_kind(h, &LASHER, 1);
+    with_attacks(h, &LASHER, &[MELEE, MELEE_TWO, MISSILE]);
+    if let Some(k) = h.server.pets.kinds.get_mut(&LASHER.effect) {
+        k.attacks = kind_attacks.to_vec();
+    }
+    let (b, me) = summoner(h);
+    if let Some(p) = h.server.players.values_mut().find(|p| p.character == me) {
+        quals::set_int(&mut p.qualities, quality::HEALTH_MAX, 100_000);
+        quals::set_int(&mut p.qualities, quality::HEALTH, 100_000);
+    }
+    h.run(20);
+    let pet = {
+        let from = summon(h, b);
+        pet_added(h, b, from)
+    }
+    .expect("a pet");
+    let beetle = beetles(h)[0];
+    put_by_pet(h, beetle, pet, dx);
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(function::ATTACK, &[Arg::LongInt(beetle)]),
+    );
+    let used = |h: &Harness| -> Vec<u32> {
+        h.world_messages(b, from)
+            .iter()
+            .filter_map(|m| match m {
+                ServerMessage::DoStory(e) if e.sender.id == pet && e.action.skill != 0 => {
+                    Some(e.action.skill)
+                }
+                _ => None,
+            })
+            .collect()
+    };
+    assert!(
+        h.run_until(n * 40, |h| used(h).len() >= n),
+        "{} attacks",
+        used(h).len()
+    );
+    let at = h.server.things.get(pet).and_then(|t| t.at).expect("placed");
+    let there = h
+        .server
+        .things
+        .get(beetle)
+        .and_then(|t| t.at)
+        .expect("placed");
+    assert!(
+        ((at.origin[0] - there.origin[0]).abs() - dx.abs()).abs() < 0.5,
+        "it struck from where it stood"
+    );
+    used(h)
+}
+
+/// A pet draws each attack evenly among those that reach its target: within a blow's reach its
+/// two blows and its missile alike, beyond it its missile alone.
+/// Behaviour: server.pets.attack-drawn-among-those-in-reach
+#[test]
+fn a_pet_draws_its_attack_evenly_among_those_that_reach_its_target() {
+    let mut h = Harness::new();
+    let near = attacks_used(&mut h, &[], 1.5, 90);
+    for skill in [MELEE, MELEE_TWO, MISSILE] {
+        let n = near[..90].iter().filter(|k| **k == skill).count();
+        assert!((18..=42).contains(&n), "{skill}: {n} of 90");
+    }
+    let mut h = Harness::new();
+    let far = attacks_used(&mut h, &[], 12.0, 20);
+    assert!(far.iter().all(|k| *k == MISSILE), "{far:?}");
+}
+
+/// A kind that lists its attacks uses those alone, by their weights: of a missile weighed three
+/// and a blow two, the missile three times in five within a blow's reach, the unlisted blow never.
+/// Behaviour: server.pets.a-kind-weighs-its-attacks
+#[test]
+fn a_kind_that_lists_its_attacks_uses_those_alone_by_their_weights() {
+    let mut h = Harness::new();
+    let used = attacks_used(&mut h, &[(MISSILE, 3), (MELEE, 2)], 1.5, 200);
+    assert!(!used.contains(&MELEE_TWO), "unlisted");
+    let missiles = used[..200].iter().filter(|k| **k == MISSILE).count();
+    assert!((106..=134).contains(&missiles), "{missiles} of 200");
+}

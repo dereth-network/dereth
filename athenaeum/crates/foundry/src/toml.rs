@@ -412,6 +412,16 @@ pub fn pet(r: &yalain_world_db::rows::Pet, p: &Prov) -> Table {
             put(&mut t, name, Value::from(true));
         }
     }
+    if !r.attacks.is_empty() {
+        let mut a = Array::new();
+        for (skill, weight) in &r.attacks {
+            let mut i = toml_edit::InlineTable::new();
+            i.insert("skill", Value::from(i64::from(*skill)));
+            i.insert("weight", Value::from(i64::from(*weight)));
+            a.push(Value::InlineTable(i));
+        }
+        put(&mut t, "attacks", Value::Array(a));
+    }
     if let Some(v) = r.tends {
         let mut i = toml_edit::InlineTable::new();
         i.insert(

@@ -180,13 +180,14 @@ fn pets_cmd(args: &[String]) -> Result<(), String> {
     for l in session.pets() {
         match &l.row {
             yalain_world_db::rows::Row::Pet(r) => println!(
-                "pet {:#010x}\tin {}\ttemplate {:#010x}\tflags {}\tcount {}\t{}",
+                "pet {:#010x}\tin {}\ttemplate {:#010x}\tflags {}\tcount {}\t{}{}",
                 r.effect,
                 l.pack,
                 r.template,
                 r.flags,
                 r.count,
-                if r.stays { "stays" } else { "follows" }
+                if r.stays { "stays" } else { "follows" },
+                attacks_shown(&r.attacks)
             ),
             yalain_world_db::rows::Row::PetLimit(r) => {
                 println!("pet_limit {:#010x}\tin {}\t{:?}", r.skill, l.pack, r.limits)
@@ -195,6 +196,16 @@ fn pets_cmd(args: &[String]) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// A pet's attacks as the list shows them: each skill and its weight, or nothing when its kind
+/// lists none.
+fn attacks_shown(attacks: &[(u32, u32)]) -> String {
+    if attacks.is_empty() {
+        return String::new();
+    }
+    let each: Vec<String> = attacks.iter().map(|(k, w)| format!("{k}:{w}")).collect();
+    format!("\tattacks {}", each.join(","))
 }
 
 /// Run a world command, if `cmd` is one. `None` when it is not.

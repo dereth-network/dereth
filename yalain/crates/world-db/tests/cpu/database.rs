@@ -53,6 +53,8 @@ const NAME: u32 = 0x4100_0001;
 const STORE_TEMPLATE: u32 = 0x4100_0002;
 const LOOK: u32 = 0x4100_020B;
 const CLASS: u32 = 0x4000_0002;
+const STARTING_SKILL_1: u32 = 0x4100_0003;
+const STARTING_SKILL_2: u32 = 0x4100_0004;
 const DRAWABLE: u32 = 0x4000_0001;
 
 fn entity(kind: u32, object: u32, props: Vec<(u32, PropertyValue)>) -> Entity {
@@ -118,7 +120,20 @@ impl Fake {
             ),
         );
         entities.insert(0x4700_115B, entity(CLASS, 0x0F00, vec![look.clone()]));
-        entities.insert(0x4700_2224, entity(CLASS, 0x0E00, vec![look]));
+        entities.insert(0x4700_2224, entity(CLASS, 0x0E00, vec![look.clone()]));
+        // A pet's template, naming two skills.
+        entities.insert(
+            0x4700_0846,
+            entity(
+                CLASS,
+                0x0E00,
+                vec![
+                    look,
+                    (STARTING_SKILL_1, PropertyValue::Enum(838)),
+                    (STARTING_SKILL_2, PropertyValue::Enum(840)),
+                ],
+            ),
+        );
         entities.insert(
             0x4700_20BB,
             entity(CLASS, 0x0D00, vec![(NAME, name(0xA860_7CEC, 0x2500_0857))]),
@@ -157,6 +172,8 @@ impl Install for Fake {
         match id {
             NAME => Some("Name".into()),
             STORE_TEMPLATE => Some("StoreTemplate".into()),
+            STARTING_SKILL_1 => Some("NPC_StartingSkill1".into()),
+            STARTING_SKILL_2 => Some("NPC_StartingSkill2".into()),
             _ => None,
         }
     }
@@ -1300,6 +1317,50 @@ fn a_pet_row_compiles_to_a_kind_and_must_name_an_installed_template() {
         "[[pet_limit]]\nskill = 1\nlimits = []\nprov = { from = \"authored\" }\n",
     ] {
         files.insert("town/server/pets.toml".into(), bad.into());
+        assert!(read(&files).is_err(), "{bad}");
+    }
+}
+
+/// A pet row may list the attacks its kind uses, each by its weight; each must be one its template
+/// names, once, with a weight of at least 1.
+/// Behaviour: server.pets.a-kind-weighs-its-attacks
+#[test]
+fn a_pet_rows_attacks_are_skills_its_template_names_each_weighed() {
+    let pet = |attacks: &str| {
+        format!(
+            "[[pet]]\neffect = 0x70000805\ntemplate = 0x47000846\nflags = 1096\n\
+             attacks = {attacks}\nprov = {{ from = \"authored\" }}\n"
+        )
+    };
+    let mut files = fixture();
+    files.insert(
+        "town/server/pets.toml".into(),
+        pet("[{ skill = 840, weight = 3 }, { skill = 838, weight = 2 }]"),
+    );
+    assert_eq!(check(&files), Vec::new());
+    let merged = merge(&read(&files).unwrap()).unwrap();
+    let t = compile(&merged, &Fake::new()).unwrap();
+    let k = t.pet_kinds.get(&0x7000_0805).expect("a kind");
+    assert_eq!(k.attacks, vec![(840, 3), (838, 2)]);
+    files.insert(
+        "town/server/pets.toml".into(),
+        pet("[{ skill = 840, weight = 3 }, { skill = 839, weight = 2 }]"),
+    );
+    let merged = merge(&read(&files).unwrap()).unwrap();
+    let problems = compile(&merged, &Fake::new()).unwrap_err();
+    assert!(
+        problems[0]
+            .to_string()
+            .contains("attacks: template 47000846 names no skill 839"),
+        "{problems:?}"
+    );
+    for bad in [
+        "[{ skill = 840, weight = 0 }]",
+        "[{ skill = 840, weight = 1 }, { skill = 840, weight = 2 }]",
+        "[{ skill = 840 }]",
+        "[840, 838]",
+    ] {
+        files.insert("town/server/pets.toml".into(), pet(bad));
         assert!(read(&files).is_err(), "{bad}");
     }
 }
