@@ -797,13 +797,14 @@ pub const ROBUSTIFY_EFFECT: u32 = 0x6F00_10F0;
 pub const WORN_HEALTH_RATE_EFFECT: u32 = 0x6F00_1730;
 /// The recalls' effects: the lifestone's and Portal Recall's (to the places a player keeps),
 /// Cragstone's and Arramora's (to named places), Allegiance Recall's, and a city recall's
-/// protection.
+/// protection; and a resurrection's protection.
 pub const LIFESTONE_RECALL_EFFECT: u32 = 0x7000_0722;
 pub const PORTAL_RECALL_EFFECT: u32 = 0x7000_0727;
 pub const CRAGSTONE_RECALL_EFFECT: u32 = 0x7000_1FC0;
 pub const ARRAMORA_RECALL_EFFECT: u32 = 0x6F00_0222;
 pub const ALLEGIANCE_RECALL_EFFECT: u32 = 0x7000_1EC5;
 pub const RECALL_PROTECTION_EFFECT: u32 = 0x7000_2014;
+pub const LIFESTONE_PROTECTION_EFFECT: u32 = 0x7000_0973;
 /// The places Cragstone's and Arramora's recalls name.
 pub const CRAGSTONE_PLACE: &str = "human_recall_cragstone_01";
 pub const ARRAMORA_PLACE: &str = "arramora_start";
@@ -956,6 +957,11 @@ pub fn test_effects() -> yalain_world::effect_defs::EffectTable {
             duration: Scale(vec![(0.0, 30.0)]),
             fx: 0x4100_000F,
             ..def(RECALL_PROTECTION_EFFECT, Kind::Other)
+        },
+        EffectDef {
+            duration: Scale(vec![(0.0, 180.0)]),
+            fx: 0x4100_000F,
+            ..def(LIFESTONE_PROTECTION_EFFECT, Kind::Other)
         },
         EffectDef {
             internal_flags: 0,

@@ -363,14 +363,8 @@ fn making_a_recipe_ends_a_protection_before_its_animation() {
     let (mut h, b, me, world) = in_world();
     let iron = with_recipe_and_iron(&mut h, world, me, 20);
     let clock = h.clock();
-    effects::protect_with(
-        &mut h.server,
-        &mut h.net,
-        world,
-        effects::RECALL_PROTECTION,
-        (me, 0),
-        clock,
-    );
+    let kind = effects::recall_protection(&h.server.effect_table).expect("its state");
+    effects::protect_with(&mut h.server, &mut h.net, world, kind, (me, 0), clock);
     h.run(2);
     let from = execute(&mut h, b, MINES_RECIPE, &[(1, iron)]);
     h.run(4);
@@ -382,7 +376,7 @@ fn making_a_recipe_ends_a_protection_before_its_animation() {
             .and_then(|a| calls::values(&a.0).ok())
             .unwrap_or_default()
             .iter()
-            .any(|v| matches!(v.root(), Some(Node::TextInfo(t)) if t.string_id == effects::RECALL_PROTECTION.ended.0)),
+            .any(|v| matches!(v.root(), Some(Node::TextInfo(t)) if t.string_id == kind.ended.0)),
         _ => false,
     });
     let removed = msgs.iter().position(

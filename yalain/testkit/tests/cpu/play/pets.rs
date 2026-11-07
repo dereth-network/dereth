@@ -1503,6 +1503,7 @@ fn a_lasher_appears_of_its_owners_kingdom_and_passes_through_what_its_owner_woul
         eid: 1,
         until: f64::INFINITY,
         ended: (0, 0),
+        fx: 0,
     });
     let at = h.server.things.get(pet).and_then(|t| t.at).expect("placed");
     assert_eq!(

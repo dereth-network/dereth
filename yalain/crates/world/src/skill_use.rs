@@ -2845,7 +2845,7 @@ fn end<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: C
     // summons is told of first and appears as the use's end is told.
     let mut summons = Vec::new();
     for state in &x.usage.user_effects {
-        if *state == crate::effects::RECALL_PROTECTION.state {
+        if *state == crate::effects::recall_protection::STATE {
             let skill_state = s
                 .skill_table
                 .skills
@@ -2931,14 +2931,10 @@ fn recall_protects<S: Store>(
     from: (u64, u32),
     clock: Clock,
 ) {
-    crate::effects::protect_with(
-        s,
-        net,
-        world,
-        crate::effects::RECALL_PROTECTION,
-        from,
-        clock,
-    );
+    let Some(kind) = crate::effects::recall_protection(&s.effect_table) else {
+        return;
+    };
+    crate::effects::protect_with(s, net, world, kind, from, clock);
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
@@ -2950,7 +2946,7 @@ fn recall_protects<S: Store>(
             other_stamp: p.visual,
         },
         action: auberean_protocol::physics::Fx {
-            fx: crate::effects::protection::GLOW,
+            fx: kind.fx,
             scalar: 1.0,
         },
     });

@@ -68,7 +68,9 @@ use auberean_script::native_object::TextInfo;
 use yalain_net::{BlobKind, ConnId, ServerNet};
 use yalain_store::{Store, StoredPosition};
 
-use crate::effect_defs::{aura_target, combo_flag, vital, Aura, Combo, EffectDef, Kind};
+use crate::effect_defs::{
+    aura_target, combo_flag, vital, Aura, Combo, EffectDef, EffectTable, Kind,
+};
 use crate::graph::{tag, Builder, Slot};
 use crate::player::quality;
 use crate::quests::Move;
@@ -239,42 +241,73 @@ pub const ATTACK_SPEED: u32 = 0x3_0129;
 /// The stats of skills: this with the skill's value.
 pub const SKILL_STAT: u32 = 0x80_0000;
 
-/// Lifestone protection: its saved state, how long it lasts, its record's flags and categories,
-/// its glow, and the text its end shows (type 8).
+/// Lifestone protection: its saved state, its record's flags and categories, and the text its end
+/// shows (type 8). How long it lasts and its glow are its state's.
 pub mod protection {
     pub const STATE: u32 = 0x7000_0973;
-    pub const SECONDS: f64 = 180.0;
     pub const FLAGS: u32 = 0x44;
     pub const CATEGORIES: u32 = 1;
-    pub const GLOW: u32 = 0x4100_000F;
     pub const ENDED: (u32, u32) = (0x847E_5E83, 0x2500_000B);
     pub const ENDED_KIND: u32 = 8;
 }
 
-/// A protection: its saved state, how long it lasts, its record's flags, the text its end shows.
+/// A city's recall protection: its saved state, its record's flags, the text its end shows. How
+/// long it lasts and its glow are its state's.
+pub mod recall_protection {
+    pub const STATE: u32 = 0x7000_2014;
+    pub const FLAGS: u32 = 0x42;
+    pub const ENDED: (u32, u32) = (0x6E03_B375, 0x2500_000B);
+}
+
+/// A protection: its saved state, how long it lasts and the glow it shows (its state's), its
+/// record's flags, the text its end shows.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Protection {
     pub state: u32,
     pub seconds: f64,
+    pub fx: u32,
     pub flags: u32,
     pub ended: (u32, u32),
 }
 
-/// Lifestone protection, as a player is resurrected.
-pub const LIFESTONE_PROTECTION: Protection = Protection {
-    state: protection::STATE,
-    seconds: protection::SECONDS,
-    flags: protection::FLAGS,
-    ended: protection::ENDED,
-};
+impl Protection {
+    /// The protection of a saved state the effects hold: how long it lasts (cast at no
+    /// spellcraft) and its glow as the state defines them; none if the state is not held or does
+    /// not last.
+    #[must_use]
+    pub fn of(table: &EffectTable, state: u32, flags: u32, ended: (u32, u32)) -> Option<Self> {
+        let d = table.get(state)?;
+        Some(Self {
+            state,
+            seconds: f64::from(d.duration.at(0.0)?),
+            fx: d.fx,
+            flags,
+            ended,
+        })
+    }
+}
 
-/// A city's recall protection, as its recall ends.
-pub const RECALL_PROTECTION: Protection = Protection {
-    state: 0x7000_2014,
-    seconds: 30.0,
-    flags: 0x42,
-    ended: (0x6E03_B375, 0x2500_000B),
-};
+/// Lifestone protection, as a player is resurrected (none if the effects lack its state).
+#[must_use]
+pub fn lifestone_protection(table: &EffectTable) -> Option<Protection> {
+    Protection::of(
+        table,
+        protection::STATE,
+        protection::FLAGS,
+        protection::ENDED,
+    )
+}
+
+/// A city's recall protection, as its recall ends (none if the effects lack its state).
+#[must_use]
+pub fn recall_protection(table: &EffectTable) -> Option<Protection> {
+    Protection::of(
+        table,
+        recall_protection::STATE,
+        recall_protection::FLAGS,
+        recall_protection::ENDED,
+    )
+}
 
 /// The slots of a record (its state's singleton at `state_ref`).
 #[must_use]
@@ -1994,19 +2027,24 @@ pub fn registry<S: Store>(s: &Server<S>, p: &crate::world::Player) -> session::R
     }
 }
 
-/// A player's protection: the effect's id, when it runs out (on the server's clock), and the text
-/// its end shows.
+/// A player's protection: the effect's id, when it runs out (on the server's clock), the text its
+/// end shows, and its glow.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Protected {
     pub eid: u32,
     pub until: f64,
     pub ended: (u32, u32),
+    pub fx: u32,
 }
 
-/// Protect a player as it is resurrected: the effect added on its client, and its end in three
-/// minutes.
+/// Protect a player as it is resurrected: the effect added on its client, and its end when its
+/// state's time is up.
 pub fn protect<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: Clock) {
-    protect_with(s, net, world, LIFESTONE_PROTECTION, (0, 0), clock);
+    let Some(kind) = lifestone_protection(&s.effect_table) else {
+        tracing::warn!("no lifestone protection: its state is not among the effects");
+        return;
+    };
+    protect_with(s, net, world, kind, (0, 0), clock);
 }
 
 /// Protect a player: the effect added on its client (cast by a caster, from a skill's saved state:
@@ -2029,6 +2067,7 @@ pub fn protect_with<S: Store>(
         eid,
         until: clock.local.0 + kind.seconds,
         ended: kind.ended,
+        fx: kind.fx,
     });
     #[allow(clippy::cast_possible_truncation)]
     let e = EffectState {
@@ -2107,14 +2146,14 @@ pub fn unprotect<S: Store>(
             instance_stamp: p.instance,
             other_stamp: p.visual,
         },
-        action: Word(protection::GLOW),
+        action: Word(prot.fx),
     });
     let id = p.character;
     crate::combat::to_all_seeing(s, net, id, &stop);
     true
 }
 
-/// A protection's three minutes are up: it ends, if it is still that one.
+/// A protection's time is up: it ends, if it is still that one.
 pub fn runs_out<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, eid: u32) {
     let current = s
         .players

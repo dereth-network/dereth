@@ -1100,6 +1100,35 @@ fn a_forager_s_food_reads_as_a_drink_that_heals_health_and_vigor() {
     assert_eq!(flags, [1, 2], "health, then vigor");
 }
 
+/// A resurrection's protection lasts 180 s and a city recall's 30 s, both with the glow
+/// `0x4100000F`, as their saved states define them; the test world's effects give the same.
+/// Behaviour: server.effects.recall-and-lifestone-protection-read
+#[test]
+fn the_lifestone_and_city_recall_protections_last_and_glow_as_their_states_say() {
+    use yalain_world::effects::{lifestone_protection, protection, recall_protection, Protection};
+    let p = Portal::open();
+    let t = p.effects(&[protection::STATE, recall_protection::STATE]);
+    let lifestone = Protection {
+        state: 0x7000_0973,
+        seconds: 180.0,
+        fx: 0x4100_000F,
+        flags: 0x44,
+        ended: (0x847E_5E83, 0x2500_000B),
+    };
+    let recall = Protection {
+        state: 0x7000_2014,
+        seconds: 30.0,
+        fx: 0x4100_000F,
+        flags: 0x42,
+        ended: (0x6E03_B375, 0x2500_000B),
+    };
+    assert_eq!(lifestone_protection(&t), Some(lifestone));
+    assert_eq!(recall_protection(&t), Some(recall));
+    let test = yalain_testkit::test_effects();
+    assert_eq!(lifestone_protection(&test), Some(lifestone));
+    assert_eq!(recall_protection(&test), Some(recall));
+}
+
 /// The recalls' effects read where they go: the lifestone's and Portal Recall's to the places a
 /// player keeps (links 0x40000001 and 0x40000004), each city's to its place by name (told, in its
 /// own table), Arramora's to its place untold (the generic class's own), Allegiance Recall's to the

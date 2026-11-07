@@ -3670,6 +3670,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "server.effects.recall-and-lifestone-protection-read",
+        says: "A resurrection's protection lasts 180 s and a city recall's 30 s, both with the same \
+               glow, as their saved states define them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PROTECTION-NUMBERS-READ"),
+        station: "yalain-testkit::dat::effects::the_lifestone_and_city_recall_protections_last_and_glow_as_their_states_say",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.effects.recalls-read",
         says: "The recalls' effects read where they go: the lifestone's and Portal Recall's to the places a \
                player keeps, each city's to its place by name (told, in its own table), Arramora's \

@@ -965,9 +965,6 @@ pub mod player_look {
     /// The return: its behavior and its flag (0x8_0000, a word of 1).
     pub const REVIVE: u32 = 0x4100_0085;
     pub const REVIVE_FLAG: u32 = 0x8_0000;
-    /// The resurrection's effect as the player goes: the lifestone protection's glow, which stays
-    /// until the protection ends.
-    pub const RESURRECTING: u32 = crate::effects::protection::GLOW;
 }
 
 /// When a player's corpse is made after its death (2017: 10.07 s for a human or tumerok body; a
@@ -1408,6 +1405,10 @@ fn resurrection_look<S: Store>(
     stop: &[u32],
 ) {
     stands_at_peace(s, net, world, stop);
+    // The lifestone protection's glow, which stays until the protection ends.
+    let Some(glow) = crate::effects::lifestone_protection(&s.effect_table).map(|k| k.fx) else {
+        return;
+    };
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
@@ -1415,7 +1416,7 @@ fn resurrection_look<S: Store>(
     let fx = ServerMessage::DoFx(ObjectEvent {
         sender: player_stamp(p),
         action: auberean_protocol::physics::Fx {
-            fx: player_look::RESURRECTING,
+            fx: glow,
             scalar: 1.0,
         },
     });
