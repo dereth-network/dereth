@@ -2736,6 +2736,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.made-in-the-cell-that-holds-them",
+        says: "A camp's creature made at a spot inside goes into the cell holding the spot's point, \
+               the one the spot names or one that cell sees, as anything put somewhere does; 2017's \
+               servers told 13,145 of 13,172 creatures made inside in the cell holding them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-HOLDING-CELL"),
+        station: "yalain-testkit::dat::walls::a_camps_creature_is_made_in_the_cell_that_holds_its_spot",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.creatures.missiles-arrive-after-flight",
         says: "A creature's missile arrives after the creature's windup and its flight at 35 \
                m/s.",

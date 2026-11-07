@@ -1330,3 +1330,34 @@ fn the_ground_stands_between_two_places_only_where_their_line_runs_under_it() {
     };
     assert_eq!(w.ground_between(&inside, &at(100.0, gb), 1.0), None);
 }
+
+/// A camp's creature made at a spot whose point lies outside the cell the spot names is put in the
+/// cell that holds the point, one the named cell sees, as anything put somewhere is: in block
+/// `00A7`, a spot naming room `0106` at `(-64.5, -33.5, -22.9)`, a point room `010C` holds, makes its
+/// creature in room `010C`. A spot inside the room it names keeps it.
+///
+/// Behaviour: server.creatures.made-in-the-cell-that-holds-them
+#[test]
+fn a_camps_creature_is_made_in_the_cell_that_holds_its_spot() {
+    let room = |low: u32| 0xA7 << 16 | low;
+    for (named, origin, want) in [
+        (room(0x0106), [-64.5, -33.5, -22.9], room(0x010C)),
+        (room(0x010C), [-64.5, -33.5, -22.9], room(0x010C)),
+    ] {
+        let mut h = Harness::new();
+        h.add_creatures(1);
+        h.server.spawns.camps[0].spots = vec![(named, origin)];
+        h.server.walls = Some(walls());
+        let now = h.now.0;
+        let id = yalain_world::spawn::spawn(&mut h.server, 0, now).expect("made");
+        let at = place_of(&h, id);
+        assert_eq!(
+            at.cell, want,
+            "{named:08X}: made in {:08X}, not {want:08X}",
+            at.cell
+        );
+        assert_eq!(at.origin, origin, "at the spot");
+        let w = h.server.walls.as_ref().expect("the walls");
+        assert!(inside(w, &at), "{named:08X}: the cell holds it");
+    }
+}

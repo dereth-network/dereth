@@ -649,6 +649,49 @@ impl Walls {
         false
     }
 
+    /// `at` in the interior cell holding it, as anything put somewhere goes: the cell named, or one
+    /// that cell sees, whichever holds the middle of the first sphere of a creature of `template`
+    /// and `scale` standing there (the point itself for anything else). Unchanged outdoors, where no
+    /// cell holds it, and where the walls cannot read the cell.
+    // D2-06047, D2-03593
+    pub fn holding_cell(
+        &mut self,
+        body: Option<(u32, f32)>,
+        at: &StoredPosition,
+    ) -> StoredPosition {
+        if !indoors(at.cell) {
+            return *at;
+        }
+        self.need(at.cell);
+        let center = body
+            .and_then(|(t, scale)| {
+                let w = self.walkers.get(&t)?;
+                let s = w.spheres.first()?;
+                let k = w.scale * scale;
+                Some(Vec3::new(s[0] * k, s[1] * k, s[2] * k))
+            })
+            .unwrap_or(Vec3::ZERO);
+        let mut p = Position::new(
+            CellId(at.cell),
+            Frame::new(
+                Vec3::new(at.origin[0], at.origin[1], at.origin[2]),
+                Quat::new(
+                    at.rotation[0],
+                    at.rotation[1],
+                    at.rotation[2],
+                    at.rotation[3],
+                ),
+            ),
+        );
+        match auberean_physics::body::placing::adjust_position(&self.land, &mut p, center) {
+            Some(Some(cell)) => StoredPosition {
+                cell: cell.0,
+                ..*at
+            },
+            _ => *at,
+        }
+    }
+
     /// Move the body of a creature of `template` and `scale` from `from` by `(dx, dy)` along the
     /// ground through the transition; none when the walls cannot place it there (its cell was
     /// never read). It goes as far as it gets on the ground; a body that can move no way at all is

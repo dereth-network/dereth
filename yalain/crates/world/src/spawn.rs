@@ -263,6 +263,10 @@ pub fn spawn<S: Store>(s: &mut Server<S>, i: usize, now: f64) -> Option<u64> {
     if camp.spots.is_empty() {
         let hover = s.walls.as_ref().and_then(|w| w.hover_at_rest(template.id));
         at.origin[2] += hover.unwrap_or(0.0);
+    } else if let Some(w) = s.walls.as_mut() {
+        // In the cell that holds it, as anything put somewhere is (2017: 13,145 of 13,172 creatures
+        // made inside were told in the cell holding them).
+        at = w.holding_cell(Some((template.id, stats.scale)), &at);
     }
     Some(make(
         s,
