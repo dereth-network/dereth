@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Fixed the message when a second player offers to resurrect someone.
 - Traps end after their one strike.
 - A quest step can be done by coming through one particular portal.
 - Creatures that should leave no corpse, such as training dummies, no longer do.

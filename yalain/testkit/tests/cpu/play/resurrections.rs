@@ -343,8 +343,8 @@ fn an_offer_left_unanswered_is_not_taken_up_for_a_player_sent_back() {
 }
 
 /// A corpse whose player can't be offered a return refuses the skill: its player back already, gone
-/// from the world, dead again since (the old corpse), one with an offer standing, or no player's at
-/// all; beyond the skill's range too. The dead hear nothing.
+/// from the world, dead again since (the old corpse), or no player's at all; beyond the skill's range
+/// too; one with an offer standing as pending. The dead hear nothing.
 /// Behaviour: server.resurrection.who-can-be-offered
 #[test]
 fn a_corpse_refuses_the_skill_when_its_player_cannot_be_offered_a_return() {
@@ -364,7 +364,7 @@ fn a_corpse_refuses_the_skill_when_its_player_cannot_be_offered_a_return() {
     let (e, _) = caster(&mut h, "three", "Cedric");
     let from_b = h.bots[b].inbox.len();
     let from = raise(&mut h, e, corpse);
-    assert_eq!(refused_with(&h, e, from), Some(20_002), "one stands");
+    assert_eq!(refused_with(&h, e, from), Some(22_031), "one stands");
     assert_eq!(offers_since(&h, b, from_b), 0);
     assert_eq!(player(&mut h, dead).offer, Some(first));
     // Its player back: a corpse left behind no longer raises anyone.

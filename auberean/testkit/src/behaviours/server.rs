@@ -11250,8 +11250,8 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "server.resurrection.who-can-be-offered",
         says: "A corpse refuses a resurrecting skill when its player can't be offered a return: back \
-               already, gone from the world, dead again since, with an offer standing, or no player's \
-               at all; beyond the skill's range too.",
+               already, gone from the world, dead again since, or no player's at all; beyond the \
+               skill's range too; with an offer standing, as a resurrection already pending.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-REZ-WHO"),
         station: "yalain-testkit::cpu::play::resurrections::a_corpse_refuses_the_skill_when_its_player_cannot_be_offered_a_return",

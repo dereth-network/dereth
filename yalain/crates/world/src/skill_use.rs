@@ -109,6 +109,8 @@ pub mod refusal {
     pub const NOT_THIS_ITEM: u32 = 22_009;
     pub const NOT_ANOTHERS_ITEM: u32 = 22_011;
     pub const TARGET_DEAD: u32 = 22_000;
+    /// The dead player already has a resurrection offered.
+    pub const RESURRECTION_PENDING: u32 = 22_031;
     pub const NO_VIGOR: u32 = 30_016;
     pub const TOO_CLOSE: u32 = 30_018;
     pub const TOO_FAR: u32 = 30_019;
@@ -1166,7 +1168,11 @@ fn check<S: Store>(
         Aim::Me | Aim::Item(_) => {}
         Aim::Corpse(corpse) => {
             if crate::resurrections::may_be_offered(s, corpse).is_none() {
-                return Err(refusal::TARGET_GONE);
+                return Err(if crate::resurrections::offer_stands(s, corpse) {
+                    refusal::RESURRECTION_PENDING
+                } else {
+                    refusal::TARGET_GONE
+                });
             }
             let Some(at) = s.things.get(corpse).and_then(|t| t.at) else {
                 return Err(refusal::TARGET_GONE);

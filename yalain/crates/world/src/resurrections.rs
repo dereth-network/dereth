@@ -3,7 +3,8 @@
 //! **The skill** is aimed at the corpse of a player still dead of that death and in the world, within
 //! the skill's range. Its use ends by offering the dead player a return: who offers, at what share of
 //! focus and with what look, the share being the skill's effect at its user's rating (2017: 6 of 6
-//! offers, at ratings of 45 and 30). A dead player with an offer standing can't be given another.
+//! offers, at ratings of 45 and 30). A dead player with an offer standing can't be given another: the
+//! skill is refused as one whose target already has a resurrection pending.
 //!
 //! **Answered** by the dead player's client: its request to be resurrected takes the offer up; its
 //! clearing of the request drops it, and it stays dead with its usual choice. An offer nobody answers
@@ -81,6 +82,23 @@ pub fn may_be_offered<S: Store>(s: &Server<S>, corpse: u64) -> Option<ConnId> {
                 && p.offer.is_none()
         })
         .map(|(c, _)| *c)
+}
+
+/// Has the dead player this corpse is the corpse of an offer standing, while still dead of this
+/// death?
+#[must_use]
+pub fn offer_stands<S: Store>(s: &Server<S>, corpse: u64) -> bool {
+    let Some(of) = s
+        .things
+        .get(corpse)
+        .and_then(|t| t.corpse.as_ref())
+        .map(|c| c.originator)
+    else {
+        return false;
+    };
+    s.players.values().any(|p| {
+        p.character == of && p.dying.is_some_and(|d| d.corpse == Some(corpse)) && p.offer.is_some()
+    })
 }
 
 /// The use of a resurrecting skill has reached the corpse: its owner is offered a return, if it can
