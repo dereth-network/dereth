@@ -901,6 +901,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.characters.kept-before-clothes-were-items",
+        says: "A character kept before starting clothes were made as items, holding none, is drawn \
+               and listed as it was made, its clothes with it, and is given none.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-CHAR-CLOTHES-OLD-SAVE"),
+        station: "yalain-testkit::cpu::entry::starting_clothes::a_character_kept_before_starting_clothes_were_items_keeps_its_look_and_is_given_none",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.characters.look-from-the-physique",
         says: "A new character looks like its race and sex's body, scaled by build times height \
                across and height up, with each appearance its physique choices select set to the \
@@ -939,12 +948,42 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.characters.starting-clothes-as-2017-made-them",
+        says: "A character made from the choices a 2017 client sent wears the clothes that \
+               server gave it, in the same colors, and each garment that server made worn at the \
+               first entry is made worn as it was sent, byte for byte apart from the ids.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CHAR-STARTING-CLOTHES-2017"),
+        station: "yalain-testkit::corpus::world_entry::the_recorded_new_characters_are_made_in_their_clothes_as_2017_made_them",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.characters.starting-clothes-made-worn",
+        says: "A new character is made wearing the garments its race starts in, each with the \
+               appearance the garment gives its body, in the color its physique chose; at its first \
+               entry each is made an item worn where it goes, its color on it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CHAR-STARTING-CLOTHES"),
+        station: "yalain-testkit::cpu::entry::starting_clothes::a_new_character_wears_its_starting_clothes_as_items_in_the_colors_it_chose",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.characters.starting-clothes-off-stay-off",
+        says: "A starting garment taken off leaves the look, and the character is drawn and listed \
+               without it at later entries until it is put on again; nothing more is made.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CHAR-STARTING-CLOTHES-OFF"),
+        station: "yalain-testkit::cpu::entry::starting_clothes::a_starting_garment_taken_off_stays_off_across_entries_and_put_on_again_is_drawn_as_made",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.characters.starting-pack-from-the-install",
-        says: "A new character of each of the five races holds the weapons among its race's starting \
-               items in the install's character data.",
+        says: "A new character of each of the five races, either sex, holds its race's starting \
+               items from the install's character data: those the data marks worn, worn where they \
+               go; the rest in its pack.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-CHAR-STARTING-PACK"),
-        station: "yalain-testkit::dat::skills::a_new_character_of_each_race_holds_the_weapons_its_data_names",
+        station: "yalain-testkit::dat::skills::a_new_character_of_each_race_holds_its_weapons_and_wears_its_clothes",
         tier: Tier::Dat,
     },
     behaviour! {

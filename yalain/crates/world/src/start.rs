@@ -1,6 +1,7 @@
 //! Where a new character starts and what it starts with, read from the client's character
 //! generation data: per start area, its places (the copies of an instanced training hall, or a
-//! few spots outdoors); per race, its start area; per race, its starting skills.
+//! few spots outdoors); per race, its start area; per race, its starting skills; per race, the
+//! items it starts with, which of them it wears and what colors them.
 //!
 //! The data is a saved script state (a packed object graph) the client also reads to draw its
 //! creation screens. [`StartRules::from_matrix`] reads it with the script library's names for the
@@ -31,10 +32,35 @@ pub struct StartRules {
     /// Per race, its starting skills in the data's order: the skill and its level (0, a skill
     /// to raise; 1, a gift).
     pub skills: BTreeMap<u32, Vec<(u32, u32)>>,
-    /// Per race, the templates of what it starts with, in the data's order: its weapons, then what
-    /// it wears.
-    pub items: BTreeMap<u32, Vec<u32>>,
+    /// Per race, what it starts with, in the data's order: its weapons, then what it wears.
+    pub items: BTreeMap<u32, Vec<StartItem>>,
 }
+
+/// An item a new character starts with: its template, whether it starts worn, and the physique
+/// type whose value it is colored by (0: none).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StartItem {
+    pub template: u32,
+    pub worn: bool,
+    pub color: u32,
+}
+
+impl StartItem {
+    /// One that starts in the pack, uncolored.
+    #[must_use]
+    pub const fn held(template: u32) -> Self {
+        Self {
+            template,
+            worn: false,
+            color: 0,
+        }
+    }
+}
+
+/// The appearance a starting garment's color is drawn on as it lies in a pack, when its template
+/// names none of its own (2017: 43 of 43 starting garments recorded, of three races, held their
+/// color there).
+pub const CLOTHES_COLORS: u32 = 0x2000_0118;
 
 /// Which starting-skills table each race reads: the data keys the tables by a skill family, and
 /// pairs a race with its family nowhere the client holds; this pairing is every 2017 session
@@ -291,12 +317,68 @@ impl StartRules {
                 for (_, list) in nav.entries(Nav::reference(by_class)?)? {
                     for i in nav.items(Nav::reference(list)?)? {
                         let item = nav.object(Nav::reference(i)?)?;
-                        items.push(nav.field(item, "entityDID")?);
+                        items.push(StartItem {
+                            template: nav.field(item, "entityDID")?,
+                            worn: nav.field(item, "equipped")? != 0,
+                            color: nav.field(item, "colorType")?,
+                        });
                     }
                 }
             }
         }
         Ok(rules)
+    }
+
+    /// The garments a new character of this race and sex starts wearing, each as the physique type
+    /// that colors it and the appearance it gives that body (its template's worn look; one that
+    /// gives none is left out).
+    #[must_use]
+    pub fn garments(
+        &self,
+        catalog: &yalain_content::Catalog,
+        race: u32,
+        sex: u32,
+    ) -> Vec<(u32, u32)> {
+        self.items
+            .get(&race)
+            .into_iter()
+            .flatten()
+            .filter(|i| i.worn && i.color != 0)
+            .filter_map(|i| {
+                let t = catalog.get(i.template)?;
+                let (file, _) =
+                    crate::equip::worn_look(&t.props, race, sex, &crate::treasure::Own::default())?;
+                Some((i.color, file))
+            })
+            .collect()
+    }
+
+    /// A look as made without the clothes a character of this race and sex started in: what each
+    /// garment gives the body, and what the physique type that colors it names.
+    #[must_use]
+    pub fn without_garments(
+        &self,
+        look: &auberean_protocol::types::VisualDesc,
+        rules: &crate::CharGenRules,
+        catalog: &yalain_content::Catalog,
+        race: u32,
+        sex: u32,
+    ) -> auberean_protocol::types::VisualDesc {
+        let mut look = look.clone();
+        let named = rules
+            .physique
+            .get(&(race, sex))
+            .map_or(&[][..], Vec::as_slice);
+        for (color, worn) in self.garments(catalog, race, sex) {
+            crate::equip::take_from(&mut look, worn);
+            for e in named
+                .iter()
+                .filter(|e| e.physique_type == color && e.modifier == crate::chargen::CHOICE)
+            {
+                crate::equip::take_from(&mut look, e.appearance);
+            }
+        }
+        look
     }
 
     /// The start area a new character of a race begins in: the one its creation chose, if that

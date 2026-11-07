@@ -161,14 +161,17 @@ pub struct PlayState {
     pub suffix: String,
     /// Its quest rating: what the quests it has completed added, shown when it is examined.
     pub quest_rating: u32,
+    /// Its starting clothes were made as items: its look as made no longer draws them, what it
+    /// wears does. One kept before that has no such items and keeps its look as made.
+    pub clothes_made: bool,
 }
 
 /// The encoding's version (1 held a skill's granted level, a level and its experience only; 2
 /// nothing after the skills; 3 nothing after the recipes; 4 nothing after the scenes; 5 nothing
 /// after the skills' last uses; 6 an item's instance stamp and maker only; 7 nothing after an
 /// item's durability; 8 nothing after a map's place; 9 nothing after an item's bonuses; 10 nothing
-/// after an item's binding; 11 nothing after the hero credits; 12 nothing after the time played; 13 nothing after the cloak; 14 nothing after the suffix; 15 no value of an item's own; 16 no look an item drew, nor the hand it was last in; 17 no effect an item is named for; 18 not whom an item is bound to, nor that a recipe attuned it; 19 no effects a skill put on an item; 20 an item's permanent effects only with what a recipe's item level gave it).
-const VERSION: u32 = 21;
+/// after an item's binding; 11 nothing after the hero credits; 12 nothing after the time played; 13 nothing after the cloak; 14 nothing after the suffix; 15 no value of an item's own; 16 no look an item drew, nor the hand it was last in; 17 no effect an item is named for; 18 not whom an item is bound to, nor that a recipe attuned it; 19 no effects a skill put on an item; 20 an item's permanent effects only with what a recipe's item level gave it; 21 no word of starting clothes made as items).
+const VERSION: u32 = 22;
 
 /// Do these bytes say a newer build kept them (a world that went back to an older build)?
 #[must_use]
@@ -691,6 +694,7 @@ impl PlayState {
         w32(&mut out, u32::try_from(self.suffix.len()).unwrap_or(0));
         out.extend_from_slice(self.suffix.as_bytes());
         w32(&mut out, self.quest_rating);
+        w32(&mut out, u32::from(self.clothes_made));
         out
     }
 
@@ -827,6 +831,9 @@ impl PlayState {
         }
         if version >= 15 {
             s.quest_rating = r.u32().ok_or_else(bad)?;
+        }
+        if version >= 22 {
+            s.clothes_made = r.u32().ok_or_else(bad)? != 0;
         }
         if !r.0.is_empty() {
             return Err(bad());

@@ -14,17 +14,22 @@
 //! player's id in its object and in the player message, the region, the description's template,
 //! the effects' ids, the freeze's value, the session start's function. What the recorded server
 //! sent besides (other objects, crafting, channels, allegiance, quests) is counted, not compared.
+//!
+//! And the characters made in those recordings, made again from the choices their clients sent:
+//! the clothes in their look as made, and each garment made worn at their first entry.
 
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use auberean_protocol::login::{DataHeld, PlayCharacter};
+use auberean_protocol::login::{CharacterCreated, CreateCharacter, DataHeld, PlayCharacter};
+use auberean_protocol::physics::CreateObject;
 use auberean_protocol::text::NarrowString;
-use auberean_protocol::types::VisualDesc;
+use auberean_protocol::types::{PartGroupDesc, VisualDesc};
 use auberean_protocol::wire::{Field, Writer};
 use auberean_protocol::{queue, ClientBlob, ClientMessage, ServerMessage};
 use rusqlite::{Connection, OpenFlags};
 use yalain_store::{Character, Store};
+use yalain_testkit::authored::Portal;
 use yalain_testkit::Harness;
 use yalain_world::session::function;
 use yalain_world::world::{ARRIVAL_FX, PORTAL_FX};
@@ -419,5 +424,171 @@ fn every_recorded_2017_world_entry_is_answered_with_the_recorded_shape() {
         unexplained.is_empty(),
         "{} entries differ unexplained",
         unexplained.len()
+    );
+}
+
+fn global_bytes(g: &PartGroupDesc) -> Vec<u8> {
+    let mut w = Writer::default();
+    g.write(&mut w);
+    w.finish()
+}
+
+/// A recorded creation: what the client asked, what the server answered, and the objects the
+/// server made in that recording, in order.
+struct Recorded {
+    asked: CreateCharacter,
+    answer: CharacterCreated,
+    made: Vec<CreateObject>,
+}
+
+fn recorded() -> Vec<Recorded> {
+    let path = auberean_testkit::data::require_capture_index();
+    let con = super::keeping::open(&path);
+    let mut st = con
+        .prepare(
+            "SELECT m.session_id, m.idx, m.raw, s.capture_id FROM message m JOIN session s USING (session_id) \
+             JOIN capture c USING (capture_id) WHERE c.file LIKE '2017-%' AND m.dir = 'c2s' \
+             AND m.mtype = 65578 ORDER BY m.session_id, m.idx",
+        )
+        .expect("the query prepares");
+    let asked: Vec<(i64, i64, Vec<u8>, i64)> = st
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+        .expect("the query runs")
+        .flatten()
+        .collect();
+    let mut out = Vec::new();
+    for (session, idx, raw, capture) in asked {
+        let Ok(ClientMessage::CreateCharacter(asked)) = ClientMessage::decode(&raw) else {
+            continue;
+        };
+        let answer = con
+            .prepare(
+                "SELECT raw FROM message WHERE session_id = ?1 AND idx > ?2 AND dir = 's2c' \
+                 AND mtype = 65623 ORDER BY idx LIMIT 1",
+            )
+            .expect("the query prepares")
+            .query_row([session, idx], |r| r.get::<_, Vec<u8>>(0))
+            .ok()
+            .and_then(|raw| match ServerMessage::decode(&raw) {
+                Ok(ServerMessage::CharacterCreated(a)) => Some(a),
+                _ => None,
+            });
+        let Some(answer) = answer.filter(|a| a.identity.id != 0) else {
+            continue;
+        };
+        let made = con
+            .prepare(
+                "SELECT m.raw FROM message m JOIN session s USING (session_id) WHERE s.capture_id = ?1 \
+                 AND m.dir = 's2c' AND m.mtype = 65624 ORDER BY m.session_id, m.idx",
+            )
+            .expect("the query prepares")
+            .query_map([capture], |r| r.get::<_, Vec<u8>>(0))
+            .expect("the query runs")
+            .flatten()
+            .filter_map(|raw| match ServerMessage::decode(&raw) {
+                Ok(ServerMessage::CreateObject(o)) => Some(o),
+                _ => None,
+            })
+            .collect();
+        out.push(Recorded {
+            asked,
+            answer,
+            made,
+        });
+    }
+    out
+}
+
+/// Each character made in the 2017 recordings is made again from its client's choices wearing the
+/// same clothes in the same colors (the appearances its look holds, byte for byte), and at its first
+/// entry each garment the 2017 server made worn is made worn, its object as that server sent it
+/// byte for byte apart from the ids: its look and color, worn and contained by the player.
+/// Behaviour: server.characters.starting-clothes-as-2017-made-them
+#[test]
+fn the_recorded_new_characters_are_made_in_their_clothes_as_2017_made_them() {
+    let p = Portal::open();
+    let rules = p.start_rules();
+    let mut catalog = yalain_content::Catalog::default();
+    for t in rules.items.values().flatten() {
+        catalog.insert(p.template(t.template));
+    }
+    let made = recorded();
+    assert!(
+        made.len() >= 2,
+        "the recordings make characters: {}",
+        made.len()
+    );
+    let mut garments = 0;
+    for (n, r) in made.iter().enumerate() {
+        let mut h = yalain_testkit::Harness::new();
+        let areas = h.server.start.by_race.clone();
+        h.server.start = rules.clone();
+        h.server.start.by_race = areas;
+        h.server.start.areas = yalain_testkit::test_start().areas;
+        h.server.catalog = catalog.clone();
+        let account = format!("maker{n}");
+        let b = h.at_character_list(&account);
+        let before = h.bots[b].inbox.len();
+        let asked = CreateCharacter {
+            account: NarrowString::from(account.as_str()),
+            ..r.asked.clone()
+        };
+        h.bots[b].send(false, queue::LOGON, &ClientMessage::CreateCharacter(asked));
+        assert!(h.run_until(1000, |h| h.bots[b].inbox.len() > before));
+        let Some(ServerMessage::CharacterCreated(ours)) = h.bots[b].inbox[before].message() else {
+            panic!("creation {n} is not answered");
+        };
+        let me = ours.identity.id;
+        assert_eq!(
+            global_bytes(&ours.identity.visual.global),
+            global_bytes(&r.answer.identity.visual.global),
+            "creation {n}: the look's appearances"
+        );
+        assert_eq!(ours.identity.visual.scale, r.answer.identity.visual.scale);
+        let from = h.bots[b].inbox.len();
+        h.enter_world(b, &account, me);
+        let theirs = r.answer.identity.id;
+        let mut seen = std::collections::BTreeSet::new();
+        // Each garment as its first entry made it.
+        for rec in r
+            .made
+            .iter()
+            .filter(|o| o.weenie.objects[1] == theirs && seen.insert(o.id))
+        {
+            let template = rec.weenie.entity_did;
+            let held = h
+                .server
+                .players
+                .values()
+                .find(|p| p.character == me)
+                .expect("in the world")
+                .play
+                .items
+                .iter()
+                .find(|i| i.template == template && i.location != 0)
+                .map(|i| i.id)
+                .unwrap_or_else(|| panic!("creation {n}: {template:#x} not worn"));
+            let mut o = h
+                .world_messages(b, from)
+                .iter()
+                .find_map(|m| match m {
+                    ServerMessage::CreateObject(o) if o.id == held => Some(o.clone()),
+                    _ => None,
+                })
+                .expect("made");
+            o.id = rec.id;
+            o.weenie.objects[0] = rec.weenie.objects[0];
+            o.weenie.objects[1] = rec.weenie.objects[1];
+            assert_eq!(
+                ServerMessage::CreateObject(o).encode(),
+                ServerMessage::CreateObject(rec.clone()).encode(),
+                "creation {n}: {template:#x}"
+            );
+            garments += 1;
+        }
+    }
+    assert_eq!(
+        garments, 5,
+        "the recorded garments: a human's three, a Tumerok's two"
     );
 }

@@ -3,16 +3,23 @@
 //! and sex it fits, and the appearance. The ids come from what the same names answer elsewhere (a
 //! template's pile appearance, another's properties) and from the looks the January 2017 servers
 //! sent. Where nothing says what a name is, a recorded look of the template stands in, else the
-//! male look stands in for the female.
+//! male look stands in for the female. The starting clothes' names are also those the character
+//! generation data gives its clothing choices, so they take the ids those choices draw.
 
 /// A template, the races and the sexes it fits (masks), and the appearance it gives them.
 pub const WORN_IN_CODE: &[(u32, u32, u32, u32)] = &[
-    (0x4700051E, 0x1, 0x1000, 0x20000017),
+    (0x47000518, 0x2, 0x1000, 0x200000DD),
+    (0x47000518, 0x2, 0x2000, 0x200000DF),
+    (0x47000519, 0x2, 0x1000, 0x200000DE),
+    (0x47000519, 0x2, 0x2000, 0x200000E0),
+    (0x4700051A, 0x2, 0x1000, 0x2000001C),
+    (0x4700051A, 0x2, 0x2000, 0x20000043),
+    (0x4700051E, 0x1, 0x1000, 0x20000016),
     (0x4700051E, 0x1, 0x2000, 0x20000017),
     (0x4700051F, 0x1, 0x1000, 0x20000019),
     (0x4700051F, 0x1, 0x2000, 0x20000019),
     (0x47000520, 0x1, 0x2000, 0x20000013),
-    (0x47000520, 0x1, 0x1000, 0x20000013),
+    (0x47000520, 0x1, 0x1000, 0x20000014),
     (0x47000524, 0x4, 0x1000, 0x20000038),
     (0x47000524, 0x4, 0x2000, 0x20000038),
     (0x47000525, 0x4, 0x1000, 0x20000039),

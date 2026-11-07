@@ -30,7 +30,7 @@ pub fn can_make<S: Store>(s: &Server<S>, template: u32) -> bool {
 /// the dye plants and what they give, and the nodes maps conjure.
 #[must_use]
 pub fn by_the_server(start: &crate::StartRules) -> Vec<u32> {
-    let starting = start.items.values().flatten().copied();
+    let starting = start.items.values().flatten().map(|i| i.template);
     let plants = plants::SPECIES
         .iter()
         .flat_map(|p| [p.plant, p.seed, p.harvest].into_iter().chain(p.pollen));

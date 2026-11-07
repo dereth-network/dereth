@@ -273,6 +273,25 @@ pub fn dressed(
     look
 }
 
+/// What a character is drawn wearing: its look as made, dressed in what it wears. One whose starting
+/// clothes were made as items is drawn from those items alone, wherever they are now.
+#[must_use]
+pub fn drawn<S: Store>(
+    s: &Server<S>,
+    made: &VisualDesc,
+    play: &crate::state::PlayState,
+    race: u32,
+    sex: u32,
+) -> VisualDesc {
+    let base = if play.clothes_made {
+        s.start
+            .without_garments(made, &s.rules, &s.catalog, race, sex)
+    } else {
+        made.clone()
+    };
+    dressed(&base, &s.catalog, &play.items, &play.item_states, race, sex)
+}
+
 /// How a weapon is held: its two parenting places, the hands it may go to and prefers, the hand
 /// slots it takes in the hand it prefers and those it rules out, the answer's control flags.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

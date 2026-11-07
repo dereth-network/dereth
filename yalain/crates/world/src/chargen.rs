@@ -23,7 +23,7 @@ pub use auberean_world::chargen::{BUILD, FEMALE, HEIGHT, MALE};
 /// The key of the change applied to a whole avatar.
 pub const AVATAR_KEY: u32 = 0x4000_0002;
 /// The modifier of a choice among parts, which also turns on [`SHOWN`].
-const CHOICE: u32 = 0x2;
+pub const CHOICE: u32 = 0x2;
 /// The modifier set to 1 beside every choice.
 const SHOWN: u32 = 0x10;
 
@@ -159,6 +159,20 @@ impl CharGenRules {
     /// a race and sex there is no body for.
     #[must_use]
     pub fn look(&self, race: u32, sex: u32, physique: &Table<f32>) -> Option<VisualDesc> {
+        self.look_wearing(race, sex, physique, &[])
+    }
+
+    /// The look of a new character wearing the clothes it starts in: each garment's appearance,
+    /// given as the physique type that colors it and the appearance it gives this body, stands in
+    /// for the one that physique type names.
+    #[must_use]
+    pub fn look_wearing(
+        &self,
+        race: u32,
+        sex: u32,
+        physique: &Table<f32>,
+        garments: &[(u32, u32)],
+    ) -> Option<VisualDesc> {
         let body = *self.bodies.get(&(race, sex))?;
         let value = |t: u32| physique.get(t).copied();
         let build = value(BUILD).unwrap_or(1.0);
@@ -174,7 +188,11 @@ impl CharGenRules {
             let Some(v) = value(e.physique_type) else {
                 continue;
             };
-            let mods = by_appearance.entry(e.appearance).or_default();
+            let appearance = garments
+                .iter()
+                .find(|(color, _)| *color == e.physique_type && e.modifier == CHOICE)
+                .map_or(e.appearance, |(_, worn)| *worn);
+            let mods = by_appearance.entry(appearance).or_default();
             mods.push((e.modifier, v));
             if e.modifier == CHOICE {
                 mods.push((SHOWN, 1.0));

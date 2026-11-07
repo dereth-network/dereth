@@ -13,6 +13,7 @@ mod long_lines;
 mod looks;
 mod places;
 mod presence;
+mod starting_clothes;
 mod tickets;
 mod transport;
 mod world;

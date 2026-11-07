@@ -542,15 +542,52 @@ pub fn enter<S: Store>(
         instance_stamp: p.instance,
         other_stamp: 0,
     };
+    if new_character {
+        // What a new character starts with, from the character data: what it is to wear, worn, in
+        // the color its physique chose; the rest in its pack.
+        for item in s.start.items.get(&c.race).into_iter().flatten() {
+            let Some(t) = s.catalog.get(item.template) else {
+                continue;
+            };
+            let fit = crate::equip::fit_of(&t.props).filter(|_| item.worn);
+            let pile = t
+                .props
+                .word("Item_PileAppearance")
+                .unwrap_or(crate::start::CLOTHES_COLORS);
+            let color = c
+                .physique
+                .iter()
+                .find(|(ty, _)| item.color != 0 && *ty == item.color)
+                .map(|(_, v)| *v);
+            let id = s.things.new_id();
+            let slot = u32::try_from(p.play.items.len()).unwrap_or(0);
+            p.play.items.push(crate::state::Held {
+                id,
+                template: item.template,
+                slot,
+                location: fit.map_or(0, |f| f.preferred),
+                quantity: 1,
+            });
+            if let Some(v) = color {
+                p.play.item_states.push(crate::state::ItemState {
+                    id,
+                    own: crate::treasure::Own {
+                        look: Some(crate::treasure::Look {
+                            table: pile,
+                            values: [(crate::chargen::CHOICE, v), (0, 0.0), (0, 0.0)],
+                        }),
+                        ..crate::treasure::Own::default()
+                    },
+                    ..crate::state::ItemState::default()
+                });
+            }
+        }
+        // Its look as made drew those clothes (or what its physique types name, for one the
+        // operator made); from now on what it wears does.
+        p.play.clothes_made = true;
+    }
     // It is drawn wearing what it wears.
-    p.look = crate::equip::dressed(
-        &look,
-        &s.catalog,
-        &p.play.items,
-        &p.play.item_states,
-        c.race,
-        c.sex,
-    );
+    p.look = crate::equip::drawn(s, &look, &p.play, c.race, c.sex);
     let at = player::placement(&position);
     let object = player::player_object(
         character,
@@ -626,25 +663,6 @@ pub fn enter<S: Store>(
         action: Word(PORTAL_FX),
     });
     send(net, world, BlobKind::VISUAL, &stop);
-    if new_character {
-        // A new character's pack: the weapons among its race's starting items, from the character
-        // data. The clothes it starts in are part of its look.
-        for template in s.start.items.get(&c.race).into_iter().flatten() {
-            if s.catalog.get(*template).is_some()
-                && crate::skill_use::implement_of(&s.catalog, *template).is_some()
-            {
-                let id = s.things.new_id();
-                let slot = u32::try_from(p.play.items.len()).unwrap_or(0);
-                p.play.items.push(crate::state::Held {
-                    id,
-                    template: *template,
-                    slot,
-                    location: 0,
-                    quantity: 1,
-                });
-            }
-        }
-    }
     let clashed = crate::inventory::fresh_ids_for_clashes(&mut s.things, &mut p.play, &c.name);
     // Whatever it wielded when it left, it still wields; the pack holds the rest.
     crate::inventory::close_up(&mut p.play.items);

@@ -789,14 +789,7 @@ pub(crate) fn send_lists<S: Store>(
             .flatten()
             .and_then(|st| crate::state::PlayState::from_bytes(&st.play).ok())
             .unwrap_or_default();
-        let visual = crate::equip::dressed(
-            &look_of(&c),
-            &s.catalog,
-            &play.items,
-            &play.item_states,
-            c.race,
-            c.sex,
-        );
+        let visual = crate::equip::drawn(s, &look_of(&c), &play, c.race, c.sex);
         list.characters.push(CharacterIdentity {
             id: c.id,
             name: WideString::from(c.name.as_str()),
@@ -880,7 +873,9 @@ fn create<S: Store>(
             CharacterIdentity::default(),
         );
     }
-    let Some(look) = s.rules.look(c.race, c.sex, &c.physique) else {
+    // Drawn wearing the clothes it starts in.
+    let garments = s.start.garments(&s.catalog, c.race, c.sex);
+    let Some(look) = s.rules.look_wearing(c.race, c.sex, &c.physique, &garments) else {
         return answer(net, CORRUPT, CharacterIdentity::default());
     };
     let Ok(n) = s.store.next_character_number() else {
@@ -1033,14 +1028,7 @@ fn restore<S: Store>(s: &mut Server<S>, net: &mut ServerNet, conn: ConnId, chara
         .flatten()
         .and_then(|st| crate::state::PlayState::from_bytes(&st.play).ok())
         .unwrap_or_default();
-    let visual = crate::equip::dressed(
-        &look_of(&c),
-        &s.catalog,
-        &play.items,
-        &play.item_states,
-        c.race,
-        c.sex,
-    );
+    let visual = crate::equip::drawn(s, &look_of(&c), &play, c.race, c.sex);
     answer(
         net,
         CharacterCreated::OK,
