@@ -917,6 +917,7 @@ function updatesBlock(h) {
       ${offered ? `<button class="btn mini-btn" data-srv-approve="${h.id}" data-version="${esc(u.version)}" ${h.busy ? "disabled" : ""}>Update to ${esc(u.version)}</button>` : ""}
       ${u.pending ? `<button class="btn mini-btn" data-srv-cancel-update="${h.id}" ${h.busy ? "disabled" : ""}>Cancel update</button>` : ""}
       ${u.rollback ? `<button class="btn mini-btn" data-srv-rollback="${h.id}" ${h.busy || running ? "disabled" : ""}>Undo last update</button>` : ""}</div>
+    <label class="check small" title="While it runs, the world checks for a patch of ${server}, counts down for its players, and restarts into it. Other updates still wait for you."><input type="checkbox" data-srv-automatic="${h.id}" ${h.automatic_updates ? "checked" : ""}> Update by itself</label>
     ${said}
     ${offered ? `<details class="notes" id="srv-notes-${h.id}" open><summary>What's new in ${esc(u.version)}</summary><pre>${linkify(u.notes ?? "")}</pre></details>
       <p class="muted small">${h.game === "auberean" ? "Its accounts and characters are backed up first, and Undo last update puts them and the previous Yalain back." : "The databases are backed up first. If the new version does not start, everything is put back."}</p>` : ""}`;
@@ -2964,6 +2965,7 @@ document.addEventListener("input", (ev) => {
 
 document.addEventListener("change", async (ev) => {
   const t = ev.target;
+  if (t.dataset?.srvAutomatic) { await act("set_host_automatic_updates", { id: t.dataset.srvAutomatic, on: t.checked }); return; }
   if (t.dataset?.cmdKind) {
     const target = t.dataset.cmdKind;
     ui.cmd[target] = { ...(ui.cmd[target] ?? { text: "", account: "", password: "" }), kind: t.value };

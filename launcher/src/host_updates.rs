@@ -12,6 +12,12 @@
 //! world database it pins is fetched when it pins another (`world_database_fetch`) and its store
 //! (`yalain.sqlite`, accounts and characters) is backed up. Undo puts the previous program and
 //! that backup back.
+//!
+//! A world set to update by itself ([`automatic`]) does all this while it runs, under its
+//! supervisor ([`crate::host_runtime`]), with or without the launcher: the supervisor checks, and
+//! once a release is downloaded it gives the players the world's own shutdown countdown, puts the
+//! release in once the world has stopped, and starts it again. Only a patch downloads by itself, so
+//! anything else still waits for someone to approve it.
 
 use crate::{components, host_runtime};
 use dereth_launch::components::{self as metadata, Product, Release};
@@ -50,6 +56,39 @@ struct Offer {
     /// The release's `SHA256SUMS`, as downloaded.
     sums: String,
     automatic: bool,
+}
+
+/// The file a world keeps whether it updates by itself in.
+const AUTOMATIC: &str = "update-automatic.json";
+
+/// Whether the world in `dir` updates by itself while it runs. On unless it was turned off.
+#[must_use]
+pub fn automatic(dir: &Path) -> bool {
+    std::fs::read(dir.join(AUTOMATIC))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or(true)
+}
+
+/// Sets whether the world in `dir` updates by itself while it runs.
+///
+/// # Errors
+/// When the setting cannot be written.
+pub fn set_automatic(dir: &Path, on: bool) -> Result<(), String> {
+    host_runtime::write_json(&dir.join(AUTOMATIC), &on)
+}
+
+/// Holds the world's update work to one process at a time: the launcher's check, and the one its
+/// supervisor runs while the world runs in the background. Waits for the other to finish.
+fn hold(dir: &Path) -> Result<std::fs::File, String> {
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(dir.join("update.lock"))
+        .map_err(|e| e.to_string())?;
+    file.lock().map_err(|e| e.to_string())?;
+    Ok(file)
 }
 
 pub fn view(dir: &Path) -> View {
@@ -114,6 +153,7 @@ fn sync_version(dir: &Path) -> Result<(), String> {
 
 /// Look for a newer release now. A patch downloads at once; anything else waits for approval.
 pub fn check(dir: &Path) -> Result<(), String> {
+    let _held = hold(dir)?;
     let result = check_offer(dir);
     if let Err(error) = &result {
         let mut state = view(dir);
@@ -225,7 +265,7 @@ fn check_offer(dir: &Path) -> Result<(), String> {
             },
         )?;
         return if download_now {
-            stage(dir, None)
+            stage_held(dir, None)
         } else {
             Ok(())
         };
@@ -257,6 +297,11 @@ fn declared_sum(index: &[u8], target: &str) -> Option<String> {
 /// stop or start (a Yalain world's waits in the world's folder for [`install_yalain`]). `approved`
 /// is the version the person approved, for an update that needs it.
 pub fn stage(dir: &Path, approved: Option<&str>) -> Result<(), String> {
+    let _held = hold(dir)?;
+    stage_held(dir, approved)
+}
+
+fn stage_held(dir: &Path, approved: Option<&str>) -> Result<(), String> {
     let (product, server) = server_of(host_runtime::read_definition(dir)?.game);
     let offer: Offer = serde_json::from_slice(
         &std::fs::read(dir.join("update-offer.json"))
@@ -314,10 +359,24 @@ pub fn stage(dir: &Path, approved: Option<&str>) -> Result<(), String> {
     let mut state = view(dir);
     state.pending = true;
     state.skipped_version = None;
-    state.message = Some(format!(
-        "{server} {version} is downloaded. It goes in the next time this world stops or starts."
-    ));
+    state.message = Some(if automatic(dir) {
+        format!("{server} {version} is downloaded. The world restarts into it after a countdown.")
+    } else {
+        format!("{server} {version} is downloaded. It goes in the next time this world stops or starts.")
+    });
     save(dir, &state)
+}
+
+/// After an update that a world put in by itself did not go in: its version is not downloaded by
+/// itself again, so the world does not stop for it at every check. Someone can still update to it
+/// from the launcher.
+pub(crate) fn skip_failed(dir: &Path) {
+    let _held = hold(dir);
+    let mut state = view(dir);
+    if state.skipped_version.is_none() {
+        state.skipped_version.clone_from(&state.version);
+    }
+    let _ = save(dir, &state);
 }
 
 /// What undoing a Yalain world's last update puts back: the program and version it ran, its store
@@ -626,6 +685,11 @@ fn recover_program(program: &Path, record: &serde_json::Value) -> Result<(), Str
 
 /// Called with the host lock held, before start or after a clean stop.
 pub fn apply_pending(dir: &Path) -> Result<(), String> {
+    let _held = hold(dir)?;
+    apply_pending_held(dir)
+}
+
+fn apply_pending_held(dir: &Path) -> Result<(), String> {
     let mut state: View = match std::fs::read(dir.join("update.json")) {
         Ok(bytes) => serde_json::from_slice(&bytes)
             .map_err(|e| format!("The update record is damaged: {e}"))?,
@@ -1039,6 +1103,17 @@ mod tests {
         assert!(recover_program(&program, &record).is_err());
         assert_eq!(std::fs::read(&program).unwrap(), b"abc");
     }
+    #[test]
+    fn a_world_updates_by_itself_unless_it_was_turned_off() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+        assert!(automatic(dir), "a world that never said");
+        set_automatic(dir, false).unwrap();
+        assert!(!automatic(dir));
+        set_automatic(dir, true).unwrap();
+        assert!(automatic(dir));
+    }
+
     #[test]
     fn a_server_on_this_checkouts_build_asks_github_nothing() {
         let host = host();

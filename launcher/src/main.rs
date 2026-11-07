@@ -951,6 +951,7 @@ fn main() {
             components::delete_lyceum_world,
             components::export_lyceum_world,
             hosts::check_host_update,
+            hosts::set_host_automatic_updates,
             hosts::publish_host_world,
             hosts::unpublish_host_world,
             hosts::open_host_world,

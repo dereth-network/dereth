@@ -413,7 +413,25 @@ fn updated_definition(dir: &Path) -> Result<Definition, String> {
 }
 
 /// Runs without a web view. Stop asks the server to save and exit; it never kills it.
+///
+/// A world that updates by itself ([`crate::host_updates::automatic`]) is checked for updates while
+/// it runs ([`watch_updates`]). Once one is downloaded the world counts down with its own
+/// `shutdown`, the update goes in when it has stopped, and the server is started again, here, as
+/// at first: a stop asked for meanwhile reaches the new server as it reached the old.
 pub fn run(dir: &Path, stop: &AtomicBool, parent: Option<u32>) -> Result<(), String> {
+    supervise(dir, stop, parent, |log| {
+        let checkout = read_definition(dir).is_ok_and(|d| d.checkout);
+        watch_updates(dir, checkout, log)
+    })
+}
+
+/// [`run`], with the world's update checks as `updates` makes them.
+fn supervise(
+    dir: &Path,
+    stop: &AtomicBool,
+    parent: Option<u32>,
+    updates: impl FnOnce(&Log) -> Updates,
+) -> Result<(), String> {
     let parent = Parent::new(parent);
     let definition = read_definition(dir)?;
     let yalain = definition.game == Game::Auberean;
@@ -427,7 +445,6 @@ pub fn run(dir: &Path, stop: &AtomicBool, parent: Option<u32>) -> Result<(), Str
             dir,
         )?;
     }
-    let server = if yalain { "Yalain" } else { "Empyrean" };
     let guard = std::fs::OpenOptions::new()
         .create(true)
         .truncate(false)
@@ -437,6 +454,136 @@ pub fn run(dir: &Path, stop: &AtomicBool, parent: Option<u32>) -> Result<(), Str
     guard
         .try_lock()
         .map_err(|_| "This world is already running.")?;
+    let log: Log = Arc::new(Mutex::new(Lines {
+        recent: VecDeque::new(),
+        file: LogFile::open(dir.join(LOG_FILE), LOG_KEPT_BYTES).ok(),
+        up: false,
+    }));
+    let updates = updates(&log);
+    loop {
+        let again = serve(dir, stop, &parent, &log, &updates)?;
+        if !again || stop.load(Ordering::SeqCst) || !parent.alive() {
+            return Ok(());
+        }
+    }
+}
+
+/// How long after the supervisor starts it first checks for an update, and how long it waits
+/// between checks. `DERETH_HOST_UPDATE_SECONDS` sets both, for a test.
+fn update_schedule() -> (Duration, Duration) {
+    match std::env::var("DERETH_HOST_UPDATE_SECONDS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .filter(|s| *s > 0)
+    {
+        Some(s) => (Duration::from_secs(s), Duration::from_secs(s)),
+        None => (Duration::from_secs(300), Duration::from_secs(6 * 3600)),
+    }
+}
+
+/// The world's own update checks, while its supervisor runs.
+struct Updates {
+    /// An update is downloaded and waits for the world to stop.
+    ready: Arc<AtomicBool>,
+    /// The version [`Self::ready`] was last raised for: a check while its countdown runs, or after
+    /// the world has restarted into it, does not raise it again.
+    raised: Arc<Mutex<Option<String>>>,
+    /// The supervisor has ended: the checks end too.
+    done: Arc<AtomicBool>,
+}
+
+impl Drop for Updates {
+    fn drop(&mut self) {
+        self.done.store(true, Ordering::SeqCst);
+    }
+}
+
+/// Checks for updates on [`update_schedule`] while the world in `dir` is set to update by itself,
+/// as the launcher checks while it is open, and says when one is downloaded. A local build's
+/// world is never updated from a release.
+fn watch_updates(dir: &Path, checkout: bool, log: &Log) -> Updates {
+    let updates = Updates {
+        ready: Arc::new(AtomicBool::new(false)),
+        raised: Arc::new(Mutex::new(None)),
+        done: Arc::new(AtomicBool::new(false)),
+    };
+    if checkout {
+        return updates;
+    }
+    let (first, every) = update_schedule();
+    let (ready, raised, done) = (
+        updates.ready.clone(),
+        updates.raised.clone(),
+        updates.done.clone(),
+    );
+    let (dir, checks_log) = (dir.to_path_buf(), log.clone());
+    let wait = move |how_long: Duration| {
+        let until = Instant::now() + how_long;
+        while Instant::now() < until {
+            if done.load(Ordering::SeqCst) {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(250));
+        }
+        !done.load(Ordering::SeqCst)
+    };
+    let spawned = std::thread::Builder::new()
+        .name("updates".into())
+        .spawn(move || {
+            if !wait(first) {
+                return;
+            }
+            loop {
+                if crate::host_updates::automatic(&dir) {
+                    if let Err(error) = crate::host_updates::check(&dir) {
+                        push_log(
+                            &checks_log,
+                            &format!("Could not check for updates: {error}"),
+                        );
+                    }
+                    let view = crate::host_updates::view(&dir);
+                    let mut raised = raised
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    if raise(&view, &mut raised) {
+                        ready.store(true, Ordering::SeqCst);
+                    }
+                }
+                if !wait(every) {
+                    return;
+                }
+            }
+        });
+    if let Err(error) = spawned {
+        push_log(log, &format!("Could not watch for updates: {error}"));
+    }
+    updates
+}
+
+/// Whether a check that found `view` begins the world's countdown: an update is downloaded, and it
+/// is not the one the countdown was last begun for (`raised`, which this then names).
+fn raise(view: &crate::host_updates::View, raised: &mut Option<String>) -> bool {
+    if !view.pending || *raised == view.version {
+        return false;
+    }
+    raised.clone_from(&view.version);
+    true
+}
+
+/// One run of the world's server: started, supervised, and stopped. Whether to start it again,
+/// because it stopped for its own update.
+fn serve(
+    dir: &Path,
+    stop: &AtomicBool,
+    parent: &Parent,
+    log: &Log,
+    updates: &Updates,
+) -> Result<bool, String> {
+    let definition = read_definition(dir)?;
+    let yalain = definition.game == Game::Auberean;
+    let settings = read_settings(dir, definition.game)?;
+    let server = if yalain { "Yalain" } else { "Empyrean" };
+    let log = log.clone();
     let definition = updated_definition(dir).inspect_err(|error| {
         let _ = write_json(
             &dir.join("status.json"),
@@ -453,11 +600,9 @@ pub fn run(dir: &Path, stop: &AtomicBool, parent: Option<u32>) -> Result<(), Str
         ..Status::default()
     };
     write_json(&dir.join("status.json"), &state)?;
-    let log: Log = Arc::new(Mutex::new(Lines {
-        recent: VecDeque::new(),
-        file: LogFile::open(dir.join(LOG_FILE), LOG_KEPT_BYTES).ok(),
-        up: false,
-    }));
+    log.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .up = false;
     let args: Vec<std::ffi::OsString> = if yalain {
         crate::host_yalain::args(dir)
     } else {
@@ -493,6 +638,10 @@ pub fn run(dir: &Path, stop: &AtomicBool, parent: Option<u32>) -> Result<(), Str
     let out = std::thread::spawn(move || read_log(stdout, stdout_log));
     let err = std::thread::spawn(move || read_log(stderr, stderr_log));
     let mut stopping = false;
+    // While the world counts down to an update: when it began, and what its status says.
+    let mut countdown: Option<(Instant, String)> = None;
+    let countdown_limit =
+        Duration::from_secs(u64::try_from(settings.shutdown_warning.max(0)).unwrap_or(0) + 180);
     let started = Instant::now();
     let mut next_status = Instant::now();
     let result = loop {
@@ -513,6 +662,38 @@ pub fn run(dir: &Path, stop: &AtomicBool, parent: Option<u32>) -> Result<(), Str
                 }
             }
         }
+        if !stopping && countdown.is_none() && updates.ready.swap(false, Ordering::SeqCst) {
+            let version = crate::host_updates::view(dir).version.unwrap_or_default();
+            let line = format!("shutdown Updating to {server} {version}.");
+            push_log(&log, &shown_command(&line));
+            if let Some(input) = stdin.as_mut() {
+                if let Err(error) = writeln!(input, "{line}").and_then(|()| input.flush()) {
+                    push_log(
+                        &log,
+                        &format!("Could not begin the update's countdown: {error}"),
+                    );
+                }
+            }
+            countdown = Some((
+                Instant::now(),
+                format!("Updating to {server} {version}: restarting after the countdown."),
+            ));
+        }
+        // A countdown still going long after it should have ended was canceled at the console: the
+        // update goes in at the next check, or the next stop.
+        if countdown
+            .as_ref()
+            .is_some_and(|(at, _)| at.elapsed() > countdown_limit)
+        {
+            push_log(&log, "The update's countdown was canceled.");
+            countdown = None;
+            // The next check raises it again.
+            *updates
+                .raised
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+        }
+        let note = countdown.as_ref().map(|(_, note)| note.clone());
         if !stopping
             && (stop.load(Ordering::SeqCst) || !parent.alive() || dir.join("stop.request").exists())
         {
@@ -543,7 +724,7 @@ pub fn run(dir: &Path, stop: &AtomicBool, parent: Option<u32>) -> Result<(), Str
                 if up || players.is_some() {
                     state.phase = "running".into();
                     state.players = players;
-                    state.message = None;
+                    state.message.clone_from(&note);
                 } else if started.elapsed() > Duration::from_secs(300) {
                     state.message = Some("Waiting for the world to start. Check its log.".into());
                 }
@@ -551,7 +732,7 @@ pub fn run(dir: &Path, stop: &AtomicBool, parent: Option<u32>) -> Result<(), Str
                 if let Some(players) = health(&settings) {
                     state.phase = "running".into();
                     state.players = Some(players);
-                    state.message = None;
+                    state.message.clone_from(&note);
                 } else if started.elapsed() > Duration::from_secs(120) {
                     state.message = Some("Waiting for the world to start. Check its log.".into());
                 }
@@ -582,6 +763,21 @@ pub fn run(dir: &Path, stop: &AtomicBool, parent: Option<u32>) -> Result<(), Str
     } else {
         Ok(())
     };
+    // The world stopped for its own update, and nobody asked it to stop: it starts again, on the
+    // new release or, when that did not go in, on the one it ran.
+    let restart = clean && countdown.is_some() && !stopping;
+    if restart {
+        if let Err(error) = &update_result {
+            push_log(&log, &format!("The update did not go in: {error}"));
+            crate::host_updates::skip_failed(dir);
+        }
+        state.phase = "starting".into();
+        state.message = None;
+        let _ = std::fs::remove_file(dir.join("stop.request"));
+        save_log(dir, &log)?;
+        write_json(&dir.join("status.json"), &state)?;
+        return Ok(true);
+    }
     if let Err(error) = &update_result {
         state.phase = "failed".into();
         state.message = Some(error.clone());
@@ -590,7 +786,7 @@ pub fn run(dir: &Path, stop: &AtomicBool, parent: Option<u32>) -> Result<(), Str
     save_log(dir, &log)?;
     write_json(&dir.join("status.json"), &state)?;
     if clean {
-        update_result
+        update_result.map(|()| false)
     } else {
         Err(state.message.unwrap_or_default())
     }
@@ -688,6 +884,132 @@ mod tests {
             .starts_with("Could not start Empyrean:"));
         assert!(state.pid.is_none());
     }
+    /// A stand-in server in `dir`: it notes each start in `starts.txt`, and exits once its console
+    /// says `shutdown` or `exit`, as a world does once its countdown ends or it is told to stop.
+    fn stand_in_server(dir: &Path) -> PathBuf {
+        #[cfg(windows)]
+        let (name, text) = (
+            "server.cmd",
+            concat!(
+                "@echo off\r\n",
+                "echo started>> \"%~dp0starts.txt\"\r\n",
+                ":again\r\n",
+                "set \"line=\"\r\n",
+                "set /p line=\r\n",
+                "if \"%line:~0,8%\"==\"shutdown\" exit /b 0\r\n",
+                "if \"%line%\"==\"exit\" exit /b 0\r\n",
+                "goto again\r\n",
+            ),
+        );
+        #[cfg(not(windows))]
+        let (name, text) = (
+            "server.sh",
+            concat!(
+                "#!/bin/sh\n",
+                "echo started >> \"$(dirname \"$0\")/starts.txt\"\n",
+                "while read -r line; do\n",
+                "  case \"$line\" in shutdown*|exit) exit 0 ;; esac\n",
+                "done\n",
+            ),
+        );
+        let path = dir.join(name);
+        std::fs::write(&path, text).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        path
+    }
+
+    fn starts(dir: &Path) -> usize {
+        std::fs::read_to_string(dir.join("starts.txt"))
+            .unwrap_or_default()
+            .lines()
+            .count()
+    }
+
+    /// A world that updates by itself and has an update waiting counts down with its own
+    /// `shutdown`, starts again once it has stopped, and a stop asked for then reaches the server
+    /// started again: the supervisor ends, and the world is not left running.
+    #[test]
+    fn a_world_restarts_after_its_update_countdown_and_a_stop_then_reaches_the_new_server() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+        write_json(
+            &dir.join("host.json"),
+            &Definition {
+                id: "host-test".into(),
+                version: "1.0.0".into(),
+                program: stand_in_server(dir),
+                wrapper: dir.join("wrapper"),
+                // A local build's: nothing is installed, so the start runs the same server.
+                checkout: true,
+                game: dereth_launch::world::Game::Dereth,
+            },
+        )
+        .unwrap();
+        let settings = Settings {
+            dats: dir.to_path_buf(),
+            ..Settings::default()
+        };
+        std::fs::write(
+            dir.join("empyrean.toml"),
+            settings.update_config("").unwrap(),
+        )
+        .unwrap();
+        let stop = AtomicBool::new(false);
+        let result = std::thread::scope(|scope| {
+            let supervisor = scope.spawn(|| {
+                supervise(dir, &stop, None, |_| Updates {
+                    ready: Arc::new(AtomicBool::new(true)),
+                    raised: Arc::new(Mutex::new(None)),
+                    done: Arc::new(AtomicBool::new(false)),
+                })
+            });
+            let waited = Instant::now();
+            while starts(dir) < 2 && waited.elapsed() < Duration::from_secs(60) {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            stop.store(true, Ordering::SeqCst);
+            supervisor.join().unwrap()
+        });
+        assert_eq!(result, Ok(()));
+        assert_eq!(starts(dir), 2, "started once, and again after the update");
+        assert!(!active(dir));
+        assert_eq!(status(dir).phase, "stopped");
+        let log = std::fs::read_to_string(dir.join(LOG_FILE)).unwrap();
+        assert!(log.contains("> shutdown Updating to Empyrean"), "{log}");
+    }
+
+    /// A check begins the countdown once for each downloaded update: not again while it counts
+    /// down, nor once the world has restarted into it, and again for the next one.
+    #[test]
+    fn a_downloaded_update_begins_one_countdown() {
+        let view = |pending, version: &str| crate::host_updates::View {
+            pending,
+            version: Some(version.into()),
+            ..Default::default()
+        };
+        let mut raised = None;
+        assert!(
+            !raise(&view(false, "0.3.10"), &mut raised),
+            "offered, not downloaded"
+        );
+        assert!(raise(&view(true, "0.3.10"), &mut raised));
+        assert!(!raise(&view(true, "0.3.10"), &mut raised), "counting down");
+        assert!(
+            !raise(&view(false, "0.3.10"), &mut raised),
+            "restarted into it"
+        );
+        assert!(raise(&view(true, "0.3.11"), &mut raised), "the next one");
+        raised = None;
+        assert!(
+            raise(&view(true, "0.3.11"), &mut raised),
+            "a canceled countdown is begun again"
+        );
+    }
+
     /// A world is asked to save and stop through its console, in its server's own word.
     #[test]
     fn a_yalain_that_finds_its_ports_taken_says_so_and_any_other_end_names_its_code() {

@@ -50,6 +50,8 @@ pub struct View {
     pub prepared: bool,
     pub service: bool,
     pub update: crate::host_updates::View,
+    /// It updates by itself while it runs ([`crate::host_updates::automatic`]).
+    pub automatic_updates: bool,
     pub publication: Option<crate::host_publication::Publication>,
     /// Its folder, where its configuration, databases and log are.
     pub folder: PathBuf,
@@ -332,6 +334,7 @@ pub fn views(shared: &Shared) -> Vec<View> {
             prepared: prepared(&dir, definition.game),
             service: crate::host_service::installed(&dir),
             update: crate::host_updates::view(&dir),
+            automatic_updates: crate::host_updates::automatic(&dir),
             publication,
             unpublished_changes,
             source_gone,
@@ -1115,6 +1118,20 @@ pub fn check_host_update(shared: State<'_, Shared>, id: String) -> Result<(), St
         let _ = check_update(&shared, &id);
     });
     Ok(())
+}
+
+/// Whether the world `id` updates by itself while it runs.
+#[tauri::command]
+pub fn set_host_automatic_updates(
+    shared: State<'_, Shared>,
+    id: String,
+    on: bool,
+) -> Result<(), String> {
+    if !updatable(&shared, &id) {
+        return Err("No such world.".into());
+    }
+    let dir = dir_of(&shared, &id)?;
+    crate::host_updates::set_automatic(&dir, on)
 }
 
 #[tauri::command]

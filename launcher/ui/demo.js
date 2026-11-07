@@ -507,6 +507,7 @@
       h.message = null;
     },
     open_host_world: ({ id }) => (hostBy(id)?.game === "auberean" ? "shardfall" : "eulmore"),
+    set_host_automatic_updates: ({ id, on }) => { hostBy(id).automatic_updates = on; },
     // `latest`: the demo's check finds nothing newer.
     check_host_update: ({ id, latest }) => {
       const h = hostBy(id);
