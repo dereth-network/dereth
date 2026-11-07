@@ -1384,6 +1384,24 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.corpse.never-left",
+        says: "A creature whose template says it never leaves a corpse is made ethereal and hidden as \
+               it dies and leaves the world three seconds later, with no corpse.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CORPSE-NEVER-LEFT"),
+        station: "yalain-testkit::cpu::play::corpse_rot::a_creature_that_never_leaves_a_corpse_is_hidden_as_it_dies_and_leaves_three_seconds_later",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.corpse.never-left-read-from-the-install",
+        says: "Whether a creature never leaves a corpse is read from its template in the install, and \
+               no template that says so has anything to leave.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CORPSE-NEVER-LEFT-INSTALL"),
+        station: "yalain-testkit::dat::effects::templates_that_never_leave_a_corpse_are_read_so_and_have_nothing_to_leave",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.corpse.one-holding-a-drop-lasts",
         says: "The corpse of a creature with no loot profile whose own drop came to something lasts as \
                any corpse does.",

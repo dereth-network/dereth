@@ -1820,3 +1820,48 @@ fn the_vital_transfers_read_as_the_data_defines_them() {
     );
     assert!(!drain.lasts());
 }
+
+/// The install's templates that say they never leave a corpse are read so, and none of them has
+/// anything to leave: no loot profile and no fixed drop along its chain, so leaving no corpse loses
+/// no item. A plain creature leaves one.
+/// Behaviour: server.corpse.never-left-read-from-the-install
+#[test]
+fn templates_that_never_leave_a_corpse_are_read_so_and_have_nothing_to_leave() {
+    use yalain_content::{CreatureStats, Props};
+    let p = Portal::open();
+    let name = |id: u32| {
+        p.ctx
+            .properties()
+            .and_then(|l| l.names.name(id))
+            .map(str::to_string)
+    };
+    let entity = |id: u32| -> Option<auberean_assets::entity::Entity> {
+        auberean_assets::decode(id, &p.dat.read(id).ok()?, &p.ctx).ok()
+    };
+    let ids: Vec<u32> = p
+        .dat
+        .entries_in(0x4700_0000, 0x47FF_FFFF)
+        .map(|e| e.id)
+        .collect();
+    let (mut never, mut creatures) = (0, 0);
+    for id in ids {
+        let props = Props::of(id, &entity, &name);
+        if !props.flag("NPC_NeverLeaveCorpse") {
+            continue;
+        }
+        never += 1;
+        assert_eq!(props.word("NPC_DeathLootProfile"), None, "{id:08X}");
+        assert!(
+            !props.values.keys().any(|k| k.starts_with("NPC_TrophyDrop")),
+            "{id:08X}"
+        );
+        if let Some(stats) = CreatureStats::from_props(&props) {
+            creatures += 1;
+            assert!(stats.never_leaves_corpse, "{id:08X}");
+            assert!(stats.trophies.is_empty() && stats.loot_profile.is_none());
+        }
+    }
+    assert_eq!((never, creatures), (42, 41));
+    let plain = CreatureStats::from_props(&p.template(0x4700_2AF6).props).expect("a creature");
+    assert!(!plain.never_leaves_corpse);
+}

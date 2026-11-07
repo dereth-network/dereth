@@ -398,6 +398,8 @@ pub struct CreatureStats {
     pub idles: bool,
     /// How long its corpse lasts.
     pub rot: CorpseRot,
+    /// It leaves no corpse: its body goes from sight as it dies, and soon after leaves the world.
+    pub never_leaves_corpse: bool,
 }
 
 /// The property names [`CreatureStats`] reads.
@@ -440,6 +442,7 @@ pub mod creature_property {
     pub const ROT_UNTOUCHED: &str = "NPC_BaseRotTime";
     pub const ROT_ITEMS_LEFT: &str = "NPC_MaxAcceleratedRotTime";
     pub const ROT_EMPTY: &str = "NPC_MinAcceleratedRotTime";
+    pub const NEVER_LEAVES_CORPSE: &str = "NPC_NeverLeaveCorpse";
 }
 
 /// How long a corpse lasts, in seconds: its creature's template's, each where the template sets it,
@@ -603,6 +606,7 @@ impl CreatureStats {
             npc_table: p.text(k::NPC_TABLE).map(str::to_string),
             idles: p.word(k::SUPER_CLASS).is_some_and(|c| c != SUMMONED_CLASS),
             rot: CorpseRot::from_props(p),
+            never_leaves_corpse: p.flag(k::NEVER_LEAVES_CORPSE),
         };
         stats.fights = stats.fights_with(stats.movement);
         Some(stats)

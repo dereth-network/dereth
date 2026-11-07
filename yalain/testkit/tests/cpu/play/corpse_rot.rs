@@ -315,3 +315,68 @@ fn a_players_corpse_closed_empty_still_lasts_its_minute() {
     wait(&mut h, 4.0);
     assert!(!there(&h, corpse), "after it");
 }
+
+/// A creature whose template says it never leaves a corpse: whoever sees it die sees it fall, then
+/// made ethereal and hidden in the same tick; no corpse is ever made, and it leaves the world three
+/// seconds after its death.
+/// Behaviour: server.corpse.never-left
+#[test]
+fn a_creature_that_never_leaves_a_corpse_is_hidden_as_it_dies_and_leaves_three_seconds_later() {
+    use auberean_protocol::ServerMessage;
+    let mut h = Harness::new();
+    h.add_creatures(1);
+    let (b, me) = h.player_in_world("one", "Killer");
+    h.run(10);
+    let dummy = h
+        .server
+        .things
+        .by_id
+        .values()
+        .find(|t| t.template == yalain_testkit::TEST_CREATURE && t.alive())
+        .map(|t| t.id)
+        .expect("a creature");
+    {
+        let t = h.server.things.get_mut(dummy).expect("the creature");
+        t.health = 10;
+        t.max_health = 10;
+        let c = t.creature.as_mut().expect("a creature");
+        c.stats.attacks_first = false;
+        c.stats.never_leaves_corpse = true;
+    }
+    let from = h.bots[b].inbox.len();
+    let clock = h.clock();
+    yalain_world::combat::hurt_creature(&mut h.server, &mut h.net, dummy, me, 50, clock);
+    h.run(2);
+    let msgs = h.world_messages(b, from);
+    let at = |want: &dyn Fn(&ServerMessage) -> bool| msgs.iter().position(want);
+    let dead = at(&|m| {
+        matches!(m, ServerMessage::UpdateBoolVisual(q)
+            if q.object.id == dummy && q.quality == 279 && q.value == 1)
+    });
+    let ethereal = at(&|m| {
+        matches!(m, ServerMessage::UpdateIntVisual(q)
+            if q.object.id == dummy && q.quality == 3 && q.value == 0x40_0030)
+    });
+    let hidden = at(&|m| {
+        matches!(m, ServerMessage::UpdateBoolVisual(q)
+            if q.object.id == dummy && q.quality == 10 && q.value == 1)
+    });
+    assert!(dead.is_some(), "it falls");
+    assert!(
+        dead < ethereal && ethereal < hidden,
+        "{dead:?} {ethereal:?} {hidden:?}"
+    );
+    let corpse = |h: &Harness| {
+        h.server
+            .things
+            .by_id
+            .values()
+            .any(|t| t.corpse.as_ref().is_some_and(|c| c.originator == dummy))
+    };
+    wait(&mut h, 2.7);
+    assert!(there(&h, dummy), "before its three seconds");
+    wait(&mut h, 0.5);
+    assert!(!there(&h, dummy), "after them");
+    wait(&mut h, 5.0);
+    assert!(!corpse(&h), "no corpse");
+}

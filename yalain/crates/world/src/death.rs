@@ -12,6 +12,11 @@
 //! named "Corpse of ..." the creature, its killer recorded, holding what the creature left), and
 //! **three seconds after that** the creature leaves the world.
 //!
+//! **A creature whose template says it never leaves a corpse** (training dummies among them) falls
+//! as any does, is made ethereal and hidden in the same
+//! tick, and leaves the world three seconds later: no corpse, so nothing to loot. Its experience,
+//! its kill text and the quests its death moves are as any creature's.
+//!
 //! **No fair fight.** The part of a damager the creature could not reach in its fight (going after
 //! it, nothing led to it: no way through the walls, or a closed door it could not open) is held
 //! back, from it and its fellows alike, and the player it was for is told once "You receive no
@@ -82,6 +87,8 @@ pub mod q {
     pub const DEAD: u32 = 279;
     pub const SELECTABLE: u32 = 624;
     pub const ETHEREAL_LOW: u32 = 3;
+    /// An object is not drawn.
+    pub const NO_DRAW: u32 = 10;
     pub const PLUNDERER: u32 = 320;
     pub const ORIGINATOR: u32 = 321;
     pub const CLAIMANT: u32 = 322;
@@ -198,6 +205,7 @@ pub fn creature_dies<S: Store>(
     let parts = std::mem::take(&mut c.taken_by);
     let unreached = c.unreached.clone();
     let death_effects = c.stats.death_effects.clone();
+    let no_corpse = c.stats.never_leaves_corpse;
     let (template, level, death_xp, death_focus, camp, name, group) = (
         t.template,
         c.stats.level,
@@ -238,6 +246,11 @@ pub fn creature_dies<S: Store>(
     if let Some(i) = camp {
         crate::spawn::died(s, i, id, clock.local.0);
     }
+    if no_corpse {
+        unseen(s, net, id);
+        s.after(clock, NO_CORPSE_LEAVES_AFTER, Timer::Vanish { id });
+        return;
+    }
     s.after(
         clock,
         CORPSE_AFTER,
@@ -247,6 +260,26 @@ pub fn creature_dies<S: Store>(
             pose,
         },
     );
+}
+
+/// How long after its death a creature that leaves no corpse leaves the world, in seconds.
+pub const NO_CORPSE_LEAVES_AFTER: f64 = 3.0;
+
+/// A creature that leaves no corpse, in its death tick: every client that sees it is told it is
+/// ethereal and not drawn (2017: both together, then gone 3.0 s later, 10 of 10 such deaths).
+fn unseen<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64) {
+    let ethereal = ServerMessage::UpdateIntVisual(VisualQuality {
+        object: visual(s, id),
+        quality: q::ETHEREAL_LOW,
+        value: look::ETHEREAL,
+    });
+    to_all_seeing(s, net, id, &ethereal);
+    let hidden = ServerMessage::UpdateBoolVisual(VisualQuality {
+        object: visual(s, id),
+        quality: q::NO_DRAW,
+        value: 1,
+    });
+    to_all_seeing(s, net, id, &hidden);
 }
 
 /// The world connection of a player in the world, by character.

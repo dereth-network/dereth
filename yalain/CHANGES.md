@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Creatures that should leave no corpse, such as training dummies, no longer do.
 - Mining now counts the tool in your hand and the Mining Master perks.
 - Lodestones found while mining now match your level.
 - Pets' skills reach as far as they should, area attacks hit everything nearby, and taunting pets also do damage.
