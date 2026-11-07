@@ -286,6 +286,8 @@ pub struct OtherBody {
     pub in_range: bool,
     /// Out of the world, and where it enters it again.
     pub away: Option<Position>,
+    /// Put where its place's cell was not yet loaded: the place, to be put again once it is.
+    unsettled: Option<Position>,
 }
 
 fn pv(v: Vec3) -> dereth_primitives::Vec3 {
@@ -310,6 +312,7 @@ impl OtherBody {
             stamps,
             in_range: true,
             away: None,
+            unsettled: None,
         }
     }
 
@@ -383,16 +386,49 @@ impl OtherBody {
         self.put(land, world, p);
     }
 
+    /// Put again where it was last put, once, when that place's cell was not yet loaded then and is
+    /// now.
+    pub fn settle_when_loaded(&mut self, land: &Land, world: &mut World) {
+        let Some(p) = self.unsettled else {
+            return;
+        };
+        let loaded = if auberean_physics::interior::is_interior(p.cell) {
+            land.cell(p.cell).is_some()
+        } else {
+            let b = p.cell.landblock();
+            land.block(b.x(), b.y()).is_some()
+        };
+        if loaded {
+            self.put(land, world, p);
+            self.unsettled = None;
+        }
+    }
+
     /// Put the body at `p` at once, with nothing left to follow and nothing to draw it moving
     /// from. Once it stands in the world's table it is placed: it takes a free spot nearby and
-    /// touches only what is there, and with no room stays where it was.
-    // D2-06369
+    /// touches only what is there, and with no room stays where it was. Before that, or as an
+    /// object that stands where it is put (a building, a sign), it goes straight into the cell its
+    /// place falls in: a place sent in an interior cell seen from outside, but in none of the cells
+    /// seen from it, stands outdoors.
+    // D2-06369, D2-06047, D2-06268
     pub fn put(&mut self, land: &Land, world: &mut World, p: Position) {
         self.body.stop_interpolating();
         let heading = geom::frame_heading(&p.frame).degrees();
         let in_table = self.body.key().is_some_and(|k| world.position(k).is_some());
+        self.unsettled = None;
         if !in_table {
-            self.body.place(p, heading);
+            let mut at = p;
+            let into = auberean_physics::body::placing::adjust_position(
+                land,
+                &mut at,
+                dereth_primitives::Vec3::ZERO,
+            );
+            if matches!(into, Some(Some(_))) {
+                self.body.place(at, heading);
+            } else {
+                self.body.place(p, heading);
+                self.unsettled = Some(p);
+            }
         } else if self.body.set_position_simple(land, world, p, true) == place_error::OK {
             let at = self.body.position;
             self.body.place(at, heading);
@@ -1011,6 +1047,7 @@ impl Others {
             if !ob.in_world() {
                 continue;
             }
+            ob.settle_when_loaded(land, world);
             // In the world's table: as a body that moves, or as a shape put where it stands.
             match (&b.shape, b.key) {
                 (Some(shape), None) => {

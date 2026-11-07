@@ -1536,6 +1536,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "desktop.others.an-object-sent-into-a-room-it-stands-outside-stands-outdoors",
+        says: "An object sent into an interior cell seen from outside, standing in none of the \
+               cells seen from it, stands in the land cell its place falls in, buildings and \
+               other objects with no spheres too; sent before that cell is loaded, it moves there \
+               once it is. One standing in the cell stays in it, and so does one outside a cell \
+               not seen from outside.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-OTHERS-PUT-CELL"),
+        station: "auberean-scene::cpu::others::an_object_sent_into_a_room_it_stands_outside_stands_outdoors",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "desktop.others.an-object-whose-qualities-record-is-missing-stays-where-it-was-made",
         says: "An object made of an entity template with no qualities record in the data does \
                not move: sent a place 2 m on, it stays where it was made, while one whose record \

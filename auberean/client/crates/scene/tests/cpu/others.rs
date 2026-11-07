@@ -304,6 +304,98 @@ fn objects_in_cells_not_loaded_wait_out_of_the_world() {
     assert_eq!(lost.objects, vec![1, 4, 3]);
 }
 
+/// The interior cell of the block at (0x40, 0x40) holding the points west of x = 10, seen from
+/// outside or not.
+fn west_room(seen_outside: bool) -> dereth_physics::source::EnvCellGeometry {
+    use dereth_physics::geom::{BspNode, BspNodeKind, BspTree};
+    use dereth_primitives::shape::Plane;
+    let west = BspNode {
+        sphere: Sphere::new(dereth_primitives::Vec3::ZERO, 200.0),
+        splitting_plane: Plane {
+            normal: dereth_primitives::Vec3::new(-1.0, 0.0, 0.0),
+            d: 10.0,
+        },
+        pos_child: None,
+        neg_child: None,
+        kind: BspNodeKind::Node,
+        in_polys: Vec::new(),
+    };
+    dereth_physics::source::EnvCellGeometry {
+        id: dereth_primitives::CellId(BLOCK | 0x100),
+        frame: dereth_primitives::Frame::new(
+            dereth_primitives::Vec3::ZERO,
+            dereth_primitives::Quat::IDENTITY,
+        ),
+        portals: Vec::new(),
+        physics_polygons: Vec::new(),
+        physics_bsp: None,
+        cell_bsp: Some(std::sync::Arc::new(BspTree {
+            nodes: vec![west],
+            polygons: Vec::new(),
+        })),
+        stab_list: Vec::new(),
+        seen_outside,
+        holds_without_portals: true,
+        static_objects: Vec::new(),
+    }
+}
+
+/// An object sent into an interior cell but standing outside it, in a cell seen from outside,
+/// stands in the land cell its place falls in, as one that stands where it is put (a building,
+/// with no spheres) too: at once when the cell is loaded, else once it is. One standing in the
+/// cell stays in it, and so does one outside a cell not seen from outside.
+///
+/// Behaviour: desktop.others.an-object-sent-into-a-room-it-stands-outside-stands-outdoors
+#[test]
+fn an_object_sent_into_a_room_it_stands_outside_stands_outdoors() {
+    let room = BLOCK | 0x100;
+    let sent = |x: f32| {
+        let mut p = place(x, 30.0, 0.0, 0.0, 0.0, 1);
+        p.cell = room;
+        position_of(&p)
+    };
+    let building = || BodyConfig {
+        spheres: Vec::new(),
+        ..config()
+    };
+    let mut w = World::new();
+    // Made before the block and its rooms are loaded: where it was sent until they are.
+    let land = Land::new();
+    let mut outside = OtherBody::new(7, building(), sent(30.0), 0.0, (1, 0));
+    outside.put_by_creation(&land, &mut w, sent(30.0));
+    let mut inside = OtherBody::new(8, building(), sent(5.0), 0.0, (1, 0));
+    inside.put_by_creation(&land, &mut w, sent(5.0));
+    outside.settle_when_loaded(&land, &mut w);
+    assert_eq!(outside.body.position.cell.0, room, "nothing loaded yet");
+    land.insert(Block::flat(0x40, 0x40, GROUND_Z));
+    land.insert_cell(west_room(true));
+    outside.settle_when_loaded(&land, &mut w);
+    inside.settle_when_loaded(&land, &mut w);
+    // (30, 30) is the second cell along each side, 20 m cells numbered x major from 1.
+    assert_eq!(
+        outside.body.position.cell.0,
+        BLOCK | 0x0A,
+        "outdoors once loaded"
+    );
+    let o = outside.body.position.frame.origin;
+    assert!(
+        (o.x - 30.0).abs() < 1e-3 && (o.y - 30.0).abs() < 1e-3,
+        "{o:?}"
+    );
+    assert_eq!(inside.body.position.cell.0, room, "in the room");
+    // Made with them loaded: outdoors at once, a body with spheres too.
+    let mut body = OtherBody::new(9, config(), sent(30.0), 0.0, (1, 0));
+    body.put_by_creation(&land, &mut w, sent(30.0));
+    assert_eq!(body.body.position.cell.0, BLOCK | 0x0A, "outdoors at once");
+    // A room not seen from outside keeps it.
+    let closed = Land::new();
+    closed.insert(Block::flat(0x40, 0x40, GROUND_Z));
+    closed.insert_cell(west_room(false));
+    let mut kept = OtherBody::new(10, building(), sent(30.0), 0.0, (1, 0));
+    kept.put_by_creation(&closed, &mut w, sent(30.0));
+    assert_eq!(kept.body.position.cell.0, room, "a closed room keeps it");
+}
+
 /// An object lost in a cell goes out of any cell it was lost in first; one that hangs from another
 /// is then lost in none. A cell loaded gives back the objects lost in it, in the order they were
 /// lost, and none of them is lost any more.
