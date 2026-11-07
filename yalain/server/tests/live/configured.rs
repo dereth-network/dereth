@@ -345,7 +345,8 @@ fn all_made(log: &str, templates: &[u32]) -> bool {
 /// Behaviour: server.makes.a-real-start-describes-what-the-server-makes
 #[test]
 fn a_real_start_describes_everything_the_servers_rules_make() {
-    let named = by_the_server(&Portal::open().start_rules());
+    let p = Portal::open();
+    let named = by_the_server(&p.start_rules(), &p.mount_items());
     let log = answered(&named, "yalain-live-catalog-server");
     assert!(all_made(&log, &named), "{log}");
     let log = answered(&[0x4700_0001], "yalain-live-catalog-control");

@@ -17,7 +17,7 @@ use yalain_content::{ContentObject, CraftStart, DeathSpawn, Props, QuestTable, S
 
 use yalain_store::Store;
 
-use crate::{death, inventory, mounts, pets, plants, usable, Server};
+use crate::{death, inventory, pets, plants, usable, Server};
 
 /// Can this world make a thing of this template?
 #[must_use]
@@ -26,17 +26,18 @@ pub fn can_make<S: Store>(s: &Server<S>, template: u32) -> bool {
 }
 
 /// What the server's own rules make, whatever the world holds: the corpse, the races' starting
-/// packs and the book a new character is given, the mounts, a summoned portal, every kind of pet,
-/// the dye plants and what they give, and the nodes maps conjure.
+/// packs and the book a new character is given, the mount items (`mounts`, as
+/// [`crate::mounts::Mounts::catalog_items`] gives them), a summoned portal, every kind of pet, the dye
+/// plants and what they give, and the nodes maps conjure.
 #[must_use]
-pub fn by_the_server(start: &crate::StartRules) -> Vec<u32> {
+pub fn by_the_server(start: &crate::StartRules, mounts: &[u32]) -> Vec<u32> {
     let starting = start.items.values().flatten().map(|i| i.template);
     let plants = plants::SPECIES
         .iter()
         .flat_map(|p| [p.plant, p.seed, p.harvest].into_iter().chain(p.pollen));
     starting
         .chain([death::CORPSE_TEMPLATE, inventory::GUIDE_BOOK])
-        .chain(mounts::ITEMS)
+        .chain(mounts.iter().copied())
         .chain([usable::portals::TEMPLATE])
         .chain(pets::fallback_kinds().iter().map(|k| k.template))
         .chain(plants)

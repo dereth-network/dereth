@@ -73,28 +73,13 @@ pub const PET_ORDER_SHOWN_AS: u32 = 1;
 pub const WALKED_IN: f64 = 3.8;
 pub const ARRIVED_IN: f64 = 1.2;
 
-/// The mount items the world's catalog always holds: the ephemeral, steady and lasting saddles of
-/// the five Ataurs and the Crystalline Tyrant Eggs (2017: 168 saddle mounts, 103 egg mounts).
-pub const ITEMS: [u32; 18] = [
-    0x4700_089E,
-    0x4700_089F,
-    0x4700_08A0,
-    0x4700_08A2,
-    0x4700_08A3,
-    0x4700_08A4,
-    0x4700_08A6,
-    0x4700_08A7,
-    0x4700_08A8,
-    0x4700_08AA,
-    0x4700_08AB,
-    0x4700_08AC,
-    0x4700_08AE,
-    0x4700_08AF,
-    0x4700_08B0,
-    0x4700_14CA,
-    0x4700_14CB,
-    0x4700_14CC,
-];
+/// The class of the saddles: its templates whose use mounts their user are the ephemeral, steady
+/// and lasting saddles of the five Ataurs (2017: 168 saddle mounts).
+pub const SADDLE_CLASS: &str = "SaddleTemplate";
+
+/// The Crystalline Tyrant Eggs (2017: 103 egg mounts). They are trophies, and the install tells
+/// them from another trophy whose use mounts by nothing but their ids.
+pub const EGGS: [u32; 3] = [0x4700_14CA, 0x4700_14CB, 0x4700_14CC];
 
 /// The script package mount effects derive from, and the singleton of the mount table.
 pub const MOUNT_EFFECT: &str = "MountEffect";
@@ -199,6 +184,16 @@ impl Mounts {
                 self.items.insert(*template, e.state);
             }
         }
+    }
+
+    /// The mount items the world's catalog always holds: the items noted so far (the saddle
+    /// class's, as a start notes them before its catalog), in order, and the eggs.
+    #[must_use]
+    pub fn catalog_items(&self) -> Vec<u32> {
+        let mut out: Vec<u32> = self.items.keys().copied().collect();
+        out.sort_unstable();
+        out.extend(EGGS.iter().filter(|e| !self.items.contains_key(e)));
+        out
     }
 
     /// The look of a rider of this race and sex, whose own look is `own`, on a mount of this type.

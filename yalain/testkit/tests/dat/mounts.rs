@@ -70,3 +70,40 @@ fn the_mounts_read_as_the_data_defines_them() {
         .expect("a body's own appearance");
     assert_eq!(face.get(12), Some(&0.6));
 }
+
+/// The mount items a start holds are the install's saddles, the fifteen templates of the saddle
+/// class whose use mounts their user (not the class's bare template or its test), and the three
+/// eggs; the trophy that mounts its user and is no egg is not among them.
+/// Behaviour: server.mounts.items-from-the-install
+#[test]
+fn the_mount_items_are_the_fifteen_saddles_and_the_three_eggs() {
+    let p = Portal::open();
+    let items = p.mount_items();
+    assert_eq!(
+        items,
+        [
+            0x4700_089E,
+            0x4700_089F,
+            0x4700_08A0,
+            0x4700_08A2,
+            0x4700_08A3,
+            0x4700_08A4,
+            0x4700_08A6,
+            0x4700_08A7,
+            0x4700_08A8,
+            0x4700_08AA,
+            0x4700_08AB,
+            0x4700_08AC,
+            0x4700_08AE,
+            0x4700_08AF,
+            0x4700_08B0,
+            0x4700_14CA,
+            0x4700_14CB,
+            0x4700_14CC,
+        ]
+    );
+    assert!(!items.contains(&0x4700_1BFD));
+    // The Golden Saddle's use mounts too, by the effect enumeration, as the eggs' do.
+    assert!(p.mounts(&[0x4700_134A]).items.contains_key(&0x4700_134A));
+    assert!(!items.contains(&0x4700_134A));
+}

@@ -1761,20 +1761,36 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             craft_skills = craft.skills.len(),
             "the effects and crafting read"
         );
-        let more: Vec<u32> = yalain_world::makes::by_the_server(&data::start_rules(portal)?)
-            .into_iter()
-            .chain(yalain_world::makes::by_the_rows(
-                yalain_world::makes::Rows {
-                    objects: &content.objects,
-                    stores: &stores,
-                    quests: &quests,
-                    crafting: &crafting,
-                    death_spawns: &death_spawns,
-                    pets: &pet_kinds,
-                },
-            ))
-            .chain(craft.templates())
+        // The mounts, their effects read with the rest.
+        let bodies: Vec<u32> = data::chargen_rules(portal)?
+            .bodies
+            .values()
+            .copied()
             .collect();
+        let mut mounts = data::mounts(portal, &bodies)?;
+        states.extend(mounts.effects.keys().copied());
+        tracing::info!(
+            effects = mounts.effects.len(),
+            looks = mounts.looks.len(),
+            "the mounts read"
+        );
+        let mount_items = data::mount_items(portal, &mut mounts)?;
+        tracing::info!(items = mount_items.len(), "the mount items read");
+        let more: Vec<u32> =
+            yalain_world::makes::by_the_server(&data::start_rules(portal)?, &mount_items)
+                .into_iter()
+                .chain(yalain_world::makes::by_the_rows(
+                    yalain_world::makes::Rows {
+                        objects: &content.objects,
+                        stores: &stores,
+                        quests: &quests,
+                        crafting: &crafting,
+                        death_spawns: &death_spawns,
+                        pets: &pet_kinds,
+                    },
+                ))
+                .chain(craft.templates())
+                .collect();
         let (mut catalog, mut skipped) = data::catalog(portal, &spawns, &loot, &more)?;
         // The weapons the creatures wield, described with the rest.
         let weapons = data::creature_weapons(portal, &catalog, &listed_weapons)?;
@@ -1826,19 +1842,6 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         tracing::info!(read = calendar.is_some(), "the calendar");
         let vitae_costs = data::vitae_costs(portal)?;
         let item_effects = data::item_effects(portal, &catalog)?;
-        // The mounts, their effects read with the rest.
-        let bodies: Vec<u32> = data::chargen_rules(portal)?
-            .bodies
-            .values()
-            .copied()
-            .collect();
-        let mut mounts = data::mounts(portal, &bodies)?;
-        states.extend(mounts.effects.keys().copied());
-        tracing::info!(
-            effects = mounts.effects.len(),
-            looks = mounts.looks.len(),
-            "the mounts read"
-        );
         // The effects the items' uses put on, read with the rest.
         let (item_uses, worn_effects, death_effects) = data::item_uses(portal, &catalog)?;
         states.extend(item_uses.values().flatten().map(|e| e.state));

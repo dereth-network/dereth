@@ -6831,6 +6831,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.mounts.items-from-the-install",
+        says: "The mount items a start holds are the install's templates of the saddle class \
+               whose use mounts their user, fifteen, and the three eggs.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MOUNT-ITEMS-READ"),
+        station: "yalain-testkit::dat::mounts::the_mount_items_are_the_fifteen_saddles_and_the_three_eggs",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.mounts.mounted-look",
         says: "A rider looks like its mount's look for its race and sex, wearing its own appearance \
                over its body's defaults.",

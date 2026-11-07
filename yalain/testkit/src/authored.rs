@@ -362,6 +362,36 @@ impl Portal {
         m
     }
 
+    /// The mount items the world's catalog always holds, as the server reads them at start: the
+    /// saddle class's templates whose use mounts their user, and the eggs.
+    ///
+    /// # Panics
+    /// The library does not read.
+    #[must_use]
+    pub fn mount_items(&self) -> Vec<u32> {
+        let lib = self.library();
+        let Some(saddle) = lib.package_id(yalain_world::mounts::SADDLE_CLASS) else {
+            return yalain_world::mounts::EGGS.to_vec();
+        };
+        let ids: Vec<u32> = self
+            .dat
+            .entries_in(0x4700_0000, 0x47FF_FFFF)
+            .map(|e| e.id)
+            .collect();
+        let saddles: Vec<u32> = ids
+            .into_iter()
+            .filter(|id| {
+                self.entity(*id).is_some_and(|e| {
+                    e.kind == Some(0x4000_0002)
+                        && e.object.is_some_and(|pkg| lib.derives_from(pkg, saddle))
+                })
+            })
+            .collect();
+        let mut m = self.mounts(&[]);
+        m.note_items(&self.item_uses(&saddles));
+        m.catalog_items()
+    }
+
     /// Does a template's script package derive from any of the script library's packages named?
     ///
     /// # Panics
@@ -561,7 +591,7 @@ impl Portal {
             .iter()
             .flat_map(|p| p.items.iter().map(|(t, _)| *t));
         // Everything the server's rules and the world's rows make, as a real start asks for it.
-        let made = yalain_world::makes::by_the_server(&self.start_rules())
+        let made = yalain_world::makes::by_the_server(&self.start_rules(), &self.mount_items())
             .into_iter()
             .chain(yalain_world::makes::by_the_rows(
                 yalain_world::makes::Rows {

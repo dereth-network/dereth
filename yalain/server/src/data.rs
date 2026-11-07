@@ -625,6 +625,52 @@ pub fn mounts(p: &Portal, bodies: &[u32]) -> Result<yalain_world::mounts::Mounts
     ))
 }
 
+/// The mount items the world's catalog always holds: the install's templates of the saddle class
+/// whose use puts on a mount effect (noted in `mounts`, as item uses resolve their effects), and
+/// the eggs.
+///
+/// # Errors
+/// The library does not read.
+pub fn mount_items(
+    p: &Portal,
+    mounts: &mut yalain_world::mounts::Mounts,
+) -> Result<Vec<u32>, String> {
+    use yalain_world::item_use::{read_named, USED};
+    let lib = library(p)?;
+    let Some(saddle) = lib.package_id(yalain_world::mounts::SADDLE_CLASS) else {
+        return Ok(mounts.catalog_items());
+    };
+    let prop_name = |id: u32| {
+        p.ctx
+            .properties()
+            .and_then(|l| l.names.name(id))
+            .map(str::to_string)
+    };
+    let ids: Vec<u32> = p
+        .dat
+        .entries_in(0x4700_0000, 0x47FF_FFFF)
+        .map(|e| e.id)
+        .collect();
+    let saddles: Vec<(u32, Props)> = ids
+        .into_iter()
+        .filter(|id| {
+            p.entity(*id).is_some_and(|e| {
+                e.kind == Some(ENTITY_OF_PACKAGE)
+                    && e.object.is_some_and(|pkg| lib.derives_from(pkg, saddle))
+            })
+        })
+        .map(|id| (id, Props::of(id, &|e| p.entity(e), &prop_name)))
+        .collect();
+    let states = saved_states(p)?.iter().map(|s| (s.id, s.package, s.value));
+    mounts.note_items(&read_named(
+        lib,
+        states,
+        saddles.iter().map(|(id, props)| (*id, props)),
+        USED,
+    ));
+    Ok(mounts.catalog_items())
+}
+
 /// The interaction tables the item templates name (what each item may be used on).
 ///
 /// # Errors
