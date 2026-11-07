@@ -11,6 +11,7 @@ what they see, not how it was done.
 - What a pet's hit carries now lands on its target, and Master Hive fires wasps.
 - A Spirit's buff now reaches its owner and fellows.
 - New characters' starting clothes are real items you can take off and put back on.
+- Fixed recipes and spells given for an item handed over never working.
 
 ## 0.2.2 (2026-11-07)
 - Resurrection skills work: the dead can accept and get up where they fell.

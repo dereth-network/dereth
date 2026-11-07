@@ -1692,8 +1692,8 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             tables = skills.tables.len(),
             "the skills read"
         );
-        // The effects skills and quests put on players, the recipes they grant, and the effects
-        // the recipes put on their makers.
+        // The effects skills, quests and gives put on players, the recipes they grant, and the
+        // effects the recipes put on their makers.
         let mut states: Vec<u32> = skills
             .skills
             .values()
@@ -1705,13 +1705,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
                     .chain(&u.required_effects)
                     .copied()
             })
-            .chain(quests.steps.iter().flat_map(|s| s.effects.iter().copied()))
-            .chain(
-                quests
-                    .quests
-                    .iter()
-                    .flat_map(|q| q.effects.iter().map(|(_, e)| *e)),
-            )
+            .chain(quests.effect_states())
             .collect();
         let effects = data::effect_table(portal, &states)?;
         let granted: Vec<u32> = effects

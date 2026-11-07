@@ -384,6 +384,20 @@ impl QuestTable {
             .find(|p| p.phase == phase && !p.quests.is_empty())
     }
 
+    /// Every effect the quests' updates, the steps and the gives put on a player, by its saved
+    /// state: what the start reads from the install, with the recipes they grant.
+    pub fn effect_states(&self) -> impl Iterator<Item = u32> + '_ {
+        self.steps
+            .iter()
+            .flat_map(|s| s.effects.iter().copied())
+            .chain(
+                self.quests
+                    .iter()
+                    .flat_map(|q| q.effects.iter().map(|(_, e)| *e)),
+            )
+            .chain(self.gives.iter().flat_map(|g| g.effects.iter().copied()))
+    }
+
     /// The quests and phases a quest is a subquest of.
     pub fn parents(&self, sub: u32) -> impl Iterator<Item = (u32, u32)> + '_ {
         self.quests.iter().flat_map(move |q| {
@@ -842,5 +856,32 @@ impl QuestTable {
             }
         }
         Ok(t)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Behaviour: none (the table's own list of the effects its rows name, on a hand-built table)
+    use super::*;
+
+    #[test]
+    fn an_effect_only_a_give_names_is_among_the_effects_the_table_names() {
+        let give = Give {
+            to: 0x4700_31D9,
+            item: Some(0x4700_31DA),
+            wants: None,
+            gives: Vec::new(),
+            counts: Vec::new(),
+            effects: vec![0x6F00_1DEF],
+            text: None,
+            fx: None,
+            requires: Vec::new(),
+            placed: "authored for a test".into(),
+        };
+        let t = QuestTable {
+            gives: vec![give],
+            ..QuestTable::default()
+        };
+        assert_eq!(t.effect_states().collect::<Vec<_>>(), vec![0x6F00_1DEF]);
     }
 }
