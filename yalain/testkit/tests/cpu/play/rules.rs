@@ -169,6 +169,40 @@ fn a_weapons_critical_bonus_adds_to_the_chance_among_hits_that_land() {
     assert!((n0 - n1).abs() / n0 < 0.02, "{n0} {n1}");
 }
 
+/// A creature's skill is critical at what its class's threshold falls short of 2: none at 2 or more,
+/// a fortieth at 1.975, a twentieth at 1.95, all at 1 or less; a creature's missile comes out
+/// critical at the chance given among those that land, whatever its kind's measured share.
+/// Behaviour: server.combat.creature-critical-by-skill
+#[test]
+fn a_creatures_critical_chance_is_what_its_skills_threshold_falls_short_of_two() {
+    for (threshold, chance) in [
+        (2.0, 0.0),
+        (2.5, 0.0),
+        (1.975, 0.025),
+        (1.95, 0.05),
+        (1.8, 0.2),
+        (1.0, 1.0),
+        (-1.0, 1.0),
+    ] {
+        let got = rules::skill_critical(threshold);
+        assert!((got - chance).abs() < 1e-6, "{threshold}: {got}");
+    }
+    let mut rng = yalain_world::rng::Rng::new(13);
+    let mut share = |critical: f64| {
+        let (mut landed, mut crits) = (0, 0);
+        for _ in 0..4_000 {
+            let o = rules::roll_missile(&mut rng, Kind::Missile, (20, 20), false, critical);
+            landed += u32::from(o.landed());
+            crits += u32::from(o == rules::Outcome::Critical);
+        }
+        assert!(landed > 1_000, "{landed}");
+        (crits, landed)
+    };
+    assert_eq!(share(0.0).0, 0, "a skill that sets none");
+    let (crits, landed) = share(1.0);
+    assert_eq!(crits, landed, "a skill that sets all of it");
+}
+
 /// A special is critical only by what its weapon adds: never with a weapon that adds nothing, and at
 /// that share with one that adds.
 /// Behaviour: server.specials.critical-by-weapon-only

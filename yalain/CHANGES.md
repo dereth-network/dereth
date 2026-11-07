@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Creatures' critical hits now depend on the attack: plain ones never, stronger ones more often.
 - Turrets now spend vigor on their shots, and Self-Destruct blows the turret up where it stands.
 - Lashers close in to bite after a throw that doesn't land.
 - Kingdom shrines now grant the kingdom skills a player's points have earned.

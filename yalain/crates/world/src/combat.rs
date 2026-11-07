@@ -1746,6 +1746,31 @@ pub fn critical_bonus<S: Store>(s: &Server<S>, weapon: Option<u64>) -> f64 {
         .sum()
 }
 
+/// What the weapon a creature holds adds to the chance of its attacks' criticals: the first one's
+/// own (its template's) and what its effects add (2017: creatures holding a weapon of 0.17, landed
+/// attacks of skills that set none critical 24 of 145 times, of skills that set 0.05 68 of 299).
+#[must_use]
+pub fn creature_critical_bonus<S: Store>(s: &Server<S>, creature: u64) -> f64 {
+    let Some(weapon) = s
+        .things
+        .get(creature)
+        .and_then(|t| t.creature.as_ref())
+        .and_then(|c| c.weapons.first().copied())
+    else {
+        return 0.0;
+    };
+    let own = s
+        .things
+        .get(weapon)
+        .and_then(|t| s.catalog.get(t.template))
+        .and_then(|t| t.props.float(WEAPON_CRITICAL))
+        .map_or(0.0, f64::from);
+    own + critical_bonus(s, Some(weapon))
+}
+
+/// A weapon template's own addition to the chance of a critical.
+pub const WEAPON_CRITICAL: &str = "Weapon_CriticalHitMod";
+
 /// A player as its hits on creatures are reckoned: its level, the first weapon it wields, what its
 /// effects add.
 #[must_use]
@@ -1968,12 +1993,13 @@ pub fn creature_strike_with<S: Store>(
         return;
     };
     let (pid, my_level) = (p.character, crate::examine::level_of(&p.qualities));
-    let outcome = rules::roll_outcome(
+    let critical = skill.critical + creature_critical_bonus(s, id);
+    let outcome = rules::roll_with_critical(
         &mut s.rng,
         Direction::CreatureOnPlayer,
         skill.kind,
-        level,
-        my_level,
+        (level, my_level),
+        critical,
     );
     // Strikes are evaded, never missed.
     let outcome = if outcome == Outcome::Miss {
@@ -2186,12 +2212,13 @@ pub fn thing_strikes_thing<S: Store>(
         skill
     };
     let their_level = s.things.get(target).map_or(1, crate::things::Thing::level);
-    let outcome = rules::roll_outcome(
+    let critical = skill.critical + creature_critical_bonus(s, id);
+    let outcome = rules::roll_with_critical(
         &mut s.rng,
         Direction::CreatureOnPlayer,
         skill.kind,
-        stats.level,
-        their_level,
+        (stats.level, their_level),
+        critical,
     );
     let outcome = if outcome == Outcome::Miss {
         Outcome::Evade

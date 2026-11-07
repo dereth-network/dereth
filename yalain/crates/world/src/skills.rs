@@ -321,6 +321,9 @@ pub struct SkillDef {
     pub attribute_mod: f32,
     /// What it gives, for a skill that is a perk.
     pub perk: Option<Perk>,
+    /// The threshold its class sets for its landed attacks to be critical ([`critical_threshold`]);
+    /// none when no class of it sets one.
+    pub critical_threshold: Option<f32>,
 }
 
 /// What a perk gives: its kind, its value, and its priority among the perks of its kind.
@@ -399,6 +402,9 @@ impl SkillTable {
             if let Ok(mut d) = SkillDef::from_state(*skill, lib, &g) {
                 d.kind = crate::rules::kind_of_name(name);
                 d.helps = crate::rules::helps_by_name(name);
+                d.critical_threshold = lib
+                    .package_id(name)
+                    .and_then(|pkg| critical_threshold(lib, pkg));
                 t.skills.insert(*skill, d);
                 t.by_package.insert(pkg, *skill);
             }
@@ -411,6 +417,74 @@ impl SkillTable {
         }
         t
     }
+}
+
+/// The function of a used skill's class that sets the threshold for its attacks' criticals.
+const SET_CRITICAL_THRESHOLD: &str = "SetCriticalThreshold";
+
+/// The threshold a skill's class sets for its landed attacks to be critical: the literal its
+/// constructor (its own, else the nearest of its bases') passes to the setter, the last call with one
+/// counting; none when none of them sets it with a literal. Its definition does not hold it.
+#[must_use]
+pub fn critical_threshold(lib: &Library, package: u32) -> Option<f32> {
+    let setter = lib
+        .package_id(ACTIVE_SKILL)
+        .and_then(|p| lib.package(p))?
+        .functions
+        .iter()
+        .find(|f| f.name == SET_CRITICAL_THRESHOLD)?
+        .id
+        .0;
+    let mut at = lib.export_of(package);
+    let mut guard = 0;
+    while let Some(i) = at {
+        let p = lib.packages.get(i)?;
+        let found = p
+            .functions
+            .iter()
+            .filter(|f| f.name == "constructor")
+            .find_map(|f| float_passed(lib, f.offset?, f.size, setter));
+        if found.is_some() {
+            return found;
+        }
+        at = p.parent;
+        guard += 1;
+        if guard > lib.packages.len() {
+            return None;
+        }
+    }
+    None
+}
+
+/// The float literal pushed before the last call of `setter` in the code at a byte offset and size
+/// (the receiver pushed for the call leaves it alone; anything else pushed clears it).
+fn float_passed(lib: &Library, offset: u32, size: u32, setter: u32) -> Option<f32> {
+    use auberean_script::opcode::{length, low_byte, op, tag_of};
+    use auberean_script::value::{tag, FunctionId};
+    let start = (offset / 4) as usize;
+    let end = (start + (size / 4) as usize).min(lib.code.len());
+    let mut float: Option<f32> = None;
+    let mut found = None;
+    let mut at = start;
+    while at < end {
+        let word = lib.code[at];
+        match low_byte(word) {
+            op::PUSH if tag_of(word) == tag::FLOAT => {
+                float = lib.code.get(at + 1).map(|v| f32::from_bits(*v));
+            }
+            op::LOAD_THIS => {}
+            op::CALL | op::THIS_CALL | op::LOAD_CALL | op::FIELD_LOAD_CALL => {
+                let id = lib.code.get(at + 1).copied().unwrap_or(0);
+                if id & !FunctionId::DIRECT == setter & !FunctionId::DIRECT {
+                    found = float.or(found);
+                }
+                float = None;
+            }
+            _ => float = None,
+        }
+        at += length(&lib.code, at).unwrap_or(1);
+    }
+    found
 }
 
 /// The skills' names (an enumeration: a skill's value and its definition's package name).
@@ -501,6 +575,7 @@ impl SkillDef {
                     })
                 })
                 .flatten(),
+            critical_threshold: None,
         })
     }
 }

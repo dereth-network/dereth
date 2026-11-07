@@ -67,7 +67,9 @@ use crate::{presence, quals, Clock, Server, Timer};
 /// what its hook adds at the creature's rating, how much harder it hits than the plain attack of
 /// its kind (for a skill without a definition), the chance a creature uses it at an attack when it
 /// is a special (0: the general one), whether its hit drains the target too, its greatest range
-/// and whether a use bars it for a while.
+/// and whether a use bars it for a while; and its chance of a critical among its landed attacks,
+/// before what the creature's weapon adds (its class's, [`rules::skill_critical`]; for a skill
+/// without a definition, its kind's measured share).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct AttackSkill {
     pub skill: u32,
@@ -76,6 +78,7 @@ pub struct AttackSkill {
     pub missile: bool,
     pub added: f32,
     pub factor: f32,
+    pub critical: f64,
     pub special_chance: f32,
     pub drains: bool,
     pub max_range: f32,
@@ -90,6 +93,7 @@ const fn attack(skill: u32, behavior: u32, kind: Kind, factor: f32) -> AttackSki
         missile: !matches!(kind, Kind::Melee),
         added: 0.0,
         factor,
+        critical: rules::fit(rules::Direction::CreatureOnPlayer, kind).critical,
         special_chance: 0.0,
         drains: false,
         max_range: if matches!(kind, Kind::Melee) {
@@ -175,6 +179,7 @@ pub fn attack_skill(
         missile,
         added,
         factor: 1.0,
+        critical: d.critical_threshold.map_or(0.0, rules::skill_critical),
         special_chance: known.map_or(0.0, |k| k.special_chance),
         drains: known.is_some_and(|k| k.drains),
         max_range: u.max_range,
@@ -548,7 +553,8 @@ pub fn arrives<S: Store>(s: &mut Server<S>, net: &mut ServerNet, f: Flight, cloc
     }
     let my_level = crate::examine::level_of(&p.qualities);
     let moved = presence::distance(&f.from, &p.position).is_none_or(|d| d > MOVED);
-    let outcome = rules::roll_missile(&mut s.rng, f.skill.kind, level, my_level, moved);
+    let critical = f.skill.critical + combat::creature_critical_bonus(s, f.creature);
+    let outcome = rules::roll_missile(&mut s.rng, f.skill.kind, (level, my_level), moved, critical);
     let more = effects_add(s, f.creature);
     let damage = if outcome.landed() {
         let armor = combat::armor_on(s, world);

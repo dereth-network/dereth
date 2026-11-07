@@ -1241,6 +1241,26 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.combat.creature-critical-by-skill",
+        says: "A creature's landed attack is critical at the chance its skill's class sets: what \
+               the class's threshold falls short of 2, none at 2 (a creature's plain attacks), a \
+               fortieth at 1.975 (`Strong`), a twentieth at 1.95 (`Stronger`). A skill the server \
+               has no definition of keeps its kind's measured share.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-CRITICAL-SKILL"),
+        station: "yalain-testkit::dat::skills::creatures_attacks_are_critical_at_the_chance_their_skills_class_sets",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.combat.creature-critical-by-weapon",
+        says: "What the weapon a creature holds adds to the chance of a critical, its template's \
+               own and what its effects add, goes on top of its skill's, struck or loosed.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-CRITICAL-WEAPON"),
+        station: "yalain-testkit::cpu::play::creature_weapons::a_creatures_weapon_adds_its_critical_chance_to_its_skills",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.combat.creature-damage-through-armor",
         says: "A creature's hit does its natural damage in full to a player of level 1 or 2, \
                whatever it wears; on a creature, the share armor lets through by the level hit.",

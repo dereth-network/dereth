@@ -68,6 +68,45 @@ fn creatures_attacks_read_from_their_skills_definitions() {
     assert!(attack_skill(&t, 2, 0).is_none(), "a rating");
 }
 
+/// A creature's attack is critical at the chance its skill's class sets, read from the class's code:
+/// the plain attacks of each kind never, `Strong` a fortieth of the time, `Stronger` and the harming
+/// missile a twentieth; a player's Critical Shot sets a fifth.
+/// Behaviour: server.combat.creature-critical-by-skill
+#[test]
+fn creatures_attacks_are_critical_at_the_chance_their_skills_class_sets() {
+    let t = Portal::open().skills();
+    for (skill, chance) in [
+        (1845, 0.0),
+        (1861, 0.0),
+        (1840, 0.0),
+        (1846, 0.025),
+        (1865, 0.025),
+        (1841, 0.025),
+        (1847, 0.05),
+        (1866, 0.05),
+        (1842, 0.05),
+        (1860, 0.05),
+    ] {
+        let a = attack_skill(&t, skill, 1).expect("an attack");
+        assert!(
+            (a.critical - chance).abs() < 1e-6,
+            "{skill}: {}",
+            a.critical
+        );
+    }
+    assert_eq!(
+        t.skills[&205].critical_threshold,
+        Some(1.8),
+        "Critical Shot"
+    );
+    let set = t
+        .skills
+        .values()
+        .filter(|d| d.usage.is_some() && d.critical_threshold.is_some())
+        .count();
+    assert!(set > 1_500, "most used skills set one: {set}");
+}
+
 /// The two summoning skills are used as the recall is, at half the user's vigor: Summon Lifestone
 /// and Summon Portal power up for 10 seconds, only on their user, and name the effects that open
 /// their portals; the portal's template is one that is not walked into.

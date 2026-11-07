@@ -295,3 +295,95 @@ fn a_creature_moves_the_drawn_slider_as_it_draws_and_puts_away_its_weapons() {
     let (b, _, id) = noticed(&mut h);
     assert!(!h.world_messages(b, 0).iter().any(|m| slid(m, id)));
 }
+
+/// What a creature's attacks came out as on the player since a message, by the skill they used:
+/// struck or arrived, each hook's result.
+fn results_of(h: &Harness, b: usize, from: usize, id: u64, skill: u32) -> Vec<u32> {
+    h.world_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::DoStory(e) if e.action.attacker == id && e.action.skill == skill => {
+                Some(e.action.hooks.clone())
+            }
+            _ => None,
+        })
+        .flatten()
+        .map(|k| k.numbers[0].cast_unsigned())
+        .filter(|r| *r != 0)
+        .collect()
+}
+
+/// A creature's landed attack is critical at its skill's chance with what the weapon it holds adds,
+/// its template's own: struck or loosed, a weapon that adds all of it makes every landed attack
+/// critical whatever the skill, a skill that sets all of it does with a weapon that adds nothing,
+/// and with neither none is.
+/// Behaviour: server.combat.creature-critical-by-weapon
+#[test]
+fn a_creatures_weapon_adds_its_critical_chance_to_its_skills() {
+    use yalain_world::missiles::{self, CREATURE_ATTACKS};
+    use yalain_world::rules::Outcome;
+    let (hit, critical) = (Outcome::Hit.code(), Outcome::Critical.code());
+    // The weapon's addition, the skill's chance, loosed: the results of 30 attacks.
+    let results = |adds: f32, chance: f64, loosed: bool| -> Vec<u32> {
+        let mut sword = Props::default();
+        sword.set("Weapon_CriticalHitMod", Prop::Float(adds));
+        let mut h = world(
+            creature(&[
+                ("AI_Inventory1", Prop::Text("SwordBerserkerChaos".into())),
+                WIELDS,
+            ]),
+            &[("SwordBerserkerChaos", SWORD, sword)],
+        );
+        let (b, me, id) = noticed(&mut h);
+        assert_eq!(held(&h, id).len(), 1);
+        let world = *h
+            .server
+            .players
+            .iter()
+            .find(|(_, p)| p.character == me)
+            .expect("in the world")
+            .0;
+        // A strike and a missile of a skill the creature's own attacks never use.
+        let skill = missiles::AttackSkill {
+            critical: chance,
+            ..CREATURE_ATTACKS[if loosed { 5 } else { 2 }]
+        };
+        let from = h.bots[b].inbox.len();
+        for _ in 0..30 {
+            if let Some(c) = h
+                .server
+                .things
+                .get_mut(id)
+                .and_then(|t| t.creature.as_mut())
+            {
+                c.next_attack = f64::MAX;
+            }
+            let clock = h.clock();
+            if loosed {
+                missiles::launch(&mut h.server, &mut h.net, id, world, skill, false, clock);
+            } else {
+                yalain_world::combat::creature_strike_with(
+                    &mut h.server,
+                    &mut h.net,
+                    id,
+                    world,
+                    skill,
+                    false,
+                    clock,
+                );
+            }
+            h.run(30);
+        }
+        let landed: Vec<u32> = results_of(&h, b, from, id, skill.skill)
+            .into_iter()
+            .filter(|r| *r == hit || *r == critical)
+            .collect();
+        assert!(landed.len() >= 5, "{adds} {chance} {loosed}: {landed:x?}");
+        landed
+    };
+    for loosed in [false, true] {
+        assert!(results(1.0, 0.0, loosed).iter().all(|r| *r == critical));
+        assert!(results(0.0, 1.0, loosed).iter().all(|r| *r == critical));
+        assert!(results(0.0, 0.0, loosed).iter().all(|r| *r == hit));
+    }
+}
