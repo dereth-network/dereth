@@ -241,6 +241,9 @@ pub struct EraFormulas {
     /// A missile loses attack skill as its target nears the limit of the weapon's reach, measured
     /// when it leaves the weapon.
     pub long_range_missile_penalty: bool,
+    /// A thrown weapon has no flight speed of its own: speed and reach come from the thrower's
+    /// Strength and the weapon's weight.
+    pub thrown_reach_by_strength: bool,
     /// The spell fixes shipped by February 2000, over the 1999 spell table: longer enchantments by
     /// level, shorter drains and harms, costlier portal spells and a resistable Imperil.
     pub early_2000_spell_fixes: bool,
@@ -280,6 +283,7 @@ impl EraFormulas {
         unassigned_xp_cap: None,
         total_xp_cap: None,
         long_range_missile_penalty: false,
+        thrown_reach_by_strength: false,
         early_2000_spell_fixes: false,
     };
 
@@ -302,6 +306,7 @@ impl EraFormulas {
         unassigned_xp_cap: Some(u32::MAX as i64),
         total_xp_cap: Some(u32::MAX as i64),
         long_range_missile_penalty: false,
+        thrown_reach_by_strength: false,
         early_2000_spell_fixes: false,
     };
 
@@ -329,6 +334,8 @@ impl EraFormulas {
         total_xp_cap: Some(u32::MAX as i64),
         // ac1999's reconstruction: a period endpoint and its own curve.
         long_range_missile_penalty: true,
+        // ac1999's fit to the anchors of a period guide.
+        thrown_reach_by_strength: true,
         // ac1999's dat migrations, as rules.
         early_2000_spell_fixes: true,
     };
@@ -748,6 +755,16 @@ mod tests {
         for rules in [&EOR, &INFILTRATION] {
             assert!(!rules.formulas.long_range_missile_penalty);
             assert!(!rules.formulas.early_2000_spell_fixes);
+        }
+    }
+
+    /// Divergence: V515
+    /// Only Launch throws by Strength and weight.
+    #[test]
+    fn only_launch_throws_by_strength_and_weight() {
+        assert!(LAUNCH.formulas.thrown_reach_by_strength);
+        for rules in [&EOR, &INFILTRATION] {
+            assert!(!rules.formulas.thrown_reach_by_strength);
         }
     }
 

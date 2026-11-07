@@ -23,6 +23,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Launch: long shots lose accuracy near the limit of the weapon's range.
 - Launch: enchantments last longer the higher their level.
 - Launch: harm and drain spells on others reach less far, and portal spells are harder to cast.
+- Launch: how far you throw depends on your Strength and the weapon's weight.
 - Launch: Imperil Other can now be resisted.
 
 ## 0.3.10 (2026-11-05)
