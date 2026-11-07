@@ -217,6 +217,58 @@ fn an_area_hook_reaches_every_creature_within_its_radius_each_with_its_own_outco
         ServerMessage::DoStory(e) if e.sender.id == far)));
 }
 
+/// An area hook is critical at the chance its skill's class sets on every creature it reaches, the
+/// target and those around it alike: none at 2, every landed one when the class sets it all.
+/// Behaviour: server.areas.critical-by-skill
+#[test]
+fn an_area_hook_is_critical_at_its_skills_chance_on_every_creature_it_reaches() {
+    let results = |threshold: f32| -> (Vec<u32>, Vec<u32>) {
+        let (mut h, b, me, beetles) = beside_beetles(2);
+        let (target, near) = (beetles[0], beetles[1]);
+        place(&mut h, me, target, 6.0, 0.0);
+        place(&mut h, me, near, 9.0, 2.0);
+        h.arm(b, me, STAVE);
+        h.server
+            .skill_table
+            .skills
+            .get_mut(&VACUUM)
+            .expect("Vacuum")
+            .critical_threshold = Some(threshold);
+        for id in [target, near] {
+            if let Some(t) = h.server.things.get_mut(id) {
+                t.max_health = 100_000_000;
+                t.health = 100_000_000;
+            }
+        }
+        let (mut on_target, mut around) = (Vec::new(), Vec::new());
+        for use_id in 0..40 {
+            let from = use_skill(&mut h, b, 1 + use_id, VACUUM, target);
+            h.run(400);
+            for k in story_hooks(&h, b, from, me, VACUUM).iter().skip(2) {
+                let r = k.numbers[0].cast_unsigned();
+                if [HIT, CRITICAL].contains(&r) {
+                    if k.target == target {
+                        on_target.push(r);
+                    } else {
+                        around.push(r);
+                    }
+                }
+            }
+            let p = h.server.players.values_mut().next().expect("in the world");
+            quals::set_int(&mut p.qualities, quality::VIGOR, 5000);
+        }
+        assert!(
+            on_target.len() >= 5 && around.len() >= 5,
+            "{threshold}: {on_target:x?} {around:x?}"
+        );
+        (on_target, around)
+    };
+    let (on_target, around) = results(2.0);
+    assert!(on_target.iter().chain(&around).all(|r| *r == HIT));
+    let (on_target, around) = results(1.0);
+    assert!(on_target.iter().chain(&around).all(|r| *r == CRITICAL));
+}
+
 /// An area skill used on its user (the Eye of the Storm) is centered on the user: its hook that
 /// only plays names the user, and its area names the creatures within ten meters of it.
 /// Behaviour: server.areas.centered-on-the-user

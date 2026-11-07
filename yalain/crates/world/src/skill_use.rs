@@ -1806,6 +1806,16 @@ fn by_its_hand<S: Store>(
     })
 }
 
+/// The chance its skill's class sets for a special's landed hook to be critical, before what the
+/// weapon adds ([`rules::skill_critical`]); none for a skill whose class sets none.
+fn skill_critical<S: Store>(s: &Server<S>, skill: u32) -> f64 {
+    s.skill_table
+        .skills
+        .get(&skill)
+        .and_then(|d| d.critical_threshold)
+        .map_or(0.0, rules::skill_critical)
+}
+
 /// What a special's hook does on a creature when it lands.
 fn hook_hit<S: Store>(
     s: &mut Server<S>,
@@ -1826,12 +1836,13 @@ fn hook_hit<S: Store>(
 }
 
 /// How one hook comes out on one creature: a hit, critical, miss or evade by the rules (a strike
-/// is evaded, never missed), and the damage when it lands and hurts.
+/// is evaded, never missed), at the chance of a critical its skill sets with what the hitter's
+/// weapon adds, and the damage when it lands and hurts.
 fn roll_hook<S: Store>(
     s: &mut Server<S>,
     u: &Usage,
     h: &Hook,
-    me: rules::Hitter,
+    (me, chance): (rules::Hitter, f64),
     target: u64,
 ) -> Option<(Outcome, i32)> {
     let (level, armor) = match crate::social::world_of(s, target) {
@@ -1849,7 +1860,7 @@ fn roll_hook<S: Store>(
     } else {
         Kind::Melee
     };
-    let o = rules::roll_special(&mut s.rng, kind, me.level, level, me.critical);
+    let o = rules::roll_special(&mut s.rng, kind, me.level, level, chance + me.critical);
     let o = if kind == Kind::Melee && o == Outcome::Miss {
         Outcome::Evade
     } else {
@@ -1912,6 +1923,7 @@ fn story<S: Store>(
     let me = p.character;
     let my_level = crate::examine::level_of(&p.qualities);
     let me_hits = combat::hitter(s, p);
+    let chance = skill_critical(s, r.skill);
     let rating = rating_of(s, world, r.skill);
     let held = wielded(s, me);
     let on_self = aim == Aim::Me;
@@ -2019,7 +2031,7 @@ fn story<S: Store>(
             Kind::Melee
         };
         let me_hits = by_its_hand(s, world, me_hits, h);
-        let o = rules::roll_special(&mut s.rng, kind, my_level, level, me_hits.critical);
+        let o = rules::roll_special(&mut s.rng, kind, my_level, level, chance + me_hits.critical);
         // Strikes of specials are evaded, never missed.
         let o = if kind == Kind::Melee && o == Outcome::Miss {
             Outcome::Evade
@@ -2045,7 +2057,15 @@ fn story<S: Store>(
     let landings = if helpful(&u) || on_item {
         Vec::new()
     } else {
-        landings_of(s, world, &u, aim, target, outcome, (me_hits, rating))
+        landings_of(
+            s,
+            world,
+            &u,
+            aim,
+            target,
+            outcome,
+            (me_hits, rating, chance),
+        )
     };
     let hooks = story_hooks_with(&u, target, weapon, &landings);
     let hostile_at_player = matches!(aim, Aim::Player(..)) && !helpful(&u);
@@ -2212,7 +2232,7 @@ fn landings_of<S: Store>(
     aim: Aim,
     target: u64,
     rolled: Option<(Outcome, i32)>,
-    (me, rating): (rules::Hitter, f32),
+    (me, rating, chance): (rules::Hitter, f32, f64),
 ) -> Vec<Landing> {
     let center = match aim {
         Aim::Thing(t) => s
@@ -2264,7 +2284,7 @@ fn landings_of<S: Store>(
                 Some(r) if t == target && first_damaging.is_some() => Some(r),
                 _ => {
                     let me = by_its_hand(s, world, me, h);
-                    roll_hook(s, u, h, hitting_with(me, h, rating), t)
+                    roll_hook(s, u, h, (hitting_with(me, h, rating), chance), t)
                 }
             };
             if let Some((outcome, damage)) = o {

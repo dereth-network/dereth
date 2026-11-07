@@ -101,19 +101,50 @@ fn vigor_sent(h: &Harness, b: usize, from: usize) -> Vec<i32> {
         .collect()
 }
 
-/// A special is critical only by what its weapon adds: never from a weapon that adds nothing, every
-/// time from one that adds it all.
-/// Behaviour: server.specials.critical-by-weapon-only
+/// A special's landed hook is critical at the chance its skill's class sets with what its weapon
+/// adds, the weapon's template's own and its effects': with none of them never, with any one that
+/// sets it all every time.
+/// Behaviour: server.specials.critical-by-skill-and-weapon
 #[test]
-fn a_specials_critical_comes_only_from_its_weapon() {
-    use yalain_world::combat::CRITICAL_BONUS;
+fn a_specials_critical_chance_is_its_skills_with_what_its_weapon_adds() {
+    use yalain_content::{Prop, Props};
+    use yalain_world::combat::{CRITICAL_BONUS, WEAPON_CRITICAL};
     use yalain_world::effect_defs::{numeric, EffectDef, Kind, Scale};
     use yalain_world::rules::Outcome;
     const BONUS: u32 = 0x6F00_0001;
-    let results = |bonus: bool| -> Vec<u32> {
+    const BOW_OF_A_CRITICAL: u32 = 0x4700_07A3;
+    #[derive(Clone, Copy, Debug)]
+    enum By {
+        Nothing,
+        Skill,
+        Effect,
+        Template,
+    }
+    let results = |by: By| -> Vec<u32> {
         let (mut h, b, me, beetle) = beside_a_beetle();
         practice_target(&mut h, beetle);
-        let bow = h.arm(b, me, BOW);
+        let mut own = Props::default();
+        own.set("Weapon_Damage", Prop::Int(20))
+            .set("Weapon_Variance", Prop::Float(0.5))
+            .set(WEAPON_CRITICAL, Prop::Float(1.0));
+        h.server.catalog.insert(yalain_testkit::test_template(
+            BOW_OF_A_CRITICAL,
+            0x1067,
+            own,
+        ));
+        h.server
+            .catalog
+            .implements
+            .insert(BOW_OF_A_CRITICAL, yalain_world::skill_use::implement::BOW);
+        let bow = h.arm(
+            b,
+            me,
+            if matches!(by, By::Template) {
+                BOW_OF_A_CRITICAL
+            } else {
+                BOW
+            },
+        );
         h.server.effect_table.effects.insert(
             BONUS,
             EffectDef {
@@ -133,7 +164,7 @@ fn a_specials_critical_comes_only_from_its_weapon() {
                 name: None,
             },
         );
-        if bonus {
+        if matches!(by, By::Effect) {
             h.server
                 .things
                 .get_mut(bow)
@@ -141,6 +172,13 @@ fn a_specials_critical_comes_only_from_its_weapon() {
                 .enchantments
                 .push((BONUS, 9.0));
         }
+        // The class's threshold: 2 sets no chance, 1 all of it.
+        h.server
+            .skill_table
+            .skills
+            .get_mut(&DEADEYE)
+            .expect("Deadeye")
+            .critical_threshold = Some(if matches!(by, By::Skill) { 1.0 } else { 2.0 });
         let t = h.server.things.get_mut(beetle).expect("the beetle");
         t.max_health = 100_000_000;
         t.health = 100_000_000;
@@ -161,20 +199,21 @@ fn a_specials_critical_comes_only_from_its_weapon() {
                 yalain_world::quals::set_int(&mut p.qualities, VIGOR, 100);
             }
         }
+        assert!(out.len() > 30, "{by:?}: {}", out.len());
         out
     };
-    let plain = results(false);
-    assert!(plain.len() > 30, "{}", plain.len());
+    let plain = results(By::Nothing);
     assert!(
         plain.iter().all(|r| *r == Outcome::Hit.code()),
         "{plain:x?}"
     );
-    let with = results(true);
-    assert!(with.len() > 30, "{}", with.len());
-    assert!(
-        with.iter().all(|r| *r == Outcome::Critical.code()),
-        "{with:x?}"
-    );
+    for by in [By::Skill, By::Effect, By::Template] {
+        let with = results(by);
+        assert!(
+            with.iter().all(|r| *r == Outcome::Critical.code()),
+            "{by:?}: {with:x?}"
+        );
+    }
 }
 
 /// Deadeye from rest with the starting bow: the player attacking, in the bow's combat mode,

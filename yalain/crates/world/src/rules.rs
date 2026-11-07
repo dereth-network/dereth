@@ -186,20 +186,21 @@ pub fn roll_basic(
     roll_with_critical(rng, dir, kind, (attacker_level, defender_level), critical)
 }
 
-/// A player's special: its outcome, critical only by what its weapon adds (2017: 6 of the 5,397
-/// specials that landed with a weapon that adds nothing, against basic attacks' 0.043-0.055).
+/// A player's special: its outcome, its chance of a critical what its skill's class sets
+/// ([`skill_critical`]) with what its weapon adds (2017, players' landed specials counted once: at
+/// 2, 434 of 92,997, all by weapons; at 1.8, 469 of 2,258, 0.208).
 pub fn roll_special(
     rng: &mut Rng,
     kind: Kind,
     attacker_level: i32,
     defender_level: i32,
-    bonus: f64,
+    critical: f64,
 ) -> Outcome {
     let dir = Direction::PlayerOnCreature;
-    roll_with_critical(rng, dir, kind, (attacker_level, defender_level), bonus)
+    roll_with_critical(rng, dir, kind, (attacker_level, defender_level), critical)
 }
 
-/// The chance a creature's landed attack is critical by the threshold its skill sets: what the
+/// The chance a landed attack is critical by the threshold its skill's class sets: what the
 /// threshold falls short of 2, none at 2 or more (2017, creatures' landed attacks with a weapon that
 /// adds nothing: at 2, 0 of 162,680; at 1.975, 0.0225 of 17,021; at 1.95, 0.0503 of 12,114).
 #[must_use]

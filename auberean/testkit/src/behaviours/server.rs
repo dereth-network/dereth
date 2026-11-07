@@ -697,6 +697,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.areas.critical-by-skill",
+        says: "An area hook is critical at the chance its skill's class sets on every creature it \
+               reaches, the target and those around it alike.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-AREA-CRITICAL-SKILL"),
+        station: "yalain-testkit::cpu::play::areas::an_area_hook_is_critical_at_its_skills_chance_on_every_creature_it_reaches",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.areas.every-creature-within-the-radius",
         says: "A skill's area hook reaches every live creature whose body is within its radius \
                of the target's: the story names each in turn with its own outcome and damage, \
@@ -12033,11 +12042,13 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
-        id: "server.specials.critical-by-weapon-only",
-        says: "A special is critical only by what its weapon adds to the chance.",
+        id: "server.specials.critical-by-skill-and-weapon",
+        says: "A special's landed hook is critical at the chance its skill's class sets, what the \
+               class's threshold falls short of 2 (none at 2, a fifth at 1.8), with what its \
+               weapon adds: the weapon template's own and its effects'.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-SPECIAL-CRITICAL"),
-        station: "yalain-testkit::cpu::play::specials::a_specials_critical_comes_only_from_its_weapon",
+        station: "yalain-testkit::cpu::play::specials::a_specials_critical_chance_is_its_skills_with_what_its_weapon_adds",
         tier: Tier::Cpu,
     },
     behaviour! {

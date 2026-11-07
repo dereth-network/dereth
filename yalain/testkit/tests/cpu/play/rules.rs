@@ -203,11 +203,11 @@ fn a_creatures_critical_chance_is_what_its_skills_threshold_falls_short_of_two()
     assert_eq!(crits, landed, "a skill that sets all of it");
 }
 
-/// A special is critical only by what its weapon adds: never with a weapon that adds nothing, and at
-/// that share with one that adds.
-/// Behaviour: server.specials.critical-by-weapon-only
+/// A special's roll is critical at the chance it is given, its skill's with what its weapon adds:
+/// never at none, and at that share of those that land otherwise.
+/// Behaviour: server.specials.critical-by-skill-and-weapon
 #[test]
-fn a_special_is_critical_only_by_its_weapons_bonus() {
+fn a_special_is_critical_at_the_chance_its_skill_and_weapon_give() {
     let mut rng = yalain_world::rng::Rng::new(9);
     let mut share = |bonus: f64| {
         let (mut landed, mut critical) = (0.0, 0.0);
@@ -221,6 +221,7 @@ fn a_special_is_critical_only_by_its_weapons_bonus() {
     };
     assert!(share(0.0).abs() < f64::EPSILON);
     assert!((share(0.03) - 0.03).abs() < 0.006);
+    assert!((share(0.2) - 0.2).abs() < 0.01, "a class that sets 1.8");
 }
 
 /// A player's hit with a weapon is a whole number drawn evenly across the weapon's damage (the

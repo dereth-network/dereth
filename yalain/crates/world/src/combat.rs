@@ -1728,44 +1728,42 @@ pub fn weapon_damage<S: Store>(s: &Server<S>, weapon: u64) -> Option<rules::Weap
     })
 }
 
-/// What a weapon's own effects add to the chance of a critical: stat 197609's additions on it, at
-/// their spellcraft (2017: a bow with a 0.03 hit critically 0.084 of 1,137 basic attacks and 0.032 of
-/// 3,765 specials, staves with a 0.08 0.127 of 4,117 and 0.075 of 637, against 0.043-0.055 of 9,134
-/// and 0.001 of 5,397 with neither). No effect on a player was seen to hold the stat.
+/// What a weapon adds to the chance of a critical, whoever holds it: its template's own
+/// `Weapon_CriticalHitMod` and stat 197609's additions on it at their spellcraft (2017: a bow with a
+/// 0.03 hit critically 0.084 of 1,137 basic attacks and 0.032 of 3,765 specials, staves with a 0.08
+/// 0.127 of 4,117 and 0.075 of 637, against 0.043-0.055 of 9,134 and 0.001 of 5,397 with neither;
+/// creatures holding a weapon of 0.17, landed attacks of skills that set none critical 24 of 145
+/// times, of skills that set 0.05 68 of 299). No effect on a player was seen to hold the stat.
 #[must_use]
 pub fn critical_bonus<S: Store>(s: &Server<S>, weapon: Option<u64>) -> f64 {
     let Some(t) = weapon.and_then(|w| s.things.get(w)) else {
         return 0.0;
     };
-    t.enchantments
+    let own = s
+        .catalog
+        .get(t.template)
+        .and_then(|c| c.props.float(WEAPON_CRITICAL))
+        .map_or(0.0, f64::from);
+    own + t
+        .enchantments
         .iter()
         .filter_map(|(state, spellcraft)| Some((s.effect_table.get(*state)?, *spellcraft)))
         .flat_map(|(d, spellcraft)| d.changes(spellcraft))
         .filter(|(stat, multiply, _)| *stat == CRITICAL_BONUS && !*multiply)
         .map(|(_, _, by)| f64::from(by))
-        .sum()
+        .sum::<f64>()
 }
 
 /// What the weapon a creature holds adds to the chance of its attacks' criticals: the first one's
-/// own (its template's) and what its effects add (2017: creatures holding a weapon of 0.17, landed
-/// attacks of skills that set none critical 24 of 145 times, of skills that set 0.05 68 of 299).
+/// ([`critical_bonus`]).
 #[must_use]
 pub fn creature_critical_bonus<S: Store>(s: &Server<S>, creature: u64) -> f64 {
-    let Some(weapon) = s
+    let weapon = s
         .things
         .get(creature)
         .and_then(|t| t.creature.as_ref())
-        .and_then(|c| c.weapons.first().copied())
-    else {
-        return 0.0;
-    };
-    let own = s
-        .things
-        .get(weapon)
-        .and_then(|t| s.catalog.get(t.template))
-        .and_then(|t| t.props.float(WEAPON_CRITICAL))
-        .map_or(0.0, f64::from);
-    own + critical_bonus(s, Some(weapon))
+        .and_then(|c| c.weapons.first().copied());
+    critical_bonus(s, weapon)
 }
 
 /// A weapon template's own addition to the chance of a critical.
