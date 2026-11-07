@@ -705,6 +705,19 @@ impl DamageEvent {
         self.effective_attack_skill =
             crate::dispatch::get_effective_attack_skill::get_effective_attack_skill(w, attacker);
 
+        // DIVERGE: V517, a missile its shooter had no stamina for has half its shooter's skill, in
+        // place of whatever the accuracy bar gave it.
+        if w.objects
+            .get(self.damage_source)
+            .and_then(|o| o.projectile)
+            .is_some_and(|p| p.short_of_stamina)
+        {
+            let scale = 0.5 / f64::from(self.accuracy_mod);
+            self.accuracy_mod = 0.5;
+            self.effective_attack_skill =
+                math::round(f64::from(self.effective_attack_skill) * scale).cs_cast();
+        }
+
         // DIVERGE: V511, a shot from near the limit of the weapon's reach has less skill behind it.
         if let Some(ratio) = w
             .objects

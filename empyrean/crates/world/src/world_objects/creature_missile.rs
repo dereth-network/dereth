@@ -15,7 +15,7 @@ use empyrean_common::dotnet::numerics::{Quaternion, Vector3};
 use empyrean_entity::enums::{
     CharacterOption, ChatMessageType, CombatMode, CombatStyle, MotionCommand, ParentLocation,
     PhysicsState, Placement, PlayScript, PlayerKillerStatus, PropertyAttribute, PropertyBool,
-    PropertyDataId, PropertyFloat, PropertyInt, Sound, WeenieError,
+    PropertyDataId, PropertyFloat, PropertyInt, Skill, Sound, WeenieError,
 };
 use empyrean_entity::{ObjectGuid, Position};
 
@@ -34,8 +34,8 @@ use crate::physics::{motion_table, phys_ext, trajectory, trajectory2};
 use crate::world_objects::creature_combat;
 use crate::world_objects::world_object::{self, CtorEnv, WorldObject};
 use crate::world_objects::{
-    creature_equipment, player_combat, player_melee, player_networking, player_tracking,
-    world_object_networking,
+    creature_equipment, creature_vitals, player_combat, player_melee, player_networking,
+    player_tracking, world_object_networking,
 };
 use crate::{dispatch, World};
 
@@ -514,8 +514,15 @@ pub fn get_projectile_radius(w: &World, projectile_wcid: u32) -> f32 {
 /// The lowest value found in data (for starter bows).
 pub const DEFAULT_PROJECTILE_SPEED: f32 = 20.0;
 
+// Rules ported from ac1999 (Adam Plumb), AGPL-3.0: Server/Source/combat/AttackEventData.h.
+/// What every missile's speed is multiplied by, in an era that flies them by distance.
+pub const SLOW_MISSILE_SPEED_MOD: f64 = 0.9;
+/// The same for a player with Use Fast Missiles.
+pub const FAST_MISSILE_SPEED_MOD: f64 = 1.25;
+
 /// The launcher's `MaximumVelocity` (20 without one, or when 0), times `fast_missile_modifier` for
-/// a player with Use Fast Missiles, capped at the physics engine's 50.
+/// a player with Use Fast Missiles, capped at the physics engine's 50. In an era that flies missiles
+/// by distance, 0.9 for any shooter, or 1.25 for a player with Use Fast Missiles, in its place.
 // ACE: Creature.GetProjectileSpeed
 pub fn get_projectile_speed(w: &mut World, this: ObjectGuid) -> f32 {
     let missile_launcher = creature_equipment::get_equipped_missile_weapon(w, this);
@@ -539,9 +546,16 @@ pub fn get_projectile_speed(w: &mut World, this: ObjectGuid) -> f32 {
         max_velocity = f64::from(DEFAULT_PROJECTILE_SPEED);
     }
 
-    if object(w, this).is_player()
-        && player_melee::get_character_option(w, this, CharacterOption::UseFastMissiles)
-    {
+    let fast = object(w, this).is_player()
+        && player_melee::get_character_option(w, this, CharacterOption::UseFastMissiles);
+    if w.era.formulas.missile_flight_by_distance {
+        // DIVERGE: V516
+        max_velocity *= if fast {
+            FAST_MISSILE_SPEED_MOD
+        } else {
+            SLOW_MISSILE_SPEED_MOD
+        };
+    } else if fast {
         max_velocity *= property_manager::get_double(w, "fast_missile_modifier", 0.0, true).item;
     }
 
@@ -632,6 +646,13 @@ pub fn calculate_projectile_velocity(
 
     let origin = source_loc.pos() + Vector3::transform(local_origin, rotation);
 
+    // DIVERGE: V516, every distance has an arc there, so nothing but reach stops a shot.
+    if w.era.formulas.missile_flight_by_distance
+        && location(w, this).distance_to(&location(w, target)) > get_max_missile_range(w, this)
+    {
+        return (Vector3::ZERO, origin, rotation);
+    }
+
     start_pos = start_pos + Vector3::transform(local_origin, rotation);
     end_pos.z += height(w, target) / dispatch::get_aim_height::get_aim_height(w, this, target);
 
@@ -695,6 +716,24 @@ pub fn get_projectile_velocity(
 
     let target_velocity = cached_velocity(w, target);
 
+    // DIVERGE: V516, who leads a moving target stays ACE's.
+    if w.era.formulas.missile_flight_by_distance {
+        let lead = !target_velocity.equals(Vector3::ZERO)
+            && (!object(w, this).is_player()
+                || player_melee::get_character_option(
+                    w,
+                    this,
+                    CharacterOption::LeadMissileTargets,
+                ));
+        return missile_flight_arc(
+            origin,
+            dest,
+            speed,
+            lead.then_some(target_velocity),
+            gravity,
+        );
+    }
+
     let alt_solver = property_manager::get_bool(w, "trajectory_alt_solver", false, true).item;
 
     if !target_velocity.equals(Vector3::ZERO) {
@@ -744,6 +783,45 @@ pub fn get_projectile_velocity(
             time,
         )
     }
+}
+
+// Rules ported from ac1999 (Adam Plumb), AGPL-3.0: Server/Source/combat/MissileAttackEventData.cpp.
+/// The launch velocity that carries a missile from `origin` to `dest`, and its flight time. It
+/// covers the straight line at `speed` while gravity's fall is added back to the rise, so every
+/// distance has an arc: how far a weapon reaches is decided elsewhere. With `lead`, the target's
+/// velocity, the time is when `speed` over the ground meets it; when that has no answer within 100
+/// seconds the missile flies at where the target is now. Zero when `origin` is `dest`.
+#[must_use]
+pub fn missile_flight_arc(
+    origin: Vector3,
+    dest: Vector3,
+    speed: f32,
+    lead: Option<Vector3>,
+    gravity: f32,
+) -> (Vector3, f32) {
+    let offset = dest - origin;
+    let distance = offset.length();
+    if distance <= 0.0 || speed <= 0.0 {
+        return (Vector3::ZERO, 0.0);
+    }
+    let meets = lead.and_then(|target| {
+        let a = target.x * target.x + target.y * target.y - speed * speed;
+        let b = 2.0 * (offset.x * target.x + offset.y * target.y);
+        let c = offset.x * offset.x + offset.y * offset.y;
+        let root = (b * b - 4.0 * a * c).sqrt();
+        let forward = |t: f32| if t < 0.0 { f32::MAX } else { t };
+        let t = forward((-b + root) / (2.0 * a)).min(forward((-b - root) / (2.0 * a)));
+        (t > 0.0 && t < 100.0).then_some((target, t))
+    });
+    let (mut velocity, time) = match meets {
+        Some((target, t)) => ((offset + target * t) / t, t),
+        None => {
+            let t = distance / speed;
+            (offset / t, t)
+        }
+    };
+    velocity.z += gravity * time / 2.0;
+    (velocity, time)
 }
 
 /// Sets the physics state for a launched projectile: a missile that reports collisions, placed
@@ -913,6 +991,78 @@ pub fn thrown_velocity_of(w: &mut World, thrower: ObjectGuid, item: ObjectGuid) 
     let is_player = object(w, thrower).is_player();
     let strength = creature_combat::attribute_current(w, thrower, PropertyAttribute::Strength);
     Some(thrown_velocity(strength, burden, is_player))
+}
+
+// Rules ported from ac1999 (Adam Plumb), AGPL-3.0: Server/Source/combat/MissileAttackEventData.cpp.
+/// What a throw costs in stamina: one item's burden over 140, plus a shield's burden over 900, 600
+/// or 300 by which third of the attack bar it left at, rounded, and at least 1.
+#[must_use]
+pub fn thrown_stamina_cost(item_burden: i32, shield_burden: Option<i32>, attack_power: f32) -> i32 {
+    let mut cost = f64::from(item_burden) / 140.0;
+    if let Some(shield) = shield_burden {
+        let divisor = if attack_power < 0.33 {
+            900.0f32
+        } else if attack_power < 0.66 {
+            600.0
+        } else {
+            300.0
+        };
+        #[allow(clippy::cast_precision_loss)] // a burden, as C's `int / float`
+        let share = shield as f32 / divisor;
+        cost += f64::from(share);
+    }
+    // A cost of a few points: nothing to truncate.
+    #[allow(clippy::cast_possible_truncation)]
+    (cost.round() as i32).max(1)
+}
+
+// Rules ported from ac1999 (Adam Plumb), AGPL-3.0: Server/Source/combat/MissileAttackEventData.cpp.
+/// What a shot from a bow costs in stamina, in an era that charges a missile by its weapon.
+pub const BOW_STAMINA_COST: i32 = 2;
+/// The same for any other launcher: a crossbow or an atlatl.
+pub const LAUNCHER_STAMINA_COST: i32 = 3;
+
+/// What `shooter` pays to fire `weapon` at this attack power, in an era that charges a missile by its
+/// weapon: a throw by its burden, a bow 2 and any other launcher 3, whatever the bar. A bow is a
+/// weapon of the Bow skill. A thrown item with no per-item burden of its own weighs nothing here,
+/// whatever it weighs in flight.
+#[must_use]
+pub fn missile_stamina_cost_of(
+    w: &World,
+    shooter: ObjectGuid,
+    weapon: ObjectGuid,
+    attack_power: f32,
+) -> Option<i32> {
+    if !w.era.formulas.missile_stamina_by_weapon {
+        return None;
+    }
+    let weapon = object(w, weapon);
+    if !weapon.is_thrown_weapon() {
+        return Some(if weapon.weapon_skill() == Skill::Bow {
+            BOW_STAMINA_COST
+        } else {
+            LAUNCHER_STAMINA_COST
+        });
+    }
+    let burden = weapon.stack_unit_encumbrance().unwrap_or(0);
+    let shield = creature_equipment::get_equipped_shield(w, shooter)
+        .map(|g| object(w, g).encumbrance_val().unwrap_or(0));
+    Some(thrown_stamina_cost(burden, shield, attack_power))
+}
+
+/// Takes a missile's cost from `shooter`, down to nothing; whether it had less than the cost.
+pub fn pay_missile_stamina(w: &mut World, shooter: ObjectGuid, cost: i32) -> bool {
+    let stamina = object(w, shooter).stamina();
+    let short = i64::from(stamina.current(object(w, shooter))) < i64::from(cost);
+    creature_vitals::update_vital_delta(w, shooter, stamina, cost.wrapping_neg());
+    short
+}
+
+/// Marks a projectile as fired short of stamina.
+pub fn mark_short_of_stamina(w: &mut World, projectile: Option<ObjectGuid>) {
+    if let Some(links) = projectile.and_then(|g| object_mut(w, g).projectile.as_mut()) {
+        links.short_of_stamina = true;
+    }
 }
 
 /// The missile weapon's range: `MaximumVelocity^2 / 9.8`, capped at 85 yards.

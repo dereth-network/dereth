@@ -163,6 +163,9 @@ pub struct ProjectileLinks {
     /// Not ACE (V511): how much of the weapon's reach the shot had to fly when it left the weapon,
     /// 0 to 1, on a world where that costs attack skill.
     pub launch_range_ratio: Option<f64>,
+    /// Not ACE (V517): fired by a shooter that did not have the stamina the shot cost, so it
+    /// arrives with half its shooter's skill.
+    pub short_of_stamina: bool,
 }
 
 /// ACE's `WorldObject`, flattened: the core identity and placement fields, the per-file field

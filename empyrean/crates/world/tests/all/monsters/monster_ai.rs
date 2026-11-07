@@ -24,10 +24,10 @@ use empyrean_common::vectors;
 use empyrean_dat::dat_manager::file_id;
 use empyrean_dat::FakeDats;
 use empyrean_entity::enums::{
-    AttackType, CombatMode, EquipMask, MotionCommand as Mc, MotionStance, PhysicsState,
-    PositionType, PropertyAttribute, PropertyAttribute2nd, PropertyBool, PropertyDataId,
-    PropertyFloat, PropertyInt, PropertyString, Skill, SkillAdvancementClass, TargetingTactic,
-    WeenieType,
+    AttackHeight, AttackType, CharacterOption, CombatMode, CombatStyle, EquipMask,
+    MotionCommand as Mc, MotionStance, PhysicsState, PositionType, PropertyAttribute,
+    PropertyAttribute2nd, PropertyBool, PropertyDataId, PropertyFloat, PropertyInt, PropertyString,
+    Skill, SkillAdvancementClass, TargetingTactic, WeenieError, WeenieType,
 };
 use empyrean_entity::models::properties_attribute::PropertiesAttribute;
 use empyrean_entity::models::properties_attribute_2nd::PropertiesAttribute2nd;
@@ -42,18 +42,22 @@ use empyrean_world::entity::timers::{self, TimersState};
 use empyrean_world::managers::guid_manager as gm;
 use empyrean_world::managers::landblock_manager as lm;
 use empyrean_world::managers::property_manager as pm;
+use empyrean_world::network::game_event::game_event_type::GameEventType;
+use empyrean_world::network::game_messages::game_message::{start_capture, take_sent};
+use empyrean_world::network::game_messages::game_message_opcode::GameMessageOpcode;
 use empyrean_world::network::motion::movement_data::Motion;
 use empyrean_world::physics::phys_ext;
+use empyrean_world::physics::trajectory;
 use empyrean_world::world_objects::creature_combat::{self, CombatType};
 use empyrean_world::world_objects::entity::creature_vital::CreatureVital;
 use empyrean_world::world_objects::monster::{self, State};
 use empyrean_world::world_objects::monster_awareness::{self as awareness, TargetDistance};
 use empyrean_world::world_objects::monster_combat as combat;
 use empyrean_world::world_objects::monster_navigation as nav;
-use empyrean_world::world_objects::world_object::WorldObject;
+use empyrean_world::world_objects::world_object::{ProjectileLinks, WorldObject};
 use empyrean_world::world_objects::{
     creature_equipment, creature_missile, monster_melee, monster_missile, monster_tick,
-    player_missile,
+    player_character, player_melee, player_missile,
 };
 use empyrean_world::World;
 
@@ -2432,7 +2436,7 @@ fn a_launch_throwers_speed_and_reach_come_from_its_strength_and_the_weapons_burd
         for (strength, burden) in [(55, 15), (100, 50), (150, 500)] {
             let mut h = thrower_ready(EraId::Launch, thrower, strength, burden, 2.0);
             #[allow(clippy::cast_possible_truncation)] // the speed is the formula's, narrowed
-            let want = creature_missile::thrown_velocity(strength, burden, player) as f32;
+            let want = (creature_missile::thrown_velocity(strength, burden, player) * 0.9) as f32;
             let speed = creature_missile::get_projectile_speed(&mut h.w, thrower);
             assert_eq!(speed, want, "{strength} {burden}");
             let got = creature_missile::get_max_missile_range(&mut h.w, thrower);
@@ -2581,11 +2585,11 @@ fn a_launch_monsters_real_throw_carries_its_share_of_its_own_reach() {
     assert!((ratio - want).abs() < 0.03, "{ratio} against {want}");
 }
 
-/// Divergence: V515
-/// The arc is solved at the thrower's speed: at 90% of its reach a throw leaves at exactly that
-/// speed, and well past its reach no arc reaches the target.
+/// Divergence: V515, V516
+/// The arc is solved at the thrower's speed: at 90% of its reach a throw crosses the ground at
+/// nine tenths of it, and past its reach it has no arc at all.
 #[test]
-fn a_launch_throw_flies_at_the_throwers_speed_and_cannot_reach_past_its_limit() {
+fn a_launch_throw_flies_at_nine_tenths_of_the_throwers_speed_and_stops_at_its_limit() {
     for (share, solved) in [(0.9, true), (1.2, false)] {
         let distance = reach(60, 500, false) * share;
         let mut h = thrower_ready(EraId::Launch, MONSTER, 60, 500, distance);
@@ -2600,7 +2604,10 @@ fn a_launch_throw_flies_at_the_throwers_speed_and_cannot_reach_past_its_limit() 
             speed,
         );
         if solved {
-            assert!((velocity.length() - speed).abs() < 1e-3, "{velocity:?}");
+            #[allow(clippy::cast_possible_truncation)] // the speed, narrowed as the server does
+            let want = 0.9 * creature_missile::thrown_velocity(60, 500, false) as f32;
+            let ground = velocity.x.hypot(velocity.y);
+            assert!((ground - want).abs() < 0.02, "{ground} against {want}");
         } else {
             assert!(velocity.equals(Vector3::ZERO), "{velocity:?}");
         }
@@ -2677,8 +2684,708 @@ fn a_launch_bow_ignores_strength() {
         set_strength(&mut h, MONSTER, strength);
         let speed = creature_missile::get_projectile_speed(&mut h.w, MONSTER);
         let got = creature_missile::get_max_missile_range(&mut h.w, MONSTER);
-        assert_eq!(speed, 20.0);
+        assert_eq!(speed, 18.0);
         assert_eq!(got, BOW_REACH);
+    }
+}
+
+/// `shooter`'s speed and reach with Use Fast Missiles off and then on, where it can have it.
+fn speeds_and_reaches(h: &mut H, shooter: ObjectGuid) -> [(f32, f32); 2] {
+    [false, true].map(|fast| {
+        if shooter == PLAYER {
+            player_character::set_character_option(
+                &mut h.w,
+                PLAYER,
+                CharacterOption::UseFastMissiles,
+                fast,
+            );
+        }
+        (
+            creature_missile::get_projectile_speed(&mut h.w, shooter),
+            creature_missile::get_max_missile_range(&mut h.w, shooter),
+        )
+    })
+}
+
+fn bow_ready(era: EraId, shooter: ObjectGuid, distance: f32) -> H {
+    let mut h = thrower_ready(era, shooter, 100, 15, distance);
+    let bow = h.w.objects.get_mut(BOW).unwrap();
+    bow.set_property(
+        PropertyInt::DefaultCombatStyle,
+        empyrean_entity::enums::CombatStyle::Bow.0,
+    );
+    bow.set_maximum_velocity(Some(20.0));
+    h
+}
+
+/// Divergence: V516
+/// On Launch a bow of 20 m/s shoots at 18, or 25 with Use Fast Missiles, and a throw takes the same
+/// factors on the thrower's own speed. A monster has no such option and always goes slow.
+#[test]
+fn a_launch_missile_leaves_at_0_9_of_its_speed_or_1_25_with_use_fast_missiles() {
+    let mut h = bow_ready(EraId::Launch, PLAYER, 10.0);
+    let [slow, fast] = speeds_and_reaches(&mut h, PLAYER);
+    assert_eq!((slow.0, fast.0), (18.0, 25.0));
+
+    let mut h = bow_ready(EraId::Launch, MONSTER, 10.0);
+    let [slow, other] = speeds_and_reaches(&mut h, MONSTER);
+    assert_eq!((slow.0, other.0), (18.0, 18.0));
+
+    let mut h = thrower_ready(EraId::Launch, PLAYER, 100, 15, 10.0);
+    let throw = creature_missile::thrown_velocity(100, 15, true);
+    let [slow, fast] = speeds_and_reaches(&mut h, PLAYER);
+    #[allow(clippy::cast_possible_truncation)] // the speeds, narrowed as the server does
+    let want = ((throw * 0.9) as f32, (throw * 1.25) as f32);
+    assert_eq!((slow.0, fast.0), want);
+}
+
+/// Divergence: V516
+/// At the end of retail and in February 2005 the same bow shoots at 20, or 24 with Use Fast
+/// Missiles, as ACE has it.
+#[test]
+fn outside_launch_a_missile_keeps_aces_speeds() {
+    for era in [EraId::Eor, EraId::Infiltration] {
+        let mut h = bow_ready(era, PLAYER, 10.0);
+        let [slow, fast] = speeds_and_reaches(&mut h, PLAYER);
+        assert_eq!((slow.0, fast.0), (20.0, 24.0), "{era:?}");
+        let mut h = bow_ready(era, MONSTER, 10.0);
+        assert_eq!(speeds_and_reaches(&mut h, MONSTER)[0].0, 20.0, "{era:?}");
+    }
+}
+
+/// Divergence: V516, V515
+/// The speed factor moves no weapon's reach: a bow's stays 40.8 m and a throw's the thrower's own,
+/// fast or slow, and a target just inside it can be shot at and one just outside it cannot.
+#[test]
+fn a_launch_bow_and_throw_reach_as_far_at_either_speed() {
+    let bow = bow_ready(EraId::Launch, PLAYER, 10.0);
+    let thrown = thrower_ready(EraId::Launch, PLAYER, 100, 15, 10.0);
+    for (mut h, want) in [(bow, BOW_REACH), (thrown, reach(100, 15, true))] {
+        let [slow, fast] = speeds_and_reaches(&mut h, PLAYER);
+        assert_eq!((slow.1, fast.1), (want, want));
+        for on in [false, true] {
+            player_character::set_character_option(
+                &mut h.w,
+                PLAYER,
+                CharacterOption::UseFastMissiles,
+                on,
+            );
+            for (share, within) in [(0.99, true), (1.01, false)] {
+                h.move_player(100.0, 110.0 - want * share);
+                assert_eq!(
+                    player_missile::target_in_range(&mut h.w, PLAYER, MONSTER),
+                    within,
+                    "{want} {on} {share}"
+                );
+            }
+        }
+    }
+}
+
+/// Divergence: V516
+/// What lets a slow missile hit anything within reach: at 99% of a bow's or a throw's reach it has an
+/// arc and flies, where a fixed launch speed of 0.9 of the weapon's has none past 81%.
+#[test]
+fn a_launch_shot_at_99_percent_of_reach_has_an_arc_at_the_slow_speed() {
+    #[allow(clippy::cast_possible_truncation)] // the speed, narrowed as the server does
+    let cases = [
+        (bow_ready(EraId::Launch, PLAYER, BOW_REACH * 0.99), 18.0f32),
+        (
+            thrower_ready(EraId::Launch, PLAYER, 100, 15, reach(100, 15, true) * 0.99),
+            (creature_missile::thrown_velocity(100, 15, true) * 0.9) as f32,
+        ),
+    ];
+    for (mut h, want_speed) in cases {
+        player_melee::set_attack_height(&mut h.w, PLAYER, Some(AttackHeight::Medium));
+        let speed = creature_missile::get_projectile_speed(&mut h.w, PLAYER);
+        assert_eq!(speed, want_speed);
+        let (velocity, _, _) = creature_missile::calculate_projectile_velocity(
+            &mut h.w,
+            PLAYER,
+            Vector3::ZERO,
+            MONSTER,
+            speed,
+        );
+        assert!(velocity.length() > speed, "{velocity:?}");
+        let (from, to) = (h.pos(PLAYER).pos(), h.pos(MONSTER).pos());
+        let fixed = trajectory::solve_ballistic_arc(from, speed, to, 9.8);
+        assert_eq!(fixed.num, 0, "a fixed launch speed has no arc this far");
+    }
+}
+
+/// Divergence: V516
+/// A Launch arc covers the straight line at the missile's speed and lands on the target.
+#[test]
+fn a_launch_arc_lands_on_a_still_target_in_distance_over_speed() {
+    let (from, to) = (Vector3::new(1.0, 2.0, 3.0), Vector3::new(31.0, 42.0, 5.0));
+    let (velocity, time) = creature_missile::missile_flight_arc(from, to, 18.0, None, 9.8);
+    let want = (to - from).length() / 18.0;
+    assert!((time - want).abs() < 1e-5, "{time} against {want}");
+    let landed = from + velocity * time + Vector3::new(0.0, 0.0, -4.9 * time * time);
+    assert!((landed - to).length() < 1e-3, "{landed:?}");
+}
+
+/// Divergence: V516
+/// With a lead, the missile covers the ground at its speed and lands where the target has got to.
+#[test]
+fn a_launch_arc_lands_where_a_moving_target_will_be() {
+    let (from, to) = (Vector3::ZERO, Vector3::new(0.0, 30.0, 0.0));
+    let walking = Vector3::new(4.0, 0.0, 0.0);
+    let (velocity, time) = creature_missile::missile_flight_arc(from, to, 18.0, Some(walking), 9.8);
+    let there = to + walking * time;
+    let landed = velocity * time + Vector3::new(0.0, 0.0, -4.9 * time * time);
+    assert!(
+        (landed - there).length() < 1e-3,
+        "{landed:?} against {there:?}"
+    );
+    let ground = velocity.x.hypot(velocity.y);
+    assert!((ground - 18.0).abs() < 1e-3, "{ground}");
+}
+
+/// Divergence: V516
+/// A target running away faster than the missile cannot be caught, and the missile flies at where it
+/// is now. Nothing comes out of the arc that is not a number.
+#[test]
+fn a_launch_arc_at_a_target_it_cannot_catch_flies_at_where_it_is() {
+    let (from, to) = (Vector3::ZERO, Vector3::new(0.0, 30.0, 0.0));
+    let still = creature_missile::missile_flight_arc(from, to, 5.0, None, 9.8);
+    for fleeing in [Vector3::new(0.0, 12.0, 0.0), Vector3::new(0.0, 5.0, 0.0)] {
+        let got = creature_missile::missile_flight_arc(from, to, 5.0, Some(fleeing), 9.8);
+        assert_eq!(got, still, "{fleeing:?}");
+    }
+    assert_eq!(
+        creature_missile::missile_flight_arc(to, to, 5.0, None, 9.8),
+        (Vector3::ZERO, 0.0)
+    );
+}
+
+/// Divergence: V516
+/// Who leads a moving target stays as it was: a player only with Lead Missile Targets on, a monster
+/// always.
+#[test]
+fn a_launch_player_leads_a_moving_target_only_with_the_option_and_a_monster_always() {
+    let aim = |h: &mut H, shooter: ObjectGuid, target: ObjectGuid| {
+        let from = h.pos(shooter).pos();
+        let to = h.pos(target).pos();
+        let body = phys_ext::physics_obj(&h.w, target).expect("a body");
+        h.w.physics.get_mut(body).expect("a body").cached_velocity = Vec3::new(4.0, 0.0, 0.0);
+        creature_missile::get_projectile_velocity(
+            &h.w,
+            shooter,
+            target,
+            from,
+            Vector3::UNIT_Y,
+            to,
+            18.0,
+            true,
+        )
+        .0
+    };
+    let mut h = bow_ready(EraId::Launch, PLAYER, 20.0);
+    for (lead, leads) in [(false, false), (true, true)] {
+        player_character::set_character_option(
+            &mut h.w,
+            PLAYER,
+            CharacterOption::LeadMissileTargets,
+            lead,
+        );
+        let velocity = aim(&mut h, PLAYER, MONSTER);
+        assert_eq!(velocity.x > 1.0, leads, "{velocity:?}");
+    }
+    let mut h = bow_ready(EraId::Launch, MONSTER, 20.0);
+    let velocity = aim(&mut h, MONSTER, PLAYER);
+    assert!(velocity.x > 1.0, "{velocity:?}");
+}
+
+/// Divergence: V516
+/// A Launch monster whose target stepped past the weapon's reach does not shoot; at 90% of it, where
+/// a fixed launch speed of 0.9 of the weapon's has no arc, it does.
+#[test]
+fn a_launch_monster_shoots_at_90_percent_of_reach_and_not_past_it() {
+    for (share, shoots) in [(0.9, true), (1.1, false)] {
+        let mut h = bow_monster_ready();
+        h.w.era = EraId::Launch.rules();
+        h.move_player(100.0 + BOW_REACH * share, 100.0);
+        combat::set_attack_target(&mut h.w, MONSTER, Some(PLAYER));
+        monster_missile::launch_missile(&mut h.w, MONSTER);
+        let flew = h.run_until(5.0, |h| flying(h, MONSTER).is_some());
+        assert_eq!(flew, shoots, "{share}");
+    }
+}
+
+/// What `source` has in flight.
+fn flying(h: &H, source: ObjectGuid) -> Option<ProjectileLinks> {
+    let l =
+        h.w.landblock_manager
+            .landblocks
+            .get(lb_id())
+            .expect("the landblock");
+    l.get_all_world_objects_for_diagnostics()
+        .into_iter()
+        .find_map(|g| {
+            h.w.objects
+                .get(g)
+                .and_then(|o| o.projectile)
+                .filter(|p| p.source == Some(source))
+        })
+}
+
+fn stamina_of(h: &H, g: ObjectGuid) -> u32 {
+    let o = h.o(g);
+    o.stamina().current(o)
+}
+
+fn set_stamina(h: &mut H, g: ObjectGuid, value: u32) {
+    let o = h.w.objects.get_mut(g).unwrap();
+    let vital = o.stamina();
+    vital.set_current(o, value);
+    assert_eq!(stamina_of(h, g), value);
+}
+
+/// Everything a throw needs but the throw: a Launch character of 200 stamina, in missile combat, at
+/// the bar's middle, with the target 5 m away and a stack to throw from.
+fn player_about_to_throw(era: EraId, burden: i32) -> H {
+    let mut h = thrower_ready(era, PLAYER, 100, burden, 5.0);
+    player_melee::set_attack_height(&mut h.w, PLAYER, Some(AttackHeight::Medium));
+    let o = h.w.objects.get_mut(PLAYER).unwrap();
+    let vitals = o
+        .biota
+        .properties_attribute_2nd
+        .get_or_insert_with(DotNetDict::new);
+    vitals.insert(
+        PropertyAttribute2nd::MaxStamina,
+        PropertiesAttribute2nd {
+            init_level: 200,
+            current_level: 200,
+            ..PropertiesAttribute2nd::default()
+        },
+    );
+    h.w.objects
+        .get_mut(BOW)
+        .unwrap()
+        .set_stack_size_prop(Some(50));
+    creature_combat::set_combat_mode_field(&mut h.w, PLAYER, CombatMode::Missile);
+    player_missile::fields_mut(&mut h.w, PLAYER).missile_target = Some(MONSTER);
+    player_missile::set_accuracy_level(&mut h.w, PLAYER, 0.5);
+    h
+}
+
+/// The same character, its weapon a launcher of this style and skill with the arrows to shoot.
+fn player_about_to_shoot(era: EraId, style: CombatStyle, skill: Skill) -> H {
+    let mut h = player_about_to_throw(era, 15);
+    make_it_a_launcher(&mut h, style, skill);
+    h
+}
+
+fn make_it_a_launcher(h: &mut H, style: CombatStyle, skill: Skill) {
+    let weapon = h.w.objects.get_mut(BOW).unwrap();
+    weapon.set_property(PropertyInt::DefaultCombatStyle, style.0);
+    weapon.set_property(PropertyInt::WeaponSkill, skill.0);
+    weapon.set_maximum_velocity(Some(20.0));
+    weapon.set_stack_size_prop(None);
+}
+
+fn player_throws(h: &mut H) {
+    player_fires(h, MotionStance::ThrownWeaponCombat);
+}
+
+fn player_fires(h: &mut H, stance: MotionStance) {
+    start_capture();
+    let sequence =
+        empyrean_world::world_objects::player_combat::fields(&h.w, PLAYER).attack_sequence;
+    player_missile::launch_missile(&mut h.w, PLAYER, MONSTER, sequence, stance, false);
+    assert!(h.run_until(5.0, |h| flying(h, PLAYER).is_some()), "fired");
+}
+
+/// The weenie errors the player was sent since `player_throws` began.
+fn errors_sent() -> Vec<i32> {
+    take_sent()
+        .into_iter()
+        .filter_map(|(_, _, b)| {
+            let word = |at: usize| u32::from_le_bytes(b[at..at + 4].try_into().unwrap());
+            (word(0) == GameMessageOpcode::GameEvent.0 && word(12) == GameEventType::WeenieError.0)
+                .then(|| word(16).cast_signed())
+        })
+        .collect()
+}
+
+/// Divergence: V517
+/// A throw costs one item's burden over 140, rounded, and never less than 1: a dart 1, a rock of 500
+/// burden 4.
+#[test]
+fn a_throw_costs_its_burden_over_140_rounded_and_at_least_1() {
+    use creature_missile::thrown_stamina_cost as cost;
+    for (burden, want) in [
+        (0, 1),
+        (15, 1),
+        (140, 1),
+        (209, 1),
+        (210, 2),
+        (350, 3),
+        (500, 4),
+        (1400, 10),
+    ] {
+        assert_eq!(cost(burden, None, 0.5), want, "{burden}");
+    }
+}
+
+/// Divergence: V517
+/// A shield adds its burden over 900 in the bar's first third, over 600 in its second and over 300
+/// in the last.
+#[test]
+fn a_shield_adds_its_burden_over_900_600_or_300_by_the_third_of_the_bar() {
+    use creature_missile::thrown_stamina_cost as cost;
+    for (power, want) in [
+        (0.0, 2),
+        (0.329, 2),
+        (0.33, 3),
+        (0.659, 3),
+        (0.66, 6),
+        (1.0, 6),
+    ] {
+        assert_eq!(cost(0, Some(1800), power), want, "{power}");
+    }
+    assert_eq!(cost(280, Some(1800), 1.0), 8);
+    assert_eq!(cost(0, Some(1349), 0.0), 1);
+    assert_eq!(cost(0, Some(1350), 0.0), 2);
+}
+
+/// Divergence: V517
+/// The burden is one item's, not the stack's, and what has no per-item burden pays the least, however
+/// heavy it is.
+#[test]
+fn a_launch_throw_pays_for_one_item_whatever_the_stack_weighs() {
+    let mut h = thrower_ready(EraId::Launch, PLAYER, 100, 500, 10.0);
+    h.w.objects
+        .get_mut(BOW)
+        .unwrap()
+        .set_encumbrance_val(Some(5000));
+    let cost = creature_missile::missile_stamina_cost_of;
+    assert_eq!(cost(&h.w, PLAYER, BOW, 0.5), Some(4));
+    h.w.objects
+        .get_mut(BOW)
+        .unwrap()
+        .set_stack_unit_encumbrance(None);
+    assert_eq!(cost(&h.w, PLAYER, BOW, 0.5), Some(1));
+}
+
+/// The launchers a Launch shooter may hold, and what each shot costs: a bow is known by its skill.
+const LAUNCHER_COSTS: [(CombatStyle, Skill, i32); 4] = [
+    (CombatStyle::Bow, Skill::Bow, 2),
+    (CombatStyle::Crossbow, Skill::Crossbow, 3),
+    (CombatStyle::Atlatl, Skill::ThrownWeapon, 3),
+    (CombatStyle::Bow, Skill::MissileWeapons, 3),
+];
+
+/// Divergence: V517
+/// On Launch a shot from a bow costs 2 and from a crossbow or atlatl 3, wherever the bar stood and
+/// whatever the launcher weighs. A bow is a weapon of the Bow skill.
+#[test]
+fn a_launch_bow_shot_costs_2_and_a_crossbow_or_atlatl_shot_3() {
+    for (style, skill, want) in LAUNCHER_COSTS {
+        let mut h = bow_ready(EraId::Launch, PLAYER, 10.0);
+        make_it_a_launcher(&mut h, style, skill);
+        h.w.objects
+            .get_mut(BOW)
+            .unwrap()
+            .set_encumbrance_val(Some(1300));
+        for bar in [0.0, 0.5, 1.0] {
+            let cost = creature_missile::missile_stamina_cost_of(&h.w, PLAYER, BOW, bar);
+            assert_eq!(cost, Some(want), "{style:?} {skill:?} {bar}");
+        }
+    }
+}
+
+/// Divergence: V517
+/// A Launch player pays its launcher's cost and no more, however heavy the launcher and high the bar
+/// that would cost it more by burden, and is told nothing.
+#[test]
+fn a_launch_players_shot_takes_its_launchers_cost_from_stamina() {
+    for (style, skill, want) in LAUNCHER_COSTS {
+        let mut h = player_about_to_shoot(EraId::Launch, style, skill);
+        h.w.objects
+            .get_mut(BOW)
+            .unwrap()
+            .set_encumbrance_val(Some(1300));
+        player_missile::set_accuracy_level(&mut h.w, PLAYER, 0.9);
+        player_fires(&mut h, MotionStance::BowCombat);
+        assert_eq!(
+            stamina_of(&h, PLAYER),
+            200 - want.cast_unsigned(),
+            "{skill:?}"
+        );
+        assert!(!flying(&h, PLAYER).unwrap().short_of_stamina);
+        assert_eq!(errors_sent(), Vec::<i32>::new());
+    }
+}
+
+/// Divergence: V517
+/// A Launch player with less than the shot costs still shoots: what it has is gone, it is told it is
+/// too tired, and the arrow is marked to arrive at half skill. Exactly the cost is enough.
+#[test]
+fn a_launch_player_short_of_stamina_for_a_shot_still_shoots_and_is_told_so() {
+    for (skill, stamina, short) in [
+        (Skill::Bow, 1, true),
+        (Skill::Bow, 2, false),
+        (Skill::Crossbow, 2, true),
+        (Skill::Crossbow, 3, false),
+    ] {
+        let mut h = player_about_to_shoot(EraId::Launch, CombatStyle::Bow, skill);
+        set_stamina(&mut h, PLAYER, stamina);
+        player_fires(&mut h, MotionStance::BowCombat);
+        assert_eq!(stamina_of(&h, PLAYER), 0, "{skill:?} {stamina}");
+        assert_eq!(flying(&h, PLAYER).unwrap().short_of_stamina, short);
+        let told: &[i32] = if short {
+            &[WeenieError::YouAreTooTiredToDoThat.0]
+        } else {
+            &[]
+        };
+        assert_eq!(errors_sent(), told, "{skill:?} {stamina}");
+    }
+}
+
+/// A bow monster on a Launch world, its bow of this skill and `stamina` of its 200.
+fn launch_bow_monster(skill: Skill, stamina: u32) -> H {
+    let mut h = bow_monster_ready();
+    h.w.era = EraId::Launch.rules();
+    h.w.objects
+        .get_mut(BOW)
+        .unwrap()
+        .set_property(PropertyInt::WeaponSkill, skill.0);
+    give_stamina(&mut h, MONSTER, stamina);
+    h
+}
+
+fn give_stamina(h: &mut H, creature: ObjectGuid, stamina: u32) {
+    let o = h.w.objects.get_mut(creature).unwrap();
+    o.biota
+        .properties_attribute_2nd
+        .get_or_insert_with(DotNetDict::new)
+        .insert(
+            PropertyAttribute2nd::MaxStamina,
+            PropertiesAttribute2nd {
+                init_level: 200,
+                current_level: stamina,
+                ..PropertiesAttribute2nd::default()
+            },
+        );
+}
+
+/// Divergence: V517
+/// A Launch monster pays for a shot as a player does, 2 for a bow and 3 for a crossbow, and shoots
+/// when it cannot pay, short of stamina.
+#[test]
+fn a_launch_monsters_shot_takes_its_launchers_cost_and_flies_when_it_cannot_pay() {
+    for (skill, stamina, left, short) in [
+        (Skill::Bow, 100, 98, false),
+        (Skill::Crossbow, 100, 97, false),
+        (Skill::Bow, 1, 0, true),
+        (Skill::Crossbow, 3, 0, false),
+    ] {
+        let mut h = launch_bow_monster(skill, stamina);
+        combat::set_attack_target(&mut h.w, MONSTER, Some(PLAYER));
+        monster_missile::launch_missile(&mut h.w, MONSTER);
+        assert!(h.run_until(5.0, |h| flying(h, MONSTER).is_some()), "shot");
+        assert_eq!(stamina_of(&h, MONSTER), left, "{skill:?} {stamina}");
+        assert_eq!(flying(&h, MONSTER).unwrap().short_of_stamina, short);
+    }
+}
+
+/// Divergence: V517
+/// At the end of retail and in February 2005 a bow shot pays ACE's cost, by what is held and the
+/// bar, and a monster's costs nothing.
+#[test]
+fn outside_launch_a_shot_pays_aces_stamina_and_a_monsters_nothing() {
+    for era in [EraId::Eor, EraId::Infiltration] {
+        let mut h = player_about_to_shoot(era, CombatStyle::Bow, Skill::Bow);
+        h.w.objects
+            .get_mut(BOW)
+            .unwrap()
+            .set_encumbrance_val(Some(1300));
+        player_missile::set_accuracy_level(&mut h.w, PLAYER, 0.9);
+        let want = empyrean_world::world_objects::player_combat::get_attack_stamina(
+            &h.w,
+            PLAYER,
+            player_missile::get_accuracy_range(&h.w, PLAYER),
+        );
+        assert!(want > 3, "{era:?}: {want}");
+        assert_eq!(
+            creature_missile::missile_stamina_cost_of(&h.w, PLAYER, BOW, 0.9),
+            None,
+            "{era:?}"
+        );
+        player_fires(&mut h, MotionStance::BowCombat);
+        assert_eq!(
+            stamina_of(&h, PLAYER),
+            200 - want.cast_unsigned(),
+            "{era:?}"
+        );
+        assert!(!flying(&h, PLAYER).unwrap().short_of_stamina);
+
+        let mut h = launch_bow_monster(Skill::Bow, 1);
+        h.w.era = era.rules();
+        combat::set_attack_target(&mut h.w, MONSTER, Some(PLAYER));
+        monster_missile::launch_missile(&mut h.w, MONSTER);
+        assert!(h.run_until(5.0, |h| flying(h, MONSTER).is_some()), "shot");
+        assert_eq!(stamina_of(&h, MONSTER), 1, "{era:?}");
+        assert!(!flying(&h, MONSTER).unwrap().short_of_stamina);
+    }
+}
+
+/// Divergence: V517
+/// A Launch player pays what the throw costs and is told nothing.
+#[test]
+fn a_launch_players_throw_takes_its_cost_from_stamina() {
+    for (burden, want) in [(15, 199), (500, 196)] {
+        let mut h = player_about_to_throw(EraId::Launch, burden);
+        player_throws(&mut h);
+        assert_eq!(stamina_of(&h, PLAYER), want, "{burden}");
+        assert!(!flying(&h, PLAYER).unwrap().short_of_stamina);
+        assert_eq!(errors_sent(), Vec::<i32>::new());
+    }
+}
+
+/// Divergence: V517
+/// Exactly the cost is enough: stamina reaches 0 and the throw is not short.
+#[test]
+fn a_launch_player_with_exactly_the_cost_is_not_short_of_stamina() {
+    let mut h = player_about_to_throw(EraId::Launch, 500);
+    set_stamina(&mut h, PLAYER, 4);
+    player_throws(&mut h);
+    assert_eq!(stamina_of(&h, PLAYER), 0);
+    assert!(!flying(&h, PLAYER).unwrap().short_of_stamina);
+    assert_eq!(errors_sent(), Vec::<i32>::new());
+}
+
+/// Divergence: V517
+/// A Launch player without the stamina still throws: what it has is gone, it is told it is too tired,
+/// and the throw is marked to arrive at half skill.
+#[test]
+fn a_launch_player_short_of_stamina_still_throws_and_is_told_so() {
+    let mut h = player_about_to_throw(EraId::Launch, 500);
+    set_stamina(&mut h, PLAYER, 3);
+    player_throws(&mut h);
+    assert_eq!(stamina_of(&h, PLAYER), 0);
+    assert!(flying(&h, PLAYER).unwrap().short_of_stamina);
+    assert_eq!(errors_sent(), [WeenieError::YouAreTooTiredToDoThat.0]);
+}
+
+/// Divergence: V517
+/// A Launch monster pays for its throw as a player does, and throws when it cannot.
+#[test]
+fn a_launch_monsters_throw_takes_its_cost_and_flies_when_it_cannot_pay() {
+    for (stamina, left, short) in [(100, 96, false), (3, 0, true)] {
+        let mut h = bow_monster_ready();
+        h.w.era = EraId::Launch.rules();
+        make_it_thrown(&mut h, 500);
+        set_strength(&mut h, MONSTER, 60);
+        let o = h.w.objects.get_mut(MONSTER).unwrap();
+        o.biota
+            .properties_attribute_2nd
+            .get_or_insert_with(DotNetDict::new)
+            .insert(
+                PropertyAttribute2nd::MaxStamina,
+                PropertiesAttribute2nd {
+                    init_level: 200,
+                    current_level: stamina,
+                    ..PropertiesAttribute2nd::default()
+                },
+            );
+        combat::set_attack_target(&mut h.w, MONSTER, Some(PLAYER));
+        monster_missile::launch_missile(&mut h.w, MONSTER);
+        assert!(h.run_until(5.0, |h| flying(h, MONSTER).is_some()), "thrown");
+        assert_eq!(stamina_of(&h, MONSTER), left);
+        assert_eq!(flying(&h, MONSTER).unwrap().short_of_stamina, short);
+    }
+}
+
+/// Divergence: V517
+/// At the end of retail and in February 2005 a throw pays ACE's cost, by what is held and the bar,
+/// and nothing is marked.
+#[test]
+fn outside_launch_a_throw_pays_aces_stamina_and_arrives_with_all_its_skill() {
+    for era in [EraId::Eor, EraId::Infiltration] {
+        let mut h = player_about_to_throw(era, 500);
+        h.w.objects
+            .get_mut(BOW)
+            .unwrap()
+            .set_encumbrance_val(Some(1300));
+        player_missile::set_accuracy_level(&mut h.w, PLAYER, 0.9);
+        let want = empyrean_world::world_objects::player_combat::get_attack_stamina(
+            &h.w,
+            PLAYER,
+            player_missile::get_accuracy_range(&h.w, PLAYER),
+        );
+        assert!(want > 1, "{era:?}: {want}");
+        assert_eq!(
+            creature_missile::missile_stamina_cost_of(&h.w, PLAYER, BOW, 0.9),
+            None,
+            "{era:?}"
+        );
+        player_throws(&mut h);
+        assert_eq!(
+            stamina_of(&h, PLAYER),
+            200 - want.cast_unsigned(),
+            "{era:?}"
+        );
+        assert!(!flying(&h, PLAYER).unwrap().short_of_stamina);
+        assert_eq!(errors_sent(), Vec::<i32>::new());
+    }
+}
+
+/// Divergence: V517
+/// A throw its thrower was short for has half the thrower's skill behind it, whatever the bar gave:
+/// a player at a modifier of 1.5 lands at a third of its skill at that bar, a monster at half.
+#[test]
+fn a_throw_short_of_stamina_arrives_with_half_its_throwers_skill() {
+    for (shooter, target, bar, keeps) in [
+        (PLAYER, MONSTER, 0.9, 1.0 / 3.0),
+        (PLAYER, MONSTER, 0.4, 0.5),
+        (MONSTER, PLAYER, 0.0, 0.5),
+    ] {
+        let mut h = thrower_ready(EraId::Launch, shooter, 100, 15, 10.0);
+        let o = h.w.objects.get_mut(shooter).unwrap();
+        let skills = o.biota.properties_skill.get_or_insert_with(DotNetDict::new);
+        for skill in [Skill::Bow, Skill::MissileWeapons] {
+            skills.insert(
+                skill,
+                PropertiesSkill {
+                    init_level: 300,
+                    sac: SkillAdvancementClass::Trained,
+                    ..PropertiesSkill::default()
+                },
+            );
+        }
+        h.w.objects
+            .get_mut(BOW)
+            .unwrap()
+            .set_property(PropertyInt::WeaponSkill, Skill::MissileWeapons.0);
+        if shooter == PLAYER {
+            player_missile::set_accuracy_level(&mut h.w, PLAYER, bar);
+        }
+        combat::set_attack_target(&mut h.w, shooter, Some(target));
+        let origin = h.pos(shooter).pos();
+        let thrown = creature_missile::launch_projectile(
+            &mut h.w,
+            shooter,
+            Some(BOW),
+            ARROWS,
+            target,
+            origin + Vector3::new(0.0, 1.0, 1.0),
+            empyrean_common::dotnet::numerics::Quaternion::IDENTITY,
+            Vector3::new(0.0, 10.0, 5.0),
+        );
+        let skill = |h: &mut H, source| {
+            DamageEvent::calculate_damage(&mut h.w, shooter, target, source, None, None)
+                .effective_attack_skill
+        };
+        let base = skill(&mut h, None);
+        assert!(base > 0);
+        creature_missile::mark_short_of_stamina(&mut h.w, thrown);
+        // At 10 m of about 40 the long-range penalty is nothing to speak of.
+        let got = skill(&mut h, thrown);
+        let want = f64::from(base) * keeps;
+        assert!((f64::from(got) - want).abs() <= 2.0, "{got} of {base}");
     }
 }
 

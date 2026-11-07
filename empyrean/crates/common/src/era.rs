@@ -244,6 +244,12 @@ pub struct EraFormulas {
     /// A thrown weapon has no flight speed of its own: speed and reach come from the thrower's
     /// Strength and the weapon's weight.
     pub thrown_reach_by_strength: bool,
+    /// Missiles fly at 0.9 of the weapon's speed, or 1.25 with Use Fast Missiles, and on an arc that
+    /// covers the distance at that speed, so anything within reach can be hit at either.
+    pub missile_flight_by_distance: bool,
+    /// A missile costs stamina by its weapon: a bow 2, a crossbow or atlatl 3, a throw the weight of
+    /// one item and the shield held with it. A shooter short of it still shoots, with half its skill.
+    pub missile_stamina_by_weapon: bool,
     /// The spell fixes shipped by February 2000, over the 1999 spell table: longer enchantments by
     /// level, shorter drains and harms, costlier portal spells and a resistable Imperil.
     pub early_2000_spell_fixes: bool,
@@ -284,6 +290,8 @@ impl EraFormulas {
         total_xp_cap: None,
         long_range_missile_penalty: false,
         thrown_reach_by_strength: false,
+        missile_flight_by_distance: false,
+        missile_stamina_by_weapon: false,
         early_2000_spell_fixes: false,
     };
 
@@ -307,6 +315,8 @@ impl EraFormulas {
         total_xp_cap: Some(u32::MAX as i64),
         long_range_missile_penalty: false,
         thrown_reach_by_strength: false,
+        missile_flight_by_distance: false,
+        missile_stamina_by_weapon: false,
         early_2000_spell_fixes: false,
     };
 
@@ -336,6 +346,11 @@ impl EraFormulas {
         long_range_missile_penalty: true,
         // ac1999's fit to the anchors of a period guide.
         thrown_reach_by_strength: true,
+        // An emulator's numbers, as ac1999 plays them; no period source gives them.
+        missile_flight_by_distance: true,
+        // A period guide's figures for the bow, the crossbow and the throw, an emulator's for the
+        // atlatl, the shield and the shortfall.
+        missile_stamina_by_weapon: true,
         // ac1999's dat migrations, as rules.
         early_2000_spell_fixes: true,
     };
@@ -765,6 +780,26 @@ mod tests {
         assert!(LAUNCH.formulas.thrown_reach_by_strength);
         for rules in [&EOR, &INFILTRATION] {
             assert!(!rules.formulas.thrown_reach_by_strength);
+        }
+    }
+
+    /// Divergence: V516
+    /// Only Launch flies missiles by distance at 0.9 and 1.25.
+    #[test]
+    fn only_launch_flies_missiles_by_distance() {
+        assert!(LAUNCH.formulas.missile_flight_by_distance);
+        for rules in [&EOR, &INFILTRATION] {
+            assert!(!rules.formulas.missile_flight_by_distance);
+        }
+    }
+
+    /// Divergence: V517
+    /// Only Launch charges a missile by its weapon.
+    #[test]
+    fn only_launch_charges_a_missile_by_its_weapon() {
+        assert!(LAUNCH.formulas.missile_stamina_by_weapon);
+        for rules in [&EOR, &INFILTRATION] {
+            assert!(!rules.formulas.missile_stamina_by_weapon);
         }
     }
 

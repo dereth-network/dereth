@@ -4,6 +4,8 @@
 //!
 //! The projectile maths and launch are `Creature_Missile.cs`'s (`creature_missile.rs`).
 
+use empyrean_common::dotnet::numerics::Vector3;
+use empyrean_common::thread_safe_random::ThreadSafeRandom;
 use empyrean_entity::enums::{
     CombatMode, CombatStyle, MotionCommand, MotionStance, ParentLocation, Placement,
 };
@@ -177,6 +179,13 @@ pub fn launch_missile(w: &mut World, this: ObjectGuid) {
 
     //Console.WriteLine($"Velocity: {velocity}");
 
+    // DIVERGE: V516, a target that stepped past the weapon's reach is not shot at.
+    if w.era.formulas.missile_flight_by_distance && velocity.equals(Vector3::ZERO) {
+        monster_combat::fields_mut(w, this).next_attack_time =
+            timers::running_time(w) + f64::from(1.0f32);
+        return;
+    }
+
     // launch animation
     let mut action_chain = ActionChain::new();
     let launch_time = enqueue_motion(
@@ -205,13 +214,18 @@ pub fn launch_missile(w: &mut World, this: ObjectGuid) {
         enqueue_broadcast(w, this, true, &[game_message_sound(this, sound, 1.0)]);
 
         // TODO: monster stamina usage
+        // DIVERGE: V517, a missile is charged for a monster too, at an attack power it rolls.
+        #[allow(clippy::cast_possible_truncation)] // a roll of 0 to 1
+        let power = ThreadSafeRandom::next_float(0.0, 1.0) as f32;
+        let short_of_stamina = creature_missile::missile_stamina_cost_of(w, this, weapon, power)
+            .is_some_and(|cost| creature_missile::pay_missile_stamina(w, this, cost));
 
         // Not ACE's (a fix, V325): nothing is fired at a target whose log-off
         // finished during the windup.
         if let Some(attack_target) = monster_combat::attack_target(w, this)
             .filter(|&t| !creature_missile::target_left_world(w, t))
         {
-            let _projectile = creature_missile::launch_projectile(
+            let projectile = creature_missile::launch_projectile(
                 w,
                 this,
                 launcher,
@@ -221,6 +235,9 @@ pub fn launch_missile(w: &mut World, this: ObjectGuid) {
                 orientation,
                 velocity,
             );
+            if short_of_stamina {
+                creature_missile::mark_short_of_stamina(w, projectile);
+            }
             dispatch::update_ammo_after_launch::update_ammo_after_launch(w, this, ammo);
         }
     });

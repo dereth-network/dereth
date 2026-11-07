@@ -437,10 +437,20 @@ pub fn launch_missile(
         // stamina usage
         // TODO: ensure enough stamina for attack
         // TODO: verify formulas - double/triple cost for bow/xbow?
-        let accuracy_range = get_accuracy_range(w, this);
-        let stamina_cost = player_combat::get_attack_stamina(w, this, accuracy_range);
-        let stamina = object(w, this).stamina();
-        creature_vitals::update_vital_delta(w, this, stamina, stamina_cost.wrapping_neg());
+        // DIVERGE: V517, a missile is charged by its weapon, and flies whatever it cost.
+        let mut short_of_stamina = false;
+        let bar = fields(w, this).accuracy_level;
+        if let Some(cost) = creature_missile::missile_stamina_cost_of(w, this, weapon, bar) {
+            short_of_stamina = creature_missile::pay_missile_stamina(w, this, cost);
+            if short_of_stamina {
+                player_networking::send_weenie_error(w, this, WeenieError::YouAreTooTiredToDoThat);
+            }
+        } else {
+            let accuracy_range = get_accuracy_range(w, this);
+            let stamina_cost = player_combat::get_attack_stamina(w, this, accuracy_range);
+            let stamina = object(w, this).stamina();
+            creature_vitals::update_vital_delta(w, this, stamina, stamina_cost.wrapping_neg());
+        }
 
         // Not ACE's (fix, V325): a target whose log-off finished during the
         // windup is not shot at, and the ammo is kept.
@@ -448,7 +458,7 @@ pub fn launch_missile(
             return;
         }
 
-        let _projectile = creature_missile::launch_projectile(
+        let projectile = creature_missile::launch_projectile(
             w,
             this,
             launcher,
@@ -458,6 +468,9 @@ pub fn launch_missile(
             orientation,
             velocity,
         );
+        if short_of_stamina {
+            creature_missile::mark_short_of_stamina(w, projectile);
+        }
         dispatch::update_ammo_after_launch::update_ammo_after_launch(w, this, ammo);
     });
 
