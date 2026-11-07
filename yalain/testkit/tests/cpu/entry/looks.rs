@@ -13,7 +13,7 @@ use yalain_world::chargen::{CharGenRules, FEMALE};
 fn a_new_character_looks_as_the_2017_server_made_her() {
     let mut bodies = std::collections::BTreeMap::new();
     bodies.insert((4, FEMALE), 0x1F00_007A);
-    let rules = CharGenRules::with_bodies(bodies);
+    let rules = CharGenRules::new(bodies, yalain_testkit::test_physique());
     let build = 0.939_999_9_f32;
     let height = 1.009_999_9_f32;
     let physique = Table::from_inserted(

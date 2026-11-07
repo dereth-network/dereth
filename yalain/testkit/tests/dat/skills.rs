@@ -1147,3 +1147,15 @@ fn each_kingdoms_shrine_grants_fifteen_skills_read_from_the_install() {
     assert_eq!(t.earned(kingdom::SHADOW, 6_000).len(), 15);
     assert!(t.earned(kingdom::SHADOW, 500).is_empty(), "nothing at 500");
 }
+
+/// The character generation data's physique table gives, per race and sex, the appearance each
+/// physique type changes and its modifier: 67 types of ten races and sexes, build and height
+/// naming none, in the order of the types; the test rules hold the same, row for row.
+/// Behaviour: server.characters.physique-from-the-install
+#[test]
+fn the_install_names_the_appearance_each_physique_type_changes() {
+    let read = Portal::open().physique();
+    assert_eq!(read.len(), 10);
+    assert_eq!(read.values().map(Vec::len).sum::<usize>(), 67);
+    assert_eq!(read, yalain_testkit::test_physique());
+}

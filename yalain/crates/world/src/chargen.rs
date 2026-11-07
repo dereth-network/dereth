@@ -10,14 +10,17 @@
 //!   physique type to, that type's modifier at the chosen value; a modifier keyed 2 (a choice
 //!   among parts) also sets modifier 16 to 1.
 //!
-//! The race and sex tables are the character-generation data of the September 2013 data files
-//! (the physique map below; each body's look is read from its body entity by the host).
+//! The race and sex tables are the character-generation data of the September 2013 data files:
+//! which appearance each physique type changes is read from its physique table
+//! ([`physique_of_matrix`]), and each body's look from its body entity, by the host.
 
 use std::collections::BTreeMap;
 
 use auberean_primitives::Vec3;
 use auberean_protocol::table::{Table, SMALL};
 use auberean_protocol::types::{PartGroupDesc, VisualDesc};
+use auberean_script::graph::Graph;
+use auberean_script::library::Library;
 
 pub use auberean_world::chargen::{BUILD, FEMALE, HEIGHT, MALE};
 /// The key of the change applied to a whole avatar.
@@ -41,84 +44,57 @@ pub const BODY_ENTITIES: [(u32, u32, u32); 10] = [
     (16, FEMALE, 0x4700_0513),
 ];
 
-/// Which appearance each physique type changes: `(race, sex, physique type, modifier,
-/// appearance)`.
-pub const PHYSIQUE_MAP: [(u32, u32, u32, u32, u32); 67] = [
-    (1, MALE, 0x4, 0x1, 0x2000_000C),
-    (1, MALE, 0x10, 0x3, 0x2000_000D),
-    (1, MALE, 0x20, 0xC, 0x2000_000D),
-    (1, MALE, 0x40, 0xB, 0x2000_000D),
-    (1, MALE, 0x100, 0x2, 0x2000_0016),
-    (1, MALE, 0x200, 0x2, 0x2000_0014),
-    (1, MALE, 0x400, 0x2, 0x2000_0019),
-    (1, MALE, 0x800, 0x4100_001C, 0x2000_000E),
-    (1, FEMALE, 0x4, 0x1, 0x2000_000F),
-    (1, FEMALE, 0x10, 0x3, 0x2000_0010),
-    (1, FEMALE, 0x40, 0xB, 0x2000_0010),
-    (1, FEMALE, 0x100, 0x2, 0x2000_0017),
-    (1, FEMALE, 0x200, 0x2, 0x2000_0013),
-    (1, FEMALE, 0x400, 0x2, 0x2000_001A),
-    (1, FEMALE, 0x800, 0x4100_001C, 0x2000_0011),
-    (2, MALE, 0x4, 0x1, 0x2000_0000),
-    (2, MALE, 0x8, 0xF, 0x2000_0002),
-    (2, MALE, 0x10, 0x3, 0x2000_0001),
-    (2, MALE, 0x20, 0xC, 0x2000_0001),
-    (2, MALE, 0x40, 0xB, 0x2000_0001),
-    (2, MALE, 0x100, 0x2, 0x2000_00DD),
-    (2, MALE, 0x200, 0x2, 0x2000_00DE),
-    (2, MALE, 0x400, 0x2, 0x2000_001C),
-    (2, MALE, 0x800, 0x4100_001C, 0x2000_0002),
-    (2, FEMALE, 0x4, 0x1, 0x2000_0003),
-    (2, FEMALE, 0x8, 0xF, 0x2000_0005),
-    (2, FEMALE, 0x10, 0x3, 0x2000_0004),
-    (2, FEMALE, 0x40, 0xB, 0x2000_0004),
-    (2, FEMALE, 0x100, 0x2, 0x2000_00DF),
-    (2, FEMALE, 0x200, 0x2, 0x2000_00E0),
-    (2, FEMALE, 0x400, 0x2, 0x2000_0043),
-    (2, FEMALE, 0x800, 0x4100_001C, 0x2000_0005),
-    (4, MALE, 0x4, 0x1, 0x2000_0006),
-    (4, MALE, 0x8, 0xF, 0x2000_0008),
-    (4, MALE, 0x10, 0x3, 0x2000_0007),
-    (4, MALE, 0x20, 0xC, 0x2000_0007),
-    (4, MALE, 0x40, 0xB, 0x2000_0007),
-    (4, MALE, 0x100, 0x2, 0x2000_0038),
-    (4, MALE, 0x200, 0x2, 0x2000_0039),
-    (4, MALE, 0x800, 0x4100_001C, 0x2000_0008),
-    (4, FEMALE, 0x4, 0x1, 0x2000_0009),
-    (4, FEMALE, 0x8, 0xF, 0x2000_000B),
-    (4, FEMALE, 0x10, 0x3, 0x2000_000A),
-    (4, FEMALE, 0x40, 0xB, 0x2000_000A),
-    (4, FEMALE, 0x80, 0x4100_0003, 0x2000_000A),
-    (4, FEMALE, 0x100, 0x2, 0x2000_0038),
-    (4, FEMALE, 0x200, 0x2, 0x2000_0039),
-    (4, FEMALE, 0x800, 0x4100_001C, 0x2000_000B),
-    (8, MALE, 0x4, 0x1, 0x2000_00ED),
-    (8, FEMALE, 0x4, 0x1, 0x2000_00ED),
-    (16, MALE, 0x4, 0x1, 0x2000_00E1),
-    (16, MALE, 0x10, 0x3, 0x2000_00E4),
-    (16, MALE, 0x20, 0xC, 0x2000_00E4),
-    (16, MALE, 0x40, 0xB, 0x2000_00E4),
-    (16, MALE, 0x100, 0x2, 0x2000_00E6),
-    (16, MALE, 0x200, 0x2, 0x2000_00E9),
-    (16, MALE, 0x400, 0x2, 0x2000_00E7),
-    (16, MALE, 0x800, 0x4100_001C, 0x2000_00E1),
-    (16, MALE, 0x1000, 0x4100_002E, 0x2000_00E3),
-    (16, FEMALE, 0x4, 0x1, 0x2000_00E2),
-    (16, FEMALE, 0x10, 0x3, 0x2000_00E5),
-    (16, FEMALE, 0x40, 0xB, 0x2000_00E5),
-    (16, FEMALE, 0x100, 0x2, 0x2000_00EA),
-    (16, FEMALE, 0x200, 0x2, 0x2000_00EC),
-    (16, FEMALE, 0x400, 0x2, 0x2000_00EB),
-    (16, FEMALE, 0x800, 0x4100_001C, 0x2000_00E2),
-    (16, FEMALE, 0x1000, 0x4100_002E, 0x2000_00E3),
-];
-
 /// One physique type's effect on the look.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PhysiqueEffect {
     pub physique_type: u32,
     pub modifier: u32,
     pub appearance: u32,
+}
+
+/// Which appearance each physique type changes, per race and sex, from the character generation
+/// data's graph: its physique table lists each race's, sex's and physique type's choices, each
+/// naming the appearance it changes and the modifier it sets (the same for all of one type); a
+/// type that names no appearance (build and height) is left out. Each list is in the order of
+/// the physique types.
+///
+/// # Errors
+/// The table, or a field it should hold, is missing or of another shape.
+pub fn physique_of_matrix(
+    lib: &Library,
+    g: &Graph,
+) -> Result<BTreeMap<(u32, u32), Vec<PhysiqueEffect>>, String> {
+    use crate::start::Nav;
+    let nav = Nav::new(lib, g);
+    let root = nav.object(g.root().ok_or("an empty graph")?)?;
+    let mut out: BTreeMap<(u32, u32), Vec<PhysiqueEffect>> = BTreeMap::new();
+    for (race, by_sex) in nav.entries(nav.field(root, "m_PhysiqueTypeModifierTable")?)? {
+        let race = Nav::word(race)?;
+        for (sex, by_type) in nav.entries(Nav::reference(by_sex)?)? {
+            let sex = Nav::word(sex)?;
+            let mut effects = Vec::new();
+            for (physique_type, choices) in nav.entries(Nav::reference(by_type)?)? {
+                let physique_type = Nav::word(physique_type)?;
+                for c in nav.items(Nav::reference(choices)?)? {
+                    let c = nav.object(Nav::reference(c)?)?;
+                    let appearance = nav.field(c, "appFileDID")?;
+                    if appearance != 0 {
+                        effects.push(PhysiqueEffect {
+                            physique_type,
+                            modifier: nav.field(c, "appKey")?,
+                            appearance,
+                        });
+                        break;
+                    }
+                }
+            }
+            effects.sort_by_key(|e| e.physique_type);
+            if !effects.is_empty() {
+                out.insert((race, sex), effects);
+            }
+        }
+    }
+    Ok(out)
 }
 
 /// The rules for making a character's look.
@@ -131,21 +107,14 @@ pub struct CharGenRules {
 }
 
 impl CharGenRules {
-    /// The rules with the physique map of the September 2013 data and the bodies' looks given
-    /// (as read from the body entities, [`BODY_ENTITIES`]).
+    /// The rules with these bodies' looks (as read from the body entities, [`BODY_ENTITIES`]) and
+    /// what each physique type changes (as read from the character generation data,
+    /// [`physique_of_matrix`]).
     #[must_use]
-    pub fn with_bodies(bodies: BTreeMap<(u32, u32), u32>) -> Self {
-        let mut physique: BTreeMap<(u32, u32), Vec<PhysiqueEffect>> = BTreeMap::new();
-        for (race, sex, physique_type, modifier, appearance) in PHYSIQUE_MAP {
-            physique
-                .entry((race, sex))
-                .or_default()
-                .push(PhysiqueEffect {
-                    physique_type,
-                    modifier,
-                    appearance,
-                });
-        }
+    pub fn new(
+        bodies: BTreeMap<(u32, u32), u32>,
+        physique: BTreeMap<(u32, u32), Vec<PhysiqueEffect>>,
+    ) -> Self {
         Self { bodies, physique }
     }
 

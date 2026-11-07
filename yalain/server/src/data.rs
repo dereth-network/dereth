@@ -197,10 +197,11 @@ impl Portal {
     }
 }
 
-/// Each race and sex's body look, read from its body entity.
+/// Each race and sex's body look, read from its body entity, and which appearance each physique
+/// type changes, read from the character generation data.
 ///
 /// # Errors
-/// A body entity that does not read.
+/// A body entity, the library or the data does not read.
 pub fn chargen_rules(p: &Portal) -> Result<CharGenRules, String> {
     let mut bodies = BTreeMap::new();
     for (race, sex, entity) in BODY_ENTITIES {
@@ -221,7 +222,23 @@ pub fn chargen_rules(p: &Portal) -> Result<CharGenRules, String> {
             ),
         }
     }
-    Ok(CharGenRules::with_bodies(bodies))
+    let physique = yalain_world::chargen::physique_of_matrix(library(p)?, &matrix(p)?)?;
+    Ok(CharGenRules::new(bodies, physique))
+}
+
+/// The character generation data's graph (read with the script library's field names).
+///
+/// # Errors
+/// The library or the data does not read.
+fn matrix(p: &Portal) -> Result<Graph, String> {
+    let lib = library(p)?;
+    let bytes = p
+        .dat
+        .read(MATRIX)
+        .map_err(|e| format!("{MATRIX:08X}: {e}"))?;
+    let st: ScriptState = auberean_assets::decode(MATRIX, &bytes, &p.ctx)
+        .map_err(|e| format!("{MATRIX:08X}: {e}"))?;
+    Graph::decode(&st.graph, lib).map_err(|e| format!("{MATRIX:08X}: {e}"))
 }
 
 /// Where new characters start and what they start with, from the character generation data (read
@@ -230,15 +247,7 @@ pub fn chargen_rules(p: &Portal) -> Result<CharGenRules, String> {
 /// # Errors
 /// The library or the data does not read.
 pub fn start_rules(p: &Portal) -> Result<StartRules, String> {
-    let lib = library(p)?;
-    let bytes = p
-        .dat
-        .read(MATRIX)
-        .map_err(|e| format!("{MATRIX:08X}: {e}"))?;
-    let st: ScriptState = auberean_assets::decode(MATRIX, &bytes, &p.ctx)
-        .map_err(|e| format!("{MATRIX:08X}: {e}"))?;
-    let g = Graph::decode(&st.graph, lib).map_err(|e| format!("{MATRIX:08X}: {e}"))?;
-    StartRules::from_matrix(lib, &g)
+    StartRules::from_matrix(library(p)?, &matrix(p)?)
 }
 
 /// The ids of the properties a template's facts are read from, found by name in the data's

@@ -948,6 +948,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.characters.physique-from-the-install",
+        says: "Which appearance each physique type of each race and sex changes, and the modifier \
+               it sets, is read from the install's character generation data: 67 types, build \
+               and height naming none.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CHAR-PHYSIQUE-READ"),
+        station: "yalain-testkit::dat::skills::the_install_names_the_appearance_each_physique_type_changes",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.characters.starting-clothes-as-2017-made-them",
         says: "A character made from the choices a 2017 client sent wears the clothes that \
                server gave it, in the same colors, and each garment that server made worn at the \

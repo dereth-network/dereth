@@ -129,14 +129,31 @@ impl Portal {
     #[must_use]
     pub fn start_rules(&self) -> yalain_world::StartRules {
         let lib = self.library.get_or_init(|| self.library());
+        yalain_world::StartRules::from_matrix(lib, &self.matrix()).expect("the rules read")
+    }
+
+    /// Which appearance each physique type changes, per race and sex, as the server reads it.
+    ///
+    /// # Panics
+    /// The data does not read.
+    #[must_use]
+    pub fn physique(
+        &self,
+    ) -> std::collections::BTreeMap<(u32, u32), Vec<yalain_world::chargen::PhysiqueEffect>> {
+        let lib = self.library.get_or_init(|| self.library());
+        yalain_world::chargen::physique_of_matrix(lib, &self.matrix()).expect("the map reads")
+    }
+
+    /// The character generation data's graph.
+    fn matrix(&self) -> auberean_script::graph::Graph {
+        let lib = self.library.get_or_init(|| self.library());
         let bytes = self
             .dat
             .read(0x7000_0390)
             .expect("character generation data");
         let st: auberean_assets::script::ScriptState =
             auberean_assets::decode(0x7000_0390, &bytes, &self.ctx).expect("reads");
-        let g = auberean_script::graph::Graph::decode(&st.graph, lib).expect("its graph reads");
-        yalain_world::StartRules::from_matrix(lib, &g).expect("the rules read")
+        auberean_script::graph::Graph::decode(&st.graph, lib).expect("its graph reads")
     }
 
     /// The script library.
