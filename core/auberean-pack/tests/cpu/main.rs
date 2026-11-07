@@ -42,6 +42,7 @@ fn every_item_form_reads_and_is_written_one_way() {
         ("step 0x40000088 s1", "step 0x40000088 s1"),
         ("give mirra-beryl", "give mirra-beryl"),
         ("talk t-335b-1cf7eb76", "talk t-335b-1cf7eb76"),
+        ("tool 0x47000CBB", "tool 0x47000cbb"),
         ("route patrol-1", "route patrol-1"),
         ("area 41aa", "area 41AA"),
     ] {

@@ -153,6 +153,8 @@ pub enum Item {
     Craft { id: u32 },
     /// What a butchery profile yields, by the profile's data id.
     Butchery { profile: u32 },
+    /// What a gathering tool yields when it was not made, by its template.
+    Tool { template: u32 },
     /// A scene of the story, by its id.
     Scene { id: u32 },
     /// The scene a shard bestows, by the shard's world id.
@@ -213,6 +215,9 @@ impl Item {
             ["butchery", p] => Self::Butchery {
                 profile: number(p)?,
             },
+            ["tool", t] => Self::Tool {
+                template: number(t)?,
+            },
             ["scene", id] => Self::Scene { id: number(id)? },
             ["shard", o] => Self::Shard {
                 object: number64(o)?,
@@ -263,6 +268,7 @@ impl fmt::Display for Item {
             Self::Talk { key } => write!(f, "talk {key}"),
             Self::Craft { id } => write!(f, "craft {id:#010x}"),
             Self::Butchery { profile } => write!(f, "butchery {profile:#010x}"),
+            Self::Tool { template } => write!(f, "tool {template:#010x}"),
             Self::Scene { id } => write!(f, "scene {id:#010x}"),
             Self::Shard { object } => write!(f, "shard {object:#018x}"),
             Self::Weapon { name } => write!(f, "weapon {name}"),
