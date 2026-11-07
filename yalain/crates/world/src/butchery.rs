@@ -118,14 +118,19 @@ pub fn knife_yield(template: u32, made: Option<u32>) -> u32 {
     made.unwrap_or(if template == HUNTING_KNIFE { 6 } else { 1 })
 }
 
-/// The knives.
+/// The hunting knife, made by a recipe, as against the crude one bought.
 const HUNTING_KNIFE: u32 = 0x4700_0CBB;
-const CRUDE_KNIFE: u32 = 0x4700_0CBD;
 
-/// Is this template a knife?
+/// The class of the butchery tools: the knives are its templates.
+pub const TOOL_CLASS: &str = "ButcheryToolTemplate";
+
+/// Is this template a knife: of a package derived from the butchery tools' class (as the start
+/// reads them into [`Server::knife_packages`])?
 #[must_use]
-pub const fn is_knife(template: u32) -> bool {
-    matches!(template, HUNTING_KNIFE | CRUDE_KNIFE)
+pub fn is_knife<S: Store>(s: &Server<S>, template: u32) -> bool {
+    s.catalog
+        .get(template)
+        .is_some_and(|t| s.knife_packages.contains(&t.description.package))
 }
 
 /// The chance of an expert cut, by the player's butchery level alone: a six hundredth of it (2017:
@@ -144,7 +149,9 @@ pub fn is_butchery<S: Store>(s: &Server<S>, u: &Use) -> bool {
         && s.things
             .get(u.target)
             .is_some_and(|t| t.kind == Kind::Corpse)
-        && s.things.get(u.item).is_some_and(|t| is_knife(t.template))
+        && s.things
+            .get(u.item)
+            .is_some_and(|t| is_knife(s, t.template))
 }
 
 /// A butchery under way: the use, the corpse, the knife.

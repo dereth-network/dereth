@@ -1043,7 +1043,10 @@ fn made_items_profiles_are_built_from_their_recipes_item_level_as_2017_built_the
                 })
                 .collect();
             if mine.craft_needed.is_some() {
-                view.tool_skills = made::tool_skills(template, &worn, &all_skills.skills)
+                let knife = yalain_content::Props::class_of(template, &|id| entity(inst, id))
+                    .zip(inst.lib.package_id(yalain_world::butchery::TOOL_CLASS))
+                    .is_some_and(|(c, k)| inst.lib.derives_from(c, k));
+                view.tool_skills = made::tool_skills(template, knife, &worn, &all_skills.skills)
                     .into_iter()
                     .map(|(id, table)| profile::string(table, id))
                     .collect();

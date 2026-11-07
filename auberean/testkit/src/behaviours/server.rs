@@ -1590,6 +1590,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.craft.butchery-knives-from-the-install",
+        says: "The knives are the install's templates of the butchery tools' class, the hunting \
+               knife and the crude one, each butchering with the behavior the server plays.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-BUTCHERY-KNIVES-READ"),
+        station: "yalain-testkit::dat::skills::the_knives_are_the_butchery_tools_class_hunting_and_crude",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.craft.butchery-refused-while-another-opens",
         says: "A corpse another player is on its way to open is refused at once with target locked; \
                an open corpse, or one whose opener has arrived, may be butchered.",

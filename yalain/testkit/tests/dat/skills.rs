@@ -1159,3 +1159,19 @@ fn the_install_names_the_appearance_each_physique_type_changes() {
     assert_eq!(read.values().map(Vec::len).sum::<usize>(), 67);
     assert_eq!(read, yalain_testkit::test_physique());
 }
+
+/// The knives are the install's templates of the butchery tools' class: the hunting knife and the
+/// crude one, each butchering with the behavior the server plays.
+/// Behaviour: server.craft.butchery-knives-from-the-install
+#[test]
+fn the_knives_are_the_butchery_tools_class_hunting_and_crude() {
+    let p = Portal::open();
+    let knives = p.templates_of_class(yalain_world::butchery::TOOL_CLASS);
+    assert_eq!(knives, [0x4700_0CBB, 0x4700_0CBD]);
+    for k in knives {
+        assert_eq!(
+            p.template(k).props.word("Usage_UserAnimation"),
+            Some(yalain_world::butchery::BEHAVIOR)
+        );
+    }
+}

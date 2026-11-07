@@ -16,6 +16,8 @@ use yalain_world::things::{Corpse, Kind, Thing};
 const PROFILE: u32 = 0x6F00_12DD;
 const BONE: u32 = 0x4700_06C8;
 const CRUDE_KNIFE: u32 = 0x4700_0CBD;
+/// The knives' package, as the start reads it from the butchery tools' class.
+const KNIVES: u32 = 0x1C07;
 const USE_DONE: u32 = 0x8216_0021;
 const SHOW_TEXT: u32 = 0x8205_0011;
 
@@ -81,7 +83,8 @@ fn at_a_corpse() -> (Harness, usize, u64, yalain_net::ConnId, u64, u64) {
     knife.set("Item_Durability_MaxLevel", Prop::Int(KNIFE_DURABILITY));
     h.server
         .catalog
-        .insert(yalain_testkit::test_template(CRUDE_KNIFE, 0x3A1, knife));
+        .insert(yalain_testkit::test_template(CRUDE_KNIFE, KNIVES, knife));
+    h.server.knife_packages.insert(KNIVES);
     h.server.crafting.butchery.insert(
         PROFILE,
         vec![Yield {
@@ -274,8 +277,18 @@ fn a_knife_cuts_ten_units_above_its_own_yield() {
             cut
         );
     }
-    assert!(butchery::is_knife(CRUDE_KNIFE) && butchery::is_knife(0x4700_0CBB));
-    assert!(!butchery::is_knife(BONE));
+    // A knife is a template of the knives' package; another is not.
+    let mut h = Harness::new();
+    h.server.knife_packages.insert(KNIVES);
+    for (t, package) in [(CRUDE_KNIFE, KNIVES), (0x4700_0CBB, KNIVES), (BONE, 0x3A1)] {
+        h.server
+            .catalog
+            .insert(yalain_testkit::test_template(t, package, Props::default()));
+    }
+    assert!(
+        butchery::is_knife(&h.server, CRUDE_KNIFE) && butchery::is_knife(&h.server, 0x4700_0CBB)
+    );
+    assert!(!butchery::is_knife(&h.server, BONE));
 }
 
 /// An expert cut's chance goes by the butcher's level alone, a six hundredth of it: 25% at level

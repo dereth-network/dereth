@@ -862,6 +862,26 @@ pub fn chest_packages(
         .collect())
 }
 
+/// The script library's packages that are this one or derive from it.
+///
+/// # Errors
+/// The library does not read.
+pub fn library_packages_from(
+    p: &Portal,
+    base: &str,
+) -> Result<std::collections::HashSet<u32>, String> {
+    let lib = library(p)?;
+    let Some(base) = lib.package_id(base) else {
+        return Ok(std::collections::HashSet::new());
+    };
+    Ok(lib
+        .packages
+        .iter()
+        .map(|pkg| pkg.id)
+        .filter(|id| lib.derives_from(*id, base))
+        .collect())
+}
+
 /// The packages of the catalog's templates that derive from any of these script packages.
 ///
 /// # Errors

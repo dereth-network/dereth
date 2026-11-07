@@ -362,6 +362,28 @@ impl Portal {
         m
     }
 
+    /// The install's templates whose class is this script package or derives from it, in order.
+    ///
+    /// # Panics
+    /// The library does not read.
+    #[must_use]
+    pub fn templates_of_class(&self, class: &str) -> Vec<u32> {
+        let lib = self.library();
+        let Some(base) = lib.package_id(class) else {
+            return Vec::new();
+        };
+        let ids: Vec<u32> = self
+            .dat
+            .entries_in(0x4700_0000, 0x47FF_FFFF)
+            .map(|e| e.id)
+            .collect();
+        ids.into_iter()
+            .filter(|id| {
+                Props::class_of(*id, &|e| self.entity(e)).is_some_and(|c| lib.derives_from(c, base))
+            })
+            .collect()
+    }
+
     /// The mount items the world's catalog always holds, as the server reads them at start: the
     /// saddle class's templates whose use mounts their user, and the eggs.
     ///
