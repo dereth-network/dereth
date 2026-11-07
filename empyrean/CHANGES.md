@@ -13,6 +13,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`RELEASING.md`](RELEASING.md)).
 
 ## Unreleased
+
+## 0.3.11 (2026-11-07)
 - Launch is no longer marked experimental.
 - Relay: shooting from too far now says Out of Range in the chat.
 - Relay: the character page shows an ac1999 character's heritage.
