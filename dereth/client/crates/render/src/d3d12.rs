@@ -1786,7 +1786,7 @@ impl Gpu {
                 buffers.clear();
                 // SAFETY: every back-buffer reference has just been dropped, which is what
                 // ResizeBuffers requires.
-                hr("ResizeBuffers", unsafe {
+                let resized = hr("ResizeBuffers", unsafe {
                     chain.ResizeBuffers(
                         FRAME_COUNT as u32,
                         width,
@@ -1794,13 +1794,22 @@ impl Gpu {
                         BACK_BUFFER_FORMAT,
                         DXGI_SWAP_CHAIN_FLAG(0),
                     )
-                })?;
+                });
+                // Refused, the chain keeps its buffers at their old size: they are taken back, so
+                // the next frame draws at that size rather than into none.
                 for i in 0..FRAME_COUNT as u32 {
                     // SAFETY: i is within BufferCount.
                     buffers.push(hr("GetBuffer", unsafe { chain.GetBuffer(i) })?);
                 }
                 // SAFETY: a pure query.
                 self.frame_index = (unsafe { chain.GetCurrentBackBufferIndex() }) as usize;
+                if let Err(e) = resized {
+                    // SAFETY: a pure query.
+                    let desc = hr("GetDesc1", unsafe { chain.GetDesc1() })?;
+                    self.config.width = desc.Width;
+                    self.config.height = desc.Height;
+                    return Err(e);
+                }
             }
             Target::Offscreen { .. } => {
                 self.target = Self::create_target(

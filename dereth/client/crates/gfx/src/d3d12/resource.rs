@@ -516,7 +516,8 @@ impl Device {
     }
 
     /// Destroy a texture once the work recorded so far is done with it. A lent resource is only
-    /// forgotten.
+    /// forgotten, at once: its owner keeps it alive for the work, and may need every reference to
+    /// it gone before its next call (a swap chain's buffers, before they are resized).
     pub fn destroy_texture(&mut self, t: Texture) {
         if let Some(e) = self.textures.remove(t.0) {
             if let Some(i) = e.bindless {
@@ -529,10 +530,12 @@ impl Device {
                 self.defer(Garbage::Dsv(w));
                 self.defer(Garbage::Dsv(r));
             }
-            if !e.lent {
+            if e.lent {
+                drop(e);
+            } else {
                 self.stats.textures -= 1;
+                self.defer(Garbage::Texture(e));
             }
-            self.defer(Garbage::Texture(e));
         }
     }
 
