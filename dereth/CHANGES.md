@@ -29,6 +29,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Better Lighting: smoke now covers distant trees instead of fading into the haze.
 - Better Lighting: glows and torches add as they do in the ordinary picture.
 
+- Better Lighting: Retail Look and No Slope Materials say so when no art pack is open.
+
 ## 0.4.14 (2026-11-05)
 
 ## 0.4.13 (2026-11-05)

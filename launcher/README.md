@@ -58,6 +58,11 @@ The launcher starts the Dereth client with `--dat-dir` (the Modern set), `--clas
 password as `-a <account> -v <password>`. The launcher shows and logs that command line with the
 password replaced by `***`.
 
+**Art packs**, in the Library, are kept the same way: add a packed pack's `.dat` file, where it
+is, and one of them is the default. On a world's page you choose which the Dereth client draws, or
+none, and it is started with `--art-pack`.
+A pack is optional: without one the client draws the game's own models and plays the same.
+
 ## The world list
 
 Worlds has three sections: **Custom** (servers you added), **Online** (listed worlds that are up,

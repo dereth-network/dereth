@@ -347,6 +347,31 @@ fn set_default_set(b: State<'_, Shared>, id: String) -> Cmd<()> {
     lock(&b).set_default_set(&id)
 }
 
+/// Ask for an art pack's packed file and add it to the Library. Whether one was chosen.
+#[tauri::command]
+async fn add_art_pack(app: tauri::AppHandle, b: State<'_, Shared>) -> Cmd<bool> {
+    let picked = app
+        .dialog()
+        .file()
+        .set_title("Choose an art pack")
+        .add_filter("Art pack", &["dat"])
+        .blocking_pick_file();
+    let Some(path) = picked.and_then(|p| p.into_path().ok()) else {
+        return Ok(false);
+    };
+    lock(&b).add_art_pack(&path).map(|()| true)
+}
+
+#[tauri::command]
+fn set_default_art_pack(b: State<'_, Shared>, id: String) -> Cmd<()> {
+    lock(&b).set_default_art_pack(&id)
+}
+
+#[tauri::command]
+fn remove_art_pack(b: State<'_, Shared>, id: String) {
+    lock(&b).remove_art_pack(&id);
+}
+
 #[tauri::command]
 async fn add_custom_dats(app: tauri::AppHandle, b: State<'_, Shared>, slug: String) -> Cmd<bool> {
     let picked = app
@@ -916,6 +941,9 @@ fn main() {
             pick_folder,
             add_folder,
             set_default_set,
+            add_art_pack,
+            set_default_art_pack,
+            remove_art_pack,
             add_custom_dats,
             create_private_copy,
             reset_set,
@@ -1205,6 +1233,47 @@ mod tests {
             "{library}"
         );
         assert!(!library.contains("\"stock\""), "{library}");
+    }
+
+    /// A host without art packs (the browser's) opens a world, whose view has no list, and the
+    /// Library and the world's page offer none.
+    #[test]
+    fn the_page_offers_art_packs_only_where_its_host_has_them() {
+        let open = page_function("openWorld");
+        assert!(open.contains("offers?.art_packs === false ? []"), "{open}");
+        assert!(open.contains("view.art_packs ?? []"), "{open}");
+        assert!(page_function("worldPage").contains("(w.view.art_packs ?? [])"));
+        for name in ["worldPage", "formChoice", "library"] {
+            assert!(
+                page_function(name).contains("offered(\"art_packs\")"),
+                "{name}"
+            );
+        }
+    }
+
+    /// Every button the Library draws answers a click: the page's click listener looks for each of
+    /// their data attributes.
+    #[test]
+    fn every_button_the_library_draws_answers_a_click() {
+        let page = include_str!("../ui/app.js");
+        let at = page
+            .find("const t = ev.target.closest(\"")
+            .expect("the click listener");
+        let listened = &page[at..page[at..].find(')').map_or(page.len(), |e| at + e)];
+        let library = page_function("library");
+        let mut buttons = 0;
+        for button in library.split("<button").skip(1) {
+            let tag = &button[..button.find('>').unwrap_or(button.len())];
+            for attr in tag
+                .split_whitespace()
+                .filter_map(|a| a.strip_prefix("data-"))
+            {
+                let name = &attr[..attr.find('=').unwrap_or(attr.len())];
+                assert!(listened.contains(&format!("[data-{name}]")), "data-{name}");
+                buttons += 1;
+            }
+        }
+        assert!(buttons > 3, "{buttons}");
     }
 
     /// The retail client's friends library is the launcher's own business: no page speaks of it,

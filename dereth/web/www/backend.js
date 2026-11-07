@@ -151,6 +151,7 @@ export function webBackend({ call, start, params, log, scale }) {
     client_choice: false,
     make_plugin: false,
     kept_passwords: false,
+    art_packs: false,
     realms: ['dereth', 'auberean'],
   };
 

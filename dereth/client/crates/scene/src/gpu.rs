@@ -513,6 +513,7 @@ mod imp {
                         started.elapsed().as_secs_f64()
                     );
                     self.art_pack = Some(std::sync::Arc::new(pack));
+                    dereth_client_contract::options::fidelity::note_art_pack();
                 }
                 Err(e) => {
                     tracing::warn!("the art pack {} is not drawn: {e}", path.display());

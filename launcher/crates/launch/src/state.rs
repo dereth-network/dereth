@@ -41,6 +41,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::artpack::{read_art_pack, ArtPack};
 use crate::datset::{DatOrigin, DatSet, SetKind, SHARED_SET_ID};
 use crate::install::{ClientKind, Installation};
 use crate::world::{Emulator, Endpoint, Game, World};
@@ -311,6 +312,9 @@ pub struct WorldPrefs {
     /// The Classic set chosen for the Dereth client, if one was.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub classic_set_id: Option<String>,
+    /// The art pack chosen for the Dereth client; empty when none was.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub art_pack_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account: Option<String>,
     /// Seconds since the epoch.
@@ -441,6 +445,8 @@ pub struct LauncherState {
     pub retail: Option<Installation>,
     #[serde(default)]
     pub dat_sets: Vec<DatSet>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub art_packs: Vec<ArtPack>,
     #[serde(default)]
     pub accounts: Vec<Account>,
     #[serde(default)]
@@ -475,6 +481,7 @@ impl Default for LauncherState {
             schema: SCHEMA,
             retail: None,
             dat_sets: Vec::new(),
+            art_packs: Vec::new(),
             accounts: Vec::new(),
             favourites: Vec::new(),
             favorite_worlds: Vec::new(),
@@ -513,10 +520,11 @@ pub struct Unread {
 }
 
 /// The state file's parts, by their keys, each read on its own when the whole does not read.
-pub const PARTS: [&str; 10] = [
+pub const PARTS: [&str; 11] = [
     "schema",
     "retail",
     "dat_sets",
+    "art_packs",
     "accounts",
     "favourites",
     "recent",
@@ -534,6 +542,7 @@ pub fn part_name(part: &str) -> &'static str {
         "schema" => "the file's version",
         "retail" => "your retail client",
         "dat_sets" => "your data files",
+        "art_packs" => "your art packs",
         "accounts" => "your accounts",
         "favourites" => "your favorites",
         "recent" => "your recent games",
@@ -599,6 +608,7 @@ impl LauncherState {
         take(parts, "schema", &mut s.schema, &mut reset);
         take(parts, "retail", &mut s.retail, &mut reset);
         take(parts, "dat_sets", &mut s.dat_sets, &mut reset);
+        take(parts, "art_packs", &mut s.art_packs, &mut reset);
         take(parts, "accounts", &mut s.accounts, &mut reset);
         take(parts, "favourites", &mut s.favourites, &mut reset);
         take(parts, "recent", &mut s.recent, &mut reset);
@@ -874,6 +884,61 @@ impl LauncherState {
         self.dat_sets
             .iter()
             .find(|s| s.kind == kind && s.origin == DatOrigin::Shared)
+    }
+
+    /// The art pack `id`.
+    pub fn art_pack(&self, id: &str) -> Option<&ArtPack> {
+        self.art_packs.iter().find(|p| p.id == id)
+    }
+
+    /// Add the art pack at `path` to the Library, the first of them the default. One already
+    /// there is left as it is.
+    ///
+    /// # Errors
+    /// Why it is not an art pack this client can draw, as a sentence.
+    pub fn add_art_pack(&mut self, path: &Path) -> Result<(), String> {
+        let name = read_art_pack(path)?;
+        if self.art_packs.iter().all(|p| p.path != path) {
+            self.art_packs.push(ArtPack {
+                id: self.new_id("pack"),
+                name,
+                path: path.to_path_buf(),
+                is_default: self.art_packs.is_empty(),
+            });
+        }
+        Ok(())
+    }
+
+    /// Make the art pack `id` the default. Whether there is one.
+    pub fn set_default_art_pack(&mut self, id: &str) -> bool {
+        if self.art_pack(id).is_none() {
+            return false;
+        }
+        for p in &mut self.art_packs {
+            p.is_default = p.id == id;
+        }
+        true
+    }
+
+    /// Take the art pack `id` out of the Library. Its file stays where it is.
+    pub fn remove_art_pack(&mut self, id: &str) {
+        self.art_packs.retain(|p| p.id != id);
+    }
+
+    /// The art pack a game of the world `slug` draws: `chosen`, empty for none; else what was
+    /// chosen there last; else the default.
+    pub fn art_pack_for(&self, slug: &str, chosen: Option<&str>) -> Option<&ArtPack> {
+        let last = self
+            .world_prefs
+            .get(slug)
+            .and_then(|p| p.art_pack_id.as_deref());
+        match chosen.or(last) {
+            Some("") => None,
+            Some(id) => self
+                .art_pack(id)
+                .or_else(|| self.art_packs.iter().find(|p| p.is_default)),
+            None => self.art_packs.iter().find(|p| p.is_default),
+        }
     }
 
     /// The private set for a world, if one has been made.
@@ -1178,6 +1243,7 @@ impl LauncherState {
         let taken = |id: &str| {
             id == SHARED_SET_ID
                 || self.dat_sets.iter().any(|s| s.id == id)
+                || self.art_packs.iter().any(|p| p.id == id)
                 || self.auberean.dat_sets.iter().any(|s| s.id == id)
                 || self.favourites.iter().any(|f| f.id == id)
         };
@@ -1289,6 +1355,12 @@ mod tests {
     fn every_part_of_the_file_is_read_on_its_own() {
         let mut s: LauncherState = serde_json::from_str(STATE_0_4_9).unwrap();
         s.auberean.account = Some("player".into());
+        s.art_packs.push(ArtPack {
+            id: "a1".into(),
+            name: "Pack".into(),
+            path: PathBuf::from("pack.dat"),
+            is_default: true,
+        });
         let v = serde_json::to_value(&s).unwrap();
         let keys: Vec<&str> = v.as_object().unwrap().keys().map(String::as_str).collect();
         let mut parts = PARTS.to_vec();
@@ -1466,6 +1538,7 @@ mod tests {
         s.world_prefs.insert(
             "eulmore".into(),
             WorldPrefs {
+                art_pack_id: None,
                 last_played: Some(5),
                 ..Default::default()
             },
@@ -1617,6 +1690,7 @@ mod tests {
         s.world_prefs.insert(
             "eulmore".into(),
             WorldPrefs {
+                art_pack_id: None,
                 account: Some("PLAYER".into()),
                 ..Default::default()
             },
@@ -1814,6 +1888,7 @@ mod tests {
             s.world_prefs.insert(
                 slug.into(),
                 WorldPrefs {
+                    art_pack_id: None,
                     last_played: Some(t),
                     ..Default::default()
                 },

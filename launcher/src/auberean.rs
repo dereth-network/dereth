@@ -1484,6 +1484,7 @@ mod tests {
             client: ClientKind::Auberean,
             dat_set_id: None,
             classic_set_id: None,
+            art_pack_id: None,
         };
         for typed in [None, Some("")] {
             assert!(matches!(
