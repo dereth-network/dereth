@@ -843,12 +843,18 @@ fn a_later_pulse_is_kept_off_by_the_blocker_of_the_first() {
 #[test]
 fn a_practice_dummy_sends_back_a_share_of_each_attack_by_its_level() {
     use yalain_world::spawn::{
-        practice_dummy_spellcraft, PRACTICE_DUMMIES, PRACTICE_DUMMY_EFFECT as HOLDS,
+        is_practice_dummy, practice_dummy_spellcraft, PRACTICE_DUMMY_EFFECT as HOLDS,
     };
     const STURDY: u32 = 0x4700_2DB6;
     /// Level 30, on the plain drudges' table.
     const NOT_ONE: u32 = 0x4700_2DB0;
-    assert!(PRACTICE_DUMMIES.contains(&STURDY) && !PRACTICE_DUMMIES.contains(&NOT_ONE));
+    let table = |template: u32| {
+        if template == STURDY {
+            "NPCTable_WingChunDummySturdy"
+        } else {
+            "NPCTable_DrudgeStraw"
+        }
+    };
     assert_eq!(practice_dummy_spellcraft(40), 35.0);
     assert_eq!(practice_dummy_spellcraft(50), 40.0);
     assert_eq!(practice_dummy_spellcraft(60), 45.0);
@@ -865,7 +871,12 @@ fn a_practice_dummy_sends_back_a_share_of_each_attack_by_its_level() {
             )
             .set("AICombat_NaturalDamage", yalain_content::Prop::Float(0.0))
             .set("AICombat_NaturalVariance", yalain_content::Prop::Float(0.0))
-            .set("AI_PerceptionRadius", yalain_content::Prop::Float(20.0));
+            .set("AI_PerceptionRadius", yalain_content::Prop::Float(20.0))
+            .set(
+                "AI_NPCTable",
+                yalain_content::Prop::Text(table(template).into()),
+            );
+        assert_eq!(is_practice_dummy(&props), template == STURDY);
         h.server
             .catalog
             .insert(yalain_testkit::test_template(template, 0x1169, props));
@@ -959,8 +970,7 @@ fn a_practice_dummy_sends_back_a_share_of_each_attack_by_its_level() {
 /// Behaviour: server.creatures.practice-dummy-at-30
 #[test]
 fn the_weakest_practice_dummy_goes_by_the_same_line() {
-    use yalain_world::spawn::{practice_dummy_spellcraft, PRACTICE_DUMMIES};
-    assert!(PRACTICE_DUMMIES.contains(&0x4700_2DAF));
+    use yalain_world::spawn::practice_dummy_spellcraft;
     assert_eq!(practice_dummy_spellcraft(30), 30.0);
 }
 

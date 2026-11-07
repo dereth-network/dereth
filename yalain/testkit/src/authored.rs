@@ -249,6 +249,26 @@ impl Portal {
         }
     }
 
+    /// The properties of every template of the install, by template, as a template's own and its
+    /// parents' entities give them.
+    #[must_use]
+    pub fn every_template_props(&self) -> Vec<(u32, Props)> {
+        let name = |p: u32| {
+            self.ctx
+                .properties()
+                .and_then(|l| l.names.name(p))
+                .map(str::to_string)
+        };
+        let ids: Vec<u32> = self
+            .dat
+            .entries_in(0x4700_0000, 0x47FF_FFFF)
+            .map(|e| e.id)
+            .collect();
+        ids.into_iter()
+            .map(|id| (id, Props::of(id, &|e| self.entity(e), &name)))
+            .collect()
+    }
+
     /// The skills' definitions and advancement tables, as the server reads them at start.
     ///
     /// # Panics

@@ -2840,6 +2840,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.practice-dummies-from-the-install",
+        says: "The practice dummies that send back a share of each attack are the install's \
+               templates on a practice dummy's NPC table: nine, and not the level-30 dummy on \
+               another table.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PRACTICE-DUMMY-READ"),
+        station: "yalain-testkit::dat::effects::the_practice_dummies_are_the_nine_on_their_npc_table",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.creatures.practice-dummy-at-30",
         says: "The practice dummy of level 30 sends back by the same line as the others, 0.30. Our choice: it \
                shows the effect's appearance, and no recording holds an attack on it.",

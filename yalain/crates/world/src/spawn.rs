@@ -62,19 +62,18 @@ pub struct CampState {
     pub filled: bool,
 }
 
-/// The practice dummies that send back a share of each attack on them: every level's, with a quest
-/// on its death and without. The one of level 30 on another kind of table never does.
-pub const PRACTICE_DUMMIES: [u32; 9] = [
-    0x4700_2DAB,
-    0x4700_2DAE,
-    0x4700_2DAF,
-    0x4700_2DB1,
-    0x4700_2DB2,
-    0x4700_2DB3,
-    0x4700_2DB4,
-    0x4700_2DB5,
-    0x4700_2DB6,
-];
+/// The kind of NPC table practice dummies that send back a share of each attack on them stand
+/// on, every level's, with a quest on its death and without (`AI_NPCTable` begins with it). The
+/// one of level 30 on another kind of table never does.
+pub const PRACTICE_DUMMY_TABLE: &str = "NPCTable_WingChunDummy";
+
+/// Is a template a practice dummy that sends back a share of each attack on it?
+#[must_use]
+pub fn is_practice_dummy(props: &yalain_content::Props) -> bool {
+    props
+        .text("AI_NPCTable")
+        .is_some_and(|t| t.starts_with(PRACTICE_DUMMY_TABLE))
+}
 /// What a practice dummy holds from its first moment: 0.01 of an attack sent back for each point of
 /// spellcraft.
 pub const PRACTICE_DUMMY_EFFECT: u32 = 0x7000_1C79;
@@ -95,7 +94,11 @@ fn holds_its_effect<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, c
         return;
     };
     let (template, level) = (t.template, t.creature.as_ref().map_or(0, |c| c.stats.level));
-    if !PRACTICE_DUMMIES.contains(&template) {
+    if !s
+        .catalog
+        .get(template)
+        .is_some_and(|t| is_practice_dummy(&t.props))
+    {
         return;
     }
     let Some(def) = s.effect_table.get(PRACTICE_DUMMY_EFFECT).cloned() else {

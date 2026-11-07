@@ -1906,3 +1906,40 @@ fn the_installs_armor_effects_count_on_a_player_as_recorded() {
     // One class: the stronger of the two.
     assert!((armor(&[(WARD, 1.0), (LUMBERING, 30.0)]) - 40.0).abs() < 0.6);
 }
+
+/// The practice dummies that send back a share of each attack are the install's templates on a
+/// practice dummy's NPC table: nine, of levels 30 to 70, and not the level-30 one on the plain
+/// drudges' table.
+/// Behaviour: server.creatures.practice-dummies-from-the-install
+#[test]
+fn the_practice_dummies_are_the_nine_on_their_npc_table() {
+    let p = Portal::open();
+    let mut dummies: Vec<u32> = p
+        .every_template_props()
+        .iter()
+        .filter(|(_, props)| yalain_world::spawn::is_practice_dummy(props))
+        .map(|(id, _)| *id)
+        .collect();
+    dummies.sort_unstable();
+    assert_eq!(
+        dummies,
+        [
+            0x4700_2DAB,
+            0x4700_2DAE,
+            0x4700_2DAF,
+            0x4700_2DB1,
+            0x4700_2DB2,
+            0x4700_2DB3,
+            0x4700_2DB4,
+            0x4700_2DB5,
+            0x4700_2DB6,
+        ]
+    );
+    // As the catalog describes them too.
+    assert!(yalain_world::spawn::is_practice_dummy(
+        &p.template(0x4700_2DAF).props
+    ));
+    assert!(!yalain_world::spawn::is_practice_dummy(
+        &p.template(0x4700_2DB0).props
+    ));
+}
