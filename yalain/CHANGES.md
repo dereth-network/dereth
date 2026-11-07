@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Holding portal gems, amplification stones and warder stones now do what they say, and an item that can't do anything is kept.
 - Worn armor now softens creatures' hits.
 - Fixed pets appearing inside or above hills, where creatures couldn't reach them.
 - Fixed the message when a second player offers to resurrect someone.

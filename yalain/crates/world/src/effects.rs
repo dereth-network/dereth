@@ -602,13 +602,7 @@ pub fn apply_on<S: Store>(
             true
         }
         (Kind::Quest { quest, update }, On::Player(world)) => {
-            let act = match update & 0xF000_0000 {
-                crate::quests::update::BESTOW => Move::Bestow,
-                crate::quests::update::COMPLETE => Move::Complete,
-                crate::quests::update::FAIL => Move::Fail,
-                crate::quests::update::INCREMENT => Move::Increment,
-                _ => Move::Advance(update & 0x0FFF_FFFF),
-            };
+            let act = Move::of_update(*update);
             let e = crate::quests::QuestEffect { quest: *quest, act };
             crate::quests::moves(s, net, world, e, true, clock);
             true

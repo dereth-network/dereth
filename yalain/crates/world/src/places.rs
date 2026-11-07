@@ -2148,6 +2148,42 @@ pub fn sent_away<S: Store>(
     );
 }
 
+/// An item's use sends its user to a place: into portal space now, out of it at the place a moment
+/// later, saying what the item says there; the item is spent and its use answered as it comes out
+/// ([`crate::item_use::arrived`]). A player already on its way somewhere is left to it. Returns
+/// whether it went.
+pub fn item_trip<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    (to, used, said): (StoredPosition, Use, Option<TextInfo>),
+    clock: Clock,
+) -> bool {
+    if on_a_trip(s, world) {
+        return false;
+    }
+    enter_portal_space(s, net, world, false);
+    if let Some(p) = s.players.get_mut(&world) {
+        p.trip = Some(Trip {
+            to,
+            used: Some(used),
+            step: None,
+            resurrect: false,
+            sent: false,
+            said,
+        });
+    }
+    s.after(
+        clock,
+        IN_PORTAL_SPACE,
+        Timer::Trip {
+            world,
+            step: Step::Arrive,
+        },
+    );
+    true
+}
+
 /// Does using this portal leave its user a place to recall to (its portal flags)? A portal of the
 /// world whose flags say so, used itself (not an item used on it); a summoned portal never does.
 fn recalled_to<S: Store>(s: &Server<S>, u: &Use) -> bool {
@@ -2371,7 +2407,16 @@ fn arrive<S: Store>(
         };
         p = q;
     }
-    if let Some(u) = trip.used.as_ref().filter(|u| u.target == 0) {
+    // An item of the pack that sent the player: carried out once the player is out.
+    let from_pack = trip
+        .used
+        .as_ref()
+        .filter(|u| u.target == 0 && p.play.items.iter().any(|h| h.id == u.item));
+    if let Some(u) = trip
+        .used
+        .as_ref()
+        .filter(|u| u.target == 0 && from_pack.is_none())
+    {
         // The portal's own effects, put on the player as it comes out, before the use is answered
         // (2017: 3 of 3 such portals' uses: quests given and moved on, and what they put on).
         let template = presence::content_by_id(&s.content.objects, u.item)
@@ -2427,6 +2472,14 @@ fn arrive<S: Store>(
             BlobKind::PRIVATE,
             &crate::chat::show_text(2, said),
         );
+    }
+    if let Some(u) = from_pack {
+        s.players.insert(world, p);
+        crate::item_use::arrived(s, net, world, u);
+        let Some(q) = s.players.remove(&world) else {
+            return;
+        };
+        p = q;
     }
     // Clients that held the player at the old place and do not see the new one see it leave.
     let to = trip.to;

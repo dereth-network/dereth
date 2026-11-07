@@ -4,9 +4,10 @@
 //! nothing else done while a potion is drunk; the uses refused (moving, a mount with full hands
 //! or on a mount, far from the item's place, without its quest, a hidden one's as mysterious,
 //! below its level), before any quest step its use moves; a reward quest done with the quest it
-//! rewards; an item only looked at.
-//! Fixture: the test world with made-up potion, charm, egg, rod, token and trophy templates and
-//! their effects as the data defines them.
+//! rewards; an item only looked at; a gem that sends its user to a named place, spent as it comes
+//! out; a stone whose use only gives a quest, kept when the quest can't be given.
+//! Fixture: the test world with made-up potion, charm, egg, rod, token, trophy, gem and stone
+//! templates and their effects as the data defines them.
 
 use auberean_protocol::{queue, ServerMessage};
 use auberean_script::args::Arg;
@@ -15,7 +16,7 @@ use yalain_content::{Prop, Props};
 use yalain_testkit::play::server_call;
 use yalain_testkit::Harness;
 use yalain_world::calls::{self, Node, Value};
-use yalain_world::effect_defs::{EffectDef, Kind, Scale};
+use yalain_world::effect_defs::{EffectDef, Kind, Recall, Scale};
 use yalain_world::effects::{record_flag, speed};
 use yalain_world::item_use::{self, flags, refusal, UsageEffect};
 use yalain_world::quests::status;
@@ -41,6 +42,20 @@ const ROD_TABLE: u32 = 0x2500_20AB;
 const USE: u32 = 0x8216_0016;
 const USE_DONE: u32 = 0x8216_0021;
 const ITEM_NAME: (u32, u32) = (0xA860_7CEC, 0x2500_1E8E);
+/// A gem whose use sends its user to a named place, its recall effect and the effect's table.
+const GEM: u32 = 0x4700_1507;
+const GEM_RECALL: u32 = 0x6F00_1C70;
+const GEM_TABLE: u32 = 0x2500_2BE1;
+const GEM_PLACE: &str = "a_holding";
+const GEM_TO: yalain_content::Place = yalain_content::Place {
+    cell: 0x03E9_0202,
+    origin: [-71.59, 50.72, 27.06],
+    rotation: [1.0, 0.0, 0.0, 0.0],
+};
+/// A stone whose use only gives a quest, whose giving puts on the luck.
+const STONE: u32 = 0x4700_1C68;
+const STONE_QUEST: u32 = 0x4000_02DD;
+const STONE_GIVES: u32 = 0x6F00_3BD6;
 
 fn def(state: u32, kind: Kind, seconds: Option<f32>) -> EffectDef {
     EffectDef {
@@ -140,7 +155,46 @@ fn world() -> Harness {
         gives: Vec::new(),
         rooms: Vec::new(),
     };
+    // A gem played as a Tessera is, destroyed on use, letting its user go for its effects; a stone
+    // the same, whose use gives its quest.
+    for id in [GEM, STONE] {
+        let mut p = Props::default();
+        p.set("Item_UsageAction", Prop::Word(0x1F))
+            .set("Item_IsDestroyOnUse", Prop::Bool(true))
+            .set("Usage_UserAnimation", Prop::Word(0x4100_00FC))
+            .set("Usage_ShouldUnlockUserForUsageEffects", Prop::Bool(true));
+        template(&mut h, id, p);
+    }
     let effect = |state, spellcraft| UsageEffect { state, spellcraft };
+    h.server
+        .item_uses
+        .insert(GEM, vec![effect(GEM_RECALL, 1.0)]);
+    h.server
+        .item_uses
+        .insert(STONE, vec![effect(STONE_GIVES, 1.0)]);
+    for d in [
+        EffectDef {
+            name: Some((0xA860_7CEC, GEM_TABLE)),
+            ..def(
+                GEM_RECALL,
+                Kind::Recall(Recall::Named {
+                    names: vec![GEM_PLACE.into()],
+                    told: false,
+                }),
+                None,
+            )
+        },
+        def(
+            STONE_GIVES,
+            Kind::Quest {
+                quest: STONE_QUEST,
+                update: yalain_world::quests::update::BESTOW,
+            },
+            None,
+        ),
+    ] {
+        h.server.effect_table.effects.insert(d.state, d);
+    }
     h.server.item_uses.insert(
         POTION,
         vec![effect(OVER_TIME, 50.0), effect(TENACITY, 100.0)],
@@ -1318,4 +1372,128 @@ fn an_item_playing_a_tesseras_behavior_gives_no_hero_skill_credit() {
     let _ = send_use(&mut h, b, me, rocket, 1.0);
     run_for(&mut h, 3.0);
     assert_eq!(h.server.players[&world].play.hero_credits, 38);
+}
+
+/// The stone's quest, as a world's row gives it: its giving puts on the luck.
+fn with_stone_quest(h: &mut Harness) {
+    let mut q = h.server.quests.quests[0].clone();
+    q.id = STONE_QUEST;
+    q.hidden = true;
+    q.effects = vec![(yalain_world::quests::update::BESTOW, LUCK)];
+    h.server.quests.quests.push(q);
+}
+
+/// The text ids a client was told since `from`.
+fn told(h: &Harness, b: usize, from: usize) -> Vec<(u32, u32)> {
+    h.calls(b, from)
+        .into_iter()
+        .filter(|(f, _)| *f == 0x8205_0011)
+        .filter_map(|(_, v)| {
+            v.iter().find_map(|x| match x.root() {
+                Some(Node::TextInfo(t)) => Some((t.string_id, t.table)),
+                _ => None,
+            })
+        })
+        .collect()
+}
+
+/// A gem whose use names a recall to a named place plays its behavior, then sends its user into
+/// portal space toward that place; the gem is still held and the use unanswered until the user
+/// comes out there, told the recall's line from the effect's own table, the gem spent and the use
+/// answered as a use that took its time and spent its item.
+/// Behaviour: server.items.a-recall-sends-its-user-and-is-spent-on-arrival
+#[test]
+fn a_gems_recall_sends_its_user_to_the_named_place_and_is_spent_as_it_comes_out() {
+    let mut h = world();
+    h.server.places_by_name.insert(GEM_PLACE.into(), GEM_TO);
+    let (b, me, world) = in_world(&mut h);
+    let gem = give(&mut h, world, GEM, 1);
+    let from = send_use(&mut h, b, me, gem, 3.0);
+    assert!(
+        h.server.players[&world].trip.is_some(),
+        "in portal space once the behavior has played"
+    );
+    assert_eq!(
+        held(&h, world, GEM),
+        Some((gem, 1)),
+        "held while on the way"
+    );
+    assert!(answers(&h, b, from).is_empty(), "unanswered on the way");
+    run_for(&mut h, 2.0);
+    let p = &h.server.players[&world];
+    assert!(p.trip.is_none(), "out");
+    assert_eq!(
+        (p.position.cell, p.position.origin),
+        (GEM_TO.cell, GEM_TO.origin)
+    );
+    assert!(held(&h, world, GEM).is_none(), "spent");
+    assert_eq!(
+        answers(&h, b, from),
+        vec![Answer {
+            status: 0,
+            flags: flags::PLAYED | flags::UNLOCKS | flags::CARRIED_OUT | flags::SPENT,
+            text: 0,
+        }],
+        "the request's message kept"
+    );
+    assert!(told(&h, b, from).contains(&(0x912E_FF1D, GEM_TABLE)));
+}
+
+/// A gem whose recall names a place the world lacks is refused before anything plays: kept, its
+/// user where it was.
+/// Behaviour: server.items.kept-when-its-recall-goes-nowhere
+#[test]
+fn a_gem_whose_place_the_world_lacks_is_refused_and_kept() {
+    let mut h = world();
+    let (b, me, world) = in_world(&mut h);
+    let gem = give(&mut h, world, GEM, 1);
+    let was = h.server.players[&world].position;
+    let from = send_use(&mut h, b, me, gem, 5.0);
+    assert_eq!(held(&h, world, GEM), Some((gem, 1)), "kept");
+    assert_eq!(h.server.players[&world].position, was, "not moved");
+    let a = answers(&h, b, from);
+    assert_eq!(a.len(), 1);
+    assert_eq!(a[0].flags & flags::SPENT, 0, "not spent");
+    assert!(!h
+        .world_messages(b, from)
+        .iter()
+        .any(|m| { matches!(m, ServerMessage::PlayBehavior(p) if p.action.target == gem) }));
+}
+
+/// A stone whose use only gives a quest gives it, and the quest's giving puts on its effect; the
+/// stone is spent. A second stone while that quest is under way would give nothing: it is refused
+/// and kept, and so is one whose quest the world doesn't hold.
+/// Behaviour: server.items.kept-when-its-quest-stands-still
+#[test]
+fn a_stone_that_only_gives_a_quest_is_kept_when_the_quest_cant_be_given() {
+    let mut h = world();
+    let (b, me, world) = in_world(&mut h);
+    let stone = give(&mut h, world, STONE, 1);
+    send_use(&mut h, b, me, stone, 5.0);
+    assert_eq!(held(&h, world, STONE), Some((stone, 1)), "no quest: kept");
+    assert!(h.server.players[&world].play.quests.is_empty());
+    with_stone_quest(&mut h);
+    let from = send_use(&mut h, b, me, stone, 5.0);
+    assert!(held(&h, world, STONE).is_none(), "spent");
+    let q = h.server.players[&world]
+        .play
+        .quests
+        .iter()
+        .find(|q| q.quest == STONE_QUEST);
+    assert_eq!(q.map(|q| q.status), Some(status::UNDERWAY), "given");
+    assert!(
+        h.server.players[&world]
+            .play
+            .effects
+            .iter()
+            .any(|e| e.state == LUCK),
+        "its giving's effect on"
+    );
+    assert_eq!(answers(&h, b, from)[0].flags & flags::SPENT, flags::SPENT);
+    let second = give(&mut h, world, STONE, 1);
+    let from = send_use(&mut h, b, me, second, 5.0);
+    assert_eq!(held(&h, world, STONE), Some((second, 1)), "under way: kept");
+    let a = answers(&h, b, from);
+    assert_eq!(a.len(), 1);
+    assert_eq!(a[0].flags & flags::SPENT, 0, "not spent");
 }

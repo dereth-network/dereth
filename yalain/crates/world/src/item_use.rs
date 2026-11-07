@@ -42,7 +42,7 @@ use yalain_content::Props;
 use yalain_net::{ConnId, ServerNet};
 use yalain_store::{Store, StoredPosition};
 
-use crate::effect_defs::Kind;
+use crate::effect_defs::{Kind, Recall};
 use crate::effects::{self, Cast, On, Shape};
 use crate::places::Use;
 use crate::usable::maps;
@@ -445,6 +445,10 @@ pub fn begin<S: Store>(
         progress::private(net, world, &no);
         return true;
     }
+    if goes_nowhere(s, world, template) || quests_stand_still(s, world, template, clock) {
+        kept(s, net, world, u, template, &props, clock);
+        return true;
+    }
     let Some(behavior) = item_behavior(s, u.item, template, &props) else {
         carry_out(s, net, world, u.clone(), false, clock);
         return true;
@@ -507,6 +511,82 @@ fn cannot_make<S: Store>(s: &Server<S>, template: u32, props: &Props) -> bool {
                 )
             })
         })
+}
+
+/// The recall an item's effects name, if any: where it takes its user, and the string table of its
+/// texts (its name's).
+fn recall_in<S: Store>(s: &Server<S>, list: &[UsageEffect]) -> Option<(Recall, u32)> {
+    list.iter().find_map(|e| match s.effect_table.get(e.state) {
+        Some(d) => match &d.kind {
+            Kind::Recall(r) => Some((r.clone(), d.name.map_or(0, |(_, table)| table))),
+            _ => None,
+        },
+        None => None,
+    })
+}
+
+/// Would using an item of this template send its user somewhere there is no place for (a recall
+/// whose place the world lacks)? The item is then kept.
+fn goes_nowhere<S: Store>(s: &Server<S>, world: ConnId, template: u32) -> bool {
+    let list = s.item_uses.get(&template).map_or(&[][..], Vec::as_slice);
+    recall_in(s, list)
+        .is_some_and(|(r, _)| crate::skill_use::recall_places(s, world, &r).is_empty())
+}
+
+/// The quest effects of an item of this template, if they are all it does: its use moves those
+/// quests and nothing else.
+fn quest_effects<S: Store>(s: &Server<S>, template: u32) -> Vec<crate::quests::QuestEffect> {
+    let list = s.item_uses.get(&template).map_or(&[][..], Vec::as_slice);
+    let quests: Vec<_> = list
+        .iter()
+        .filter_map(|e| match s.effect_table.get(e.state).map(|d| &d.kind) {
+            Some(Kind::Quest { quest, update }) => Some(crate::quests::QuestEffect {
+                quest: *quest,
+                act: crate::quests::Move::of_update(*update),
+            }),
+            _ => None,
+        })
+        .collect();
+    if quests.len() == list.len() && own_effects(template).is_empty() {
+        quests
+    } else {
+        Vec::new()
+    }
+}
+
+/// Would using an item of this template, whose use only moves quests, move none of them for the
+/// player now (a quest the world doesn't hold, or one its status keeps where it is)? The item is
+/// then kept.
+fn quests_stand_still<S: Store>(s: &Server<S>, world: ConnId, template: u32, clock: Clock) -> bool {
+    let quests = quest_effects(s, template);
+    !quests.is_empty()
+        && quests
+            .iter()
+            .all(|e| !crate::quests::would_move(s, world, *e, clock))
+}
+
+/// An item whose use would do nothing now is kept, its use refused: the player told what each of
+/// its quests says of it (a quest under way says so).
+fn kept<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    u: &Use,
+    template: u32,
+    props: &Props,
+    clock: Clock,
+) {
+    s.unhandled.note(format!(
+        "a use of {template:08X}, which would do nothing now"
+    ));
+    for e in quest_effects(s, template) {
+        // None moves: each only says why.
+        crate::quests::moves(s, net, world, e, true, clock);
+    }
+    let me = s.players.get(&world).map_or(0, |p| p.character);
+    let flags = answer_flags(props, use_behavior(props).is_some()) & !flags::CARRIED_OUT;
+    let no = crate::places::use_refused(u, me, Some(flags), 0.0, crate::places::USE_STATUS_OK);
+    progress::private(net, world, &no);
 }
 
 /// A use refused, if the player may not use an item of these properties now: answered with its
@@ -813,8 +893,33 @@ fn carry_out<S: Store>(
         state: e.state,
         spellcraft: e.spellcraft,
     }));
+    // One that sends its user somewhere: a place for it now, or the item kept.
+    let recall = recall_in(s, &list);
+    let to = recall.as_ref().map(|(r, _)| {
+        let places = crate::skill_use::recall_places(s, world, r);
+        match places.len() {
+            0 => None,
+            n => places.get(s.rng.below(n)).copied(),
+        }
+    });
+    if let Some(None) = to {
+        kept(s, net, world, &u, template, &t.props, clock);
+        return;
+    }
     for e in list {
         put_on(s, net, world, me, u.item, e, clock);
+    }
+    // Into portal space; the item is spent and the use answered as its user comes out, with the
+    // text the recall's own table holds (2017: the Holding Portal Gem's 4 of 4 played uses, into
+    // portal space 2.6 s after the request, out at the one place its recall names, "You crush the
+    // gem in your hand ...", the gem destroyed and the use answered there).
+    if let (Some((_, table)), Some(Some(to))) = (recall, to) {
+        let said = Some(progress::text((crate::skill_use::text::RECALLED, table)));
+        if !crate::places::item_trip(s, net, world, (to, u.clone(), said), clock) {
+            kept(s, net, world, &u, template, &t.props, clock);
+        }
+        crate::world::keep_player(s, world);
+        return;
     }
     // One that makes what a world's row names moves the quest it names too, before it's answered
     // (2017: a practice gem's quest 0.06 s before its answer, 4 of 4).
@@ -878,6 +983,33 @@ fn carry_out<S: Store>(
         crate::butchery::wear_tool_by(s, net, world, u.item, 1.0, FOOD_DURABILITY);
     }
     crate::world::keep_player(s, world);
+}
+
+/// An item's use that sent its user somewhere is carried out as its user comes out: the item spent
+/// (as its template says) and the use answered, as a use that took its time and was carried out,
+/// keeping the request's message (2017: the gem's 4 of 4 answers, flags 8637).
+pub fn arrived<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, u: &Use) {
+    let Some(me) = s.players.get(&world).map(|p| p.character) else {
+        return;
+    };
+    let Some(t) = s
+        .things
+        .get(u.item)
+        .and_then(|i| s.catalog.get(i.template))
+        .cloned()
+    else {
+        return;
+    };
+    let spent = spends(s, &t);
+    if spent {
+        crate::craft::use_up(s, net, world, u.item, 1);
+    }
+    let mut f = answer_flags(&t.props, true) | flags::CARRIED_OUT;
+    if spent {
+        f |= flags::SPENT;
+    }
+    let done = crate::places::use_done(u, me, f, false, 0.0);
+    progress::private(net, world, &done);
 }
 
 /// The control flags of a use's answer that did not spend its item: a use that took its time,

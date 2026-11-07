@@ -864,6 +864,21 @@ pub enum Move {
     Fail,
 }
 
+impl Move {
+    /// The move a quest effect's update makes: a giving, a completion, a failure, a phase more, or
+    /// a move to the phase it names.
+    #[must_use]
+    pub const fn of_update(update: u32) -> Self {
+        match update & 0xF000_0000 {
+            update::BESTOW => Self::Bestow,
+            update::COMPLETE => Self::Complete,
+            update::FAIL => Self::Fail,
+            update::INCREMENT => Self::Increment,
+            _ => Self::Advance(update & 0x0FFF_FFFF),
+        }
+    }
+}
+
 /// An effect on a quest.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct QuestEffect {
@@ -1037,31 +1052,56 @@ pub fn moves<S: Store>(
     told: bool,
     clock: Clock,
 ) {
-    let Some(def) = s.quests.quest(e.quest).cloned() else {
-        return;
+    match decide(s, world, e, clock) {
+        Decision::Moves(up) => apply(s, net, world, e.quest, up, 0, clock),
+        Decision::Fails => fail(s, net, world, e.quest, clock),
+        Decision::Refused(def, why) => refuse(s, net, world, &def, why, told, clock),
+        Decision::Nothing => {}
+    }
+}
+
+/// Would a quest effect move its quest for a player now (or fail it)? As [`moves`] judges it,
+/// changing nothing.
+#[must_use]
+pub fn would_move<S: Store>(s: &Server<S>, world: ConnId, e: QuestEffect, clock: Clock) -> bool {
+    matches!(
+        decide(s, world, e, clock),
+        Decision::Moves(_) | Decision::Fails
+    )
+}
+
+/// What a quest effect does to a player's quest now.
+enum Decision {
+    Moves(Update),
+    Fails,
+    /// A giving refused: the quest, and why.
+    Refused(Box<QuestDef>, u32),
+    Nothing,
+}
+
+fn decide<S: Store>(s: &Server<S>, world: ConnId, e: QuestEffect, clock: Clock) -> Decision {
+    let Some(def) = s.quests.quest(e.quest) else {
+        return Decision::Nothing;
     };
     let Some(p) = s.players.get(&world) else {
-        return;
+        return Decision::Nothing;
     };
     let phase = phase_of(&p.play.quests, e.quest);
     let last = u32::try_from(def.journals.len()).unwrap_or(0);
+    let no = |why| Decision::Refused(Box::new(def.clone()), why);
     let up = match e.act {
-        Move::Bestow if phase != 0 => {
-            refuse(s, net, world, &def, refused::UNDER_WAY, told, clock);
-            return;
-        }
+        Move::Bestow if phase != 0 => return no(refused::UNDER_WAY),
         Move::Bestow => {
             let held = &p.play.quests;
-            if given_again(&def, held, clock.unix) {
+            if given_again(def, held, clock.unix) {
                 // Under its least level it is refused as the other reasons are (2017: 2 of 2, the
                 // givings at or above it 83 of 83, 9 more of unknown level); by who it is for,
                 // nothing is said.
                 if crate::examine::level_of(&p.qualities) < def.min_level {
-                    refuse(s, net, world, &def, refused::LEVEL_TOO_LOW, told, clock);
-                    return;
+                    return no(refused::LEVEL_TOO_LOW);
                 }
-                if !setup_allows(&s.quests, &def, p, clock.unix) {
-                    return;
+                if !setup_allows(&s.quests, def, p, clock.unix) {
+                    return Decision::Nothing;
                 }
                 Update::Bestow
             } else {
@@ -1070,24 +1110,20 @@ pub fn moves<S: Store>(
                 } else {
                     refused::WAITING
                 };
-                refuse(s, net, world, &def, why, told, clock);
-                return;
+                return no(why);
             }
         }
-        _ if phase == 0 => return,
+        _ if phase == 0 => return Decision::Nothing,
         Move::Increment if phase < last => Update::Advance(phase + 1),
-        Move::Increment if def.last_waits => return,
+        Move::Increment if def.last_waits => return Decision::Nothing,
         Move::Increment => Update::Complete,
         Move::Advance(n) if n == phase + 1 => Update::Advance(n),
-        Move::Advance(_) => return,
+        Move::Advance(_) => return Decision::Nothing,
         Move::Complete if phase >= last => Update::Complete,
-        Move::Complete => return,
-        Move::Fail => {
-            fail(s, net, world, e.quest, clock);
-            return;
-        }
+        Move::Complete => return Decision::Nothing,
+        Move::Fail => return Decision::Fails,
     };
-    apply(s, net, world, e.quest, up, 0, clock);
+    Decision::Moves(up)
 }
 
 /// Tell a player its giving of a quest was refused, unless the quest is hidden or it is not the one

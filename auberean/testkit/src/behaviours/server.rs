@@ -5634,6 +5634,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.items.a-recall-sends-its-user-and-is-spent-on-arrival",
+        says: "An item whose use names a recall to a named place sends its user into portal space \
+               toward that place once its behavior has played; the item is spent and the use \
+               answered as the user comes out there, told the recall's line.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ITEM-RECALL"),
+        station: "yalain-testkit::cpu::play::items::a_gems_recall_sends_its_user_to_the_named_place_and_is_spent_as_it_comes_out",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.items.a-weapon-binds-as-its-blows-land",
         says: "Starting a fight binds nothing. Each blow a player lands may bind what it holds marked \
                to, one in ten; armor is not bound by the blows its wearer strikes. Our choice: the \
@@ -5757,6 +5767,24 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-HIDDEN-MYSTERIOUS"),
         station: "yalain-testkit::cpu::play::items::an_item_that_needs_a_hidden_quest_is_refused_as_mysterious",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.items.kept-when-its-quest-stands-still",
+        says: "An item whose use only moves quests, none of which would move for its user now (a \
+               quest the world doesn't hold, or one under way), is refused and kept.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ITEM-KEPT-QUEST"),
+        station: "yalain-testkit::cpu::play::items::a_stone_that_only_gives_a_quest_is_kept_when_the_quest_cant_be_given",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.items.kept-when-its-recall-goes-nowhere",
+        says: "An item whose recall names a place the world lacks is refused before its behavior \
+               plays, and kept.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ITEM-KEPT-RECALL"),
+        station: "yalain-testkit::cpu::play::items::a_gem_whose_place_the_world_lacks_is_refused_and_kept",
         tier: Tier::Cpu,
     },
     behaviour! {
