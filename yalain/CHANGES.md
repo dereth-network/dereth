@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Fixed creatures falling through floors made by large objects in dungeons.
 - Finishing someone's errand no longer hands you their next one in the same talk.
 - Creatures' critical hits now depend on the attack: plain ones never, stronger ones more often.
 - Turrets now spend vigor on their shots, and Self-Destruct blows the turret up where it stands.

@@ -430,6 +430,7 @@ pub fn placed_solids(
         ..shape.clone()
     }
     .render_bounding_box();
+    let containment = V3::mag2(scale).sqrt() * shape.containment_radius;
     let mut properties = shape.properties.clone();
     properties.push(own_properties(e));
     let marked = marks_ethereal(&properties);
@@ -452,6 +453,7 @@ pub fn placed_solids(
                     center,
                     root.sphere.radius * scale.x.max(scale.y).max(scale.z),
                 ),
+                containment,
                 render_box,
                 properties: properties.clone(),
                 marked,

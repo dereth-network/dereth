@@ -459,6 +459,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "motion.interior.a-placed-object-holds-a-body-far-from-where-it-stands",
+        says: "An object placed in a room is met wherever its solid part lies within the object's \
+               reach of where it stands (its setup's radius times its scale's length), however far \
+               its solid part's own sphere lies from that place: a body dropped over the floor a \
+               placed object makes in a great hall comes down onto it and stays.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-MOTION-PLACED-REACH"),
+        station: "auberean-physics::dat::interior::a_placed_object_holds_a_body_far_from_where_it_stands",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "motion.interior.a-room-names-the-material-of-its-floor",
         says: "A body on an interior floor touches the physics material the cell's own properties                name; a cell that names none gives none.",
         since: RETAIL,

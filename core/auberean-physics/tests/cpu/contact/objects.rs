@@ -131,6 +131,7 @@ fn a_solid_over_a_block_edge_is_in_the_next_blocks_cells() {
         part: dereth_physics::source::PhysicsPart::default(),
         scale: Vec3::new(1.0, 1.0, 1.0),
         bounds: Sphere::new(Vec3::new(x, 90.0, GROUND_Z), r),
+        containment: r,
         render_box: BBox::default(),
         properties: Vec::new(),
         marked: false,

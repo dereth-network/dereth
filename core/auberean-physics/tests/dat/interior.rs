@@ -409,6 +409,31 @@ fn a_body_steps_onto_what_stands_in_the_cells() {
     assert!(b.contact, "standing");
 }
 
+/// An object placed in a room holds a body up wherever its solid part reaches, however far that is
+/// from where the object stands: in the great hall of block `0x01EB` (cell `0x01EB0115`, an 80 m
+/// box whose floor is a placed object standing 31 m away), where a 2017 creature stood still at
+/// 148.19, a body dropped from 0.5 m over that place comes down onto the object at 148.18 and stays.
+///
+/// Behaviour: motion.interior.a-placed-object-holds-a-body-far-from-where-it-stands
+#[test]
+fn a_placed_object_holds_a_body_far_from_where_it_stands() {
+    let w = need_world!();
+    let land = Land::new();
+    add_block_cells(&land, &w.records, &mut Trees::default(), 0x01, 0xEB);
+    let mut world = World::new();
+    let place = Vec3::new(-53.65, -13.15, 148.69);
+    let at = Position::new(CellId(0x01EB_0115), Frame::new(place, Quat::IDENTITY));
+    let mut b = body(w, at, 0.0);
+    world.insert_body(&land, 0x5000_0001, &mut b);
+    b.place(at, 0.0);
+    b.contact = false;
+    b.on_walkable = false;
+    b.move_through(&land, &mut world, Vec3::new(0.0, 0.0, -3.0), 0.0);
+    let z = b.position.frame.origin.z;
+    assert!((z - 148.18).abs() < 0.05, "it stands on the object at {z}");
+    assert_eq!(b.position.cell, CellId(0x01EB_0115), "in the hall");
+}
+
 /// Inside, a cell's doorways do not stop the camera's lines: at the hall's starting place, 0.9 m
 /// from the doorway behind it, the camera stands where it wants to, 4.5 m from the top of the body,
 /// in the room beyond the doorway, which holds it.

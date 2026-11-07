@@ -77,6 +77,9 @@ pub struct Solid {
     /// The object's whole scale along each axis, which its tree is tested at.
     pub scale: Vec3,
     pub bounds: Sphere,
+    /// How far from where its object stands the object can be met: its setup's radius around its
+    /// physics, times the length of its scale.
+    pub containment: f32,
     pub render_box: BBox,
     pub properties: Vec<Arc<auberean_assets::property::PropertyCollection>>,
     /// Its properties make it something some mover passes through.

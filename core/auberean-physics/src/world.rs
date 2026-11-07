@@ -987,7 +987,7 @@ impl World {
                     spheres: vec![Sphere::new(s.bounds.center, s.bounds.radius)],
                     physics_box: BBox::default(),
                     scale: Vec3::new(1.0, 1.0, 1.0),
-                    containment_radius: s.bounds.radius,
+                    containment_radius: s.containment,
                     render_box: s.render_box,
                     properties: Vec::new(),
                 };
@@ -998,7 +998,9 @@ impl World {
                         terrain: None,
                         handle: h,
                         id: 0,
-                        radius: s.bounds.radius,
+                        // Met within its object's reach of where the object stands, as any
+                        // object is: its tree's own sphere may lie well off that place.
+                        radius: s.containment,
                         shape: Arc::new(shape),
                         cells: reached,
                         is_static: true,

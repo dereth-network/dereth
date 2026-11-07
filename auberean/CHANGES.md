@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that a player would notice. 
 not how it was done.
 
 ## Unreleased
+- Fixed falling through some large dungeon floors.
 
 ## 0.1.5 (2026-11-07)
 - Screenshots are taken at full detail, far objects included.
