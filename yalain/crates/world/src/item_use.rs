@@ -418,14 +418,20 @@ pub fn begin<S: Store>(
         let made =
             crate::pets::made_by_item(s, net, world, (effect, spellcraft, icon), clock).is_some();
         let me = s.players.get(&world).map_or(0, |p| p.character);
-        let flags = crate::places::USE_FLAGS_PACK;
         let told = if made {
-            if s.catalog.get(template).is_some_and(|t| spends(s, t)) {
+            let spent = s.catalog.get(template).is_some_and(|t| spends(s, t));
+            if spent {
                 crate::craft::use_up(s, net, world, u.item, 1);
             }
-            crate::places::use_done(u, me, flags, false, 0.0)
+            // Carried out, and spent when it was, as every other use that spends its item says.
+            let mut f = answer_flags(&props, use_behavior(&props).is_some()) | flags::CARRIED_OUT;
+            if spent {
+                f |= flags::SPENT;
+            }
+            crate::places::use_done(u, me, f, false, 0.0)
         } else {
-            crate::places::use_refused(u, 0, Some(flags), 0.0, crate::places::USE_STATUS_OK)
+            let pack = crate::places::USE_FLAGS_PACK;
+            crate::places::use_refused(u, 0, Some(pack), 0.0, crate::places::USE_STATUS_OK)
         };
         progress::private(net, world, &told);
         return true;

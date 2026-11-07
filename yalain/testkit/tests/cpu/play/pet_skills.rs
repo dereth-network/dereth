@@ -879,6 +879,7 @@ fn a_kits_use_makes_its_pet_at_the_kits_spellcraft_and_is_used_up_within_the_kin
     with_kits(&mut h, world, 2);
     let kits = kits_held(&mut h, me);
     assert_eq!(kits.len(), 2);
+    let from = h.bots[b].inbox.len();
     h.bots[b].send(
         true,
         queue::WEENIE,
@@ -887,6 +888,10 @@ fn a_kits_use_makes_its_pet_at_the_kits_spellcraft_and_is_used_up_within_the_kin
     h.run(20);
     let pets = h.server.pets.of(me);
     assert_eq!(pets.len(), 1, "made");
+    let spent = yalain_world::item_use::flags::SPENT;
+    let answered = super::items::answers(&h, b, from);
+    assert_eq!(answered.len(), 1, "one answer");
+    assert_eq!(answered[0].flags & spent, spent, "told spent");
     let level = h
         .server
         .things

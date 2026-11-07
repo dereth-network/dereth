@@ -363,14 +363,14 @@ fn run_for(h: &mut Harness, seconds: f64) {
 
 /// An answer to a use: its status, control flags and message's string id.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Answer {
-    status: u32,
-    flags: u32,
-    text: u32,
+pub(crate) struct Answer {
+    pub(crate) status: u32,
+    pub(crate) flags: u32,
+    pub(crate) text: u32,
 }
 
 /// The use answers a client was sent since `from`.
-fn answers(h: &Harness, b: usize, from: usize) -> Vec<Answer> {
+pub(crate) fn answers(h: &Harness, b: usize, from: usize) -> Vec<Answer> {
     h.world_messages(b, from)
         .iter()
         .filter_map(|m| match m {
