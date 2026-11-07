@@ -2556,6 +2556,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.falls-to-the-floor",
+        says: "A creature set down over its floor, further than its step goes down, comes down to \
+               what is under it at its first step and walks on from there.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-FALLS"),
+        station: "yalain-testkit::dat::walls::a_creature_made_over_its_floor_comes_down_and_walks_where_2017s_walked",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.creatures.flies-as-its-body-says",
         says: "A body flies if its motion description gives it a height in the air: two meters at \
                rest, one in a fight for the wasps.",

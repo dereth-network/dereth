@@ -8,6 +8,10 @@
 //!   and takes the cell it ends in. It stops at the leg that gets nowhere or would leave the ground,
 //!   so a creature held up stands or slides and is never put back. Only a body that can move no
 //!   way at all, which stands in something, is put where it fits nearest.
+//! - **A body over the floor** further than its step goes down, as a camp's spot can set one (2017:
+//!   the Pulsing Bloodstones were made 2 m over their floor, told there until they first moved, and
+//!   then on the floor under it, walking), falls to what is under it at its first step and steps on
+//!   from there.
 //! - **A way** to a goal is searched over a meter's lattice of the ground, each link a step the
 //!   transition lets the body take (A*, the straight line its estimate). Inside, a goal in no cell
 //!   joined to the creature's by doorways is out of reach at once.
@@ -726,6 +730,23 @@ impl Walls {
                 end = next;
                 continue;
             }
+            // It left the ground at once: set down over the floor out of its step's reach, it comes
+            // down to what is under it and steps from there.
+            if i == 0 && !flying && !body.contact {
+                let (landed, moves) = fall(body, &self.land, &mut self.world, start, heading);
+                self.moves += moves;
+                if searching.is_some() {
+                    self.search_moves += moves;
+                }
+                if let Some(landed) = landed {
+                    end = landed;
+                    if let Some(next) = one(body, &mut self.world, end) {
+                        end = next;
+                        continue;
+                    }
+                    break;
+                }
+            }
             if i == 0
                 && searching.is_none()
                 && !can_set_out(body, &self.land, &mut self.world, start, heading, flying)
@@ -1268,6 +1289,57 @@ fn settle(
         return Some(at);
     }
     Some(fly(body, land, world, at, Vec3::new(0.0, 0.0, up), heading))
+}
+
+/// How far a body that walks falls to what is under it, at most, in meters: past that it is over
+/// nothing, and stays where it is.
+const FALLS: f32 = 8.0;
+
+/// The longest leg of a fall, in meters. It lands at the first leg cut short: one long move would
+/// slide what is left of it along a sloping floor.
+const FALL_LEG: f32 = 0.5;
+
+/// How far a body must come down to have fallen, in meters.
+const FELL: f32 = 0.01;
+
+/// Where a body that walks, over the floor at `start`, comes to rest falling straight down: on what
+/// is under it within [`FALLS`], and outdoors never under the ground; with the moves it took. None
+/// when it does not come down or nothing is under it within reach.
+fn fall(
+    body: &mut Body,
+    land: &Land,
+    world: &mut World,
+    start: Position,
+    heading: f32,
+) -> (Option<Position>, u64) {
+    let mut at = start;
+    let mut moves = 0;
+    while start.frame.origin.z - at.frame.origin.z < FALLS {
+        moves += 1;
+        let mut next = fly(
+            body,
+            land,
+            world,
+            at,
+            Vec3::new(0.0, 0.0, -FALL_LEG),
+            heading,
+        );
+        let mut landed = at.frame.origin.z - next.frame.origin.z < FALL_LEG - FELL;
+        if !indoors(next.cell.0) {
+            if let Some((ground, _)) = land.ground(next.cell.landblock(), next.frame.origin) {
+                if next.frame.origin.z <= ground {
+                    next.frame.origin.z = ground;
+                    landed = true;
+                }
+            }
+        }
+        at = next;
+        if landed {
+            let fell = start.frame.origin.z - at.frame.origin.z > FELL;
+            return (fell.then_some(at), moves);
+        }
+    }
+    (None, moves)
 }
 
 /// One move of `body` from `start` by `d`; none when it went nowhere or left the ground.

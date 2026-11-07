@@ -1107,6 +1107,165 @@ fn a_flyer_after_a_player_comes_down_to_its_fighting_height() {
     );
 }
 
+/// The Pulsing Bloodstone, which walks.
+const BLOODSTONE: u32 = 0x4700_2262;
+
+/// Where 2017 made the Bloodstones of a camp: 2 m over the floor of their room.
+const OVER_THE_FLOOR: StoredPosition = StoredPosition {
+    cell: 0x09F7_0168,
+    origin: [70.09, -54.15, 137.78],
+    rotation: [1.0, 0.0, 0.0, 0.0],
+};
+
+/// Where 2017 told one of them as it walked from there, through two rooms: across, and its height.
+const WALKED: [(f32, f32, f32); 13] = [
+    (71.57, -58.18, 136.11),
+    (67.65, -60.85, 137.01),
+    (62.56, -61.46, 139.54),
+    (58.19, -62.17, 140.72),
+    (54.09, -62.89, 141.17),
+    (50.47, -60.36, 141.72),
+    (49.86, -55.08, 144.07),
+    (50.62, -50.58, 145.55),
+    (50.63, -45.78, 145.72),
+    (51.07, -42.46, 145.59),
+    (50.11, -35.00, 145.63),
+    (49.15, -30.04, 145.68),
+    (48.24, -26.03, 145.65),
+];
+
+/// A creature set down over its floor, further than its step goes down, comes down to the floor
+/// and walks from there: from where 2017 made the Bloodstones, one walks the way 2017's walked,
+/// each place it was told at reached at the height it was told at.
+/// Behaviour: server.creatures.falls-to-the-floor
+#[test]
+fn a_creature_made_over_its_floor_comes_down_and_walks_where_2017s_walked() {
+    let records = records();
+    let mut w = walls();
+    w.walkers
+        .insert(BLOODSTONE, walker_of(&records, BLOODSTONE));
+    let scale = yalain_content::CreatureStats::from_props(
+        &yalain_testkit::authored::Portal::open()
+            .template(BLOODSTONE)
+            .props,
+    )
+    .expect("a creature")
+    .scale;
+    // Its first step comes down to the floor 2 m under it.
+    let first = w
+        .step(BLOODSTONE, scale, &OVER_THE_FLOOR, [0.0, 0.5])
+        .expect("placed");
+    assert!(
+        first.moved > 0.4 && first.moved < 0.6,
+        "it stepped, coming straight down: {first:?}"
+    );
+    let floor = first.at.origin[2];
+    assert!((floor - 135.79).abs() < 0.2, "on the floor at {floor}");
+    let mut at = first.at;
+    for (k, &(x, y, z)) in WALKED.iter().enumerate() {
+        for _ in 0..40 {
+            let (dx, dy) = (x - at.origin[0], y - at.origin[1]);
+            let gap = (dx * dx + dy * dy).sqrt();
+            if gap < 0.5 {
+                break;
+            }
+            let go = gap.min(1.0) / gap;
+            at = w
+                .step(BLOODSTONE, scale, &at, [dx * go, dy * go])
+                .expect("placed")
+                .at;
+        }
+        let (dx, dy) = (x - at.origin[0], y - at.origin[1]);
+        assert!(
+            (dx * dx + dy * dy).sqrt() < 0.5,
+            "{k}: held up at {at:?} short of ({x}, {y})"
+        );
+        assert!(
+            (at.origin[2] - z).abs() < 0.5,
+            "{k}: at {at:?}, told at {z}"
+        );
+    }
+}
+
+/// Made where 2017 made the Bloodstones, one after a player in the next room comes down and runs to
+/// it through the doorway.
+/// Behaviour: server.creatures.falls-to-the-floor
+#[test]
+fn a_creature_made_over_its_floor_goes_after_a_player_in_the_next_room() {
+    let there = StoredPosition {
+        cell: 0x09F7_016D,
+        origin: [50.63, -45.78, 145.72],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    let (mut h, _, id) = beetle_at(OVER_THE_FLOOR);
+    let records = records();
+    let walls = h.server.walls.as_mut().expect("the walls");
+    walls
+        .walkers
+        .insert(TEST_CREATURE, walker_of(&records, BLOODSTONE));
+    let _ = walls.joined(&OVER_THE_FLOOR, &there);
+    for p in h.server.players.values_mut() {
+        p.position = there;
+    }
+    // The player is 21 m off: it keeps after one that far.
+    if let Some(c) = h
+        .server
+        .things
+        .get_mut(id)
+        .and_then(|t| t.creature.as_mut())
+    {
+        c.stats.movement.perception = 40.0;
+    }
+    let me = h
+        .server
+        .players
+        .values()
+        .next()
+        .expect("a player")
+        .character;
+    let clock = h.clock();
+    yalain_world::ai::go_after(&mut h.server, &mut h.net, id, me, clock);
+    let reached = h.run_until(300, |h| {
+        let at = place_of(h, id);
+        let (dx, dy) = (
+            at.origin[0] - there.origin[0],
+            at.origin[1] - there.origin[1],
+        );
+        at.cell == there.cell && (dx * dx + dy * dy).sqrt() <= yalain_world::ai::MELEE_REACH
+    });
+    assert!(reached, "it reached the player: {:?}", place_of(&h, id));
+}
+
+/// Outdoors too a creature set down over the ground comes down to it, and never under it.
+/// Behaviour: server.creatures.falls-to-the-floor
+#[test]
+fn a_creature_set_down_over_open_ground_comes_down_to_it() {
+    let mut w = walls();
+    let (cell, x, y) = yalain_world::spawn::outdoor(0x6A68, 55.22, 39.10);
+    let mut over = StoredPosition {
+        cell,
+        origin: [x, y, 190.38],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    // A step reads the block.
+    let _ = w.step(DIGGER, 1.0, &over, [0.0, 0.5]).expect("placed");
+    let ground = |w: &Walls, at: &StoredPosition| {
+        let p = dereth_primitives::Vec3::new(at.origin[0], at.origin[1], at.origin[2]);
+        w.land()
+            .ground(dereth_primitives::CellId(at.cell).landblock(), p)
+            .expect("the ground there")
+            .0
+    };
+    over.origin[2] = ground(&w, &over) + 3.0;
+    let s = w.step(DIGGER, 1.0, &over, [0.0, 0.5]).expect("placed");
+    assert!(s.moved > 0.4 && s.moved < 0.6, "it stepped: {s:?}");
+    let under = ground(&w, &s.at);
+    assert!(
+        (s.at.origin[2] - under).abs() < 0.1,
+        "{s:?} over ground at {under}"
+    );
+}
+
 /// The place a practice gem may be used has no rooms: no landblock within its 100 meters holds an
 /// interior cell, so what a gem makes stands outdoors.
 /// Behaviour: server.creatures.a-gems-dummy-lasts-its-time
