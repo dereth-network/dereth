@@ -55,6 +55,8 @@ struct Manifest {
 struct Fixture {
     dats: Arc<DatManager>,
     content: Arc<PackContent>,
+    /// The folder holding the two files.
+    dat_directory: PathBuf,
 }
 
 fn verify_hash(path: &Path, expected: &str) {
@@ -110,7 +112,11 @@ fn fixture() -> &'static Fixture {
             EraId::Launch,
             "never run this fixture with a later pack"
         );
-        Fixture { dats, content }
+        Fixture {
+            dats,
+            content,
+            dat_directory: manifest.dat_directory,
+        }
     })
 }
 

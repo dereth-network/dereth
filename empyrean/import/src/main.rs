@@ -2,7 +2,8 @@
 //! and reports what the server's corrections do to one.
 //!
 //! **Depends on** `empyrean-common` and the content crate (`empyrean-content`), whose importer it
-//! runs, for `dat-overlay` on the data-file container (`dereth-dat`, `dereth-primitives`), for
+//! runs, for `dat-overlay` on the data-file container (`dereth-dat`, `dereth-primitives`), the
+//! spell table's records (`dereth-assets`) and the Launch spell fixes (`empyrean-dat`), for
 //! `spawns` on the entity enums (`empyrean-entity`), and for `fetch` on an HTTP client (`ureq`,
 //! over rustls), `zip` and `sha2`. **Used by**
 //! nothing: it is the `empyrean-import` binary.
@@ -28,6 +29,7 @@
 //! empyrean-import ac1999 --revision <sha> [--source <repository|bundle>] [--target launch|classic-1999-10-09|source]
 //!             --allow-incomplete --out <new-directory>
 //! empyrean-import ac1999 package --bundle <bundle> --out <new-directory>
+//! empyrean-import ac1999 dat-overlay --revision <sha> --base <dir> --out <dir> --world-key <name> [--source <repository>] [--with-events --reference <file>...]
 //! empyrean-import gdle --sql <dump.sql> --patches <dir|file>... [--now <YYYY-MM-DD HH:MM:SS>] --out <dir>
 //! empyrean-import --sql <dump.sql> [--patches …] [--json …] [--era <era>] --overlay <overlay.sqlite>
 //!             [--overlay-journal <dir>] --out <world.pack> [--report <report.json>]
@@ -133,6 +135,8 @@ fn usage() -> ExitCode {
          \x20      empyrean-import ac1999 --revision <sha> [--source <repository|bundle>] [--target launch|classic-1999-10-09|source]\n\
          \x20                  --allow-incomplete --out <new-directory>\n\
          \x20      empyrean-import ac1999 package --bundle <bundle> --out <new-directory>\n\
+         \x20      empyrean-import ac1999 dat-overlay --revision <sha> --base <dir> --out <dir> --world-key <name> [--source <repository>] [--with-events --reference <file>...]\n\
+         \x20                  (the overlay ac1999's dat patches make of the 1999 files at one commit, for a Launch world)\n\
          \x20      empyrean-import dat-overlay --base <dir> --world <dir> --out <dir> --world-key <name> [--era eor|infiltration|launch]\n\
          \x20                  (a world's data files taken apart against their base, as the overlay the server serves)\n\
          \x20      empyrean-import spawns [--world patches|16py] [--sql <dump.sql>] [--out <spawns.tsv>]\n\

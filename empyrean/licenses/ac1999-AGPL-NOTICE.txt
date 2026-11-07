@@ -17,6 +17,11 @@ server, and the rule effects of its dat migrations for enchantment
 durations, spell ranges and power, and a resistable Imperil. Those rules were ported for Empyrean
 in 2026.
 
+`empyrean-import ac1999 dat-overlay` ports ac1999's dat migrations (its spell, motion-table, world
+event and holiday asset patches, `DatInspector/patching/migrations/release/`) and the walk that
+finds the records a later file's objects need (`DatInspector/patching/closure.py`), to make the
+same data overlay from an operator's own 1999 files. Those ports were made for Empyrean in 2026.
+
 ac1999 is free software: you can redistribute it and/or modify it under the terms of the GNU
 Affero General Public License as published by the Free Software Foundation, version 3 of the
 License (the license ac1999 ships as Server/LICENSE, which every converted bundle carries in its

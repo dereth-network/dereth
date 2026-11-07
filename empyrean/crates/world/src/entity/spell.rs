@@ -258,8 +258,11 @@ impl Spell {
             .spells
             .get(&spell_id)
             .cloned();
-        // DIVERGE: V512, V513, V514, the numbers a Launch world plays over the table's.
-        if w.era.formulas.early_2000_spell_fixes {
+        // DIVERGE: V512, V513, V514, the numbers a Launch world plays over the table's. A world
+        // whose data overlay holds the table plays that table.
+        if w.era.formulas.early_2000_spell_fixes
+            && !crate::entity::launch_spell_fixes::overlay_decides(w.dats.portal_dat())
+        {
             if let Some(base) = self.spell_base.as_mut() {
                 crate::entity::launch_spell_fixes::apply(base);
             }

@@ -2684,10 +2684,12 @@ dependencies = [
 name = "empyrean-import"
 version = "0.3.11"
 dependencies = [
+ "dereth-assets",
  "dereth-dat",
  "dereth-primitives",
  "empyrean-common",
  "empyrean-content",
+ "empyrean-dat",
  "empyrean-entity",
  "serde_json",
  "sha2",

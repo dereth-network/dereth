@@ -736,6 +736,7 @@ fn tier1_first_game(args: &[String], profile: Profile, game: Game) -> Vec<Report
     reports.push(server::real_dump(profile));
     reports.push(server::launch_content(profile));
     reports.push(server::launch_art(profile));
+    reports.push(server::launch_overlay(profile));
     reports
 }
 

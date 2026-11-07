@@ -532,6 +532,26 @@ pub fn launch_art(profile: Profile) -> Report {
     )
 }
 
+/// The Launch data overlay's checks (tier 1): what `empyrean-import ac1999 dat-overlay` makes of the
+/// 1999 files. NO-ORACLE without the fixture, as the play tests are.
+pub fn launch_overlay(profile: Profile) -> Report {
+    launch_fixture_row(
+        "server real content: empyrean-import (Launch data overlay)",
+        profile,
+        &[
+            "-p",
+            "empyrean-import",
+            "--features",
+            "launch-content",
+            "--bin",
+            "empyrean-import",
+            "dat_overlay::tests::launch::",
+            "--",
+            "--test-threads=1",
+        ],
+    )
+}
+
 /// A row that runs `test_args` under the Launch fixture, or is NO-ORACLE naming the variable.
 fn launch_fixture_row(name: &str, profile: Profile, test_args: &[&str]) -> Report {
     let Some(fixture) = launch_fixture() else {

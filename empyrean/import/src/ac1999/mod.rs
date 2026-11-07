@@ -6,6 +6,7 @@
 
 mod cells;
 mod convert;
+mod dat_overlay;
 mod loot;
 mod package;
 mod recipes;
@@ -65,6 +66,9 @@ fn parse(args: &[String]) -> Result<Options, String> {
 pub fn run(args: &[String]) -> ExitCode {
     if args.first().is_some_and(|a| a == "package") {
         return package::run(&args[1..]);
+    }
+    if args.first().is_some_and(|a| a == "dat-overlay") {
+        return dat_overlay::run(&args[1..]);
     }
     match parse(args).and_then(|o| build(&o)) {
         Ok(out) => {

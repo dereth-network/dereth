@@ -958,6 +958,24 @@ leaves its unclaimed loot on the ground when it decays. An empty corpse lasts it
 **Loot.** A world base built from ac1999 carries its own loot generator, which the server uses for its
 death treasure.
 
+**ac1999's data patches.** ac1999 patches its 1999 files and sends the changed records to its
+players: spells that last by their level, a Banderling that moves when it casts, and so on. A Launch
+world can serve the same records to Dereth players as a data overlay, built on your own machine from
+your own files and one ac1999 commit:
+
+```
+empyrean-import ac1999 dat-overlay --revision <40-character commit> --base <folder holding the 1999 portal.dat and cell.dat> --out dat-overlay --world-key "<world name>"
+```
+
+```toml
+[dat_overlay]
+path = "dat-overlay"
+```
+
+The overlay holds records from the game's files, so never share or publish it. Without one, the server
+applies the spell changes itself and a Banderling casts standing still. `dereth/empyrean/import/AC1999.md`
+says what each patch does, and which it leaves out unless `--with-events` asks for them.
+
 **Not done.** Character migration: use fresh characters, since a shard from a later era keeps what its
 characters have. The original 1999 wire protocol is the Dereth client's connection to ac1999's own
 servers; Empyrean speaks the end-of-retail protocol. No launch world has been played through end to

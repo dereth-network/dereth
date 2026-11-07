@@ -24,6 +24,7 @@ pub mod dat_manager;
 pub mod database;
 pub mod fake;
 pub mod file_types;
+pub mod launch_spell_fixes;
 pub mod physics;
 pub mod source;
 

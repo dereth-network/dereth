@@ -18,6 +18,9 @@ empyrean-entity.workspace = true
 # `dat-overlay`: the data files, compared and written as an overlay.
 dereth-dat.workspace = true
 dereth-primitives.workspace = true
+# `ac1999 dat-overlay`: the spell table's records as the fixes read them, and the fixes themselves.
+dereth-assets.workspace = true
+empyrean-dat.workspace = true
 serde_json.workspace = true
 # `fetch`: downloading ACE-World's release over HTTPS (rustls with its ring provider and the
 # bundled web roots, so no system TLS library), verifying it, and unzipping it. Only this binary
@@ -31,6 +34,9 @@ sha2.workspace = true
 
 [features]
 real-content = ["empyrean-content/real-content"]
+# `ac1999 dat-overlay`'s checks against the operator's 1999 files, named by
+# `EMPYREAN_TEST_LAUNCH_FIXTURE`, as `empyrean-world`'s feature of the same name.
+launch-content = []
 
 [[bin]]
 name = "empyrean-import"

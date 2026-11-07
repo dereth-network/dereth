@@ -37,7 +37,7 @@ fn usage() -> ExitCode {
 }
 
 /// `name` in `dir`, matched without regard to case.
-fn find(dir: &Path, name: &str) -> Option<PathBuf> {
+pub(crate) fn find(dir: &Path, name: &str) -> Option<PathBuf> {
     let exact = dir.join(name);
     if exact.is_file() {
         return Some(exact);

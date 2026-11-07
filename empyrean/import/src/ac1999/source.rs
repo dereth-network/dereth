@@ -213,14 +213,8 @@ fn unzip(zip_path: &Path, out: &Path) -> Result<(), String> {
     Ok(())
 }
 
-pub fn snapshot(
-    source: Option<&Path>,
-    revision: &str,
-    scratch: &Path,
-) -> Result<(PathBuf, BTreeMap<String, String>), String> {
-    if let Some(bundle) = source.filter(|s| is_bundle(s)) {
-        return from_bundle(bundle, revision, scratch);
-    }
+/// The repository holding `revision`: `source`, or a fresh fetch in `scratch`.
+fn repository(source: Option<&Path>, revision: &str, scratch: &Path) -> Result<PathBuf, String> {
     let repo = if let Some(source) = source {
         source.canonicalize().map_err(|e| e.to_string())?
     } else {
@@ -237,6 +231,52 @@ pub fn snapshot(
     if String::from_utf8_lossy(&actual).trim() != revision {
         return Err("revision must identify the exact commit".into());
     }
+    Ok(repo)
+}
+
+/// The SHA-256 of each file committed at `revision` under `paths`, by path. A bundle holds only the
+/// world's files, so this takes a repository or a fresh fetch.
+pub fn committed_hashes(
+    source: Option<&Path>,
+    revision: &str,
+    scratch: &Path,
+    paths: &[&str],
+) -> Result<BTreeMap<String, String>, String> {
+    if source.is_some_and(is_bundle) {
+        return Err("--source must be a Git repository here: a bundle holds only the world".into());
+    }
+    let repo = repository(source, revision, scratch)?;
+    let mut args = vec![
+        "ls-tree",
+        "-r",
+        "-z",
+        "--name-only",
+        "--full-tree",
+        revision,
+        "--",
+    ];
+    args.extend_from_slice(paths);
+    let mut hashes = BTreeMap::new();
+    for name in git(&repo, &args)?
+        .split(|b| *b == 0)
+        .filter(|b| !b.is_empty())
+    {
+        let name = std::str::from_utf8(name).map_err(|_| "non-Unicode source path")?;
+        let blob = git(&repo, &["cat-file", "blob", &format!("{revision}:{name}")])?;
+        hashes.insert(name.to_owned(), hash(&blob));
+    }
+    Ok(hashes)
+}
+
+pub fn snapshot(
+    source: Option<&Path>,
+    revision: &str,
+    scratch: &Path,
+) -> Result<(PathBuf, BTreeMap<String, String>), String> {
+    if let Some(bundle) = source.filter(|s| is_bundle(s)) {
+        return from_bundle(bundle, revision, scratch);
+    }
+    let repo = repository(source, revision, scratch)?;
     let listing = git(
         &repo,
         &[
