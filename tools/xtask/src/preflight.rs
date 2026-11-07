@@ -410,7 +410,7 @@ fn run_args(args: &[String]) -> Result<(), String> {
     let root = workspace_root();
     let repo = read_repo(&root)?;
     if opts.dry_run {
-        run(&mut machine::DryRun, &cfg, &root, &repo, &opts)
+        run(&mut machine::DryRun(Real), &cfg, &root, &repo, &opts)
     } else {
         run(&mut Real, &cfg, &root, &repo, &opts)
     }

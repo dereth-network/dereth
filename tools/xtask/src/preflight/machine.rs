@@ -437,11 +437,12 @@ impl Machine for Real {
     }
 }
 
-/// A dry run: what would be done is printed, and nothing is; files are read where they are.
+/// A dry run on the machine it holds (this one, [`Real`]): what would be done is printed, and
+/// nothing is; its files are read, and its tools asked their versions, where they are.
 #[derive(Debug, Default)]
-pub struct DryRun;
+pub struct DryRun<M: Machine = Real>(pub M);
 
-impl Machine for DryRun {
+impl<M: Machine> Machine for DryRun<M> {
     fn run(
         &mut self,
         dir: Option<&Path>,
@@ -457,7 +458,7 @@ impl Machine for DryRun {
     }
 
     fn probe(&mut self, program: &str, args: &[String]) -> Result<String, String> {
-        Real.probe(program, args)
+        self.0.probe(program, args)
     }
 
     fn ssh(&mut self, host: &str, command: &str) -> Result<String, String> {
@@ -496,8 +497,8 @@ impl Machine for DryRun {
     }
 
     fn read(&mut self, path: &Path) -> Result<String, String> {
-        if path.exists() {
-            return Real.read(path);
+        if self.0.exists(path) {
+            return self.0.read(path);
         }
         // A file a dry run would have copied down (a world's configuration) reads as empty.
         println!(
@@ -518,11 +519,11 @@ impl Machine for DryRun {
     }
 
     fn exists(&mut self, path: &Path) -> bool {
-        path.exists()
+        self.0.exists(path)
     }
 
     fn remove(&mut self, path: &Path) -> Result<(), String> {
-        if path.exists() {
+        if self.0.exists(path) {
             println!("would remove {}", path.display());
         }
         Ok(())
@@ -539,18 +540,18 @@ impl Machine for DryRun {
     }
 
     fn port_taken(&mut self, port: u16) -> bool {
-        Real.port_taken(port)
+        self.0.port_taken(port)
     }
 
     fn pause(&mut self, _ms: u64) {}
 
     /// Asked: it changes nothing.
     fn github(&mut self, url: &str) -> Result<GitHubAnswer, String> {
-        Real.github(url)
+        self.0.github(url)
     }
 
     fn now(&mut self) -> u64 {
-        Real.now()
+        self.0.now()
     }
 }
 

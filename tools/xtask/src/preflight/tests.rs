@@ -4242,7 +4242,7 @@ if (-not [System.IO.Path]::IsPathRooted($program)) { $program = (Get-Command $pr
 
 #[test]
 fn a_dry_run_shows_the_steps_on_another_windows_machine_and_changes_nothing() {
-    // Only a Windows machine: a Linux one would have the dry run ask this machine for zigbuild.
+    // Only Windows machines: a Linux one would have the dry run ask for zigbuild.
     let setup = Config::parse(
         &REMOTE
             .replace("D:\\preflight", "Z:\\no-such-preflight\\work")
@@ -4259,8 +4259,9 @@ fn a_dry_run_shows_the_steps_on_another_windows_machine_and_changes_nothing() {
         .worlds
         .iter()
         .all(|w| matches!(w.place(), Place::Windows(_))));
+    // A machine of its own, with the tools a preflight needs: never the one the test runs on.
     run(
-        &mut super::machine::DryRun,
+        &mut super::machine::DryRun(fake()),
         &setup,
         Path::new("Z:/no-such-repo"),
         &repo(&[Product::Hub, Product::Ace, Product::Empyrean]),
