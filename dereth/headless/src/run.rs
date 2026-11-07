@@ -403,6 +403,7 @@ impl<'a> Run<'a> {
                 Command::Run(secs) => self.run_for(*secs),
                 Command::RunForever => self.run_forever(),
                 Command::Enter(name, role) => self.enter(name, *role),
+                Command::Logoff => self.logoff(),
                 Command::Answer(yes) => self.answer(*yes),
                 Command::Quit => {
                     self.quit = true;
@@ -731,6 +732,8 @@ impl<'a> Run<'a> {
     /// none of that name; then frames until the character stands in the world.
     fn enter(&mut self, name: &str, role: crate::script::Role) -> Result<(), RunError> {
         use dereth_client_sdk::contract::pregame::CharGenAction;
+        // A log-off this script asked for has run its course: the world is entered again.
+        self.shell.logging_off = false;
         let listed = |run: &mut Self| run.app.host_state.received_set;
         if !self.paced_until(60.0, listed)? {
             return Err(RunError::Net("no character list within 60 s".to_owned()));
@@ -781,6 +784,22 @@ impl<'a> Run<'a> {
         self.line(format!(
             "enter {name} created={created} entered={entered} state={state:?}"
         ))
+    }
+
+    /// `logoff` over a server connection: the character logs off as the menu's Log Out does, and
+    /// frames until the character list is back.
+    fn logoff(&mut self) -> Result<(), RunError> {
+        self.shell.logging_off = true;
+        self.app.log_off_character();
+        let listed = |run: &mut Self| {
+            run.app
+                .network_mut()
+                .is_some_and(|n| n.session_state() == SessionState::CharacterSelect)
+        };
+        let back = self.paced_until(60.0, listed)?;
+        let state = self.app.network_mut().map(|n| n.session_state());
+        self.state = state;
+        self.line(format!("logoff listed={back} state={state:?}"))
     }
 
     /// A key tapped: the begin, a frame, the end, a frame.

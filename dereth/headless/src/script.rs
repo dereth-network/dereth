@@ -194,6 +194,8 @@ pub enum Command {
     /// `enter <name>` -- over a server connection, enter the world as the character, creating it
     /// first when the account has none of that name.
     Enter(String, Role),
+    /// `logoff` -- over a server connection, log the character off, back to the character list.
+    Logoff,
     /// `answer yes` / `answer no` -- the player's answer to the oldest question the game has on
     /// screen.
     Answer(bool),
@@ -496,6 +498,8 @@ fn parse_args(n: usize, verb: &str, args: &[&str]) -> Result<Command, ScriptErro
         ("snapshot", _) => Err(err(n, "snapshot takes no arguments")),
         ("quit", []) => Ok(Command::Quit),
         ("quit", _) => Err(err(n, "quit takes no arguments")),
+        ("logoff", []) => Ok(Command::Logoff),
+        ("logoff", _) => Err(err(n, "logoff takes no arguments")),
         ("replay", []) => Ok(Command::Replay(None)),
         ("replay", [secs]) => secs
             .parse::<f64>()
@@ -693,6 +697,15 @@ mod tests {
         );
         assert!(parse("enter Pell cook").is_err());
         assert!(parse("enter").is_err());
+        assert_eq!(
+            parse("enter Pell\nlogoff\nenter Pell\n").expect("parses"),
+            vec![
+                Command::Enter("Pell".into(), Role::Any),
+                Command::Logoff,
+                Command::Enter("Pell".into(), Role::Any)
+            ]
+        );
+        assert!(parse("logoff now").is_err());
         assert!(parse("run").is_err());
         assert!(parse("run -1").is_err());
     }

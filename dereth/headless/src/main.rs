@@ -100,6 +100,8 @@ Script: one command per line, `#` starts a comment.
   enter <character> [mage|archer] enter the world as it (for --connect), created if missing
                                   (a soldier, or with mage a caster; with --era launch,
                                   the 1999 table's own template)
+  logoff                          log the character off, back to the character list
+                                  (for --connect; `enter` again enters anew)
 An <action> is a retail action name (MovementForward, CameraRotateLeft) or an id.";
 
 fn main() -> ExitCode {

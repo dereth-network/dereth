@@ -15,6 +15,9 @@ use dereth_client_sdk::runtime::ui_context::UiContext;
 #[derive(Debug, Default)]
 pub struct HeadlessShell {
     pub questions: Questions,
+    /// The script logged the character off (`logoff`), until its next `enter`: the run stays at
+    /// the character list rather than ending there.
+    pub logging_off: bool,
 }
 
 impl Shell for HeadlessShell {
@@ -23,6 +26,10 @@ impl Shell for HeadlessShell {
 
     fn service_dialogs(&mut self, cx: &mut UiContext<'_, Self>, now: LocalTime) {
         cx.service_dialogs(Some(&mut self.questions), now);
+    }
+
+    fn stays_after_log_off(&self) -> bool {
+        self.logging_off
     }
 }
 

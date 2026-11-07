@@ -599,6 +599,7 @@ impl<S: Shell> App<S> {
         }
         let scripted = self.cfg.enter_world;
         let no_ui = !shell.has_ui();
+        let stays_after_log_off = shell.stays_after_log_off();
         let runtime_enters = !shell.drives_scripted_entry();
         let wanted = self.cfg.start_char.clone();
 
@@ -914,7 +915,11 @@ impl<S: Shell> App<S> {
                     // that have nothing to return to. This is exactly the shape of the
                     // `CharacterError` arm below, and for the same reason: ending the loop instead
                     // of showing a screen is indistinguishable from a crash from the player's seat.
-                    if no_ui || self.script == EnterWorldScript::LoggingOff {
+                    // A scripted client with no UI that asked for this log-off itself stays, to
+                    // enter the world again.
+                    if (no_ui && !stays_after_log_off)
+                        || self.script == EnterWorldScript::LoggingOff
+                    {
                         self.script = EnterWorldScript::Done;
                     }
                 }

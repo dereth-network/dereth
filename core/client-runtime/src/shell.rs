@@ -181,6 +181,12 @@ pub trait Shell: Sized {
     fn drives_scripted_entry(&self) -> bool {
         false
     }
+    /// Whether a log-off back to the character list leaves the run going with no UI to show the
+    /// list: a scripted client that asked for the log-off and will enter the world again. Without
+    /// it a run with no UI ends at the log-off, as there is no screen to go back to.
+    fn stays_after_log_off(&self) -> bool {
+        false
+    }
     /// Press the world screen's own buttons for a scripted run once in the world (`--cast`).
     fn drive_world_script(&mut self, cx: &mut UiContext<'_, Self>, now: LocalTime) {}
     /// The UI's own step: the screen update, the mode switch, the HUD and the panels, the preview
