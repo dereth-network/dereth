@@ -575,6 +575,28 @@ fn perks_read_with_their_kind_value_and_priority() {
     assert!((2053..=2058).all(|id| perk(id).kind == 19));
 }
 
+/// The install's six Mining Master perks read as more units on each use of a summoned node: 2, 4,
+/// 6, 9, 14 and 20, each overriding the one before it.
+/// Behaviour: server.craft.mining-units-by-tool-and-perk
+#[test]
+fn the_mining_master_perks_read_as_units_on_each_use() {
+    use yalain_world::skills::perk_kind::MINED_UNITS;
+    let t = Portal::open().skills();
+    let perk = |id: u32| t.skills[&id].perk.expect("a perk");
+    let values: Vec<f64> = (2022..=2027).map(|id| perk(id).value).collect();
+    assert_eq!(values, [2.0, 4.0, 6.0, 9.0, 14.0, 20.0]);
+    let priorities: Vec<i32> = (2022..=2027).map(|id| perk(id).priority).collect();
+    assert_eq!(priorities, [1, 2, 3, 4, 5, 6]);
+    assert!((2022..=2027).all(|id| perk(id).kind == MINED_UNITS));
+    let kinds = t
+        .skills
+        .values()
+        .filter_map(|d| d.perk)
+        .filter(|p| p.kind == MINED_UNITS)
+        .count();
+    assert_eq!(kinds, 6, "no other perk is of the kind");
+}
+
 /// A hero trains the install's first Transmutation Master for its 100 hero credits and the money bag
 /// pays it 1.03 times the install's values, as it paid in 2017: 4,000 brought 4,120 and five of
 /// 1,000 brought 5,150. Without the perk those pay their value.

@@ -335,6 +335,8 @@ pub struct Perk {
 pub mod perk_kind {
     /// Items bring this many times their worth into the money bag.
     pub const TRANSMUTATION: u32 = 19;
+    /// Each use of a summoned node gives this many more units.
+    pub const MINED_UNITS: u32 = 27;
 }
 
 /// What a character holding these skills has of a kind of perk: of those it holds, the one with the

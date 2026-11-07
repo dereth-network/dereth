@@ -319,16 +319,143 @@ fn only_the_summoner_may_mine_a_node() {
         .any(|i| i.template == ORE));
 }
 
-/// A node's units follow its summoner's surveying level: about the level and a tenth of the
-/// node's quantity, never fewer than the quantity.
+/// A node's units follow its summoner's surveying level: its quantity and 40 for every 150 levels.
 /// Behaviour: server.craft.mining-units-by-surveying
 #[test]
 fn a_nodes_units_follow_its_summoners_surveying_level() {
-    assert!((mining::units_for(50, 1) - 50.0).abs() < 1e-3);
-    assert!((mining::units_for(50, 63) - 68.0).abs() < 1e-3);
-    assert!((mining::units_for(50, 150) - 155.0).abs() < 1e-3);
-    assert!((mining::units_for(25, 1) - 25.0).abs() < 1e-3);
-    assert!((mining::units_for(30, 84) - 87.0).abs() < 1e-3);
+    assert!((mining::units_for(50, 0) - 50.0).abs() < 1e-3);
+    assert!((mining::units_for(50, 63) - 66.8).abs() < 1e-3);
+    assert!((mining::units_for(50, 150) - 90.0).abs() < 1e-3);
+    assert!((mining::units_for(35, 150) - 75.0).abs() < 1e-3);
+    assert!((mining::units_for(30, 84) - 52.4).abs() < 1e-3);
+}
+
+/// A crude mining tool adds 1, a made one its own yield, a hand-made one with none the 6 of the
+/// lowest level it is made at.
+/// Behaviour: server.craft.mining-units-by-tool-and-perk
+#[test]
+fn a_mining_tools_yield_is_its_own_else_its_kinds() {
+    assert_eq!(mining::tool_yield(PICKAXE, Some(18)), 18);
+    assert_eq!(mining::tool_yield(0x4700_0CC2, None), 1);
+    assert_eq!(mining::tool_yield(PICKAXE, None), 6);
+    assert!((mining::use_units(52.4, 15, 14.0) - 81.4).abs() < 1e-3);
+}
+
+/// Each use of a summoned node gives the node's units, the yield of its craft skill's own tool in
+/// the miner's hand and the miner's mining perk: another skill's tool in hand in its place adds
+/// nothing; the perk gone, its part goes too.
+/// Behaviour: server.craft.mining-units-by-tool-and-perk
+#[test]
+fn a_summoned_nodes_use_adds_the_tool_in_hand_and_the_mining_perk() {
+    const PERK: u32 = 2027;
+    const CHISEL: u32 = 0x4700_0CB5;
+    let mut h = world();
+    let (b, me, world) = in_world(&mut h, "Elara");
+    let pick = give(&mut h, world, PICKAXE);
+    if let Some(t) = h.server.things.get_mut(pick) {
+        t.own.made = Some(yalain_world::made::Made {
+            tool_yield: Some(18),
+            ..yalain_world::made::Made::default()
+        });
+    }
+    h.server.catalog.insert(yalain_testkit::test_template(
+        CHISEL,
+        0x3A1,
+        Props::default(),
+    ));
+    let chisel = give(&mut h, world, CHISEL);
+    if let Some(t) = h.server.things.get_mut(chisel) {
+        t.own.made = Some(yalain_world::made::Made {
+            tool_yield: Some(15),
+            ..yalain_world::made::Made::default()
+        });
+    }
+    let wield = |h: &mut Harness, item: u64, at: u32| {
+        if let Some(i) = h
+            .server
+            .players
+            .get_mut(&world)
+            .expect("there")
+            .play
+            .items
+            .iter_mut()
+            .find(|i| i.id == item)
+        {
+            i.location = at;
+        }
+    };
+    wield(&mut h, pick, yalain_world::equip::PRIMARY_HAND);
+    h.server.skill_table.skills.insert(
+        PERK,
+        yalain_world::skills::SkillDef {
+            id: PERK,
+            perk: Some(yalain_world::skills::Perk {
+                kind: yalain_world::skills::perk_kind::MINED_UNITS,
+                value: 20.0,
+                priority: 6,
+            }),
+            ..yalain_world::skills::SkillDef::default()
+        },
+    );
+    h.server
+        .players
+        .get_mut(&world)
+        .expect("there")
+        .play
+        .skills
+        .push(yalain_world::state::SkillState {
+            skill: PERK,
+            granted: 0,
+            mask: 0,
+            cost: 0,
+            children: 0,
+            dependents: 0,
+            spent: 0,
+        });
+    let stone = give(&mut h, world, STONE);
+    let from = send_use(&mut h, b, me, stone, 0.5);
+    let (node, _) = node_made(&h, b, from).expect("the node");
+    let own = {
+        let n = h
+            .server
+            .things
+            .get_mut(node)
+            .and_then(|t| t.node.as_mut())
+            .expect("a node");
+        n.variance = 0.0;
+        n.units
+    };
+    let mut total = 0;
+    let mut mine = |h: &mut Harness| {
+        send_use(h, b, me, node, mining::WORK_SECONDS + 0.5);
+        let ore = h.server.players[&world]
+            .play
+            .items
+            .iter()
+            .find(|i| i.template == ORE)
+            .map_or(0, |i| i.quantity);
+        let got = ore - total;
+        total = ore;
+        got
+    };
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let units = |more: f32| (own + more).round() as u32;
+    let rich_or_plain = |got: u32, want: u32| got == want || got == 2 * want;
+    let got = mine(&mut h);
+    assert!(rich_or_plain(got, units(38.0)), "tool and perk: {got}");
+    wield(&mut h, pick, 0);
+    wield(&mut h, chisel, yalain_world::equip::PRIMARY_HAND);
+    let got = mine(&mut h);
+    assert!(rich_or_plain(got, units(20.0)), "the perk alone: {got}");
+    h.server
+        .players
+        .get_mut(&world)
+        .expect("there")
+        .play
+        .skills
+        .retain(|k| k.skill != PERK);
+    let got = mine(&mut h);
+    assert!(rich_or_plain(got, units(0.0)), "neither: {got}");
 }
 
 /// A mine a quest works, placed beside the start: a made-up barium mine of three units, and a ruby

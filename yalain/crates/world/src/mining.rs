@@ -16,9 +16,9 @@
 //! stack made). A use while the work is under way is refused. A node gives three uses: at the
 //! third result it flashes, a use after is refused, and three and a half seconds later it goes.
 //!
-//! **The units** a node gives are set when it is summoned: about the summoner's surveying level
-//! and a tenth of the node's base quantity, never fewer than that quantity, spread either side by
-//! the node's variance.
+//! **The units** a node gives a use: its base quantity and 40 for every 150 of its summoner's
+//! surveying levels (set when it is summoned), the yield of the node's own tool in the miner's
+//! hand, and the miner's mining perk, spread either side by the node's variance.
 //!
 //! **Veins.** A craft node placed in the world (a hoard's vein) is no one's: anyone may mine it,
 //! the units are drawn for each miner (the node's base quantity and half the miner's level in its
@@ -184,15 +184,38 @@ pub fn summoned_by(effect: &str) -> Option<u32> {
     })
 }
 
-/// The units a node summoned at a surveying level gives a use, on average: the level and a tenth
-/// of the node's base quantity, never fewer than the base.
+/// The units a surveying level adds to a node, for each level: 40 at 150.
+pub const UNITS_PER_SURVEYING_LEVEL: f32 = 40.0 / 150.0;
+
+/// The units a node summoned at a surveying level gives a use before the miner's tool and perk, on
+/// average: the node's base quantity and 40 for every 150 levels.
 #[must_use]
 pub fn units_for(base: u32, surveying: i32) -> f32 {
     #[allow(clippy::cast_precision_loss)]
     let base = base as f32;
     #[allow(clippy::cast_precision_loss)]
     let level = surveying.max(0) as f32;
-    (level + base / 10.0).max(base)
+    base + level * UNITS_PER_SURVEYING_LEVEL
+}
+
+/// What a mining tool in hand adds to each use of a summoned node: a made one's own yield; else a
+/// crude one's 1, a hand-made one's the 6 of the lowest level it is made at.
+#[must_use]
+pub fn tool_yield(template: u32, made: Option<u32>) -> u32 {
+    let crude = SKILLS
+        .iter()
+        .filter_map(|s| skill_tools(*s))
+        .any(|(_, [_, crude])| crude == template);
+    made.unwrap_or(if crude { 1 } else { 6 })
+}
+
+/// The units a summoned node gives a use, on average: its own, the yield of its craft skill's tool
+/// in the miner's hand, and the miner's mining perk.
+#[must_use]
+pub fn use_units(node: f32, tool_yield: u32, perk: f64) -> f32 {
+    #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
+    let more = tool_yield as f32 + perk.max(0.0) as f32;
+    node + more
 }
 
 /// The units a vein gives a use, on average: its base quantity and half the miner's level in its
@@ -358,6 +381,18 @@ fn in_front(at: &StoredPosition) -> StoredPosition {
     p
 }
 
+/// The units a player's mining perk adds to each use of a summoned node (none without one).
+fn mining_perk<S: Store>(s: &Server<S>, world: ConnId) -> f64 {
+    s.players
+        .get(&world)
+        .and_then(|p| {
+            let starting = s.start.skills.get(&p.race).cloned().unwrap_or_default();
+            let held = crate::skills::held(&starting, &p.play.skills);
+            crate::skills::perk_value(&s.skill_table, &held, crate::skills::perk_kind::MINED_UNITS)
+        })
+        .unwrap_or(0.0)
+}
+
 /// The item in a player's primary hand: its id and template.
 fn in_hand<S: Store>(s: &Server<S>, world: ConnId) -> Option<(u64, u32)> {
     s.players.get(&world).and_then(|p| {
@@ -495,12 +530,20 @@ pub fn done<S: Store>(
     let level = level_in(s, world, n.skill);
     let expert = find.is_none() && s.rng.chance(rich_chance(level));
     let spread = s.rng.between(-n.variance, n.variance);
-    // A vein's units are drawn for its miner; a summoned node's were set for its summoner.
+    let tools = skill_tools(n.skill).map_or([0, 0], |(_, t)| t);
+    let tool = in_hand(s, world).filter(|(_, t)| tools.contains(t));
+    // A vein's units are drawn for its miner; a summoned node's were set for its summoner, and
+    // its miner's tool and perk add to them.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let draw = if n.public {
         vein_units(n.units as u32, level)
     } else {
-        n.units
+        let made = tool
+            .and_then(|(id, _)| s.things.get(id))
+            .and_then(|t| t.own.made)
+            .and_then(|m| m.tool_yield);
+        let yields = tool.map_or(0, |(_, t)| tool_yield(t, made));
+        use_units(n.units, yields, mining_perk(s, world))
     };
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let units = if find.is_some() {
@@ -554,7 +597,6 @@ pub fn done<S: Store>(
     let answer = crate::places::use_answer_to(&used, me, 0, TARGET_KIND, distance, 0);
     progress::private(net, world, &answer);
     craft::play_fx(s, net, world, if expert { fx::MADE_WELL } else { fx::MADE });
-    let tools = skill_tools(n.skill).map_or([0, 0], |(_, t)| t);
     if let Some((tool, _)) = in_hand(s, world)
         .filter(|(_, t)| tools.contains(t))
         .filter(|_| find.is_none())

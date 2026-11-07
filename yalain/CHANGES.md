@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Mining now counts the tool in your hand and the Mining Master perks.
 - Pets' skills reach as far as they should, area attacks hit everything nearby, and taunting pets also do damage.
 - Pets use all their attacks, not just the first one.
 - Guardian, Redeemer and Sand Fiend pets now keep up their buffs.

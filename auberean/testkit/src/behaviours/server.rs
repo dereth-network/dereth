@@ -1814,12 +1814,20 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.craft.mining-units-by-surveying",
-        says: "A node's units are set when it is summoned: about its summoner's surveying level and a tenth \
-               of its quantity, never fewer than the quantity, spread by its variance; a rich find twice \
-               that.",
+        says: "A node's units are set when it is summoned: its quantity and 40 for every 150 of its \
+               summoner's surveying levels, spread by its variance; a rich find twice that.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-MINING-UNITS"),
         station: "yalain-testkit::cpu::play::mining::a_nodes_units_follow_its_summoners_surveying_level",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.craft.mining-units-by-tool-and-perk",
+        says: "Each use of a summoned node adds the yield of the node's own tool in the miner's hand (a \
+               made one's own, a crude one's 1) and the value of the miner's mining perk.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MINING-TOOL-PERK"),
+        station: "yalain-testkit::cpu::play::mining::a_summoned_nodes_use_adds_the_tool_in_hand_and_the_mining_perk",
         tier: Tier::Cpu,
     },
     behaviour! {
