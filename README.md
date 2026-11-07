@@ -233,7 +233,9 @@ says where its claims come from.
 Everything is MIT except Empyrean (`empyrean/`) and the Dereth Network's hub and ACE mod, which
 are AGPL-3.0-only. Empyrean is a port of ACE, with its earlier eras' rules from
 [ClassicACE](https://github.com/bDekaru/ClassicACE), bDekaru's fork of ACE. See
-[`LICENSE`](LICENSE) and [`empyrean/LICENSE`](empyrean/LICENSE).
+[`LICENSE`](LICENSE) and [`empyrean/LICENSE`](empyrean/LICENSE). Dereth's release carries one of
+Empyrean's programs, `empyrean-relay`, as a separate program under Empyrean's license, with that
+license and its notice beside it.
 
 **Dereth is an independent project, not affiliated with or endorsed by Microsoft, Turbine or any current rights holder.**
 

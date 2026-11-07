@@ -64,6 +64,10 @@ fn only_commits_that_change_what_the_client_ships_are_kept() {
             "The web relay keeps the socket open",
             &["tools/web-relay/src/main.rs"],
         ),
+        commit(
+            "The relay reads a 1999 book",
+            &["empyrean/relay/src/books.rs"],
+        ),
     ];
     for c in &kept {
         assert!(group(Product::Dereth, c).is_some(), "{c:?}");

@@ -27,7 +27,8 @@ A release's description on GitHub starts with its notes, in two parts:
   the final release takes them.
 - **All changes:** the subject of every commit since the previous final `dereth-v*` tag
   (pre-release tags are passed over) that changed what a release ships: a file under `dereth/` or
-  `core/`, or the web client's relay, that is not a test, a fixture or a document. Empyrean's
+  `core/`, the web client's relay, or the relay beside the client, that is not a test, a fixture or
+  a document. Empyrean's
   commits, CI's, the tools', the version commits, and commits that change only comments and blank
   lines in those files are left out. Each subject goes under one heading (Gameplay, Graphics & sound, Interface, Launcher,
   Fixes), chosen from its words and then from where its files are; a subject the rules cannot
@@ -62,13 +63,21 @@ The programs answer `--version`: `dereth <version>` (or `dereth-client <version>
 
 | system | the release file | its label |
 |---|---|---|
-| Windows (x86-64) | `dereth-<v>-windows-x86_64.zip`: one folder, `dereth-<v>/`, holding `dereth.exe`, `dereth-client.exe`, `dereth-plugin.exe`, `LICENSE`, `NOTICE.txt` and `THIRD-PARTY-LICENSES.html`. No installer: unzip anywhere | Dereth · Windows x64 (zip, no installer) |
-| macOS (Apple silicon) | `Dereth-<v>-macos-aarch64.app.tar.gz`: `Dereth.app`, with the client and `dereth-plugin` in `Contents/MacOS`, MoltenVK in `Contents/Frameworks` and the notices in `Contents/Resources` | Dereth · macOS Apple silicon |
-| Linux (x86-64) | `Dereth-<v>-linux-x86_64.AppImage`, the client and `dereth-plugin` inside it | Dereth · Linux x86-64 AppImage (glibc 2.35+) |
+| Windows (x86-64) | `dereth-<v>-windows-x86_64.zip`: one folder, `dereth-<v>/`, holding `dereth.exe`, `dereth-client.exe`, `dereth-plugin.exe`, `empyrean-relay.exe`, `LICENSE`, `NOTICE.txt`, `THIRD-PARTY-LICENSES.html`, `LICENSE-empyrean-relay` and `NOTICE-empyrean-relay.txt`. No installer: unzip anywhere | Dereth · Windows x64 (zip, no installer) |
+| macOS (Apple silicon) | `Dereth-<v>-macos-aarch64.app.tar.gz`: `Dereth.app`, with the client, `dereth-plugin` and `empyrean-relay` in `Contents/MacOS`, MoltenVK in `Contents/Frameworks` and the notices in `Contents/Resources` | Dereth · macOS Apple silicon |
+| Linux (x86-64) | `Dereth-<v>-linux-x86_64.AppImage`, the client, `dereth-plugin` and `empyrean-relay` with its notices inside it | Dereth · Linux x86-64 AppImage (glibc 2.35+) |
 | each of the three, for plugin authors | `dereth-plugin-<v>-<platform>.zip` (Windows) or `.tar.gz` (macOS and Linux): one folder, `dereth-plugin-<v>/`, holding `dereth-plugin`, `LICENSE`, `NOTICE.txt` and `THIRD-PARTY-LICENSES.html`. The plugin author's tool of this release on its own (each release file above carries it too); plugin repositories made from its template download it from here and check it against `SHA256SUMS` | Plugin author's tool · Windows x64, · macOS Apple silicon, · Linux x86-64 (glibc 2.35+) |
 
 Every launcher download holds the client, so the client is not published on its own. A release
-carries no plugins: players install Dereth's from its plugin source. Beside them:
+carries no plugins: players install Dereth's from its plugin source.
+
+`empyrean-relay` is what the launcher starts to play a world that speaks another wire format. It is
+Empyrean's program, at Empyrean's version and under Empyrean's license: a separate program beside
+the client that nothing of Dereth links, with `LICENSE-empyrean-relay` and
+`NOTICE-empyrean-relay.txt` saying what it is under and where its source is. Empyrean's package
+carries the same program.
+
+Beside them:
 
 - `latest.json` (Updater manifest): what launchers read, one entry per platform
   (`windows-x86_64`, `darwin-aarch64`, `linux-x86_64`), each the download

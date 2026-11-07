@@ -1266,12 +1266,6 @@ impl Backend {
         lock(shared).poll_running();
     }
 
-    /// Whether the worlds played through a relay are listed, kept with the launcher's state.
-    pub fn set_relayed_worlds(&mut self, on: bool) {
-        self.state.settings.relayed_worlds = Some(on);
-        self.save();
-    }
-
     /// The page shows the worlds, or no longer does ([`Self::pings_due`]).
     pub fn set_worlds_shown(&mut self, shown: bool) {
         self.worlds_shown = shown;
@@ -2243,6 +2237,13 @@ mod tests {
         d
     }
 
+    /// A launcher that doesn't list the worlds played through a relay: these tests read the list
+    /// whole, and those worlds are real servers.
+    fn without_relayed_worlds(mut b: Backend) -> Backend {
+        b.state.hide_relayed_worlds = true;
+        b
+    }
+
     /// A state folder, and a "Dereth client" with an end-of-retail set beside it. On a Unix system
     /// the client is a script that records how it was started.
     fn backend(name: &str) -> (Backend, PathBuf) {
@@ -2268,6 +2269,8 @@ mod tests {
             "memory",
             Some(dir.join("settings").join("UserPreferences.ini")),
         );
+        // These tests never reach a real server, and a world played through a relay is one.
+        b.state.hide_relayed_worlds = true;
         let mut w = World::new("eulmore", "Eulmore");
         w.emulator = Emulator::Empyrean;
         w.state = WorldState::Online;
@@ -3971,14 +3974,14 @@ mod tests {
         }
         .save(&folders.data)
         .unwrap();
-        let b = Backend::new(
+        let b = without_relayed_worlds(Backend::new(
             folders,
             Vec::new(),
             None,
             Box::new(MemoryVault::default()),
             "memory",
             None,
-        );
+        ));
         let s = b.snapshot();
         assert_eq!(s.worlds.len(), 1);
         assert_eq!(s.worlds[0].slug, "leafcull");
@@ -4013,14 +4016,14 @@ mod tests {
         .save(&folders.data)
         .unwrap();
         let launcher = |sources: Vec<ListSource>| -> Shared {
-            Arc::new(Mutex::new(Backend::new(
+            Arc::new(Mutex::new(without_relayed_worlds(Backend::new(
                 folders.clone(),
                 sources,
                 None,
                 Box::new(MemoryVault::default()),
                 "memory",
                 None,
-            )))
+            ))))
         };
         let slugs = |shared: &Shared| -> Vec<String> {
             lock(shared)
@@ -4086,14 +4089,14 @@ mod tests {
         }
         .save(&folders.data)
         .unwrap();
-        let shared: Shared = Arc::new(Mutex::new(Backend::new(
+        let shared: Shared = Arc::new(Mutex::new(without_relayed_worlds(Backend::new(
             folders.clone(),
             serverlist::sources(None),
             None,
             Box::new(MemoryVault::default()),
             "memory",
             None,
-        )));
+        ))));
         lock(&shared).state.record_recent(Recent {
             world_slug: "leafcull-isle".into(),
             account: "player".into(),
@@ -4225,14 +4228,14 @@ mod tests {
     fn the_window_shows_the_worlds_every_launcher_shows_from_the_same_answers() {
         use dereth_launch::testing::world_list as fixture;
         let dir = tmp("same-worlds");
-        let shared: Shared = Arc::new(Mutex::new(Backend::new(
+        let shared: Shared = Arc::new(Mutex::new(without_relayed_worlds(Backend::new(
             Folders::single(dir.join("state")),
             serverlist::sources(None),
             None,
             Box::new(MemoryVault::default()),
             "memory",
             None,
-        )));
+        ))));
         let read = |hub_answers: bool| {
             Backend::refresh_with(&shared, fixture::fetch(hub_answers))
                 .join()
@@ -4636,18 +4639,46 @@ mod tests {
         }
     }
 
-    /// A world played through a relay is listed once the player turns it on, and the choice is kept
-    /// with the launcher's state. Off, it is asked nothing. On, it is asked as any world is, in the
-    /// form its wire reads, and with no status ping. This doesn't send anything: its address is real.
+    /// A launcher with an empty state folder lists AC1999, and so does one whose file still says it
+    /// was turned off; nothing is asked of it here.
     #[test]
-    fn a_relayed_world_is_asked_only_when_turned_on_and_in_its_own_form() {
+    fn a_new_launcher_lists_ac1999_whatever_an_old_state_file_says() {
+        let dir = tmp("relayed-new");
+        let folders = Folders::single(dir.join("state"));
+        let listed = |folders: &Folders| {
+            let b = Backend::new(
+                folders.clone(),
+                Vec::new(),
+                None,
+                Box::new(MemoryVault::default()),
+                "memory",
+                None,
+            );
+            b.snapshot().worlds.iter().any(|w| w.slug == "ac1999")
+        };
+        assert!(listed(&folders), "an empty state folder");
+        std::fs::create_dir_all(&folders.data).unwrap();
+        std::fs::write(
+            folders.data.join(dereth_launch::state::STATE_FILE),
+            r#"{"schema": 1, "settings": {"relayed_worlds": false}}"#,
+        )
+        .unwrap();
+        assert!(listed(&folders), "a file that had it turned off");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A world played through a relay is listed with nothing set, and asked as any world is, in the
+    /// form its wire reads, and with no status ping. Off the list, it is asked nothing. This doesn't
+    /// send anything: its address is real.
+    #[test]
+    fn a_relayed_world_is_listed_and_asked_in_its_own_form() {
         let (b, dir) = backend("relayed");
         let shared: Shared = Arc::new(Mutex::new(b));
         let slugs = ["ac1999".to_owned()];
-        assert!(lock(&shared).world("ac1999").is_none(), "off to begin with");
+        assert!(lock(&shared).world("ac1999").is_none(), "the tests hide it");
         assert!(lock(&shared).probe_targets(&slugs).is_empty());
 
-        lock(&shared).set_relayed_worlds(true);
+        lock(&shared).state.hide_relayed_worlds = false;
         let world = lock(&shared).world("ac1999").expect("listed");
         assert!(world.relayed);
         let targets = lock(&shared).probe_targets(&slugs);
@@ -4671,11 +4702,6 @@ mod tests {
             lock(&shared).world("ac1999").unwrap().state,
             WorldState::Online
         );
-
-        let saved =
-            std::fs::read_to_string(dir.join("state").join(dereth_launch::state::STATE_FILE))
-                .unwrap();
-        assert!(saved.contains("\"relayed_worlds\": true"), "{saved}");
         let _ = std::fs::remove_dir_all(dir);
     }
 

@@ -169,7 +169,7 @@ mod tests {
 
     #[test]
     fn a_world_is_shown_with_its_status_over_its_row() {
-        let mut state = LauncherState::default();
+        let mut state = crate::testing::without_relayed_worlds();
         let slug = state
             .add_custom_world("", "play.example.org", "9000", None, Emulator::Unknown)
             .unwrap();
@@ -231,7 +231,7 @@ mod tests {
     /// added by, or its status document's; and nothing else.
     #[test]
     fn a_world_is_reached_directly_where_the_hub_or_its_own_status_says() {
-        let mut state = LauncherState::default();
+        let mut state = crate::testing::without_relayed_worlds();
         let mut listed = World::new("ironwood", "Ironwood");
         listed.websocket_url = Some("wss://ironwood.example.org/old".into());
         let linked = HubStatus {
@@ -313,7 +313,7 @@ mod tests {
     /// hub's word from its heartbeat, then the probe.
     #[test]
     fn the_worlds_own_answer_goes_before_the_hubs_word_and_the_hubs_before_the_probe() {
-        let state = LauncherState::default();
+        let state = crate::testing::without_relayed_worlds();
         let mut listed = World::new("frostfell", "Frostfell");
         listed.emulator = Emulator::Empyrean;
         let own = LiveStatus {
@@ -357,7 +357,7 @@ mod tests {
             Some(true),
             None,
             Some(&hub(WorldState::Online, Some(57))),
-            &LauncherState::default(),
+            &crate::testing::without_relayed_worlds(),
         );
         assert_eq!((w.state, w.players), (WorldState::Online, Some(57)));
         assert_eq!(
@@ -370,7 +370,7 @@ mod tests {
 
     #[test]
     fn a_server_the_player_added_never_takes_the_hubs_word() {
-        let mut state = LauncherState::default();
+        let mut state = crate::testing::without_relayed_worlds();
         let slug = state
             .add_custom_world("Coldeve", "play.example.org", "9000", None, Emulator::Ace)
             .unwrap();
@@ -437,7 +437,7 @@ mod tests {
             state: WorldState::Online,
             ..LiveStatus::default()
         };
-        let state = LauncherState::default();
+        let state = crate::testing::without_relayed_worlds();
         let w = shown(empyrean, None, Some(&said), None, &state);
         assert_eq!(
             (w.era.as_deref(), era_state(&w, true, false)),
@@ -466,7 +466,7 @@ mod tests {
     #[test]
     fn a_world_plays_the_era_it_says_else_the_tables_else_the_end_of_retail() {
         const SEEDSOW: &str = "394C58D0-885D-466B-B17F-D7E0B96FE3E2";
-        let mut state = LauncherState::default();
+        let mut state = crate::testing::without_relayed_worlds();
         let added = state
             .add_custom_world("", "play.example.org", "9000", None, Emulator::Unknown)
             .unwrap();
