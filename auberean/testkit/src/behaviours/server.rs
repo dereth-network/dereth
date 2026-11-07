@@ -1786,11 +1786,20 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "server.craft.mining-a-maps-node-may-unearth-a-find",
         says: "A use of a resource node a surveyor's map led to may unearth a find in place of its \
-               material: a rough lodestone of the material's family or a Tessera, one unit, the use \
-               told so by the item's name.",
+               material: a lodestone of the material's family or a Tessera, one unit, the use told so \
+               by the item's name.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-MINING-FIND"),
         station: "yalain-testkit::cpu::play::maps::mining_a_maps_node_sometimes_unearths_a_lodestone_in_place_of_the_ore",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.craft.mining-find-quality-by-level",
+        says: "A lodestone found in mining is of the quality the finder's level gives: crumbling to 29, \
+               brittle 30 to 44, rough 45 to 59, smooth 60 to 74, shining from 75.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-LODESTONE-QUALITY"),
+        station: "yalain-testkit::cpu::play::maps::a_found_lodestones_quality_follows_the_finders_level",
         tier: Tier::Cpu,
     },
     behaviour! {

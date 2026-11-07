@@ -441,19 +441,25 @@ fn a_map_found_at_its_place_moves_on_the_quest_it_is_part_of() {
     );
 }
 
-/// A node a map led to may unearth a find in place of its material: a rough lodestone of the
-/// material's family (or a Tessera) comes into the pack, one unit, and the use is told so by the
-/// item's name; the material is not given for that use.
+/// A node a map led to may unearth a find in place of its material: a lodestone of the material's
+/// family (or a Tessera) comes into the pack, one unit, and the use is told so by the item's name;
+/// the material is not given for that use. A player of level 60 finds a smooth one.
 /// Behaviour: server.craft.mining-a-maps-node-may-unearth-a-find
 #[test]
 fn mining_a_maps_node_sometimes_unearths_a_lodestone_in_place_of_the_ore() {
     let mut h = world();
-    for t in [mining::TESSERA, 0x4700_0C17, ORE] {
+    const SMOOTH_RUSTY: u32 = 0x4700_0C19;
+    for t in [mining::TESSERA, 0x4700_0C16, 0x4700_0C17, SMOOTH_RUSTY, ORE] {
         h.server
             .catalog
             .insert(yalain_testkit::test_template(t, 0x3A1, Props::default()));
     }
     let (b, me, world, map) = with_map(&mut h);
+    yalain_world::quals::set_int(
+        &mut h.server.players.get_mut(&world).expect("there").qualities,
+        yalain_world::examine::LEVEL,
+        60,
+    );
     let (dx, dy) = (0x80 as f32 * 160.0 + 50.0, 0x62 as f32 * 160.0 + 70.0);
     h.server.things.get_mut(map).expect("map").destination = Some(maps::place_of(dx, dy));
     stand(&mut h, world, dx + 10.0, dy);
@@ -475,8 +481,10 @@ fn mining_a_maps_node_sometimes_unearths_a_lodestone_in_place_of_the_ore() {
             .map(|i| i.quantity.max(1))
             .sum()
     };
+    let lodestones =
+        |h: &Harness| count(h, 0x4700_0C16) + count(h, 0x4700_0C17) + count(h, SMOOTH_RUSTY);
     let mut found = None;
-    for _ in 0..400 {
+    for _ in 0..1000 {
         if let Some(n) = h.server.things.get_mut(node).and_then(|t| t.node.as_mut()) {
             n.uses = 0;
         }
@@ -499,18 +507,77 @@ fn mining_a_maps_node_sometimes_unearths_a_lodestone_in_place_of_the_ore() {
                 _ => None,
             })
             .collect();
-        if texts.contains(&mining::FOUND.0) {
+        if texts.contains(&mining::FOUND.0) && lodestones(&h) > 0 {
             found = Some(ore);
             break;
         }
     }
-    let ore_before = found.expect("a find within 400 uses");
+    let ore_before = found.expect("a lodestone found within 1000 uses");
     assert_eq!(count(&h, ORE), ore_before, "no ore for the find's use");
+    assert_eq!(count(&h, SMOOTH_RUSTY), 1, "one smooth lodestone");
+    assert_eq!(lodestones(&h), 1, "and no other");
+}
+
+/// A lodestone found is of the quality the finder's level gives: crumbling to 29, brittle 30 to
+/// 44, rough 45 to 59, smooth 60 to 74, shining from 75; each material's family its own.
+/// Behaviour: server.craft.mining-find-quality-by-level
+#[test]
+fn a_found_lodestones_quality_follows_the_finders_level() {
+    use mining::{lodestone, lodestone_quality, Quality};
+    let bands = [
+        (1, Quality::Crumbling),
+        (29, Quality::Crumbling),
+        (30, Quality::Brittle),
+        (44, Quality::Brittle),
+        (45, Quality::Rough),
+        (59, Quality::Rough),
+        (60, Quality::Smooth),
+        (74, Quality::Smooth),
+        (75, Quality::Shining),
+        (150, Quality::Shining),
+    ];
+    for (level, quality) in bands {
+        assert_eq!(lodestone_quality(level), quality, "level {level}");
+    }
+    let rusty = [
+        Quality::Brittle,
+        Quality::Crumbling,
+        Quality::Rough,
+        Quality::Shining,
+        Quality::Smooth,
+    ]
+    .map(|q| lodestone(0x6F00_069C, q));
     assert_eq!(
-        count(&h, 0x4700_0C17) + count(&h, mining::TESSERA),
-        1,
-        "one lodestone or Tessera"
+        rusty,
+        [
+            0x4700_0C14,
+            0x4700_0C16,
+            0x4700_0C17,
+            0x4700_0C18,
+            0x4700_0C19
+        ]
+        .map(Some)
     );
+    let rough = [
+        0x6F00_069B,
+        0x6F00_069C,
+        0x6F00_069D,
+        0x6F00_069E,
+        0x6F00_069F,
+    ]
+    .map(|skill| lodestone(skill, Quality::Rough));
+    assert_eq!(
+        rough,
+        [
+            0x4700_0C1D,
+            0x4700_0C17,
+            0x4700_0C05,
+            0x4700_0C0B,
+            0x4700_0C11
+        ]
+        .map(Some)
+    );
+    assert_eq!(lodestone(0x6F00_0690, Quality::Rough), None);
 }
 
 /// A map of a region finding its place lets the region's five map recipes be drawn at once: the

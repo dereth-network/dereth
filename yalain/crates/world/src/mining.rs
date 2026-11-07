@@ -120,23 +120,58 @@ pub mod text {
 
 /// A find: one use of a node a surveyor's map led to may unearth an item in place of its material
 /// (2017: 7 of 165 such uses; none of 162 on delving stones' nodes), a Tessera two times in seven,
-/// else a rough lodestone of the material's family.
+/// else a lodestone of the material's family, of the quality the player's level gives.
 pub const FIND_CHANCE: f32 = 7.0 / 165.0;
 pub const TESSERA_SHARE: f32 = 2.0 / 7.0;
 pub const TESSERA: u32 = 0x4700_052F;
 
-/// The rough lodestone a find of each craft skill's material unearths: crystal translucent, iron
-/// rusty, silver clouded, stone marbled, wood mossy.
+/// A lodestone's quality, by the player's level when it is found: crumbling to 29, brittle 30 to
+/// 44, rough 45 to 59, smooth 60 to 74, shining from 75 (2017: 13 of 14 lodestones held at their
+/// first sighting; of the finds in mining, rough at 48, 50 and 50, smooth at 57).
 #[must_use]
-pub fn lodestone(skill: u32) -> Option<u32> {
-    Some(match skill {
-        0x6F00_069B => 0x4700_0C1D,
-        0x6F00_069C => 0x4700_0C17,
-        0x6F00_069D => 0x4700_0C05,
-        0x6F00_069E => 0x4700_0C0B,
-        0x6F00_069F => 0x4700_0C11,
+pub fn lodestone_quality(level: i32) -> Quality {
+    match level {
+        ..=29 => Quality::Crumbling,
+        30..=44 => Quality::Brittle,
+        45..=59 => Quality::Rough,
+        60..=74 => Quality::Smooth,
+        _ => Quality::Shining,
+    }
+}
+
+/// A lodestone's quality.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Quality {
+    Crumbling,
+    Brittle,
+    Rough,
+    Smooth,
+    Shining,
+}
+
+/// The lodestone of a quality a find of each craft skill's material unearths: crystal translucent,
+/// iron rusty, silver clouded, stone marbled, wood mossy.
+#[must_use]
+pub fn lodestone(skill: u32, quality: Quality) -> Option<u32> {
+    // Each family's templates run brittle, plain, crumbling, rough, shining, smooth.
+    let family = match skill {
+        0x6F00_069B => 0x4700_0C1A,
+        0x6F00_069C => 0x4700_0C14,
+        0x6F00_069D => 0x4700_0C02,
+        0x6F00_069E => 0x4700_0C08,
+        0x6F00_069F => 0x4700_0C0E,
         _ => return None,
-    })
+    };
+    Some(
+        family
+            + match quality {
+                Quality::Brittle => 0,
+                Quality::Crumbling => 2,
+                Quality::Rough => 3,
+                Quality::Shining => 4,
+                Quality::Smooth => 5,
+            },
+    )
 }
 
 /// "You unearth a %2 while mining!": the find's answer, its one unit and the item's name.
@@ -522,7 +557,11 @@ pub fn done<S: Store>(
         if s.rng.chance(TESSERA_SHARE) {
             Some(TESSERA)
         } else {
-            lodestone(n.skill)
+            let level = s
+                .players
+                .get(&world)
+                .map_or(1, |p| crate::examine::level_of(&p.qualities));
+            lodestone(n.skill, lodestone_quality(level))
         }
     } else {
         None
