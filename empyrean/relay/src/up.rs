@@ -103,6 +103,9 @@ const LATER_MEANING: &[u32] = &[0x0059, 0x005B];
 
 /// The login action, which the relay follows with the squelch list.
 pub const LOGIN_COMPLETE: u32 = 0x00A1;
+
+/// The request to enter the world as a character, after which the server makes the world anew.
+pub const ENTER_WORLD: u32 = 0xF657;
 /// The 1999 client's own command to tie to the life stone at hand: it never goes up as speech.
 const SAVE_COMMAND: &str = "save";
 

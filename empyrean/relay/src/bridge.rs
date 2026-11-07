@@ -256,6 +256,9 @@ impl Bridge {
         match self.up.message(bytes) {
             Ok(Up::Send { queue, bytes: out }) => {
                 tally(&mut self.forwarded, opcode, out.len());
+                if opcode == up::ENTER_WORLD {
+                    self.down.character_entering();
+                }
                 self.send_up(queue, &out, now);
                 if opcode == up::LOGIN_COMPLETE {
                     self.after_login(now);

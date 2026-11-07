@@ -220,7 +220,9 @@ fn wrapped(m: &IncomingMessage) -> u32 {
 }
 
 /// The whole session, ending once the client has said goodbye.
-fn session() -> Exchange {
+/// Logged in, a character made and in the world with its description, and the account the server
+/// named.
+fn in_world() -> (Exchange, String) {
     let mut x = Exchange::new("Probe", "Secret");
     let asked = x.until(0xF7E5);
     let asked = read_body::<DddInterrogation>(&asked.body).unwrap();
@@ -312,6 +314,11 @@ fn session() -> Exchange {
     let book = d.qualities.spell_book.expect("the spell book");
     assert_eq!(book.entries[0].0, KNOWN_SPELL);
     assert_eq!(book.entries[0].1.legacy, Some((SEEDED_CHARGE, 0)));
+    (x, set.account)
+}
+
+fn session() -> Exchange {
+    let (mut x, _) = in_world();
 
     // A step: forwarded in the 1999 client's envelope, and the server's answer states its `w`.
     let mut step = 0xF7B1u32.to_le_bytes().to_vec();
@@ -390,6 +397,53 @@ fn a_session_logs_in_downloads_creates_enters_steps_and_says_goodbye() {
         dereth_protocol::read_checked::<crate::codec::CreateCharacter>(creates[0]).unwrap();
     assert_eq!(create.account, "probe");
     assert_eq!(create.character.heritage, 0, "the 1999 list's own place");
+}
+
+/// Behaviour: none (the relay's own translation state over a second world entry).
+#[test]
+fn a_character_that_logs_off_enters_the_world_again_made_anew() {
+    let (mut x, account) = in_world();
+    // Logged off, back to the list.
+    let mut log_off = 0xF653u32.to_le_bytes().to_vec();
+    log_off.extend(CHARACTER.to_le_bytes());
+    x.client.send(NetQueue::Logon, &log_off);
+    x.until(0xF653);
+    for opcode in [0xF7DF, 0xF746, 0xF745, 0xF7DB, 0xF7B0] {
+        x.forget(opcode);
+    }
+
+    // In again: the player is created, not updated, and its description arrives.
+    x.client.send(NetQueue::Logon, &0xF7C8u32.to_le_bytes());
+    x.until(0xF7DF);
+    let enter = write_blob(&LoginSendEnterWorld {
+        character: ObjectId(CHARACTER),
+        account,
+    })
+    .unwrap();
+    x.client.send(NetQueue::Logon, &enter);
+    x.until(0xF746);
+    let create = x.until(0xF745);
+    let create = read_body::<dereth_protocol::objects::ItemCreateObject>(&create.body).unwrap();
+    assert_eq!(
+        create.0.id,
+        ObjectId(CHARACTER),
+        "the player, created again"
+    );
+    for _ in 0..GUARD {
+        if x.received
+            .iter()
+            .any(|m| m.opcode == 0xF7B0 && wrapped(m) == 0x0013)
+        {
+            break;
+        }
+        x.step();
+    }
+    assert!(
+        x.received
+            .iter()
+            .any(|m| m.opcode == 0xF7B0 && wrapped(m) == 0x0013),
+        "the second entry's player description reaches Dereth"
+    );
 }
 
 /// Behaviour: none (the relay's clock, against a synthetic grant).

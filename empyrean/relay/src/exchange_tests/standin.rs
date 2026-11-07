@@ -254,6 +254,14 @@ impl Standin {
             },
         ))
         .unwrap();
+        // Ordered against the player, whose event stamps start again with each entry: the server
+        // makes the character's object anew every time it enters.
+        let description = write_blob(&Envelope {
+            object: ObjectId(CHARACTER),
+            stamp: 1,
+            message: description,
+        })
+        .unwrap();
         self.message(4, &description);
         // A later-only message the server still writes, and one nothing knows.
         self.message(4, &0x002Bu32.to_le_bytes());
@@ -311,6 +319,8 @@ impl Standin {
                 read_checked::<SelectCharacter>(&message).unwrap();
                 self.enter_world();
             }
+            // The character logs off, back to the list.
+            0xF653 => self.message(4, &0xF653u32.to_le_bytes()),
             0xF7B1 if opcode_of(&message[8..]) == 0x004A => self.cast_answered(),
             0xF7B1 if opcode_of(&message[8..]) == 0xF61C => {
                 // The server's own view of where the player now is, with no `w` in it.

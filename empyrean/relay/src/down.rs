@@ -224,6 +224,19 @@ const DROP: &[u32] = &[
 ];
 
 impl Down {
+    /// A character is about to enter the world: what this session knew of the last one's objects
+    /// is forgotten. The server makes every object anew for the entry, the player included, and
+    /// numbers its events from the start again; Dereth emptied its world when the last character
+    /// left. Known, the player would come as an update of an object Dereth no longer has, and its
+    /// description would be dropped as older than the last character's events.
+    pub fn character_entering(&mut self) {
+        self.player = None;
+        self.stamps.clear();
+        self.sequences.clear();
+        self.created.clear();
+        self.upstream_stamps.clear();
+    }
+
     /// The next event stamp of the events ordered against `object`.
     fn next_stamp(&mut self, object: ObjectId) -> u32 {
         let stamp = self.stamps.entry(object).or_insert(0);
