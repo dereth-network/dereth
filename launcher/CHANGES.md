@@ -9,6 +9,8 @@ not how it was done. `cargo xtask release launcher <version>` turns Unreleased i
 section, dated, and opens a new empty one in the same commit as the version.
 
 ## Unreleased
+
+## 0.5.2 (2026-11-07)
 - AC1999 is listed and played through a relay.
 - Every world can now show a player count, dimmer as it gets older.
 - Launch worlds no longer offer the retail client, which can't play them.
