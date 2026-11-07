@@ -516,7 +516,8 @@ table.worlds td.end { overflow: visible; }
   font-size: 18px; letter-spacing: 0.14em;
 }
 table.worlds td, table.worlds th { padding: 10px 8px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
-table.worlds th { font: 600 12px var(--display); letter-spacing: 0.12em; color: var(--gold); position: sticky; top: 0; background: #17141d; }
+/* Above the rows as they scroll under it, a dimmed count among them. */
+table.worlds th { font: 600 12px var(--display); letter-spacing: 0.12em; color: var(--gold); position: sticky; top: 0; z-index: 1; background: #17141d; }
 table.worlds tbody tr { cursor: pointer; }
 table.worlds tbody tr:hover { background: rgba(233, 199, 122, 0.07); }
 table.worlds td.name { font-size: 19px; color: var(--text); max-width: 260px; overflow: hidden; text-overflow: ellipsis; }

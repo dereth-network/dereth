@@ -223,7 +223,8 @@ async function pull() {
     console.error(e);
     return;
   }
-  const json = JSON.stringify(snap);
+  // A count's age grows every second; only its look is drawn, so only its look is compared.
+  const json = JSON.stringify(snap, (key, value) => (key === "players_age" ? countLook(value) : value));
   if (!ui.snap) openRealm(snap);
   ui.snap = snap;
   // The first start asks which interface the Dereth client plays in, before anything else, while
@@ -1649,14 +1650,24 @@ function agoWords(seconds) {
 
 const COUNT_FROM = { ping: "From the world", heartbeat: "From the world", client: "From a player's game", treestats: "From TreeStats" };
 
-// A count as it is drawn: dimmer as it ages, with where it came from and its age on hover.
+// How a count of `age` seconds looks: dimmer as it ages.
+const countLook = (age) => (age == null ? null : age < 300 ? "" : age < 3600 ? "count-aging" : "count-old");
+
+// A count as it is drawn: dimmer as it ages, with where it came from and its age on hover. The words
+// on hover are made when the pointer comes, from the newest age: the page isn't drawn again for
+// every second a count ages.
 function playersCount(w, text) {
   const age = w.players_age;
   if (w.state === "offline" || w.players == null || age == null) return esc(text);
-  const look = age < 300 ? "" : age < 3600 ? "count-aging" : "count-old";
-  const from = COUNT_FROM[w.players_source] ?? "From the hub";
-  return `<span class="${look}" title="${esc(`${from}, ${agoWords(age)}`)}">${esc(text)}</span>`;
+  return `<span class="${countLook(age)}" data-count="${esc(w.slug)}">${esc(text)}</span>`;
 }
+
+document.addEventListener("mouseover", (ev) => {
+  const count = ev.target.closest?.("[data-count]");
+  const w = count && worldBy(count.dataset.count);
+  if (!w || w.players_age == null) return;
+  count.title = `${COUNT_FROM[w.players_source] ?? "From the hub"}, ${agoWords(w.players_age)}`;
+});
 
 // A count only a player's game reported can't be checked, so it doesn't move a world up the list.
 const rankedPlayers = (w) => (w.players_source === "client" ? 0 : w.players ?? 0);
