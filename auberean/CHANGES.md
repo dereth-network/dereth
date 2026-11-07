@@ -6,6 +6,8 @@ Add a line under **Unreleased** when a change lands that a player would notice. 
 not how it was done.
 
 ## Unreleased
+
+## 0.1.5 (2026-11-07)
 - Screenshots are taken at full detail, far objects included.
 - With an input method on, the text being composed shows in the game.
 - Your own particles no longer show in first person; far flames stop with their objects.
