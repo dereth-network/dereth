@@ -610,3 +610,190 @@ fn a_hive_fires_wasps_at_a_creature_and_with_no_row_stands_idle() {
     }
     assert!(h.server.pets.of(me).len() >= 3, "and again after it");
 }
+
+const BUFF: u32 = 0x7000_0697;
+
+/// A skill as the guardians' and the sand fiends' are: aimed at friends of these kinds, putting the
+/// buff on its target.
+fn buff_skill(valid_targets: u32, max_range: f32) -> Usage {
+    Usage {
+        min_range: -1.0,
+        max_range,
+        valid_targets,
+        behavior_other: [0x4100_0075; 3],
+        behavior_self: [0x4100_0074; 2],
+        target_effects: vec![BUFF],
+        ui_flags: 0x12C0,
+        hooks: vec![Hook {
+            damages: true,
+            flags: 8200,
+            ..Hook::default()
+        }],
+        ..Usage::default()
+    }
+}
+
+/// The buff: a numeric change lasting a minute (made harmful or not).
+fn with_buff(h: &mut Harness, harmful: bool) {
+    let buff = EffectDef {
+        duration: Scale(vec![(0.0, 60.0)]),
+        external_flags: 0x2_000A,
+        internal_flags: 0x140_0743 | if harmful { HARMFUL } else { 0 },
+        eq_class: 27,
+        ..def(
+            BUFF,
+            Kind::Numeric {
+                flags: 0x2_000A,
+                stats: vec![0x3_0129],
+                magnitude: Scale(vec![(1.0, 1.05), (1000.0, 8.05)]),
+            },
+        )
+    };
+    h.server.effect_table.effects.insert(BUFF, buff);
+}
+
+/// The records of the buff a player holds: caster and spellcraft.
+fn buffed(h: &mut Harness, me: u64) -> Vec<(u64, f32)> {
+    player(h, me)
+        .play
+        .effects
+        .iter()
+        .filter(|e| e.state == BUFF)
+        .map(|e| (e.caster, e.spellcraft))
+        .collect()
+}
+
+/// The owner's rating in the summoning skill, which the pet's level follows.
+fn rated(h: &mut Harness, me: u64, rating: u32) {
+    if let Some(k) = player(h, me)
+        .play
+        .skills
+        .iter_mut()
+        .find(|k| k.skill == SUMMON)
+    {
+        k.granted = rating;
+    }
+}
+
+/// The pet's stories that name a target, after a point in what a player was told.
+fn pets_stories(h: &Harness, b: usize, from: usize, pet: u64) -> usize {
+    h.world_messages(b, from)
+        .iter()
+        .filter(|m| matches!(m, ServerMessage::DoStory(e) if e.action.attacker == pet))
+        .count()
+}
+
+fn level_of(h: &Harness, pet: u64) -> f32 {
+    #[allow(clippy::cast_precision_loss)]
+    h.server
+        .things
+        .get(pet)
+        .and_then(|t| t.creature.as_ref())
+        .map(|c| c.stats.level as f32)
+        .expect("a pet")
+}
+
+/// A pet whose skill is aimed at its summoner keeps its buff on its owner: put on at the pet's level,
+/// told as the pet's use of it on its owner, not put on again while it runs and put on again once it
+/// has run out; a fellow and a stranger beside it get nothing.
+/// Behaviour: server.pets.keep-buffs-on-their-owner
+#[test]
+fn a_pet_keeps_its_buff_on_its_owner_and_on_no_one_else() {
+    let mut h = Harness::new();
+    with_pet(&mut h, 1, 1096, Some(buff_skill(0x130_0100, 10.0)));
+    with_buff(&mut h, false);
+    let (b, me) = summoner(&mut h);
+    let (_, fellow) = in_world(&mut h, "two", "Fellow");
+    let (_, stranger) = in_world(&mut h, "three", "Stranger");
+    fellows(&mut h, &[me, fellow]);
+    rated(&mut h, me, 30);
+    let from = h.bots[b].inbox.len();
+    let pet = summon(&mut h, b);
+    h.step_by(1.0);
+    let level = level_of(&h, pet);
+    assert!(level > 1.0, "{level}");
+    assert_eq!(buffed(&mut h, me), vec![(pet, level)], "its owner");
+    assert!(buffed(&mut h, fellow).is_empty(), "a fellow");
+    assert!(buffed(&mut h, stranger).is_empty(), "a stranger");
+    let told = h.world_messages(b, from).iter().any(|m| {
+        matches!(m, ServerMessage::DoStory(e) if e.action.attacker == pet
+            && e.action.skill == PET_SKILL
+            && e.action.hooks.iter().any(|k| k.target == me))
+    });
+    assert!(told, "told as the pet's use on its owner");
+    let first = player(&mut h, me)
+        .play
+        .effects
+        .iter()
+        .find(|e| e.state == BUFF)
+        .map(|e| e.eid);
+    let held_from = h.bots[b].inbox.len();
+    for _ in 0..50 {
+        h.step_by(1.0);
+    }
+    assert_eq!(
+        buffed(&mut h, me).len(),
+        1,
+        "not put on again while it runs"
+    );
+    assert_eq!(pets_stories(&h, b, held_from, pet), 0, "nor used again");
+    for _ in 0..30 {
+        h.step_by(1.0);
+    }
+    let again = player(&mut h, me)
+        .play
+        .effects
+        .iter()
+        .find(|e| e.state == BUFF)
+        .map(|e| e.eid);
+    assert!(
+        again.is_some() && again != first,
+        "put on again once run out"
+    );
+    assert!(buffed(&mut h, fellow).is_empty() && buffed(&mut h, stranger).is_empty());
+}
+
+/// A pet whose skill is aimed at its user keeps the buff on itself, and on no player.
+/// Behaviour: server.pets.keep-buffs-on-themselves
+#[test]
+fn a_pet_keeps_its_own_buff_on_itself() {
+    let mut h = Harness::new();
+    with_pet(&mut h, 1, 1096, Some(buff_skill(0x30_0001, 10.0)));
+    with_buff(&mut h, false);
+    let (b, me) = summoner(&mut h);
+    let pet = summon(&mut h, b);
+    h.step_by(1.0);
+    let level = level_of(&h, pet);
+    let held: Vec<(u64, f32)> = effects::records_of(&h.server, On::Creature(pet))
+        .iter()
+        .filter(|e| e.state == BUFF)
+        .map(|e| (e.caster, e.spellcraft))
+        .collect();
+    assert_eq!(held, vec![(pet, level)]);
+    assert!(buffed(&mut h, me).is_empty(), "its owner");
+}
+
+/// A pet's buff reaches no owner beyond its skill's reach, and nothing that harms is put on.
+/// Behaviour: server.pets.keep-buffs-on-their-owner
+#[test]
+fn a_pets_buff_reaches_no_owner_out_of_reach_and_puts_on_nothing_harmful() {
+    let mut h = Harness::new();
+    with_pet(&mut h, 1, 1096, Some(buff_skill(0x130_0100, 1.0)));
+    with_buff(&mut h, false);
+    let (b, me) = summoner(&mut h);
+    summon(&mut h, b);
+    for _ in 0..10 {
+        h.step_by(1.0);
+    }
+    assert!(buffed(&mut h, me).is_empty(), "out of reach");
+    let mut h = Harness::new();
+    with_pet(&mut h, 1, 1096, Some(buff_skill(0x130_0100, 10.0)));
+    with_buff(&mut h, true);
+    let (b, me) = summoner(&mut h);
+    let pet = summon(&mut h, b);
+    for _ in 0..10 {
+        h.step_by(1.0);
+    }
+    assert!(buffed(&mut h, me).is_empty(), "harmful");
+    assert!(effects::records_of(&h.server, On::Creature(pet)).is_empty());
+}

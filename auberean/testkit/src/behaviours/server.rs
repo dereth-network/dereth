@@ -8780,6 +8780,24 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.pets.keep-buffs-on-their-owner",
+        says: "A pet whose skill is aimed at its summoner keeps what it puts on its owner, within the \
+               skill's reach, as the pet's use of it at its level: again once it has run out, never on \
+               anyone else, and never anything that harms.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PETS-KEEP-BUFFS"),
+        station: "yalain-testkit::cpu::play::pet_skills::a_pet_keeps_its_buff_on_its_owner_and_on_no_one_else",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.pets.keep-buffs-on-themselves",
+        says: "A pet whose skill is aimed at its user keeps what it puts on itself, at its level.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PETS-KEEP-OWN-BUFF"),
+        station: "yalain-testkit::cpu::play::pet_skills::a_pet_keeps_its_own_buff_on_itself",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.pets.leave-with-their-owner",
         says: "An owner leaving the world takes its pets out of it, and others who saw a pet see it \
                go.",

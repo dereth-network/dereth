@@ -23,6 +23,11 @@
 //! Its pulses reach its owner and its owner's fellows within the aura's range of the pet, as records
 //! from the pet, and never put on anything that harms. Those records go when the pet does.
 //!
+//! **What it keeps up**: a skill of its template's aimed at itself or at its summoner, and never at
+//! a monster, that puts on only what lasts and harms no one, it uses on itself or its owner (in the
+//! world, alive, out of portal space and within the skill's reach) whenever that one no longer holds
+//! it from the pet, in place of an attack, cast at its level. No one else is reached.
+//!
 //! **Effects on it**: a skill aimed at pets lands on its user's own, of the class it names, and never
 //! harms it. What it leaves there can open one of the pet's attacks and bar another, as each attack
 //! says. A pet whose template's skills include no attack takes no order to attack and fights nothing.
@@ -981,6 +986,123 @@ fn tend<S: Store>(s: &mut Server<S>, net: &mut ServerNet, pet: &Pet, clock: Cloc
     );
 }
 
+/// The kinds of target a skill names that tell whom a pet's help reaches: its user, a monster, and
+/// its user's summoner.
+pub mod aim {
+    pub const SELF: u32 = 0x1;
+    pub const MONSTER: u32 = 0x80;
+    pub const SUMMONER: u32 = 0x100_0000;
+}
+
+/// The skills of a pet's template it keeps up on its friends: aimed at itself or at its summoner and
+/// never at a monster, putting on only what lasts and harms no one.
+fn kept_up<S: Store>(s: &Server<S>, id: u64) -> Vec<(u32, crate::skills::Usage)> {
+    let Some(stats) = s
+        .things
+        .get(id)
+        .and_then(|t| t.creature.as_ref())
+        .map(|c| &c.stats)
+    else {
+        return Vec::new();
+    };
+    let kindly = |state: &u32| {
+        s.effect_table
+            .get(*state)
+            .is_some_and(|d| d.lasts() && d.internal_flags & crate::effect_defs::HARMFUL == 0)
+    };
+    stats
+        .skills
+        .iter()
+        .filter_map(|(skill, _)| {
+            let u = s.skill_table.skills.get(skill)?.usage.as_ref()?;
+            let friends = u.valid_targets & (aim::SELF | aim::SUMMONER) != 0
+                && u.valid_targets & aim::MONSTER == 0;
+            (friends && !u.target_effects.is_empty() && u.target_effects.iter().all(kindly))
+                .then(|| (*skill, u.clone()))
+        })
+        .collect()
+}
+
+/// Does what a pet put on someone still run there?
+fn holds_from<S: Store>(s: &Server<S>, on: crate::effects::On, state: u32, pet: u64) -> bool {
+    crate::effects::records_of(s, on)
+        .iter()
+        .any(|e| e.state == state && e.caster == pet)
+}
+
+/// A pet keeps up what its skills put on its friends: when its turn has come, on itself (its skill
+/// aimed at its user) or its owner (aimed at its summoner: in the world, alive, out of portal space
+/// and within the skill's reach of it), one that no longer holds it from the pet. It is told as the
+/// pet's use of the skill on that friend, and cast by the pet at its level.
+fn keep_up<S: Store>(s: &mut Server<S>, net: &mut ServerNet, pet: &Pet, clock: Clock) {
+    let id = pet.id;
+    let now = clock.local.0;
+    let Some((at, level, due)) = s.things.get(id).and_then(|t| {
+        let c = t.creature.as_ref()?;
+        Some((t.at?, c.stats.level, now >= c.next_attack))
+    }) else {
+        return;
+    };
+    if !due {
+        return;
+    }
+    let owner = s
+        .players
+        .iter()
+        .find(|(_, p)| p.character == pet.owner)
+        .filter(|(_, p)| p.trip.is_none() && p.dying.is_none() && !crate::combat::is_dead(p))
+        .map(|(c, p)| (*c, p.character, p.position));
+    for (skill, u) in kept_up(s, id) {
+        let mut friends = Vec::new();
+        if u.valid_targets & aim::SELF != 0 {
+            friends.push((crate::effects::On::Creature(id), id, u.behavior_self[0]));
+        }
+        if u.valid_targets & aim::SUMMONER != 0 {
+            if let Some((world, character, there)) = owner {
+                if crate::presence::distance(&at, &there).is_some_and(|d| d <= u.max_range) {
+                    let on = crate::effects::On::Player(world);
+                    friends.push((on, character, u.behavior_other[0]));
+                }
+            }
+        }
+        let Some((on, target, behavior)) = friends
+            .into_iter()
+            .find(|(on, _, _)| u.target_effects.iter().any(|e| !holds_from(s, *on, *e, id)))
+        else {
+            continue;
+        };
+        if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
+            c.next_attack = now + ATTACK_SECONDS;
+        }
+        let swing = crate::combat::Swing {
+            skill,
+            behavior,
+            time_scale: crate::combat::CREATURE_TIME_SCALE * s.rng.between(0.9, 1.1),
+            target,
+            outcome: Outcome::Hit,
+            damage: 0,
+            back: 0,
+        };
+        let mut st = crate::combat::story(s, crate::combat::Attacker::Thing(id), swing);
+        if let ServerMessage::DoStory(e) = &mut st {
+            e.action.bits = crate::missiles::SPECIAL;
+        }
+        crate::combat::to_all_seeing(s, net, id, &st);
+        #[allow(clippy::cast_precision_loss)]
+        let cast = crate::effects::Cast {
+            caster: id,
+            spellcraft: level as f32,
+            ..crate::effects::Cast::default()
+        };
+        for state in &u.target_effects {
+            if !holds_from(s, on, *state, id) {
+                crate::effects::apply_on(s, net, on, *state, cast, clock);
+            }
+        }
+        return;
+    }
+}
+
 /// A pet's description's numbers its kingdom sets: its physics type and its movement ethereality
 /// (their low words); the kingdoms' bits in them.
 const PHYSICS: usize = 0;
@@ -1514,6 +1636,7 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, pet: &Pet, clock: Clock
         return;
     };
     tend(s, net, pet, clock);
+    keep_up(s, net, pet, clock);
     let away = crate::presence::distance(&at, &owner_at);
     let mut order = pet.order;
     if order == Order::Return && away.is_some_and(|d| d <= BACK_WITH) {

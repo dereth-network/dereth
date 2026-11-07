@@ -8,6 +8,7 @@ what they see, not how it was done.
 ## Unreleased
 - Pets' skills reach as far as they should, area attacks hit everything nearby, and taunting pets also do damage.
 - Pets use all their attacks, not just the first one.
+- Guardian, Redeemer and Sand Fiend pets now keep up their buffs.
 - What a pet's hit carries now lands on its target, and Master Hive fires wasps.
 - A Spirit's buff now reaches its owner and fellows.
 - New characters' starting clothes are real items you can take off and put back on.
