@@ -41,7 +41,11 @@ fn table() -> SkillTable {
         TABLE,
         (0..=50u64).map(|n| 2 * n * n.saturating_sub(1)).collect(),
     );
-    SkillTable { skills, tables }
+    SkillTable {
+        skills,
+        tables,
+        ..SkillTable::default()
+    }
 }
 
 /// At no vigor a player's rating in a skill that says so falls to the least there is, and what it

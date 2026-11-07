@@ -253,6 +253,22 @@ impl Portal {
         SkillTable::read(&lib, &names.names, &graph)
     }
 
+    /// The skills each kingdom's shrine grants by points, as the server reads them at start.
+    ///
+    /// # Panics
+    /// The library does not read.
+    #[must_use]
+    pub fn kingdom_skills(&self) -> yalain_world::kingdom_skills::KingdomSkills {
+        let skills = self.skills();
+        let lib = self.library();
+        let graph = |id: u32| -> Option<Graph> {
+            let st: ScriptState =
+                auberean_assets::decode(id, &self.dat.read(id).ok()?, &self.ctx).ok()?;
+            Graph::decode(&st.graph, &lib).ok()
+        };
+        yalain_world::kingdom_skills::KingdomSkills::read(&lib, &graph, &skills)
+    }
+
     /// The effects of these saved states (and those they add), as the server reads them at start.
     ///
     /// # Panics

@@ -386,6 +386,7 @@ fn the_trained_skills_list_has_a_line_for_each_trained_skill_only() {
     h.server.skill_table = SkillTable {
         skills,
         tables: HashMap::new(),
+        ..SkillTable::default()
     };
     let (a, _, world) = player(&mut h, "one");
     let p = h.server.players.get_mut(&world).expect("in");

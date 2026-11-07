@@ -373,12 +373,15 @@ pub const ARCANE_LORE_CATEGORY: u32 = 5;
 pub struct SkillTable {
     pub skills: HashMap<u32, SkillDef>,
     pub tables: HashMap<u32, Vec<u64>>,
+    /// Each skill by the library's package of its definition.
+    pub by_package: HashMap<u32, u32>,
 }
 
 impl SkillTable {
     /// Every skill's definition (each skill's saved state, found by its name in the skills'
-    /// enumeration: the package of that name, its state `0x70000000` + the package) and the
-    /// advancement tables they name. A skill whose state does not read is left out.
+    /// enumeration: the package of that name, its state `0x70000000` + the package), each skill by
+    /// that package, and the advancement tables they name. A skill whose state does not read is
+    /// left out.
     #[must_use]
     pub fn read(
         lib: &Library,
@@ -387,16 +390,17 @@ impl SkillTable {
     ) -> Self {
         let mut t = Self::default();
         for (skill, name) in names {
-            let Some(g) = lib
-                .package_id(name)
-                .and_then(|pkg| graph(0x7000_0000 | pkg))
-            else {
+            let Some(pkg) = lib.package_id(name) else {
+                continue;
+            };
+            let Some(g) = graph(0x7000_0000 | pkg) else {
                 continue;
             };
             if let Ok(mut d) = SkillDef::from_state(*skill, lib, &g) {
                 d.kind = crate::rules::kind_of_name(name);
                 d.helps = crate::rules::helps_by_name(name);
                 t.skills.insert(*skill, d);
+                t.by_package.insert(pkg, *skill);
             }
         }
         let tables: std::collections::BTreeSet<u32> = t.skills.values().map(|d| d.table).collect();
@@ -1237,6 +1241,44 @@ pub fn trained(
             (d.cost, 0)
         },
     ))
+}
+
+/// Grant a skill as an effect that trains it does: nothing when it is held already; else it is
+/// pushed trained, costing nothing and the player's to keep, its trained parents counting one more
+/// child and its prerequisites one more dependent. Returns the new skill and the skills it changed.
+pub fn bestowed(
+    table: &SkillTable,
+    skills: &mut Vec<Held>,
+    skill: u32,
+) -> Option<(Held, Vec<Held>)> {
+    if skills.iter().any(|h| h.skill == skill) {
+        return None;
+    }
+    let d = table.skills.get(&skill)?;
+    let mut changed = Vec::new();
+    for (parent, _) in &d.parents {
+        if let Some(h) = skills.iter_mut().find(|h| h.skill == *parent) {
+            h.children += 1;
+            changed.push(*h);
+        }
+    }
+    for (pre, _) in &d.prereqs {
+        if let Some(h) = skills.iter_mut().find(|h| h.skill == *pre) {
+            h.dependents += 1;
+            changed.push(*h);
+        }
+    }
+    let new = Held {
+        skill,
+        granted: 0,
+        xp: 0,
+        mask: mask::TRAINED,
+        cost: 0,
+        children: 0,
+        dependents: 0,
+    };
+    skills.push(new);
+    Some((new, changed))
 }
 
 /// A player asks to train a skill.

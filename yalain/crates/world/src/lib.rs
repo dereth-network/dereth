@@ -94,6 +94,7 @@ pub mod graph;
 pub mod guard;
 pub mod inventory;
 pub mod item_use;
+pub mod kingdom_skills;
 pub mod kingdoms;
 pub mod levels;
 pub mod login;
@@ -414,6 +415,8 @@ pub struct Server<S: Store> {
     pub shrine_packages: std::collections::HashSet<u32>,
     /// The kingdom each faction shrine's use joins, by the shrine's package.
     pub shrine_kingdoms: HashMap<u32, u32>,
+    /// The skills a use of one's own kingdom's shrine grants, by kingdom and points.
+    pub kingdom_skills: kingdom_skills::KingdomSkills,
     /// The packages of the world's objects that cannot be used (forges, road signs).
     pub cannot_use_packages: std::collections::HashSet<u32>,
     /// The packages of the items that take an inscription.
@@ -790,6 +793,7 @@ impl<S: Store> Server<S> {
             storms: storms::Storms::default(),
             shrine_packages: std::collections::HashSet::new(),
             shrine_kingdoms: HashMap::new(),
+            kingdom_skills: kingdom_skills::KingdomSkills::default(),
             cannot_use_packages: std::collections::HashSet::new(),
             inscribable_packages: std::collections::HashSet::new(),
             held_answers: std::collections::HashMap::new(),

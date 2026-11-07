@@ -298,6 +298,137 @@ fn a_player_of_the_shrines_kingdom_already_joins_nothing() {
     }
 }
 
+/// The kingdom skills a player holds, as its play keeps them: the skill and its mask.
+fn held_skills(h: &Harness, me: u64) -> Vec<(u32, u32)> {
+    h.server
+        .players
+        .values()
+        .find(|p| p.character == me)
+        .map(|p| p.play.skills.iter().map(|k| (k.skill, k.mask)).collect())
+        .unwrap_or_default()
+}
+
+/// A use of a shrine by a player in the world, run until its join would be through.
+fn use_shrine(h: &mut Harness, a: usize, me: u64) -> usize {
+    let from = h.bots[a].inbox.len();
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &server_call(function::USE, &[use_of(SHRINE, me)]),
+    );
+    h.run_to(yalain_net::LocalTime(h.now.0 + 10.0));
+    h.run(5);
+    from
+}
+
+/// A use of one's own kingdom's shrine grants each kingdom skill of its table that the player's
+/// kingdom points earn and it does not hold, trained at no cost (a skill under another counting
+/// as its child), tells each one and then "The shrine updates your Kingdom Skills!"; a skill the
+/// points do not reach is not granted. A second use grants nothing and says nothing more; so does
+/// a use at the points every player starts with, and a use of another kingdom's shrine.
+/// Behaviour: server.kingdoms.kingdom-skills-granted
+#[test]
+fn a_players_own_shrine_grants_the_kingdom_skills_its_points_earn() {
+    use yalain_world::kingdom_skills::{KingdomSkills, POINTS, UPDATED};
+    use yalain_world::skills::{function::UPDATE_INFO, mask, SkillDef};
+    const FIRST: u32 = 21;
+    const UNDER_IT: u32 = 27;
+    const FAR: u32 = 30;
+    let with_table = |h: &mut Harness| {
+        for (id, parents) in [(FIRST, vec![]), (UNDER_IT, vec![(FIRST, 0)]), (FAR, vec![])] {
+            h.server.skill_table.skills.insert(
+                id,
+                SkillDef {
+                    id,
+                    cost: 1,
+                    flags: 0x4C,
+                    parents,
+                    ..SkillDef::default()
+                },
+            );
+        }
+        h.server.kingdom_skills = KingdomSkills {
+            by_kingdom: [(
+                kingdom::DOMINION,
+                vec![(1_000, FIRST), (2_800, UNDER_IT), (4_500, FAR)],
+            )]
+            .into(),
+        };
+    };
+    let set_points = |h: &mut Harness, me: u64, points: i32| {
+        for p in h.server.players.values_mut() {
+            if p.character == me {
+                yalain_world::quals::set_int(&mut p.qualities, POINTS, points);
+            }
+        }
+    };
+
+    let mut h = world_with_a_shrine(Conflict::Peace);
+    with_table(&mut h);
+    let (a, ida) = h.player_in_world("one", "Elara");
+    set_kingdom(&mut h, ida, kingdom::DOMINION);
+    set_points(&mut h, ida, 3_000);
+    h.run(10);
+    let from = use_shrine(&mut h, a, ida);
+    let mut held = held_skills(&h, ida);
+    held.sort_unstable();
+    assert_eq!(
+        held,
+        [(FIRST, mask::TRAINED), (UNDER_IT, mask::TRAINED)],
+        "the two its points earn, the one at 4,500 not"
+    );
+    let first = h
+        .server
+        .players
+        .values()
+        .find(|p| p.character == ida)
+        .and_then(|p| p.play.skills.iter().find(|k| k.skill == FIRST).copied())
+        .expect("the first granted");
+    assert_eq!((first.children, first.cost), (1, 0), "a child, and no cost");
+    assert_eq!(calls_of(&h, a, from, UPDATE_INFO).len(), 2, "each told");
+    let told: Vec<_> = texts(&h, a, from).into_iter().map(|(t, _)| t).collect();
+    assert_eq!(
+        told,
+        [yalain_world::usable::shrines::RECORDED, UPDATED],
+        "its rating, then the update"
+    );
+    assert_eq!(
+        kingdom_of(&h, ida),
+        Some(kingdom::DOMINION),
+        "joined nothing"
+    );
+
+    let from = use_shrine(&mut h, a, ida);
+    assert!(
+        calls_of(&h, a, from, UPDATE_INFO).is_empty(),
+        "nothing more"
+    );
+    assert_eq!(texts(&h, a, from).len(), 1, "the rating alone");
+
+    // At the points every player starts with, nothing.
+    let mut h = world_with_a_shrine(Conflict::Peace);
+    with_table(&mut h);
+    let (a, ida) = h.player_in_world("one", "Elara");
+    set_kingdom(&mut h, ida, kingdom::DOMINION);
+    h.run(10);
+    let from = use_shrine(&mut h, a, ida);
+    assert!(held_skills(&h, ida).is_empty());
+    assert!(calls_of(&h, a, from, UPDATE_INFO).is_empty());
+    assert_eq!(texts(&h, a, from).len(), 1, "the rating alone");
+
+    // Another kingdom's shrine: it joins, and is granted nothing.
+    let mut h = world_with_a_shrine(Conflict::Peace);
+    with_table(&mut h);
+    let (a, ida) = h.player_in_world("one", "Elara");
+    set_kingdom(&mut h, ida, kingdom::ORDER);
+    set_points(&mut h, ida, 6_000);
+    h.run(10);
+    let from = use_shrine(&mut h, a, ida);
+    assert_eq!(kingdom_of(&h, ida), Some(kingdom::DOMINION), "joined");
+    assert!(held_skills(&h, ida).is_empty());
+    assert!(calls_of(&h, a, from, UPDATE_INFO).is_empty());
+}
+
 /// A player's kingdom is kept: as it enters again its description and its object carry it (its
 /// faction and its physics type's kingdom bit), and so does the object another player is made.
 /// Behaviour: server.kingdoms.kept

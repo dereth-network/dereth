@@ -493,7 +493,11 @@ pub fn test_skills() -> yalain_world::skills::SkillTable {
     }
     let mut tables = std::collections::HashMap::new();
     tables.insert(0x6F00_000B, vec![0, 0]);
-    SkillTable { skills, tables }
+    SkillTable {
+        skills,
+        tables,
+        ..SkillTable::default()
+    }
 }
 
 /// A creature's heal and its damage-absorbing buff, each used on itself or a friend.

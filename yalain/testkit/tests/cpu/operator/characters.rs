@@ -48,7 +48,11 @@ fn skills() -> SkillTable {
         TABLE,
         (0..=50u64).map(|n| 2 * n * n.saturating_sub(1)).collect(),
     );
-    SkillTable { skills, tables }
+    SkillTable {
+        skills,
+        tables,
+        ..SkillTable::default()
+    }
 }
 
 /// Made-up levels: 2 at 10 experience, 3 at 1000, each a credit and more health and vigor.

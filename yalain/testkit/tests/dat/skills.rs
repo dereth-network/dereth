@@ -1054,3 +1054,57 @@ fn a_new_character_of_each_race_holds_its_weapons_and_wears_its_clothes() {
         }
     }
 }
+
+/// Each kingdom's shrine grants fifteen skills, read from the install's changes of kingdom: from
+/// 1,000 points to 6,000, rising, each a kingdom skill no player may train itself; the summoning
+/// skills come at 2,800 and 4,500 points. The neutral kingdom's grants none.
+/// Behaviour: server.kingdoms.kingdom-skills-read
+#[test]
+fn each_kingdoms_shrine_grants_fifteen_skills_read_from_the_install() {
+    use yalain_world::kingdoms::kingdom;
+    let p = Portal::open();
+    let skills = p.skills();
+    let t = p.kingdom_skills();
+    assert_eq!(
+        t.by_kingdom.keys().copied().collect::<Vec<_>>(),
+        [kingdom::SHADOW, kingdom::ORDER, kingdom::DOMINION],
+        "the three kingdoms, the neutral one granting none"
+    );
+    let mut all = std::collections::BTreeSet::new();
+    for (k, table) in &t.by_kingdom {
+        assert_eq!(table.len(), 15, "{k}: {table:?}");
+        let least: Vec<u32> = table.iter().map(|(l, _)| *l).collect();
+        assert_eq!(
+            least,
+            [
+                1000, 1200, 1400, 1600, 1800, 2000, 2400, 2800, 3200, 3600, 4000, 4500, 5000, 5500,
+                6000
+            ],
+            "{k}"
+        );
+        for (_, skill) in table {
+            assert!((17..=61).contains(skill), "{k}: a kingdom skill, {skill}");
+            let d = &skills.skills[skill];
+            assert_ne!(
+                d.flags & yalain_world::skills::flag::NOT_BY_PLAYER,
+                0,
+                "{skill}"
+            );
+            all.insert(*skill);
+        }
+    }
+    assert_eq!(all.len(), 45, "no skill granted by two kingdoms");
+    assert_eq!(t.earned(kingdom::ORDER, 2_799).len(), 7);
+    assert_eq!(
+        t.earned(kingdom::ORDER, 2_800)[7],
+        39,
+        "the Order's Envoy at 2,800"
+    );
+    assert_eq!(
+        t.earned(kingdom::DOMINION, 4_500)[11],
+        30,
+        "the Dominion's Summit at 4,500"
+    );
+    assert_eq!(t.earned(kingdom::SHADOW, 6_000).len(), 15);
+    assert!(t.earned(kingdom::SHADOW, 500).is_empty(), "nothing at 500");
+}

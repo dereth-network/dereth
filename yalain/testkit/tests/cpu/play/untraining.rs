@@ -36,6 +36,7 @@ fn trained(xp: u64) -> (Harness, usize, yalain_net::ConnId) {
     h.server.skill_table = SkillTable {
         skills,
         tables: HashMap::new(),
+        ..SkillTable::default()
     };
     let (b, _) = h.player_in_world("one", "Elara");
     let world = *h.server.players.keys().next().expect("in");

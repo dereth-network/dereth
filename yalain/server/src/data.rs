@@ -333,6 +333,22 @@ pub fn skill_table(p: &Portal) -> Result<yalain_world::skills::SkillTable, Strin
     Ok(SkillTable::read(lib, &names.names, &graph))
 }
 
+/// The skills each kingdom's shrine grants by points, read from the install's changes of kingdom.
+///
+/// # Errors
+/// The library does not read.
+pub fn kingdom_skills(
+    p: &Portal,
+    skills: &yalain_world::skills::SkillTable,
+) -> Result<yalain_world::kingdom_skills::KingdomSkills, String> {
+    let lib = library(p)?;
+    Ok(yalain_world::kingdom_skills::KingdomSkills::read(
+        lib,
+        &|id| state_graph(p, lib, id),
+        skills,
+    ))
+}
+
 /// The generator-profile names' enumeration (loot profiles among them).
 pub const PROFILE_NAMES: u32 = 0x2300_0100;
 

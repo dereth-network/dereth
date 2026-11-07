@@ -531,7 +531,11 @@ fn a_hard_day() -> Vec<ServerMessage> {
         0x6F00_000E,
         (0..=50u64).map(|n| 2 * n * n.saturating_sub(1)).collect(),
     );
-    h.server.skill_table = SkillTable { skills, tables };
+    h.server.skill_table = SkillTable {
+        skills,
+        tables,
+        ..SkillTable::default()
+    };
     let (b, _) = h.player_in_world("one", "Elara");
     h.bots[b].send(
         true,

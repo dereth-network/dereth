@@ -5955,6 +5955,27 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.kingdoms.kingdom-skills-granted",
+        says: "A use of one's own kingdom's shrine grants each kingdom skill its table gives at or \
+               under the player's kingdom points that it does not hold, trained at no cost, tells \
+               each and then that the shrine updates its kingdom skills; nothing more when none is \
+               granted, and nothing at another kingdom's shrine.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-KINGDOM-SKILLS-GRANTED"),
+        station: "yalain-testkit::cpu::play::kingdoms::a_players_own_shrine_grants_the_kingdom_skills_its_points_earn",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.kingdoms.kingdom-skills-read",
+        says: "Each kingdom's change of kingdom in the install lists fifteen kingdom skills, from \
+               1,000 points to 6,000, each named by the code of the effect that trains it; the \
+               neutral kingdom's lists none.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-KINGDOM-SKILLS-READ"),
+        station: "yalain-testkit::dat::skills::each_kingdoms_shrine_grants_fifteen_skills_read_from_the_install",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.kingdoms.plant-shows-its-planters",
         says: "A dye plant's profile names its planter's kingdom.",
         since: RETAIL,

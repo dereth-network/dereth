@@ -823,6 +823,7 @@ struct Play {
     lifestones: std::collections::HashSet<u32>,
     shrines: std::collections::HashSet<u32>,
     shrine_kingdoms: std::collections::HashMap<u32, u32>,
+    kingdom_skills: yalain_world::kingdom_skills::KingdomSkills,
     cannot_use: std::collections::HashSet<u32>,
     doors: std::collections::HashMap<u32, yalain_world::usable::doors::Kind>,
     doors_through_locks: std::collections::HashSet<u32>,
@@ -1025,6 +1026,7 @@ fn run<S: Store>(
     server.lifestone_packages = play.lifestones;
     server.shrine_packages = play.shrines;
     server.shrine_kingdoms = play.shrine_kingdoms;
+    server.kingdom_skills = play.kingdom_skills;
     server.cannot_use_packages = play.cannot_use;
     server.doors.packages = play.doors;
     server.doors.creatures_through_locks = play.doors_through_locks;
@@ -1877,6 +1879,11 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
                 shrine_kingdoms.insert(package, kingdom);
             }
         }
+        let kingdom_skills = data::kingdom_skills(portal, &skills)?;
+        tracing::info!(
+            kingdoms = kingdom_skills.by_kingdom.len(),
+            "the kingdom skills shrines grant read"
+        );
         let cannot_use =
             data::packages_deriving_from(portal, &content, &yalain_world::places::CANNOT_BE_USED)?;
         let (doors, doors_through_locks) = data::door_packages(portal, &content)?;
@@ -1953,6 +1960,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             lifestones,
             shrines,
             shrine_kingdoms,
+            kingdom_skills,
             cannot_use,
             doors,
             doors_through_locks,

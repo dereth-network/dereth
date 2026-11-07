@@ -6,7 +6,8 @@
 //!
 //! A player on foot of another kingdom than the shrine's (a player in none counts as of the
 //! neutral kingdom) joins the shrine's kingdom 3.83 s later ([`crate::kingdoms::join`]; 2017: 1
-//! of 1); one of its kingdom already is told nothing more (5 of 5).
+//! of 1); one of its kingdom already is told nothing more (5 of 5), unless its kingdom points earn
+//! kingdom skills it does not hold ([`crate::kingdom_skills`]).
 
 use auberean_protocol::physics::ObjectEvent;
 use auberean_protocol::types::BehaviorParams;
@@ -85,7 +86,9 @@ pub fn at_shrine<S: Store>(
         .players
         .get(&world)
         .and_then(|p| kingdoms::of(&p.qualities));
-    if !kingdoms::of_shrines_kingdom(mine, shrine) {
+    if kingdoms::of_shrines_kingdom(mine, shrine) {
+        crate::kingdom_skills::shrine_used(s, net, world, shrine);
+    } else {
         kingdoms::join_after(s, world, shrine, clock);
     }
 }
