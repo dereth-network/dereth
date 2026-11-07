@@ -573,6 +573,7 @@ fn a_group_creature_two_fellows_killed_pays_them_by_who_hurt_it() {
             next_tend: 0.0,
             missed: false,
             closing: None,
+            vigor: None,
         },
     );
     let from = h.bots[a].inbox.len();

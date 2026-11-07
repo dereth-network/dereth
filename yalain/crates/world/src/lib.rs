@@ -521,6 +521,8 @@ pub enum Timer {
     PetExpires { pet: u64 },
     /// The strike of a pet that ends on its strike has landed.
     PetSpent { pet: u64 },
+    /// A pet's attack used where it stands has landed: its skill's user effects go on it.
+    PetUserEffects { pet: u64, skill: u32 },
     /// What a world's row makes has stood its time.
     MadeEnds { creature: u64 },
     /// A creature's heal or buff on itself takes effect.
@@ -911,6 +913,9 @@ impl<S: Store> Server<S> {
                 }
                 Timer::PetExpires { pet } => pets::expires(self, net, pet),
                 Timer::PetSpent { pet } => pets::strike_ends(self, net, pet, clock),
+                Timer::PetUserEffects { pet, skill } => {
+                    pets::user_effects(self, net, pet, skill, clock);
+                }
                 Timer::MadeEnds { creature } => death_spawn::ends(self, net, creature),
                 Timer::CreatureHelps {
                     creature,

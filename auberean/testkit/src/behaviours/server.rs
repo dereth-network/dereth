@@ -8819,6 +8819,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.pets.attacks-where-they-stand",
+        says: "A pet's attack whose targets include its user and whose hook has an area is used \
+               where the pet stands, wherever its target is: it falls on the creatures its owner may \
+               harm within its radius of the pet, never on a player at peace or another player's pet, \
+               and as it lands its skill's user effects go on the pet.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PET-ATTACKS-WHERE-THEY-STAND"),
+        station: "yalain-testkit::cpu::play::pet_skills::a_pets_attack_used_where_it_stands_falls_around_it_and_its_user_effect_goes_on_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.pets.aura-ends-with-the-pet",
         says: "When the pet holding an aura is gone the records of its pulses come off whoever holds \
                them, at once, and no more come.",
@@ -9092,6 +9103,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-PETS-DIE"),
         station: "yalain-testkit::cpu::play::pets::a_pet_ordered_to_die_falls_and_is_taken_off_its_owners_list",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.pets.pay-their-attacks-vigor",
+        says: "A pet whose kind pays its attacks' vigor has its kind's vigor for each level and uses \
+               an attack only when it can pay for it, its vigor coming back at its kind's rate; a kind \
+               that pays nothing attacks as before.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PET-PAY-VIGOR"),
+        station: "yalain-testkit::cpu::play::pet_skills::a_pet_that_pays_its_attacks_vigor_uses_what_it_can_pay_for",
         tier: Tier::Cpu,
     },
     behaviour! {

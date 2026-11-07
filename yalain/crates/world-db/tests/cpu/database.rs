@@ -1336,7 +1336,7 @@ fn a_pet_row_compiles_to_a_kind_and_must_name_an_installed_template() {
         "[[pet]]\neffect = 0x7000092A\ntemplate = 0x4700115B\nflags = 1096\ncount = 4\nstays = true\n\
          health = [{ level = 10, health = 200 }, { level = 20, health = 400 }]\n\
          per_level_squared = 0.03\nlands = 0.5\nswing = 2\narea = 10.0\nno_corpse = true\n\
-         ends_on_strike = true\n\
+         ends_on_strike = true\nvigor_per_level = 80\nvigor_per_second = 7.5\n\
          tends = { whom = \"owners-pets\", effect = 0x70000772, every = 30.0, below = 0.75 }\n\
          hire = { class = 0x100000, seconds = 3600.0, level = 20.0 }\n\
          item_effects = [\"Eff_Test_Item_Summon\"]\n\
@@ -1352,6 +1352,10 @@ fn a_pet_row_compiles_to_a_kind_and_must_name_an_installed_template() {
     assert_eq!(k.template, 0x4700_115B);
     assert_eq!((k.flags, k.made, k.stays), (1096, 4, true));
     assert!(k.ends_on_strike);
+    assert_eq!(
+        (k.vigor_per_level, k.vigor_per_second),
+        (Some(80), Some(7.5))
+    );
     assert_eq!(k.health, vec![(10, 200), (20, 400)]);
     assert_eq!(
         (k.per_level_squared, k.lands, k.hits, k.area),

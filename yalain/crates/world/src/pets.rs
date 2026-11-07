@@ -9,7 +9,8 @@
 //! kind's name, the skill's icon, and its data: no time left in the world, its class, its flags),
 //! and the pet appears two meters from its owner, naming it as its summoner, moving at 1.75 times
 //! the faster of its kind's own velocity scale and its owner's. Its level is its owner's rating in
-//! the skill; its vigor twenty times that, its health its kind's at that level. It is of its
+//! the skill; its vigor twenty times that (or its kind's own for each level), its health its kind's
+//! at that level. It is of its
 //! owner's kingdom (an owner in none: the neutral one), in its description and its physics type,
 //! and passes through what its owner would where it stands: its owner's movement ethereality for
 //! the pet's own landblock, with a bit of its own; walking into a landblock of another status, it
@@ -60,6 +61,11 @@
 //! strikes keep one running. A skill with no blow that makes another pet it fires at what it takes
 //! on, at the skill's own pace, while its owner may have more. A pet whose kind ends on its strike
 //! (a trap) attacks once: it ends as that strike lands, after what the strike carries, hit or not.
+//! An attack whose targets include its user and whose hook has an area is used where the pet stands,
+//! wherever its target is: it falls on the creatures its owner may harm within its radius of the pet,
+//! and as it lands its skill's user effects go on the pet, which attacks again only after. A pet whose
+//! kind pays its attacks' vigor uses only those it can pay for, its vigor coming back at its kind's
+//! rate; with none it can pay for, it waits.
 //!
 //! **The end**: killed, ordered to die, or with its owner's death (in the owner's death tick), the
 //! pet is taken off its owner's list and falls as a creature does, in one tick (its physics type
@@ -338,6 +344,9 @@ pub struct Pet {
     pub missed: bool,
     /// The attack it is closing in to use, drawn when it was out of that attack's reach.
     pub closing: Option<u32>,
+    /// For a pet that pays its attacks' vigor: when it last paid, and the vigor it had left (none:
+    /// it has never paid, and is full).
+    pub vigor: Option<(f64, f32)>,
 }
 
 /// Every pet in the world, each owner's debt of orders, and the kinds of pet the world makes.
@@ -743,7 +752,7 @@ fn summon_kind<S: Store>(
     if let Some(h) = kind.health_at(level) {
         stats.max_health = h.max(stats.max_health);
     }
-    stats.max_vigor = VIGOR_PER_LEVEL * level;
+    stats.max_vigor = kind.vigor_per_level.unwrap_or(VIGOR_PER_LEVEL) * level;
     let own = props.float(KIND_VELOCITY).unwrap_or(1.0);
     let velocity = VELOCITY_FACTOR * own.max(crate::effects::player_speed(s, world).0);
     let id = s.things.new_id();
@@ -823,6 +832,7 @@ fn summon_kind<S: Store>(
             next_tend: now,
             missed: false,
             closing: None,
+            vigor: None,
         },
     );
     if let Some(seconds) = seconds {
@@ -2067,7 +2077,12 @@ fn fight<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, target: u64,
         }
         return;
     }
-    let open = attacks(s, id);
+    let all = attacks(s, id);
+    let open = payable(s, id, &all, clock.local.0);
+    if open.is_empty() && !all.is_empty() {
+        // It can pay for none of its attacks: it waits for its vigor.
+        return;
+    }
     let reach = open
         .iter()
         .map(|o| attack_reach(&o.attack))
@@ -2099,7 +2114,8 @@ fn fight<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, target: u64,
         );
         return;
     }
-    if d > reach {
+    let where_it_stands = open.iter().any(|o| at_itself(s, o.attack.skill).is_some());
+    if d > reach && !where_it_stands {
         if kind.stays {
             return;
         }
@@ -2146,7 +2162,15 @@ fn fight<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, target: u64,
     if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
         c.next_attack = clock.local.0 + ATTACK_SECONDS;
     }
-    let lands = if skill.missile {
+    pay(s, id, skill.skill, clock.local.0);
+    let lands = if let Some(radius) = at_itself(s, skill.skill) {
+        let lands = blast(s, net, id, target, (skill, radius), &kind, clock);
+        // It attacks again only once what it used where it stands has landed.
+        if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
+            c.next_attack = c.next_attack.max(clock.local.0 + lands);
+        }
+        lands
+    } else if skill.missile {
         launch(s, net, id, target, skill, d, clock)
     } else {
         let lands = strike(s, net, id, target, skill, &kind, clock);
@@ -2588,7 +2612,8 @@ fn attacks<S: Store>(s: &Server<S>, id: u64) -> Vec<Open> {
         .collect()
 }
 
-/// The attack a pet uses at this attack: of its attacks that reach its target (one that asks for
+/// The attack a pet uses at this attack: of its attacks that reach its target (one used where the
+/// pet stands reaching it wherever it is; one that asks for
 /// an effect on the pet before any other), one drawn by their weights (2017, by a pet's attacks in
 /// reach of where its target stood: the Sand Warrior's three alike within 4 m, 313, 338 and 336;
 /// the Sand Fiend's two 6,747 and 6,397; the Vindicator's two 3,197 and 3,122; the Avenger's two
@@ -2596,7 +2621,7 @@ fn attacks<S: Store>(s: &Server<S>, id: u64) -> Vec<Open> {
 fn pick<S: Store>(s: &mut Server<S>, open: &[Open], distance: f32) -> Option<AttackSkill> {
     let near: Vec<&Open> = open
         .iter()
-        .filter(|o| distance <= attack_reach(&o.attack))
+        .filter(|o| distance <= attack_reach(&o.attack) || at_itself(s, o.attack.skill).is_some())
         .collect();
     let asks = near.iter().any(|o| o.asks);
     let from: Vec<&Open> = near.into_iter().filter(|o| o.asks || !asks).collect();
@@ -2632,6 +2657,228 @@ fn closes_for<S: Store>(
         p.missed = false;
     }
     None
+}
+
+/// The radius of an attack used where the pet stands: one whose targets include its user and whose
+/// hook has an area (none for any other).
+fn at_itself<S: Store>(s: &Server<S>, skill: u32) -> Option<f32> {
+    let u = s.skill_table.skills.get(&skill)?.usage.as_ref()?;
+    if u.valid_targets & aim::SELF == 0 {
+        return None;
+    }
+    u.hooks
+        .iter()
+        .filter(|h| h.flags & crate::skill_use::hook_flag::AREA != 0)
+        .map(|h| h.radius)
+        .reduce(f32::max)
+        .filter(|r| *r > 0.0)
+}
+
+/// What an attack costs a pet in vigor, by its definition and the pet's greatest vigor.
+fn vigor_cost<S: Store>(s: &Server<S>, id: u64, skill: u32) -> f32 {
+    let max = s.things.get(id).map_or(0, |t| t.max_vigor);
+    let Some(u) = s
+        .skill_table
+        .skills
+        .get(&skill)
+        .and_then(|d| d.usage.as_ref())
+    else {
+        return 0.0;
+    };
+    #[allow(clippy::cast_precision_loss)]
+    let cost = crate::skill_use::vigor_cost(u, max, crate::skill_use::HeldVigor::default()) as f32;
+    cost.max(0.0)
+}
+
+/// A pet's vigor now, for a pet whose kind pays its attacks' vigor: what it had left when it last
+/// paid, and what has come back since at its kind's rate, at most its greatest (none for a kind that
+/// pays nothing).
+fn vigor_now<S: Store>(s: &Server<S>, id: u64, now: f64) -> Option<f32> {
+    let pet = s.pets.by_id.get(&id)?;
+    let rate = s.pets.kind_of(pet.effect)?.vigor_per_second?;
+    #[allow(clippy::cast_precision_loss)]
+    let max = s.things.get(id).map_or(0, |t| t.max_vigor) as f32;
+    Some(match pet.vigor {
+        None => max,
+        #[allow(clippy::cast_possible_truncation)]
+        Some((when, left)) => (left + rate * (now - when).max(0.0) as f32).min(max),
+    })
+}
+
+/// The attacks a pet can pay for now: all of them, for a kind that pays nothing.
+fn payable<S: Store>(s: &Server<S>, id: u64, open: &[Open], now: f64) -> Vec<Open> {
+    let Some(vigor) = vigor_now(s, id, now) else {
+        return open.to_vec();
+    };
+    open.iter()
+        .filter(|o| vigor_cost(s, id, o.attack.skill) <= vigor)
+        .copied()
+        .collect()
+}
+
+/// A pet that pays its attacks' vigor pays for one.
+fn pay<S: Store>(s: &mut Server<S>, id: u64, skill: u32, now: f64) {
+    let Some(vigor) = vigor_now(s, id, now) else {
+        return;
+    };
+    let left = (vigor - vigor_cost(s, id, skill)).max(0.0);
+    if let Some(p) = s.pets.by_id.get_mut(&id) {
+        p.vigor = Some((now, left));
+    }
+    if let Some(t) = s.things.get_mut(id) {
+        t.vigor = dereth_primitives::num::to_i32(left.floor());
+    }
+}
+
+/// A pet uses an attack where it stands: one story of the pet's, a result for each creature its
+/// owner may harm within the attack's radius of the pet (never a pet; none when nothing is), the
+/// hits landing together as the blow does; then its skill's user effects go on the pet. Returns how
+/// long until they land, in seconds.
+fn blast<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    id: u64,
+    target: u64,
+    (skill, radius): (AttackSkill, f32),
+    kind: &PetKind,
+    clock: Clock,
+) -> f64 {
+    let reached = match (
+        s.pets.by_id.get(&id).and_then(|p| conn_of(s, p.owner)),
+        s.things.get(id).and_then(|t| t.at),
+    ) {
+        (Some(world), Some(at)) => {
+            let body = crate::reach::body_of(s, id);
+            crate::skill_use::area_targets(s, world, &at, body, radius)
+                .into_iter()
+                .filter(|t| *t != id && !s.pets.is_pet(*t))
+                .collect()
+        }
+        _ => Vec::new(),
+    };
+    let clock_free = crate::combat::CREATURE_TIME_SCALE * s.rng.between(0.9, 1.1);
+    let harms = harms(s, skill.skill);
+    let mut rolls = Vec::new();
+    for t in reached {
+        let (outcome, damage) = roll(s, id, t, kind, harms);
+        rolls.push((t, outcome, answered(s, t, outcome, damage)));
+    }
+    let swing =
+        |(target, outcome, harm): (u64, Outcome, crate::effects::Harm)| crate::combat::Swing {
+            skill: skill.skill,
+            behavior: skill.behavior,
+            time_scale: clock_free,
+            target,
+            outcome,
+            damage: harm.left,
+            back: harm.back,
+        };
+    let first =
+        rolls
+            .first()
+            .copied()
+            .unwrap_or((target, Outcome::Miss, crate::effects::Harm::default()));
+    let mut st = crate::combat::story(s, crate::combat::Attacker::Thing(id), swing(first));
+    if let ServerMessage::DoStory(e) = &mut st {
+        e.action.bits = crate::missiles::SPECIAL;
+        if rolls.is_empty() {
+            e.action.hooks.clear();
+        }
+        for r in rolls.iter().skip(1) {
+            e.action.hooks.push(swing(*r).hook());
+        }
+    }
+    crate::combat::to_all_seeing(s, net, id, &st);
+    let lands = crate::combat::pet_strike_seconds(skill.skill) / f64::from(clock_free);
+    for (target, outcome, harm) in rolls {
+        if outcome.landed() {
+            s.after(
+                clock,
+                lands,
+                crate::Timer::ThingStrikeLands {
+                    by: id,
+                    target,
+                    skill: skill.skill,
+                    harm,
+                },
+            );
+        }
+    }
+    s.after(
+        clock,
+        lands,
+        crate::Timer::PetUserEffects {
+            pet: id,
+            skill: skill.skill,
+        },
+    );
+    lands
+}
+
+/// An attack a pet used where it stands has landed: its skill's user effects go on the pet, cast by
+/// it at its level.
+pub fn user_effects<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    pet: u64,
+    skill: u32,
+    clock: Clock,
+) {
+    if !s.things.get(pet).is_some_and(Thing::alive) {
+        return;
+    }
+    let states = s
+        .skill_table
+        .skills
+        .get(&skill)
+        .and_then(|d| d.usage.as_ref())
+        .map(|u| u.user_effects.clone())
+        .unwrap_or_default();
+    #[allow(clippy::cast_precision_loss)]
+    let level = s
+        .things
+        .get(pet)
+        .and_then(|t| t.creature.as_ref())
+        .map_or(1.0, |c| c.stats.level as f32);
+    for state in states {
+        let cast = crate::effects::Cast {
+            caster: pet,
+            spellcraft: level,
+            ..crate::effects::Cast::default()
+        };
+        crate::effects::apply_on(
+            s,
+            net,
+            crate::effects::On::Creature(pet),
+            state,
+            cast,
+            clock,
+        );
+    }
+}
+
+/// A pet's own effect takes its health: it is shown wounded, and with none left it dies as an
+/// ordered pet does.
+pub fn hurts_itself<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    id: u64,
+    damage: i32,
+    clock: Clock,
+) {
+    let Some(t) = s.things.get_mut(id) else {
+        return;
+    };
+    #[allow(clippy::cast_precision_loss)]
+    let was = t.health as f32 / t.max_health.max(1) as f32;
+    t.health = (t.health - damage).max(0);
+    #[allow(clippy::cast_precision_loss)]
+    let share = t.health as f32 / t.max_health.max(1) as f32;
+    if t.health == 0 {
+        dies(s, net, id, 0, clock);
+        return;
+    }
+    crate::combat::wounded(s, net, id, share, was);
 }
 
 /// The chance a creature fighting another turns on a pet that strikes it (2017: 590 of 958).

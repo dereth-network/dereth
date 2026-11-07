@@ -156,6 +156,11 @@ pub struct PetKind {
     pub taunts: bool,
     /// It ends as its first strike lands, what the strike carries landing first.
     pub ends_on_strike: bool,
+    /// Its greatest vigor for each level (none: the pets' own).
+    pub vigor_per_level: Option<i32>,
+    /// It pays its attacks' vigor, which comes back this much a second (none: its attacks cost it
+    /// nothing).
+    pub vigor_per_second: Option<f32>,
     /// It cannot be set down indoors ("The summoning fails.").
     pub outdoors_only: bool,
     /// The attacks it uses and how often each, by skill and weight: these alone, of those that
@@ -197,6 +202,8 @@ impl PetKind {
             area: 0.0,
             taunts: false,
             ends_on_strike: false,
+            vigor_per_level: None,
+            vigor_per_second: None,
             outdoors_only: false,
             attacks: Vec::new(),
             corpse_after: Some(Self::CORPSE_AFTER),

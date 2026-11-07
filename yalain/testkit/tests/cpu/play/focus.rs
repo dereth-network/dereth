@@ -142,6 +142,7 @@ fn world(hero: bool, above: i32) -> (Harness, usize, u64, [u64; 3]) {
             next_tend: 0.0,
             missed: false,
             closing: None,
+            vigor: None,
         },
     );
     (h, b, me, [prey, pet, other])

@@ -1102,3 +1102,262 @@ fn a_trap_strikes_a_creature_once_and_ends_and_never_strikes_a_player_or_another
         "only ever the creature: {named:?}"
     );
 }
+
+/// The skills a pet's stories told the player used since `from`, in order.
+fn skills_used(h: &Harness, b: usize, from: usize, pet: u64) -> Vec<u32> {
+    h.world_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::DoStory(e) if e.action.attacker == pet && e.action.skill != 0 => {
+                Some(e.action.skill)
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+const DEAR: u32 = 3003;
+const CHEAP: u32 = 3004;
+const BLAST: u32 = 3005;
+const DESTRUCT: u32 = 0x7000_08B0;
+
+/// A blow within two meters costing this much vigor.
+fn costing(vigor: f32) -> Usage {
+    Usage {
+        vigor_add: -vigor,
+        ..strike_skill(Vec::new())
+    }
+}
+
+/// The pet's template names these skills.
+fn with_skills(h: &mut Harness, skills: &[u32]) {
+    let mut props = Props::default();
+    props
+        .set("GameplayStatistics_MaxHealth", Prop::Int(560))
+        .set("AICombat_NaturalDamage", Prop::Float(45.0))
+        .set("AICombat_NaturalVariance", Prop::Float(0.5))
+        .set("AI_PerceptionRadius", Prop::Float(40.0));
+    for (i, skill) in skills.iter().enumerate() {
+        let n = i + 1;
+        props
+            .set(&format!("NPC_StartingSkill{n}"), Prop::Word(*skill))
+            .set(&format!("NPC_StartingSkill{n}Level"), Prop::Int(0))
+            .set(&format!("NPC_StartingSkill{n}_IsBase"), Prop::Bool(true));
+    }
+    h.server
+        .catalog
+        .insert(test_template(PET_TEMPLATE, 0x1169, props));
+}
+
+fn add_skill(h: &mut Harness, id: u32, usage: Usage) {
+    h.server.skill_table.skills.insert(
+        id,
+        SkillDef {
+            id,
+            cap: 150,
+            table: 0x6F00_000B,
+            active: true,
+            usage: Some(usage),
+            ..SkillDef::default()
+        },
+    );
+}
+
+/// A pet whose kind pays its attacks' vigor has its kind's vigor for each level, and uses an attack
+/// only when it can pay for it, its vigor coming back at its kind's rate: drawn far more often, the
+/// dear blow is used until its vigor runs low, then once each time enough has come back, the cheap
+/// one in between. A kind that pays nothing uses the dear one throughout.
+/// Behaviour: server.pets.pay-their-attacks-vigor
+#[test]
+fn a_pet_that_pays_its_attacks_vigor_uses_what_it_can_pay_for() {
+    let run = |rate: Option<f32>| -> (i32, Vec<u32>) {
+        let mut h = Harness::new();
+        with_pet(&mut h, 1, 32, None);
+        add_skill(&mut h, DEAR, costing(30.0));
+        add_skill(&mut h, CHEAP, costing(1.0));
+        with_skills(&mut h, &[DEAR, CHEAP]);
+        if let Some(k) = h.server.pets.kinds.get_mut(&PET_EFFECT) {
+            k.attacks = vec![(DEAR, 1000), (CHEAP, 1)];
+            k.health = vec![(1, 1_000_000)];
+            k.vigor_per_level = Some(30);
+            k.vigor_per_second = rate;
+        }
+        let (b, me) = summoner(&mut h);
+        rated(&mut h, me, 10);
+        let target = beetle(&h);
+        let pet = summon(&mut h, b);
+        let max = h.server.things.get(pet).map_or(0, |t| t.max_vigor);
+        #[allow(clippy::cast_possible_truncation)]
+        let max = max / level_of(&h, pet) as i32;
+        let at = player(&mut h, me).position;
+        put_by(&mut h, pet, at, 1.0);
+        beside(&mut h, target, me);
+        let from = h.bots[b].inbox.len();
+        order_attack(&mut h, b, target);
+        for _ in 0..240 {
+            h.step_by(0.25);
+        }
+        (max, skills_used(&h, b, from, pet))
+    };
+    let (max, used) = run(Some(3.0));
+    let count = |k: u32| used.iter().filter(|s| **s == k).count();
+    assert_eq!(max, 30, "thirty for each of its levels");
+    assert!(
+        (12..=16).contains(&count(DEAR)) && count(CHEAP) >= 12,
+        "the dear blow as its vigor allows: {} dear, {} cheap",
+        count(DEAR),
+        count(CHEAP)
+    );
+    let (_, free) = run(None);
+    let dear = free.iter().filter(|s| **s == DEAR).count();
+    assert!(
+        dear >= 25 && dear + 2 >= free.len(),
+        "{dear} of {}",
+        free.len()
+    );
+}
+
+/// An attack whose targets include its user and whose hook has an area is used where the pet stands,
+/// wherever its target is: it falls on every creature its owner may harm within its radius of the
+/// pet, and on no player at peace and no other player's pet beside it; as it lands, its skill's user
+/// effect goes on the pet, which here takes all its health: the pet dies, off its owner's list.
+/// Behaviour: server.pets.attacks-where-they-stand
+#[test]
+fn a_pets_attack_used_where_it_stands_falls_around_it_and_its_user_effect_goes_on_it() {
+    let mut h = Harness::new();
+    with_pet(&mut h, 3, 32, None);
+    with_left_effects(&mut h);
+    add_skill(
+        &mut h,
+        BLAST,
+        Usage {
+            min_range: -1.0,
+            max_range: 1.0,
+            valid_targets: 0x30_0981,
+            behavior_other: [0x4100_0077; 3],
+            user_effects: vec![DESTRUCT],
+            hooks: vec![Hook {
+                flags: 0x2019,
+                chance: 1.0,
+                radius: 10.0,
+                ..Hook::default()
+            }],
+            ..Usage::default()
+        },
+    );
+    with_skills(&mut h, &[BLAST]);
+    let destruct = def(
+        DESTRUCT,
+        Kind::InstantVital {
+            flags: yalain_world::effect_defs::vital::HEALTH,
+            change: Scale(vec![(0.0, -100_000.0)]),
+        },
+    );
+    h.server.effect_table.effects.insert(DESTRUCT, destruct);
+    if let Some(k) = h.server.pets.kinds.get_mut(&PET_EFFECT) {
+        k.stays = true;
+        k.lands = 1.0;
+    }
+    let (b, me) = summoner(&mut h);
+    let beetles: Vec<u64> = h
+        .server
+        .things
+        .by_id
+        .values()
+        .filter(|t| t.template == BEETLE && t.alive())
+        .map(|t| t.id)
+        .collect();
+    let [near, also, far] = beetles[..] else {
+        panic!("three beetles: {beetles:?}")
+    };
+    let turret = summon(&mut h, b);
+    let at = h
+        .server
+        .things
+        .get(turret)
+        .and_then(|t| t.at)
+        .expect("set down");
+    // Another player at peace beside it, with a pet of its own beside it.
+    let (c, other) = in_world(&mut h, "two", "Wren");
+    h.arm(c, other, SWORD);
+    let p = player(&mut h, other);
+    p.play.skills.push(SkillState {
+        skill: SUMMON,
+        granted: 0,
+        mask: 0x1,
+        cost: 2,
+        children: 0,
+        dependents: 0,
+        spent: 0,
+    });
+    quals::set_int(&mut p.qualities, quality::VIGOR_MAX, 400);
+    quals::set_int(&mut p.qualities, quality::VIGOR, 400);
+    let theirs = summon(&mut h, c);
+    put_by(&mut h, theirs, at, 3.0);
+    let mut beside_it = at;
+    beside_it.origin[1] += 2.0;
+    player(&mut h, other).position = beside_it;
+    for (id, east) in [(near, 6.0), (also, -8.0), (far, 20.0)] {
+        put_by(&mut h, id, at, east);
+        if let Some(t) = h.server.things.get_mut(id) {
+            t.max_health = 100_000;
+            t.health = 100_000;
+        }
+    }
+    let health_of = |h: &Harness, id: u64| h.server.things.get(id).map_or(0, |t| t.health);
+    let their_health = health_of(&h, theirs);
+    let far_health = health_of(&h, far);
+    assert!(h.server.things.get(turret).is_some_and(|t| t.alive()));
+    let from = h.bots[b].inbox.len();
+    order_attack(&mut h, b, near);
+    for _ in 0..20 {
+        if h.server.pets.of(me).is_empty() {
+            break;
+        }
+        h.step_by(0.25);
+    }
+    h.run(2);
+    let told: Vec<Vec<u64>> = h
+        .world_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::DoStory(e) if e.action.attacker == turret && e.action.skill == BLAST => {
+                Some(
+                    e.action
+                        .hooks
+                        .iter()
+                        .map(|k| k.target)
+                        .filter(|t| *t != 0)
+                        .collect(),
+                )
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(told.len(), 1, "one blast: {told:?}");
+    let named_by_turret: Vec<u64> = stories_by(&h, b, from, turret).concat();
+    assert!(
+        named_by_turret
+            .iter()
+            .all(|t| [near, also, turret].contains(t)),
+        "nothing else named: {named_by_turret:?}"
+    );
+    let mut named = told[0].clone();
+    named.sort_unstable();
+    let mut want = vec![near, also];
+    want.sort_unstable();
+    assert_eq!(named, want, "the two within its radius, not the one beyond");
+    assert!(health_of(&h, near) < 100_000 && health_of(&h, also) < 100_000);
+    assert_eq!(health_of(&h, far), far_health);
+    assert!(h.server.pets.of(me).is_empty(), "the turret is gone");
+    assert!(h.calls(b, from).iter().any(|(f, _)| *f == function::REMOVE));
+    assert!(h.server.things.get(turret).is_none_or(|t| !t.alive()));
+    assert_eq!(h.server.pets.of(other), vec![theirs], "theirs stands");
+    assert_eq!(health_of(&h, theirs), their_health, "and is untouched");
+    let p = player(&mut h, other);
+    assert_eq!(
+        quals::int(&p.qualities, quality::HEALTH),
+        quals::int(&p.qualities, quality::HEALTH_MAX),
+        "the player at peace untouched"
+    );
+}

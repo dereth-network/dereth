@@ -1165,6 +1165,10 @@ pub(crate) fn creature_health<S: Store>(
     if !alive {
         return;
     }
+    if amount < 0 && caster == id && s.pets.is_pet(id) {
+        crate::pets::hurts_itself(s, net, id, -amount, clock);
+        return;
+    }
     if amount < 0 {
         // A pet's effect hurts as its owner's, as its strike does.
         let by = s.pets.by_id.get(&caster).map_or(caster, |p| p.owner);

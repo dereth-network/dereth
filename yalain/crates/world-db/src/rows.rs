@@ -521,6 +521,11 @@ pub struct Pet {
     pub taunts: bool,
     /// It ends as its first strike lands.
     pub ends_on_strike: bool,
+    /// Its greatest vigor for each level; the pets' own when left out.
+    pub vigor_per_level: Option<u32>,
+    /// It pays its attacks' vigor, which comes back this much a second; left out, its attacks cost
+    /// it nothing.
+    pub vigor_per_second: Option<f32>,
     pub outdoors_only: bool,
     /// The attacks it uses, by skill, and the weight of each in its draw among those that reach;
     /// left out, every attack its template names, all alike.
@@ -972,6 +977,8 @@ pub const FIELDS: [(&str, &[&str]); 22] = [
             "area",
             "taunts",
             "ends_on_strike",
+            "vigor_per_level",
+            "vigor_per_second",
             "outdoors_only",
             "attacks",
             "corpse_after",
@@ -1664,6 +1671,8 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 area: share(f.float("area")),
                 taunts: f.bool("taunts").unwrap_or(false),
                 ends_on_strike: f.bool("ends_on_strike").unwrap_or(false),
+                vigor_per_level: f.u32("vigor_per_level"),
+                vigor_per_second: share(f.float("vigor_per_second")),
                 outdoors_only: f.bool("outdoors_only").unwrap_or(false),
                 attacks,
                 corpse_after: share(f.float("corpse_after")),

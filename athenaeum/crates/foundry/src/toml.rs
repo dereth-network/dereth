@@ -395,6 +395,7 @@ pub fn pet(r: &yalain_world_db::rows::Pet, p: &Prov) -> Table {
         ("lands", r.lands),
         ("area", r.area),
         ("corpse_after", r.corpse_after),
+        ("vigor_per_second", r.vigor_per_second),
     ] {
         if let Some(v) = v {
             put(&mut t, name, number(v));
@@ -402,6 +403,9 @@ pub fn pet(r: &yalain_world_db::rows::Pet, p: &Prov) -> Table {
     }
     if let Some(v) = r.swing {
         put(&mut t, "swing", Value::from(i64::from(v)));
+    }
+    if let Some(v) = r.vigor_per_level {
+        put(&mut t, "vigor_per_level", Value::from(i64::from(v)));
     }
     for (name, on) in [
         ("taunts", r.taunts),

@@ -180,7 +180,7 @@ fn pets_cmd(args: &[String]) -> Result<(), String> {
     for l in session.pets() {
         match &l.row {
             yalain_world_db::rows::Row::Pet(r) => println!(
-                "pet {:#010x}\tin {}\ttemplate {:#010x}\tflags {}\tcount {}\t{}{}{}{}",
+                "pet {:#010x}\tin {}\ttemplate {:#010x}\tflags {}\tcount {}\t{}{}{}{}{}",
                 r.effect,
                 l.pack,
                 r.template,
@@ -193,6 +193,8 @@ fn pets_cmd(args: &[String]) -> Result<(), String> {
                     ""
                 },
                 attacks_shown(&r.attacks),
+                r.vigor_per_second
+                    .map_or_else(String::new, |v| format!("\tvigor back {v} a second")),
                 if r.item_effects.is_empty() {
                     String::new()
                 } else {
