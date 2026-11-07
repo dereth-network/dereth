@@ -169,6 +169,9 @@ pub struct PetKind {
     /// How many of its own class a skill that summons it allows, when the world lists no limits for
     /// the skill.
     pub most_of_class: Option<usize>,
+    /// The effects an item's use may name, held by no install, that make this pet as its own
+    /// effect does.
+    pub item_effects: Vec<String>,
 }
 
 impl PetKind {
@@ -197,6 +200,7 @@ impl PetKind {
             made: 1,
             hire: None,
             most_of_class: None,
+            item_effects: Vec::new(),
         }
     }
 

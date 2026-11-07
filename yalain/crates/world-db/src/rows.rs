@@ -527,6 +527,8 @@ pub struct Pet {
     pub no_corpse: bool,
     pub tends: Option<PetTendsRow>,
     pub hire: Option<PetHireRow>,
+    /// The effects an item's use may name, held by no install, that make this pet.
+    pub item_effects: Vec<String>,
     pub prov: Prov,
 }
 
@@ -971,6 +973,7 @@ pub const FIELDS: [(&str, &[&str]); 22] = [
             "no_corpse",
             "tends",
             "hire",
+            "item_effects",
             "prov",
         ],
     ),
@@ -1661,6 +1664,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 no_corpse: f.bool("no_corpse").unwrap_or(false),
                 tends: f.pet_tends(),
                 hire: f.pet_hire(),
+                item_effects: f.strings("item_effects"),
                 prov: f.req_prov()?,
             })
         }

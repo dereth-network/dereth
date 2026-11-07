@@ -861,6 +861,85 @@ pub fn aura_pulses<S: Store>(
     s.after(clock, next, pulse);
 }
 
+/// The pet an item's use makes: the first effect its properties name that a kind of pet lists among
+/// its items' effects, with the item's spellcraft for it.
+#[must_use]
+pub fn made_by_use<S: Store>(s: &Server<S>, props: &yalain_content::Props) -> Option<(u32, f32)> {
+    let (name, after) = crate::item_use::USED;
+    (1..=8).find_map(|i| {
+        let named = props.text(&format!("{name}{i}"))?;
+        let kind = s
+            .pets
+            .kinds
+            .values()
+            .find(|k| k.item_effects.iter().any(|e| e == named))?;
+        let spellcraft = props.float(&format!("{name}{i}{after}")).unwrap_or(1.0);
+        Some((kind.effect, spellcraft))
+    })
+}
+
+/// The summoning skill whose limits a pet made by other means keeps to: one whose use makes the same
+/// pet and the world lists limits for (none: the kind's own).
+fn summoned_by<S: Store>(s: &Server<S>, effect: u32) -> u32 {
+    s.pets
+        .limits
+        .keys()
+        .copied()
+        .find(|skill| {
+            s.skill_table
+                .skills
+                .get(skill)
+                .and_then(|d| d.usage.as_ref())
+                .is_some_and(|u| {
+                    u.user_effects.contains(&effect) || u.target_effects.contains(&effect)
+                })
+        })
+        .unwrap_or(0)
+}
+
+/// An item's use makes its pet for its user, at the item's spellcraft, as the pet's own effect
+/// does: of its class, for its lifetime, within the limits of a skill that makes it (else its
+/// kind's) and where it may stand. Returns
+/// the pet, or `None` (told "The summoning fails.") when none could be made.
+pub fn made_by_item<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    (effect, spellcraft, icon): (u32, f32, u32),
+    clock: Clock,
+) -> Option<u64> {
+    let owner = s.players.get(&world).map(|p| p.character)?;
+    let made = match s.effect_table.get(effect).map(|d| d.kind.clone()) {
+        Some(crate::effect_defs::Kind::Pet { class, lifetime })
+            if !too_many(s, owner, summoned_by(s, effect), &[effect]) =>
+        {
+            let seconds = lifetime.at(spellcraft).filter(|x| *x > 0.0).map(f64::from);
+            s.pets.kind_of(effect).cloned().and_then(|kind| {
+                summon_kind(
+                    s,
+                    net,
+                    world,
+                    &kind,
+                    (class, icon, seconds),
+                    (spellcraft, None),
+                    clock,
+                )
+            })
+        }
+        _ => None,
+    };
+    let Some(pet) = made else {
+        progress::private(
+            net,
+            world,
+            &crate::chat::show_text(1, progress::text(text::SUMMONING_FAILS)),
+        );
+        return None;
+    };
+    appear(s, net, pet);
+    Some(pet)
+}
+
 /// May a player hire on this contract now? Its mercenary's template must make a pet, and the player
 /// be in the world, alive and out of portal space.
 #[must_use]

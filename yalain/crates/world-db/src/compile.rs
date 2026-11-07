@@ -1248,5 +1248,6 @@ fn pet_kind(r: &crate::rows::Pet) -> yalain_content::PetKind {
         seconds: f64::from(h.seconds),
         level: h.level,
     });
+    k.item_effects.clone_from(&r.item_effects);
     k
 }

@@ -797,3 +797,114 @@ fn a_pets_buff_reaches_no_owner_out_of_reach_and_puts_on_nothing_harmful() {
     assert!(buffed(&mut h, me).is_empty(), "harmful");
     assert!(effects::records_of(&h.server, On::Creature(pet)).is_empty());
 }
+
+const KIT: u32 = 0x4700_1C83;
+const KIT_EFFECT: &str = "Eff_Test_Item_Summon_Kit";
+const ITEM_USE: u32 = 0x8216_0016;
+
+/// An item's use, as the client asks it: the item, used on its user.
+fn use_of(item: u64, player: u64) -> Arg {
+    use yalain_world::graph::{Builder, Slot};
+    let mut b = Builder::new();
+    b.object(
+        0x245,
+        &[
+            Slot::Ref(None),
+            Slot::Ref(None),
+            Slot::Long(item),
+            Slot::Ref(None),
+            Slot::Int(0),
+            Slot::Long(player),
+            Slot::Int((-1.0f32).to_bits()),
+            Slot::Long(0),
+            Slot::Int(0),
+            Slot::Long(0),
+            Slot::Int(0),
+            Slot::Ref(None),
+            Slot::Int(0),
+            Slot::Int(316),
+            Slot::Int(0),
+            Slot::Int(0),
+        ],
+    );
+    Arg::Object(b.graph())
+}
+
+/// The pet a world's row says items naming the kit's effect make, one of its class at most as the
+/// skill that summons it allows, and kits in the player's pack: what each names, used up when used.
+fn with_kits(h: &mut Harness, world: yalain_net::ConnId, kits: u32) {
+    let mut kind = PetKind::new(PET_EFFECT, PET_TEMPLATE, 1096, &[]);
+    kind.item_effects = vec![KIT_EFFECT.to_string()];
+    h.server
+        .pets
+        .read_rows([kind], [(SUMMON, vec![(1, 0x400)])]);
+    let mut props = Props::default();
+    props
+        .set("Usage_Effect1", Prop::Text(KIT_EFFECT.to_string()))
+        .set("Usage_Effect1_Spellcraft", Prop::Float(40.0))
+        .set("Item_IsDestroyOnUse", Prop::Bool(true))
+        .set("Item_IsStackable", Prop::Bool(false));
+    h.server.catalog.insert(test_template(KIT, 0x1C7A, props));
+    for _ in 0..kits {
+        yalain_world::inventory::give(&mut h.server, &mut h.net, world, KIT, 1);
+    }
+}
+
+fn kits_held(h: &mut Harness, me: u64) -> Vec<u64> {
+    player(h, me)
+        .play
+        .items
+        .iter()
+        .filter(|i| i.template == KIT)
+        .map(|i| i.id)
+        .collect()
+}
+
+/// An item naming an effect a world's pet row lists makes that pet for its user at the item's
+/// spellcraft, and is used up; one more than the skill that summons it allows is refused, the item
+/// kept and nothing made.
+/// Behaviour: server.pets.made-by-an-items-use
+#[test]
+fn a_kits_use_makes_its_pet_at_the_kits_spellcraft_and_is_used_up_within_the_kinds_limit() {
+    let mut h = Harness::new();
+    with_pet(&mut h, 0, 1096, None);
+    let (b, me) = summoner(&mut h);
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .map(|(c, _)| c)
+        .expect("in the world");
+    with_kits(&mut h, world, 2);
+    let kits = kits_held(&mut h, me);
+    assert_eq!(kits.len(), 2);
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(ITEM_USE, &[use_of(kits[0], me)]),
+    );
+    h.run(20);
+    let pets = h.server.pets.of(me);
+    assert_eq!(pets.len(), 1, "made");
+    let level = h
+        .server
+        .things
+        .get(pets[0])
+        .and_then(|t| t.creature.as_ref())
+        .map(|c| c.stats.level);
+    assert_eq!(level, Some(40), "at the kit's spellcraft");
+    assert_eq!(
+        kits_held(&mut h, me),
+        vec![kits[1]],
+        "the kit used is used up"
+    );
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(ITEM_USE, &[use_of(kits[1], me)]),
+    );
+    h.run(20);
+    assert_eq!(h.server.pets.of(me), pets, "no second of its class");
+    assert_eq!(kits_held(&mut h, me), vec![kits[1]], "kept");
+}

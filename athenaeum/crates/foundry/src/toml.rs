@@ -440,6 +440,14 @@ pub fn pet(r: &yalain_world_db::rows::Pet, p: &Prov) -> Table {
         i.insert("level", number(v.level));
         put(&mut t, "hire", Value::InlineTable(i));
     }
+    if !r.item_effects.is_empty() {
+        let a: Array = r
+            .item_effects
+            .iter()
+            .map(|e| Value::from(e.as_str()))
+            .collect();
+        put(&mut t, "item_effects", Value::Array(a));
+    }
     put(&mut t, "prov", prov(p));
     t
 }

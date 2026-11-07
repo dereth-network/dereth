@@ -8826,6 +8826,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.pets.made-by-an-items-use",
+        says: "An item naming an effect a world's pet row lists makes that pet for its user at the \
+               item's spellcraft, within the limits of a skill that summons it, and is used up only \
+               when it did.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-PETS-ITEM-USE"),
+        station: "yalain-testkit::cpu::play::pet_skills::a_kits_use_makes_its_pet_at_the_kits_spellcraft_and_is_used_up_within_the_kinds_limit",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.pets.missile-lands-later",
         says: "A pet's missile is thrown in one story and lands after its flight in a story told \
                by what it lands on.",

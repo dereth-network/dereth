@@ -403,12 +403,31 @@ pub fn begin<S: Store>(
         && !seed
         && !own
         && !crate::death_spawn::names_one(s, &t.props)
+        && crate::pets::made_by_use(s, &t.props).is_none()
     {
         return false;
     }
     let look = t.description.look;
     let props = t.props.clone();
     if refuse(s, net, world, u, &props, clock) {
+        return true;
+    }
+    // An item whose use makes a pet: made now, and the item spent only when it was.
+    if let Some((effect, spellcraft)) = crate::pets::made_by_use(s, &props) {
+        let icon = props.word("Icon").unwrap_or(0);
+        let made =
+            crate::pets::made_by_item(s, net, world, (effect, spellcraft, icon), clock).is_some();
+        let me = s.players.get(&world).map_or(0, |p| p.character);
+        let flags = crate::places::USE_FLAGS_PACK;
+        let told = if made {
+            if s.catalog.get(template).is_some_and(|t| spends(s, t)) {
+                crate::craft::use_up(s, net, world, u.item, 1);
+            }
+            crate::places::use_done(u, me, flags, false, 0.0)
+        } else {
+            crate::places::use_refused(u, 0, Some(flags), 0.0, crate::places::USE_STATUS_OK)
+        };
+        progress::private(net, world, &told);
         return true;
     }
     if cannot_make(s, template, &props) {

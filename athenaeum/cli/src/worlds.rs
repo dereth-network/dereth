@@ -180,14 +180,19 @@ fn pets_cmd(args: &[String]) -> Result<(), String> {
     for l in session.pets() {
         match &l.row {
             yalain_world_db::rows::Row::Pet(r) => println!(
-                "pet {:#010x}\tin {}\ttemplate {:#010x}\tflags {}\tcount {}\t{}{}",
+                "pet {:#010x}\tin {}\ttemplate {:#010x}\tflags {}\tcount {}\t{}{}{}",
                 r.effect,
                 l.pack,
                 r.template,
                 r.flags,
                 r.count,
                 if r.stays { "stays" } else { "follows" },
-                attacks_shown(&r.attacks)
+                attacks_shown(&r.attacks),
+                if r.item_effects.is_empty() {
+                    String::new()
+                } else {
+                    format!("\tmade by items naming {}", r.item_effects.join(", "))
+                }
             ),
             yalain_world_db::rows::Row::PetLimit(r) => {
                 println!("pet_limit {:#010x}\tin {}\t{:?}", r.skill, l.pack, r.limits)

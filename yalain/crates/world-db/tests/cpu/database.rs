@@ -1282,6 +1282,7 @@ fn a_pet_row_compiles_to_a_kind_and_must_name_an_installed_template() {
          per_level_squared = 0.03\nlands = 0.5\nswing = 2\narea = 10.0\nno_corpse = true\n\
          tends = { whom = \"owners-pets\", effect = 0x70000772, every = 30.0, below = 0.75 }\n\
          hire = { class = 0x100000, seconds = 3600.0, level = 20.0 }\n\
+         item_effects = [\"Eff_Test_Item_Summon\"]\n\
          prov = { from = \"authored\" }\n\n\
          [[pet_limit]]\nskill = 662\nlimits = [{ most = 2, classes = 0x800 }, { most = 1, classes = 0x4000 }]\n\
          prov = { from = \"authored\" }\n"
@@ -1301,6 +1302,7 @@ fn a_pet_row_compiles_to_a_kind_and_must_name_an_installed_template() {
     assert_eq!(k.variance, 0.35, "the server's own, left out");
     assert_eq!(k.corpse_after, None);
     assert!(k.tends.is_some() && k.hire.is_some());
+    assert_eq!(k.item_effects, vec!["Eff_Test_Item_Summon".to_string()]);
     assert_eq!(t.pet_limits.get(&662), Some(&vec![(2, 0x800), (1, 0x4000)]));
     // A template the install lacks, and rows that read wrong.
     files.insert(
