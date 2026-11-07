@@ -639,8 +639,8 @@ pub fn is_hidden(table: &QuestTable, q: &QuestDef) -> bool {
 }
 
 /// Something happened that may move quests on: run every step it triggers (each quest at most
-/// once). Returns whether one ran. `who` is the person or object used (for its line), with its
-/// name.
+/// once; a use, a quest under way first and one step of the server's errands). Returns whether one
+/// ran. `who` is the person or object used (for its line), with its name.
 pub fn triggered<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -720,19 +720,32 @@ fn run_triggered<S: Store>(
     // A step that leads somewhere is run by a use of a person or an object, or a kill; an item's use
     // on one is the trip's first, its update on arrival.
     let leads_on = matches!(trigger, Trigger::Use(_) | Trigger::Kill(_)) && who.is_some();
+    let used = matches!(trigger, Trigger::Use(_));
+    // A use runs one step of the server's errands: the person's next comes at the next use.
+    let mut errand_ran = false;
     loop {
         // Reckoned at each step: one given (now under way) blocks the rest.
         let blocked = several.len() >= 2 && person_blocks(s, world, &several, clock.unix);
         let seen = moved.clone();
+        let errand_done = used && errand_ran;
         let runs = |s: &Server<S>, st: &Step| {
             st.trigger == trigger
                 && (st.to.is_none() || leads_on)
                 && handed.is_none_or(|n| takes_count(st, n))
                 && !seen.contains(&st.quest)
                 && !(blocked && st.needs == 0 && several.contains(&st.quest))
+                && !(errand_done && errand(st.quest))
                 && may_run(s, world, st, clock.unix)
         };
-        let Some(mut step) = s.quests.steps.iter().find(|st| runs(s, st)).cloned() else {
+        // A use moves on a quest under way before it gives one.
+        let under_way = |s: &Server<S>, st: &Step| used && st.needs != 0 && runs(s, st);
+        let found = s
+            .quests
+            .steps
+            .iter()
+            .find(|st| under_way(s, st))
+            .or_else(|| s.quests.steps.iter().find(|st| runs(s, st)));
+        let Some(mut step) = found.cloned() else {
             return kept;
         };
         if several.len() >= 2 && step.needs == 0 && several.contains(&step.quest) {
@@ -748,6 +761,7 @@ fn run_triggered<S: Store>(
             step = may[i].clone();
         }
         moved.push(step.quest);
+        errand_ran |= errand(step.quest);
         let trip = s.players.get(&world).and_then(|p| p.trip.as_ref());
         if trip.is_some_and(|t| t.step.as_ref().is_some_and(|c| c.quest == step.quest)) {
             // Its trip carries this quest's move: that comes on landing, and only that.
@@ -780,6 +794,14 @@ fn run_triggered<S: Store>(
             took(s, net, world, template, clock);
         }
     }
+}
+
+/// Is a quest one of the server's own errands (an id of the `0x8000_0000` range, which no package of
+/// the install sets up)? A use of a person runs one step of them: in 2017, a use that completed one
+/// gave the person's next at the player's next use, 13 of 13, never in the same use; one that
+/// completed a quest the install sets up gave the next in the same use, 45 of 45.
+fn errand(quest: u32) -> bool {
+    quest & 0xF000_0000 == 0x8000_0000
 }
 
 /// How far from where it lands a player may be and still be in that room, in meters.

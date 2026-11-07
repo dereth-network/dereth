@@ -11031,10 +11031,20 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "server.quests.one-errand-step-a-use",
+        says: "One use of a person runs one step of the server's errands, a quest under way \
+               before a giving: the use that completes one gives no other, and the next use \
+               gives the person's next.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-ONE-ERRAND-STEP"),
+        station: "yalain-testkit::cpu::play::quests::one_use_completes_an_errand_and_the_next_use_gives_the_next",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.one-event-several-steps",
-        says: "One use runs every quest step it triggers, each quest moved on at most once, a \
-               step another of the same use made possible included; a second use does neither \
-               again.",
+        says: "One use runs every step it triggers of the quests the install sets up, each quest \
+               moved on at most once, a step another of the same use made possible included; a \
+               second use does neither again.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-QUEST-CHAINS"),
         station: "yalain-testkit::cpu::play::quests::one_use_completes_a_quest_and_gives_the_next_that_requires_it",

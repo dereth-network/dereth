@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Finishing someone's errand no longer hands you their next one in the same talk.
 - Creatures' critical hits now depend on the attack: plain ones never, stronger ones more often.
 - Turrets now spend vigor on their shots, and Self-Destruct blows the turret up where it stands.
 - Lashers close in to bite after a throw that doesn't land.

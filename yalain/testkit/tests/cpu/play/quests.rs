@@ -343,6 +343,63 @@ fn one_use_completes_a_quest_and_gives_the_next_that_requires_it() {
     assert!(updates(&h, b, from).is_empty(), "neither again");
 }
 
+/// One use of a person runs one step of the server's errands, a quest under way first: the use
+/// that completes one gives none, and the next use gives the person's next errand.
+/// Behaviour: server.quests.one-errand-step-a-use
+#[test]
+fn one_use_completes_an_errand_and_the_next_use_gives_the_next() {
+    const DONE_FIRST: u32 = 0x8000_0101;
+    const GIVEN_NEXT: u32 = 0x8000_0102;
+    let mut h = Harness::new();
+    h.server.content = ContentPack {
+        objects: vec![object(
+            EXPLORER,
+            EXPLORER_TEMPLATE,
+            Kind::Npc,
+            [61.0, 241.0, -44.6],
+        )],
+        ..ContentPack::default()
+    };
+    h.server.quests = QuestTable {
+        quests: vec![quest(DONE_FIRST, 0, -999), quest(GIVEN_NEXT, 0, -999)],
+        steps: vec![
+            // Listed first and asking nothing: still the second use's.
+            step(
+                GIVEN_NEXT,
+                0,
+                Trigger::Use(EXPLORER_TEMPLATE),
+                Update::Bestow,
+            ),
+            step(
+                DONE_FIRST,
+                1,
+                Trigger::Use(EXPLORER_TEMPLATE),
+                Update::Complete,
+            ),
+        ],
+        gives: Vec::new(),
+        rooms: Vec::new(),
+    };
+    let (b, me) = h.player_in_world("one", "Elara");
+    at_phase(&mut h, DONE_FIRST, 1);
+    let mut uses = Vec::new();
+    for _ in 0..3 {
+        let from = h.bots[b].inbox.len();
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &server_call(USE, &[use_on(EXPLORER, 0, me)]),
+        );
+        h.run(20);
+        uses.push(updates(&h, b, from));
+    }
+    assert_eq!(
+        uses,
+        vec![vec![0x3000_0000], vec![0x1000_0000], Vec::new()],
+        "completed at the first use, the next given at the second"
+    );
+}
+
 /// A completion pays the quest's experience weighed by its challenge against the player's level
 /// as a kill is (full from ten levels under; 15% less a level further; none weighed without a
 /// challenge).
