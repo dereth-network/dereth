@@ -7,6 +7,8 @@ Add a line under **Unreleased** when a change lands that a world builder would n
 see, not how it was done.
 
 ## Unreleased
+
+## 0.1.4 (2026-11-07)
 - New `pets` command: see and change a world's kinds of pet.
 
 ## 0.1.3 (2026-11-05)
