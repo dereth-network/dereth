@@ -9,6 +9,7 @@
 use auberean_protocol::{queue, ServerMessage};
 use auberean_script::args::Arg;
 use yalain_content::{Prop, Props};
+use yalain_store::StoredPosition;
 use yalain_testkit::play::server_call;
 use yalain_testkit::{test_template, Harness};
 use yalain_world::calls::{Node, Value};
@@ -1145,6 +1146,101 @@ fn a_pet_follows_its_owner_and_is_put_beside_it_when_far() {
     let at = h.server.things.get(pet).and_then(|t| t.at).expect("placed");
     let d = yalain_world::presence::distance(&at, &owner_at).expect("near");
     assert!(d < 5.0, "{d}");
+}
+
+/// Put a player at a place outdoors on [`yalain_testkit::Slope`]'s ground, `above` meters over the
+/// ground under it (below when less than nothing), facing east; returns the place.
+fn on_slope(h: &mut Harness, me: u64, (x, y): (f32, f32), above: f32) -> StoredPosition {
+    h.server.ground = Some(Box::new(yalain_testkit::Slope));
+    let (cell, x, y) = yalain_world::spawn::outdoor(0xA9B4, x, y);
+    let at = StoredPosition {
+        cell,
+        origin: [x, y, x * 0.2 + above],
+        rotation: yalain_world::world::rotation_of_heading(64),
+    };
+    player(h, me).position = at;
+    at
+}
+
+/// How far a thing stands above the slope's ground (below when less than nothing).
+fn over_slope(h: &Harness, id: u64) -> f32 {
+    let at = h.server.things.get(id).and_then(|t| t.at).expect("placed");
+    at.origin[2] - at.origin[0] * 0.2
+}
+
+/// Outdoors a pet stands on the ground where it appears and where it is put beside its owner from
+/// far off, whatever its owner's own height there (here six meters under the ground).
+/// Behaviour: server.pets.set-down-on-the-ground
+#[test]
+fn a_pet_set_down_outdoors_stands_on_the_ground_where_it_appears_and_where_it_is_put() {
+    let mut h = Harness::new();
+    with_natures_aid(&mut h);
+    let (b, me) = ranger(&mut h, "one", "Kestrel");
+    on_slope(&mut h, me, (40.0, 40.0), -6.0);
+    let from = summon(&mut h, b, 1);
+    let pet = h
+        .calls(b, from)
+        .iter()
+        .find(|(f, _)| *f == function::ADD)
+        .and_then(|(_, v)| pet_of(v))
+        .expect("a pet added");
+    let at = h.server.things.get(pet).and_then(|t| t.at).expect("placed");
+    assert!((at.origin[0] - 42.0).abs() < 0.01, "east of it: {at:?}");
+    assert!(over_slope(&h, pet).abs() < 0.01, "{at:?}");
+    // Far off, it is put beside its owner at its next plan, on the ground there.
+    let owner = on_slope(&mut h, me, (140.0, 140.0), -6.0);
+    let conn = conn_of(&h, me);
+    assert!(h.run_until(80, |h| h
+        .server
+        .things
+        .get(pet)
+        .and_then(|t| t.at)
+        .and_then(|a| yalain_world::presence::distance(&a, &h.server.players[&conn].position))
+        .is_some_and(|d| d < 10.0)));
+    let at = h.server.things.get(pet).and_then(|t| t.at).expect("placed");
+    assert!(at.origin[0] > owner.origin[0], "east of it: {at:?}");
+    assert!(over_slope(&h, pet).abs() < 0.01, "{at:?}");
+}
+
+/// A pet set down beside an owner standing on something above the ground (a bridge, a roof) takes
+/// its owner's height.
+/// Behaviour: server.pets.set-down-on-what-its-owner-stands-on
+#[test]
+fn a_pet_set_down_beside_an_owner_standing_above_the_ground_takes_its_owners_height() {
+    let mut h = Harness::new();
+    with_natures_aid(&mut h);
+    let (b, me) = ranger(&mut h, "one", "Kestrel");
+    let owner = on_slope(&mut h, me, (40.0, 40.0), 3.6);
+    let from = summon(&mut h, b, 1);
+    let pet = h
+        .calls(b, from)
+        .iter()
+        .find(|(f, _)| *f == function::ADD)
+        .and_then(|(_, v)| pet_of(v))
+        .expect("a pet added");
+    let at = h.server.things.get(pet).and_then(|t| t.at).expect("placed");
+    assert!((at.origin[2] - owner.origin[2]).abs() < 1e-4, "{at:?}");
+}
+
+/// Indoors a pet takes its owner's height where it appears, whatever the ground outside.
+/// Behaviour: server.pets.set-down-indoors-at-its-owners-height
+#[test]
+fn a_pet_set_down_indoors_takes_its_owners_height() {
+    let mut h = Harness::new();
+    with_natures_aid(&mut h);
+    let (b, me) = ranger(&mut h, "one", "Kestrel");
+    h.server.ground = Some(Box::new(yalain_testkit::Slope));
+    let owner = player(&mut h, me).position;
+    assert!(yalain_world::presence::indoors(owner.cell));
+    let from = summon(&mut h, b, 1);
+    let pet = h
+        .calls(b, from)
+        .iter()
+        .find(|(f, _)| *f == function::ADD)
+        .and_then(|(_, v)| pet_of(v))
+        .expect("a pet added");
+    let at = h.server.things.get(pet).and_then(|t| t.at).expect("placed");
+    assert!((at.origin[2] - owner.origin[2]).abs() < 1e-4, "{at:?}");
 }
 
 /// A pet goes with its owner through a portal: out of portal space, the pet is beside its owner

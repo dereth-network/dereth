@@ -8888,6 +8888,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.pets.made-at-a-creature-on-the-ground",
+        says: "Outdoors a pet made beside a creature stands on the ground there, whatever the \
+               creature's own height.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PETS-MADE-ON-GROUND"),
+        station: "yalain-testkit::cpu::play::pet_kinds::a_pet_a_skill_makes_at_a_creature_on_a_slope_stands_on_the_ground_beside_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.pets.made-by-an-items-use",
         says: "An item naming an effect a world's pet row lists makes that pet for its user at the \
                item's spellcraft, within the limits of a skill that summons it, and is used up only \
@@ -8988,6 +8997,32 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.pets.set-down-indoors-at-its-owners-height",
+        says: "Indoors a pet takes its owner's height where it appears.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-PETS-INDOOR-HEIGHT"),
+        station: "yalain-testkit::cpu::play::pets::a_pet_set_down_indoors_takes_its_owners_height",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.pets.set-down-on-the-ground",
+        says: "Outdoors a pet stands on the ground where it appears beside its owner and where it is \
+               put beside its owner from far off, whatever its owner's height.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PETS-ON-GROUND"),
+        station: "yalain-testkit::cpu::play::pets::a_pet_set_down_outdoors_stands_on_the_ground_where_it_appears_and_where_it_is_put",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.pets.set-down-on-what-its-owner-stands-on",
+        says: "A pet set down beside an owner standing on something above the ground takes its \
+               owner's height.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PETS-OWNER-ABOVE"),
+        station: "yalain-testkit::cpu::play::pets::a_pet_set_down_beside_an_owner_standing_above_the_ground_takes_its_owners_height",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.pets.speed-told-entering-a-fight-mid-move",
         says: "A pet that goes into a fight while still on its way to its owner is told its kind's \
                own speed right after its fighting mode.",
@@ -9004,6 +9039,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-PET-SPEED"),
         station: "yalain-testkit::cpu::play::pets::a_pets_speed_is_told_as_it_sets_off_and_as_it_arrives_and_not_between",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.pets.staying-on-the-ground-is-reached",
+        says: "A pet that stays, set down on a slope, stands on the ground and never moves, and a \
+               creature it taunts comes to it and strikes it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PETS-STAYING-REACHED"),
+        station: "yalain-testkit::cpu::play::pet_kinds::a_staying_pet_set_down_on_a_slope_stands_on_the_ground_and_the_creature_it_taunts_strikes_it",
         tier: Tier::Cpu,
     },
     behaviour! {

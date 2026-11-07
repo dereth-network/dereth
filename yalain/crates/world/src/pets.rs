@@ -17,6 +17,9 @@
 //! is refused (the client writes "You have too many pets to use that skill.") to an owner who has
 //! as many live pets of a class as the skill allows; a pet counts toward every class it shares a bit
 //! with, and others do not count. Aimed at a creature, its pet appears beside it and goes after it.
+//! Outdoors a pet is set down on the ground where it appears, or is put beside its owner, unless
+//! its owner stands on something above the ground there, whose height it takes; indoors it takes
+//! its owner's height, or that of what it was aimed at.
 //!
 //! **Its aura**: a skill of its template's that puts an aura on its user has the pet hold that aura
 //! from as it appears, pulsing at its level: at once, soon after, then a couple of minutes apart.
@@ -136,6 +139,12 @@ pub const ACCELERATION_FACTOR: f32 = 6.0 / 7.0;
 
 /// How far from its owner a pet appears, in meters (2017: a median 2.0 for every kind).
 pub const APPEARS_AWAY: f32 = 2.0;
+
+/// How far above the ground under it an owner stands on something there (a bridge, a roof), in
+/// meters, so that a pet set down beside it takes its height (2017: of 33 pets made outdoors on a
+/// slope, 28 owners within 0.05 m of the ground, whose pets stood on the ground, 27 of them within
+/// 0.3 m; 5 owners 3.6 m or more above it, whose pets took their height to 0.14 m).
+pub const ON_SOMETHING: f32 = 1.0;
 
 /// The template property of a kind's own velocity scale.
 pub const KIND_VELOCITY: &str = "Physics_VelScale";
@@ -610,14 +619,17 @@ pub fn summon<S: Store>(
             .note(format!("a pet effect {:08X} with no row", what.effect));
         return vec![fails(s, net, world, (0, 0), (icon, class, 0))];
     };
+    let owner_at = s.players.get(&world).map(|p| p.position);
     let spot = what.at.or_else(|| {
         (kind.made > 1)
-            .then(|| s.players.get(&world).map(|p| beside(&p.position)))
+            .then(|| owner_at.map(|o| beside(&o)))
             .flatten()
     });
+    // Set down beside its owner, or beside what it was aimed at.
+    let by = owner_at.filter(|_| what.at.is_none());
     let mut made = Vec::new();
     for n in 0..kind.made {
-        let at = spot.map(|at| around(&at, n, kind.made));
+        let at = spot.map(|at| set_down(s, around(&at, n, kind.made), by.as_ref()));
         let about = (class, icon, seconds);
         let pet = summon_kind(s, net, world, &kind, about, (what.rating, at), clock);
         made.extend(pet);
@@ -710,7 +722,7 @@ fn summon_kind<S: Store>(
         let stats = yalain_content::CreatureStats::from_props(&props)?;
         Some((template, props, stats))
     });
-    let at = place.unwrap_or_else(|| beside(&owner_at));
+    let at = place.unwrap_or_else(|| beside_owner(s, &owner_at));
     if made.is_none() {
         tracing::warn!(
             template = format_args!("{:08X}", kind.template),
@@ -1262,6 +1274,37 @@ fn beside(at: &StoredPosition) -> StoredPosition {
     )
 }
 
+/// [`beside`] its owner, set down there.
+fn beside_owner<S: Store>(s: &Server<S>, owner_at: &StoredPosition) -> StoredPosition {
+    set_down(s, beside(owner_at), Some(owner_at))
+}
+
+/// Where a pet set down at a spot stands: outdoors on the ground there (2017: 243 of 252 pets made
+/// outdoors within 0.3 m of it), unless it is set down beside an owner standing on something above
+/// the ground ([`ON_SOMETHING`]), at whose height it stays; indoors, and where the ground is not
+/// known, at the spot's own height.
+fn set_down<S: Store>(
+    s: &Server<S>,
+    at: StoredPosition,
+    owner: Option<&StoredPosition>,
+) -> StoredPosition {
+    if crate::presence::indoors(at.cell) {
+        return at;
+    }
+    let ground = |p: &StoredPosition| s.ground.as_ref().and_then(|g| g.height(p.cell, p.origin));
+    let on_something = owner.is_some_and(|o| {
+        !crate::presence::indoors(o.cell)
+            && ground(o).is_some_and(|z| o.origin[2] > z + ON_SOMETHING)
+    });
+    match ground(&at) {
+        Some(z) if !on_something => StoredPosition {
+            origin: [at.origin[0], at.origin[1], z],
+            ..at
+        },
+        _ => at,
+    }
+}
+
 /// A summoned pet appears to those who see it, once its summoner's use has ended, and goes after
 /// what it was summoned at; one whose summoning failed is taken off its owner's list instead.
 pub fn appear<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64) {
@@ -1612,7 +1655,8 @@ pub fn owner_arrives<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: Co
             continue;
         }
         calm(s, net, id);
-        relocate(s, net, id, beside(&at), time);
+        let to = beside_owner(s, &at);
+        relocate(s, net, id, to, time);
     }
 }
 
@@ -1751,7 +1795,8 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, pet: &Pet, clock: Clock
             p.next_plan = now + PLAN_EVERY;
         }
         if away.is_none_or(|d| d > TOO_FAR) && pet.flags & flag::TELEPORT_TO_MASTER != 0 {
-            relocate(s, net, id, beside(&owner_at), net.game_time(clock.local));
+            let to = beside_owner(s, &owner_at);
+            relocate(s, net, id, to, net.game_time(clock.local));
             return;
         }
         if away.is_some_and(|d| d > STOPS_SHORT) {

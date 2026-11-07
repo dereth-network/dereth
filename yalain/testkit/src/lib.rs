@@ -1512,6 +1512,16 @@ impl yalain_world::Ground for TestGround {
     }
 }
 
+/// Ground that rises a meter for every five east, everywhere.
+#[derive(Debug)]
+pub struct Slope;
+
+impl yalain_world::Ground for Slope {
+    fn height(&self, _cell: u32, origin: [f32; 3]) -> Option<f32> {
+        Some(origin[0] * 0.2)
+    }
+}
+
 /// A client on the harness's wire that the caller holds (a whole client, say), stepped with the
 /// server by [`Harness::step_with`].
 pub trait Peer {

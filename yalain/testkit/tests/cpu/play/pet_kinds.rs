@@ -1489,6 +1489,128 @@ fn statue(h: &mut Harness, skill: u32, count: u32) -> (usize, u64, Vec<u64>) {
     (b, pet, beetles(h))
 }
 
+/// Put a player at a place outdoors on [`yalain_testkit::Slope`]'s ground, `above` meters over the
+/// ground there (below when less than nothing), facing east.
+fn on_slope(h: &mut Harness, me: u64, above: f32) {
+    h.server.ground = Some(Box::new(yalain_testkit::Slope));
+    let (cell, x, y) = yalain_world::spawn::outdoor(0xA9B4, 40.0, 40.0);
+    if let Some(p) = h.server.players.values_mut().find(|p| p.character == me) {
+        p.position = yalain_store::StoredPosition {
+            cell,
+            origin: [x, y, x * 0.2 + above],
+            rotation: yalain_world::world::rotation_of_heading(64),
+        };
+    }
+}
+
+/// How far a thing stands above the slope's ground (below when less than nothing).
+fn over_slope(h: &Harness, id: u64) -> f32 {
+    let at = h.server.things.get(id).and_then(|t| t.at).expect("placed");
+    at.origin[2] - at.origin[0] * 0.2
+}
+
+/// A pet that stays, set down on a slope beside an owner standing under the ground there, stands on
+/// the ground and never moves; a creature it taunts comes to it there and strikes it.
+/// Behaviour: server.pets.staying-on-the-ground-is-reached
+#[test]
+fn a_staying_pet_set_down_on_a_slope_stands_on_the_ground_and_the_creature_it_taunts_strikes_it() {
+    let statue = Summoned {
+        effect: 0x7000_096E,
+        template: 0x4700_0867,
+        class: 0x2000,
+        lifetime: 0.0,
+        skill: STAFF,
+    };
+    let mut h = Harness::new();
+    with_staff(&mut h);
+    with_kind(&mut h, &statue, 1);
+    h.server.pets.read_rows(
+        [pets::PetKind::new(statue.effect, statue.template, 32, &[])
+            .staying()
+            .taunting()],
+        [],
+    );
+    let (b, me) = summoner(&mut h);
+    on_slope(&mut h, me, -6.0);
+    let beetle = beetles(&h)[0];
+    put_near(&mut h, beetle, me, 120.0, 0.0);
+    h.run(20);
+    let from = summon(&mut h, b);
+    let pet = pet_added(&h, b, from).expect("a pet");
+    assert!(over_slope(&h, pet).abs() < 0.01, "on the ground");
+    let at = h.server.things.get(pet).and_then(|t| t.at).expect("placed");
+    // The beetle on the ground six meters east of it, sure to strike when it may.
+    if let Some(t) = h.server.things.get_mut(pet) {
+        t.max_health = 100_000;
+        t.health = 100_000;
+    }
+    if let Some(t) = h.server.things.get_mut(beetle) {
+        let mut to = at;
+        to.origin[0] += 6.0;
+        to.origin[2] = to.origin[0] * 0.2;
+        t.at = Some(to);
+        if let Some(c) = t.creature.as_mut() {
+            c.home = to;
+        }
+    }
+    assert!(
+        h.run_until(1200, |h| h
+            .server
+            .things
+            .get(pet)
+            .is_some_and(|t| t.health < 100_000)),
+        "struck: the beetle at {:?}",
+        h.server.things.get(beetle).and_then(|t| t.at)
+    );
+    assert_eq!(
+        h.server.things.get(pet).and_then(|t| t.at),
+        Some(at),
+        "it never moves"
+    );
+}
+
+/// A pet a skill makes at a creature on a slope stands on the ground beside it.
+/// Behaviour: server.pets.made-at-a-creature-on-the-ground
+#[test]
+fn a_pet_a_skill_makes_at_a_creature_on_a_slope_stands_on_the_ground_beside_it() {
+    let mut h = Harness::new();
+    with_kind(&mut h, &LASHER, 1);
+    let strike = h.server.skill_table.skills[&62].clone();
+    let mut d = h.server.skill_table.skills[&SKILL].clone();
+    let mut u = strike.usage.clone().expect("a strike");
+    u.target_effects = vec![LASHER.effect];
+    u.implements_right = -2;
+    u.implements_left = -1;
+    d.usage = Some(u);
+    h.server.skill_table.skills.insert(SKILL, d);
+    let (b, me) = summoner(&mut h);
+    on_slope(&mut h, me, 0.0);
+    h.run(20);
+    let beetle = beetles(&h)[0];
+    put_near(&mut h, beetle, me, 1.0, 1.0);
+    // The beetle half a meter off the ground, as one that hovers.
+    if let Some(t) = h.server.things.get_mut(beetle) {
+        if let Some(at) = t.at.as_mut() {
+            at.origin[2] = at.origin[0] * 0.2 + 0.5;
+        }
+    }
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(
+            USE_SKILL,
+            &[Arg::Int(1), Arg::Int(SKILL), Arg::LongInt(beetle)],
+        ),
+    );
+    assert!(
+        h.run_until(600, |h| pet_added(h, b, from).is_some()),
+        "it lands"
+    );
+    let pet = pet_added(&h, b, from).expect("a pet");
+    assert!(over_slope(&h, pet).abs() < 0.01, "on the ground");
+}
+
 /// The targets each of a pet's own stories names, since a message.
 fn struck_by(h: &Harness, b: usize, from: usize, pet: u64) -> Vec<Vec<u64>> {
     h.world_messages(b, from)

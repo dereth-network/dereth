@@ -5,7 +5,7 @@ use auberean_protocol::types::BehaviorParams;
 use auberean_protocol::ServerMessage;
 use yalain_content::Prop;
 use yalain_store::StoredPosition;
-use yalain_testkit::{Harness, TEST_CREATURE};
+use yalain_testkit::{Harness, Slope, TEST_CREATURE};
 use yalain_world::ai::{self, IDLE_BEHAVIORS};
 use yalain_world::things::Mode;
 use yalain_world::world::IDLE_MOTION;
@@ -111,16 +111,6 @@ fn a_creature_at_rest_outdoors_walks_within_its_range_and_stands_where_it_ends()
         flat(&place_of(&h, beetle), &home) <= 10.01,
         "within its range"
     );
-}
-
-/// Ground that rises a meter for every five east.
-#[derive(Debug)]
-struct Slope;
-
-impl yalain_world::Ground for Slope {
-    fn height(&self, _cell: u32, origin: [f32; 3]) -> Option<f32> {
-        Some(origin[0] * 0.2)
-    }
 }
 
 /// On a slope a walk still ends where it should, on the ground at its goal (the goal's height is
