@@ -238,6 +238,12 @@ pub struct EraFormulas {
     /// the cap who spends its unassigned experience earns again. `None`: nothing arrives past the
     /// level cap's experience.
     pub total_xp_cap: Option<i64>,
+    /// A missile loses attack skill as its target nears the limit of the weapon's reach, measured
+    /// when it leaves the weapon.
+    pub long_range_missile_penalty: bool,
+    /// The spell fixes shipped by February 2000, over the 1999 spell table: longer enchantments by
+    /// level, shorter drains and harms, costlier portal spells and a resistable Imperil.
+    pub early_2000_spell_fixes: bool,
 }
 
 impl EraFormulas {
@@ -273,6 +279,8 @@ impl EraFormulas {
         empty_corpses_rot_early: true,
         unassigned_xp_cap: None,
         total_xp_cap: None,
+        long_range_missile_penalty: false,
+        early_2000_spell_fixes: false,
     };
 
     /// February 2005, as ClassicACE plays it.
@@ -293,6 +301,8 @@ impl EraFormulas {
         // Total and unassigned experience were 32-bit counts.
         unassigned_xp_cap: Some(u32::MAX as i64),
         total_xp_cap: Some(u32::MAX as i64),
+        long_range_missile_penalty: false,
+        early_2000_spell_fixes: false,
     };
 
     /// November 1999. Every rule is named here, none taken from a later table. Where no period
@@ -317,6 +327,10 @@ impl EraFormulas {
         empty_corpses_rot_early: false,
         unassigned_xp_cap: Some(u32::MAX as i64),
         total_xp_cap: Some(u32::MAX as i64),
+        // ac1999's reconstruction: a period endpoint and its own curve.
+        long_range_missile_penalty: true,
+        // ac1999's dat migrations, as rules.
+        early_2000_spell_fixes: true,
     };
 }
 
@@ -723,6 +737,18 @@ mod tests {
         }
         assert!(!EOR.formulas.creature_projectiles_halved);
         assert!(INFILTRATION.formulas.creature_projectiles_halved);
+    }
+
+    /// Divergence: V511, V512, V513, V514
+    /// The rules taken from ac1999 are Launch's alone.
+    #[test]
+    fn only_launch_plays_the_long_range_penalty_and_the_early_spell_fixes() {
+        assert!(LAUNCH.formulas.long_range_missile_penalty);
+        assert!(LAUNCH.formulas.early_2000_spell_fixes);
+        for rules in [&EOR, &INFILTRATION] {
+            assert!(!rules.formulas.long_range_missile_penalty);
+            assert!(!rules.formulas.early_2000_spell_fixes);
+        }
     }
 
     /// Divergence: V473, V474, V475, V476

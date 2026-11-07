@@ -332,6 +332,13 @@ pub fn launch_projectile(
         return None;
     }
 
+    // DIVERGE: V511, measured at release and not again in flight.
+    let launch_range_ratio = w
+        .era
+        .formulas
+        .long_range_missile_penalty
+        .then(|| launch_range_ratio(w, this, target));
+
     let ammo_wcid = object(w, ammo).biota.weenie_class_id;
     let proj = create_new_world_object(w, ammo_wcid)
         .expect("System.NullReferenceException: WorldObjectFactory.CreateNewWorldObject");
@@ -345,6 +352,7 @@ pub fn launch_projectile(
 
         links.launcher = weapon;
         links.ammo = Some(ammo);
+        links.launch_range_ratio = launch_range_ratio;
     }
 
     let mut loc = location(w, this);
@@ -843,6 +851,28 @@ pub const METERS_TO_YARDS: f32 = 1.094; // 1.09361
 pub const MISSILE_RANGE_CAP: f32 = 85.0 / METERS_TO_YARDS; // 85 yards = ~77.697 meters w/ ac formula
                                                            // ACE: Creature.DefaultMaxVelocity
 pub const DEFAULT_MAX_VELOCITY: f32 = 20.0; // ?
+
+/// The distance to `target` over the shooter's reach, 0 to 1. A target with no place in the world is
+/// at no distance.
+fn launch_range_ratio(w: &World, this: ObjectGuid, target: ObjectGuid) -> f64 {
+    let Some(target_loc) = w.objects.get(target).and_then(WorldObject::location) else {
+        return 0.0;
+    };
+    let reach = get_max_missile_range(w, this);
+    if reach <= 0.0 {
+        return 0.0;
+    }
+    f64::from(location(w, this).distance_to(&target_loc) / reach).clamp(0.0, 1.0)
+}
+
+// Rules ported from ac1999 (Adam Plumb), AGPL-3.0: Server/Source/PhatSDK/Support/CombatFormulas.cpp.
+/// What a missile keeps of its attack skill, from the share of the weapon's reach it had to fly:
+/// `1 - 0.5 x ratio^8`. Close and middle shots lose next to nothing, a shot at 85% of reach loses
+/// 14% and one at the limit half. Only the half is a period figure; the curve is ac1999's.
+#[must_use]
+pub fn long_range_attack_mod(ratio: f64) -> f64 {
+    1.0 - 0.5 * empyrean_common::math::pow(ratio.clamp(0.0, 1.0), 8.0)
+}
 
 /// The missile weapon's range: `MaximumVelocity^2 / 9.8`, capped at 85 yards.
 // ACE: Creature.GetMaxMissileRange

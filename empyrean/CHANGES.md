@@ -20,6 +20,10 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Launch: spells ask for the tapers of the player's own account.
 - A world that hangs now stops itself after five minutes, so it can be restarted.
 - Joining the Dereth Network with @dn on now turns on the room that carries Global.
+- Launch: long shots lose accuracy near the limit of the weapon's range.
+- Launch: enchantments last longer the higher their level.
+- Launch: harm and drain spells on others reach less far, and portal spells are harder to cast.
+- Launch: Imperil Other can now be resisted.
 
 ## 0.3.10 (2026-11-05)
 - New relay that lets Dereth play an ac1999 server.
