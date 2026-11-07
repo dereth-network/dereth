@@ -3593,6 +3593,24 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.effects.transfers-move-what-was-taken",
+        says: "A vital transfer changes its target's vital by its number at the spellcraft, then its \
+               caster's by its share of what the target's really changed.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-EFFECTS-TRANSFER"),
+        station: "yalain-testkit::cpu::play::pet_skills::a_pets_drain_takes_health_from_the_creature_and_gives_the_pet_its_share",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.effects.transfers-read-from-their-definitions",
+        says: "A vital transfer reads with which vitals it moves, its target's change by spellcraft and \
+               its caster's share, as the data defines them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-EFFECTS-TRANSFER-READ"),
+        station: "yalain-testkit::dat::effects::the_vital_transfers_read_as_the_data_defines_them",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.effects.ward-keeps-off-its-classes",
         says: "A ward a player holds keeps off effects of its classes by its chance, and no others. Our \
                choice.",

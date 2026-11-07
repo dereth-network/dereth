@@ -908,3 +908,56 @@ fn a_kits_use_makes_its_pet_at_the_kits_spellcraft_and_is_used_up_within_the_kin
     assert_eq!(h.server.pets.of(me), pets, "no second of its class");
     assert_eq!(kits_held(&mut h, me), vec![kits[1]], "kept");
 }
+
+const DRAIN: u32 = 0x7000_08C5;
+
+/// A pet's strike that leaves a vital transfer takes its number at the pet's level from the
+/// creature's health, and gives the pet its share of what was taken.
+/// Behaviour: server.effects.transfers-move-what-was-taken
+#[test]
+fn a_pets_drain_takes_health_from_the_creature_and_gives_the_pet_its_share() {
+    let mut h = Harness::new();
+    with_pet(&mut h, 1, 1096, Some(strike_skill(vec![DRAIN])));
+    let drain = EffectDef {
+        external_flags: 0x145,
+        internal_flags: 0x4340_1013 | HARMFUL,
+        ..def(
+            DRAIN,
+            Kind::VitalTransfer {
+                flags: 0x145,
+                target: Scale(vec![(1.0, -10.0), (50.0, -200.0)]),
+                caster: Scale(vec![(0.0, 2.0)]),
+            },
+        )
+    };
+    h.server.effect_table.effects.insert(DRAIN, drain);
+    let (b, me) = summoner(&mut h);
+    let pet = summon(&mut h, b);
+    if let Some(t) = h.server.things.get_mut(pet) {
+        t.health = 100;
+    }
+    let target = beetle(&h);
+    beside(&mut h, target, me);
+    #[allow(clippy::cast_precision_loss)]
+    let level = h
+        .server
+        .things
+        .get(pet)
+        .and_then(|t| t.creature.as_ref())
+        .map(|c| c.stats.level as f32)
+        .expect("a pet");
+    #[allow(clippy::cast_possible_truncation)]
+    let took = (-10.0 - (level - 1.0) * 190.0 / 49.0).floor() as i32;
+    let from = h.bots[b].inbox.len();
+    order_attack(&mut h, b, target);
+    let told = |h: &Harness, on: u64, n: i32| {
+        h.world_messages(b, from).iter().any(|m| {
+            matches!(m, ServerMessage::DoStory(e) if e.sender.id == on
+                && e.action.skill == 0
+                && e.action.hooks.iter().any(|k| k.target == on && k.numbers[3] == n))
+        })
+    };
+    let drained = h.run_until(200, |h| told(h, target, took));
+    assert!(drained, "the creature told the drain of {took}");
+    assert!(told(&h, pet, -2 * took), "the pet told twice that back");
+}

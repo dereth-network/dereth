@@ -1784,3 +1784,39 @@ fn a_corpses_times_are_its_templates_over_its_classes() {
         assert_eq!(times(corpse_rot_of(&p, template)), want, "{template:08X}");
     }
 }
+
+/// The vital transfers read as the data defines them: the Vampiric Swarm's drain takes 10 health at
+/// a spellcraft of 1 and 200 at 50 and gives its caster the whole of what it took; Give Life gives
+/// 50 to 500 and costs its caster half of that.
+/// Behaviour: server.effects.transfers-read-from-their-definitions
+#[test]
+fn the_vital_transfers_read_as_the_data_defines_them() {
+    let p = Portal::open();
+    let t = p.effects(&[0x7000_08C5, 0x7000_081D]);
+    let drain = t.get(0x7000_08C5).expect("the swarm's drain");
+    let Kind::VitalTransfer {
+        flags,
+        target,
+        caster,
+    } = &drain.kind
+    else {
+        panic!("{:?}", drain.kind)
+    };
+    assert_eq!(
+        (
+            flags & 0xF,
+            target.at(1.0),
+            target.at(50.0),
+            caster.at(30.0)
+        ),
+        (0x5, Some(-10.0), Some(-200.0), Some(1.0))
+    );
+    let give = t.get(0x7000_081D).expect("Give Life");
+    assert!(
+        matches!(&give.kind, Kind::VitalTransfer { target, caster, .. }
+            if target.at(50.0) == Some(500.0) && caster.at(1.0) == Some(-0.5)),
+        "{:?}",
+        give.kind
+    );
+    assert!(!drain.lasts());
+}

@@ -77,6 +77,14 @@ pub mod vital {
     pub const OF_MAX: u32 = 0x40;
 }
 
+/// Which vitals a transfer changes (its flags).
+pub mod transfer {
+    pub const TARGET_HEALTH: u32 = 0x1;
+    pub const TARGET_VIGOR: u32 = 0x2;
+    pub const CASTER_HEALTH: u32 = 0x4;
+    pub const CASTER_VIGOR: u32 = 0x8;
+}
+
 /// How a change to qualities applies (its flags).
 pub mod numeric {
     pub const ADD: u32 = 0x4;
@@ -276,6 +284,14 @@ pub enum Kind {
     InstantVital { flags: u32, change: Scale },
     /// Changes vitals by so much a second while it runs.
     VitalOverTime { flags: u32, per_second: Scale },
+    /// Changes a vital of its target once, and one of its caster's by a share of what the target's
+    /// really changed: which (flags, [`transfer`]), the target's change at a spellcraft, and the
+    /// caster's share.
+    VitalTransfer {
+        flags: u32,
+        target: Scale,
+        caster: Scale,
+    },
     /// Changes qualities (each `type << 16 | quality`: 3 a float, 4 an integer) by its
     /// magnitude: added or multiplying, by its flags.
     Numeric {
@@ -371,7 +387,11 @@ impl EffectDef {
     /// Does it last (a record on the target), rather than happen once?
     #[must_use]
     pub fn lasts(&self) -> bool {
-        !self.duration.is_empty() && !matches!(self.kind, Kind::InstantVital { .. })
+        !self.duration.is_empty()
+            && !matches!(
+                self.kind,
+                Kind::InstantVital { .. } | Kind::VitalTransfer { .. }
+            )
     }
 
     /// The effects it adds in turn: a combination's, either way; an aura's pulsed ones.
@@ -636,6 +656,12 @@ impl EffectDef {
             Kind::InstantVital {
                 flags,
                 change: scale("m_changeData"),
+            }
+        } else if is("VitalTransferEffect") {
+            Kind::VitalTransfer {
+                flags,
+                target: scale("m_targetChangeData"),
+                caster: scale("m_casterChangeData"),
             }
         } else if is("VitalOverTimeEffect") {
             Kind::VitalOverTime {

@@ -532,6 +532,17 @@ pub fn apply_on<S: Store>(
             }
             true
         }
+        (
+            Kind::VitalTransfer {
+                flags,
+                target,
+                caster,
+            },
+            _,
+        ) => {
+            transfer(s, net, on, &def, (*flags, target, caster), cast, clock);
+            true
+        }
         (Kind::Quest { quest, update }, On::Player(world)) => {
             let act = match update & 0xF000_0000 {
                 crate::quests::update::BESTOW => Move::Bestow,
@@ -949,6 +960,109 @@ fn heal<S: Store>(
             );
         }
     }
+}
+
+/// A transfer: its target's vital changes by its number at the spellcraft, then its caster's (when
+/// still in the world) by its share of what the target's really changed, a creature's health
+/// alone.
+fn transfer<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    on: On,
+    def: &EffectDef,
+    (flags, target, caster): (u32, &crate::effect_defs::Scale, &crate::effect_defs::Scale),
+    cast: Cast,
+    clock: Clock,
+) {
+    use crate::effect_defs::transfer as t;
+    let pick = |health: u32, vigor: u32| {
+        (if flags & health != 0 {
+            vital::HEALTH
+        } else {
+            0
+        }) | (if flags & vigor != 0 { vital::VIGOR } else { 0 })
+    };
+    let change = dereth_primitives::num::floor_to_i32(target.at(cast.spellcraft).unwrap_or(0.0));
+    let moved = change_by(
+        s,
+        net,
+        on,
+        def,
+        pick(t::TARGET_HEALTH, t::TARGET_VIGOR),
+        change,
+        cast,
+        clock,
+    );
+    #[allow(clippy::cast_precision_loss)]
+    let back = dereth_primitives::num::floor_to_i32(
+        caster.at(cast.spellcraft).unwrap_or(0.0) * moved.unsigned_abs() as f32,
+    );
+    let by = s
+        .players
+        .iter()
+        .find(|(_, p)| p.character == cast.caster)
+        .map(|(c, _)| On::Player(*c))
+        .or_else(|| {
+            s.things
+                .get(cast.caster)
+                .filter(|t| t.alive() && t.creature.is_some())
+                .map(|_| On::Creature(cast.caster))
+        });
+    if let (Some(by), true) = (by, back != 0) {
+        let quiet = EffectDef {
+            fx: 0,
+            ..def.clone()
+        };
+        let bits = pick(t::CASTER_HEALTH, t::CASTER_VIGOR);
+        change_by(s, net, by, &quiet, bits, back, cast, clock);
+    }
+}
+
+/// A vital of a player or a creature (a creature's health alone) as it stands; none when gone.
+fn vital_now<S: Store>(s: &Server<S>, on: On, bits: u32) -> i32 {
+    match on {
+        On::Player(world) => s.players.get(&world).map_or(0, |p| {
+            let q = if bits & vital::HEALTH != 0 {
+                quality::HEALTH
+            } else {
+                quality::VIGOR
+            };
+            crate::quals::int(&p.qualities, q).unwrap_or(0)
+        }),
+        On::Creature(id) => s
+            .things
+            .get(id)
+            .filter(|t| bits & vital::HEALTH != 0 && t.alive())
+            .map_or(0, |t| t.health),
+    }
+}
+
+/// Change a vital of a player or a creature by an amount, as an instant change does: what it
+/// really changed by.
+#[allow(clippy::too_many_arguments)]
+fn change_by<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    on: On,
+    def: &EffectDef,
+    bits: u32,
+    amount: i32,
+    cast: Cast,
+    clock: Clock,
+) -> i32 {
+    if bits == 0 || amount == 0 {
+        return 0;
+    }
+    let before = vital_now(s, on, bits);
+    match on {
+        On::Player(world) => heal(s, net, world, def, (bits, amount), cast, clock),
+        On::Creature(id) => {
+            if bits & vital::HEALTH != 0 {
+                creature_health(s, net, id, amount, cast.caster, clock);
+            }
+        }
+    }
+    vital_now(s, on, bits) - before
 }
 
 /// The story of a change to a creature's or a player's health, told by it: its caster's, one hook
