@@ -13,5 +13,6 @@ mod player_teleport_completion;
 mod remote_move_to;
 mod remote_move_to_arms;
 mod remote_turn_release;
+mod run_after_login;
 mod run_speed;
 mod server_approach_handover;

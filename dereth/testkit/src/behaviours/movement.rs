@@ -326,6 +326,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "movement.run.a-character-runs-from-the-world-entry-and-walks-only-while-the-walk-key-is-held",
+        says: "Run is the default: a character runs from the moment it enters the world, with no key \
+               pressed first, and the walk key walks it only while held. The toggle-run option is \
+               read each time the walk key's state is applied, so it is never an earlier value.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-ISSUE710-RUN-DEFAULT"),
+        station: "dereth-client::dat::movement::run_after_login::a_character_entered_with_no_key_pressed_runs_and_walks_only_while_shift_is_held",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "movement.run.the-body-covers-ground-at-the-run-skills-rate",
         says: "A running character covers ground at the rate its Run skill and carried load give: \
                with no character qualities known it runs at the base rate of about four metres a \

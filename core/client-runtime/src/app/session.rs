@@ -527,6 +527,7 @@ impl<S: Shell> App<S> {
                 // the player id. Like Reset above,
                 // this is local work owed by the already-decoded event, not by a surviving
                 // packet controller.
+                self.read_toggle_run();
                 self.movement.enable(&mut self.char_input);
             }
             if let SessionEvent::CharacterSet(set) = e {

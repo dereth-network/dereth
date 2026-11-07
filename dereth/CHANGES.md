@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`launcher/RELEASING.md`](launcher/RELEASING.md)).
 
 ## Unreleased
+- Fixed walking after logging in until Shift was pressed and released.
 
 ## 0.4.15 (2026-11-07)
 - The relay that plays AC1999 now comes with Dereth.

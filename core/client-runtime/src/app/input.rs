@@ -180,6 +180,22 @@ impl<S: Shell> App<S> {
         }
     }
 
+    /// **The second operand of `set_hold_run`'s XOR**, read from the player's options.
+    ///
+    /// `set_hold_run` reads the toggle-run option on **every** call and XORs the physical key
+    /// against it. `ToggleRun` is default-on, so on a shipped character
+    /// `effective_run = !hold_run`: run is the default and holding the key walks you.
+    ///
+    /// [`crate::character::MovementCommands::ui_toggles_run`] carries that operand, and every
+    /// path that reaches `set_hold_run` reads it here first: the dispatch loop, for the `HoldRun`
+    /// keyboard command and the `SetHoldRun` action, and the session edges that enable and disable
+    /// the command interpreter. Read only in the loop, a character entered with no key pressed
+    /// since the client started took the field's initial `false` and walked until the walk key
+    /// was pressed and released.
+    pub(super) fn read_toggle_run(&mut self) {
+        self.movement.ui_toggles_run = self.objects.world.player_system.options.toggle_run();
+    }
+
     /// The input seam for movement and for the camera's look controls.
     ///
     /// Input dispatch gives the winning map's callback first refusal and then walks the
@@ -267,19 +283,7 @@ impl<S: Shell> App<S> {
         if events.is_empty() {
             return;
         }
-        // **The second operand of `set_hold_run`'s XOR.**
-        //
-        // `set_hold_run` reads the toggle-run option on **every** call and XORs the physical key
-        // against it. `ToggleRun` is default-on, so on a shipped character
-        // `effective_run = !hold_run`: run is the default and holding the key walks you.
-        //
-        // [`crate::character::MovementCommands::ui_toggles_run`] carries that operand; left
-        // unassigned it is `false` and the polarity is inverted in a running client. This is the
-        // assignment. It sits here, once per frame ahead of the dispatch loop, because
-        // every path that can reach `set_hold_run` — the `HoldRun` keyboard command and the
-        // `SetHoldRun` action — goes through that loop, so a per-frame refresh and the client's
-        // live option read cannot disagree within a frame.
-        self.movement.ui_toggles_run = self.objects.world.player_system.options.toggle_run();
+        self.read_toggle_run();
         let mut declined = Vec::with_capacity(events.len());
         for e in events {
             // The client UI system's complete first Escape leg returns before a following input

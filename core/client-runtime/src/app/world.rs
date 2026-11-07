@@ -523,6 +523,7 @@ impl<S: Shell> App<S> {
         self.movement.clear_all_commands(&mut self.char_input);
         // Release the physical hold-run input and recompute its effective value against the UI
         // toggle, just like every other `set_hold_run` caller.
+        self.read_toggle_run();
         self.char_input.run = self
             .movement
             .lists
