@@ -381,5 +381,5 @@ jobs:
             exit 0
           fi
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --latest=false $PRE \
-            --title "Dereth Network launcher $VERSION" --notes-file ../notes.md \
+            --title "Launcher $VERSION" --notes-file ../notes.md \
             "${assets[@]}"

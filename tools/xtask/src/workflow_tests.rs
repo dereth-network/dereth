@@ -329,3 +329,10 @@ fn the_build_tools_are_pinned_programs_checked_before_use() {
     assert!(launcher
         .contains("uses: ./.github/actions/release-tools\n        with:\n          tauri: true"));
 }
+
+/// **The launcher's release is called Launcher**, at its version, on GitHub.
+#[test]
+fn the_launcher_s_release_is_titled_launcher() {
+    let workflow = read(".github/workflows/release-launcher.yml");
+    assert!(workflow.contains("--title \"Launcher $VERSION\""));
+}
