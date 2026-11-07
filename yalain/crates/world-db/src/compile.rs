@@ -998,6 +998,11 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     });
                 }
             }
+            Row::Tool(r) => {
+                if cx.template(l, "template", r.template) {
+                    t.crafting.tool_yields.insert(r.template, r.tool_yield);
+                }
+            }
             Row::Scene(r) => {
                 let sub = |x: &Option<crate::rows::StrRef>| x.as_ref().map(|r| (r.string, r.table));
                 t.story.scenes.insert(

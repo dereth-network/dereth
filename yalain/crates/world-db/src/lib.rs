@@ -27,7 +27,7 @@
 //! <pack>/server/quests/QQQQQQQQ.toml   [[quest]], [[step]] of one quest
 //! <pack>/server/gives/TTTTTTTT.toml    [[give]] of one template given to
 //! <pack>/server/talk/TTTTTTTT.toml     [[talk]] of one template
-//! <pack>/server/crafting.toml     [[craft]]
+//! <pack>/server/crafting.toml     [[craft]], [[tool]]
 //! <pack>/server/story.toml        [[scene]], [[shard]]
 //! <pack>/server/weapons.toml      [[weapon]]
 //! <pack>/server/pets.toml         [[pet]], [[pet_limit]]

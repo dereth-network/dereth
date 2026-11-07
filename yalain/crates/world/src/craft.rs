@@ -570,6 +570,8 @@ pub struct Crafting {
     pub starting_recipes: Vec<u32>,
     /// What each butchery profile yields.
     pub butchery: HashMap<u32, Vec<crate::butchery::Yield>>,
+    /// What gathering tools yield when they were not made, by template (the world's rows).
+    pub tool_yields: HashMap<u32, u32>,
     /// The level tables recipes' actions read by the spinner, by saved state.
     pub spinner_tables: HashMap<u32, LevelMap>,
 }

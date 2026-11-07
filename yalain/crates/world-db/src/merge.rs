@@ -46,6 +46,9 @@ pub fn item(l: &Located) -> Option<Item> {
         Row::Talk(r) => Item::Talk { key: r.key.clone() },
         Row::Craft(r) => Item::Craft { id: r.id() },
         Row::Butchery(r) => Item::Butchery { profile: r.profile },
+        Row::Tool(r) => Item::Tool {
+            template: r.template,
+        },
         Row::Scene(r) => Item::Scene { id: r.id },
         Row::Shard(r) => Item::Shard { object: r.object },
         Row::Weapon(r) => Item::Weapon {
@@ -93,6 +96,7 @@ fn value(row: &Row) -> String {
         Row::Talk(x) => x.prov = crate::rows::Prov::default(),
         Row::Craft(x) => x.prov = crate::rows::Prov::default(),
         Row::Butchery(x) => x.prov = crate::rows::Prov::default(),
+        Row::Tool(x) => x.prov = crate::rows::Prov::default(),
         Row::Scene(x) => x.prov = crate::rows::Prov::default(),
         Row::Shard(x) => x.prov = crate::rows::Prov::default(),
         Row::Weapon(x) => x.prov = crate::rows::Prov::default(),

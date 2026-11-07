@@ -68,6 +68,8 @@ pub struct CraftStart {
     pub recipes: Vec<u32>,
     /// What each butchery profile yields.
     pub butchery: Vec<ButcheryYields>,
+    /// What gathering tools yield when they were not made, by template.
+    pub tool_yields: std::collections::BTreeMap<u32, u32>,
 }
 
 /// A butchery profile's materials (their templates) and each one's share, and the share of cuts

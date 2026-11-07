@@ -1724,6 +1724,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             })
             .collect();
         let mut craft = data::crafting(portal, &crafting, &granted)?;
+        craft.tool_yields = yalain_world::butchery::world_tool_yields(crafting.tool_yields.clone());
         craft.butchery = crafting
             .butchery
             .iter()

@@ -1329,6 +1329,36 @@ fn a_weapon_row_names_the_template_of_a_creatures_weapon_and_must_name_one_insta
 }
 
 #[test]
+fn a_tool_row_gives_a_templates_unmade_yield_and_must_name_one_installed() {
+    let mut files = fixture();
+    files.insert(
+        "town/server/crafting.toml".into(),
+        "[[tool]]\ntemplate = 0x4700115B\nyield = 6\nprov = { from = \"authored\" }\n\n\
+         [[tool]]\ntemplate = 0x47009999\nyield = 2\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    let merged = merge(&read(&files).unwrap()).unwrap();
+    let problems = compile(&merged, &Fake::new()).unwrap_err();
+    let messages: Vec<String> = problems.iter().map(ToString::to_string).collect();
+    assert_eq!(messages.len(), 1, "{messages:?}");
+    assert!(messages[0].contains("template: template 47009999 is not in the install"));
+    files.insert(
+        "town/server/crafting.toml".into(),
+        "[[tool]]\ntemplate = 0x4700115B\nyield = 6\nprov = { from = \"authored\" }\n".into(),
+    );
+    let merged = merge(&read(&files).unwrap()).unwrap();
+    let t = compile(&merged, &Fake::new()).unwrap();
+    assert_eq!(t.crafting.tool_yields.get(&0x4700_115B), Some(&6));
+    assert_eq!(t.crafting.tool_yields.len(), 1);
+    // A yield is a count.
+    files.insert(
+        "town/server/crafting.toml".into(),
+        "[[tool]]\ntemplate = 0x4700115B\nyield = -1\nprov = { from = \"authored\" }\n".into(),
+    );
+    assert!(read(&files).is_err());
+}
+
+#[test]
 fn a_pet_row_compiles_to_a_kind_and_must_name_an_installed_template() {
     let mut files = fixture();
     files.insert(

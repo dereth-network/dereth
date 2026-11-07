@@ -447,6 +447,7 @@ pub enum Row {
     Remove(Vec<String>),
     Craft(Craft),
     Butchery(Butchery),
+    Tool(Tool),
     Scene(Scene),
     Shard(Shard),
     Weapon(Weapon),
@@ -593,6 +594,14 @@ pub struct Butchery {
     pub prov: Prov,
 }
 
+/// `[[tool]]`: what a gathering tool yields when it was not made (a made one's yield is its own).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Tool {
+    pub template: u32,
+    pub tool_yield: u32,
+    pub prov: Prov,
+}
+
 /// A step of a scene: how long, its picture, music and voice, its subtitle, the tracks it defines.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Keyframe {
@@ -664,6 +673,7 @@ impl Row {
             Self::Remove(_) => "remove",
             Self::Craft(_) => "craft",
             Self::Butchery(_) => "butchery",
+            Self::Tool(_) => "tool",
             Self::Scene(_) => "scene",
             Self::Shard(_) => "shard",
             Self::Weapon(_) => "weapon",
@@ -692,6 +702,7 @@ impl Row {
             Self::Talk(r) => Some(&r.prov),
             Self::Craft(r) => Some(&r.prov),
             Self::Butchery(r) => Some(&r.prov),
+            Self::Tool(r) => Some(&r.prov),
             Self::Scene(r) => Some(&r.prov),
             Self::Shard(r) => Some(&r.prov),
             Self::Weapon(r) => Some(&r.prov),
@@ -707,7 +718,7 @@ impl Row {
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 22] = [
+pub const KINDS: [&str; 23] = [
     "object",
     "camp",
     "loot",
@@ -721,6 +732,7 @@ pub const KINDS: [&str; 22] = [
     "remove",
     "craft",
     "butchery",
+    "tool",
     "scene",
     "shard",
     "weapon",
@@ -733,7 +745,7 @@ pub const KINDS: [&str; 22] = [
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 22] = [
+pub const FIELDS: [(&str, &[&str]); 23] = [
     (
         "object",
         &[
@@ -927,6 +939,7 @@ pub const FIELDS: [(&str, &[&str]); 22] = [
         "butchery",
         &["profile", "items", "weights", "empty", "prov"],
     ),
+    ("tool", &["template", "yield", "prov"]),
     (
         "scene",
         &[
@@ -1548,6 +1561,11 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 prov: f.req_prov()?,
             })
         }
+        "tool" => Row::Tool(Tool {
+            template: f.req_id("template")?,
+            tool_yield: f.req_u32("yield")?,
+            prov: f.req_prov()?,
+        }),
         "scene" => Row::Scene(Scene {
             id: f.req_id("id")?,
             act: f.req_id("act")?,

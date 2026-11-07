@@ -1627,7 +1627,7 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.craft.butchery-units-by-knife",
-        says: "A cut gives ten units above the knife's own yield, twice that for an expert cut; a crude knife's yield is 1, a made knife's its level and five.",
+        says: "A cut gives ten units above the knife's own yield, twice that for an expert cut; a made knife's yield is its level and five, one not made the yield the world's rows give its template, else a crude knife's 1.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-BUTCHERY-UNITS"),
         station: "yalain-testkit::cpu::play::butchery::a_knife_cuts_ten_units_above_its_own_yield",
