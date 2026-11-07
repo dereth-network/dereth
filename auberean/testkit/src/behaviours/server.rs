@@ -9137,6 +9137,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.pets.never-critical",
+        says: "A pet's strikes are never critical, its blows and its missiles alike.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PETS-NEVER-CRITICAL"),
+        station: "yalain-testkit::cpu::play::pet_kinds::a_pets_strikes_land_but_are_never_critical",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.pets.of-the-owners-kingdom",
         says: "A summoned pet is of its owner's kingdom (none: the neutral one): its creation \
                carries the kingdom, its physics type the kingdom's bit, and its movement \

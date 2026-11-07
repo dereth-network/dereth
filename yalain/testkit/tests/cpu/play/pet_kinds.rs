@@ -293,6 +293,70 @@ fn a_pets_hit_is_its_kinds_number_times_its_level_squared_less_the_creatures_arm
     assert!((55..=70).contains(&low), "{low}");
 }
 
+/// A pet's strikes are never critical, its blows and its missiles alike: of the many that land on a
+/// creature standing its ground, none.
+/// Behaviour: server.pets.never-critical
+#[test]
+fn a_pets_strikes_land_but_are_never_critical() {
+    const HIT: u32 = 0x4000_0008;
+    const CRITICAL: u32 = 0x4000_0009;
+    let mut h = Harness::new();
+    with_kind(&mut h, &LASHER, 1);
+    with_attacks(&mut h, &LASHER, &[MELEE, MELEE_TWO, MISSILE]);
+    let (b, me) = summoner(&mut h);
+    if let Some(p) = h.server.players.values_mut().find(|p| p.character == me) {
+        quals::set_int(&mut p.qualities, quality::HEALTH_MAX, 100_000);
+        quals::set_int(&mut p.qualities, quality::HEALTH, 100_000);
+    }
+    h.run(20);
+    let pet = {
+        let from = summon(&mut h, b);
+        pet_added(&h, b, from)
+    }
+    .expect("a pet");
+    let beetle = beetles(&h)[0];
+    // Within a blow's reach, so it draws its blows and its missile alike.
+    put_by_pet(&mut h, beetle, pet, 1.0);
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(function::ATTACK, &[Arg::LongInt(beetle)]),
+    );
+    // Every result of the pet's on the beetle, each with the skill it came of.
+    let results = |h: &Harness| -> Vec<(u32, u32)> {
+        h.world_messages(b, from)
+            .iter()
+            .filter_map(|m| match m {
+                ServerMessage::DoStory(e) if e.action.attacker == pet => Some(e),
+                _ => None,
+            })
+            .flat_map(|e| {
+                e.action
+                    .hooks
+                    .iter()
+                    .filter(|k| k.target == beetle && k.numbers[0] != 0)
+                    .map(|k| (e.action.skill, k.numbers[0].cast_unsigned()))
+            })
+            .collect()
+    };
+    let landed = |h: &Harness| {
+        results(h)
+            .iter()
+            .filter(|(_, r)| [HIT, CRITICAL].contains(r))
+            .count()
+    };
+    assert!(h.run_until(20_000, |h| landed(h) >= 200), "{}", landed(&h));
+    let all = results(&h);
+    for skill in [MELEE, MISSILE] {
+        assert!(
+            all.iter().any(|(s, r)| *s == skill && *r == HIT),
+            "{skill} lands: {all:x?}"
+        );
+    }
+    assert!(!all.iter().any(|(_, r)| *r == CRITICAL), "{all:x?}");
+}
+
 /// A pet's missile is thrown in a story of its own (the target named in its missile's part, no
 /// result), and lands later as a story told by what it lands on, naming the pet and the result.
 /// Behaviour: server.pets.missile-lands-later
