@@ -9,7 +9,7 @@
 //! binary run on a registry file.
 
 use std::collections::HashMap;
-use std::io::{Read, Write};
+use std::io::{ErrorKind, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -237,7 +237,9 @@ pub(super) fn hub_with(tweak: impl FnOnce(&mut HubConfig)) -> Fixture {
         }),
         admins: vec![ADMIN.into()],
         loopback_allowed: true,
-        fetch_timeout: Duration::from_secs(2),
+        // Only a guard against a hang: a page that answers is read in time however busy the
+        // machine. The test of giving up on a page sets a short one of its own.
+        fetch_timeout: Duration::from_secs(60),
         http_per_minute: 100_000,
         challenge_every: Duration::from_millis(100),
         challenge_wait: ANSWER_WAIT,
@@ -1198,9 +1200,13 @@ fn a_world_calling_from_another_address_than_its_endpoint_is_verified() {
     f.running.shutdown();
 }
 
+/// How long `/held` holds its answer: far longer than a hub that gives up waits.
+const HELD: Duration = Duration::from_secs(30);
+
 /// The verification page server: `/token` holds the token (set later), `/away` redirects to
 /// another host, `/private` redirects into a private range by another spelling of the host,
-/// `/loop` redirects to itself, `/slow` never answers, `/huge` puts the token past what is read.
+/// `/loop` redirects to itself, `/held` answers with the token only if the hub is still there after
+/// [`HELD`], `/huge` puts the token past what is read.
 pub(super) fn page_server(token: Arc<Mutex<String>>) -> Stub {
     Stub::start(Arc::new(move |got: &Got, s: &mut TcpStream| {
         let t = token.lock().expect("the token").clone();
@@ -1227,7 +1233,15 @@ pub(super) fn page_server(token: Arc<Mutex<String>>) -> Stub {
                 );
             }
             "/loop" => answer(s, 302, "Location: /loop\r\n", ""),
-            "/slow" => std::thread::sleep(Duration::from_secs(10)),
+            "/held" => {
+                // The hub hanging up ends the read; only a hub still waiting is answered.
+                let _ = s.set_read_timeout(Some(HELD));
+                if s.read(&mut [0u8; 1])
+                    .is_err_and(|e| matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut))
+                {
+                    answer(s, 200, "", &format!("dereth network: {t}\n"));
+                }
+            }
             "/huge" => {
                 let filler = "x".repeat(70 * 1024);
                 answer(s, 200, "", &format!("{filler}\n{t}\n"));
@@ -1280,13 +1294,6 @@ fn a_page_on_the_worlds_host_verifies_it_and_nothing_else_does() {
             "{path}"
         );
     }
-    let started = Instant::now();
-    let a = verify_page(&f, &ann, "paged", &format!("{base}/slow"));
-    assert_eq!(a.reason(), "token_not_found");
-    assert!(
-        started.elapsed() < Duration::from_secs(5),
-        "the hub gave up in time"
-    );
     assert_eq!(federation(&f, "paged"), "unset");
 
     let a = verify_page(&f, &ann, "paged", &format!("{base}/hop"));
@@ -1319,6 +1326,21 @@ fn a_page_on_the_worlds_host_verifies_it_and_nothing_else_does() {
         "no token in the log"
     );
     f.running.shutdown();
+
+    // A page that holds its answer, the token: a hub with a short wait gives up on it and is not
+    // verified, where a hub that waited would be.
+    let quick = hub_with(|c| c.fetch_timeout = Duration::from_millis(500));
+    let ann = sign_in(&quick, "552");
+    let (_, t) = register(&quick, &ann, "held", "127.0.0.1");
+    *token.lock().expect("the token") = t;
+    let a = verify_page(&quick, &ann, "held", &format!("{base}/held"));
+    assert_eq!(
+        (a.status, a.reason()),
+        (422, "token_not_found".to_owned()),
+        "the hub gave up: {a:?}"
+    );
+    assert_eq!(federation(&quick, "held"), "unset");
+    quick.running.shutdown();
 }
 
 /// Spec: hub: a public hub reads a page only from a public address, never loopback or a private
