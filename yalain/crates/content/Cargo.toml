@@ -1,7 +1,7 @@
 [package]
 name = "yalain-content"
 description = "The server's content pack: the objects with behavior the world places, each described from its template in the data files and placed where the recorded sessions saw it (or where an author put it), every row naming where it came from."
-version = "0.2.1" # Yalain's own version, shared by every yalain-* crate (not the workspace's)
+version = "0.2.2" # Yalain's own version, shared by every yalain-* crate (not the workspace's)
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

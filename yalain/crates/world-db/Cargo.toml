@@ -1,7 +1,7 @@
 [package]
 name = "yalain-world-db"
 description = "The Asheron's Call 2 world database: its packs of server rows read and checked, merged in load order, compiled against an install into the server's tables, and packaged as a release."
-version = "0.2.1" # Yalain's own version, shared by every yalain-* crate (not the workspace's)
+version = "0.2.2" # Yalain's own version, shared by every yalain-* crate (not the workspace's)
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

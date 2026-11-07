@@ -1,7 +1,7 @@
 [package]
 name = "yalain-friends"
 description = "The world's friends service, sans-IO: what an Asheron's Call 2 world serves its players over the friends stream, beside its login."
-version = "0.2.1" # Yalain's own version, shared by every yalain-* crate (not the workspace's)
+version = "0.2.2" # Yalain's own version, shared by every yalain-* crate (not the workspace's)
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
