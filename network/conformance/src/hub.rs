@@ -438,12 +438,41 @@ impl Link {
         })
     }
 
-    /// Closes the link.
-    pub fn close(mut self) {
+    /// Closes the link, as dropping it does.
+    pub fn close(self) {}
+
+    /// Says the link is closing and waits, briefly, for the hub to end the connection. The end of
+    /// a connection that closes first is held by the system for minutes, keeping its port; this
+    /// end's port is one of the machine's ephemeral ones, which a run of many links at once would
+    /// otherwise use up.
+    fn end(&mut self) {
         let _ = self.ws.close(None);
         let _ = self.ws.flush();
+        let until = Instant::now() + HANG_UP_WAIT;
+        let mut b = [0u8; 1024];
+        while Instant::now() < until {
+            match std::io::Read::read(self.ws.get_mut(), &mut b) {
+                Ok(0) => break,
+                Ok(_) => {}
+                Err(e)
+                    if matches!(
+                        e.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) => {}
+                Err(_) => break,
+            }
+        }
     }
 }
+
+impl Drop for Link {
+    fn drop(&mut self) {
+        self.end();
+    }
+}
+
+/// How long a link or a request waits for the hub to end its connection before ending it itself.
+pub(crate) const HANG_UP_WAIT: Duration = Duration::from_secs(2);
 
 /// A run's tag: letters only, so it fits in a character's and a channel's name.
 fn tag() -> String {

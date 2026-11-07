@@ -532,6 +532,7 @@ fn serve(listener: std::net::TcpListener, routes: HashMap<String, (u16, String, 
                 body.len()
             );
             let _ = s.write_all(&body);
+            std::thread::spawn(move || super::operators::hang_up_after_the_caller(s));
         }
     });
 }

@@ -40,6 +40,8 @@ zip = { version = "8", default-features = false, features = ["deflate-flate2-zli
 [dev-dependencies]
 # The hub runs the conformance suite's hub checks against itself.
 dereth-network-conformance = { path = "../conformance" }
+# The tests' stand-in servers end their connections with a reset, which leaves no end held.
+socket2 = "0.5"
 
 [lints.rust]
 unsafe_code = "forbid"

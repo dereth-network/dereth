@@ -76,6 +76,7 @@ impl Stub {
                             let _ = stream.set_nonblocking(false);
                             if let Some(got) = read_request(&mut stream) {
                                 handler(&got, &mut stream);
+                                hang_up_after_the_caller(stream);
                             }
                         });
                     }
@@ -137,6 +138,24 @@ fn read_request(stream: &mut TcpStream) -> Option<Got> {
         headers,
         body: String::from_utf8_lossy(&body).into_owned(),
     })
+}
+
+/// Closes a stand-in's end of a connection once the caller (the hub, reading an answer) has closed
+/// its own, and closes it at once, with a reset. A connection's end that closes first is held by
+/// the system for minutes afterwards, keeping its port; the hub's end is one of the machine's
+/// ephemeral ports, and a busy machine running many tests at once runs out of them. Ended this
+/// way, neither end is held. A caller that is still there after a while is left to it.
+pub(super) fn hang_up_after_the_caller(mut stream: TcpStream) {
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
+    let mut b = [0u8; 1024];
+    loop {
+        match stream.read(&mut b) {
+            Ok(0) => break,
+            Ok(_) => {}
+            Err(_) => return,
+        }
+    }
+    let _ = socket2::SockRef::from(&stream).set_linger(Some(Duration::ZERO));
 }
 
 pub(super) fn answer(stream: &mut TcpStream, status: u16, extra: &str, body: &str) {

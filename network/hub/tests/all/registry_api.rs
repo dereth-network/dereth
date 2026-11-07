@@ -694,6 +694,7 @@ fn a_world_with_nothing_better_has_treestats_count() {
                 "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                 body.len()
             );
+            std::thread::spawn(move || super::operators::hang_up_after_the_caller(stream));
         }
     });
     let (running, _, _) = super::conformance::hub_with(dereth_network_hub::server::HubConfig {

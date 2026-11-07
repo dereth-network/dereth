@@ -111,6 +111,21 @@ fn request(base: &str, method: &str, path: &str, head: &str, body: &str) -> Resu
             return Err(format!("{target}: no whole answer within {WAIT:?}"));
         }
     }
+    // Asked to, the hub closes the connection after its answer. Waiting for that leaves the end the
+    // system holds after a close on the hub's side, not on one of this machine's ephemeral ports.
+    let until = Instant::now() + super::HANG_UP_WAIT;
+    while Instant::now() < until {
+        match tcp.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(_) => {}
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) => {}
+            Err(_) => break,
+        }
+    }
     parse(&bytes).ok_or_else(|| format!("{target}: an answer that does not read as HTTP"))
 }
 
