@@ -162,6 +162,8 @@ pub mod fidelity {
     /// `Fidelity.RemasterArtPack`: the art pack in the remaster, while its box is ticked. Naming a
     /// pack ticks it.
     pub const REMASTER_ART_PACK: &str = "Fidelity.RemasterArtPack";
+    /// `Fidelity.RemasterGrade`: the remaster's color grade for each kind of day.
+    pub const REMASTER_GRADE: &str = "Fidelity.RemasterGrade";
     /// `Fidelity.Interface`: whether the interface shown is Horizon, the only one the
     /// remaster draws under. The client sets it as the interface changes; it is never kept
     /// in the profile.
@@ -194,6 +196,7 @@ pub mod fidelity {
         REMASTER_SCALE,
         REMASTER_GOD_RAYS,
         REMASTER_ART_PACK,
+        REMASTER_GRADE,
     ];
 
     /// The names among [`NAMES`] that are menus, each a number, rather than boxes.

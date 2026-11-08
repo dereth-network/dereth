@@ -24,11 +24,18 @@ import retail;
 //   6     x the exposure's scale, y the bloom's share, z 1 when the colors are linear and tone
 //         mapped, w the bloom's levels
 //   7     the grade: x its saturation, y its contrast, z its vignette
+//   8     the grade's tables (as uints): xyz the three tables blended, w the tables' picture (~0:
+//         none, the frame is not graded by them)
+//   9     xyz the three tables' weights, w how many tables the picture holds
 static const uint POST_PREVIOUS = 0;
 static const uint POST_STATE = 4;
 static const uint POST_TAA = 5;
 static const uint POST_TONE = 6;
 static const uint POST_GRADE = 7;
+static const uint POST_TABLES = 8;
+static const uint POST_TABLE_WEIGHTS = 9;
+// The steps of a grade table's side.
+static const float TABLE_SIDE = 32.0;
 
 struct Push
 {
@@ -381,6 +388,21 @@ float3 shown_light(float3 c)
                   l.z <= 0.0031308 ? low.z : high.z);
 }
 
+// Display values `c` through grade table `table` of the picture `tables` holding `count`: the
+// two slices of blue round it, each read bilinearly in red and green, blended.
+float3 graded_by(uint tables, float count, uint table, float3 c)
+{
+    float3 s = saturate(c) * (TABLE_SIDE - 1.0);
+    float b0 = floor(s.b);
+    float b1 = min(b0 + 1.0, TABLE_SIDE - 1.0);
+    float width = TABLE_SIDE * TABLE_SIDE;
+    float height = TABLE_SIDE * count;
+    float v = (float(table) * TABLE_SIDE + s.g + 0.5) / height;
+    float3 a = sampled(tables, float2((b0 * TABLE_SIDE + s.r + 0.5) / width, v)).rgb;
+    float3 b = sampled(tables, float2((b1 * TABLE_SIDE + s.r + 0.5) / width, v)).rgb;
+    return lerp(a, b, s.b - b0);
+}
+
 // The frame shown: the bloom laid in, the exposure and the shoulder when the colors are linear;
 // as they are when they are display values.
 [shader("fragment")]
@@ -405,6 +427,21 @@ float4 fs_tonemap(float4 position : SV_Position) : SV_Target0
         // easing out toward black so the shade keeps its color.
         c = lerp(float3(luma(c)), c, grade.x);
         c = lerp(c, (c - 0.5) * grade.y + 0.5, smoothstep(0.0, 0.25, c));
+    }
+    uint4 tables = asuint(row(push.post, POST_TABLES));
+    if (tables.w != 0xFFFFFFFF)
+    {
+        // The grade of the frame's kind of day and hour, from up to three tables.
+        float4 w = row(push.post, POST_TABLE_WEIGHTS);
+        float3 g = float3(0.0, 0.0, 0.0);
+        for (uint k = 0; k < 3; k++)
+        {
+            if (w[k] > 0.0)
+            {
+                g += graded_by(tables.w, w.w, tables[k], c) * w[k];
+            }
+        }
+        c = g;
     }
     return float4(saturate(c), 1.0);
 }

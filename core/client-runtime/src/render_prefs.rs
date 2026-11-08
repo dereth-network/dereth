@@ -572,12 +572,14 @@ pub enum FidelityFeature {
     RemasterGodRays,
     /// The art pack in the remaster.
     RemasterArtPack,
+    /// The remaster's color grade.
+    RemasterGrade,
 }
 
 #[cfg(feature = "fidelity")]
 impl FidelityFeature {
     /// Every option, in the order the names list them.
-    pub const ALL: [Self; 21] = [
+    pub const ALL: [Self; 22] = [
         Self::Remaster,
         Self::RemasterShadows,
         Self::RemasterSky,
@@ -599,6 +601,7 @@ impl FidelityFeature {
         Self::RemasterScale,
         Self::RemasterGodRays,
         Self::RemasterArtPack,
+        Self::RemasterGrade,
     ];
 
     /// The option's preference name.
@@ -626,6 +629,7 @@ impl FidelityFeature {
             Self::RemasterScale => fidelity::REMASTER_SCALE,
             Self::RemasterGodRays => fidelity::REMASTER_GOD_RAYS,
             Self::RemasterArtPack => fidelity::REMASTER_ART_PACK,
+            Self::RemasterGrade => fidelity::REMASTER_GRADE,
         }
     }
 

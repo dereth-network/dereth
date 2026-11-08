@@ -38,6 +38,9 @@ use super::stations::{self, capture, report_station, Shot, Station};
 /// Every box that draws something of its own without a choice of how, as a player ticks them.
 pub(crate) const EVERY_BOX: &str = "Remaster=1,RemasterShadows=1,RemasterSky=1,RemasterFog=1,RemasterOcclusion=1,RemasterIndoorLamps=1,RemasterOutdoorLamps=1,RemasterBloom=1,RemasterSmoothing=1,RemasterWater=1,RemasterPuddles=1,RemasterRain=1,RemasterDetail=1,RemasterBounce=1";
 
+/// The frames whose device time is averaged.
+const FRAMES_TIMED: usize = 16;
+
 /// The places of the comparison: stations by name, and report lines by theirs.
 const PLACES: [&str; 8] = [
     "holtburg",
@@ -127,9 +130,19 @@ fn draw(
         shot.step_held(&mut gpu);
     }
     let rgba = capture(&mut gpu);
+    // The device's time a frame, over a few more frames held still.
+    let mut totals = Vec::new();
+    for _ in 0..FRAMES_TIMED {
+        shot.step_held(&mut gpu);
+        let t = shot.scene.draw.remaster_timings(&mut gpu);
+        if !t.is_empty() {
+            totals.push(t.iter().map(|t| t.1).sum::<f64>());
+        }
+    }
     let timings = shot.scene.draw.remaster_timings(&mut gpu);
     if !timings.is_empty() {
-        let total: f64 = timings.iter().map(|t| t.1).sum();
+        #[allow(clippy::cast_precision_loss)] // a few frames
+        let total: f64 = totals.iter().sum::<f64>() / totals.len().max(1) as f64;
         let line: Vec<String> = timings
             .iter()
             .filter(|t| t.1 >= 0.1)

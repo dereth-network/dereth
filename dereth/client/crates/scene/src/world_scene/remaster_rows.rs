@@ -41,6 +41,8 @@ pub struct RemasterRows {
     pub traced_occlusion: bool,
     pub upscale: bool,
     pub dlss: bool,
+    /// The landscape's additions.
+    pub grade: bool,
     /// The share of the pixels drawn each way while upscaling, in percent; 0 until one is chosen.
     pub scale: u32,
     /// How strongly the sunlit air shows shafts of light: 0 none, 1 low, 2 high.
@@ -71,6 +73,7 @@ impl RemasterRows {
             traced_occlusion: f.remaster_feature(F::RemasterTracedOcclusion),
             upscale: f.remaster_feature(F::RemasterUpscale),
             dlss: f.remaster_feature(F::RemasterDlss),
+            grade: f.remaster_feature(F::RemasterGrade),
             scale: f.effective(F::RemasterScale),
             god_rays: f.effective(F::RemasterGodRays),
             packs: if f.remaster_feature(F::RemasterArtPack) {
@@ -226,6 +229,11 @@ impl SceneDraw {
                 ..RemasterUpscale::default()
             };
             self.set_remaster_upscale(s, gpu);
+        }
+        if now.grade != was.grade {
+            let mut s = self.remaster_landscape();
+            s.grade = now.grade;
+            self.set_remaster_landscape(s, gpu);
         }
         if now.packs != was.packs {
             self.set_remaster_packs(now.packs, gpu);

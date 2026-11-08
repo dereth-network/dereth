@@ -66,6 +66,8 @@ pub(crate) struct View {
     /// Whether the sun's shadows and the occlusion are traced.
     pub(super) traced_shadows: super::remaster_traced::RemasterTracedShadows,
     pub(super) traced_ao: super::remaster_traced::RemasterTracedAo,
+    /// Which of the landscape's additions are drawn.
+    pub(super) landscape: super::remaster_landscape::RemasterLandscape,
 }
 
 /// Where the remaster works retail's light out.
@@ -202,6 +204,9 @@ impl SceneDraw {
         remaster
             .renderer()
             .set_rt_ao(self.remaster_view.get_mut().traced_ao);
+        remaster
+            .renderer()
+            .set_landscape(self.remaster_view.get_mut().landscape);
         // A scene that came before this one on the device, gone without being told to stop, left
         // its remaster behind: entering the world makes a new scene.
         drop(gpu.take_world_hook());

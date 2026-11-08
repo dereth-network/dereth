@@ -17,9 +17,11 @@ pub mod dlss;
 pub mod drawn;
 pub mod forest;
 pub mod gi;
+pub mod grade;
 pub mod impostor;
 pub mod intent;
 pub mod lamps;
+pub mod landscape;
 pub mod light;
 pub mod lod;
 #[cfg(target_os = "macos")]
@@ -237,6 +239,8 @@ pub struct Renderer {
     packs: crate::assets::pack::PackSwaps,
     /// Whether an art pack's light and grade are laid over the frame.
     pack_look: bool,
+    /// Which of the landscape's additions are drawn.
+    landscape: self::landscape::LandscapeSettings,
     /// The water pass.
     water: self::water::WaterPass,
     /// The rain, the snow, the wet and the puddles' share.
@@ -597,6 +601,7 @@ impl Renderer {
             ao: self::ao::AoPass::new(&mut gfx)?,
             packs: crate::assets::pack::PackSwaps::default(),
             pack_look: false,
+            landscape: self::landscape::LandscapeSettings::default(),
             water: self::water::WaterPass::new(&mut gfx)?,
             weather: self::weather::WeatherPass::new(&mut gfx)?,
             rt: self::rt::RtPass::new(&mut gfx)?,

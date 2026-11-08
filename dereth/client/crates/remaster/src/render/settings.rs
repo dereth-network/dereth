@@ -5,6 +5,7 @@
 use super::ao::AoSettings;
 use super::gi::GiSettings;
 use super::lamps::LampSettings;
+use super::landscape::LandscapeSettings;
 use super::lod::LodSettings;
 use super::post::PostSettings;
 use super::rt_ao::RtAoSettings;
@@ -40,6 +41,8 @@ pub struct Settings {
     pub rt_ao: RtAoSettings,
     /// How the frame is upscaled, and how far below the display's size it is drawn.
     pub upscale: UpscaleSettings,
+    /// Which of the landscape's additions are drawn.
+    pub landscape: LandscapeSettings,
 }
 
 impl Settings {
@@ -67,6 +70,7 @@ impl super::Renderer {
         self.set_rt_shadows(s.rt_shadows);
         self.set_rt_ao(s.rt_ao);
         self.set_upscale(s.upscale);
+        self.set_landscape(s.landscape);
     }
 
     /// Every pass's settings.
@@ -87,6 +91,7 @@ impl super::Renderer {
             rt_shadows: self.rt_shadows(),
             rt_ao: self.rt_ao(),
             upscale: self.upscale(),
+            landscape: self.landscape(),
         }
     }
 }

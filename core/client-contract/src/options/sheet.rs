@@ -1186,7 +1186,7 @@ const CLIENT: [Heading; 6] = {
 
 /// The remaster's box, off by default and on the Horizon page alone.
 #[cfg(feature = "fidelity")]
-const REMASTER_ROWS: [Row; 21] = [
+const REMASTER_ROWS: [Row; 22] = [
     only(
         Shown::Only(Interface::Horizon),
         noted(
@@ -1211,11 +1211,12 @@ const REMASTER_ROWS: [Row; 21] = [
     remaster_box(10),
     remaster_box(11),
     remaster_box(12),
-    remaster_box_not_over_metal(13),
+    remaster_box(13),
     remaster_box_not_over_metal(14),
-    remaster_box(15),
-    remaster_box_not_over_metal(16),
-    remaster_box(17),
+    remaster_box_not_over_metal(15),
+    remaster_box(16),
+    remaster_box_not_over_metal(17),
+    remaster_box(18),
     only(
         Shown::Only(Interface::Horizon),
         noted(

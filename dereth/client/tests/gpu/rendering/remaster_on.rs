@@ -689,6 +689,31 @@ fn each_of_the_remasters_own_boxes_changes_the_frame_and_off_puts_it_back() {
     }
 }
 
+/// Each of the landscape's additions, over every ordinary box but those that gather over frames
+/// (the smoothing, the occlusion and the bounced light, whose histories carry a frame into the next
+/// by design), changes the frame where it shows; off again, the frame is the one drawn with it never
+/// ticked, to the pixel.
+#[test]
+fn each_landscape_addition_changes_the_frame_and_off_puts_it_back_to_the_pixel() {
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    let every = crate::instruments::remaster_look_frames::EVERY_BOX
+        .replace("RemasterSmoothing=1,", "")
+        .replace("RemasterOcclusion=1,", "")
+        .replace(",RemasterBounce=1", "");
+    let every = every.as_str();
+    for (place, spec) in [("ridge", "RemasterGrade")] {
+        let station = box_station(&store, place, false);
+        let on = format!("{every},{spec}=1");
+        let never = boxes_run(&store, &station, false, [every, every, every]);
+        let ticked = boxes_run(&store, &station, false, [every, &on, every]);
+        let changed = apart(&never[1], &ticked[1]);
+        let back = apart(&never[2], &ticked[2]);
+        assert!(changed > 0.05, "{place} {spec}: moved {changed:.3}");
+        assert!(back == 0.0, "{place} {spec}: off again {back:.4}");
+    }
+}
+
 #[test]
 fn each_frame_uploads_under_its_limit_at_the_farthest_draw_distance() {
     let _gpu = crate::common::gpu_lock();

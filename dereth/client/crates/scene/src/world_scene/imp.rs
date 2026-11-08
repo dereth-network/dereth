@@ -99,11 +99,16 @@ pub use remaster_traced::{RemasterTracedAo, RemasterTracedShadows};
 #[path = "remaster_lamps.rs"]
 mod remaster_lamps;
 #[cfg(feature = "remaster")]
+#[path = "remaster_landscape.rs"]
+mod remaster_landscape;
+#[cfg(feature = "remaster")]
 #[path = "remaster_lod.rs"]
 mod remaster_lod;
 #[cfg(feature = "remaster")]
 #[path = "remaster_rows.rs"]
 mod remaster_rows;
+#[cfg(feature = "remaster")]
+pub use remaster_landscape::RemasterLandscape;
 #[cfg(feature = "remaster")]
 pub use remaster_lod::{RemasterImpostorStats, RemasterLod, RemasterLodStats};
 #[cfg(feature = "remaster")]

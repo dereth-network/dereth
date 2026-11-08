@@ -260,6 +260,10 @@ pub struct PostPass {
     constants: PerFrame,
     /// Whether the frame takes an art pack's grade.
     pack_look: bool,
+    /// Whether the frame is graded by the tables of its kind of day, and the tables' picture
+    /// with its index in the table, made the first time it is.
+    grade: bool,
+    grade_tables: Option<(Texture, u32)>,
     /// The moving parts' items and last transforms, and their draw commands.
     moving: PerFrame,
     commands: PerFrame,
@@ -395,8 +399,10 @@ impl PostPass {
             sampler: (sampler, sampler_index),
             settings: PostSettings::default(),
             display: None,
-            constants: PerFrame::new(gfx, "remaster post constants", 128, BufferUsage::default())?,
+            constants: PerFrame::new(gfx, "remaster post constants", 160, BufferUsage::default())?,
             pack_look: false,
+            grade: false,
+            grade_tables: None,
             moving: PerFrame::new(
                 gfx,
                 "remaster moving parts",
@@ -421,6 +427,32 @@ impl PostPass {
     /// Whether the frame takes an art pack's grade.
     pub fn set_pack_look(&mut self, on: bool) {
         self.pack_look = on;
+    }
+
+    /// Whether the frame is graded by the tables of its kind of day.
+    pub fn set_grade(&mut self, on: bool) {
+        self.grade = on;
+    }
+
+    /// The grade's tables, made the first time they are asked for.
+    fn grade_tables(&mut self, gfx: &mut Device) -> Result<u32, dereth_gfx::Error> {
+        if let Some((_, index)) = self.grade_tables {
+            return Ok(index);
+        }
+        let tables = &super::grade::TABLES;
+        let side = super::grade::SIDE;
+        let texture = gfx.create_texture(&TextureDesc {
+            label: "remaster grade tables",
+            width: side * side,
+            height: side * u32::try_from(tables.len()).unwrap_or(1),
+            mips: 1,
+            format: Format::Rgba8Unorm,
+            usage: TextureUsage::SAMPLED,
+        })?;
+        gfx.upload_texture(texture, 0, &super::grade::picture(tables))?;
+        let index = gfx.bind_texture(texture)?;
+        self.grade_tables = Some((texture, index));
+        Ok(index)
     }
 
     /// How the passes draw from the next frame on.
@@ -638,6 +670,18 @@ impl PostPass {
             let grade = if self.pack_look { PACK_GRADE } else { NO_GRADE };
             rows.0
                 .push([grade[0], grade[1], grade[2], 0.0].map(f32::to_bits));
+        }
+        if self.grade {
+            let index = self.grade_tables(gfx)?;
+            let b = super::grade::blend(frame);
+            rows.0.push([b.tables[0], b.tables[1], b.tables[2], index]);
+            #[allow(clippy::cast_precision_loss)] // a handful of tables
+            let count = super::grade::TABLES.len() as f32;
+            rows.0
+                .push([b.weights[0], b.weights[1], b.weights[2], count].map(f32::to_bits));
+        } else {
+            rows.0.push([0, 0, 0, NONE]);
+            rows.0.push([0; 4]);
         }
         self.constants.write(gfx, &rows.bytes())?;
         let command_bytes = super::command_bytes(gfx);
