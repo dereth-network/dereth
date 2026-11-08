@@ -17,6 +17,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - AC1999: fixed logging back in after logging out.
 - Remaster: a new Horizon renderer that draws art packs, off by default.
 - Better Lighting is gone; Remaster takes its place.
+- Rain now falls on the character select screen.
 
 ## 0.4.15 (2026-11-07)
 - The relay that plays AC1999 now comes with Dereth.

@@ -312,6 +312,24 @@ impl<S: Shell> App<S> {
             // See `WorldScene::viewpoint` for the table and the rest of the reasoning.
             crate::camera::update_viewer(&mut *world, input, now, f64::from(dt));
         }
+        // The backdrop behind the screens before the world is up while the player's own world is
+        // still armed, so the step above passes it by. It is stepped here instead, on its own
+        // clock and with no input, so its rain and snow fall, its clouds drift, its water runs and
+        // its scenery moves while its camera stays where the interface puts it.
+        if let Some(backdrop) = self.backdrop.as_mut() {
+            backdrop.clock += f64::from(dt);
+            let clock = dereth_primitives::LocalTime(backdrop.clock);
+            if let Some(mut world) = self.present.scene_mut(self.world.as_mut()) {
+                world.world_mut().smooth_animation = self.smooth_animation;
+                world.world_mut().smooth_movement = self.smooth_movement;
+                world.update(
+                    CameraInput::default(),
+                    crate::character::CharacterInput::default(),
+                    clock,
+                    dt,
+                );
+            }
+        }
         // Camera rotation turns the *body*
         // in two of its three arms — in first person, and whenever
         // `Input.UseMouseTurning` is on — and the calls it makes to do it are the command

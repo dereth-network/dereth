@@ -338,7 +338,8 @@ impl<S: Shell> App<S> {
     /// same switches the player's world will be built with, and released when the player's own
     /// world is built or [`Self::hide_backdrop`] is called. Nothing is drawn where there is no
     /// landscape to build (`--no-world`), once the player is in the world, or while a world is
-    /// already up. True while the backdrop is up.
+    /// already up. Its weather, sky, water and scenery move as the world's do, on a clock of its
+    /// own that starts when it is built; it takes no input. True while the backdrop is up.
     pub fn show_backdrop(&mut self, landblock: u16, yaw: f32, pitch: f32) -> bool {
         let Some(armed) = self.pending_scene else {
             return false;
@@ -346,7 +347,7 @@ impl<S: Shell> App<S> {
         if self.objects.player().is_some() {
             return false;
         }
-        if self.backdrop.is_some_and(|(block, _)| block != landblock) {
+        if self.backdrop.is_some_and(|b| b.block != landblock) {
             self.hide_backdrop();
         }
         if self.backdrop.is_none() {
@@ -372,14 +373,21 @@ impl<S: Shell> App<S> {
                 return false;
             };
             let home = world.world().camera;
-            self.backdrop = Some((landblock, home));
+            self.backdrop = Some(Backdrop {
+                block: landblock,
+                home: (home.yaw, home.pitch),
+                clock: 0.0,
+            });
         }
-        let Some((_, home)) = self.backdrop else {
+        let Some(Backdrop { home, .. }) = self.backdrop else {
             return false;
         };
         if let Some(mut world) = self.present.scene_mut(self.world.as_mut()) {
-            world.world_mut().camera =
-                crate::camera::FreeCamera::new(home.position, home.yaw + yaw, home.pitch + pitch);
+            // Turned from where it started, standing where it stands: the frame's step may have
+            // re-centered the window on it, which moves its place in the window but not in the
+            // world.
+            let camera = &mut world.world_mut().camera;
+            *camera = crate::camera::FreeCamera::new(camera.position, home.0 + yaw, home.1 + pitch);
         }
         true
     }

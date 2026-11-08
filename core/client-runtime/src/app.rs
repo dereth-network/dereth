@@ -545,6 +545,19 @@ impl ViewerCellReport {
     }
 }
 
+/// The world [`App::show_backdrop`] drew: the block it was built around, the way its camera was
+/// turned and tilted when it was built, and its own clock.
+#[derive(Debug, Clone, Copy)]
+struct Backdrop {
+    block: u16,
+    /// Yaw and pitch, radians.
+    home: (f32, f32),
+    /// Seconds since it was built, stepped by each frame's step. Its own rather than the game's,
+    /// so it keeps the hour it was built at, and a jump in the game's clock (the server's time
+    /// arriving) moves it no further than a frame's step does.
+    clock: f64,
+}
+
 /// Everything the object-census line prints, and the key it is gated on.
 ///
 /// # What this key is a superset OF
@@ -886,9 +899,9 @@ pub struct App<S: Shell> {
     /// `None` is a build with no landscape at all (`--no-world`, the char-gen and intro slices);
     /// there is nothing to rebuild and the teardown is a no-op.
     pub scene_config: Option<crate::scene::SceneConfig>,
-    /// The world drawn behind the screens before the player is in it, while one is: the block it
-    /// was built around and the camera it was built with. See [`App::show_backdrop`].
-    backdrop: Option<(u16, crate::camera::FreeCamera)>,
+    /// The world drawn behind the screens before the player is in it, while one is. See
+    /// [`App::show_backdrop`].
+    backdrop: Option<Backdrop>,
     /// What the landblock line last printed, so a crossing is logged once rather than
     /// every frame. Not the block alone; see [`ViewerBlockReport`].
     last_viewer_block: Option<ViewerBlockReport>,

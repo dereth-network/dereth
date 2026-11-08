@@ -984,6 +984,98 @@ fn a_host_can_advance_a_session_without_presenting_over_its_other_view() {
     assert_eq!(log.order(), crate::shutdown::Step::ORDER);
 }
 
+/// The world drawn behind the screens before the player is in it is stepped every frame, as the
+/// player's own world is, so what moves with time there (the rain and snow, the clouds, the water,
+/// the scenery) moves behind character select too. It runs on a clock of its own from when it is
+/// built: the server's time arriving does not move its hour. And it stays put: a held key does
+/// not move its camera, and the interface turning it every frame does not walk the window across
+/// the land.
+///
+/// Behaviour: none (the backdrop is a screen of this client's own interface)
+#[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads the retail dats: --features retail-dats"
+)]
+fn the_world_behind_character_select_moves_on_its_own_clock_and_stays_put() {
+    let store = std::sync::Arc::new(dereth_dat::testing::open_store().unwrap_or_else(|| {
+        panic!(
+            "the retail dats are this test's oracle and they are not under {}",
+            dereth_dat::testing::dat_dir().display()
+        )
+    }));
+    let cfg = Config {
+        headless: true,
+        connect: false,
+        sound: false,
+        ..Config::default()
+    };
+    let mut app = App::<NullShell>::bring_up_with_store(
+        cfg,
+        Some(store),
+        |_| Ok(Platform::headless(64, 64)),
+        |_, _, _, _| Ok(Box::new(crate::sim_present::SimPresentation::new(64, 64))),
+    )
+    .expect("bring-up");
+    app.defer_static_scene(crate::scene::SceneConfig {
+        landblock: 0xA9B4,
+        character: false,
+        ..crate::scene::SceneConfig::default()
+    });
+    // What the backdrop's world holds: its next environment tick, its scenery's last physics
+    // tick, its hour, the block its window is centered on and where its camera stands in it.
+    let world = |app: &App<NullShell>| {
+        let ws = app.world.as_ref().expect("the backdrop's world");
+        (
+            ws.next_tick,
+            ws.last_bodyless_tick,
+            ws.clock.present_time_of_day,
+            ws.viewer_block(),
+            ws.camera.position,
+        )
+    };
+    let mut shell = NullShell;
+    // A frame as the interface draws it: the backdrop shown and turned, then the frame.
+    let frame = |app: &mut App<NullShell>, shell: &mut NullShell, turn: f32| {
+        assert!(app.show_backdrop(0xA9B4, turn, 0.0), "the backdrop is up");
+        assert!(app.frame(shell));
+    };
+    assert!(app.show_backdrop(0xA9B4, 0.0, 0.0), "the backdrop is up");
+    let built = world(&app);
+    assert_eq!(built.0, 0.0, "nothing has stepped it yet");
+    frame(&mut app, &mut shell, 0.0);
+    let first = world(&app);
+
+    // The server's time arrives, far from the process's own, and a movement key is held.
+    app.timer.set_time(&*app.clock, 1.0e6);
+    app.input.forward = true;
+    for i in 1..60u8 {
+        frame(&mut app, &mut shell, f32::from(i) * 0.01);
+    }
+
+    let stepped = world(&app);
+    assert!(
+        stepped.0 > 0.0 && stepped.1 > 0.0,
+        "the backdrop was never stepped: its scenery and its sky's ticks stand where it was built"
+    );
+    assert!(
+        stepped.0 < 10.0,
+        "the backdrop's clock follows the game's ({}), not its own",
+        stepped.0
+    );
+    assert!(
+        (stepped.2 - built.2).abs() < 1e-3,
+        "the hour moved from {} to {}",
+        built.2,
+        stepped.2
+    );
+    assert_eq!(
+        stepped.3, first.3,
+        "the backdrop's window walked across the land"
+    );
+    assert_eq!(stepped.4, first.4, "the backdrop's camera moved");
+}
+
 /// `--set-at` takes the remaster's boxes as the preferences file spells them (`True`, `False`, a
 /// share as `75%`), and as the numbers `--fidelity` takes, and hands the store a box as the
 /// boolean it holds, so the page and the saved profile follow it.
