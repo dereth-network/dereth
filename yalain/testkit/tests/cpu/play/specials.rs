@@ -101,6 +101,112 @@ fn vigor_sent(h: &Harness, b: usize, from: usize) -> Vec<i32> {
         .collect()
 }
 
+/// A special of three damaging hooks on one target: each hook rolls apart, to land and to be
+/// critical, and does its own damage. Over seeded uses, some uses mix a critical with a plain hit
+/// and a landed hook with one evaded; the hooks are critical at about the skill's chance; the hook
+/// that adds most hurts most.
+/// Behaviour: server.specials.hooks-roll-apart
+#[test]
+fn a_specials_hooks_on_one_target_each_roll_apart() {
+    use yalain_world::rules::Outcome;
+    let (mut h, b, me, beetle) = beside_a_beetle();
+    practice_target(&mut h, beetle);
+    h.arm(b, me, SWORD);
+    let d = h
+        .server
+        .skill_table
+        .skills
+        .get_mut(&RIPOSTE)
+        .expect("Riposte");
+    // The class sets a critical at half the landed hooks.
+    d.critical_threshold = Some(1.5);
+    let u = d.usage.as_mut().expect("its use");
+    let strike = u.hooks[0].clone();
+    u.hooks = (0..3u8)
+        .map(|n| yalain_world::skills::Hook {
+            add: 50.0 * f32::from(n),
+            anim_hook: u32::from(n) + 1,
+            ..strike.clone()
+        })
+        .collect();
+    let mut beside = h
+        .server
+        .players
+        .values()
+        .find(|p| p.character == me)
+        .map(|p| p.position)
+        .expect("in the world");
+    beside.origin[0] += 1.5;
+    let t = h.server.things.get_mut(beetle).expect("the beetle");
+    t.at = Some(beside);
+    t.max_health = 100_000_000;
+    t.health = 100_000_000;
+    let codes = [
+        Outcome::Hit,
+        Outcome::Critical,
+        Outcome::Miss,
+        Outcome::Evade,
+    ]
+    .map(Outcome::code);
+    let mut uses: Vec<Vec<(u32, i32)>> = Vec::new();
+    for use_id in 0..150 {
+        let from = use_skill(&mut h, b, 1000 + use_id, RIPOSTE, beetle);
+        h.run(200);
+        let hooks: Vec<(u32, i32)> = h
+            .world_messages(b, from)
+            .iter()
+            .find_map(|m| match m {
+                ServerMessage::DoStory(e) if e.sender.id == me && e.action.attacker == me => {
+                    Some(e.action.hooks.clone())
+                }
+                _ => None,
+            })
+            .expect("the use's story")
+            .iter()
+            .filter(|k| k.target == beetle && codes.contains(&k.numbers[0].cast_unsigned()))
+            .map(|k| (k.numbers[0].cast_unsigned(), -k.numbers[3]))
+            .collect();
+        assert_eq!(hooks.len(), 3, "{hooks:x?}");
+        uses.push(hooks);
+        for p in h.server.players.values_mut() {
+            yalain_world::quals::set_int(&mut p.qualities, VIGOR, 100);
+        }
+    }
+    let (hit, critical) = (Outcome::Hit.code(), Outcome::Critical.code());
+    let landed = |r: u32| r == hit || r == critical;
+    let mixed_critical = uses
+        .iter()
+        .filter(|u| u.iter().any(|k| k.0 == hit) && u.iter().any(|k| k.0 == critical))
+        .count();
+    let mixed_landing = uses
+        .iter()
+        .filter(|u| u.iter().any(|k| landed(k.0)) && u.iter().any(|k| !landed(k.0)))
+        .count();
+    assert!(mixed_critical >= 20, "{mixed_critical} of {}", uses.len());
+    assert!(mixed_landing >= 5, "{mixed_landing} of {}", uses.len());
+    let all: Vec<u32> = uses.iter().flatten().map(|k| k.0).collect();
+    let n_landed = all.iter().filter(|r| landed(**r)).count();
+    let n_critical = all.iter().filter(|r| **r == critical).count();
+    #[allow(clippy::cast_precision_loss)]
+    let share = n_critical as f64 / n_landed as f64;
+    assert!((0.4..0.6).contains(&share), "{n_critical} of {n_landed}");
+    let median_hit = |at: usize| -> i32 {
+        let mut v: Vec<i32> = uses
+            .iter()
+            .filter(|u| u[at].0 == hit)
+            .map(|u| u[at].1)
+            .collect();
+        v.sort_unstable();
+        v[v.len() / 2]
+    };
+    assert!(
+        median_hit(2) - median_hit(0) >= 80,
+        "{} {}",
+        median_hit(0),
+        median_hit(2)
+    );
+}
+
 /// A special's landed hook is critical at the chance its skill's class sets with what its weapon
 /// adds, the weapon's template's own and its effects': with none of them never, with any one that
 /// sets it all every time.

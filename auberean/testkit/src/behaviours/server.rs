@@ -12654,6 +12654,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.specials.hooks-roll-apart",
+        says: "Each damaging hook of a special on its target rolls apart, to land and to be \
+               critical, and does its own damage: one use's hooks may mix a critical with a plain \
+               hit, or a landed hook with one evaded.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SPECIAL-HOOKS-APART"),
+        station: "yalain-testkit::cpu::play::specials::a_specials_hooks_on_one_target_each_roll_apart",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.specials.inside-a-run",
         says: "Inside an attack run a special waits for the run's next swing and takes it; the \n               run's basic swings go on after it.",
         since: RETAIL,

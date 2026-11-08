@@ -56,6 +56,7 @@ what they see, not how it was done.
 - Fixed heroes' attribute skills adding nothing to health, vigor, focus and Arcane Lore.
 - Fixed logins that could hang when a server had just started.
 - Fixed orb throws ignoring a weapon's critical bonus.
+- A special's hooks now each roll to land and to crit.
 
 ## 0.2.2 (2026-11-07)
 - Resurrection skills work: the dead can accept and get up where they fell.

@@ -2223,8 +2223,11 @@ fn story<S: Store>(
 
 /// How a hostile use's striking hooks come out: a hook with an area on every creature it reaches
 /// around its center (the target, or the user), and on the other player it is aimed at; any other
-/// on the target when it is a creature or another player (its damaging hook's outcome already
-/// rolled).
+/// on the target when it is a creature or another player. Each hook rolls apart, to land and to be
+/// critical, with its own hand; only the first damaging hook on the target takes the outcome the use
+/// already rolled (2017, Nettle's uses whose three hooks all landed: one of them critical in 524 and
+/// all three in 20, where rolling apart gives 554 and 12 and one roll for all 0 and 291; 663 uses
+/// had only one or two of the three land).
 fn landings_of<S: Store>(
     s: &mut Server<S>,
     world: ConnId,
@@ -2281,7 +2284,7 @@ fn landings_of<S: Store>(
         };
         for t in targets {
             let o = match rolled {
-                Some(r) if t == target && first_damaging.is_some() => Some(r),
+                Some(r) if t == target && first_damaging == Some(i) => Some(r),
                 _ => {
                     let me = by_its_hand(s, world, me, h);
                     roll_hook(s, u, h, (hitting_with(me, h, rating), chance), t)
