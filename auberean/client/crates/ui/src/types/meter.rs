@@ -111,8 +111,8 @@ impl Ui {
         }
     }
 
-    /// A new state, a new place or a new size: the fills follow.
-    // D2-11626, D2-11627, D2-11628, D2-11629
+    /// A new state: the fills follow (as they do a new place, parent or size).
+    // D2-11627
     pub(crate) fn meter_set_state(&mut self, h: Handle, s: Token) -> bool {
         let r = self.set_state_base(h, s);
         self.lay_out_meter(h);

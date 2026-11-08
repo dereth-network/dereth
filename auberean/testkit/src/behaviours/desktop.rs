@@ -1821,6 +1821,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "desktop.settings.the-device-is-made-again-as-the-client-shows-the-game-another-way",
+        says: "Showing the game another way makes the device again (its stages start over): a new \
+               size, full screen or not, or the edges smoothed or not; in full screen also another \
+               way of buffering or of waiting for the refresh.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-DEVICE-RESTART"),
+        station: "auberean-shell::cpu::settings::the_device_is_made_again_as_the_client_shows_the_game_another_way",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "desktop.settings.the-display-and-values-read-as-the-client-writes-them",
         says: "The display's size is kept as one number, its width above its height, with full \
                screen beside it; a yes-or-no reads only as 1 or 0, a number only when the whole \

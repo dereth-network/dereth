@@ -397,3 +397,59 @@ fn the_lands_blending_is_read_from_the_file_and_the_line() {
         "saying nothing leaves it"
     );
 }
+
+/// Showing the game another way makes the device again for a new size, full screen or not, or the
+/// edges smoothed or not, whether in a window or full screen; another way of buffering or of
+/// waiting for the refresh makes it again only in full screen. Nothing changed makes nothing.
+///
+/// Behaviour: desktop.settings.the-device-is-made-again-as-the-client-shows-the-game-another-way
+#[test]
+fn the_device_is_made_again_as_the_client_shows_the_game_another_way() {
+    let window = Presentation {
+        size: (1024, 768),
+        full_screen: false,
+        triple_buffering: false,
+        sync_to_display: true,
+        antialiasing: false,
+    };
+    let full = Presentation {
+        full_screen: true,
+        ..window
+    };
+    for was in [window, full] {
+        assert!(!was.restarts_device(&was), "nothing changed");
+        let resized = Presentation {
+            size: (1280, 1024),
+            ..was
+        };
+        assert!(resized.restarts_device(&was), "a new size");
+        let smoothed = Presentation {
+            antialiasing: true,
+            ..was
+        };
+        assert!(smoothed.restarts_device(&was), "the edges smoothed");
+        let swapped = Presentation {
+            full_screen: !was.full_screen,
+            ..was
+        };
+        assert!(swapped.restarts_device(&was), "full screen or not");
+        let buffered = Presentation {
+            triple_buffering: true,
+            ..was
+        };
+        let unsynced = Presentation {
+            sync_to_display: false,
+            ..was
+        };
+        assert_eq!(
+            buffered.restarts_device(&was),
+            was.full_screen,
+            "a third buffer"
+        );
+        assert_eq!(
+            unsynced.restarts_device(&was),
+            was.full_screen,
+            "the refresh"
+        );
+    }
+}

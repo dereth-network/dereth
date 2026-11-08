@@ -199,7 +199,8 @@ const FLOOR_ROWS: std::ops::Range<u32> = 100..230;
 
 /// With trilinear filtering a texture blends between its two nearest levels; without it each
 /// texel comes from the nearest level alone: the floor shows only the levels' own grays. A device
-/// keeps the filtering its first frame asked for: turned on later, the floor stays unblended.
+/// keeps the filtering its first frame asked for: turned on later, the floor stays unblended until
+/// the device is made again.
 ///
 /// Behaviour: draw.picture.trilinear-filtering-blends-between-a-textures-levels
 #[test]
@@ -225,10 +226,16 @@ fn trilinear_filtering_blends_between_a_textures_levels() {
     let mut started_off = renderer();
     let off = between(&mut started_off, false);
     let later = between(&mut started_off, true);
+    started_off.restart();
+    let restarted = between(&mut started_off, true);
     drop(started_off);
     let on = between(&mut renderer(), true);
     assert!(off < 0.01, "nearest level only: {off}");
     assert!(later < 0.01, "kept from the first frame: {later}");
+    assert!(
+        restarted > 0.2,
+        "taken again as the device is made again: {restarted}"
+    );
     assert!(on > 0.2, "blended: {on}");
 }
 

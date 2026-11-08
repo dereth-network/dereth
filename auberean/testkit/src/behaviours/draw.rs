@@ -1269,8 +1269,8 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "draw.picture.trilinear-filtering-blends-between-a-textures-levels",
         says: "With trilinear filtering a texture blends between its two nearest levels; without \
-               it each texel comes from the nearest level alone. The filtering the client starts \
-               with stays until it starts again.",
+               it each texel comes from the nearest level alone. The filtering the device is made \
+               with stays until it is made again.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-TRILINEAR"),
         station: "auberean-gpu::gpu::textures::trilinear_filtering_blends_between_a_textures_levels",

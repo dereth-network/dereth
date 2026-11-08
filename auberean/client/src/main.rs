@@ -827,7 +827,8 @@ impl App<'_> {
 
     /// The game shown as the rendering preferences now ask: full screen fills the monitor as it
     /// is, which never changes its display mode, or the window at its size;
-    /// the device made again for the edges smoothed or not; the way pictures reach the screen.
+    /// the device made again for the edges smoothed or not, its stages started over for the rest of
+    /// what makes it again; the way pictures reach the screen.
     // D2-08343, D2-09722
     fn show(&mut self, el: &ActiveEventLoop, p: Presentation) {
         let Some(w) = self.shell.host.window.clone() else {
@@ -847,6 +848,9 @@ impl App<'_> {
             self.make_device(el, &w);
         } else if let Some(present) = &mut self.present {
             present.set_presentation(p.full_screen, p.triple_buffering, p.sync_to_display);
+            if p.restarts_device(&was) {
+                present.renderer.restart();
+            }
         }
         // In full screen the window stays as it is while the picture's size changes; a new device
         // starts at the window's own size; a window leaving full screen fills again at once.

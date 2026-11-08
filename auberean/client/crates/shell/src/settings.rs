@@ -49,6 +49,20 @@ pub struct Presentation {
 }
 
 impl Presentation {
+    /// Whether showing the game this way, where it was shown as `was`, makes the device again: a
+    /// new size, full screen or not, or the edges smoothed or not; or, in full screen, another
+    /// way of buffering or of waiting for the refresh.
+    // D2-09722, D2-08343
+    #[must_use]
+    pub fn restarts_device(&self, was: &Self) -> bool {
+        self.size != was.size
+            || self.full_screen != was.full_screen
+            || self.antialiasing != was.antialiasing
+            || (was.full_screen
+                && (self.triple_buffering != was.triple_buffering
+                    || self.sync_to_display != was.sync_to_display))
+    }
+
     /// The size of the picture shown in a window of this size: in full screen the size asked for,
     /// scaled to the monitor, otherwise the window's own.
     #[must_use]

@@ -307,6 +307,7 @@ impl Ui {
         match self.kind_of(h) {
             k if k == kind::LISTBOX || k == kind::LISTBOX_MULTI_SIZE => self.listbox_resized(h),
             k if k == kind::SCROLLBAR => self.lay_out_scrollbar(h),
+            // D2-11629
             k if k == kind::METER => self.lay_out_meter(h),
             _ => {}
         }

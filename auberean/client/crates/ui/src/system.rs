@@ -1659,6 +1659,7 @@ impl Ui {
         }
         match self.node(h).map(|n| n.kind) {
             Some(k) if k == kind::SCROLLBAR => self.lay_out_scrollbar(h),
+            // D2-11626, D2-11628
             Some(k) if k == kind::METER => self.lay_out_meter(h),
             _ => {}
         }

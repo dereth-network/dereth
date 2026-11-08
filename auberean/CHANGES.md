@@ -16,6 +16,7 @@ not how it was done.
 - The connecting screen counts login attempts out of twenty and says when it is logging in.
 - Fixed characters missing their details on servers that pad their messages.
 - Fixed cut, copy and paste in text boxes; on a Mac they use Command.
+- A new texture filtering choice now applies when the display mode changes.
 
 ## 0.1.5 (2026-11-07)
 - Screenshots are taken at full detail, far objects included.

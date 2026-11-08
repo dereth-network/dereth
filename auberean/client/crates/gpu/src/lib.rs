@@ -256,7 +256,8 @@ pub struct Renderer {
     clamp: wgpu::Sampler,
     /// How the textures on the device were taken: their detail, and the samplers' filtering.
     textures_as: Textures,
-    /// Trilinear filtering as the first frame drawn asked for it, kept for the device's life.
+    /// Trilinear filtering as the first frame drawn asked for it, kept until the device is made
+    /// again ([`Self::restart`]).
     trilinear: Option<bool>,
     /// The adapter's name, for the caption.
     pub adapter: String,
@@ -792,6 +793,14 @@ impl Renderer {
         &self.device
     }
 
+    /// The device made again for another way of showing the game (its size, full screen, the
+    /// refresh): its stages start over, so the next frame's trilinear filtering is taken afresh
+    /// and kept from then on.
+    // D2-09862
+    pub fn restart(&mut self) {
+        self.trilinear = None;
+    }
+
     /// Why the device was lost, once it has been: it draws nothing more, and another must be made.
     #[must_use]
     pub fn device_lost(&self) -> Option<String> {
@@ -945,7 +954,7 @@ impl Renderer {
     /// loaded again at that detail as the client flushes its graphics resources; with other
     /// anisotropic filtering the samplers are made again. Trilinear filtering is taken from the
     /// first frame drawn and kept: the device sets each stage's level filter once, when it is
-    /// made, so a change shows only on the next start.
+    /// made, so a change shows only once it is made again ([`Self::restart`]).
     // D2-09722, D2-09706, D2-09671, D2-10018, D2-09862, D2-09861
     fn take_textures(&mut self, textures: Textures) {
         let textures = match self.trilinear {
