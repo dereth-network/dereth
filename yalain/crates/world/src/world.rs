@@ -744,6 +744,10 @@ pub fn enter<S: Store>(
             crate::Timer::BackAfterEntry { world },
         );
     }
+    if first_entry {
+        // Its first entry shows its tip as the session starts (2017: 2 of 2 new characters).
+        crate::popups::moment(s, net, world, yalain_content::popups::Moment::FirstEntry);
+    }
     if new_character {
         crate::scenes::first_entry(s, net, world);
     }

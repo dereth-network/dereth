@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- New players see the welcome, first level-up and first glyph tips once.
 - Kingdom points can now be earned by handing in Enlightenment gems at your kingdom's shrine.
 - Allegiances: message of the day, officers, titles, kingdom restrictions and messages to patron and vassals.
 - Worlds can now schedule events that switch camps, objects and quests on and off.

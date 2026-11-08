@@ -826,6 +826,8 @@ struct Play {
     shrine_kingdoms: std::collections::HashMap<u32, u32>,
     kingdom_skills: yalain_world::kingdom_skills::KingdomSkills,
     kingdom_rows: yalain_content::kingdoms::KingdomTable,
+    popups: yalain_content::popups::PopupTable,
+    glyphs: std::collections::HashSet<u32>,
     cannot_use: std::collections::HashSet<u32>,
     doors: std::collections::HashMap<u32, yalain_world::usable::doors::Kind>,
     doors_through_locks: std::collections::HashSet<u32>,
@@ -1036,6 +1038,8 @@ fn run<S: Store>(
     server.shrine_kingdoms = play.shrine_kingdoms;
     server.kingdom_skills = play.kingdom_skills;
     server.kingdom_rows = play.kingdom_rows;
+    server.popups = play.popups;
+    server.glyph_packages = play.glyphs;
     server.cannot_use_packages = play.cannot_use;
     server.doors.packages = play.doors;
     server.doors.creatures_through_locks = play.doors_through_locks;
@@ -1707,6 +1711,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         pet_limits,
         effect_names,
         kingdoms: kingdom_rows,
+        popups,
         ..
     } = compiled;
     let play = (|| {
@@ -1882,6 +1887,8 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
                 .iter()
                 .flat_map(|e| e.on_players.iter().copied()),
         );
+        // What the tips show.
+        states.extend(popups.effects());
         // The protections: a resurrection's and a city recall's.
         states.extend([
             yalain_world::effects::protection::STATE,
@@ -1952,6 +1959,8 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         tracing::info!(looks = plant_looks.len(), "the dye plants' ripe looks read");
         let inscribable =
             data::catalog_packages_from(portal, &catalog, &yalain_world::personal::INSCRIBABLE)?;
+        let glyphs =
+            data::catalog_packages_from(portal, &catalog, &[yalain_world::popups::GLYPH_CLASS])?;
         let mut held_answers = std::collections::HashMap::new();
         for (base, status, flags) in yalain_world::places::HELD_ANSWERED {
             for pkg in data::catalog_packages_from(portal, &catalog, &[base])? {
@@ -2002,6 +2011,8 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             shrine_kingdoms,
             kingdom_skills,
             kingdom_rows,
+            popups,
+            glyphs,
             cannot_use,
             doors,
             doors_through_locks,
@@ -2058,6 +2069,7 @@ fn reload_world(
         pet_kinds: p.pet_kinds,
         pet_limits: p.pet_limits,
         kingdoms: p.kingdom_rows,
+        popups: p.popups,
         names,
         kinds: Some(yalain_world::reload::PlacedKinds {
             brokers: p.brokers,

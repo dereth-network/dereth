@@ -495,4 +495,8 @@ pub fn level_up<S: Store>(
     let id = p.character;
     crate::combat::to_all_seeing(s, net, id, &fx);
     crate::combat::to_all_seeing(s, net, id, &stop);
+    // The first level gained shows its tip, after the level's own line (2017: 2 of 2).
+    if was <= 1 && now > was {
+        crate::popups::moment(s, net, world, yalain_content::popups::Moment::LevelUp);
+    }
 }

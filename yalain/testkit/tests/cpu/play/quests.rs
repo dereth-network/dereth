@@ -506,9 +506,9 @@ fn a_completion_adds_its_points_to_the_rating_every_time_whatever_the_level() {
     let play = h.server.players[&world].play.clone();
     let back = yalain_world::state::PlayState::from_bytes(&play.to_bytes()).expect("reads");
     assert_eq!(back.quest_rating, 1200, "kept");
-    // Saved before there was a rating: none (the rating, and the word kept after it since).
+    // Saved before there was a rating: none (the rating, and the words kept after it since).
     let mut old = play.to_bytes();
-    old.truncate(old.len() - 8);
+    old.truncate(old.len() - 12);
     old[..4].copy_from_slice(&14u32.to_le_bytes());
     let older = yalain_world::state::PlayState::from_bytes(&old).expect("reads");
     assert_eq!(older.quest_rating, 0, "an older save");

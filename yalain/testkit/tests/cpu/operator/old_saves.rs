@@ -3,6 +3,7 @@
 //! numbers. A later build reads them whole, gives the fields added since their empty values, and keeps
 //! them again whole.
 
+use yalain_content::popups::Moment;
 use yalain_store::StoredPosition;
 use yalain_world::made::Made;
 use yalain_world::market::{Consignment, Market};
@@ -75,6 +76,25 @@ const PLAY_21: &str = concat!(
     "6473050000004d616b65720600000001000020010000000000803e020000000000003f000000000000000001",
     "0000000100002501000000000030210100000005000070000048410000008093dca441030000008051010000",
     "0000000100000007000000746865204f6c6407000000",
+);
+
+/// A play state as Yalain kept it at the encoding's version 22, the one before tips were shown: version
+/// 21's, with the word that its starting clothes were made as items (here, that they were).
+const PLAY_22: &str = concat!(
+    "1600000009000000000000001900000002000000010000000000318101000047000000000000000025000000",
+    "02000000000031810200004701000000100000000100000001000000010000400000001002000000e8030000",
+    "000000004c0400000000000001000000840000000100000003000000050000000100000002000000bc020000",
+    "000000000100000001000000010000000400007000000000a3e1a14100007042070000000000000000003242",
+    "010000000800000000000000090000000a000000000000000300000004000000000000000050534001000000",
+    "0100006f0200000003000000000000000400000000000000010000000200006f000000000000294002000000",
+    "ffffffff030000000100000001000010000000000020564001000000840000000000000000a0504001000000",
+    "020000000000318107000000050000004d616b657229000000010000010000803f0000004000004040010000",
+    "00010000700000384101000000ff3f000005000000090000000200007000000642020000250000403f030000",
+    "00f40100001f0000000000803e110000000300000008000000020000000100000004000000030000005a0000",
+    "00020000000600000001000000030000700000b441341200000000003ff4010000090000004f6c6420776f72",
+    "6473050000004d616b65720600000001000020010000000000803e020000000000003f000000000000000001",
+    "0000000100002501000000000030210100000005000070000048410000008093dca441030000008051010000",
+    "0000000100000007000000746865204f6c640700000001000000",
 );
 
 /// The consignments' record with its one sale's item at the encoding's version 20.
@@ -229,6 +249,8 @@ fn play() -> PlayState {
         suffix: "the Old".into(),
         quest_rating: 7,
         clothes_made: false,
+        // Kept before tips were shown: it has passed them all.
+        popups_shown: Moment::ALL_MARKS,
     }
 }
 
@@ -371,6 +393,41 @@ fn a_play_state_kept_at_version_twenty_one_reads_whole_with_no_clothes_made() {
         PlayState::from_bytes(&made.to_bytes()).expect("reads"),
         made,
         "the word kept"
+    );
+}
+
+/// A play state kept at the version before tips were shown reads whole, as one that has passed every
+/// tip (it is shown none of them again); what this build keeps of it reads the same, and a tip's
+/// mark is kept.
+/// Behaviour: server.operator.a-save-of-the-last-release-reads-whole
+#[test]
+fn a_play_state_kept_at_version_twenty_two_reads_whole_with_every_tip_passed() {
+    let old = bytes(PLAY_22);
+    assert_eq!(
+        old[..4],
+        22u32.to_le_bytes(),
+        "the bytes are of that version"
+    );
+    let read = PlayState::from_bytes(&old).expect("reads");
+    assert_eq!(
+        read,
+        PlayState {
+            clothes_made: true,
+            ..play_20()
+        }
+    );
+    assert_eq!(read.popups_shown, Moment::ALL_MARKS, "every tip passed");
+    let kept = read.to_bytes();
+    assert_ne!(kept, old, "kept at this build's own version");
+    assert_eq!(PlayState::from_bytes(&kept).expect("reads again"), read);
+    let fresh = PlayState {
+        popups_shown: Moment::LevelUp.mark(),
+        ..read
+    };
+    assert_eq!(
+        PlayState::from_bytes(&fresh.to_bytes()).expect("reads"),
+        fresh,
+        "the marks kept"
     );
 }
 

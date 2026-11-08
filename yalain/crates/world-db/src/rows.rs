@@ -515,6 +515,7 @@ pub enum Row {
     EffectName(EffectName),
     Event(Event),
     PointsBonus(PointsBonus),
+    Popup(Popup),
 }
 
 /// `[[event]]`: a named state of the world, on for its times: what it gates (camps, objects and
@@ -539,6 +540,17 @@ pub struct PointsBonus {
     pub effect: u32,
     pub add: i32,
     pub up_to: i32,
+    pub prov: Prov,
+}
+
+/// `[[popup]]`: the tip a player is shown once, the first time a moment comes for its character:
+/// the description of an effect of the install.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Popup {
+    /// The moment it is shown at.
+    pub on: yalain_content::popups::Moment,
+    /// The effect whose description it shows, by its saved state.
+    pub effect: u32,
     pub prov: Prov,
 }
 
@@ -796,6 +808,7 @@ impl Row {
             Self::EffectName(_) => "effect_name",
             Self::Event(_) => "event",
             Self::PointsBonus(_) => "points_bonus",
+            Self::Popup(_) => "popup",
         }
     }
 
@@ -830,13 +843,14 @@ impl Row {
             Self::EffectName(r) => Some(&r.prov),
             Self::Event(r) => Some(&r.prov),
             Self::PointsBonus(r) => Some(&r.prov),
+            Self::Popup(r) => Some(&r.prov),
             Self::Remove(_) => None,
         }
     }
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 28] = [
+pub const KINDS: [&str; 29] = [
     "object",
     "camp",
     "loot",
@@ -865,10 +879,11 @@ pub const KINDS: [&str; 28] = [
     "effect_name",
     "event",
     "points_bonus",
+    "popup",
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 28] = [
+pub const FIELDS: [(&str, &[&str]); 29] = [
     (
         "object",
         &[
@@ -1145,6 +1160,7 @@ pub const FIELDS: [(&str, &[&str]); 28] = [
         &["key", "game_event", "when", "on_players", "prov"],
     ),
     ("points_bonus", &["effect", "add", "up_to", "prov"]),
+    ("popup", &["on", "effect", "prov"]),
 ];
 
 /// A shared-format error as a problem at its file and line.
@@ -1780,6 +1796,19 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 effect,
                 add,
                 up_to,
+                prov: f.req_prov()?,
+            })
+        }
+        "popup" => {
+            use yalain_content::popups::Moment;
+            let on = match f.word("on", Moment::from_word, "first-entry, level-up or glyph") {
+                Some(Some(m)) => m,
+                Some(None) => return None,
+                None => return f.missing("on"),
+            };
+            Row::Popup(Popup {
+                on,
+                effect: f.req_id("effect")?,
                 prov: f.req_prov()?,
             })
         }

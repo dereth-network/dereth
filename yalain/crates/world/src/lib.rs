@@ -118,6 +118,7 @@ pub mod pets;
 pub mod places;
 pub mod plants;
 pub mod player;
+pub mod popups;
 pub mod presence;
 pub mod profile;
 pub mod progress;
@@ -434,6 +435,11 @@ pub struct Server<S: Store> {
     /// The world database's kingdom rows: the effects that raise kingdom points, and the steps and
     /// gives for one kingdom's players alone.
     pub kingdom_rows: yalain_content::kingdoms::KingdomTable,
+    /// The world database's tips, shown once each: the effect whose description is shown, by
+    /// moment.
+    pub popups: yalain_content::popups::PopupTable,
+    /// The packages of the items that are glyphs.
+    pub glyph_packages: std::collections::HashSet<u32>,
     /// The packages of the world's objects that cannot be used (forges, road signs).
     pub cannot_use_packages: std::collections::HashSet<u32>,
     /// The packages of the items that take an inscription.
@@ -823,6 +829,8 @@ impl<S: Store> Server<S> {
             shrine_kingdoms: HashMap::new(),
             kingdom_skills: kingdom_skills::KingdomSkills::default(),
             kingdom_rows: yalain_content::kingdoms::KingdomTable::default(),
+            popups: yalain_content::popups::PopupTable::default(),
+            glyph_packages: std::collections::HashSet::new(),
             cannot_use_packages: std::collections::HashSet::new(),
             inscribable_packages: std::collections::HashSet::new(),
             held_answers: std::collections::HashMap::new(),

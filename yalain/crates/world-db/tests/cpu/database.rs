@@ -2779,6 +2779,65 @@ fn an_event_row_reads_its_windows_and_gates_compile_to_the_event_table() {
 }
 
 #[test]
+fn popup_rows_compile_by_moment_and_bad_ones_are_problems() {
+    use yalain_content::popups::Moment;
+    let mut files = fixture();
+    files.insert(
+        "town/server/popups.toml".into(),
+        "[[popup]]\non = \"first-entry\"\neffect = 0x6F001923\nprov = { from = \"authored\" }\n\n\
+         [[popup]]\non = \"level-up\"\neffect = 0x6F001925\nprov = { from = \"authored\" }\n\n\
+         [[popup]]\non = \"glyph\"\neffect = 0x6F001924\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    let db = read(&files).unwrap();
+    assert!(check(&files).is_empty(), "{:?}", check(&files));
+    let t = compile(&merge(&db).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(t.popups.effect(Moment::FirstEntry), Some(0x6F00_1923));
+    assert_eq!(t.popups.effect(Moment::LevelUp), Some(0x6F00_1925));
+    assert_eq!(t.popups.effect(Moment::Glyph), Some(0x6F00_1924));
+    assert_eq!(
+        compile(&merge(&read(&fixture()).unwrap()).unwrap(), &Fake::new())
+            .unwrap()
+            .popups
+            .by_moment
+            .len(),
+        0,
+        "a world with no rows has no tips"
+    );
+
+    // One row a moment.
+    let mut twice = files.clone();
+    twice.insert(
+        "town/server/popups.toml".into(),
+        "[[popup]]\non = \"glyph\"\neffect = 0x6F001924\nprov = { from = \"authored\" }\n\n\
+         [[popup]]\non = \"glyph\"\neffect = 0x6F001925\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    let problems = check(&twice);
+    assert!(
+        problems.iter().any(|p| p.message.contains("set twice")),
+        "{problems:?}"
+    );
+
+    // A moment by its word, and an effect; nothing else.
+    for bad in [
+        "on = \"first_entry\"\neffect = 0x6F001923",
+        "on = \"login\"\neffect = 0x6F001923",
+        "on = 1\neffect = 0x6F001923",
+        "effect = 0x6F001923",
+        "on = \"glyph\"",
+        "on = \"glyph\"\neffect = 0x6F001924\ntext = 3",
+    ] {
+        let mut f = files.clone();
+        f.insert(
+            "town/server/popups.toml".into(),
+            format!("[[popup]]\n{bad}\nprov = {{ from = \"authored\" }}\n"),
+        );
+        assert!(read(&f).is_err(), "{bad}");
+    }
+}
+
+#[test]
 fn points_bonus_rows_and_kingdom_requirements_compile_and_bad_ones_are_problems() {
     use yalain_content::kingdoms::{kingdom, PointsBonus};
     let mut files = fixture();

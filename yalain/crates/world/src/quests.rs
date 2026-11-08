@@ -980,6 +980,8 @@ pub fn took<S: Store>(
     template: u32,
     clock: Clock,
 ) {
+    // A glyph's tip comes first, as the item is taken (2017: 2 of 2, before the quest it moved).
+    crate::popups::took(s, net, world, template);
     let moved = moved_by(s, net, world, Trigger::Take(template), clock);
     let named: Vec<QuestEffect> = s.catalog.get(template).map_or_else(Vec::new, |t| {
         (1..=ACQUIRE_EFFECTS)

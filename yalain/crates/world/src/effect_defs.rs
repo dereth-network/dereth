@@ -522,6 +522,21 @@ impl EffectDef {
         Self::from_object(state, lib, &nav, root)
     }
 
+    /// What a saved state's effect says of itself (string id, table), when it says something.
+    #[must_use]
+    pub fn description_of(lib: &Library, g: &Graph) -> Option<(u32, u32)> {
+        let nav = Nav::new(lib, g);
+        let root = nav.object(g.root()?).ok()?;
+        let r = nav
+            .field(root, "m_strDescription")
+            .ok()
+            .filter(|r| *r != 0 && *r != NULL)?;
+        match nav.native(r).ok()? {
+            NativeObject::TextInfo(t) if t.string_id != 0 => Some((t.string_id, t.table)),
+            _ => None,
+        }
+    }
+
     /// The effect enumeration's value a saved state's graph holds, when it holds one.
     #[must_use]
     pub fn enum_value_of(lib: &Library, g: &Graph) -> Option<u32> {
@@ -847,6 +862,8 @@ impl EffectDef {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct EffectTable {
     pub effects: HashMap<u32, EffectDef>,
+    /// What an effect's description says (string id, table), by saved state, where it has one.
+    pub descriptions: HashMap<u32, (u32, u32)>,
 }
 
 impl EffectTable {
@@ -862,6 +879,9 @@ impl EffectTable {
             }
             let Some(g) = graph(s) else { continue };
             if let Ok(d) = EffectDef::from_state(s, lib, &g) {
+                if let Some(text) = EffectDef::description_of(lib, &g) {
+                    t.descriptions.insert(s, text);
+                }
                 todo.extend(d.adds());
                 todo.extend(d.chained_states());
                 t.effects.insert(s, d);

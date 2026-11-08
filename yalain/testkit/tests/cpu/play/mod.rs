@@ -61,6 +61,7 @@ mod pet_kinds;
 mod pet_skills;
 mod pets;
 mod player_fights;
+mod popups;
 mod quest_uses;
 mod quests;
 mod recalls;

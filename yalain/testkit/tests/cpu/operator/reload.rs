@@ -91,6 +91,7 @@ pub(super) fn tables_of(h: &Harness) -> WorldTables {
         pet_kinds: s.pets.kinds.values().cloned().collect(),
         pet_limits: s.pets.limits.iter().map(|(k, v)| (*k, v.clone())).collect(),
         kingdoms: s.kingdom_rows.clone(),
+        popups: s.popups.clone(),
         names: None,
         kinds: None,
         ground: None,

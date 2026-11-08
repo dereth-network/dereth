@@ -12893,6 +12893,48 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.tips.first-entry-once",
+        says: "A new character's first entry shows, in a box of its own and not on top, the \
+               description of the effect the world's `[[popup]]` row for the first entry names, \
+               once: never at a later entry.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TIPS-FIRST-ENTRY"),
+        station: "yalain-testkit::cpu::play::popups::a_new_characters_first_entry_shows_its_tip_once",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.tips.first-glyph-once",
+        says: "The first glyph that comes into a character's hands shows the description of the \
+               effect the world's `[[popup]]` row for a glyph names, as it is taken and before \
+               any quest it moves; an item that is no glyph shows nothing, and a later glyph \
+               nothing, at that entry or a later one.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TIPS-FIRST-GLYPH"),
+        station: "yalain-testkit::cpu::play::popups::a_characters_first_glyph_shows_its_tip_once_across_entries",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.tips.first-level-once",
+        says: "A character's first level gained shows the description of the effect the world's \
+               `[[popup]]` row for a level names, after the level's own line; a later level \
+               shows nothing, at that entry or a later one. A character kept before tips were \
+               shown is shown none.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TIPS-FIRST-LEVEL"),
+        station: "yalain-testkit::cpu::play::popups::a_characters_first_level_shows_its_tip_once_across_entries",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.tips.none-without-rows",
+        says: "A world with no `[[popup]]` rows shows no tip: not at a first entry, a first level \
+               or a first glyph; a tip the world gains later is not shown for a moment the \
+               character passed before it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-TIPS-NONE"),
+        station: "yalain-testkit::cpu::play::popups::a_world_with_no_tip_rows_shows_none_and_a_passed_moment_none_later",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.trade.a-bound-item-may-be-traded",
         says: "An item bound by use goes in a trade, still bound to who bound it: 2 items that showed \
                bound to their seller, 3 trades, each done with status 0, none refused.",
@@ -13484,6 +13526,16 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-WDB-POINTS-BONUS-INSTALL"),
         station: "yalain::bin.yalain::data::tests::a_points_bonus_row_naming_an_effect_the_install_lacks_is_a_problem",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.world-db.popup-effects-from-the-install",
+        says: "A world's `[[popup]]` row may name only an effect the install holds whose \
+               description says something; one naming a saved state the install lacks, or an \
+               effect with no description, is a problem that names it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WDB-POPUP-INSTALL"),
+        station: "yalain::bin.yalain::data::tests::a_popup_row_naming_an_effect_the_install_lacks_or_with_nothing_to_show_is_a_problem",
         tier: Tier::Cpu,
     },
     behaviour! {

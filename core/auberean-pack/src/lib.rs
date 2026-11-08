@@ -183,6 +183,8 @@ pub enum Item {
     Event { key: String },
     /// What an effect does to kingdom points, by the effect's saved state.
     PointsBonus { effect: u32 },
+    /// The tip a player is shown once, by the moment it is shown at.
+    Popup { on: String },
 }
 
 impl Item {
@@ -256,6 +258,7 @@ impl Item {
             ["effect_name", name] => Self::EffectName {
                 name: identifier(name)?,
             },
+            ["popup", on] => Self::Popup { on: symbol(on)? },
             ["area", lb] => Self::Area {
                 landblock: u16::from_str_radix(lb, 16).ok().filter(|_| lb.len() == 4)?,
             },
@@ -304,6 +307,7 @@ impl fmt::Display for Item {
             Self::EffectName { name } => write!(f, "effect_name {name}"),
             Self::Event { key } => write!(f, "event {key}"),
             Self::PointsBonus { effect } => write!(f, "points_bonus {effect:#010x}"),
+            Self::Popup { on } => write!(f, "popup {on}"),
         }
     }
 }

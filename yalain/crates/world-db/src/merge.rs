@@ -57,6 +57,9 @@ pub fn item(l: &Located) -> Option<Item> {
         },
         Row::Event(r) => Item::Event { key: r.key.clone() },
         Row::PointsBonus(r) => Item::PointsBonus { effect: r.effect },
+        Row::Popup(r) => Item::Popup {
+            on: r.on.word().to_string(),
+        },
         Row::Scene(r) => Item::Scene { id: r.id },
         Row::Shard(r) => Item::Shard { object: r.object },
         Row::Weapon(r) => Item::Weapon {
@@ -110,6 +113,7 @@ fn value(row: &Row) -> String {
         Row::EffectName(x) => x.prov = crate::rows::Prov::default(),
         Row::Event(x) => x.prov = crate::rows::Prov::default(),
         Row::PointsBonus(x) => x.prov = crate::rows::Prov::default(),
+        Row::Popup(x) => x.prov = crate::rows::Prov::default(),
         Row::Scene(x) => x.prov = crate::rows::Prov::default(),
         Row::Shard(x) => x.prov = crate::rows::Prov::default(),
         Row::Weapon(x) => x.prov = crate::rows::Prov::default(),
