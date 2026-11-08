@@ -173,6 +173,24 @@ fn every_row_of_the_world_database_compiles_against_the_install() {
     }
 }
 
+/// A world's ward rows keep off what the server's own wards do: every ward the server holds for a
+/// world with no rows has a row of the same classes, effects and chance, entry for entry, so a world
+/// with them fights as one without; its other rows name what their effects' own data names nothing
+/// for. A world with none has the server's own.
+/// Behaviour: server.effects.ward-rows-as-the-servers-own
+#[test]
+fn the_worlds_ward_rows_are_the_servers_own_wards_entry_for_entry() {
+    use yalain_world::effect_defs::{fallback_wards, world_wards};
+    let rows = &compiled().tables.effect_rules.wards;
+    let wards = world_wards(rows);
+    for (state, own) in fallback_wards() {
+        assert_eq!(wards.get(&state), Some(&own), "{state:08X}");
+    }
+    assert!(wards
+        .values()
+        .all(|w| !(w.classes.is_empty() && w.effects.is_empty())));
+}
+
 /// What the rows leave out comes from the install: the training hall quest's definition (its
 /// eight journal entries), the Human Weapon Vendor's store and its listings' products and prices,
 /// every loot profile's name, and the people's names for reading.
@@ -1468,12 +1486,18 @@ fn effects_of(def: &yalain_content::quests::QuestDef) -> yalain_world::effect_de
         .expect("the library reads")
         .value;
     let states: Vec<u32> = def.effects.iter().map(|(_, e)| *e).collect();
-    yalain_world::effect_defs::EffectTable::read(&lib, &states, &|id| {
-        let bytes = portal.read(id).ok()?;
-        let st: auberean_assets::script::ScriptState =
-            auberean_assets::decode(id, &bytes, &ctx).ok()?;
-        auberean_script::graph::Graph::decode(&st.graph, &lib).ok()
-    })
+    let wards = yalain_world::effect_defs::world_wards(&compiled().tables.effect_rules.wards);
+    yalain_world::effect_defs::EffectTable::read(
+        &lib,
+        &states,
+        &|id| {
+            let bytes = portal.read(id).ok()?;
+            let st: auberean_assets::script::ScriptState =
+                auberean_assets::decode(id, &bytes, &ctx).ok()?;
+            auberean_script::graph::Graph::decode(&st.graph, &lib).ok()
+        },
+        &wards,
+    )
 }
 
 /// Put a character at a level.

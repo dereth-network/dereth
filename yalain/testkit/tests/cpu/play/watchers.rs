@@ -751,6 +751,7 @@ fn a_protection_keeps_off_what_it_names_by_its_chance_at_its_spellcraft() {
         EffectDef {
             kind: Kind::Ward {
                 classes: vec![48, 5013],
+                effects: Vec::new(),
                 chance: Scale(vec![(1.0, 0.2), (50.0, 0.7)]),
             },
             ..def(PROTECTION, 87, watcher(0.0, 0.0))
@@ -803,6 +804,7 @@ fn a_later_pulse_is_kept_off_by_the_blocker_of_the_first() {
         EffectDef {
             kind: Kind::Ward {
                 classes: vec![117],
+                effects: Vec::new(),
                 chance: Scale(vec![(0.0, 1.0)]),
             },
             ..def(BLOCKER, 118, watcher(0.0, 0.0))
@@ -1083,6 +1085,7 @@ fn a_holder_answers_a_harmful_effect_on_its_sender_and_an_answer_is_not_answered
     let ward = EffectDef {
         kind: Kind::Ward {
             classes: vec![51],
+            effects: Vec::new(),
             chance: Scale(vec![(0.0, 1.0)]),
         },
         ..def(WARD, 21, watcher(0.0, 0.0))

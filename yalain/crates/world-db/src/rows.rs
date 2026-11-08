@@ -516,6 +516,7 @@ pub enum Row {
     Event(Event),
     PointsBonus(PointsBonus),
     Popup(Popup),
+    EffectRule(EffectRule),
 }
 
 /// `[[event]]`: a named state of the world, on for its times: what it gates (camps, objects and
@@ -551,6 +552,16 @@ pub struct Popup {
     pub on: yalain_content::popups::Moment,
     /// The effect whose description it shows, by its saved state.
     pub effect: u32,
+    pub prov: Prov,
+}
+
+/// `[[effect_rule]]`: what the world says of an effect where its own data says nothing: what a ward
+/// keeps off.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EffectRule {
+    /// The effect, by its saved state.
+    pub effect: u32,
+    pub ward: yalain_content::effect_rules::Ward,
     pub prov: Prov,
 }
 
@@ -809,6 +820,7 @@ impl Row {
             Self::Event(_) => "event",
             Self::PointsBonus(_) => "points_bonus",
             Self::Popup(_) => "popup",
+            Self::EffectRule(_) => "effect_rule",
         }
     }
 
@@ -844,13 +856,14 @@ impl Row {
             Self::Event(r) => Some(&r.prov),
             Self::PointsBonus(r) => Some(&r.prov),
             Self::Popup(r) => Some(&r.prov),
+            Self::EffectRule(r) => Some(&r.prov),
             Self::Remove(_) => None,
         }
     }
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 29] = [
+pub const KINDS: [&str; 30] = [
     "object",
     "camp",
     "loot",
@@ -880,10 +893,11 @@ pub const KINDS: [&str; 29] = [
     "event",
     "points_bonus",
     "popup",
+    "effect_rule",
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 29] = [
+pub const FIELDS: [(&str, &[&str]); 30] = [
     (
         "object",
         &[
@@ -1161,6 +1175,7 @@ pub const FIELDS: [(&str, &[&str]); 29] = [
     ),
     ("points_bonus", &["effect", "add", "up_to", "prov"]),
     ("popup", &["on", "effect", "prov"]),
+    ("effect_rule", &["effect", "ward", "prov"]),
 ];
 
 /// A shared-format error as a problem at its file and line.
@@ -1809,6 +1824,15 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
             Row::Popup(Popup {
                 on,
                 effect: f.req_id("effect")?,
+                prov: f.req_prov()?,
+            })
+        }
+        "effect_rule" => {
+            let effect = f.req_id("effect")?;
+            let ward = f.ward()?;
+            Row::EffectRule(EffectRule {
+                effect,
+                ward,
                 prov: f.req_prov()?,
             })
         }
@@ -2824,6 +2848,41 @@ impl<'a> Fields<'a> {
         });
         if read.is_none() {
             self.bad("hire", "{ class, seconds, level }");
+        }
+        read
+    }
+
+    /// `{ classes, effects, chance }`: the classes and the effects (saved states) it keeps off, at
+    /// least one of either, and its chance, above 0 and at most 1.
+    fn ward(&mut self) -> Option<yalain_content::effect_rules::Ward> {
+        let Some(v) = self.get("ward") else {
+            return self.missing("ward");
+        };
+        let list = |t: &toml::Table, k: &str| match t.get(k) {
+            Some(v) => v.as_array()?.iter().map(as_u32).collect::<Option<Vec<_>>>(),
+            None => Some(Vec::new()),
+        };
+        let read = v.as_table().and_then(|t| {
+            if t.keys()
+                .any(|k| !["classes", "effects", "chance"].contains(&k.as_str()))
+            {
+                return None;
+            }
+            let ward = yalain_content::effect_rules::Ward {
+                classes: list(t, "classes")?,
+                effects: list(t, "effects")?,
+                chance: to_f32(as_number(t.get("chance")?)?),
+            };
+            (!(ward.classes.is_empty() && ward.effects.is_empty())
+                && ward.chance > 0.0
+                && ward.chance <= 1.0)
+                .then_some(ward)
+        });
+        if read.is_none() {
+            self.bad(
+                "ward",
+                "{ classes, effects, chance }: the classes and the effects it keeps off, at least one, and a chance above 0, at most 1",
+            );
         }
         read
     }

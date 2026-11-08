@@ -259,8 +259,9 @@ fn check_cmd(args: &[String]) -> Result<(), String> {
 /// What a database's rows say of the install that it does not bear out: an `[[effect_name]]` row
 /// naming an effect the server already resolves to a saved state, an `[[event]]` naming a game
 /// event the install does not have, a `[[points_bonus]]` naming an effect the install holds no
-/// saved state of, and a `[[popup]]` naming an effect the install holds no saved state of or one
-/// whose effect has no description to show.
+/// saved state of, a `[[popup]]` naming an effect the install holds no saved state of or one
+/// whose effect has no description to show, and an `[[effect_rule]]` naming an effect, or a ward
+/// keeping off an effect, the install holds no saved state of.
 ///
 /// # Errors
 /// The install's library does not read.
@@ -271,7 +272,7 @@ pub fn install_problems(p: &data::Portal, db: &rows::Database) -> Result<Vec<Pro
         if let rows::Row::Popup(r) = &l.row {
             let why = if !data::saved_states(p)?.iter().any(|s| s.id == r.effect) {
                 Some("the install holds no such effect")
-            } else if !data::effect_table(p, &[r.effect])?
+            } else if !data::effect_table(p, &[r.effect], &std::collections::BTreeMap::new())?
                 .descriptions
                 .contains_key(&r.effect)
             {
@@ -285,6 +286,26 @@ pub fn install_problems(p: &data::Portal, db: &rows::Database) -> Result<Vec<Pro
                     l.line,
                     format!("[[popup]] {} effect {:#010x}: {why}", r.on.word(), r.effect),
                 ));
+            }
+        }
+        if let rows::Row::EffectRule(r) = &l.row {
+            let named: Vec<u32> = std::iter::once(r.effect)
+                .chain(r.ward.effects.iter().copied())
+                .collect();
+            let read = data::effect_table(p, &named, &std::collections::BTreeMap::new())?;
+            for (what, effect) in std::iter::once(("effect", r.effect))
+                .chain(r.ward.effects.iter().map(|e| ("ward effect", *e)))
+            {
+                if !read.effects.contains_key(&effect) {
+                    out.push(Problem::new(
+                        &l.file,
+                        l.line,
+                        format!(
+                            "[[effect_rule]] {:#010x}: {what} {effect:#010x}: the install holds no such effect",
+                            r.effect
+                        ),
+                    ));
+                }
             }
         }
         if let rows::Row::PointsBonus(r) = &l.row {

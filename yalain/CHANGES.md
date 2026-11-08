@@ -7,6 +7,7 @@ what they see, not how it was done.
 
 ## Unreleased
 - Fixed effects that should end at logout lasting through it.
+- Warder stones now block what they ward against.
 - Dropped weapons and armor are enchanted as often as in 2017.
 - Fixed some weapons and armor dropping with no level or enchantments of their own.
 - Fixed dropped shields rolling as armor.

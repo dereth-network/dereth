@@ -185,6 +185,8 @@ pub enum Item {
     PointsBonus { effect: u32 },
     /// The tip a player is shown once, by the moment it is shown at.
     Popup { on: String },
+    /// What the world says of an effect, by the effect's saved state.
+    EffectRule { effect: u32 },
 }
 
 impl Item {
@@ -259,6 +261,9 @@ impl Item {
                 name: identifier(name)?,
             },
             ["popup", on] => Self::Popup { on: symbol(on)? },
+            ["effect_rule", effect] => Self::EffectRule {
+                effect: number(effect)?,
+            },
             ["area", lb] => Self::Area {
                 landblock: u16::from_str_radix(lb, 16).ok().filter(|_| lb.len() == 4)?,
             },
@@ -308,6 +313,7 @@ impl fmt::Display for Item {
             Self::Event { key } => write!(f, "event {key}"),
             Self::PointsBonus { effect } => write!(f, "points_bonus {effect:#010x}"),
             Self::Popup { on } => write!(f, "popup {on}"),
+            Self::EffectRule { effect } => write!(f, "effect_rule {effect:#010x}"),
         }
     }
 }

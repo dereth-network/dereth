@@ -31,6 +31,7 @@
 //! <pack>/server/story.toml        [[scene]], [[shard]]
 //! <pack>/server/weapons.toml      [[weapon]]
 //! <pack>/server/pets.toml         [[pet]], [[pet_limit]]
+//! <pack>/server/effects.toml      [[effect_name]], [[effect_rule]]
 //! <pack>/server/routes.toml       [[route]]
 //! <pack>/server/areas.toml        [[area]]
 //! ```

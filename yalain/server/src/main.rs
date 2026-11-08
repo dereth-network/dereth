@@ -1714,9 +1714,16 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         effect_names,
         kingdoms: kingdom_rows,
         popups,
+        effect_rules,
         ..
     } = compiled;
     let play = (|| {
+        if effect_rules.wards.is_empty() {
+            tracing::warn!(
+                "this world has no [[effect_rule]] rows: its wards keep off what the server's own say"
+            );
+        }
+        let wards = yalain_world::effect_defs::world_wards(&effect_rules.wards);
         let skills = data::skill_table(portal)?;
         tracing::info!(
             skills = skills.skills.len(),
@@ -1738,7 +1745,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             })
             .chain(quests.effect_states())
             .collect();
-        let effects = data::effect_table(portal, &states)?;
+        let effects = data::effect_table(portal, &states, &wards)?;
         let granted: Vec<u32> = effects
             .effects
             .values()
@@ -1782,7 +1789,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             | yalain_world::craft::Action::ItemEffect { state, .. } => Some(*state),
             _ => None,
         }));
-        let effects = data::effect_table(portal, &states)?;
+        let effects = data::effect_table(portal, &states, &wards)?;
         tracing::info!(
             effects = effects.effects.len(),
             recipes = craft.recipes.len(),
@@ -1899,7 +1906,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         // What treasure weapons, armor and shields carry and put on what they hit.
         states.extend(yalain_content::treasure_effects::states());
         mounts.note_items(&item_uses);
-        let effects = data::effect_table(portal, &states)?;
+        let effects = data::effect_table(portal, &states, &wards)?;
         tracing::info!(
             templates = item_uses.len(),
             effects = effects.effects.len(),

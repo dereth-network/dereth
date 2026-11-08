@@ -1516,6 +1516,7 @@ fn a_ward_keeps_off_the_effects_of_its_classes_by_its_chance() {
         WARD,
         Kind::Ward {
             classes: vec![48],
+            effects: Vec::new(),
             chance: Scale(vec![(0.0, 0.15)]),
         },
     );
@@ -1525,6 +1526,7 @@ fn a_ward_keeps_off_the_effects_of_its_classes_by_its_chance() {
         SURE,
         Kind::Ward {
             classes: vec![22],
+            effects: Vec::new(),
             chance: Scale(vec![(0.0, 1.0)]),
         },
     );
@@ -1550,4 +1552,117 @@ fn a_ward_keeps_off_the_effects_of_its_classes_by_its_chance() {
     assert!((3200..3600).contains(&through), "{through} of 4,000");
     assert_eq!(count(OF_ANOTHER, &mut h), 4000);
     assert_eq!(count(OF_THE_SURE, &mut h), 0);
+}
+
+/// A world's ward rows are its wards alone: a ward of a row keeps off the effects of its classes
+/// and the effects it names by its chance, and nothing else of theirs, not even another effect of a
+/// named one's class; the server's own wards are not among them.
+/// Behaviour: server.effects.ward-from-a-row
+#[test]
+fn a_ward_from_a_row_keeps_off_its_classes_and_effects_by_its_chance() {
+    use std::collections::BTreeMap;
+    use yalain_world::effect_defs::{fallback_wards, ward_kind, world_wards, Ward};
+    let (mut h, _, me, _) = noticed(&[], [61.0, 240.2, -44.6]);
+    hardy(&mut h, me);
+    let world = conn(&h, me);
+    const WARD: u32 = 0x6F00_7309;
+    const SURE: u32 = 0x6F00_730A;
+    const OF_ITS_CLASS: u32 = 0x6F00_730B;
+    const NAMED: u32 = 0x6F00_730C;
+    const NAMED_SURE: u32 = 0x6F00_730D;
+    const OF_NO_CLASS: u32 = 0x6F00_730E;
+    let rows = BTreeMap::from([
+        (
+            WARD,
+            Ward {
+                classes: vec![93],
+                effects: vec![NAMED],
+                chance: 0.15,
+            },
+        ),
+        (
+            SURE,
+            Ward {
+                classes: Vec::new(),
+                effects: vec![NAMED_SURE],
+                chance: 1.0,
+            },
+        ),
+    ]);
+    let wards = world_wards(&rows);
+    assert_eq!(wards, rows, "the rows alone");
+    assert!(fallback_wards().keys().all(|s| !wards.contains_key(s)));
+    let harm = |state, class| EffectDef {
+        eq_class: class,
+        ..effect_of(
+            state,
+            Kind::InstantVital {
+                flags: 1,
+                change: Scale(vec![(0.0, -1.0)]),
+            },
+        )
+    };
+    for d in [
+        harm(OF_ITS_CLASS, 93),
+        harm(NAMED, 0),
+        harm(NAMED_SURE, 0),
+        harm(OF_NO_CLASS, 0),
+    ] {
+        h.server.effect_table.effects.insert(d.state, d);
+    }
+    for (state, w) in &wards {
+        holds(&mut h, me, *state, ward_kind(w));
+    }
+    let clock = h.clock();
+    let count = |state: u32, h: &mut Harness| {
+        (0..4000)
+            .filter(|_| {
+                effects::apply(
+                    &mut h.server,
+                    &mut h.net,
+                    world,
+                    state,
+                    Cast {
+                        spellcraft: 1.0,
+                        ..Cast::default()
+                    },
+                    clock,
+                )
+            })
+            .count()
+    };
+    let through = count(OF_ITS_CLASS, &mut h);
+    assert!((3200..3600).contains(&through), "{through} of 4,000");
+    let through = count(NAMED, &mut h);
+    assert!((3200..3600).contains(&through), "{through} of 4,000");
+    assert_eq!(count(NAMED_SURE, &mut h), 0);
+    assert_eq!(count(OF_NO_CLASS, &mut h), 4000);
+}
+
+/// A world with no ward rows has the server's own six, each of a chance and classes, none naming
+/// an effect.
+/// Behaviour: server.effects.wards-without-rows
+#[test]
+fn a_world_with_no_ward_rows_has_the_servers_own_six() {
+    use yalain_world::effect_defs::{fallback_wards, world_wards};
+    let wards = world_wards(&std::collections::BTreeMap::new());
+    assert_eq!(wards, fallback_wards());
+    assert_eq!(
+        wards.keys().copied().collect::<Vec<_>>(),
+        [
+            0x6F00_266E,
+            0x6F00_2670,
+            0x6F00_2671,
+            0x6F00_2672,
+            0x6F00_2674,
+            0x6F00_2675
+        ]
+    );
+    assert_eq!(wards[&0x6F00_2672].classes, [48, 1119, 5013]);
+    assert_eq!(wards[&0x6F00_2672].chance, 0.15);
+    assert_eq!(wards[&0x6F00_266E].classes, [22, 5061]);
+    assert_eq!(wards[&0x6F00_266E].chance, 1.0);
+    assert!(wards
+        .values()
+        .all(|w| w.effects.is_empty() && !w.classes.is_empty()));
 }

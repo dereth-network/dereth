@@ -571,19 +571,22 @@ fn state_graph(p: &Portal, lib: &Library, id: u32) -> Option<Graph> {
     Graph::decode(&st.graph, lib).ok()
 }
 
-/// The effects' definitions of these saved states, and of the effects they add.
+/// The effects' definitions of these saved states, and of the effects they add, with what these
+/// wards (by saved state) keep off.
 ///
 /// # Errors
 /// The library does not read.
 pub fn effect_table(
     p: &Portal,
     states: &[u32],
+    wards: &BTreeMap<u32, yalain_world::effect_defs::Ward>,
 ) -> Result<yalain_world::effect_defs::EffectTable, String> {
     let lib = library(p)?;
     Ok(yalain_world::effect_defs::EffectTable::read(
         lib,
         states,
         &|id| state_graph(p, lib, id),
+        wards,
     ))
 }
 
@@ -1885,6 +1888,44 @@ mod tests {
         );
     }
 
+    /// An `[[effect_rule]]` row may name only an effect the install holds, and its ward only effects
+    /// the install holds: Tyrant Ward keeping off what bars skills passes; a rule for a state the
+    /// install lacks, and a ward naming one, are problems that name them.
+    /// Behaviour: server.world-db.effect-rule-effects-from-the-install
+    #[test]
+    fn an_effect_rule_row_naming_an_effect_the_install_lacks_is_a_problem() {
+        let (dat, _) = tallied(&DatName::Portal);
+        let p = Portal::over(dat, Vec::new(), None).expect("a context");
+        let mut files = yalain_world_db::Files::new();
+        files.insert(
+            "world.toml".into(),
+            "format_version = 1\nkey = \"w\"\ngame = \"ac2\"\nera = \"eor\"\npacks = [\"p\"]\n"
+                .into(),
+        );
+        files.insert(
+            "p/pack.toml".into(),
+            "format_version = 1\nname = \"p\"\nversion = \"0.1.0\"\ngame = \"ac2\"\nauthors = [\"a\"]\nlicense = \"CC0-1.0\"\ndescription = \"d\"\n".into(),
+        );
+        files.insert(
+            "p/server/effects.toml".into(),
+            "[[effect_rule]]\neffect = 0x6F000E94\nward = { classes = [93, 94, 95], chance = 1.0 }\nprov = { from = \"authored\" }\n\n\
+             [[effect_rule]]\neffect = 0x6FFFFFF0\nward = { classes = [93], chance = 1.0 }\nprov = { from = \"authored\" }\n\n\
+             [[effect_rule]]\neffect = 0x6F000E95\nward = { effects = [0x700006C6, 0x6FFFFFF1], chance = 1.0 }\nprov = { from = \"authored\" }\n"
+                .into(),
+        );
+        let db = yalain_world_db::rows::read(&files).expect("reads");
+        let problems = crate::world::install_problems(&p, &db).expect("checks");
+        assert_eq!(problems.len(), 2, "{problems:?}");
+        for named in ["0x6ffffff0", "0x6ffffff1"] {
+            assert!(
+                problems
+                    .iter()
+                    .any(|x| x.message.contains(named) && x.message.contains("no such effect")),
+                "{named}: {problems:?}"
+            );
+        }
+    }
+
     /// The catalog holds every template a treasure pool names, though no camp or profile names it, so
     /// a corpse can be given it.
     /// Behaviour: server.loot.pools-in-the-catalog
@@ -1945,7 +1986,8 @@ mod tests {
         let (dat, _) = tallied(&DatName::Portal);
         let p = Portal::over(dat, Vec::new(), None).expect("a context");
         let wanted: Vec<u32> = states().collect();
-        let table = effect_table(&p, &wanted).expect("the table");
+        let table = effect_table(&p, &wanted, &yalain_world::effect_defs::fallback_wards())
+            .expect("the table");
         for s in &wanted {
             let d = table.get(*s);
             assert!(d.is_some(), "{s:08x} reads");
@@ -1965,7 +2007,8 @@ mod tests {
         let (dat, _) = tallied(&DatName::Portal);
         let p = Portal::over(dat, Vec::new(), None).expect("a context");
         let wanted: Vec<u32> = states().collect();
-        let table = effect_table(&p, &wanted).expect("the table");
+        let table = effect_table(&p, &wanted, &yalain_world::effect_defs::fallback_wards())
+            .expect("the table");
         let family = WEAPON_FAMILIES
             .iter()
             .find(|f| f.tiers.iter().any(|t| t.state == MUCOR))
@@ -1996,7 +2039,12 @@ mod tests {
         const CHAINED: u32 = 0x6F00_2607;
         let (dat, _) = tallied(&DatName::Portal);
         let p = Portal::over(dat, Vec::new(), None).expect("a context");
-        let table = effect_table(&p, &[STASIS, CHAINED]).expect("the table");
+        let table = effect_table(
+            &p,
+            &[STASIS, CHAINED],
+            &yalain_world::effect_defs::fallback_wards(),
+        )
+        .expect("the table");
         let (when, tier) = tier_of(STASIS).expect("a tier");
         assert_eq!(when, yalain_content::treasure_effects::When::Hit);
         assert_eq!(tier.puts_on, CHAINED);
@@ -2021,7 +2069,8 @@ mod tests {
         let (dat, _) = tallied(&DatName::Portal);
         let p = Portal::over(dat, Vec::new(), None).expect("a context");
         let wanted: Vec<u32> = states().collect();
-        let table = effect_table(&p, &wanted).expect("the table");
+        let table = effect_table(&p, &wanted, &yalain_world::effect_defs::fallback_wards())
+            .expect("the table");
         for (state, name) in [(0x6F00_03DB, 0x2500_08C9), (0x6F00_03E0, 0x2500_08CE)] {
             let (_, tier) = tier_of(state).expect("a tier");
             assert_eq!(tier.puts_on, state, "it puts itself on what it hits");

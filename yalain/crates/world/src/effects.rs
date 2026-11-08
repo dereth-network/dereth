@@ -840,15 +840,20 @@ pub fn apply_on<S: Store>(
     }
 }
 
-/// Does a ward its target holds keep this effect off? The top of each class of ward draws, by its
-/// chance at its spellcraft. A use's own effects come on in the order its data lists them, the ward
+/// Does a ward its target holds keep this effect off (one of its classes, or one of the effects it
+/// names)? The top of each class of ward draws, by its chance at its spellcraft. A use's own effects come on in the order its data lists them, the ward
 /// after what it would keep off, so it doesn't keep off its own.
 fn warded<S: Store>(s: &mut Server<S>, on: On, def: &EffectDef) -> bool {
     let chances: Vec<f32> = applying(&s.effect_table, records_of(s, on))
         .into_iter()
         .filter_map(|r| match &s.effect_table.get(r.state)?.kind {
-            Kind::Ward { classes, chance }
-                if classes.is_empty() || classes.contains(&def.eq_class) =>
+            Kind::Ward {
+                classes,
+                effects,
+                chance,
+            } if (classes.is_empty() && effects.is_empty())
+                || classes.contains(&def.eq_class)
+                || effects.contains(&def.state) =>
             {
                 chance.at(r.spellcraft)
             }

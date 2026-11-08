@@ -565,6 +565,7 @@ fn with_immunity(h: &mut Harness) {
     t.insert(SHORT, def(SHORT, Kind::Immunity { then: LONG }, 100, 5.0));
     let ward = Kind::Ward {
         classes: vec![55, 100],
+        effects: Vec::new(),
         chance: Scale(vec![(0.0, 1.0)]),
     };
     t.insert(LONG, def(LONG, ward, 100, 60.0));

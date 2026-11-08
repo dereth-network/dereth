@@ -4005,12 +4005,50 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "server.effects.tyrant-ward",
+        says: "A Tyrant Warder Stone used gives its quest, whose giving puts Tyrant Ward on its user; while \
+               it holds, Silence, Pacify and Clouded Eyes, the effects every Tyrant's magic bars skills \
+               with, are kept off, and other harm still comes on. Its classes are the three's, as its \
+               description says; its own data names none. Our choice.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-TYRANT-WARD"),
+        station: "yalain-testkit::dat::effects::the_tyrant_warder_stone_puts_on_a_ward_that_keeps_off_what_bars_skills",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.effects.ward-from-a-row",
+        says: "A world's `[[effect_rule]]` ward keeps off the effects of its classes and the effects it \
+               names, by its chance, and nothing else of theirs; a world's ward rows are its wards alone.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WARD-ROW"),
+        station: "yalain-testkit::cpu::play::creature_tactics::a_ward_from_a_row_keeps_off_its_classes_and_effects_by_its_chance",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.effects.ward-keeps-off-its-classes",
         says: "A ward a player holds keeps off effects of its classes by its chance, and no others. Our \
                choice.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-WARD"),
         station: "yalain-testkit::cpu::play::creature_tactics::a_ward_keeps_off_the_effects_of_its_classes_by_its_chance",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.effects.ward-rows-as-the-servers-own",
+        says: "A world's ward rows hold each of the server's own wards with the same classes and chance, \
+               so a world with them keeps off what one without does.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WARD-ROWS-AS-OWN"),
+        station: "yalain-testkit::corpus::world_db::the_worlds_ward_rows_are_the_servers_own_wards_entry_for_entry",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.effects.wards-without-rows",
+        says: "A world with no `[[effect_rule]]` rows has the server's own six wards: of fire, poison and \
+               what lowers vigor 15% of the time, and the three that keep off what lowers armor always.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WARDS-FALLBACK"),
+        station: "yalain-testkit::cpu::play::creature_tactics::a_world_with_no_ward_rows_has_the_servers_own_six",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -13741,6 +13779,16 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-WDB-EFFECT-NAMES"),
         station: "yalain::bin.yalain::data::tests::an_effect_name_row_is_refused_where_the_install_names_the_effect_itself",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.world-db.effect-rule-effects-from-the-install",
+        says: "A world's `[[effect_rule]]` row may name only an effect the install holds, and its ward \
+               only effects the install holds; one naming a saved state the install lacks is a problem \
+               that names it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WDB-EFFECT-RULE-INSTALL"),
+        station: "yalain::bin.yalain::data::tests::an_effect_rule_row_naming_an_effect_the_install_lacks_is_a_problem",
         tier: Tier::Cpu,
     },
     behaviour! {

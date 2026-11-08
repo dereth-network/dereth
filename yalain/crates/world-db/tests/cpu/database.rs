@@ -1459,6 +1459,58 @@ fn a_tool_row_gives_a_templates_unmade_yield_and_must_name_one_installed() {
 }
 
 #[test]
+fn an_effect_rule_row_gives_a_ward_of_classes_or_effects_at_a_chance() {
+    let mut files = fixture();
+    files.insert(
+        "town/server/effects.toml".into(),
+        "[[effect_rule]]\neffect = 0x6F000E94\nward = { classes = [93, 94, 95], chance = 1.0 }\nprov = { from = \"authored\" }\n\n\
+         [[effect_rule]]\neffect = 0x6F000E95\nward = { effects = [0x700006C6], chance = 0.15 }\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    let merged = merge(&read(&files).unwrap()).unwrap();
+    let t = compile(&merged, &Fake::new()).unwrap();
+    let wards = &t.effect_rules.wards;
+    assert_eq!(wards.len(), 2);
+    assert_eq!(wards[&0x6F00_0E94].classes, [93, 94, 95]);
+    assert!(wards[&0x6F00_0E94].effects.is_empty());
+    assert_eq!(wards[&0x6F00_0E94].chance, 1.0);
+    assert_eq!(wards[&0x6F00_0E95].effects, [0x7000_06C6]);
+    assert_eq!(wards[&0x6F00_0E95].chance, 0.15);
+    // A ward keeps off something, by a chance above nothing and at most certain, and names
+    // nothing else.
+    for ward in [
+        "{ classes = [], chance = 1.0 }",
+        "{ chance = 1.0 }",
+        "{ classes = [93], chance = 0.0 }",
+        "{ classes = [93], chance = 1.5 }",
+        "{ classes = [93] }",
+        "{ classes = [93], chance = 1.0, fellows = true }",
+        "{ classes = [-1], chance = 1.0 }",
+    ] {
+        files.insert(
+            "town/server/effects.toml".into(),
+            format!(
+                "[[effect_rule]]\neffect = 0x6F000E94\nward = {ward}\nprov = {{ from = \"authored\" }}\n"
+            ),
+        );
+        assert!(read(&files).is_err(), "{ward}");
+    }
+    files.insert(
+        "town/server/effects.toml".into(),
+        "[[effect_rule]]\neffect = 0x6F000E94\nprov = { from = \"authored\" }\n".into(),
+    );
+    assert!(read(&files).is_err(), "a rule says what it does");
+    // One rule an effect.
+    files.insert(
+        "town/server/effects.toml".into(),
+        "[[effect_rule]]\neffect = 0x6F000E94\nward = { classes = [93], chance = 1.0 }\nprov = { from = \"authored\" }\n\n\
+         [[effect_rule]]\neffect = 0x6F000E94\nward = { classes = [94], chance = 1.0 }\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    assert!(merge(&read(&files).unwrap()).is_err());
+}
+
+#[test]
 fn a_pet_row_compiles_to_a_kind_and_must_name_an_installed_template() {
     let mut files = fixture();
     files.insert(

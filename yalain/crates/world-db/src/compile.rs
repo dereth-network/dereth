@@ -146,6 +146,8 @@ pub struct Tables {
     pub kingdoms: yalain_content::kingdoms::KingdomTable,
     /// The tips a player is shown once, by moment.
     pub popups: yalain_content::popups::PopupTable,
+    /// What effects do where their own data says nothing: what wards keep off.
+    pub effect_rules: yalain_content::effect_rules::EffectRules,
     /// What the compile left out or could not serve, and why.
     pub warnings: Vec<Problem>,
 }
@@ -1121,6 +1123,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
             }
             Row::Popup(r) => {
                 t.popups.by_moment.insert(r.on, r.effect);
+            }
+            Row::EffectRule(r) => {
+                t.effect_rules.wards.insert(r.effect, r.ward.clone());
             }
             Row::PointsBonus(r) => {
                 t.kingdoms.points.insert(

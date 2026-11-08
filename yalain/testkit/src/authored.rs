@@ -328,19 +328,34 @@ impl Portal {
         yalain_world::kingdom_skills::KingdomSkills::read(&lib, &graph, &skills)
     }
 
-    /// The effects of these saved states (and those they add), as the server reads them at start.
+    /// The effects of these saved states (and those they add), as the server reads them at start
+    /// with a world that has no `[[effect_rule]]` rows.
     ///
     /// # Panics
     /// The library does not read.
     #[must_use]
     pub fn effects(&self, states: &[u32]) -> yalain_world::effect_defs::EffectTable {
+        self.effects_warded(states, &yalain_world::effect_defs::fallback_wards())
+    }
+
+    /// The effects of these saved states (and those they add), as the server reads them at start
+    /// with these wards (a world's, [`yalain_world::effect_defs::world_wards`]).
+    ///
+    /// # Panics
+    /// The library does not read.
+    #[must_use]
+    pub fn effects_warded(
+        &self,
+        states: &[u32],
+        wards: &std::collections::BTreeMap<u32, yalain_world::effect_defs::Ward>,
+    ) -> yalain_world::effect_defs::EffectTable {
         let lib = self.library();
         let graph = |id: u32| -> Option<Graph> {
             let st: ScriptState =
                 auberean_assets::decode(id, &self.dat.read(id).ok()?, &self.ctx).ok()?;
             Graph::decode(&st.graph, &lib).ok()
         };
-        yalain_world::effect_defs::EffectTable::read(&lib, states, &graph)
+        yalain_world::effect_defs::EffectTable::read(&lib, states, &graph, wards)
     }
 
     /// The mounts as the server reads them at start: the mount effects among the saved states,

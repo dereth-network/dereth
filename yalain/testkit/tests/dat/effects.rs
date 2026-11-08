@@ -777,7 +777,9 @@ fn the_crowd_control_immunities_read_as_the_data_defines_them() {
         assert_eq!(l.duration.at(1.0), Some(seconds));
         assert!(l.client_visible(), "{long:08X} shows");
         match &l.kind {
-            Kind::Ward { classes: c, chance } => {
+            Kind::Ward {
+                classes: c, chance, ..
+            } => {
                 assert_eq!(c.as_slice(), classes);
                 assert_eq!(chance.at(50.0), Some(1.0));
             }
@@ -827,7 +829,9 @@ fn the_counters_and_wards_read_as_the_data_defines_them() {
     assert_eq!(brittle.changes(30.0), [(0x4_0125, false, -50.0)]);
     assert_eq!(brittle.duration.at(30.0), Some(30.0));
     let ward = |s: u32| match &t.get(s).expect("read").kind {
-        Kind::Ward { classes, chance } => (classes.clone(), chance.at(30.0).expect("a chance")),
+        Kind::Ward {
+            classes, chance, ..
+        } => (classes.clone(), chance.at(30.0).expect("a chance")),
         k => panic!("{s:08X}: {k:?}"),
     };
     assert_eq!(ward(0x6F00_266E), (vec![22, 5061], 1.0));
@@ -917,7 +921,9 @@ fn the_protections_read_as_the_data_defines_them() {
         0x6F00_1141,
     ]);
     let ward = |s: u32| match &t.get(s).expect("read").kind {
-        Kind::Ward { classes, chance } => (classes.clone(), chance.clone()),
+        Kind::Ward {
+            classes, chance, ..
+        } => (classes.clone(), chance.clone()),
         k => panic!("{s:08X}: {k:?}"),
     };
     let (blaze, chance) = ward(0x7000_1F48);
@@ -2238,4 +2244,162 @@ fn lumbering_might_is_told_held_until_taken_off_and_a_potion_timed_both_gone_at_
             (DASH, normal | transient),
         ]
     );
+}
+
+/// The Tyrant Warder Stone, its quest and Tyrant Ward, and the three effects every Tyrant's magic
+/// puts on: Silence, Pacify and Clouded Eyes, which bar magic, melee and missile skills.
+const TYRANT_STONE: u32 = 0x4700_1C8F;
+const TYRANT_QUEST: u32 = 0x4000_02DF;
+const TYRANT_WARD: u32 = 0x6F00_0E94;
+const SILENCE: u32 = 0x7000_1F92;
+const PACIFY: u32 = 0x7000_1F93;
+const CLOUDED_EYES: u32 = 0x7000_1F94;
+/// Tyrant Maul, a Tyrant's harm over time, of another class.
+const TYRANT_MAUL: u32 = 0x6F00_18BC;
+
+/// A world of one pack: the stone's quest, given for as long as its ward lasts, and the ward's rule.
+fn tyrant_world() -> yalain_world_db::Files {
+    let mut files = yalain_world_db::Files::new();
+    files.insert(
+        "world.toml".into(),
+        "format_version = 1\nkey = \"w\"\ngame = \"ac2\"\nera = \"eor\"\npacks = [\"p\"]\n".into(),
+    );
+    files.insert(
+        "p/pack.toml".into(),
+        "format_version = 1\nname = \"p\"\nversion = \"0.1.0\"\ngame = \"ac2\"\nauthors = [\"a\"]\nlicense = \"CC0-1.0\"\ndescription = \"d\"\n".into(),
+    );
+    files.insert(
+        "p/server/quests/400002DF.toml".into(),
+        "[[quest]]\nid = 0x400002DF\nstate = 0x6F000C52\nduration = 3660.0\nvisible = false\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    files.insert(
+        "p/server/effects.toml".into(),
+        "[[effect_rule]]\neffect = 0x6F000E94\nward = { classes = [93, 94, 95], chance = 1.0 }\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    files
+}
+
+/// A ward the data names nothing for reads as nothing but a record without a world's row (its own
+/// data holds no list), and as the ward the row says with one; a world's rows are its wards alone,
+/// so the server's own six read as records there too.
+/// Behaviour: server.effects.ward-from-a-row
+#[test]
+fn a_ward_reads_as_its_worlds_row_says_and_without_rows_as_the_servers_own() {
+    use yalain_world::effect_defs::world_wards;
+    let p = Portal::open();
+    let states = [TYRANT_WARD, 0x6F00_266E, 0x6F00_2672];
+    let none = p.effects(&states);
+    assert_eq!(none.get(TYRANT_WARD).map(|d| &d.kind), Some(&Kind::Other));
+    assert!(matches!(
+        none.get(0x6F00_2672).map(|d| &d.kind),
+        Some(Kind::Ward { classes, .. }) if classes == &[48, 1119, 5013]
+    ));
+    let t = p.compile(&tyrant_world());
+    let rows = p.effects_warded(&states, &world_wards(&t.effect_rules.wards));
+    match rows.get(TYRANT_WARD).map(|d| &d.kind) {
+        Some(Kind::Ward {
+            classes,
+            effects,
+            chance,
+        }) => {
+            assert_eq!(classes, &[93, 94, 95]);
+            assert!(effects.is_empty());
+            assert_eq!(chance.at(30.0), Some(1.0));
+        }
+        k => panic!("{k:?}"),
+    }
+    for s in [0x6F00_266E, 0x6F00_2672] {
+        assert_eq!(rows.get(s).map(|d| &d.kind), Some(&Kind::Other), "{s:08X}");
+    }
+}
+
+/// The Tyrant Warder Stone used gives its quest, whose giving puts Tyrant Ward on its user for an
+/// hour; while it holds, the three effects of every Tyrant's magic that bar skills are kept off,
+/// and a Tyrant's other harm still comes on.
+/// Behaviour: server.effects.tyrant-ward
+#[test]
+fn the_tyrant_warder_stone_puts_on_a_ward_that_keeps_off_what_bars_skills() {
+    use yalain_world::effect_defs::world_wards;
+    use yalain_world::effects::{self, Cast};
+    let p = Portal::open();
+    let t = p.compile(&tyrant_world());
+    let uses = p.item_uses(&[TYRANT_STONE]);
+    let mut states: Vec<u32> = uses.values().flatten().map(|e| e.state).collect();
+    states.extend(t.quests.effect_states());
+    states.extend([SILENCE, PACIFY, CLOUDED_EYES, TYRANT_MAUL]);
+    let mut h = yalain_testkit::Harness::new();
+    h.server.catalog.insert(p.template(TYRANT_STONE));
+    h.server.item_uses = uses;
+    h.server.effect_table = p.effects_warded(&states, &world_wards(&t.effect_rules.wards));
+    h.server.quests = t.quests.clone();
+    for s in [SILENCE, PACIFY, CLOUDED_EYES] {
+        let class = h.server.effect_table.get(s).map(|d| d.eq_class);
+        assert!(matches!(class, Some(93..=95)), "{s:08X}: {class:?}");
+    }
+    let (b, me) = h.player_in_world("one", "Elara");
+    h.bots[b].send(
+        true,
+        auberean_protocol::queue::WEENIE,
+        &auberean_protocol::ClientMessage::SceneRenderingComplete(auberean_protocol::login::Empty),
+    );
+    h.run(5);
+    let world = *h.server.players.keys().next().expect("in the world");
+    // Of the level the stone asks of its user, 50.
+    {
+        let pl = h.server.players.get_mut(&world).expect("the player");
+        yalain_world::quals::set_int(&mut pl.qualities, yalain_world::examine::LEVEL, 50);
+    }
+    let item = yalain_world::inventory::give(&mut h.server, &mut h.net, world, TYRANT_STONE, 1)
+        .expect("given");
+    h.run(3);
+    h.bots[b].send(
+        true,
+        auberean_protocol::queue::WEENIE,
+        &yalain_testkit::play::server_call(0x8216_0016, &[yalain_testkit::play::use_of(item, me)]),
+    );
+    let end = h.now.0 + 20.0;
+    while h.now.0 < end {
+        h.step();
+    }
+    let held = |h: &yalain_testkit::Harness, s: u32| {
+        h.server.players[&world]
+            .play
+            .effects
+            .iter()
+            .any(|e| e.state == s)
+    };
+    assert!(
+        h.server.players[&world]
+            .play
+            .quests
+            .iter()
+            .any(|q| q.quest == TYRANT_QUEST),
+        "the quest given: {:?}",
+        h.server.unhandled.counts()
+    );
+    assert!(held(&h, TYRANT_WARD), "the ward on");
+    let clock = h.clock();
+    let cast = Cast {
+        caster: 0x8130_0000_0000_0001,
+        spellcraft: 50.0,
+        ..Cast::default()
+    };
+    for s in [SILENCE, PACIFY, CLOUDED_EYES] {
+        assert!(
+            !effects::apply(&mut h.server, &mut h.net, world, s, cast, clock),
+            "{s:08X} kept off"
+        );
+        assert!(!held(&h, s), "{s:08X}");
+    }
+    assert!(effects::apply(
+        &mut h.server,
+        &mut h.net,
+        world,
+        TYRANT_MAUL,
+        cast,
+        clock
+    ));
+    assert!(held(&h, TYRANT_MAUL));
 }

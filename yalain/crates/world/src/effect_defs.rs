@@ -23,7 +23,7 @@
 //! effect it gives back, and takes off the oldest of the effects found or all of them, as its
 //! flags say; not found, the other effect and adjustment.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use auberean_script::graph::{Graph, PackedObject};
 use auberean_script::library::Library;
@@ -155,26 +155,53 @@ mod watcher_flag {
     pub const ATTACKS: u32 = 0x4000;
 }
 
-/// The wards and what they keep off, as their descriptions say: the classes of fire and of what
-/// lowers vigor are those the install's own protections from them name, of poison those its poisons
-/// are in, of what lowers armor those that hold its armor-lowering effects. Their own data names
-/// neither. Our choice.
-fn ward_of(state: u32) -> Option<Kind> {
+/// What a ward keeps off, where its own data names nothing: the world's `[[effect_rule]]` rows.
+pub use yalain_content::effect_rules::Ward;
+
+/// The wards of a world with no `[[effect_rule]]` rows, as their descriptions say: the classes of
+/// fire and of what lowers vigor are those the install's own protections from them name, of poison
+/// those its poisons are in, of what lowers armor those that hold its armor-lowering effects. Their
+/// own data names neither. Our choice. A world with any row has its rows alone ([`world_wards`]).
+#[must_use]
+pub fn fallback_wards() -> BTreeMap<u32, Ward> {
     const FIRE: &[u32] = &[48, 1119, 5013];
     const VIGOR: &[u32] = &[49, 5014, 26, 4015, 5043, 5050];
     const POISON: &[u32] = &[53, 5007, 5022, 5046];
     const ARMOR: &[u32] = &[22, 5061];
-    let (classes, chance): (&[u32], f32) = match state {
-        0x6F00_2671 => (VIGOR, 0.15),
-        0x6F00_2672 => (FIRE, 0.15),
-        0x6F00_2675 => (POISON, 0.15),
-        0x6F00_266E | 0x6F00_2670 | 0x6F00_2674 => (ARMOR, 1.0),
-        _ => return None,
-    };
-    Some(Kind::Ward {
+    let ward = |classes: &[u32], chance: f32| Ward {
         classes: classes.to_vec(),
-        chance: Scale(vec![(0.0, chance)]),
-    })
+        effects: Vec::new(),
+        chance,
+    };
+    BTreeMap::from([
+        (0x6F00_2671, ward(VIGOR, 0.15)),
+        (0x6F00_2672, ward(FIRE, 0.15)),
+        (0x6F00_2675, ward(POISON, 0.15)),
+        (0x6F00_266E, ward(ARMOR, 1.0)),
+        (0x6F00_2670, ward(ARMOR, 1.0)),
+        (0x6F00_2674, ward(ARMOR, 1.0)),
+    ])
+}
+
+/// The wards a world knows, by the effect's saved state: its `[[effect_rule]]` wards alone, or, for
+/// a world with none, the server's own ([`fallback_wards`]).
+#[must_use]
+pub fn world_wards(rows: &BTreeMap<u32, Ward>) -> BTreeMap<u32, Ward> {
+    if rows.is_empty() {
+        fallback_wards()
+    } else {
+        rows.clone()
+    }
+}
+
+/// The kind of an effect a world's row makes a ward: its chance the same at any spellcraft.
+#[must_use]
+pub fn ward_kind(w: &Ward) -> Kind {
+    Kind::Ward {
+        classes: w.classes.clone(),
+        effects: w.effects.clone(),
+        chance: Scale(vec![(0.0, w.chance)]),
+    }
 }
 
 /// A kind of crowd control's immunity: the short effect a use puts on along with it, the long one
@@ -204,6 +231,7 @@ fn immunity_of(state: u32) -> Option<Kind> {
         } else if state == *long {
             Some(Kind::Ward {
                 classes: classes.to_vec(),
+                effects: Vec::new(),
                 chance: Scale(vec![(0.0, 1.0)]),
             })
         } else {
@@ -346,9 +374,13 @@ pub enum Kind {
     },
     /// Held by its wearer, it takes from an attack's harm and sends some back.
     Watcher(Box<Watcher>),
-    /// Held by its wearer, it may keep off effects of these classes (none named: of any), by a
-    /// chance at its spellcraft.
-    Ward { classes: Vec<u32>, chance: Scale },
+    /// Held by its wearer, it may keep off effects of these classes and these effects (by their
+    /// saved states; none of either named: of any), by a chance at its spellcraft.
+    Ward {
+        classes: Vec<u32>,
+        effects: Vec<u32>,
+        chance: Scale,
+    },
     /// A creature's mind changed about its caster, once, by this share of the creature's whole
     /// health: more inclined to it, or less (below 0).
     Taunt(f32),
@@ -515,7 +547,8 @@ impl EffectDef {
         }
     }
 
-    /// Read an effect from its saved state's graph.
+    /// Read an effect from its saved state's graph, as its own data says (a ward the world names
+    /// comes with [`EffectTable::read`]).
     ///
     /// # Errors
     /// A field every effect holds is missing.
@@ -592,8 +625,8 @@ impl EffectDef {
         };
         let flags = word("m_uiExternalFlags")?;
         let number = |name: &str| nav.number(o, name).unwrap_or(0.0);
-        let kind = if let Some(ward) = ward_of(state).or_else(|| immunity_of(state)) {
-            ward
+        let kind = if let Some(immunity) = immunity_of(state) {
+            immunity
         } else if is("ResurrectEffect") {
             Kind::Resurrect {
                 focus: scale("m_magData"),
@@ -693,6 +726,7 @@ impl EffectDef {
             let begin = number("m_fAbsorbProbBegin");
             Kind::Ward {
                 classes: words("m_clsAbsorbList"),
+                effects: Vec::new(),
                 chance: if flags & keeps_off_flag::CONSTANT != 0 {
                     Scale(vec![(0.0, begin)])
                 } else {
@@ -872,9 +906,14 @@ pub struct EffectTable {
 
 impl EffectTable {
     /// The definitions of these saved states and of the effects they add in turn (a state that
-    /// does not read is left out).
+    /// does not read is left out), each of `wards` (by saved state) a ward keeping off what it names.
     #[must_use]
-    pub fn read(lib: &Library, states: &[u32], graph: &dyn Fn(u32) -> Option<Graph>) -> Self {
+    pub fn read(
+        lib: &Library,
+        states: &[u32],
+        graph: &dyn Fn(u32) -> Option<Graph>,
+        wards: &BTreeMap<u32, Ward>,
+    ) -> Self {
         let mut t = Self::default();
         let mut todo: Vec<u32> = states.to_vec();
         while let Some(s) = todo.pop() {
@@ -882,7 +921,10 @@ impl EffectTable {
                 continue;
             }
             let Some(g) = graph(s) else { continue };
-            if let Ok(d) = EffectDef::from_state(s, lib, &g) {
+            if let Ok(mut d) = EffectDef::from_state(s, lib, &g) {
+                if let Some(w) = wards.get(&s) {
+                    d.kind = ward_kind(w);
+                }
                 if let Some(text) = EffectDef::description_of(lib, &g) {
                     t.descriptions.insert(s, text);
                 }
