@@ -48,6 +48,7 @@ what they see, not how it was done.
 - Perks now raise max vitals, vigor regen and kill experience.
 - Players' reported positions are checked for speed, walls and height.
 - Fixed heroes' attribute skills adding nothing to health, vigor, focus and Arcane Lore.
+- Fixed logins that could hang when a server had just started.
 
 ## 0.2.2 (2026-11-07)
 - Resurrection skills work: the dead can accept and get up where they fell.

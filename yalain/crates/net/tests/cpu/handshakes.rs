@@ -6,7 +6,9 @@ use std::net::{SocketAddr, SocketAddrV4};
 use dereth_transport::conn::ConnectRequest;
 use dereth_transport::wire::{PacketFlags, ParsedPacket};
 use yalain_net::endpoint::standalone;
-use yalain_net::handshakes::{MOST_WAITING, WAITING_SECONDS};
+use yalain_net::handshakes::{
+    ANSWER_SECONDS, MOST_WAITING, MOST_WAITING_PER_ADDRESS, WAITING_SECONDS,
+};
 use yalain_net::login::build_login;
 use yalain_net::server::{CloseReason, ConnId, Datagram, NetConfig, NetEvent, Port, ServerNet};
 use yalain_net::{fixed_stream, LocalTime};
@@ -53,12 +55,20 @@ fn events(net: &mut ServerNet) -> Vec<NetEvent> {
     std::iter::from_fn(|| net.poll_event()).collect()
 }
 
+/// A login from `from`: the cookies it is answered with.
+fn asked(net: &mut ServerNet, from: SocketAddr, now: LocalTime) -> Vec<u64> {
+    net.on_datagram(Port::LOGIN_EVEN, from, &login_request(), now);
+    handshakes(&net.take_datagrams())
+        .iter()
+        .map(|h| h.cookie)
+        .collect()
+}
+
 /// A login from `from`: the cookie it is answered with.
 fn asks(net: &mut ServerNet, from: SocketAddr, now: LocalTime) -> u64 {
-    net.on_datagram(Port::LOGIN_EVEN, from, &login_request(), now);
-    let got = handshakes(&net.take_datagrams());
+    let got = asked(net, from, now);
     assert_eq!(got.len(), 1, "one answer to {from}");
-    got[0].cookie
+    got[0]
 }
 
 /// `from` answers `cookie`; the connection that logs in by it.
@@ -130,26 +140,54 @@ fn logins_nobody_answers_hold_no_place_from_a_client_that_answers() {
     }
 }
 
-/// Logins from one address push out only that address's own: another's handshake still holds.
+/// Logins from one address push out only that address's own, and only handshakes their clients
+/// have had time to answer: until then the newest from it is not answered, and its resend is once
+/// one of them is answered or could have been. Another address's handshake holds throughout.
 /// Behaviour: server.net.handshake-holds-nothing-until-answered
 #[test]
-fn logins_from_one_address_do_not_push_out_anothers() {
+fn logins_from_one_address_push_out_only_its_own_and_only_once_they_could_be_answered() {
     let mut net = services();
     let other = addr("198.51.100.7:50000");
     let cookie = asks(&mut net, other, NOW);
     let first = addr("198.51.100.9:1000");
     let oldest = asks(&mut net, first, NOW);
-    for port in 1001..4000 {
-        asks(&mut net, SocketAddr::new(first.ip(), port), NOW);
+    let second = SocketAddr::new(first.ip(), 1001);
+    let second_cookie = asks(&mut net, second, NOW);
+    let mut answered = 2;
+    for port in 1002..4000 {
+        answered += asked(&mut net, SocketAddr::new(first.ip(), port), NOW).len();
     }
-    assert!(net.handshakes_waiting() < 64, "that address's are bounded");
+    net.tick(NOW);
     assert_eq!(
-        answers(&mut net, first, oldest, NOW),
+        answered, MOST_WAITING_PER_ADDRESS,
+        "that address's are bounded, the newest not answered"
+    );
+    assert_eq!(net.handshakes_waiting(), MOST_WAITING_PER_ADDRESS + 1);
+
+    // Before its client could answer, none gives way; one answered makes room.
+    let soon = LocalTime(NOW.0 + ANSWER_SECONDS / 2.0);
+    let newest = SocketAddr::new(first.ip(), 4000);
+    assert_eq!(asked(&mut net, newest, soon), Vec::<u64>::new(), "not yet");
+    assert!(answers(&mut net, second, second_cookie, soon).is_some());
+    asks(&mut net, newest, soon);
+    let newer = SocketAddr::new(first.ip(), 4001);
+    assert_eq!(
+        asked(&mut net, newer, soon),
+        Vec::<u64>::new(),
+        "full again"
+    );
+
+    // Once the oldest could have been answered, it gives way to the newest's resend.
+    let later = LocalTime(NOW.0 + ANSWER_SECONDS);
+    let newer_cookie = asks(&mut net, newer, later);
+    assert_eq!(
+        answers(&mut net, first, oldest, later),
         None,
         "its oldest gave way"
     );
+    assert!(answers(&mut net, newer, newer_cookie, later).is_some());
     assert!(
-        answers(&mut net, other, cookie, NOW).is_some(),
+        answers(&mut net, other, cookie, later).is_some(),
         "the other's held"
     );
 }

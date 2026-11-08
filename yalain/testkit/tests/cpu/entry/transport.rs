@@ -1,4 +1,4 @@
-//! The connections under loss, and a held game clock.
+//! The connections under loss, logins read together after a long pass, and a held game clock.
 
 use std::net::SocketAddr;
 
@@ -7,8 +7,8 @@ use auberean_protocol::{queue, ClientMessage, ServerMessage};
 use dereth_transport::conn::ConnectSeeds;
 use dereth_transport::wire::ParsedPacket;
 use yalain_net::endpoint::{Endpoint, Role};
-use yalain_net::{fixed_stream, LocalTime, NetConfig, ServerNet};
-use yalain_testkit::Harness;
+use yalain_net::{fixed_stream, LocalTime, NetConfig, Port, ServerNet};
+use yalain_testkit::{port_addr, Harness};
 
 fn pair(now: LocalTime) -> (Endpoint, Endpoint) {
     let seeds = ConnectSeeds {
@@ -47,6 +47,72 @@ fn a_login_completes_over_a_link_that_loses_every_fifth_datagram() {
         .iter()
         .any(|m| matches!(m, ServerMessage::CharacterList(_)))));
     assert!(h.wire.dropped > 0);
+}
+
+/// Clients that log in one after another from one address while the server is busy for three
+/// seconds, as it is in its first step, are read together once it is free, their resends among them.
+/// Each is sent a handshake the server keeps until it is answered, or none until there is room, and
+/// every client logs in, none left answering a handshake the server has let go.
+/// Behaviour: server.net.logins-read-together-all-get-in
+#[test]
+fn clients_that_log_in_while_the_server_is_busy_all_get_in() {
+    const CLIENTS: usize = 30;
+    const EVERY: f64 = 0.1;
+    let mut h = Harness::new();
+    for _ in 0..CLIENTS {
+        h.add_bot();
+    }
+    let send = |h: &mut Harness| {
+        let now = h.now;
+        for b in &mut h.bots {
+            for (to, bytes) in b.tick(now) {
+                h.wire.send(b.addr, to, bytes);
+            }
+        }
+    };
+    // The first is read as the pass begins; its handshake leaves when the pass ends.
+    let begun = h.now;
+    h.bots[0].log_in("busy0", b"ticket", begun);
+    send(&mut h);
+    for d in h.wire.take() {
+        h.net.on_datagram(Port::LOGIN_EVEN, d.from, &d.bytes, begun);
+    }
+    for i in 1..CLIENTS {
+        h.now = LocalTime(h.now.0 + EVERY);
+        let now = h.now;
+        h.bots[i].log_in(&format!("busy{i}"), b"ticket", now);
+        send(&mut h);
+    }
+    h.now = LocalTime(h.now.0 + EVERY);
+    send(&mut h);
+    h.net.tick(h.now);
+    for d in h.net.take_datagrams() {
+        h.wire.send(port_addr(d.from), d.to, d.bytes);
+    }
+
+    let all_in = |h: &Harness| {
+        h.bots.iter().all(|b| {
+            b.messages(false)
+                .iter()
+                .any(|m| matches!(m, ServerMessage::DataQuery(_)))
+        })
+    };
+    let in_time = h.run_until(400, all_in);
+    let out: Vec<usize> = (0..CLIENTS)
+        .filter(|&i| {
+            !h.bots[i]
+                .messages(false)
+                .iter()
+                .any(|m| matches!(m, ServerMessage::DataQuery(_)))
+        })
+        .collect();
+    assert!(in_time, "every client logs in; not: {out:?}");
+    assert_eq!(h.net.connection_count(), CLIENTS);
+    assert_eq!(
+        h.net.handshakes_waiting(),
+        0,
+        "no handshake left unanswered"
+    );
 }
 
 /// A server whose game clock is held reads the same time from then on, and every connection's

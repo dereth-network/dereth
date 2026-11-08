@@ -7336,8 +7336,9 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "server.net.handshake-holds-nothing-until-answered",
         says: "A login not yet answered back is no connection: what waits is bounded per \
-               service and per address, the oldest giving way, so a client that answers \
-               gets in however many wait.",
+               service, the oldest giving way, so a client that answers gets in however many \
+               wait, and per address, where one gives way only once its client has had time \
+               to answer it and until then the newest is not answered.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-HANDSHAKE-HOLDS-NOTHING"),
         station: "yalain-net::cpu::handshakes::logins_nobody_answers_hold_no_place_from_a_client_that_answers",
@@ -7413,6 +7414,16 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-PACE-LIVE"),
         station: "yalain::live::session::a_client_on_loopback_takes_the_script_library_whole_from_the_server_executable",
         tier: Tier::Live,
+    },
+    behaviour! {
+        id: "server.net.logins-read-together-all-get-in",
+        says: "Logins from one address that the server reads together after a long pass, \
+               resends among them, are each sent a handshake the server keeps until its client \
+               has had time to answer, or none until there is room, and every client logs in.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-LOGIN-BUSY-PASS"),
+        station: "yalain-testkit::cpu::entry::transport::clients_that_log_in_while_the_server_is_busy_all_get_in",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "server.net.lost-packets-resent",

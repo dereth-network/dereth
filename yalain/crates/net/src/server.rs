@@ -14,7 +14,9 @@
 //!
 //! **A handshake** holds nothing until its client answers it ([`crate::handshakes`]): only then is
 //! the address known to be the client's, and only then does it replace a connection of that
-//! address.
+//! address. One sent is kept until its client has had time to answer it, timed from the pass of
+//! the connections ([`ServerNet::tick`]) that sent it; a login from an address with the most waiting
+//! before then is not answered, and its client's resend is.
 //!
 //! **A source that fails** is never made up for. A login or world login it fails for gets no
 //! handshake and makes no connection (the client's own resend tries again, and a world login's
@@ -714,6 +716,10 @@ impl ServerNet {
             tracing::debug!(%from, "a login that does not read; ignored");
             return;
         };
+        if !self.handshakes.has_room(Service::Login, from, now) {
+            tracing::debug!(%from, "a login from an address with the most waiting; not answered");
+            return;
+        }
         let Some(numbers) = self.handshake_numbers() else {
             return;
         };
@@ -740,7 +746,10 @@ impl ServerNet {
             tracing::info!(%from, "a world login from another address than its login; ignored");
             return;
         }
-        // No numbers, no handshake: the cookie stays good for the client's next resend.
+        // No room or no numbers, no handshake: the cookie stays good for the client's next resend.
+        if !self.handshakes.has_room(Service::World, from, now) {
+            return;
+        }
         let Some(numbers) = self.handshake_numbers() else {
             return;
         };
@@ -986,7 +995,8 @@ impl ServerNet {
     }
 
     /// Run every connection for this moment: send what is queued, close the silent and those that
-    /// have stopped taking what they are sent.
+    /// have stopped taking what they are sent. The handshakes answered since the last pass leave
+    /// now, so `now` is the time the host sends what it takes next ([`ServerNet::take_datagrams`]).
     pub fn tick(&mut self, now: LocalTime) {
         let mut closing = Vec::new();
         for (id, c) in &mut self.conns {
@@ -1010,6 +1020,7 @@ impl ServerNet {
         }
         self.referrals
             .retain(|_, r| now.seconds_since(r.sent_at) <= WORLD_LOGIN_TIMEOUT);
+        self.handshakes.sent(now);
         self.handshakes.expire(now);
     }
 }

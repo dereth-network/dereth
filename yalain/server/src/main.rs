@@ -1403,7 +1403,9 @@ fn run<S: Store>(
                 wire.send_friends(to, &bytes);
             }
             server.step_timer.begin();
-            net.tick(now);
+            // The time the connections' datagrams leave, after the world's pass: a handshake
+            // answered as the pass began is timed from here.
+            net.tick(local());
             let out = net.take_datagrams();
             wire.send(&out);
             server
