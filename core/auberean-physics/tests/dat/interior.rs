@@ -3,14 +3,19 @@
 //! kept a hall's players; the human male's collision spheres and step heights and the player's
 //! motion values.
 
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use auberean_assets::animation::MotionDesc;
+use auberean_assets::mesh::CellMesh;
 use auberean_assets::setup::Setup;
 use auberean_physics::body::{setup_spheres, Body, BodyConfig};
-use auberean_physics::interior::add_block_cells;
+use auberean_physics::interior::{add_block_cells, cell_geometry};
 use auberean_physics::land::Land;
 use auberean_physics::mesh::Trees;
 use auberean_physics::motion::MotionInput;
 use auberean_physics::world::World;
+use dereth_physics::geom::BspTree;
 use dereth_primitives::{CellId, Frame, Position, Quat, Vec3};
 
 use crate::common::need_world;
@@ -683,4 +688,56 @@ fn a_body_falls_by_the_gravity_where_it_is() {
     assert!((g.z + 9.8039).abs() < 1e-3, "{g:?}");
     let (g, _) = fall(0xF6F8_0001, Vec3::new(12.0, 12.0, 400.0));
     assert!((g.z + 0.1568).abs() < 1e-3, "{g:?}");
+}
+
+/// The hall's cells built on one mesh hold that mesh's physics tree and inside test between them,
+/// one copy for all, and each cell is the cell built alone from its record and mesh.
+///
+/// Behaviour: motion.interior.cells-on-one-mesh-share-its-trees
+#[test]
+fn cells_on_one_mesh_share_its_trees() {
+    let w = need_world!();
+    let land = Land::new();
+    let (x, y) = (0x02, 0x98);
+    let added = add_block_cells(&land, &w.records, &mut Trees::default(), x, y);
+    assert!(added > 50, "the hall's cells: {added}");
+    let mut first_of_mesh: HashMap<u32, CellId> = HashMap::new();
+    let mut shared = 0;
+    for id in land.interior_cells_of(0x0298_0000) {
+        let low = (id.0 & 0xFFFF) as u16;
+        let record = w
+            .records
+            .cell(i32::from(x), i32::from(y), low)
+            .expect("the cell's record");
+        let mesh: CellMesh = w.records.get(record.mesh.0).expect("the cell's mesh");
+        let alone = cell_geometry(&record, &mesh, x, y, low).expect("the cell alone");
+        let built = land.cell(id).expect("the cell");
+        assert_eq!(
+            format!("{built:?}"),
+            format!("{alone:?}"),
+            "cell {:08X}",
+            id.0
+        );
+        let Some(&first) = first_of_mesh.get(&record.mesh.0) else {
+            first_of_mesh.insert(record.mesh.0, id);
+            continue;
+        };
+        let first = land.cell(first).expect("the first cell of its mesh");
+        let same = |a: &Option<Arc<BspTree>>, b: &Option<Arc<BspTree>>| match (a, b) {
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+            (None, None) => true,
+            _ => false,
+        };
+        assert!(
+            same(&built.physics_bsp, &first.physics_bsp) && same(&built.cell_bsp, &first.cell_bsp),
+            "cell {:08X} holds trees of its own",
+            id.0
+        );
+        shared += 1;
+    }
+    assert!(
+        shared > 50 && first_of_mesh.len() < 25,
+        "{shared} cells on {} meshes",
+        first_of_mesh.len()
+    );
 }

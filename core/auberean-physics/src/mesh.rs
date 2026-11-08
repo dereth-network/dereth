@@ -201,11 +201,12 @@ pub fn decompose(m: &Mat4) -> Placement {
 }
 
 /// A cache of meshes' physics trees, and of what a part needs of each mesh, by mesh id: a mesh is
-/// read once for both.
+/// read once for both. Cell meshes' shapes are kept too, by cell mesh id.
 #[derive(Debug, Default)]
 pub struct Trees {
     by_mesh: HashMap<u32, Option<Arc<BspTree>>>,
     part_meshes: HashMap<u32, Option<crate::parts::PartMesh>>,
+    cell_shapes: HashMap<u32, Option<Arc<crate::interior::CellShape>>>,
 }
 
 impl Trees {
@@ -228,6 +229,19 @@ impl Trees {
             self.read(id, load);
         }
         self.part_meshes.get(&id).cloned().flatten()
+    }
+
+    /// The shape of cell mesh `id`, which is `mesh`, built the first time it is asked for: every
+    /// cell on that mesh shares it.
+    pub fn cell_shape(
+        &mut self,
+        id: u32,
+        mesh: &auberean_assets::mesh::CellMesh,
+    ) -> Option<Arc<crate::interior::CellShape>> {
+        self.cell_shapes
+            .entry(id)
+            .or_insert_with(|| crate::interior::CellShape::of(mesh).map(Arc::new))
+            .clone()
     }
 
     fn read(&mut self, id: u32, load: impl FnOnce(u32) -> Option<Mesh>) {

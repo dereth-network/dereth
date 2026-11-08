@@ -486,6 +486,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "motion.interior.cells-on-one-mesh-share-its-trees",
+        says: "The interior cells built on one cell mesh hold that mesh's physics tree and inside \
+               test between them, one copy for all, and each cell is the cell built alone from its \
+               record and mesh.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-CELL-SHAPES-SHARED"),
+        station: "auberean-physics::dat::interior::cells_on_one_mesh_share_its_trees",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "motion.interior.in-a-room-a-bodys-height-is-above-the-floor",
         says: "In a room a body in the air is as high as the room's floor is below it, wherever the land is.",
         since: RETAIL,

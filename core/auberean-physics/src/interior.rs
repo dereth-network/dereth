@@ -38,12 +38,46 @@ fn v3(v: auberean_primitives::Vec3) -> Vec3 {
     Vec3::new(v.x, v.y, v.z)
 }
 
+/// What every cell built on one cell mesh shares, read from the mesh once: its vertices'
+/// positions, its physics polygons, its physics tree and its inside test, all in the cell's own
+/// frame. A dungeon repeats a few meshes over hundreds of its rooms, so its cells hold one copy of
+/// each mesh's trees between them.
+#[derive(Debug)]
+pub struct CellShape {
+    positions: Vec<Vec3>,
+    polygons: Vec<Polygon>,
+    physics_bsp: Option<Arc<BspTree>>,
+    cell_bsp: Arc<BspTree>,
+}
+
+impl CellShape {
+    /// The shape of `mesh`; `None` when its vertices store no positions.
+    #[must_use]
+    pub fn of(mesh: &CellMesh) -> Option<Self> {
+        let positions = positions(&mesh.mesh.vertices)?;
+        let polygons = physics_polygons(&mesh.mesh)?;
+        let by_id: HashMap<u16, u32> = mesh
+            .mesh
+            .physics_polygons
+            .iter()
+            .enumerate()
+            .filter_map(|(i, p)| Some((p.id, u32::try_from(i).ok()?)))
+            .collect();
+        let cell_bsp = Arc::new(convert(&mesh.cell_tree, polygons.clone(), &by_id));
+        Some(Self {
+            positions,
+            polygons,
+            physics_bsp: physics_tree(&mesh.mesh).map(Arc::new),
+            cell_bsp,
+        })
+    }
+}
+
 /// Cell `low` of block `(x, y)` as the shared core's interior cell, from the cell's record and its
 /// mesh; `None` when the mesh's vertices store no positions. A cell mesh with no physics tree is
 /// open air: nothing in it stops a body but the objects standing there, and its polygons are its
 /// doorways. A doorway flagged as having no cell beyond leads outdoors. A cell with no doorways
 /// still holds what its cell tree says it does: the training ground's closed rooms are stood in.
-// D2-04243, D2-03490, D2-03492
 #[must_use]
 pub fn cell_geometry(
     cell: &Cell,
@@ -52,17 +86,23 @@ pub fn cell_geometry(
     y: u8,
     low: u16,
 ) -> Option<EnvCellGeometry> {
+    Some(cell_on_shape(cell, mesh, &CellShape::of(mesh)?, x, y, low))
+}
+
+/// Cell `low` of block `(x, y)` built on `shape`, its mesh's shape: the cell shares the shape's
+/// trees ([`cell_geometry`] for what it holds).
+// D2-04243, D2-03490, D2-03492
+#[must_use]
+pub fn cell_on_shape(
+    cell: &Cell,
+    mesh: &CellMesh,
+    shape: &CellShape,
+    x: u8,
+    y: u8,
+    low: u16,
+) -> EnvCellGeometry {
     let block = u32::from(x) << 24 | u32::from(y) << 16;
-    let at = positions(&mesh.mesh.vertices)?;
-    let polygons = physics_polygons(&mesh.mesh)?;
-    let by_id: HashMap<u16, u32> = mesh
-        .mesh
-        .physics_polygons
-        .iter()
-        .enumerate()
-        .filter_map(|(i, p)| Some((p.id, u32::try_from(i).ok()?)))
-        .collect();
-    let inside: BspTree = convert(&mesh.cell_tree, polygons.clone(), &by_id);
+    let at = &shape.positions;
     let portals = cell
         .portals
         .iter()
@@ -96,13 +136,13 @@ pub fn cell_geometry(
         })
         .collect();
     let q = cell.frame.rotation;
-    Some(EnvCellGeometry {
+    EnvCellGeometry {
         id: CellId(block | u32::from(low)),
         frame: Frame::new(v3(cell.frame.origin), Quat::new(q.w, q.x, q.y, q.z)),
         portals,
-        physics_polygons: polygons,
-        physics_bsp: physics_tree(&mesh.mesh).map(Arc::new),
-        cell_bsp: Some(Arc::new(inside)),
+        physics_polygons: shape.polygons.clone(),
+        physics_bsp: shape.physics_bsp.clone(),
+        cell_bsp: Some(Arc::clone(&shape.cell_bsp)),
         stab_list: cell
             .visible
             .iter()
@@ -111,7 +151,7 @@ pub fn cell_geometry(
         seen_outside: cell.flags & 0x1 != 0,
         holds_without_portals: true,
         static_objects: Vec::new(),
-    })
+    }
 }
 
 /// The solid parts of the entities placed in `cell`, in its landblock's frame, each where its
@@ -157,7 +197,8 @@ pub fn add_block_cells(
         else {
             continue;
         };
-        if let Some(g) = cell_geometry(&cell, &mesh, x, y, low) {
+        if let Some(shape) = trees.cell_shape(cell.mesh.0, &mesh) {
+            let g = cell_on_shape(&cell, &mesh, &shape, x, y, low);
             let objects = cell
                 .entities
                 .iter()
