@@ -807,6 +807,56 @@ fn the_lock_holds_the_log_and_the_slider_fades_the_window() {
     );
 }
 
+/// The log's scroll bar never holds it still: after a turn of the wheel over a short log (its bar
+/// disabled, but pressed all the same) the log follows the lines that come, and while a press is
+/// held on a long log's bar a new line still scrolls the log to it.
+///
+/// Behaviour: ui.chat.the-scroll-bar-never-holds-the-log
+#[test]
+fn the_scroll_bar_never_holds_the_log() {
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut f = Frame::new();
+    f.reload(&mut ui, &mut p);
+    let l = log(&p, 0);
+    let root = chat(&p).windows()[0].root().unwrap();
+    let bar = ui
+        .child_recursive(root, Token::of("ChatLogScrollbar"))
+        .expect("the log's scroll bar");
+    let locked = |ui: &Ui| ui.node(l).unwrap().bool_attr(Token::of("text_locked"));
+    let view = |ui: &Ui| ui.text_state(l).unwrap().view_y;
+    let line = |n: u32| vec![(t::SAY, format!("Ayla says, \"{n}\"\n"))];
+
+    f.tick(&mut ui, &mut p, &line(0), &[]);
+    let r = ui.screen_rect(l).unwrap();
+    ui.pointer_move((r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2);
+    f.tick(&mut ui, &mut p, &[], &[]);
+    ui.pointer_button(button_id::WHEEL_UP, true);
+    f.tick(&mut ui, &mut p, &[], &[]);
+    assert!(!locked(&ui), "the wheel leaves the log unlocked");
+    for n in 1..60 {
+        f.tick(&mut ui, &mut p, &line(n), &[]);
+    }
+    let end = view(&ui);
+    assert!(end > 0, "the log followed its lines past the first page");
+
+    let b = ui.screen_rect(bar).unwrap();
+    ui.pointer_move((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2);
+    f.tick(&mut ui, &mut p, &[], &[]);
+    ui.pointer_button(button_id::LEFT, true);
+    f.tick(&mut ui, &mut p, &[], &[]);
+    assert!(view(&ui) < end, "the press paged the log up");
+    assert!(!locked(&ui), "a press on the bar leaves the log unlocked");
+    f.tick(&mut ui, &mut p, &line(60), &[]);
+    assert!(
+        view(&ui) > end,
+        "a new line scrolls the log to it while the bar is held"
+    );
+    ui.pointer_button(button_id::LEFT, false);
+    f.tick(&mut ui, &mut p, &[], &[]);
+    assert!(!locked(&ui), "nor does letting go lock it");
+}
+
 /// The strings the chat writes from its tables come out as the client writes them: the assisted
 /// tell, a channel's label, the reply command's first name.
 ///

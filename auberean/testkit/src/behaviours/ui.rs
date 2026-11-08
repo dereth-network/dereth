@@ -221,6 +221,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.chat.the-scroll-bar-never-holds-the-log",
+        says: "The chat log's scroll bar never holds the log still: a press on it (held or not, and \
+               the press a turn of the wheel over the log gives a disabled bar) and its release \
+               leave the log following each new line; only the lock holds it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-CHAT-SCROLLBAR"),
+        station: "auberean-ui-game::dat::play::chat::the_scroll_bar_never_holds_the_log",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.chat.with-alt-held-the-chat-window-takes-none-of-its-keys",
         says: "A chat window takes its keys (the arrows through the lines typed, the tells sent and \
                the tells answered, the page keys, Home, End and Escape) only with Alt up.",
@@ -2542,6 +2552,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-TEXT-VIEW"),
         station: "auberean-ui::cpu::text::the_view_scrolls_by_page_and_to_either_end",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "ui.text.the-wheel-presses-a-texts-disabled-scroll-bar",
+        says: "The wheel over a text presses its vertical scroll bar unless the pointer is over the \
+               bar itself, even when the text fits and the bar is disabled: the bar says it was \
+               pressed, and nothing scrolls.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-TEXT-WHEEL"),
+        station: "auberean-ui::cpu::lists::the_wheel_presses_a_texts_disabled_scroll_bar",
         tier: Tier::Cpu,
     },
     behaviour! {

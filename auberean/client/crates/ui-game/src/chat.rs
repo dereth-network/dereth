@@ -23,9 +23,9 @@
 //! answered; Page Up and Page Down page the log, Ctrl+Home and Ctrl+End go to its start and end.
 //!
 //! **The window.** Its move bar drags it (and makes it the active window), its lock button keeps
-//! the log from scrolling to each new line, pressing its scroll bar does so until let go, its
-//! options button shows the opacity slider, which fades the window and is kept with the player's
-//! options.
+//! the log from scrolling to each new line (its scroll bar never does: whatever the bar says
+//! leaves the log following), its options button shows the opacity slider, which fades the window
+//! and is kept with the player's options.
 
 use std::any::Any;
 use std::collections::HashMap;
@@ -288,7 +288,6 @@ mod tok {
     pub const MOUSE_PRESS: Token = Token::of("mouse_press");
     pub const MOUSE_RELEASE: Token = Token::of("mouse_release");
     pub const MOUSE_RELEASE_ON: Token = Token::of("mouse_release_on");
-    pub const VERTICAL_LINE_DECREMENT: Token = Token::of("vertical_line_decrement");
     pub const VERTICAL_LINE_INCREMENT: Token = Token::of("vertical_line_increment");
     pub const NEW_POSITION: Token = Token::of("new_position");
     pub const WIDGET_RELEASE: Token = Token::of("widget_release");
@@ -518,7 +517,8 @@ pub struct ChatPane {
     infos: HashMap<u32, MessageInfo>,
     /// The entry was labelled once.
     labelled: bool,
-    /// The log does not follow new lines: while its scroll bar is held, and while locked.
+    /// The log does not follow new lines while either is set: the first for a moment as its scroll
+    /// bar is let go, the second while locked.
     temp_lock: bool,
     perm_lock: bool,
 }
@@ -580,7 +580,6 @@ impl ChatPane {
                 (name::CHAT_ENTRY, tok::DEACTIVATED),
                 (name::CHAT_LOG_SCROLLBAR, tok::MOUSE_PRESS),
                 (name::CHAT_LOG_SCROLLBAR, tok::MOUSE_RELEASE),
-                (name::CHAT_LOG_SCROLLBAR, tok::VERTICAL_LINE_DECREMENT),
                 (name::CHAT_LOG_SCROLLBAR, tok::VERTICAL_LINE_INCREMENT),
                 (name::OPACITY_SLIDER_BAR, tok::NEW_POSITION),
                 (name::OPACITY_SLIDER_BAR, tok::WIDGET_RELEASE),
@@ -1461,8 +1460,8 @@ impl ChatUi {
     /// Its button shows and hides it; its move bar pressed makes it the active window, let go
     /// keeps the places; its lock locks and unlocks the log; its options button shows and hides
     /// the opacity slider; its entry taking the keyboard (the window active) and giving it up (a
-    /// devoted window's label); its scroll bar pressed holds the log still until let go or
-    /// stepped; the opacity slider moved fades it, let go keeps the opacity.
+    /// devoted window's label); its scroll bar's press, release and line down leave the log
+    /// following (unless locked); the opacity slider moved fades it, let go keeps the opacity.
     // D2-03099
     fn window_message(
         &mut self,
@@ -1536,14 +1535,16 @@ impl ChatUi {
             return;
         }
         if Some(from) == w.scrollbar {
-            if what == tok::MOUSE_PRESS {
+            // The element's release and the bar's are one message: the hold it sets is let go at
+            // once by the same message.
+            if what == tok::MOUSE_RELEASE {
                 w.temp_lock = true;
                 if let Some(l) = w.log {
                     ui.set_attr(l, tok::TEXT_LOCKED, Value::Bool(true));
                 }
             }
             if what == tok::MOUSE_RELEASE
-                || what == tok::VERTICAL_LINE_DECREMENT
+                || what == tok::MOUSE_PRESS
                 || what == tok::VERTICAL_LINE_INCREMENT
             {
                 w.temp_lock = false;

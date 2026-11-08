@@ -17,6 +17,7 @@ not how it was done.
 - Fixed characters missing their details on servers that pad their messages.
 - Fixed cut, copy and paste in text boxes; on a Mac they use Command.
 - A new texture filtering choice now applies when the display mode changes.
+- The chat log now keeps following new lines while its scroll bar is held.
 
 ## 0.1.5 (2026-11-07)
 - Screenshots are taken at full detail, far objects included.

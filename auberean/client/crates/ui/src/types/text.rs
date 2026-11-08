@@ -1364,14 +1364,16 @@ impl Ui {
         }
     }
 
-    /// The wheel over the element turns its vertical scroll bar (when it has one, enabled).
+    /// The wheel over the element presses its vertical scroll bar, when it has one and the pointer
+    /// is not over the bar itself (which takes the wheel on its own). A disabled bar is pressed
+    /// too: it says it was pressed, and goes no further.
     // D2-11746
     fn text_mouse_wheel(&mut self, h: Handle, x: i32, y: i32, b: u32) {
         let unique = self.node(h).is_some_and(|n| n.bool_attr(name::UNIQUE_MSG));
         let Some(bar) = self.get_scrollbar(h, name::VERTICAL_SCROLLBAR, unique) else {
             return;
         };
-        if self.node(bar).is_some_and(|n| n.bool_attr(name::DISABLED)) {
+        if self.node(bar).is_none_or(|n| n.over) {
             return;
         }
         let mut handled = false;

@@ -201,6 +201,60 @@ fn the_wheel_scrolls_a_list_through_its_scroll_bar() {
     assert_eq!(y_view(&u, list), 0);
 }
 
+/// The wheel over a text presses its vertical scroll bar even when the text fits and the bar is
+/// disabled: the bar says it was pressed, and nothing scrolls.
+///
+/// Behaviour: ui.text.the-wheel-presses-a-texts-disabled-scroll-bar
+#[test]
+fn the_wheel_presses_a_texts_disabled_scroll_bar() {
+    let log = element(
+        "Log",
+        "text",
+        [10, 10, 109, 49],
+        0,
+        vec![state(
+            "stateless",
+            0,
+            vec![("vertical_scrollbar", id("Bar"))],
+            vec![],
+            vec![],
+        )],
+    );
+    let w = element(
+        "Window",
+        "field",
+        [0, 0, 299, 299],
+        0,
+        vec![state("stateless", 0, vec![], vec![], vec![log, bar()])],
+    );
+    let mut u = ui(vec![w], vec![]);
+    let l = u.load_layout(LAYOUT).unwrap();
+    let w = u.create_root(l, Token::of("Window")).unwrap();
+    let log = u.child(w, Token::of("Log")).unwrap();
+    let b = u.child(w, Token::of("Bar")).unwrap();
+    u.set_text(log, "hi");
+    u.scroll_to_end(log);
+    assert!(
+        u.node(b).unwrap().bool_attr(Token::of("disabled")),
+        "the text fits: the bar disabled"
+    );
+    let me = u.new_listener();
+    u.listen_for_message(me, Token::of("Bar"), msg::MOUSE_PRESS);
+    u.pointer_move(50, 20);
+    u.pointer_button(button_id::WHEEL_DOWN, true);
+    let mail = u.take_mail(me);
+    assert!(
+        mail.iter().any(|m| matches!(
+            m,
+            auberean_ui::listener::Mail::Element { from, what, .. }
+                if *from == b && *what == msg::MOUSE_PRESS
+        )),
+        "the bar pressed: {mail:?}"
+    );
+    assert_eq!(u.text_state(log).unwrap().view_y, 0, "nothing scrolled");
+    u.drop_listener(me);
+}
+
 /// The wheel over a window's bare ground, or over something in it that is not a list, scrolls the
 /// window's list by its bar.
 ///
