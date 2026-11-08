@@ -962,8 +962,8 @@ pub fn catalog_packages_from(
         .collect())
 }
 
-/// The packages of the catalog's treasure equipment (not its instruments) and treasure potions,
-/// and each treasure potion effect's name table and color.
+/// The packages of the catalog's treasure equipment (not its instruments), its shields and treasure
+/// potions, and each treasure potion effect's name table and color.
 ///
 /// # Errors
 /// The library does not read.
@@ -988,6 +988,7 @@ pub fn treasure(p: &Portal, catalog: &Catalog) -> Result<yalain_world::treasure:
         .collect();
     Ok(treasure::Kinds {
         equipment,
+        shields: catalog_packages_from(p, catalog, &treasure::SHIELDS)?,
         jewelry: catalog_packages_from(p, catalog, &treasure::JEWELRY)?,
         potions: catalog_packages_from(p, catalog, &treasure::POTIONS)?,
         potion_looks,

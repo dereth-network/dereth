@@ -18,7 +18,7 @@
 //! **Its numbers.** A template's damage and armor are placeholders, so a treasure weapon, shield or
 //! piece of armor gets its own by its item level (its least level, or its dropper's base from level
 //! 50 on), near what a made one has there: see [`numbers`]. The curves are fit to the recorded items,
-//! not known.
+//! not known. A shield is told by its class, as most shields' templates hold no weapon's damage.
 //!
 //! **Its enchantments.** It may draw some by its level: see [`enchantments`]. Each is cast at one
 //! below its item level, and it is named for one of them. An effect on what it hits lands by that
@@ -112,6 +112,8 @@ impl Own {
 /// are not.
 pub const EQUIPMENT: [&str; 3] = ["WeaponTemplate", "ClothingTemplate", "ShieldTemplate"];
 pub const INSTRUMENTS: [&str; 1] = ["LuteTemplate"];
+/// The script package of the shields among the treasure equipment.
+pub const SHIELDS: [&str; 1] = ["ShieldTemplate"];
 /// The script package of treasure jewelry.
 pub const JEWELRY: [&str; 1] = ["JewelryTemplate"];
 /// The script package of the treasure potions.
@@ -123,6 +125,8 @@ pub const TESSERAE: &str = "HeroSkillCreditToken";
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Kinds {
     pub equipment: std::collections::HashSet<u32>,
+    /// The shields among the equipment.
+    pub shields: std::collections::HashSet<u32>,
     pub jewelry: std::collections::HashSet<u32>,
     pub potions: std::collections::HashSet<u32>,
     /// Each potion effect's name table and the strength of the color it gives its potion.
@@ -250,8 +254,19 @@ pub const fn vigor_band(level: i32) -> (i32, i32) {
     }
 }
 
-/// What a treasure shield's vigor cost takes of a weapon's (2017: 6 to 9 at level 50).
-const SHIELD_VIGOR_SHARE: f32 = 0.42;
+/// A treasure shield's vigor cost at a level: at least and at most (2017, of 177 dropped shields
+/// examined with no effects, 170 within: 1 to level 7, 2 or 3 to 16, 4 or 5 to 27, 5 to 7 to 39, 6
+/// to 9 from 40, none above 9 to level 60).
+#[must_use]
+pub const fn shield_vigor_band(level: i32) -> (i32, i32) {
+    match level {
+        ..=7 => (1, 1),
+        8..=16 => (2, 3),
+        17..=27 => (4, 5),
+        28..=39 => (5, 7),
+        _ => (6, 9),
+    }
+}
 
 /// A treasure piece of armor's rating, of a made piece's at its level: it comes nearer with the level
 /// (2017: 0.8 at 10 to 1.0 at 49, of 130 pieces with no effects), give or take a tenth.
@@ -267,20 +282,44 @@ pub fn armor_share(level: i32) -> f32 {
 /// 1,334 weapons).
 const ARMOR_SLOT_CHANCE: f32 = 0.5;
 
+/// A treasure shield's span of damage when its template names none, at least and at most, drawn
+/// evenly (2017: 207 of 207 examined dropped shields' damage lines, none of whose templates names
+/// one, at 0.25 to 0.29 below their greatest).
+pub const SHIELD_SPAN: (f32, f32) = (0.25, 0.29);
+
+/// The sort of a treasure item of a template: a shield by its class, which a caller knows; else a
+/// weapon when it has a weapon's damage, armor when it has a rating. None for anything else.
+#[must_use]
+pub fn sort_of(props: &yalain_content::Props, shield: bool) -> Option<Sort> {
+    if shield {
+        Some(Sort::Shield)
+    } else if props.int("Weapon_Damage").is_some() {
+        Some(Sort::Weapon)
+    } else if props.int("Item_ArmorLevel").is_some() {
+        Some(Sort::Armor)
+    } else {
+        None
+    }
+}
+
 /// What a treasure weapon, shield or piece of armor is, at its item level: its template's numbers are
-/// placeholders. None for any other item. Worth what its drop drew; it carries no name word.
+/// placeholders. A shield has a weapon's numbers with its own rating, delay and slot, whatever its
+/// template holds (2017: 207 of 207 examined dropped shields showed a shield's damage, rating, delay
+/// and vigor cost). None for jewelry. Worth what its drop drew; it carries no name word.
 pub fn numbers(
     rng: &mut Rng,
     props: &yalain_content::Props,
+    sort: Sort,
     level: i32,
     value: u32,
 ) -> Option<crate::made::Made> {
     use crate::made::{self, Made, Piece};
-    let is_weapon = props.int("Weapon_Damage").is_some();
-    let is_armor = props.int("Item_ArmorLevel").is_some();
-    if !is_weapon && !is_armor {
-        return None;
-    }
+    let (is_weapon, is_armor) = match sort {
+        Sort::Weapon => (true, false),
+        Sort::Shield => (true, true),
+        Sort::Armor => (false, true),
+        Sort::Jewelry => return None,
+    };
     let quality = level.max(1).cast_unsigned();
     let drawn = |rng: &mut Rng, delays: &[f32], first: i32| {
         first + i32::try_from(rng.weighted(delays.iter().copied()).unwrap_or(0)).unwrap_or(0)
@@ -297,22 +336,26 @@ pub fn numbers(
     if is_weapon {
         let (least, most) = WEAPON_DAMAGE_SHARE;
         let share = rng.between(least, most);
-        let (low, high) = vigor_band(level);
+        let (low, high) = if is_armor {
+            shield_vigor_band(level)
+        } else {
+            vigor_band(level)
+        };
         let vigor =
             low + i32::try_from(rng.below((high - low + 1).cast_unsigned() as usize)).unwrap_or(0);
-        let variance = props.float("Weapon_Variance").unwrap_or(0.0);
+        let variance = props.float("Weapon_Variance");
         #[allow(clippy::cast_precision_loss)]
         if is_armor {
+            let variance = variance.unwrap_or_else(|| rng.between(SHIELD_SPAN.0, SHIELD_SPAN.1));
             let most = made::shield_damage(quality) as f32 * share;
             own.damage = Some((dereth_primitives::num::to_i32(most.round()), variance));
             own.armor = Some(rated(rng, made::shield_rating(quality) as f32));
             own.delay = Some(drawn(rng, &SHIELD_DELAYS, 5));
-            own.vigor = Some(dereth_primitives::num::to_i32(
-                (vigor as f32 * SHIELD_VIGOR_SHARE).round(),
-            ));
+            own.vigor = Some(vigor);
             own.slots = u32::from(rng.chance(ARMOR_SLOT_CHANCE));
         } else {
             let most = made::damage(quality) as f32 * share;
+            let variance = variance.unwrap_or(0.0);
             own.damage = Some((dereth_primitives::num::to_i32(most.round()), variance));
             own.delay = Some(drawn(rng, &WEAPON_DELAYS, 4));
             own.vigor = Some(vigor);
@@ -700,20 +743,12 @@ pub fn endow<S: yalain_store::Store>(
         own.min_level = Some(least);
         own.arcane_lore = arcane_lore(&mut s.rng, base);
         let value = s.things.get(item).map_or(0, |t| t.value);
+        let shield = s.treasure.shields.contains(&package);
         if let Some(t) = s.catalog.get(template) {
             let props = t.props.clone();
             let item_level = least.max(base);
-            own.made = numbers(&mut s.rng, &props, item_level, value);
-            let sort = match (
-                props.int("Weapon_Damage").is_some(),
-                props.int("Item_ArmorLevel").is_some(),
-            ) {
-                (true, true) => Some(Sort::Shield),
-                (true, false) => Some(Sort::Weapon),
-                (false, true) => Some(Sort::Armor),
-                (false, false) => None,
-            };
-            if let Some(sort) = sort {
+            if let Some(sort) = sort_of(&props, shield) {
+                own.made = numbers(&mut s.rng, &props, sort, item_level, value);
                 put_enchantments(s, item, &mut own, sort, item_level);
                 if let Some(m) = own.made.as_mut() {
                     m.prefix = word_of(&mut s.rng, sort, item_level, m.delay.unwrap_or(0));

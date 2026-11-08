@@ -1594,12 +1594,73 @@ fn an_items_icon_takes_what_its_appearance_gives_as_2017() {
 }
 
 /// An item a 2017 examination showed: its least level, how many enchantments, and whether its
-/// rating is a shield's.
+/// rating is a shield's; a shield's heading and numbers.
 #[derive(Clone, Copy)]
 struct Examined {
     least: Option<u32>,
     enchantments: usize,
     shield: bool,
+    shield_heading: bool,
+    rating: Option<u32>,
+    damage: Option<(u32, u32)>,
+    delay: Option<u32>,
+    vigor: Option<u32>,
+}
+
+/// A profile's damage line: its least and greatest.
+fn damage_span_in(bytes: &[u8], request_len: usize) -> Option<(u32, u32)> {
+    let lines = strings_and_texts(bytes, request_len)?;
+    let t = lines
+        .iter()
+        .find(|t| t.string_id == profile::item_line::DAMAGE_VALUE)?;
+    let var = |id: u32| {
+        t.variables.iter().find_map(|v| match v.value {
+            VariableValue::Word(w) if v.id == id => Some(w),
+            _ => None,
+        })
+    };
+    Some((
+        var(profile::item_var::DAMAGE_LOW)?,
+        var(profile::item_var::DAMAGE_HIGH)?,
+    ))
+}
+
+/// A profile's text lines, passing over every other kind of node.
+fn strings_and_texts(bytes: &[u8], request_len: usize) -> Option<Vec<TextInfo>> {
+    let mut r = In::new(bytes.get(request_len..)?);
+    let n = r.u32().ok()?;
+    let mut out = Vec::new();
+    for _ in 0..n {
+        let ty = r.u32().ok()?;
+        r.u32().ok()?;
+        match ty {
+            0x4000_0001..=0x4000_0003 | 0x4000_000C => {
+                r.u32().ok()?;
+                r.u32().ok()?;
+            }
+            0x4000_0004 => {
+                r.u32().ok()?;
+                out.push(TextInfo::unpack(&mut r).ok()?);
+            }
+            0x4000_0005 | 0x4000_0007 => {
+                r.u32().ok()?;
+            }
+            0x4000_0006 => {}
+            0x4000_0008 | 0x4000_000A => {
+                r.u32().ok()?;
+                r.u32().ok()?;
+                r.u32().ok()?;
+            }
+            0x4000_0009 => {
+                let k = r.u32().ok()?;
+                for _ in 0..k * 3 {
+                    r.u32().ok()?;
+                }
+            }
+            _ => return None,
+        }
+    }
+    Some(out)
 }
 
 /// Every item not made by a player that the January 2017 recordings show examined, once, by its
@@ -1641,21 +1702,52 @@ fn examined_items(con: &Connection) -> HashMap<u64, Examined> {
                 .filter(|x| **x == profile::item_line::EFFECT_NAME)
                 .count(),
             shield: strings.contains(&profile::item_line::SHIELD_RATING),
+            shield_heading: strings.contains(&profile::item_line::SHIELD_STATS),
+            rating: stat_in(bytes, 20, profile::item_line::SHIELD_RATING),
+            damage: damage_span_in(bytes, 20),
+            delay: stat_in(bytes, 20, profile::item_line::COMBAT_DELAY),
+            vigor: stat_in(bytes, 20, profile::item_line::VIGOR_COST),
         });
     }
     out
 }
 
 /// A weapon, shield or piece of armor a 2017 corpse held at its first opening: its template, whether
-/// its template has a weapon's damage, its own value, its dropper's level and loot quality, and its
-/// examination if a player examined it.
+/// its template has a weapon's damage, whether its class is a shield's, its own value, its dropper's
+/// level and loot quality, and its examination if a player examined it.
 struct Dropped {
     template: u32,
     weapon: bool,
+    shield: bool,
     value: u32,
     level: i32,
     quality: Option<i64>,
     examined: Option<Examined>,
+}
+
+/// Does a script package derive from the shields' class?
+fn is_shield_class(lib: &auberean_script::library::Library, package: u32) -> bool {
+    yalain_world::treasure::SHIELDS
+        .iter()
+        .filter_map(|n| lib.package_id(n))
+        .any(|b| lib.derives_from(package, b))
+}
+
+/// A template made known to a harness's server as treasure equipment, as the server reads the
+/// install: a shield when its class is a shield's.
+fn treasure_template(
+    h: &mut yalain_testkit::Harness,
+    portal: &yalain_testkit::authored::Portal,
+    lib: &auberean_script::library::Library,
+    template: u32,
+) {
+    let t = portal.template(template);
+    let package = t.description.package;
+    h.server.treasure.equipment.insert(package);
+    if is_shield_class(lib, package) {
+        h.server.treasure.shields.insert(package);
+    }
+    h.server.catalog.insert(t);
 }
 
 /// Every weapon, shield and piece of armor with a value of its own in the corpses the January 2017
@@ -1664,7 +1756,8 @@ fn equipment_dropped() -> &'static [Dropped] {
     static D: OnceLock<Vec<Dropped>> = OnceLock::new();
     D.get_or_init(|| {
         let portal = yalain_testkit::authored::Portal::open();
-        let corpses = super::world_db::opened_corpses(&portal.library());
+        let lib = portal.library();
+        let corpses = super::world_db::opened_corpses(&lib);
         let examined = examined_items(&open(&auberean_testkit::data::require_capture_index()));
         let mut stats = HashMap::new();
         let mut equipment = HashMap::new();
@@ -1681,11 +1774,12 @@ fn equipment_dropped() -> &'static [Dropped] {
                 continue;
             };
             for (&(template, value), id) in c.items.iter().zip(&c.ids) {
-                let (weapon, armor) = *equipment.entry(template).or_insert_with(|| {
-                    let p = portal.template(template).props;
+                let (weapon, armor, shield) = *equipment.entry(template).or_insert_with(|| {
+                    let t = portal.template(template);
                     (
-                        p.int("Weapon_Damage").is_some(),
-                        p.int("Item_ArmorLevel").is_some(),
+                        t.props.int("Weapon_Damage").is_some(),
+                        t.props.int("Item_ArmorLevel").is_some(),
+                        is_shield_class(&lib, t.description.package),
                     )
                 });
                 if template == 0 || value == 0 || !(weapon || armor) {
@@ -1694,6 +1788,7 @@ fn equipment_dropped() -> &'static [Dropped] {
                 out.push(Dropped {
                     template,
                     weapon,
+                    shield,
                     value,
                     level: s.level,
                     quality: s.loot_quality,
@@ -1762,11 +1857,10 @@ fn equipment_whose_template_sets_its_least_level_drops_as_any_other_treasure() {
     assert!(enchanted >= 10, "{enchanted} of {examined}");
     // Ours: every drop again, from its own dropper.
     let mut h = yalain_testkit::Harness::new();
+    let lib = portal.library();
     let (mut ours, mut drawn, mut numbered, mut ours_enchanted) = (0usize, 0usize, 0usize, 0usize);
     for d in &drops {
-        let t = portal.template(d.template);
-        h.server.treasure.equipment.insert(t.description.package);
-        h.server.catalog.insert(t);
+        treasure_template(&mut h, &portal, &lib, d.template);
         let item = yalain_world::inventory::make_item(&mut h.server, d.template, 1, d.value)
             .expect("made");
         endow(&mut h.server, item, d.level, d.quality);
@@ -1901,19 +1995,17 @@ fn treasure_equipment_is_enchanted_as_often_as_2017s_drops() {
             );
         }
     }
-    // This server's drops of the same templates from the same droppers, by the dropper's band; a
-    // shield draws as armor does, its template having no weapon's damage.
+    // This server's drops of the same templates from the same droppers, by the dropper's band.
     const AGAIN: usize = 5;
     let portal = yalain_testkit::authored::Portal::open();
+    let lib = portal.library();
     let mut h = yalain_testkit::Harness::new();
     let mut known = HashSet::new();
     // [weapons, armor and shields][dropper's band]: 2017's drops, enchanted; ours, enchanted.
     let mut by = [[[0usize; 4]; 6]; 2];
     for d in drops {
         if known.insert(d.template) {
-            let t = portal.template(d.template);
-            h.server.treasure.equipment.insert(t.description.package);
-            h.server.catalog.insert(t);
+            treasure_template(&mut h, &portal, &lib, d.template);
         }
         let at = &mut by[usize::from(!d.weapon)][count_band(base_of(d.level, d.quality))];
         at[0] += 1;
@@ -1939,6 +2031,149 @@ fn treasure_equipment_is_enchanted_as_often_as_2017s_drops() {
             }
         }
     }
+}
+
+/// Dropped shields were shields in 2017 whatever their templates hold: every one examined showed a
+/// shield's heading, damage, rating, combat delay and vigor cost. This server's numbers for a shield
+/// hold most examined plain ones' within what it draws at their item level, and its drops of the same
+/// templates from the same droppers carry a shield's numbers, enchantments only of the shields'
+/// families and a shield's word.
+/// Behaviour: server.loot.treasure-shields-by-class
+#[test]
+fn dropped_shields_carry_a_shields_numbers_as_2017s_did() {
+    use std::collections::HashSet;
+    use yalain_content::treasure_effects as t;
+    use yalain_content::treasure_words as w;
+    use yalain_world::treasure::{base_of, endow, numbers, Sort};
+    const DRAWS: usize = 200;
+    const NUMBERS: [&str; 5] = [
+        "rating",
+        "greatest damage",
+        "least damage",
+        "delay",
+        "vigor cost",
+    ];
+    let drops: Vec<&Dropped> = equipment_dropped().iter().filter(|d| d.shield).collect();
+    let examined: Vec<(&Dropped, Examined)> = drops
+        .iter()
+        .filter_map(|d| d.examined.filter(|e| e.least.is_some()).map(|e| (*d, e)))
+        .collect();
+    let shown = examined
+        .iter()
+        .filter(|(_, e)| {
+            e.shield
+                && e.shield_heading
+                && e.rating.is_some()
+                && e.damage.is_some()
+                && e.delay.is_some()
+                && e.vigor.is_some()
+        })
+        .count();
+    println!(
+        "2017: {} dropped shields, {} examined, {shown} shown as shields",
+        drops.len(),
+        examined.len()
+    );
+    assert!(
+        examined.len() >= 150,
+        "the recordings hold them: {}",
+        examined.len()
+    );
+    assert_eq!(shown, examined.len());
+    // Each plain one's numbers against what this server draws at its item level.
+    let portal = yalain_testkit::authored::Portal::open();
+    let lib = portal.library();
+    let mut rng = yalain_world::rng::Rng::new(753);
+    let (mut plain, mut within) = (0usize, [0usize; 5]);
+    for (d, e) in examined.iter().filter(|(_, e)| e.enchantments == 0) {
+        let least = i32::try_from(e.least.unwrap_or(0)).unwrap_or(0);
+        let level = least.max(base_of(d.level, d.quality));
+        let props = portal.template(d.template).props;
+        let (mut low, mut high) = ([i32::MAX; 5], [i32::MIN; 5]);
+        for _ in 0..DRAWS {
+            let m = numbers(&mut rng, &props, Sort::Shield, level, d.value).expect("a shield's");
+            let (most, span) = m.damage.expect("its damage");
+            #[allow(clippy::cast_precision_loss)]
+            let fewest = dereth_primitives::num::floor_to_i32(most as f32 * (1.0 - span));
+            let drawn = [
+                m.armor.unwrap_or(0),
+                most,
+                fewest,
+                m.delay.unwrap_or(0),
+                m.vigor.unwrap_or(0),
+            ];
+            for i in 0..5 {
+                low[i] = low[i].min(drawn[i]);
+                high[i] = high[i].max(drawn[i]);
+            }
+        }
+        let (fewest, most) = e.damage.unwrap_or_default();
+        let theirs = [
+            e.rating.unwrap_or(0),
+            most,
+            fewest,
+            e.delay.unwrap_or(0),
+            e.vigor.unwrap_or(0),
+        ];
+        plain += 1;
+        for i in 0..5 {
+            let n = i32::try_from(theirs[i]).unwrap_or(-1);
+            within[i] += usize::from((low[i]..=high[i]).contains(&n));
+        }
+    }
+    for (name, n) in NUMBERS.iter().zip(within) {
+        println!("2017's plain shields' {name} within what this server draws: {n} of {plain}");
+    }
+    assert!(plain >= 150, "{plain}");
+    for (name, n) in NUMBERS.iter().zip(within) {
+        assert!(n * 100 >= plain * 88, "{name}: {n} of {plain}");
+    }
+    // This server's drops of the same templates from the same droppers.
+    let of = |families: &[t::Family], state: u32| {
+        families.iter().any(|f| {
+            f.tiers
+                .iter()
+                .any(|x| x.state == state || x.puts_on == state)
+        })
+    };
+    let mut h = yalain_testkit::Harness::new();
+    let mut known = HashSet::new();
+    let (mut shields, mut enchanted, mut theirs_only) = (0usize, 0usize, 0usize);
+    for d in &drops {
+        if known.insert(d.template) {
+            treasure_template(&mut h, &portal, &lib, d.template);
+        }
+        let item = yalain_world::inventory::make_item(&mut h.server, d.template, 1, d.value)
+            .expect("made");
+        endow(&mut h.server, item, d.level, d.quality);
+        let thing = h.server.things.remove(item).expect("made");
+        let m = thing.own.made.unwrap_or_default();
+        shields += usize::from(
+            m.damage.is_some()
+                && m.armor.is_some()
+                && m.vigor.is_some()
+                && w::SHIELD_WORDS.iter().any(|x| x.word == m.prefix),
+        );
+        let held: Vec<u32> = thing
+            .enchantments
+            .iter()
+            .chain(&thing.bonuses)
+            .map(|e| e.0)
+            .collect();
+        enchanted += usize::from(!held.is_empty());
+        theirs_only += usize::from(held.iter().all(|s| of(t::SHIELD_FAMILIES, *s)));
+    }
+    println!(
+        "ours: {shields} of {} with a shield's numbers and word, {enchanted} enchanted, {theirs_only} \
+         with the shields' enchantments only",
+        drops.len()
+    );
+    assert_eq!((shields, theirs_only), (drops.len(), drops.len()));
+    assert!(
+        enchanted * 100 >= drops.len() * 5,
+        "{enchanted} of {}",
+        drops.len()
+    );
 }
 
 /// Treasure items of the templates known to draw their look, as the 2017 servers made them in

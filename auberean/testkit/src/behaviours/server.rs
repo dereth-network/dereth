@@ -6850,6 +6850,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.loot.treasure-shields-by-class",
+        says: "A dropped shield is told by its class, whatever its template holds: it draws a \
+               shield's damage, rating, combat delay and vigor cost by its level, a shield's \
+               enchantments and word, and shows as a shield, as 2017's dropped shields did.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TREASURE-SHIELDS"),
+        station: "yalain-testkit::corpus::examine::dropped_shields_carry_a_shields_numbers_as_2017s_did",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.loot.treasure-slayer",
         says: "A slayer harms what it names by its spellcraft as each hit lands, basic or special, \
                told as its own story past the creature's armor, and does nothing to any other. \

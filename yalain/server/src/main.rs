@@ -1947,6 +1947,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             data::catalog_packages_from(portal, &catalog, &[yalain_world::treasure::TESSERAE])?;
         tracing::info!(
             equipment = treasure.equipment.len(),
+            shields = treasure.shields.len(),
             potions = treasure.potions.len(),
             looks = treasure.potion_looks.len(),
             tesserae = tesserae.len(),

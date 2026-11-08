@@ -439,13 +439,14 @@ fn a_least_level_its_template_holds_gives_way_to_a_drops_own() {
 
 /// A treasure weapon, shield or piece of armor has numbers of its own by its level, where its template
 /// holds a placeholder: a weapon's damage near a made one's, its delay and vigor among the recorded;
-/// armor's rating; a robe's three slots; anything else nothing.
+/// armor's rating; a robe's three slots; a shield's damage, rating, delay and vigor cost, with a span
+/// of its own where its template names none; jewelry nothing.
 /// Behaviour: server.loot.treasure-numbers-by-level
 #[test]
 fn a_treasure_items_numbers_follow_its_level() {
     use yalain_content::{Prop, Props};
     use yalain_world::rng::Rng;
-    use yalain_world::treasure::numbers;
+    use yalain_world::treasure::{numbers, shield_vigor_band, Sort, SHIELD_SPAN};
     let mut weapon = Props::default();
     weapon
         .set("Weapon_Damage", Prop::Int(10))
@@ -454,27 +455,32 @@ fn a_treasure_items_numbers_follow_its_level() {
     robe.set("Item_ArmorLevel", Prop::Int(10))
         .set("Item_ValidInventoryLocations", Prop::Word(2))
         .set("Item_PrecludedInventoryLocations", Prop::Word(8));
-    let mut shield = weapon.clone();
+    let mut shield = Props::default();
     shield.set("Item_ArmorLevel", Prop::Int(10));
     let mut rng = Rng::new(7);
-    assert_eq!(numbers(&mut rng, &Props::default(), 20, 9), None);
+    assert_eq!(numbers(&mut rng, &weapon, Sort::Jewelry, 20, 9), None);
     for _ in 0..500 {
-        let w = numbers(&mut rng, &weapon, 20, 9).expect("a weapon");
+        let w = numbers(&mut rng, &weapon, Sort::Weapon, 20, 9).expect("a weapon");
         let (most, variance) = w.damage.expect("its damage");
         assert!((88..=102).contains(&most), "at level 20: {most}");
         assert!((variance - 0.25).abs() < f32::EPSILON);
         assert!((4..=19).contains(&w.delay.expect("a delay")));
         assert!((4..=5).contains(&w.vigor.expect("a vigor cost")));
         assert_eq!((w.value, w.slots, w.armor), (9, 1, None));
-        let high = numbers(&mut rng, &weapon, 50, 9).expect("a weapon");
+        let high = numbers(&mut rng, &weapon, Sort::Weapon, 50, 9).expect("a weapon");
         let (most, _) = high.damage.expect("its damage");
         assert!((264..=306).contains(&most), "at level 50: {most}");
-        let r = numbers(&mut rng, &robe, 20, 9).expect("armor");
+        let r = numbers(&mut rng, &robe, Sort::Armor, 20, 9).expect("armor");
         assert!((13..=25).contains(&r.armor.expect("a rating")), "{r:?}");
         assert_eq!((r.damage, r.slots, r.covers), (None, 3, 8));
-        let sh = numbers(&mut rng, &shield, 20, 9).expect("a shield");
-        assert!(sh.armor.is_some() && sh.damage.is_some(), "{sh:?}");
+        let sh = numbers(&mut rng, &shield, Sort::Shield, 20, 9).expect("a shield");
+        let (most, span) = sh.damage.expect("its damage");
+        assert!((45..=56).contains(&most), "at level 20: {most}");
+        assert!((SHIELD_SPAN.0..=SHIELD_SPAN.1).contains(&span), "{span}");
+        assert!((14..=26).contains(&sh.armor.expect("a rating")), "{sh:?}");
         assert!((5..=11).contains(&sh.delay.expect("a delay")));
+        let (low, high) = shield_vigor_band(20);
+        assert!((low..=high).contains(&sh.vigor.expect("a vigor cost")));
     }
 }
 
@@ -508,6 +514,90 @@ fn a_weapon_a_creature_drops_carries_its_levels_numbers() {
         "not its template's 10: {}",
         hit.most
     );
+}
+
+/// A dropped shield is told by its class, whatever its template holds: a template with only a rating
+/// drops with a shield's numbers, enchantments and word, and shows as a shield; the same template of
+/// a class that is not a shield's drops as armor.
+/// Behaviour: server.loot.treasure-shields-by-class
+#[test]
+fn a_dropped_shield_draws_the_shield_tables_whatever_its_template_holds() {
+    use yalain_content::treasure_effects as t;
+    use yalain_content::treasure_words as w;
+    use yalain_content::{Prop, Props};
+    use yalain_world::treasure::{endow, shield_vigor_band};
+    const SHIELD: u32 = 0x4700_7004;
+    const PLATE: u32 = 0x4700_7005;
+    let mut h = Harness::new();
+    h.server.catalog = yalain_testkit::test_catalog();
+    let mut props = Props::default();
+    props
+        .set("Item_ArmorLevel", Prop::Int(20))
+        .set("Item_CombatDelay", Prop::Int(6))
+        .set("Item_ValidInventoryLocations", Prop::Word(0x80));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(SHIELD, 0x201, props.clone()));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(PLATE, 0x202, props));
+    h.server.treasure.equipment.extend([0x201, 0x202]);
+    h.server.treasure.shields.insert(0x201);
+    let of = |families: &[t::Family], state: u32| {
+        families.iter().any(|f| {
+            f.tiers
+                .iter()
+                .any(|x| x.state == state || x.puts_on == state)
+        })
+    };
+    let (mut shields_enchanted, mut plates_enchanted) = (0, 0);
+    for _ in 0..400 {
+        let item = yalain_world::inventory::make_item(&mut h.server, SHIELD, 1, 9).expect("made");
+        endow(&mut h.server, item, 50, None);
+        let thing = h.server.things.get(item).expect("made");
+        let m = thing.own.made.expect("its numbers");
+        assert!(m.damage.is_some() && m.armor.is_some(), "{m:?}");
+        assert!((5..=11).contains(&m.delay.expect("a delay")), "{m:?}");
+        let (low, high) = shield_vigor_band(50);
+        assert!(
+            (low..=high).contains(&m.vigor.expect("a vigor cost")),
+            "{m:?}"
+        );
+        assert!(w::SHIELD_WORDS.iter().any(|x| x.word == m.prefix), "{m:?}");
+        let held: Vec<u32> = thing
+            .enchantments
+            .iter()
+            .chain(&thing.bonuses)
+            .map(|e| e.0)
+            .collect();
+        assert!(
+            held.iter().all(|s| of(t::SHIELD_FAMILIES, *s)),
+            "{held:08X?}"
+        );
+        shields_enchanted += usize::from(!held.is_empty());
+        let v = yalain_world::requests::item_view(&h.server, thing);
+        assert!(v.shield.is_some() && v.weapon.is_some() && v.armor.is_none());
+        let item = yalain_world::inventory::make_item(&mut h.server, PLATE, 1, 9).expect("made");
+        endow(&mut h.server, item, 50, None);
+        let thing = h.server.things.get(item).expect("made");
+        let m = thing.own.made.expect("its numbers");
+        assert!(m.damage.is_none() && m.vigor.is_none() && m.armor.is_some());
+        assert!(w::ARMOR_WORDS.iter().any(|x| x.word == m.prefix), "{m:?}");
+        let held: Vec<u32> = thing
+            .enchantments
+            .iter()
+            .chain(&thing.bonuses)
+            .map(|e| e.0)
+            .collect();
+        assert!(
+            held.iter().all(|s| of(t::ARMOR_FAMILIES, *s)),
+            "{held:08X?}"
+        );
+        plates_enchanted += usize::from(!held.is_empty());
+        let v = yalain_world::requests::item_view(&h.server, thing);
+        assert!(v.shield.is_none() && v.weapon.is_none() && v.armor.is_some());
+    }
+    assert!(shields_enchanted > 10 && plates_enchanted > 10);
 }
 
 /// A weapon of a template known to draw its look draws its glow as it drops, within what 2017's

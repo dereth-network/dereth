@@ -457,8 +457,10 @@ pub fn apply_to_view(m: &Made, facts: &yalain_content::Facts, v: &mut crate::pro
     v.vigor_changed = m.vigor_changed;
     if let (Some(w), Some(delay), Some(vigor)) = (m.damage, m.delay, m.vigor) {
         v.weapon = Some((w.0, w.1, delay, vigor));
-        if v.shield.is_some() {
+        // Its own damage and rating make it a shield, whatever its template holds.
+        if m.armor.is_some() {
             v.shield = m.armor;
+            v.armor = None;
         }
     } else if let (Some(rating), Some(delay)) = (m.armor, m.delay) {
         let places = v.armor.map_or(0, |a| a.2);
