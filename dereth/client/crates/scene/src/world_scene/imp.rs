@@ -72,7 +72,9 @@ pub use remaster_pack::{RemasterForestStats, RemasterPackCounts, RemasterPacks};
 #[path = "remaster_effects.rs"]
 mod remaster_effects;
 #[cfg(feature = "dlss")]
-pub use remaster_effects::{remaster_device_extensions, remaster_dlss_carried};
+pub use remaster_effects::{
+    remaster_device_extensions, remaster_dlss_carried, remaster_end_process,
+};
 #[cfg(feature = "remaster")]
 pub use remaster_effects::{
     remaster_upscaler_drawn, RemasterAo, RemasterPost, RemasterPostPicture, RemasterUpscale,

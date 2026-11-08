@@ -46,8 +46,8 @@ d3d12 = ["dereth-render/d3d12", "dereth-scene/d3d12", "dereth-client-shell/d3d12
 # unless the remaster is turned on (its box on Horizon's Client page, or `--fidelity remaster=1`),
 # on the Vulkan renderer; a build without it is exactly the client without it.
 remaster = ["dereth-scene/remaster", "dereth-render/remaster", "dereth-client-shell/remaster"]
-# The remaster's DLSS: loaded only if NVIDIA's `nvngx_dlss.dll` stands beside the client, and no
-# DLL ships. Off, or without the DLL, its modes are drawn by FSR.
+# The remaster's DLSS: loaded only if NVIDIA's `nvngx_dlss.dll` stands beside the client, as the
+# Windows release carries it. Off, or without the DLL, its modes are drawn by FSR.
 dlss = ["remaster", "dereth-scene/dlss", "dereth-client-shell/dlss"]
 # Tier switch only: no code is gated on it. It selects the `dat` and `gpu` test binaries,
 # whose modules read the retail dats under $DERETH_TEST_DAT_DIR.

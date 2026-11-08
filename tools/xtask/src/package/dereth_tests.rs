@@ -227,7 +227,8 @@ fn release_files_are_named_for_version_and_platform_and_read_back() {
 
 /// The Windows zip is what the launcher's own update installs: one top-level folder holding
 /// `dereth.exe` and the client, the plugin author's tool, the relay with its license and notice,
-/// and the retail client's friends library beside it.
+/// and the retail client's friends library beside it, and NVIDIA's DLSS library where it carries
+/// it.
 #[test]
 fn the_windows_launcher_zip_holds_the_launcher_and_the_client_in_one_folder() {
     let w = target(WINDOWS);
@@ -248,7 +249,8 @@ fn the_windows_launcher_zip_holds_the_launcher_and_the_client_in_one_folder() {
             "empyrean-relay.exe"
         ]
     );
-    assert!(optional.is_empty());
+    // NVIDIA's DLSS library and its license, beside the client where the package carries them.
+    assert_eq!(optional, ["LICENSE-NVIDIA-DLSS.txt", "nvngx_dlss.dll"]);
 }
 
 /// The launcher's release configuration, which the launcher carries compiled in, names the
@@ -402,6 +404,7 @@ fn the_relay_s_notice_names_its_license_and_its_source() {
         mit_licence: "MIT License",
         fonts: &fonts,
         moltenvk_licence: None,
+        dlss: super::notice::Dlss::Supported,
     });
     for wanted in [
         "EMPYREAN-RELAY",
@@ -873,6 +876,7 @@ fn the_notice_names_the_source_and_carries_the_licences_the_package_needs() {
         mit_licence: "MIT License",
         fonts: &fonts,
         moltenvk_licence: moltenvk,
+        dlss: super::notice::Dlss::None,
     };
     let text = super::notice::dereth_notice(&facts(Some("Apache License")));
     assert!(text.contains("https://github.com/dereth-network/dereth/tree/abc123"));
@@ -892,6 +896,69 @@ fn the_notice_names_the_source_and_carries_the_licences_the_package_needs() {
     assert!(windows.contains("CINZEL"));
     // A release carries no plugins, so its notice speaks of none.
     assert!(!windows.contains("THE PLUGINS"));
+}
+
+/// The Windows client is built with DLSS and its notice says so; the package takes NVIDIA's library
+/// and the SDK's license from one folder, never one named `dev`, and a release cannot leave them
+/// out.
+///
+/// Behaviour: none (packaging)
+#[test]
+fn a_windows_package_speaks_of_dlss_and_carries_its_library_with_nvidias_license() {
+    use super::notice::{dereth_notice, DerethFacts, Dlss};
+    let windows = targets::find_dereth(WINDOWS).expect("windows");
+    assert_eq!(dereth::client_features(windows), vec!["--features", "dlss"]);
+    let linux = targets::find_dereth(LINUX).expect("linux");
+    assert!(dereth::client_features(linux).is_empty());
+    let fonts = vec![];
+    let crates = vec![];
+    let facts = |dlss| DerethFacts {
+        version: V,
+        target: WINDOWS,
+        commit: "abc123",
+        source_url: "https://github.com/dereth-network/dereth",
+        crates: &crates,
+        mit_licence: "MIT License",
+        fonts: &fonts,
+        moltenvk_licence: None,
+        dlss,
+    };
+    let without = dereth_notice(&facts(Dlss::Supported));
+    assert!(without.contains("NVIDIA DLSS") && without.contains("does not carry that file"));
+    let with = dereth_notice(&facts(Dlss::Carried));
+    assert!(with.contains("This package carries it") && with.contains("LICENSE-NVIDIA-DLSS.txt"));
+    assert!(!dereth_notice(&facts(Dlss::None)).contains("NVIDIA DLSS"));
+
+    let dir = std::env::temp_dir().join(format!("dereth-dlss-files-{}", std::process::id()));
+    let rel = dir.join("rel");
+    let dev = dir.join("dev");
+    let bare = dir.join("bare");
+    for d in [&rel, &dev, &bare] {
+        std::fs::create_dir_all(d).unwrap();
+    }
+    for d in [&rel, &dev] {
+        std::fs::write(d.join("nvngx_dlss.dll"), b"x").unwrap();
+        std::fs::write(d.join("LICENSE.txt"), b"x").unwrap();
+    }
+    std::fs::write(bare.join("nvngx_dlss.dll"), b"x").unwrap();
+    assert_eq!(dereth::dlss_files(None, false), Ok(None));
+    assert!(
+        dereth::dlss_files(None, true).is_err(),
+        "a release carries it"
+    );
+    assert!(
+        dereth::dlss_files(Some(dev), false).is_err(),
+        "never the dev build"
+    );
+    assert!(
+        dereth::dlss_files(Some(bare), false).is_err(),
+        "never without the license"
+    );
+    assert_eq!(
+        dereth::dlss_files(Some(rel.clone()), true),
+        Ok(Some((rel.join("nvngx_dlss.dll"), rel.join("LICENSE.txt"))))
+    );
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// A Developer ID signs the macOS bundle under the hardened runtime; an ad-hoc signature leaves it

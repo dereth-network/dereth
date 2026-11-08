@@ -12,8 +12,8 @@ autotests = false
 [features]
 # Read-backs for the tests of the crates that use it: the lamps' light and lists.
 test-support = []
-# NVIDIA DLSS Super Resolution, loaded from the driver where its DLL stands beside the client.
-# Nothing of it ships. Off, the upscaler's DLSS modes are drawn by FSR.
+# NVIDIA DLSS Super Resolution, loaded from the driver where its DLL stands beside the client, as
+# the Windows release carries it. Off, or without the DLL, the upscaler's DLSS modes are drawn by FSR.
 dlss = ["dep:libloading", "dep:ash"]
 
 [dependencies]

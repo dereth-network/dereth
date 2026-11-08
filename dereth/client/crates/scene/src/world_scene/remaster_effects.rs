@@ -133,3 +133,11 @@ pub fn remaster_dlss_carried() -> bool {
 pub fn remaster_upscaler_drawn() -> &'static str {
     dereth_remaster::render::upscale::drawn_now()
 }
+
+/// Ends the process now with `code` where the remaster's DLSS library was started in it, once
+/// everything of the client's own is closed; returns where it was not. See
+/// `dereth_remaster::render::dlss::end_process_if_started`.
+#[cfg(feature = "dlss")]
+pub fn remaster_end_process(code: u32) {
+    dereth_remaster::render::dlss::end_process_if_started(code);
+}

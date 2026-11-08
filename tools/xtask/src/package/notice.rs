@@ -241,6 +241,19 @@ pub struct DerethFacts<'a> {
     pub fonts: &'a [(&'a str, &'a str, String)],
     /// MoltenVK's licence, when the package carries MoltenVK (macOS).
     pub moltenvk_licence: Option<&'a str>,
+    /// What the package says of NVIDIA DLSS.
+    pub dlss: Dlss,
+}
+
+/// What a Dereth package says of NVIDIA DLSS.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Dlss {
+    /// The client is built without it (macOS and Linux).
+    None,
+    /// The client can use it, and the package does not carry NVIDIA's library.
+    Supported,
+    /// The package carries NVIDIA's library, with NVIDIA's license for it beside it.
+    Carried,
 }
 
 /// A Dereth package's `NOTICE.txt`.
@@ -293,6 +306,7 @@ DERETH
     );
     out.push_str(&font_sections(f.fonts));
     out.push_str(&fsr_section());
+    out.push_str(&dlss_section(f.dlss));
     if let Some(licence) = f.moltenvk_licence {
         out.push_str(&moltenvk_section("client", licence));
     }
@@ -488,6 +502,35 @@ FidelityFX SDK 1.1.4, under this notice:
         indent(FSR_LICENSE.trim_end())
     )
 }
+
+/// A notice's section for NVIDIA DLSS: nothing where the client is built without it.
+fn dlss_section(dlss: Dlss) -> String {
+    let carried = match dlss {
+        Dlss::None => return String::new(),
+        Dlss::Supported => "This package does not carry that file.".to_owned(),
+        Dlss::Carried => format!(
+            "This package carries it, from NVIDIA's DLSS SDK, with NVIDIA's license for it as\n\
+             {DLSS_LICENSE}."
+        ),
+    };
+    format!(
+        "
+
+NVIDIA DLSS
+
+On Windows the client's remaster can upscale with NVIDIA DLSS Super Resolution, on an NVIDIA
+graphics card, when NVIDIA's {DLSS_LIBRARY} stands beside dereth-client.exe.
+{carried} {DLSS_LIBRARY} is NVIDIA's software under NVIDIA's own license: the MIT
+licence above does not cover it."
+    )
+}
+
+/// NVIDIA's DLSS library, beside the client when a package carries it: Super Resolution, the
+/// one DLSS feature the client asks for.
+pub const DLSS_LIBRARY: &str = "nvngx_dlss.dll";
+
+/// NVIDIA's license for that library, the SDK's own `LICENSE.txt`, beside it.
+pub const DLSS_LICENSE: &str = "LICENSE-NVIDIA-DLSS.txt";
 
 /// A notice's section for the MoltenVK a macOS package carries, which `program` draws through.
 fn moltenvk_section(program: &str, license: &str) -> String {

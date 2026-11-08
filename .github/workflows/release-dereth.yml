@@ -232,6 +232,27 @@ jobs:
             fi
             sleep 20
           done
+      # NVIDIA's DLSS Super Resolution library for the Windows package, beside the client, and the
+      # SDK's license beside it: from NVIDIA's repository at a pinned commit (DLSS 310.9.16), from
+      # lib/Windows_x86_64/rel (never dev), each file checked against its pinned hash. The client
+      # asks for Super Resolution alone, so the rest of rel (nvngx_dlssd.dll, ray reconstruction;
+      # nvngx_dlssg.dll, frame generation) is left out.
+      - name: Fetch NVIDIA DLSS (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          DLSS_COMMIT: 9981c6350dc58c0ce21f024fd65e31e851c31689
+          DLSS_DLL_SHA256: d00b5b0ab29c3ca101b70c3a5ecb3a01b7ef33766a3383a28a18623083e6123e
+          DLSS_LICENSE_SHA256: d4216e39ebef5f9b50a6712ebb37beeb5379862a67733a9999c651f21592aaf0
+        run: |
+          base="https://raw.githubusercontent.com/NVIDIA/DLSS/$DLSS_COMMIT"
+          dir="$RUNNER_TEMP/dlss/rel"
+          mkdir -p "$dir"
+          curl -fsSL -o "$dir/nvngx_dlss.dll" "$base/lib/Windows_x86_64/rel/nvngx_dlss.dll"
+          curl -fsSL -o "$dir/LICENSE.txt" "$base/LICENSE.txt"
+          echo "$DLSS_DLL_SHA256  $dir/nvngx_dlss.dll" | sha256sum -c -
+          echo "$DLSS_LICENSE_SHA256  $dir/LICENSE.txt" | sha256sum -c -
+          echo "DERETH_DLSS_DIR=$dir" >> "$GITHUB_ENV"
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: launcher-release-dereth

@@ -3918,6 +3918,7 @@ impl Drop for Gpu {
         // A world hook made on this device goes first, with everything it made.
         #[cfg(feature = "remaster")]
         self.destroy_world_hook();
+        tracing::debug!(target: "dereth::render", "the device closes: its world hook is gone");
         // SAFETY: the wait above retired every submission; nothing below is referenced by the GPU,
         // and every handle was created by this struct exactly once. Order: everything that lives
         // on the device, then the device, then the instance-level objects.
@@ -4000,7 +4001,9 @@ impl Drop for Gpu {
             self.device.destroy_command_pool(self.oneshot_pool, None);
             self.device.destroy_semaphore(self.timeline, None);
             drop(self.allocator.take());
+            tracing::debug!(target: "dereth::render", "the device closes: destroying it");
             self.device.destroy_device(None);
+            tracing::debug!(target: "dereth::render", "the device closes: it is gone");
             if let Some((loader, s)) = self.surface.take() {
                 loader.destroy_surface(s, None);
             }
@@ -4008,6 +4011,7 @@ impl Drop for Gpu {
                 loader.destroy_debug_utils_messenger(m, None);
             }
             self.instance.destroy_instance(None);
+            tracing::debug!(target: "dereth::render", "the device closes: its instance is gone");
         }
         let _ = &self.entry;
     }

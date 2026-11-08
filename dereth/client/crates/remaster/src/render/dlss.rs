@@ -1,6 +1,6 @@
-//! NVIDIA DLSS Super Resolution, through the NGX library the graphics driver carries. Nothing of
-//! it ships with the client: it is loaded only in a build with the `dlss` feature, on a Windows
-//! machine whose driver has the library, with NVIDIA's `nvngx_dlss.dll` beside the executable.
+//! NVIDIA DLSS Super Resolution, through the NGX library the graphics driver carries. It is loaded
+//! only in a build with the `dlss` feature, on a Windows machine whose driver has the library, with
+//! NVIDIA's `nvngx_dlss.dll` beside the executable, as the Windows release carries it.
 //! Anywhere else [`Ngx::load`] finds nothing, and the upscaler's DLSS modes are drawn by FSR.
 //!
 //! The library is asked for by name and its calls are laid out here, as its public headers give
@@ -171,7 +171,6 @@ type Init = unsafe extern "system" fn(
     *const FeatureInfo,
     i32,
 ) -> u32;
-type Shutdown = unsafe extern "system" fn(u64) -> u32;
 type Capabilities = unsafe extern "system" fn(*mut *mut Parameter) -> u32;
 type Allocate = unsafe extern "system" fn(*mut *mut Parameter) -> u32;
 type Destroy = unsafe extern "system" fn(*mut Parameter) -> u32;
@@ -196,8 +195,43 @@ struct FeatureInfo {
     only_the_callback: bool,
 }
 
+/// Whether the library was started in this process, so it is in it until the process ends.
+static RAN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Ends the process now with `code` where the library was started in it, without the libraries'
+/// own goodbyes; returns where it was not, so the process ends as any other. A release build,
+/// its C runtime linked in, ends with an access violation in those goodbyes once the library has
+/// started, after everything of the client's own is closed. Called once that is so.
+pub fn end_process_if_started(code: u32) {
+    if !RAN.load(std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
+    type Current = unsafe extern "system" fn() -> isize;
+    type Terminate = unsafe extern "system" fn(isize, u32) -> i32;
+    // SAFETY: Windows' own calls, as its headers give them, on this process's own handle.
+    unsafe {
+        let Ok(kernel) = Library::new("kernel32.dll") else {
+            return;
+        };
+        let (Ok(current), Ok(terminate)) = (
+            kernel.get::<Current>(b"GetCurrentProcess\0"),
+            kernel.get::<Terminate>(b"TerminateProcess\0"),
+        ) else {
+            return;
+        };
+        terminate(current(), code);
+    }
+}
+
+/// Whether the library is being let go: from then on what it says is not passed on, since its own
+/// threads may still speak as the process ends.
+static QUIET: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// What the library says, in the client's log. It may call this from any thread.
 unsafe extern "system" fn library_said(message: *const c_char, _level: i32, _feature: i32) {
+    if QUIET.load(std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
     // SAFETY: a string the library keeps valid until this returns, as its headers say.
     let message = unsafe { CStr::from_ptr(message) }.to_string_lossy();
     tracing::info!(target: "dereth::remaster", "NGX: {}", message.trim_end());
@@ -222,21 +256,27 @@ unsafe fn start(
             .chain(Some(0))
             .collect()
     };
+    // What the library is pointed at lives as long as the process: it may keep the pointers past
+    // the call, and use them as late as the process's end.
     let here = std::env::current_exe().ok()?;
-    let here = wide(here.parent()?);
-    let data = wide(data);
-    let version = CString::new(env!("CARGO_PKG_VERSION")).ok()?;
-    let paths = [here.as_ptr()];
-    let info = FeatureInfo {
+    let here: &'static [u16] = Vec::leak(wide(here.parent()?));
+    let data: &'static [u16] = Vec::leak(wide(data));
+    let version: &'static CStr = Box::leak(
+        CString::new(env!("CARGO_PKG_VERSION"))
+            .ok()?
+            .into_boxed_c_str(),
+    );
+    let paths: &'static [*const u16] = Vec::leak(vec![here.as_ptr()]);
+    let info: &'static FeatureInfo = Box::leak(Box::new(FeatureInfo {
         paths: paths.as_ptr(),
         path_count: 1,
         internal: std::ptr::null_mut(),
         log: Some(library_said),
         log_level: LOGGING_ON,
         only_the_callback: false,
-    };
+    }));
     // SAFETY: the call as the library's headers give it, as the caller says of its handles; what
-    // it is pointed at outlives the call.
+    // it is pointed at lives as long as the process.
     unsafe {
         let init: Init = *lib.get(b"NVSDK_NGX_VULKAN_Init_ProjectID\0").ok()?;
         Some(init(
@@ -249,7 +289,7 @@ unsafe fn start(
             device.as_raw(),
             std::ptr::null(),
             std::ptr::null(),
-            &raw const info,
+            std::ptr::from_ref(info),
             SDK_VERSION,
         ))
     }
@@ -436,14 +476,14 @@ fn device_closing(device: u64) {
 
 /// The driver's library, started on the frame's device.
 ///
-/// A start that found DLSS unavailable is never shut down: the driver's shutdown call ends the
-/// process with an access violation there (driver 621.14), and a failed DLSS must fall through to
-/// FSR. One that is ready shuts down when its device closes ([`Ngx::shut_down`]). The library itself
-/// is never unloaded once started; the system takes it back at exit.
+/// The library's shutdown call is never made: it ends the process with an access violation, as a
+/// start that found DLSS unavailable showed on driver 621.14 and a release build's exit shows on
+/// later drivers. A ready start lets its feature and parameters go when its device closes
+/// ([`Ngx::shut_down`]). The library itself is never unloaded once started; the system takes it
+/// back at exit.
 pub struct Ngx {
     _lib: std::mem::ManuallyDrop<Library>,
     device: u64,
-    shutdown: Shutdown,
     destroy: Destroy,
     create: Create,
     release: Release,
@@ -486,21 +526,29 @@ impl Ngx {
         })
     }
 
-    /// Releases the feature, then shuts the library down, on an idle device still alive.
+    /// Releases the feature and the parameter block, on an idle device still alive.
     fn shut_down(&self) {
         use std::sync::atomic::Ordering;
         if self.closed.swap(true, Ordering::SeqCst) {
             return;
         }
-        tracing::info!(target: "dereth::remaster", "DLSS: shutting the library down");
+        tracing::info!(target: "dereth::remaster", "DLSS: its device is closing");
+        // Each step said before it is taken, so a log cut short says which one ended the process.
         // SAFETY: the handles are this library's, once each: `closed` stops any more drawing.
         unsafe {
             if let Some(f) = self.feature.lock().ok().and_then(|mut f| f.take()) {
-                (self.release)(f.handle);
+                tracing::info!(target: "dereth::remaster", "DLSS: releasing the feature");
+                let result = (self.release)(f.handle);
+                tracing::info!(target: "dereth::remaster", "DLSS: the feature released: {result:#X}");
             }
+            tracing::info!(target: "dereth::remaster", "DLSS: destroying the parameter block");
             (self.destroy)(self.params);
-            let result = (self.shutdown)(self.device);
-            tracing::info!(target: "dereth::remaster", "DLSS: the library shut down: {result:#X}");
+            // The library's own shutdown is not called: on a release build it ends the process
+            // with an access violation (driver 32.0.16.1088, DLSS 310.9.16), as a start that found
+            // DLSS unavailable does on driver 621.14. The device closes only as the process ends,
+            // which takes the library back.
+            QUIET.store(true, std::sync::atomic::Ordering::SeqCst);
+            tracing::info!(target: "dereth::remaster", "DLSS: the feature and its parameters are let go");
         }
     }
 
@@ -519,13 +567,13 @@ impl Ngx {
             let capabilities: Capabilities = *lib
                 .get(b"NVSDK_NGX_VULKAN_GetCapabilityParameters\0")
                 .ok()?;
-            let shutdown: Shutdown = *lib.get(b"NVSDK_NGX_VULKAN_Shutdown1\0").ok()?;
             let allocate: Allocate = *lib.get(b"NVSDK_NGX_VULKAN_AllocateParameters\0").ok()?;
             let destroy: Destroy = *lib.get(b"NVSDK_NGX_VULKAN_DestroyParameters\0").ok()?;
             let create: Create = *lib.get(b"NVSDK_NGX_VULKAN_CreateFeature1\0").ok()?;
             let release: Release = *lib.get(b"NVSDK_NGX_VULKAN_ReleaseFeature\0").ok()?;
             let evaluate: Evaluate = *lib.get(b"NVSDK_NGX_VULKAN_EvaluateFeature\0").ok()?;
             let result = start(&lib, data, instance, physical, device)?;
+            RAN.store(true, std::sync::atomic::Ordering::SeqCst);
             // From here it stays for the process's life, on every path: see [`Ngx`].
             let lib = std::mem::ManuallyDrop::new(lib);
             if !succeeded(result) {
@@ -555,7 +603,6 @@ impl Ngx {
             Some(Self {
                 _lib: lib,
                 device: device.as_raw(),
-                shutdown,
                 destroy,
                 create,
                 release,

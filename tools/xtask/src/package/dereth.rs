@@ -310,6 +310,8 @@ pub fn contents(target: Target) -> (Vec<String>, Vec<String>) {
             required.push(super::friends_dll::FILE.to_owned());
             required.extend(notices_in(""));
             required.extend(own(RELAY_NOTICES));
+            // NVIDIA's DLSS library and its license, where the package carries them.
+            optional.extend(own(&[notice::DLSS_LIBRARY, notice::DLSS_LICENSE]));
         }
         Os::Mac => {
             required.extend(own(&[
@@ -611,6 +613,29 @@ pub fn build_packages(
     } else {
         None
     };
+    let dlss = if plans.iter().any(|t| t.os == Os::Windows) {
+        // A release, built where GitHub's runners build it, always carries the library.
+        let release = std::env::var_os("GITHUB_ACTIONS").is_some_and(|v| v == "true");
+        match dlss_files(std::env::var_os(DLSS_DIR_ENV).map(PathBuf::from), release) {
+            Ok(d) => d,
+            Err(e) => {
+                refusals.push(format!("  {e}"));
+                None
+            }
+        }
+    } else {
+        None
+    };
+    match &dlss {
+        _ if !plans.iter().any(|t| t.os == Os::Windows) => {}
+        Some((dll, _)) => println!("package: the Windows package carries {}", dll.display()),
+        // Named but refused: the refusal says why.
+        None if std::env::var_os(DLSS_DIR_ENV).is_some() => {}
+        None => println!(
+            "package: the Windows client is built with DLSS and carries no NVIDIA library ({DLSS_DIR_ENV} \
+             is not set)"
+        ),
+    }
     let mut moltenvk_found = None;
     if plans.iter().any(|t| t.os == Os::Mac) {
         let dir = moltenvk
@@ -672,6 +697,7 @@ pub fn build_packages(
             stage: &stage,
             signer: signer.as_ref(),
             moltenvk: moltenvk_found.as_ref(),
+            dlss: dlss.as_ref(),
             library: &taken.library,
             appimagetool: appimagetool.as_deref(),
         };
@@ -712,6 +738,7 @@ pub fn build_programs(ws: &Path, triples: &[String], allow_dirty: bool) -> Resul
             stage: &stage,
             signer: None,
             moltenvk: None,
+            dlss: None,
             library: Path::new(""),
             appimagetool: None,
         };
@@ -720,6 +747,59 @@ pub fn build_programs(ws: &Path, triples: &[String], allow_dirty: bool) -> Resul
         job.build_relay()?;
     }
     Ok(base.join("stage"))
+}
+
+/// The client's features past its defaults on `target`: DLSS on Windows, the only place its
+/// library loads. Without NVIDIA's library beside the client its DLSS modes draw with FSR.
+pub fn client_features(target: Target) -> Vec<&'static str> {
+    if target.os == Os::Windows {
+        vec!["--features", "dlss"]
+    } else {
+        Vec::new()
+    }
+}
+
+/// The folder a Windows package takes NVIDIA's DLSS files from: the SDK's `lib/Windows_x86_64/rel`
+/// files the client loads ([`notice::DLSS_LIBRARY`]) and the SDK's `LICENSE.txt`, as the release
+/// workflow fetches them at a pinned commit of NVIDIA's repository.
+pub const DLSS_DIR_ENV: &str = "DERETH_DLSS_DIR";
+
+/// NVIDIA's DLSS library and the SDK's license, in `dir` ([`DLSS_DIR_ENV`]). A development build
+/// of the library is named the same and must never ship, so a folder named `dev` is refused.
+/// Without a folder: nothing, unless `required` (a release build), which refuses.
+pub fn dlss_files(
+    dir: Option<PathBuf>,
+    required: bool,
+) -> Result<Option<(PathBuf, PathBuf)>, String> {
+    let Some(dir) = dir else {
+        return if required {
+            Err(format!(
+                "a release's Windows package carries NVIDIA's DLSS library: set {DLSS_DIR_ENV} to a \
+                 folder holding {} and the SDK's LICENSE.txt",
+                notice::DLSS_LIBRARY
+            ))
+        } else {
+            Ok(None)
+        };
+    };
+    if dir
+        .components()
+        .any(|c| c.as_os_str().eq_ignore_ascii_case("dev"))
+    {
+        return Err(format!(
+            "{DLSS_DIR_ENV} names {}: the SDK's development library must never ship; take the \
+             files from its rel folder",
+            dir.display()
+        ));
+    }
+    let dll = dir.join(notice::DLSS_LIBRARY);
+    let license = dir.join("LICENSE.txt");
+    for f in [&dll, &license] {
+        if !f.is_file() {
+            return Err(format!("{DLSS_DIR_ENV}: {} is not a file", f.display()));
+        }
+    }
+    Ok(Some((dll, license)))
 }
 
 /// What a package with a client says when it wasn't given the launcher's release files.
@@ -913,6 +993,7 @@ pub(crate) fn build_launcher_as_dereth(
         stage,
         signer: None,
         moltenvk,
+        dlss: None,
         library,
         appimagetool: None,
     };
@@ -946,6 +1027,8 @@ struct Job<'a> {
     signer: Option<&'a Signer>,
     /// MoltenVK's dylib and licence (macOS).
     moltenvk: Option<&'a (PathBuf, PathBuf)>,
+    /// NVIDIA's DLSS library and its license, when the Windows package carries them.
+    dlss: Option<&'a (PathBuf, PathBuf)>,
     /// The retail client's friends library, checked ([`super::friends_dll`]).
     library: &'a Path,
     /// The AppImage packer, for a Linux package.
@@ -976,6 +1059,10 @@ impl Job<'_> {
                         .chain(RELAY_NOTICES)
                         .map(|n| ((*n).to_owned(), notices.join(n))),
                 );
+                if let Some((dll, license)) = self.dlss {
+                    members.push((notice::DLSS_LIBRARY.to_owned(), dll.clone()));
+                    members.push((notice::DLSS_LICENSE.to_owned(), license.clone()));
+                }
                 self.write_archive(&members)
             }
             Os::Linux => self.write_appimage(&launcher.bundle, &client, &tool, &relay, &notices),
@@ -1168,21 +1255,17 @@ impl Job<'_> {
     /// The client, built with cargo in the workspace.
     fn build_client(&self) -> Result<PathBuf, String> {
         let env = build_env(self.ws, self.facts, self.target);
-        run_in(
-            self.ws,
-            "cargo",
-            &[
-                "build",
-                "--locked",
-                "--release",
-                "-p",
-                "dereth-client",
-                "--target",
-                self.target.triple,
-            ],
-            &env,
-            &[],
-        )?;
+        let mut args = vec![
+            "build",
+            "--locked",
+            "--release",
+            "-p",
+            "dereth-client",
+            "--target",
+            self.target.triple,
+        ];
+        args.extend(client_features(self.target));
+        run_in(self.ws, "cargo", &args, &env, &[])?;
         let built = target_dir()
             .join(self.target.triple)
             .join("release")
@@ -1242,6 +1325,11 @@ impl Job<'_> {
             mit_licence: &mit,
             fonts: &fonts,
             moltenvk_licence: moltenvk.as_deref(),
+            dlss: match (t.os, self.dlss) {
+                (Os::Windows, Some(_)) => notice::Dlss::Carried,
+                (Os::Windows, None) => notice::Dlss::Supported,
+                _ => notice::Dlss::None,
+            },
         });
         write(&dir.join("NOTICE.txt"), text.as_bytes())?;
         write(&dir.join("LICENSE"), mit.as_bytes())?;
