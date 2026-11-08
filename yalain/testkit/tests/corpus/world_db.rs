@@ -3635,15 +3635,16 @@ fn everything_the_worlds_rows_make_reads_from_the_install() {
 }
 
 /// A corpse 2017 recorded opened: the dead creature's template, and what the corpse held at its
-/// first opening, each item's template and value.
-struct OpenedCorpse {
-    creature: u32,
-    items: Vec<(u32, u32)>,
+/// first opening, each item's template and value, and each item's object id.
+pub(super) struct OpenedCorpse {
+    pub(super) creature: u32,
+    pub(super) items: Vec<(u32, u32)>,
+    pub(super) ids: Vec<u64>,
 }
 
 /// Every corpse the January 2017 recordings show opened, once (its first opening), with the
 /// creature it was of.
-fn opened_corpses(lib: &Library) -> Vec<OpenedCorpse> {
+pub(super) fn opened_corpses(lib: &Library) -> Vec<OpenedCorpse> {
     use auberean_script::args::{decode, Arg};
     use auberean_script::native_object::Item;
     use std::collections::{BTreeMap, HashMap, HashSet};
@@ -3688,6 +3689,7 @@ fn opened_corpses(lib: &Library) -> Vec<OpenedCorpse> {
                 OpenedCorpse {
                     creature: creature.0,
                     items,
+                    ids: contents,
                 },
             );
         }

@@ -190,8 +190,9 @@ impl Props {
         self
     }
 
-    /// Does the template itself set its least level, not only its class? A class's is a default a
-    /// drop overrides (2017: 1,882 of 1,893 dropped pieces of such templates showed their own).
+    /// Does the template itself set its least level, not only its class? A drop overrides either
+    /// (2017: 1,882 of 1,893 dropped pieces of templates whose class says one showed their own, 129
+    /// of 130 of templates that set one); an item made anew keeps it.
     #[must_use]
     pub fn sets_least_level(&self) -> bool {
         self.int(LEAST_LEVEL).is_some() && !self.flag(LEAST_LEVEL_OF_CLASS)

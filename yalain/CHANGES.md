@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Fixed some weapons and armor dropping with no level or enchantments of their own.
 - Servers use much less memory once their world is filled.
 - New players see the welcome, first level-up and first glyph tips once.
 - Busy servers spend much less time sending to players.

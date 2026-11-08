@@ -1593,6 +1593,193 @@ fn an_items_icon_takes_what_its_appearance_gives_as_2017() {
     assert!(seen - built <= 6, "icons built: {built} of {seen}");
 }
 
+/// An item a 2017 examination showed: its least level and how many enchantments.
+#[derive(Clone, Copy)]
+struct Examined {
+    least: Option<u32>,
+    enchantments: usize,
+}
+
+/// Every item not made by a player that the January 2017 recordings show examined, once, by its
+/// object id.
+fn examined_items(con: &Connection) -> HashMap<u64, Examined> {
+    let mut st = con
+        .prepare(
+            "SELECT m.raw FROM message m JOIN session s USING (session_id) \
+             JOIN capture c USING (capture_id) WHERE c.file LIKE '2017-%' AND m.status = 'ac2' \
+             AND m.dir = 's2c' AND m.mtype = 65638",
+        )
+        .expect("prepares");
+    let mut rows = st.query([]).expect("runs");
+    let mut out = HashMap::new();
+    while let Some(r) = rows.next().expect("a row") {
+        let raw: Vec<u8> = r.get(0).expect("raw");
+        let Ok(ServerMessage::PlayerCall(c)) = ServerMessage::decode(&raw) else {
+            continue;
+        };
+        if c.function.0 != profile::EXAMINATION_PROFILE {
+            continue;
+        }
+        let v = calls::values(&c.args.map(|a| a.0).unwrap_or_default()).unwrap_or_default();
+        let Some(Node::Native { bytes, .. }) = v.first().and_then(Value::root) else {
+            continue;
+        };
+        let req = profile::read_request(bytes);
+        if req.kind != profile::request::OBJECT {
+            continue;
+        }
+        let strings = strings_in(bytes, 20);
+        if strings.contains(&profile::item_line::CRAFTED_BY) {
+            continue;
+        }
+        out.entry(req.object).or_insert(Examined {
+            least: stat_in(bytes, 20, profile::line::MINIMUM_LEVEL),
+            enchantments: strings
+                .iter()
+                .filter(|x| **x == profile::item_line::EFFECT_NAME)
+                .count(),
+        });
+    }
+    out
+}
+
+/// A weapon, shield or piece of armor a 2017 corpse held at its first opening: its template, its
+/// own value, its dropper's level and loot quality, and its examination if a player examined it.
+struct Dropped {
+    template: u32,
+    value: u32,
+    level: i32,
+    quality: Option<i64>,
+    examined: Option<Examined>,
+}
+
+/// Every weapon, shield and piece of armor with a value of its own in the corpses the January 2017
+/// recordings show opened, of creatures with a loot profile.
+fn equipment_dropped() -> &'static [Dropped] {
+    static D: OnceLock<Vec<Dropped>> = OnceLock::new();
+    D.get_or_init(|| {
+        let portal = yalain_testkit::authored::Portal::open();
+        let corpses = super::world_db::opened_corpses(&portal.library());
+        let examined = examined_items(&open(&auberean_testkit::data::require_capture_index()));
+        let mut stats = HashMap::new();
+        let mut equipment = HashMap::new();
+        let mut out = Vec::new();
+        for c in corpses {
+            let Some(s) = stats
+                .entry(c.creature)
+                .or_insert_with(|| {
+                    yalain_content::CreatureStats::from_props(&portal.template(c.creature).props)
+                        .filter(|s| s.loot_profile.is_some())
+                })
+                .clone()
+            else {
+                continue;
+            };
+            for (&(template, value), id) in c.items.iter().zip(&c.ids) {
+                let is = *equipment.entry(template).or_insert_with(|| {
+                    let p = portal.template(template).props;
+                    p.int("Weapon_Damage").is_some() || p.int("Item_ArmorLevel").is_some()
+                });
+                if template == 0 || value == 0 || !is {
+                    continue;
+                }
+                out.push(Dropped {
+                    template,
+                    value,
+                    level: s.level,
+                    quality: s.loot_quality,
+                    examined: examined.get(id).copied(),
+                });
+            }
+        }
+        out
+    })
+}
+
+/// Weapons, shields and armor whose templates set their own least level were treasure like any
+/// other in 2017: an examined drop's least level was its dropper's base and 0 to 3 more, at most
+/// 50, many such templates showed several, and some were enchanted. This server's drops of the same
+/// templates, from the same droppers, draw theirs the same way, with numbers and enchantments.
+/// Behaviour: server.loot.treasure-set-least-level-drawn
+#[test]
+fn equipment_whose_template_sets_its_least_level_drops_as_any_other_treasure() {
+    use std::collections::{BTreeSet, HashSet};
+    use yalain_world::treasure::{base_of, endow, MOST_LEVEL};
+    let portal = yalain_testkit::authored::Portal::open();
+    let mut set = HashMap::new();
+    let drops: Vec<&Dropped> = equipment_dropped()
+        .iter()
+        .filter(|d| {
+            *set.entry(d.template)
+                .or_insert_with(|| portal.template(d.template).props.sets_least_level())
+        })
+        .collect();
+    // 2017: each examined drop's least level against its dropper's base.
+    let rule = |least: i32, base: i32| {
+        if base >= MOST_LEVEL {
+            least == MOST_LEVEL
+        } else {
+            (base..=base + 3).contains(&least)
+        }
+    };
+    let (mut examined, mut within, mut enchanted) = (0usize, 0usize, 0usize);
+    let mut levels: HashMap<u32, BTreeSet<u32>> = HashMap::new();
+    for d in &drops {
+        let Some(e) = d.examined else { continue };
+        let Some(least) = e.least else { continue };
+        examined += 1;
+        within += usize::from(rule(
+            i32::try_from(least).unwrap_or(0),
+            base_of(d.level, d.quality),
+        ));
+        enchanted += usize::from(e.enchantments > 0);
+        levels.entry(d.template).or_default().insert(least);
+    }
+    let several = levels.values().filter(|l| l.len() > 1).count();
+    println!(
+        "2017: {} drops of {} templates; {examined} examined, {within} at their dropper's least \
+         level, {enchanted} enchanted; {several} of {} templates at two or more least levels",
+        drops.len(),
+        drops
+            .iter()
+            .map(|d| d.template)
+            .collect::<HashSet<_>>()
+            .len(),
+        levels.len()
+    );
+    assert!(examined >= 100, "the recordings hold them: {examined}");
+    assert!(within * 100 >= examined * 95, "{within} of {examined}");
+    assert!(several >= 10, "{several} of {}", levels.len());
+    assert!(enchanted >= 10, "{enchanted} of {examined}");
+    // Ours: every drop again, from its own dropper.
+    let mut h = yalain_testkit::Harness::new();
+    let (mut ours, mut drawn, mut numbered, mut ours_enchanted) = (0usize, 0usize, 0usize, 0usize);
+    for d in &drops {
+        let t = portal.template(d.template);
+        h.server.treasure.equipment.insert(t.description.package);
+        h.server.catalog.insert(t);
+        let item = yalain_world::inventory::make_item(&mut h.server, d.template, 1, d.value)
+            .expect("made");
+        endow(&mut h.server, item, d.level, d.quality);
+        let thing = h.server.things.get(item).expect("made");
+        ours += 1;
+        drawn += usize::from(
+            thing
+                .own
+                .min_level
+                .is_some_and(|l| rule(l, base_of(d.level, d.quality))),
+        );
+        numbered += usize::from(thing.own.made.is_some());
+        ours_enchanted += usize::from(!thing.enchantments.is_empty() || !thing.bonuses.is_empty());
+    }
+    println!("ours: {drawn} of {ours} at their dropper's least level, {numbered} with numbers, {ours_enchanted} enchanted");
+    assert_eq!((drawn, numbered), (ours, ours));
+    assert!(
+        ours_enchanted * 100 >= ours * 5,
+        "{ours_enchanted} of {ours}"
+    );
+}
+
 /// Of the treasure weapons the 2017 servers showed, by level band: how many have an enchantment, as
 /// the counts this server draws from say.
 /// Behaviour: server.loot.treasure-enchantments

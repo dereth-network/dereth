@@ -392,11 +392,11 @@ fn jewelry_a_creature_leaves_is_worth_what_treasure_of_its_level_is() {
     }
 }
 
-/// A least level only its class says doesn't stop a drop having its own, and numbers by it; one its
-/// template sets does.
+/// A least level its template holds, only its class's or its own, gives way to a drop's own, and
+/// numbers by it.
 /// Behaviour: server.loot.treasure-own-properties-over-a-class
 #[test]
-fn a_least_level_only_its_class_says_gives_way_to_a_drops_own() {
+fn a_least_level_its_template_holds_gives_way_to_a_drops_own() {
     use yalain_content::{Prop, Props};
     let dropped = |props: Props| {
         let (mut h, b, _, _) = fight();
@@ -432,7 +432,9 @@ fn a_least_level_only_its_class_says_gives_way_to_a_drops_own() {
     );
     armor.set("Usage_MinLevel", Prop::Int(15));
     let set = dropped(armor);
-    assert_eq!((set.min_level, set.made), (None, None));
+    let least = set.min_level.expect("its own least level");
+    assert!((2..=5).contains(&least), "a level 2 creature's: {least}");
+    assert!(set.made.and_then(|m| m.armor).is_some(), "its own numbers");
 }
 
 /// A treasure weapon, shield or piece of armor has numbers of its own by its level, where its template

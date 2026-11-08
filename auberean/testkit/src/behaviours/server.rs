@@ -6783,7 +6783,7 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "server.loot.treasure-own-properties",
         says: "An item drawn from a creature's loot profile is given what its dropper's level \
-               gives it of its own: equipment whose template names no least level its own.",
+               gives it of its own: equipment its own least level.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-TREASURE-OWN"),
         station: "yalain-testkit::cpu::play::fights::equipment_a_creature_drops_carries_a_least_level_of_its_own_by_the_creatures_level",
@@ -6801,11 +6801,11 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.loot.treasure-own-properties-over-a-class",
-        says: "A least level only a template's class says gives way to a drop's own, with its numbers; \
-               one the template itself sets doesn't.",
+        says: "A least level a treasure template holds, only its class's or its own, gives way to a \
+               drop's own, with its numbers; an item made anew keeps it.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-TREASURE-CLASS-LEAST"),
-        station: "yalain-testkit::cpu::play::fights::a_least_level_only_its_class_says_gives_way_to_a_drops_own",
+        station: "yalain-testkit::cpu::play::fights::a_least_level_its_template_holds_gives_way_to_a_drops_own",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -6829,6 +6829,16 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-TREASURE-RARER"),
         station: "yalain-testkit::cpu::play::fights::the_rarer_enchantments_are_drawn_rarely_and_from_their_levels",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.loot.treasure-set-least-level-drawn",
+        says: "A treasure weapon, shield or piece of armor whose template sets its own least level \
+               drops as any other treasure: a least level of its own from its dropper's base, \
+               numbers by it and enchantments drawn, as 2017's drops of those templates showed.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TREASURE-SET-LEAST"),
+        station: "yalain-testkit::corpus::examine::equipment_whose_template_sets_its_least_level_drops_as_any_other_treasure",
+        tier: Tier::Corpus,
     },
     behaviour! {
         id: "server.loot.treasure-slayer",

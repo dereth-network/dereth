@@ -674,8 +674,10 @@ pub fn potion_effect(rng: &mut Rng, level: i32) -> (u32, f32) {
 }
 
 /// Give a treasure item dropped by a creature of this level and loot quality what it carries of its
-/// own: equipment whose template sets no least level its own (and an Arcane Lore when it draws
-/// one), a treasure potion its effect. Any other item is left as it is.
+/// own: equipment its own least level (and an Arcane Lore when it draws one), numbers and
+/// enchantments, whatever least level its template holds (2017: 129 of 130 examined drops of
+/// templates that set one showed their own, from their dropper); a treasure potion its effect. Any
+/// other item is left as it is.
 pub fn endow<S: yalain_store::Store>(
     s: &mut crate::Server<S>,
     item: u64,
@@ -693,33 +695,27 @@ pub fn endow<S: yalain_store::Store>(
     let mut own = Own::default();
     if s.treasure.equipment.contains(&package) {
         own.look = draw_look(&mut s.rng, template);
-        let set = s
-            .catalog
-            .get(template)
-            .is_some_and(|t| t.props.sets_least_level());
-        if !set {
-            let least = min_level(&mut s.rng, base);
-            own.min_level = Some(least);
-            own.arcane_lore = arcane_lore(&mut s.rng, base);
-            let value = s.things.get(item).map_or(0, |t| t.value);
-            if let Some(t) = s.catalog.get(template) {
-                let props = t.props.clone();
-                let item_level = least.max(base);
-                own.made = numbers(&mut s.rng, &props, item_level, value);
-                let sort = match (
-                    props.int("Weapon_Damage").is_some(),
-                    props.int("Item_ArmorLevel").is_some(),
-                ) {
-                    (true, true) => Some(Sort::Shield),
-                    (true, false) => Some(Sort::Weapon),
-                    (false, true) => Some(Sort::Armor),
-                    (false, false) => None,
-                };
-                if let Some(sort) = sort {
-                    put_enchantments(s, item, &mut own, sort, item_level);
-                    if let Some(m) = own.made.as_mut() {
-                        m.prefix = word_of(&mut s.rng, sort, item_level, m.delay.unwrap_or(0));
-                    }
+        let least = min_level(&mut s.rng, base);
+        own.min_level = Some(least);
+        own.arcane_lore = arcane_lore(&mut s.rng, base);
+        let value = s.things.get(item).map_or(0, |t| t.value);
+        if let Some(t) = s.catalog.get(template) {
+            let props = t.props.clone();
+            let item_level = least.max(base);
+            own.made = numbers(&mut s.rng, &props, item_level, value);
+            let sort = match (
+                props.int("Weapon_Damage").is_some(),
+                props.int("Item_ArmorLevel").is_some(),
+            ) {
+                (true, true) => Some(Sort::Shield),
+                (true, false) => Some(Sort::Weapon),
+                (false, true) => Some(Sort::Armor),
+                (false, false) => None,
+            };
+            if let Some(sort) = sort {
+                put_enchantments(s, item, &mut own, sort, item_level);
+                if let Some(m) = own.made.as_mut() {
+                    m.prefix = word_of(&mut s.rng, sort, item_level, m.delay.unwrap_or(0));
                 }
             }
         }
