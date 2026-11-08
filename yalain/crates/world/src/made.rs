@@ -174,6 +174,10 @@ pub fn shield_damage(quality: u32) -> i32 {
     dereth_primitives::num::to_i32((between(&DAMAGE, quality) * SHIELD_SHARE).round())
 }
 
+/// A made shield's span of damage when its template names none: the one every shield a recipe
+/// makes names (16 of 16).
+pub const SHIELD_VARIANCE: f32 = 0.25;
+
 /// Where a piece of armor is worn, by what it gives of a whole suit's rating.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Piece {

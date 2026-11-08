@@ -14,6 +14,7 @@ use yalain_content::Facts;
 use crate::examine::Vitals;
 use crate::graph::Builder;
 use crate::session;
+use crate::treasure::Sort;
 
 /// The client function an examination is answered with.
 pub const EXAMINATION_PROFILE: u32 = 0x820A_0009;
@@ -1597,9 +1598,14 @@ pub fn starting_weapon(template: u32) -> Option<ItemView> {
 
 impl ItemView {
     /// What a template's properties say of an item of it, with its count and value (an item's
-    /// own value, else the template's times the count).
+    /// own value, else the template's times the count), told whether its class is a shield's.
     #[must_use]
-    pub fn of(props: &yalain_content::Props, quantity: u32, value: Option<u32>) -> Self {
+    pub fn of(
+        props: &yalain_content::Props,
+        quantity: u32,
+        value: Option<u32>,
+        shield: bool,
+    ) -> Self {
         let text = |n: &str| match props.get(n) {
             Some(yalain_content::Prop::Str(id, table)) => Some(string(*table, *id)),
             _ => None,
@@ -1627,16 +1633,18 @@ impl ItemView {
         } else {
             text("Name")
         };
-        // Both a weapon's numbers and a rating make a shield: its stats are the weapon's, with its
-        // rating and combat delay, under their own heading.
+        // A shield is told by its class, as most shields' templates hold no weapon's damage: its
+        // stats are a weapon's, with its rating and combat delay, under their own heading, each
+        // its template's, else none.
+        let sort = crate::treasure::sort_of(props, shield);
+        let is_shield = sort == Some(Sort::Shield);
         let rating = int("Item_ArmorLevel");
-        let held = props.int("Weapon_Damage").is_some();
-        let shield = rating.filter(|_| held);
-        let weapon = int("Weapon_Damage").map(|d| {
+        let shield = is_shield.then(|| rating.unwrap_or(0));
+        let weapon = matches!(sort, Some(Sort::Weapon | Sort::Shield)).then(|| {
             (
-                d,
+                int("Weapon_Damage").unwrap_or(0),
                 props.float("Weapon_Variance").unwrap_or(0.0),
-                if shield.is_some() {
+                if is_shield {
                     int("Item_CombatDelay").unwrap_or(0)
                 } else {
                     int("Weapon_Speed").unwrap_or(0)
@@ -1644,7 +1652,7 @@ impl ItemView {
                 int("Weapon_VigorCost").unwrap_or(0),
             )
         });
-        let armor = rating.filter(|_| !held).map(|a| {
+        let armor = rating.filter(|_| sort == Some(Sort::Armor)).map(|a| {
             (
                 a,
                 int("Item_CombatDelay").unwrap_or(0),

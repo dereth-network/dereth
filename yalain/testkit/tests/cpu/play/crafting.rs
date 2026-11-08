@@ -1932,18 +1932,21 @@ fn a_recipe_working_out_its_own_product_fails_and_uses_up_nothing() {
     assert_eq!(c.today, 0, "it pays nothing");
 }
 
-/// Spellbinding makes a totem of the kind of the item taken apart.
+/// Spellbinding makes a totem of the kind of the item taken apart, a shield by its class.
 /// Behaviour: server.craft.spellbinding-makes-a-totem
 #[test]
 fn spellbinding_makes_a_totem_of_the_kind_of_the_item_it_takes_apart() {
     use yalain_world::craft::{totem, Action, Custom};
     let cases = [
-        (0x4700_207F_u32, true, false, totem::WEAPON),
-        (0x4700_0DC0, false, true, totem::ARMOR),
-        (0x4700_07E2, true, true, totem::SHIELD),
+        (0x4700_207F_u32, true, false, false, totem::WEAPON),
+        (0x4700_0DC0, false, true, false, totem::ARMOR),
+        (0x4700_07E2, true, true, true, totem::SHIELD),
     ];
-    for (source, weapon, armor, expected) in cases {
+    for (source, weapon, armor, shield, expected) in cases {
         let (mut h, b, _me, world) = in_world();
+        if shield {
+            h.server.treasure.shields.insert(0x200);
+        }
         let mut props = yalain_content::Props::default();
         if weapon {
             props.set("Weapon_Damage", yalain_content::Prop::Int(10));
@@ -2134,37 +2137,7 @@ fn a_totem_used_on_an_item_of_its_kind_enchants_it_and_is_gone() {
     set(&mut h, low_sword, 9, 1);
     set(&mut h, full_sword, 12, 0);
     set(&mut h, robe, 12, 1);
-    let try_it = |h: &mut Harness, target: u64| {
-        use yalain_world::graph::{Builder, Slot};
-        let mut g = Builder::new();
-        g.object(
-            0x245,
-            &[
-                Slot::Ref(None),
-                Slot::Ref(None),
-                Slot::Long(totem_item),
-                Slot::Ref(None),
-                Slot::Int(0),
-                Slot::Long(me),
-                Slot::Int((-1.0f32).to_bits()),
-                Slot::Long(target),
-                Slot::Int(0),
-                Slot::Long(0),
-                Slot::Int(0),
-                Slot::Ref(None),
-                Slot::Int(0),
-                Slot::Int(316),
-                Slot::Int(0),
-                Slot::Int(0),
-            ],
-        );
-        let call = yalain_testkit::play::server_call(
-            yalain_world::requests::function::USE,
-            &[auberean_script::args::Arg::Object(g.graph())],
-        );
-        h.bots[b].send(true, auberean_protocol::queue::WEENIE, &call);
-        h.run(6);
-    };
+    let try_it = |h: &mut Harness, target: u64| use_on(h, b, me, totem_item, target);
     let has_totem = |h: &Harness| {
         h.server.players[&world]
             .play
@@ -2190,6 +2163,156 @@ fn a_totem_used_on_an_item_of_its_kind_enchants_it_and_is_gone() {
     let t = h.server.things.get(sword).expect("held");
     assert_eq!(t.enchantments, vec![(ENCHANTMENT, 12.0)]);
     assert_eq!(t.own.made.expect("made").slots, 0, "it took a slot");
+}
+
+/// Use an item on a target, as the client asks.
+fn use_on(h: &mut Harness, b: usize, me: u64, item: u64, target: u64) {
+    use yalain_world::graph::{Builder, Slot};
+    let mut g = Builder::new();
+    g.object(
+        0x245,
+        &[
+            Slot::Ref(None),
+            Slot::Ref(None),
+            Slot::Long(item),
+            Slot::Ref(None),
+            Slot::Int(0),
+            Slot::Long(me),
+            Slot::Int((-1.0f32).to_bits()),
+            Slot::Long(target),
+            Slot::Int(0),
+            Slot::Long(0),
+            Slot::Int(0),
+            Slot::Ref(None),
+            Slot::Int(0),
+            Slot::Int(316),
+            Slot::Int(0),
+            Slot::Int(0),
+        ],
+    );
+    let call = yalain_testkit::play::server_call(
+        yalain_world::requests::function::USE,
+        &[auberean_script::args::Arg::Object(g.graph())],
+    );
+    h.bots[b].send(true, auberean_protocol::queue::WEENIE, &call);
+    h.run(6);
+}
+
+/// A dropped shield whose template holds only a rating is a shield to spellbinding and to totems:
+/// taken apart it makes the shield totem, and a shield totem goes on it; the same template of
+/// another class makes the armor totem.
+/// Behaviour: server.craft.totem-shield-by-class
+#[test]
+fn a_dropped_shield_is_taken_apart_into_a_shield_totem_and_takes_one() {
+    use yalain_world::craft::{totem, Action, Custom};
+    use yalain_world::made::Made;
+    const BUCKLER: u32 = 0x4700_7006;
+    const PLATE: u32 = 0x4700_7007;
+    let (mut h, b, me, world) = in_world();
+    let mut props = props_of(&[("Item_ArmorLevel", 20), ("Item_CombatDelay", 6)]);
+    props.set(
+        "Item_ValidInventoryLocations",
+        yalain_content::Prop::Word(0x80),
+    );
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(BUCKLER, 0x201, props.clone()));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(PLATE, 0x202, props));
+    h.server.treasure.equipment.extend([0x201, 0x202]);
+    h.server.treasure.shields.insert(0x201);
+    let def = yalain_world::craft::RecipeDef {
+        custom: Custom::Spellbind,
+        ingredients: vec![yalain_world::craft::Ingredient {
+            ordinal: 1,
+            quantity: 1,
+            items: vec![BUCKLER, PLATE],
+            ..Default::default()
+        }],
+        checks: vec![yalain_world::craft::Check {
+            upto: 2.0,
+            outcomes: vec![yalain_world::craft::Outcome {
+                upto: 1000.0,
+                xp_mod: 1.0,
+                actions: vec![
+                    Action::Custom,
+                    Action::Destroy {
+                        ordinal: 1,
+                        quantity: 1,
+                        by_spinner: None,
+                        spinners: None,
+                    },
+                ],
+            }],
+        }],
+        ..steel_recipe()
+    };
+    with_own_recipe(
+        &mut h,
+        world,
+        def,
+        2,
+        &[totem::WEAPON, totem::ARMOR, totem::SHIELD],
+    );
+    let dropped = |h: &mut Harness, template: u32| {
+        let item = yalain_world::inventory::give(&mut h.server, &mut h.net, world, template, 1)
+            .expect("given");
+        yalain_world::treasure::endow(&mut h.server, item, 20, None);
+        item
+    };
+    let totems = |h: &Harness| -> Vec<u32> {
+        h.server.players[&world]
+            .play
+            .items
+            .iter()
+            .filter(|i| totem::noun(i.template).is_some())
+            .map(|i| i.template)
+            .collect()
+    };
+    for (template, expected) in [(BUCKLER, totem::SHIELD), (PLATE, totem::ARMOR)] {
+        let before = totems(&h);
+        let item = dropped(&mut h, template);
+        h.server.things.get_mut(item).expect("made").enchantments = vec![(ENCHANTMENT, 12.0)];
+        h.run(2);
+        execute(&mut h, b, STEEL_RECIPE, &[(1, item)]);
+        h.run(4);
+        wait(&mut h, 9.0);
+        let mut after = totems(&h);
+        for t in before {
+            let at = after.iter().position(|x| *x == t).expect("still held");
+            after.remove(at);
+        }
+        assert_eq!(after, vec![expected], "taken apart: {template:x}");
+    }
+    // The shield totem just made goes on another dropped shield with a slot free.
+    let totem_item = h.server.players[&world]
+        .play
+        .items
+        .iter()
+        .find(|i| i.template == totem::SHIELD)
+        .expect("the shield totem")
+        .id;
+    let shield = dropped(&mut h, BUCKLER);
+    {
+        let t = h.server.things.get_mut(shield).expect("made");
+        t.enchantments.clear();
+        t.bonuses.clear();
+        t.own.min_level = Some(50);
+        t.own.made = Some(Made {
+            slots: 1,
+            ..t.own.made.unwrap_or_default()
+        });
+    }
+    h.run(2);
+    use_on(&mut h, b, me, totem_item, shield);
+    assert_eq!(totems(&h), vec![totem::ARMOR], "the shield totem is gone");
+    let t = h.server.things.get(shield).expect("held");
+    assert_eq!(
+        t.enchantments,
+        vec![(ENCHANTMENT, 12.0)],
+        "it took the totem's"
+    );
 }
 
 /// A totem's profile says what it goes on and the least its target must have, in place of the
@@ -2572,6 +2695,65 @@ fn armor_made_at_a_level_is_rated_by_where_it_is_worn() {
     assert_eq!(t.own.min_level, Some(12));
     let (least, most) = yalain_world::made::ARMOR_DELAY;
     assert!(m.delay.is_some_and(|d| (least..=most).contains(&d)));
+}
+
+/// A shield made at a level is told by its class, whatever its template holds: a template with only
+/// a rating and a delay, of a shield's class, is made with a shield's damage and rating at that
+/// level, a span where its template names none, a vigor cost and one slot, and shows as a shield; the
+/// same template of another class is made as armor.
+/// Behaviour: server.craft.made-shield-by-class
+#[test]
+fn a_shield_made_at_a_level_is_a_shield_whatever_its_template_holds() {
+    use yalain_world::made;
+    use yalain_world::profile::{item_line as l, Node};
+    const BUCKLER: u32 = 0x4700_7006;
+    for shield in [true, false] {
+        let (mut h, b, _me, world) = in_world();
+        if shield {
+            h.server.treasure.shields.insert(0x200);
+        }
+        let mut props = props_of(&[("Item_ArmorLevel", 10), ("Item_CombatDelay", 6)]);
+        props.set(
+            "Item_ValidInventoryLocations",
+            yalain_content::Prop::Word(0x80),
+        );
+        let item = make_at(
+            &mut h,
+            b,
+            world,
+            props,
+            BUCKLER,
+            &[LEVEL_TABLE, PLAIN_QUALITY],
+            20,
+        );
+        let t = h.server.things.get(item).expect("in the world");
+        let m = t.own.made.expect("what its level gave it");
+        assert_eq!(t.own.min_level, Some(20));
+        let view = yalain_world::requests::item_view(&h.server, t);
+        let nodes = yalain_world::profile::item(0x3FF, &view).nodes;
+        let has = |id: u32| {
+            nodes
+                .iter()
+                .any(|n| matches!(n, Node::Text { text, .. } if text.string_id == id))
+        };
+        if shield {
+            assert_eq!(
+                m.damage,
+                Some((made::shield_damage(20), made::SHIELD_VARIANCE))
+            );
+            assert_eq!(m.armor, Some(made::shield_rating(20)));
+            assert_eq!(m.slots, 1);
+            assert!(m.vigor.is_some_and(|v| v > 0), "{m:?}");
+            let (least, most) = made::WEAPON_DELAY;
+            assert!(m.delay.is_some_and(|d| (least..=most).contains(&d)));
+            assert!(has(l::SHIELD_STATS) && has(l::SHIELD_RATING) && has(l::DAMAGE));
+            assert!(!has(l::ARMOR_STATS));
+        } else {
+            assert_eq!(m.damage, None);
+            assert_eq!(m.armor, Some(made::armor_rating(made::Piece::Small, 20)));
+            assert!(has(l::ARMOR_STATS) && !has(l::SHIELD_STATS));
+        }
+    }
 }
 
 /// A product whose outcome names no mutation through the item level's table is its template (a tool

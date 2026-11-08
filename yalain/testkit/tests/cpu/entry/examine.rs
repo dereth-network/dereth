@@ -663,8 +663,12 @@ fn examining_an_item_in_the_pack_is_answered_with_its_profile() {
     );
     h.run(10);
     let got = profile_nodes(&h, a, from);
-    let mut view =
-        profile::ItemView::of(&h.server.catalog.get(BLADE).expect("made").props, 1, None);
+    let mut view = profile::ItemView::of(
+        &h.server.catalog.get(BLADE).expect("made").props,
+        1,
+        None,
+        false,
+    );
     view.icon.clear();
     let mut request = Vec::new();
     for w in [0x4000_0002u32, 0] {
@@ -738,8 +742,12 @@ fn an_item_names_its_maker_its_durability_and_its_effects() {
     h.run(10);
     let got = profile_nodes(&h, a, from);
     assert_eq!(got.len(), 1, "answered once");
-    let mut view =
-        profile::ItemView::of(&h.server.catalog.get(BLADE).expect("made").props, 1, None);
+    let mut view = profile::ItemView::of(
+        &h.server.catalog.get(BLADE).expect("made").props,
+        1,
+        None,
+        false,
+    );
     view.crafter = Some("Ravel".into());
     view.effects = h.server.item_effects[&BLADE].clone();
     let p = profile::item(0x3FF, &view);
@@ -1038,6 +1046,7 @@ fn a_treasure_items_own_requirements_and_the_hero_credits_are_kept_across_a_logo
             .props,
         1,
         None,
+        false,
     );
     view.min_level = 33;
     view.arcane_lore = 17;
@@ -1099,6 +1108,7 @@ fn a_made_items_maker_is_named_again_after_a_logout() {
             .props,
         1,
         None,
+        false,
     );
     view.crafter = Some("Ravel".into());
     let p = profile::item(0x3FF, &view);
@@ -1179,6 +1189,7 @@ fn a_potions_profile_says_it_is_destroyed_on_use_by_its_kind() {
             .props,
         1,
         None,
+        false,
     );
     view.destroyed_on_use = true;
     let p = profile::item(0x3FF, &view);
@@ -1232,8 +1243,12 @@ fn an_item_lists_the_skills_and_arcane_lore_it_takes() {
     h.run(10);
     let got = profile_nodes(&h, a, from);
     assert_eq!(got.len(), 1, "answered once");
-    let mut view =
-        profile::ItemView::of(&h.server.catalog.get(HAMMER).expect("made").props, 1, None);
+    let mut view = profile::ItemView::of(
+        &h.server.catalog.get(HAMMER).expect("made").props,
+        1,
+        None,
+        false,
+    );
     assert_eq!(view.arcane_lore, 40, "the Arcane Lore from its template");
     view.skills = vec![profile::string(0x2500_0566, 0xA860_7CEC)];
     let p = profile::item(0x3FF, &view);
@@ -1445,6 +1460,7 @@ fn a_dyed_items_icon_takes_its_dyes_color() {
             .props,
         1,
         None,
+        false,
     );
     view.icon = icon;
     let mut request = Vec::new();
@@ -1482,12 +1498,15 @@ fn a_plain_shield_shows_shield_stats_from_its_template() {
     props.set("Weapon_Variance", Prop::Float(0.21));
     props.set("Weapon_Speed", Prop::Int(15));
     props.set("Weapon_VigorCost", Prop::Int(15));
-    let mut view = ItemView::of(&props, 1, None);
+    let mut view = ItemView::of(&props, 1, None, true);
     assert_eq!(view.shield, Some(69));
     assert_eq!(view.armor, None);
     assert_eq!(view.weapon, Some((142, 0.21, 0, 15)), "no delay of its own");
     props.set("Item_CombatDelay", Prop::Int(10));
-    assert_eq!(ItemView::of(&props, 1, None).weapon.map(|w| w.2), Some(10));
+    assert_eq!(
+        ItemView::of(&props, 1, None, true).weapon.map(|w| w.2),
+        Some(10)
+    );
 
     view.effects.push(ItemEffect {
         when: When::Equipped,
@@ -1510,6 +1529,72 @@ fn a_plain_shield_shows_shield_stats_from_its_template() {
     assert!(rating < line(l::DAMAGE).expect("its damage"), "it leads");
     let heading = line(l::EFFECTS_WIELDED).expect("its effects");
     assert!(matches!(nodes[heading - 1], Node::Tab { count: 1, .. }));
+}
+
+/// A shield no one made is told by its class, whatever its template holds: one whose template has
+/// only a rating and a delay, as a store sells it or a quest gives it, shows under Shield Stats with
+/// its rating leading, its delay, and a damage line and vigor cost of none; the same template of
+/// another class shows as armor.
+/// Behaviour: server.examination.a-shield-by-its-class
+#[test]
+fn a_plain_shield_whose_template_holds_no_damage_shows_as_a_shield() {
+    use profile::{item_line as l, ItemView};
+    const BUCKLER: u32 = 0x4700_7006;
+    const HELM: u32 = 0x4700_7007;
+    let mut h = Harness::new();
+    let (a, _) = h.player_in_world("one", "Elara");
+    let world = *h.server.players.keys().next().expect("a player");
+    let mut props = yalain_content::Props::default();
+    props
+        .set("Item_ArmorLevel", yalain_content::Prop::Int(20))
+        .set("Item_CombatDelay", yalain_content::Prop::Int(6))
+        .set(
+            "Item_ValidInventoryLocations",
+            yalain_content::Prop::Word(0x80),
+        );
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(BUCKLER, 0x201, props.clone()));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(HELM, 0x202, props.clone()));
+    h.server.treasure.shields.insert(0x201);
+    let mut request = Vec::new();
+    for w in [0x4000_0002u32, 0] {
+        request.extend(w.to_le_bytes());
+    }
+    let mut examined = |template: u32| {
+        let item = yalain_world::inventory::give(&mut h.server, &mut h.net, world, template, 1)
+            .expect("given");
+        h.run(2);
+        let from = h.bots[a].inbox.len();
+        h.bots[a].send(
+            true,
+            queue::WEENIE,
+            &server_call(function::EXAMINE, &[about(item, 0x3FF)]),
+        );
+        h.run(10);
+        let got = profile_nodes(&h, a, from);
+        assert_eq!(got.len(), 1, "answered once");
+        let mut asked = request.clone();
+        asked.extend(item.to_le_bytes());
+        asked.extend(0x3FFu32.to_le_bytes());
+        (got[0].clone(), asked)
+    };
+    let (shield, asked) = examined(BUCKLER);
+    let has = |bytes: &[u8], id: u32| bytes.windows(4).any(|w| w == id.to_le_bytes());
+    assert!(has(&shield, l::SHIELD_STATS) && has(&shield, l::SHIELD_RATING));
+    assert!(!has(&shield, l::ARMOR_STATS) && !has(&shield, l::ARMOR_RATING));
+    // Built by hand from the armor it would be: a shield's lines in place of armor's.
+    let view = ItemView {
+        shield: Some(20),
+        weapon: Some((0, 0.0, 6, 0)),
+        armor: None,
+        ..ItemView::of(&props, 1, None, false)
+    };
+    assert_eq!(shield, profile::item(0x3FF, &view).packed(&asked));
+    let (armor, _) = examined(HELM);
+    assert!(has(&armor, l::ARMOR_STATS) && !has(&armor, l::SHIELD_STATS));
 }
 
 /// A stack with a value of its own shows what all its pieces are worth, as a sale of it pays.
@@ -1541,6 +1626,7 @@ fn a_stack_with_its_own_value_shows_the_value_of_all_its_pieces() {
         &h.server.catalog.get(STACK).expect("made").props,
         3,
         Some(120),
+        false,
     );
     let mut request = Vec::new();
     for w in [0x4000_0002u32, 0] {

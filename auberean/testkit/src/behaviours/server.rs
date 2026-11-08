@@ -1972,6 +1972,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.craft.made-shield-by-class",
+        says: "A shield made at a level is told by its class, whatever its template holds: it is made \
+               with a shield's damage and rating at that level, a span where its template names none, \
+               a vigor cost and one slot, and shows as a shield; the same template of another class \
+               is made as armor.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MADE-SHIELDS-BY-CLASS"),
+        station: "yalain-testkit::cpu::play::crafting::a_shield_made_at_a_level_is_a_shield_whatever_its_template_holds",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.made-weapon-at-its-level",
         says: "A weapon made at a level takes its name, value and least level from it and its greatest damage from the outcome's quality, and its hits are reckoned from that.",
         since: RETAIL,
@@ -2386,6 +2397,16 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-TOTEM-USE"),
         station: "yalain-testkit::cpu::play::crafting::a_totem_used_on_an_item_of_its_kind_enchants_it_and_is_gone",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.craft.totem-shield-by-class",
+        says: "A shield is told by its class when taken apart and when a totem is used on it, \
+               whatever its template holds: a dropped shield with only a rating makes the shield \
+               totem and takes one; the same template of another class makes the armor totem.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TOTEM-SHIELD-BY-CLASS"),
+        station: "yalain-testkit::cpu::play::crafting::a_dropped_shield_is_taken_apart_into_a_shield_totem_and_takes_one",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -4090,6 +4111,16 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-EXAMINE-OWN-NAME"),
         station: "yalain-testkit::cpu::entry::examine::a_row_with_a_name_of_its_own_is_examined_under_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.examination.a-shield-by-its-class",
+        says: "A shield no one made is told by its class, whatever its template holds: one with only a \
+               rating and a delay shows under Shield Stats, its rating leading, its delay, and a damage \
+               line and vigor cost of none; the same template of another class shows as armor.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SHIELDS-SHOWN-BY-CLASS"),
+        station: "yalain-testkit::cpu::entry::examine::a_plain_shield_whose_template_holds_no_damage_shows_as_a_shield",
         tier: Tier::Cpu,
     },
     behaviour! {

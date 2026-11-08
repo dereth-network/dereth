@@ -9,6 +9,7 @@ what they see, not how it was done.
 - Dropped weapons and armor are enchanted as often as in 2017.
 - Fixed some weapons and armor dropping with no level or enchantments of their own.
 - Fixed dropped shields rolling as armor.
+- Fixed taking a shield apart giving an armor totem.
 - Servers use much less memory once their world is filled.
 - New players see the welcome, first level-up and first glyph tips once.
 - Busy servers spend much less time sending to players.

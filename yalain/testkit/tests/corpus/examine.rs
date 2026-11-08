@@ -349,11 +349,6 @@ fn crafter_in(bytes: &[u8], request_len: usize) -> Option<String> {
     None
 }
 
-/// Is a template's a shield: a weapon's numbers and a rating?
-fn is_shield(p: &yalain_content::Props) -> bool {
-    p.get("Weapon_Damage").is_some() && p.get("Item_ArmorLevel").is_some()
-}
-
 /// A template's properties with what its class says in code, as the server reads them.
 fn with_class(inst: &Install, template: u32, p: yalain_content::Props) -> yalain_content::Props {
     let class = yalain_content::Props::class_of(template, &|id| entity(inst, id))
@@ -457,11 +452,12 @@ fn item_profiles_are_built_from_their_templates_as_2017_built_them() {
         let Some(i) = made.get(&req.object).copied() else {
             continue;
         };
+        let shield = is_shield_class(&inst.lib, i.package);
         let p = props
             .entry(i.template)
             .or_insert_with(|| {
                 let p = yalain_content::Props::of(i.template, &|id| entity(inst, id), &prop_name);
-                if is_shield(&p) {
+                if shield {
                     with_class(inst, i.template, p)
                 } else {
                     p
@@ -475,7 +471,7 @@ fn item_profiles_are_built_from_their_templates_as_2017_built_them() {
             continue;
         }
         let mut view = profile::starting_weapon(i.template)
-            .unwrap_or_else(|| ItemView::of(&p, i.quantity, i.value));
+            .unwrap_or_else(|| ItemView::of(&p, i.quantity, i.value, shield));
         view.effects = profile::item_effects(&p, &mut |n| effect_shown(inst, &mut effects, n));
         if i.durability.is_some() {
             view.durability = i.durability;
@@ -525,7 +521,7 @@ fn item_profiles_are_built_from_their_templates_as_2017_built_them() {
                 "differs otherwise".into()
             }
         };
-        if is_shield(&p) {
+        if shield {
             let effects = what.starts_with("effects");
             assert!(
                 exact || effects,
@@ -999,8 +995,9 @@ fn made_items_profiles_are_built_from_their_recipes_item_level_as_2017_built_the
             }) else {
                 continue;
             };
+            let shield = is_shield_class(lib, package);
             let Some(mut mine) = yalain_world::craft::made_of(
-                &crafting, &def, out, ordinal, spinner, &props, &effect, &mut rng,
+                &crafting, &def, out, ordinal, spinner, &props, shield, &effect, &mut rng,
             ) else {
                 continue;
             };
@@ -1016,7 +1013,7 @@ fn made_items_profiles_are_built_from_their_recipes_item_level_as_2017_built_the
             if mine.damage.is_some() || mine.armor.is_some() {
                 mine.value = value.unwrap_or(mine.value);
             }
-            let mut view = ItemView::of(&props, 1, (mine.value > 0).then_some(mine.value));
+            let mut view = ItemView::of(&props, 1, (mine.value > 0).then_some(mine.value), shield);
             made::apply_to_view(&mine, &facts_of, &mut view);
             if mine.damage.is_some() || mine.armor.is_some() {
                 view.min_level = spinner.cast_signed();

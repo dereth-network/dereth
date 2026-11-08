@@ -322,17 +322,19 @@ fn enchanted_for_now<S: Store>(s: &Server<S>, t: &crate::things::Thing, v: &mut 
     }
 }
 
-/// What an item's profile shows: its class's facts for a starting weapon, else its template's;
+/// What an item's profile shows: its class's facts for a starting weapon, else its template's (a
+/// shield by its class);
 /// its value, each piece's own when it has one (treasure) else its template's, times its count; its icon; the
 /// effects its template lists; who made it and what is inscribed on it; whether its kind is
 /// destroyed on use; the skills it takes.
 pub fn item_view<S: Store>(s: &Server<S>, t: &crate::things::Thing) -> profile::ItemView {
     let own_value = (t.value > 0).then(|| t.value.saturating_mul(t.quantity.max(1)));
+    let shield = s.treasure.shields.contains(&t.description.package);
     let mut v = profile::starting_weapon(t.template).unwrap_or_else(|| {
         s.catalog
             .get(t.template)
             .map_or_else(profile::ItemView::default, |tp| {
-                profile::ItemView::of(&tp.props, t.quantity, own_value)
+                profile::ItemView::of(&tp.props, t.quantity, own_value, shield)
             })
     });
     if s.catalog.icons.contains_key(&t.template) {

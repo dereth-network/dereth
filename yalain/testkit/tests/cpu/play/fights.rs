@@ -1303,7 +1303,8 @@ fn a_weapons_effect_on_a_hit_goes_on_what_it_hits() {
     let t = h.server.things.get_mut(weapon).expect("held");
     t.own.made = Some(yalain_world::made::Made::default());
     let t = h.server.things.get(weapon).expect("held");
-    let mut view = yalain_world::profile::ItemView::of(&yalain_content::Props::default(), 1, None);
+    let mut view =
+        yalain_world::profile::ItemView::of(&yalain_content::Props::default(), 1, None, false);
     yalain_world::made::show(&h.server, t, &mut view);
     assert_eq!(view.effects.len(), 1);
     assert_eq!(view.effects[0].when, yalain_world::profile::When::Hit);
@@ -1373,7 +1374,8 @@ fn treasure_jewelry_is_plain_or_has_one_effect_and_a_least_level() {
     let t = h.server.things.get_mut(item).expect("made");
     t.bonuses.push((state, 20.0));
     let t = h.server.things.get(item).expect("made");
-    let mut view = yalain_world::profile::ItemView::of(&yalain_content::Props::default(), 1, None);
+    let mut view =
+        yalain_world::profile::ItemView::of(&yalain_content::Props::default(), 1, None, false);
     yalain_world::made::show(&h.server, t, &mut view);
     assert_eq!(view.effects.len(), 1);
     assert_eq!(view.effects[0].when, yalain_world::profile::When::Equipped);

@@ -335,7 +335,8 @@ pub enum Custom {
 }
 
 /// The totems spellbinding makes, by what the item taken apart is: a weapon, a shield, armor (2017:
-/// 11 weapons, 2 armor; the shield's by the totems seen in play, none made).
+/// 11 weapons, 2 armor, each by the recipe for its class; the shield's by the totems seen in play,
+/// none made).
 pub mod totem {
     pub const WEAPON: u32 = 0x4700_0CCB;
     pub const SHIELD: u32 = 0x4700_0CC9;
@@ -2360,7 +2361,11 @@ fn endow<S: Store>(
     item: u64,
     spinner: u32,
 ) {
-    let Some(tp) = s.things.get(item).and_then(|t| s.catalog.get(t.template)) else {
+    let Some((tp, package)) = s
+        .things
+        .get(item)
+        .and_then(|t| Some((s.catalog.get(t.template)?, t.description.package)))
+    else {
         return;
     };
     let table = &s.effect_table;
@@ -2371,6 +2376,7 @@ fn endow<S: Store>(
         ordinal,
         spinner,
         &tp.props,
+        s.treasure.shields.contains(&package),
         &|state| table.get(state).cloned(),
         &mut s.rng,
     ) else {
@@ -2390,7 +2396,8 @@ const EXPERT_CHECK: f32 = 2.0;
 const FLAWED_CHECK: f32 = 1.02;
 
 /// What a product of a template carries at a spinner, drawing what differs between items of one
-/// level; none when its outcome does not give it its level.
+/// level; none when its outcome does not give it its level. A shield is told by its class (`shield`),
+/// whatever its template holds.
 #[allow(clippy::too_many_arguments)]
 pub fn made_of(
     crafting: &Crafting,
@@ -2399,6 +2406,7 @@ pub fn made_of(
     ordinal: u32,
     spinner: u32,
     props: &yalain_content::Props,
+    shield: bool,
     effect: &dyn Fn(u32) -> Option<crate::effect_defs::EffectDef>,
     rng: &mut crate::rng::Rng,
 ) -> Option<crate::made::Made> {
@@ -2463,11 +2471,22 @@ pub fn made_of(
     if !named {
         return None;
     }
-    let is_weapon = props.int("Weapon_Damage").is_some();
-    let is_armor = props.int("Item_ArmorLevel").is_some();
+    let (is_weapon, is_armor) = match crate::treasure::sort_of(props, shield) {
+        Some(crate::treasure::Sort::Weapon) => (true, false),
+        Some(crate::treasure::Sort::Shield) => (true, true),
+        Some(crate::treasure::Sort::Armor) => (false, true),
+        _ => (false, false),
+    };
     let places = props.word("Item_ValidInventoryLocations").unwrap_or(0);
     let precluded = props.word("Item_PrecludedInventoryLocations").unwrap_or(0);
-    let variance = props.float("Weapon_Variance").unwrap_or(0.0);
+    // A shield whose template names no span takes the one every recipe's shield names.
+    let variance = props
+        .float("Weapon_Variance")
+        .unwrap_or(if is_weapon && is_armor {
+            made::SHIELD_VARIANCE
+        } else {
+            0.0
+        });
     let mut own = made::Made {
         prefix: made::prefix(spinner),
         ..made::Made::default()
@@ -2620,16 +2639,19 @@ fn spellbind<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, it
     crate::world::keep_player(s, world);
 }
 
-/// The totem an item taken apart makes, by what it is.
+/// The totem an item taken apart makes, by what it is: a shield by its class, whatever its template
+/// holds (the shields' two spellbinding recipes take the shields' class alone).
 fn totem_of<S: Store>(s: &Server<S>, item: u64) -> Option<u32> {
-    let template = s.things.get(item).map(|t| t.template);
-    let props = template.and_then(|t| s.catalog.get(t)).map(|t| &t.props);
-    let is_weapon = props.is_some_and(|p| p.int("Weapon_Damage").is_some());
-    let is_armor = props.is_some_and(|p| p.int("Item_ArmorLevel").is_some());
-    Some(match (is_weapon, is_armor) {
-        (true, true) => totem::SHIELD,
-        (true, false) => totem::WEAPON,
-        (false, _) => totem::ARMOR,
+    let t = s.things.get(item)?;
+    let shield = s.treasure.shields.contains(&t.description.package);
+    let sort = s
+        .catalog
+        .get(t.template)
+        .and_then(|tp| crate::treasure::sort_of(&tp.props, shield));
+    Some(match sort {
+        Some(crate::treasure::Sort::Shield) => totem::SHIELD,
+        Some(crate::treasure::Sort::Weapon) => totem::WEAPON,
+        _ => totem::ARMOR,
     })
 }
 
