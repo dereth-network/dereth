@@ -1,6 +1,11 @@
 //! The water pass: the water drawn over the resolved world, where the ground is water, with its
-//! ripples, the rings round the bodies standing in it, its reflection of the world on screen and
-//! the sun's glint; and, on a rainy day, the puddles flat ground gathers, as their own switch.
+//! ripples, the rings round the bodies standing in it, its reflection and the sun's glint; and, on
+//! a rainy day, the puddles flat ground gathers, as their own switch.
+//!
+//! The reflection is traced through the scene's acceleration structures where the device traces
+//! rays and the reflections are asked to be traced; otherwise it is found on screen. Either way,
+//! what lies past what it finds is the land far off, from the world's heights, and the sky, from
+//! the sky's own tables.
 //!
 //! It runs after the resolve. The resolved world is copied, and the pass draws over the scene's
 //! colors where there is water, reading the copy. Off, it draws nothing and the frame is the one
@@ -18,6 +23,7 @@ use glam::Vec3;
 use super::drawn::DrawnPlan;
 use super::light::Rows;
 use super::ripples;
+use super::rt::RtPlan;
 use super::scene::NONE;
 use super::{push_words, shader, PerFrame, Targets};
 use crate::scene::FrameDelta;
@@ -42,6 +48,9 @@ pub struct WaterSettings {
     /// under it, fading it toward the water's own deep color with the length of water the view
     /// runs through: 1 as made, 0 not at all.
     pub absorption: f32,
+    /// Whether the reflection is traced through the scene, where the device traces rays; found
+    /// on screen otherwise.
+    pub traced: bool,
 }
 
 impl Default for WaterSettings {
@@ -53,6 +62,7 @@ impl Default for WaterSettings {
             rings: true,
             check: false,
             absorption: 1.0,
+            traced: false,
         }
     }
 }
@@ -67,6 +77,8 @@ impl WaterSettings {
 
 /// The most bodies the water rings round.
 pub const WADERS: usize = 8;
+/// The constants' row the traced reflection's words start at, after the bodies'.
+const TRACE_ROW: usize = 11 + WADERS;
 /// How far from the eye a body stands for the water to ring round it, metres.
 const WADERS_WITHIN: f32 = 60.0;
 /// How long the clock runs before it starts again, seconds: the puddles' waves and the rings
@@ -91,6 +103,9 @@ struct Copy {
 pub struct WaterPass {
     /// For colors in display values, and for the post passes' linear colors.
     pipelines: [(Format, Pipeline); 2],
+    /// The same, with the reflection traced through the scene: made only where the device traces
+    /// rays.
+    traced: Option<[(Format, Pipeline); 2]>,
     settings: WaterSettings,
     constants: PerFrame,
     copy: Option<Copy>,
@@ -114,6 +129,30 @@ pub struct WaterPlan {
     constants: u32,
     ripples: Option<(Texture, u32)>,
     wrap: u32,
+    /// Whether the frame's reflection is traced, and the textures and buffers it reads besides the
+    /// frame's targets: the sky-view table and the world's heights.
+    traced: bool,
+    sky_view: Option<Texture>,
+    heights: Option<dereth_gfx::Buffer>,
+    probe: Option<[Texture; 6]>,
+}
+
+/// What the water reads besides the frame's targets, as the frame has it.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct WaterInputs<'a> {
+    /// The scene's acceleration structures, where the frame built them.
+    pub rt: Option<&'a RtPlan>,
+    /// The scene's indices, vertices and materials, the sampler textures are read with, its
+    /// instances, and its ground's vertices and cells, by their indices in the table.
+    pub pools: [u32; 7],
+    /// The sky's constants, its sky-view table and its sampler, and the table, where the sky's
+    /// tables are drawn.
+    pub sky: Option<([u32; 3], Texture)>,
+    /// The world's vertex heights and their buffer, where the drawn ground is drawn.
+    pub heights: Option<(u32, dereth_gfx::Buffer)>,
+    /// The sky all round the eye, its six pictures, and the sampler they are read with, where it
+    /// is drawn.
+    pub probe: Option<([(Texture, u32); 6], u32)>,
 }
 
 impl WaterPass {
@@ -124,11 +163,12 @@ impl WaterPass {
     /// What the device refuses.
     pub fn new(gfx: &mut Device) -> Result<Self, dereth_gfx::Error> {
         let linear = super::post::scene_format(gfx);
-        let mut make = |format| {
+        let make_traced = gfx.caps().ray_queries;
+        let mut make = |format, entry| {
             gfx.create_graphics_pipeline(&GraphicsDesc {
                 label: "remaster water",
                 vertex: shader(Entry::FullscreenVsMain),
-                fragment: Some(shader(Entry::WaterFsMain)),
+                fragment: Some(shader(entry)),
                 color: &[ColorTarget {
                     format,
                     blend: None,
@@ -139,7 +179,18 @@ impl WaterPass {
             })
             .map(|p| (format, p))
         };
-        let pipelines = [make(super::COLOR)?, make(linear)?];
+        let pipelines = [
+            make(super::COLOR, Entry::WaterFsMain)?,
+            make(linear, Entry::WaterFsMain)?,
+        ];
+        let traced = if make_traced {
+            Some([
+                make(super::COLOR, Entry::WaterFsTraced)?,
+                make(linear, Entry::WaterFsTraced)?,
+            ])
+        } else {
+            None
+        };
         let wrap = gfx.create_sampler(&SamplerDesc {
             filter: dereth_gfx::Filter::Linear,
             mip: dereth_gfx::Filter::Linear,
@@ -151,8 +202,9 @@ impl WaterPass {
         let wrap = gfx.bind_sampler(wrap)?;
         Ok(Self {
             pipelines,
+            traced,
             settings: WaterSettings::default(),
-            constants: PerFrame::new(gfx, "remaster water constants", 320, BufferUsage::default())?,
+            constants: PerFrame::new(gfx, "remaster water constants", 512, BufferUsage::default())?,
             copy: None,
             ripples: None,
             without_picture: false,
@@ -171,6 +223,32 @@ impl WaterPass {
     #[must_use]
     pub fn settings(&self) -> WaterSettings {
         self.settings
+    }
+
+    /// Whether it asks for the scene's acceleration structures: drawn, its reflection asked to be
+    /// traced, where the device traces rays.
+    #[must_use]
+    pub fn wants_rays(&self) -> bool {
+        self.settings.runs() && self.settings.traced && self.traced.is_some()
+    }
+
+    /// Where the viewer's own body stands: its feet, the frame's space.
+    fn viewer(frame: &FrameDelta) -> Option<Vec3> {
+        let o = frame
+            .objects
+            .iter()
+            .find(|o| o.key == crate::scene::ObjectKey::Body)?;
+        let first = o.parts.first()?;
+        let low = o
+            .parts
+            .iter()
+            .map(|p| p.transform.w_axis.z)
+            .fold(f32::INFINITY, f32::min);
+        Some(Vec3::new(
+            first.transform.w_axis.x,
+            first.transform.w_axis.y,
+            low,
+        ))
     }
 
     /// The bodies the water rings round: each object's feet (its lowest part) and how fast it
@@ -212,17 +290,18 @@ impl WaterPass {
 
     /// The frame's constants and the copy of the resolved world, and the plan the pass is
     /// recorded from; `None` when the pass is off. `linear` is whether the scene's colors are
-    /// drawn by the post passes this frame; `rainy` whether it is a rainy day.
+    /// drawn by the post passes this frame; `rainy` whether it is a rainy day; `inputs` what it
+    /// reads besides the frame's targets.
     ///
     /// # Errors
     /// What the device refuses.
-    pub fn prepare(
+    pub(crate) fn prepare(
         &mut self,
         gfx: &mut Device,
         frame: &FrameDelta,
         t: &Targets,
-        linear: bool,
-        rainy: bool,
+        (linear, rainy): (bool, bool),
+        inputs: &WaterInputs<'_>,
     ) -> Result<Option<WaterPlan>, dereth_gfx::Error> {
         let s = self.settings;
         let scene = if linear {
@@ -239,7 +318,12 @@ impl WaterPass {
         if !s.runs() {
             return Ok(None);
         }
-        let Some(&(_, pipeline)) = self.pipelines.iter().find(|(f, _)| *f == scene) else {
+        let rt = inputs.rt.filter(|_| s.traced && self.traced.is_some());
+        let pipelines = match (rt, self.traced.as_ref()) {
+            (Some(_), Some(traced)) => traced,
+            _ => &self.pipelines,
+        };
+        let Some(&(_, pipeline)) = pipelines.iter().find(|(f, _)| *f == scene) else {
             return Ok(None);
         };
         let copy = match self.copy {
@@ -318,9 +402,44 @@ impl WaterPass {
             let [across, down] = ripples::moved(l, global, frame.clock);
             rows.0.push([across, down, 0.0, 0.0].map(f32::to_bits));
         }
-        for w in &waders {
-            rows.0.push(w.map(f32::to_bits));
+        for k in 0..WADERS {
+            rows.0
+                .push(waders.get(k).map_or([0; 4], |w| w.map(f32::to_bits)));
         }
+        debug_assert_eq!(rows.0.len(), TRACE_ROW);
+        let [indices, vertices, materials, sampler, instances, ground_vertices, ground_cells] =
+            inputs.pools;
+        rows.0.push(rt.map_or([NONE; 4], |r| {
+            [r.index, r.static_rows, r.object_rows, indices]
+        }));
+        rows.0
+            .push(rt.map_or([NONE; 4], |_| [vertices, materials, sampler, instances]));
+        rows.0.push(rt.map_or([NONE; 4], |r| {
+            [
+                ground_vertices,
+                ground_cells,
+                r.static_entries,
+                r.object_entries,
+            ]
+        }));
+        let [a, view, view_sampler] = inputs.sky.map_or([NONE; 3], |s| s.0);
+        rows.0
+            .push([rt.map_or(0, |r| r.statics), a, view, view_sampler]);
+        rows.0.push([inputs.heights.map_or(NONE, |h| h.0), 0, 0, 0]);
+        rows.0.push(
+            Self::viewer(frame)
+                .map_or([0.0; 4], |v| [v.x, v.y, v.z, 1.0])
+                .map(f32::to_bits),
+        );
+        let faces = inputs.probe.map(|(f, _)| f.map(|t| t.1));
+        rows.0
+            .push(faces.map_or([NONE; 4], |f| [f[0], f[1], f[2], f[3]]));
+        rows.0.push([
+            faces.map_or(NONE, |f| f[4]),
+            faces.map_or(NONE, |f| f[5]),
+            inputs.probe.map_or(NONE, |p| p.1),
+            0,
+        ]);
         self.constants.write(gfx, &rows.bytes())?;
         Ok(Some(WaterPlan {
             pipeline,
@@ -328,6 +447,10 @@ impl WaterPass {
             constants: self.constants.index,
             ripples: self.ripples.filter(|_| !self.without_picture),
             wrap: self.wrap,
+            traced: rt.is_some(),
+            sky_view: inputs.sky.map(|s| s.1),
+            heights: inputs.heights.map(|h| h.1),
+            probe: inputs.probe.map(|(f, _)| f.map(|t| t.0)),
         }))
     }
 }
@@ -350,7 +473,7 @@ impl WaterPlan {
         sun_visibility: (u32, Option<Texture>),
         drawn: Option<&DrawnPlan>,
     ) -> Result<(), dereth_gfx::Error> {
-        r.timestamp("water");
+        r.timestamp(if self.traced { "water traced" } else { "water" });
         r.copy_texture(t.color, self.copy.texture)?;
         let mut touches = vec![
             Touch::Texture(self.copy.texture, Use::Sampled),
@@ -365,6 +488,15 @@ impl WaterPlan {
         }
         if let Some((ripples, _)) = self.ripples {
             touches.push(Touch::Texture(ripples, Use::Sampled));
+        }
+        if let Some(view) = self.sky_view {
+            touches.push(Touch::Texture(view, Use::Sampled));
+        }
+        if let Some(heights) = self.heights {
+            touches.push(Touch::Buffer(heights, Use::StorageRead));
+        }
+        for face in self.probe.iter().flatten() {
+            touches.push(Touch::Texture(*face, Use::Sampled));
         }
         let (drawn_constants, words) = drawn.map_or((NONE, NONE), |d| {
             let (constants, words, buffers) = d.terrain_inputs();

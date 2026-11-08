@@ -284,6 +284,12 @@ source = "water.slang"
 entry = "fs_main"
 stage = "fragment"
 
+# The water with its reflection traced through the scene, where the device traces rays.
+[[entry]]
+source = "water.slang"
+entry = "fs_traced"
+stage = "fragment"
+
 # Where instances stand and how far they are lifted onto the drawn ground, as the G-buffer places
 # them: for the checks.
 [[entry]]

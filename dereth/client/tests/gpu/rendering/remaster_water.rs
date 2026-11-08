@@ -1,5 +1,5 @@
 //! The remaster's water: drawn only where the ground is water, and off the frame drawn without it;
-//! its reflection never taking the sky where the sky is out of the picture; the trees and pillars
+//! what it reflects the same however the camera turns; the trees and pillars
 //! standing in it meeting it, near and far; rings round a body walking in it from the first step;
 //! its ripples and its color over a lowered bed; and the puddles of a rainy day as a switch of
 //! their own.
@@ -139,23 +139,6 @@ fn changed(a: &RemasterCapture, b: &RemasterCapture) -> (usize, usize) {
     out
 }
 
-/// What the water's pixels' reflections found, checking: a surface met, the land, the sky.
-fn found(c: &RemasterCapture) -> [usize; 3] {
-    let mut out = [0; 3];
-    for i in 0..c.kind.len() {
-        if c.kind[i] != WATER {
-            continue;
-        }
-        match &c.color[i * 4..i * 4 + 3] {
-            [255, 0, 0] => out[0] += 1,
-            [0, 255, 0] => out[1] += 1,
-            [0, 0, 255] => out[2] += 1,
-            _ => {}
-        }
-    }
-    out
-}
-
 /// **The water is drawn only where the ground is water, and off it is the frame drawn without
 /// it**: along the shore, the water changes its own pixels and no other; off, the frame is the one
 /// drawn with no water at all.
@@ -182,31 +165,82 @@ fn the_water_is_drawn_only_where_the_ground_is_water() {
     assert_eq!(off.color, none.color, "off, the frame without it");
 }
 
-/// **With the sky out of the picture, no reflection takes the sky**: across the lake with the
-/// camera turned down until no sky is in the picture, every water pixel's reflection found a
-/// surface or the land, none the sky; with the sky in the picture, some find it, some the land
-/// they run behind, and some meet a surface.
+/// The mean difference, in levels per channel, between what the water shows at the same points of
+/// its surface in `a` and in `b` (drawn from the same eye, turned differently), and how many
+/// points both show.
+fn same_water(a: &RemasterCapture, b: &RemasterCapture) -> (f64, usize) {
+    let inv = glam::Mat4::from_cols_array(&a.view_projection).inverse();
+    let to_b = glam::Mat4::from_cols_array(&b.view_projection);
+    let (w, h) = (b.width as usize, b.height as usize);
+    let (mut sum, mut n) = (0u64, 0usize);
+    for i in 0..a.kind.len() {
+        if a.kind[i] != WATER {
+            continue;
+        }
+        let p = surface_of(a, &inv, i);
+        let c = to_b * p.extend(1.0);
+        if c.w <= 0.0 {
+            continue;
+        }
+        let (x, y) = (
+            (c.x / c.w + 1.0) * 0.5 * w as f32,
+            (1.0 - c.y / c.w) * 0.5 * h as f32,
+        );
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let (x, y) = (x as usize, y as usize);
+        if x < 2 || y < 2 || x + 2 >= w || y + 2 >= h {
+            continue;
+        }
+        let j = y * w + x;
+        if b.kind[j] != WATER {
+            continue;
+        }
+        sum += (0..3)
+            .map(|k| u64::from(a.color[i * 4 + k].abs_diff(b.color[j * 4 + k])))
+            .sum::<u64>();
+        n += 1;
+    }
+    #[allow(clippy::cast_precision_loss)]
+    let mean = sum as f64 / (3 * n.max(1)) as f64;
+    (mean, n)
+}
+
+/// **What the water reflects does not change as the camera turns down**: across the lake from
+/// its bank, from the camera level and from it turned down until no sky is in the picture, the
+/// points of the water both pictures show reflect the same: within a level and a half traced
+/// through the scene, and within eight found on screen, where only what the camera sees of the
+/// trees and the hills can stand in for them. A reflection is of what stands along the reflected
+/// ray, and the sky is the sky all round the eye, not the part of it the camera happens to see.
 #[test]
-fn with_the_sky_out_of_the_picture_no_reflection_takes_the_sky() {
+fn turning_the_camera_down_leaves_what_the_water_reflects() {
     let _gpu = crate::common::gpu_lock();
     let store = crate::common::dats();
-    let check = RemasterWater {
-        check: true,
-        waves: 0.0,
-        rings: false,
-        ..water()
-    };
-    let down = run(&store, &At::Report(LAKE, 0.45), check);
-    let sky = down.class.iter().filter(|c| **c == 0).count();
-    let level = run(&store, &At::Report(LAKE, 0.0), check);
-    let (f_down, f_level) = (found(&down), found(&level));
-    eprintln!(
-        "lake: turned down ({sky} sky pixels) surface, land, sky {f_down:?}; level {f_level:?}"
-    );
-    assert_eq!(sky, 0, "no sky in the picture turned down");
-    assert!(f_down[0] + f_down[1] > 1_000, "{f_down:?}");
-    assert_eq!(f_down[2], 0, "no reflection takes the sky");
-    assert!(f_level.iter().all(|n| *n > 100), "{f_level:?}");
+    let mut out = Vec::new();
+    for traced in [false, true] {
+        let still = RemasterWater {
+            waves: 0.0,
+            rings: false,
+            traced,
+            ..water()
+        };
+        let level = run(&store, &At::Report(LAKE, 0.0), still);
+        let down = run(&store, &At::Report(LAKE, 0.45), still);
+        let sky = down.class.iter().filter(|c| **c == 0).count();
+        let (mean, n) = same_water(&down, &level);
+        eprintln!("lake, traced {traced}: turned down ({sky} sky pixels), {n} points of the water, mean difference {mean:.2}");
+        out.push((traced, sky, n, mean));
+    }
+    for (traced, sky, n, mean) in out {
+        assert_eq!(sky, 0, "no sky in the picture turned down");
+        assert!(n > 1_000, "the pictures share the water: {n}");
+        // On screen, what the camera sees of the trees and the land stands in for them only while
+        // it sees them; traced, the scene is the same whichever way the camera turns.
+        let most = if traced { 1.5 } else { 8.0 };
+        assert!(
+            mean < most,
+            "traced {traced}: the water reflects the same: {mean:.2}"
+        );
+    }
 }
 
 /// **The puddles are a switch of their own, and gather only on a rainy day**: in the town on a

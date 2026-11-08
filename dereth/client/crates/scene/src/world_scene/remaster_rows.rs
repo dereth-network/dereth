@@ -185,10 +185,13 @@ impl SceneDraw {
             };
             self.set_remaster_post(s, gpu);
         }
-        if (now.water, now.puddles) != (was.water, was.puddles) {
+        // The reflections are traced where anything else is.
+        let traced = |r: &RemasterRows| r.traced_shadows || r.traced_occlusion;
+        if (now.water, now.puddles, traced(&now)) != (was.water, was.puddles, traced(&was)) {
             let s = RemasterWater {
                 on: now.water,
                 puddles: now.puddles,
+                traced: traced(&now),
                 ..RemasterWater::default()
             };
             self.set_remaster_water(s, gpu);

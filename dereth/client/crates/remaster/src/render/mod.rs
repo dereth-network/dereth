@@ -38,6 +38,7 @@ pub mod scene;
 pub mod settings;
 pub mod shadow;
 pub mod sky;
+pub mod sky_probe;
 pub mod terrain;
 pub mod upscale;
 pub mod water;
@@ -244,6 +245,8 @@ pub struct Renderer {
     landscape: self::landscape::LandscapeSettings,
     /// The water pass.
     water: self::water::WaterPass,
+    /// The sky all round the eye, which the water reflects.
+    sky_probe: self::sky_probe::SkyProbe,
     /// The rain, the snow, the wet and the puddles' share.
     weather: self::weather::WeatherPass,
     /// The scene's acceleration structures, where the device traces rays, and whether they are
@@ -607,6 +610,7 @@ impl Renderer {
             pack_look: false,
             landscape: self::landscape::LandscapeSettings::default(),
             water: self::water::WaterPass::new(&mut gfx)?,
+            sky_probe: self::sky_probe::SkyProbe::new(),
             weather: self::weather::WeatherPass::new(&mut gfx)?,
             rt: self::rt::RtPass::new(&mut gfx)?,
             rt_kept: false,

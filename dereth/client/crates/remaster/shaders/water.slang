@@ -3,7 +3,7 @@
 // ground's material on a rainy day, held down far off and at grazing angles.
 //
 // For each such pixel the surface's normal is the water's level bent by its ripples and by the rings
-// round the bodies standing in it; the world on screen is found along the reflected ray, and laid
+// round the bodies standing in it; what it reflects is found along the reflected ray, and laid
 // over the pixel's own color by the Fresnel share; and the sun glints off it where the sun reaches.
 //
 // - **Ripples** are one small picture of wind ripples laid several times over the water, at
@@ -12,20 +12,25 @@
 //   is left out, so it never shimmers. Puddles keep a few small waves of their own.
 // - **Rings** spread from where each body stands now, stronger as it moves, so they show from the
 //   first step and follow it.
-// - **The reflection** marches the ray through the depth. Where it meets a surface, it takes that
-//   surface's color. Where it leaves the picture running behind the land, it takes the land's
-//   color, never the sky's, which would rim the land with sky; over the top it takes what the edge
-//   shows round where it leaves, land and sky together, so the water does not stand in columns of
-//   each; past a side it takes the sky's that way. Toward the
-//   picture's sides, what it found fades into that sky, so the reflection has no hard edge there.
+// - **The reflection**, where the device traces rays (`fs_traced`), is the scene itself: the ray
+//   is traced through the scene's acceleration structures, and what it meets is lit as the resolve
+//   lights it, whether it is on screen or not. Elsewhere (`fs_main`) it is found on screen: the ray
+//   marched through the depth, a surface it meets close behind taken, but never the viewer's own
+//   body or anything at the camera, and never the color of something it merely passes behind;
+//   where it finds nothing it can trust, it takes what lies far off that way. Either way, what lies
+//   far off is the land past the scene's reach, found along the world's heights, then the sky: the
+//   sky's own tables that way, and the sky on screen where it shows that very way.
 // - **The water's own color**, over a bed drawn under it, is retail's water under the light the bed
 //   takes: what is seen through the water fades into it with the length of water the view runs
 //   through, red first.
 //
 // Its own pictures are a copy of the resolved world (`copy`); it writes the scene's colors.
+import atmosphere;
 import bindless;
 import intent;
+import lift;
 import retail;
+import rt;
 
 // The pass's constants, in buffer `water` as float4 rows:
 //   0  x the scene's clock (seconds), y the waves' strength, z the rings' strength, w 1 where
@@ -37,7 +42,17 @@ import retail;
 //   3..10 the ripples' layers, two rows each: x meters a repeat, y how much it bends the surface,
 //      zw the cosine and sine of its turn; then xy the share of a repeat its picture is moved
 //   11..18 the bodies: where their feet are (the frame's space), and how fast they move (metres a
-//      second)
+//      second); eight rows always, those past the bodies' count nought
+//   19..21 (words) where the reflections are traced through the scene: the top-level structure,
+//      the statics' and the objects' geometry tables, the scene's indices; its vertices, its
+//      materials, the sampler its textures are read with, its instances; the ground's vertices
+//      and cells, the statics' and the objects' entries (~0 where nothing is traced)
+//   22 (words) x how many statics come first among the instances; y the sky's constants, z its
+//      sky-view table and w the sampler it is read with (~0 without the sky's tables)
+//   23 (words) x the world's vertex heights (~0 where the drawn ground is not drawn)
+//   24 the viewer's own body: where its feet are (the frame's space), w 1 where there is one
+//   25, 26 (words) the sky all round the eye: its pictures east, west, north, south, up and down,
+//      and the sampler they are read with (~0 where it is not drawn)
 static const uint WATER_STATE = 0;
 static const uint WATER_DRAWN = 1;
 // The drawn ground's constants' row whose x is 1 while the bed is lowered under the water.
@@ -47,14 +62,18 @@ static const uint WATER_LAYERS = 3;
 static const uint LAYERS = 4;
 static const uint WATER_WADERS = 11;
 static const uint WADERS = 8;
+static const uint WATER_TRACE = 19;
+static const uint WATER_SKY = 22;
+static const uint WATER_LAND = 23;
+static const uint WATER_VIEWER = 24;
+static const uint WATER_PROBE = 25;
+static const uint NONE = 0xFFFFFFFF;
 
 // The water's kind, as the material target's second byte holds it.
 static const uint KIND_WATER = 7;
 // The step, meters, of how far under the water's surface the ground draws its bed: the material
 // target's fourth byte on the ground (0 where the bed is not lowered).
 static const float BED_STEP = 0.04;
-
-static const float PI = 3.14159265;
 
 // The share of the Fresnel reflection drawn: water seen at a low angle reflects nearly all of the
 // sky, which would turn the water's own color to the sky's white; this keeps it showing through.
@@ -325,18 +344,30 @@ float3 fog_light()
     return linear_frame(push.frame) ? to_linear(fog) : saturate(fog);
 }
 
-// What lies far off the way `dir` goes from `from`, a way that climbs: the sky the picture shows
-// over that way, its clouds and all, well inside the picture; out toward and past its edges, the
-// picture's sky along its width, weighted toward that way, which varies slowly however the land
-// cuts the picture's edge, so that no ray takes a streak or a wedge of what stands there. `otherwise`
-// where the picture shows no sky there.
-float3 sky_toward(float3 from, float3 dir, float3 otherwise)
+// Where `q` (the frame's space) lands on the target, in pixels; `w` its clip space depth's w.
+float2 screen_of(float3 q, out float w)
 {
+    float2 e = extent();
+    float4 c = transform(push.frame, FRAME_VIEW_PROJ, float4(q, 1.0));
+    w = c.w;
+    float2 ndc = c.xy / c.w;
+    return float2((ndc.x + 1.0) * 0.5 * e.x, (1.0 - ndc.y) * 0.5 * e.y);
+}
+
+// The sky the picture shows the way `dir` goes from `from`: `wide`, the picture's sky along its
+// width weighted toward that way, which varies slowly however the land cuts the picture's edge
+// (the fog's light where the picture shows no sky); and, where the way lands well inside the
+// picture on sky, that sky itself (`exact`), with how much of it to keep.
+void screen_sky(float3 from, float3 dir, out float3 wide, out float keep, out float3 exact)
+{
+    wide = fog_light();
+    keep = 0.0;
+    exact = wide;
     float w;
     float2 pos = screen_of(from + dir * 1.0e5, w);
     if (w <= 0.0)
     {
-        return otherwise;
+        return;
     }
     float2 e = extent();
     float2 inside = clamp(pos, float2(0.0, 0.0), e - 1.0);
@@ -354,26 +385,340 @@ float3 sky_toward(float3 from, float3 dir, float3 otherwise)
             weight += g;
         }
     }
-    float3 wide = weight > 1.0e-4 ? sum / weight : otherwise;
-    float margin = min(min(pos.x, e.x - pos.x) / e.x, min(pos.y, e.y - pos.y) / e.y);
-    float keep = smoothstep(0.0, 0.12, margin);
-    float3 exact;
-    if (keep > 0.0 && sky_above(int2(inside), exact))
+    if (weight > 1.0e-4)
     {
-        return lerp(wide, exact, keep);
+        wide = sum / weight;
     }
-    return wide;
+    float margin = min(min(pos.x, e.x - pos.x) / e.x, min(pos.y, e.y - pos.y) / e.y);
+    float k = smoothstep(0.0, 0.12, margin);
+    int2 px = int2(inside);
+    uint cls = class_at(px);
+    if (k > 0.0 && (cls == CLASS_NONE || cls == CLASS_SKY) && kind_at(px) != KIND_WATER)
+    {
+        keep = k;
+        exact = at(push.copy, px).rgb;
+    }
 }
 
-
-// Where `q` (the frame's space) lands on the target, in pixels; `w` its clip space depth's w.
-float2 screen_of(float3 q, out float w)
+// A color in display values as the frame draws its colors.
+float3 as_drawn(float3 c)
 {
-    float2 e = extent();
-    float4 c = transform(push.frame, FRAME_VIEW_PROJ, float4(q, 1.0));
-    w = c.w;
-    float2 ndc = c.xy / c.w;
-    return float2((ndc.x + 1.0) * 0.5 * e.x, (1.0 - ndc.y) * 0.5 * e.y);
+    return linear_frame(push.frame) ? to_linear(saturate(c)) : saturate(c);
+}
+
+// The sky's own light toward `dir` from its tables, with the veil over the horizon, as the sky
+// pass draws them; false without the sky's tables.
+bool tables_toward(float3 dir, out float3 color, out float share)
+{
+    uint4 s = row_u(push.water, WATER_SKY);
+    color = float3(0.0, 0.0, 0.0);
+    share = 0.0;
+    if (s.y == NONE)
+    {
+        return false;
+    }
+    uint a = s.y;
+    float r = eye_radius(a);
+    float bottom = planet_radius(a);
+    float horizon_cos = -sqrt(max(r * r - bottom * bottom, 0.0)) / r;
+    float2 uv = sky_view_uv(a, r, max(dir.z, horizon_cos + 0.002), light_view_cos(a, dir));
+    float3 sky = exposed_sky(a, textures[NonUniformResourceIndex(s.z)]
+                                    .SampleLevel(samplers[NonUniformResourceIndex(s.w)], uv, 0.0)
+                                    .rgb);
+    // The veil over the horizon, as `sky.slang` lays it.
+    float4 v = row(a, ATM_VEIL);
+    float up = max(dir.z, 0.0);
+    float band = max(v.x, 1e-4);
+    float day_veil = exp(-up / band);
+    float x = clamp((dir.z + 2.0 * band) / (5.0 * band), 0.0, 1.0);
+    float night_veil = (1.0 - x) * (1.0 - x) * (1.0 - x);
+    float veil = lerp(night_veil, day_veil, v.y);
+    float2 huv = sky_view_uv(a, r, 0.01, light_view_cos(a, dir));
+    float3 horizon = exposed_sky(a, textures[NonUniformResourceIndex(s.z)]
+                                        .SampleLevel(samplers[NonUniformResourceIndex(s.w)], huv, 0.0)
+                                        .rgb);
+    float3 light = lerp(row(a, ATM_FOG).rgb, horizon, v.y * 0.9) * v.z;
+    if (air_drawn(a))
+    {
+        float toward_sun = pow(0.5 + 0.5 * light_view_cos(a, dir), 4.0);
+        veil = max(veil, row(a, ATM_SUN_LIGHT).w * toward_sun * 0.75 * exp(-up / (band * 5.0)));
+        light = haze_light(a, s.z, s.w, dir, 1.0) * v.z;
+    }
+    color = as_drawn(lerp(encode(sky), encode(light), saturate(veil)));
+    share = row(a, ATM_MISC).x;
+    return true;
+}
+
+// The sky the way `dir` goes, as the sky all round the eye shows it; false where it is not drawn.
+bool probe_toward(float3 dir, out float3 color)
+{
+    uint4 a = row_u(push.water, WATER_PROBE);
+    uint4 b = row_u(push.water, WATER_PROBE + 1);
+    color = float3(0.0, 0.0, 0.0);
+    if (a.x == NONE)
+    {
+        return false;
+    }
+    // The way whose picture holds `dir`, and that picture's up, as `sky_probe.rs` lays them.
+    float3 m = abs(dir);
+    uint face;
+    float3 f;
+    float3 up = float3(0.0, 0.0, 1.0);
+    if (m.x >= m.y && m.x >= m.z)
+    {
+        face = dir.x > 0.0 ? a.x : a.y;
+        f = float3(dir.x > 0.0 ? 1.0 : -1.0, 0.0, 0.0);
+    }
+    else if (m.y >= m.z)
+    {
+        face = dir.y > 0.0 ? a.z : a.w;
+        f = float3(0.0, dir.y > 0.0 ? 1.0 : -1.0, 0.0);
+    }
+    else
+    {
+        face = dir.z > 0.0 ? b.x : b.y;
+        f = float3(0.0, 0.0, dir.z > 0.0 ? 1.0 : -1.0);
+        up = float3(0.0, 1.0, 0.0);
+    }
+    float3 across = normalize(cross(up, f));
+    float3 above = cross(f, across);
+    float z = max(dot(dir, f), 1e-4);
+    float2 uv = float2(0.5 + 0.5 * dot(dir, across) / z, 0.5 - 0.5 * dot(dir, above) / z);
+    color = textures[NonUniformResourceIndex(face)]
+                .SampleLevel(samplers[NonUniformResourceIndex(b.z)], uv, 0.0)
+                .rgb;
+    return true;
+}
+
+// The sky the way `dir` goes from `from`: the sky all round the eye, where it is drawn; otherwise
+// the sky's own tables that way over the sky the picture shows along its width, as the sky pass
+// lays the one over the other, and the sky on screen itself where it shows that very way.
+float3 sky_toward(float3 from, float3 dir)
+{
+    float3 drawn;
+    if (probe_toward(dir, drawn))
+    {
+        return drawn;
+    }
+    float3 wide;
+    float keep;
+    float3 exact;
+    screen_sky(from, dir, wide, keep, exact);
+    float3 tables;
+    float share;
+    float3 base = wide;
+    if (tables_toward(dir, tables, share))
+    {
+        base = lerp(wide, tables, share);
+    }
+    return lerp(base, exact, keep);
+}
+
+// The light on a surface of class `cls` with normal `n` (outdoors), `sun` how much of the sun
+// reaches it, `leaf` whether it is a plant's leaves: the resolve's own light.
+float3 lit(uint cls, float3 n, float sun_reach, bool leaf, float3 to_eye)
+{
+    Terms t;
+    t.cls = cls;
+    t.emissive = float3(0.0, 0.0, 0.0);
+    t.burn = float3(0.0, 0.0, 0.0);
+    t.lights = float3(0.0, 0.0, 0.0);
+    t.ambient = row(push.frame, FRAME_OBJECT_AMBIENT).rgb;
+    t.sun_color = float3(0.0, 0.0, 0.0);
+    t.sun_facing = 0.0;
+    t.sun = float3(0.0, 0.0, 0.0);
+    float3 sun = row(push.frame, FRAME_SUN).xyz;
+    if (cls == CLASS_GROUND)
+    {
+        t.ambient = row(push.frame, FRAME_GROUND_AMBIENT).rgb;
+        t.sun_color = row(push.frame, FRAME_SUN_COLOR).rgb;
+        t.sun_facing = max(dot(n, sun), 0.0);
+    }
+    else if (dot(sun, sun) >= 1e-8)
+    {
+        float b = length(sun);
+        t.sun_color = row(push.frame, FRAME_SUN_COLOR).rgb * b;
+        t.sun_facing = max(dot(n, sun / b), 0.0);
+        t.sun = sun_light(push.frame, n) * sun_reach;
+    }
+    Masks m = unmasked(push.frame);
+    m.sun_visibility = sun_reach;
+    if (pack_lit_frame(push.frame))
+    {
+        m.pack_lit = true;
+        m.pack_light = pack_light(push.frame, n, sun_reach, 1.0, cls == CLASS_SUN, leaf, 0.5, to_eye);
+    }
+    return compose(t, m);
+}
+
+// The world's height at landscape vertex `g`.
+float vertex_height(uint heights, int2 g)
+{
+    int2 c = clamp(g, int2(0, 0), int2(SIDE - 1, SIDE - 1));
+    return asfloat(buffers[NonUniformResourceIndex(heights)].Load(uint(c.y * SIDE + c.x) * 4));
+}
+
+// The world's height at world `p`, between its vertices.
+float land_height(uint heights, float2 p)
+{
+    float2 q = p / CELL;
+    int2 g = int2(floor(q));
+    float2 f = q - float2(g);
+    float a = vertex_height(heights, g);
+    float b = vertex_height(heights, g + int2(1, 0));
+    float c = vertex_height(heights, g + int2(0, 1));
+    float d = vertex_height(heights, g + int2(1, 1));
+    return lerp(lerp(a, b, f.x), lerp(c, d, f.x), f.y);
+}
+
+// The land's color far off at world `p`, display values: each terrain type's color, blended
+// across the cell.
+float3 land_color(float2 p)
+{
+    if (push.drawn == NONE || push.words == NONE)
+    {
+        return float3(0.3, 0.3, 0.25);
+    }
+    float2 q = p / CELL;
+    int2 g = int2(floor(q));
+    float2 f = saturate(q - float2(g));
+    float3 sum = float3(0.0, 0.0, 0.0);
+    for (int k = 0; k < 4; k++)
+    {
+        int2 o = int2(k & 1, k >> 1);
+        uint t = (vertex_word(g + o) >> 2) & 0x1F;
+        float w = lerp(1.0 - f.x, f.x, float(o.x)) * lerp(1.0 - f.y, f.y, float(o.y));
+        sum += row(push.drawn, D_COLORS + t).rgb * w;
+    }
+    return sum;
+}
+
+// How far off the land's color has given way to the air's, meters for most of it.
+static const float AIR_REACH = 3500.0;
+
+// The land far off the way `dir` goes from `from`, found along the world's heights from `t0`
+// meters on, lit by the sun and given to the air with its distance; false where the way climbs
+// over all of it.
+bool land_toward(float3 from, float3 dir, float t0, out float3 color)
+{
+    color = float3(0.0, 0.0, 0.0);
+    uint heights = row_u(push.water, WATER_LAND).x;
+    if (heights == NONE || dir.z > 0.5)
+    {
+        return false;
+    }
+    float2 g = row(push.water, WATER_GLOBAL).xy;
+    float t = t0;
+    float before = t0;
+    bool met = false;
+    for (int i = 0; i < 72; i++)
+    {
+        float3 q = from + dir * t;
+        if (q.z > 3000.0)
+        {
+            break;
+        }
+        if (q.z < land_height(heights, q.xy + g))
+        {
+            met = true;
+            break;
+        }
+        before = t;
+        t = t * 1.1 + 4.0;
+        if (t > 24000.0)
+        {
+            break;
+        }
+    }
+    if (!met)
+    {
+        return false;
+    }
+    float lo = before;
+    float hi = t;
+    for (int k = 0; k < 6; k++)
+    {
+        float mid = (lo + hi) * 0.5;
+        float3 q = from + dir * mid;
+        if (q.z < land_height(heights, q.xy + g))
+        {
+            hi = mid;
+        }
+        else
+        {
+            lo = mid;
+        }
+    }
+    float3 x = from + dir * hi;
+    float2 w = x.xy + g;
+    float e = max(CELL * 0.5, hi * 0.01);
+    float3 n = normalize(float3(land_height(heights, w - float2(e, 0.0)) - land_height(heights, w + float2(e, 0.0)),
+                                land_height(heights, w - float2(0.0, e)) - land_height(heights, w + float2(0.0, e)),
+                                2.0 * e));
+    float3 own = resolved(push.frame, land_color(w), lit(CLASS_GROUND, n, 1.0, false, -dir), 1.0).rgb;
+    float air = 1.0 - exp(-hi / AIR_REACH);
+    float3 sky = sky_toward(from, normalize(float3(dir.xy, 0.01)));
+    color = lerp(own, sky, air);
+    return true;
+}
+
+// What lies far off the way `dir` goes from `from`, past `t0` meters: the land, then the sky.
+float3 far_off(float3 from, float3 dir, float t0)
+{
+    float3 land;
+    if (land_toward(from, dir, t0, land))
+    {
+        return land;
+    }
+    return sky_toward(from, dir);
+}
+
+// Whether `q` (the frame's space) is part of the viewer's own body, or stands at the camera:
+// what the camera sees of either is never what a reflection shows.
+bool viewers(float3 q)
+{
+    float3 eye = row(push.frame, FRAME_EYE).xyz;
+    if (length(q - eye) < 1.5)
+    {
+        return true;
+    }
+    float4 body = row(push.water, WATER_VIEWER);
+    if (body.w < 0.5)
+    {
+        return false;
+    }
+    float3 d = q - body.xyz;
+    return length(d.xy) < 0.9 && d.z > -0.3 && d.z < 2.4;
+}
+
+// What a reflected ray found: a surface it met, the land, or the sky.
+static const uint FOUND_SURFACE = 0;
+static const uint FOUND_LAND = 1;
+static const uint FOUND_SKY = 2;
+
+struct Found
+{
+    float3 color;
+    uint what;
+};
+
+Found found(float3 color, uint what)
+{
+    Found f;
+    f.color = color;
+    f.what = what;
+    return f;
+}
+
+// What lies far off, as a reflection finds it.
+Found found_far(float3 from, float3 dir, float t0)
+{
+    float3 land;
+    if (land_toward(from, dir, t0, land))
+    {
+        return found(land, FOUND_LAND);
+    }
+    return found(sky_toward(from, dir), FOUND_SKY);
 }
 
 // Whether `q` (the frame's space) stands behind what the pixel it lands on shows.
@@ -396,52 +741,33 @@ bool is_behind(float3 q)
     return length(q - eye) > length(world_at(float2(px) + 0.5, d) - eye);
 }
 
-// What a reflected ray found at `pos` on the target, faded toward the picture's sides into the sky
-// the way `dir` goes from `from`: the world runs off the picture there, and the sky is what a ray
-// going past a side takes.
-float3 faded_at_side(float3 from, float3 dir, float3 color, float2 pos)
+// How much of what a reflected ray found on screen at `pos` is kept: none at the picture's sides
+// and top, where what lies past the picture takes over.
+float kept_on_screen(float2 pos)
 {
-    float u = pos.x / extent().x;
-    float keep = smoothstep(0.0, 0.2, min(u, 1.0 - u));
-    return keep >= 1.0 ? color : lerp(sky_toward(from, dir, color), color, keep);
-}
-
-// What a reflected ray found: a surface it met, the land it ran behind or that the picture's edge
-// shows where it left, or the sky.
-static const uint FOUND_SURFACE = 0;
-static const uint FOUND_LAND = 1;
-static const uint FOUND_SKY = 2;
-
-struct Found
-{
-    float3 color;
-    uint what;
-};
-
-Found found(float3 color, uint what)
-{
-    Found f;
-    f.color = color;
-    f.what = what;
-    return f;
+    float2 u = pos / extent();
+    return smoothstep(0.0, 0.15, min(u.x, 1.0 - u.x)) * smoothstep(0.0, 0.1, u.y);
 }
 
 // The world on screen along the ray from `from` the way `dir` goes:
-// - the surface it meets, found between its last two steps by halving;
-// - where it leaves the picture (or goes past its reach) running behind the land, the land's
+// - a surface it meets close behind, found between its last two steps by halving, but never the
+//   viewer's own body or what stands at the camera, faded toward the picture's sides and top;
+// - where it leaves the picture or goes past its reach running behind the land, the land's
 //   color, never the sky's, which would rim the land with sky;
-// - where it leaves the picture in front of everything, what the picture's edge shows there: the
-//   land beyond the picture where the top edge is land, the sky where it is sky or water, or the
-//   ray leaves past a side;
-// - where it goes past its reach in front of everything, the sky that way.
+// - elsewhere, what lies far off that way: behind something that is not the land, what the
+//   picture shows of it says nothing of what the ray meets.
 // The pixels round where it starts are its own surface, and are passed over.
 Found traced(float3 from, float3 dir, int2 start)
 {
     float3 eye = row(push.frame, FRAME_EYE).xyz;
     float2 e = extent();
     bool behind = false;
-    float3 occluder = float3(0.0, 0.0, 0.0);
-    float2 occluder_at = float2(0.0, 0.0);
+    bool behind_land = false;
+    // What the picture shows that the ray found, how much of it is kept over what lies far off,
+    // and what it is.
+    float3 shown = float3(0.0, 0.0, 0.0);
+    float keep = 0.0;
+    uint what = FOUND_SKY;
     float t = 0.25;
     for (int i = 0; i < 80; i++)
     {
@@ -451,61 +777,7 @@ Found traced(float3 from, float3 dir, int2 start)
         float2 pos = screen_of(q, w);
         if (w <= 0.0 || any(pos < 0.0) || any(pos >= e))
         {
-            if (behind)
-            {
-                break;
-            }
-            // Where it leaves the picture, between this step and the last, by halving.
-            float lo = t / (1.12 * 1.12);
-            float hi = t / 1.12;
-            for (int k = 0; k < 6; k++)
-            {
-                float mid = (lo + hi) * 0.5;
-                float mw;
-                float2 mp = screen_of(from + dir * mid, mw);
-                if (mw > 0.0 && all(mp >= 0.0) && all(mp < e))
-                {
-                    lo = mid;
-                }
-                else
-                {
-                    hi = mid;
-                }
-            }
-            float lw;
-            int2 edge = clamp(int2(screen_of(from + dir * lo, lw)), int2(0, 0), int2(e) - 1);
-            // A ray going up off the water never reflects water: what lies past that edge of the
-            // picture is what stands beyond it, and all that is known of that is the sky's way.
-            // Past a side, the land the edge shows says nothing of what stands past it, and would
-            // lay a wedge of its color on the water; over the top, the land rises on past it.
-            uint where_ = class_at(edge);
-            bool side = edge.x <= 0 || edge.x >= int(e.x) - 1;
-            if (side)
-            {
-                if (kind_at(edge) == KIND_WATER || where_ == CLASS_NONE)
-                {
-                    return found(sky_toward(from, dir, fog_light()),
-                                 where_ == CLASS_NONE ? FOUND_SKY : FOUND_LAND);
-                }
-                return found(sky_toward(from, dir, at(push.copy, edge).rgb), FOUND_LAND);
-            }
-            // Over the top: what the edge shows round where the ray leaves, land or sky, taken
-            // together, not the one pixel's, so where the edge runs from land to sky the water
-            // shades from one to the other rather than standing in columns of each.
-            float3 sky = sky_toward(from, dir, fog_light());
-            float3 sum = float3(0.0, 0.0, 0.0);
-            float open = 0.0;
-            for (int s = -6; s <= 6; s++)
-            {
-                int2 q = int2(clamp(edge.x + s * 12, 0, int(e.x) - 1), edge.y);
-                uint c = class_at(q);
-                bool shows_land = c != CLASS_NONE && kind_at(q) != KIND_WATER;
-                sum += shows_land ? at(push.copy, q).rgb : sky;
-                open += c == CLASS_NONE ? 1.0 : 0.0;
-            }
-            float3 beyond = sum / 13.0;
-            return found(faded_at_side(from, dir, beyond, float2(edge)),
-                         open >= 6.5 ? FOUND_SKY : FOUND_LAND);
+            break;
         }
         int2 px = int2(pos);
         if (all(abs(px - start) <= 1))
@@ -518,6 +790,7 @@ Found traced(float3 from, float3 dir, int2 start)
         {
             // Nothing stands there: the sky, which the ray passes in front of.
             behind = false;
+            behind_land = false;
             continue;
         }
         float ray = length(q - eye);
@@ -525,12 +798,12 @@ Found traced(float3 from, float3 dir, int2 start)
         if (ray <= surface)
         {
             behind = false;
+            behind_land = false;
             continue;
         }
         // Behind what the pixel shows, having just been in front of something: where it crossed,
         // between this step and the last, by halving. Close behind the surface there, it met it;
-        // far behind, it passed behind the edge of something nearer. Telling them apart only after
-        // the halving keeps the steps themselves from showing as bands in the reflection.
+        // far behind, it passed behind the edge of something nearer.
         if (!behind)
         {
             float lo = t / (1.12 * 1.12);
@@ -553,23 +826,244 @@ Found traced(float3 from, float3 dir, int2 start)
             int2 met_px = clamp(int2(met), int2(0, 0), int2(e) - 1);
             uint met_cls = class_at(met_px);
             float met_d = at(depth_of(met_cls), met_px).x;
-            float met_surface = length(world_at(float2(met_px) + 0.5, met_d) - eye);
-            if (met_cls != CLASS_NONE && met_d < 1.0
-                && length(crossed - eye) - met_surface < 0.25 + met_surface * 0.03)
+            float3 met_at = world_at(float2(met_px) + 0.5, met_d);
+            float met_surface = length(met_at - eye);
+            if (met_cls != CLASS_NONE && met_d < 1.0 && kind_at(met_px) != KIND_WATER
+                && length(crossed - eye) - met_surface < 0.25 + met_surface * 0.03
+                && !viewers(met_at))
             {
-                return found(faded_at_side(from, dir, at(push.copy, met_px).rgb, met), FOUND_SURFACE);
+                shown = at(push.copy, met_px).rgb;
+                keep = kept_on_screen(met);
+                what = FOUND_SURFACE;
+                behind = false;
+                behind_land = false;
+                break;
             }
         }
         behind = true;
-        occluder = at(push.copy, px).rgb;
-        occluder_at = pos;
+        behind_land = cls == CLASS_GROUND && kind_at(px) != KIND_WATER;
+        shown = at(push.copy, px).rgb;
+        keep = kept_on_screen(pos);
     }
-    return behind ? found(faded_at_side(from, dir, occluder, occluder_at), FOUND_LAND)
-                  : found(sky_toward(from, dir, fog_light()), FOUND_SKY);
+    if (what != FOUND_SURFACE)
+    {
+        if (behind && behind_land)
+        {
+            what = FOUND_LAND;
+        }
+        else
+        {
+            keep = 0.0;
+        }
+    }
+    if (keep >= 1.0)
+    {
+        return found(shown, what);
+    }
+    Found far = found_far(from, dir, 2.0);
+    return found(lerp(far.color, shown, keep), keep > 0.5 ? what : far.what);
 }
 
-[shader("fragment")]
-float4 fs_main(float4 position : SV_Position) : SV_Target0
+// How far a traced reflection reaches through the scene, meters; past it, what lies far off.
+static const float TRACE_REACH = 2500.0;
+
+// Whether anything stands between `x` and the sun, as the traced shadows find it.
+bool sun_blocked(uint accel, float3 x, float3 n, float3 sun)
+{
+    RayDesc ray;
+    ray.Origin = x + n * 0.05;
+    ray.Direction = normalize(sun);
+    ray.TMin = 0.0;
+    ray.TMax = 2000.0;
+    RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_FORCE_OPAQUE> q;
+    q.TraceRayInline(accels[NonUniformResourceIndex(accel)],
+                     RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_FORCE_OPAQUE,
+                     0xFF & ~RT_BODY, ray);
+    q.Proceed();
+    return q.CommittedStatus() != COMMITTED_NOTHING;
+}
+
+// The scene along the ray from `from` the way `dir` goes, traced through its acceleration
+// structures: what it meets, its own color lit as the resolve lights it and fogged over the way
+// from the eye; what lies far off where it meets nothing. `dist` is how far `from` lies from the
+// eye.
+Found traced_scene(float3 from, float3 dir, float dist)
+{
+    uint4 a = row_u(push.water, WATER_TRACE);
+    uint4 b = row_u(push.water, WATER_TRACE + 1);
+    uint4 c = row_u(push.water, WATER_TRACE + 2);
+    uint statics_first = row_u(push.water, WATER_SKY).x;
+    uint accel = a.x;
+    uint statics = a.y;
+    uint objects = a.z;
+    uint indices = a.w;
+    uint vertices = b.x;
+    uint materials = b.y;
+    uint sampler = b.z;
+    uint instances = b.w;
+    uint ground_vertices = c.x;
+    uint ground_cells = c.y;
+    RayDesc ray;
+    ray.Origin = from + float3(0.0, 0.0, 0.02);
+    ray.Direction = dir;
+    ray.TMin = 0.05;
+    ray.TMax = TRACE_REACH;
+    RayQuery<RAY_FLAG_NONE> q;
+    q.TraceRayInline(accels[NonUniformResourceIndex(accel)], RAY_FLAG_NONE, 0xFF, ray);
+    while (q.Proceed())
+    {
+        if (q.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE
+            && alpha_kept(statics, objects, indices, vertices, materials, sampler,
+                          q.CandidateInstanceID(), q.CandidateGeometryIndex(),
+                          q.CandidatePrimitiveIndex(), q.CandidateTriangleBarycentrics()))
+        {
+            q.CommitNonOpaqueTriangleHit();
+        }
+    }
+    if (q.CommittedStatus() != COMMITTED_TRIANGLE_HIT)
+    {
+        return found_far(from, dir, 20.0);
+    }
+    float t = q.CommittedRayT();
+    uint4 g = geometry_row(statics, objects, q.CommittedInstanceID(), q.CommittedGeometryIndex());
+    uint prim = q.CommittedPrimitiveIndex();
+    float2 bary = q.CommittedTriangleBarycentrics();
+    float w[3] = { 1.0 - bary.x - bary.y, bary.x, bary.y };
+    float3x4 to_world = q.CommittedObjectToWorld3x4();
+    float3 x = from + dir * t;
+    // How sharply the hit's pictures are read: the farther the way from the eye, the coarser.
+    float lod = clamp(log2(max((dist + t) * 0.15, 1.0)), 0.0, 6.0);
+    float3 n;
+    float3 albedo;
+    uint cls;
+    bool leaf = false;
+    bool front = q.CommittedTriangleFrontFace();
+    if ((g.w & RT_IS_GROUND) != 0)
+    {
+        // The ground: the cell's corners' normals, and its picture across the cell, or each
+        // terrain type's color where it has none.
+        uint side = g.w >> 8;
+        uint cell = prim / 2;
+        uint i = cell / side;
+        uint j = cell % side;
+        uint4 cw = row_u(ground_cells, g.z + cell);
+        bool cut = (cw.z & 1) != 0;
+        uint svc = side + 1;
+        uint sw = i * svc + j;
+        uint se = (i + 1) * svc + j;
+        uint ne = (i + 1) * svc + j + 1;
+        uint nw = i * svc + j + 1;
+        uint3 tri = (prim & 1) == 0 ? (cut ? uint3(sw, se, ne) : uint3(sw, se, nw))
+                                    : (cut ? uint3(sw, ne, nw) : uint3(ne, nw, se));
+        n = float3(0.0, 0.0, 0.0);
+        float3 local = float3(0.0, 0.0, 0.0);
+        for (uint v = 0; v < 3; v++)
+        {
+            local += row(ground_vertices, (g.y + tri[v]) * 2).xyz * w[v];
+            n += row(ground_vertices, (g.y + tri[v]) * 2 + 1).xyz * w[v];
+        }
+        n = normalize(n);
+        albedo = land_color(x.xy + row(push.water, WATER_GLOBAL).xy);
+        if (cw.x != NONE)
+        {
+            // The cell's picture, turned as the cell turns it.
+            float2 f = saturate((local.xy - float2(float(i), float(j)) * CELL) / CELL);
+            uint rot = cw.y & 3;
+            static const float2 UVS[4] = { float2(0.0, 1.0), float2(1.0, 1.0), float2(1.0, 0.0),
+                                           float2(0.0, 0.0) };
+            float2 uv_sw = UVS[(0 + 4 - rot) & 3];
+            float2 uv_se = UVS[(1 + 4 - rot) & 3];
+            float2 uv_ne = UVS[(2 + 4 - rot) & 3];
+            float2 uv_nw = UVS[(3 + 4 - rot) & 3];
+            float2 uv = lerp(lerp(uv_sw, uv_se, f.x), lerp(uv_nw, uv_ne, f.x), f.y);
+            albedo = textures[NonUniformResourceIndex(cw.x)]
+                         .SampleLevel(samplers[NonUniformResourceIndex(sampler)], uv, lod)
+                         .rgb;
+        }
+        cls = CLASS_GROUND;
+        front = true;
+    }
+    else
+    {
+        // A mesh: its corners' normals turned into the world, and its texture.
+        ByteAddressBuffer ib = buffers[NonUniformResourceIndex(indices)];
+        float3 nl = float3(0.0, 0.0, 0.0);
+        float2 uv = float2(0.0, 0.0);
+        float3 tint = float3(0.0, 0.0, 0.0);
+        for (uint v = 0; v < 3; v++)
+        {
+            uint vi = g.y + ib.Load((g.x + prim * 3 + v) * 4);
+            float4 r0 = row(vertices, vi * 4);
+            float4 r1 = row(vertices, vi * 4 + 1);
+            nl += float3(r0.w, r1.x, r1.y) * w[v];
+            uv += r1.zw * w[v];
+            tint += row(vertices, vi * 4 + 3).rgb * w[v];
+        }
+        n = normalize(mul(to_world, float4(nl, 0.0)).xyz);
+        if (!front)
+        {
+            n = -n;
+        }
+        uint4 m = row_u(materials, g.z * 2);
+        albedo = float3(1.0, 1.0, 1.0);
+        if ((m.y & 64) != 0)
+        {
+            albedo = textures[NonUniformResourceIndex(m.x)]
+                         .SampleLevel(samplers[NonUniformResourceIndex(sampler)], uv, lod)
+                         .rgb;
+        }
+        // A surface drawn under its vertices' colors.
+        if ((m.y & 512) != 0)
+        {
+            albedo *= tint;
+        }
+        uint index = q.CommittedInstanceIndex();
+        uint4 entry = index < statics_first
+                          ? row_u(c.z, index * 2)
+                          : row_u(c.w, (index - statics_first) * 2);
+        uint4 info = row_u(instances, entry.x * INSTANCE_ROWS + 5);
+        cls = info.y;
+        leaf = uint(row(materials, g.z * 2 + 1).z) == KIND_FOLIAGE;
+    }
+    // Rooms and what stands in them take the ambient alone: water outdoors seldom sees them.
+    if (cls != CLASS_GROUND && cls != CLASS_SUN)
+    {
+        cls = CLASS_SUN;
+    }
+    float3 sun = row(push.frame, FRAME_SUN).xyz;
+    float reach = 1.0;
+    if (dot(sun, sun) > 1e-8 && dot(n, sun) > 0.0 && sun_blocked(accel, x, n, sun))
+    {
+        reach = 0.0;
+    }
+    float fog = air_frame(push.frame) ? 1.0 : fog_factor(push.frame, dist + t);
+    float3 color = resolved(push.frame, albedo, lit(cls, n, reach, leaf, -dir), fog).rgb;
+    return found(color, cls == CLASS_GROUND ? FOUND_LAND : FOUND_SURFACE);
+}
+
+// How a reflection is found: on screen, or through the scene.
+interface IReflection
+{
+    Found seen(float3 from, float3 dir, int2 start, float dist);
+};
+
+struct OnScreen : IReflection
+{
+    Found seen(float3 from, float3 dir, int2 start, float dist)
+    {
+        return traced(from, dir, start);
+    }
+};
+
+struct ThroughScene : IReflection
+{
+    Found seen(float3 from, float3 dir, int2 start, float dist)
+    {
+        return traced_scene(from, dir, dist);
+    }
+};
+
+float4 shade<R : IReflection>(float4 position, R reflection)
 {
     int2 p = int2(position.xy);
     float4 m = at(push.material, p);
@@ -634,7 +1128,7 @@ float4 fs_main(float4 position : SV_Position) : SV_Target0
     float3 r = reflect(-v, n);
     r.z = max(r.z, 0.02);
     r = normalize(r);
-    Found seen = traced(world, r, p);
+    Found seen = reflection.seen(world, r, p, dist);
     if (row(push.water, WATER_DRAWN).z > 0.5)
     {
         // Checking the reflection: what it found, red a surface met, green the land, blue the
@@ -650,13 +1144,13 @@ float4 fs_main(float4 position : SV_Position) : SV_Target0
     float3 own = at(push.copy, through_at).rgb;
     float absorption = row(push.water, WATER_DRAWN).w;
     float reflects = 1.0;
-    if (water && (under > 0.0 || (push.drawn != 0xFFFFFFFF && row(push.drawn, D_BED).x > 0.5)))
+    if (water && (under > 0.0 || (push.drawn != NONE && row(push.drawn, D_BED).x > 0.5)))
     {
         // Only as the water deepens from its edge, so a film of water over the bank shows the wet
         // ground rather than a pale rim of sky.
         reflects = smoothstep(0.0, 0.3, under);
     }
-    if (water && under > 0.0 && absorption > 0.0 && push.drawn != 0xFFFFFFFF)
+    if (water && under > 0.0 && absorption > 0.0 && push.drawn != NONE)
     {
         // The water's own color: retail's water under the light the bed takes, as the resolve has
         // lit the bed against its own color. Far off, in the fog, what the fog left of the bed.
@@ -693,7 +1187,7 @@ float4 fs_main(float4 position : SV_Position) : SV_Target0
     if (water && dot(sun, sun) > 1e-8)
     {
         float3 l = normalize(sun);
-        float reach = push.sun_visibility != 0xFFFFFFFF ? at(push.sun_visibility, p).x : 1.0;
+        float reach = push.sun_visibility != NONE ? at(push.sun_visibility, p).x : 1.0;
         float glint = pow(saturate(dot(r, l)), 400.0) * 4.0 * reach * reflects;
         float3 color = row(push.frame, FRAME_SUN_COLOR).rgb * length(sun);
         if (linear_frame(push.frame))
@@ -703,4 +1197,20 @@ float4 fs_main(float4 position : SV_Position) : SV_Target0
         c += color * glint;
     }
     return float4(c, 1.0);
+}
+
+// The water with its reflection found on screen.
+[shader("fragment")]
+float4 fs_main(float4 position : SV_Position) : SV_Target0
+{
+    OnScreen s;
+    return shade(position, s);
+}
+
+// The water with its reflection traced through the scene, where the device traces rays.
+[shader("fragment")]
+float4 fs_traced(float4 position : SV_Position) : SV_Target0
+{
+    ThroughScene s;
+    return shade(position, s);
 }

@@ -107,6 +107,8 @@ pub struct Plan {
     upscale: Option<super::upscale::UpscalePlan>,
     /// The water pass's frame, when it runs.
     water: Option<super::water::WaterPlan>,
+    /// The sky all round the eye, drawn for the water.
+    sky_probe: Option<super::sky_probe::SkyProbePlan>,
     /// The weather's frame, when any of it is drawn.
     weather: Option<super::weather::WeatherPlan>,
     /// The scene's acceleration structures, when the frame traces rays.
@@ -233,16 +235,15 @@ impl Renderer {
         )
         .bytes();
         bytes += put(&mut self.constants, &mut self.gfx, rows.clone())?;
-        if !drawn.sky.is_empty() {
-            bytes += put(
-                &mut self.sky_constants,
-                &mut self.gfx,
-                drawn_linear(
-                    frame_rows_seen(&frame, sky_projection(&frame.camera), gamma, mode, render),
-                    self.post.linear(),
-                )
-                .bytes(),
-            )?;
+        let sky_rows = (!drawn.sky.is_empty()).then(|| {
+            drawn_linear(
+                frame_rows_seen(&frame, sky_projection(&frame.camera), gamma, mode, render),
+                self.post.linear(),
+            )
+            .bytes()
+        });
+        if let Some(rows) = sky_rows.clone() {
+            bytes += put(&mut self.sky_constants, &mut self.gfx, rows)?;
         }
         bytes += put(
             &mut self.lights,
@@ -522,7 +523,8 @@ impl Renderer {
         let wanted = self.rt_kept
             || (self.rt_shadow.wants_rays() && shadow.is_some())
             || (self.rt_ao.wants_rays() && ao.is_some())
-            || self.gi.wants_rays();
+            || self.gi.wants_rays()
+            || self.water.wants_rays();
         let rt = self.rt.prepare(&mut self.gfx, &self.scene, wanted)?;
         let rt_shadow = self
             .rt_shadow
@@ -537,6 +539,48 @@ impl Renderer {
             self.scene.materials.index,
             self.sampler(0),
         ];
+        // The sky all round the eye, for the water to reflect.
+        let sky_probe = match &sky_rows {
+            Some(rows) if self.water.settings().runs() && frame.landscape && !drawn.inside => {
+                let format = if post.is_some() {
+                    super::post::scene_format(&self.gfx)
+                } else {
+                    super::COLOR
+                };
+                Some(self.sky_probe.prepare(
+                    &mut self.gfx,
+                    format,
+                    &frame.camera,
+                    frame.camera.far * super::light::SKY_FAR,
+                    rows,
+                    atmosphere.as_ref().map(|_| self.atmosphere.rows()),
+                )?)
+            }
+            _ => None,
+        };
+        let water_sampler = self.sampler(0);
+        let probe_sampler = self.sampler(1);
+        let water = self.water.prepare(
+            &mut self.gfx,
+            &frame,
+            &targets,
+            (post.is_some(), rainy),
+            &super::water::WaterInputs {
+                rt: rt.as_ref(),
+                pools: [
+                    self.scene.indices.index,
+                    self.scene.vertices.index,
+                    self.scene.materials.index,
+                    water_sampler,
+                    self.scene.instances.index,
+                    self.scene.ground_vertices.index,
+                    self.scene.ground_cells.index,
+                ],
+                sky: atmosphere.as_ref().map(super::sky::SkyPlan::view_inputs),
+                probe: sky_probe.map(|p| (p.faces, probe_sampler)),
+                heights: drawn_ground.as_ref().map(super::drawn::DrawnPlan::heights),
+            },
+        )?;
         let samplers = [self.sampler(0), self.sampler(1)];
         let impostors = self.impostors.prepare(
             &mut self.gfx,
@@ -656,9 +700,8 @@ impl Renderer {
             rt_pools,
             retired: self.scene.take_retired(),
             ao,
-            water: self
-                .water
-                .prepare(&mut self.gfx, &frame, &targets, post.is_some(), rainy)?,
+            water,
+            sky_probe,
             post,
             upscale,
             weather,
@@ -1169,6 +1212,40 @@ impl Plan {
                 Ok(())
             },
         )?;
+        // The sky all round the eye, for the water, each way as the frame's own sky is drawn.
+        if let Some(probe) = &self.sky_probe {
+            r.timestamp("sky probe");
+            for k in 0..6 {
+                r.raster(
+                    &RasterPass {
+                        name: "sky probe",
+                        color: &[ColorAttachment {
+                            texture: probe.faces[k].0,
+                            load: Load::Clear([0.0, 0.0, 0.0, 1.0]),
+                        }],
+                        depth: None,
+                        touches: &sky_touches,
+                        area: Some(Rect {
+                            x: 0,
+                            y: 0,
+                            width: super::sky_probe::SIDE,
+                            height: super::sky_probe::SIDE,
+                        }),
+                    },
+                    |d| {
+                        self.draw_runs(d, &self.sky_runs, probe.frames[k], NONE)?;
+                        if let (Some(a), Some(skies)) = (&self.atmosphere, probe.skies) {
+                            a.draw_seen(d, skies[k], false)?;
+                        }
+                        self.draw_runs(d, &self.sky_runs_rest, probe.frames[k], NONE)?;
+                        if let (Some(a), Some(skies)) = (&self.atmosphere, probe.skies) {
+                            a.draw_seen(d, skies[k], true)?;
+                        }
+                        Ok(())
+                    },
+                )?;
+            }
+        }
         r.timestamp("resolve");
         let mut resolve_touches = vec![
             Touch::Texture(t.albedo, Use::Sampled),

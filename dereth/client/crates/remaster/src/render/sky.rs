@@ -547,6 +547,8 @@ pub struct SkyPass {
     sampler: (Sampler, u32),
     tables: Option<[(Texture, u32); 3]>,
     constants: PerFrame,
+    /// The last frame's constants, for views of the sky other than the frame's own.
+    last_rows: Vec<u8>,
     fog_constants: PerFrame,
     fog_volume: Option<(dereth_gfx::Buffer, u32)>,
     tables_key: Option<TablesKey>,
@@ -721,6 +723,7 @@ impl SkyPass {
             sampler: (sampler, sampler_index),
             tables: None,
             constants: PerFrame::new(d, "remaster sky constants", 512, Default::default())?,
+            last_rows: Vec::new(),
             fog_constants: PerFrame::new(d, "remaster fog constants", 80, Default::default())?,
             air_copy: None,
             cloud_shadow: None,
@@ -755,6 +758,12 @@ impl SkyPass {
         ];
         self.tables = Some(t);
         Ok(t)
+    }
+
+    /// The sky's constants the frame was drawn with.
+    #[must_use]
+    pub(crate) fn rows(&self) -> &[u8] {
+        &self.last_rows
     }
 
     /// Work out the frame's fog volume, when the fog is drawn from one and the frame has fog:
@@ -854,6 +863,7 @@ impl SkyPass {
             }
         };
         self.constants.write(d, &rows)?;
+        self.last_rows = rows;
         let tables_key = TablesKey(Weather::of(&frame.day_group));
         let sun = frame.light.sun.normalize_or(Vec3::Z);
         let view_key = ViewKey {
@@ -1169,6 +1179,17 @@ impl SkyPlan {
         self.tables[2].0
     }
 
+    /// What another pass reads to find the sky's own light any way it looks: the sky's
+    /// constants, its sky-view table and the sampler it is read with, by their indices in the
+    /// table, and the table itself.
+    #[must_use]
+    pub(crate) fn view_inputs(&self) -> ([u32; 3], Texture) {
+        (
+            [self.constants, self.tables[2].1, self.sampler],
+            self.tables[2].0,
+        )
+    }
+
     /// Draw the physical sky over what is drawn, in the sky pass.
     ///
     /// # Errors
@@ -1183,6 +1204,25 @@ impl SkyPlan {
     /// What the layer refuses.
     pub(crate) fn draw_veil(&self, d: &mut Draw<'_>) -> Result<(), dereth_gfx::Error> {
         self.fullscreen(d, self.pipelines.veil[usize::from(self.post)])
+    }
+
+    /// Draw the physical sky, then (`veil`) the veil, seen as the sky's constants `constants`
+    /// say: for a view of the sky other than the frame's own.
+    pub(crate) fn draw_seen(
+        &self,
+        d: &mut Draw<'_>,
+        constants: u32,
+        veil: bool,
+    ) -> Result<(), dereth_gfx::Error> {
+        let p = if veil {
+            self.pipelines.veil[usize::from(self.post)]
+        } else {
+            self.pipelines.sky[usize::from(self.post)]
+        };
+        d.set_pipeline(p)?;
+        d.push(0, &words(&[constants, self.tables[2].1, self.sampler]))?;
+        d.draw(3, 1, 0, 0);
+        Ok(())
     }
 
     fn fullscreen(&self, d: &mut Draw<'_>, p: Pipeline) -> Result<(), dereth_gfx::Error> {

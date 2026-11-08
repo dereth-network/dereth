@@ -103,6 +103,8 @@ pub enum Entry {
     GrassFsScatter,
     /// `fs_main` in `water.slang`, the fragment stage.
     WaterFsMain,
+    /// `fs_traced` in `water.slang`, the fragment stage.
+    WaterFsTraced,
     /// `cs_bases` in `lift.slang`, the compute stage.
     LiftCsBases,
     /// `vs_bake` in `impostor.slang`, the vertex stage.
@@ -179,7 +181,7 @@ pub enum Entry {
 
 impl Entry {
     /// Every entry point, in `shaders.toml`'s order.
-    pub const ALL: [Self; 86] = [Self::AirFsAir, Self::CloudShadowFsMain, Self::StampVsMain, Self::FullscreenVsMain, Self::CopyFsMain, Self::GbufferVsMain, Self::GbufferFsMain, Self::GbufferFsForward, Self::GbufferFsEdge, Self::TerrainVsMain, Self::TerrainFsMain, Self::ResolveFsVertex, Self::ResolveFsPixel, Self::CompositeFsMain, Self::CullCsMain, Self::GbufferFsCaster, Self::ShadowMaskFsMain, Self::AoFsGtao, Self::AoFsGather, Self::AoFsUpsample, Self::LampsCsClusters, Self::LampsFsLamps, Self::HaloVsHalo, Self::HaloFsHalo, Self::PostFsTaa, Self::PostFsTaaCheck, Self::PostFsBloomDown, Self::PostFsBloomUp, Self::PostFsTonemap, Self::MotionVsMain, Self::MotionFsMain, Self::SkyTablesFsTransmittance, Self::SkyTablesFsMultiple, Self::SkyTablesFsSkyView, Self::SkyFsSky, Self::SkyFsVeil, Self::FogVolumeCsMain, Self::DrawnVsGround, Self::DrawnFsGround, Self::DrawnVsCaster, Self::DrawnCsProbe, Self::DrawnCsGrass, Self::GrassVsBlade, Self::GrassFsBlade, Self::GrassVsBladeMotion, Self::GrassFsBladeMotion, Self::DrawnCsScatter, Self::GrassVsScatter, Self::GrassFsScatter, Self::WaterFsMain, Self::LiftCsBases, Self::ImpostorVsBake, Self::ImpostorFsBake, Self::ImpostorVsDraw, Self::ImpostorFsDraw, Self::ForestCsCull, Self::ForestVsFar, Self::ForestFsFar, Self::RainFsSplash, Self::RainVsFall, Self::RainFsFall, Self::RtCsInstances, Self::RtCheckCsCheck, Self::GiCsUpdate, Self::GiFsProbes, Self::GiFsScreen, Self::GiFsBlur, Self::GiTraceCsTrace, Self::RtShadowFsMain, Self::RtAoFsRays, Self::RtAoFsFilter, Self::UpscaleInputsCsMain, Self::Fsr3PassesCsClearReconstructed, Self::Fsr3PassesCsPrepareInputs, Self::Fsr3PassesCsFarthestHalf, Self::Fsr3PassesCsShadingLevelZero, Self::Fsr3PassesCsShadingLevel, Self::Fsr3PassesCsShadingChange, Self::Fsr3PassesCsReactivity, Self::Fsr3PassesCsLumaInstability, Self::Fsr3PassesCsAccumulate, Self::Fsr3PassesCsRcas, Self::Fsr3PassesFsShow, Self::Fsr3PassesCsReactiveInput, Self::Fsr3PassesCsExposure, Self::Fsr3PassesFsInputsAsPictures];
+    pub const ALL: [Self; 87] = [Self::AirFsAir, Self::CloudShadowFsMain, Self::StampVsMain, Self::FullscreenVsMain, Self::CopyFsMain, Self::GbufferVsMain, Self::GbufferFsMain, Self::GbufferFsForward, Self::GbufferFsEdge, Self::TerrainVsMain, Self::TerrainFsMain, Self::ResolveFsVertex, Self::ResolveFsPixel, Self::CompositeFsMain, Self::CullCsMain, Self::GbufferFsCaster, Self::ShadowMaskFsMain, Self::AoFsGtao, Self::AoFsGather, Self::AoFsUpsample, Self::LampsCsClusters, Self::LampsFsLamps, Self::HaloVsHalo, Self::HaloFsHalo, Self::PostFsTaa, Self::PostFsTaaCheck, Self::PostFsBloomDown, Self::PostFsBloomUp, Self::PostFsTonemap, Self::MotionVsMain, Self::MotionFsMain, Self::SkyTablesFsTransmittance, Self::SkyTablesFsMultiple, Self::SkyTablesFsSkyView, Self::SkyFsSky, Self::SkyFsVeil, Self::FogVolumeCsMain, Self::DrawnVsGround, Self::DrawnFsGround, Self::DrawnVsCaster, Self::DrawnCsProbe, Self::DrawnCsGrass, Self::GrassVsBlade, Self::GrassFsBlade, Self::GrassVsBladeMotion, Self::GrassFsBladeMotion, Self::DrawnCsScatter, Self::GrassVsScatter, Self::GrassFsScatter, Self::WaterFsMain, Self::WaterFsTraced, Self::LiftCsBases, Self::ImpostorVsBake, Self::ImpostorFsBake, Self::ImpostorVsDraw, Self::ImpostorFsDraw, Self::ForestCsCull, Self::ForestVsFar, Self::ForestFsFar, Self::RainFsSplash, Self::RainVsFall, Self::RainFsFall, Self::RtCsInstances, Self::RtCheckCsCheck, Self::GiCsUpdate, Self::GiFsProbes, Self::GiFsScreen, Self::GiFsBlur, Self::GiTraceCsTrace, Self::RtShadowFsMain, Self::RtAoFsRays, Self::RtAoFsFilter, Self::UpscaleInputsCsMain, Self::Fsr3PassesCsClearReconstructed, Self::Fsr3PassesCsPrepareInputs, Self::Fsr3PassesCsFarthestHalf, Self::Fsr3PassesCsShadingLevelZero, Self::Fsr3PassesCsShadingLevel, Self::Fsr3PassesCsShadingChange, Self::Fsr3PassesCsReactivity, Self::Fsr3PassesCsLumaInstability, Self::Fsr3PassesCsAccumulate, Self::Fsr3PassesCsRcas, Self::Fsr3PassesFsShow, Self::Fsr3PassesCsReactiveInput, Self::Fsr3PassesCsExposure, Self::Fsr3PassesFsInputsAsPictures];
 
     /// The source file that defines it.
     #[must_use]
@@ -235,6 +237,7 @@ impl Entry {
             Self::GrassVsScatter => "grass.slang",
             Self::GrassFsScatter => "grass.slang",
             Self::WaterFsMain => "water.slang",
+            Self::WaterFsTraced => "water.slang",
             Self::LiftCsBases => "lift.slang",
             Self::ImpostorVsBake => "impostor.slang",
             Self::ImpostorFsBake => "impostor.slang",
@@ -328,6 +331,7 @@ impl Entry {
             Self::GrassVsScatter => "vs_scatter",
             Self::GrassFsScatter => "fs_scatter",
             Self::WaterFsMain => "fs_main",
+            Self::WaterFsTraced => "fs_traced",
             Self::LiftCsBases => "cs_bases",
             Self::ImpostorVsBake => "vs_bake",
             Self::ImpostorFsBake => "fs_bake",
@@ -421,6 +425,7 @@ impl Entry {
             Self::GrassVsScatter => Stage::Vertex,
             Self::GrassFsScatter => Stage::Fragment,
             Self::WaterFsMain => Stage::Fragment,
+            Self::WaterFsTraced => Stage::Fragment,
             Self::LiftCsBases => Stage::Compute,
             Self::ImpostorVsBake => Stage::Vertex,
             Self::ImpostorFsBake => Stage::Fragment,
@@ -514,6 +519,7 @@ impl Entry {
             Self::GrassVsScatter => include_bytes!("spirv/grass.vs_scatter.spv"),
             Self::GrassFsScatter => include_bytes!("spirv/grass.fs_scatter.spv"),
             Self::WaterFsMain => include_bytes!("spirv/water.fs_main.spv"),
+            Self::WaterFsTraced => include_bytes!("spirv/water.fs_traced.spv"),
             Self::LiftCsBases => include_bytes!("spirv/lift.cs_bases.spv"),
             Self::ImpostorVsBake => include_bytes!("spirv/impostor.vs_bake.spv"),
             Self::ImpostorFsBake => include_bytes!("spirv/impostor.fs_bake.spv"),
@@ -607,6 +613,7 @@ impl Entry {
             Self::GrassVsScatter => include_bytes!("dxil/grass.vs_scatter.dxil"),
             Self::GrassFsScatter => include_bytes!("dxil/grass.fs_scatter.dxil"),
             Self::WaterFsMain => include_bytes!("dxil/water.fs_main.dxil"),
+            Self::WaterFsTraced => include_bytes!("dxil/water.fs_traced.dxil"),
             Self::LiftCsBases => include_bytes!("dxil/lift.cs_bases.dxil"),
             Self::ImpostorVsBake => include_bytes!("dxil/impostor.vs_bake.dxil"),
             Self::ImpostorFsBake => include_bytes!("dxil/impostor.fs_bake.dxil"),

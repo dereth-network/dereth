@@ -516,7 +516,8 @@ pub struct DrawnPlan {
 }
 
 impl DrawnPlan {
-    /// The world's landscape heights: their index in the table and their buffer.
+    /// The world's landscape heights: their index in the table and their buffer, what another
+    /// pass reads for the shape of the land.
     pub(crate) fn heights(&self) -> (u32, Buffer) {
         (self.words[2], self.buffers[0])
     }
