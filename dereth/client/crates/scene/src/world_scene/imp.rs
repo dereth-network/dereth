@@ -29,6 +29,9 @@ use degrade::*;
 #[path = "views.rs"]
 mod views;
 pub use views::*;
+#[cfg(feature = "hifi")]
+#[path = "asked_clouds.rs"]
+mod asked_clouds;
 #[path = "bake_worker.rs"]
 mod bake_worker;
 #[path = "cells.rs"]

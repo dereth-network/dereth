@@ -20,7 +20,6 @@
 
 use std::collections::HashMap;
 
-use dereth_client_runtime::clouds::{CloudOption, Clouds, OPTIONS as CLOUD_OPTIONS};
 use dereth_client_runtime::render_prefs::{FidelityFeature, FidelityPreferences};
 use dereth_render_hifi::snapshot::HifiPackLight;
 use dereth_render_hifi::snapshot::{
@@ -477,7 +476,7 @@ fn far_trees_for_presentation(
 }
 
 /// The Remastered sky as the presentation reads it, while its knob has it on.
-fn sky_knobs(k: &Knobs) -> Option<dereth_render_hifi::snapshot::HifiSkyKnobs> {
+pub(super) fn sky_knobs(k: &Knobs) -> Option<dereth_render_hifi::snapshot::HifiSkyKnobs> {
     // LINT-OK: a step count knob, 1 to 64.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let steps = k.get(Knob::CloudSteps).round() as u32;
@@ -501,32 +500,6 @@ fn sky_knobs(k: &Knobs) -> Option<dereth_render_hifi::snapshot::HifiSkyKnobs> {
             stars: k.get(Knob::Stars),
             star_twinkle: k.get(Knob::StarTwinkle),
         })
-}
-
-/// The knob each `@clouds` option sets.
-const fn cloud_knob(option: CloudOption) -> Knob {
-    match option {
-        CloudOption::Cover => Knob::CloudCover,
-        CloudOption::Speed => Knob::CloudSpeed,
-        CloudOption::Height => Knob::CloudHeight,
-        CloudOption::Depth => Knob::CloudDepth,
-        CloudOption::Size => Knob::CloudScale,
-        CloudOption::Detail => Knob::CloudDetail,
-        CloudOption::Light => Knob::CloudLight,
-        CloudOption::Shade => Knob::CloudShade,
-        CloudOption::Shadows => Knob::CloudShadows,
-    }
-}
-
-/// The knobs with what `@clouds` has asked for in place of their own values.
-fn with_asked_clouds(k: &Knobs, asked: &Clouds) -> Knobs {
-    let mut k = k.clone();
-    for option in CLOUD_OPTIONS {
-        if let Some(value) = asked.get(option) {
-            k.set(cloud_knob(option), value);
-        }
-    }
-    k
 }
 
 /// The light on an art pack's art as the presentation reads it.
@@ -1098,10 +1071,12 @@ fn snapshot(
         None => None,
     };
     frame.pack_light = pack_light(&draw.drawn.knobs);
-    frame.sky_knobs = frame
-        .art_pack
-        .as_ref()
-        .and_then(|_| sky_knobs(&with_asked_clouds(&draw.drawn.knobs, &ws.clouds)));
+    frame.sky_knobs = frame.art_pack.as_ref().and_then(|_| {
+        sky_knobs(&super::asked_clouds::with_asked_clouds(
+            &draw.drawn.knobs,
+            &ws.clouds,
+        ))
+    });
     frame.far = far_knobs(&draw.drawn.knobs);
     frame.far_trees = if draw.far.active && frame.art_pack.is_some() {
         if sh
@@ -1364,41 +1339,6 @@ mod tests {
 
     use dereth_client_contract::options::fidelity::{blocked, OPTIONS};
     use dereth_render_hifi::composite::CompositeMode;
-
-    /// Behaviour: rendering.sky.clouds-asked-for-replace-the-settings-until-reset
-    #[test]
-    fn the_clouds_asked_for_replace_the_knobs_and_reset_returns_to_them() {
-        use dereth_client_runtime::clouds::CloudsCommand as C;
-        let mut own = Knobs::default();
-        own.set(Knob::CloudLight, 2.5);
-        let mut asked = Clouds::default();
-        assert_eq!(with_asked_clouds(&own, &asked), own, "nothing asked for");
-
-        asked.obey(C::Set(CloudOption::Cover, 0.0));
-        asked.obey(C::Set(CloudOption::Size, 3.0));
-        let sky = sky_knobs(&with_asked_clouds(&own, &asked)).expect("the sky's knob is on");
-        assert_eq!(sky.cloud_cover, 0.0);
-        assert_eq!(sky.cloud_scale, 3.0);
-        assert_eq!(
-            sky.cloud_light, 2.5,
-            "what is not asked for stays the knob's"
-        );
-
-        asked.obey(C::Reset);
-        assert_eq!(with_asked_clouds(&own, &asked), own);
-    }
-
-    /// Behaviour: rendering.sky.clouds-asked-for-replace-the-settings-until-reset
-    #[test]
-    fn each_cloud_option_sets_its_own_knob_and_takes_that_knobs_whole_range() {
-        let mut knobs = std::collections::HashSet::new();
-        for option in CLOUD_OPTIONS {
-            let knob = cloud_knob(option);
-            let spec = knob.spec();
-            assert_eq!(option.range(), (spec.min, spec.max), "{option:?}");
-            assert!(knobs.insert(knob), "{option:?} shares a knob");
-        }
-    }
 
     /// The preferences with the boxes `ticked` (one bit each, in the page's order) under the
     /// Horizon interface.

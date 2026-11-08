@@ -1101,7 +1101,7 @@ pub static ROWS: &[Behaviour] = &[
         since: THIS_CLIENT,
         divergence: "CD-cloud-command",
         evidence: Evidence::Private("AC-EVID-SKY-CLOUDS"),
-        station: "dereth-scene::lib::world_scene::imp::hifi_bridge::tests::the_clouds_asked_for_replace_the_knobs_and_reset_returns_to_them",
+        station: "dereth-scene::lib::world_scene::imp::asked_clouds::tests::the_clouds_asked_for_replace_the_knobs_and_reset_returns_to_them",
         tier: Tier::Cpu,
     },
     behaviour! {
