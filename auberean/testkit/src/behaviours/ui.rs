@@ -1253,6 +1253,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.listener.a-removed-element-leaves-no-registration-behind",
+        says: "An element removed takes its registrations with it and leaves no list behind, so a \
+               listener's undoing of a message only that element listened for waits for nothing, \
+               and its registering afterwards holds.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-LISTENER-GONE"),
+        station: "auberean-ui::cpu::framework::a_removed_element_leaves_no_registration_behind",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "ui.listener.registrations-take-effect-in-order",
         says: "A listener hears an element's message only once registered for it; an undoing takes \
                effect at the next delivery; a global message registered twice needs two undoings.",

@@ -98,6 +98,56 @@ fn registrations_take_effect_in_order() {
     u.drop_listener(me);
 }
 
+/// An element removed takes its registrations with it, leaving no list behind: a listener that
+/// undoes a message it never registered for, where only that element listened, and then registers
+/// for it, hears it.
+///
+/// Behaviour: ui.listener.a-removed-element-leaves-no-registration-behind
+#[test]
+fn a_removed_element_leaves_no_registration_behind() {
+    let mut u = ui(
+        vec![
+            field("Window", [0, 0, 99, 99], vec![]),
+            field("Gone", [0, 0, 9, 9], vec![]),
+        ],
+        vec![],
+    );
+    let l = u.load_layout(LAYOUT).unwrap();
+    let w = u.create_root(l, Token::of("Window")).unwrap();
+    let gone = u.create_root(l, Token::of("Gone")).unwrap();
+    u.register_for_global_message(gone, global::MOUSE_DOWN);
+    u.register_for_message(gone, Token::of("Window"), msg::MOUSE_PRESS);
+    u.remove(gone);
+
+    let me = u.new_listener();
+    u.unregister_for_global_message(me, global::MOUSE_DOWN);
+    u.unregister_for_message(me, Token::of("Window"), msg::MOUSE_PRESS);
+    u.listen_for_global_message(me, global::MOUSE_DOWN);
+    u.listen_for_message(me, Token::of("Window"), msg::MOUSE_PRESS);
+
+    u.pointer_move(50, 50);
+    u.pointer_press();
+    u.pointer_release();
+    let mail = u.take_mail(me);
+    assert!(
+        mail.iter().any(|m| matches!(
+            m,
+            Mail::Global {
+                what: global::MOUSE_DOWN,
+                ..
+            }
+        )),
+        "the global message heard: {mail:?}"
+    );
+    assert!(
+        mail.iter().any(
+            |m| matches!(m, Mail::Element { from, what, .. } if *from == w && *what == msg::MOUSE_PRESS)
+        ),
+        "the element's message heard: {mail:?}"
+    );
+    u.drop_listener(me);
+}
+
 fn tabs() -> Vec<auberean_assets::ui::Element> {
     let tab = |name: &str, page: &str, x: i16, open: bool| {
         let mut t = element(

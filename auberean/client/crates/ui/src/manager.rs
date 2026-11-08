@@ -223,16 +223,12 @@ impl Ui {
         }
     }
 
-    /// Stop a listener hearing an element's message, at the next delivery.
+    /// Stop a listener hearing an element's message, at the next delivery. The undoing waits
+    /// whenever anyone listens for that message, whether or not this listener does.
     // D2-11250, D2-11225
     pub fn unregister_for_message(&mut self, l: impl Into<Listener>, element: Token, what: Token) {
         let who = l.into();
-        if self
-            .mgr
-            .listeners
-            .get(&(element, what))
-            .is_some_and(|list| !list.is_empty())
-        {
+        if self.mgr.listeners.contains_key(&(element, what)) {
             self.mgr.element_clean.push_back((who, element, what));
         }
     }
@@ -356,22 +352,25 @@ impl Ui {
         self.clean_element_list();
     }
 
-    /// Forget a listener that is going away: it leaves every list at once, and its waiting
-    /// undoings go.
+    /// Forget a listener that is going away: it leaves every list at once, a list it leaves empty
+    /// goes as an undoing's would, and its waiting undoings go.
     // D2-11255, D2-11254
     pub(crate) fn delete_listener_from_queues(&mut self, who: Listener) {
         self.mgr.global_clean.retain(|(w, _)| *w != who);
         self.mgr.element_clean.retain(|(w, _, _)| *w != who);
         self.mgr.object_clean.retain(|(w, _, _)| *w != who);
-        for l in self.mgr.object_listeners.values_mut() {
+        self.mgr.object_listeners.retain(|_, l| {
             l.retain(|x| *x != who);
-        }
-        for l in self.mgr.globals.values_mut() {
+            !l.is_empty()
+        });
+        self.mgr.globals.retain(|_, l| {
             l.retain(|x| *x != who);
-        }
-        for l in self.mgr.listeners.values_mut() {
+            !l.is_empty()
+        });
+        self.mgr.listeners.retain(|_, l| {
             l.retain(|x| *x != who);
-        }
+            !l.is_empty()
+        });
         self.mgr.global_counts.retain(|(w, _), _| *w != who);
         self.mgr.element_marks.retain(|(w, _, _)| *w != who);
     }
