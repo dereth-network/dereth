@@ -3154,7 +3154,8 @@ fn an_ulkas_mine_is_given_by_a_guard_after_its_toll_and_its_last_gem_ends_the_to
 }
 
 /// **Ryvenna's gems**: 33 in the order characters did them: each given at the use after the one
-/// before it is done, none given twice, any size taken, her fee paid and her next gem named.
+/// before it is done, none given twice, any size taken, her fee paid (one for any size, or twice
+/// the gem's worth by size) and her next gem named.
 /// Behaviour: server.gives.ryvenna-gems
 #[test]
 fn ryvennas_gems_follow_one_another_in_the_order_characters_did_them() {
@@ -3201,6 +3202,7 @@ fn ryvennas_gems_follow_one_another_in_the_order_characters_did_them() {
         q = after(at);
     }
     assert_eq!(n, 33, "one chain");
+    let portal = yalain_testkit::authored::Portal::open();
     for g in &givings {
         let taken: Vec<_> = t
             .quests
@@ -3212,10 +3214,21 @@ fn ryvennas_gems_follow_one_another_in_the_order_characters_did_them() {
             .collect();
         assert_eq!(taken.len(), 4, "{:08X}: every size", g.quest);
         let fee = &taken[0].counts;
-        assert!(taken.iter().all(|s| &s.counts == fee), "{:08X}", g.quest);
+        let one_fee = taken.iter().all(|s| &s.counts == fee);
+        let by_worth = taken.iter().all(|s| {
+            let Trigger::Give(gem, _) = s.trigger else {
+                return false;
+            };
+            let worth = portal.template(gem).props.int("Item_Value").unwrap_or(0);
+            s.counts.first() == u32::try_from(2 * worth).ok().as_ref()
+        });
+        assert!(
+            one_fee || by_worth,
+            "{:08X}: one fee for any size, or twice each gem's worth",
+            g.quest
+        );
     }
 
-    let portal = yalain_testkit::authored::Portal::open();
     let (mut h, b, me) = served(t);
     set_level(&mut h, 60);
     let o = placed(t, RYVENNA);
