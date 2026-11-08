@@ -1710,10 +1710,26 @@ fn over_forest(
     RemasterCapture,
     dereth_scene::world_scene::RemasterForestStats,
 ) {
+    far_forest_at(store, pack, &over_the_forest(), None)
+}
+
+/// The remaster at `station` with `pack` drawn and the ground's knobs `knobs` (each at its
+/// default where none are given), its far trees and cover worked out and settled.
+fn far_forest_at(
+    store: &Arc<RetailDatStore>,
+    pack: Arc<ArtPack>,
+    station: &Station,
+    knobs: Option<dereth_terrain::land::drawn::Knobs>,
+) -> (
+    RemasterCapture,
+    dereth_scene::world_scene::RemasterForestStats,
+) {
     let mut gpu = device();
-    let station = over_the_forest();
-    let mut shot = Shot::open(store, &mut gpu, &station);
+    let mut shot = Shot::open(store, &mut gpu, station);
     shot.poll(&mut gpu);
+    if let Some(k) = knobs {
+        shot.scene.set_remaster_ground_knobs(k);
+    }
     shot.scene.draw.set_remaster_pack(Some(pack), None);
     shot.scene.draw.set_remaster_packs(trees(), &mut gpu);
     shot.scene
@@ -1781,6 +1797,66 @@ fn a_packs_far_pictures_stand_its_trees_past_the_blocks_round_the_viewer() {
     assert!(
         with_far > without_far + 2000,
         "the far trees are drawn: {with_far} leaf-green pixels, against {without_far}"
+    );
+}
+
+/// The pixels of what is drawn standing above the ground's outline, column by column, and of what
+/// stands below it: the objects (lit by the sun) over the topmost ground in each column, and the
+/// rest of them.
+fn over_and_under_the_outline(c: &RemasterCapture) -> (usize, usize) {
+    const GROUND: u8 = 1;
+    const OBJECT: u8 = 2;
+    let (w, h) = (c.width as usize, c.class.len() / c.width as usize);
+    let (mut over, mut under) = (0, 0);
+    for x in 0..w {
+        let top = (0..h).find(|&y| c.class[y * w + x] == GROUND).unwrap_or(h);
+        for y in 0..h {
+            if c.class[y * w + x] == OBJECT {
+                if y < top {
+                    over += 1;
+                } else {
+                    under += 1;
+                }
+            }
+        }
+    }
+    (over, under)
+}
+
+/// **A far tree standing on the skyline keeps a small part of its size**: looking out from the
+/// highest ground near Holtburg, the far trees on the far mountains' tops stand against the sky;
+/// drawn with the skyline's share, far fewer pixels of what stands above the ground's outline are
+/// drawn than with every tree at its whole size, while the forest backed by the land below the
+/// outline is drawn much as it was.
+#[test]
+fn a_far_tree_on_the_skyline_keeps_a_small_part_of_its_size() {
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    let vista = station(&store, "vista");
+    let whole = {
+        let mut k = dereth_terrain::land::drawn::Knobs::default();
+        k.set(dereth_terrain::land::drawn::Knob::TreeSkyline, 1.0);
+        k
+    };
+    let pack = || in_memory(&far_files(true));
+    let (shrunk, stats) = far_forest_at(&store, pack(), &vista, None);
+    let (kept, _) = far_forest_at(&store, pack(), &vista, Some(whole));
+    let (over, under) = over_and_under_the_outline(&shrunk);
+    let (over_whole, under_whole) = over_and_under_the_outline(&kept);
+    eprintln!(
+        "{stats:?}; over the outline {over} pixels, {over_whole} with every far tree whole; \
+         under it {under}, {under_whole}"
+    );
+    assert!(stats.standing > 1000, "{stats:?}");
+    assert!(
+        over * 2 < over_whole,
+        "the skyline's trees are smaller: {over} pixels over the outline against {over_whole}"
+    );
+    #[allow(clippy::cast_precision_loss)] // pixel counts
+    let kept_under = under as f32 / under_whole.max(1) as f32;
+    assert!(
+        kept_under > 0.85,
+        "the forest backed by land is drawn as it was: {under} pixels against {under_whole}"
     );
 }
 

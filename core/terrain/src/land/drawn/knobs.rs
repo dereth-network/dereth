@@ -109,6 +109,8 @@ pub enum Knob {
     TreeWiden,
     /// How much softer far trees are drawn than their size on screen calls for.
     TreeSoften,
+    /// How much of its size a far tree standing on the skyline keeps.
+    TreeSkyline,
     /// How strongly forest cover tints the far ground.
     ForestCover,
     /// How high forest cover raises the far ground.
@@ -285,7 +287,7 @@ const fn switch(
 }
 
 /// How many knobs there are.
-pub const KNOB_COUNT: usize = 102;
+pub const KNOB_COUNT: usize = 103;
 
 /// Every knob, in [`Knob`]'s order.
 pub const KNOBS: [KnobSpec; KNOB_COUNT] = [
@@ -337,6 +339,7 @@ pub const KNOBS: [KnobSpec; KNOB_COUNT] = [
     num(Knob::TreeThinFrom, "tree_thin_from", 3000.0, (0.0, 8000.0), "m", "far", "how far every far tree is drawn: past it they thin out, fewer and fewer to the reach"),
     num(Knob::TreeWiden, "tree_widen", 0.5, (0.0, 1.0), "", "far", "how much of a thinned forest's coverage the trees left standing make up by standing wider: 1 all of it, up to half as wide again"),
     num(Knob::TreeSoften, "tree_soften", 1.0, (0.0, 3.0), "", "far", "how much softer the far trees are drawn than their size on screen calls for, in halvings of their pictures' detail: up, still more under a still camera and blurrier; 0 sharpest, their finest leaves stirring"),
+    num(Knob::TreeSkyline, "tree_skyline", 0.3, (0.0, 1.0), "", "far", "how much of its size a far tree keeps where it stands on the skyline, no land beyond it as high as its top, from 1.8 km off; it shrinks toward it from 600 m: 1 all of it, as a tree backed by land"),
     num(Knob::ForestCover, "forest_cover", 1.0, (0.0, 2.0), "", "far", "how strongly the forest cover tints the far ground where the far trees thin out and past them: 0 none"),
     num(Knob::ForestCanopy, "forest_canopy", 0.5, (0.0, 1.0), "", "far", "how high the forest cover raises the far ground at the skyline, a share of its trees' height"),
     switch(Knob::Slope, "slope", true, "slope", "scree and rock laid on the ground by its drawn slope"),

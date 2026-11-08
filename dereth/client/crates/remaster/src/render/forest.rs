@@ -426,6 +426,8 @@ pub struct ForestPlan {
     clamp: u32,
     /// The weather's constants, `NONE` without them, and the overhead map they read.
     weather: (u32, Option<Texture>),
+    /// The world's vertex heights, `NONE` before they are read.
+    heights: u32,
 }
 
 /// What the pass needs of a frame.
@@ -443,6 +445,9 @@ pub struct ForestInputs<'a> {
     /// The weather's constants, which wet the trees out in the rain as the meshes are (`NONE`
     /// without them), and the overhead map they read.
     pub weather: (u32, Option<Texture>),
+    /// The world's vertex heights on the device (`NONE` before they are read): what tells a far
+    /// tree standing on the skyline.
+    pub heights: u32,
 }
 
 /// The far forest's pass: its pipelines, its buffers and its pictures.
@@ -802,6 +807,7 @@ impl ForestPass {
             frame: i.constants,
             clamp: i.clamp,
             weather: i.weather,
+            heights: i.heights,
         }))
     }
 
@@ -828,6 +834,7 @@ impl ForestPass {
                         plan.kept.index,
                         plan.args.index,
                         plan.stride - 12,
+                        plan.heights,
                     ]),
                 )?;
                 c.dispatch(plan.count.div_ceil(GROUP).max(1), 1, 1);
@@ -913,7 +920,7 @@ fn constants(
     let reach = k.reach.max(0.0);
     c.extend([global.x, global.y, reach, k.thin_from.min(reach)]);
     c.extend([k.widen, FADE, pixels, LEAST_PIXELS]);
-    c.extend([SINK, k.soften.max(0.0), 0.0, 0.0]);
+    c.extend([SINK, k.soften.max(0.0), k.skyline.clamp(0.0, 1.0), 0.0]);
     c.iter().flat_map(|f| f.to_le_bytes()).collect()
 }
 

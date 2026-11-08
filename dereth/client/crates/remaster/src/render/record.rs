@@ -550,6 +550,7 @@ impl Renderer {
                 weather: weather
                     .as_ref()
                     .map_or((NONE, None), |w| (w.table, Some(w.cover()))),
+                heights: self.drawn_ground.heights().unwrap_or(NONE),
             },
         )?;
         let gi = self

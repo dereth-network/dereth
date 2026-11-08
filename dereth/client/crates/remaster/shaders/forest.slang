@@ -7,7 +7,9 @@
 // drawn to, the trees thin out toward the reach: a tree's own number says how soon it goes, and it
 // shrinks away over a short stretch rather than popping. The trees left standing stand wider,
 // making up part of the coverage the thinning takes, and a tree too small for the screen to hold
-// shrinks away too.
+// shrinks away too. A tree far off that stands on the skyline, with no land beyond it rising as
+// high as its top, shrinks toward a small part of its size the farther off it stands: there it
+// would stand against the sky as a spike out of all proportion to the hill under it.
 import bindless;
 import retail;
 import weather;
@@ -24,7 +26,8 @@ static const uint C_LOOK = 8;    // x how much of the thinned coverage is made u
                                  // tree's fade stretches, a share of the thinning; z pixels a meter at a meter's
                                  // distance; w the least height on screen a tree is drawn at, pixels
 static const uint C_FAR = 9;     // x how far a tree is sunk, meters a meter of distance; y how many levels coarser
-                                 // its pictures are read than its quad calls for
+                                 // its pictures are read than its quad calls for; z the share of its size a tree
+                                 // on the skyline keeps
 
 // A tree, three rows: its foot and scale; its rotation; and (as words) its model, number and slot.
 // A model, four rows: the centre of its bounds and their radius; its quad's half width, foot and
@@ -43,7 +46,62 @@ struct CullPush
     // The draw's command, and where in it its instance count lies.
     uint args;
     uint count_at;
+    // The world's vertex heights (~0 before they are read), SIDE a side, CELL meters apart.
+    uint heights;
 };
+
+// The world's vertices: how many a side, and how far apart.
+static const int SIDE = 2041;
+static const float CELL = 24.0;
+// Past how far a tree on the skyline starts to shrink, and by how far it has shrunk all it does,
+// meters.
+static const float2 SKYLINE = float2(600.0, 1800.0);
+// How far past a tree the land is looked at, meters, doubling each time.
+static const float SKYLINE_LOOK = 120.0;
+static const uint SKYLINE_LOOKS = 6;
+
+// The world's height at world `p` (meters), between its four nearest vertices.
+float world_height(uint heights, float2 p)
+{
+    float2 g = p / CELL;
+    int2 c = int2(floor(g));
+    float2 f = g - float2(c);
+    float h[4];
+    for (uint k = 0; k < 4; k++)
+    {
+        int2 at = clamp(c + int2(k & 1, k >> 1), int2(0, 0), int2(SIDE - 1, SIDE - 1));
+        h[k] = asfloat(buffers[NonUniformResourceIndex(heights)].Load(uint(at.y * SIDE + at.x) * 4));
+    }
+    return lerp(lerp(h[0], h[1], f.x), lerp(h[2], h[3], f.x), f.y);
+}
+
+// How much of its size a tree whose foot is at `foot` and top `top` meters above it keeps for
+// standing on the skyline seen from `eye` (the frame's space, its origin at world `origin`): all of
+// it while some land beyond it rises as high as its top, or while it stands near; `least` from far
+// enough off.
+float skyline(uint heights, float3 eye, float3 foot, float top, float2 origin, float least)
+{
+    float2 flat = foot.xy - eye.xy;
+    float h = length(flat);
+    if (heights == 0xFFFFFFFF || least >= 1.0 || h <= SKYLINE.x)
+    {
+        return 1.0;
+    }
+    float2 ahead = flat / h;
+    float rises = (foot.z + top - eye.z) / h;
+    float s = SKYLINE_LOOK;
+    for (uint k = 0; k < SKYLINE_LOOKS; k++)
+    {
+        float far = h + s;
+        float ground = world_height(heights, eye.xy + ahead * far + origin);
+        if ((ground - eye.z) / far >= rises)
+        {
+            return 1.0;
+        }
+        s *= 2.0;
+    }
+    return lerp(1.0, least, smoothstep(SKYLINE.x, SKYLINE.y, h));
+}
 
 [shader("compute")]
 [numthreads(64, 1, 1)]
@@ -100,6 +158,8 @@ void cs_cull(uint3 id : SV_DispatchThreadID, uniform CullPush push)
         }
     }
     float wider = min(1.0 + look.x * (1.0 / max(left, 0.05) - 1.0), 1.5);
+    keep *= skyline(push.heights, eye.xyz, foot, row(push.models, w.x * 4 + 1).z * r0.w, reach.xy,
+                    row(push.constants, C_FAR).z);
     uint slot;
     rw_buffers[NonUniformResourceIndex(push.args)].InterlockedAdd(push.count_at, 1, slot);
     RWByteAddressBuffer kept = rw_buffers[NonUniformResourceIndex(push.kept)];

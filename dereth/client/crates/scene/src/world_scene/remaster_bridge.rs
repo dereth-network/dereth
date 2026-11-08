@@ -1219,6 +1219,7 @@ fn far_knobs(k: &dereth_terrain::land::drawn::Knobs) -> rm::FarKnobs {
         thin_from: k.get(Knob::TreeThinFrom),
         widen: k.get(Knob::TreeWiden),
         soften: k.get(Knob::TreeSoften),
+        skyline: k.get(Knob::TreeSkyline),
         cover: k.get(Knob::ForestCover),
         canopy: k.get(Knob::ForestCanopy),
     }

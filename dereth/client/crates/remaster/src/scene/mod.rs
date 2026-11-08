@@ -490,6 +490,8 @@ pub struct FarKnobs {
     pub thin_from: f32,
     pub widen: f32,
     pub soften: f32,
+    /// How much of its size a far tree standing on the skyline keeps, from far enough off.
+    pub skyline: f32,
     /// How strongly the cover tints the far ground, and how much its canopy raises it.
     pub cover: f32,
     pub canopy: f32,

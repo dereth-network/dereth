@@ -577,6 +577,12 @@ impl DrawnPass {
         })
     }
 
+    /// The world's vertex heights on the device, [`WORLD_SIDE`] a side, once they are read.
+    #[must_use]
+    pub fn heights(&self) -> Option<u32> {
+        self.world.as_ref().map(|w| w.heights.index)
+    }
+
     /// The height the last frame's mesh draws the ground at, at each of the world `points`, as
     /// its triangles lay it between their vertices; without the fine relief. `None` where no
     /// patch of the last frame covers a point.
