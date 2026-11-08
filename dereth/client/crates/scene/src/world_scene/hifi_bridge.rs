@@ -994,11 +994,6 @@ pub(super) fn lamps_drawn(gpu: &mut Gpu) -> bool {
     renderer(gpu).is_some_and(|r| r.settings().lamps.is_on())
 }
 
-/// Whether the installed presentation draws its lighting.
-pub(super) fn lighting_drawn(gpu: &mut Gpu) -> bool {
-    renderer(gpu).is_some_and(|r| r.settings().lighting.is_on())
-}
-
 /// Whether this device could ever draw the lamps: it was asked for the presentation at start-up
 /// and traces rays. Only then does a block's bake keep where its lamps may be.
 pub(super) fn lamps_possible(gpu: &Gpu) -> bool {

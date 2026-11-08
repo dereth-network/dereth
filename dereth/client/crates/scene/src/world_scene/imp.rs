@@ -1145,8 +1145,8 @@ pub struct SceneDraw {
     /// that differs does any work. [`SceneConfig::render`] holds the current values and this is the
     /// shadow bank, so [`WorldScene::update_from_preferences`] is the same poll.
     render_shadow: dereth_client_runtime::render_prefs::RenderPreferences,
-    /// Whether the better lighting drew at the last poll: it lights a place with its light
-    /// sources, so the place's flat sprites of light are left out.
+    /// Whether the lamps drew at the last poll: they light a place with its light sources and
+    /// their glow, so the place's flat sprites of light are left out. Without them the sprites stay.
     lit_by_sources: bool,
     /// What the high-fidelity bridge remembers between frames.
     #[cfg(feature = "hifi")]

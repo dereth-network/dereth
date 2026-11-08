@@ -720,8 +720,9 @@ impl SceneDraw {
     ) -> Vec<ParticlePart> {
         let shift = self.block_shift(ws);
         let mut out = Vec::new();
-        // The better lighting lights a place with its light sources, so the places' flat sprites
-        // of light are left out. A server's objects keep theirs: those can be spells.
+        // The lamps light a place with its light sources and their glow, so the places' flat
+        // sprites of light are left out while they draw. A server's objects keep theirs: those can
+        // be spells.
         let lights_only = self.lit_by_sources.then_some(&self.particle_gfx);
         // Parent assignment makes the emitter inherit
         // the host cell. `PARTICLE_EMITTER_PS` adds the particle shadow to the cell:
