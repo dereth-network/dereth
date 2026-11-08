@@ -4,8 +4,9 @@
 //!
 //! **Depends on** the shared transition (`dereth-physics`), terrain core (`dereth-terrain`) and
 //! `dereth-primitives`, and this game's world (`auberean-world`), records (`auberean-assets`,
-//! `auberean-dat`) and `auberean-primitives`. **Used by** the world viewer (`auberean-viewer`), the
-//! world a window shows (`auberean-scene`) and the server (`yalain`).
+//! `auberean-dat`), `auberean-primitives` and the C library's number formats (`auberean-text`).
+//! **Used by** the world viewer (`auberean-viewer`), the world a window shows (`auberean-scene`)
+//! and the server (`yalain`).
 //!
 //! The swept-sphere transition is the shared engine's (`dereth-physics`): this world sets its rules
 //! ([`rules`]) and hands it this world's cells ([`land`]), each 20 m land cell answering for its

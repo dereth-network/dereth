@@ -63,3 +63,16 @@ fn vectors_and_planes_read_with_three_places() {
     assert_eq!(fixed_three(f32::NEG_INFINITY), "-1.#IO");
     assert_eq!(fixed_three(f32::NAN), "1.#QO");
 }
+
+/// A number exactly halfway between two values at the third place rounds up, away from zero, as
+/// the client's C library rounds it, not to the even neighbor.
+///
+/// Behaviour: geometry.text.a-tie-at-the-third-place-rounds-up
+#[test]
+fn a_tie_at_the_third_place_rounds_up() {
+    assert_eq!(
+        vector_text(Vec3::new(0.0625, -2.0625, 0.1875)),
+        "(0.063, -2.063, 0.188)"
+    );
+    assert_eq!(fixed_three(-0.0625), "-0.063");
+}

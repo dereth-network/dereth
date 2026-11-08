@@ -63,8 +63,8 @@ fn wrap(degrees: f64) -> f32 {
     }
 }
 
-/// A number as C's `%.3f` writes it in the client's library, infinities and not-a-numbers rounded
-/// at the same place.
+/// A number as C's `%.3f` writes it in the client's library (a tie at the last place rounding up),
+/// infinities and not-a-numbers rounded at the same place.
 #[must_use]
 pub fn fixed_three(v: f32) -> String {
     if v.is_nan() {
@@ -78,7 +78,7 @@ pub fn fixed_three(v: f32) -> String {
     if v.is_infinite() {
         return if v < 0.0 { "-1.#IO" } else { "1.#IO" }.to_owned();
     }
-    format!("{:.3}", f64::from(v))
+    auberean_text::crt::fixed(f64::from(v), 3)
 }
 
 /// A vector as text: `(x, y, z)`, three places each.

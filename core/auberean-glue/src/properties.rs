@@ -315,7 +315,8 @@ fn optional_at(c: &mut Call<'_>) -> Result<Status, Stop> {
     give_property(c, p)
 }
 
-/// A vector as `(x, y, z)` to three places, into the string the reference at `fp[-2]` reaches.
+/// A vector as `(x, y, z)` to three places, as the client's C library writes them, into the string
+/// the reference at `fp[-2]` reaches.
 // D2-09021
 fn vector_string(c: &mut Call<'_>) -> Result<Status, Stop> {
     let r = c.receiver()?;
@@ -325,12 +326,11 @@ fn vector_string(c: &mut Call<'_>) -> Result<Status, Stop> {
     let NativeObject::Vector([x, y, z]) = *c.vm.heap.native(r)? else {
         return Err(Stop::Host("not a vector".into()));
     };
-    let text = format!(
-        "({:.3}, {:.3}, {:.3})",
+    let text = auberean_physics::geom::vector_text(dereth_primitives::Vec3::new(
         f32::from_bits(x),
         f32::from_bits(y),
-        f32::from_bits(z)
-    );
+        f32::from_bits(z),
+    ));
     let out = c.cx.at(-2)?;
     write_text(c, out, &text)?;
     Ok(Status::Success)

@@ -535,6 +535,7 @@ dependencies = [
  "auberean-primitives",
  "auberean-protocol",
  "auberean-testkit",
+ "auberean-text",
  "auberean-world",
  "dereth-physics",
  "dereth-primitives",

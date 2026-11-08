@@ -186,11 +186,12 @@ fn moves_placements_headings_and_rays_are_filled_and_read_as_the_client_does() {
     b.call(HEADING, 0x01, h, &[f(292.5)], 0);
     let text = b.answer(HEADING, 0x05, h, &[]);
     assert_eq!(String::from_utf16_lossy(&b.text_of(text)), "WNW");
-    let v = vector(&mut b, 1.0, -2.5, 0.0);
-    let text = b.answer(native_type::VECTOR, 0x0F, v, &[]);
+    let v = vector(&mut b, 1.0, -2.5, 0.0625);
+    let text = b.text("");
+    b.call(native_type::VECTOR, 0x0F, v, &[text], 0);
     assert_eq!(
         String::from_utf16_lossy(&b.text_of(text)),
-        "(1.000, -2.500, 0.000)"
+        "(1.000, -2.500, 0.063)"
     );
 
     // A heading.

@@ -26,8 +26,8 @@
 //! **Depends on** `auberean-assets` (the string table and string state records), `auberean-dat`
 //! (the data files) and `auberean-primitives` (where a cell lies on the land, for a place's
 //! text). **Used by** the script machine (`auberean-script`: a host offers its natives a
-//! [`Source`]), the script natives (`auberean-glue`), the client runtime and its SDK, and the
-//! client's panels.
+//! [`Source`]), the script natives (`auberean-glue`), physics (`auberean-physics`: numbers as
+//! text), the client runtime and its SDK, and the client's panels.
 //!
 //! **Must never** reach a file, the network or a clock: it reads records only through a [`Source`],
 //! so it builds for the browser.

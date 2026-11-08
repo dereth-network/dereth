@@ -19,6 +19,7 @@ auberean-primitives.workspace = true
 auberean-dat.workspace = true
 auberean-assets.workspace = true
 auberean-world.workspace = true
+auberean-text.workspace = true
 # The swept-sphere transition, its geometry and its collision arms are Dereth's, with this
 # world's settings and cells.
 dereth-physics.workspace = true

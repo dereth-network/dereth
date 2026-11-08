@@ -151,6 +151,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "geometry.text.a-tie-at-the-third-place-rounds-up",
+        says: "A number exactly halfway at the third place reads rounded up, away from zero, as the                client's C library writes it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-GEOM-TEXT-TIES"),
+        station: "auberean-physics::cpu::geometry::text::a_tie_at_the_third_place_rounds_up",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "geometry.text.vectors-and-planes-read-with-three-places",
         says: "A vector reads as (x, y, z) and a plane as its normal and distance, each with three \
                places, as the client's C library writes them.",
