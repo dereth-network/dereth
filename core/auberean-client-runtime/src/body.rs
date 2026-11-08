@@ -55,7 +55,9 @@ pub type Bodies = HashMap<u64, BodyState>;
 /// What a body says of itself when the scripts ask, as a front end last read it: the element it
 /// is in, and the motion it was last asked for (none without a motion interpreter); its speed,
 /// acceleration and jump scales; its radius and height at its scale; its mode and the mode it is
-/// going to; the motion the server last asked of it, when it did.
+/// going to; the motion the server last asked of it, when it did; where it stands, when it is in
+/// a cell: its cell, its origin in the cell's landblock and its rotation (w, x, y, z), as the
+/// client has moved it since the server last placed it.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct BodyReading {
     pub element: u32,
@@ -68,6 +70,7 @@ pub struct BodyReading {
     pub mode: u32,
     pub desired_mode: u32,
     pub remote_motion: Option<[f32; 3]>,
+    pub place: Option<(u32, [f32; 3], [f32; 4])>,
 }
 
 /// The bodies' readings, by object.

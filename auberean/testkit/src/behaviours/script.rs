@@ -1255,6 +1255,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "script.model.an-objects-position-is-where-its-body-has-moved",
+        says: "A script asking another object's position, or its distance from a place, gets where                the client has moved its body since the server last placed it, turned as the body                is; one out of the world has none.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-OBJECT-MOVED-POSITION"),
+        station: "auberean-client-runtime::cpu::scripts::physics_object::an_objects_position_is_where_its_body_has_moved",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "script.model.an-objects-waiting-calls-go-with-it",
         says: "An object that goes takes the calls of its scripts that wait with it: every call of \
                its process waiting to sleep out, or to go on after a wait was closed, is dropped; \

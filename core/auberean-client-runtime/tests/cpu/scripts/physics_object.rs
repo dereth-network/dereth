@@ -362,6 +362,69 @@ fn an_objects_position_is_its_own() {
     assert_eq!(position(&mut b, ABSENT_REF), (0, [0.0; 3]), "no place");
 }
 
+/// Another object's position and its distance from a place are where the client has moved its
+/// body since the server last placed it, turned as the body is; one out of the world has none.
+///
+/// Behaviour: script.model.an-objects-position-is-where-its-body-has-moved
+#[test]
+fn an_objects_position_is_where_its_body_has_moved() {
+    const INTERFACE: u32 = 0x7F;
+    const CALCULATE_DISTANCE: u32 = 0x3B;
+    let mut b = Bench::new();
+    b.host.model.object_mut(HOLDER).unwrap().place = Some(Place {
+        cell: 0x0101_0001,
+        origin: Vec3::new(1.0, 2.0, 3.0),
+        heading_motion: 0,
+        position_stamp: 1,
+        teleport_stamp: 1,
+        force_position_stamp: 1,
+        time: 0.0,
+        flags: 0,
+        velocity: Vec3::new(0.0, 0.0, 0.0),
+    });
+    b.host.model.object_mut(HOLDER).unwrap().in_world = true;
+    let half = std::f32::consts::FRAC_1_SQRT_2;
+    b.host.readings.insert(
+        HOLDER,
+        BodyReading {
+            place: Some((0x0101_0001, [1.0, 12.0, 3.0], [half, 0.0, 0.0, half])),
+            ..BodyReading::default()
+        },
+    );
+    let (status, slots) = b.call(INTERFACE, 0x42, HOLDER_REF, &[], 1);
+    assert_eq!(status, Status::Success);
+    let NativeObject::Position { cell, frame } = b.vm.heap.native(slots[0].0).unwrap().clone()
+    else {
+        panic!("a position");
+    };
+    assert_eq!(cell, 0x0101_0001);
+    assert_eq!(
+        frame.map(f32::from_bits),
+        [1.0, 12.0, 3.0, half, 0.0, 0.0, half],
+        "where its body is, turned as it is"
+    );
+    let from = b.vm.heap.add_native(
+        native_type::POSITION,
+        NativeObject::Position {
+            cell: 0x0101_0001,
+            frame: [1.0, 2.0, 3.0, 1.0, 0.0, 0.0, 0.0].map(f32::to_bits),
+        },
+    );
+    let d = b.answer(
+        PHYSICS_OBJECT,
+        CALCULATE_DISTANCE,
+        HOLDER_REF,
+        &[(from, tag::REFERENCE)],
+    );
+    assert_eq!(f32::from_bits(d), 10.0, "from where its body is");
+    b.host.model.object_mut(HOLDER).unwrap().in_world = false;
+    let (_, slots) = b.call(INTERFACE, 0x42, HOLDER_REF, &[], 1);
+    let NativeObject::Position { cell, .. } = b.vm.heap.native(slots[0].0).unwrap().clone() else {
+        panic!("a position");
+    };
+    assert_eq!(cell, 0, "out of the world");
+}
+
 /// An object in a pack has a body as one in the world does: what its scripts set of it as it is
 /// made stays for when it comes out. One the client was not sent has none.
 ///

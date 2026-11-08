@@ -1612,6 +1612,22 @@ fn instance(c: &mut Call<'_>, id: u64) -> Result<u32, Stop> {
     Ok(i)
 }
 
+/// Where an object other than the player stands while it is in the world: its body where the
+/// client has moved it, as the front end last read it; failing that, where the server last placed
+/// it, unturned.
+pub(crate) fn body_place(h: &ClientHost, object: u64) -> Option<(u32, [f32; 3], [f32; 4])> {
+    let o = h.model.object(object).filter(|o| o.in_world)?;
+    if let Some(place) = h.readings.get(&object).and_then(|r| r.place) {
+        return Some(place);
+    }
+    let p = o.place.as_ref()?;
+    Some((
+        p.cell,
+        [p.origin.x, p.origin.y, p.origin.z],
+        [1.0, 0.0, 0.0, 0.0],
+    ))
+}
+
 /// Where the receiver's object stands: a new position (below the receiver), its body's cell and
 /// frame; the zero position when it has no place.
 // D2-04671, D2-08172
@@ -1624,7 +1640,7 @@ fn my_position(c: &mut Call<'_>) -> Result<Status, Stop> {
     let zero = (0, [0.0; 3], [1.0, 0.0, 0.0, 0.0]);
     let (cell, o, q) = match object {
         Some(id) if host(c)?.model.player == Some(id) => host(c)?.my_position.unwrap_or(zero),
-        Some(id) => crate::combat::standing(c, id)?.map_or(zero, |(cell, at)| (cell, at, zero.2)),
+        Some(id) => body_place(host(c)?, id).unwrap_or(zero),
         None => zero,
     };
     let frame = [

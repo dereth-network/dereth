@@ -232,7 +232,8 @@ impl Scripts {
 }
 
 /// Where an object stands in the world, as its physics object has it: the player's body, any
-/// other object's last place while it is in the world. `None` without one.
+/// other object's body where the client has moved it (failing that, its last place) while it is
+/// in the world. `None` without one.
 pub(crate) fn standing(c: &mut Call<'_>, object: u64) -> Result<Option<(u32, [f32; 3])>, Stop> {
     let h = host(c)?;
     if h.model.player == Some(object) {
@@ -240,11 +241,7 @@ pub(crate) fn standing(c: &mut Call<'_>, object: u64) -> Result<Option<(u32, [f3
             return Ok(Some((cell, origin)));
         }
     }
-    Ok(h.model
-        .object(object)
-        .filter(|o| o.in_world)
-        .and_then(|o| o.place.as_ref())
-        .map(|p| (p.cell, [p.origin.x, p.origin.y, p.origin.z])))
+    Ok(crate::host::body_place(h, object).map(|(cell, at, _)| (cell, at)))
 }
 
 /// Whether the receiver's object stands outside: in one of a landblock's outdoor cells (the

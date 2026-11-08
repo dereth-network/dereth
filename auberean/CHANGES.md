@@ -11,6 +11,7 @@ not how it was done.
 - Fixed buildings just outside a cave being lit as if they stood inside it.
 - Questions left open no longer stay on the screen after leaving the world.
 - Fixed aliases with curly quotes or the euro sign coming back garbled from an options file.
+- Fixed range checks on moving creatures and players using where they last stood.
 
 ## 0.1.5 (2026-11-07)
 - Screenshots are taken at full detail, far objects included.

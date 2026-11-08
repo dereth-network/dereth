@@ -997,6 +997,11 @@ pub fn reading_of(b: &Body, f: Option<&Figure>) -> auberean_client_sdk::runtime:
             let v = b.remote_do_motion_values();
             [v.x, v.y, v.z]
         }),
+        place: (b.position.cell.0 != 0).then(|| {
+            let f = b.position.frame;
+            let (o, q) = (f.origin, f.rotation);
+            (b.position.cell.0, [o.x, o.y, o.z], [q.w, q.x, q.y, q.z])
+        }),
     }
 }
 
