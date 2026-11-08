@@ -553,7 +553,7 @@ fn replay(con: &Connection, session: i64) -> Option<Outcome> {
             Request::Examine(id) => *id,
             _ => None,
         };
-        let held = target.is_none_or(&holds);
+        let held = target.is_none_or(holds);
         let placed_static = target.is_some_and(|id| {
             h.server
                 .content
