@@ -118,6 +118,18 @@ pub struct PixelProgram {
     /// An environment map in stage 2 is added to the diffuse map times the diffuse map's alpha
     /// (a gloss map for the reflection).
     pub environment_gloss: bool,
+    /// The light is doubled again against an anisotropic map in stage 2 before the diffuse map.
+    pub anisotropic: bool,
+    /// Stage 1 holds a detail map added, signed, to the normal map, and stage 2 the diffuse map.
+    pub normal_detail_first: bool,
+    /// The diffuse map's alpha says where the layer's color shows: the light (the first light's
+    /// own color plus the vertex's other lights) is tinted by the layer's color where the alpha is
+    /// full and left white where it is clear, then the ambient is added, untinted.
+    pub tint_mask: bool,
+    /// The specular is worked out per pixel toward the direction color 1 carries, packed, against
+    /// the normal map: `sat(4 (sat(n·h)² - 0.75))` times the specular color; the light is the
+    /// first light's facing (no attenuation) times the lit color, plus the ambient.
+    pub color1_half_vector: bool,
 }
 
 impl PixelProgram {
@@ -126,6 +138,9 @@ impl PixelProgram {
     #[must_use]
     pub fn from_text(text: &[u8]) -> Self {
         let mut p = Self::default();
+        // A doubling against stage 2 counts as the anisotropic map's only beside the doubling
+        // against the diffuse map in stage 1.
+        let (mut doubled_by_2, mut doubled_by_1) = (false, false);
         for line in String::from_utf8_lossy(text).lines() {
             let code: String = line
                 .split(';')
@@ -142,9 +157,15 @@ impl PixelProgram {
                 "mad_x4_satr1.rgb,r1,r1,-v1.a" => p.half_vector_specular = true,
                 "addt1.rgb,t1,t2" => p.environment_add = true,
                 "madt1.rgb,t2,t1.a,t1" => p.environment_gloss = true,
+                "mul_x2r0.rgb,r0,t2" => doubled_by_2 = true,
+                "mul_x2r0.rgb,r0,t1" => doubled_by_1 = true,
+                "addt0.rgb,t0,t1_bias" => p.normal_detail_first = true,
+                "lrpt2.rgb,t1.a,c4,c6" => p.tint_mask = true,
+                "dp3_satr1.rgb,t0_bx2,v1_bx2" => p.color1_half_vector = true,
                 _ => {}
             }
         }
+        p.anisotropic = doubled_by_2 && doubled_by_1;
         p
     }
 }

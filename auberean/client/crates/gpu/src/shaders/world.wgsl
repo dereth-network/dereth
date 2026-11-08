@@ -78,6 +78,9 @@ struct DrawUniforms {
     pt_specular: array<vec4<f32>, 4>,
     // a frill's spot on the ground (w: 1), whose shadow its vertices take for their color
     shade: vec4<f32>,
+    // the first light's own diffuse color (the first point light's, else the sun's, black inside
+    // with neither): the pixel programs' light color
+    light: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> frame: FrameUniforms;
@@ -96,11 +99,17 @@ struct DrawUniforms {
 var<private> ground_tint: vec3<f32> = vec3<f32>(1.0);
 
 const DYNAMIC_LIGHTING: u32 = 0x1u;
+const PIXEL_LIGHTING: u32 = 0x2u;
 const SPECULAR: u32 = 0x4u;
+const PIXEL_SPECULAR: u32 = 0x8u;
 const MATERIAL_DIFFUSE: u32 = 0x10u;
 const VERTEX_DIFFUSE: u32 = 0x20u;
 const DEPTH_FOG: u32 = 0x100u;
+const PIXEL_MULTIPLE_LIGHTS: u32 = 0x80u;
 const DEPTH_ALPHA_FOG: u32 = 0x1000u;
+// The layer's own option: a normal-mapped layer's color 1 carries the other lights alone, neither
+// times the layer's diffuse nor with the ambient.
+const UNMODULATED_COLOR1: u32 = 0x2000u;
 // Set on an interior cell's draws: the light is in the vertices' colors (the interior's lights,
 // baked and chosen per cell), no sun.
 const LIT_IN_VERTICES: u32 = 0x40000000u;
@@ -113,6 +122,10 @@ const GLOSS: u32 = 0x8u;
 const HALF_VECTOR_SPECULAR: u32 = 0x10u;
 const ENVIRONMENT_ADD: u32 = 0x20u;
 const ENVIRONMENT_GLOSS: u32 = 0x40u;
+const ANISOTROPIC: u32 = 0x80u;
+const NORMAL_DETAIL_FIRST: u32 = 0x100u;
+const TINT_MASK: u32 = 0x200u;
+const COLOR1_HALF_VECTOR: u32 = 0x400u;
 
 fn transform_to_clip(p: vec3<f32>, model: mat4x4<f32>) -> vec4<f32> {
     return frame.view_proj * (model * vec4<f32>(p, 1.0));
@@ -614,7 +627,11 @@ fn vs_mesh(v: MeshIn) -> MeshOut {
         if ((sw & MATERIAL_DIFFUSE) != 0u) {
             c11 = (draw.diffuse.rgb * ground_tint);
         }
-        c1 = apply_ambient(vec4<f32>(other * c11, spec));
+        if ((sw & UNMODULATED_COLOR1) != 0u) {
+            c1 = vec4<f32>(other, spec);
+        } else {
+            c1 = apply_ambient(vec4<f32>(other * c11, spec));
+        }
     } else if (draw.stage.z == 1u && (sw & DYNAMIC_LIGHTING) != 0u) {
         // Inside, lit: black plus each point light's share, times the layer's diffuse, plus the
         // ambient; the specular from each light, times the layer's specular color.
@@ -647,7 +664,11 @@ fn vs_mesh(v: MeshIn) -> MeshOut {
         c0 = vec4<f32>(packed_light(l, v), 1.0);
         o.half_vector = tex_half_vector(world, frame.to_sun.xyz, 1.0, n, tu, tv);
         let f = dir_light_diffuse_specular(n, draw.params.x);
-        c1 = apply_ambient(vec4<f32>(vec3<f32>(0.0), f.y * frame.sun_specular.r));
+        if ((sw & UNMODULATED_COLOR1) != 0u) {
+            c1 = vec4<f32>(vec3<f32>(0.0), f.y * frame.sun_specular.r);
+        } else {
+            c1 = apply_ambient(vec4<f32>(vec3<f32>(0.0), f.y * frame.sun_specular.r));
+        }
     } else if ((sw & DYNAMIC_LIGHTING) != 0u) {
         // Lit: black, plus the sun's share and each point light's beside it (the lights objects
         // carry), times the layer's diffuse, plus the ambient; the specular from the sun and each
@@ -681,6 +702,13 @@ fn vs_mesh(v: MeshIn) -> MeshOut {
         if ((sw & VERTEX_DIFFUSE) != 0u) {
             c0 = modulate_vertex_diffuse(c0, vd);
         }
+    }
+    // Normal-mapped by one light, its specular worked out per pixel: color 1 is black, its alpha
+    // three quarters of the light's attenuation.
+    let one_light = PIXEL_LIGHTING | PIXEL_SPECULAR | PIXEL_MULTIPLE_LIGHTS;
+    if (draw.program.x == 1u && (sw & LIT_IN_VERTICES) == 0u
+        && (sw & one_light) == (PIXEL_LIGHTING | PIXEL_SPECULAR)) {
+        c1 = vec4<f32>(0.0, 0.0, 0.0, 0.75 * c0.a);
     }
     // The alpha fog: the color's alpha fades out between the alpha fog's distances.
     if ((sw & DEPTH_ALPHA_FOG) != 0u && draw.program.x == 0u) {
@@ -831,12 +859,20 @@ fn texture_stages(v: MeshOut) -> vec4<f32> {
 // times the layer's lit diffuse color, plus the ambient; doubled against the diffuse map
 // (stage 1); plus the specular intensity times the layer's specular color. A detail map (stage 2)
 // is added, signed, to the diffuse map or to the normal map; an environment map there is added to
-// the diffuse map, or added times the diffuse map's alpha.
+// the diffuse map, or added times the diffuse map's alpha. Some programs read their stages and
+// colors otherwise: a detail map for the normal map in stage 1 and the diffuse map in stage 2; an
+// anisotropic map in stage 2 doubling the light again; the diffuse map's alpha as a mask for the
+// layer's color, the ambient added after; a specular toward the direction color 1 carries.
 fn bump_program(v: MeshOut) -> vec4<f32> {
     let opts = draw.program.y;
     var nm = textureSample(tex0, samp0, v.uv0);
     var dm = textureSample(tex1, samp1, v.uv1);
     let detail = textureSample(tex2, samp2, v.uv2);
+    if ((opts & NORMAL_DETAIL_FIRST) != 0u) {
+        // stage 1 a detail map on the normal map, stage 2 the diffuse map
+        nm = vec4<f32>(nm.rgb + dm.rgb - vec3<f32>(0.5), nm.a);
+        dm = detail;
+    }
     if ((opts & DETAIL_ON_DIFFUSE) != 0u) {
         dm = vec4<f32>(dm.rgb + detail.rgb - vec3<f32>(0.5), dm.a);
     }
@@ -851,8 +887,21 @@ fn bump_program(v: MeshOut) -> vec4<f32> {
     }
     let n = nm.rgb * 2.0 - vec3<f32>(1.0);
     let l = v.color0.rgb * 2.0 - vec3<f32>(1.0);
-    let d = clamp(dot(n, l), 0.0, 1.0) * v.color0.a;
+    let facing = clamp(dot(n, l), 0.0, 1.0);
+    let d = facing * v.color0.a;
+    let ambient = min(frame.ambient.rgb * draw.layer_ambient.rgb, vec3<f32>(1.0));
     var rgb = (d * (draw.lit_diffuse.rgb * ground_tint) + v.color1.rgb) * 2.0 * dm.rgb;
+    if ((opts & TINT_MASK) != 0u) {
+        // the layer's color where the diffuse map's alpha is full, white where it is clear
+        let tint = mix(vec3<f32>(1.0), draw.diffuse.rgb, dm.a);
+        rgb = ((d * (draw.light.rgb * ground_tint) + v.color1.rgb) * tint + ambient) * 2.0 * dm.rgb;
+    }
+    if ((opts & COLOR1_HALF_VECTOR) != 0u) {
+        rgb = (facing * (draw.lit_diffuse.rgb * ground_tint) + ambient) * 2.0 * dm.rgb;
+    }
+    if ((opts & ANISOTROPIC) != 0u) {
+        rgb = rgb * 2.0 * detail.rgb;
+    }
     var a = draw.diffuse.a;
     if ((opts & ALPHA_FROM_DIFFUSE) != 0u) {
         a = a * dm.a;
@@ -865,6 +914,13 @@ fn bump_program(v: MeshOut) -> vec4<f32> {
         let h = packed * 2.0 - vec3<f32>(1.0);
         let x = clamp(dot(n, h), 0.0, 1.0);
         spec = clamp(4.0 * (x * x - v.half_vector.w), 0.0, 1.0) * (draw.specular.rgb * ground_tint);
+    }
+    if ((opts & COLOR1_HALF_VECTOR) != 0u) {
+        // toward color 1's direction, packed: its facing on the normal map squared, less 0.75,
+        // four times, held to 0..1
+        let h = v.color1.rgb * 2.0 - vec3<f32>(1.0);
+        let x = clamp(dot(n, h), 0.0, 1.0);
+        spec = clamp(4.0 * (x * x - 0.75), 0.0, 1.0) * (draw.specular.rgb * ground_tint);
     }
     if ((opts & GLOSS) != 0u) {
         spec = spec * dm.a;

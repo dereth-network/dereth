@@ -345,6 +345,35 @@ fn a_pixel_program_is_read_from_its_instructions() {
     assert!(p.environment_gloss && !p.environment_add && !p.gloss);
 }
 
+/// A pixel program's instructions also say when it reads its stages and colors otherwise: a
+/// detail map in stage 1 added, signed, to the normal map (the diffuse map then in stage 2); the
+/// light doubled against stage 2 as well as against the diffuse map (an anisotropic map); the
+/// diffuse map's alpha choosing between the layer's color and white; the specular worked out
+/// toward color 1. A doubling against stage 2 alone is the diffuse map's, not an anisotropic one.
+///
+/// Behaviour: draw.material.a-pixel-programs-reading-of-its-stages-is-read-from-its-instructions
+#[test]
+fn a_pixel_programs_reading_of_its_stages_is_read_from_its_instructions() {
+    let anisotropic = "mul_x2 r0.rgb, r0, t2 ; the anisotropic map\nmul_x2 r0.rgb, r0, t1\n";
+    let p = PixelProgram::from_text(anisotropic.as_bytes());
+    assert!(p.anisotropic && !p.normal_detail_first && !p.tint_mask);
+    let second = "add t0.rgb, t0, t1_bias ; detail on the normal map\nmul_x2 r0.rgb, r0, t2\n";
+    let p = PixelProgram::from_text(second.as_bytes());
+    assert!(p.normal_detail_first && !p.anisotropic && !p.detail_on_normal);
+    let masked =
+        "add t1.rgb, t1, t2_bias\nlrp t2.rgb, t1.a, c4, c6 ; the mask\nmul_x2 r0.rgb, r0, t1\n";
+    let p = PixelProgram::from_text(masked.as_bytes());
+    assert!(p.tint_mask && p.detail_on_diffuse && !p.anisotropic);
+    let toward = "dp3_sat r1.rgb, t0_bx2, v1_bx2\nmad_x4_sat r1.rgb, r1, r1, -c6\n";
+    let p = PixelProgram::from_text(toward.as_bytes());
+    assert!(p.color1_half_vector && !p.half_vector_specular);
+    let plain = "dp3_sat r0.rgb, t0_bx2, v0_bx2\nmul_x2 r0.rgb, r0, t1\n";
+    assert_eq!(
+        PixelProgram::from_text(plain.as_bytes()),
+        PixelProgram::default()
+    );
+}
+
 /// A coordinate-animation field sets the animation in that place of the layer's list by its
 /// place in the animation, whatever its kind: the first waveform (a slide's u, a turn, a
 /// stretch's u) or the second (a slide's or a stretch's v).

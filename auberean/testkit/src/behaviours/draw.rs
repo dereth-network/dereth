@@ -673,6 +673,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "draw.material.a-normal-detail-program-draws-its-third-stage-as-the-diffuse-map",
+        says: "A pixel program that adds a detail map in stage 1 to its normal map takes its \
+               diffuse map from stage 2: a surface with a gray detail map and a green diffuse map \
+               shows green.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-NORMAL-DETAIL-FIRST"),
+        station: "auberean-gpu::gpu::programs::a_normal_detail_program_draws_its_third_stage_as_the_diffuse_map",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
         id: "draw.material.a-pixel-program-is-read-from-its-instructions",
         says: "A normal-mapped layer's pixel program may add a detail map to its diffuse or its \
                normal map, take its alpha from the diffuse map, gloss its specular with it, or add \
@@ -680,6 +690,18 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-PIXEL-PROGRAMS"),
         station: "auberean-draw::cpu::materials::material::a_pixel_program_is_read_from_its_instructions",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "draw.material.a-pixel-programs-reading-of-its-stages-is-read-from-its-instructions",
+        says: "A pixel program's instructions say when it reads its stages and colors otherwise: a \
+               detail map in stage 1 for the normal map and the diffuse map in stage 2, an \
+               anisotropic map doubling the light as the diffuse map does, the diffuse map's alpha \
+               choosing between the layer's color and white, or a specular worked out toward \
+               color 1.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-PIXEL-PROGRAM-STAGES"),
+        station: "auberean-draw::cpu::materials::material::a_pixel_programs_reading_of_its_stages_is_read_from_its_instructions",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -705,6 +727,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "draw.material.a-specular-toward-color-ones-direction-shows-no-highlight",
+        says: "A layer lit by one light with its specular worked out per pixel carries a black \
+               color 1, so a program working its specular out toward color 1's direction finds it \
+               facing away from the normal map and shows no highlight, whatever its specular color.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-COLOR1-SPECULAR"),
+        station: "auberean-gpu::gpu::programs::a_specular_toward_color_ones_direction_shows_no_highlight",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
         id: "draw.material.a-surface-frame-that-is-not-a-number-is-lit-as-facing-the-light",
         says: "Where a mesh stores a surface frame that is not a number (203 meshes do, where their \
                pictures' coordinates run flat, as at the crystals' feet), the direction toward the \
@@ -714,6 +746,17 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-UNDEFINED-SURFACE-FRAME"),
         station: "auberean-gpu::gpu::materials::a_surface_frame_that_is_not_a_number_is_lit_as_facing_the_light",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "draw.material.a-tint-mask-shows-the-layers-color-only-where-its-alpha-is-full",
+        says: "A pixel program that masks the layer's color by the diffuse map's alpha tints the \
+               light (the first light's own color plus the other lights, never times the layer's \
+               color) by the layer's color where the alpha is full and leaves it white where it is \
+               clear, then adds the ambient untinted.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-TINT-MASK"),
+        station: "auberean-gpu::gpu::programs::a_tint_mask_shows_the_layers_color_only_where_its_alpha_is_full",
         tier: Tier::Gpu,
     },
     behaviour! {
@@ -733,6 +776,15 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-DRAW-MATERIAL-ANIMATION-FIELDS"),
         station: "auberean-draw::cpu::materials::material::an_animation_field_sets_its_first_or_second_waveform",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "draw.material.an-anisotropic-program-doubles-the-light-by-its-map",
+        says: "A pixel program with an anisotropic map doubles the light against it before the \
+               diffuse map: a quarter-gray anisotropic map halves the surface.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-ANISOTROPIC-PROGRAM"),
+        station: "auberean-gpu::gpu::programs::an_anisotropic_program_doubles_the_light_by_its_map",
+        tier: Tier::Gpu,
     },
     behaviour! {
         id: "draw.material.an-anisotropic-stage-looks-up-the-instances-map",
@@ -780,6 +832,18 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-DRAW-SPECULAR-OFF"),
         station: "auberean-draw::cpu::materials::material::specular_is_off_at_zero_power",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "draw.material.the-bodies-tint-only-where-their-mask-says",
+        says: "Of the install's materials, two mask the layer's color by the diffuse map's alpha \
+               (the bodies' and their base clothes'), and their layers alone keep color 1 to the \
+               other lights; two double the light against an anisotropic map, one adds a detail map \
+               in stage 1 to its normal map, and one, alone lit by a single light with a per-pixel \
+               specular, works its specular out toward color 1.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-TINT-MASK-MATERIALS"),
+        station: "auberean-draw::dat::materials::the_bodies_tint_only_where_their_mask_says",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "draw.mesh.a-body-degrades-with-its-distance-from-the-camera",

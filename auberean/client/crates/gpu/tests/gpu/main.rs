@@ -17,6 +17,7 @@ mod inside;
 mod lost;
 mod materials;
 mod pipelines;
+mod programs;
 mod shadows;
 mod shores;
 mod streaks;

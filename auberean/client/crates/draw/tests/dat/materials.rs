@@ -449,3 +449,62 @@ fn a_material_draws_the_layer_its_detail_asks_for() {
         "{each} {instances}"
     );
 }
+
+/// The pixel programs that read their stages and colors other than the common one are few: the
+/// diffuse map's alpha masks the layer's color in two materials (the bodies' and their base
+/// clothes', 103 instances: every player and many others at high material detail), whose layers
+/// alone keep color 1 to the other lights; two double the light against an anisotropic map, one
+/// adds a detail map in stage 1 to its normal map, and one works its specular out toward color 1,
+/// the one layer lit by a single light with its specular worked out per pixel.
+///
+/// Behaviour: draw.material.the-bodies-tint-only-where-their-mask-says
+#[test]
+fn the_bodies_tint_only_where_their_mask_says() {
+    use auberean_draw::material::{switch, PixelProgram};
+    use std::collections::BTreeSet;
+    let r = &install().records;
+    let (mut masked, mut anisotropic, mut second, mut toward) = (
+        BTreeSet::new(),
+        BTreeSet::new(),
+        BTreeSet::new(),
+        BTreeSet::new(),
+    );
+    let one_light = switch::PIXEL_LIGHTING | switch::PIXEL_SPECULAR | switch::PIXEL_MULTIPLE_LIGHTS;
+    for id in ids_of(0x2B) {
+        let m: Material = r.get(id).unwrap_or_else(|| panic!("{id:08X} decodes"));
+        for l in &sub_objects(&m, HARDWARE_CLASS).layers {
+            let p = PixelProgram::from_text(&l.pixel_shader);
+            let sw = switches(l);
+            assert_eq!(sw & 0x2000 != 0, p.tint_mask, "{id:08X}");
+            let single = sw & one_light == switch::PIXEL_LIGHTING | switch::PIXEL_SPECULAR;
+            assert_eq!(single, p.color1_half_vector, "{id:08X}");
+            for (on, set) in [
+                (p.tint_mask, &mut masked),
+                (p.anisotropic, &mut anisotropic),
+                (p.normal_detail_first, &mut second),
+                (p.color1_half_vector, &mut toward),
+            ] {
+                if on {
+                    set.insert(id);
+                }
+            }
+        }
+    }
+    let list = |s: &BTreeSet<u32>| s.iter().copied().collect::<Vec<_>>();
+    assert_eq!(list(&masked), [0x2B00_00CE, 0x2B00_00E2]);
+    assert_eq!(list(&anisotropic), [0x2B00_0052, 0x2B00_0086]);
+    assert_eq!(list(&second), [0x2B00_0088]);
+    assert_eq!(list(&toward), [0x2B00_0075]);
+    let mut by_template = std::collections::BTreeMap::new();
+    for id in ids_of(0x31) {
+        let i: MaterialInstance = r.get(id).unwrap_or_else(|| panic!("{id:08X} decodes"));
+        if masked.contains(&i.material.0) {
+            *by_template.entry(i.material.0).or_insert(0) += 1;
+        }
+    }
+    println!("{by_template:08X?}");
+    assert_eq!(
+        by_template.into_iter().collect::<Vec<_>>(),
+        [(0x2B00_00CE, 102), (0x2B00_00E2, 1)]
+    );
+}

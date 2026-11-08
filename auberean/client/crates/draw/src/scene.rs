@@ -2301,7 +2301,7 @@ impl<'a> SceneBuilder<'a> {
     /// the world, then those drawn after it. Each sky object is made from what the moment shows of
     /// it (its own model or a time of day's replacement) the first time it shows that, and kept;
     /// every frame it stands at the viewer's place, turned as the moment turns it.
-    // D2-10942, D2-10939
+    // D2-10942, D2-10939, D2-05962
     pub fn sky(
         &mut self,
         viewer: Vec3,

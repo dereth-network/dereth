@@ -129,6 +129,7 @@ struct DrawUniforms {
     pt_diffuse: [[f32; 4]; 4],
     pt_specular: [[f32; 4]; 4],
     shade: [f32; 4],
+    light: [f32; 4],
 }
 
 #[repr(C)]
@@ -1913,6 +1914,10 @@ impl Renderer {
                 (p.half_vector_specular, 0x10),
                 (p.environment_add, 0x20),
                 (p.environment_gloss, 0x40),
+                (p.anisotropic, 0x80),
+                (p.normal_detail_first, 0x100),
+                (p.tint_mask, 0x200),
+                (p.color1_half_vector, 0x400),
             ] {
                 if on {
                     opts |= bit;
@@ -2004,6 +2009,7 @@ impl Renderer {
                 .lights
                 .map(|l| [l.specular.r, l.specular.g, l.specular.b, 1.0]),
             shade: [0.0; 4],
+            light: sun,
         }
     }
 
