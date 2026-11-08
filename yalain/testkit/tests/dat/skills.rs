@@ -107,6 +107,40 @@ fn creatures_attacks_are_critical_at_the_chance_their_skills_class_sets() {
     assert!(set > 1_500, "most used skills set one: {set}");
 }
 
+/// How much more a special's critical does is what its skill's class sets, read from the class's
+/// code with its bases': Nettle, Critical Shot and Death Blow, which set a threshold of 1.8, set 2,
+/// as every class at 1.8 does; Double Shot sets 1.2; the creatures' plain melee attack takes 1 from
+/// its base.
+/// Behaviour: server.specials.critical-modifier-read
+#[test]
+fn a_skills_critical_modifier_is_what_its_class_sets() {
+    let t = Portal::open().skills();
+    for (skill, modifier) in [(137, 2.0), (205, 2.0), (1900, 2.0), (209, 1.2), (493, 1.0)] {
+        assert_eq!(
+            t.skills[&skill].critical_modifier,
+            Some(modifier),
+            "{skill}"
+        );
+    }
+    let critical_kind: Vec<_> = t
+        .skills
+        .values()
+        .filter(|d| d.critical_threshold == Some(1.8))
+        .map(|d| (d.id, d.critical_modifier))
+        .collect();
+    assert!(critical_kind.len() >= 13, "{critical_kind:?}");
+    assert!(
+        critical_kind.iter().all(|(_, m)| *m == Some(2.0)),
+        "{critical_kind:?}"
+    );
+    let set = t
+        .skills
+        .values()
+        .filter(|d| d.usage.is_some() && d.critical_modifier.is_some())
+        .count();
+    assert!(set > 1_500, "most used skills set one: {set}");
+}
+
 /// The two summoning skills are used as the recall is, at half the user's vigor: Summon Lifestone
 /// and Summon Portal power up for 10 seconds, only on their user, and name the effects that open
 /// their portals; the portal's template is one that is not walked into.

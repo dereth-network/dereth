@@ -753,11 +753,9 @@ fn an_effect_raising_a_skill_raises_what_its_hook_adds_and_the_rating_cached() {
     assert_eq!(d1 - d0, 6, "hit {d1} over {d0}");
 }
 
-/// A special's critical does a quarter more than its plain hit, not double, its hook's add with the
-/// rest.
-/// Behaviour: server.specials.critical-size
-#[test]
-fn a_specials_critical_does_a_quarter_more_than_its_plain_hit() {
+/// A plain hit and a critical of Deadeye from a bow of known damage, its class setting `modifier`
+/// for how much more a critical does.
+fn deadeye_plain_and_critical(modifier: Option<f32>) -> (i32, i32) {
     let (mut h, b, me, beetle) = beside_a_beetle();
     practice_target(&mut h, beetle);
     const BOW_OF_KNOWN_DAMAGE: u32 = 0x4700_07A3;
@@ -801,13 +799,14 @@ fn a_specials_critical_does_a_quarter_more_than_its_plain_hit() {
         .expect("held")
         .enchantments
         .push((BONUS, 9.0));
-    let u = h
+    let d = h
         .server
         .skill_table
         .skills
         .get_mut(&DEADEYE)
-        .and_then(|d| d.usage.as_mut())
         .expect("Deadeye");
+    d.critical_modifier = modifier;
+    let u = d.usage.as_mut().expect("its use");
     for hook in &mut u.hooks {
         hook.add_by_rating = vec![(1.0, 40.0), (100.0, 40.0)];
     }
@@ -836,8 +835,29 @@ fn a_specials_critical_does_a_quarter_more_than_its_plain_hit() {
             }
         }
     }
-    let (plain, critical) = (plain.expect("a plain hit"), critical.expect("a critical"));
+    (plain.expect("a plain hit"), critical.expect("a critical"))
+}
+
+/// A special whose skill's class sets nothing for how much more its critical does: its critical does
+/// a quarter more than its plain hit, not double, its hook's add with the rest.
+/// Behaviour: server.specials.critical-size
+#[test]
+fn a_specials_critical_does_a_quarter_more_than_its_plain_hit() {
+    let (plain, critical) = deadeye_plain_and_critical(None);
     assert_eq!(critical, (plain * 5 + 2) / 4, "{plain}");
+}
+
+/// A special's critical does what its skill's class sets times its plain hit: twice it at 2, a
+/// fifth more at 1.2, the same at 1.
+/// Behaviour: server.specials.critical-by-class-modifier
+#[test]
+fn a_specials_critical_does_its_classs_modifier_times_its_plain_hit() {
+    for modifier in [2.0f32, 1.2, 1.0] {
+        let (plain, critical) = deadeye_plain_and_critical(Some(modifier));
+        #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
+        let expected = (plain as f32 * modifier).round() as i32;
+        assert_eq!(critical, expected, "{modifier}: {plain}");
+    }
 }
 
 /// A hook of the left hand does the damage of what that hand holds, a shield's too, and the right

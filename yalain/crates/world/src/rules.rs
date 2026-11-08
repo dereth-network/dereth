@@ -280,9 +280,10 @@ pub fn roll_missile(
 /// median critical over the median ordinary hit of the same skill on the same target, 1,678 and 248
 /// criticals).
 pub const PLAYER_CRITICAL: f32 = 2.0;
-/// A player's special's critical over its plain hit (2017: 173 criticals of specials, the median
-/// 1.01 of this and 0.63 of doubling; 128 of them against the plain hits of the same skill, armor and
-/// session, 1.23 of those).
+/// A player's special's critical over its plain hit where no class of its skill sets how much more
+/// a critical does; a skill's class most often sets 1.2 (2017: 173 criticals of specials, the
+/// median 1.01 of this and 0.63 of doubling; 128 of them against the plain hits of the same skill,
+/// armor and session, 1.23 of those).
 pub const SPECIAL_CRITICAL: f32 = 1.25;
 pub const CREATURE_CRITICAL: f32 = 1.5;
 

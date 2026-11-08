@@ -1772,7 +1772,7 @@ pub(crate) fn area_targets<S: Store>(
 
 /// A hitter as a blow of this hook is reckoned: with what the hook adds at its rating, a critical
 /// taking it with the rest of the hit (2017, a basic attack of 351 criticals: 2.09 times its plain
-/// hit; a special's: [`rules::SPECIAL_CRITICAL`]).
+/// hit; a special's: its class's modifier).
 pub(crate) fn hitting_with(me: rules::Hitter, h: &Hook, rating: f32) -> rules::Hitter {
     rules::Hitter {
         added: me.added + h.rated_add(rating),
@@ -1806,32 +1806,40 @@ fn by_its_hand<S: Store>(
     })
 }
 
-/// The chance its skill's class sets for a special's landed hook to be critical, before what the
-/// weapon adds ([`rules::skill_critical`]); none for a skill whose class sets none.
-fn skill_critical<S: Store>(s: &Server<S>, skill: u32) -> f64 {
-    s.skill_table
-        .skills
-        .get(&skill)
-        .and_then(|d| d.critical_threshold)
-        .map_or(0.0, rules::skill_critical)
+/// What its skill's class sets for a special's criticals: the chance a landed hook is one, before
+/// what the weapon adds ([`rules::skill_critical`]; none for a skill whose class sets none), and how
+/// much more one does than the plain hit (its class's modifier; [`rules::SPECIAL_CRITICAL`] for a
+/// skill whose class sets none).
+#[derive(Debug, Clone, Copy)]
+struct Critical {
+    chance: f64,
+    size: f32,
 }
 
-/// What a special's hook does on a creature when it lands.
+fn skill_critical<S: Store>(s: &Server<S>, skill: u32) -> Critical {
+    let d = s.skill_table.skills.get(&skill);
+    Critical {
+        chance: d
+            .and_then(|d| d.critical_threshold)
+            .map_or(0.0, rules::skill_critical),
+        size: d
+            .and_then(|d| d.critical_modifier)
+            .unwrap_or(rules::SPECIAL_CRITICAL),
+    }
+}
+
+/// What a special's hook does on a creature when it lands: a critical `size` times the plain hit.
 fn hook_hit<S: Store>(
     s: &mut Server<S>,
     me: rules::Hitter,
     h: &Hook,
     (target, armor): (u64, i32),
-    o: Outcome,
+    (o, size): (Outcome, f32),
 ) -> i32 {
     let base = rules::player_hit(&mut s.rng, me, armor, false) + combat::armor_taken(s, target);
     #[allow(clippy::cast_precision_loss)]
     let d = (base as f32 + h.add) * if h.mult > 0.0 { h.mult } else { 1.0 };
-    let d = if o == Outcome::Critical {
-        d * rules::SPECIAL_CRITICAL
-    } else {
-        d
-    };
+    let d = if o == Outcome::Critical { d * size } else { d };
     dereth_primitives::num::to_i32(d.round()).max(1)
 }
 
@@ -1842,7 +1850,7 @@ fn roll_hook<S: Store>(
     s: &mut Server<S>,
     u: &Usage,
     h: &Hook,
-    (me, chance): (rules::Hitter, f64),
+    (me, critical): (rules::Hitter, Critical),
     target: u64,
 ) -> Option<(Outcome, i32)> {
     let (level, armor) = match crate::social::world_of(s, target) {
@@ -1860,7 +1868,13 @@ fn roll_hook<S: Store>(
     } else {
         Kind::Melee
     };
-    let o = rules::roll_special(&mut s.rng, kind, me.level, level, chance + me.critical);
+    let o = rules::roll_special(
+        &mut s.rng,
+        kind,
+        me.level,
+        level,
+        critical.chance + me.critical,
+    );
     let o = if kind == Kind::Melee && o == Outcome::Miss {
         Outcome::Evade
     } else {
@@ -1868,7 +1882,7 @@ fn roll_hook<S: Store>(
     };
     let hurts = u.ui_flags & ui_flag::NON_DAMAGING == 0 && h.flags & hook_flag::NON_DAMAGING == 0;
     let dmg = if o.landed() && hurts {
-        hook_hit(s, me, h, (target, armor), o)
+        hook_hit(s, me, h, (target, armor), (o, critical.size))
     } else {
         0
     };
@@ -1923,7 +1937,7 @@ fn story<S: Store>(
     let me = p.character;
     let my_level = crate::examine::level_of(&p.qualities);
     let me_hits = combat::hitter(s, p);
-    let chance = skill_critical(s, r.skill);
+    let critical = skill_critical(s, r.skill);
     let rating = rating_of(s, world, r.skill);
     let held = wielded(s, me);
     let on_self = aim == Aim::Me;
@@ -2031,7 +2045,13 @@ fn story<S: Store>(
             Kind::Melee
         };
         let me_hits = by_its_hand(s, world, me_hits, h);
-        let o = rules::roll_special(&mut s.rng, kind, my_level, level, chance + me_hits.critical);
+        let o = rules::roll_special(
+            &mut s.rng,
+            kind,
+            my_level,
+            level,
+            critical.chance + me_hits.critical,
+        );
         // Strikes of specials are evaded, never missed.
         let o = if kind == Kind::Melee && o == Outcome::Miss {
             Outcome::Evade
@@ -2039,7 +2059,13 @@ fn story<S: Store>(
             o
         };
         let dmg = if o.landed() {
-            hook_hit(s, hitting_with(me_hits, h, rating), h, (target, armor), o)
+            hook_hit(
+                s,
+                hitting_with(me_hits, h, rating),
+                h,
+                (target, armor),
+                (o, critical.size),
+            )
         } else {
             0
         };
@@ -2064,7 +2090,7 @@ fn story<S: Store>(
             aim,
             target,
             outcome,
-            (me_hits, rating, chance),
+            (me_hits, rating, critical),
         )
     };
     let hooks = story_hooks_with(&u, target, weapon, &landings);
@@ -2235,7 +2261,7 @@ fn landings_of<S: Store>(
     aim: Aim,
     target: u64,
     rolled: Option<(Outcome, i32)>,
-    (me, rating, chance): (rules::Hitter, f32, f64),
+    (me, rating, critical): (rules::Hitter, f32, Critical),
 ) -> Vec<Landing> {
     let center = match aim {
         Aim::Thing(t) => s
@@ -2287,7 +2313,7 @@ fn landings_of<S: Store>(
                 Some(r) if t == target && first_damaging == Some(i) => Some(r),
                 _ => {
                     let me = by_its_hand(s, world, me, h);
-                    roll_hook(s, u, h, (hitting_with(me, h, rating), chance), t)
+                    roll_hook(s, u, h, (hitting_with(me, h, rating), critical), t)
                 }
             };
             if let Some((outcome, damage)) = o {

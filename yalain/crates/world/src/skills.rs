@@ -324,6 +324,9 @@ pub struct SkillDef {
     /// The threshold its class sets for its landed attacks to be critical ([`critical_threshold`]);
     /// none when no class of it sets one.
     pub critical_threshold: Option<f32>,
+    /// How much more its class says a critical does than its plain hit ([`critical_modifier`]); none
+    /// when no class of it sets it.
+    pub critical_modifier: Option<f32>,
 }
 
 /// What a perk gives: its kind, its value, and its priority among the perks of its kind.
@@ -402,9 +405,8 @@ impl SkillTable {
             if let Ok(mut d) = SkillDef::from_state(*skill, lib, &g) {
                 d.kind = crate::rules::kind_of_name(name);
                 d.helps = crate::rules::helps_by_name(name);
-                d.critical_threshold = lib
-                    .package_id(name)
-                    .and_then(|pkg| critical_threshold(lib, pkg));
+                d.critical_threshold = critical_threshold(lib, pkg);
+                d.critical_modifier = critical_modifier(lib, pkg);
                 t.skills.insert(*skill, d);
                 t.by_package.insert(pkg, *skill);
             }
@@ -421,18 +423,34 @@ impl SkillTable {
 
 /// The function of a used skill's class that sets the threshold for its attacks' criticals.
 const SET_CRITICAL_THRESHOLD: &str = "SetCriticalThreshold";
+/// The function of a used skill's class that sets how much more its attacks' criticals do.
+const SET_CRITICAL_MODIFIER: &str = "SetCriticalModifier";
 
-/// The threshold a skill's class sets for its landed attacks to be critical: the literal its
-/// constructor (its own, else the nearest of its bases') passes to the setter, the last call with one
-/// counting; none when none of them sets it with a literal. Its definition does not hold it.
+/// The threshold a skill's class sets for its landed attacks to be critical ([`set_by_class`]).
 #[must_use]
 pub fn critical_threshold(lib: &Library, package: u32) -> Option<f32> {
+    set_by_class(lib, package, SET_CRITICAL_THRESHOLD)
+}
+
+/// How much more a skill's class says its critical does than its plain hit ([`set_by_class`]):
+/// 1.2 for most specials, 2 for the critical kind's (threshold 1.8) and players' basic attacks.
+#[must_use]
+pub fn critical_modifier(lib: &Library, package: u32) -> Option<f32> {
+    set_by_class(lib, package, SET_CRITICAL_MODIFIER)
+}
+
+/// What a skill's class sets by one of the used skills' setters (`setter`, a function of the
+/// package skills that are used derive from): the float literal its constructor (its own, else the
+/// nearest of its bases') passes to it, the last call with one counting; none when none of them
+/// sets it with a literal. Its definition does not hold it.
+#[must_use]
+pub fn set_by_class(lib: &Library, package: u32, setter: &str) -> Option<f32> {
     let setter = lib
         .package_id(ACTIVE_SKILL)
         .and_then(|p| lib.package(p))?
         .functions
         .iter()
-        .find(|f| f.name == SET_CRITICAL_THRESHOLD)?
+        .find(|f| f.name == setter)?
         .id
         .0;
     let mut at = lib.export_of(package);
@@ -578,6 +596,7 @@ impl SkillDef {
                 })
                 .flatten(),
             critical_threshold: None,
+            critical_modifier: None,
         })
     }
 }

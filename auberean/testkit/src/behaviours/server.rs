@@ -12589,6 +12589,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.specials.critical-by-class-modifier",
+        says: "A special's critical does what its skill's class sets times its plain hit: twice it \
+               for the critical kind's skills, a fifth more for most others.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SPECIAL-CRITICAL-MODIFIER"),
+        station: "yalain-testkit::cpu::play::specials::a_specials_critical_does_its_classs_modifier_times_its_plain_hit",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.specials.critical-by-skill-and-weapon",
         says: "A special's landed hook is critical at the chance its skill's class sets, what the \
                class's threshold falls short of 2 (none at 2, a fifth at 1.8), with what its \
@@ -12599,9 +12608,19 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.specials.critical-modifier-read",
+        says: "How much more a skill's critical does is read from what its class, or the nearest of \
+               its bases, sets: 2 for every class at a threshold of 1.8, 1.2 for Double Shot.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SPECIAL-CRITICAL-MODIFIER-READ"),
+        station: "yalain-testkit::dat::skills::a_skills_critical_modifier_is_what_its_class_sets",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.specials.critical-size",
-        says: "A special's critical does a quarter more than its plain hit, not double. Our choice: \
-               fitted to 173 recorded criticals; other forms fit about as well.",
+        says: "A special whose skill's class sets nothing for how much more its critical does: its \
+               critical does a quarter more than its plain hit, not double. Our choice: fitted to \
+               173 recorded criticals; other forms fit about as well.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-SPECIAL-CRITICAL-SIZE"),
         station: "yalain-testkit::cpu::play::specials::a_specials_critical_does_a_quarter_more_than_its_plain_hit",
