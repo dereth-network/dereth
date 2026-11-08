@@ -564,7 +564,12 @@ pub fn test_skills() -> yalain_world::skills::SkillTable {
                 name: (0xA860_7CEC, 0x2500_0000 | id),
                 cap: 50,
                 table: 0x6F00_000B,
-                flags: 0x41,
+                // The toggled ones carry the toggle flag.
+                flags: if matches!(id, ESPIRIT | LUMBERING_MIGHT) {
+                    0x61
+                } else {
+                    0x41
+                },
                 active: true,
                 usage: Some(usage),
                 ..SkillDef::default()
@@ -639,9 +644,11 @@ pub const EYE_OF_THE_STORM: u32 = 671;
 pub const SINEW_SNAP: u32 = 994;
 pub const LILITHAS_VENGEANCE: u32 = 993;
 pub const ESPIRIT: u32 = 670;
+/// A toggled skill that turns on no aura: its use turns its two effects on, its next use off.
+pub const LUMBERING_MIGHT: u32 = 697;
 
-/// Vacuum, Paralyze, Charged Air, the Eye of the Storm, Sinew Snap, Lilitha's Vengeance and
-/// Espirit as the September 2013 data defines them (their saved states, reach, waits, vigor,
+/// Vacuum, Paralyze, Charged Air, the Eye of the Storm, Sinew Snap, Lilitha's Vengeance, Espirit
+/// and Lumbering Might as the September 2013 data defines them (their saved states, reach, waits, vigor,
 /// behaviors, hooks and effects), but for Charged Air's and the Eye of the Storm's implement (any
 /// here) and the effects of theirs the tests do not follow (left out).
 #[must_use]
@@ -767,6 +774,30 @@ pub fn effect_skills() -> Vec<(u32, u32, yalain_world::skills::Usage)> {
         ui_flags: 0x32C1,
         ..Usage::default()
     };
+    let lumbering = Usage {
+        min_range: -1.0,
+        max_range: 1.0,
+        recovery: 5.0,
+        min_use: 0.5,
+        vigor_add: -100.0,
+        min_vigor: 1.0,
+        implements_right: -2,
+        implements_left: -1,
+        valid_targets: 1,
+        behavior_other: [0x4100_009D; 3],
+        behavior_self: [0x4100_009D; 2],
+        user_effects: vec![LUMBERING_MIGHT_ARMOR, LUMBERING_MIGHT_HEALTH],
+        hooks: vec![Hook {
+            damages: true,
+            flags: 0x2018,
+            mult: 1.0,
+            chance: 1.0,
+            anim_hook: 1,
+            ..Hook::default()
+        }],
+        ui_flags: 0x32C1,
+        ..Usage::default()
+    };
     vec![
         (VACUUM, 0x7000_175F, vacuum),
         (PARALYZE, 0x7000_1783, paralyze),
@@ -775,6 +806,7 @@ pub fn effect_skills() -> Vec<(u32, u32, yalain_world::skills::Usage)> {
         (SINEW_SNAP, 0x7000_3450, sinew),
         (LILITHAS_VENGEANCE, 0x7000_344F, lilitha),
         (ESPIRIT, 0x7000_19C7, espirit),
+        (LUMBERING_MIGHT, LUMBERING_MIGHT_STATE, lumbering),
     ]
 }
 
@@ -824,6 +856,11 @@ pub const LILITHAS_COMBO: u32 = 0x7000_1F59;
 pub const LILITHAS_STRIKE: u32 = 0x7000_1F58;
 pub const ESPIRIT_AURA: u32 = 0x6F00_022B;
 pub const ESPIRIT_PULSE: u32 = 0x6F00_1147;
+/// Lumbering Might's saved state and its effects: natural armor and maximum health, each held while
+/// it is on.
+pub const LUMBERING_MIGHT_STATE: u32 = 0x7000_1A23;
+pub const LUMBERING_MIGHT_ARMOR: u32 = 0x7000_0922;
+pub const LUMBERING_MIGHT_HEALTH: u32 = 0x7000_0924;
 /// Still Water's slowing of attacks and Heart of Ice's slowing of movement.
 pub const STILL_WATER_EFFECT: u32 = 0x7000_07A0;
 pub const HEART_OF_ICE_EFFECT: u32 = 0x7000_0777;
@@ -1267,6 +1304,48 @@ pub fn creature_effects() -> Vec<yalain_world::effect_defs::EffectDef> {
                 },
                 0x12D5,
                 0,
+            )
+        },
+        EffectDef {
+            priority: Scale::default(),
+            fx: 0x4100_04C5,
+            external_flags: 0x2_0006,
+            internal_flags: 0x100_0783,
+            ..def(
+                LUMBERING_MIGHT_ARMOR,
+                Kind::Numeric {
+                    flags: 0x2_0006,
+                    stats: vec![0x4_0125],
+                    magnitude: Scale(vec![
+                        (1.0, 1.0),
+                        (25.0, 25.0),
+                        (50.0, 100.0),
+                        (100.0, 200.0),
+                    ]),
+                },
+                828,
+                21,
+            )
+        },
+        EffectDef {
+            priority: Scale::default(),
+            fx: 0x4100_04AF,
+            external_flags: 0x2_00A6,
+            internal_flags: 0x180_0783,
+            ..def(
+                LUMBERING_MIGHT_HEALTH,
+                Kind::Numeric {
+                    flags: 0x2_00A6,
+                    stats: vec![0x4_0107],
+                    magnitude: Scale(vec![
+                        (1.0, 20.0),
+                        (35.0, 200.0),
+                        (50.0, 600.0),
+                        (100.0, 1200.0),
+                    ]),
+                },
+                830,
+                11,
             )
         },
         EffectDef {

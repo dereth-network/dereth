@@ -12525,6 +12525,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.skills.toggle-flag-read",
+        says: "A skill's data marks it toggled with its toggle flag: every skill retail \
+               toggled carries it, three of them turning on no aura, and a skill only used \
+               carries none; the effects of those three file their records as ordinary ones.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TOGGLE-FLAG"),
+        station: "yalain-testkit::dat::skills::the_toggle_flag_reads_on_every_skill_retail_toggled_and_not_on_one_only_used",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.skills.train",
         says: "Training a skill the player may train spends its credits: the repository with the \
                credits left, the skill's information, its text; a refusal is a text alone.",
@@ -13194,6 +13204,27 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-TIPS-NONE"),
         station: "yalain-testkit::cpu::play::popups::a_world_with_no_tip_rows_shows_none_and_a_passed_moment_none_later",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.toggles.off-in-portal-space",
+        says: "Going into portal space turns a toggled skill that turns on no aura off as it \
+               does an aura: its toggle off, then its records taken off.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TOGGLE-OFF-PORTAL"),
+        station: "yalain-testkit::cpu::play::auras::going_into_portal_space_turns_a_toggled_skill_with_no_aura_off",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.toggles.without-an-aura",
+        says: "A toggled skill that turns on no aura ends its use by turning its effects on, a \
+               record of each held until it is turned off, told toggled, with the toggle on and \
+               the skill's information marked toggled; used again it turns them off at once, at \
+               no cost, with the toggle off and the text that it stopped; used a third time it \
+               holds one record of each again, none stacked.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TOGGLE-NO-AURA"),
+        station: "yalain-testkit::cpu::play::auras::a_toggled_skill_with_no_aura_turns_its_effects_on_and_its_next_use_turns_them_off",
         tier: Tier::Cpu,
     },
     behaviour! {

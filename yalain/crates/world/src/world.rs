@@ -1050,7 +1050,7 @@ pub fn log_off_step<S: Store>(
         }
         LogOffStep::Leaves => {
             crate::progress::private(net, world, &crate::places::into_portal_space());
-            crate::effects::auras_off(s, net, world);
+            crate::effects::toggles_off_all(s, net, world);
             let gone: Vec<u32> = s.players.get(&world).map_or_else(Vec::new, |p| {
                 p.play
                     .effects

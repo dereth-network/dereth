@@ -160,6 +160,8 @@ pub mod flag {
     pub const CANNOT_RAISE: u32 = 0x4;
     pub const NOT_BY_PLAYER: u32 = 0x8;
     pub const HERO: u32 = 0x10;
+    /// A toggled skill: its use turns its effects on until its next use turns them off.
+    pub const TOGGLE: u32 = 0x20;
     /// At no vigor a player rates nothing in it.
     pub const NOTHING_AT_NO_VIGOR: u32 = 0x40;
 }

@@ -1917,8 +1917,8 @@ pub(crate) fn shard_portal_space<S: Store>(s: &mut Server<S>, net: &mut ServerNe
     }
 }
 
-/// The player goes into portal space: its effects, its animation and movement frozen, its auras
-/// off.
+/// The player goes into portal space: its effects, its animation and movement frozen, its toggled
+/// skills off.
 fn enter_portal_space<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -1926,8 +1926,8 @@ fn enter_portal_space<S: Store>(
     teleport_fx: bool,
 ) {
     goes_into_portal_space(s, net, world, teleport_fx);
-    // Auras go off as the player goes into portal space.
-    crate::effects::auras_off(s, net, world);
+    // Toggled skills (auras among them) go off as the player goes into portal space.
+    crate::effects::toggles_off_all(s, net, world);
 }
 
 /// The player goes into portal space: its effects, its animation and movement frozen, and any walk

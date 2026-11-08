@@ -46,6 +46,10 @@
 //! players holding one listed; 129 of 137 returns by players whose pulses came before it pulsed so,
 //! a median 2.97 s after it was told it lives).
 //!
+//! **A toggled skill that turns on no aura** ([`toggled_on`]) holds a record of each of its effects
+//! while it is on, told toggled ([`TOGGLED`]); turning it off, by its use or by portal space as an
+//! aura's, takes them off.
+//!
 //! **Lifestone protection.** A player is protected for three minutes as it is resurrected: the
 //! protection is added in the request's tick, before portal space, and its glow (the effect the
 //! resurrection plays on the player) stays on it. It ends, with "You are no longer protected by
@@ -107,7 +111,7 @@ pub mod record_flag {
     pub const TRANSIENT: u32 = 0x40;
     /// It is an item's effect on the one who wears or wields it.
     pub const EQUIPPED: u32 = 0x80;
-    /// It is held while a toggled skill is on.
+    /// It is held while its skill is toggled on.
     pub const TOGGLED: u32 = 0x200;
 }
 
@@ -119,9 +123,15 @@ pub const WORN: u32 = record_flag::INFINITE | record_flag::TRANSIENT | record_fl
 /// change over time and quest reward).
 pub const TIMED: u32 = record_flag::NORMAL | record_flag::TRANSIENT;
 
-/// An aura's own record: held until taken off, gone at logout (2017: flags 0x251 and categories
-/// 0x21 on all 242 auras turned on).
-pub const AURA_FLAGS: u32 = 0x251;
+/// The record of an effect a toggled skill turns on: held until the skill is turned off, gone at
+/// logout (2017: 0x251 on all 242 auras turned on, and all 31 records of the 17 times Lumbering
+/// Might, Brimming Heart and Bolster Metabolism, toggled skills that turn on no aura, were turned on).
+pub const TOGGLED: u32 =
+    record_flag::INFINITE | record_flag::LOGOUT | record_flag::TRANSIENT | record_flag::TOGGLED;
+
+/// An aura's own record: a toggled one, filed under categories 0x21 (2017: all 242 auras turned
+/// on).
+pub const AURA_FLAGS: u32 = TOGGLED;
 pub const AURA_CATEGORIES: u32 = 0x21;
 /// A pulse's record: timed, pulsed, gone at logout (2017: 0xC52 on every pulse).
 pub const PULSE_FLAGS: u32 = 0xC52;
@@ -2368,6 +2378,86 @@ pub fn aura_held<S: Store>(s: &Server<S>, world: ConnId, aura: u32) -> Option<Ef
         .copied()
 }
 
+/// The records a player holds of a toggled skill that is on: of its effects, cast by it (an aura's
+/// own record, or each record of a skill that turns on no aura).
+#[must_use]
+pub fn toggled_held<S: Store>(
+    s: &Server<S>,
+    world: ConnId,
+    skill_state: u32,
+    effects: &[u32],
+) -> Vec<EffectState> {
+    s.players.get(&world).map_or_else(Vec::new, |p| {
+        p.play
+            .effects
+            .iter()
+            .filter(|e| e.flags == TOGGLED && e.skill == skill_state && effects.contains(&e.state))
+            .copied()
+            .collect()
+    })
+}
+
+/// A toggled skill that turns on no aura turns on one of its effects: a record held until the skill
+/// is turned off, cast by the skill (2017: 31 of 31 told with the skill, not as a fight's effect).
+/// Returns the appearance it shows anew, for the caller to show when it is due (after the toggle and
+/// the skill's information). An effect that is no record (one that happens at once) does nothing.
+pub fn toggled_on<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    state: u32,
+    cast: Cast,
+    clock: Clock,
+) -> Option<u32> {
+    let def = s.effect_table.get(state).cloned()?;
+    let record = !matches!(
+        def.kind,
+        Kind::InstantVital { .. }
+            | Kind::VitalTransfer { .. }
+            | Kind::Quest { .. }
+            | Kind::Teleport(_)
+            | Kind::GrantRecipe(_)
+            | Kind::RemoveRecipe(_)
+            | Kind::Taunt(_)
+            | Kind::Aura(_)
+            | Kind::Pet { .. }
+            | Kind::Recall(_)
+            | Kind::Resurrect { .. }
+            | Kind::Combo(_)
+    );
+    if !record || warded(s, On::Player(world), &def) {
+        return None;
+    }
+    let shape = Shape {
+        flags: TOGGLED,
+        categories: None,
+        timeout: Some(f32::MAX),
+        acting: 0,
+    };
+    add_quietly(s, net, On::Player(world), &def, cast, shape, clock)?;
+    (def.fx != 0 && shows_once(s, On::Player(world), def.fx)).then_some(def.fx)
+}
+
+/// A toggled skill's records taken off: an aura with its pulses' records, any other record alone.
+/// Returns the appearances no record shows now, for the caller to stop when they are due.
+pub fn toggled_records_off<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    held: &[EffectState],
+) -> Vec<u32> {
+    let mut stop = Vec::new();
+    for e in held {
+        if is_aura(s, e.state) {
+            stop.extend(aura_off(s, net, world, e.eid));
+        } else if let Some(Some(fx)) = take_off(s, net, On::Player(world), e.eid) {
+            stop.push(fx);
+        }
+    }
+    crate::world::keep_player(s, world);
+    stop
+}
+
 /// An aura's definition, when this saved state is one.
 fn aura_def<S: Store>(s: &Server<S>, state: u32) -> Option<Aura> {
     match s.effect_table.get(state).map(|d| &d.kind) {
@@ -3030,31 +3120,41 @@ pub fn aura_off<S: Store>(
     stop
 }
 
-/// A player goes into portal space, other than to come back from its death: every aura it holds
-/// turns off (its toggle, its records, the appearances they showed).
-pub fn auras_off<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
+/// A player goes into portal space, other than to come back from its death: every toggled skill it
+/// has on turns off, one after another: its toggle, its records (an aura's with its pulses'), the
+/// appearances they showed (2017: Lumbering Might's and Brimming Heart's 7 of 7 ends with no request
+/// came as their players went into portal space, each as an aura's).
+pub fn toggles_off_all<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
     let held: Vec<EffectState> = s.players.get(&world).map_or_else(Vec::new, |p| {
         p.play
             .effects
             .iter()
-            .filter(|e| e.flags == AURA_FLAGS)
+            .filter(|e| e.flags == TOGGLED)
             .copied()
             .collect()
     });
-    for aura in held {
-        if !is_aura(s, aura.state) {
-            continue;
+    let mut skills: Vec<u32> = Vec::new();
+    for e in &held {
+        if !skills.contains(&e.skill) {
+            skills.push(e.skill);
         }
+    }
+    for skill_state in skills {
+        let of_it: Vec<EffectState> = held
+            .iter()
+            .filter(|e| e.skill == skill_state)
+            .copied()
+            .collect();
         if let Some(skill) = s
             .skill_table
             .skills
             .values()
-            .find(|d| d.state == aura.skill)
+            .find(|d| d.state == skill_state)
             .map(|d| d.id)
         {
             progress::private(net, world, &toggle_call(false, skill));
         }
-        for fx in aura_off(s, net, world, aura.eid) {
+        for fx in toggled_records_off(s, net, world, &of_it) {
             stop_fx_on(s, net, On::Player(world), fx);
         }
     }

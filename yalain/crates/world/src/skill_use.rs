@@ -1339,21 +1339,46 @@ fn aura_of<S: Store>(s: &Server<S>, skill: u32) -> Option<u32> {
         .find(|st| crate::effects::is_aura(s, *st))
 }
 
-/// A toggled skill used while its aura is on turns it off, in one tick: attacking (unless it
-/// was), the use over, the toggle off, the aura's records taken off, "You stop …" with the skill's
-/// name, not attacking again (unless it was), the appearance stopped. Returns whether it did.
+/// Is it a toggled skill: one its data marks so (2017: all 26 skills toggled, 3 of them turning on
+/// no aura), or one that turns on an aura?
+fn toggled<S: Store>(s: &Server<S>, skill: u32) -> bool {
+    s.skill_table
+        .skills
+        .get(&skill)
+        .is_some_and(|d| d.flags & crate::skills::flag::TOGGLE != 0)
+        || aura_of(s, skill).is_some()
+}
+
+/// The records a player holds of a toggled skill that is on (none when it is off).
+fn toggled_held<S: Store>(
+    s: &Server<S>,
+    world: ConnId,
+    skill: u32,
+) -> Vec<crate::state::EffectState> {
+    let Some(d) = s.skill_table.skills.get(&skill) else {
+        return Vec::new();
+    };
+    let effects = d.usage.as_ref().map_or(&[][..], |u| &u.user_effects[..]);
+    crate::effects::toggled_held(s, world, d.state, effects)
+}
+
+/// A toggled skill used while it is on turns off, in one tick: attacking (unless it was), the use
+/// over, the toggle off, its records taken off (an aura's with its pulses'), "You stop …" with the
+/// skill's name, not attacking again (unless it was), the appearances stopped (2017: Lumbering
+/// Might's 4 of 4 turned off by a use). It costs nothing. Returns whether it did.
 fn toggles_off<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     world: ConnId,
     r: Request,
 ) -> bool {
-    let Some(aura) = aura_of(s, r.skill) else {
+    if !toggled(s, r.skill) {
         return false;
-    };
-    let Some(rec) = crate::effects::aura_held(s, world, aura) else {
+    }
+    let held = toggled_held(s, world, r.skill);
+    if held.is_empty() {
         return false;
-    };
+    }
     let attacking = s
         .players
         .get(&world)
@@ -1363,7 +1388,7 @@ fn toggles_off<S: Store>(
     }
     progress::private(net, world, &ended(r.id));
     progress::private(net, world, &crate::effects::toggle_call(false, r.skill));
-    let stop = crate::effects::aura_off(s, net, world, rec.eid);
+    let stop = crate::effects::toggled_records_off(s, net, world, &held);
     if let Some(name) = s.skill_table.skills.get(&r.skill).map(|d| d.name) {
         let text = progress::text_with(
             crate::effects::toggled_off::TEXT,
@@ -2835,8 +2860,8 @@ fn end<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: C
     };
     p.last_used.insert(x.req.skill, now_game);
     let me = p.character;
-    if let Some(aura) = aura_of(s, x.req.skill) {
-        aura_turns_on(s, net, world, &x, aura, now_game, clock);
+    if toggled(s, x.req.skill) {
+        turns_on(s, net, world, &x, now_game, clock);
         crate::world::keep_player(s, world);
         take_up_waiting(s, net, world, clock);
         return;
@@ -2968,15 +2993,15 @@ fn take_up_waiting<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: Conn
     }
 }
 
-/// A toggled skill's use ends by turning its aura on (2017's order): the aura's first pulse and its
-/// record, not attacking, the toggle on, the skill's information marked toggled, the pulse's
-/// appearance, stopped (when turned) and at peace.
-fn aura_turns_on<S: Store>(
+/// A toggled skill's use ends by turning it on (2017's order): its aura's first pulse and the aura's
+/// record, or, for a skill that turns on no aura, a record of each of its effects; not attacking, the
+/// toggle on, the skill's information marked toggled, the appearances, stopped (when turned) and at
+/// peace (2017: Lumbering Might, Brimming Heart and Bolster Metabolism, 17 of 17 so).
+fn turns_on<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     world: ConnId,
     x: &Using,
-    aura: u32,
     now_game: f64,
     clock: Clock,
 ) {
@@ -2985,7 +3010,21 @@ fn aura_turns_on<S: Store>(
         .skills
         .get(&x.req.skill)
         .map_or(0, |d| d.state);
-    let fx = crate::effects::aura_on(s, net, world, aura, skill_state, x.spellcraft, clock);
+    let fx = if let Some(aura) = aura_of(s, x.req.skill) {
+        crate::effects::aura_on(s, net, world, aura, skill_state, x.spellcraft, clock)
+    } else {
+        let cast = crate::effects::Cast {
+            caster: s.players.get(&world).map_or(0, |p| p.character),
+            spellcraft: x.spellcraft,
+            skill: skill_state,
+            ..crate::effects::Cast::default()
+        };
+        x.usage
+            .user_effects
+            .iter()
+            .filter_map(|st| crate::effects::toggled_on(s, net, world, *st, cast, clock))
+            .collect()
+    };
     if x.alone {
         progress::private(net, world, &combat::attack_state(false));
     }

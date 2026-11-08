@@ -61,6 +61,7 @@ what they see, not how it was done.
 - Fixed orb throws ignoring a weapon's critical bonus.
 - A special's hooks now each roll to land and to crit.
 - Critical specials now crit as hard as retail.
+- Skills like Lumbering Might now toggle on and off as in retail.
 
 ## 0.2.2 (2026-11-07)
 - Resurrection skills work: the dead can accept and get up where they fell.

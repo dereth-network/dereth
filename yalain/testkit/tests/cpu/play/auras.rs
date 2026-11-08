@@ -1,15 +1,19 @@
 //! Toggled skills and their auras: the use that turns one on, its pulses (each a record of its own
 //! on the players it reaches), the use that turns it off, a pulse that misses a player holding an
-//! earlier one's record, and portal space turning it off. Fixture: a player with a sword in hand
-//! and Espirit as the data defines it.
+//! earlier one's record, and portal space turning it off; a toggled skill that turns on no aura,
+//! on and off. Fixture: a player with a sword in hand and Espirit and Lumbering Might as the data
+//! defines them.
 
 use auberean_protocol::{queue, ServerMessage};
 use auberean_script::args::Arg;
 use yalain_content::{ContentObject, ContentPack, Description, Facts, Kind, Place};
 use yalain_testkit::play::{server_call, use_of};
-use yalain_testkit::{Harness, ESPIRIT, ESPIRIT_AURA, ESPIRIT_PULSE};
+use yalain_testkit::{
+    Harness, ESPIRIT, ESPIRIT_AURA, ESPIRIT_PULSE, LUMBERING_MIGHT, LUMBERING_MIGHT_ARMOR,
+    LUMBERING_MIGHT_HEALTH, LUMBERING_MIGHT_STATE,
+};
 use yalain_world::calls::{self, Node, Value};
-use yalain_world::effects::{self, function as effect_fn, AURA_FLAGS, PULSE_FLAGS};
+use yalain_world::effects::{self, function as effect_fn, AURA_FLAGS, PULSE_FLAGS, TOGGLED};
 use yalain_world::player::quality;
 use yalain_world::quals;
 use yalain_world::skill_use::function;
@@ -21,6 +25,7 @@ const ATTACK_STATE: u32 = 0x8204_001B;
 const SKILL_INFO: u32 = 0x8214_000D;
 const SHOW_TEXT: u32 = 0x8205_0011;
 const PULSE_FX: u32 = 0x4100_038F;
+const LUMBERING_FX: [u32; 2] = [0x4100_04C5, 0x4100_04AF];
 const PORTAL: u64 = 0x4002_9900_0000_0056;
 
 /// A player in the world with the scene drawn, vigor to spare and a sword in hand; returns the
@@ -394,30 +399,7 @@ fn going_into_portal_space_turns_auras_off() {
         rotation: [1.0, 0.0, 0.0, 0.0],
     };
     h.server.content = ContentPack {
-        objects: vec![ContentObject {
-            object: Some(PORTAL),
-            template: 0x4700_1154,
-            description: Description {
-                name_text: None,
-                package: 0x1A00,
-                look: 0x1F00_0ED5,
-                enter_fx: 0,
-                scale: None,
-                name: None,
-                numbers: [0; 6],
-                source: "authored for a test".into(),
-            },
-            cell: 0x0299_0109,
-            origin: [61.0, 240.2, -44.6],
-            rotation: [1.0, 0.0, 0.0, 0.0],
-            kind: Kind::Static,
-            label: String::new(),
-            placed: "authored for a test".into(),
-            destination: Some(to),
-            facts: Facts::default(),
-            walks: None,
-            gate: None,
-        }],
+        objects: vec![portal_to(to)],
         ..ContentPack::default()
     };
     let (b, me) = armed(&mut h, "one", "Elara");
@@ -924,4 +906,193 @@ fn a_toggled_skill_used_again_inside_a_run_turns_off() {
         h.step();
     }
     assert_eq!(auras(&mut h), 0, "off");
+}
+
+/// The player has trained Lumbering Might too.
+fn trains_lumbering_might(h: &mut Harness, me: u64) {
+    player(h, me).play.skills.push(SkillState {
+        skill: LUMBERING_MIGHT,
+        granted: 0,
+        mask: 0x1,
+        cost: 5,
+        children: 0,
+        dependents: 0,
+        spent: 0,
+    });
+}
+
+/// The records a player holds of Lumbering Might's two effects.
+fn lumbering_records(h: &mut Harness, me: u64) -> Vec<EffectState> {
+    held(h, me)
+        .into_iter()
+        .filter(|e| [LUMBERING_MIGHT_ARMOR, LUMBERING_MIGHT_HEALTH].contains(&e.state))
+        .collect()
+}
+
+/// A toggled skill that turns on no aura (Lumbering Might) ends its use by turning its effects on:
+/// a record of each, toggled and held until it is turned off (flags 0x251, no end, categories 1,
+/// told with the skill), not attacking, the toggle on, the skill's information marked toggled, then
+/// the effects' appearances. Used again it turns off at once and costs nothing: attacking, the use
+/// over, the toggle off, its records taken off, "You stop …", not attacking, the appearances
+/// stopped. Used a third time it is on again with one record of each, none stacked on another.
+/// Behaviour: server.toggles.without-an-aura
+#[test]
+fn a_toggled_skill_with_no_aura_turns_its_effects_on_and_its_next_use_turns_them_off() {
+    let mut h = Harness::new();
+    let (b, me) = armed(&mut h, "one", "Elara");
+    trains_lumbering_might(&mut h, me);
+    let from = use_skill(&mut h, b, 1, LUMBERING_MIGHT, 0);
+    h.run(80);
+    let got = calls_of(&h, b, from);
+    let at = got
+        .iter()
+        .position(|(f, _)| *f == effect_fn::ADD)
+        .expect("records added");
+    let tail: Vec<u32> = got[at..].iter().map(|(f, _)| *f).take(5).collect();
+    assert_eq!(
+        tail,
+        [
+            effect_fn::ADD,
+            effect_fn::ADD,
+            ATTACK_STATE,
+            effect_fn::TOGGLE,
+            SKILL_INFO
+        ]
+    );
+    for (_, v) in &got[at..at + 2] {
+        let (_, timeout, flags, categories) = record(v).expect("a record");
+        assert_eq!((timeout, flags, categories), (f32::MAX, TOGGLED, 1));
+    }
+    assert_eq!(got[at + 3].1, [Value::Int(1), Value::Int(LUMBERING_MIGHT)]);
+    let on = lumbering_records(&mut h, me);
+    assert_eq!(on.len(), 2);
+    assert!(on
+        .iter()
+        .all(|e| e.flags == 0x251 && e.skill == LUMBERING_MIGHT_STATE && !e.pk));
+    let msgs = h.world_messages(b, from);
+    let info = msgs
+        .iter()
+        .position(|m| matches!(m, ServerMessage::PlayerCall(c) if c.function.0 == SKILL_INFO))
+        .expect("the information");
+    for fx in LUMBERING_FX {
+        let shown = msgs
+            .iter()
+            .position(
+                |m| matches!(m, ServerMessage::DoFx(e) if e.sender.id == me && e.action.fx == fx),
+            )
+            .expect("the appearance");
+        assert!(info < shown);
+    }
+
+    h.run(200);
+    let vigor = quals::int(&player(&mut h, me).qualities, quality::VIGOR);
+    let from = use_skill(&mut h, b, 2, LUMBERING_MIGHT, 0);
+    h.run(5);
+    let got = calls_of(&h, b, from);
+    let names: Vec<u32> = got.iter().map(|(f, _)| *f).collect();
+    assert_eq!(
+        names,
+        [
+            ATTACK_STATE,
+            function::ENDED,
+            effect_fn::TOGGLE,
+            effect_fn::REMOVE,
+            effect_fn::REMOVE,
+            SHOW_TEXT,
+            ATTACK_STATE
+        ]
+    );
+    assert_eq!(got[2].1, [Value::Int(0), Value::Int(LUMBERING_MIGHT)]);
+    let removed: Vec<Value> = got[3..5].iter().flat_map(|(_, v)| v.clone()).collect();
+    let ids: Vec<Value> = on.iter().map(|e| Value::Int(e.eid)).collect();
+    assert_eq!(removed, ids);
+    assert!(lumbering_records(&mut h, me).is_empty());
+    assert_eq!(
+        quals::int(&player(&mut h, me).qualities, quality::VIGOR),
+        vigor,
+        "turning it off costs nothing"
+    );
+    let msgs = h.world_messages(b, from);
+    for fx in LUMBERING_FX {
+        assert!(msgs.iter().any(
+            |m| matches!(m, ServerMessage::StopFx(e) if e.sender.id == me && e.action.0 == fx)
+        ));
+    }
+
+    h.run(200);
+    use_skill(&mut h, b, 3, LUMBERING_MIGHT, 0);
+    h.run(80);
+    assert_eq!(lumbering_records(&mut h, me).len(), 2, "one of each again");
+}
+
+/// Going into portal space turns a toggled skill with no aura off as it does an aura: its toggle
+/// off, then its records taken off.
+/// Behaviour: server.toggles.off-in-portal-space
+#[test]
+fn going_into_portal_space_turns_a_toggled_skill_with_no_aura_off() {
+    let mut h = Harness::new();
+    let to = Place {
+        cell: 0x7000_0001,
+        origin: [10.0, 10.0, 50.0],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    h.server.content = ContentPack {
+        objects: vec![portal_to(to)],
+        ..ContentPack::default()
+    };
+    let (b, me) = armed(&mut h, "one", "Elara");
+    trains_lumbering_might(&mut h, me);
+    use_skill(&mut h, b, 1, LUMBERING_MIGHT, 0);
+    h.run(80);
+    assert_eq!(lumbering_records(&mut h, me).len(), 2);
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(yalain_world::requests::function::USE, &[use_of(PORTAL, me)]),
+    );
+    h.run(10);
+    let got = calls_of(&h, b, from);
+    let entered = got
+        .iter()
+        .position(|(f, _)| *f == yalain_world::places::function::ENTER_PORTAL_SPACE)
+        .expect("into portal space");
+    assert_eq!(
+        got[entered + 1],
+        (
+            effect_fn::TOGGLE,
+            vec![Value::Int(0), Value::Int(LUMBERING_MIGHT)]
+        )
+    );
+    assert_eq!(got[entered + 2].0, effect_fn::REMOVE);
+    assert_eq!(got[entered + 3].0, effect_fn::REMOVE);
+    assert!(lumbering_records(&mut h, me).is_empty());
+}
+
+/// A portal to this place.
+fn portal_to(to: Place) -> ContentObject {
+    ContentObject {
+        object: Some(PORTAL),
+        template: 0x4700_1154,
+        description: Description {
+            name_text: None,
+            package: 0x1A00,
+            look: 0x1F00_0ED5,
+            enter_fx: 0,
+            scale: None,
+            name: None,
+            numbers: [0; 6],
+            source: "authored for a test".into(),
+        },
+        cell: 0x0299_0109,
+        origin: [61.0, 240.2, -44.6],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+        kind: Kind::Static,
+        label: String::new(),
+        placed: "authored for a test".into(),
+        destination: Some(to),
+        facts: Facts::default(),
+        walks: None,
+        gate: None,
+    }
 }

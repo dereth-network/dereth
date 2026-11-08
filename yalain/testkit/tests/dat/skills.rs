@@ -1464,3 +1464,37 @@ fn a_heros_attribute_skills_raise_their_vitals_and_lore() {
     assert_eq!(after.2 - before.2, 80, "focus");
     assert_eq!((before.3, after.3), (0, 17), "Arcane Lore");
 }
+
+/// Every skill the 2017 servers toggled carries the data's toggle flag, Lumbering Might, Brimming
+/// Heart and Bolster Metabolism among them with no aura to turn on; Iron Pincers, a skill only used,
+/// carries none. Those three's effects file their records as ordinary ones (categories 1, as 2017
+/// told them).
+/// Behaviour: server.skills.toggle-flag-read
+#[test]
+fn the_toggle_flag_reads_on_every_skill_retail_toggled_and_not_on_one_only_used() {
+    use yalain_world::effect_defs::Kind;
+    use yalain_world::skills::flag;
+    const TOGGLED: [u32; 26] = [
+        68, 77, 78, 86, 99, 103, 105, 107, 114, 145, 157, 235, 289, 290, 291, 341, 357, 363, 640,
+        646, 666, 670, 686, 696, 697, 1028,
+    ];
+    const NO_AURA: [u32; 3] = [341, 697, 1028];
+    const IRON_PINCERS: u32 = 695;
+    let p = Portal::open();
+    let t = p.skills();
+    for id in TOGGLED {
+        assert_ne!(t.skills[&id].flags & flag::TOGGLE, 0, "{id}");
+    }
+    assert_eq!(t.skills[&IRON_PINCERS].flags & flag::TOGGLE, 0);
+    let user: Vec<u32> = NO_AURA
+        .iter()
+        .flat_map(|id| t.skills[id].usage.clone().expect("used").user_effects)
+        .collect();
+    assert_eq!(user.len(), 4);
+    let e = p.effects(&user);
+    for st in user {
+        let d = e.get(st).unwrap_or_else(|| panic!("{st:08X} reads"));
+        assert!(!matches!(d.kind, Kind::Aura(_)), "{st:08X}");
+        assert_eq!(d.categories(), 1, "{st:08X}");
+    }
+}
