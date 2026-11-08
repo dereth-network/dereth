@@ -716,10 +716,14 @@ impl FidelityPreferences {
             .any(|f| self.effective(f) != 0)
     }
 
-    /// Whether any option is stored on, whatever the interface.
+    /// Whether any option is stored on, whatever the interface. Cloud Detail, which starts at a
+    /// level and draws nothing alone, is none.
     #[must_use]
     pub fn any_stored(&self) -> bool {
-        self.values.iter().any(|v| *v != 0)
+        FidelityFeature::ALL
+            .into_iter()
+            .filter(|f| *f != FidelityFeature::CloudDetail)
+            .any(|f| self.value(f) != 0)
     }
 
     /// The settings a capture or a test names, as the Horizon interface draws them: a comma list
@@ -822,6 +826,7 @@ mod tests {
             .filter(|f| *f != FidelityFeature::CloudDetail)
             .all(|f| empty.value(f) == 0));
         assert!(!empty.any_effective());
+        assert!(!empty.any_stored(), "Cloud Detail's default alone stores nothing on");
         // Every box ticked, under the classic or the modern interface: nothing in effect.
         for interface in [
             "",
