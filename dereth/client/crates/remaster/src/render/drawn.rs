@@ -37,6 +37,12 @@ pub const WORLD_METERS: f32 = 255.0 * 192.0;
 const TOP: u32 = 11;
 /// How far a level's ring reaches, in nodes of its size.
 const RANGE_NODES: f32 = 2.5;
+/// The first level whose ring reaches [`FAR_RANGE_NODES`]: its grid is 16 meters apart at detail 1.
+const FAR_LEVEL: u32 = 4;
+/// How far a far level's ring reaches, in nodes of its size: far enough that a distant mountain is
+/// drawn from a grid fine enough to keep its shape, not one coarser than the mountain. The levels
+/// nearer keep [`RANGE_NODES`], and so do the sun's shadow casters ([`select_casters`]).
+const FAR_RANGE_NODES: f32 = 8.0;
 /// The share of a level's ring past which its vertices slide onto the next level's grid.
 const MORPH_FROM: f32 = 0.8;
 /// The most bodies the fine relief is leveled under.
@@ -80,9 +86,26 @@ pub fn finest_spacing(detail: f32) -> f32 {
 /// How far level `level`'s ring reaches from the eye at `detail`, meters.
 #[must_use]
 pub fn reach(level: u32, detail: f32) -> f32 {
+    let nodes = if level >= FAR_LEVEL {
+        FAR_RANGE_NODES
+    } else {
+        RANGE_NODES
+    };
+    node_size(level, detail) * nodes
+}
+
+/// How far level `level`'s ring reaches for the sun's shadow casters, meters: every level's ring
+/// [`RANGE_NODES`] across, as before the far levels reached farther.
+#[must_use]
+pub fn caster_reach(level: u32, detail: f32) -> f32 {
+    node_size(level, detail) * RANGE_NODES
+}
+
+/// The side of one of level `level`'s nodes at `detail`, meters.
+fn node_size(level: u32, detail: f32) -> f32 {
     #[allow(clippy::cast_precision_loss)] // a level, at most a dozen
     let node = finest_spacing(detail) * CELLS as f32 * 2.0 * (1u32 << level.min(20)) as f32;
-    node * RANGE_NODES
+    node
 }
 
 /// How far a patch vertex at world `p` has slid onto the next level's grid, `morph` its patch's
@@ -250,10 +273,29 @@ pub fn select(
     horizon: f32,
     seen: &dyn Fn(Vec3, Vec3) -> bool,
 ) -> Vec<Patch> {
+    select_in(eye, detail, horizon, seen, &|l| reach(l, detail))
+}
+
+/// [`select`] for the sun's shadow casters, every ring at [`caster_reach`]: the far levels' longer
+/// rings would give them more patches than shadows need.
+#[must_use]
+pub fn select_casters(eye: Vec3, detail: f32, horizon: f32) -> Vec<Patch> {
+    select_in(eye, detail, horizon, &|_, _| true, &|l| {
+        caster_reach(l, detail)
+    })
+}
+
+fn select_in(
+    eye: Vec3,
+    detail: f32,
+    horizon: f32,
+    seen: &dyn Fn(Vec3, Vec3) -> bool,
+    ranges: &dyn Fn(u32) -> f32,
+) -> Vec<Patch> {
     let mut s = Selector {
         eye,
         finest: finest_spacing(detail),
-        ranges: (0..=TOP).map(|l| reach(l, detail)).collect(),
+        ranges: (0..=TOP).map(ranges).collect(),
         horizon,
         seen,
         out: Vec::new(),
@@ -738,7 +780,7 @@ impl DrawnPass {
         let view = select(eye, k.detail, horizon, &|lo, hi| {
             in_view(&clip, lo - g3, hi - g3)
         });
-        let casters = select(eye, k.detail, horizon.min(CASTER_REACH), &|_, _| true);
+        let casters = select_casters(eye, k.detail, horizon.min(CASTER_REACH));
         let mut bytes = Vec::with_capacity((view.len() + casters.len()) * 32);
         for p in view.iter().chain(&casters) {
             #[allow(clippy::cast_precision_loss)] // a level, at most a dozen
@@ -1072,6 +1114,35 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// **A far level's ring reaches farther than a near one's**: from level 4 up eight of its nodes,
+    /// so far mountains are drawn from a grid fine enough to keep their shape; nearer, two and a
+    /// half. The shadow casters keep every ring at two and a half, so they draw no more patches.
+    #[test]
+    fn far_levels_reach_farther_and_the_shadow_casters_keep_the_near_rings() {
+        let node = |l: u32| 32.0 * f32::from(1u16 << l);
+        for l in 0..FAR_LEVEL {
+            assert_eq!(reach(l, 1.0), node(l) * 2.5, "level {l}");
+        }
+        for l in FAR_LEVEL..=TOP {
+            assert_eq!(reach(l, 1.0), node(l) * 8.0, "level {l}");
+            assert_eq!(caster_reach(l, 1.0), node(l) * 2.5, "level {l}'s casters");
+        }
+        // The same stretch of ground: the view draws it finer than the casters do.
+        let eye = Vec3::new(20_000.0, 20_000.0, 50.0);
+        let finest_past = |patches: &[Patch], meters: f32| {
+            patches
+                .iter()
+                .filter(|p| (p.at - eye.truncate()).length() > meters)
+                .map(|p| p.level)
+                .min()
+        };
+        let view = select(eye, 1.0, 2_500.0, &always);
+        let casters = select_casters(eye, 1.0, 2_500.0);
+        assert_eq!(finest_past(&view, 2_000.0), Some(4));
+        assert!(finest_past(&casters, 2_000.0) > Some(4));
+        assert!(casters.len() < view.len());
     }
 
     /// **Every edge two patches of different levels share has the same vertices on both sides**:
