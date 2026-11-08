@@ -217,6 +217,7 @@ impl PackAssets {
                 views: [count, views.columns.clamp(1, count)],
                 color: display_color(p.material.base_color),
                 cut: p.material.alpha_cutoff.unwrap_or(0.0),
+                foliage: m.foliage,
             });
             images.push([base, normal]);
         }

@@ -32,7 +32,8 @@ static const uint C_FAR = 9;     // x how far a tree is sunk, meters a meter of 
 // A tree, three rows: its foot and scale; its rotation; and (as words) its model, number and slot.
 // A model, four rows: the centre of its bounds and their radius; its quad's half width, foot and
 // top, and its pictures' cut; its color; and (as words) its picture, its normal picture, its views
-// and its views to a row.
+// (low half) and its views to a row (high half), and its flags (bit 0: an art pack's leaves, pulled
+// toward the look's foliage hue).
 
 struct CullPush
 {
@@ -238,7 +239,7 @@ Far vs_far(uint vertex : SV_VertexID, uint instance : SV_InstanceID, uniform Dra
     Far o;
     o.position = transform(push.frame, FRAME_VIEW_PROJ, float4(p, 1.0));
     o.uv = float2(0.5 + 0.5 * c.x, 0.5 - 0.5 * c.y);
-    float views = max(float(words.z), 1.0);
+    float views = max(float(words.z & 0xFFFF), 1.0);
     float b = bearing / TAU * views;
     o.bearing = b - floor(b / views) * views;
     o.model = model;
@@ -268,8 +269,8 @@ Targets fs_far(Far in, uniform DrawPush push)
     uint4 words = row_u(push.models, in.model * 4 + 3);
     // The view nearest the eye's bearing, whole: a blend of two by the frame's dither would change
     // from one frame to the next, and their leaves do not lie alike.
-    float views = max(float(words.z), 1.0);
-    float columns = max(float(words.w), 1.0);
+    float views = max(float(words.z & 0xFFFF), 1.0);
+    float columns = max(float(words.z >> 16), 1.0);
     float rows = ceil(views / columns);
     float k = round(in.bearing);
     k -= floor(k / views) * views;
@@ -284,6 +285,10 @@ Targets fs_far(Far in, uniform DrawPush push)
     float2 gy = ddy(in.uv) / grid * bias;
     SamplerState wrap = samplers[NonUniformResourceIndex(push.clamp)];
     float4 base = textures[NonUniformResourceIndex(words.x)].SampleGrad(wrap, at, gx, gy) * color;
+    if ((words.w & 1) != 0)
+    {
+        base.rgb = pack_foliage(push.frame, base.rgb);
+    }
     if (base.a < quad.w)
     {
         discard;

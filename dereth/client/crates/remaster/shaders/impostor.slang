@@ -105,6 +105,8 @@ BakeTargets fs_bake(Baked in, uniform BakePush push)
     {
         t *= in.color;
     }
+    // An art pack's leaves, which the card pulls toward the look's foliage hue as it is drawn.
+    bool leaf = (m.y & 1024) != 0;
     float alpha = t.a * float(m.w) / 255.0;
     // Kept where the surface keeps its texel: at or above its alpha reference where it has one,
     // at or above half where it is otherwise see-through.
@@ -115,7 +117,7 @@ BakeTargets fs_bake(Baked in, uniform BakePush push)
     }
     BakeTargets o;
     o.albedo = float4(t.rgb, 1.0);
-    o.normal = float4(normalize(in.normal) * 0.5 + 0.5, 1.0);
+    o.normal = float4(normalize(in.normal) * 0.5 + 0.5, leaf ? 1.0 : 0.0);
     return o;
 }
 
@@ -230,9 +232,14 @@ Targets fs_draw(Card in, uniform DrawPush push)
     {
         discard;
     }
-    float3 n = textures[NonUniformResourceIndex(w.y)].SampleLevel(
+    float4 baked = textures[NonUniformResourceIndex(w.y)].SampleLevel(
         samplers[NonUniformResourceIndex(push.wrap)],
-        clamp(uv, corner + inset, corner + tile - inset), 0.0).xyz * 2.0 - 1.0;
+        clamp(uv, corner + inset, corner + tile - inset), 0.0);
+    float3 n = baked.xyz * 2.0 - 1.0;
+    if (baked.w > 0.5)
+    {
+        albedo.rgb = pack_foliage(push.frame, albedo.rgb);
+    }
     float3 ax = normalize(r1.xyz);
     float3 ay = normalize(r2.xyz);
     float3 az = normalize(row(push.cards, in.card * 5 + 3).xyz);

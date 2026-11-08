@@ -134,6 +134,7 @@ pub fn frame_rows_seen(
     // How the scene's colors are drawn: in display values, as retail draws them.
     r.f([0.0; 4]);
     r.f(lift_row(frame));
+    r.f([frame.foliage[0], frame.foliage[1], 0.0, 0.0]);
     r
 }
 
@@ -382,19 +383,21 @@ mod tests {
         assert_eq!(lifted(&f, [0.0; 2], at(600.0)), 0.0);
     }
 
-    /// The frame's constants are 23 rows, with the ground's ambient its color's bytes times its
+    /// The frame's constants are 24 rows, with the ground's ambient its color's bytes times its
     /// level, the fog off when the frame has none, the colors in display values unless the frame
-    /// is drawn linear, and nothing lifted while no ground is drawn over retail's.
+    /// is drawn linear, nothing lifted while no ground is drawn over retail's, and no pull on an
+    /// art pack's leaves until the look gives one.
     #[test]
-    fn the_frames_constants_are_twenty_three_rows() {
+    fn the_frames_constants_are_twenty_four_rows() {
         let mut f = FrameDelta::default();
         f.light.ambient_color = [255, 128, 0];
         f.light.ambient_level = 0.5;
         f.camera.projection = Mat4::IDENTITY;
         f.camera.view = Mat4::IDENTITY;
         let r = frame_rows(&f, 0.0, LightMode::Vertex, (640, 480));
-        assert_eq!(r.0.len(), 23);
+        assert_eq!(r.0.len(), 24);
         assert_eq!(r.0[22], [0; 4], "no ground drawn over retail's");
+        assert_eq!(r.0[23], [0; 4], "no pull on an art pack's leaves");
         let row = |i: usize| r.0[i].map(f32::from_bits);
         assert!((row(11)[0] - 0.5).abs() < 1e-6);
         assert!((row(11)[1] - 128.0 * BYTE * 0.5).abs() < 1e-6);

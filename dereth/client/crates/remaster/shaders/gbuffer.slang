@@ -52,8 +52,9 @@ struct Push
 // its fourth, the way its second texture coordinate runs from it, then its color.
 static const uint VERTEX_ROWS = 4;
 
-// The material flag of a surface drawn under its vertices' colors.
+// The material flag of a surface drawn under its vertices' colors, and of an art pack's leaves.
 static const uint VERTEX_COLORED = 512;
+static const uint PACK_FOLIAGE = 1024;
 
 // The item flags: the texture repeats; a building's shell, under the building detail texture; a
 // room's walls, under the rooms' detail texture.
@@ -273,6 +274,10 @@ Targets fs_main(Varyings in)
     if ((m.y & VERTEX_COLORED) != 0)
     {
         t *= in.color;
+    }
+    if ((m.y & PACK_FOLIAGE) != 0)
+    {
+        t.rgb = pack_foliage(push.frame, t.rgb);
     }
     float a = t.a * in.alpha;
     // The alpha test, where the surface has one: kept at or above the reference.

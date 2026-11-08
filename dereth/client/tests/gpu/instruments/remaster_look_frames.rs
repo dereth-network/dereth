@@ -18,6 +18,7 @@
 //! - `DERETH_ART_PACK`: the art pack the remaster's pack boxes draw (default none).
 //! - `DERETH_REMASTER_KNOBS`: the ground's knobs, `name = value` lines joined by `;` (default
 //!   every knob at its default).
+//! - `DERETH_REMASTER_LOOK`: a look file, read as the player's `look.toml` (default none).
 
 #![cfg(gpu)]
 #![cfg(feature = "remaster")]
@@ -113,6 +114,9 @@ fn draw(
         let (knobs, notes) = dereth_terrain::land::drawn::Knobs::parse(&lines.replace(';', "\n"));
         assert!(notes.is_empty(), "the knobs read: {notes:?}");
         shot.scene.set_remaster_ground_knobs(knobs);
+    }
+    if let Some(path) = env("DERETH_REMASTER_LOOK").map(std::path::PathBuf::from) {
+        shot.scene.draw.set_remaster_look_file(Some(path));
     }
     shot.scene.draw.cfg.render.fidelity =
         FidelityPreferences::parse_switch(boxes).expect("the boxes read");

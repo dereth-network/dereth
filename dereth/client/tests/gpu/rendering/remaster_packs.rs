@@ -334,13 +334,14 @@ fn the_packs_trees_take_the_place_of_the_trees_it_has_a_model_for() {
 /// drawn from the pack's folder, whose cut-out pictures the remaster makes again with their
 /// cut-away texels filled from the edge, show no magenta-tinted pixel more than the forest
 /// without the pack does; the same pack opened from memory, its pictures as the pack made them,
-/// shows a fringe of them.
+/// shows a fringe of them. The leaves are drawn with no pull toward the look's foliage hue, so the
+/// key's color is seen as it is.
 #[test]
 fn a_cut_out_pictures_edge_carries_none_of_the_color_its_cut_leaves_out() {
     let _gpu = crate::common::gpu_lock();
     let store = crate::common::dats();
     let st = station(&store, "forest");
-    let f = files(None);
+    let f = files(Some("foliage_pull = 0.0"));
     let none = run(&store, &st, None, RemasterPacks::default(), 6);
     let made = run(&store, &st, Some((in_memory(&f), None)), trees(), 6);
     let (pack, dir) = in_a_folder(&f, "leaf");
@@ -2461,5 +2462,105 @@ fn a_one_sided_pack_models_gltf_front_face_is_the_one_drawn() {
     assert!(
         unseen * 20 < seen,
         "their backs are not: {unseen} pixels against {seen}"
+    );
+}
+
+/// The pack of cards with a red leaf in place of the green, and its `lighting` section.
+fn red_leaf_files(lighting: Option<&str>) -> HashMap<String, Vec<u8>> {
+    let side = 16u32;
+    let mut rgba = Vec::new();
+    for y in 0..side {
+        for x in 0..side {
+            #[allow(clippy::cast_precision_loss)] // a small picture's texels
+            let (dx, dy) = (x as f32 - 7.5, y as f32 - 7.5);
+            rgba.extend(if dx * dx + dy * dy < 6.5 * 6.5 {
+                [190, 50, 35, 255]
+            } else {
+                [255, 0, 255, 0]
+            });
+        }
+    }
+    let red = png(side, side, &rgba);
+    let mut files = files(lighting);
+    for level in ["near", "far"] {
+        files.insert(format!("{level}/leaf.png"), red.clone());
+    }
+    files
+}
+
+/// Whether the drawn pixel `i` is green, or red: its hue within 60 degrees of the one named, and
+/// saturated enough for its hue to show.
+fn hue_near(c: &RemasterCapture, i: usize, degrees: f32) -> bool {
+    let [r, g, b] = [0, 1, 2].map(|k| f32::from(c.color[i * 4 + k]));
+    let (hi, lo) = (r.max(g).max(b), r.min(g).min(b));
+    if hi < 20.0 || (hi - lo) / hi < 0.25 {
+        return false;
+    }
+    let span = hi - lo;
+    let h = if hi == r {
+        ((g - b) / span).rem_euclid(6.0)
+    } else if hi == g {
+        2.0 + (b - r) / span
+    } else {
+        4.0 + (r - g) / span
+    } * 60.0;
+    let off = (h - degrees + 180.0).rem_euclid(360.0) - 180.0;
+    off.abs() < 60.0
+}
+
+/// **An art pack's leaves are pulled toward one green, and nothing else is**: in the forest, a
+/// pack's trees with red leaves are drawn green; with the pack's own lighting saying to pull them
+/// not at all, they are drawn red; and between the two frames no pixel changes but the leaves'.
+#[test]
+fn a_packs_leaves_are_pulled_toward_one_green_and_nothing_else_is() {
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    let st = station(&store, "forest");
+    let pulled = run(
+        &store,
+        &st,
+        Some((in_memory(&red_leaf_files(None)), None)),
+        trees(),
+        6,
+    );
+    let as_made = run(
+        &store,
+        &st,
+        Some((in_memory(&red_leaf_files(Some("foliage_pull = 0.0"))), None)),
+        trees(),
+        6,
+    );
+    // The leaves are what changes between the two frames.
+    let changed: Vec<usize> = (0..pulled.capture.class.len())
+        .filter(|&i| {
+            pulled.capture.color[i * 4..i * 4 + 3] != as_made.capture.color[i * 4..i * 4 + 3]
+        })
+        .collect();
+    let red = changed
+        .iter()
+        .filter(|&&i| hue_near(&as_made.capture, i, 10.0))
+        .count();
+    let green = changed
+        .iter()
+        .filter(|&&i| hue_near(&pulled.capture, i, 100.0))
+        .count();
+    eprintln!(
+        "{} pixels changed: {red} of them red as made, {green} green pulled",
+        changed.len()
+    );
+    assert!(
+        changed.len() > 2_000,
+        "the leaves are drawn: {}",
+        changed.len()
+    );
+    assert!(
+        red * 50 >= changed.len() * 49,
+        "nothing but the red leaves changes: {red} of {} changed pixels",
+        changed.len()
+    );
+    assert!(
+        green * 10 >= changed.len() * 9,
+        "pulled, they are green: {green} of {} changed pixels",
+        changed.len()
     );
 }

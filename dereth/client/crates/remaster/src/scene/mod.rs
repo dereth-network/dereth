@@ -351,6 +351,9 @@ pub struct FrameDelta {
     pub degrade: DegradeBias,
     /// The game's weather: whether it is drawn, and the form the player asked it to fall in.
     pub weather: FrameWeather,
+    /// The hue an art pack's leaves are pulled toward, in turns, and how far (0 not at all): the
+    /// look's.
+    pub foliage: [f32; 2],
 }
 
 /// The game's weather, as a frame carries it.
@@ -442,6 +445,8 @@ pub struct FarPackModel {
     /// Its color factor, in display values, and where its pictures' coverage is cut.
     pub color: [f32; 4],
     pub cut: f32,
+    /// Whether it is foliage, its pictures pulled toward the look's foliage hue.
+    pub foliage: bool,
 }
 
 /// Where a pack's far pictures are read from: a model's color (coverage in alpha) and its normals

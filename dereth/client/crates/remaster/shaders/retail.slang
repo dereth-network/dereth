@@ -34,6 +34,55 @@ public static const uint FRAME_EXTENT = 20;
 // Where the near ground gives way to the far, meters from the eye (x, y), and z 1 while a far
 // ground is drawn: what stands on the ground is lifted onto it mixed the same way.
 public static const uint FRAME_LIFT = 22;
+// The hue an art pack's leaves are pulled toward, in turns (x), and how far (y, 0 not at all).
+public static const uint FRAME_FOLIAGE = 23;
+
+// `c` in hue (turns), saturation and value.
+float3 hsv_of(float3 c)
+{
+    float hi = max(c.r, max(c.g, c.b));
+    float lo = min(c.r, min(c.g, c.b));
+    float span = hi - lo;
+    float h = 0.0;
+    if (span > 1e-6)
+    {
+        if (hi == c.r)
+        {
+            h = (c.g - c.b) / span;
+        }
+        else if (hi == c.g)
+        {
+            h = 2.0 + (c.b - c.r) / span;
+        }
+        else
+        {
+            h = 4.0 + (c.r - c.g) / span;
+        }
+    }
+    return float3(frac(h / 6.0), hi > 0.0 ? span / hi : 0.0, hi);
+}
+
+// The color of hue (turns), saturation and value `hsv`.
+float3 rgb_of(float3 hsv)
+{
+    float3 k = frac(hsv.x + float3(1.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0;
+    return hsv.z * lerp(float3(1.0, 1.0, 1.0), saturate(abs(k) - 1.0), hsv.y);
+}
+
+// An art pack's leaf color `c` pulled toward the frame's foliage hue: its hue taken that share of
+// the way, by the shorter way round, its saturation and value as they were.
+public float3 pack_foliage(uint frame, float3 c)
+{
+    float4 f = row(frame, FRAME_FOLIAGE);
+    if (f.y <= 0.0)
+    {
+        return c;
+    }
+    float3 hsv = hsv_of(c);
+    float off = frac(hsv.x - f.x + 0.5) - 0.5;
+    hsv.x = frac(f.x + off * (1.0 - f.y));
+    return rgb_of(hsv);
+}
 
 // The light classes, which the material target's first channel carries.
 public static const uint CLASS_NONE = 0;

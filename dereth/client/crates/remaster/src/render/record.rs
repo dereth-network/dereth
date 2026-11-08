@@ -133,6 +133,7 @@ impl Renderer {
         };
         // Every pass lights the frame by the intent: retail's light with the look laid over it.
         frame.light = self.intents.of(&frame).light.clone();
+        frame.foliage = self.intents.last().look.foliage();
         // With an upscaler on the world is drawn at the render size, which is otherwise the
         // display's, and the post passes bring the frame up to the display's.
         let display = (area.width, area.height);

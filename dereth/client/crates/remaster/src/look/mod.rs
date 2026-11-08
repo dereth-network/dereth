@@ -14,7 +14,11 @@
 //! - `fog_density`: how thick the fog is, a factor that brings its start and end nearer;
 //! - `fog_color`: a color the fog takes in place of retail's;
 //! - `night_floor`: the least the ambient's level may be;
-//! - `exposure`: stops of exposure, read only by the high dynamic range pass.
+//! - `exposure`: stops of exposure, read only by the high dynamic range pass;
+//! - `foliage_hue` and `foliage_pull`: the hue an art pack's leaves are pulled toward, in degrees,
+//!   and how far, 0 not at all and 1 all the way. Retail's own surfaces are never pulled. A look
+//!   that names neither leaves the remaster's own pull ([`FOLIAGE`]), which brings a pack's trees
+//!   into one family of greens.
 //!
 //! Each can be given again for one kind of day ([`DayKind`]: Sunny, Rainy, Clear or Cloudy), which
 //! then wins over the look's own value on those days.
@@ -122,6 +126,8 @@ pub struct Values {
     pub fog_color: Option<[u8; 3]>,
     pub night_floor: Option<Curve>,
     pub exposure: Option<Curve>,
+    pub foliage_hue: Option<Curve>,
+    pub foliage_pull: Option<Curve>,
 }
 
 impl Values {
@@ -141,6 +147,8 @@ impl Values {
         }
         take(&mut self.night_floor, &over.night_floor);
         take(&mut self.exposure, &over.exposure);
+        take(&mut self.foliage_hue, &over.foliage_hue);
+        take(&mut self.foliage_pull, &over.foliage_pull);
     }
 }
 
@@ -236,9 +244,17 @@ impl LookStack {
             fog_color: v.fog_color,
             night_floor: at(&v.night_floor, 0.0),
             exposure: at(&v.exposure, 0.0),
+            foliage_hue: v.foliage_hue.as_ref().map(|c| c.at(t)),
+            foliage_pull: v.foliage_pull.as_ref().map(|c| c.at(t)),
         }
     }
 }
+
+/// The remaster's own pull on an art pack's leaves, where no look names one: toward this hue, in
+/// degrees, this far. A pack's trees each take their retail model's own hue, from red-brown to
+/// blue-green; pulled most of the way, they read as one family of greens with a little of each
+/// left.
+pub const FOLIAGE: (f32, f32) = (100.0, 0.8);
 
 /// The look of one moment: plain numbers.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -250,6 +266,10 @@ pub struct Look {
     pub fog_color: Option<[u8; 3]>,
     pub night_floor: f32,
     pub exposure: f32,
+    /// The hue an art pack's leaves are pulled toward, degrees, and how far, where a look names
+    /// them; `None` leaves the remaster's own ([`FOLIAGE`]).
+    pub foliage_hue: Option<f32>,
+    pub foliage_pull: Option<f32>,
 }
 
 impl Default for Look {
@@ -287,7 +307,18 @@ impl Look {
         fog_color: None,
         night_floor: 0.0,
         exposure: 0.0,
+        foliage_hue: None,
+        foliage_pull: None,
     };
+
+    /// The hue an art pack's leaves are pulled toward, in turns (0 to 1), and how far (0 to 1):
+    /// as the look names them, else the remaster's own ([`FOLIAGE`]).
+    #[must_use]
+    pub fn foliage(&self) -> [f32; 2] {
+        let hue = self.foliage_hue.unwrap_or(FOLIAGE.0);
+        let pull = self.foliage_pull.unwrap_or(FOLIAGE.1);
+        [(hue / 360.0).rem_euclid(1.0), pull.clamp(0.0, 1.0)]
+    }
 
     /// Whether it changes nothing retail's light inputs are made of. The exposure is not one of
     /// them: only the high dynamic range pass reads it.
@@ -295,6 +326,8 @@ impl Look {
     pub fn leaves_light_alone(&self) -> bool {
         Self {
             exposure: 0.0,
+            foliage_hue: None,
+            foliage_pull: None,
             ..*self
         } == Self::IDENTITY
     }

@@ -56,6 +56,8 @@ pub mod flag {
     pub const ADDS_BY_INVERSE_ALPHA: u32 = 256;
     /// It is drawn under its vertices' colors.
     pub const VERTEX_COLORED: u32 = 512;
+    /// An art pack's leaves: pulled toward the look's foliage hue.
+    pub const PACK_FOLIAGE: u32 = 1024;
 }
 
 /// The item flags: the texture repeats; a building's shell, under the building detail texture; a
@@ -1507,6 +1509,10 @@ impl Sink<'_> {
         }
         if m.vertex_colored {
             flags |= flag::VERTEX_COLORED;
+            // Only an art pack's surfaces are drawn under their vertices' colors.
+            if m.kind == crate::assets::kind::Kind::Foliage {
+                flags |= flag::PACK_FOLIAGE;
+            }
         }
         // Retail's blend, as its surface table works it out, decides whether the surface adds:
         // an additive surface that is also a translucent cut-out is blended over instead.

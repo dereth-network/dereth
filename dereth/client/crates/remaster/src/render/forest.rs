@@ -482,7 +482,8 @@ fn model_row(m: &crate::scene::FarPackModel, pictures: Option<&Pictures>) -> Vec
         out.extend_from_slice(&f.to_le_bytes());
     }
     let (base, normal) = pictures.map_or((NO_PICTURES, NO_PICTURES), |p| (p.base.1, p.normal.1));
-    for w in [base, normal, m.views[0], m.views[1]] {
+    let views = (m.views[0] & 0xFFFF) | (m.views[1].min(0xFFFF) << 16);
+    for w in [base, normal, views, u32::from(m.foliage)] {
         out.extend_from_slice(&w.to_le_bytes());
     }
     out
