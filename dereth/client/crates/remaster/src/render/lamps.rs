@@ -21,7 +21,8 @@
 //!   the ground and what stands on it. Retail lights the outdoors with the sun alone; these come on
 //!   as the sun goes down ([`night`]). A placement's lamp glows too: what is right at it is
 //!   brightened, its flame or its glass, and a soft halo stands round it (`halo.slang`), which what
-//!   stands nearer the eye cuts. A flame flickers.
+//!   stands nearer the eye cuts. A flame flickers: it never repeats, a small flame faster than a
+//!   large one, it goes redder as it dims, and its light sways a little.
 //!
 //! The view is cut into [`GRID`] pieces, its tiles of the screen by its slices of depth, and each
 //! piece lists the lamps whose reach meets it (a compute pass, `lamps.slang`'s `cs_clusters`);
@@ -335,17 +336,94 @@ fn toward(c: [f32; 3], to: [f32; 3], k: f32) -> [f32; 3] {
     m.map(|v| v / top)
 }
 
-/// A lamp's brightness at `t` seconds, as a share of its own: a flame's gentle flicker.
-fn flicker(lamp: &Lamp, t: f32) -> f32 {
+/// How a flame's light stands at one moment against burning steadily.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Flame {
+    /// Its brightness, 1 its usual.
+    brightness: f32,
+    /// What its color is multiplied by besides its brightness: a dimmer flame is a redder one.
+    tint: [f32; 3],
+    /// How far its light stands from its place, meters.
+    sway: Vec3,
+}
+
+impl Flame {
+    const STEADY: Self = Self {
+        brightness: 1.0,
+        tint: [1.0; 3],
+        sway: Vec3::ZERO,
+    };
+}
+
+/// How far a flame's brightness wanders about its usual at most, a share of it, and how far a
+/// draught takes it down besides.
+const FLAME_WANDER: f32 = 0.3;
+const FLAME_DRAUGHT: f32 = 0.15;
+/// How fast a flame pulses, the slowest and the fastest drawn, times a second. A flame `d` meters
+/// across pulses about `1.5 / sqrt(d)` times a second, so a candle dances and a bonfire rolls.
+const FLAME_PULSE: (f32, f32) = (0.9, 3.5);
+/// How much faster than red the green and the blue fall as a flame dims, as powers of its
+/// brightness.
+const FLAME_COOLING: [f32; 2] = [0.4, 1.0];
+
+/// About how wide a flame is whose light reaches `falloff` meters: a larger fire lights farther.
+fn flame_size(falloff: f32) -> f32 {
+    (falloff * 0.04).clamp(0.05, 1.5)
+}
+
+/// Smooth noise at `t`, -1 to 1, for the flame `seed`'s strand `strand`: values at the whole
+/// numbers eased between, so it never steps from frame to frame and never repeats.
+fn strand(seed: u32, strand: u32, t: f32) -> f32 {
+    let whole = t.floor();
+    let f = t - whole;
+    // LINT-OK: a whole number of seconds' lattice, far inside the type for a session's clock.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let i = whole as i32 as u32;
+    let at = |k: u32| {
+        let mut h = k ^ seed.rotate_left(7) ^ strand.wrapping_mul(0x2C1B_3C6D);
+        h = (h ^ (h >> 16)).wrapping_mul(0x7FEB_352D);
+        h = (h ^ (h >> 15)).wrapping_mul(0x846C_A68B);
+        h ^= h >> 16;
+        #[allow(clippy::cast_precision_loss)] // 24 bits, exact in f32
+        let v = (h >> 8) as f32 / 16_777_215.0;
+        v * 2.0 - 1.0
+    };
+    let e = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+    at(i) + (at(i.wrapping_add(1)) - at(i)) * e
+}
+
+/// A lamp's flame at `t` seconds: steady for a lamp that isn't one. Its own number keeps it from
+/// moving with any other, and the same clock gives the same flame however fast it is drawn.
+fn flicker(lamp: &Lamp, t: f32) -> Flame {
+    use dereth_primitives::num::math;
     if !lamp.flicker {
-        return 1.0;
+        return Flame::STEADY;
     }
-    use dereth_primitives::num::math::sinf;
-    #[allow(clippy::cast_precision_loss)] // under 10,000
-    let s = (lamp.seed % 9973) as f32 * 0.37;
-    1.0 + 0.07 * sinf(t * 8.3 + s)
-        + 0.05 * sinf(t * 13.9 + s * 1.7)
-        + 0.03 * sinf(t * 23.1 + s * 2.3)
+    let size = flame_size(lamp.falloff);
+    let pulse = (1.5 / size.sqrt()).clamp(FLAME_PULSE.0, FLAME_PULSE.1);
+    let s = lamp.seed;
+    // Three octaves at unrelated rates, the slowest carrying most.
+    let wander = 0.6 * strand(s, 0, t * pulse)
+        + 0.28 * strand(s, 1, t * pulse * 2.31)
+        + 0.12 * strand(s, 2, t * pulse * 3.93);
+    // Now and then a draught catches it: it ducks and comes back.
+    let draught = ((strand(s, 3, t * 0.27) - 0.3) / 0.7).max(0.0);
+    let k = 1.0 + FLAME_WANDER * wander - FLAME_DRAUGHT * draught * draught;
+    let lean = (0.02 + 0.04 * size).min(0.07);
+    let sway = Vec3::new(
+        strand(s, 4, t * pulse * 0.6),
+        strand(s, 5, t * pulse * 0.6),
+        0.5 * (k - 1.0) / FLAME_WANDER,
+    ) * lean;
+    Flame {
+        brightness: k,
+        tint: [
+            1.0,
+            math::powf(k, FLAME_COOLING[0]),
+            math::powf(k, FLAME_COOLING[1]),
+        ],
+        sway,
+    }
 }
 
 /// How an outdoor placement's lamp is lit, by what it is.
@@ -421,13 +499,14 @@ fn placed_lamps(
             if position.distance(eye) > OUTDOOR_REACH + shape.reach {
                 continue;
             }
-            let k = n * flicker(lamp, t);
+            let flame = flicker(lamp, t);
+            let k = n * flame.brightness;
             lit.push((
                 GpuLamp {
-                    position,
+                    position: position + flame.sway,
                     reach: shape.reach,
                     object_reach: shape.reach,
-                    color: shape.color,
+                    color: [0, 1, 2].map(|c| shape.color[c] * flame.tint[c]),
                     indoor: false,
                     burned: true,
                     walls: 0.0,
@@ -461,7 +540,7 @@ fn placed_lamps(
         .map(|(l, s)| Halo {
             position: l.position,
             size: s.halo,
-            color: s.color.map(|c| c * s.brightness * l.glow),
+            color: l.color.map(|c| c * s.brightness * l.glow),
         })
         .collect();
     (kept.into_iter().map(|(l, _)| l).collect(), halos)
@@ -1662,5 +1741,114 @@ mod tests {
         let (lamps, halos) = lamps_of(&frame, &outdoor, OUTDOORS, &mut c, 0.0);
         assert_eq!(lamps[0].position.z, 2.75);
         assert_eq!(halos[0].position.z, 2.75);
+    }
+
+    /// A flame of `falloff` and its own number `seed`, its brightness every `step` seconds.
+    fn burning(seed: u32, falloff: f32, step: f32, n: usize) -> Vec<f32> {
+        let mut lamp = at(Vec3::ZERO, LampSource::Flame);
+        lamp.flicker = true;
+        lamp.seed = seed;
+        lamp.falloff = falloff;
+        (0..n)
+            .map(|k| flicker(&lamp, k as f32 * step).brightness)
+            .collect()
+    }
+
+    fn mean(v: &[f32]) -> f32 {
+        v.iter().sum::<f32>() / v.len() as f32
+    }
+
+    /// A flame never goes out nor flares past what reads as a flame, and from one frame to the
+    /// next at 60 a second it never steps.
+    #[test]
+    fn a_flame_stays_a_flame_and_never_steps_between_frames() {
+        for seed in 0..32 {
+            for falloff in [1.0, 6.0, 30.0] {
+                let v = burning(seed * 7_919, falloff, 1.0 / 60.0, 3_600);
+                for &k in &v {
+                    assert!((0.55..=1.35).contains(&k), "{seed} {falloff}: {k}");
+                }
+                let step = v
+                    .windows(2)
+                    .map(|w| (w[1] - w[0]).abs())
+                    .fold(0.0f32, f32::max);
+                assert!(step < 0.1, "{seed} {falloff}: {step} in a frame");
+            }
+        }
+    }
+
+    /// How often a flame of `falloff` crosses its middle, times a second, over many flames.
+    fn pace(falloff: f32) -> f32 {
+        let mut crossings = 0;
+        for seed in 0..100 {
+            let v = burning(seed * 131 + 3, falloff, 0.01, 2_000);
+            let m = mean(&v);
+            crossings += v
+                .windows(2)
+                .filter(|w| (w[0] - m) * (w[1] - m) < 0.0)
+                .count();
+        }
+        crossings as f32 / (100.0 * 20.0)
+    }
+
+    /// A small flame dances faster than a large one: a candle's light quicker than a torch's, a
+    /// torch's than a bonfire's.
+    #[test]
+    fn a_small_flame_dances_faster_than_a_large_one() {
+        let (candle, torch, bonfire) = (pace(1.5), pace(12.0), pace(37.5));
+        assert!(candle > torch * 1.3, "{candle} against {torch}");
+        assert!(torch > bonfire * 1.3, "{torch} against {bonfire}");
+    }
+
+    /// Two flames don't move together, one flame doesn't repeat itself, and the same clock gives
+    /// the same flame.
+    #[test]
+    fn two_flames_move_apart_and_neither_repeats() {
+        let (a, b) = (burning(1, 6.0, 0.02, 2_000), burning(2, 6.0, 0.02, 2_000));
+        let (ma, mb) = (mean(&a), mean(&b));
+        let var = |v: &[f32], m: f32| v.iter().map(|x| (x - m) * (x - m)).sum::<f32>();
+        let r = a
+            .iter()
+            .zip(&b)
+            .map(|(x, y)| (x - ma) * (y - mb))
+            .sum::<f32>()
+            / (var(&a, ma) * var(&b, mb)).sqrt();
+        assert!(r.abs() < 0.3, "the two move together: {r}");
+        let v = burning(77, 6.0, 0.02, 12_000);
+        let m = mean(&v);
+        let whole = var(&v, m);
+        for lag in (150..6_000).step_by(29) {
+            let c: f32 = (0..v.len() - lag)
+                .map(|i| (v[i] - m) * (v[i + lag] - m))
+                .sum();
+            assert!(c / whole < 0.45, "it comes round again {lag} steps on");
+        }
+        let mut lamp = at(Vec3::ZERO, LampSource::Flame);
+        lamp.flicker = true;
+        assert_eq!(flicker(&lamp, 321.5), flicker(&lamp, 321.5));
+    }
+
+    /// As a flame dims its light goes redder and as it brightens yellower; its light sways a few
+    /// centimeters, where a steady lamp's holds still.
+    #[test]
+    fn a_dimmer_flame_is_redder_and_its_light_sways_a_little() {
+        let mut lamp = at(Vec3::ZERO, LampSource::Flame);
+        lamp.flicker = true;
+        let mut dim = 0;
+        let mut bright = 0;
+        for k in 0..4_000 {
+            let f = flicker(&lamp, k as f32 * 0.013);
+            assert!(f.sway.length() < 0.1, "{:?}", f.sway);
+            if f.brightness < 0.95 {
+                dim += 1;
+                assert!(f.tint[2] < f.tint[1] && f.tint[1] < 1.0, "{f:?}");
+            } else if f.brightness > 1.05 {
+                bright += 1;
+                assert!(f.tint[2] > f.tint[1] && f.tint[1] > 1.0, "{f:?}");
+            }
+        }
+        assert!(dim > 100 && bright > 100, "{dim} dim and {bright} bright");
+        let steady = at(Vec3::ZERO, LampSource::Authored);
+        assert_eq!(flicker(&steady, 5.0), Flame::STEADY);
     }
 }
