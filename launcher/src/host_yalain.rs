@@ -475,12 +475,15 @@ pub fn plays(text: &str, dir: &Path, program: Option<&Path>) -> crate::host_conf
 
 /// The release of the world database Yalain `program` pins, as its release facts say
 /// (`yalain --release-facts`' `world_database`): asked once for each build of it, by when it was
-/// written. `None` when it cannot say.
+/// written and its size, since an update puts the new release where the old one was. `None` when
+/// it cannot say.
 #[must_use]
 pub fn program_pin(program: &Path) -> Option<String> {
-    type Said = HashMap<PathBuf, (Option<SystemTime>, Option<String>)>;
+    type Said = HashMap<PathBuf, (Option<(SystemTime, u64)>, Option<String>)>;
     static SAID: OnceLock<Mutex<Said>> = OnceLock::new();
-    let written = std::fs::metadata(program).and_then(|m| m.modified()).ok();
+    let written = std::fs::metadata(program)
+        .and_then(|m| Ok((m.modified()?, m.len())))
+        .ok();
     let said = SAID.get_or_init(Mutex::default);
     if let Some((when, pin)) = said
         .lock()

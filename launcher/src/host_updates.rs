@@ -528,11 +528,33 @@ fn backup_store(store: &Path, from: &str, to: &str) -> Result<PathBuf, String> {
     Ok(backup)
 }
 
+/// Put the server release in `from` in the world in `dir`'s server folder
+/// ([`host_runtime::SERVER_DIR`]), the release there going to `aside`: renames, so a world stopped
+/// part way through still has one or the other. The program by the name `name`, where it now runs.
+fn swap_server(
+    dir: &Path,
+    from: &Path,
+    aside: &Path,
+    name: &std::ffi::OsStr,
+) -> Result<PathBuf, String> {
+    let server = dir.join(host_runtime::SERVER_DIR);
+    if aside.exists() {
+        std::fs::remove_dir_all(aside).map_err(|e| e.to_string())?;
+    }
+    std::fs::rename(&server, aside).map_err(|e| e.to_string())?;
+    if let Err(error) = std::fs::rename(from, &server) {
+        let _ = std::fs::rename(aside, &server);
+        return Err(error.to_string());
+    }
+    Ok(server.join(name))
+}
+
 /// Install the Yalain release downloaded into the stopped world in `dir`, as its `release.json`
-/// says: its program copied into `runtime/<version>`, the world database it pins fetched by it
-/// first when the release says so (`upgrade.world_database_fetch`), the store backed up; then the
-/// world runs it. Until the last step nothing the world runs changes, and a failure on the way puts
-/// the fetch's record back. The version installed.
+/// says: its program copied in beside the world's, the world database it pins fetched by it first
+/// when the release says so (`upgrade.world_database_fetch`), the store backed up; then it takes
+/// the old release's place in the world's server folder, the old one kept aside for Undo, and the
+/// world runs it from the same path as before. Until then nothing the world runs changes, and a
+/// failure on the way puts the fetch's record back. The version installed.
 ///
 /// # Errors
 /// No download, or a step that failed, in words for a person.
@@ -550,28 +572,40 @@ pub fn install_yalain(dir: &Path) -> Result<String, String> {
         .to_owned();
     let exe = components::find_executable(&folder, Product::Yalain)?;
     let mut definition = host_runtime::read_definition(dir)?;
-    let runtime = dir.join("runtime").join(&version);
-    if runtime.exists() {
-        std::fs::remove_dir_all(&runtime).map_err(|e| e.to_string())?;
+    if definition.program.parent() != Some(dir.join(host_runtime::SERVER_DIR).as_path()) {
+        return Err("This world's server is not in its server folder.".into());
     }
-    crate::hosts::copy_tree(exe.parent().ok_or("Missing candidate folder")?, &runtime)?;
-    let program = runtime.join(exe.file_name().ok_or("Invalid program name")?);
+    let next = dir.join("server-next");
+    if next.exists() {
+        std::fs::remove_dir_all(&next).map_err(|e| e.to_string())?;
+    }
+    crate::hosts::copy_tree(exe.parent().ok_or("Missing candidate folder")?, &next)?;
+    let name = exe.file_name().ok_or("Invalid program name")?;
+    let old_name = definition
+        .program
+        .file_name()
+        .ok_or("Invalid program name")?
+        .to_owned();
+    let previous = dir.join(host_runtime::PREVIOUS_SERVER_DIR);
     let fetched_before = std::fs::read_to_string(dir.join(crate::host_yalain::FETCHED)).ok();
+    let record_before = std::fs::read(dir.join(YALAIN_ROLLBACK)).ok();
+    let mut swapped = false;
     let installed = (|| {
         if index["upgrade"]["world_database_fetch"] == true {
-            crate::host_yalain::fetch(&program, dir)?;
+            crate::host_yalain::fetch(&next.join(name), dir)?;
         }
         let backup = backup_store(&yalain_store(dir), &definition.version, &version)?;
         host_runtime::write_json(
             &dir.join(YALAIN_ROLLBACK),
             &YalainRollback {
-                program: definition.program.clone(),
+                program: previous.join(&old_name),
                 version: definition.version.clone(),
                 backup,
                 fetched: fetched_before.clone(),
             },
         )?;
-        definition.program = program.clone();
+        definition.program = swap_server(dir, &next, &previous, name)?;
+        swapped = true;
         definition.version = version.clone();
         host_runtime::write_json(&dir.join("host.json"), &definition)
     })();
@@ -579,8 +613,16 @@ pub fn install_yalain(dir: &Path) -> Result<String, String> {
         if let Some(before) = &fetched_before {
             let _ = std::fs::write(dir.join(crate::host_yalain::FETCHED), before);
         }
+        if swapped {
+            let _ = swap_server(dir, &previous, &next, &old_name);
+        }
+        // Undo undoes the update before, as it did.
+        let _ = match &record_before {
+            Some(bytes) => std::fs::write(dir.join(YALAIN_ROLLBACK), bytes),
+            None => std::fs::remove_file(dir.join(YALAIN_ROLLBACK)),
+        };
         // The new release's copy goes too: the world never ran it.
-        let _ = std::fs::remove_dir_all(&runtime);
+        let _ = std::fs::remove_dir_all(&next);
         return Err(error);
     }
     let _ = std::fs::remove_dir_all(&folder);
@@ -598,6 +640,21 @@ pub fn rollback_yalain(dir: &Path) -> Result<String, String> {
             .map_err(|_| "There is no update to undo.".to_owned())?,
     )
     .map_err(|e| format!("The undo record is damaged: {e}"))?;
+    let mut definition = host_runtime::read_definition(dir)?;
+    // The release it ran before takes the server folder back: kept aside by the update, or in a
+    // folder of its own by one made before a world's server had one path.
+    let from = record
+        .program
+        .parent()
+        .ok_or("The undo record is damaged.")?
+        .to_path_buf();
+    let name = record
+        .program
+        .file_name()
+        .ok_or("The undo record is damaged.")?;
+    if !from.is_dir() {
+        return Err("The release it ran before is gone.".into());
+    }
     let store = yalain_store(dir);
     let empty = std::fs::metadata(&record.backup)
         .map_err(|_| "The store's backup is gone.".to_owned())?
@@ -621,8 +678,9 @@ pub fn rollback_yalain(dir: &Path) -> Result<String, String> {
         std::fs::write(dir.join(crate::host_yalain::FETCHED), fetched)
             .map_err(|e| e.to_string())?;
     }
-    let mut definition = host_runtime::read_definition(dir)?;
-    definition.program = record.program;
+    let undone = dir.join("server-undone");
+    definition.program = swap_server(dir, &from, &undone, name)?;
+    let _ = std::fs::remove_dir_all(&undone);
     definition.version = record.version.clone();
     host_runtime::write_json(&dir.join("host.json"), &definition)?;
     let _ = std::fs::remove_file(dir.join(YALAIN_ROLLBACK));
@@ -696,7 +754,8 @@ fn apply_pending_held(dir: &Path) -> Result<(), String> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => View::default(),
         Err(e) => return Err(e.to_string()),
     };
-    let definition = host_runtime::read_definition(dir)?;
+    // Once, for a world made when each release had a folder of its own.
+    let definition = host_runtime::settle_server(dir)?;
     if definition.checkout {
         return Ok(());
     }
@@ -868,8 +927,9 @@ mod tests {
     }
 
     /// A Yalain world installs a downloaded release as its `release.json` says: its store backed
-    /// up, the new program run from `runtime/<version>`; and Undo puts the old program and the
-    /// store as it was before the update back.
+    /// up, the new program run from the world's server folder, the one it moved into from its
+    /// release's own folder before it updated; and Undo puts the old program and the store as it
+    /// was before the update back.
     #[test]
     fn a_yalain_world_installs_a_release_and_undo_puts_the_old_one_and_its_store_back() {
         let temp = yalain_world("0.2.0", false);
@@ -885,7 +945,11 @@ mod tests {
         apply_pending(dir).unwrap();
         let definition = host_runtime::read_definition(dir).unwrap();
         assert_eq!(definition.version, "0.2.0");
-        assert!(definition.program.starts_with(dir.join("runtime/0.2.0")));
+        assert_eq!(
+            definition.program.parent(),
+            Some(dir.join("server").as_path())
+        );
+        assert!(!dir.join("runtime/0.1.0").exists(), "moved, not copied");
         assert_eq!(
             std::fs::read(&definition.program).unwrap(),
             b"the new program"
@@ -953,8 +1017,73 @@ mod tests {
             .unwrap()
             .starts_with("The update did not go in:"));
         assert!(!dir.join(YALAIN_ROLLBACK).exists());
-        assert!(!dir.join("runtime/0.3.0").exists(), "its copy is gone");
-        assert!(dir.join("runtime/0.1.0").exists());
+        assert!(!dir.join("server-next").exists(), "its copy is gone");
+        assert!(!dir.join("server-previous").exists());
+        assert_eq!(
+            definition.program.parent(),
+            Some(dir.join("server").as_path())
+        );
+    }
+
+    /// A Yalain world updated twice runs from the same path each time, its server folder, so what
+    /// names its program (a firewall rule) keeps naming the one that runs; Undo puts the release
+    /// before back at that path too.
+    #[test]
+    fn a_yalain_world_updated_twice_still_runs_from_the_same_path() {
+        let temp = yalain_world("0.2.0", false);
+        let dir = temp.path();
+        let pending = || {
+            save(
+                dir,
+                &View {
+                    pending: true,
+                    ..View::default()
+                },
+            )
+            .unwrap();
+        };
+        pending();
+        apply_pending(dir).unwrap();
+        let first = host_runtime::read_definition(dir).unwrap();
+        assert_eq!(first.version, "0.2.0");
+
+        let exe = first.program.file_name().unwrap().to_owned();
+        let download = dir.join("update-download");
+        let new = download.join("yalain-0.2.1").join(&exe);
+        std::fs::create_dir_all(new.parent().unwrap()).unwrap();
+        std::fs::write(&new, b"the newest program").unwrap();
+        std::fs::write(
+            download.join("checked-release.json"),
+            serde_json::json!({
+                "version": "0.2.1",
+                "upgrade": { "kind": "patch", "previous": "0.2.0", "upgrades_from": "0.2.0",
+                             "world_database": "v0.23.0", "world_database_fetch": false },
+            })
+            .to_string(),
+        )
+        .unwrap();
+        pending();
+        apply_pending(dir).unwrap();
+        let second = host_runtime::read_definition(dir).unwrap();
+        assert_eq!(second.version, "0.2.1");
+        assert_eq!(second.program, first.program, "the same path");
+        assert_eq!(second.program, dir.join("server").join(&exe));
+        assert_eq!(
+            std::fs::read(&second.program).unwrap(),
+            b"the newest program"
+        );
+        assert_eq!(
+            std::fs::read(dir.join("server-previous").join(&exe)).unwrap(),
+            b"the new program",
+            "the release it replaced, kept for Undo"
+        );
+
+        rollback(dir).unwrap();
+        let undone = host_runtime::read_definition(dir).unwrap();
+        assert_eq!(undone.version, "0.2.0");
+        assert_eq!(undone.program, first.program, "the same path");
+        assert_eq!(std::fs::read(&undone.program).unwrap(), b"the new program");
+        assert!(!dir.join("server-undone").exists());
     }
 
     /// Each update backs the store up beside it under the versions and the time, with its WAL,

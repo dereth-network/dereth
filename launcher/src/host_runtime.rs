@@ -84,6 +84,49 @@ pub fn read_definition(dir: &Path) -> Result<Definition, String> {
     }
     Ok(definition)
 }
+/// The folder in a world's folder its own copy of its server lives in: one path whatever release
+/// it runs, so what names the program, a firewall rule among them, keeps naming the one that runs.
+pub const SERVER_DIR: &str = "server";
+
+/// Where a Yalain world keeps the release its last update replaced, for Undo.
+pub const PREVIOUS_SERVER_DIR: &str = "server-previous";
+
+/// Move a world made when each release had a folder of its own (`runtime/<version>`) into its one
+/// server folder ([`SERVER_DIR`]): once, with the world stopped, before it starts or updates. A
+/// world on this checkout's build stays where it is, and so does an Empyrean world whose updater
+/// keeps a record of an update in its folder: the record names its files where they are. The
+/// definition, as it is now.
+///
+/// # Errors
+/// No definition, or a folder that will not move.
+pub fn settle_server(dir: &Path) -> Result<Definition, String> {
+    let mut definition = read_definition(dir)?;
+    let server = dir.join(SERVER_DIR);
+    let Some(folder) = definition.program.parent().map(Path::to_path_buf) else {
+        return Ok(definition);
+    };
+    if definition.checkout || folder == server || !folder.starts_with(dir.join("runtime")) {
+        return Ok(definition);
+    }
+    if definition.game == Game::Dereth && folder.join(".empyrean-update").exists() {
+        return Ok(definition);
+    }
+    let name = definition
+        .program
+        .file_name()
+        .ok_or("Invalid server filename")?
+        .to_owned();
+    // A folder the definition doesn't name yet is a move cut short: the copy that runs is the one
+    // the definition names.
+    if server.exists() {
+        std::fs::remove_dir_all(&server).map_err(|e| e.to_string())?;
+    }
+    std::fs::rename(&folder, &server).map_err(|e| e.to_string())?;
+    definition.program = server.join(name);
+    write_json(&dir.join("host.json"), &definition)?;
+    Ok(definition)
+}
+
 pub fn write_json(path: &Path, value: &impl Serialize) -> Result<(), String> {
     let bytes = serde_json::to_vec(value).map_err(|e| e.to_string())?;
     let temp = path.with_extension("tmp");
@@ -405,8 +448,8 @@ fn stop_word(game: Game) -> &'static [u8] {
 }
 
 /// The world in `dir` as it starts: a downloaded update of its server's release put in first, then
-/// its definition read, so the start runs the program the update put in (a Yalain release goes in
-/// beside the old one, in a folder of its own).
+/// its definition read, so the start runs the program the update put in (a Yalain release takes
+/// the old one's place in the world's server folder).
 fn updated_definition(dir: &Path) -> Result<Definition, String> {
     crate::host_updates::apply_pending(dir)?;
     read_definition(dir)
@@ -797,7 +840,8 @@ mod tests {
     use super::*;
 
     /// A Yalain world whose update to 0.1.1 was downloaded starts the program that update put in
-    /// (`runtime/0.1.1`), not the one it ran before: the definition is read once the update is in.
+    /// (in its server folder), not the one it ran before: the definition is read once the update
+    /// is in.
     #[test]
     fn a_yalain_world_starts_the_release_its_update_just_put_in() {
         let temp = tempfile::tempdir().unwrap();
@@ -841,7 +885,7 @@ mod tests {
         assert_eq!(read_definition(dir).unwrap().program, old);
         let starting = updated_definition(dir).unwrap();
         assert_eq!(starting.version, "0.1.1");
-        assert!(starting.program.starts_with(dir.join("runtime/0.1.1")));
+        assert!(starting.program.starts_with(dir.join(SERVER_DIR)));
         assert_eq!(
             std::fs::read(&starting.program).unwrap(),
             b"the new program"
@@ -849,6 +893,57 @@ mod tests {
         // Nothing pending: the definition as it is.
         assert_eq!(updated_definition(dir).unwrap().program, starting.program);
     }
+    /// A world made when each release had a folder of its own moves into its server folder once,
+    /// before it starts; an Empyrean world whose updater keeps a record of an update in its folder
+    /// stays where the record names it, and so does a world on this checkout's build.
+    #[test]
+    fn a_world_moves_into_its_one_server_folder_once_unless_a_record_names_where_it_is() {
+        let world = |game: Game, checkout: bool| {
+            let temp = tempfile::tempdir().unwrap();
+            let dir = temp.path();
+            let program = dir.join("runtime/0.1.0/server.exe");
+            std::fs::create_dir_all(program.parent().unwrap()).unwrap();
+            std::fs::write(&program, b"the program").unwrap();
+            write_json(
+                &dir.join("host.json"),
+                &Definition {
+                    id: "host-test".into(),
+                    version: "0.1.0".into(),
+                    program,
+                    wrapper: dir.join("wrapper"),
+                    checkout,
+                    game,
+                },
+            )
+            .unwrap();
+            temp
+        };
+        for game in [Game::Dereth, Game::Auberean] {
+            let temp = world(game, false);
+            let dir = temp.path();
+            let moved = settle_server(dir).unwrap();
+            assert_eq!(moved.program, dir.join("server/server.exe"));
+            assert_eq!(read_definition(dir).unwrap().program, moved.program);
+            assert_eq!(std::fs::read(&moved.program).unwrap(), b"the program");
+            assert!(!dir.join("runtime/0.1.0").exists());
+            assert_eq!(settle_server(dir).unwrap().program, moved.program, "once");
+        }
+
+        let temp = world(Game::Dereth, false);
+        let dir = temp.path();
+        std::fs::create_dir(dir.join("runtime/0.1.0/.empyrean-update")).unwrap();
+        let kept = settle_server(dir).unwrap();
+        assert_eq!(kept.program, dir.join("runtime/0.1.0/server.exe"));
+        assert!(!dir.join(SERVER_DIR).exists());
+
+        let temp = world(Game::Auberean, true);
+        let dir = temp.path();
+        assert_eq!(
+            settle_server(dir).unwrap().program,
+            dir.join("runtime/0.1.0/server.exe")
+        );
+    }
+
     #[test]
     fn a_missing_server_reports_failure_and_releases_the_host_lock() {
         let temp = tempfile::tempdir().unwrap();

@@ -492,12 +492,12 @@ async fn create(
     let cleanup_dir = dir.clone();
     let create_id = id.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
-        // A server keeps its own copy of the server it runs, which its updates change; this
-        // checkout's build is run where it is, so each start runs the newest build.
+        // A server keeps its own copy of the server it runs, in one folder its updates change in
+        // place; this checkout's build is run where it is, so each start runs the newest build.
         let program = if server.checkout {
             server.program.clone()
         } else {
-            let runtime = dir.join("runtime").join(&server.version);
+            let runtime = dir.join(host_runtime::SERVER_DIR);
             copy_tree(
                 server.program.parent().ok_or("Invalid server path")?,
                 &runtime,
