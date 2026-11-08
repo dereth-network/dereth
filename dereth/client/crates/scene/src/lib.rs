@@ -56,6 +56,5 @@ pub mod textures;
 /// The drawn world. The simulation and the residency window are `dereth-client-runtime`'s; this
 /// is the presentation half, and the type it exists for is `WorldScene`.
 pub mod workers;
-/// The world map's picture, drawn from the landblocks.
 pub mod world_map;
 pub mod world_scene;
