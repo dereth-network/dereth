@@ -3,9 +3,9 @@
 //!
 //! The remaster names the pack's entries past every retail id
 //! ([`dereth_remaster::assets::pack`]). This module answers for those names over the opened pack:
-//! - a model's levels drawn into the view become meshes: their triangles turned to retail's
-//!   winding, each part a surface of its own, each vertex carrying its color times its part's
-//!   color factor;
+//! - a model's levels drawn into the view become meshes: their triangles in glTF's order, which
+//!   turns as retail's does, each part a surface of its own, each vertex carrying its color times
+//!   its part's color factor;
 //! - a part's material becomes a surface: its base color picture, its cut, both its faces where
 //!   it is foliage or two-sided, drawn under its vertices' colors;
 //! - a picture becomes a texture. A cut-out picture is made again from its file when the pack is a
@@ -256,8 +256,8 @@ impl PackAssets {
         (!levels.is_empty()).then_some(PackModel { category, levels })
     }
 
-    /// The mesh a pack mesh id names: its level's parts, each a surface of its own, turned to
-    /// retail's winding.
+    /// The mesh a pack mesh id names: its level's parts, each a surface of its own, their
+    /// triangles in glTF's order.
     pub(crate) fn mesh(&self, id: u32) -> Option<Mesh> {
         let (index, level) = of_pack_mesh(id)?;
         let model = self.pack.models.get(index as usize)?;
@@ -293,11 +293,11 @@ impl PackAssets {
                     ];
                     Some((vertex, display_color(color)))
                 };
-                // Counter-clockwise seen from the front, as glTF has them; retail's are the
-                // other way round.
+                // Counter-clockwise seen from the front, as glTF has them and as retail's own
+                // triangles turn: kept in their order.
                 let mut triangles = Vec::with_capacity(p.indices.len());
                 for t in p.indices.as_chunks::<3>().0 {
-                    triangles.extend([vertex(t[0])?, vertex(t[2])?, vertex(t[1])?]);
+                    triangles.extend([vertex(t[0])?, vertex(t[1])?, vertex(t[2])?]);
                 }
                 let two_sided =
                     p.material.double_sided || (model.foliage && p.material.alpha_cutoff.is_some());

@@ -2277,3 +2277,112 @@ fn a_pack_with_nothing_drawn_leaves_the_fog_as_it_was() {
         "the frames differ at {changed} pixels; two frames with no pack differ at {noise}"
     );
 }
+
+/// A flat, one-sided, opaque magenta square `side` across at `height` over the model's foot, as
+/// glTF: its face up, its triangles counter-clockwise seen from above as glTF's front faces are,
+/// or the other way round when `backwards`.
+fn flat_square(side: f32, height: f32, backwards: bool) -> (String, Vec<u8>) {
+    let s = side / 2.0;
+    let pos = [
+        [-s, height, -s],
+        [s, height, -s],
+        [s, height, s],
+        [-s, height, s],
+    ];
+    let mut bin = Vec::new();
+    for p in pos {
+        for c in p {
+            bin.extend(c.to_le_bytes());
+        }
+    }
+    for _ in 0..4 {
+        for c in [0.0f32, 1.0, 0.0] {
+            bin.extend(c.to_le_bytes());
+        }
+    }
+    let indices: [u32; 6] = if backwards {
+        [0, 1, 2, 0, 2, 3]
+    } else {
+        [0, 2, 1, 0, 3, 2]
+    };
+    for i in indices {
+        bin.extend(i.to_le_bytes());
+    }
+    let gltf = format!(
+        r#"{{"asset": {{"version": "2.0"}}, "scenes": [{{"nodes": [0]}}], "nodes": [{{"mesh": 0}}],
+        "meshes": [{{"primitives": [{{"attributes": {{"POSITION": 0, "NORMAL": 1}},
+            "indices": 2, "material": 0}}]}}],
+        "materials": [{{"pbrMetallicRoughness": {{"baseColorFactor": [1.0, 0.0, 1.0, 1.0],
+            "metallicFactor": 0.0}}}}],
+        "buffers": [{{"uri": "square.bin", "byteLength": {len}}}],
+        "bufferViews": [{{"buffer": 0, "byteOffset": 0, "byteLength": 48}},
+            {{"buffer": 0, "byteOffset": 48, "byteLength": 48}},
+            {{"buffer": 0, "byteOffset": 96, "byteLength": 24}}],
+        "accessors": [{{"bufferView": 0, "componentType": 5126, "count": 4, "type": "VEC3",
+                "min": [-{s}, {height}, -{s}], "max": [{s}, {height}, {s}]}},
+            {{"bufferView": 1, "componentType": 5126, "count": 4, "type": "VEC3"}},
+            {{"bufferView": 2, "componentType": 5125, "count": 6, "type": "SCALAR"}}]}}"#,
+        len = bin.len()
+    );
+    (gltf, bin)
+}
+
+/// A pack whose most common tree is a [`flat_square`] ten metres across, fifteen up.
+fn square_pack(backwards: bool) -> Arc<ArtPack> {
+    let (gltf, bin) = flat_square(10.0, 15.0, backwards);
+    let mut files = HashMap::new();
+    files.insert(
+        "manifest.toml".to_owned(),
+        format!(
+            "[pack]\nname = \"Squares\"\nformat = 1\n[[model]]\nid = \"{TREE}\"\ncategory = \
+             \"tree\"\nauthor = \"a\"\ntool = \"t\"\nlicense = \"CC0-1.0\"\n[[model.lod]]\nfile \
+             = \"square.gltf\"\n"
+        )
+        .into_bytes(),
+    );
+    files.insert("square.gltf".to_owned(), gltf.into_bytes());
+    files.insert("square.bin".to_owned(), bin);
+    in_memory(&files)
+}
+
+/// The forest seen from straight above.
+fn above_the_forest() -> Station {
+    Station {
+        name: "above-the-forest",
+        why: "the forest's trees from straight above",
+        place: Place::Free {
+            block: 0x48C6,
+            x: 96.0,
+            y: 96.0,
+            eye: 80.0,
+            yaw: 0.0,
+            pitch: -1.5,
+        },
+        clock: Clock::Sunny(0.5),
+        weather: false,
+        land_radius: 2,
+    }
+}
+
+/// **A one-sided model's face is the one its glTF triangles turn counter-clockwise on**: a flat,
+/// one-sided square in place of each tree, its face up as glTF winds it, is drawn seen from
+/// above; the same square wound the other way round is its back from above, and draws nothing.
+#[test]
+fn a_one_sided_pack_models_gltf_front_face_is_the_one_drawn() {
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    let st = above_the_forest();
+    let up = run(&store, &st, Some((square_pack(false), None)), trees(), 6);
+    let backwards = run(&store, &st, Some((square_pack(true), None)), trees(), 6);
+    let (seen, unseen) = (magenta(&up.capture), magenta(&backwards.capture));
+    eprintln!(
+        "{} squares placed: {seen} magenta pixels face up, {unseen} wound the other way",
+        up.counts.placements
+    );
+    assert!(up.counts.placements > 10, "{:?}", up.counts);
+    assert!(seen > 2_000, "the squares' faces are drawn: {seen} pixels");
+    assert!(
+        unseen * 20 < seen,
+        "their backs are not: {unseen} pixels against {seen}"
+    );
+}
