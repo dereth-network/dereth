@@ -171,6 +171,9 @@ pub struct Shell<'w, H: Host> {
     random: auberean_primitives::random::Random,
     /// Where the friends service is for the next session.
     pub friends: FriendsService,
+    /// The world takes this client's own word on keeping a world's overlay over its files, as the
+    /// launch said: only then is it sent. Off unless said.
+    pub world_takes_overlays: bool,
     /// The game's sound.
     pub sound: sound::Sound,
 }
@@ -179,8 +182,8 @@ pub struct Shell<'w, H: Host> {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum FriendsService {
     /// At the login's own host, on the login's port number, with a ticket made from the account
-    /// and the password the player logs in with.
-    #[default]
+    /// and the password the player logs in with (a host whose one connection carries it, as a web
+    /// page's does).
     AtTheLogin,
     /// Where the options named it: its host and port (the original service's 2310 when none was
     /// named), whether to present the ticket, and the ticket (made from the login's account and
@@ -191,8 +194,33 @@ pub enum FriendsService {
         use_ticket: bool,
         ticket: Option<String>,
     },
-    /// None.
+    /// None: what a session has unless the options name one, as the September 2013 client had.
+    #[default]
     Off,
+}
+
+impl FriendsService {
+    /// The friends service the options name: at `host` (on `port`, else the original service's
+    /// port), presenting the ticket when `use_ticket` (`ticket`, else one made from the login's
+    /// account and password); with no host named, none at all, as the September 2013 client
+    /// connects to none.
+    #[must_use]
+    pub fn named(
+        host: Option<&str>,
+        port: Option<u16>,
+        use_ticket: bool,
+        ticket: Option<&str>,
+    ) -> Self {
+        match host {
+            Some(host) => Self::At {
+                host: host.to_owned(),
+                port,
+                use_ticket,
+                ticket: ticket.map(str::to_owned),
+            },
+            None => Self::Off,
+        }
+    }
 }
 
 /// The original friends service's port, which a service named without one is on.
@@ -290,6 +318,7 @@ impl<'w, H: Host> Shell<'w, H> {
             world_pick: None,
             random,
             friends: FriendsService::default(),
+            world_takes_overlays: false,
             sound,
         }
     }
@@ -522,6 +551,7 @@ impl<'w, H: Host> Shell<'w, H> {
             script_sends: true,
         };
         let mut client = Client::new(settings, self.data.clone());
+        client.data_download_mut().world_takes_overlays = self.world_takes_overlays;
         client.set_random(&self.random);
         let local = self.host.local_system();
         client.with_host(|h| h.set_local(local));

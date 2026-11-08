@@ -378,6 +378,9 @@ struct Launch<'a> {
     /// The world's private copy of the retail client's install, when it has one: the retail
     /// client plays from it, and may write to its data files.
     copy: Option<PathBuf>,
+    /// The world is Yalain's: it takes Auberean's own word on keeping its overlay, and may run a
+    /// friends service at its login. Any other world is spoken to as the retail client speaks.
+    yalain: bool,
 }
 
 /// The library's retail client the launcher starts, or the one in the world's private copy of
@@ -431,7 +434,8 @@ fn start_client(
     if client == Client::Retail && !ac2::retail_takes(secret) {
         return Err("The retail client can't take a password with a double quote in it.".into());
     }
-    let answered = probe(to.server, to.local);
+    // Only Yalain runs a friends service at its login; no other world is asked.
+    let answered = to.yalain && probe(to.server, to.local);
     let data = lock(shared).data.clone();
     let friends =
         (answered && ac2::friends_ticket(account, secret).is_some()).then(|| ac2::Friends {
@@ -442,7 +446,14 @@ fn start_client(
     let mut log = None;
     let (plan, mut cmd) = match client {
         Client::Auberean => {
-            let plan = ac2::auberean_plan(&program, dats, to.server, account, friends.as_ref());
+            let plan = ac2::auberean_plan(
+                &program,
+                dats,
+                to.server,
+                account,
+                friends.as_ref(),
+                to.yalain,
+            );
             let mut cmd = command(&plan.exe);
             // What it says goes in a file of the launcher's, so one that stops as it starts can
             // say why on the page.
@@ -602,6 +613,7 @@ pub fn launch(
                 .retail_copies
                 .get(&choice.world_slug)
                 .cloned(),
+            yalain: world.emulator == dereth_launch::world::Emulator::Yalain,
         };
         let (child, log) = start_client(shared, c, b, &dats, &to)?;
         Ok::<_, String>((world, child, log))

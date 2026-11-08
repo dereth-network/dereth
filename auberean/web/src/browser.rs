@@ -368,6 +368,13 @@ impl WebPlay {
         let host = PageHost::new(PageClock, CLOCK, server);
         let host = if friends { host.with_friends() } else { host };
         let mut shell = Shell::new(host, world, data, interface);
+        // The page's world carries the friends service on the game's own connection.
+        if friends {
+            shell.friends = auberean_shell::FriendsService::AtTheLogin;
+        }
+        // A browser reaches a world of this game over a WebSocket, which only Yalain serves: the
+        // world takes the client's word on keeping its overlay.
+        shell.world_takes_overlays = true;
         shell.event(&Event::Resized {
             width: drawn.0,
             height: drawn.1,

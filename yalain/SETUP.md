@@ -1156,8 +1156,10 @@ Players need their own Asheron's Call 2 install. Point the client at the server'
 **login port** (9000 by default).
 
 - **Auberean**, the Dereth Network's client:
-  `auberean --dats <install folder> --server <ip>:9000 --account <name>:<ticket>`. It reaches the
-  friends service at the same address and port. See [its README](../auberean/README.md).
+  `auberean --dats <install folder> --server <ip>:9000 --account <name>:<ticket> --world-overlays`
+  (`--world-overlays` says the world takes the client's word on keeping its overlay). Add
+  `--gunserver <ip> --gunport 9000 --gunticket` for the friends service at the same address and
+  port; the launcher adds them when the world answers for it. See [its README](../auberean/README.md).
 - **The September 2013 client** takes `--host <ip> --port 9000 --account <name>
   --glsticketdirect <ticket>`. It reaches the friends service through the Dereth Network's friends
   library, which the launcher sets up for it.

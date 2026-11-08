@@ -37,10 +37,13 @@ Add your data files in its Library, and play any world with a WebSocket endpoint
 unpacks it to `squashfs-root/usr/bin`). Start a world with Yalain, then:
 
 ```text
-auberean --dats <install folder> --server 127.0.0.1:9000 --account <name>:<password>
+auberean --dats <install folder> --server 127.0.0.1:9000 --account <name>:<password> --world-overlays
 ```
 
-`--server` is the world's login address and port. The client keeps its settings in the folder
+`--server` is the world's login address and port. `--world-overlays` tells the client the world is
+Yalain's, which takes its word on keeping a world's overlay; leave it out for any other server. The
+client reaches a friends service only where it is named: for Yalain's, add `--gunserver 127.0.0.1
+--gunport 9000 --gunticket`. The client keeps its settings in the folder
 `AUBEREAN_SETTINGS_DIR` names, else in your application data's `Auberean`, and its screenshots
 (Ctrl+P) there in `screenshots`. `auberean --version` says which build it is. The original client's
 own options work too (`-h` and `-p` for the server, `-a` for the account, `-z` for the ticket,

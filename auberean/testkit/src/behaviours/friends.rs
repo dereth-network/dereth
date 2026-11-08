@@ -415,6 +415,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "friends.login.none-unless-named",
+        says: "A session reaches a friends service only where the options name one: its host, and its                port or the original service's. With none named it connects to none and the player                plays without friends.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-GUN-NONE-UNLESS-NAMED"),
+        station: "auberean-shell::cpu::friends::a_session_reaches_a_friends_service_only_where_the_options_name_one",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "friends.login.the-game-login-waits-for-the-friends-service",
         says: "The game login waits for the friends service and goes out once the ticket is taken. \
                When the service cannot be reached, a login given its secret directly goes on at once \

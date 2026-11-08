@@ -12,27 +12,50 @@
 
 use core::net::SocketAddr;
 
-use auberean_client_sdk::protocol::table::SMALL;
+use auberean_client_sdk::protocol::table::{Table, SMALL};
 use auberean_client_sdk::{Action, NewCharacter};
+use auberean_world::chargen::{self, Avatar, Random};
+use auberean_world::records::WorldRecords;
 
 use crate::interface::{Game, Interface, Overlay, Phase, Request};
 
-/// A human's choices, as the creation screen sends them for a human with its defaults: the
-/// entity, the start area, the race (1), male (`0x1000`) or female (`0x2000`), the class and the
-/// implement, and a body of build and height 1.
+/// The character a chosen avatar makes, as the creation screens send it: the player's entity (an
+/// administrator's when asked), the race's start area, class and implement, the race and sex, and
+/// every physique value in the order the table lays them out.
+// D2-11920
 #[must_use]
-pub fn human(name: &str, female: bool) -> NewCharacter {
-    NewCharacter {
+pub fn new_character(name: &str, admin: bool, avatar: &Avatar) -> Option<NewCharacter> {
+    let (class, implement, start_area) = avatar.class_implement_start()?;
+    Some(NewCharacter {
         name: name.encode_utf16().collect(),
-        entity: 0x4700_110F,
-        start_area: 0x4000_0001,
-        race: 1,
-        sex: if female { 0x2000 } else { 0x1000 },
-        class: 2,
-        implement: 1,
-        physique: vec![(1, 1.0), (2, 1.0)],
+        entity: chargen::avatar_entity(admin),
+        start_area,
+        race: avatar.race,
+        sex: avatar.sex,
+        class,
+        implement,
+        physique: Table::from_inserted(SMALL, avatar.physique()).entries,
         physique_size_class: SMALL,
-    }
+    })
+}
+
+/// A human, male or female, as the creation screens make one: a new avatar of the race and sex
+/// over the data's choices, its looks picked with `random` as the screens pick them.
+#[must_use]
+pub fn human(
+    records: &WorldRecords,
+    name: &str,
+    female: bool,
+    random: &mut Random,
+) -> Option<NewCharacter> {
+    let sex = if female {
+        chargen::FEMALE
+    } else {
+        chargen::MALE
+    };
+    let choices = chargen::choices(records, chargen::HUMAN, sex);
+    let avatar = Avatar::new(&choices, chargen::HUMAN, sex, random);
+    new_character(name, false, &avatar)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -57,6 +80,8 @@ pub struct DevLogin {
     /// The refusals of an entry seen, and when to ask again after the last.
     refusals: u32,
     retry_at: f64,
+    /// What a character it makes has its looks picked with.
+    random: Random,
 }
 
 /// How long the command-line login waits after an entry is refused (the character still in the
@@ -79,6 +104,7 @@ impl DevLogin {
             stage: Stage::Start,
             refusals: 0,
             retry_at: 0.0,
+            random: Random::new(),
         }
     }
 }
@@ -130,7 +156,10 @@ impl Interface for DevLogin {
                         .clone()
                         .unwrap_or_else(|| "Wanderer".to_owned());
                     tracing::info!(character = %name, "making a human");
-                    requests.push(Request::Act(Action::CreateCharacter(human(&name, false))));
+                    let made = human(&game.world.records, &name, false, &mut self.random);
+                    if let Some(c) = made {
+                        requests.push(Request::Act(Action::CreateCharacter(c)));
+                    }
                     self.stage = Stage::Creating;
                 }
             }

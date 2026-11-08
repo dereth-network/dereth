@@ -95,6 +95,10 @@ pub struct DataDownload {
     pub events: Vec<(u32, u32)>,
     /// The notice a failed store showed, which stops the client.
     pub fatal: Option<u32>,
+    /// The world takes this client's word that it keeps a world's overlay over its files, as it
+    /// was told at launch: the client then says so ahead of what it holds. A world that does not
+    /// know that word is never sent it. Off unless told.
+    pub world_takes_overlays: bool,
     /// The data cache's requests.
     pub requests: Requests,
     /// What the requests' askers were told, oldest first.
@@ -136,6 +140,7 @@ impl Default for DataDownload {
             start: 0,
             events: Vec::new(),
             fatal: None,
+            world_takes_overlays: false,
             requests: {
                 let mut r = Requests::new();
                 r.server = true;
@@ -226,23 +231,26 @@ impl DataDownload {
             requests,
             cache,
             fatal,
+            world_takes_overlays,
             ..
         } = self;
         let stores = cache.stores();
         match fx {
             Effect::DataQuery => {
                 if let Some(lists) = download.on_server_interrogation(stores) {
-                    send.push(ClientMessage::OverlayHeld(OverlayHeld {
-                        flags: OverlayHeld::CHECKS_RECORDS,
-                        bases: files
-                            .files
-                            .iter()
-                            .map(|f| OverlayBase {
-                                dat_file: crate::data::file_id(f),
-                                fingerprint: layout_of(f),
-                            })
-                            .collect(),
-                    }));
+                    if *world_takes_overlays {
+                        send.push(ClientMessage::OverlayHeld(OverlayHeld {
+                            flags: OverlayHeld::CHECKS_RECORDS,
+                            bases: files
+                                .files
+                                .iter()
+                                .map(|f| OverlayBase {
+                                    dat_file: crate::data::file_id(f),
+                                    fingerprint: layout_of(f),
+                                })
+                                .collect(),
+                        }));
+                    }
                     let held = lists
                         .into_iter()
                         .map(|(dat_file, mut set)| {

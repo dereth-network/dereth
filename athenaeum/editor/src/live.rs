@@ -1270,6 +1270,14 @@ impl Live {
                 name.to_string(),
                 "--shots".into(),
                 run.join("shots").display().to_string(),
+                // The editor's world is Yalain's, which takes the client's word on its overlay.
+                "--world-overlays".into(),
+                // Its friends service is at the login's address.
+                "--gunserver".into(),
+                "127.0.0.1".into(),
+                "--gunport".into(),
+                port.to_string(),
+                "--gunticket".into(),
             ])
             .args(
                 overlay

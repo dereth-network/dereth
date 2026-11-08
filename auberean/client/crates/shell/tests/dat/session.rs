@@ -6801,3 +6801,21 @@ fn the_host_shows_the_game_as_the_interface_asks() {
     assert_eq!(s.settings.window, (800, 600));
     assert!(s.settings.full_screen);
 }
+
+/// The developer's login makes its human as the creation screens make one: the player's entity,
+/// the race's start area, class and implement, and every physique value the table lays out.
+/// Behaviour: desktop.dev-login.makes-its-character-as-the-creation-screens-do
+#[test]
+fn the_developers_login_makes_its_human_as_the_creation_screens_do() {
+    let (world, _) = data();
+    let mut random = auberean_world::chargen::Random::new();
+    let c =
+        auberean_shell::dev::human(&world.records, "Tester", false, &mut random).expect("a human");
+    assert_eq!(c.entity, 0x4700_0530, "the player's entity");
+    assert_eq!(
+        (c.race, c.sex, c.class, c.implement, c.start_area),
+        (1, 0x1000, 2, 4, 0x4000_0001)
+    );
+    assert_eq!(c.physique.len(), 13, "{:?}", c.physique);
+    assert!(c.physique.iter().any(|&(_, v)| v != 0.0 && v != 1.0));
+}

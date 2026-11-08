@@ -320,13 +320,15 @@ fn a_record_asked_for_that_no_file_holds_is_asked_of_the_server_and_its_record_o
     assert!(record.downcast::<IdMap>().is_ok());
 }
 
-/// **Asked what it holds, the client first says it takes a world's records and names its files by
-/// their layouts; a retail client says nothing of the kind.**
+/// **Asked what it holds by a world it was told at launch takes a world's records, the client first
+/// says it takes them and names its files by their layouts; a retail client says nothing of the
+/// kind.**
 ///
 /// Behaviour: data.overlay.says-it-keeps-them
 #[test]
 fn asked_what_it_holds_the_client_first_says_it_keeps_overlays_and_names_its_files() {
     let mut c = client();
+    c.data_download_mut().world_takes_overlays = true;
     c.take_message(LOGIN | 1, ServerMessage::DataQuery(DataQuery::default()));
     let sent = c.sent();
     let at = |want: &dyn Fn(&ClientMessage) -> bool| sent.iter().position(|s| want(&s.message));
@@ -340,6 +342,25 @@ fn asked_what_it_holds_the_client_first_says_it_keeps_overlays_and_names_its_fil
     let files: Vec<u64> = o.bases.iter().map(|b| b.dat_file).collect();
     assert_eq!(files, [PORTAL, CELL]);
     assert_ne!(o.bases[0].fingerprint, o.bases[1].fingerprint);
+}
+
+/// **Asked what it holds by a world it was not told takes a world's records, the client answers as
+/// the retail client does, with what it holds alone: a world that doesn't know the word is never
+/// sent it.**
+///
+/// Behaviour: data.overlay.only-to-a-world-that-takes-them
+#[test]
+fn a_world_not_told_to_take_overlays_hears_only_what_the_client_holds() {
+    let mut c = client();
+    c.take_message(LOGIN | 1, ServerMessage::DataQuery(DataQuery::default()));
+    let sent: Vec<_> = c.sent().iter().map(|s| &s.message).collect();
+    assert!(
+        !sent
+            .iter()
+            .any(|m| matches!(m, ClientMessage::OverlayHeld(_))),
+        "{sent:?}"
+    );
+    assert!(sent.iter().any(|m| matches!(m, ClientMessage::DataHeld(_))));
 }
 
 /// **Told the records a world's overlay was made over, the client holding them goes on, and one

@@ -1025,6 +1025,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "data.overlay.only-to-a-world-that-takes-them",
+        says: "Asked what it holds by a world it was not told at launch takes a world's records, the \
+               client answers with what it holds alone, as the retail client does: a world that \
+               doesn't know the client's own word is never sent it.",
+        since: THIS_CLIENT,
+        divergence: "CD2-world-overlay",
+        evidence: Evidence::Private("AC2-EVID-OVERLAY-ONLY-WHEN-TOLD"),
+        station: "auberean-client-runtime::cpu::world::download::a_world_not_told_to_take_overlays_hears_only_what_the_client_holds",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "data.overlay.over-the-retail-files",
         says: "Laid over the end-of-retail cell file, an overlay replaces, adds and deletes records                and leaves every other record and the file's data versions as they were.",
         since: THIS_CLIENT,
@@ -1062,7 +1073,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "data.overlay.says-it-keeps-them",
-        says: "Asked what it holds, the client first says it takes a world's records and names its                files by their layouts, in a message of its own that a server not knowing it skips. It takes no ordering \n               stamp, so what follows carries the stamps a retail client's would.",
+        says: "Asked what it holds by a world it was told at launch takes a world's records, the client \
+               first says it takes them and names its files by their layouts, in a message of its own. It \
+               takes no ordering stamp, so what follows carries the stamps a retail client's would.",
         since: THIS_CLIENT,
         divergence: "CD2-world-overlay",
         evidence: Evidence::Private("AC2-EVID-OVERLAY-SAYS-IT-KEEPS"),

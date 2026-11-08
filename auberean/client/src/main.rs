@@ -17,7 +17,7 @@
 //!          [--gunserver HOST [--gunport PORT] [--gunticket] [--gunticketoverride TICKET]]
 //!          [--size 1280x960] [--dev-login ACCOUNT:PASSWORD [--dev-character NAME]]
 //!          [--dev-overlay] [--dev-script FILE] [--shots DIR] [--no-window SECONDS] [--no-sound]
-//!          [--verbose]
+//!          [--world-overlays] [--verbose]
 //! ```
 //!
 //! The install folder is the September 2013 client's: its data files are the world and the
@@ -34,6 +34,9 @@
 //! for that many seconds (the world is still framed, with no picture made), printing the status
 //! lines.
 //! The game's sound plays through the default output device; `--no-sound` runs silent.
+//! `--world-overlays` says the world takes this client's own word that it keeps a world's overlay
+//! over its data files (a Yalain world does, and the launcher says so for one); without it the
+//! client answers the world's question of which data it has as the September 2013 client does.
 //!
 //! `--glsticketdirect` gives the login its secret directly, as the September 2013 client's own option
 //! does (it stands for the password after `--account`).
@@ -49,8 +52,7 @@
 //! every option.
 //!
 //! The friends service (friends, the ignore list, the away state, tells to `Name@World`) is reached
-//! at the login's host and port by default, with a ticket made from the login's account and
-//! password. The September 2013 client's own options name it elsewhere: `--gunserver` its host,
+//! only where the options name it, as the September 2013 client reaches it: `--gunserver` its host,
 //! `--gunport` its port (2310 when left out, as the original service's), `--gunticket` to present
 //! the ticket and hear the service's events, `--gunticketoverride` the ticket; `--gunclientdll`,
 //! the retail client's library, is taken and ignored. A service that cannot be reached leaves the
@@ -123,6 +125,8 @@ struct Options {
     verbose: bool,
     no_window: Option<f64>,
     no_sound: bool,
+    /// The world takes this client's own word on keeping its overlay.
+    world_overlays: bool,
     gun_server: Option<String>,
     gun_port: Option<u16>,
     gun_ticket: bool,
@@ -145,7 +149,7 @@ struct Options {
 
 /// This program's own options, beside the September 2013 client's: each one's form (what it takes
 /// and keeps), long name, help and a switch's value.
-const OWN_OPTIONS: [(u32, &str, &str, i32); 14] = [
+const OWN_OPTIONS: [(u32, &str, &str, i32); 15] = [
     (
         0x11,
         "adminclient",
@@ -199,6 +203,12 @@ const OWN_OPTIONS: [(u32, &str, &str, i32); 14] = [
     (0x32, "shots", "<folder>: Where screenshots go.", 0),
     (0x11, "verbose", "Write more to the log.", 1),
     (0x11, "no-sound", "Play no sound.", 1),
+    (
+        0x11,
+        "world-overlays",
+        "The world takes this client's word on keeping its overlay (a Yalain world's does).",
+        1,
+    ),
     (
         0x32,
         "no-window",
@@ -265,6 +275,7 @@ impl Reader for Line {
             "shots" => self.o.shots = Some(PathBuf::from(value)),
             "verbose" => self.o.verbose = true,
             "no-sound" => self.o.no_sound = true,
+            "world-overlays" => self.o.world_overlays = true,
             "no-window" => match value.parse() {
                 Ok(v) => self.o.no_window = Some(v),
                 Err(e) => return self.fail(&format!("--no-window: {e} (want seconds)")),
@@ -359,17 +370,14 @@ fn options() -> Result<Options, String> {
     Ok(o)
 }
 
-/// Where the friends service is: where the options name it, else at the login.
+/// Where the friends service is: where the options name it, else nowhere.
 fn friends_service(o: &Options) -> auberean_shell::FriendsService {
-    match &o.gun_server {
-        Some(host) => auberean_shell::FriendsService::At {
-            host: host.clone(),
-            port: o.gun_port,
-            use_ticket: o.gun_ticket,
-            ticket: o.gun_ticket_override.clone(),
-        },
-        None => auberean_shell::FriendsService::AtTheLogin,
-    }
+    auberean_shell::FriendsService::named(
+        o.gun_server.as_deref(),
+        o.gun_port,
+        o.gun_ticket,
+        o.gun_ticket_override.as_deref(),
+    )
 }
 
 /// The settings folder: the variable's, else the user's application data.
@@ -1147,6 +1155,7 @@ fn run() -> Result<(), String> {
     shell.apply_line(&o.line);
     shell.dev_overlay = o.overlay;
     shell.friends = friends_service(&o);
+    shell.world_takes_overlays = o.world_overlays;
     if let Some(s) = o.size {
         shell.size = s;
     }

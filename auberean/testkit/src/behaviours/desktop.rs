@@ -923,6 +923,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.dev-login.makes-its-character-as-the-creation-screens-do",
+        says: "The developer's login makes the human it plays as the creation screens make one: the                player's entity, the race's start area, class and implement, and every physique value                the table lays out, its looks picked as a new avatar's are.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-DEV-LOGIN-CREATES-AS-SCREENS"),
+        station: "auberean-shell::dat::session::the_developers_login_makes_its_human_as_the_creation_screens_do",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.input.a-click-that-brings-the-window-forward-is-not-heard",
         says: "A window coming active has the devices from its next frame: a button pressed before                then is not heard, nor is that press's release.",
         since: RETAIL,

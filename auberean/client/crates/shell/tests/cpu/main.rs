@@ -2,6 +2,7 @@
 //! interpreter, the preferences file and the settings.
 
 mod command_line;
+mod friends;
 mod input_manager;
 mod keys;
 mod preferences;

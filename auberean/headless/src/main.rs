@@ -21,8 +21,11 @@
 //! ```text
 //! auberean-headless --dats <install folder> [--host 127.0.0.1] [--port 9000] --account NAME --ticket TICKET
 //!              [--character ID | --create NAME] [--seconds 30] [--walk] [--say TEXT] [--agree] [--offer]
-//!              [--trade-with ID] [--craft RECIPE:SPINNER]...
+//!              [--trade-with ID] [--craft RECIPE:SPINNER]... [--world-overlays]
 //! ```
+//!
+//! `--world-overlays` says the world (a Yalain world) takes this client's own word that it keeps a
+//! world's overlay over its data files.
 //!
 //! The install folder is the September 2013 client's (its data files answer the server's question
 //! of which data the client has, and its script library runs the server's calls). The server must
@@ -86,6 +89,7 @@ struct Options {
     offer: bool,
     trade_with: Option<u64>,
     crafts: Vec<(u32, i32)>,
+    world_overlays: bool,
 }
 
 fn options() -> Result<Options, String> {
@@ -105,6 +109,7 @@ fn options() -> Result<Options, String> {
         offer: false,
         trade_with: None,
         crafts: Vec::new(),
+        world_overlays: false,
     };
     while let Some(a) = args.next() {
         let mut value = || args.next().ok_or(format!("{a} needs a value"));
@@ -125,6 +130,7 @@ fn options() -> Result<Options, String> {
             "--walk" => o.walk = true,
             "--agree" => o.agree = true,
             "--offer" => o.offer = true,
+            "--world-overlays" => o.world_overlays = true,
             "--trade-with" => {
                 let v = value()?;
                 let v = v.trim_start_matches("0x");
@@ -517,6 +523,7 @@ fn run() -> Result<(), String> {
         script_sends: true,
     };
     let mut client = Client::new(settings, data(&o.dats)?);
+    client.data_download_mut().world_takes_overlays = o.world_overlays;
     client.observe = vec![
         SAYING,
         RECRUITMENT_OFFERED,

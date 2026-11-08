@@ -829,7 +829,8 @@ fn plain(s: impl Into<String>) -> Arg {
 /// The plan that starts the Auberean client `program` over `install`, logging in to the world at
 /// `server` as `account` with its secret (put in at spawn) in the retail client's own options,
 /// which Auberean reads as the retail client does, and naming the world's friends service when it
-/// answered. Auberean takes no library.
+/// answered. Auberean takes no library. A Yalain world (`yalain`) is told Auberean keeps its overlay
+/// (`--world-overlays`), which no other world is sent.
 #[must_use]
 pub fn auberean_plan(
     program: &Path,
@@ -837,6 +838,7 @@ pub fn auberean_plan(
     server: SocketAddr,
     account: &str,
     friends: Option<&Friends>,
+    yalain: bool,
 ) -> LaunchPlan {
     let mut args = vec![
         plain("--dats"),
@@ -850,6 +852,9 @@ pub fn auberean_plan(
         plain("--glsticketdirect"),
         Arg::Password,
     ];
+    if yalain {
+        args.push(plain("--world-overlays"));
+    }
     if let Some(f) = friends {
         let own = Friends {
             dll: None,
@@ -1360,7 +1365,7 @@ mod tests {
     #[test]
     fn auberean_logs_in_with_its_account_and_secret_and_the_secret_is_never_shown() {
         let program = Path::new("/apps/auberean/auberean.exe");
-        let plan = auberean_plan(program, Path::new("ac2"), local(), "player", None);
+        let plan = auberean_plan(program, Path::new("ac2"), local(), "player", None, false);
         assert_eq!(
             plan.argv("s3cret"),
             [
@@ -1399,6 +1404,7 @@ mod tests {
             local(),
             "player",
             with.as_ref(),
+            false,
         );
         let argv = plan.argv("secret");
         assert_eq!(
@@ -1426,6 +1432,25 @@ mod tests {
                 && !shown.contains("c2VjcmV0"),
             "{shown}"
         );
+    }
+
+    /// Auberean is told a Yalain world takes its word on keeping the world's overlay, and no other
+    /// world is.
+    #[test]
+    fn auberean_is_told_only_a_yalain_world_takes_its_overlay_word() {
+        let argv = |yalain| {
+            auberean_plan(
+                Path::new("auberean"),
+                Path::new("ac2"),
+                local(),
+                "p",
+                None,
+                yalain,
+            )
+            .argv("s")
+        };
+        assert_eq!(argv(true)[10..], ["--world-overlays"]);
+        assert!(!argv(false).iter().any(|a| a == "--world-overlays"));
     }
 
     /// From a world's private copy of the install the retail client opens its data files for

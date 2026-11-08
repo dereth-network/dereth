@@ -91,6 +91,8 @@ pub fn client(login: SocketAddr, account: &str) -> Client {
         script_sends: true,
     };
     let mut c = Client::new(settings, client_data());
+    // Yalain takes the client's word on keeping a world's overlay.
+    c.data_download_mut().world_takes_overlays = true;
     c.observe = vec![
         call::SELECTION_INFO,
         call::EXAMINATION_PROFILE,
