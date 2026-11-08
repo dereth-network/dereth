@@ -1160,8 +1160,8 @@ fn snapshot(
             _ => {
                 let mut cards = sh
                     .far_cards
-                    .take()
-                    .map(|(_, c)| (*c).clone())
+                    .as_ref()
+                    .map(|(_, c)| (**c).clone())
                     .unwrap_or_default();
                 if cards.cards.len() > made.len() {
                     cards.cards.clear();
