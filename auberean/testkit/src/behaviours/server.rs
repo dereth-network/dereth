@@ -6426,6 +6426,41 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.loot.pools-by-level",
+        says: "A creature whose loot profile draws from treasure pools leaves templates whose \
+               windows hold its level, by weight, and nothing for a draw no window holds.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-LOOT-POOLS-LEVEL"),
+        station: "yalain-testkit::cpu::play::treasure_pools::a_profile_drawing_from_pools_leaves_the_templates_its_level_holds",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.loot.pools-in-the-catalog",
+        says: "The server's catalog holds every template a treasure pool names, so a corpse can be \
+               given it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-LOOT-POOLS-CATALOG"),
+        station: "yalain::bin.yalain::data::tests::the_catalog_holds_every_template_a_treasure_pool_names",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.loot.pools-own-race",
+        says: "A treasure pool for a race takes its share of its parent's draws for a killer of \
+               that race outright; the rest are drawn by weight.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-LOOT-POOLS-OWN-RACE"),
+        station: "yalain-testkit::cpu::play::treasure_pools::a_killers_race_takes_its_races_pool_at_that_pools_share",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.loot.pools-rare-once",
+        says: "A loot profile's rare is rolled once for a corpse, by its chance, from its pool.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-LOOT-POOLS-RARE"),
+        station: "yalain-testkit::cpu::play::treasure_pools::a_profiles_rare_is_rolled_once_for_a_corpse",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.loot.quest-items-kept-from-money",
         says: "Turning a corpse's items into money keeps back a quest item and an item worth \
                nothing: it stays in the corpse, listed as not turned into money with error 1105; \

@@ -53,6 +53,7 @@ pub mod compile;
 pub mod install;
 pub mod layer;
 pub mod merge;
+pub mod pools_check;
 pub mod release;
 pub mod rows;
 

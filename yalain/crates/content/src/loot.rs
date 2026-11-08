@@ -76,7 +76,11 @@ pub struct DeathTreasure {
 pub struct LootTable {
     pub profiles: Vec<LootProfile>,
     pub treasures: Vec<DeathTreasure>,
+    pub pools: crate::pools::Pools,
 }
+
+/// The line that starts the pools' part of a table's text.
+const POOLS_PART: &str = "[pools]";
 
 /// The table's columns, in order.
 pub const COLUMNS: [&str; 7] = [
@@ -169,6 +173,11 @@ impl LootTable {
                 );
             }
         }
+        if self.pools != crate::pools::Pools::default() {
+            out.push_str(POOLS_PART);
+            out.push('\n');
+            out.push_str(&self.pools.to_text());
+        }
         out
     }
 
@@ -205,6 +214,10 @@ impl LootTable {
     /// # Errors
     /// A line without its columns, or a value that does not read.
     pub fn from_text(text: &str) -> Result<Self, String> {
+        let (text, pools) = match text.split_once(&format!("\n{POOLS_PART}\n")) {
+            Some((t, p)) => (t, crate::pools::Pools::from_text(p)?),
+            None => (text, crate::pools::Pools::default()),
+        };
         let mut profiles = Vec::new();
         let mut treasures = Vec::new();
         let header = TREASURE_COLUMNS.join("\t");
@@ -265,6 +278,7 @@ impl LootTable {
         Ok(Self {
             profiles,
             treasures,
+            pools,
         })
     }
 }

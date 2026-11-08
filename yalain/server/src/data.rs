@@ -401,6 +401,12 @@ pub fn catalog(
                 .chain(lp.extras.iter().map(|(t, _)| *t))
         }))
         .chain(loot.treasures.iter().map(|d| d.item))
+        .chain(loot.pools.pools.values().flat_map(|pool| {
+            pool.entries.iter().filter_map(|e| match e.to {
+                yalain_content::pools::Target::Template(t) => Some(t),
+                yalain_content::pools::Target::Pool(_) => None,
+            })
+        }))
         .chain(more.iter().copied())
         .collect();
     let mut skipped = Vec::new();
@@ -1613,6 +1619,32 @@ mod tests {
         assert!(c
             .icon_tables
             .contains_key(&yalain_world::inventory::POTION_COLOR.0));
+    }
+
+    /// The catalog holds every template a treasure pool names, though no camp or profile names it, so
+    /// a corpse can be given it.
+    /// Behaviour: server.loot.pools-in-the-catalog
+    #[test]
+    fn the_catalog_holds_every_template_a_treasure_pool_names() {
+        const ITEM: u32 = 0x4700_1919;
+        let (dat, _) = tallied(&DatName::Portal);
+        let p = Portal::over(dat, Vec::new(), None).expect("a context");
+        let mut loot = LootTable::default();
+        loot.pools.pools.insert(
+            "GP_Test".into(),
+            yalain_content::pools::Pool {
+                name: "GP_Test".into(),
+                entries: vec![yalain_content::pools::Entry {
+                    to: yalain_content::pools::Target::Template(ITEM),
+                    weight: 1.0,
+                    least: 0,
+                    most: yalain_content::pools::OPEN_ABOVE,
+                }],
+                ..Default::default()
+            },
+        );
+        let (c, _) = catalog(&p, &SpawnTable::default(), &loot, &[]).expect("the catalog");
+        assert!(c.templates.contains_key(&ITEM));
     }
 
     /// The catalog holds every item a death treasure names, though no camp or profile names it, so

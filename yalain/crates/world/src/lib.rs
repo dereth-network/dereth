@@ -141,6 +141,7 @@ pub mod talk;
 pub mod things;
 pub mod trade;
 pub mod treasure;
+pub mod treasure_pools;
 pub mod unhandled;
 pub mod uploads;
 pub mod usable;

@@ -221,8 +221,46 @@ pub struct Loot {
     /// A chest's: the level its draw is treasure of, and the worth each piece draws from.
     pub level: Option<i32>,
     pub value: Vec<u32>,
+    /// What its items are drawn from: treasure pools, each by a weight and the item levels it is
+    /// drawn at.
+    pub draws: Vec<PoolEntry>,
+    /// The pool its rare is drawn from, and the chance, rolled once a corpse.
+    pub rare: Option<(String, f32)>,
     pub prov: Prov,
 }
+
+/// One entry of a treasure pool, or one draw of a `[[loot]]` row: a pool or a template, its
+/// weight, and the least and most item level it is drawn at (none: open that way).
+#[derive(Debug, Clone, PartialEq)]
+pub struct PoolEntry {
+    pub pool: Option<String>,
+    pub template: Option<u32>,
+    pub weight: f32,
+    pub least: Option<i32>,
+    pub most: Option<i32>,
+}
+
+/// `[[treasure_pool]]`: a named pool treasure is drawn from: other pools, item templates, or both.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TreasurePool {
+    pub name: String,
+    /// The race it is for, by name.
+    pub race: Option<String>,
+    /// The share of a draw from its parent by a killer of its race that it takes outright.
+    pub own: Option<f32>,
+    pub pools: Vec<PoolEntry>,
+    pub items: Vec<PoolEntry>,
+    pub prov: Prov,
+}
+
+/// The races a treasure pool can be for, and their bits.
+pub const POOL_RACES: [(&str, u32); 5] = [
+    ("human", 1),
+    ("lugian", 2),
+    ("tumerok", 4),
+    ("drudge", 8),
+    ("empyrean", 16),
+];
 
 /// `[[keeper]]`: a storekeeper template, the store it opens and its greeting.
 #[derive(Debug, Clone, PartialEq)]
@@ -463,6 +501,7 @@ pub enum Row {
     Route(Route),
     Area(Area),
     Clearing(Clearing),
+    TreasurePool(TreasurePool),
 }
 
 /// `[[clearing]]`: ground in a landblock kept free of what the land grows: a circle of `radius`
@@ -704,6 +743,7 @@ impl Row {
             Self::Route(_) => "route",
             Self::Area(_) => "area",
             Self::Clearing(_) => "clearing",
+            Self::TreasurePool(_) => "treasure_pool",
         }
     }
 
@@ -734,13 +774,14 @@ impl Row {
             Self::Route(r) => Some(&r.prov),
             Self::Area(r) => Some(&r.prov),
             Self::Clearing(r) => Some(&r.prov),
+            Self::TreasurePool(r) => Some(&r.prov),
             Self::Remove(_) => None,
         }
     }
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 24] = [
+pub const KINDS: [&str; 25] = [
     "object",
     "camp",
     "loot",
@@ -765,10 +806,11 @@ pub const KINDS: [&str; 24] = [
     "pet",
     "pet_limit",
     "death_treasure",
+    "treasure_pool",
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 24] = [
+pub const FIELDS: [(&str, &[&str]); 25] = [
     (
         "object",
         &[
@@ -838,6 +880,8 @@ pub const FIELDS: [(&str, &[&str]); 24] = [
             "extras",
             "level",
             "value",
+            "draws",
+            "rare",
             "prov",
         ],
     ),
@@ -1030,6 +1074,10 @@ pub const FIELDS: [(&str, &[&str]); 24] = [
     (
         "death_treasure",
         &["key", "template", "camp", "item", "chance", "prov"],
+    ),
+    (
+        "treasure_pool",
+        &["name", "race", "own", "pools", "items", "prov"],
     ),
 ];
 
@@ -1400,6 +1448,8 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
             extras: f.chances("extras"),
             level: f.int("level").and_then(|v| i32::try_from(v).ok()),
             value: f.ids("value"),
+            draws: f.pool_entries("draws", "pool"),
+            rare: f.rare("rare"),
             prov: f.req_prov()?,
         }),
         "keeper" => Row::Keeper(Keeper {
@@ -1751,6 +1801,27 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 tends: f.pet_tends(),
                 hire: f.pet_hire(),
                 item_effects: f.strings("item_effects"),
+                prov: f.req_prov()?,
+            })
+        }
+        "treasure_pool" => {
+            let race = f.ident("race");
+            if race
+                .as_deref()
+                .is_some_and(|r| !POOL_RACES.iter().any(|(n, _)| *n == r))
+            {
+                f.bad(
+                    "race",
+                    "a race is human, lugian, tumerok, drudge or empyrean",
+                );
+                return None;
+            }
+            Row::TreasurePool(TreasurePool {
+                name: f.req_ident("name")?,
+                race,
+                own: f.float("own").map(to_f32),
+                pools: f.pool_entries("pools", "pool"),
+                items: f.pool_entries("items", "template"),
                 prov: f.req_prov()?,
             })
         }
@@ -2166,6 +2237,55 @@ impl<'a> Fields<'a> {
             &["template", "weight"],
             |t| Some((as_u32(t.get("template")?)?, as_u32(t.get("weight")?)?)),
         )
+    }
+
+    /// A list of pool entries, each naming `to` (a pool's name or a template), a weight, and the
+    /// least and most item level it is drawn at, either left out.
+    fn pool_entries(&mut self, name: &str, to: &str) -> Vec<PoolEntry> {
+        let level = |t: &toml::Table, k: &str| match t.get(k) {
+            None => Some(None),
+            Some(v) => v.as_integer().and_then(|i| i32::try_from(i).ok()).map(Some),
+        };
+        let what =
+            format!("a list of {{ {to}, weight, least, most }} (least and most may be left out)");
+        self.list_of(name, &what, &[to, "weight", "least", "most"], |t| {
+            let (pool, template) = if to == "pool" {
+                (
+                    Some(t.get("pool")?.as_str().filter(|s| is_ident(s))?.to_string()),
+                    None,
+                )
+            } else {
+                (None, Some(as_u32(t.get("template")?)?))
+            };
+            Some(PoolEntry {
+                pool,
+                template,
+                weight: to_f32(as_number(t.get("weight")?)?),
+                least: level(t, "least")?,
+                most: level(t, "most")?,
+            })
+        })
+    }
+
+    /// `{ pool, chance }`.
+    fn rare(&mut self, name: &str) -> Option<(String, f32)> {
+        self.typed(name, "{ pool, chance }", |v| {
+            let t = v.as_table()?;
+            if t.len() != 2 {
+                return None;
+            }
+            Some((
+                t.get("pool")?.as_str().filter(|s| is_ident(s))?.to_string(),
+                to_f32(as_number(t.get("chance")?)?),
+            ))
+        })
+    }
+
+    fn req_ident(&mut self, name: &str) -> Option<String> {
+        match self.t.get(name) {
+            Some(_) => self.ident(name),
+            None => self.missing(name),
+        }
     }
 
     fn chances(&mut self, name: &str) -> Vec<(u32, f32)> {

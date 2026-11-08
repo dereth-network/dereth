@@ -28,7 +28,7 @@ pub const SAMPLES: [&str; 7] = [
 
 /// The rules a derived row or field may name; each is stated in the database's format
 /// description.
-pub const RULES: [&str; 21] = [
+pub const RULES: [&str; 22] = [
     "pet-from-its-effect",
     "camp-regen-generator",
     "camp-regen-median",
@@ -50,6 +50,7 @@ pub const RULES: [&str; 21] = [
     "hoard-teleport-place",
     "map-marked-place",
     "item-spot-regen",
+    "treasure-pool-fit",
 ];
 
 /// An evidence handle: capital letters, digits and hyphens, in parts joined by hyphens (the
@@ -370,6 +371,7 @@ pub fn check_database(db: &Database) -> Vec<Problem> {
             check_prov(p, &mut |m| problems.push(at(m)));
         }
     }
+    problems.extend(crate::pools_check::check(db));
     problems
 }
 

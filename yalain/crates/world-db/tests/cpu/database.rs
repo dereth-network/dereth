@@ -2574,3 +2574,83 @@ fn a_death_treasure_row_names_a_template_or_a_camp_and_compiles_into_the_loot_ta
         );
     }
 }
+
+#[test]
+fn treasure_pools_and_a_profiles_draws_compile_and_bad_ones_are_problems() {
+    let with = |pools: &str, loot: &str| {
+        let mut files = fixture();
+        let path = files
+            .keys()
+            .find(|k| k.ends_with("loot.toml"))
+            .expect("loot rows")
+            .clone();
+        let text = files.get(&path).expect("read").replacen(
+            "items = [{ template = 0x47002108, weight = 3 }]\n",
+            loot,
+            1,
+        );
+        files.insert(path.clone(), format!("{text}\n{pools}"));
+        files
+    };
+    let good_pools = "[[treasure_pool]]\nname = \"GP_A\"\npools = [{ pool = \"GP_AHuman\", weight = 2.5 }]\nprov = { from = \"authored\" }\n\n[[treasure_pool]]\nname = \"GP_AHuman\"\nrace = \"human\"\nown = 0.6\nitems = [{ template = 0x4700115B, weight = 1, least = 3, most = 9 }]\nprov = { from = \"authored\" }\n";
+    let good_draws = "draws = [{ pool = \"GP_A\", weight = 1, least = 2 }]\nrare = { pool = \"GP_A\", chance = 0.01 }\n";
+    let files = with(good_pools, good_draws);
+    assert_eq!(check(&files), Vec::new());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let human = &t.loot.pools.pools["GP_AHuman"];
+    assert_eq!((human.race, human.own), (1, 0.6));
+    assert_eq!((human.entries[0].least, human.entries[0].most), (3, 9));
+    let draws = &t.loot.pools.profiles["GP_TestBeetleHoard"];
+    assert_eq!(draws.draws[0].least, 2);
+    assert_eq!(
+        draws.draws[0].most,
+        yalain_content::pools::OPEN_ABOVE,
+        "open above"
+    );
+    assert_eq!(draws.rare, Some(("GP_A".to_string(), 0.01)));
+    assert_eq!(
+        yalain_content::LootTable::from_text(&t.loot.to_text()).unwrap(),
+        t.loot,
+        "it reads back as written"
+    );
+    for (pools, loot, says) in [
+        (
+            good_pools.replace("GP_AHuman\", weight", "GP_A\", weight"),
+            good_draws.to_string(),
+            "pools: GP_A leads back to itself",
+        ),
+        (
+            good_pools.to_string(),
+            good_draws.replace("pool = \"GP_A\", weight", "pool = \"GP_B\", weight"),
+            "draws: no treasure pool GP_B",
+        ),
+        (
+            good_pools.to_string(),
+            format!("{good_draws}items = [{{ template = 0x47002108, weight = 3 }}]\n"),
+            "not both",
+        ),
+        (
+            good_pools.replace("race = \"human\"\n", ""),
+            good_draws.to_string(),
+            "own: a pool takes a share",
+        ),
+        (
+            good_pools.replace("least = 3, most = 9", "least = 9, most = 3"),
+            good_draws.to_string(),
+            "a least level above its most",
+        ),
+        (
+            good_pools.to_string(),
+            good_draws.replace("chance = 0.01", "chance = 0"),
+            "rare: a chance above 0",
+        ),
+    ] {
+        assert!(
+            check(&with(&pools, &loot))
+                .iter()
+                .any(|p| p.to_string().contains(says)),
+            "{says}: {:?}",
+            check(&with(&pools, &loot))
+        );
+    }
+}

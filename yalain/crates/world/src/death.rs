@@ -569,9 +569,9 @@ fn treasure_value<S: Store>(s: &mut Server<S>, level: i32) -> u32 {
     lo + u32::try_from(s.rng.below((hi - lo + 1) as usize)).unwrap_or(0)
 }
 
-/// What a dead creature leaves: its fixed drops, its profile's extras, the profile's draw, and its
-/// death treasures.
-fn roll_loot<S: Store>(s: &mut Server<S>, creature: &Thing) -> Vec<(u32, u32)> {
+/// What a dead creature leaves: its fixed drops, its profile's extras, the profile's draw (from its
+/// items, or its pools for its killer: [`crate::treasure_pools`]), and its death treasures.
+fn roll_loot<S: Store>(s: &mut Server<S>, creature: &Thing, killer: u64) -> Vec<(u32, u32)> {
     let Some(c) = creature.creature.as_ref() else {
         return Vec::new();
     };
@@ -581,12 +581,11 @@ fn roll_loot<S: Store>(s: &mut Server<S>, creature: &Thing) -> Vec<(u32, u32)> {
             out.push((t, 0));
         }
     }
-    let profile = c
-        .stats
-        .loot_profile
-        .and_then(|v| s.catalog.profile_name(v))
-        .and_then(|n| s.loot.profile(n))
-        .cloned();
+    let name = c.stats.loot_profile.and_then(|v| s.catalog.profile_name(v));
+    let pooled = name.is_some_and(|n| crate::treasure_pools::draws_from_pools(s, n));
+    let name = name.map(str::to_string);
+    let profile = name.as_deref().and_then(|n| s.loot.profile(n)).cloned();
+    let trophies = out.len();
     if let Some(p) = profile {
         for (t, rate) in &p.extras {
             if s.rng.chance(*rate) {
@@ -606,7 +605,25 @@ fn roll_loot<S: Store>(s: &mut Server<S>, creature: &Thing) -> Vec<(u32, u32)> {
             .unwrap_or(MOST_ITEMS);
         let count = count.clamp(min.min(max), max);
         let level = c.stats.level;
-        while out.len() < count && !p.items.is_empty() {
+        let base = crate::treasure::base_of(level, c.stats.loot_quality);
+        let race = crate::treasure_pools::race_of(s, killer);
+        let profile_name = name.as_deref().unwrap_or_default();
+        if pooled {
+            // The template's trophies are drawn beside the count; the profile's extras are in it.
+            let extras = out.len() - trophies;
+            let items = crate::treasure_pools::drawn(
+                s,
+                profile_name,
+                count.saturating_sub(extras),
+                base,
+                race,
+            );
+            for t in items {
+                let value = treasure_value(s, level);
+                out.push((t, value));
+            }
+        }
+        while !pooled && out.len() < count && !p.items.is_empty() {
             #[allow(clippy::cast_precision_loss)]
             let Some(i) = s.rng.weighted(p.items.iter().map(|(_, w)| *w as f32)) else {
                 break;
@@ -614,6 +631,7 @@ fn roll_loot<S: Store>(s: &mut Server<S>, creature: &Thing) -> Vec<(u32, u32)> {
             let value = treasure_value(s, level);
             out.push((p.items[i].0, value));
         }
+        out.extend(crate::treasure_pools::rare(s, profile_name, base, race).map(|t| (t, 0)));
     }
     let treasures = death_treasures(s, creature);
     out.truncate(MOST_ITEMS.saturating_sub(treasures.len()));
@@ -685,7 +703,7 @@ pub fn corpse_appears<S: Store>(
     corpse.at = dead.at;
     corpse.instance = 0;
     corpse.visual = 10;
-    let loot = roll_loot(s, &dead);
+    let loot = roll_loot(s, &dead, killer);
     let (level, quality, rot, has_profile) = dead.creature.as_ref().map_or(
         (0, None, yalain_content::CorpseRot::default(), false),
         |c| {

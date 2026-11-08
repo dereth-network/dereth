@@ -1589,6 +1589,7 @@ pub fn test_loot() -> yalain_content::LootTable {
             chest: None,
         }],
         treasures: Vec::new(),
+        pools: yalain_content::pools::Pools::default(),
     }
 }
 

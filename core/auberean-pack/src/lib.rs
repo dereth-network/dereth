@@ -175,6 +175,8 @@ pub enum Item {
     Area { landblock: u16 },
     /// Ground kept free of what the land grows, by its key in its landblock.
     Clearing { key: String, landblock: u16 },
+    /// A treasure pool, by its name.
+    TreasurePool { name: String },
 }
 
 impl Item {
@@ -238,6 +240,9 @@ impl Item {
                 skill: number(skill)?,
             },
             ["route", key] => Self::Route { key: symbol(key)? },
+            ["treasure_pool", name] => Self::TreasurePool {
+                name: identifier(name)?,
+            },
             ["area", lb] => Self::Area {
                 landblock: u16::from_str_radix(lb, 16).ok().filter(|_| lb.len() == 4)?,
             },
@@ -282,6 +287,7 @@ impl fmt::Display for Item {
             Self::Route { key } => write!(f, "route {key}"),
             Self::Area { landblock } => write!(f, "area {landblock:04X}"),
             Self::Clearing { key, landblock } => write!(f, "clearing {key}@{landblock:04X}"),
+            Self::TreasurePool { name } => write!(f, "treasure_pool {name}"),
         }
     }
 }

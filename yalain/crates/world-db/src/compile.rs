@@ -719,6 +719,15 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                         continue;
                     }
                 }
+                if !r.draws.is_empty() || r.rare.is_some() {
+                    t.loot.pools.profiles.insert(
+                        name.clone(),
+                        yalain_content::pools::Draws {
+                            draws: r.draws.iter().map(pool_entry).collect(),
+                            rare: r.rare.clone(),
+                        },
+                    );
+                }
                 t.loot.profiles.push(LootProfile {
                     name,
                     counts: r.counts.clone(),
@@ -734,6 +743,30 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                         _ => None,
                     },
                 });
+            }
+            Row::TreasurePool(p) => {
+                if !p
+                    .items
+                    .iter()
+                    .all(|e| e.template.is_none_or(|t| cx.template(l, "items", t)))
+                {
+                    continue;
+                }
+                let race = p.race.as_deref().map_or(0, |r| {
+                    crate::rows::POOL_RACES
+                        .iter()
+                        .find(|(n, _)| *n == r)
+                        .map_or(0, |(_, b)| *b)
+                });
+                t.loot.pools.pools.insert(
+                    p.name.clone(),
+                    yalain_content::pools::Pool {
+                        name: p.name.clone(),
+                        race,
+                        own: p.own.unwrap_or(0.0),
+                        entries: p.pools.iter().chain(&p.items).map(pool_entry).collect(),
+                    },
+                );
             }
             Row::Keeper(k) => {
                 if !cx.template(l, "template", k.template) {
@@ -1396,4 +1429,18 @@ fn pet_kind(r: &crate::rows::Pet) -> yalain_content::PetKind {
     });
     k.item_effects.clone_from(&r.item_effects);
     k
+}
+
+/// A row's pool entry as the server draws it: a window left open reaches every level that way.
+fn pool_entry(e: &crate::rows::PoolEntry) -> yalain_content::pools::Entry {
+    use yalain_content::pools::{Entry, Target, OPEN_ABOVE};
+    Entry {
+        to: match (&e.pool, e.template) {
+            (Some(p), _) => Target::Pool(p.clone()),
+            (None, t) => Target::Template(t.unwrap_or(0)),
+        },
+        weight: e.weight,
+        least: e.least.unwrap_or(0),
+        most: e.most.unwrap_or(OPEN_ABOVE),
+    }
 }

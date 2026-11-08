@@ -29,6 +29,7 @@ use auberean_assets::script::Qualities;
 pub mod locks;
 pub mod loot;
 pub mod movement;
+pub mod pools;
 pub mod props;
 pub mod quests;
 pub mod spawns;
