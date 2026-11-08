@@ -1065,6 +1065,103 @@ pub fn mark_short_of_stamina(w: &mut World, projectile: Option<ObjectGuid>) {
     }
 }
 
+// Rules ported from ac1999 (Adam Plumb), AGPL-3.0: Server/Source/PhatSDK/Support/CombatFormulas.cpp.
+/// The chance a missile goes wild as it leaves the weapon, from the attack skill behind it:
+/// `1 / (1 + e^(0.08 x skill))`. Half at no skill, about one shot in eight at 25, one in a hundred
+/// at 55. A period guide says only that a poor shot sometimes went wild; the curve and its slope
+/// are ac1999's.
+#[must_use]
+pub fn scatter_chance(skill: f64) -> f64 {
+    1.0 / (1.0 + empyrean_common::math::exp(SCATTER_SLOPE * skill.max(0.0)))
+}
+
+/// How fast [`scatter_chance`] falls as the skill rises.
+const SCATTER_SLOPE: f64 = 0.08;
+
+/// How far a wild missile turns aside, in degrees, to the left or the right.
+pub const SCATTER_YAW_DEGREES: (f32, f32) = (15.0, 35.0);
+
+/// What a wild missile's rise is multiplied by, so it lands short or long as well.
+pub const SCATTER_LOFT: (f32, f32) = (0.5, 1.5);
+
+// Rules ported from ac1999 (Adam Plumb), AGPL-3.0: Server/Source/combat/MissileAttackEventData.cpp.
+/// A wild missile's velocity: turned `yaw_degrees` about the vertical, counterclockwise seen from
+/// above, with its rise multiplied by `loft`. Its speed along the ground is unchanged.
+#[must_use]
+pub fn scattered_velocity(velocity: Vector3, yaw_degrees: f32, loft: f32) -> Vector3 {
+    let yaw = f64::from(yaw_degrees).to_radians();
+    let (sin, cos) = (
+        empyrean_common::math::sin(yaw),
+        empyrean_common::math::cos(yaw),
+    );
+    let (x, y) = (f64::from(velocity.x), f64::from(velocity.y));
+    Vector3::new(
+        (x * cos - y * sin) as f32,
+        (x * sin + y * cos) as f32,
+        velocity.z * loft,
+    )
+}
+
+/// The attack skill a missile `shooter` looses at `target` will have when it arrives, reckoned as
+/// it leaves: the shooter's skill with its accuracy bar, half of it when the shot was short of
+/// stamina (V517), less the long-range penalty (V511). It is the number the hit check uses.
+pub fn missile_attack_skill_at_launch(
+    w: &mut World,
+    shooter: ObjectGuid,
+    weapon: Option<ObjectGuid>,
+    target: ObjectGuid,
+    short_of_stamina: bool,
+) -> u32 {
+    use empyrean_common::dotnet::{math, CsCast};
+
+    let mut skill = dispatch::get_effective_attack_skill::get_effective_attack_skill(w, shooter);
+    if short_of_stamina {
+        let accuracy = creature_combat::shim::virt_get_accuracy_mod(w, shooter, weapon);
+        let scale = 0.5 / f64::from(accuracy);
+        skill = math::round(f64::from(skill) * scale).cs_cast();
+    }
+    if w.era.formulas.long_range_missile_penalty {
+        let range_mod = long_range_attack_mod(launch_range_ratio(w, shooter, target));
+        skill = math::round(f64::from(skill) * range_mod).cs_cast();
+    }
+    skill
+}
+
+// Rules ported from ac1999 (Adam Plumb), AGPL-3.0: Server/Source/combat/MissileAttackEventData.cpp.
+/// In an era that scatters missiles, the velocity a missile leaves with: as aimed, or, with the
+/// chance its attack skill gives ([`scatter_chance`]), turned 15 to 35 degrees to one side with its
+/// rise multiplied by 0.5 to 1.5. A player whose shot goes wild is told it misfired. The missile
+/// still flies, at its target, and hits whatever it reaches.
+pub fn scatter_if_wild(
+    w: &mut World,
+    shooter: ObjectGuid,
+    weapon: Option<ObjectGuid>,
+    target: ObjectGuid,
+    short_of_stamina: bool,
+    velocity: Vector3,
+) -> Vector3 {
+    use empyrean_common::thread_safe_random::ThreadSafeRandom;
+
+    if !w.era.formulas.missile_scatter {
+        return velocity;
+    }
+    let skill = missile_attack_skill_at_launch(w, shooter, weapon, target, short_of_stamina);
+    if ThreadSafeRandom::next_float(0.0, 1.0) >= scatter_chance(f64::from(skill)) {
+        return velocity;
+    }
+    let (least, most) = SCATTER_YAW_DEGREES;
+    let mut yaw = ThreadSafeRandom::next_float(least, most) as f32;
+    if ThreadSafeRandom::next_float(0.0, 1.0) < 0.5 {
+        yaw = -yaw;
+    }
+    let (least, most) = SCATTER_LOFT;
+    let loft = ThreadSafeRandom::next_float(least, most) as f32;
+    if object(w, shooter).is_player() {
+        player_networking::send_weenie_error(w, shooter, WeenieError::YourAttackMisfired);
+    }
+    scattered_velocity(velocity, yaw, loft)
+}
+
 /// The missile weapon's range: `MaximumVelocity^2 / 9.8`, capped at 85 yards.
 // ACE: Creature.GetMaxMissileRange
 #[must_use]

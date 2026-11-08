@@ -458,6 +458,16 @@ pub fn launch_missile(
             return;
         }
 
+        // DIVERGE: V518, a shot with little skill behind it can go wild.
+        let velocity = creature_missile::scatter_if_wild(
+            w,
+            this,
+            launcher.or(Some(ammo)),
+            target,
+            short_of_stamina,
+            velocity,
+        );
+
         let projectile = creature_missile::launch_projectile(
             w,
             this,

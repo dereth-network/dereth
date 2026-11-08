@@ -225,6 +225,15 @@ pub fn launch_missile(w: &mut World, this: ObjectGuid) {
         if let Some(attack_target) = monster_combat::attack_target(w, this)
             .filter(|&t| !creature_missile::target_left_world(w, t))
         {
+            // DIVERGE: V518, a shot with little skill behind it can go wild.
+            let velocity = creature_missile::scatter_if_wild(
+                w,
+                this,
+                launcher.or(Some(ammo)),
+                attack_target,
+                short_of_stamina,
+                velocity,
+            );
             let projectile = creature_missile::launch_projectile(
                 w,
                 this,

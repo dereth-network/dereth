@@ -250,6 +250,9 @@ pub struct EraFormulas {
     /// A missile costs stamina by its weapon: a bow 2, a crossbow or atlatl 3, a throw the weight of
     /// one item and the shield held with it. A shooter short of it still shoots, with half its skill.
     pub missile_stamina_by_weapon: bool,
+    /// A missile with little skill behind it can go wild as it leaves the weapon: it veers to one
+    /// side and lands short or long, and the shooter is told it misfired.
+    pub missile_scatter: bool,
     /// The spell fixes shipped by February 2000, over the 1999 spell table: longer enchantments by
     /// level, shorter drains and harms, costlier portal spells and a resistable Imperil.
     pub early_2000_spell_fixes: bool,
@@ -292,6 +295,7 @@ impl EraFormulas {
         thrown_reach_by_strength: false,
         missile_flight_by_distance: false,
         missile_stamina_by_weapon: false,
+        missile_scatter: false,
         early_2000_spell_fixes: false,
     };
 
@@ -317,6 +321,7 @@ impl EraFormulas {
         thrown_reach_by_strength: false,
         missile_flight_by_distance: false,
         missile_stamina_by_weapon: false,
+        missile_scatter: false,
         early_2000_spell_fixes: false,
     };
 
@@ -351,6 +356,8 @@ impl EraFormulas {
         // A period guide's figures for the bow, the crossbow and the throw, an emulator's for the
         // atlatl, the shield and the shortfall.
         missile_stamina_by_weapon: true,
+        // A period guide's scattered shot, on an emulator's curve.
+        missile_scatter: true,
         // ac1999's dat migrations, as rules.
         early_2000_spell_fixes: true,
     };
@@ -800,6 +807,16 @@ mod tests {
         assert!(LAUNCH.formulas.missile_stamina_by_weapon);
         for rules in [&EOR, &INFILTRATION] {
             assert!(!rules.formulas.missile_stamina_by_weapon);
+        }
+    }
+
+    /// Divergence: V518
+    /// Only Launch scatters a shot with little skill behind it.
+    #[test]
+    fn only_launch_scatters_a_missile() {
+        assert!(LAUNCH.formulas.missile_scatter);
+        for rules in [&EOR, &INFILTRATION] {
+            assert!(!rules.formulas.missile_scatter);
         }
     }
 

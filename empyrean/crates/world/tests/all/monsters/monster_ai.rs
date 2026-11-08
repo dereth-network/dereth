@@ -2330,6 +2330,8 @@ fn thrower_ready(era: EraId, thrower: ObjectGuid, strength: u32, burden: i32, di
         h.monster(100.0, far);
     }
     h.arm_with_bow_as(thrower);
+    // a practiced shooter, whose shots do not go wild on Launch (V518)
+    skilled(&mut h, thrower, 300);
     make_it_thrown(&mut h, burden);
     set_strength(&mut h, thrower, strength);
     h
@@ -3153,6 +3155,8 @@ fn launch_bow_monster(skill: Skill, stamina: u32) -> H {
         .unwrap()
         .set_property(PropertyInt::WeaponSkill, skill.0);
     give_stamina(&mut h, MONSTER, stamina);
+    // a practiced shooter, whose shots do not go wild (V518)
+    skilled(&mut h, MONSTER, 300);
     h
 }
 
@@ -3568,4 +3572,307 @@ mod entering_awareness {
             "alerted through NotifyPlayers"
         );
     }
+}
+
+// ------------------------------------------------------------------------------- wild missiles
+
+/// `shooter` aims a bow at `target`, `share` of its reach away, on `era`, with `skill` in the bow's
+/// skill.
+fn aimed(era: EraId, shooter: ObjectGuid, target: ObjectGuid, share: f32, skill: u32) -> H {
+    let mut h = H::new();
+    h.w.era = era.rules();
+    lm::get_landblock(&mut h.w, lb_id(), false, false);
+    let far = 100.0 + BOW_REACH * share;
+    if shooter == MONSTER {
+        h.player(100.0, far);
+        h.monster(100.0, 100.0);
+    } else {
+        h.player(100.0, 100.0);
+        h.monster(100.0, far);
+    }
+    h.arm_with_bow_as(shooter);
+    skilled(&mut h, shooter, skill);
+    h.w.objects
+        .get_mut(BOW)
+        .unwrap()
+        .set_property(PropertyInt::WeaponSkill, Skill::MissileWeapons.0);
+    if shooter == PLAYER {
+        player_missile::set_accuracy_level(&mut h.w, PLAYER, 0.4);
+    }
+    combat::set_attack_target(&mut h.w, shooter, Some(target));
+    h
+}
+
+/// `who` has `level` in every missile skill.
+fn skilled(h: &mut H, who: ObjectGuid, level: u32) {
+    let o = h.w.objects.get_mut(who).unwrap();
+    let skills = o.biota.properties_skill.get_or_insert_with(DotNetDict::new);
+    for s in [
+        Skill::Bow,
+        Skill::Crossbow,
+        Skill::ThrownWeapon,
+        Skill::MissileWeapons,
+    ] {
+        skills.insert(
+            s,
+            PropertiesSkill {
+                init_level: level,
+                sac: SkillAdvancementClass::Trained,
+                ..PropertiesSkill::default()
+            },
+        );
+    }
+}
+
+/// The aim the wild-missile tests start from: 10 m/s along +y, rising at 5.
+const AIM: Vector3 = Vector3::new(0.0, 10.0, 5.0);
+
+/// `shooter` looses `shots` at `target` on `h`'s world, from seed 7: the velocities that went wild.
+fn wild_shots(h: &mut H, shooter: ObjectGuid, target: ObjectGuid, shots: usize) -> Vec<Vector3> {
+    ThreadSafeRandom::seed(7);
+    (0..shots)
+        .map(|_| {
+            creature_missile::scatter_if_wild(&mut h.w, shooter, Some(BOW), target, false, AIM)
+        })
+        .filter(|v| *v != AIM)
+        .collect()
+}
+
+/// The missile `source` has in flight.
+fn arrow_of(h: &H, source: ObjectGuid) -> ObjectGuid {
+    h.w.landblock_manager
+        .landblocks
+        .get(lb_id())
+        .expect("the landblock")
+        .get_all_world_objects_for_diagnostics()
+        .into_iter()
+        .find(|&g| {
+            h.w.objects
+                .get(g)
+                .and_then(|o| o.projectile)
+                .is_some_and(|p| p.source == Some(source))
+        })
+        .expect("a missile in flight")
+}
+
+/// How far, in degrees, `source`'s missile in flight heads off the line to `target`, along the
+/// ground.
+fn off_line(h: &H, source: ObjectGuid, target: ObjectGuid) -> f32 {
+    let arrow = arrow_of(h, source);
+    let v = phys_ext::physics_obj(&h.w, arrow)
+        .map(|ph| phys_ext::velocity(&h.w, ph))
+        .expect("a body");
+    let (from, to) = (h.pos(source).pos(), h.pos(target).pos());
+    let (dx, dy) = (to.x - from.x, to.y - from.y);
+    (v.x * dy - v.y * dx)
+        .atan2(v.x * dx + v.y * dy)
+        .to_degrees()
+        .abs()
+}
+
+/// Divergence: V518
+/// The chance a shot goes wild: half with no skill behind it, about one in eight at 25, about one in
+/// a hundred at 55, and next to none at 100.
+#[test]
+fn a_shot_goes_wild_by_the_skill_behind_it() {
+    use creature_missile::scatter_chance as chance;
+    assert_eq!(chance(0.0), 0.5);
+    assert_eq!(chance(-10.0), 0.5);
+    assert!(
+        (chance(25.0) - 0.119_202_9).abs() < 1e-6,
+        "{}",
+        chance(25.0)
+    );
+    assert!(
+        (chance(55.0) - 0.012_128_4).abs() < 1e-6,
+        "{}",
+        chance(55.0)
+    );
+    assert!(chance(100.0) < 0.000_34, "{}", chance(100.0));
+}
+
+/// Divergence: V518
+/// A wild shot turns about the vertical, keeping its speed along the ground, and its rise is scaled.
+#[test]
+fn a_wild_shot_turns_aside_at_its_ground_speed_and_rises_by_its_loft() {
+    let v = creature_missile::scattered_velocity(AIM, 90.0, 1.5);
+    assert!((v.x + 10.0).abs() < 1e-5, "{v:?}");
+    assert!(v.y.abs() < 1e-5, "{v:?}");
+    assert_eq!(v.z, 7.5);
+    let v = creature_missile::scattered_velocity(AIM, -25.0, 0.5);
+    assert!((v.x.hypot(v.y) - 10.0).abs() < 1e-5, "{v:?}");
+    assert!((v.x.atan2(v.y).to_degrees() - 25.0).abs() < 1e-3, "{v:?}");
+    assert_eq!(v.z, 2.5);
+}
+
+/// Divergence: V518, V517, V511
+/// The skill a shot is judged by as it leaves is the skill the hit check gives it when it lands:
+/// the bar, a shortfall of stamina and the range counted the same way.
+#[test]
+fn a_shot_goes_wild_by_the_skill_it_will_hit_with() {
+    for (shooter, target) in [(PLAYER, MONSTER), (MONSTER, PLAYER)] {
+        for short in [false, true] {
+            let mut h = aimed(EraId::Launch, shooter, target, 0.95, 120);
+            let at_launch = creature_missile::missile_attack_skill_at_launch(
+                &mut h.w,
+                shooter,
+                Some(BOW),
+                target,
+                short,
+            );
+            let origin = h.pos(shooter).pos();
+            let arrow = creature_missile::launch_projectile(
+                &mut h.w,
+                shooter,
+                Some(BOW),
+                ARROWS,
+                target,
+                origin + Vector3::new(0.0, 1.0, 1.0),
+                empyrean_common::dotnet::numerics::Quaternion::IDENTITY,
+                AIM,
+            );
+            assert!(arrow.is_some(), "an arrow");
+            if short {
+                creature_missile::mark_short_of_stamina(&mut h.w, arrow);
+            }
+            let event = DamageEvent::calculate_damage(&mut h.w, shooter, target, arrow, None, None);
+            assert_eq!(
+                at_launch, event.effective_attack_skill,
+                "{shooter:?} {short}"
+            );
+            assert!(at_launch < 110, "{at_launch}");
+        }
+    }
+}
+
+/// Divergence: V518
+/// A Launch player with no skill behind the shot sends about half its shots wild, each 15 to 35
+/// degrees to one side or the other with its rise scaled by 0.5 to 1.5, and is told each misfired.
+#[test]
+fn a_launch_player_with_no_skill_sends_half_its_shots_wild_and_is_told_so() {
+    let mut h = aimed(EraId::Launch, PLAYER, MONSTER, 0.5, 0);
+    start_capture();
+    let wild = wild_shots(&mut h, PLAYER, MONSTER, 400);
+    assert!((150..=250).contains(&wild.len()), "{}", wild.len());
+    let (mut left, mut right) = (0, 0);
+    for v in &wild {
+        let yaw = (-v.x).atan2(v.y).to_degrees();
+        assert!((15.0..=35.0).contains(&yaw.abs()), "{yaw} {v:?}");
+        if yaw > 0.0 {
+            left += 1;
+        } else {
+            right += 1;
+        }
+        assert!((v.x.hypot(v.y) - 10.0).abs() < 1e-4, "{v:?}");
+        assert!((2.5..=7.5).contains(&v.z), "{v:?}");
+    }
+    assert!(left > 50 && right > 50, "{left} {right}");
+    // some land short and some long
+    assert!(wild.iter().any(|v| v.z < 4.0) && wild.iter().any(|v| v.z > 6.0));
+    let told = errors_sent();
+    assert_eq!(told.len(), wild.len());
+    assert!(
+        told.iter().all(|&e| e == WeenieError::YourAttackMisfired.0),
+        "{told:?}"
+    );
+}
+
+/// Divergence: V518
+/// A Launch monster with little skill sends its shots wild by the same chance, and nobody is told.
+#[test]
+fn a_launch_monster_with_little_skill_sends_shots_wild_unannounced() {
+    let mut h = aimed(EraId::Launch, MONSTER, PLAYER, 0.5, 0);
+    let skill = creature_missile::missile_attack_skill_at_launch(
+        &mut h.w,
+        MONSTER,
+        Some(BOW),
+        PLAYER,
+        false,
+    );
+    let chance = creature_missile::scatter_chance(f64::from(skill));
+    assert!(chance > 0.05, "{skill} {chance}");
+    start_capture();
+    let wild = wild_shots(&mut h, MONSTER, PLAYER, 400);
+    let expected = 400.0 * chance;
+    let spread = 3.0 * (expected * (1.0 - chance)).sqrt();
+    #[allow(clippy::cast_precision_loss)] // a count under 400
+    let got = wild.len() as f64;
+    assert!((got - expected).abs() <= spread, "{got} of {expected}");
+    assert_eq!(errors_sent(), Vec::<i32>::new());
+}
+
+/// Divergence: V518
+/// A practiced archer's shot as good as never goes wild.
+#[test]
+fn a_launch_archer_with_skill_does_not_send_shots_wild() {
+    let mut h = aimed(EraId::Launch, PLAYER, MONSTER, 0.5, 300);
+    start_capture();
+    assert_eq!(
+        wild_shots(&mut h, PLAYER, MONSTER, 400),
+        Vec::<Vector3>::new()
+    );
+    assert_eq!(errors_sent(), Vec::<i32>::new());
+}
+
+/// Divergence: V518
+/// At the end of retail and in February 2005 no shot goes wild, however little skill is behind it.
+#[test]
+fn outside_launch_no_shot_goes_wild() {
+    for era in [EraId::Eor, EraId::Infiltration] {
+        for (shooter, target) in [(PLAYER, MONSTER), (MONSTER, PLAYER)] {
+            let mut h = aimed(era, shooter, target, 0.5, 0);
+            start_capture();
+            assert_eq!(
+                wild_shots(&mut h, shooter, target, 100),
+                Vec::<Vector3>::new(),
+                "{era:?}"
+            );
+            assert_eq!(errors_sent(), Vec::<i32>::new(), "{era:?}");
+        }
+    }
+}
+
+/// Divergence: V518
+/// A Launch player with no skill who really shoots sends some arrows off the line to its target and
+/// is told each one misfired; at the end of retail the same seeds never do.
+#[test]
+fn a_launch_players_real_shot_can_go_wild() {
+    let wild = |era: EraId| {
+        let mut seen = 0;
+        for seed in 0..20u64 {
+            let mut h = player_about_to_shoot(era, CombatStyle::Bow, Skill::Bow);
+            skilled(&mut h, PLAYER, 0);
+            ThreadSafeRandom::seed(seed);
+            player_fires(&mut h, MotionStance::BowCombat);
+            let told = errors_sent().contains(&WeenieError::YourAttackMisfired.0);
+            let off = off_line(&h, PLAYER, MONSTER) > 10.0;
+            assert_eq!(told, off, "{era:?} {seed}");
+            seen += usize::from(off);
+        }
+        seen
+    };
+    assert!(wild(EraId::Launch) > 0);
+    assert_eq!(wild(EraId::Eor), 0);
+}
+
+/// Divergence: V518
+/// A Launch monster with no skill that really shoots sends some arrows off the line to its target.
+#[test]
+fn a_launch_monsters_real_shot_can_go_wild() {
+    let wild = |era: EraId| {
+        (0..40u64)
+            .filter(|&seed| {
+                let mut h = launch_bow_monster(Skill::Bow, 100);
+                h.w.era = era.rules();
+                skilled(&mut h, MONSTER, 0);
+                combat::set_attack_target(&mut h.w, MONSTER, Some(PLAYER));
+                ThreadSafeRandom::seed(seed);
+                monster_missile::launch_missile(&mut h.w, MONSTER);
+                assert!(h.run_until(5.0, |h| flying(h, MONSTER).is_some()), "shot");
+                off_line(&h, MONSTER, PLAYER) > 10.0
+            })
+            .count()
+    };
+    assert!(wild(EraId::Launch) > 0);
+    assert_eq!(wild(EraId::Eor), 0);
 }
