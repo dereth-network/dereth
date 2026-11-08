@@ -104,7 +104,7 @@ impl Field for RestoreCharacter {
 
 /// The client: create a character with these choices. A default one is a fresh result: no name,
 /// every number 0, no physique.
-// D2-11931
+// D2-11931, D2-11921
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct CreateCharacter {
     pub account: NarrowString,
@@ -123,7 +123,7 @@ pub struct CreateCharacter {
 }
 
 impl Field for CreateCharacter {
-    // D2-05340, D2-11920, D2-11923, D2-11921
+    // D2-11923
     fn read(r: &mut Reader<'_>) -> Result<Self> {
         Ok(Self {
             account: NarrowString::read(r)?,
@@ -137,7 +137,7 @@ impl Field for CreateCharacter {
             physique: Table::read(r)?,
         })
     }
-    // D2-11919
+    // D2-11919, D2-11920, D2-05340
     fn write(&self, w: &mut Writer) {
         self.account.write(w);
         self.name.write(w);
@@ -455,13 +455,13 @@ pub struct DataRequest {
 }
 
 impl Field for DataRequest {
-    // D2-12844
     fn read(r: &mut Reader<'_>) -> Result<Self> {
         Ok(Self {
             kind: r.u32()?,
             id: r.u32()?,
         })
     }
+    // D2-12844
     fn write(&self, w: &mut Writer) {
         w.u32(self.kind);
         w.u32(self.id);
@@ -589,13 +589,13 @@ pub struct DataHeld {
 }
 
 impl Field for DataHeld {
-    // D2-12846, D2-12842, D2-05163
     fn read(r: &mut Reader<'_>) -> Result<Self> {
         Ok(Self {
             language: r.u32()?,
             files: read_list(r)?,
         })
     }
+    // D2-12846, D2-12842, D2-05163
     fn write(&self, w: &mut Writer) {
         w.u32(self.language);
         write_list(w, &self.files);

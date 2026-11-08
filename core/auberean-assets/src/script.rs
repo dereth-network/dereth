@@ -678,7 +678,7 @@ impl WordFilter {
 // D2-05027, D2-14295, D2-14297
 impl Decode for WordFilter {
     /// The id, then a hash table of audience to a counted list of wide-string patterns.
-    // D2-14282, D2-00379, D2-14292
+    // D2-14282, D2-00378, D2-14292
     fn decode(r: &mut Reader<'_>, id: u32, _ctx: &Context) -> Result<Self> {
         r.expect_id(id)?;
         let (buckets, audiences) =

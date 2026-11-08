@@ -154,7 +154,7 @@ impl SceneInfo {
     }
 
     /// Read a packed one.
-    // D2-12283, D2-12294, D2-12295
+    // D2-12283, D2-12294
     pub fn read(r: &mut In<'_>) -> Result<Self> {
         let id = r.u32()?;
         let name = TextInfo::read(r, 0)?;
@@ -289,7 +289,7 @@ fn write_count(w: &mut Out, n: usize) {
 }
 
 /// A packed list of scenes: the count, then each.
-// D2-00266, D2-00267
+// D2-00266
 pub fn read_scenes(r: &mut In<'_>) -> Result<Vec<SceneInfo>> {
     let n = r.u32()? as usize;
     let n = r.count(n, 4)?;
@@ -307,7 +307,7 @@ pub fn write_scenes(w: &mut Out, scenes: &[SceneInfo]) {
 }
 
 /// A packed list of acts: the count, then each.
-// D2-00777, D2-00778
+// D2-00777
 pub fn read_acts(r: &mut In<'_>) -> Result<Vec<ActInfo>> {
     let n = r.u32()? as usize;
     let n = r.count(n, 4)?;

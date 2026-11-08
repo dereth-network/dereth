@@ -267,7 +267,7 @@ impl Decode for BehaviorTable {
     /// The id, then in order: the ramp times, the combinations, the transitions, the layers, the
     /// layer tweaks, the mode changes, the modes, the behaviors, the initial behaviors and the
     /// initial mode.
-    // D2-14972, D2-15023, D2-15025, D2-15029, D2-15047, D2-15020, D2-06545, D2-15033
+    // D2-14972, D2-15023, D2-15025, D2-15029, D2-15047, D2-15019, D2-06545, D2-15033
     fn decode(r: &mut Reader<'_>, id: u32, _ctx: &Context) -> Result<Self> {
         r.expect_id(id)?;
         let ramp_times = r.hash_table(20, |r| Ok((ModeChange::read(r)?, r.f32()?)))?;

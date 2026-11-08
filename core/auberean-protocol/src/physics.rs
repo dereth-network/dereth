@@ -527,7 +527,6 @@ pub struct ClientPosition {
 }
 
 impl Field for ClientPosition {
-    // D2-04045, D2-15433
     fn read(r: &mut Reader<'_>) -> Result<Self> {
         let mut p = Self {
             time: r.f64()?,
@@ -547,6 +546,7 @@ impl Field for ClientPosition {
         r.align()?;
         Ok(p)
     }
+    // D2-04045, D2-15433
     fn write(&self, w: &mut Writer) {
         w.f64(self.time);
         w.u32(self.cell);

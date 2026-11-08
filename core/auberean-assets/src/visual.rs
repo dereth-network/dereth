@@ -124,7 +124,7 @@ impl VisualDesc {
     /// The flags word, then each flagged field in this order: id, parent, motion description,
     /// behavior table, valid modes, scale, child scale, particle scale, icon (a counted list of
     /// layers), the changes for every part group, the part groups (a hash table by key).
-    // D2-13814, D2-13884, D2-13898, D2-13835
+    // D2-13814, D2-13884, D2-13897, D2-13835
     pub fn read(r: &mut Reader<'_>, ctx: &Context) -> Result<Self> {
         let flags = r.u32()?;
         r.ensure(flags & !0x7FF == 0, || {
