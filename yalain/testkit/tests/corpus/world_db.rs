@@ -3946,6 +3946,58 @@ fn the_rouge_mirra_goes_as_the_other_mirras() {
     assert_eq!(quest_state(&h, QUEST).map(|q| q.0), Some(status::COMPLETED));
 }
 
+/// Every summoning skill a player can train names a pet the world's rows make, every row's template
+/// is a creature in the install at a summon's level, and every limit is of a skill that summons.
+/// Behaviour: server.pets.every-summoning-skill-makes-its-pet
+#[test]
+fn every_summoning_skill_names_a_pet_the_worlds_rows_make() {
+    use yalain_world::effect_defs::Kind;
+    let t = &compiled().tables;
+    let portal = yalain_testkit::authored::Portal::open();
+    let table = portal.skills();
+    let named: Vec<u32> = table
+        .skills
+        .values()
+        .filter_map(|d| d.usage.as_ref())
+        .flat_map(|u| u.user_effects.iter().chain(&u.target_effects).copied())
+        .collect();
+    let effects = portal.effects(&named);
+    let summons = |d: &yalain_world::skills::SkillDef| {
+        d.usage.as_ref().is_some_and(|u| {
+            u.user_effects
+                .iter()
+                .chain(&u.target_effects)
+                .any(|e| matches!(effects.get(*e).map(|x| &x.kind), Some(Kind::Pet { .. })))
+        })
+    };
+    let mut skills = 0;
+    for (id, d) in table.skills.iter().filter(|(_, d)| d.flags & 1 != 0) {
+        let Some(u) = d.usage.as_ref() else { continue };
+        for e in u.user_effects.iter().chain(&u.target_effects) {
+            if matches!(effects.get(*e).map(|x| &x.kind), Some(Kind::Pet { .. })) {
+                skills += 1;
+                assert!(t.pet_kinds.contains_key(e), "skill {id}: effect {e:08X}");
+            }
+        }
+    }
+    assert!(skills >= 50, "{skills}");
+    for k in t.pet_kinds.values() {
+        let mut props = portal.template(k.template).props;
+        props.set(
+            yalain_content::props::creature_property::LEVEL,
+            yalain_content::Prop::Int(20),
+        );
+        assert!(
+            yalain_content::CreatureStats::from_props(&props).is_some(),
+            "{:08X}",
+            k.template
+        );
+    }
+    for skill in t.pet_limits.keys() {
+        assert!(table.skills.get(skill).is_some_and(summons), "{skill}");
+    }
+}
+
 /// The Ultra Chest, the one chest standing whose kind names a use effect, names the completion of the
 /// quest that keeps it, by a name the server reads; no row of the world gives that quest.
 /// Behaviour: server.places.a-chests-use-comes-on-its-opener

@@ -9741,6 +9741,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.pets.every-summoning-skill-makes-its-pet",
+        says: "Every summoning skill a player can train names a pet the world's rows make, each a \
+               creature in the install; every limit is of a skill that summons.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PETS-EVERY-SKILL"),
+        station: "yalain-testkit::corpus::world_db::every_summoning_skill_names_a_pet_the_worlds_rows_make",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.pets.fires-what-makes-a-pet",
         says: "A pet whose skill has no blow and makes another pet fires it at what it takes on, at the \
                skill's own pace, the pet made its owner's and going after the creature; with no row for \
@@ -9962,12 +9971,12 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
-        id: "server.pets.rows-alone-or-the-servers-own",
-        says: "A world with any pet row has its rows alone as its kinds of pet, and a start asks for \
-               their templates alone; a world with none has the server's own kinds.",
+        id: "server.pets.rows-alone",
+        says: "A world's pet rows are its kinds of pet alone, and a start asks for their templates \
+               alone; a world with none makes no pets, and its summonings fail and say so.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-PETS-ROWS-ALONE"),
-        station: "yalain-testkit::cpu::play::pet_kinds::a_world_with_pet_rows_has_none_of_the_servers_own_kinds",
+        station: "yalain-testkit::cpu::play::pet_kinds::a_world_with_pet_rows_has_those_rows_alone",
         tier: Tier::Cpu,
     },
     behaviour! {

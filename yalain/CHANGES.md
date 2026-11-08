@@ -7,6 +7,8 @@ what they see, not how it was done.
 
 ## Unreleased
 - Heroes' damage pool now adds to their hits.
+- Pets have the health they had, not a handful.
+- Every class's summoning skills make their pets, and turrets take their barrels.
 - Fixed effects that should end at logout lasting through it.
 - Warder stones now block what they ward against.
 - Fixed the Citadel and Cobalt vault keys opening each other's doors.

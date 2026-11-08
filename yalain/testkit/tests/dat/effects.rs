@@ -582,7 +582,7 @@ fn the_summoning_skills_pets_read_as_the_data_defines_them() {
     assert_eq!(aid.icon, 0x4100_47E6);
     let u = aid.usage.clone().expect("Nature's Aid is used");
     assert_eq!(u.user_effects, vec![0x7000_0805]);
-    let mut states: Vec<u32> = yalain_world::pets::fallback_kinds()
+    let mut states: Vec<u32> = yalain_testkit::test_pet_kinds()
         .iter()
         .map(|k| k.effect)
         .collect();
@@ -594,7 +594,7 @@ fn the_summoning_skills_pets_read_as_the_data_defines_them() {
     };
     assert_eq!((*class, lifetime.is_empty()), (16, true));
     // A mercenary's kind is known by its contract: no effect of the data summons it.
-    for k in yalain_world::pets::fallback_kinds()
+    for k in yalain_testkit::test_pet_kinds()
         .into_iter()
         .filter(|k| k.hire.is_none())
     {

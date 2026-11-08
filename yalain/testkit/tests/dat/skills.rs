@@ -777,16 +777,22 @@ fn no_skill_aimed_at_a_weapon_can_come_to_a_lute() {
 /// Behaviour: server.pets.a-contract-hires-a-mercenary
 #[test]
 fn the_contracts_and_their_mercenaries_read_from_the_data() {
+    use yalain_testkit::mercenary;
     use yalain_world::effect_defs::Kind;
-    use yalain_world::pets::{mercenary, Pets};
     let portal = Portal::open();
-    let kinds = Pets::default();
+    let kinds = yalain_testkit::test_pet_kinds();
     for contract in [mercenary::CRAFTER, mercenary::KEEPER, mercenary::MEDIC] {
         let t = portal.template(contract);
         assert!(yalain_world::quests::acquiring_does_more_than_quests(
             &t.props
         ));
-        let pet = portal.template(kinds.kind_of(contract).expect("a kind").template);
+        let pet = portal.template(
+            kinds
+                .iter()
+                .find(|k| k.effect == contract)
+                .expect("a kind")
+                .template,
+        );
         let stats = yalain_content::CreatureStats::from_props(&pet.props).expect("a pet");
         assert_eq!(stats.max_health, 150);
     }

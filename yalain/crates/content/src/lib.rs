@@ -180,9 +180,6 @@ pub struct PetKind {
     pub made: u32,
     /// A contract's terms, when a contract hires it.
     pub hire: Option<PetHire>,
-    /// How many of its own class a skill that summons it allows, when the world lists no limits for
-    /// the skill.
-    pub most_of_class: Option<usize>,
     /// The effects an item's use may name, held by no install, that make this pet as its own
     /// effect does.
     pub item_effects: Vec<String>,
@@ -216,7 +213,6 @@ impl PetKind {
             corpse_after: Some(Self::CORPSE_AFTER),
             made: 1,
             hire: None,
-            most_of_class: None,
             item_effects: Vec::new(),
         }
     }
@@ -280,12 +276,6 @@ impl PetKind {
     #[must_use]
     pub const fn made(mut self, made: u32) -> Self {
         self.made = made;
-        self
-    }
-
-    #[must_use]
-    pub const fn most_of_its_class(mut self, most: usize) -> Self {
-        self.most_of_class = Some(most);
         self
     }
 

@@ -17,7 +17,7 @@ use yalain_content::{ContentObject, CraftStart, DeathSpawn, Props, QuestTable, S
 
 use yalain_store::Store;
 
-use crate::{death, inventory, pets, plants, usable, Server};
+use crate::{death, inventory, plants, usable, Server};
 
 /// Can this world make a thing of this template?
 #[must_use]
@@ -59,7 +59,7 @@ pub struct Rows<'a> {
 }
 
 /// What a world's rows make or hand on: placed objects (a chest's lock and contents, a door's), its
-/// kinds of pet (the server's own, for a world with no `[[pet]]` rows: [`pets::world_kinds`]), what
+/// kinds of pet, what
 /// stores sell, what quest steps and people give, what is taken up for a step and what's
 /// handed in for a gift, what butchery yields and what a death makes. Camps and loot are the
 /// catalog's own, and the recipes' products and materials [`crate::craft::Crafting::templates`].
@@ -67,15 +67,10 @@ pub struct Rows<'a> {
 pub fn by_the_rows(rows: Rows<'_>) -> Vec<u32> {
     let steps = rows.quests.steps.iter();
     let gifts = rows.quests.gives.iter();
-    let servers_own = if rows.pets.is_empty() {
-        pets::fallback_kinds()
-    } else {
-        Vec::new()
-    };
     rows.objects
         .iter()
         .map(|o| o.template)
-        .chain(rows.pets.values().chain(&servers_own).map(|k| k.template))
+        .chain(rows.pets.values().map(|k| k.template))
         .chain(rows.stores.sales.iter().map(|s| s.product))
         .chain(steps.clone().flat_map(|s| s.gives.iter().copied()))
         .chain(steps.filter_map(|s| match s.trigger {

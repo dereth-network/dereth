@@ -157,116 +157,6 @@ pub const ON_SOMETHING: f32 = 1.0;
 /// The template property of a kind's own velocity scale.
 pub const KIND_VELOCITY: &str = "Physics_VelScale";
 
-/// The pets of a world with no `[[pet]]` rows: a world database written before them names none, and
-/// these keep its summoning skills working. A world with any `[[pet]]` row has its rows alone
-/// ([`world_kinds`]).
-#[must_use]
-pub fn fallback_kinds() -> Vec<PetKind> {
-    let kinds = [
-        // The Lasher.
-        PetKind::new(0x7000_0805, 0x4700_0846, 1096, &LASHER_HEALTH).hits_for(0.075, 0.45, 0.78),
-        // The Shreth.
-        PetKind::new(0x7000_092C, 0x4700_0863, 1096, &[]).hits_for(0.047, 0.35, 0.77),
-        // The Sand Warrior, Sand Fiend and Sand Fury.
-        PetKind::new(0x7000_082D, 0x4700_084B, 1096, &[]).hits_for(0.08, 0.35, 0.84),
-        PetKind::new(0x7000_082C, 0x4700_084A, 1096, &[]).hits_for(0.08, 0.35, 0.84),
-        PetKind::new(0x7000_082E, 0x4700_084C, 1096, &[]).hits_for(0.08, 0.35, 0.84),
-        // The Volcanic Rift: it stays where it is made, its fire falling on all near where it
-        // lands; it leaves no corpse.
-        PetKind::new(0x7000_0830, 0x4700_084E, 1184, &[])
-            .hits_for(0.035, 0.5, 0.73)
-            .staying()
-            .landing_on_all_within(10.0)
-            .corpse(None),
-        // The Large and Small Turrets: they stay, cannot be set down indoors.
-        PetKind::new(0x7000_08B7, 0x4700_0851, 3128, &[])
-            .hits_for(0.07, 0.5, 0.75)
-            .staying()
-            .outdoors_only()
-            .corpse(Some(2.8))
-            .most_of_its_class(2),
-        PetKind::new(0x7000_08BD, 0x4700_0853, 3128, &[])
-            .hits_for(0.05, 0.5, 0.75)
-            .staying()
-            .outdoors_only()
-            .corpse(Some(2.8))
-            .most_of_its_class(2),
-        // The Taunt Orb (its strikes taunt; its skill does no harm) and Axe Orb (four hits a swing).
-        PetKind::new(0x7000_1F1F, 0x4700_083E, 1096, &[])
-            .taunting()
-            .corpse(Some(1.1)),
-        PetKind::new(0x7000_1F1D, 0x4700_083D, 1096, &[])
-            .hits_for(0.08, 0.35, 0.8)
-            .hits_a_swing(4),
-        // Living Armor.
-        PetKind::new(0x7000_1F22, 0x4700_0840, 1096, &[]).hits_for(0.04, 0.35, 0.8),
-        // The mercenaries, known by their contracts: see [`mercenary`].
-        PetKind::new(mercenary::CRAFTER, 0x4700_3453, 1096, &[])
-            .hits_for(0.05, 0.1, 0.8)
-            .hired(mercenary::HIRE),
-        PetKind::new(mercenary::KEEPER, 0x4700_3455, 1096, &[])
-            .hits_for(0.05, 0.1, 0.8)
-            .hired(mercenary::HIRE)
-            .tending(mercenary::tends(PetWhom::OwnersPets)),
-        PetKind::new(mercenary::MEDIC, 0x4700_3457, 1096, &[])
-            .hits_for(0.05, 0.1, 0.8)
-            .hired(mercenary::HIRE)
-            .tending(mercenary::tends(PetWhom::Owner)),
-    ];
-    kinds
-        .into_iter()
-        .map(|k| match k.most_of_class {
-            Some(_) => k,
-            None => k.most_of_its_class(1),
-        })
-        .collect()
-}
-
-/// Mercenaries, hired by contract. The numbers here are this server's own: the summons they would
-/// run are in no data the server holds, nothing recorded shows one, and each is meant to be changed
-/// when something better is known. A contract hires at once as it is bought, dismisses the mercenary
-/// before it (one at a time, as its text says) and is used up. The mercenary follows and fights as a
-/// pet does, on its template's own numbers; a medic tends its owner, a keeper its owner's other pets.
-/// It ends after an hour, with its owner's death or with its owner leaving the world.
-pub mod mercenary {
-    use super::{PetHire, PetTends, PetWhom};
-
-    /// The contracts' templates, which also name their kinds.
-    pub const CRAFTER: u32 = 0x4700_18D1;
-    pub const KEEPER: u32 = 0x4700_18D2;
-    pub const MEDIC: u32 = 0x4700_18D3;
-    /// Its class of pet, apart from every class a skill summons.
-    pub const CLASS: u32 = 0x10_0000;
-    /// How long it stays, in seconds.
-    pub const SECONDS: f64 = 3600.0;
-    /// Its level, its template's, and the spellcraft it tends at.
-    pub const LEVEL: f32 = 20.0;
-    /// How often it may tend, in seconds, the share of whole health below which it does, and the
-    /// effect it tends with (a healer's plain heal).
-    pub const TENDS_EVERY: f64 = 30.0;
-    pub const TENDS_BELOW: f32 = 0.75;
-    pub const TEND_EFFECT: u32 = 0x7000_0772;
-    /// A hiring's terms.
-    pub const HIRE: PetHire = PetHire {
-        class: CLASS,
-        seconds: SECONDS,
-        level: LEVEL,
-    };
-    /// A mercenary's tending of someone.
-    #[must_use]
-    pub const fn tends(whom: PetWhom) -> PetTends {
-        PetTends {
-            whom,
-            effect: TEND_EFFECT,
-            every: TENDS_EVERY,
-            below: TENDS_BELOW,
-        }
-    }
-}
-
-/// The Lasher's greatest health at its summoner's ratings (2017's: 29, 52, 53 and 54).
-pub const LASHER_HEALTH: [(i32, i32); 4] = [(29, 663), (52, 1762), (53, 1813), (54, 1863)];
-
 /// A pet's vigor per level of its summoner's rating (2017: exactly 20 times, 4 of 4).
 pub const VIGOR_PER_LEVEL: i32 = 20;
 
@@ -351,7 +241,7 @@ pub struct Pet {
 }
 
 /// Every pet in the world, each owner's debt of orders, and the kinds of pet the world makes.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Pets {
     pub by_id: BTreeMap<u64, Pet>,
     /// Each owner's debt of orders in seconds, as of a world second.
@@ -368,42 +258,16 @@ pub struct Pets {
     pub limits: BTreeMap<u32, Vec<(usize, u32)>>,
 }
 
-impl Default for Pets {
-    fn default() -> Self {
-        Self {
-            by_id: BTreeMap::new(),
-            owed: HashMap::new(),
-            failed: BTreeMap::new(),
-            goes_after: BTreeMap::new(),
-            kinds: world_kinds([]),
-            limits: BTreeMap::new(),
-        }
-    }
-}
-
-/// The kinds of pet a world knows, by the effect (or the contract's template) that names them: its
-/// `[[pet]]` rows alone, or, for a world with none, the server's own ([`fallback_kinds`]).
-#[must_use]
-pub fn world_kinds(rows: impl IntoIterator<Item = PetKind>) -> BTreeMap<u32, PetKind> {
-    let rows: BTreeMap<u32, PetKind> = rows.into_iter().map(|k| (k.effect, k)).collect();
-    if !rows.is_empty() {
-        return rows;
-    }
-    fallback_kinds()
-        .into_iter()
-        .map(|k| (k.effect, k))
-        .collect()
-}
-
 impl Pets {
     /// A world's rows become the kinds and limits it knows, in place of all it knew before: the kinds
-    /// as [`world_kinds`] gives them, the limits its `[[pet_limit]]` rows.
+    /// its `[[pet]]` rows, by the effect (or the contract's template) that names them, the limits its
+    /// `[[pet_limit]]` rows. A world with no `[[pet]]` rows makes no pets.
     pub fn take_world_rows(
         &mut self,
         kinds: impl IntoIterator<Item = PetKind>,
         limits: impl IntoIterator<Item = (u32, Vec<(usize, u32)>)>,
     ) {
-        self.kinds = world_kinds(kinds);
+        self.kinds = kinds.into_iter().map(|k| (k.effect, k)).collect();
         self.limits = limits.into_iter().collect();
     }
 
@@ -567,31 +431,23 @@ fn conn_of<S: Store>(s: &Server<S>, character: u64) -> Option<ConnId> {
         .map(|(c, _)| *c)
 }
 
-/// Is a skill's use refused because its user has as many pets of a class as it allows? A skill the
-/// world lists goes by that; one it doesn't, by what each kind it summons allows of its own class.
+/// Is a skill's use refused because its user has as many pets of a class as it allows?
 #[must_use]
 pub fn too_many<S: Store>(s: &Server<S>, owner: u64, skill: u32, effects: &[u32]) -> bool {
-    let summons: Vec<(u32, u32)> = effects
-        .iter()
-        .filter_map(|e| match s.effect_table.get(*e).map(|d| &d.kind) {
-            Some(crate::effect_defs::Kind::Pet { class, .. }) => Some((*e, *class)),
-            _ => None,
-        })
-        .collect();
-    if summons.is_empty() {
+    let summons = effects.iter().any(|e| {
+        matches!(
+            s.effect_table.get(*e).map(|d| &d.kind),
+            Some(crate::effect_defs::Kind::Pet { .. })
+        )
+    });
+    if !summons {
         return false;
     }
-    let limited = match s.pets.limits.get(&skill) {
-        Some(limits) => limits
+    let limited = s.pets.limits.get(&skill).is_some_and(|limits| {
+        limits
             .iter()
-            .any(|(most, classes)| s.pets.of_class(owner, *classes) >= *most),
-        None => summons.iter().any(|(e, class)| {
-            s.pets
-                .kind_of(*e)
-                .and_then(|k| k.most_of_class)
-                .is_some_and(|most| s.pets.of_class(owner, *class) >= most)
-        }),
-    };
+            .any(|(most, classes)| s.pets.of_class(owner, *classes) >= *most)
+    });
     limited || s.pets.of(owner).len() >= MOST_PETS
 }
 

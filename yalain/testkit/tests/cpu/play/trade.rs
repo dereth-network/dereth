@@ -912,7 +912,7 @@ fn a_purchase_of_too_many_or_from_afar_is_refused() {
 /// A shop selling a medic's and a pet keeper's contract, and a player in it with coin: the harness,
 /// its client, the player and its world connection.
 fn merc_shop(coin: i32) -> (Harness, usize, u64, yalain_net::ConnId) {
-    use yalain_world::pets::mercenary;
+    use yalain_testkit::mercenary;
     let mut h = shop();
     let sale = h.server.stores.sales[0].clone();
     h.server.stores.sales = [mercenary::MEDIC, mercenary::KEEPER]
@@ -1039,7 +1039,7 @@ fn contracts(h: &Harness, world: yalain_net::ConnId) -> usize {
 }
 
 fn mercs(h: &Harness, me: u64) -> Vec<u32> {
-    use yalain_world::pets::mercenary;
+    use yalain_testkit::mercenary;
     h.server
         .pets
         .by_id
@@ -1108,7 +1108,7 @@ fn a_contract_that_cannot_hire_now_is_refused_and_costs_nothing() {
 /// Behaviour: server.pets.a-contract-that-cannot-hire-costs-nothing
 #[test]
 fn a_contract_that_fails_to_hire_is_kept_and_hires_when_it_can() {
-    use yalain_world::pets::mercenary;
+    use yalain_testkit::mercenary;
     let (mut h, b, me, world) = merc_shop(2000);
     yalain_world::inventory::give(&mut h.server, &mut h.net, world, mercenary::MEDIC, 1);
     let id = h.server.players[&world]
@@ -1192,8 +1192,8 @@ fn a_mercenary_ends_with_its_time_its_owners_death_and_its_owner_leaving() {
 /// Behaviour: server.pets.a-mercenary-tends
 #[test]
 fn a_medic_tends_its_owner_and_a_keeper_its_owners_pets() {
+    use yalain_testkit::mercenary;
     use yalain_world::effect_defs::{EffectDef, Kind, Scale};
-    use yalain_world::pets::mercenary;
     use yalain_world::player::quality;
     let (mut h, b, me, world) = merc_shop(2000);
     h.server.effect_table.effects.insert(

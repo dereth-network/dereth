@@ -207,7 +207,7 @@ fn a_reload_changes_what_people_say_at_once() {
 /// A reload whose database no longer names a template keeps the template known (a thing of it may
 /// be in the world), and takes a new one.
 /// A reload takes up the world's rows of pets and what its skills allow, and drops a row it no
-/// longer has; with rows, the server's own kinds go, and with none they come back.
+/// longer has: the rows are its kinds alone, and with none it has no kind.
 /// Behaviour: server.pets.a-reload-reads-the-rows
 #[test]
 fn a_reload_takes_up_the_worlds_pet_rows() {
@@ -233,10 +233,7 @@ fn a_reload_takes_up_the_worlds_pet_rows() {
     t.pet_limits.clear();
     reload(&mut h, t);
     assert!(h.server.pets.kind_of(EFFECT).is_none());
-    assert!(
-        h.server.pets.kind_of(LASHER).is_some(),
-        "the server's own again"
-    );
+    assert!(h.server.pets.kinds.is_empty(), "no rows, no kinds");
     assert!(h.server.pets.limits.is_empty());
 }
 

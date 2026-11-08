@@ -1986,6 +1986,117 @@ impl Default for Harness<MemoryStore> {
     }
 }
 
+use yalain_content::{PetKind, PetWhom};
+
+/// The kinds of pet the test world's rows would name, each with what a test expects of it.
+#[must_use]
+pub fn test_pet_kinds() -> Vec<PetKind> {
+    vec![
+        // The Lasher.
+        PetKind::new(0x7000_0805, 0x4700_0846, 1096, &LASHER_HEALTH).hits_for(0.075, 0.45, 0.78),
+        // The Shreth.
+        PetKind::new(0x7000_092C, 0x4700_0863, 1096, &[]).hits_for(0.047, 0.35, 0.77),
+        // The Sand Warrior, Sand Fiend and Sand Fury.
+        PetKind::new(0x7000_082D, 0x4700_084B, 1096, &[]).hits_for(0.08, 0.35, 0.84),
+        PetKind::new(0x7000_082C, 0x4700_084A, 1096, &[]).hits_for(0.08, 0.35, 0.84),
+        PetKind::new(0x7000_082E, 0x4700_084C, 1096, &[]).hits_for(0.08, 0.35, 0.84),
+        // The Volcanic Rift: it stays where it is made, its fire falling on all near where it
+        // lands; it leaves no corpse.
+        PetKind::new(0x7000_0830, 0x4700_084E, 1184, &[])
+            .hits_for(0.035, 0.5, 0.73)
+            .staying()
+            .landing_on_all_within(10.0)
+            .corpse(None),
+        // The Large and Small Turrets: they stay, cannot be set down indoors.
+        PetKind::new(0x7000_08B7, 0x4700_0851, 3128, &[])
+            .hits_for(0.07, 0.5, 0.75)
+            .staying()
+            .outdoors_only()
+            .corpse(Some(2.8)),
+        PetKind::new(0x7000_08BD, 0x4700_0853, 3128, &[])
+            .hits_for(0.05, 0.5, 0.75)
+            .staying()
+            .outdoors_only()
+            .corpse(Some(2.8)),
+        // The Taunt Orb (its strikes taunt; its skill does no harm) and Axe Orb (four hits a swing).
+        PetKind::new(0x7000_1F1F, 0x4700_083E, 1096, &[])
+            .taunting()
+            .corpse(Some(1.1)),
+        PetKind::new(0x7000_1F1D, 0x4700_083D, 1096, &[])
+            .hits_for(0.08, 0.35, 0.8)
+            .hits_a_swing(4),
+        // Living Armor.
+        PetKind::new(0x7000_1F22, 0x4700_0840, 1096, &[]).hits_for(0.04, 0.35, 0.8),
+        // The mercenaries, known by their contracts: see [`mercenary`].
+        PetKind::new(mercenary::CRAFTER, 0x4700_3453, 1096, &[])
+            .hits_for(0.05, 0.1, 0.8)
+            .hired(mercenary::HIRE),
+        PetKind::new(mercenary::KEEPER, 0x4700_3455, 1096, &[])
+            .hits_for(0.05, 0.1, 0.8)
+            .hired(mercenary::HIRE)
+            .tending(mercenary::tends(PetWhom::OwnersPets)),
+        PetKind::new(mercenary::MEDIC, 0x4700_3457, 1096, &[])
+            .hits_for(0.05, 0.1, 0.8)
+            .hired(mercenary::HIRE)
+            .tending(mercenary::tends(PetWhom::Owner)),
+    ]
+}
+
+/// Mercenaries, hired by contract. The numbers here are this server's own: the summons they would
+/// run are in no data the server holds, nothing recorded shows one, and each is meant to be changed
+/// when something better is known. A contract hires at once as it is bought, dismisses the mercenary
+/// before it (one at a time, as its text says) and is used up. The mercenary follows and fights as a
+/// pet does, on its template's own numbers; a medic tends its owner, a keeper its owner's other pets.
+/// It ends after an hour, with its owner's death or with its owner leaving the world.
+pub mod mercenary {
+    use yalain_content::{PetHire, PetTends, PetWhom};
+
+    /// The contracts' templates, which also name their kinds.
+    pub const CRAFTER: u32 = 0x4700_18D1;
+    pub const KEEPER: u32 = 0x4700_18D2;
+    pub const MEDIC: u32 = 0x4700_18D3;
+    /// Its class of pet, apart from every class a skill summons.
+    pub const CLASS: u32 = 0x10_0000;
+    /// How long it stays, in seconds.
+    pub const SECONDS: f64 = 3600.0;
+    /// Its level, its template's, and the spellcraft it tends at.
+    pub const LEVEL: f32 = 20.0;
+    /// How often it may tend, in seconds, the share of whole health below which it does, and the
+    /// effect it tends with (a healer's plain heal).
+    pub const TENDS_EVERY: f64 = 30.0;
+    pub const TENDS_BELOW: f32 = 0.75;
+    pub const TEND_EFFECT: u32 = 0x7000_0772;
+    /// A hiring's terms.
+    pub const HIRE: PetHire = PetHire {
+        class: CLASS,
+        seconds: SECONDS,
+        level: LEVEL,
+    };
+    /// A mercenary's tending of someone.
+    #[must_use]
+    pub const fn tends(whom: PetWhom) -> PetTends {
+        PetTends {
+            whom,
+            effect: TEND_EFFECT,
+            every: TENDS_EVERY,
+            below: TENDS_BELOW,
+        }
+    }
+}
+
+/// The Lasher's greatest health at its summoner's ratings (2017's: 29, 52, 53 and 54).
+pub const LASHER_HEALTH: [(i32, i32); 4] = [(29, 663), (52, 1762), (53, 1813), (54, 1863)];
+
+/// What the test world's summoning skills allow: a test's own skill as a Lasher's, a turret's two.
+#[must_use]
+pub fn test_pet_limits() -> Vec<(u32, Vec<(usize, u32)>)> {
+    vec![
+        (227, vec![(1, 0x10)]),
+        (444, vec![(2, 0x100)]),
+        (450, vec![(2, 0x100)]),
+    ]
+}
+
 impl<S: Store> Harness<S> {
     /// A server with these settings, store and rules.
     #[must_use]
@@ -2000,6 +2111,7 @@ impl<S: Store> Harness<S> {
         let mut server = Server::new(cfg, store, rules)
             .expect("the store sets ids aside")
             .with_world(test_start(), yalain_content::ContentPack::default());
+        server.pets.read_rows(test_pet_kinds(), test_pet_limits());
         server.skill_table = test_skills();
         server.effect_table = test_effects();
         server.crafting = test_crafting();
