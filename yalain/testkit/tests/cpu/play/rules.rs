@@ -273,6 +273,7 @@ fn a_players_hit_is_its_weapons_damage_less_the_creatures_armor() {
         }),
         added,
         critical: 0.0,
+        pool: 0,
     };
     let rolls: Vec<i32> = (0..2000)
         .map(|_| rules::player_hit(&mut rng, me(0), 0, false))
@@ -298,6 +299,75 @@ fn a_players_hit_is_its_weapons_damage_less_the_creatures_armor() {
             "at least 1"
         );
     }
+}
+
+/// A damage pool's points join a hit's damage before its roll, the roll's share applying to them
+/// too: the drum's 9 at a variance of a third with 10 points rolls 12 to 19, without a weapon the
+/// base's roll takes them likewise. A landed blow takes the pool at its chance, all of it, and an
+/// attack's later blows take none once one has; an empty pool draws nothing.
+/// Behaviour: server.combat.damage-pool
+#[test]
+fn a_damage_pool_joins_a_hit_before_its_roll_and_is_taken_once_at_its_chance() {
+    let mut rng = yalain_world::rng::Rng::new(5);
+    let drum = |pool: i32| rules::Hitter {
+        level: 1,
+        weapon: Some(rules::WeaponDamage {
+            most: 9,
+            variance: 0.33,
+        }),
+        added: 0,
+        critical: 0.0,
+        pool,
+    };
+    let rolls: Vec<i32> = (0..2000)
+        .map(|_| rules::player_hit(&mut rng, drum(10), 0, false))
+        .collect();
+    assert!(rolls.iter().all(|d| (12..=19).contains(d)), "{rolls:?}");
+    assert!(rolls.contains(&12) && rolls.contains(&19));
+    // Without a weapon: the base at level 1 is 6, rolled 0.7 to 1.3.
+    let bare = rules::Hitter {
+        weapon: None,
+        ..drum(10)
+    };
+    for _ in 0..500 {
+        let d = rules::player_hit(&mut rng, bare, 0, false);
+        assert!((11..=21).contains(&d), "{d}");
+    }
+    // Taken at its chance, once.
+    let mut taken = 0;
+    let tries = 20_000;
+    for _ in 0..tries {
+        let mut pool = rules::DamagePool {
+            points: 40,
+            chance: 0.25,
+        };
+        let first = pool.take(&mut rng);
+        assert!(first == 0 || first == 40);
+        if first == 40 {
+            taken += 1;
+            assert_eq!(pool.take(&mut rng), 0, "once an attack");
+            assert_eq!(pool.points, 0);
+        }
+    }
+    let share = f64::from(taken) / f64::from(tries);
+    assert!((share - 0.25).abs() < 0.015, "{share}");
+    let mut sure = rules::DamagePool {
+        points: 40,
+        chance: 1.0,
+    };
+    assert_eq!((sure.take(&mut rng), sure.take(&mut rng)), (40, 0));
+    // An empty pool, or one no blow may take, leaves the draws as they were.
+    let (mut a, mut b) = (rng.clone(), rng.clone());
+    for mut pool in [
+        rules::DamagePool::default(),
+        rules::DamagePool {
+            points: 40,
+            chance: 0.0,
+        },
+    ] {
+        assert_eq!(pool.take(&mut a), 0);
+    }
+    assert_eq!(a.unit().to_bits(), b.unit().to_bits());
 }
 
 /// The invariant checker orders stamps as the client does: the larger of two is newer while they are

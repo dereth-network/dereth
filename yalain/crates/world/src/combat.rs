@@ -480,6 +480,24 @@ fn ratings_on<S: Store>(s: &Server<S>, world: ConnId, skill: u32, target: u64) -
     crate::ratings::of(s, skill, Rater::Player(world), defender)
 }
 
+/// A player's damage pool for one attack of a skill: its damage attribute (the rating of the skill
+/// it holds of [`crate::skills::DAMAGE_CATEGORY`] times that skill's measure) times the attack
+/// skill's measure of it, at the attack skill's chance. Empty for a player who holds no such skill.
+#[must_use]
+pub fn damage_pool<S: Store>(s: &Server<S>, world: ConnId, skill: u32) -> rules::DamagePool {
+    let (Some(p), Some(d)) = (s.players.get(&world), s.skill_table.skills.get(&skill)) else {
+        return rules::DamagePool::default();
+    };
+    let held = crate::skill_use::rated_skills(s, p);
+    let attribute = crate::effects::attribute(s, p, &held, crate::skills::DAMAGE_CATEGORY);
+    #[allow(clippy::cast_precision_loss)]
+    let points = attribute as f32 * d.damage_pool_modifier.unwrap_or(1.0);
+    rules::DamagePool {
+        points: dereth_primitives::num::to_i32(points),
+        chance: d.damage_pool_chance.unwrap_or(0.0),
+    }
+}
+
 /// The client of another player a player's attack is aimed at (none: a thing, the player itself,
 /// or one it may not be told of).
 #[must_use]
@@ -948,6 +966,7 @@ fn swing<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock:
         .and_then(|(_, t)| crate::skill_use::implement_of(&s.catalog, t));
     let kind = kind_of(s, skill, false);
     let rating = crate::skill_use::rating_of(s, world, skill);
+    let mut pool = damage_pool(s, world, skill);
     // Each blow is drawn apart, with its own hand's weapon (2017: the two outcomes of 23,872
     // stories as often together as apart; each hand's damage the same in every skill).
     let mut blows = Vec::new();
@@ -975,6 +994,10 @@ fn swing<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock:
                 at.and_then(|i| u.hooks.get(i))
             });
             let me = striking.map_or(me, |h| crate::skill_use::hitting_with(me, h, rating));
+            let me = rules::Hitter {
+                pool: pool.take(&mut s.rng),
+                ..me
+            };
             rules::player_hit(&mut s.rng, me, armor, outcome == Outcome::Critical)
                 + armor_taken(s, run.target)
         } else {
@@ -1131,11 +1154,13 @@ fn stand_and_swing<S: Store>(
     let ratings = ratings_on(s, world, skill, run.target);
     let outcome = rules::roll_basic(&mut s.rng, kind, ratings, critical);
     let damage = if outcome.landed() {
+        let mut pool = damage_pool(s, world, skill);
         let me = rules::Hitter {
             level: my_level,
             weapon: weapon_damage(s, weapon),
             added,
             critical,
+            pool: pool.take(&mut s.rng),
         };
         let strike = crate::skill_use::strikes(&u)
             .first()
@@ -1240,6 +1265,7 @@ fn throw_twice<S: Store>(
     let hands = crate::skill_use::hands(s, id);
     let kind = kind_of(s, skill, true);
     let rating = crate::skill_use::rating_of(s, world, skill);
+    let mut pool = damage_pool(s, world, skill);
     let ts = player_time_scale(s, world);
     let (windups, period) = two_throws(skill);
     let centre = s
@@ -1260,7 +1286,10 @@ fn throw_twice<S: Store>(
             return;
         };
         let damage = if outcome.landed() {
-            let me = crate::skill_use::hitting_with(hitter_with(s, p, weapon), h, rating);
+            let me = rules::Hitter {
+                pool: pool.take(&mut s.rng),
+                ..crate::skill_use::hitting_with(hitter_with(s, p, weapon), h, rating)
+            };
             rules::player_hit(&mut s.rng, me, armor, outcome == Outcome::Critical)
                 + armor_taken(s, run.target)
         } else {
@@ -1793,6 +1822,7 @@ fn hitter_with<S: Store>(s: &Server<S>, p: &Player, weapon: Option<u64>) -> rule
         weapon: weapon.and_then(|w| weapon_damage(s, w)),
         added: crate::effects::damage_added(s, p),
         critical: critical_bonus(s, weapon),
+        pool: 0,
     }
 }
 

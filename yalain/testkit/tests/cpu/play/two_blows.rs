@@ -269,6 +269,169 @@ fn a_basic_attacks_hook_adds_by_the_players_rating() {
     assert_eq!(rated_crit - none_crit, 2 * 62, "doubled by a critical");
 }
 
+/// A skill of the damage pool's category, made up: its rating is the player's damage attribute.
+const DAMAGE_ATTRIBUTE: u32 = 5_300;
+
+/// The player holds a damage attribute of `points`, and skill 816's class sets the pool's chance
+/// and measure.
+fn with_pool(h: &mut Harness, me: u64, points: u32, chance: f32, measure: f32) {
+    with_pool_of(h, me, 816, points, (chance, measure));
+}
+
+/// The player holds a damage attribute of `points`, and a skill's class sets the pool's chance
+/// and measure.
+fn with_pool_of(h: &mut Harness, me: u64, skill: u32, points: u32, (chance, measure): (f32, f32)) {
+    let d = h
+        .server
+        .skill_table
+        .skills
+        .get_mut(&skill)
+        .expect("the skill");
+    d.damage_pool_chance = Some(chance);
+    d.damage_pool_modifier = Some(measure);
+    h.server.skill_table.skills.insert(
+        DAMAGE_ATTRIBUTE,
+        SkillDef {
+            id: DAMAGE_ATTRIBUTE,
+            category: yalain_world::skills::DAMAGE_CATEGORY,
+            attribute_mod: 1.0,
+            cap: 1_000,
+            ..SkillDef::default()
+        },
+    );
+    player_of(h, me).play.skills.push(SkillState {
+        skill: DAMAGE_ATTRIBUTE,
+        granted: points,
+        mask: yalain_world::skills::mask::TRAINED,
+        cost: 0,
+        children: 0,
+        dependents: 0,
+        spent: 0,
+    });
+}
+
+/// The player's health out of the beetle's reach, so the run goes on.
+fn tough(h: &mut Harness, me: u64) {
+    let p = player_of(h, me);
+    for q in [
+        yalain_world::player::quality::HEALTH,
+        yalain_world::player::quality::HEALTH_MAX,
+    ] {
+        yalain_world::quals::set_int(&mut p.qualities, q, 1_000_000);
+    }
+}
+
+/// Each blow's result and damage, of each swing told since `from`.
+fn blows_of(h: &Harness, b: usize, from: usize, me: u64) -> Vec<Vec<(u32, i32)>> {
+    stories(h, b, from, me)
+        .iter()
+        .map(|s| {
+            s.hooks[1..]
+                .iter()
+                .map(|k| (k.numbers[0].cast_unsigned(), -k.numbers[3]))
+                .collect()
+        })
+        .collect()
+}
+
+const HIT: u32 = 0x4000_0008;
+const CRITICAL: u32 = 0x4000_0009;
+
+/// A swing of two blows takes its player's damage pool once, on the first blow that lands, before
+/// that blow's roll (a critical doubles it with the rest); the other blow does its plain damage.
+/// Behaviour: server.combat.damage-pool
+#[test]
+fn a_swing_of_two_blows_takes_the_damage_pool_once_on_the_first_that_lands() {
+    // The plain damage of each blow, without a pool.
+    let (mut h, b, me, beetle) = two_blows(0x2002, 0x1002);
+    tough(&mut h, me);
+    let from = attack(&mut h, b, beetle);
+    h.run(3000);
+    let plain = |told: &[Vec<(u32, i32)>], i: usize| {
+        let mut v: Vec<i32> = told
+            .iter()
+            .filter(|s| s[i].0 == HIT)
+            .map(|s| s[i].1)
+            .collect();
+        v.sort_unstable();
+        v.dedup();
+        assert_eq!(v.len(), 1, "{v:?}");
+        v[0]
+    };
+    let without = blows_of(&h, b, from, me);
+    let plain = [plain(&without, 0), plain(&without, 1)];
+    let (mut h, b, me, beetle) = two_blows(0x2002, 0x1002);
+    tough(&mut h, me);
+    with_pool(&mut h, me, 40, 1.0, 1.0);
+    let from = attack(&mut h, b, beetle);
+    h.run(20_000);
+    let told = blows_of(&h, b, from, me);
+    let (mut both, mut second_only) = (0, 0);
+    for s in &told {
+        let landed: Vec<usize> = (0..2)
+            .filter(|i| [HIT, CRITICAL].contains(&s[*i].0))
+            .collect();
+        for i in 0..2 {
+            let (result, damage) = s[i];
+            let base = if landed.first() == Some(&i) {
+                plain[i] + 40
+            } else {
+                plain[i]
+            };
+            match result {
+                HIT => assert_eq!(damage, base, "{s:?}"),
+                CRITICAL => assert_eq!(damage, 2 * base, "{s:?}"),
+                _ => assert_eq!(damage, 0, "{s:?}"),
+            }
+        }
+        both += usize::from(landed.len() == 2);
+        second_only += usize::from(landed == [1]);
+    }
+    assert!(
+        both > 10 && second_only > 0,
+        "{both} {second_only} of {}",
+        told.len()
+    );
+}
+
+/// A landed blow takes the damage pool at the chance its skill's class sets, times the skill's
+/// measure of it; with a chance of none, or no damage attribute, never.
+/// Behaviour: server.combat.damage-pool
+#[test]
+fn a_landed_blow_takes_the_damage_pool_at_its_skills_chance_and_measure() {
+    let shares = |points: u32, chance: f32| -> (usize, usize, Vec<i32>) {
+        let skill = basic(816, im::HANDBLADE, vec![blow(0x2002, 1)]);
+        let (mut h, b, me, beetle) = fighter(skill, im::HANDBLADE);
+        tough(&mut h, me);
+        with_pool(&mut h, me, points, chance, 0.5);
+        let from = attack(&mut h, b, beetle);
+        h.run(40_000);
+        let hits: Vec<i32> = blows_of(&h, b, from, me)
+            .iter()
+            .filter(|s| s[0].0 == HIT)
+            .map(|s| s[0].1)
+            .collect();
+        let least = hits.iter().copied().min().unwrap_or(0);
+        let pooled = hits.iter().filter(|d| **d > least).count();
+        let mut seen = hits.clone();
+        seen.sort_unstable();
+        seen.dedup();
+        (pooled, hits.len(), seen)
+    };
+    let (pooled, hits, seen) = shares(40, 0.25);
+    assert!(hits > 200, "{hits}");
+    assert_eq!(seen.len(), 2, "plain and with half of 40: {seen:?}");
+    assert_eq!(seen[1] - seen[0], 20, "{seen:?}");
+    #[allow(clippy::cast_precision_loss)]
+    let share = pooled as f64 / hits as f64;
+    assert!((0.15..0.35).contains(&share), "{pooled} of {hits}");
+    for (points, chance) in [(40, 0.0), (0, 1.0)] {
+        let (pooled, hits, seen) = shares(points, chance);
+        assert!(hits > 200);
+        assert_eq!((pooled, seen.len()), (0, 1), "{points} {chance}");
+    }
+}
+
 /// The target is hurt by each blow as that blow lands, the first at its skill's time and the second
 /// at its own, over the time scale.
 /// Behaviour: server.weapons.two-blows
@@ -746,6 +909,45 @@ fn each_throw_is_critical_with_what_its_own_hands_weapon_adds() {
         "{right:x?}"
     );
     assert!(left.iter().any(|r| *r == Outcome::Hit.code()), "{left:x?}");
+}
+
+/// A thrown attack takes the damage pool as a swing does: a skill of one throw on each throw that
+/// lands, a skill of two throws once a swing, on one of its throws only.
+/// Behaviour: server.combat.damage-pool
+#[test]
+fn thrown_attacks_take_the_damage_pool_once_a_swing() {
+    let count = |throws: usize| -> (usize, usize, usize) {
+        let (mut h, b, me, beetle) = two_throws();
+        if throws == 1 {
+            let d = h
+                .server
+                .skill_table
+                .skills
+                .get_mut(&1884)
+                .expect("the skill");
+            d.usage.as_mut().expect("its use").hooks.truncate(1);
+        }
+        tough(&mut h, me);
+        with_pool_of(&mut h, me, 1884, 5_000, (1.0, 1.0));
+        let from = attack(&mut h, b, beetle);
+        h.run(6000);
+        let swings = stories(&h, b, from, me).len();
+        let landed: Vec<i32> = stories(&h, b, from, beetle)
+            .iter()
+            .filter(|s| s.attacker == me)
+            .flat_map(|s| s.hooks.clone())
+            .filter(|k| [HIT, CRITICAL].contains(&k.numbers[0].cast_unsigned()))
+            .map(|k| -k.numbers[3])
+            .collect();
+        let pooled = landed.iter().filter(|d| **d > 1_000).count();
+        (swings, landed.len(), pooled)
+    };
+    let (swings, landed, pooled) = count(1);
+    assert!(landed >= 10, "{swings} {landed}");
+    assert_eq!(pooled, landed, "each throw its own swing");
+    let (swings, landed, pooled) = count(2);
+    assert!(landed > swings && pooled >= 5, "{swings} {landed} {pooled}");
+    assert!(pooled <= swings, "{swings} {landed} {pooled}");
 }
 
 /// The second throw arrives after the first by its own windup, and the swings come at the skill's

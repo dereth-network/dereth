@@ -1416,6 +1416,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.combat.damage-pool",
+        says: "A player's damage pool is its damage attribute times the attack skill's measure of \
+               it; a landed blow takes it at the chance the skill's class sets, before the hit's \
+               roll, and an attack takes it at most once, its blows trying in turn.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-DAMAGE-POOL"),
+        station: "yalain-testkit::cpu::play::two_blows::a_swing_of_two_blows_takes_the_damage_pool_once_on_the_first_that_lands",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.combat.empty-hand-refused",
         says: "A player with nothing in its hand has no basic attack: asked to attack, the server \
                answers that it is attacking, that its basic attacks failed (not wielding the \
@@ -12501,6 +12511,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "server.skills.damage-pool-read",
+        says: "Every used skill reads the chance its class sets that a landed blow takes the damage \
+               pool, and its measure of the pool: basic attacks a tenth, specials 0.4, 0.6 or 0.8, \
+               the rest none.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-DAMAGE-POOL-READ"),
+        station: "yalain-testkit::dat::skills::every_used_skill_reads_its_damage_pool_chance_and_measure",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.skills.fast-learner",
         says: "Fast Learner pays a kill's experience times its value, floored; without it, the \
                same.",
@@ -12631,18 +12651,17 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "server.skills.repository-tables",
         says: "Of a kind's perks the table names the one of the highest priority; kinds and \
-               categories a character doesn't hold stay out; the skills of the categories a client \
-               reads into its attacks aren't told.",
+               categories a character doesn't hold stay out; every category it holds is told, the \
+               damage pool and Heroic Mastery with the rest.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-REPOSITORY-TABLES"),
-        station: "yalain-testkit::dat::skills::the_repository_tables_name_the_best_perk_of_a_kind_and_leave_out_attack_categories",
+        station: "yalain-testkit::dat::skills::the_repository_tables_name_the_best_perk_of_a_kind_and_each_held_category",
         tier: Tier::Dat,
     },
     behaviour! {
         id: "server.skills.repository-tables-as-2017",
-        says: "Every 2017 session start's perk table, word for word, is what the skills it holds \
-               build; a category table is the same but for the categories a client reads into its \
-               attacks, which this server doesn't tell.",
+        says: "Every 2017 session start's perk table and category table, word for word, are what \
+               the skills it holds build, the categories a client reads into its attacks included.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-REPOSITORY-TABLES-2017"),
         station: "yalain-testkit::corpus::world_entry::every_recorded_session_starts_perk_table_is_what_its_skills_build",

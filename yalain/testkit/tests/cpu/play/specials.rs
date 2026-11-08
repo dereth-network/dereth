@@ -207,6 +207,105 @@ fn a_specials_hooks_on_one_target_each_roll_apart() {
     );
 }
 
+/// A special of three damaging hooks on one target takes its player's damage pool once a use, on
+/// the first hook that lands; the others do their plain damage.
+/// Behaviour: server.combat.damage-pool
+#[test]
+fn a_special_takes_the_damage_pool_once_on_its_first_landed_hook() {
+    use yalain_world::rules::Outcome;
+    const DAMAGE_ATTRIBUTE: u32 = 5_300;
+    let (mut h, b, me, beetle) = beside_a_beetle();
+    practice_target(&mut h, beetle);
+    h.arm(b, me, SWORD);
+    let d = h
+        .server
+        .skill_table
+        .skills
+        .get_mut(&RIPOSTE)
+        .expect("Riposte");
+    d.damage_pool_chance = Some(1.0);
+    d.damage_pool_modifier = Some(1.0);
+    let u = d.usage.as_mut().expect("its use");
+    let strike = u.hooks[0].clone();
+    u.hooks = (0..3u8)
+        .map(|n| yalain_world::skills::Hook {
+            anim_hook: u32::from(n) + 1,
+            ..strike.clone()
+        })
+        .collect();
+    h.server.skill_table.skills.insert(
+        DAMAGE_ATTRIBUTE,
+        yalain_world::skills::SkillDef {
+            id: DAMAGE_ATTRIBUTE,
+            category: yalain_world::skills::DAMAGE_CATEGORY,
+            attribute_mod: 1.0,
+            cap: 10_000,
+            ..yalain_world::skills::SkillDef::default()
+        },
+    );
+    let p = h
+        .server
+        .players
+        .values_mut()
+        .find(|p| p.character == me)
+        .expect("in the world");
+    p.play.skills.push(yalain_world::state::SkillState {
+        skill: DAMAGE_ATTRIBUTE,
+        granted: 5_000,
+        mask: yalain_world::skills::mask::TRAINED,
+        cost: 0,
+        children: 0,
+        dependents: 0,
+        spent: 0,
+    });
+    let mut beside = p.position;
+    beside.origin[0] += 1.5;
+    let t = h.server.things.get_mut(beetle).expect("the beetle");
+    t.at = Some(beside);
+    t.max_health = 100_000_000;
+    t.health = 100_000_000;
+    let codes = [
+        Outcome::Hit,
+        Outcome::Critical,
+        Outcome::Miss,
+        Outcome::Evade,
+    ]
+    .map(Outcome::code);
+    let landed = |r: u32| r == Outcome::Hit.code() || r == Outcome::Critical.code();
+    let (mut uses_landed, mut later_first) = (0, 0);
+    for use_id in 0..100 {
+        let from = use_skill(&mut h, b, 1000 + use_id, RIPOSTE, beetle);
+        h.run(200);
+        let hooks: Vec<(u32, i32)> = h
+            .world_messages(b, from)
+            .iter()
+            .find_map(|m| match m {
+                ServerMessage::DoStory(e) if e.sender.id == me && e.action.attacker == me => {
+                    Some(e.action.hooks.clone())
+                }
+                _ => None,
+            })
+            .expect("the use's story")
+            .iter()
+            .filter(|k| k.target == beetle && codes.contains(&k.numbers[0].cast_unsigned()))
+            .map(|k| (k.numbers[0].cast_unsigned(), -k.numbers[3]))
+            .collect();
+        assert_eq!(hooks.len(), 3, "{hooks:x?}");
+        let first = hooks.iter().position(|k| landed(k.0));
+        let pooled: Vec<usize> = (0..3).filter(|i| hooks[*i].1 > 1_000).collect();
+        assert_eq!(pooled, first.into_iter().collect::<Vec<_>>(), "{hooks:?}");
+        uses_landed += usize::from(first.is_some());
+        later_first += usize::from(first.is_some_and(|i| i > 0));
+        for p in h.server.players.values_mut() {
+            yalain_world::quals::set_int(&mut p.qualities, VIGOR, 100);
+        }
+    }
+    assert!(
+        uses_landed > 80 && later_first > 0,
+        "{uses_landed} {later_first}"
+    );
+}
+
 /// A special's landed hook is critical at the chance its skill's class sets with what its weapon
 /// adds, the weapon's template's own and its effects': with none of them never, with any one that
 /// sets it all every time.

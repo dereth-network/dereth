@@ -330,6 +330,11 @@ pub struct SkillDef {
     /// How much more its class says a critical does than its plain hit ([`critical_modifier`]); none
     /// when no class of it sets it.
     pub critical_modifier: Option<f32>,
+    /// The chance its class sets that a landed blow of it takes its user's damage pool
+    /// ([`DAMAGE_CATEGORY`]), and its measure of that pool ([`damage_pool_chance`],
+    /// [`damage_pool_modifier`]); none for a skill that is not used.
+    pub damage_pool_chance: Option<f32>,
+    pub damage_pool_modifier: Option<f32>,
     /// What its user's accuracy and its target's evasion are made of when it attacks
     /// ([`rating_parts`]); empty for a skill whose class names none.
     pub accuracy: Vec<RatingPart>,
@@ -431,6 +436,8 @@ impl SkillTable {
                 d.helps = crate::rules::helps_by_name(name);
                 d.critical_threshold = critical_threshold(lib, pkg);
                 d.critical_modifier = critical_modifier(lib, pkg);
+                d.damage_pool_chance = damage_pool_chance(lib, pkg);
+                d.damage_pool_modifier = damage_pool_modifier(lib, pkg);
                 t.skills.insert(*skill, d);
                 t.by_package.insert(pkg, *skill);
             }
@@ -475,6 +482,29 @@ pub fn critical_threshold(lib: &Library, package: u32) -> Option<f32> {
 #[must_use]
 pub fn critical_modifier(lib: &Library, package: u32) -> Option<f32> {
     set_by_class(lib, package, SET_CRITICAL_MODIFIER)
+}
+
+/// The function of a used skill's class that sets the chance a landed blow takes the damage pool.
+const SET_DAMAGE_POOL_CHANCE: &str = "SetDamageAttributeChance";
+/// The function of a used skill's class that sets its measure of the damage pool.
+const SET_DAMAGE_POOL_MODIFIER: &str = "SetDamageAttributeModifier";
+
+/// The attribute category of the skills that rate a player's damage pool: what a landed blow of a
+/// used skill may add, at that skill's chance, times its measure.
+pub const DAMAGE_CATEGORY: u32 = 3;
+
+/// The chance a skill's class sets that a landed blow of it takes the damage pool
+/// ([`set_by_class`]): every used skill's base sets 0; the basic attacks 0.1, the specials 0.4, 0.6
+/// or 0.8.
+#[must_use]
+pub fn damage_pool_chance(lib: &Library, package: u32) -> Option<f32> {
+    set_by_class(lib, package, SET_DAMAGE_POOL_CHANCE)
+}
+
+/// A skill's class's measure of the damage pool ([`set_by_class`]): every used skill's base sets 1.
+#[must_use]
+pub fn damage_pool_modifier(lib: &Library, package: u32) -> Option<f32> {
+    set_by_class(lib, package, SET_DAMAGE_POOL_MODIFIER)
 }
 
 /// What a skill's class sets by one of the used skills' setters (`setter`, a function of the
@@ -726,6 +756,8 @@ impl SkillDef {
                 .flatten(),
             critical_threshold: None,
             critical_modifier: None,
+            damage_pool_chance: None,
+            damage_pool_modifier: None,
             accuracy: Vec::new(),
             evasion: Vec::new(),
         })
@@ -1183,10 +1215,6 @@ pub struct RepositoryTables {
     pub categories: Vec<(u32, u32)>,
 }
 
-/// The attribute categories a client reads into its attacks: their skills are not told, as this
-/// server's fights don't hold them yet.
-pub const CATEGORIES_NOT_TOLD: [u32; 2] = [3, 6];
-
 impl RepositoryTables {
     /// The tables of a character holding these skills, as the client builds them from them: of a
     /// kind's perks the one with the highest priority, the first found on a tie (2017: 429 of 429
@@ -1207,10 +1235,7 @@ impl RepositoryTables {
                     Some(_) => {}
                     None => perks.push((perk.kind, h.skill, perk.priority)),
                 }
-            } else if d.category != 0
-                && !CATEGORIES_NOT_TOLD.contains(&d.category)
-                && !categories.iter().any(|c| c.0 == d.category)
-            {
+            } else if d.category != 0 && !categories.iter().any(|c| c.0 == d.category) {
                 categories.push((d.category, h.skill));
             }
         }

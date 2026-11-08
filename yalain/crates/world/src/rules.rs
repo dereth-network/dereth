@@ -399,7 +399,7 @@ impl WeaponDamage {
 }
 
 /// Who strikes a creature, as its damage is reckoned: its level, the weapon it holds (if any has a
-/// damage), and what its effects add to its hits.
+/// damage), what its effects add to its hits, and what its damage pool adds to this one.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Hitter {
     pub level: i32,
@@ -407,6 +407,27 @@ pub struct Hitter {
     pub added: i32,
     /// What its weapon adds to the chance of a critical.
     pub critical: f64,
+    /// What its damage pool adds to this hit ([`DamagePool`]): to the damage before its roll.
+    pub pool: i32,
+}
+
+/// A player's damage pool for one attack: the points it adds, and the chance each landed blow has
+/// of taking them. An attack takes them at most once, its blows trying in turn until one does.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct DamagePool {
+    pub points: i32,
+    pub chance: f32,
+}
+
+impl DamagePool {
+    /// What this landed blow takes of the pool: all of it at the pool's chance, none once an
+    /// earlier blow of the attack took it. An empty pool draws nothing.
+    pub fn take(&mut self, rng: &mut Rng) -> i32 {
+        if self.points <= 0 || self.chance <= 0.0 || !rng.chance(self.chance) {
+            return 0;
+        }
+        std::mem::take(&mut self.points)
+    }
 }
 
 /// A player's hit on a creature. With a weapon: a whole number drawn evenly from the weapon's
@@ -414,10 +435,15 @@ pub struct Hitter {
 /// least 1, doubled when critical (2017: every examined weapon's damage shown as that span; hits
 /// within the span so reckoned 95-100% at levels 1-35, the median hit 0.98-1.04 of the reckoning
 /// over 2,259 hits; armor taken a point a level; criticals 2.02 times the ordinary hit). Without
-/// one, [`player_damage`] and the effects' add.
+/// one, [`player_damage`] and the effects' add. A damage pool's points join the weapon's damage
+/// (or the base) before the roll, so the roll's share applies to them too.
 pub fn player_hit(rng: &mut Rng, h: Hitter, creature_armor: i32, critical: bool) -> i32 {
     let Some(w) = h.weapon else {
-        return player_damage(rng, h.level, creature_armor, critical) + h.added;
+        return player_damage(rng, h.level, h.pool, creature_armor, critical) + h.added;
+    };
+    let w = WeaponDamage {
+        most: w.most + h.pool,
+        ..w
     };
     let (low, high) = (w.least().min(w.most), w.most);
     let span = usize::try_from(high - low + 1).unwrap_or(1);
@@ -430,13 +456,20 @@ pub fn player_hit(rng: &mut Rng, h: Hitter, creature_armor: i32, critical: bool)
     }
 }
 
-/// A player's hit on a creature: the base for its level times a uniform roll, less the creature's
-/// armor (a point less for each of its armor levels beyond the first), doubled when critical. At
-/// least 1.
-pub fn player_damage(rng: &mut Rng, level: i32, creature_armor: i32, critical: bool) -> i32 {
+/// A player's hit on a creature: the base for its level, with what its damage pool adds, times a
+/// uniform roll, less the creature's armor (a point less for each of its armor levels beyond the
+/// first), doubled when critical. At least 1.
+pub fn player_damage(
+    rng: &mut Rng,
+    level: i32,
+    pool: i32,
+    creature_armor: i32,
+    critical: bool,
+) -> i32 {
     let roll = rng.between(1.0 - PLAYER_VARIANCE, 1.0 + PLAYER_VARIANCE);
     #[allow(clippy::cast_precision_loss)]
-    let mut d = player_base_damage(level) * roll - (creature_armor - 1).max(0) as f32;
+    let mut d =
+        (player_base_damage(level) + pool as f32) * roll - (creature_armor - 1).max(0) as f32;
     if critical {
         d *= PLAYER_CRITICAL;
     }

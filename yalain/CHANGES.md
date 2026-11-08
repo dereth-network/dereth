@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Heroes' damage pool now adds to their hits.
 - Fixed effects that should end at logout lasting through it.
 - Warder stones now block what they ward against.
 - Fixed the Citadel and Cobalt vault keys opening each other's doors.

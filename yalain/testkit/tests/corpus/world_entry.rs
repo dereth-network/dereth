@@ -594,12 +594,12 @@ fn the_recorded_new_characters_are_made_in_their_clothes_as_2017_made_them() {
 }
 
 /// Every 2017 session start's perk table, word for word, is what the skills it holds build: of a
-/// kind's perks the highest priority; and a category table is the same but for the categories a
-/// client reads into its attacks, which this server doesn't tell.
+/// kind's perks the highest priority; and its category table too, the categories a client reads
+/// into its attacks (the damage pool, Heroic Mastery) with the rest.
 /// Behaviour: server.skills.repository-tables-as-2017
 #[test]
 fn every_recorded_session_starts_perk_table_is_what_its_skills_build() {
-    use yalain_world::skills::{held, RepositoryTables, CATEGORIES_NOT_TOLD};
+    use yalain_world::skills::{held, RepositoryTables};
     const WORDS: [u8; 12] = [0, 1, 0, 0x44, 0, 0, 0, 0, 1, 0, 0xFF, 0xFF];
     const REFS: [u8; 12] = [0, 1, 0, 0x44, 0, 0, 0, 0, 0x11, 0, 0xFF, 0xFF];
     let find = |raw: &[u8], what: &[u8], from: usize| {
@@ -645,7 +645,7 @@ fn every_recorded_session_starts_perk_table_is_what_its_skills_build() {
         .expect("rows")
         .flatten()
         .collect();
-    let (mut starts, mut with_perks, mut same_order, mut withheld) = (0, 0, 0, 0);
+    let (mut starts, mut with_perks, mut same_order, mut attacks) = (0, 0, 0, 0);
     for raw in rows {
         let Some((perks, categories, Some(skills))) = tables(&raw) else {
             continue;
@@ -676,18 +676,14 @@ fn every_recorded_session_starts_perk_table_is_what_its_skills_build() {
         // Word for word, in the order the table packs them.
         assert_eq!(perks, ours, "the perks, as packed");
         same_order += usize::from(perks == ours);
-        let told: Vec<(u32, u32)> = categories
-            .iter()
-            .copied()
-            .filter(|(c, _)| !CATEGORIES_NOT_TOLD.contains(c))
-            .collect();
-        withheld += usize::from(told.len() < categories.len());
-        assert_eq!(told, ours_categories, "the categories, as packed");
+        attacks += usize::from(categories.iter().any(|(c, _)| [3, 6].contains(c)));
+        assert_eq!(categories, ours_categories, "the categories, as packed");
     }
     assert!(starts > 400, "{starts} session starts");
     assert!(with_perks > 80, "{with_perks} with perks");
+    assert!(attacks > 90, "{attacks} with an attack's category");
     println!(
         "{starts} starts, {with_perks} with perks, {same_order} of the same order, \
-         {withheld} with attack categories withheld"
+         {attacks} with an attack's category"
     );
 }

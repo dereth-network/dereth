@@ -985,12 +985,12 @@ fn the_perks_of_a_vitals_greatest_raise_it_and_the_repository_says_so() {
 }
 
 /// Of a kind's perks the table names the one of the highest priority, whichever came first; the
-/// kinds and categories a character doesn't hold stay out; the skills of the categories a client
-/// reads into its attacks aren't told.
+/// kinds and categories a character doesn't hold stay out; every category it holds is told, the
+/// damage pool and Heroic Mastery a client reads into its attacks with the rest.
 /// Behaviour: server.skills.repository-tables
 #[test]
-fn the_repository_tables_name_the_best_perk_of_a_kind_and_leave_out_attack_categories() {
-    use yalain_world::skills::{held, RepositoryTables, CATEGORIES_NOT_TOLD};
+fn the_repository_tables_name_the_best_perk_of_a_kind_and_each_held_category() {
+    use yalain_world::skills::{held, RepositoryTables};
     let t = Portal::open().skills();
     let of = |ids: &[u32]| {
         let kept: Vec<_> = ids
@@ -1018,8 +1018,12 @@ fn the_repository_tables_name_the_best_perk_of_a_kind_and_leave_out_attack_categ
             .expect("a skill of the category")
     };
     assert_eq!(of(&[by_category(5)]).categories, vec![(5, by_category(5))]);
-    for c in CATEGORIES_NOT_TOLD {
-        assert!(of(&[by_category(c)]).categories.is_empty(), "{c}");
+    for c in [3, 6] {
+        assert_eq!(
+            of(&[by_category(c)]).categories,
+            vec![(c, by_category(c))],
+            "{c}"
+        );
     }
 }
 
@@ -2091,4 +2095,95 @@ fn heroic_mastery_adds_its_rating_to_the_level_part() {
     yalain_world::quals::set_int(&mut p.qualities, yalain_world::examine::LEVEL, 85);
     let raised = ratings::sum(&h.server, Rater::Player(world), &level);
     assert!((raised - 800.0).abs() < 1e-9, "{raised}");
+}
+
+/// Every used skill reads the chance its class sets that a landed blow takes the damage pool, and
+/// its measure of the pool: the basic attacks 0.1, the specials 0.4, 0.6 or 0.8 by their strength,
+/// the rest 0 (a few basic attacks of a class's own 0.4 or 0.6); every measure 1 but Backstab's half
+/// and Nibble's none. A skill not used reads none.
+/// Behaviour: server.skills.damage-pool-read
+#[test]
+fn every_used_skill_reads_its_damage_pool_chance_and_measure() {
+    let t = Portal::open().skills();
+    let of = |k: u32| {
+        let d = &t.skills[&k];
+        (d.damage_pool_chance, d.damage_pool_modifier)
+    };
+    // Hum_Me_AutoAttack1, Hum_Me_FindHole, Hum_Me_Backstab, Mn_Me_Nibble.
+    assert_eq!(of(122), (Some(0.1), Some(1.0)));
+    assert_eq!(of(171), (Some(0.4), Some(1.0)));
+    assert_eq!(of(163), (Some(0.6), Some(0.5)));
+    assert_eq!(of(2179), (Some(0.0), Some(0.0)));
+    let mut by_chance = std::collections::BTreeMap::new();
+    for d in t.skills.values() {
+        assert_eq!(d.active, d.damage_pool_chance.is_some(), "{}", d.id);
+        assert_eq!(d.active, d.damage_pool_modifier.is_some(), "{}", d.id);
+        if let Some(c) = d.damage_pool_chance {
+            *by_chance
+                .entry(dereth_primitives::num::to_i32((c * 10.0).round()))
+                .or_insert(0) += 1;
+        }
+    }
+    let n = |c: i32| by_chance.get(&c).copied().unwrap_or(0);
+    assert_eq!(
+        (n(1), n(4), n(6), n(8)),
+        (166, 245, 143, 91),
+        "{by_chance:?}"
+    );
+    assert_eq!(
+        by_chance.keys().copied().collect::<Vec<_>>(),
+        [0, 1, 4, 6, 8]
+    );
+}
+
+/// A hero's damage pool is its damage attribute (the rating of its class's damage attribute skill,
+/// raised by experience through that skill's own table, times the skill's measure) times the
+/// attack's measure, at the attack's chance: a Berserker of 2017 held 706,840,738,672 in it, a pool
+/// of 610 for a basic attack at a tenth and 305 for Backstab; a Templar's skill at the same
+/// experience rates 460 by its own table and measures 0.005 a point, 2. A player holding none has
+/// none.
+/// Behaviour: server.combat.damage-pool
+#[test]
+fn a_heros_damage_attribute_is_its_damage_pool() {
+    use yalain_world::combat::damage_pool;
+    use yalain_world::rules::DamagePool;
+    let mut h = yalain_testkit::Harness::new();
+    h.server.skill_table = Portal::open().skills();
+    let (_, _) = h.player_in_world("one", "Elara");
+    let world = *h.server.players.keys().next().expect("in the world");
+    // Hum_Me_AutoAttack1 and Hum_Me_Backstab.
+    let (basic, backstab) = (122, 163);
+    assert_eq!(damage_pool(&h.server, world, basic).points, 0);
+    let hold = |h: &mut yalain_testkit::Harness, skill: u32| {
+        let p = h.server.players.get_mut(&world).expect("the player");
+        p.play.skills.retain(|k| ![1142, 1516].contains(&k.skill));
+        p.play.skills.push(yalain_world::state::SkillState {
+            skill,
+            granted: 0,
+            mask: yalain_world::skills::mask::TRAINED,
+            cost: 0,
+            children: 0,
+            dependents: 0,
+            spent: 706_840_738_672,
+        });
+    };
+    // Lug_Me_Berserker_Hero_AttrMajorDamage.
+    hold(&mut h, 1142);
+    assert_eq!(
+        damage_pool(&h.server, world, basic),
+        DamagePool {
+            points: 610,
+            chance: 0.1
+        }
+    );
+    assert_eq!(
+        damage_pool(&h.server, world, backstab),
+        DamagePool {
+            points: 305,
+            chance: 0.6
+        }
+    );
+    // Emp_Me_Templar_Hero_AttrDamage.
+    hold(&mut h, 1516);
+    assert_eq!(damage_pool(&h.server, world, basic).points, 2);
 }

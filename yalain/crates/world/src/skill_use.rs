@@ -1850,13 +1850,15 @@ fn hook_hit<S: Store>(
 
 /// How one hook comes out on one creature: a hit, critical, miss or evade by the rules (a strike
 /// is evaded, never missed), at the chance of a critical its skill sets with what the hitter's
-/// weapon adds, and the damage when it lands and hurts.
+/// weapon adds, and the damage when it lands and hurts, the use's damage pool with it if this hit
+/// takes it.
 fn roll_hook<S: Store>(
     s: &mut Server<S>,
     (world, skill): (ConnId, u32),
     (u, h): (&Usage, &Hook),
     (me, critical): (rules::Hitter, Critical),
     target: u64,
+    pool: &mut rules::DamagePool,
 ) -> Option<(Outcome, i32)> {
     let (defender, armor) = match crate::social::world_of(s, target) {
         Some(c) => s.players.get(&c).map(|_| (Rater::Player(c), 0))?,
@@ -1881,6 +1883,10 @@ fn roll_hook<S: Store>(
     };
     let hurts = u.ui_flags & ui_flag::NON_DAMAGING == 0 && h.flags & hook_flag::NON_DAMAGING == 0;
     let dmg = if o.landed() && hurts {
+        let me = rules::Hitter {
+            pool: pool.take(&mut s.rng),
+            ..me
+        };
         hook_hit(s, me, h, (target, armor), (o, critical.size))
     } else {
         0
@@ -2022,6 +2028,8 @@ fn story<S: Store>(
         }
     }
     pay(s, net, world, &u);
+    // A use takes its damage pool at most once, its landed hits trying in turn.
+    let mut pool = combat::damage_pool(s, world, r.skill);
     // The outcome of its damaging hook (a strike's at once; a missile's as it arrives).
     let target_thing = match aim {
         Aim::Item(_) | Aim::Pet(_) | Aim::Corpse(_) => None,
@@ -2056,13 +2064,11 @@ fn story<S: Store>(
             o
         };
         let dmg = if o.landed() {
-            hook_hit(
-                s,
-                hitting_with(me_hits, h, rating),
-                h,
-                (target, armor),
-                (o, critical.size),
-            )
+            let me = rules::Hitter {
+                pool: pool.take(&mut s.rng),
+                ..hitting_with(me_hits, h, rating)
+            };
+            hook_hit(s, me, h, (target, armor), (o, critical.size))
         } else {
             0
         };
@@ -2087,7 +2093,7 @@ fn story<S: Store>(
             aim,
             target,
             outcome,
-            (me_hits, rating, critical),
+            (me_hits, rating, critical, &mut pool),
         )
     };
     let hooks = story_hooks_with(&u, target, weapon, &landings);
@@ -2258,7 +2264,7 @@ fn landings_of<S: Store>(
     aim: Aim,
     target: u64,
     rolled: Option<(Outcome, i32)>,
-    (me, rating, critical): (rules::Hitter, f32, Critical),
+    (me, rating, critical, pool): (rules::Hitter, f32, Critical, &mut rules::DamagePool),
 ) -> Vec<Landing> {
     let center = match aim {
         Aim::Thing(t) => s
@@ -2316,6 +2322,7 @@ fn landings_of<S: Store>(
                         (u, h),
                         (hitting_with(me, h, rating), critical),
                         t,
+                        pool,
                     )
                 }
             };
