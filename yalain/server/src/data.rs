@@ -409,6 +409,8 @@ pub fn catalog(
         }))
         .chain(more.iter().copied())
         .collect();
+    // The quests items' classes name for taking them, by their names.
+    let quests = quest_ids(p)?;
     let mut skipped = Vec::new();
     while let Some(t) = want.pop() {
         if c.templates.contains_key(&t) {
@@ -423,8 +425,8 @@ pub fn catalog(
         let props = Props::of(t, &|id| p.entity(id), &prop_name)
             .with_places_of(p.qualities(yalain_content::qualities_id(t)).as_ref())
             .with_worn_of(t)
-            .with_take_gate_of(t)
-            .with_class(&class);
+            .with_class(&class)
+            .with_quest_named(&|n| quests.get(n).copied());
         let description = match describe(t, &|id| p.entity(id), &|id| p.qualities(id)) {
             Ok(d) => d,
             Err(e) => {
@@ -1623,6 +1625,88 @@ mod tests {
         assert!(meshes.iter().all(|n| *n == 1), "{meshes:?}");
         let materials = heads(&p.dat, &portal_reads, 0x3000_0000, 0x30FF_FFFF, |_| true);
         assert!(materials.is_empty(), "{materials:?}");
+    }
+
+    /// A start holds every race's starting weapons as it reads them from the install: each known by
+    /// its implement, costing 4 vigor, held as its places say (the human bow and staff in both
+    /// hands, the swords in one), and examined with its name, worth 1 and its weapon's numbers.
+    /// Behaviour: server.weapons.implement-by-class-read
+    #[test]
+    fn a_start_reads_the_starting_weapons_from_the_install() {
+        use yalain_world::skill_use::implement as im;
+        let dir = auberean_dat::testing::require_target_install();
+        let p = Portal::open(&dir, None).expect("opens");
+        let start = start_rules(&p).expect("the start");
+        let more = yalain_world::makes::by_the_server(&start, &[]);
+        let (mut c, _) =
+            catalog(&p, &SpawnTable::default(), &LootTable::default(), &more).expect("the catalog");
+        c.implements = implements(&p, &c).expect("the implements");
+        let held: Vec<u32> = start.items.values().flatten().map(|i| i.template).collect();
+        for (t, implement) in [
+            (0x4700_051B, im::BOW),
+            (0x4700_051C, im::SWORD),
+            (0x4700_051D, im::STAVE),
+            (0x4700_0515, im::SWORD),
+            (0x4700_0516, im::HAMMER),
+            (0x4700_0517, im::STAVE),
+            (0x4700_0521, im::DRUM),
+            (0x4700_0522, im::SPEAR),
+            (0x4700_0523, im::SWORD),
+        ] {
+            assert!(held.contains(&t), "{t:#x} a race starts with");
+            assert_eq!(
+                yalain_world::skill_use::implement_of(&c, t),
+                Some(implement),
+                "{t:#x}"
+            );
+            let props = &c.get(t).expect("described").props;
+            assert_eq!(props.int("Weapon_VigorCost"), Some(4), "{t:#x}");
+            let view = yalain_world::profile::ItemView::of(props, 1, None, false);
+            assert!(view.name.is_some(), "{t:#x}");
+            assert_eq!(
+                (view.value, view.weapon),
+                (1, Some((9, 0.24, 70, 4))),
+                "{t:#x}"
+            );
+        }
+        let bow = yalain_world::equip::hold_of(&c, 0x4700_051B);
+        assert_eq!((bow.primary, bow.secondary, bow.taken), (2, 1, 192));
+        assert!(yalain_world::skill_use::is_bow(
+            c.get(0x4700_051B).expect("described")
+        ));
+        let staff = yalain_world::equip::hold_of(&c, 0x4700_051D);
+        assert_eq!((staff.primary, staff.secondary, staff.taken), (1, 2, 192));
+        assert_eq!(
+            yalain_world::equip::hold_of(&c, 0x4700_051C),
+            yalain_world::equip::SWORD
+        );
+    }
+
+    /// A start reads the quest taking an item asks from its class, by the quest's name: a piece of
+    /// the Broth at its own step, a relic through its class's base, and a heart whose class sets only
+    /// the status for using it with none for taking.
+    /// Behaviour: server.content.take-gates-of-classes
+    #[test]
+    fn a_start_reads_the_quests_taking_items_ask_from_their_classes() {
+        let dir = auberean_dat::testing::require_target_install();
+        let p = Portal::open(&dir, None).expect("opens");
+        let (c, _) = catalog(
+            &p,
+            &SpawnTable::default(),
+            &LootTable::default(),
+            &[0x4700_0609, 0x4700_11C7, 0x4700_080B],
+        )
+        .expect("the catalog");
+        let gate = |t: u32| {
+            let props = &c.get(t).expect("described").props;
+            (
+                props.word("Usage_RequiredQuest_ForTaking"),
+                props.word("Usage_RequiredQuestStatus_ForTaking"),
+            )
+        };
+        assert_eq!(gate(0x4700_0609), (Some(0x4000_0024), Some(0x1000_0002)));
+        assert_eq!(gate(0x4700_11C7), (Some(0x4000_006D), Some(0x1000_0004)));
+        assert_eq!(gate(0x4700_080B), (Some(0x4000_005A), None));
     }
 
     /// The catalog reads what an item's appearance table does to its icon: a recorded armor piece at

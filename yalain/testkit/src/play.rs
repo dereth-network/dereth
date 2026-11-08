@@ -162,16 +162,25 @@ pub fn use_of(item: u64, player: u64) -> Arg {
 }
 
 impl<S: Store> Harness<S> {
-    /// Give a player in the world an item of a template in its pack (the template made up for the
-    /// test world if the catalog lacks it), then have its client use it: a weapon is wielded.
-    /// Returns the item.
+    /// Give a player in the world an item of a template in its pack (a starting weapon as the
+    /// install describes it, any other template made up for the test world, if the catalog lacks
+    /// it), then have its client use it: a weapon is wielded. Returns the item.
     pub fn arm(&mut self, b: usize, character: u64, template: u32) -> u64 {
         if self.server.catalog.get(template).is_none() {
-            self.server.catalog.insert(crate::test_template(
-                template,
-                0x1067,
-                yalain_content::Props::default(),
-            ));
+            match crate::STARTING_WEAPONS
+                .iter()
+                .find(|w| w.template == template)
+            {
+                Some(w) => {
+                    self.server.catalog.insert(crate::starting_weapon(template));
+                    self.server.catalog.implements.insert(template, w.implement);
+                }
+                None => self.server.catalog.insert(crate::test_template(
+                    template,
+                    0x1067,
+                    yalain_content::Props::default(),
+                )),
+            }
         }
         let id = yalain_world::inventory::make_item(&mut self.server, template, 1, 0)
             .expect("the template is in the catalog");

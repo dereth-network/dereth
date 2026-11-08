@@ -359,10 +359,10 @@ fn with_class(inst: &Install, template: u32, p: yalain_content::Props) -> yalain
 }
 
 /// Every item profile 2017 sent for an item made from a template (its create with no name of its
-/// own), wherever the item was, is the profile built from the template's properties and look (or,
-/// for the human starting weapons, their classes' facts), the effects the template names (read
-/// from their saved states), the item's count, own value and durability, and who made it (a
-/// player's name the recorded line gives), and whether its class makes it destroyed on use; the
+/// own), wherever the item was, is the profile built from the template's properties and look, the
+/// effects the template names (read from their saved states), the item's count, own value and
+/// durability, and who made it (a player's name the recorded line gives), and whether its class
+/// makes it destroyed on use; the
 /// differences are counted by the kind of line the server does not build yet (a tool's stats,
 /// effects only the server's data names, the quests and skills an item needs, a stack's count
 /// changed).
@@ -464,14 +464,11 @@ fn item_profiles_are_built_from_their_templates_as_2017_built_them() {
                 }
             })
             .clone();
-        let is_item = profile::starting_weapon(i.template).is_some()
-            || p.get("Item_Value").is_some()
-            || p.get("Weapon_Damage").is_some();
+        let is_item = p.get("Item_Value").is_some() || p.get("Weapon_Damage").is_some();
         if !is_item || i.named {
             continue;
         }
-        let mut view = profile::starting_weapon(i.template)
-            .unwrap_or_else(|| ItemView::of(&p, i.quantity, i.value, shield));
+        let mut view = ItemView::of(&p, i.quantity, i.value, shield);
         view.effects = profile::item_effects(&p, &mut |n| effect_shown(inst, &mut effects, n));
         if i.durability.is_some() {
             view.durability = i.durability;

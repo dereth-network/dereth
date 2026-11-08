@@ -361,21 +361,6 @@ pub fn implements_of_catalog(
         .collect()
 }
 
-/// The starting weapons' implements (their classes'), and their vigor costs (4 each: their
-/// templates name none).
-pub const STARTING_WEAPONS: [(u32, u32); 9] = [
-    (0x4700_051B, implement::BOW),
-    (0x4700_051C, implement::SWORD),
-    (0x4700_051D, implement::STAVE),
-    (0x4700_0515, implement::SWORD),
-    (0x4700_0516, 0x100),
-    (0x4700_0517, implement::STAVE),
-    (0x4700_0521, 0x8),
-    (0x4700_0522, 0x8000),
-    (0x4700_0523, implement::SWORD),
-];
-pub const STARTING_WEAPON_VIGOR: i32 = 4;
-
 /// Combat modes by what is wielded.
 pub mod mode {
     pub const BOW: u32 = 0x4100_0010;
@@ -563,27 +548,17 @@ pub(crate) fn wielded<S: Store>(s: &Server<S>, player: u64) -> Vec<(u64, u32)> {
     hands.right.into_iter().chain(hands.left).collect()
 }
 
-/// What a starting weapon is wielded as.
-#[must_use]
-pub fn starting_implement(template: u32) -> Option<u32> {
-    STARTING_WEAPONS
-        .iter()
-        .find(|(t, _)| *t == template)
-        .map(|(_, i)| *i)
-}
-
 /// Is a template a bow? Its objects are made strung: their own mode is the bow's (2017: 1,273 of
 /// 1,273 bows made so, 26,018 other things a hand holds at peace).
 #[must_use]
 pub fn is_bow(t: &yalain_content::Template) -> bool {
-    starting_implement(t.id) == Some(implement::BOW)
-        || t.props.word("Item_ImplementType") == Some(implement::BOW)
+    t.props.word("Item_ImplementType") == Some(implement::BOW)
 }
 
 /// What a template is wielded as (its implement kind), when the server knows it.
 #[must_use]
 pub fn implement_of(catalog: &yalain_content::Catalog, template: u32) -> Option<u32> {
-    starting_implement(template).or_else(|| catalog.implements.get(&template).copied())
+    catalog.implements.get(&template).copied()
 }
 
 /// The combat mode of what is wielded, by the right hand's implement and the left's (2017, the
@@ -654,7 +629,7 @@ pub struct HeldVigor {
 }
 
 /// What each thing in a player's hands costs its skills: the item's own number (a treasure or
-/// made item's), else its template's; a starting weapon's 4 (2017: an item's own or its template's
+/// made item's), else its template's (a starting weapon's 4, as its class says) (2017: an item's own or its template's
 /// number, both weapons' when it holds two; 237 of 248 uses by players whose costs nothing else
 /// lowered paid them on themselves too). What the player's auras multiply it by comes off each item,
 /// rounded down (2017: a weapon of 18 examined 13 under Balance and 11 under Featherweight, 30 at 22,
@@ -677,11 +652,7 @@ pub fn held_vigor<S: Store>(s: &Server<S>, player: u64) -> HeldVigor {
                     .and_then(|t| t.props.int("Weapon_VigorCost"))
                     .and_then(|c| i32::try_from(c).ok())
             })
-            .unwrap_or(if starting_implement(template).is_some() {
-                STARTING_WEAPON_VIGOR
-            } else {
-                0
-            });
+            .unwrap_or(0);
         #[allow(clippy::cast_precision_loss)]
         let cost = dereth_primitives::num::to_i32((cost as f32 * scale).floor());
         if shield {

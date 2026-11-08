@@ -360,7 +360,8 @@ fn a_special_after_rend_armor_does_what_it_took_from_the_creature() {
 }
 
 /// The items whose classes name a quest for taking them read with it: a piece of the Broth, for its
-/// own quest at the step it asks; a thing with no such quest reads none.
+/// own quest at the step it asks; a relic through its class's base; a heart whose class sets only the
+/// status for using it, with no status for taking; a thing with no such quest reads none.
 /// Behaviour: server.content.take-gates-of-classes
 #[test]
 fn an_item_whose_class_names_a_quest_for_taking_reads_with_it() {
@@ -374,8 +375,182 @@ fn an_item_whose_class_names_a_quest_for_taking_reads_with_it() {
         t.props.word("Usage_RequiredQuestStatus_ForTaking"),
         Some(0x1000_0002)
     );
+    let relic = p.template(0x4700_11C7);
+    assert_eq!(
+        (
+            relic.props.word("Usage_RequiredQuest_ForTaking"),
+            relic.props.word("Usage_RequiredQuestStatus_ForTaking")
+        ),
+        (Some(0x4000_006D), Some(0x1000_0004))
+    );
+    let heart = p.template(0x4700_080B);
+    assert_eq!(
+        (
+            heart.props.word("Usage_RequiredQuest_ForTaking"),
+            heart.props.word("Usage_RequiredQuestStatus_ForTaking")
+        ),
+        (Some(0x4000_005A), None)
+    );
     let medallion = p.template(0x4700_08CF);
     assert_eq!(medallion.props.word("Usage_RequiredQuest_ForTaking"), None);
+}
+
+/// The quests taking items ask, as the install's classes name them: every template whose class or
+/// one of its bases sets a quest for taking it, read by the quest's name, at the status for taking
+/// its class sets (none where it sets only the status for using it).
+fn quests_for_taking() -> std::collections::BTreeMap<u32, (u32, Option<u32>)> {
+    use yalain_content::props::{TAKING_QUEST, TAKING_STATUS};
+    use yalain_content::Props;
+    let p = Portal::open();
+    let lib = p.library();
+    let quest = |name: &str| p.quest_ids().get(name).copied();
+    let entity = |id: u32| auberean_assets::decode(id, &p.dat.read(id).ok()?, &p.ctx).ok();
+    let mut by_class = std::collections::HashMap::new();
+    let ids: Vec<u32> = p
+        .dat
+        .entries_in(0x4700_0000, 0x47FF_FFFF)
+        .map(|e| e.id)
+        .collect();
+    let mut read = std::collections::BTreeMap::new();
+    for t in ids {
+        let Some(class) = Props::class_of(t, &entity) else {
+            continue;
+        };
+        let said = by_class
+            .entry(class)
+            .or_insert_with(|| yalain_world_db::install::class_properties(&lib, class));
+        let props = Props::default().with_class(said).with_quest_named(&quest);
+        if let Some(q) = props.word(TAKING_QUEST) {
+            read.insert(t, (q, props.word(TAKING_STATUS)));
+        }
+    }
+    read
+}
+
+/// The install's classes keep 93 templates from those who may not take them: 87 at the status for
+/// taking their classes set, among them the Ancients' and Sun Blaze relics by their Golden Age
+/// bases; and 6 under way at any phase, since their classes set only the status for using them.
+/// Behaviour: server.content.take-gates-of-classes
+#[test]
+fn the_quests_taking_items_ask_read_from_their_classes_code() {
+    let read = quests_for_taking();
+    assert_eq!(read.len(), 93);
+    let relics = read
+        .values()
+        .filter(|g| **g == (0x4000_006D, Some(0x1000_0004)))
+        .count();
+    assert_eq!(relics, 57, "the Golden Age relics and their kin");
+    for t in [0x4700_11C7, 0x4700_14E3, 0x4700_2058, 0x4700_186E] {
+        assert_eq!(
+            read.get(&t),
+            Some(&(0x4000_006D, Some(0x1000_0004))),
+            "{t:#x}"
+        );
+    }
+    for (t, quest) in [
+        (0x4700_080B, 0x4000_005A),
+        (0x4700_08D1, 0x4000_006D),
+        (0x4700_1463, 0x4000_007E),
+        (0x4700_1464, 0x4000_007E),
+        (0x4700_1465, 0x4000_007E),
+        (0x4700_1867, 0x4000_006D),
+    ] {
+        assert_eq!(read.get(&t), Some(&(quest, None)), "{t:#x}");
+    }
+    assert_eq!(read.values().filter(|g| g.1.is_none()).count(), 6);
+}
+
+/// The table a generator once made of the quests taking items ask, against the install's classes:
+/// 49 of its 55 rows are what the classes say; its other 6 hold the status for using the item the
+/// classes set, not one for taking it; and the classes gate 38 more, through their bases.
+/// Behaviour: server.content.take-gates-of-classes
+#[test]
+fn the_generated_take_gates_differ_from_the_classes_in_six_statuses_and_38_relics() {
+    const GENERATED: [(u32, u32, u32); 55] = [
+        (0x47000605, 0x4000005C, 0x10000000),
+        (0x47000608, 0x40000023, 0x10000002),
+        (0x47000609, 0x40000024, 0x10000002),
+        (0x4700060A, 0x40000025, 0x10000002),
+        (0x4700060B, 0x40000026, 0x10000002),
+        (0x4700060C, 0x40000027, 0x10000002),
+        (0x4700060D, 0x4000002C, 0x30000000),
+        (0x47000675, 0x40000010, 0x10000002),
+        (0x4700080B, 0x4000005A, 0x30000000),
+        (0x470008D0, 0x4000006D, 0x10000000),
+        (0x470008D1, 0x4000006D, 0x10000003),
+        (0x47000AEA, 0x4000005A, 0x10000000),
+        (0x47000AEB, 0x4000005A, 0x10000000),
+        (0x47000AEC, 0x4000005A, 0x10000000),
+        (0x47000AED, 0x4000005A, 0x10000000),
+        (0x47000AEE, 0x4000005A, 0x10000000),
+        (0x47001330, 0x40000069, 0x10000003),
+        (0x47001331, 0x4000006B, 0x10000002),
+        (0x47001332, 0x4000006A, 0x10000002),
+        (0x47001333, 0x4000006C, 0x10000002),
+        (0x47001346, 0x40000084, 0x10000002),
+        (0x47001463, 0x4000007E, 0x10000002),
+        (0x47001464, 0x4000007E, 0x10000002),
+        (0x47001465, 0x4000007E, 0x10000002),
+        (0x47001469, 0x4000007E, 0x10000002),
+        (0x4700146A, 0x4000007E, 0x10000002),
+        (0x4700146B, 0x4000007E, 0x10000002),
+        (0x4700146C, 0x4000007E, 0x10000002),
+        (0x470014D8, 0x40000079, 0x10000002),
+        (0x470016C0, 0x40000076, 0x10000001),
+        (0x470016C1, 0x40000077, 0x10000001),
+        (0x470016C2, 0x40000078, 0x10000001),
+        (0x47001864, 0x4000006D, 0x10000004),
+        (0x47001865, 0x4000006D, 0x10000004),
+        (0x47001866, 0x4000006D, 0x10000004),
+        (0x47001867, 0x4000006D, 0x10000001),
+        (0x47001868, 0x4000006D, 0x10000004),
+        (0x47001869, 0x4000006D, 0x10000004),
+        (0x4700186A, 0x4000006D, 0x10000004),
+        (0x4700186B, 0x4000006D, 0x10000004),
+        (0x4700186C, 0x4000006D, 0x10000004),
+        (0x4700186E, 0x4000006D, 0x10000004),
+        (0x47001870, 0x4000006D, 0x10000004),
+        (0x47001871, 0x4000006D, 0x10000004),
+        (0x47001872, 0x4000006D, 0x10000004),
+        (0x47001873, 0x4000006D, 0x10000004),
+        (0x47001874, 0x4000006D, 0x10000004),
+        (0x47001875, 0x4000006D, 0x10000004),
+        (0x47001876, 0x4000006D, 0x10000004),
+        (0x47001877, 0x4000006D, 0x10000004),
+        (0x47001878, 0x4000006D, 0x10000004),
+        (0x47001AEC, 0x40000088, 0x10000005),
+        (0x47001AED, 0x40000088, 0x10000005),
+        (0x47001AF1, 0x40000088, 0x10000003),
+        (0x47002057, 0x4000006D, 0x10000004),
+    ];
+    let read = quests_for_taking();
+    let mut same = 0;
+    let mut use_status = Vec::new();
+    for (t, quest, status) in GENERATED {
+        match read.get(&t) {
+            Some(&(q, Some(s))) if (q, s) == (quest, status) => same += 1,
+            Some(&(q, None)) if q == quest => use_status.push(t),
+            other => panic!("{t:#x}: {other:?}"),
+        }
+    }
+    assert_eq!(same, 49);
+    assert_eq!(
+        use_status,
+        [
+            0x4700_080B,
+            0x4700_08D1,
+            0x4700_1463,
+            0x4700_1464,
+            0x4700_1465,
+            0x4700_1867
+        ]
+    );
+    let more: Vec<u32> = read
+        .keys()
+        .copied()
+        .filter(|t| !GENERATED.iter().any(|g| g.0 == *t))
+        .collect();
+    assert_eq!(more.len(), 38, "{more:x?}");
 }
 
 /// Three skills' definitions say how much faster they go: Sinew Snap 1.6, the two drudges' 1.4; no

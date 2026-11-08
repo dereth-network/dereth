@@ -28,6 +28,16 @@ fn band(pace: f32) -> std::ops::RangeInclusive<f32> {
     (at * 0.9 - 1e-3)..=(at * 1.1 + 1e-3)
 }
 
+/// Give a wielded item a combat delay of nothing of its own (a starting weapon's is 70), so a
+/// player holding it swings at the plain's time scale.
+pub(super) fn without_delay(h: &mut Harness, item: u64) {
+    let t = h.server.things.get_mut(item).expect("made");
+    t.own.made = Some(yalain_world::made::Made {
+        delay: Some(0),
+        ..Default::default()
+    });
+}
+
 /// A record on the player of a made-up attack-speed effect, multiplying or adding.
 pub(super) fn speeded(h: &mut Harness, class: u32, value: f32, multiplies: bool) {
     let state = FIRST_STATE + u32::try_from(h.server.effect_table.effects.len()).unwrap_or(0);
@@ -94,7 +104,8 @@ fn with_a_sword() -> (Harness, usize, u64, u64) {
             _ => None,
         })
         .expect("the camp's creature");
-    h.arm(b, me, STARTER_SWORD);
+    let sword = h.arm(b, me, STARTER_SWORD);
+    without_delay(&mut h, sword);
     // It outlasts what the beetle does back.
     for p in h.server.players.values_mut() {
         quals::set_int(&mut p.qualities, quality::HEALTH_MAX, 10_000_000);

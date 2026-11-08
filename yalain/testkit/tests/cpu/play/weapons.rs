@@ -155,7 +155,8 @@ fn a_bow_shoots_from_afar_and_its_target_tells_each_arrival() {
 #[test]
 fn a_bows_shots_go_at_its_players_pace() {
     let (mut h, b, me, beetle) = beetle_at(6.0);
-    h.arm(b, me, BOW);
+    let bow = h.arm(b, me, BOW);
+    super::attack_speed::without_delay(&mut h, bow);
     super::attack_speed::speeded(&mut h, 27, 1.7, true);
     let from = attack(&mut h, b, beetle);
     let mut told = Vec::new();

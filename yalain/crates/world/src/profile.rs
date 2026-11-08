@@ -1574,28 +1574,6 @@ impl ItemView {
     }
 }
 
-/// The facts the human starting weapons' classes give them: their names and descriptions in
-/// their own tables (the bow's "Sapling Bow", the stave's "Apprentice Staff", the sword's "Rusty
-/// Sword", as the client names them), value 1, damage 9 with variance 0.24, delay 70, vigor 4,
-/// and the races that may use them.
-#[must_use]
-pub fn starting_weapon(template: u32) -> Option<ItemView> {
-    let (table, races) = match template {
-        0x4700_051B => (Some(0x2500_0184), 1),
-        0x4700_051D => (Some(0x2500_0C88), 3),
-        0x4700_051C => (Some(0x2500_1A66), 0),
-        _ => return None,
-    };
-    Some(ItemView {
-        name: table.map(|t| string(t, item_line::NAME)),
-        value: 1,
-        description: table.map(|t| string(t, item_line::DESCRIPTION)),
-        weapon: Some((9, 0.24, 70, 4)),
-        races,
-        ..ItemView::default()
-    })
-}
-
 impl ItemView {
     /// What a template's properties say of an item of it, with its count and value (an item's
     /// own value, else the template's times the count), told whether its class is a shield's.

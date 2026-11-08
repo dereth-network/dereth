@@ -338,11 +338,9 @@ fn a_use_pays_for_each_weapon_and_the_shield_by_their_own_numbers() {
     );
     let p = h.server.players.get_mut(&world).unwrap();
     p.play.items.clear();
-    h.server.catalog.insert(yalain_testkit::test_template(
-        0x4700_051C,
-        0x1067,
-        Props::default(),
-    ));
+    h.server
+        .catalog
+        .insert(yalain_testkit::starting_weapon(0x4700_051C));
     hold(&mut h, world, 0x4700_051C, PRIMARY_HAND);
     assert_eq!(cost(&h).weapons, 4, "a starting weapon's");
 }

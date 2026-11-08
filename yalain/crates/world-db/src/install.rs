@@ -16,6 +16,7 @@ use auberean_script::library::Library;
 use auberean_script::native_object::{Item, NativeObject};
 use auberean_script::opcode::{length, low_byte, signed, tag_of};
 use auberean_script::value::{join, tag, FunctionId};
+use yalain_content::props::{TAKING_QUEST, TAKING_STATUS};
 use yalain_content::stores::SaleGate;
 use yalain_content::{FactIds, Prop, Props, FACT_NAMES};
 
@@ -548,8 +549,9 @@ fn read_setup(lib: &Library, start: usize, end: usize) -> Setup {
 
 /// The calls a template's class makes that say what its properties would, and the property each
 /// says: a weapon's damage, variance, vigor and speed; its value; a garment's and a shield's armor
-/// and delay; its least level and race; how long a creature's corpse lasts.
-const CLASS_SETTERS: [(u32, &str); 14] = [
+/// and delay; its least level and race; the quest and its status that taking it asks; how long a
+/// creature's corpse lasts.
+const CLASS_SETTERS: [(u32, &str); 16] = [
     (0x019E_000D, "Weapon_Damage"),
     (0x019E_000E, "Weapon_Variance"),
     (0x019E_001E, "Weapon_VigorCost"),
@@ -561,10 +563,15 @@ const CLASS_SETTERS: [(u32, &str); 14] = [
     (0x019D_000C, "Item_CombatDelay"),
     (0x0172_00EA, "Usage_MinLevel"),
     (0x0172_0001, "Usage_RequiredRace"),
+    (0x0172_00AC, TAKING_QUEST),
+    (0x0172_00B0, TAKING_STATUS),
     (0x00B7_004D, "NPC_BaseRotTime"),
     (0x00B7_00C2, "NPC_MaxAcceleratedRotTime"),
     (0x00B7_0098, "NPC_MinAcceleratedRotTime"),
 ];
+
+/// The library's call that turns a name into its enumeration's value.
+const LOOK_UP_NAME: u32 = 0x0023_0003;
 
 /// What the code of an item's class literally says of its properties, the class's own over its bases',
 /// for a template that names them nowhere else (2017: the weapons that keep what their class says,
@@ -609,6 +616,11 @@ pub fn class_properties(lib: &Library, package: u32) -> Vec<(&'static str, Prop)
 fn class_literals(lib: &Library, start: usize, end: usize) -> Vec<(&'static str, Prop)> {
     let mut out = Vec::new();
     let mut literal: Option<Prop> = None;
+    // The last string literal, and the last name looked up in an enumeration: a class keeps the
+    // value it looks up in a local and passes that to the setter, so the name is kept until a
+    // setter or another call takes it.
+    let mut text: Option<String> = None;
+    let mut named: Option<String> = None;
     let mut at = start;
     while at < end {
         let word = lib.code[at];
@@ -621,12 +633,42 @@ fn class_literals(lib: &Library, start: usize, end: usize) -> Vec<(&'static str,
                     .map(|v| Prop::Float(f32::from_bits(*v)));
             }
             0x02 => literal = lib.code.get(at + 1).map(|v| Prop::Int(i64::from(*v))),
+            0x08 => {
+                literal = None;
+                text = lib
+                    .code
+                    .get(at + 1)
+                    .and_then(|n| lib.literals.get(*n as usize))
+                    .map(|units| String::from_utf16_lossy(units));
+            }
             0x23 => {}
+            0x0C | 0x50 | 0x52 | 0x54 => {
+                let id = lib.code.get(at + 1).copied().unwrap_or(0);
+                named = if id & 0x7FFF_FFFF == LOOK_UP_NAME {
+                    text.take()
+                } else {
+                    None
+                };
+                literal = None;
+                text = None;
+            }
             0x0B | 0x4F | 0x51 | 0x53 => {
                 let id = lib.code.get(at + 1).copied().unwrap_or(0);
                 let called = id & 0x7FFF_FFFF;
+                let named = named.take();
+                text = None;
                 if let Some((_, name)) = CLASS_SETTERS.iter().find(|(s, _)| *s == called) {
                     match (*name, literal.take()) {
+                        // The quest, by the name looked up for it.
+                        (TAKING_QUEST, None) => {
+                            if let Some(n) = named {
+                                out.push((*name, Prop::Text(n)));
+                            }
+                        }
+                        // A quest's status is an enumeration's value.
+                        (TAKING_STATUS, Some(Prop::Int(i))) => {
+                            out.push((*name, Prop::Word(u32::try_from(i).unwrap_or(0))));
+                        }
                         // A class that sets its value at nothing is worth nothing, whatever its
                         // bases set.
                         ("Item_Value", Some(Prop::Int(0))) => out.push((*name, Prop::Int(0))),

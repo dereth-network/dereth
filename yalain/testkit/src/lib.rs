@@ -1529,6 +1529,202 @@ pub fn test_template(
     }
 }
 
+/// A race's starting weapon as the September 2013 install describes it (its qualities and its
+/// class's code), for tests without the install.
+#[derive(Debug, Clone, Copy)]
+pub struct StartingWeapon {
+    pub template: u32,
+    /// Its script package and look.
+    pub package: u32,
+    pub look: u32,
+    /// What it is wielded as.
+    pub implement: u32,
+    /// The table of its name and description.
+    pub table: u32,
+    /// The races it is for (none: any).
+    pub races: u32,
+    /// Where it may go and hangs: valid, preferred, precluded, primary, secondary.
+    pub places: [u32; 5],
+    /// Its stances: alone, with a shield, with a second weapon.
+    pub stances: [u32; 3],
+}
+
+/// The races' starting weapons, as [`StartingWeapon`] gives each.
+pub const STARTING_WEAPONS: [StartingWeapon; 9] = {
+    use yalain_world::skill_use::implement as im;
+    const BOW_MODES: [u32; 3] = [0x4100_0010; 3];
+    const STAFF_MODES: [u32; 3] = [0x4100_0011; 3];
+    const SWORD_MODES: [u32; 3] = [0x4100_000A, 0x4100_000B, 0x4100_000E];
+    const TWO_HANDS: [u32; 5] = [64, 64, 128, 1, 2];
+    const ONE_HAND: [u32; 5] = [192, 64, 0, 1, 0x4000_0006];
+    #[allow(clippy::too_many_arguments)]
+    const fn w(
+        template: u32,
+        package: u32,
+        look: u32,
+        implement: u32,
+        table: u32,
+        races: u32,
+        places: [u32; 5],
+        stances: [u32; 3],
+    ) -> StartingWeapon {
+        StartingWeapon {
+            template,
+            package,
+            look,
+            implement,
+            table,
+            races,
+            places,
+            stances,
+        }
+    }
+    [
+        w(
+            0x4700_051B,
+            0x1067,
+            0x1F00_0063,
+            im::BOW,
+            0x2500_0184,
+            1,
+            [64, 64, 128, 2, 1],
+            BOW_MODES,
+        ),
+        w(
+            0x4700_051C,
+            0x1145,
+            0x1F00_0744,
+            im::SWORD,
+            0x2500_1A66,
+            0,
+            ONE_HAND,
+            SWORD_MODES,
+        ),
+        w(
+            0x4700_051D,
+            0x1141,
+            0x1F00_02A6,
+            im::STAVE,
+            0x2500_0C88,
+            3,
+            TWO_HANDS,
+            STAFF_MODES,
+        ),
+        w(
+            0x4700_0515,
+            0x1151,
+            0x1F00_0057,
+            im::SWORD,
+            0x2500_01BA,
+            0,
+            ONE_HAND,
+            SWORD_MODES,
+        ),
+        w(
+            0x4700_0516,
+            0x1096,
+            0x1F00_0321,
+            im::HAMMER,
+            0x2500_0CBD,
+            2,
+            [192, 64, 0, 4, 16],
+            BOW_MODES,
+        ),
+        w(
+            0x4700_0517,
+            0x1128,
+            0x1F00_0742,
+            im::STAVE,
+            0x2500_1A61,
+            3,
+            TWO_HANDS,
+            STAFF_MODES,
+        ),
+        w(
+            0x4700_0521,
+            0x1085,
+            0x1F00_005D,
+            im::DRUM,
+            0x2500_0C8C,
+            4,
+            [64, 64, 128, 3, 3],
+            STAFF_MODES,
+        ),
+        w(
+            0x4700_0522,
+            0x113B,
+            0x1F00_02AE,
+            im::SPEAR,
+            0x2500_0C9E,
+            4,
+            [64, 64, 0, 4, 2],
+            BOW_MODES,
+        ),
+        w(
+            0x4700_0523,
+            0x115D,
+            0x1F00_02B9,
+            im::SWORD,
+            0x2500_0CA8,
+            0,
+            ONE_HAND,
+            SWORD_MODES,
+        ),
+    ]
+};
+
+/// A starting weapon's template, as [`STARTING_WEAPONS`] gives it: what its qualities and class say
+/// (each worth 1, at least level 1, damage 9 with variance 0.24, speed 70, vigor 4).
+///
+/// # Panics
+/// The template is not a starting weapon.
+#[must_use]
+pub fn starting_weapon(template: u32) -> yalain_content::Template {
+    use yalain_content::Prop;
+    use yalain_world::profile::item_line;
+    let w = STARTING_WEAPONS
+        .into_iter()
+        .find(|w| w.template == template)
+        .expect("a starting weapon");
+    let mut props = yalain_content::Props::default();
+    let int = |v: u32| Prop::Int(i64::from(v));
+    props
+        .set("Name", Prop::Str(item_line::NAME, w.table))
+        .set("Description", Prop::Str(item_line::DESCRIPTION, w.table))
+        .set("Item_ImplementType", int(w.implement))
+        .set("Item_Value", Prop::Int(1))
+        .set("Usage_MinLevel", Prop::Int(1))
+        .set("Usage_MinLevel_OfClass", Prop::Bool(true))
+        .set("Weapon_Damage", Prop::Int(9))
+        .set("Weapon_Variance", Prop::Float(0.24))
+        .set("Weapon_Speed", Prop::Int(70))
+        .set("Weapon_VigorCost", Prop::Int(4));
+    let places = [
+        "Item_ValidInventoryLocations",
+        "Item_PreferredInventoryLocation",
+        "Item_PrecludedInventoryLocations",
+        "Item_PrimaryParentingLocation",
+        "Item_SecondaryParentingLocation",
+    ];
+    for (name, v) in places.into_iter().zip(w.places) {
+        props.set(name, int(v));
+    }
+    let stances = [
+        "Weapon_SingleWeaponStance",
+        "Weapon_ShieldStance",
+        "Weapon_TwoWeaponStance",
+    ];
+    for (name, v) in stances.into_iter().zip(w.stances) {
+        props.set(name, int(v));
+    }
+    if w.races != 0 {
+        props.set("Usage_RequiredRace", Prop::Word(w.races));
+    }
+    let mut t = test_template(w.template, w.package, props);
+    t.description.look = w.look;
+    t
+}
+
 /// What the test world plays: one beetle template, the item it drops, and its loot profile.
 #[must_use]
 pub fn test_catalog() -> yalain_content::Catalog {

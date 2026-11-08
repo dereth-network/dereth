@@ -173,27 +173,15 @@ fn the_skills_that_strike_twice_read_with_each_blows_hand() {
     assert_eq!(hands(62), [false], "the hook that only plays is no blow");
 }
 
-/// What a weapon is wielded as is what its class says: each starting weapon's table entry is its
-/// class's, and the install's other weapons are known by theirs.
+/// What a weapon is wielded as is what its class says: the library holds every class the server
+/// knows implements by, and the install's weapons are known by theirs.
 /// Behaviour: server.weapons.implement-by-class-read
 #[test]
 fn a_weapons_implement_is_what_its_class_says() {
-    use yalain_world::skill_use::{implements_of_catalog, starting_implement, STARTING_WEAPONS};
     let p = Portal::open();
     let lib = p.library();
-    let mut catalog = yalain_content::Catalog::default();
     for (name, _) in yalain_world::skill_use::IMPLEMENT_CLASSES {
         assert!(lib.package_id(name).is_some(), "the library has {name}");
-    }
-    for (t, _) in STARTING_WEAPONS {
-        catalog.insert(p.template(t));
-    }
-    let read = implements_of_catalog(&catalog, |package, class| {
-        lib.package_id(class)
-            .is_some_and(|base| lib.derives_from(package, base))
-    });
-    for (t, _) in STARTING_WEAPONS {
-        assert_eq!(read.get(&t).copied(), starting_implement(t), "{t:#x}");
     }
     let of = |class: &str, base: &str| {
         lib.derives_from(
@@ -203,6 +191,131 @@ fn a_weapons_implement_is_what_its_class_says() {
     };
     assert!(of("HandbladeRavager", "HandbladeTemplate"));
     assert!(of("PolearmLugianHammerbladeGoldenAge", "PolearmTemplate"));
+}
+
+/// The starting weapons read all the server needs of them from the install: each its implement
+/// (by its class, and as its qualities name it), its vigor 4, how it is held, and what examining
+/// it shows (the human bow's, staff's and sword's names, descriptions and numbers).
+/// Behaviour: server.weapons.implement-by-class-read
+#[test]
+fn the_starting_weapons_read_their_implements_vigor_holds_and_facts() {
+    use yalain_world::equip::{hold_of, Hold, SWORD};
+    use yalain_world::skill_use::{implement as im, implements_of_catalog};
+    let p = Portal::open();
+    let lib = p.library();
+    let starting = [
+        (0x4700_051B, im::BOW),
+        (0x4700_051C, im::SWORD),
+        (0x4700_051D, im::STAVE),
+        (0x4700_0515, im::SWORD),
+        (0x4700_0516, im::HAMMER),
+        (0x4700_0517, im::STAVE),
+        (0x4700_0521, im::DRUM),
+        (0x4700_0522, im::SPEAR),
+        (0x4700_0523, im::SWORD),
+    ];
+    let mut catalog = yalain_content::Catalog::default();
+    for (t, _) in starting {
+        catalog.insert(p.template(t));
+    }
+    let by_class = implements_of_catalog(&catalog, |package, class| {
+        lib.package_id(class)
+            .is_some_and(|base| lib.derives_from(package, base))
+    });
+    for (t, implement) in starting {
+        let props = &catalog.get(t).expect("in the catalog").props;
+        assert_eq!(by_class.get(&t).copied(), Some(implement), "{t:#x}");
+        assert_eq!(props.word("Item_ImplementType"), Some(implement), "{t:#x}");
+        assert_eq!(props.int("Weapon_VigorCost"), Some(4), "{t:#x}");
+    }
+    let held_in_both = |primary, secondary| Hold {
+        primary,
+        secondary,
+        valid: 64,
+        taken: 192,
+        precluded: 128,
+        ..SWORD
+    };
+    assert_eq!(
+        hold_of(&catalog, 0x4700_051B),
+        held_in_both(2, 1),
+        "the bow"
+    );
+    assert_eq!(
+        hold_of(&catalog, 0x4700_051D),
+        held_in_both(1, 2),
+        "the staff"
+    );
+    for sword in [0x4700_051C, 0x4700_0515, 0x4700_0523] {
+        assert_eq!(hold_of(&catalog, sword), SWORD, "{sword:#x}");
+    }
+    let shown = |t: u32| {
+        let mut v = yalain_world::profile::ItemView::of(
+            &catalog.get(t).expect("in the catalog").props,
+            1,
+            None,
+            false,
+        );
+        assert_eq!(
+            v.min_level, 1,
+            "{t:#x}: a least level the profile doesn't show"
+        );
+        v.min_level = 0;
+        v
+    };
+    for (t, table, races) in [
+        (0x4700_051B, 0x2500_0184, 1),
+        (0x4700_051D, 0x2500_0C88, 3),
+        (0x4700_051C, 0x2500_1A66, 0),
+    ] {
+        let v = shown(t);
+        assert_eq!(
+            (v.value, v.weapon, v.races),
+            (1, Some((9, 0.24, 70, 4)), races),
+            "{t:#x}"
+        );
+        assert_eq!(
+            catalog.get(t).expect("in the catalog").props.get("Name"),
+            Some(&yalain_content::Prop::Str(
+                yalain_world::profile::item_line::NAME,
+                table
+            )),
+            "{t:#x}"
+        );
+        let props = &catalog.get(t).expect("in the catalog").props;
+        assert_eq!(
+            props.get("Description"),
+            Some(&yalain_content::Prop::Str(
+                yalain_world::profile::item_line::DESCRIPTION,
+                table
+            )),
+            "{t:#x}"
+        );
+    }
+}
+
+/// The test world's starting weapons are the install's, as the server reads them: each the same
+/// properties, script package, look and implement.
+/// Behaviour: server.weapons.implement-by-class-read
+#[test]
+fn the_test_worlds_starting_weapons_are_the_installs() {
+    let p = Portal::open();
+    for w in yalain_testkit::STARTING_WEAPONS {
+        let (t, implement) = (w.template, w.implement);
+        let read = p.template(t);
+        let ours = yalain_testkit::starting_weapon(t);
+        assert_eq!(ours.props, read.props, "{t:#x}");
+        assert_eq!(
+            (ours.description.package, ours.description.look),
+            (read.description.package, read.description.look),
+            "{t:#x}"
+        );
+        assert_eq!(
+            Some(implement),
+            read.props.word("Item_ImplementType"),
+            "{t:#x}"
+        );
+    }
 }
 
 /// The hall's practice dummy has the body its look's setup gives (radius 0.71, height 2.0).

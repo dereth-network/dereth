@@ -53,6 +53,12 @@ const PLACE_QUALITIES: [(&str, u32); 9] = [
 const LEAST_LEVEL: &str = "Usage_MinLevel";
 const LEAST_LEVEL_OF_CLASS: &str = "Usage_MinLevel_OfClass";
 
+/// The property naming the quest taking an item asks, and the one naming the status it asks the
+/// quest to be at. A class names the quest by its name: [`Props::with_quest_named`] makes it the
+/// quest's id.
+pub const TAKING_QUEST: &str = "Usage_RequiredQuest_ForTaking";
+pub const TAKING_STATUS: &str = "Usage_RequiredQuestStatus_ForTaking";
+
 impl Props {
     /// The properties along a template's chain: the template's own, then its parent's that it
     /// does not set, up to its class.
@@ -142,19 +148,20 @@ impl Props {
         self
     }
 
-    /// With the quest that keeps an item from being taken, for a template whose class names it in code.
+    /// With the quest that keeps an item from being taken as its id, where its class names the
+    /// quest by its name (`quest` gives a name's id); none where the name is no quest's.
     #[must_use]
-    pub fn with_take_gate_of(mut self, template: u32) -> Self {
-        if let Some((_, quest, status)) = crate::take_gates::TAKE_GATES
-            .iter()
-            .find(|(t, ..)| *t == template)
-        {
-            self.values
-                .insert("Usage_RequiredQuest_ForTaking".into(), Prop::Word(*quest));
-            self.values.insert(
-                "Usage_RequiredQuestStatus_ForTaking".into(),
-                Prop::Word(*status),
-            );
+    pub fn with_quest_named(mut self, quest: &dyn Fn(&str) -> Option<u32>) -> Self {
+        if let Some(Prop::Text(name)) = self.values.get(TAKING_QUEST) {
+            match quest(name) {
+                Some(id) => {
+                    self.values.insert(TAKING_QUEST.into(), Prop::Word(id));
+                }
+                None => {
+                    self.values.remove(TAKING_QUEST);
+                    self.values.remove(TAKING_STATUS);
+                }
+            }
         }
         self
     }

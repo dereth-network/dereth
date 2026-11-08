@@ -114,6 +114,8 @@ pub struct Portal {
     pub ctx: Context,
     /// The script library, read once: a catalog asks it of every template.
     library: std::sync::OnceLock<Library>,
+    /// The quests' ids by their names, read once.
+    quests: std::sync::OnceLock<std::collections::HashMap<String, u32>>,
 }
 
 impl std::fmt::Debug for Portal {
@@ -187,6 +189,7 @@ impl Portal {
             dat,
             ctx,
             library: std::sync::OnceLock::new(),
+            quests: std::sync::OnceLock::new(),
         }
     }
 
@@ -218,6 +221,24 @@ impl Portal {
         }
     }
 
+    /// The quests' ids by their names, as the install's enumeration of them gives them.
+    ///
+    /// # Panics
+    /// The enumeration does not read.
+    #[must_use]
+    pub fn quest_ids(&self) -> &std::collections::HashMap<String, u32> {
+        self.quests.get_or_init(|| {
+            let id = yalain_world_db::install::QUEST_NAMES;
+            let names: EnumMap = auberean_assets::decode(
+                id,
+                &self.dat.read(id).expect("the quests' names"),
+                &self.ctx,
+            )
+            .expect("the quests' names read");
+            names.names.into_iter().map(|(v, n)| (n, v)).collect()
+        })
+    }
+
     /// A template of the install, described.
     ///
     /// # Panics
@@ -239,8 +260,8 @@ impl Portal {
         let props = Props::of(id, &|e| self.entity(e), &name)
             .with_places_of(self.qualities(yalain_content::qualities_id(id)).as_ref())
             .with_worn_of(id)
-            .with_take_gate_of(id)
-            .with_class(&class);
+            .with_class(&class)
+            .with_quest_named(&|n| self.quest_ids().get(n).copied());
         Template {
             id,
             description: describe(id, &|e| self.entity(e), &|q| self.qualities(q))

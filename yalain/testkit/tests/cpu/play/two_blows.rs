@@ -389,7 +389,8 @@ fn what_is_worn_does_not_take_the_place_of_what_is_wielded() {
             .insert(yalain_testkit::test_template(HAT, 0x200, Props::default()));
         h.server
             .catalog
-            .insert(yalain_testkit::test_template(BOW, 0x1067, Props::default()));
+            .insert(yalain_testkit::starting_weapon(BOW));
+        h.server.catalog.implements.insert(BOW, im::BOW);
         for (template, location) in order {
             hold(&mut h, me, template, location);
         }

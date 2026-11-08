@@ -38,7 +38,6 @@ pub mod quests;
 pub mod spawns;
 pub mod stores;
 pub mod story;
-pub mod take_gates;
 pub mod talk;
 pub mod treasure_effects;
 pub mod treasure_looks;
