@@ -1984,8 +1984,13 @@ function worldPage() {
   // Asheron's Call 2: the client, and the data files it plays (the retail client its own).
   const ac2Sets = librarySets("auberean");
   const moreOption = (s) => `<option value="${esc(s.id)}" ${s.id === f.dat_set_id ? "selected" : ""}>${esc(s.label)}</option>`;
-  const ac2Data = f.client === "retail"
-    ? `<label class="lab">DATA</label><div class="plain">The data files beside the retail client <span class="muted small">${esc(ui.snap.state.auberean?.retail?.path ?? "")}</span></div>`
+  // A world that writes into the retail client's files plays from a copy of the install of its own.
+  const ac2Copy = ui.snap.state.auberean?.retail_copies?.[world.slug];
+  const ac2Data = f.client === "retail" && ac2Copy
+    ? `<label class="lab">DATA</label><div class="plain">This world's own copy of the retail client <span class="muted small">${esc(ac2Copy)}</span></div>`
+    : f.client === "retail"
+    ? `<label class="lab">DATA</label><div class="plain">The data files beside the retail client <span class="muted small">${esc(ui.snap.state.auberean?.retail?.path ?? "")}</span></div>
+       ${w.view.offers_private_copy ? `<span></span><div class="pair"><span class="muted small">This world writes to the retail client's files.</span><button type="button" class="btn" data-act="retail-copy">Create a private copy (3.7 GB)</button></div>` : ""}`
     : ac2Sets.length || more?.length
     ? `<label class="lab" for="dats">DATA</label><select id="dats" class="field">${ac2Sets.length ? "" : none(f.dat_set_id)}${ac2Sets.map((s) => option(s, f.dat_set_id)).join("")}${(more ?? []).map(moreOption).join("")}</select>`
     : `<label class="lab">DATA</label><div class="pair"><span class="warn small">You have no Asheron's Call 2 game files yet. Add them in the Library.</span><button class="btn" data-go="library">Library</button></div>`;
@@ -2810,6 +2815,7 @@ document.addEventListener("click", async (ev) => {
       break;
     }
     case "world-play": { const c = formChoice(); if (c) await play(c); break; }
+    case "retail-copy": await act("create_private_copy", { slug: ui.world.view.world.slug }); ui.world.notice = "Copying the retail client for this world. PLAY when it is done."; render(); break;
     case "add-account": ui.world.form = { ...ui.world.form, adding: true, account: "", password: "", remembered: false }; render(); focusSoon("acct-name"); break;
     case "known-accounts": { const a = ui.world.view.accounts[0]; ui.world.form = { ...ui.world.form, adding: false, account: a.username, password: "", remember: a.remember }; await recallPassword(); render(); break; }
     case "choose-retail": {

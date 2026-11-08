@@ -1346,7 +1346,10 @@ impl Backend {
                 dat_sets: Vec::new(),
                 classic_sets: Vec::new(),
                 requires: choices::required_set_for(&world),
-                offers_private_copy: false,
+                offers_private_copy: choices::offers_retail_copy(
+                    &self.state,
+                    &self.with_hosted_facts(world.clone()),
+                ),
                 accounts: self.state.accounts_for(slug).cloned().collect(),
                 prefs,
                 live: self.live.get(slug).cloned(),
@@ -1766,8 +1769,81 @@ impl Backend {
         });
     }
 
-    /// Copy the shared set into a set of the world's own, in the background.
+    /// `world` with what it writes into a retail Asheron's Call 2 install as the configuration
+    /// of the Yalain world this launcher hosts for it says, when it is one: the case its operator
+    /// meets before any list says so.
+    fn with_hosted_facts(&self, mut world: World) -> World {
+        if world.game != Game::Auberean {
+            return world;
+        }
+        let Some(dir) = crate::host_publication::hosted_yalain(&self.folders.data, &world.slug)
+        else {
+            return world;
+        };
+        let text =
+            std::fs::read_to_string(dir.join(crate::host_yalain::CONFIG)).unwrap_or_default();
+        let (patches, library) = crate::host_yalain::writes_players_install(&text);
+        if patches {
+            world.dats.patches_over_wire = Some(true);
+        }
+        if library {
+            world.dats.admin_library = Some(true);
+        }
+        world
+    }
+
+    /// Copy the retail client's install into a copy of the Asheron's Call 2 world `slug`'s own, in
+    /// the background: the world then plays from it, and may write to its data files.
+    fn create_retail_copy(shared: &Shared, slug: &str) {
+        let (from, to, name) = {
+            let mut b = lock(shared);
+            let Some(retail) = b.state.auberean.retail.clone() else {
+                b.say(
+                    "There is no retail client to copy yet. Add one in the Library first.",
+                    true,
+                );
+                return;
+            };
+            let copies = b.library_dir().join("auberean-copies");
+            let Some(to) = (1u32..)
+                .map(|n| copies.join(format!("copy-{n}")))
+                .find(|p| !p.exists())
+            else {
+                return;
+            };
+            let name = b.world(slug).map_or_else(|| slug.to_owned(), |w| w.name);
+            (retail.path, to, name)
+        };
+        let slug = slug.to_owned();
+        let done_to = shared.clone();
+        Self::start_job(
+            shared,
+            format!("Copying the retail client for {name}"),
+            move |report| {
+                dereth_launch::copy::copy_install(&from, &to, &mut |d, t| report(d, t))
+                    .map_err(|e| format!("The copy failed: {e}"))?;
+                let mut b = lock(&done_to);
+                b.state.auberean.retail_copies.insert(slug, to);
+                b.save();
+                b.say(
+                    format!("{name} has its own copy of the retail client now."),
+                    false,
+                );
+                Ok(())
+            },
+        );
+    }
+
+    /// Copy the shared set into a set of the world's own, in the background; for an Asheron's
+    /// Call 2 world, the retail client's install.
     pub fn create_private_copy(shared: &Shared, slug: &str) {
+        if lock(shared)
+            .world(slug)
+            .is_some_and(|w| w.game == Game::Auberean)
+        {
+            Self::create_retail_copy(shared, slug);
+            return;
+        }
         let (from, to, id, name) = {
             let mut b = lock(shared);
             let Some(set) = b.state.shared_set().cloned() else {

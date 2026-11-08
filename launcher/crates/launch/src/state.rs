@@ -420,6 +420,11 @@ pub struct AubereanSettings {
     /// The client the player last played with: Auberean, or the retail client in the install.
     #[serde(default, skip_serializing_if = "is_auberean")]
     pub client: crate::auberean::Client,
+    /// The private copies of the retail client's install, by the world each is for: made when the
+    /// player asks, for a world that writes into the install
+    /// ([`crate::world::World::writes_retail_install`]), which is then played from its copy.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub retail_copies: BTreeMap<String, PathBuf>,
 }
 
 fn is_auberean(client: &crate::auberean::Client) -> bool {

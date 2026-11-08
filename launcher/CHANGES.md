@@ -13,6 +13,7 @@ section, dated, and opens a new empty one in the same commit as the version.
 - A hosted world can update itself, counting down for its players first.
 - Fixed the world list scrolling roughly, and player counts showing over its headings.
 - A world you host keeps its firewall permission when its server updates.
+- An AC2 world that writes to the retail client's files can now be played from a private copy.
 
 ## 0.5.2 (2026-11-07)
 - AC1999 is listed and played through a relay.

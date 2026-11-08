@@ -193,6 +193,30 @@ pub fn read(dir: &Path) -> Result<Settings, String> {
     from_config(&text)
 }
 
+/// What a Yalain world's configuration `text` says it writes into a retail client's data files:
+/// whether it patches them (`[dat_overlay]` with a `path`, its `patching` not turned off), and
+/// whether it serves the admin library (`[server.accounts] serve_admin_library`). Neither, for
+/// text that doesn't read.
+#[must_use]
+pub fn writes_players_install(text: &str) -> (bool, bool) {
+    let Ok(doc) = text.parse::<DocumentMut>() else {
+        return (false, false);
+    };
+    let overlay = doc.get("dat_overlay");
+    let patches = overlay.and_then(|o| o.get("path")).is_some()
+        && overlay
+            .and_then(|o| o.get("patching"))
+            .and_then(toml_edit::Item::as_bool)
+            != Some(false);
+    let library = doc
+        .get("server")
+        .and_then(|s| s.get("accounts"))
+        .and_then(|a| a.get("serve_admin_library"))
+        .and_then(toml_edit::Item::as_bool)
+        == Some(true);
+    (patches, library)
+}
+
 /// The configuration file's `original` text with `settings` saved over it, keeping every key the
 /// page has no field for and every comment: Empyrean's keys where Yalain has the setting, the
 /// welcome message as `message_of_the_day`, the status endpoint on this computer, the world's own
@@ -557,6 +581,30 @@ pub fn local_host(bind: &str) -> String {
 mod tests {
     //! Behaviour: none (the launcher's Yalain worlds: their settings in yalain.toml, and Yalain's command line).
     use super::*;
+
+    /// A world's configuration says it writes into a retail client's data files when it patches
+    /// them from an overlay or serves the admin library, and not otherwise.
+    #[test]
+    fn a_world_writes_into_the_retail_install_when_it_patches_or_serves_the_admin_library() {
+        assert_eq!(writes_players_install("[server]\n"), (false, false));
+        assert_eq!(
+            writes_players_install("[dat_overlay]\npath = \"published/snapshot-1/overlay\"\n"),
+            (true, false)
+        );
+        assert_eq!(
+            writes_players_install("[dat_overlay]\npath = \"o\"\npatching = false\n"),
+            (false, false)
+        );
+        assert_eq!(
+            writes_players_install("[server.accounts]\nserve_admin_library = true\n"),
+            (false, true)
+        );
+        assert_eq!(
+            writes_players_install("[server.accounts]\nserve_admin_library = false\n"),
+            (false, false)
+        );
+        assert_eq!(writes_players_install("not toml ["), (false, false));
+    }
 
     /// A Yalain that says its release facts, pinning the world database `pin`.
     fn yalain_saying(dir: &Path, pin: &str) -> PathBuf {

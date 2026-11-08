@@ -277,6 +277,17 @@ pub fn dat_dirs(
     }
 }
 
+/// Whether an Asheron's Call 2 world's page offers a private copy of the retail client's install,
+/// as an Asheron's Call world's offers a private set ([`offers_private_copy`]): the world writes
+/// into the install ([`World::writes_retail_install`]), there is a retail client to copy, and the
+/// world has no copy yet. A copy is made only when the player asks.
+pub fn offers_retail_copy(state: &LauncherState, world: &World) -> bool {
+    world.game == crate::world::Game::Auberean
+        && world.writes_retail_install()
+        && state.auberean.retail.is_some()
+        && !state.auberean.retail_copies.contains_key(&world.slug)
+}
+
 /// Whether to offer "Create a private copy": the world needs a set of its own, has none, and is not
 /// one whose set comes from its own download.
 pub fn offers_private_copy(state: &LauncherState, world: &World) -> bool {
@@ -572,5 +583,41 @@ mod tests {
             Some(ClientKind::Dereth)
         );
         assert_eq!(default_client(&[], &w, None), None);
+    }
+
+    /// An Asheron's Call 2 world that patches or serves the admin library offers a private copy of
+    /// the retail install, once there is a retail client and until the world has a copy; a world
+    /// that writes nothing, or one of Asheron's Call, doesn't.
+    #[test]
+    fn a_world_that_writes_into_the_retail_install_offers_a_private_copy_until_it_has_one() {
+        let mut state = LauncherState::default();
+        let mut world = World {
+            slug: "dawnsong".into(),
+            game: crate::world::Game::Auberean,
+            ..World::default()
+        };
+        world.dats.admin_library = Some(true);
+        assert!(
+            !offers_retail_copy(&state, &world),
+            "no retail client to copy"
+        );
+        state.auberean.retail = Some(install(ClientKind::Retail, "ac2client-0930"));
+        assert!(offers_retail_copy(&state, &world));
+        world.dats.admin_library = None;
+        assert!(!offers_retail_copy(&state, &world), "writes nothing");
+        world.dats.patches_over_wire = Some(true);
+        assert!(offers_retail_copy(&state, &world));
+        state
+            .auberean
+            .retail_copies
+            .insert("dawnsong".into(), PathBuf::from("C:/copies/dawnsong"));
+        assert!(!offers_retail_copy(&state, &world), "it has one");
+        world.slug = "other".into();
+        assert!(offers_retail_copy(&state, &world));
+        world.game = crate::world::Game::Dereth;
+        assert!(
+            !offers_retail_copy(&state, &world),
+            "a world of the other game"
+        );
     }
 }

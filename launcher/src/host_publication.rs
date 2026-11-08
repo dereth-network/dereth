@@ -1073,6 +1073,19 @@ impl PlayInputs {
     }
 }
 
+/// The folder of the Yalain world this launcher hosts for the player's world `slug`, in the
+/// launcher's data folder `root`, when the player's world is one of those.
+#[must_use]
+pub fn hosted_yalain(root: &Path, slug: &str) -> Option<PathBuf> {
+    let worlds = player_worlds(root).ok()?;
+    let id = worlds.get(slug)?;
+    if id.is_empty() || !id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
+        return None;
+    }
+    let dir = root.join(crate::hosts::AUBEREAN_HOSTS).join(id);
+    dir.is_dir().then_some(dir)
+}
+
 pub fn play_inputs(root: &Path, slug: &str) -> Result<Option<PlayInputs>, String> {
     let worlds = player_worlds(root)?;
     let Some(id) = worlds.get(slug) else {

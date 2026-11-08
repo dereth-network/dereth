@@ -375,19 +375,26 @@ struct Launch<'a> {
     client: Client,
     account: &'a str,
     password: &'a str,
+    /// The world's private copy of the retail client's install, when it has one: the retail
+    /// client plays from it, and may write to its data files.
+    copy: Option<PathBuf>,
 }
 
-/// The library's retail client the launcher starts: the September 2013 client, on Windows, with
-/// the data files beside it ready.
-fn retail_client(b: &backend::Shared) -> Result<RetailClient, String> {
+/// The library's retail client the launcher starts, or the one in the world's private copy of
+/// its install (`copy`): the September 2013 client, on Windows, with the data files beside it
+/// ready.
+fn retail_client(b: &backend::Shared, copy: Option<&Path>) -> Result<RetailClient, String> {
     if !cfg!(windows) {
         return Err("The retail client needs Windows. Play with Auberean here.".into());
     }
-    let dir = backend::lock(b)
-        .auberean_settings()
-        .retail
-        .map(|r| r.path)
-        .ok_or("There is no retail client in the Library. Play with Auberean.")?;
+    let dir = match copy {
+        Some(copy) => copy.to_path_buf(),
+        None => backend::lock(b)
+            .auberean_settings()
+            .retail
+            .map(|r| r.path)
+            .ok_or("There is no retail client in the Library. Play with Auberean.")?,
+    };
     let retail = ac2::find_retail(&dir)
         .ok_or("The retail client's folder has no AC2client.exe now. Play with Auberean.")?;
     if !retail.september_2013 {
@@ -418,7 +425,7 @@ fn start_client(
         Client::Auberean => {
             components::program_of(c, Product::Auberean).ok_or("Download Auberean first.")?
         }
-        Client::Retail => retail_client(b)?.exe,
+        Client::Retail => retail_client(b, to.copy.as_deref())?.exe,
     };
     let secret = to.password;
     if client == Client::Retail && !ac2::retail_takes(secret) {
@@ -456,7 +463,13 @@ fn start_client(
                 dll: Some(ac2::dll_for_retail(&dll, &data, &short_path)),
                 ..f
             });
-            let plan = ac2::retail_plan(&program, to.server, account, friends.as_ref());
+            let plan = ac2::retail_plan(
+                &program,
+                to.server,
+                account,
+                friends.as_ref(),
+                to.copy.is_some(),
+            );
             let mut cmd = std::process::Command::new(&plan.exe);
             components::leave_the_mount(&mut cmd, &plan.exe);
             cmd.current_dir(&plan.working_dir);
@@ -584,6 +597,11 @@ pub fn launch(
             client,
             account: &account,
             password: &password,
+            copy: backend::lock(b)
+                .auberean_settings()
+                .retail_copies
+                .get(&choice.world_slug)
+                .cloned(),
         };
         let (child, log) = start_client(shared, c, b, &dats, &to)?;
         Ok::<_, String>((world, child, log))

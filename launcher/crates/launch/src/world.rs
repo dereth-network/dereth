@@ -202,6 +202,11 @@ pub struct WorldDats {
     /// What the world's own dats report. `None` means the world has not said.
     pub expected: Option<Iterations>,
     pub patches_over_wire: Option<bool>,
+    /// Whether the world serves the admin script library, which an Asheron's Call 2 retail client
+    /// stores in its own data files (the list row's optional `dats.admin_library`). `None` means
+    /// the world has not said, which counts as no.
+    #[serde(default)]
+    pub admin_library: Option<bool>,
     pub custom: Option<CustomDats>,
     pub highres_required: Option<bool>,
 }
@@ -412,6 +417,13 @@ impl World {
         self.patches() || self.dats.custom.is_some()
     }
 
+    /// Whether the world writes into an Asheron's Call 2 retail client's own data files: it patches
+    /// them, or serves the admin library, which the client stores in them. Such a world is played
+    /// from a private copy of the install.
+    pub fn writes_retail_install(&self) -> bool {
+        self.patches() || self.dats.admin_library == Some(true)
+    }
+
     pub fn is_playable(&self) -> bool {
         self.state.is_joinable() && self.endpoint.is_some()
     }
@@ -508,6 +520,7 @@ pub fn parse_world(row: &Value) -> Option<World> {
     if let Some(d) = row.get("dats") {
         w.dats.expected = d.get("expected").and_then(parse_iterations);
         w.dats.patches_over_wire = d.get("patches_over_wire").and_then(Value::as_bool);
+        w.dats.admin_library = d.get("admin_library").and_then(Value::as_bool);
         w.dats.highres_required = d.get("highres_required").and_then(Value::as_bool);
         if let Some(c) = d.get("custom").filter(|c| c.is_object()) {
             if let Some(url) = string_at(c, &["url"]) {
@@ -727,6 +740,18 @@ mod tests {
         assert!(world(r#"{"slug":"a","dats":{"patches_over_wire":true}}"#).needs_private_dats());
         assert!(!world(r#"{"slug":"a","dats":{}}"#).needs_private_dats());
         assert!(!world(TODAY).needs_private_dats());
+    }
+
+    /// A world that patches or serves the admin library writes into a retail Asheron's Call 2
+    /// install; one that says neither, or says it in the wrong type, doesn't.
+    #[test]
+    fn a_world_that_patches_or_serves_the_admin_library_writes_into_the_retail_install() {
+        let writes = |row: &str| world(row).writes_retail_install();
+        assert!(writes(r#"{"slug":"a","dats":{"patches_over_wire":true}}"#));
+        assert!(writes(r#"{"slug":"a","dats":{"admin_library":true}}"#));
+        assert!(!writes(r#"{"slug":"a","dats":{"admin_library":false}}"#));
+        assert!(!writes(r#"{"slug":"a","dats":{"admin_library":"yes"}}"#));
+        assert!(!writes(r#"{"slug":"a","dats":{}}"#));
     }
 
     #[test]

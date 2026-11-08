@@ -408,6 +408,13 @@ client, and is kept in the system's secret store only when the box is checked. *
 an Asheron's Call 2 account's saved password when you ask. The launcher logs the client's command
 line with the password replaced by `***`.
 
+The retail client plays from its install with `--rodat`, reading its data files only. A world that
+writes into them, one that patches them or serves the admin library (its list row's
+`dats.patches_over_wire` or `dats.admin_library`, or for a world you host, its `yalain.toml`),
+offers **Create a private copy (3.7 GB)** on its page, as an Asheron's Call world offers a private
+set: a copy of the whole install in `auberean-copies` in the Library's folder, made only when you
+ask. The world then plays from its copy with `-rodat off`, and the install itself is never written.
+
 **Yalain's page** hosts worlds as Empyrean's page does: **New World** (a name, a data set from the
 Library, a port: the world takes it and the three after it, and the two switches), each world in
 its own folder under `hosts-auberean/<id>` with its settings in `yalain.toml` (in `empyrean.toml`'s

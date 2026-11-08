@@ -866,18 +866,25 @@ pub fn auberean_plan(
 
 /// The plan that starts the retail client `exe` from its own install folder, logging in to the
 /// world at `server` as `account` with its secret (put in at spawn), and with the friends options
-/// and the library when the world's friends service answered. The client opens its data files
-/// only to read them (its own `--rodat`): it changes nothing in the player's install, and a second
-/// one can play from the same folder.
+/// and the library when the world's friends service answered. From the player's install the client
+/// opens its data files only to read them (its own `--rodat`): it changes nothing there, and a
+/// second one can play from the same folder. From a world's private copy of the install
+/// (`private_copy`) it opens them for writing (`-rodat off`), as the world needs to store what it
+/// sends in them.
 #[must_use]
 pub fn retail_plan(
     exe: &Path,
     server: SocketAddr,
     account: &str,
     friends: Option<&Friends>,
+    private_copy: bool,
 ) -> LaunchPlan {
-    let mut args = vec![
-        plain("--rodat"),
+    let mut args = if private_copy {
+        vec![plain("-rodat"), plain("off")]
+    } else {
+        vec![plain("--rodat")]
+    };
+    args.extend([
         plain("--host"),
         plain(server.ip().to_string()),
         plain("--port"),
@@ -886,7 +893,7 @@ pub fn retail_plan(
         plain(account),
         plain("--glsticketdirect"),
         Arg::Password,
-    ];
+    ]);
     if let Some(f) = friends {
         args.extend(friends_args(f, account));
     }
@@ -1421,11 +1428,24 @@ mod tests {
         );
     }
 
+    /// From a world's private copy of the install the retail client opens its data files for
+    /// writing, `-rodat off`; from the player's own install, only to read them.
+    #[test]
+    fn the_retail_client_writes_its_data_files_only_from_a_worlds_private_copy() {
+        let exe = Path::new("/ac2-copies/dawnsong/AC2client.exe");
+        let copy = retail_plan(exe, local(), "player", None, true).argv("secret");
+        assert_eq!(copy[..3], ["-rodat", "off", "--host"]);
+        assert!(!copy.iter().any(|a| a == "--rodat"));
+        let shared = retail_plan(exe, local(), "player", None, false).argv("secret");
+        assert_eq!(shared[..2], ["--rodat", "--host"]);
+        assert!(!shared.iter().any(|a| a == "off"));
+    }
+
     #[test]
     fn the_retail_client_logs_in_with_its_secret_from_its_install_and_the_library_only_with_friends(
     ) {
         let exe = Path::new("/games/ac2/AC2client.exe");
-        let plan = retail_plan(exe, local(), "player", None);
+        let plan = retail_plan(exe, local(), "player", None, false);
         assert_eq!(
             plan.argv("secret"),
             [
@@ -1443,7 +1463,7 @@ mod tests {
         assert_eq!(plan.working_dir, Path::new("/games/ac2"));
         assert!(plan.redacted().ends_with("--glsticketdirect ***"));
         let with = friends(Some("C:/launcher/auberean_friends.dll"));
-        let plan = retail_plan(exe, local(), "player", Some(&with));
+        let plan = retail_plan(exe, local(), "player", Some(&with), false);
         assert_eq!(
             plan.argv("secret")[9..],
             [
