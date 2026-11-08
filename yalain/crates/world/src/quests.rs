@@ -1460,7 +1460,8 @@ fn run_with<S: Store>(
 
 /// A step whose update is the fellowship's: the same update made for each of the player's fellows
 /// in the world for whom the step may run, told to each alone (2017: a fellow's hoard key gave the
-/// hoard's entry quest to the fellow who recorded, an update and nothing else).
+/// hoard's entry quest to the fellow who recorded, an update and nothing else). The items it takes
+/// and gives are the player's alone.
 fn for_fellows<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -1480,8 +1481,18 @@ fn for_fellows<S: Store>(
         .filter(|x| x.id != me)
         .filter_map(|x| crate::social::world_of(s, x.id))
         .collect();
+    // A hand-in is the player's own: what the step takes and gives is the player's alone, and a
+    // fellow needs only the phase and the quests the step requires (2017: an item handed to a
+    // person, and one used up, each moved every recorded fellow's quest in the same tick, 2 of 2
+    // and 3 of 3, none of them holding the item).
+    let theirs = Step {
+        takes: Vec::new(),
+        gives: Vec::new(),
+        counts: Vec::new(),
+        ..step.clone()
+    };
     for w in fellows {
-        if may_run(s, w, step, clock.unix) {
+        if may_run(s, w, &theirs, clock.unix) {
             apply(s, net, w, step.quest, step.update, 0, clock);
         }
     }

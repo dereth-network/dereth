@@ -9,6 +9,7 @@ what they see, not how it was done.
 - Allegiances: message of the day, officers, titles, kingdom restrictions and messages to patron and vassals.
 - Worlds can now schedule events that switch camps, objects and quests on and off.
 - Experience boosts such as mana charges now raise kill experience.
+- A fellow's quest hand-in now moves the whole fellowship.
 - @dn admin and @dn verify now need an admin character, as other admin commands do.
 - Admins can make persistent chat rooms, which stay through restarts until deleted.
 - Loot profiles can draw treasure of the creature's level from shared treasure pools.

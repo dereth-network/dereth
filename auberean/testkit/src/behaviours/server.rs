@@ -5028,6 +5028,26 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.gives.fellowship-hand-in",
+        says: "An item handed in for a step its fellowship shares is the giver's own: the giver's \
+               item is kept, each fellow at the phase the step needs is moved on with it and told it \
+               alone, holding such an item or not, a fellow's own item stays in its pack, and a fellow \
+               at another phase is not moved.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-GIVE-FELLOWS-HAND-IN"),
+        station: "yalain-testkit::cpu::play::gives::a_hand_in_shared_with_the_fellowship_moves_each_fellow_at_its_phase_and_takes_the_givers_item_alone",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.gives.fellowship-hand-in-gives-to-the-giver",
+        says: "What a step its fellowship shares gives is the giver's alone: a fellow is moved on with \
+               the giver and given nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-GIVE-FELLOWS-HAND-IN-GIFT"),
+        station: "yalain-testkit::cpu::play::gives::a_hand_in_shared_with_the_fellowship_gives_its_items_to_the_giver_alone",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.gives.hero-transformation",
         says: "A give whose step makes a hero runs that step when the transformation is through, 25.59 \
                s after the answer: the player a hero, the quest completed, the hero's text; meanwhile \
@@ -11346,6 +11366,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-QUEST-RUNS-OUT"),
         station: "yalain-testkit::cpu::play::quests::a_timed_quest_fails_when_its_time_runs_out",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.fellowship-step-without-a-hand-in",
+        says: "A use's step its fellowship shares that takes nothing gives the quest to each fellow \
+               it may run for along with the user, not to one with it under way, and what it gives is \
+               the user's alone.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-FELLOWS-NO-HAND-IN"),
+        station: "yalain-testkit::cpu::play::quest_uses::a_use_shared_with_the_fellowship_gives_each_free_fellow_the_quest_and_the_user_its_items",
         tier: Tier::Cpu,
     },
     behaviour! {

@@ -1002,3 +1002,90 @@ fn a_step_made_on_arrival_through_one_portal_waits_for_that_portal() {
         (yalain_world::quests::update::COMPLETE, GATEWAY)
     );
 }
+
+/// A use's step shared with the fellowship that takes nothing: each fellow the step may run for is
+/// given the quest with the user, a fellow with it under way is not, and what the step gives is the
+/// user's alone.
+///
+/// Behaviour: server.quests.fellowship-step-without-a-hand-in
+#[test]
+fn a_use_shared_with_the_fellowship_gives_each_free_fellow_the_quest_and_the_user_its_items() {
+    use yalain_world::fellowship::{Fellow, Fellowship, Vitals};
+    const TOKEN: u32 = 0x4700_1067;
+    let mut h = doctrines_world();
+    h.server.catalog.insert(yalain_testkit::test_template(
+        TOKEN,
+        0x1067,
+        yalain_content::Props::default(),
+    ));
+    h.server.quests.steps[0].fellows = true;
+    h.server.quests.steps[0].gives = vec![TOKEN];
+    let (a, me) = h.player_in_world("one", "Elara");
+    let (b, you) = h.player_in_world("two", "Bran");
+    let (c, them) = h.player_in_world("three", "Cade");
+    h.run(10);
+    h.server.fellowships.list.push(Fellowship {
+        name: "Seekers".into(),
+        leader: me,
+        flags: 0,
+        room: 1,
+        fellows: [me, you, them]
+            .iter()
+            .map(|&id| Fellow {
+                id,
+                joined: 0.0,
+                sent: Vitals::default(),
+                next_check: f64::INFINITY,
+            })
+            .collect(),
+        last_claimant: 0,
+    });
+    let world_of = |h: &Harness, who: u64| {
+        *h.server
+            .players
+            .iter()
+            .find(|(_, p)| p.character == who)
+            .expect("in the world")
+            .0
+    };
+    let w = world_of(&h, them);
+    h.server
+        .players
+        .get_mut(&w)
+        .expect("in")
+        .play
+        .quests
+        .push(QuestState {
+            quest: DOCTRINES,
+            status: status::UNDERWAY,
+            phase: 2,
+            started: 0,
+            updated: 0,
+        });
+    let (fb, fc) = (h.bots[b].inbox.len(), h.bots[c].inbox.len());
+    let from = use_it(&mut h, a, me, 0x8130_0000_0000_0401);
+    let kinds = |u: Vec<(u32, QuestInfo)>| u.iter().map(|(k, r)| (*k, r.id)).collect::<Vec<_>>();
+    assert_eq!(kinds(updates(&h, a, from)), vec![(0x1000_0000, DOCTRINES)]);
+    assert_eq!(
+        kinds(updates(&h, b, fb)),
+        vec![(0x1000_0000, DOCTRINES)],
+        "the free fellow given it"
+    );
+    assert!(
+        updates(&h, c, fc).is_empty(),
+        "the fellow with it under way not"
+    );
+    let tokens = |h: &Harness, who: u64| {
+        h.server.players[&world_of(h, who)]
+            .play
+            .items
+            .iter()
+            .filter(|x| x.template == TOKEN)
+            .count()
+    };
+    assert_eq!(
+        (tokens(&h, me), tokens(&h, you)),
+        (1, 0),
+        "the user's item alone"
+    );
+}

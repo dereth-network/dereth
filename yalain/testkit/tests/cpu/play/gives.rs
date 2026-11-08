@@ -1534,3 +1534,128 @@ fn a_quests_step_comes_before_a_give_moving_no_quest() {
     assert!(moved.is_empty());
     assert_eq!(lines, vec![TAKING_LINE], "the row");
 }
+
+/// Put players in one fellowship.
+fn fellowship(h: &mut Harness, ids: &[u64]) {
+    use yalain_world::fellowship::{Fellow, Fellowship, Vitals};
+    h.server.fellowships.list.push(Fellowship {
+        name: "Hunters".into(),
+        leader: ids[0],
+        flags: 0,
+        room: 1,
+        fellows: ids
+            .iter()
+            .map(|&id| Fellow {
+                id,
+                joined: 0.0,
+                sent: Vitals::default(),
+                next_check: f64::INFINITY,
+            })
+            .collect(),
+        last_claimant: 0,
+    });
+}
+
+/// Put one player's quest under way at a phase.
+fn player_at_phase(h: &mut Harness, me: u64, quest: u32, phase: u32) {
+    let world = world_of(h, me);
+    let p = h.server.players.get_mut(&world).expect("in the world");
+    p.play.quests.retain(|q| q.quest != quest);
+    p.play.quests.push(yalain_world::state::QuestState {
+        quest,
+        status: yalain_world::quests::status::UNDERWAY,
+        phase,
+        started: 0,
+        updated: 0,
+    });
+}
+
+/// A player's quest: its status and phase, if held.
+fn quest_of(h: &Harness, me: u64, quest: u32) -> Option<(u32, u32)> {
+    h.server.players[&world_of(h, me)]
+        .play
+        .quests
+        .iter()
+        .find(|q| q.quest == quest)
+        .map(|q| (q.status, q.phase))
+}
+
+/// An item handed in for a step the fellowship shares: the giver's item kept, every fellow at
+/// the phase the step needs moved on and told it alone, one holding no such item among them and
+/// one holding its own, which is left in its pack; a fellow at another phase not moved.
+///
+/// Behaviour: server.gives.fellowship-hand-in
+#[test]
+fn a_hand_in_shared_with_the_fellowship_moves_each_fellow_at_its_phase_and_takes_the_givers_item_alone(
+) {
+    let mut h = world();
+    h.server.quests.steps[0].fellows = true;
+    let (a, me) = player(&mut h, "one", "Elara");
+    let (b, you) = player(&mut h, "two", "Bran");
+    let (c, them) = player(&mut h, "three", "Cade");
+    let (_, holder) = player(&mut h, "four", "Dara");
+    fellowship(&mut h, &[me, you, them, holder]);
+    player_at_phase(&mut h, me, QUEST, 2);
+    player_at_phase(&mut h, you, QUEST, 2);
+    player_at_phase(&mut h, them, QUEST, 1);
+    player_at_phase(&mut h, holder, QUEST, 2);
+    let (ashes, slot) = hold(&mut h, me, ASHES, 1);
+    let (theirs, _) = hold(&mut h, holder, ASHES, 1);
+    let (fa, fb, fc) = (
+        h.bots[a].inbox.len(),
+        h.bots[b].inbox.len(),
+        h.bots[c].inbox.len(),
+    );
+    h.bots[a].send(true, queue::WEENIE, &give(me, ashes, slot, PERSON, 1));
+    h.run(steps(HANDED_AFTER) + 8);
+    let underway = yalain_world::quests::status::UNDERWAY;
+    assert!(!holds(&h, me, ashes), "the giver's item kept");
+    assert_eq!(updates(&h, a, fa), vec![(0x2000_0003, QUEST, 3)]);
+    assert_eq!(
+        quest_of(&h, you, QUEST),
+        Some((underway, 3)),
+        "the fellow moved"
+    );
+    assert_eq!(updates(&h, b, fb), vec![(0x2000_0003, QUEST, 3)], "told it");
+    assert_eq!(quest_of(&h, holder, QUEST), Some((underway, 3)));
+    assert!(holds(&h, holder, theirs), "a fellow's own item left");
+    assert_eq!(
+        quest_of(&h, them, QUEST),
+        Some((underway, 1)),
+        "a fellow at another phase not moved"
+    );
+    assert!(updates(&h, c, fc).is_empty());
+}
+
+/// What a step shared with the fellowship gives is the giver's alone: a fellow is moved on with the
+/// giver and given nothing.
+///
+/// Behaviour: server.gives.fellowship-hand-in-gives-to-the-giver
+#[test]
+fn a_hand_in_shared_with_the_fellowship_gives_its_items_to_the_giver_alone() {
+    let mut h = world();
+    h.server.quests.steps[1].fellows = true;
+    let (a, me) = player(&mut h, "one", "Elara");
+    let (b, you) = player(&mut h, "two", "Bran");
+    fellowship(&mut h, &[me, you]);
+    player_at_phase(&mut h, me, QUEST, 3);
+    player_at_phase(&mut h, you, QUEST, 3);
+    let (sliver, slot) = hold(&mut h, me, SLIVER, 1);
+    let fb = h.bots[b].inbox.len();
+    h.bots[a].send(true, queue::WEENIE, &give(me, sliver, slot, PERSON, 1));
+    h.run(steps(HANDED_AFTER) + 8);
+    let imbued = |h: &Harness, who: u64| {
+        h.server.players[&world_of(h, who)]
+            .play
+            .items
+            .iter()
+            .any(|x| x.template == IMBUED)
+    };
+    assert!(imbued(&h, me), "the giver given the item");
+    assert_eq!(
+        updates(&h, b, fb),
+        vec![(0x3000_0000, QUEST, 0)],
+        "the fellow's quest done"
+    );
+    assert!(!imbued(&h, you), "the fellow given nothing");
+}
