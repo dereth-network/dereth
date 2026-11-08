@@ -340,8 +340,8 @@ fn all_made(log: &str, templates: &[u32]) -> bool {
     log.matches("[ok make-character]").count() == templates.chunks(TO_A_RECIPE).count()
 }
 
-/// A start describes every pet, plant and map node the server's rules make: a recipe holding all of
-/// them is made. A template no rule makes is refused, so a recipe does ask.
+/// A start describes every plant and map node the server's rules make: a recipe holding all of them
+/// is made. A template no rule makes is refused, so a recipe does ask.
 /// Behaviour: server.makes.a-real-start-describes-what-the-server-makes
 #[test]
 fn a_real_start_describes_everything_the_servers_rules_make() {
@@ -353,7 +353,8 @@ fn a_real_start_describes_everything_the_servers_rules_make() {
     assert!(log.contains("among the world's templates"), "{log}");
 }
 
-/// A start describes what the hall's rows make.
+/// A start describes what the hall's rows make, the server's own kinds of pet among them (the hall
+/// has no pet rows).
 /// Behaviour: server.makes.a-real-start-describes-what-the-rows-make
 #[test]
 fn a_real_start_describes_everything_a_worlds_rows_make() {

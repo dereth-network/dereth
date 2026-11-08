@@ -1,22 +1,19 @@
-//! What a world's start asks the install to describe: every kind of pet, plant and map node the
-//! server's rules make, and what the world's rows make. Fixture: tables written here.
+//! What a world's start asks the install to describe: every plant and map node the server's rules
+//! make, and what the world's rows make. Fixture: tables written here.
 
 use std::collections::BTreeMap;
 
 use yalain_content::quests::{Give, QuestTable};
 use yalain_content::{CraftStart, DeathSpawn, StoreTable};
 use yalain_world::makes::{by_a_template, by_the_rows, by_the_server, Rows};
-use yalain_world::{pets, plants, usable};
+use yalain_world::{plants, usable};
 
-/// The server's own list names every kind of pet, whatever makes it, every dye plant with its
-/// seed, pollen and harvest, and every node a map conjures.
+/// The server's own list names every dye plant with its seed, pollen and harvest, and every node a
+/// map conjures.
 /// Behaviour: server.makes.the-server-names-what-it-makes
 #[test]
-fn the_server_names_every_pet_plant_and_map_node_it_makes() {
+fn the_server_names_every_plant_and_map_node_it_makes() {
     let named = by_the_server(&yalain_testkit::test_start(), &[]);
-    for k in pets::fallback_kinds() {
-        assert!(named.contains(&k.template), "{:08X}", k.template);
-    }
     for p in plants::SPECIES {
         for t in [p.plant, p.seed, p.harvest].into_iter().chain(p.pollen) {
             assert!(named.contains(&t), "{t:08X}");

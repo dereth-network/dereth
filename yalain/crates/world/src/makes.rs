@@ -27,8 +27,8 @@ pub fn can_make<S: Store>(s: &Server<S>, template: u32) -> bool {
 
 /// What the server's own rules make, whatever the world holds: the corpse, the races' starting
 /// packs and the book a new character is given, the mount items (`mounts`, as
-/// [`crate::mounts::Mounts::catalog_items`] gives them), a summoned portal, every kind of pet, the dye
-/// plants and what they give, and the nodes maps conjure.
+/// [`crate::mounts::Mounts::catalog_items`] gives them), a summoned portal, the dye plants and what
+/// they give, and the nodes maps conjure.
 #[must_use]
 pub fn by_the_server(start: &crate::StartRules, mounts: &[u32]) -> Vec<u32> {
     let starting = start.items.values().flatten().map(|i| i.template);
@@ -39,7 +39,6 @@ pub fn by_the_server(start: &crate::StartRules, mounts: &[u32]) -> Vec<u32> {
         .chain([death::CORPSE_TEMPLATE, inventory::GUIDE_BOOK])
         .chain(mounts.iter().copied())
         .chain([usable::portals::TEMPLATE])
-        .chain(pets::fallback_kinds().iter().map(|k| k.template))
         .chain(plants)
         .chain(usable::maps::nodes())
         .collect()
@@ -59,7 +58,8 @@ pub struct Rows<'a> {
     pub pets: &'a BTreeMap<u32, yalain_content::PetKind>,
 }
 
-/// What a world's rows make or hand on: placed objects (a chest's lock and contents, a door's), what
+/// What a world's rows make or hand on: placed objects (a chest's lock and contents, a door's), its
+/// kinds of pet (the server's own, for a world with no `[[pet]]` rows: [`pets::world_kinds`]), what
 /// stores sell, what quest steps and people give, what is taken up for a step and what's
 /// handed in for a gift, what butchery yields and what a death makes. Camps and loot are the
 /// catalog's own, and the recipes' products and materials [`crate::craft::Crafting::templates`].
@@ -67,10 +67,15 @@ pub struct Rows<'a> {
 pub fn by_the_rows(rows: Rows<'_>) -> Vec<u32> {
     let steps = rows.quests.steps.iter();
     let gifts = rows.quests.gives.iter();
+    let servers_own = if rows.pets.is_empty() {
+        pets::fallback_kinds()
+    } else {
+        Vec::new()
+    };
     rows.objects
         .iter()
         .map(|o| o.template)
-        .chain(rows.pets.values().map(|k| k.template))
+        .chain(rows.pets.values().chain(&servers_own).map(|k| k.template))
         .chain(rows.stores.sales.iter().map(|s| s.product))
         .chain(steps.clone().flat_map(|s| s.gives.iter().copied()))
         .chain(steps.filter_map(|s| match s.trigger {

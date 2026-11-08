@@ -1291,6 +1291,82 @@ fn a_row_makes_a_kind_and_replaces_a_listed_one() {
     );
 }
 
+/// A world with any `[[pet]]` row has those rows alone as its kinds of pet: a summoning of one of the
+/// server's own kinds the rows don't name fails, and its start asks for the rows' templates alone.
+/// Behaviour: server.pets.rows-alone-or-the-servers-own
+#[test]
+fn a_world_with_pet_rows_has_none_of_the_servers_own_kinds() {
+    let mut h = Harness::new();
+    with_kind(&mut h, &LASHER, 1);
+    // A kind none of the server's own is.
+    let row = pets::PetKind::new(0x7000_2008, 0x4700_0864, 32, &[]);
+    h.server.pets.take_world_rows([row], []);
+    for k in pets::fallback_kinds() {
+        assert!(
+            h.server.pets.kind_of(k.effect).is_none(),
+            "{:08X}",
+            k.effect
+        );
+    }
+    let named = by_the_rows(&h.server.pets.kinds);
+    assert_eq!(named, vec![0x4700_0864]);
+    let (b, me) = summoner(&mut h);
+    h.run(20);
+    let beetle = beetles(&h)[0];
+    put_near(&mut h, beetle, me, 120.0, 0.0);
+    let from = summon(&mut h, b);
+    assert!(
+        h.texts(b, from)
+            .contains(&(1, pets::text::SUMMONING_FAILS.0)),
+        "no row, no Lasher"
+    );
+    assert!(h.server.pets.of(me).is_empty());
+}
+
+/// A world with no `[[pet]]` row has the server's own kinds, and its start asks for their
+/// templates: the Lasher's skill makes the Lasher.
+/// Behaviour: server.pets.rows-alone-or-the-servers-own
+#[test]
+fn a_world_with_no_pet_rows_has_the_servers_own_kinds() {
+    let mut h = Harness::new();
+    with_kind(&mut h, &LASHER, 1);
+    h.server
+        .pets
+        .take_world_rows([], [(704, vec![(1, 0x1000)])]);
+    let own = pets::fallback_kinds();
+    assert_eq!(own.len(), 14);
+    for k in &own {
+        assert_eq!(h.server.pets.kind_of(k.effect), Some(k), "{:08X}", k.effect);
+    }
+    assert_eq!(h.server.pets.limits.len(), 1, "its limit rows still read");
+    let named = by_the_rows(&std::collections::BTreeMap::new());
+    for k in &own {
+        assert!(named.contains(&k.template), "{:08X}", k.template);
+    }
+    let (b, me) = summoner(&mut h);
+    h.run(20);
+    let beetle = beetles(&h)[0];
+    put_near(&mut h, beetle, me, 120.0, 0.0);
+    let from = summon(&mut h, b);
+    let pet = pet_added(&h, b, from).expect("the Lasher");
+    assert_eq!(
+        h.server.things.get(pet).map(|t| t.template),
+        Some(LASHER.template)
+    );
+}
+
+/// What a start asks for of a world whose rows name these kinds of pet and nothing else.
+fn by_the_rows(kinds: &std::collections::BTreeMap<u32, pets::PetKind>) -> Vec<u32> {
+    yalain_world::makes::by_the_rows(yalain_world::makes::Rows {
+        objects: &[],
+        stores: &yalain_content::StoreTable::default(),
+        quests: &yalain_content::QuestTable::default(),
+        crafting: &yalain_content::CraftStart::default(),
+        death_spawns: &std::collections::BTreeMap::new(),
+        pets: kinds,
+    })
+}
+
 /// The test world's second plain melee attack.
 const MELEE_TWO: u32 = 1846;
 

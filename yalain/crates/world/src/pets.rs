@@ -158,7 +158,8 @@ pub const ON_SOMETHING: f32 = 1.0;
 pub const KIND_VELOCITY: &str = "Physics_VelScale";
 
 /// The pets of a world with no `[[pet]]` rows: a world database written before them names none, and
-/// these keep its summoning skills working. A row of the same effect replaces one of these.
+/// these keep its summoning skills working. A world with any `[[pet]]` row has its rows alone
+/// ([`world_kinds`]).
 #[must_use]
 pub fn fallback_kinds() -> Vec<PetKind> {
     let kinds = [
@@ -374,17 +375,39 @@ impl Default for Pets {
             owed: HashMap::new(),
             failed: BTreeMap::new(),
             goes_after: BTreeMap::new(),
-            kinds: fallback_kinds()
-                .into_iter()
-                .map(|k| (k.effect, k))
-                .collect(),
+            kinds: world_kinds([]),
             limits: BTreeMap::new(),
         }
     }
 }
 
+/// The kinds of pet a world knows, by the effect (or the contract's template) that names them: its
+/// `[[pet]]` rows alone, or, for a world with none, the server's own ([`fallback_kinds`]).
+#[must_use]
+pub fn world_kinds(rows: impl IntoIterator<Item = PetKind>) -> BTreeMap<u32, PetKind> {
+    let rows: BTreeMap<u32, PetKind> = rows.into_iter().map(|k| (k.effect, k)).collect();
+    if !rows.is_empty() {
+        return rows;
+    }
+    fallback_kinds()
+        .into_iter()
+        .map(|k| (k.effect, k))
+        .collect()
+}
+
 impl Pets {
-    /// A world's rows take their place among the kinds and limits it knows.
+    /// A world's rows become the kinds and limits it knows, in place of all it knew before: the kinds
+    /// as [`world_kinds`] gives them, the limits its `[[pet_limit]]` rows.
+    pub fn take_world_rows(
+        &mut self,
+        kinds: impl IntoIterator<Item = PetKind>,
+        limits: impl IntoIterator<Item = (u32, Vec<(usize, u32)>)>,
+    ) {
+        self.kinds = world_kinds(kinds);
+        self.limits = limits.into_iter().collect();
+    }
+
+    /// Rows take their place among the kinds and limits it knows, beside those it has.
     pub fn read_rows(
         &mut self,
         kinds: impl IntoIterator<Item = PetKind>,

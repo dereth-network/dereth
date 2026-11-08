@@ -205,29 +205,36 @@ fn a_reload_changes_what_people_say_at_once() {
 /// A reload whose database no longer names a template keeps the template known (a thing of it may
 /// be in the world), and takes a new one.
 /// A reload takes up the world's rows of pets and what its skills allow, and drops a row it no
-/// longer has.
+/// longer has; with rows, the server's own kinds go, and with none they come back.
 /// Behaviour: server.pets.a-reload-reads-the-rows
 #[test]
 fn a_reload_takes_up_the_worlds_pet_rows() {
     const EFFECT: u32 = 0x7000_092A;
+    const LASHER: u32 = 0x7000_0805;
     let (mut h, _, _) = world();
     assert!(h.server.pets.kind_of(EFFECT).is_none());
+    assert!(h.server.pets.kind_of(LASHER).is_some());
     let mut t = tables_of(&h);
-    t.pet_kinds.push(yalain_world::pets::PetKind::new(
+    t.pet_kinds = vec![yalain_world::pets::PetKind::new(
         EFFECT,
         0x4700_0862,
         1096,
         &[],
-    ));
+    )];
     t.pet_limits.push((704, vec![(1, 0x1000)]));
     reload(&mut h, t);
     assert!(h.server.pets.kind_of(EFFECT).is_some());
+    assert!(h.server.pets.kind_of(LASHER).is_none(), "rows alone");
     assert_eq!(h.server.pets.limits.get(&704), Some(&vec![(1, 0x1000)]));
     let mut t = tables_of(&h);
     t.pet_kinds.retain(|k| k.effect != EFFECT);
     t.pet_limits.clear();
     reload(&mut h, t);
     assert!(h.server.pets.kind_of(EFFECT).is_none());
+    assert!(
+        h.server.pets.kind_of(LASHER).is_some(),
+        "the server's own again"
+    );
     assert!(h.server.pets.limits.is_empty());
 }
 

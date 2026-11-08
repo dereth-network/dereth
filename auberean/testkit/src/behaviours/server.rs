@@ -6716,8 +6716,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.makes.a-real-start-describes-what-the-server-makes",
-        says: "A real start of the executable describes what the server's own rules make, every pet, \
-               dye plant and map node: an operator's recipe naming them is made.",
+        says: "A real start of the executable describes what the server's own rules make, every dye \
+               plant and map node: an operator's recipe naming them is made.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-MAKES-REAL-START"),
         station: "yalain::live::configured::a_real_start_describes_everything_the_servers_rules_make",
@@ -6752,11 +6752,11 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.makes.the-server-names-what-it-makes",
-        says: "A start asks for what the server's own rules make: every pet of every kind, every dye \
-               plant with its seed, pollen and harvest, and every node a map conjures.",
+        says: "A start asks for what the server's own rules make: every dye plant with its seed, \
+               pollen and harvest, and every node a map conjures.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-MAKES-LIST"),
-        station: "yalain-testkit::cpu::play::makes::the_server_names_every_pet_plant_and_map_node_it_makes",
+        station: "yalain-testkit::cpu::play::makes::the_server_names_every_plant_and_map_node_it_makes",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -9349,6 +9349,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-PETS-RIFT"),
         station: "yalain-testkit::cpu::play::pet_kinds::a_volcanic_rift_stays_its_fire_lands_on_all_near_and_it_goes_at_its_lifetimes_end",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.pets.rows-alone-or-the-servers-own",
+        says: "A world with any pet row has its rows alone as its kinds of pet, and a start asks for \
+               their templates alone; a world with none has the server's own kinds.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-PETS-ROWS-ALONE"),
+        station: "yalain-testkit::cpu::play::pet_kinds::a_world_with_pet_rows_has_none_of_the_servers_own_kinds",
         tier: Tier::Cpu,
     },
     behaviour! {
