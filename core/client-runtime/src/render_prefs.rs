@@ -826,7 +826,10 @@ mod tests {
             .filter(|f| *f != FidelityFeature::CloudDetail)
             .all(|f| empty.value(f) == 0));
         assert!(!empty.any_effective());
-        assert!(!empty.any_stored(), "Cloud Detail's default alone stores nothing on");
+        assert!(
+            !empty.any_stored(),
+            "Cloud Detail's default alone stores nothing on"
+        );
         // Every box ticked, under the classic or the modern interface: nothing in effect.
         for interface in [
             "",
