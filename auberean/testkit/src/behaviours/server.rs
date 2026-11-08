@@ -12136,6 +12136,25 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "server.skills.attribute-measure-read",
+        says: "Every attribute skill reads its measure of its attribute as the data holds it: health \
+               5 a point (3 for a few), vigor 3 (6 for one), focus 20, Arcane Lore and Heroic \
+               Mastery 1.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ATTRIBUTE-MEASURE"),
+        station: "yalain-testkit::dat::skills::every_attribute_skill_reads_its_measure",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.skills.attribute-skills-raise-their-attribute",
+        says: "A hero's attribute skills raise what they rate by their rating times their measure: \
+               its greatest health, vigor and focus, and its Arcane Lore.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ATTRIBUTE-RAISES"),
+        station: "yalain-testkit::dat::skills::a_heros_attribute_skills_raise_their_vitals_and_lore",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.skills.blood-perks-raise-vigor-by-the-hour",
         says: "Nocturnal Blood adds to the vigor rates by night and Diurnal Blood by day, 0.3 each, \
                and neither to health's.",

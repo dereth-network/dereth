@@ -47,6 +47,7 @@ what they see, not how it was done.
 - Fixed recipes and spells given for an item handed over never working.
 - Perks now raise max vitals, vigor regen and kill experience.
 - Players' reported positions are checked for speed, walls and height.
+- Fixed heroes' attribute skills adding nothing to health, vigor, focus and Arcane Lore.
 
 ## 0.2.2 (2026-11-07)
 - Resurrection skills work: the dead can accept and get up where they fell.

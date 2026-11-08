@@ -1175,3 +1175,83 @@ fn the_knives_are_the_butchery_tools_class_hunting_and_crude() {
         );
     }
 }
+
+/// Every attribute skill reads its measure of its attribute as the data holds it: health 5 a point
+/// (3 for a few), vigor 3 (6 for one), focus 20, Arcane Lore and Heroic Mastery 1, the damage
+/// attribute 1 or a two-hundredth; none reads nothing or a number out of all measure.
+/// Behaviour: server.skills.attribute-measure-read
+#[test]
+fn every_attribute_skill_reads_its_measure() {
+    let t = Portal::open().skills();
+    let attributes: Vec<_> = t.skills.values().filter(|d| d.category != 0).collect();
+    assert_eq!(attributes.len(), 131, "the attribute skills");
+    for (skill, category, measure) in [
+        (1099, 1, 5.0),
+        (1117, 1, 3.0),
+        (1106, 2, 3.0),
+        (1158, 2, 6.0),
+        (1114, 3, 0.005),
+        (1154, 3, 0.005),
+        (1184, 4, 20.0),
+        (1109, 5, 1.0),
+        (2128, 6, 1.0),
+    ] {
+        let d = &t.skills[&skill];
+        assert_eq!(d.category, category, "{skill}");
+        assert!(
+            (d.attribute_mod - measure).abs() < 1e-6,
+            "{skill}: {}",
+            d.attribute_mod
+        );
+    }
+    for d in attributes {
+        assert!(
+            d.attribute_mod > 0.0 && d.attribute_mod <= 20.0,
+            "{}: {}",
+            d.id,
+            d.attribute_mod
+        );
+    }
+}
+
+/// A hero's attribute skills raise what they rate by their rating times their measure: ten points of
+/// a health attribute raise its greatest health by 50, ten of vigor its greatest vigor by 30, four
+/// of focus its greatest focus by 80, and seventeen of Arcane Lore its Lore to 17.
+/// Behaviour: server.skills.attribute-skills-raise-their-attribute
+#[test]
+fn a_heros_attribute_skills_raise_their_vitals_and_lore() {
+    use yalain_world::effects::own_greatest;
+    use yalain_world::player::quality;
+    use yalain_world::state::SkillState;
+    let mut h = yalain_testkit::Harness::new();
+    h.server.skill_table = Portal::open().skills();
+    let (_, _) = h.player_in_world("one", "Elara");
+    let world = *h.server.players.keys().next().expect("in the world");
+    let read = |h: &yalain_testkit::Harness| {
+        let p = &h.server.players[&world];
+        (
+            own_greatest(&h.server, p, quality::HEALTH_MAX),
+            own_greatest(&h.server, p, quality::VIGOR_MAX),
+            own_greatest(&h.server, p, quality::FOCUS_MAX),
+            yalain_world::equip::arcane_lore_of(&h.server, p),
+        )
+    };
+    let before = read(&h);
+    let p = h.server.players.get_mut(&world).expect("the player");
+    for (skill, granted) in [(1099, 10), (1106, 10), (1184, 4), (1109, 17)] {
+        p.play.skills.push(SkillState {
+            skill,
+            granted,
+            mask: yalain_world::skills::mask::TRAINED,
+            cost: 0,
+            children: 0,
+            dependents: 0,
+            spent: 0,
+        });
+    }
+    let after = read(&h);
+    assert_eq!(after.0 - before.0, 50, "health: {before:?} {after:?}");
+    assert_eq!(after.1 - before.1, 30, "vigor");
+    assert_eq!(after.2 - before.2, 80, "focus");
+    assert_eq!((before.3, after.3), (0, 17), "Arcane Lore");
+}

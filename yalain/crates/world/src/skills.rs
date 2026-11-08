@@ -563,7 +563,9 @@ impl SkillDef {
             kind: None,
             helps: false,
             category: nav.field(root, "m_category").unwrap_or(0),
-            attribute_mod: nav.number(root, "m_attributeMod").unwrap_or(1.0),
+            // A double, in two slots.
+            #[allow(clippy::cast_possible_truncation)]
+            attribute_mod: nav.double(root, "m_attributeMod").map_or(1.0, |v| v as f32),
             perk: lib
                 .package_id(PERK_SKILL)
                 .is_some_and(|a| lib.derives_from(root.package_id(), a))
