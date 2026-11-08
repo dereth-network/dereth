@@ -1243,13 +1243,9 @@ fn throw_twice<S: Store>(
     for (n, (i, h)) in crate::skill_use::throws_of(u).into_iter().enumerate() {
         let left = h.flags & crate::skill_use::hook_flag::LEFT_HAND != 0;
         let weapon = if left { hands.left } else { hands.right }.map(|(w, _)| w);
-        let outcome = rules::roll_outcome(
-            &mut s.rng,
-            Direction::PlayerOnCreature,
-            kind,
-            my_level,
-            level,
-        );
+        // Each throw is critical with what its own hand's weapon adds, as a swing is.
+        let bonus = critical_bonus(s, weapon);
+        let outcome = rules::roll_basic(&mut s.rng, kind, my_level, level, bonus);
         let Some(p) = s.players.get(&world) else {
             return;
         };

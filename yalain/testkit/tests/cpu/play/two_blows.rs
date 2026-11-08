@@ -705,6 +705,48 @@ fn a_skill_that_throws_twice_names_each_hands_weapon_and_tells_each_arrival() {
     assert!(apart > 0, "drawn apart");
 }
 
+/// Each throw is critical with what its own hand's weapon adds: a right-hand weapon that adds it
+/// all makes every landed second throw critical, while the left hand's, which adds nothing, keeps
+/// the kind's own share.
+/// Behaviour: server.weapons.two-throws-critical-by-hand
+#[test]
+fn each_throw_is_critical_with_what_its_own_hands_weapon_adds() {
+    use yalain_world::combat::WEAPON_CRITICAL;
+    use yalain_world::rules::Outcome;
+    let (mut h, b, me, beetle) = two_throws();
+    let mut own = Props::default();
+    own.set("Weapon_Damage", Prop::Int(100))
+        .set(WEAPON_CRITICAL, Prop::Float(1.0));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(RIGHT, 0x1067, own));
+    let from = attack(&mut h, b, beetle);
+    h.run(4000);
+    let arrivals = stories(&h, b, from, beetle);
+    let landed = |index: i32| -> Vec<u32> {
+        arrivals
+            .iter()
+            .filter(|s| s.attacker == me)
+            .flat_map(|s| s.hooks.iter())
+            .filter(|k| k.numbers[2] == index)
+            .map(|k| k.numbers[0].cast_unsigned())
+            .filter(|r| [Outcome::Hit.code(), Outcome::Critical.code()].contains(r))
+            .collect()
+    };
+    let (left, right) = (landed(0), landed(1));
+    assert!(
+        left.len() >= 5 && right.len() >= 5,
+        "{} {}",
+        left.len(),
+        right.len()
+    );
+    assert!(
+        right.iter().all(|r| *r == Outcome::Critical.code()),
+        "{right:x?}"
+    );
+    assert!(left.iter().any(|r| *r == Outcome::Hit.code()), "{left:x?}");
+}
+
 /// The second throw arrives after the first by its own windup, and the swings come at the skill's
 /// own pace.
 /// Behaviour: server.weapons.two-throws

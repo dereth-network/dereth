@@ -13545,6 +13545,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.weapons.two-throws-critical-by-hand",
+        says: "Each throw of a skill that throws twice is critical with what its own hand's weapon \
+               adds to the chance, as a swing is.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TWO-THROWS-CRITICAL"),
+        station: "yalain-testkit::cpu::play::two_blows::each_throw_is_critical_with_what_its_own_hands_weapon_adds",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.weapons.two-throws-read",
         says: "The orbs' three basic attacks read with two thrown hooks, a hand each.",
         since: RETAIL,
