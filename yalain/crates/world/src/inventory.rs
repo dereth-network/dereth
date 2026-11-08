@@ -1,9 +1,9 @@
 //! A player's inventory: the items in its pack, items given to it, taken from corpses, bought, and
 //! turned into money.
 //!
-//! **Opening a corpse** (in reach, 2 m; the player is walked there first): the corpse flashes and
-//! opens for every client that sees it; the opener gets the contents (in slot order) and then each
-//! item it does not know yet. No use answer is sent. **Closing** it: it closes for all, the closer
+//! **Opening a corpse** (by one with a right to it, [`crate::death::may_loot`]; in reach, 2 m; the
+//! player is walked there first): the corpse flashes and opens for every client that sees it; the
+//! opener gets the contents (in slot order) and then each item it does not know yet. No use answer is sent. **Closing** it: it closes for all, the closer
 //! gets the answer; it closes so too when the opener walks away from it, as from an open chest.
 //!
 //! **Taking an item** (the client uses the item inside the open corpse): the player plays its
@@ -197,19 +197,6 @@ pub fn insert_at(held: &mut [Held], slot: u32) {
 
 /// The book every new character is given as it first enters.
 pub const GUIDE_BOOK: u32 = 0x4700_06CD;
-
-/// A new character's starting pack by race, from the character data's starting inventory
-/// (human: bow, sword, stave; Lugian: sword, hammer, scepter; Tumerok: drum, spear, sword). The
-/// clothes it starts in are part of its look.
-#[must_use]
-pub fn starting_pack(race: u32) -> &'static [u32] {
-    match race {
-        1 => &[0x4700_051D, 0x4700_051C, 0x4700_051B],
-        2 => &[0x4700_0515, 0x4700_0516, 0x4700_0517],
-        4 => &[0x4700_0521, 0x4700_0522, 0x4700_0523],
-        _ => &[],
-    }
-}
 
 /// Kinds of moves.
 pub mod move_type {
@@ -1398,6 +1385,38 @@ pub fn pickup_refused<S: Store>(
     }
 }
 
+/// An item lying in the world leaving it.
+fn left_the_ground(item: u64, instance: u16, stamp: u16) -> ServerMessage {
+    ServerMessage::ObjectLeaves(ObjectEvent {
+        sender: ObjectStamp {
+            id: item,
+            instance_stamp: instance,
+            other_stamp: 0,
+        },
+        action: auberean_protocol::physics::Leave {
+            stamp: stamp.wrapping_add(1),
+        },
+    })
+}
+
+/// An item lying in the world is gone from it: whoever knows it is told, and forgets it.
+pub(crate) fn gone_from_where_it_lay<S: Store>(s: &mut Server<S>, net: &mut ServerNet, item: u64) {
+    let Some((instance, stamp)) = s.things.get(item).map(|t| (t.instance, t.position_stamp)) else {
+        return;
+    };
+    let gone = ServerMessage::ForgetObject(ObjectOnly(ObjectStamp {
+        id: item,
+        instance_stamp: instance,
+        other_stamp: 0,
+    }));
+    crate::presence::to_thing_knowers(s, net, item, BlobKind::UNORDERED, &gone);
+    crate::presence::leaves(s, net, item, &left_the_ground(item, instance, stamp));
+    s.things.remove(item);
+    for p in s.players.values_mut() {
+        p.known.remove(&item);
+    }
+}
+
 /// The picking-up behavior is through: the item is contained in the pack, the move answered, its
 /// holder told everyone who knows it, and it leaves the world. An item of a template the player
 /// holds a stack of joins the stack instead (the move answered, the stack's quantity, the item
@@ -1430,16 +1449,7 @@ pub fn picked_up<S: Store>(
     }) else {
         return;
     };
-    let leave = ServerMessage::ObjectLeaves(ObjectEvent {
-        sender: ObjectStamp {
-            id: item,
-            instance_stamp: instance,
-            other_stamp: 0,
-        },
-        action: auberean_protocol::physics::Leave {
-            stamp: stamp.wrapping_add(1),
-        },
-    });
+    let leave = left_the_ground(item, instance, stamp);
     if let Some((stack, slot, had)) = stack_for(s, world, item, quantity) {
         let slot = i32::try_from(slot).unwrap_or(0);
         let m = Move {
@@ -1468,17 +1478,7 @@ pub fn picked_up<S: Store>(
             value: i32::try_from(total).unwrap_or(i32::MAX),
         });
         to_holder(s, net, world, stack, &more);
-        let gone = ServerMessage::ForgetObject(ObjectOnly(ObjectStamp {
-            id: item,
-            instance_stamp: instance,
-            other_stamp: 0,
-        }));
-        crate::presence::to_thing_knowers(s, net, item, BlobKind::UNORDERED, &gone);
-        crate::presence::leaves(s, net, item, &leave);
-        s.things.remove(item);
-        for p in s.players.values_mut() {
-            p.known.remove(&item);
-        }
+        gone_from_where_it_lay(s, net, item);
     } else {
         let full = s
             .players
@@ -1683,6 +1683,10 @@ fn open_quality<S: Store>(s: &mut Server<S>, id: u64, open: bool) -> ServerMessa
 pub fn open<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, corpse: u64) {
     if let Some(old) = open_corpse_of(s, world).filter(|o| *o != corpse) {
         close(s, net, world, old);
+    }
+    let name = crate::social::name_of(s, world);
+    if let Some(c) = s.things.get_mut(corpse).and_then(|t| t.corpse.as_mut()) {
+        c.first_looted_by.get_or_insert(name);
     }
     let fx = ServerMessage::DoFx(ObjectEvent {
         sender: visual(s, corpse),
@@ -2099,12 +2103,7 @@ pub fn transmute_all<S: Store>(
             continue;
         };
         let count = t.quantity.max(1);
-        let worth = if t.value > 0 {
-            t.value
-        } else {
-            item_value(s, t.template)
-        }
-        .saturating_mul(count);
+        let worth = crate::pack::paid_for(s, world, t.template, t.value, count);
         let m = Move {
             move_type: move_type::TAKE,
             item: *item,
@@ -2291,7 +2290,14 @@ pub fn enter<S: Store>(s: &mut Server<S>, world: ConnId) -> Vec<u64> {
     held.sort_by_key(|h| pack_order(h.slot));
     let mut ids = Vec::new();
     for h in held {
+        // A template the world no longer has: the item stays held and kept, not shown, and comes
+        // back with its template.
         let Some(t) = s.catalog.get(h.template).cloned() else {
+            tracing::warn!(
+                item = format_args!("{:#x}", h.id),
+                template = format_args!("{:08X}", h.template),
+                "a player holds an item of a template this world no longer has: it stays held, unseen"
+            );
             continue;
         };
         let mut item = Thing::of(h.id, &t, Kind::Item);

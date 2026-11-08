@@ -244,6 +244,7 @@ fn a_reload_never_touches_what_a_player_has_or_left_lying() {
         butchered: false,
         killer_level: 1,
         expires: h.now.0 + 600.0,
+        ..Default::default()
     });
     h.server.things.insert(c);
     // One of the camp's beetles is kept by no camp from now on, as a pet or a summoned one is.

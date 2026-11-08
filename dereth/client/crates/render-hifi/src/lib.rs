@@ -320,6 +320,8 @@ pub struct HifiRenderer {
     /// For each per-frame block the world was recorded with, the block it is replayed with at
     /// this frame's jitter; empty on a frame drawn without the anti-aliasing.
     jittered_frames: HashMap<u32, u32>,
+    /// The same for the translucent draws, with the fog they were recorded with.
+    fogged_frames: HashMap<u32, u32>,
     /// An art pack's materials for retail pictures, and this frame's draws of them.
     materials: materials::Materials,
     /// Each pass's CPU time preparing this frame, milliseconds.
@@ -361,6 +363,7 @@ impl HifiRenderer {
             reshader: Reshader::default(),
             jitter_count: 0,
             jittered_frames: HashMap::new(),
+            fogged_frames: HashMap::new(),
             materials: materials::Materials::default(),
             cpu_prepare: Vec::new(),
             cpu_encode: Vec::new(),
@@ -665,6 +668,7 @@ impl HifiRenderer {
         // Empty on a frame drawn without the anti-aliasing, or not re-shaded.
         self.compositor.jitter_with(&self.jittered_frames);
         let mut jittered = passes::taa::JitteredFrames(&self.jittered_frames);
+        let mut fogged = passes::atmosphere::FoggedFrames(&self.fogged_frames);
         // Whether a pass draws the landscape's ground itself this frame.
         let ground_drawn = self
             .graph
@@ -685,6 +689,10 @@ impl HifiRenderer {
                     (Some(plan), Some(rt)) => {
                         // Every block the re-shaded world is drawn with, at the frame's jitter.
                         filters.insert(0, &mut jittered);
+                        // The translucent draws over the air, each in its own fog.
+                        if slot == Slot::AlphaReplay {
+                            filters.insert(0, &mut fogged);
+                        }
                         if slot == Slot::WorldReplay {
                             // The sky's first pass with its own pipelines, but with the passes'
                             // say in it (the physical sky over the authored dome).
@@ -1145,6 +1153,7 @@ impl FrameSidecar for HifiRenderer {
         self.resources.begin_frame();
         self.wanted.clear();
         self.jittered_frames.clear();
+        self.fogged_frames.clear();
         self.cpu_prepare.clear();
         self.cpu_encode.clear();
         // The frame's place in the anti-aliasing's jitter, set on its camera before any pass sees
@@ -1271,7 +1280,8 @@ impl FrameSidecar for HifiRenderer {
         // A re-shaded frame drawn with the anti-aliasing replays its world at the frame's jitter:
         // each block it was recorded with, as the passes' say hands it on, shifted.
         if let (Some(_), Some(frame)) = (&self.plan, self.frame.as_ref()) {
-            if frame.camera.dither > 0.0 {
+            let shift = passes::taa::Shift::of(frame);
+            if shift.jitters() {
                 let filters: Vec<&mut dyn ReplayFilter> = self
                     .graph
                     .passes_mut()
@@ -1279,12 +1289,11 @@ impl FrameSidecar for HifiRenderer {
                     .filter(|(_, wanted)| **wanted)
                     .filter_map(|((_, p), _)| p.replay_filter())
                     .collect();
-                self.jittered_frames = passes::taa::jittered_frames(
-                    cx,
-                    &mut Chain(filters),
-                    frame.camera.jitter,
-                    frame.camera.dither,
-                );
+                self.jittered_frames = passes::taa::jittered_frames(cx, &mut Chain(filters), shift);
+            }
+            // Glows are translucent draws, and they alone read whether the frame is indoors.
+            if shift != passes::taa::Shift::NONE {
+                self.fogged_frames = passes::taa::jittered_frames(cx, &mut LegacyReplay, shift);
             }
         }
         timing::add_ms(&mut self.cpu_prepare, "jittered blocks", watch.ms());

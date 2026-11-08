@@ -953,6 +953,10 @@ mod imp {
             SceneRenderer::end_frame(self).map_err(crate::present::present_error)
         }
 
+        fn window_hidden(&self) -> bool {
+            SceneRenderer::window_hidden(self)
+        }
+
         fn wait_idle(&mut self) -> Result<(), dereth_client_runtime::present::PresentError> {
             SceneRenderer::wait_idle(self).map_err(crate::present::present_error)
         }

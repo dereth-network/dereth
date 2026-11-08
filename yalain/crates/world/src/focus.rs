@@ -75,13 +75,22 @@ pub fn gain<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, amo
 }
 
 /// Back from a resurrection: focus above ten is cut to ten (and sent).
-pub fn resurrected(p: &mut crate::world::Player, net: &mut ServerNet, world: ConnId) {
+pub fn resurrected(p: &mut crate::world::Player, net: &mut ServerNet, world: ConnId, most: i32) {
     if let Some(f) = quals::int(&p.qualities, quality::FOCUS) {
-        if f > AFTER_RESURRECTION {
-            quals::set_int(&mut p.qualities, quality::FOCUS, AFTER_RESURRECTION);
-            progress::send_int(net, world, quality::FOCUS, AFTER_RESURRECTION);
+        if f > most {
+            quals::set_int(&mut p.qualities, quality::FOCUS, most);
+            progress::send_int(net, world, quality::FOCUS, most);
         }
     }
+}
+
+/// The most focus a player comes back with: ten, and a share of its greatest a resurrecting skill
+/// lets it keep, up to the next whole point (2017: 20 at 0.0944, 17 at 0.0657, of a greatest of 100).
+#[must_use]
+pub fn back_with(greatest: i32, kept_share: f32) -> i32 {
+    #[allow(clippy::cast_precision_loss)]
+    let kept = (greatest.max(0) as f32 * kept_share.max(0.0)).ceil();
+    AFTER_RESURRECTION + dereth_primitives::num::to_i32(kept)
 }
 
 /// Make a character a hero, or no longer one, by name: in the world, it is sent its hero quality

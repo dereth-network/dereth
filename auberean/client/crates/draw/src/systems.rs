@@ -560,6 +560,20 @@ impl ParticleSystems {
             .is_none_or(|s| s.set.ready_to_die(now))
     }
 
+    /// When the system was last queued to be drawn.
+    #[must_use]
+    pub fn queued_at(&self, system: &SystemRef) -> Option<f64> {
+        self.lock().find(system.id).and_then(|s| s.queued_at)
+    }
+
+    /// Whether the system's record forces it to draw even where its object isn't drawn.
+    #[must_use]
+    pub fn force_draw(&self, system: &SystemRef) -> bool {
+        self.lock()
+            .find(system.id)
+            .is_some_and(|s| s.set.force_draw())
+    }
+
     /// How many particles the system has alive.
     #[must_use]
     pub fn alive(&self, system: &SystemRef) -> usize {

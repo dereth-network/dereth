@@ -136,12 +136,56 @@ impl Body {
     }
 
     /// Keeps `p` as the body's placement: the body turns at once to its heading, made to a 255th of
-    /// a turn.
+    /// a turn, and a change of mode under way finishes at once.
     // D2-06051
     pub fn set_placement_position(&mut self, p: Position) {
         self.placement = Some(p);
         self.minterp
             .turn_to(true, crate::geom::frame_heading(&p.frame));
+        self.notices
+            .push(super::Notice::Animate(super::Animate::SnapMode));
+    }
+
+    /// The body, set at `p` from where the world can't be reached, is placed there by its next step.
+    pub(super) fn place_soon(&mut self, p: Position) {
+        let was = self.placing.map_or(self.position, |(_, was)| was);
+        self.placing = Some((p, was));
+    }
+
+    /// The body leaves the ground: when it was just set in a place not yet placed, what comes of
+    /// that place is to stand under it.
+    pub(super) fn note_leaving_while_placing(&mut self) {
+        if self.placing.is_some() && self.left_while_placing.is_none() {
+            self.left_while_placing = Some(self.contact);
+        }
+    }
+
+    /// The place set since the last step is placed: the body takes a free spot nearby and touches
+    /// only what is there, and with no room goes back where it stood.
+    // D2-06369
+    pub(super) fn take_placing(&mut self, land: &Land, world: &mut World, key: BodyKey) {
+        let Some((p, was)) = self.placing.take() else {
+            return;
+        };
+        // Placed through the entry this step moves it by, in the world it steps in.
+        let entry = self.key.replace(key);
+        // What was asked of the body after it was set there stands: its speed, and a jump or a
+        // push that took it off the ground, which comes after the place and isn't a landing.
+        let velocity = self.velocity;
+        let left = self.left_while_placing.take();
+        if let Some(touching) = left {
+            self.contact = touching;
+        }
+        if self.set_position_simple(land, world, p, true) != error::OK {
+            self.position = was;
+        }
+        if left.is_some() {
+            self.contact = false;
+            self.do_element(crate::motion::AIR);
+        }
+        self.velocity = velocity;
+        self.key = entry;
+        self.set_placement_position(p);
     }
 
     /// Puts the body at `p`, taking a free spot nearby when `slide`.

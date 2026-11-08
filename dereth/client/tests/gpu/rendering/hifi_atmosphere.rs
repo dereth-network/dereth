@@ -21,7 +21,7 @@ use dereth_render::device::{Backend, DeviceConfig, Gpu};
 use dereth_render::wgpu::sidecar::SidecarReport;
 use dereth_scene::world_scene::{SceneReads, SceneWrites};
 
-use crate::instruments::hifi_stations::{self, capture, moved, Shot, Station};
+use crate::instruments::hifi_stations::{self, capture, moved, Clock, Place, Shot, Station};
 
 const W: u32 = 960;
 const H: u32 = 540;
@@ -241,6 +241,85 @@ fn the_farther_the_land_the_more_it_takes_the_colour_of_the_sky_over_the_horizon
         );
     }
     assert!(means[0] < means[bins - 1] * 0.6, "{means:?}");
+}
+
+/// What the chimney's smoke does to the far land behind it, against the same frame with no
+/// particles: the mean change of each of red, green and blue, and the mean size of those changes.
+fn smoke_over_far_land(clock: Clock, prefs: FidelityPreferences) -> ([f32; 3], f32) {
+    let frame = |particles| {
+        // A house's chimney on the block east of Holtburg, seen from 15 metres at the height of
+        // its eaves, so the smoke rises in front of the hills across the water.
+        let station = Station {
+            name: "chimney-far-land",
+            why: "the smoke of a chimney in front of far hills",
+            place: Place::Look {
+                block: 0xADB2,
+                x: 15.0,
+                y: 69.0,
+                eye: 4.0,
+                at: [15.0, 84.0, 36.0],
+            },
+            clock,
+            weather: particles,
+            land_radius: 8,
+        };
+        let mut device = device();
+        let gpu = &mut device;
+        let store = crate::common::dats();
+        let mut shot = Shot::open(&store, gpu, &station);
+        shot.scene.draw.cfg.render.fidelity = prefs;
+        shot.scene
+            .update_from_preferences(&store, gpu)
+            .expect("the preferences poll");
+        // Long enough for the smoke to rise past the chimney's top in front of the hills.
+        for _ in 0..200 {
+            shot.step(gpu);
+            assert!(gpu.hifi_settle(std::time::Duration::from_secs(60)));
+        }
+        capture(gpu)
+    };
+    let (with, without) = (frame(true), frame(false));
+    let (mut change, mut size, mut n) = ([0.0f32; 3], 0.0f32, 0.0f32);
+    // The smoke's column where the hills stand behind it, not the sky.
+    for y in 285..315u32 {
+        for x in 285..335u32 {
+            let at = ((y * W + x) * 4) as usize;
+            for c in 0..3 {
+                let d = f32::from(with[at + c]) - f32::from(without[at + c]);
+                change[c] += d;
+                size += d.abs() / 3.0;
+            }
+            n += 1.0;
+        }
+    }
+    (change.map(|c| c / n), size / n)
+}
+
+/// Behaviour: hifi.sky.smoke-before-far-land-is-not-hazed-by-the-lands-distance
+/// Smoke drawn in front of far hills keeps its own look: at noon it darkens them evenly in all
+/// three colors, where the haze of the land's distance laid over it would leave the blue, and at
+/// dusk it stands out against them at least about as much as it does in the ordinary frame, where
+/// the same haze would all but hide it.
+#[test]
+fn smoke_in_front_of_far_land_is_not_hazed_by_the_lands_distance() {
+    let _gpu = crate::common::gpu_lock();
+    let sky = "Lighting=1,Sky=1";
+
+    let ([red, _, blue], _) = smoke_over_far_land(Clock::Sunny(0.5), fidelity(sky));
+    eprintln!("chimney at noon: smoke changes the hills by {red:.1} red, {blue:.1} blue");
+    assert!(red < -10.0, "the smoke darkens the hills: {red:.1} red");
+    assert!(
+        blue < 0.4 * red,
+        "and not only in red and green: {red:.1} red, {blue:.1} blue"
+    );
+
+    let (_, ordinary) = smoke_over_far_land(Clock::SunUp(3.0), FidelityPreferences::default());
+    let (_, on) = smoke_over_far_land(Clock::SunUp(3.0), fidelity(sky));
+    eprintln!("chimney at dusk: smoke changes the hills by {on:.1}, {ordinary:.1} off");
+    assert!(
+        on >= 0.8 * ordinary,
+        "at dusk the smoke changes the hills by {on:.1} against {ordinary:.1} off"
+    );
 }
 
 /// Behaviour: hifi.sky.the-authored-night-sky-and-its-stars-are-kept

@@ -503,8 +503,8 @@ pub fn save_into(ini: &mut UserPreferences) -> usize {
     // does not have that section yet.
     let rows: Vec<(String, String)> = REGISTRY.with(|r| {
         let all = r.borrow();
-        // The renderer option is left out while it holds no choice, and the render scale,
-        // which the browser's front page keeps, always.
+        // The renderer option is left out while it holds no choice, and the render scale where
+        // the browser's front page keeps it.
         let chosen = all.iter().filter(|(name, var)| {
             !super::renderer::left_out_of_save(name, &var.value)
                 && !super::render_scale::left_out_of_save(name)

@@ -282,8 +282,8 @@ mod queued_attacks {
         p.projectile = Some(ProjectileLinks {
             source: Some(MONSTER),
             target: Some(PLAYER),
-            launcher: None,
             ammo: Some(DART),
+            ..ProjectileLinks::default()
         });
         let mut spot = at;
         spot.position_y += 6.0;

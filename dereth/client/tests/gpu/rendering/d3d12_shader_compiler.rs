@@ -74,6 +74,9 @@ fn empty_folder() -> PathBuf {
 fn direct3d_12(folder: &Path) -> (ShaderCompiler, wgpu::Adapter) {
     let mut desc = wgpu::InstanceDescriptor::new_without_display_handle();
     desc.backends = wgpu::Backends::DX12;
+    // Validating here would turn on Direct3D 12's debug layer for the whole process, and a device
+    // another test makes after that would be refused.
+    desc.flags.remove(wgpu::InstanceFlags::VALIDATION);
     let (desc, compiler) = compiler::with_dxc_in(desc, Some(folder));
     let instance = wgpu::Instance::new(desc);
     let adapter = block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {

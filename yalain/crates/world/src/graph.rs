@@ -30,20 +30,15 @@ pub enum Slot {
 
 /// Slot tags.
 pub mod tag {
-    pub const REF: u8 = 0x01;
-    pub const INT: u8 = 0x02;
-    pub const FLOAT: u8 = 0x03;
-    pub const LONG: u8 = 0x82;
+    pub use auberean_script::value::tag::{
+        DOUBLE, FLOAT, FRESH as HIGH, INT, LONG_INT as LONG, REFERENCE as REF, TIME,
+    };
     /// The low slot of a 64-bit value a native wrote (the script does not say what it holds).
-    pub const MIXED_LONG: u8 = 0x84;
-    pub const DOUBLE: u8 = 0x83;
-    pub const TIME: u8 = 0xC3;
-    /// The second slot of a 64-bit value.
-    pub const HIGH: u8 = 0xCD;
+    pub const MIXED_LONG: u8 =
+        auberean_script::value::tag::LONG | auberean_script::value::tag::MIXED;
 }
 
-/// The reference id of nothing.
-pub const NULL: u32 = 0xFFFF_FFFF;
+pub use auberean_script::value::NULL;
 
 /// The flags every entry of a graph the server packs carries: an object, loaded, scannable.
 pub const ENTRY: u32 = field::LOADED | field::SCAN | field::OBJECT;

@@ -607,3 +607,21 @@ mod in_the_world {
         scene.release_textures(&mut r.gpu);
     }
 }
+
+/// A Direct3D 12 device made after a `wgpu` one, with one before them having drawn, is on the GPU:
+/// this module's tests make them in that order on every renderer, and `wgpu`'s look at its adapters
+/// must not leave the next Direct3D 12 device refused.
+#[test]
+fn a_direct3d_12_device_after_a_wgpu_one_is_still_on_the_gpu() {
+    let _gpu = crate::common::gpu_lock();
+    if !Backend::compiled().contains(&Backend::D3d12)
+        || !Backend::compiled().contains(&Backend::Wgpu)
+    {
+        return;
+    }
+    let mut first = ready(Backend::D3d12);
+    let _ = frame(&mut first, &interface(&[], &[]));
+    drop(first);
+    drop(renderer(Backend::Wgpu));
+    drop(renderer(Backend::D3d12));
+}

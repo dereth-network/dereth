@@ -84,6 +84,8 @@ pub enum Error {
     Version,
     #[error("credentials must be nonempty printable ASCII, with no colon in the account, and fit 20 bytes including the separator")]
     Credentials,
+    #[error("a login must report both data files' iterations")]
+    Iterations,
     #[error("invalid fragment")]
     Fragment,
     #[error("unsupported queue")]
@@ -334,8 +336,11 @@ pub fn account_field(text: &str) -> [u8; 28] {
 /// the account field, an empty second account field, a one, an empty ticket, both dat iterations,
 /// a zero and an all-ones word. The caller must treat the returned bytes as credentials.
 ///
+/// A login with no iteration is never made: an ac1999 server writes such a login to its log whole,
+/// password included.
+///
 /// # Errors
-/// Rejects an invalid version or credentials before producing a datagram.
+/// Rejects an invalid version or credentials, or a missing iteration, before producing a datagram.
 pub fn login_request(
     version: &str,
     account: &str,
@@ -346,6 +351,9 @@ pub fn login_request(
         return Err(Error::Version);
     }
     let text = account_text(account, password)?;
+    if metadata.portal_iteration == 0 || metadata.cell_iteration == 0 {
+        return Err(Error::Iterations);
+    }
     let mut body = LOGIN_MAGIC.to_le_bytes().to_vec();
     let length = u16::try_from(version.len() + 1).map_err(|_| Error::Version)?;
     body.extend_from_slice(&length.to_le_bytes());

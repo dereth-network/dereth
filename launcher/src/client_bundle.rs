@@ -66,6 +66,12 @@ fn info_plist(product: Product, version: &str, icon: bool, composed: bool) -> St
             "\n\t<key>CFBundleIconName</key>\n\t<string>{title}</string>"
         ));
     }
+    // A game's client asks macOS to give it the CPU and GPU first while it is full screen.
+    let game_mode = if matches!(product, Product::Dereth | Product::Auberean) {
+        "\n\t<key>LSSupportsGameMode</key>\n\t<true/>\n\t<key>GCSupportsGameMode</key>\n\t<true/>"
+    } else {
+        ""
+    };
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -90,7 +96,7 @@ fn info_plist(product: Product, version: &str, icon: bool, composed: bool) -> St
 	<key>LSMinimumSystemVersion</key>
 	<string>11.0</string>
 	<key>LSApplicationCategoryType</key>
-	<string>public.app-category.role-playing-games</string>
+	<string>public.app-category.role-playing-games</string>{game_mode}
 	<key>NSHighResolutionCapable</key>
 	<true/>
 </dict>
@@ -202,6 +208,8 @@ mod tests {
             "<key>CFBundleIconName</key>\n\t<string>Dereth</string>",
             "<key>CFBundleShortVersionString</key>\n\t<string>0.4.9</string>",
             "<key>NSHighResolutionCapable</key>\n\t<true/>",
+            "<key>LSSupportsGameMode</key>\n\t<true/>",
+            "<key>GCSupportsGameMode</key>\n\t<true/>",
         ] {
             assert!(plist.contains(wanted), "{wanted}\n{plist}");
         }
@@ -229,6 +237,8 @@ mod tests {
         assert!(plist.contains("<string>Auberean</string>"), "{plist}");
         assert!(plist.contains("<string>auberean</string>"), "{plist}");
         assert!(!plist.contains("Dereth"), "{plist}");
+        assert!(plist.contains("<key>LSSupportsGameMode</key>"), "{plist}");
+        assert!(plist.contains("<key>GCSupportsGameMode</key>"), "{plist}");
         assert!(contents.join("Resources/Auberean.icns").is_file());
     }
 

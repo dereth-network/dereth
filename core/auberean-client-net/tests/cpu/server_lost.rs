@@ -179,6 +179,46 @@ fn flags_of(datagram: &[u8]) -> u32 {
     u32::from_le_bytes([datagram[4], datagram[5], datagram[6], datagram[7]])
 }
 
+/// A connection request of a newer iteration, from the server a session is talking to: that server
+/// has started over, and the session is over, once; one of the same iteration changes nothing.
+///
+/// Behaviour: session.connection.a-server-that-starts-over-ends-the-session
+#[test]
+fn a_server_that_starts_over_ends_the_session() {
+    let request = |iteration: u16| {
+        let r = ConnectRequest {
+            server_time: 1.25e8,
+            cookie: 0x0102_0304_0506_0708,
+            net_id: 1,
+            outgoing_seed: 7,
+            incoming_seed: 0x0BAD_F00D,
+        };
+        control(
+            LOGIN_ID,
+            iteration,
+            PacketFlags::CONNECT_REQUEST,
+            r.to_bytes().to_vec(),
+        )
+    };
+    let mut run = Run::new(None);
+    run.run_until(3.0);
+    assert!(run.session.login_connected());
+    run.hear_login_server(&request(LOGIN_ITERATION));
+    run.drain();
+    assert_eq!(
+        run.count(|e| *e == Event::ServerDied),
+        0,
+        "the same iteration"
+    );
+    run.hear_login_server(&request(LOGIN_ITERATION + 1));
+    run.drain();
+    assert_eq!(
+        run.count(|e| *e == Event::ServerDied),
+        1,
+        "a newer iteration"
+    );
+}
+
 /// A login server that falls silent is given 140 seconds; then the client lets it go, logs off
 /// and the session is over: the server is dead, and nothing more is sent (the dead server's
 /// connection is gone before the log-off, so not even a goodbye goes to it).

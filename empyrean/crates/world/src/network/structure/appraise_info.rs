@@ -33,6 +33,7 @@ use super::hash_comparer::{
 use super::hook_profile::{self, HookFlags, HookProfile};
 use super::weapon_profile::{self, weapon_profile_new, WeaponProfile};
 use crate::network::game_messages::game_message::{ace_str, write_record};
+use crate::world_objects::creature_missile;
 use crate::world_objects::world_object::WorldObject;
 use crate::world_objects::world_object_networking::shims;
 use crate::World;
@@ -247,7 +248,7 @@ impl AppraiseInfo {
             || o.is_ammunition()
             || o.is_caster()
         {
-            self.build_weapon(w, wo);
+            self.build_weapon(w, wo, examiner);
         }
 
         let o = obj(w, wo);
@@ -1040,12 +1041,17 @@ impl AppraiseInfo {
     }
 
     // ACE: AppraiseInfo.BuildWeapon
-    fn build_weapon(&mut self, w: &World, weapon: ObjectGuid) {
+    fn build_weapon(&mut self, w: &mut World, weapon: ObjectGuid, examiner: ObjectGuid) {
         if !self.success {
             return;
         }
 
-        let weapon_profile = weapon_profile_new(w, weapon);
+        let mut weapon_profile = weapon_profile_new(w, weapon);
+
+        // DIVERGE: V515, a thrown weapon's range on Launch is what this examiner would throw it.
+        if let Some(velocity) = creature_missile::thrown_velocity_of(w, examiner, weapon) {
+            weapon_profile.max_velocity = velocity;
+        }
 
         //WeaponHighlight = WeaponMaskHelper.GetHighlightMask(weapon, wielder);
         //WeaponColor = WeaponMaskHelper.GetColorMask(weapon, wielder);

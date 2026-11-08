@@ -383,7 +383,10 @@ impl Creation {
     fn turn(&mut self, p: &mut Painter<'_>, ctx: &mut Ctx<'_>, preview: Rect) {
         let k = p.scale;
         let x = ctx.input.mouse.0;
-        if ctx.input.pressed[0] && ctx.over(&preview) {
+        // Over the model the pointer is the interface's, before the press as well: a press the
+        // interface doesn't keep goes on to the game's camera, which holds the pointer still.
+        let over = ctx.over(&preview);
+        if ctx.input.pressed[0] && over {
             self.turning = Some(x);
             ctx.input.captured = true;
         }
@@ -1736,7 +1739,7 @@ pub(crate) mod tests {
     }
 
     /// One frame of turning the model shown at (100, 100, 200, 400), with no art behind it.
-    fn turn_frame(c: &mut Creation, input: &mut crate::ui::input::InputFrame) {
+    fn turn_frame(c: &mut Creation, input: &mut crate::ui::input::InputFrame) -> bool {
         let art = crate::art::Art::empty();
         let colours = crate::ui::colours::Colours::default();
         let mut list = crate::draw::DrawList::default();
@@ -1762,7 +1765,23 @@ pub(crate) mod tests {
             airborne: false,
         };
         c.turn(&mut p, &mut ctx, Rect::new(100.0, 100.0, 200.0, 400.0));
+        let hot = ctx.kit.hot;
         input.next_frame();
+        hot
+    }
+
+    /// The press that begins a turn stays with the interface, so the game's camera doesn't hold the
+    /// pointer: the interface says the pointer is its own before the press, not only during it.
+    #[test]
+    fn the_pointer_over_the_model_is_the_interfaces_before_the_press() {
+        let mut c = creation();
+        let mut input = crate::ui::input::InputFrame {
+            mouse: (150.0, 300.0),
+            ..Default::default()
+        };
+        assert!(turn_frame(&mut c, &mut input), "over the model");
+        input.mouse = (50.0, 50.0);
+        assert!(!turn_frame(&mut c, &mut input), "beside it");
     }
 
     #[test]

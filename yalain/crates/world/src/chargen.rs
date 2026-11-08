@@ -19,20 +19,13 @@ use auberean_primitives::Vec3;
 use auberean_protocol::table::{Table, SMALL};
 use auberean_protocol::types::{PartGroupDesc, VisualDesc};
 
-/// The physique type that scales an avatar's width (build).
-pub const BUILD: u32 = 0x1;
-/// The physique type that scales an avatar's height.
-pub const HEIGHT: u32 = 0x2;
+pub use auberean_world::chargen::{BUILD, FEMALE, HEIGHT, MALE};
 /// The key of the change applied to a whole avatar.
 pub const AVATAR_KEY: u32 = 0x4000_0002;
 /// The modifier of a choice among parts, which also turns on [`SHOWN`].
 const CHOICE: u32 = 0x2;
 /// The modifier set to 1 beside every choice.
 const SHOWN: u32 = 0x10;
-
-/// The sexes as the client sends them.
-pub const MALE: u32 = 0x1000;
-pub const FEMALE: u32 = 0x2000;
 
 /// The body entity of each race and sex: `(race, sex, entity)`.
 pub const BODY_ENTITIES: [(u32, u32, u32); 10] = [

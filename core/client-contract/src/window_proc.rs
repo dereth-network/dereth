@@ -456,6 +456,17 @@ pub fn frame_sleep_ms(is_active_app: bool, now_ms: u32, last_frame_tick_ms: u32)
     BACKGROUND_FRAME_MS.saturating_sub(elapsed)
 }
 
+/// How far apart, in milliseconds, frames come when the window can't be seen and nothing else
+/// spaces them: about sixty a second.
+pub const HIDDEN_FRAME_MS: u32 = 17;
+
+/// How long a frame waits in a window that can't be seen. Nothing waits for the display there, so
+/// without this it would draw as fast as it can.
+#[must_use]
+pub fn hidden_frame_sleep_ms(now_ms: u32, last_frame_tick_ms: u32) -> u32 {
+    HIDDEN_FRAME_MS.saturating_sub(now_ms.wrapping_sub(last_frame_tick_ms))
+}
+
 /// The windowed outer size computed from the window metrics:
 ///
 /// ```text

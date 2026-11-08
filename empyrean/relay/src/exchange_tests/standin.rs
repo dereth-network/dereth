@@ -29,6 +29,8 @@ use dereth_protocol::{
 };
 use dereth_transport::{Fragment, FragmentHeader};
 
+/// The world's clock in the stand-in's grant.
+pub const WORLD_CLOCK: f64 = 7_000_000.0;
 pub const CHARACTER: u32 = 0x5000_0001;
 const SERVER_ID: u32 = 11;
 pub const PORTAL_RECORD: u32 = 0x0100_0001;
@@ -60,6 +62,8 @@ fn opcode_of(bytes: &[u8]) -> u32 {
 
 /// The stand-in.
 pub struct Standin {
+    /// Whether it has sent its grant.
+    pub granted: bool,
     keys: KeyStream,
     sequence: u32,
     blob: u32,
@@ -80,6 +84,7 @@ pub struct Standin {
 impl Standin {
     pub fn new() -> Self {
         Self {
+            granted: false,
             keys: KeyStream::new(0),
             sequence: 1,
             blob: 0,
@@ -339,7 +344,8 @@ impl Standin {
                 self.reported = Some((word(80), word(84)));
                 self.login_body = body;
                 let mut grant = 0.0f64.to_le_bytes().to_vec();
-                grant.extend(0.0f64.to_le_bytes());
+                grant.extend(WORLD_CLOCK.to_le_bytes());
+                self.granted = true;
                 grant.extend(1u32.to_le_bytes());
                 grant.extend(7u32.to_le_bytes());
                 grant.extend(b"4.35752");

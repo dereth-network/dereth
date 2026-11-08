@@ -22,8 +22,16 @@ pub struct ClientOption {
     pub accepted: bool,
 }
 
+/// Whether the retail client can play `world`: not one drawn from the 1999 files, whose wire and
+/// data it has never spoken.
+#[must_use]
+pub fn retail_can_play(world: &World) -> bool {
+    required_set_for(world) != SetKind::Original
+}
+
 /// The clients there are, Dereth first, each with whether this world accepts it. `dereth` is the
-/// Dereth client the launcher found, if it found one.
+/// Dereth client the launcher found, if it found one. A client that can't play the world isn't
+/// offered at all.
 pub fn clients_for(
     state: &LauncherState,
     world: &World,
@@ -31,7 +39,7 @@ pub fn clients_for(
 ) -> Vec<ClientOption> {
     dereth
         .into_iter()
-        .chain(state.retail.as_ref())
+        .chain(state.retail.as_ref().filter(|_| retail_can_play(world)))
         .map(|i| ClientOption {
             kind: i.kind,
             install: i.clone(),
@@ -526,6 +534,31 @@ mod tests {
         let mut plain = World::new("x", "X");
         plain.era = Some("infiltration".into());
         assert_eq!(required_set_for(&plain), SetKind::Classic);
+    }
+
+    /// The retail client can't play the 1999 wire or files: a Launch world, hosted, listed or through
+    /// a relay, offers Dereth alone, and the last choice there doesn't bring it back.
+    #[test]
+    fn a_launch_world_offers_dereth_alone() {
+        let s = LauncherState {
+            retail: Some(install(ClientKind::Retail, "retail")),
+            ..LauncherState::default()
+        };
+        let dereth = install(ClientKind::Dereth, "dereth");
+        let mut w = World::new("eulmore", "Eulmore");
+        assert_eq!(clients_for(&s, &w, Some(&dereth)).len(), 2, "any other era");
+
+        w.era = Some("launch".into());
+        let opts = clients_for(&s, &w, Some(&dereth));
+        assert_eq!(opts.len(), 1);
+        assert_eq!(opts[0].kind, ClientKind::Dereth);
+        assert_eq!(
+            default_client(&opts, &w, Some(ClientKind::Retail)),
+            Some(ClientKind::Dereth)
+        );
+
+        let relayed = crate::relayed::RELAYED_WORLDS[0].to_world();
+        assert!(!retail_can_play(&relayed));
     }
 
     #[test]

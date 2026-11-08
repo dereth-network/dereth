@@ -10,6 +10,10 @@ use crate::start::Nav;
 /// The level table's saved state.
 pub const LEVEL_TABLE: u32 = 0x7000_0380;
 
+/// The highest level a character that is not a hero reaches. Its experience goes on adding up, and
+/// counts once it is a hero.
+pub const NOT_A_HEROS_TOP: i32 = 50;
+
 /// One level's numbers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Level {
@@ -74,6 +78,22 @@ impl LevelTable {
     pub fn level_for(&self, xp: u64) -> i32 {
         let n = self.levels.iter().take_while(|l| l.xp <= xp).count().max(1);
         i32::try_from(n).unwrap_or(i32::MAX)
+    }
+
+    /// The level this much experience takes a character to: a hero as far as the table goes, anyone
+    /// else no further than [`NOT_A_HEROS_TOP`]; never below the level it holds.
+    #[must_use]
+    pub fn reached(&self, xp: u64, hero: bool, holds: i32) -> i32 {
+        if self.levels.is_empty() {
+            return holds;
+        }
+        let by_xp = self.level_for(xp);
+        (if hero {
+            by_xp
+        } else {
+            by_xp.min(NOT_A_HEROS_TOP)
+        })
+        .max(holds)
     }
 
     /// A level's numbers.

@@ -43,6 +43,14 @@ fn assert_components_resolve(f: &DatFile, t: &SpellTable) {
     }
 }
 
+/// The October 1999 spell table names no formula versions, so every spell reads as the first.
+#[test]
+fn the_october_1999_spell_table_reads_every_formula_as_the_first_version() {
+    let f = capture("1999-10-09", "portal.dat");
+    let t: SpellTable = read(&f, 0x0E00_000E);
+    assert!(t.spells.values().all(|s| s.formula_version == 1));
+}
+
 /// The October 1999 retail CD: eighteen starter areas (six per heritage), three heritages of a
 /// female and a male each with 330 attribute and 50 skill credits, and eight templates, the last
 /// the Warrior the later tables do not have.

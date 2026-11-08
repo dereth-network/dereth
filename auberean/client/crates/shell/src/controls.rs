@@ -200,6 +200,7 @@ impl Controls {
             }
             Event::Focus(_)
             | Event::Text(_)
+            | Event::Composing(_)
             | Event::Pointer { .. }
             | Event::Resized { .. }
             | Event::Close => false,

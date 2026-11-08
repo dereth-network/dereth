@@ -972,4 +972,52 @@ fn a_row_for_what_the_worlds_era_lacks_leaves_the_page() {
             .apply_era(&mut ui, Some(dereth_primitives::EraId::Eor.features())),
         0
     );
+    let sections = s.character_options.shown_sections();
+    assert_eq!(sections, s.character_options.headers);
+    let scrolls = |ui: &UiSystem, s: &GamePlayScreen| {
+        let list = s
+            .character_options
+            .option_box
+            .as_ref()
+            .expect("a list")
+            .handle;
+        ui.node(list)
+            .and_then(|n| n.behaviour.as_ref())
+            .and_then(|b| b.as_any())
+            .and_then(|a| a.downcast_ref::<dereth_ui::widgets::listbox::ListBox>())
+            .expect("a list box")
+            .scroll
+            .height
+    };
+    let full = scrolls(&ui, &s);
+
+    // A section left with nothing goes, header and rule, and comes back with its rows.
+    let boxed = s.character_options.row_count();
+    s.character_options
+        .apply_era(&mut ui, Some(dereth_primitives::EraId::Launch.features()));
+    let shown = s.character_options.shown_sections();
+    assert!(shown < sections, "Launch shows no one's date of birth");
+    assert_eq!(
+        s.character_options.row_count(),
+        s.character_options.rows.len() + shown * 2
+    );
+    let row_heights: i32 = s
+        .character_options
+        .option_box
+        .as_ref()
+        .expect("a list")
+        .item_heights
+        .iter()
+        .sum();
+    assert_eq!(
+        scrolls(&ui, &s),
+        row_heights,
+        "the scrollbar ends where the rows do"
+    );
+    assert!(scrolls(&ui, &s) < full);
+    s.character_options
+        .apply_era(&mut ui, Some(dereth_primitives::EraId::Eor.features()));
+    assert_eq!(s.character_options.shown_sections(), sections);
+    assert_eq!(s.character_options.row_count(), boxed);
+    assert_eq!(scrolls(&ui, &s), full);
 }

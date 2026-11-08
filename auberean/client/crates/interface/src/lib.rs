@@ -185,6 +185,7 @@ struct Shared {
     /// What the map draws on (made once from the region), and the game's date and time.
     atlas: Option<std::sync::Arc<auberean_ui_game::map::Atlas>>,
     clock: Option<auberean_ui_game::map::Clock>,
+    game_time: f64,
     /// The program is ending.
     // D2-01656
     shutting_down: bool,
@@ -260,6 +261,7 @@ impl FlowScreen<Shared> for PlayScreen {
             shop: data.shop.as_ref(),
             atlas: data.atlas.as_ref(),
             clock: data.clock,
+            game_time: data.game_time,
         };
         let notices = std::mem::take(&mut data.notices);
         self.play.tick(ui, &view, &notices, &mut data.out);
@@ -1159,6 +1161,7 @@ impl Retail {
         d.clock = game
             .client
             .and_then(|c| map::clock(game.world, c.world_time()));
+        d.game_time = game.client.map_or(0.0, |c| c.game_time());
         match self.gather.world(game, &write, &**ui.assets()) {
             Some((w, gone)) => {
                 d.world = Some(w);
@@ -2155,6 +2158,10 @@ impl Interface for Retail {
             Event::Text(t) => {
                 let took = self.ui.type_text(t);
                 took || pregame
+            }
+            Event::Composing(t) => {
+                self.ui.set_composition(t);
+                true
             }
             Event::Key { key, down, .. } => {
                 // Shift, Ctrl and Alt as the interface reads them; Delete reaches the entry with the

@@ -389,7 +389,10 @@ fn request(r: &Request) -> ExamRequest {
 /// the window, an icon by its layers' pictures and colors.
 fn profile(p: &Profile) -> Shown {
     Shown {
-        request: request(&Request::unpack(&p.request)),
+        request: ExamRequest {
+            tabs: p.asked(),
+            ..request(&Request::unpack(&p.request))
+        },
         tabs: p.tabs,
         lines: lines(p),
     }
@@ -451,6 +454,16 @@ mod tests {
             effect_lines: vec![Vec::new()],
             listed: vec![listed],
         }
+    }
+
+    /// The window shows the tabs a profile asks for, though its request's packed form says none.
+    #[test]
+    fn the_window_reads_the_tabs_a_profile_asks_for() {
+        let asking = Profile::asking(0x3FF).native();
+        let Some(Record::Profile(shown)) = of(&Some(asking)) else {
+            panic!("a profile");
+        };
+        assert_eq!(shown.request.tabs, 0x3FF);
     }
 
     #[test]

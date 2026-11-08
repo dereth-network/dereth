@@ -621,11 +621,23 @@ impl Down {
                 let data = write_blob(&m)?;
                 done(Out::Later(self.later(data)))
             }
-            // ac1999 sends the later string form.
+            // ac1999 sends the later string form, as `Communication_TransientString` (`0x02EB`).
+            // The refusals it says this way ("Out of Range!") would then be seen only in the strip
+            // at the top of the view, whose short lines sit under the vitals bar where it starts,
+            // so each is also a line in the chat, as `Communication_TextboxString` (`0xF7E0`).
             0x0016 => {
+                let text = Reader::body(body).pstring()?;
                 let mut data = 0x02EBu32.to_le_bytes().to_vec();
                 data.extend_from_slice(body);
-                done(Out::Later(self.later(data)))
+                let strip = self.later(data);
+                let chat = write_blob(&CommunicationTextboxString {
+                    text,
+                    text_type: SYSTEM_TEXT,
+                })?;
+                Ok(Translated::Done(vec![
+                    Out::Later(strip),
+                    Out::Later(self.later(chat)),
+                ]))
             }
             // ac1999 sends the code alone, flat. It is the same number on the later wire.
             0x001C => {

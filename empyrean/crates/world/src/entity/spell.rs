@@ -258,6 +258,12 @@ impl Spell {
             .spells
             .get(&spell_id)
             .cloned();
+        // DIVERGE: V512, V513, V514, the numbers a Launch world plays over the table's.
+        if w.era.formulas.early_2000_spell_fixes {
+            if let Some(base) = self.spell_base.as_mut() {
+                crate::entity::launch_spell_fixes::apply(base);
+            }
+        }
         // DIVERGE: V505, the rules read later numbers; stacking keeps the table's.
         self.rules_category = self
             .spell_base

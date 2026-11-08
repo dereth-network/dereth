@@ -769,6 +769,26 @@ fn only_an_admins_login_is_served_the_library() {
     assert!(listed(&h, c));
 }
 
+/// The `/ethereality` words are numbered as the administrators' own data numbered them, on the wire
+/// whichever way the client reads them.
+/// Behaviour: server.admin.ethereality-values
+#[test]
+fn the_ethereality_words_have_the_values_of_the_administrators_data() {
+    use auberean_assets::strings::EnumMap;
+    use auberean_dat::Reader;
+    use yalain_world::admin_library::ethereality_record;
+    let bytes = ethereality_record();
+    let map = EnumMap::read(&mut Reader::new(&bytes)).expect("reads");
+    for (word, value) in [
+        ("Super", 0x4000_0001),
+        ("Normal", 0x4000_0002),
+        ("Admin", 0x4000_0003),
+    ] {
+        assert_eq!(map.enum_of(word), Some(value), "{word}");
+    }
+    assert_eq!(map.names.len(), 3);
+}
+
 /// With the library goes the record of the `/ethereality` words, which no install holds: the client's
 /// own lookup reads each word as the value this server takes for it, a retail client is told to expect
 /// the record, and the record is sent with it.
@@ -840,11 +860,11 @@ fn the_library_carries_the_words_of_the_ethereality_command() {
 
 /// With the library goes the record of the log type's names, which no install holds: the client reads
 /// the type every answer goes out as under a name, so it shows no empty `[]`. A client holding the
-/// iteration before is sent that record alone, never the library again; one holding any other, or
-/// none, the whole; one holding this one, nothing.
+/// iteration before is sent the record that changed since alone, never the library again; one holding
+/// any other, or none, the whole; one holding this one, nothing.
 /// Behaviour: server.admin.library-names-the-log-type
 #[test]
-fn the_library_names_the_log_type_and_a_client_holding_the_last_gets_only_that() {
+fn the_library_names_the_log_type_and_a_client_holding_the_last_gets_only_the_corrected_words() {
     use auberean_assets::strings::EnumMap;
     use auberean_dat::Reader;
     use auberean_protocol::login::{DataFileIterations, DataRecord};
@@ -893,7 +913,7 @@ fn the_library_names_the_log_type_and_a_client_holding_the_last_gets_only_that()
         );
         assert!(records
             .iter()
-            .filter(|r| r.id == LOG_TYPE_RECORD)
+            .filter(|r| r.id == LOG_TYPE_RECORD || r.id == ETHEREALITY_RECORD)
             .all(|r| r.kind == ENUM_KIND));
         Some((
             b.files[0].download.clone(),
@@ -903,7 +923,7 @@ fn the_library_names_the_log_type_and_a_client_holding_the_last_gets_only_that()
         ))
     };
     let whole = vec![RECORD, ETHEREALITY_RECORD, LOG_TYPE_RECORD];
-    let newer = vec![LOG_TYPE_RECORD];
+    let newer = vec![ETHEREALITY_RECORD];
     for (files, expected) in [
         (Vec::new(), Some(&whole)),
         (held(PORTAL_FILE, vec![one(9_000)]), Some(&whole)),

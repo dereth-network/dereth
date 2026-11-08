@@ -10,6 +10,10 @@
 //! killer (2017 played the kill's private effect in only 451 of 4,040 solo awards; this server
 //! does not).
 //!
+//! **Levels** go by the total experience, to level 50 unless the character is a hero; past that a
+//! character's experience goes on adding up without a level, and brings the levels it has earned
+//! at its next award as a hero.
+//!
 //! **A level-up** sends the level, the skill repository with a credit more (and from level 45 the
 //! level's hero skill credits), the greatest health
 //! and vigor of the level, "Congratulations! You are now level %1..." (the unspent experience, the
@@ -277,16 +281,16 @@ pub fn award_with_focus<S: Store>(
         send_long(net, world, q::AVAILABLE_XP, available);
     }
     let was = quals::int(&p.qualities, q::LEVEL).unwrap_or(1);
-    let now = if s.levels.levels.is_empty() {
-        was
-    } else {
-        s.levels.level_for(total).max(was)
-    };
+    let hero = crate::focus::is_hero(&p.qualities);
+    let now = s.levels.reached(total, hero, was);
     if now > was {
         level_up(s, net, world, was, now);
     }
-    if amount > 0 && why != Award::Allegiance {
+    if amount > 0 && matches!(why, Award::Part | Award::Share) {
         crate::allegiance::earned(s, net, character, amount);
+    }
+    if now > was {
+        crate::allegiance::level_reached(s, net, character);
     }
     match why {
         Award::Part | Award::Step | Award::Share | Award::Allegiance => {}

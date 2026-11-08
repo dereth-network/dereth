@@ -122,6 +122,9 @@ impl MaterialClass {
     }
 }
 
+/// The overridable constant set for a draw that adds to what is there: its
+/// [`AddedShare::constant`](super::pipeline::AddedShare::constant), 0 for any other draw.
+pub const ADDITIVE_CONSTANT: &str = "HIFI_ADDITIVE";
 /// The overridable constant set for a draw that does not blend.
 pub const SOLID_CONSTANT: &str = "HIFI_SOLID";
 
@@ -326,6 +329,11 @@ pub fn prelude(format: VertexFormat) -> String {
         "
 // ---- the re-shaded output ----------------------------------------------------------------
 
+override HIFI_ADDITIVE: u32 = 0;
+// The brightness in the display's encoding an additive sprite is matched over.
+const HIFI_ADD_OVER: f32 = 0.3;
+// The same indoors, where what stands behind a flame's glow is dark and the exposure is raised.
+const HIFI_ADD_OVER_INDOORS: f32 = 0.04;
 override HIFI_SOLID: bool = false;
 
 struct HifiOut {{
@@ -339,6 +347,20 @@ struct HifiOut {{
 {COLOUR_WGSL}
 fn hifi_linear_rgb(c: vec3<f32>) -> vec3<f32> {{
     return srgb_to_linear(max(c, vec3<f32>(0.0)));
+}}
+
+// What an additive draw of `shown` at alpha `a` writes: what the ordinary frame would add over a
+// surface of middling brightness, or a darker one indoors, in linear light, its very faintest part
+// eased away so a stack of sprites shows no edges of their quads. `share` is its
+// ADDITIVE_CONSTANT. The alpha written is what makes the blend take the color whole.
+fn hifi_added(shown: vec3<f32>, a: f32, indoors: f32, share: u32) -> vec4<f32> {{
+    let alpha = clamp(a, 0.0, 1.0);
+    let taken = select(select(alpha, 1.0 - alpha, share == 3u), 1.0, share == 2u);
+    let added = saturate(shown * taken);
+    let eased = added * smoothstep(vec3<f32>(0.0), vec3<f32>(0.04), added);
+    let over = vec3<f32>(mix(HIFI_ADD_OVER, HIFI_ADD_OVER_INDOORS, indoors));
+    let color = hifi_linear_rgb(over + eased) - hifi_linear_rgb(over);
+    return vec4<f32>(color, select(1.0, 0.0, share == 3u));
 }}
 
 // Whether the sun is among the lights this draw was lit with.
@@ -451,7 +473,13 @@ fn hifi_out(c: vec4<f32>, i: VsOut, material: f32) -> HifiOut {{
     // Fog and brightness as the ordinary stage applies them, then the result as linear light,
     // not clamped: the ordinary stage's clamp is the resolve's.
     let shown = mix(g_frame.fog_color.rgb, c.rgb, i.fog) * gamma_scale();
-    o.colour = vec4<f32>(hifi_linear_rgb(shown), select(c.a, 1.0, HIFI_SOLID));
+    if (HIFI_ADDITIVE != 0u) {{
+        // The ordinary frame adds in the display's encoding and this blend adds in linear light,
+        // where the same sprite all but vanishes over anything lit.
+        o.colour = hifi_added(shown, c.a, g_frame.screen.w, HIFI_ADDITIVE);
+    }} else {{
+        o.colour = vec4<f32>(hifi_linear_rgb(shown), select(c.a, 1.0, HIFI_SOLID));
+    }}
     let n = hifi_view_normal(i);
     if (material == {foliage}) {{
         o.normal = vec4<f32>(hifi_canopy_normal(i, n), hifi_foliage_code(i));

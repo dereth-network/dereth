@@ -98,6 +98,8 @@ pub(crate) struct Manager {
     pub object_clean: VecDeque<(Listener, Handle, u32)>,
     /// Elements by name, oldest first.
     pub by_name: HashMap<Token, Vec<Handle>>,
+    /// Names of the elements that never show, whatever asks.
+    pub never_shown: Vec<Token>,
     /// The use key is down.
     pub use_down: bool,
     /// The left button is down; where it last went down.
@@ -440,6 +442,17 @@ impl Ui {
             .by_name
             .get(&name)
             .and_then(|l| l.iter().copied().find(|h| self.node(*h).is_some()))
+    }
+
+    /// The elements named `names`, now and from now on, never show, whatever asks.
+    pub fn never_show(&mut self, names: &[Token]) {
+        self.mgr.never_shown.extend_from_slice(names);
+        for name in names {
+            let made = self.mgr.by_name.get(name).cloned().unwrap_or_default();
+            for h in made {
+                self.set_visible(h, false);
+            }
+        }
     }
 
     /// Note a new element by its name.

@@ -10,6 +10,10 @@ use std::rc::Rc;
 struct Window {
     granted: Rc<Cell<(u32, u32)>>,
     requests: Rc<Cell<u32>>,
+    /// Whether the player sizes it; the client's own window on macOS, and no other.
+    player_sizes: bool,
+    /// Whether the window system has made it full screen by itself.
+    full_screen_of_its_own: Rc<Cell<bool>>,
 }
 impl crate::platform::window::WindowHost for Window {
     fn has_window(&self) -> bool {
@@ -27,6 +31,12 @@ impl crate::platform::window::WindowHost for Window {
     fn request_inner_size(&self, _w: u32, _h: u32) -> (u32, u32) {
         self.requests.set(self.requests.get() + 1);
         self.granted.get()
+    }
+    fn player_sizes_window(&self) -> bool {
+        self.player_sizes
+    }
+    fn full_screen_of_its_own(&self) -> bool {
+        self.full_screen_of_its_own.get()
     }
 }
 fn app() -> App<NullShell> {
@@ -75,6 +85,182 @@ fn pref() -> Option<PrefValue> {
     store::inq_value("Display.Resolution")
 }
 
+fn resized(a: &mut App<NullShell>, width: u32, height: u32) {
+    a.handle_window_event(&mut NullShell, &HostEvent::Resized { width, height }, 0);
+}
+
+/// Behaviour: presentation.window.only-a-window-the-player-sizes-keeps-its-size
+#[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads retail data: --features retail-dats"
+)]
+fn a_window_the_player_does_not_size_keeps_no_size_for_the_next_start() {
+    let mut a = app();
+    a.window = Box::new(Window {
+        granted: Rc::new(Cell::new((800, 600))),
+        requests: Rc::default(),
+        player_sizes: false,
+        full_screen_of_its_own: Rc::default(),
+    });
+    resized(&mut a, 1000, 700);
+    assert_eq!(a.windowed_size, None);
+    let mut ini = dereth_client_contract::persist::preferences::UserPreferences::default();
+    a.save_window_size(&mut ini);
+    assert_eq!(ini.get(crate::config::DISPLAY_WINDOW_SIZE), None);
+}
+
+/// Behaviour: presentation.window.the-green-button-does-not-change-the-size-it-reopens-at
+#[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads retail data: --features retail-dats"
+)]
+fn a_full_screen_the_window_system_made_is_not_the_size_it_reopens_at() {
+    let mut a = app();
+    let of_its_own = Rc::new(Cell::new(false));
+    a.window = Box::new(Window {
+        granted: Rc::new(Cell::new((1000, 700))),
+        requests: Rc::default(),
+        player_sizes: true,
+        full_screen_of_its_own: of_its_own.clone(),
+    });
+    resized(&mut a, 1000, 700);
+    assert_eq!(a.windowed_size, Some((1000, 700)));
+    // The green button: the picture follows the window, and the size to reopen at stays.
+    of_its_own.set(true);
+    resized(&mut a, 1512, 982);
+    assert_eq!(a.present.size(), (1512, 982));
+    assert_eq!(a.windowed_size, Some((1000, 700)));
+    // Back out, and dragged again.
+    of_its_own.set(false);
+    resized(&mut a, 1000, 700);
+    resized(&mut a, 1100, 750);
+    assert_eq!(a.windowed_size, Some((1100, 750)));
+    let mut ini = dereth_client_contract::persist::preferences::UserPreferences::default();
+    a.save_window_size(&mut ini);
+    assert_eq!(
+        ini.get(crate::config::DISPLAY_WINDOW_SIZE),
+        Some("1100x750")
+    );
+}
+
+/// A window that goes by points and a picture that goes by pixels: the size it reopens at is the
+/// window's own, not the picture's.
+///
+/// Behaviour: presentation.window.a-mac-window-counts-its-size-in-points
+#[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads the retail dats: --features retail-dats"
+)]
+fn a_window_drawn_at_its_own_pixels_reopens_at_its_points() {
+    struct TwicePoints(Window);
+    impl crate::platform::window::WindowHost for TwicePoints {
+        fn client_size(&self) -> (u32, u32) {
+            self.0.client_size()
+        }
+        fn screen_metrics(
+            &self,
+            frame: (i32, i32, i32),
+        ) -> dereth_client_contract::window::ScreenMetrics {
+            self.0.screen_metrics(frame)
+        }
+        fn player_sizes_window(&self) -> bool {
+            self.0.player_sizes_window()
+        }
+        fn full_screen_of_its_own(&self) -> bool {
+            self.0.full_screen_of_its_own()
+        }
+        fn window_size_of(&self, (width, height): (u32, u32)) -> (u32, u32) {
+            (width / 2, height / 2)
+        }
+    }
+    let mut a = app();
+    a.window = Box::new(TwicePoints(Window {
+        granted: Rc::new(Cell::new((1000, 700))),
+        requests: Rc::default(),
+        player_sizes: true,
+        full_screen_of_its_own: Rc::default(),
+    }));
+    resized(&mut a, 2200, 1500);
+    assert_eq!(
+        a.present.size(),
+        (2200, 1500),
+        "the picture follows the pixels"
+    );
+    assert_eq!(
+        a.windowed_size,
+        Some((1100, 750)),
+        "the window keeps its points"
+    );
+}
+
+/// Behaviour: presentation.window.a-dragged-size-lasts-the-run
+#[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads retail data: --features retail-dats"
+)]
+fn a_dragged_size_survives_full_screen_and_the_saved_resolution_can_still_be_chosen() {
+    let mut a = app();
+    let granted = Rc::new(Cell::new((1000, 700)));
+    let requests = Rc::new(Cell::new(0));
+    a.window = Box::new(Window {
+        granted: granted.clone(),
+        requests: requests.clone(),
+        player_sizes: true,
+        full_screen_of_its_own: Rc::default(),
+    });
+    a.handle_window_event(
+        &mut NullShell,
+        &HostEvent::Resized {
+            width: 1000,
+            height: 700,
+        },
+        0,
+    );
+    a.apply_changed_display_presentation(&mut NullShell);
+    assert_eq!(a.present.size(), (1000, 700));
+    assert_eq!(requests.get(), 0, "the drag is not undone");
+
+    // The saved resolution is still 800x600: choosing it asks the window for it.
+    dispatch(
+        &mut a,
+        ResolutionAction::Begin {
+            size: (800, 600),
+            policy: ResolutionPolicy::Modern,
+            persist: false,
+        },
+        1.0,
+    );
+    assert_eq!(requests.get(), 1, "the size the window left is asked for");
+    a.resolution.cancel();
+
+    a.handle_window_event(
+        &mut NullShell,
+        &HostEvent::Resized {
+            width: 1000,
+            height: 700,
+        },
+        0,
+    );
+    a.pump.state.full_screen = true;
+    granted.set((1920, 1080));
+    a.apply_changed_display_presentation(&mut NullShell);
+    assert_eq!(a.present.size(), (1920, 1080));
+    a.pump.state.full_screen = false;
+    granted.set((1000, 700));
+    a.apply_changed_display_presentation(&mut NullShell);
+    assert_eq!((a.cfg.width, a.cfg.height), (1000, 700));
+    assert_eq!(a.present.size(), (1000, 700));
+    assert_eq!(
+        pref(),
+        Some(PrefValue::Int((800 << 16) | 600)),
+        "a drag is not the saved resolution"
+    );
+}
+
 /// Behaviour: presentation.resolution.shared-transaction
 #[test]
 #[cfg_attr(
@@ -88,6 +274,8 @@ fn display_requests_wait_for_actual_host_size_and_rearm_each_revert() {
     a.window = Box::new(Window {
         granted: granted.clone(),
         requests: requests.clone(),
+        player_sizes: false,
+        full_screen_of_its_own: Rc::default(),
     });
     store::set_value("Render.ScreenBrightness", PrefValue::Float(0.4));
     dispatch(&mut a, begin(ResolutionPolicy::Modern), 1.0);

@@ -177,6 +177,22 @@ pub fn natives() -> impl Iterator<Item = (NativeId, NativeFn)> {
     NATIVES
         .iter()
         .map(|(n, f)| (NativeId::new(PACKAGE, *n), *f))
+        .chain(std::iter::once((
+            NativeId::new(PROFILE_PACKAGE, 0x03),
+            profile_set_request as NativeFn,
+        )))
+}
+
+/// The native package of examination profiles.
+const PROFILE_PACKAGE: u32 = 0x99;
+
+/// The request below the receiver copied into the profile whole: the tabs it asks for go with it,
+/// though a request about anything but an object packs none.
+// D2-01359, D2-12228
+fn profile_set_request(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let q = c.arg(0)?;
+    let whole = read(c, q)?;
+    auberean_glue::examination::take_request(c, whole.pack(), Some(whole.current))
 }
 
 fn host<'a>(c: &'a mut Call<'_>) -> Result<&'a mut ClientHost, Stop> {

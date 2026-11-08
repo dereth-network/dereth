@@ -62,6 +62,8 @@ pub struct DisplayPrefs {
     pub sync_to_refresh: bool,
     /// As `triple_buffering`.
     pub antialiasing: bool,
+    /// [`DISPLAY_WINDOW_SIZE`]: the windowed size the client last closed at, when it was saved.
+    pub window_size: Option<(u32, u32)>,
 }
 
 impl Default for DisplayPrefs {
@@ -73,9 +75,15 @@ impl Default for DisplayPrefs {
             triple_buffering: false,
             sync_to_refresh: false,
             antialiasing: false,
+            window_size: None,
         }
     }
 }
+
+/// `Display.WindowSize`, `"<width>x<height>"`: this client's own key, not retail's (client
+/// divergence CD-resizable-window). The window's size when the client last closed, written once
+/// it differs from the resolution, and what the window opens at in place of the resolution.
+pub const DISPLAY_WINDOW_SIZE: &str = "Display.WindowSize";
 
 /// Display-preference values preserved by the compatibility projection.
 /// The active renderer reads its preferences independently of this record.
@@ -1390,6 +1398,9 @@ impl Config {
                 self.height = p.height;
             }
         }
+        if let Some(v) = prefs.get(DISPLAY_WINDOW_SIZE).and_then(window_size) {
+            self.display.window_size = Some(v);
+        }
         if let Some(v) = prefs.bool(dereth_client_contract::options::names::DISPLAY_FULL_SCREEN) {
             self.display.full_screen = v;
         }
@@ -1981,6 +1992,29 @@ fn display_resolution(prefs: &Preferences) -> Option<u32> {
         return Some(u32::from_ne_bytes(v.to_ne_bytes()));
     }
     strtoul_base0(raw)
+}
+
+/// The most a [`DISPLAY_WINDOW_SIZE`] value is believed in either direction.
+const LARGEST_WINDOW_SIZE: u32 = 16_384;
+
+/// A [`DISPLAY_WINDOW_SIZE`] value: `None` unless it is `<width>x<height>` from the login size up
+/// to [`LARGEST_WINDOW_SIZE`].
+fn window_size(v: &str) -> Option<(u32, u32)> {
+    let (w, h) = v.trim().split_once(['x', 'X'])?;
+    let size: (u32, u32) = (w.trim().parse().ok()?, h.trim().parse().ok()?);
+    let fits = |n: u32, least: u32| (least..=LARGEST_WINDOW_SIZE).contains(&n);
+    (fits(size.0, FORCED_LOGIN_SIZE.0) && fits(size.1, FORCED_LOGIN_SIZE.1)).then_some(size)
+}
+
+/// A saved window size, cut to what fits the window's monitor now (`largest`, which may be another
+/// monitor than the one it was saved on) and never under the login size.
+#[must_use]
+pub fn fit_window_size(size: (u32, u32), largest: Option<(u32, u32)>) -> (u32, u32) {
+    let (w, h) = largest.unwrap_or(size);
+    (
+        size.0.min(w).max(FORCED_LOGIN_SIZE.0),
+        size.1.min(h).max(FORCED_LOGIN_SIZE.1),
+    )
 }
 
 /// `strtol(value, 0, 0)` as the `0x22` conversion applies it, clamped into the `u32` the two port

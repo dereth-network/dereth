@@ -27,6 +27,10 @@
 //! Interiors, and frames split between an interior and the outdoors, are drawn as they always
 //! are: the sky and the air belong to the outdoors only.
 //!
+//! The air is drawn over the lit opaque world, before its translucent draws: smoke, glass and
+//! sparks are replayed over it with the authored fog they were recorded with ([`FoggedFrames`]),
+//! each faded by its own distance rather than by that of whatever stands behind it.
+//!
 //! The work is three passes sharing one state: the tables, before anything is drawn; the sky and
 //! the unfogged replay, acting on the world replay; and the air, over the replayed world. The
 //! tables are published to the shared resources for the passes that light or reflect the sky.
@@ -1064,6 +1068,21 @@ impl ReplayFilter for Sky {
             _ => {}
         }
         drew
+    }
+}
+
+/// The translucent draws' per-frame blocks: each recorded block, its fog kept, at the frame's
+/// jitter where the frame has one. First among the passes' say in the translucent replay.
+#[derive(Debug)]
+pub struct FoggedFrames<'m>(pub &'m std::collections::HashMap<u32, u32>);
+
+impl ReplayFilter for FoggedFrames<'_> {
+    fn draw(&mut self, _cmd: u32, _note: Option<&DrawNote>) -> DrawAction<'_> {
+        DrawAction::Legacy
+    }
+
+    fn frame(&mut self, recorded: u32) -> Option<u32> {
+        Some(self.0.get(&recorded).copied().unwrap_or(recorded))
     }
 }
 

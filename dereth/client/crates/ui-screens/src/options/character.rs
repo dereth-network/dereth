@@ -254,6 +254,10 @@ pub struct CharacterSettingsPage {
     pub rows: Vec<CharacterOptionRow>,
     hidden_rows: Vec<CharacterOptionRow>,
     row_order: Vec<ElemHandle>,
+    /// Each section's header, its rule and its toggles' rows: a section left with no toggle goes.
+    sections: Vec<(ElemHandle, ElemHandle, Vec<ElemHandle>)>,
+    /// The headers and rules of sections with nothing to show.
+    hidden_rules: Vec<ElemHandle>,
     /// [`Self::add_header`] calls that produced a row.
     pub headers: usize,
     /// [`Self::add_separator`] calls that produced a row. **Six**, not five: there is a trailing one.
@@ -311,17 +315,28 @@ impl CharacterSettingsPage {
     pub fn init_options(&mut self, ui: &mut UiSystem, view: &dyn GameView) -> usize {
         use dereth_client_contract::options::interface::Interface;
         use dereth_client_contract::options::sheet::{self, PageId, Value};
+        let last_row = |page: &Self| {
+            page.option_box
+                .as_ref()
+                .and_then(|b| b.items.last().copied())
+        };
         for (heading, rows) in sheet::headings_for(PageId::Character, Interface::Modern) {
             self.add_literal_header(ui, &super::config::resolve_text(ui, heading.text));
+            let header = last_row(self);
+            let mut toggles = Vec::new();
             for r in rows {
                 let Value::Option(o) = r.value else { continue };
                 if let Some(i) = self.add_toggle_option(ui, o, view) {
                     self.rows[i].needs = r.needs;
+                    toggles.push(self.rows[i].row);
                 }
             }
             // A separator follows **every** section, the last one included, as retail's list
             // ends with a rule.
             self.add_separator(ui);
+            if let (Some(header), Some(rule)) = (header, last_row(self)) {
+                self.sections.push((header, rule, toggles));
+            }
         }
         self.apply_era(ui, Some(view.era_features()));
         if let Some(b) = self.option_box.as_mut() {
@@ -371,16 +386,47 @@ impl CharacterSettingsPage {
                 self.hidden_rows.push(row);
             }
         }
+        self.hidden_rules.clear();
+        for (header, rule, toggles) in &self.sections {
+            let visible = toggles
+                .iter()
+                .any(|t| self.rows.iter().any(|r| r.row == *t));
+            for h in [*header, *rule] {
+                ui.set_visible(h, visible);
+                ui.set_mouse_visible(h, visible);
+                if !visible {
+                    self.hidden_rules.push(h);
+                }
+            }
+        }
         if let Some(b) = self.option_box.as_mut() {
             b.items = self
                 .row_order
                 .iter()
                 .copied()
-                .filter(|h| !self.hidden_rows.iter().any(|r| r.row == *h))
+                .filter(|h| {
+                    !self.hidden_rows.iter().any(|r| r.row == *h) && !self.hidden_rules.contains(h)
+                })
                 .collect();
+            // Rows put away must not lengthen what the scrollbar scrolls.
+            if let Some(l) = ui.node_mut(b.handle).and_then(|n| {
+                n.behaviour
+                    .as_mut()?
+                    .as_any_mut()?
+                    .downcast_mut::<dereth_ui::widgets::listbox::ListBox>()
+            }) {
+                l.items.clone_from(&b.items);
+                l.items_are_authoritative = true;
+            }
             b.update_layout(ui);
         }
         previously_visible.saturating_sub(self.rows.len())
+    }
+
+    /// How many sections have something to show.
+    #[must_use]
+    pub fn shown_sections(&self) -> usize {
+        self.sections.len() - self.hidden_rules.len() / 2
     }
 
     fn add_row(&mut self, ui: &mut UiSystem, index: usize) -> Option<ElemHandle> {

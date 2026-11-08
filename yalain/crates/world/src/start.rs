@@ -31,6 +31,9 @@ pub struct StartRules {
     /// Per race, its starting skills in the data's order: the skill and its level (0, a skill
     /// to raise; 1, a gift).
     pub skills: BTreeMap<u32, Vec<(u32, u32)>>,
+    /// Per race, the templates of what it starts with, in the data's order: its weapons, then what
+    /// it wears.
+    pub items: BTreeMap<u32, Vec<u32>>,
 }
 
 /// Which starting-skills table each race reads: the data keys the tables by a skill family, and
@@ -135,6 +138,33 @@ impl<'a> Nav<'a> {
             .copied()
             .map(|w| (w, m.kind))
             .ok_or_else(|| format!("{pkg} has no slot {slot}"))
+    }
+
+    /// A double field: it lies in two slots, the low word first.
+    ///
+    /// # Errors
+    /// The library has no such field for the object's package.
+    pub fn double(&self, o: &PackedObject, name: &str) -> Result<f64, String> {
+        let pkg = self.lib.package_name(o.package_id());
+        let frame = self
+            .lib
+            .frame(&pkg)
+            .ok_or_else(|| format!("the library has no frame for {pkg}"))?;
+        let m = frame
+            .members
+            .iter()
+            .find(|m| m.name == name)
+            .ok_or_else(|| format!("{pkg} has no field {name}"))?;
+        let slot = usize::try_from(m.slot).map_err(|_| format!("{pkg}::{name} is not a field"))?;
+        let word = |i: usize| {
+            o.slots
+                .get(i)
+                .copied()
+                .ok_or_else(|| format!("{pkg} has no slot {i}"))
+        };
+        Ok(f64::from_bits(
+            u64::from(word(slot)?) | u64::from(word(slot + 1)?) << 32,
+        ))
     }
 
     /// A number field as its value: an integer's (signed) or a float's.
@@ -252,6 +282,18 @@ impl StartRules {
         for (race, family) in SKILL_TABLE_OF_RACE {
             if let Some(t) = tables.get(&family) {
                 rules.skills.insert(race, t.clone());
+            }
+        }
+        // By race, then sex and class, though every race's list stands under one of each.
+        for (race, by_sex) in nav.entries(nav.field(root, "m_StartingInventoryTable")?)? {
+            let items = rules.items.entry(Nav::word(race)?).or_default();
+            for (_, by_class) in nav.entries(Nav::reference(by_sex)?)? {
+                for (_, list) in nav.entries(Nav::reference(by_class)?)? {
+                    for i in nav.items(Nav::reference(list)?)? {
+                        let item = nav.object(Nav::reference(i)?)?;
+                        items.push(nav.field(item, "entityDID")?);
+                    }
+                }
             }
         }
         Ok(rules)

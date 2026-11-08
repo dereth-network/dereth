@@ -65,7 +65,12 @@ fn the_halls_light_and_a_cells_lit_vertices() {
     let listing = |i: u32| {
         l.lookup[&0x0100]
             .iter()
-            .filter(|&&k| l.lights[k].lit.get(&cell).is_some_and(|v| v.contains(&i)))
+            .filter(|&&k| {
+                l.lights[k]
+                    .lit
+                    .get(&(cell & 0xFFFF))
+                    .is_some_and(|v| v.contains(&i))
+            })
             .count()
     };
     let listed = |i: u32| listing(i) > 0;
@@ -74,7 +79,11 @@ fn the_halls_light_and_a_cells_lit_vertices() {
         .map(|&k| &l.lights[k])
         .filter(|x| x.kind == LightKind::Point && x.most_range > 5.0)
         .find_map(|x| {
-            let only = x.lit.get(&cell)?.iter().find(|&&i| listing(i) == 1)?;
+            let only = x
+                .lit
+                .get(&(cell & 0xFFFF))?
+                .iter()
+                .find(|&&i| listing(i) == 1)?;
             Some((x, *only))
         })
         .expect("a point light alone listing one of the cell's vertices");
@@ -278,4 +287,31 @@ fn no_cell_holds_a_light_entity() {
         }
     }
     assert!(entities > 100_000, "{entities} entities");
+}
+
+/// Seven blocks are copies of block 0x0CFD, and their light records still name its cells: they
+/// light their own cells all the same, with the very vertices the original's do.
+///
+/// Behaviour: world.inside.a-copys-lights-light-its-own-cells
+#[test]
+fn a_copys_lights_light_its_own_cells() {
+    let w = need_world!();
+    let original = BlockLights::of(&w.records, 0x0C, 0xFD).expect("the original's light");
+    for y in 0xF6..=0xFC {
+        let copy = BlockLights::of(&w.records, 0x0C, y).expect("a copy's light");
+        assert_eq!(copy.lights.len(), original.lights.len());
+        let vertex = |l: &BlockLights, low: u32| {
+            l.lookup.get(&low).map_or(0, |ks| {
+                ks.iter()
+                    .filter_map(|&k| l.lights[k].lit.get(&low))
+                    .map(Vec::len)
+                    .sum::<usize>()
+            })
+        };
+        let mut lows: Vec<u32> = copy.lookup.keys().copied().collect();
+        lows.sort_unstable();
+        let lit: usize = lows.iter().map(|&low| vertex(&copy, low)).sum();
+        assert!(lit > 0, "block {y:#x} lights its cells");
+        assert_eq!(lit, lows.iter().map(|&low| vertex(&original, low)).sum());
+    }
 }

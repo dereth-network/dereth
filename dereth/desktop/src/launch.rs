@@ -46,6 +46,8 @@ pub fn open_platform<P: Product>(
         icon_png: P::ICON_PNG,
         app_id: P::APP_ID,
         resizable: P::RESIZABLE,
+        login_size: P::LOGIN_SIZE,
+        in_points: P::SIZE_IN_POINTS,
     };
     let window = crate::platform::window::open_window(cfg, &look, events)
         .map_err(|cause| StartupError::Device { cause })?;

@@ -3145,7 +3145,12 @@ fn the_screenshot_key_asks_for_a_screenshot() {
     assert!(!event(&mut s, Key::ControlLeft, true), "Ctrl alone");
     assert!(!event(&mut s, Key::P, true), "Ctrl+P held");
     assert!(event(&mut s, Key::P, false), "Ctrl+P let go");
+    assert!(auberean_draw::mesh::full_detail(), "drawn at full detail");
     assert!(!s.frame().screenshot, "only once");
+    assert!(
+        !auberean_draw::mesh::full_detail(),
+        "and the next as before"
+    );
     assert!(!event(&mut s, Key::ControlLeft, false), "Ctrl let go");
     assert!(!event(&mut s, Key::P, true), "P alone");
     assert!(!event(&mut s, Key::P, false), "P alone let go");

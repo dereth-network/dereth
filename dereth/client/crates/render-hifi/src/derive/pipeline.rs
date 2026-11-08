@@ -46,6 +46,48 @@ impl DerivedKey {
     pub fn solid_in_display_light(&self) -> bool {
         matches!(self.variant, Variant::Reshade | Variant::Material) && !self.key.alpha_blend
     }
+
+    /// What share of its color this draw adds to what is there, in a variant that draws color:
+    /// it is written as the ordinary frame would add it. `None` for a draw that doesn't add.
+    #[must_use]
+    pub fn adds_in_display_light(&self) -> Option<AddedShare> {
+        use dereth_render::Blend;
+        if !matches!(self.variant, Variant::Reshade | Variant::Material)
+            || !self.key.alpha_blend
+            || self.key.dst_blend != Blend::One
+        {
+            return None;
+        }
+        match self.key.src_blend {
+            Blend::SrcAlpha => Some(AddedShare::Alpha),
+            Blend::One => Some(AddedShare::Whole),
+            Blend::InvSrcAlpha => Some(AddedShare::InverseAlpha),
+            _ => None,
+        }
+    }
+}
+
+/// How much of its color an additive draw adds: what its blend's source factor takes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AddedShare {
+    /// The color times its alpha.
+    Alpha,
+    /// The whole color.
+    Whole,
+    /// The color times one less its alpha.
+    InverseAlpha,
+}
+
+impl AddedShare {
+    /// The value of the shader's overridable constant for this share.
+    #[must_use]
+    pub const fn constant(self) -> f64 {
+        match self {
+            Self::Alpha => 1.0,
+            Self::Whole => 2.0,
+            Self::InverseAlpha => 3.0,
+        }
+    }
 }
 
 /// The re-shaded pipeline's two colour targets.

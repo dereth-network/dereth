@@ -1333,6 +1333,56 @@ fn a_give_moving_no_quest_keeps_the_item_says_its_lines_and_gives_its_items() {
     assert!(played, "the person plays what the row says");
 }
 
+/// A give whose gift this world can't make takes nothing: the item goes back to its giver, whole.
+///
+/// Behaviour: server.makes.nothing-used-up-for-what-cannot-be-made
+#[test]
+fn a_give_whose_gift_cannot_be_made_hands_the_item_back() {
+    let mut h = world();
+    h.server.quests.gives.push(Give {
+        gives: vec![GEM],
+        ..taking(Some(OFFERING))
+    });
+    let (b, me) = player(&mut h, "one", "Elara");
+    let offering = hold(&mut h, me, OFFERING, 3);
+    let _ = give_ashes(&mut h, b, me, offering, 3);
+    assert!(holds(&h, me, offering.0), "handed back");
+    assert_eq!(quantity_of(&h, me, offering.0), Some(3), "whole");
+}
+
+/// A quest's step whose gift this world can't make doesn't run: the quest stays where it is and the
+/// item goes back to its giver.
+///
+/// Behaviour: server.makes.nothing-used-up-for-what-cannot-be-made
+#[test]
+fn a_step_whose_gift_cannot_be_made_does_not_run_and_hands_the_item_back() {
+    const QUEST: u32 = 0x4000_032F;
+    const SODDEN: u32 = 0x4700_14FF;
+    const CLAIM: u32 = 0x4700_14F7;
+    let mut h = world();
+    h.server.quests = QuestTable {
+        quests: vec![quest(QUEST, 8)],
+        steps: vec![Step {
+            takes: vec![SODDEN],
+            gives: vec![CLAIM],
+            ..step(
+                QUEST,
+                5,
+                Trigger::Give(SODDEN, PERSON_T),
+                Update::Advance(6),
+            )
+        }],
+        gives: Vec::new(),
+        rooms: Vec::new(),
+    };
+    let (b, me) = player(&mut h, "one", "Elara");
+    at_phase(&mut h, QUEST, 5);
+    let sodden = hold(&mut h, me, SODDEN, 1);
+    let (_, moved) = give_ashes(&mut h, b, me, sodden, 1);
+    assert!(moved.is_empty(), "the quest stays");
+    assert!(holds(&h, me, sodden.0), "handed back");
+}
+
 /// A give that moves no quest and wants a count refuses any other with the person's line for the
 /// item, handing the stack back; it takes that count, the rest staying.
 ///

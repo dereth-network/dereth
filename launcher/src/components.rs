@@ -54,8 +54,12 @@ pub fn uses_checkout(development: bool, args: &[String]) -> bool {
 /// The folder in the person's Documents that Lyceum's new worlds go in.
 pub const WORLDS_FOLDER: &str = "Lyceum";
 
-/// The relay's program, in Empyrean's package beside the server.
+/// The relay's program, in Dereth's package beside the client.
 const RELAY_PROGRAM: &str = "empyrean-relay";
+
+/// The relay's license and notice, which go with it: beside it, and in a macOS bundle in its
+/// resources.
+const RELAY_NOTICES: [&str; 2] = ["LICENSE-empyrean-relay", "NOTICE-empyrean-relay.txt"];
 
 /// How long a list of releases is reused before GitHub is asked again.
 const LIST_KEPT: Duration = dereth_launch::releases::LIST_KEPT;
@@ -1119,10 +1123,10 @@ fn copy_plain(from: &Path, to: &Path) -> Result<(), String> {
 }
 
 /// The files a packaged game client in the launcher's folder `here` needs, each with its path below
-/// the component's folder: the program; the plugin author's tool, which the launcher finds beside
-/// the client; a preferences file kept beside it; and on macOS the frameworks, which the program
-/// finds at `../Frameworks` from its own folder, so they keep that place, in a bundle named for the
-/// game ([`crate::client_bundle`]).
+/// the component's folder: the program; the plugin author's tool and the relay with its notices,
+/// which the launcher finds beside the client; a preferences file kept beside it; and on macOS the
+/// frameworks, which the program finds at `../Frameworks` from its own folder, so they keep that
+/// place, in a bundle named for the game ([`crate::client_bundle`]).
 fn bundled_files(here: &Path, product: Product) -> Vec<(PathBuf, PathBuf)> {
     let macos = here.ends_with("Contents/MacOS");
     let app = PathBuf::from(format!("{}.app", product.title()));
@@ -1135,11 +1139,23 @@ fn bundled_files(here: &Path, product: Product) -> Vec<(PathBuf, PathBuf)> {
     for name in [
         program_file(product.program()),
         dereth_launch::plugins::TOOL_FILE.to_owned(),
+        program_file(RELAY_PROGRAM),
         dereth_launch::interface::PREFERENCES_FILE.to_owned(),
     ] {
         let from = here.join(&name);
         if from.is_file() {
             files.push((from, below.join(name)));
+        }
+    }
+    let (notices, notices_below) = if macos {
+        (here.join("../Resources"), app.join("Contents/Resources"))
+    } else {
+        (here.to_path_buf(), PathBuf::new())
+    };
+    for name in RELAY_NOTICES {
+        let from = notices.join(name);
+        if from.is_file() {
+            files.push((from, notices_below.join(name)));
         }
     }
     if macos {
@@ -1454,11 +1470,13 @@ pub fn program_of(shared: &Shared, product: Product) -> Option<PathBuf> {
     program(&lock(shared), product)
 }
 
-/// The relay's program, which comes with Empyrean: this checkout's build in a development build
-/// that has one, else the one beside the downloaded server. An older Empyrean has none.
+/// The relay's program, which comes with Dereth: the one beside the client in use, else this
+/// checkout's build in a development build that has one, else the one beside a downloaded Empyrean,
+/// for a Dereth from before it came with one.
 pub fn relay_program(shared: &Shared) -> Option<PathBuf> {
     let store = lock(shared);
     relay_program_in(
+        program(&store, Product::Dereth).as_deref(),
         &store.builds,
         store
             .entries
@@ -1469,12 +1487,19 @@ pub fn relay_program(shared: &Shared) -> Option<PathBuf> {
     )
 }
 
-fn relay_program_in(builds: &[PathBuf], server: Option<&Path>) -> Option<PathBuf> {
-    newest_build(builds, RELAY_PROGRAM).or_else(|| {
-        server
-            .map(|s| s.with_file_name(program_file(RELAY_PROGRAM)))
+fn relay_program_in(
+    client: Option<&Path>,
+    builds: &[PathBuf],
+    server: Option<&Path>,
+) -> Option<PathBuf> {
+    let beside = |program: Option<&Path>| {
+        program
+            .map(|p| p.with_file_name(program_file(RELAY_PROGRAM)))
             .filter(|p| p.is_file())
-    })
+    };
+    beside(client)
+        .or_else(|| newest_build(builds, RELAY_PROGRAM))
+        .or_else(|| beside(server))
 }
 
 /// The `lyceum` command beside the editor in use.
@@ -2181,29 +2206,98 @@ mod tests {
     }
 
     #[test]
-    fn the_relay_is_this_checkouts_build_else_the_one_beside_the_downloaded_server() {
-        let dir = std::env::temp_dir().join(format!("relay-program-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        let (built, downloaded) = (dir.join("built"), dir.join("downloaded"));
-        std::fs::create_dir_all(&built).unwrap();
-        std::fs::create_dir_all(&downloaded).unwrap();
-        let server = downloaded.join(program_file("empyrean-server"));
-        let beside = downloaded.join(program_file(RELAY_PROGRAM));
-        assert_eq!(
-            relay_program_in(&[], Some(&server)),
-            None,
-            "an older Empyrean has none"
-        );
-        std::fs::write(&beside, "relay").unwrap();
-        assert_eq!(relay_program_in(&[], Some(&server)), Some(beside.clone()));
-        assert_eq!(relay_program_in(&[], None), None, "no Empyrean, no relay");
-        let ours = built.join(program_file(RELAY_PROGRAM));
-        std::fs::write(&ours, "relay").unwrap();
-        assert_eq!(
-            relay_program_in(std::slice::from_ref(&built), Some(&server)),
-            Some(ours)
-        );
-        let _ = std::fs::remove_dir_all(dir);
+    fn the_relay_is_the_one_beside_the_client_else_this_checkouts_else_a_downloaded_empyrean_s() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = |name: &str| {
+            let folder = dir.path().join(name);
+            std::fs::create_dir_all(&folder).unwrap();
+            folder
+        };
+        let (installed, built, empyrean) = (folder("dereth"), folder("built"), folder("empyrean"));
+        let client = installed.join(program_file("dereth-client"));
+        let server = empyrean.join(program_file("empyrean-server"));
+        let relay_in = |folder: &Path| {
+            let relay = folder.join(program_file(RELAY_PROGRAM));
+            std::fs::write(&relay, "relay").unwrap();
+            relay
+        };
+        let builds = std::slice::from_ref(&built);
+        let find = || relay_program_in(Some(&client), builds, Some(&server));
+        assert_eq!(find(), None, "a Dereth from before it came with one");
+        assert_eq!(relay_program_in(None, &[], None), None, "nothing installed");
+
+        let last = relay_in(&empyrean);
+        assert_eq!(find(), Some(last), "a downloaded Empyrean's");
+        let next = relay_in(&built);
+        assert_eq!(find(), Some(next), "this checkout's");
+        let first = relay_in(&installed);
+        assert_eq!(find(), Some(first), "the one that came with the client");
+    }
+
+    /// A launcher's update replaces its whole bundle, so the relay and its license leave with the
+    /// client: to where the launcher looks, beside the client, in the bundle or out of one.
+    #[test]
+    fn the_relay_and_its_notices_are_copied_out_with_the_client() {
+        for (here, notices, relay_at, notices_at) in [
+            (
+                "Dereth.app/Contents/MacOS",
+                "Dereth.app/Contents/Resources",
+                "Dereth.app/Contents/MacOS",
+                "Dereth.app/Contents/Resources",
+            ),
+            ("package", "package", "", ""),
+        ] {
+            let temp = tempfile::tempdir().unwrap();
+            let root = temp.path().join("data");
+            let (here, notices) = (temp.path().join(here), temp.path().join(notices));
+            packaged_at(&here, Product::Dereth);
+            std::fs::create_dir_all(&notices).unwrap();
+            std::fs::write(here.join(program_file(RELAY_PROGRAM)), b"relay").unwrap();
+            for name in RELAY_NOTICES {
+                std::fs::write(notices.join(name), name).unwrap();
+            }
+            for adopted in adopt_bundled(&root, &here, &says("0.4.9")) {
+                adopted.unwrap();
+            }
+
+            let client = downloaded(&root, Product::Dereth).expect("the copy is the client");
+            let version = root.join("components/dereth/0.4.9");
+            let relay = version.join(relay_at).join(program_file(RELAY_PROGRAM));
+            assert_eq!(relay, client.with_file_name(program_file(RELAY_PROGRAM)));
+            assert_eq!(std::fs::read(&relay).unwrap(), b"relay");
+            assert_eq!(
+                relay_program_in(Some(&client), &[], None),
+                Some(relay),
+                "the launcher finds it"
+            );
+            for name in RELAY_NOTICES {
+                let notice = version.join(notices_at).join(name);
+                assert_eq!(std::fs::read(notice).unwrap(), name.as_bytes());
+            }
+        }
+    }
+
+    /// A release file holds the relay and its license where a copied client has them, whichever way
+    /// the client got here: the launcher looks beside the client, and leaves them in a bundle it
+    /// makes the client's own.
+    #[test]
+    fn a_downloaded_client_s_bundle_keeps_the_relay_beside_it() {
+        let temp = tempfile::tempdir().unwrap();
+        let contents = temp.path().join("Dereth.app/Contents");
+        let client = contents.join("MacOS").join(program_file("dereth-client"));
+        let relay = contents.join("MacOS").join(program_file(RELAY_PROGRAM));
+        std::fs::create_dir_all(contents.join("MacOS")).unwrap();
+        std::fs::create_dir_all(contents.join("Resources")).unwrap();
+        std::fs::write(&client, b"client").unwrap();
+        std::fs::write(&relay, b"relay").unwrap();
+        for name in RELAY_NOTICES {
+            std::fs::write(contents.join("Resources").join(name), name).unwrap();
+        }
+        crate::client_bundle::dress(&client, Product::Dereth, "0.4.9", temp.path()).unwrap();
+        assert_eq!(relay_program_in(Some(&client), &[], None), Some(relay));
+        for name in RELAY_NOTICES {
+            assert!(contents.join("Resources").join(name).is_file(), "{name}");
+        }
     }
 
     #[test]

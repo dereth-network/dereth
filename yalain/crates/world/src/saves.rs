@@ -9,6 +9,10 @@
 //! many come due together (a crowd that entered at once), the rest wait for the next ticks, so no
 //! tick of the loop stalls on the store.
 //!
+//! **An option a client sends** (its window places, its chat's colors, an alias) is kept with the
+//! next save of the character, at most [`OPTIONS_SECONDS`] on: clients send them often. Leaving and
+//! a stop keep it as they keep all else, and a crash loses that long of them at most.
+//!
 //! **What a save is.** Keeping a character takes its state as it stands now and holds it here; what
 //! is held goes to the store in one transaction at the end of the world's pass ([`Server::pump`]),
 //! before anything that pass said is sent. So all a pass did is kept whole: a trade's two sides, a
@@ -33,6 +37,9 @@ use crate::{Clock, Server};
 
 /// Seconds between a character's saves (Empyrean's `player_save_interval`).
 pub const SAVE_SECONDS: u32 = 300;
+
+/// How long an option a client sends waits for a save of its character, in seconds.
+pub const OPTIONS_SECONDS: f64 = 10.0;
 
 /// The most characters a tick keeps.
 pub const PER_TICK: usize = 1;
@@ -65,6 +72,8 @@ pub struct Saves {
     pub(crate) unix: i64,
     /// By character id: when it was last kept (or entered the world).
     last: HashMap<u64, LocalTime>,
+    /// By character id: when an option not yet kept first came.
+    options: HashMap<u64, LocalTime>,
     /// Characters' states not yet in the store.
     held: BTreeMap<u64, WorldState>,
     /// World records not yet in the store.
@@ -85,6 +94,12 @@ impl Saves {
     /// A character was kept just now.
     pub(crate) fn kept(&mut self, character: u64) {
         self.last.insert(character, self.now);
+        self.options.remove(&character);
+    }
+
+    /// A character's option changed: it goes with its next save, soon enough.
+    pub(crate) fn option_changed(&mut self, character: u64) {
+        self.options.entry(character).or_insert(self.now);
     }
 
     /// A character's state as it now stands, to go to the store at the end of this pass.
@@ -248,7 +263,10 @@ pub(crate) fn tick<S: Store>(s: &mut Server<S>, clock: Clock) {
     let mut due: Vec<(f64, u64, ConnId)> = Vec::new();
     for (world, p) in &s.players {
         let last = *s.saves.last.entry(p.character).or_insert(clock.local);
-        if clock.local.0 - last.0 >= interval {
+        let options = s.saves.options.get(&p.character);
+        if clock.local.0 - last.0 >= interval
+            || options.is_some_and(|o| clock.local.0 - o.0 >= OPTIONS_SECONDS)
+        {
             due.push((last.0, p.character, *world));
         }
     }
@@ -257,6 +275,7 @@ pub(crate) fn tick<S: Store>(s: &mut Server<S>, clock: Clock) {
         let here: std::collections::HashSet<u64> =
             s.players.values().map(|p| p.character).collect();
         s.saves.last.retain(|id, _| here.contains(id));
+        s.saves.options.retain(|id, _| here.contains(id));
     }
     due.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
     for (_, _, world) in due.into_iter().take(PER_TICK) {

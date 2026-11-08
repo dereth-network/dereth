@@ -62,6 +62,8 @@ athenaeum <command> ...
                                          the world checked over its base (and, with --dats,
                                          compiled) without writing anything
   facts <world> [--base <folder>]        what the world changes, counted, as JSON
+  pets <world> [<item> <field> <value>] [--base <folder>]
+                                         the kinds of pet and skills' limits; change one and save
   info <file.dat>                        header, structure and iteration list of one file
   ls <file.dat> [<type>]                 every record (id, type, size, date), or one type's
   verify <install> [<type>]              decode every record of an install; per-type rates
@@ -433,7 +435,7 @@ mod help_tests {
             .filter(|l| l.starts_with("  ") && !l.starts_with("   "))
             .filter_map(|l| l.split_whitespace().next())
             .collect();
-        assert_eq!(listed.len(), 13, "{listed:?}");
+        assert_eq!(listed.len(), 14, "{listed:?}");
         for command in listed {
             if let Err(e) = run(&args(&["athenaeum", command])) {
                 assert!(!e.starts_with("unknown command"), "{command}: {e}");

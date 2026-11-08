@@ -23,6 +23,7 @@ use empyrean_net::{ClockSnapshot, ClockSnapshotExt as _, PortKind};
 
 use super::standin::{
     Standin, CHARACTER, FLAVOR_LINE, KNOWN_SPELL, PORTAL_RECORD, SEEDED_CHARGE, STORM_SCRIPT,
+    WORLD_CLOCK,
 };
 
 const PORT: u16 = 9000;
@@ -48,6 +49,10 @@ struct Exchange {
     client: TestClient,
     server: Standin,
     now: ClockSnapshot,
+    /// Each TimeSync Dereth took: this harness's clock, and what it said.
+    time_syncs: Vec<(f64, f64)>,
+    /// This harness's clock when the stand-in sent its grant.
+    granted_at: Option<f64>,
     received: Vec<IncomingMessage>,
     transcript: String,
     seen_by_server: usize,
@@ -69,6 +74,8 @@ impl Exchange {
             client: TestClient::new(client_addr(), relay_addr(PORT), account, password),
             server: Standin::new(),
             now: ClockSnapshot::at_seconds(1.0),
+            time_syncs: Vec::new(),
+            granted_at: None,
             received: Vec::new(),
             transcript: String::new(),
             seen_by_server: 0,
@@ -94,6 +101,9 @@ impl Exchange {
                 PortKind::S2C => PORT + 1,
             };
             self.client.handle_datagram(relay_addr(port), &out.bytes, t);
+            if let Some(time) = self.client.take_time_sync() {
+                self.time_syncs.push((t, time));
+            }
         }
         for out in self.relay.take_for_servers() {
             assert_eq!(out.to, upstream());
@@ -109,6 +119,9 @@ impl Exchange {
             let _ = writeln!(self.transcript, "to-server {opcode:04X} {}", hex(message));
         }
         self.seen_by_server = self.server.received.len();
+        if self.server.granted && self.granted_at.is_none() {
+            self.granted_at = Some(t);
+        }
         while let Some(m) = self.client.poll() {
             let _ = writeln!(
                 self.transcript,
@@ -379,6 +392,35 @@ fn a_session_logs_in_downloads_creates_enters_steps_and_says_goodbye() {
     assert_eq!(create.character.heritage, 0, "the 1999 list's own place");
 }
 
+/// Behaviour: none (the relay's clock, against a synthetic grant).
+#[test]
+fn dereth_runs_on_the_worlds_clock_from_the_moment_the_grant_names_it() {
+    let x = session();
+    let granted = x.granted_at.expect("the stand-in granted");
+    for (at, time) in x.time_syncs.iter().filter(|(at, _)| *at < granted) {
+        assert!(
+            *time < WORLD_CLOCK,
+            "at {at} the world's clock isn't known: {time}"
+        );
+    }
+    let (first_at, _) = *x
+        .time_syncs
+        .iter()
+        .find(|(_, time)| *time >= WORLD_CLOCK)
+        .expect("Dereth is told the world's clock");
+    assert!(
+        first_at - granted < 1.0,
+        "told at once, not at the next 20 s sync: granted {granted}, told {first_at}"
+    );
+    for (at, time) in x.time_syncs.iter().filter(|(at, _)| *at >= first_at) {
+        let elapsed = at - granted;
+        assert!(
+            (time - (WORLD_CLOCK + elapsed)).abs() < 1.0,
+            "the clock counts on from the grant: {time} after {elapsed} s"
+        );
+    }
+}
+
 /// The transcript's expected form. `cargo test -p empyrean-relay -- --ignored` rewrites it.
 const FIXTURE: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -396,6 +438,32 @@ fn the_recorded_synthetic_session_is_what_the_relay_sends_today() {
 #[ignore = "instrument: records the synthetic session, our own codecs' output only"]
 fn record_the_synthetic_session() {
     std::fs::write(FIXTURE, session().transcript).unwrap();
+}
+
+/// A client that names no iteration never reaches the server: an ac1999 server would log that login
+/// whole, password included.
+#[test]
+fn a_client_naming_no_iteration_is_not_logged_in_upstream() {
+    let mut x = Exchange::new("Probe", "Secret");
+    x.until(0xF7E5);
+    let answer = write_blob(&DddInterrogationResponse {
+        client_language: 1,
+        iters_with_keys: Vec::new(),
+        iters_without_keys: Vec::new(),
+        flags: 0,
+        overlay_bases: Vec::new(),
+    })
+    .unwrap();
+    x.client.send(NetQueue::ClientCache, &answer);
+    let booted = x.until(LOGIN_ACCOUNT_BOOTED);
+    let reason = read_body::<dereth_protocol::login::LoginAccountBooted>(&booted.body)
+        .unwrap()
+        .reason
+        .unwrap();
+    assert!(reason.contains("data files"), "{reason}");
+    assert!(x.server.reported.is_none(), "nothing went upstream");
+    assert!(x.server.login_body.is_empty());
+    assert!(x.relay.take_for_servers().is_empty());
 }
 
 #[test]

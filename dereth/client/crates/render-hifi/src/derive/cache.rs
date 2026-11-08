@@ -192,11 +192,14 @@ fn build(
             state.z_func = dereth_render::ZFunc::LessEqual;
         }
     }
-    let constants: &[(&str, f64)] = if key.solid_in_display_light() {
-        &[(super::reshade::SOLID_CONSTANT, 1.0)]
-    } else {
-        &[]
-    };
+    let added = key
+        .adds_in_display_light()
+        .map(|share| (super::reshade::ADDITIVE_CONSTANT, share.constant()));
+    let solid = key
+        .solid_in_display_light()
+        .then_some((super::reshade::SOLID_CONSTANT, 1.0));
+    let constants = added.or(solid);
+    let constants = constants.as_slice();
     scoped(&cx.device, || {
         build_derived_pipeline_with_constants(
             &cx.device,

@@ -928,13 +928,12 @@ pub struct SolidNear {
 }
 
 impl SolidNear {
-    /// Where the line from `from` to `to` passes through this solid, as the fraction of the way it
-    /// meets each polygon and the polygon's facing, turned into the world.
+    /// Where the line from `from` to `to` first reaches the solid side of this solid's tree, as
+    /// the fraction of the way, and the facing met, turned into the world.
     fn hits(&self, from: Vec3, to: Vec3) -> Vec<(f32, Vec3)> {
-        let mut out = Vec::new();
         let s = &self.block.solids[self.index];
         let Some(tree) = s.part.physics_bsp.as_ref() else {
-            return out;
+            return Vec::new();
         };
         let (f, t) = (from.add(self.off), to.add(self.off));
         let frame = &s.part.pos.frame;
@@ -945,16 +944,12 @@ impl SolidNear {
         };
         let lf = dereth_physics::math::globaltolocal(frame, f).mul(inv);
         let lt = dereth_physics::math::globaltolocal(frame, t).mul(inv);
-        for poly in &tree.polygons {
-            if let Some(u) = segment_polygon(lf, lt, &poly.vertices) {
-                let n = dereth_physics::math::localtoglobalvec(
-                    dereth_physics::math::l2g(frame.rotation),
-                    poly.plane.normal,
-                );
-                out.push((u, n));
-            }
+        let (mut u, mut n) = (1.0, Vec3::ZERO);
+        if !crate::parts::trace_ray(tree, &crate::geom::Ray::segment(lf, lt), &mut u, &mut n) {
+            return Vec::new();
         }
-        out
+        let turn = dereth_physics::math::l2g(frame.rotation);
+        vec![(u, dereth_physics::math::localtoglobalvec(turn, n))]
     }
 }
 

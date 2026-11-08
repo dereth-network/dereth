@@ -116,6 +116,7 @@ impl Body {
                 return;
             }
         }
+        self.place_soon(p);
         self.place(p, heading.degrees());
     }
 
@@ -136,6 +137,7 @@ impl Body {
         }
         self.set_movement_active(true);
         if self.missile.is_some() {
+            self.place_soon(p);
             self.place(p, heading.degrees());
             return;
         }

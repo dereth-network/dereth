@@ -103,6 +103,8 @@ pub struct WorldManagerState {
     /// `new RateLimiter(60, TimeSpan.FromSeconds(1))`. ACE builds it when the class is first used;
     /// here at the first [`update_game_world`], because its stopwatch reads the world's clock.
     pub update_game_world_rate_limiter: Option<RateLimiter>,
+    /// Not ACE (V508): the loop's passes, for the watch outside the world thread.
+    pub passes: crate::managers::world_watch::Passes,
     /// Not ACE: panics caught around the loop's stages (see the module docs).
     pub stage_exceptions: u64,
     /// Not ACE: shard callbacks that panicked in [`run_shard_callbacks`].
@@ -731,6 +733,7 @@ pub fn update_world(
     let mut world_tick_timer = Stopwatch::new();
 
     while !w.world_manager.pending_world_stop {
+        w.world_manager.passes.pass();
         world_tick_timer.restart(clock);
 
         let now = ClockSnapshot::take(clock, w.timers.portal_year_ticks);
@@ -756,6 +759,7 @@ pub fn update_world(
         host.between_iterations(w);
     }
 
+    w.world_manager.passes.over();
     // World has finished operations and concedes the thread to garbage collection
     w.world_manager.world_active = false;
 }
@@ -943,7 +947,13 @@ fn panic_message(panic: &(dyn std::any::Any + Send)) -> String {
 
 /// Not ACE: runs `f` as the loop stage `name`, returning `default` if it panics (see the module
 /// docs).
-fn run_stage<R>(w: &mut World, name: &str, default: R, f: impl FnOnce(&mut World) -> R) -> R {
+fn run_stage<R>(
+    w: &mut World,
+    name: &'static str,
+    default: R,
+    f: impl FnOnce(&mut World) -> R,
+) -> R {
+    w.world_manager.passes.at(name);
     match catch_unwind(AssertUnwindSafe(|| f(&mut *w))) {
         Ok(r) => r,
         Err(panic) => {

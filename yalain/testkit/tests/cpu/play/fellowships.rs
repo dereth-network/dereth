@@ -337,12 +337,13 @@ fn a_kill_is_shared_by_the_fellows_of_a_level_to_share() {
         .expect("in the world");
     yalain_world::quals::set_int(&mut p.qualities, 302, 9);
     let shares =
-        yalain_world::fellowship::shares(&h.server, aid, 100, 1, false, (1, 1)).expect("shares");
+        yalain_world::fellowship::shares(&h.server, aid, 100, 1, None, (1, 1)).expect("shares");
     let mut got: Vec<u64> = shares.iter().map(|(_, n)| *n).collect();
     got.sort_unstable();
     assert_eq!(got, vec![60, 60], "two of a level to share, 0.6 each");
     let group =
-        yalain_world::fellowship::shares(&h.server, aid, 100, 1, true, (1, 1)).expect("shares");
+        yalain_world::fellowship::shares(&h.server, aid, 100, 1, Some(&[aid, bid, cid]), (1, 1))
+            .expect("shares");
     assert!(
         group.iter().all(|(_, n)| *n == 90),
         "{group:?}: three fellows, 1.5"
@@ -415,6 +416,100 @@ fn each_part_of_a_kill_is_shared_out_among_the_fellows_without_a_text() {
     let _ = cid;
 }
 
+/// Two fellows of a level at a group creature both of them hurt take its factor, 0.9 of it each by
+/// their own levels; one that hurt nothing of it gets its 0.6 and no factor for the other. A fellow
+/// not of a level who hurt it brings its factor to the other's part, paid alone; idle it brings none.
+/// Behaviour: server.fellowship.two-fellows-group-factor
+#[test]
+fn two_fellows_take_a_group_creatures_factor_only_when_both_hurt_it() {
+    use yalain_world::fellowship::shares;
+    let (mut h, [(a, aid), (b, bid), _]) = three();
+    create(&mut h, a, "Band");
+    join(&mut h, (a, aid), (b, bid));
+    let each = |h: &Harness, killer: u64, hurt: &[u64]| {
+        let got = shares(&h.server, killer, 100, 1, Some(hurt), (1, 1)).expect("shares");
+        let mut got: Vec<u64> = got.into_iter().map(|(_, n)| n).collect();
+        got.sort_unstable();
+        got
+    };
+    assert_eq!(each(&h, aid, &[aid, bid]), [90, 90], "both hurt it");
+    assert_eq!(each(&h, aid, &[aid]), [60, 60], "the other idle");
+    set_level(&mut h, bid, 30);
+    assert_eq!(each(&h, aid, &[aid, bid]), [150], "whole, with the factor");
+    assert_eq!(each(&h, aid, &[aid]), [100], "whole, with no factor");
+}
+
+/// A kill of a group creature goes by who hurt it, a pet's damage counting as its owner's: the
+/// fellow whose pet hurt it took part, so each is paid the factor's 0.9 of the creature's whole.
+/// Behaviour: server.fellowship.a-pets-damage-takes-part-for-its-owner
+#[test]
+fn a_group_creature_two_fellows_killed_pays_them_by_who_hurt_it() {
+    use yalain_world::pets::{Order, Pet};
+    let (mut h, [(a, aid), (b, bid), _]) = three();
+    create(&mut h, a, "Band");
+    join(&mut h, (a, aid), (b, bid));
+    h.add_creatures(2);
+    h.run(20);
+    let mut beetles: Vec<u64> = h
+        .server
+        .things
+        .by_id
+        .values()
+        .filter(|t| t.creature.is_some())
+        .map(|t| t.id)
+        .collect();
+    beetles.sort_unstable();
+    let (prey, pet) = (beetles[0], beetles[1]);
+    let level = h
+        .server
+        .players
+        .values()
+        .find(|p| p.character == aid)
+        .map(|p| yalain_world::examine::level_of(&p.qualities))
+        .expect("in the world");
+    if let Some(t) = h.server.things.get_mut(prey) {
+        t.health = 200;
+        t.max_health = 200;
+        if let Some(cr) = t.creature.as_mut() {
+            cr.stats.death_xp = 1000;
+            cr.stats.level = level;
+            cr.stats.attacks_first = false;
+        }
+        t.facts.group = true;
+    }
+    h.server.pets.by_id.insert(
+        pet,
+        Pet {
+            id: pet,
+            owner: bid,
+            template: 0,
+            class: 0,
+            flags: 0,
+            mode: 0,
+            name: None,
+            order: Order::Follow,
+            next_plan: 0.0,
+            goal: None,
+            effect: 0,
+            assist: None,
+            next_tend: 0.0,
+        },
+    );
+    let from = h.bots[a].inbox.len();
+    let clock = h.clock();
+    yalain_world::combat::hurt_creature(&mut h.server, &mut h.net, prey, pet, 100, clock);
+    yalain_world::combat::hurt_creature(&mut h.server, &mut h.net, prey, aid, 100, clock);
+    h.run(10);
+    let totals: Vec<u64> = super::experience(&h, a, from)
+        .into_iter()
+        .filter_map(|t| match t {
+            super::Told::Total(n) => Some(n),
+            super::Told::Text(..) => None,
+        })
+        .collect();
+    assert_eq!(totals.last().copied(), Some(900), "{totals:?}");
+}
+
 fn set_level(h: &mut Harness, who: u64, level: i32) {
     let p = h
         .server
@@ -446,7 +541,7 @@ fn the_share_counts_every_fellow_of_a_level_to_share_near_or_not_and_pays_those_
     join(&mut h, (a, aid), (c, cid));
     beside(&mut h, cid, aid, 500.0);
     let shares =
-        yalain_world::fellowship::shares(&h.server, aid, 100, 1, false, (1, 1)).expect("shares");
+        yalain_world::fellowship::shares(&h.server, aid, 100, 1, None, (1, 1)).expect("shares");
     let mut got: Vec<(yalain_net::ConnId, u64)> = shares;
     got.sort_unstable();
     let mut want = vec![(world(&h, aid), 45), (world(&h, bid), 45)];
@@ -466,7 +561,7 @@ fn shares_go_evenly_whatever_the_fellows_levels() {
     set_level(&mut h, aid, 4);
     set_level(&mut h, bid, 8);
     let shares =
-        yalain_world::fellowship::shares(&h.server, aid, 1000, 4, false, (1, 1)).expect("shares");
+        yalain_world::fellowship::shares(&h.server, aid, 1000, 4, None, (1, 1)).expect("shares");
     let mut got: Vec<(yalain_net::ConnId, u64)> = shares;
     got.sort_unstable();
     let mut want = vec![(world(&h, aid), 600), (world(&h, bid), 600)];
@@ -782,4 +877,51 @@ fn a_place_offered_by_one_no_longer_a_leader_takes_no_one() {
     assert!(h.server.fellowships.of(c.1).is_none(), "stays out");
     let i = h.server.fellowships.of(b.1).expect("the other's");
     assert_eq!(h.server.fellowships.list[i].fellows.len(), 2);
+}
+
+/// A question put to another player has a pace: asked again and again it reaches the other a few at
+/// once, and again once the pace has filled.
+/// Behaviour: server.social.questions-at-a-pace
+#[test]
+fn a_question_asked_again_and_again_reaches_the_other_at_a_pace() {
+    let (mut h, [(a, _), (b, bid), _]) = three();
+    create(&mut h, a, "Band");
+    let fb = h.bots[b].inbox.len();
+    let asked = |h: &Harness, from: usize| {
+        h.calls(b, from)
+            .iter()
+            .filter(|(f, _)| *f == function::REQUEST_RECRUITMENT)
+            .count()
+    };
+    for _ in 0..30 {
+        h.ask(a, function::RECRUIT, &[Arg::LongInt(bid)], 1);
+    }
+    h.run(5);
+    let first = asked(&h, fb);
+    assert!((5..30).contains(&first), "{first} of 30");
+    h.advance(10.0);
+    let fb = h.bots[b].inbox.len();
+    h.ask(a, function::RECRUIT, &[Arg::LongInt(bid)], 10);
+    assert_eq!(asked(&h, fb), 1, "the pace has filled");
+}
+
+/// The walk to a player out of reach comes at the same pace: asked again and again, those who see the
+/// asker are told a few orders.
+/// Behaviour: server.social.questions-at-a-pace
+#[test]
+fn a_question_asked_of_one_out_of_reach_walks_at_the_same_pace() {
+    let (mut h, [(a, aid), (_, bid), (c, _)]) = three();
+    beside(&mut h, bid, aid, 15.0);
+    create(&mut h, a, "Band");
+    let from = h.bots[c].inbox.len();
+    for _ in 0..30 {
+        h.ask(a, function::RECRUIT, &[Arg::LongInt(bid)], 1);
+    }
+    h.run(5);
+    let orders = h
+        .world_messages(c, from)
+        .iter()
+        .filter(|m| matches!(m, auberean_protocol::ServerMessage::MoveTo(_)))
+        .count();
+    assert!((5..30).contains(&orders), "{orders} orders of 30 asks");
 }

@@ -28,6 +28,7 @@ use dereth_client_runtime::config::Config;
 use dereth_client_runtime::corestrings;
 use dereth_desktop::crashlog;
 
+mod input_live;
 mod input_replay;
 
 fn main() -> std::process::ExitCode {
@@ -72,9 +73,10 @@ fn run() -> Result<(), String> {
     // parse the command line, make the settings folder and install the log.
     let mut argv: Vec<String> = std::env::args().skip(1).collect();
     let replay = input_replay::Replay::load(&mut argv)?;
+    let live = input_live::LiveInput::load(&mut argv)?;
     // The log's writer is held to the end of the run, and drained when it goes.
     let (cfg, _log) = dereth_desktop::start::<Dereth>(&argv)?;
-    run_with(cfg, replay)
+    run_with(cfg, replay, live)
 }
 
 /// A `StartupError` on its way to `main`'s stderr sentence, with its cause logged first.
@@ -91,7 +93,11 @@ fn fatal(e: dereth_client_runtime::app::StartupError) -> String {
 }
 
 #[cfg(gpu)]
-fn run_with(cfg: Config, replay: Option<input_replay::Replay>) -> Result<(), String> {
+fn run_with(
+    cfg: Config,
+    replay: Option<input_replay::Replay>,
+    live: Option<input_live::LiveInput>,
+) -> Result<(), String> {
     let capture = cfg.capture.clone();
     let headless = cfg.headless;
     let linger = cfg.linger;
@@ -102,6 +108,7 @@ fn run_with(cfg: Config, replay: Option<input_replay::Replay>) -> Result<(), Str
     let want_ui = cfg.ui;
     let cfg_ui_mode = cfg.ui_mode;
     let host = cfg.host.clone();
+    let port = cfg.port;
     let account = cfg.account.clone();
     let plugins = cfg.plugins.then(|| dereth_client::plugins::DesktopPlugins {
         settings_dir: dereth_desktop::folders::default_settings_dir(
@@ -182,6 +189,9 @@ fn run_with(cfg: Config, replay: Option<input_replay::Replay>) -> Result<(), Str
         // The connection step keeps the UI alive until the link reaches Connected; `App::run`
         // owns that frame loop. This branch therefore only reports which server was selected.
         tracing::info!("connecting to {host} as {account}");
+        if let Some(reporter) = dereth_client::player_count::reporter(&host, port) {
+            app.on_world_players(reporter);
+        }
     }
 
     if let Some(m) = cfg_ui_mode {
@@ -209,6 +219,25 @@ fn run_with(cfg: Config, replay: Option<input_replay::Replay>) -> Result<(), Str
                 break;
             }
             frame += 1;
+        }
+        app.state = dereth_client_runtime::app::AppState::ShuttingDown;
+        app.frames_drawn()
+    } else if let Some(mut live) = live {
+        app.state = dereth_client_runtime::app::AppState::Running;
+        loop {
+            match live.next_step() {
+                Some(input_live::Step::Event(event)) => app.queue_window_event(event),
+                Some(input_live::Step::Capture(path)) => {
+                    if let Err(e) = app.renderer_mut().capture_png(&path) {
+                        tracing::warn!("--input-live capture: {e}");
+                    }
+                }
+                Some(input_live::Step::Quit) => break,
+                None => {}
+            }
+            if !app.frame() {
+                break;
+            }
         }
         app.state = dereth_client_runtime::app::AppState::ShuttingDown;
         app.frames_drawn()
@@ -248,7 +277,11 @@ fn run_with(cfg: Config, replay: Option<input_replay::Replay>) -> Result<(), Str
 }
 
 #[cfg(not(gpu))]
-fn run_with(_cfg: Config, _replay: Option<input_replay::Replay>) -> Result<(), String> {
+fn run_with(
+    _cfg: Config,
+    _replay: Option<input_replay::Replay>,
+    _live: Option<input_live::LiveInput>,
+) -> Result<(), String> {
     Err(
         "dereth-client needs a graphics backend: build with --features vulkan, d3d12 or wgpu"
             .into(),
