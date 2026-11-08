@@ -6,7 +6,4 @@
 #[allow(dead_code)] // shared with the dat binary, which uses the rest
 mod shared;
 
-pub use shared::{
-    app_with_recorded_body_with, body, frames, gameplay, movement_key, position,
-    unhide_recorded_player,
-};
+pub use shared::{frames, gameplay, position, unhide_recorded_player};

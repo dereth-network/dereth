@@ -178,8 +178,7 @@ cargo run -p dereth-client -- --renderer d3d12
 On Direct3D 12, `wgpu` compiles shaders with FXC, which comes with Windows. Put Microsoft's
 `dxcompiler.dll`, 1.9 or newer (from `bin/x64` of a
 [DXC release](https://github.com/microsoft/DirectXShaderCompiler/releases)), beside
-`dereth-client.exe` and it uses DXC instead, which is much faster on Better Lighting's long shaders
-and can trace rays. The startup log line says which compiler it used.
+`dereth-client.exe` and it uses DXC instead, which is faster on long shaders. The startup log line says which compiler it used.
 
 The client can also run without a window and replay recorded input:
 [`dereth/client/INPUT-REPLAY.md`](dereth/client/INPUT-REPLAY.md).

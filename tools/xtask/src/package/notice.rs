@@ -292,6 +292,7 @@ DERETH
         mit = indent(f.mit_licence.trim_end()),
     );
     out.push_str(&font_sections(f.fonts));
+    out.push_str(&fsr_section());
     if let Some(licence) = f.moltenvk_licence {
         out.push_str(&moltenvk_section("client", licence));
     }
@@ -467,6 +468,25 @@ THE {upper} TYPEFACE
         ));
     }
     out
+}
+
+/// AMD's notice for the upscaler the client's remaster ports from the FidelityFX SDK.
+const FSR_LICENSE: &str =
+    include_str!("../../../../dereth/client/crates/remaster/shaders/fsr3_LICENSE.txt");
+
+/// A notice's section for the upscaler the client's remaster ports.
+fn fsr_section() -> String {
+    format!(
+        "
+
+AMD FIDELITYFX SUPER RESOLUTION
+
+The client's remaster upscales with FidelityFX Super Resolution 3.1, ported from AMD's
+FidelityFX SDK 1.1.4, under this notice:
+
+{}",
+        indent(FSR_LICENSE.trim_end())
+    )
 }
 
 /// A notice's section for the MoltenVK a macOS package carries, which `program` draws through.

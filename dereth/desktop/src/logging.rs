@@ -133,10 +133,11 @@ pub fn install<P: Product>(cfg: &Config) -> Guard {
             tx: tx.clone(),
             file: false,
         });
-    let path = cfg
-        .preferences_file
-        .parent()
-        .map_or_else(|| file_name.clone().into(), |d| d.join(&file_name));
+    let path = cfg.log_file_path.clone().unwrap_or_else(|| {
+        cfg.preferences_file
+            .parent()
+            .map_or_else(|| file_name.clone().into(), |d| d.join(&file_name))
+    });
     let (file, file_error) = if cfg.log_file {
         match std::fs::OpenOptions::new()
             .create(true)

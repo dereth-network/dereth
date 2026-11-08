@@ -1,7 +1,7 @@
 //! The performance capture (`@perfcapture`, CD-report-commands): every frame's time for a few
 //! seconds, where it went on the processor, step by step and in the presentation's own parts, and
-//! each Better Lighting pass's time on the GPU where the device times them, saved to a file with
-//! what `@report` says about the frame.
+//! each pass's time on the GPU where the device times them, saved to a file with what `@report`
+//! says about the frame.
 //!
 //! Nothing is kept while no capture runs. While one does, a frame costs one row of text.
 //!
@@ -12,12 +12,10 @@
 //! - `frame_ms`: from the start of the frame before to the start of this one;
 //! - the frame loop's steps, milliseconds each, in the order a frame runs them (`ui_queue` to
 //!   `pace`, [`STEP_COLUMNS`](crate::perf_capture::STEP_COLUMNS));
-//! - the presentation's parts: `walk` (the walk that records the frame's draws), `snapshot` (the
-//!   copy handed to Better Lighting), `drawn_ground` (its upkeep) and `better_lighting` (Better
-//!   Lighting's whole time on the processor);
+//! - the presentation's parts: `walk` (the walk that records the frame's draws) and `remaster`
+//!   (the remaster's time on the processor);
 //! - `gpu_total`, the sum of the passes' GPU times;
-//! - `steps`, `prepare`, `encode` and `gpu_passes`: Better Lighting's steps, each pass's time
-//!   preparing and recording, and each pass's GPU time, as `name=ms` a space between.
+//! - `gpu_passes`: each pass's GPU time, as `name=ms` a space between.
 //!
 //! The GPU's times are those the device has handed back by the frame, a few frames late.
 
@@ -52,9 +50,7 @@ pub fn header() -> String {
         h.push(',');
         h.push_str(c);
     }
-    h.push_str(
-        ",walk,snapshot,drawn_ground,better_lighting,gpu_total,steps,prepare,encode,gpu_passes",
-    );
+    h.push_str(",walk,remaster,gpu_total,gpu_passes");
     h
 }
 
@@ -181,18 +177,13 @@ impl PerfCapture {
                 let gpu: f32 = c.gpu.iter().map(|(_, ms)| ms).sum();
                 let _ = write!(
                     self.rows,
-                    ",{:.3},{:.3},{:.3},{:.3},{gpu:.3},\"{}\",\"{}\",\"{}\",\"{}\"",
+                    ",{:.3},{:.3},{gpu:.3},\"{}\"",
                     c.walk,
-                    c.snapshot,
-                    c.drawn_ground,
-                    c.better_lighting,
-                    pairs(&c.steps),
-                    pairs(&c.prepare),
-                    pairs(&c.encode),
+                    c.remaster,
                     pairs(&c.gpu),
                 );
             }
-            None => self.rows.push_str(",,,,,,\"\",\"\",\"\",\"\""),
+            None => self.rows.push_str(",,,,\"\""),
         }
         self.rows.push('\n');
         self.frame_ms.push(ms);
@@ -296,8 +287,7 @@ mod tests {
             Some(&PresentCosts {
                 walk: 1.0,
                 gpu: vec![("sky", 0.25), ("lighting", 1.5)],
-                steps: vec![("prepare", 0.5)],
-                ..PresentCosts::default()
+                remaster: 0.5,
             }),
         );
         let text = c.file_text(&[("gpu", "a card".into())]);

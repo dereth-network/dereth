@@ -110,59 +110,85 @@ pub const INTERFACE: &str = "UI.Interface";
 /// Read once, at start-up; `--renderer` on the command line wins over it.
 pub const RENDERER: &str = "Render.Renderer";
 
-/// The `[Fidelity]` section: the optional high-fidelity presentation of the world, drawn only
-/// while the Horizon interface is shown. None of these is a retail preference. Each box is a
-/// switch the profile keeps as `True` or `False`; a number above 1 (from `--set-at`) asks its
-/// effect for that quality level, 0 Off, 1 Low, 2 Medium, 3 High, 4 Ultra.
+/// The `[Fidelity]` section: the remaster's options, drawn only while the Horizon interface is
+/// shown. None of these is a retail preference. Each box is a switch the profile keeps as `True`
+/// or `False`. Names an earlier build kept here and this one does not know are not read.
 pub mod fidelity {
-    /// `Fidelity.Lighting`: per-pixel sun and sky light in high dynamic range.
-    pub const LIGHTING: &str = "Fidelity.Lighting";
-    /// `Fidelity.Shadows`: the sun's shadows, drawn inside the lighting.
-    pub const SHADOWS: &str = "Fidelity.Shadows";
-    /// `Fidelity.GlobalIllumination`: bounced light, drawn inside the lighting.
-    pub const GLOBAL_ILLUMINATION: &str = "Fidelity.GlobalIllumination";
-    /// `Fidelity.AmbientOcclusion`: ambient and contact occlusion.
-    pub const AMBIENT_OCCLUSION: &str = "Fidelity.AmbientOcclusion";
-    /// `Fidelity.Lamps`: outdoor lamps, lanterns, torches and braziers give light at night,
-    /// drawn inside the lighting on a device that traces rays.
-    pub const LAMPS: &str = "Fidelity.Lamps";
-    /// `Fidelity.Sky`: a physical sky and aerial perspective.
-    pub const SKY: &str = "Fidelity.Sky";
-    /// `Fidelity.Weather`: rain, snow and wet ground, when the day's own weather brings them.
-    pub const WEATHER: &str = "Fidelity.Weather";
-    /// `Fidelity.RetailLook`: the original models are drawn where an art pack has replacements
-    /// for them.
-    pub const RETAIL_LOOK: &str = "Fidelity.RetailLook";
-    /// `Fidelity.NoAntiAliasing`: the world is drawn in the better lighting without its temporal
-    /// anti-aliasing.
-    pub const NO_ANTI_ALIASING: &str = "Fidelity.NoAntiAliasing";
-    /// `Fidelity.NoSlopeMaterials`: an art pack's ground is laid without the scree and rock it
-    /// lays on steep slopes.
-    pub const NO_SLOPE_MATERIALS: &str = "Fidelity.NoSlopeMaterials";
-    /// `Fidelity.Debug`: a diagnostic view, set only by `--set-at`: 0 Off, 1 Passthrough,
-    /// 2 Depth, 3 Normals, 4 AO, 5 Shadows, 6 Census, 7 Parity (re-shaded with no pass).
-    pub const DEBUG: &str = "Fidelity.Debug";
+    /// `Fidelity.Remaster`: the world is drawn by the remaster, on the Vulkan or Direct3D 12
+    /// renderer. Its
+    /// name on the page is [`crate::options::remaster::NAME`]'s, which this never spells out.
+    pub const REMASTER: &str = "Fidelity.Remaster";
+    /// The remaster's sun shadows.
+    pub const REMASTER_SHADOWS: &str = "Fidelity.RemasterShadows";
+    /// The remaster's sky.
+    pub const REMASTER_SKY: &str = "Fidelity.RemasterSky";
+    /// The remaster's fog.
+    pub const REMASTER_FOG: &str = "Fidelity.RemasterFog";
+    /// The remaster's ambient occlusion.
+    pub const REMASTER_OCCLUSION: &str = "Fidelity.RemasterOcclusion";
+    /// The remaster's lamps indoors.
+    pub const REMASTER_INDOOR_LAMPS: &str = "Fidelity.RemasterIndoorLamps";
+    /// The remaster's lamps outdoors.
+    pub const REMASTER_OUTDOOR_LAMPS: &str = "Fidelity.RemasterOutdoorLamps";
+    /// `Fidelity.RemasterBloom`: the remaster's hdr and bloom, while its box is ticked.
+    pub const REMASTER_BLOOM: &str = "Fidelity.RemasterBloom";
+    /// `Fidelity.RemasterSmoothing`: the remaster's smooth edges, while its box is ticked.
+    pub const REMASTER_SMOOTHING: &str = "Fidelity.RemasterSmoothing";
+    /// `Fidelity.RemasterWater`: the remaster's water, while its box is ticked.
+    pub const REMASTER_WATER: &str = "Fidelity.RemasterWater";
+    /// `Fidelity.RemasterPuddles`: the remaster's puddles, while its box is ticked.
+    pub const REMASTER_PUDDLES: &str = "Fidelity.RemasterPuddles";
+    /// The remaster's rain and snow.
+    pub const REMASTER_RAIN: &str = "Fidelity.RemasterRain";
+    /// `Fidelity.RemasterDetail`: the remaster's far detail, while its box is ticked.
+    pub const REMASTER_DETAIL: &str = "Fidelity.RemasterDetail";
+    /// `Fidelity.RemasterBounce`: the remaster's bounced light, while its box is ticked.
+    pub const REMASTER_BOUNCE: &str = "Fidelity.RemasterBounce";
+    /// `Fidelity.RemasterTracedShadows`: the remaster's sun shadows traced, where the card can.
+    pub const REMASTER_TRACED_SHADOWS: &str = "Fidelity.RemasterTracedShadows";
+    /// `Fidelity.RemasterTracedOcclusion`: the remaster's occlusion traced, where the card can.
+    pub const REMASTER_TRACED_OCCLUSION: &str = "Fidelity.RemasterTracedOcclusion";
+    /// `Fidelity.RemasterUpscale`: the remaster draws fewer pixels and FSR makes up the rest.
+    pub const REMASTER_UPSCALE: &str = "Fidelity.RemasterUpscale";
+    /// `Fidelity.RemasterDlss`: the remaster draws fewer pixels and DLSS makes up the rest, where
+    /// its DLL stands beside the client.
+    pub const REMASTER_DLSS: &str = "Fidelity.RemasterDlss";
+    /// `Fidelity.RemasterScale`: the share of the pixels the remaster draws each way while it
+    /// upscales, in percent.
+    pub const REMASTER_SCALE: &str = "Fidelity.RemasterScale";
+    /// `Fidelity.RemasterArtPack`: the art pack in the remaster, while its box is ticked. Naming a
+    /// pack ticks it.
+    pub const REMASTER_ART_PACK: &str = "Fidelity.RemasterArtPack";
     /// `Fidelity.Interface`: whether the interface shown is Horizon, the only one the
-    /// presentation draws under. The client sets it as the interface changes; it is never kept
+    /// remaster draws under. The client sets it as the interface changes; it is never kept
     /// in the profile.
     pub const INTERFACE: &str = "Fidelity.Interface";
-    /// `Fidelity.ArtPack`: the art pack the presentation draws, the path of its folder or of the
+    /// `Fidelity.ArtPack`: the art pack the remaster draws, the path of its folder or of the
     /// file it was packed into, read at start-up. `--art-pack` on the command line and `DERETH_ART_PACK` in the environment win
     /// over it. No box sets it.
     pub const ART_PACK: &str = "Fidelity.ArtPack";
 
-    /// Every name the profile and `--set-at` may set, the ten boxes first.
+    /// Every name the profile and `--set-at` may set.
     pub const NAMES: &[&str] = &[
-        LIGHTING,
-        SHADOWS,
-        GLOBAL_ILLUMINATION,
-        AMBIENT_OCCLUSION,
-        LAMPS,
-        SKY,
-        WEATHER,
-        RETAIL_LOOK,
-        NO_ANTI_ALIASING,
-        NO_SLOPE_MATERIALS,
-        DEBUG,
+        REMASTER,
+        REMASTER_SHADOWS,
+        REMASTER_SKY,
+        REMASTER_FOG,
+        REMASTER_OCCLUSION,
+        REMASTER_INDOOR_LAMPS,
+        REMASTER_OUTDOOR_LAMPS,
+        REMASTER_BLOOM,
+        REMASTER_SMOOTHING,
+        REMASTER_WATER,
+        REMASTER_PUDDLES,
+        REMASTER_RAIN,
+        REMASTER_DETAIL,
+        REMASTER_BOUNCE,
+        REMASTER_TRACED_SHADOWS,
+        REMASTER_TRACED_OCCLUSION,
+        REMASTER_UPSCALE,
+        REMASTER_DLSS,
+        REMASTER_SCALE,
+        REMASTER_ART_PACK,
     ];
 }

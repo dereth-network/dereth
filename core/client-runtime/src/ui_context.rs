@@ -750,26 +750,33 @@ impl<'a, S: Shell> UiContext<'a, S> {
         self.app.renderer_status()
     }
 
-    /// Where the experimental rendering effects stand on the device the client draws with, for
-    /// the options page.
-    #[cfg(feature = "hifi")]
+    /// Whether NVIDIA's DLSS library stands beside the client, which the interface then names as
+    /// NVIDIA's license asks.
     #[must_use]
-    pub fn hifi_availability(&self) -> dereth_client_contract::options::fidelity::Availability {
-        self.app.present.hifi_availability()
+    pub fn dlss_carried(&self) -> bool {
+        self.app.present.dlss_carried()
     }
 
-    /// Note whether the interface shown is Horizon, the only one the optional high-fidelity
-    /// presentation draws under. The drawn world takes it at once (its next preference poll
-    /// installs or removes the presentation), and every world built after it starts with it.
-    /// A build without the presentation does nothing here.
-    #[cfg_attr(not(feature = "hifi"), allow(clippy::unused_self))]
-    pub fn set_hifi_interface(&mut self, horizon: bool) {
-        #[cfg(feature = "hifi")]
+    /// Whether an art pack is open, which the remaster's art pack box draws: the options page
+    /// offers the box only then.
+    #[cfg(feature = "fidelity")]
+    #[must_use]
+    pub fn art_pack_open(&self) -> bool {
+        self.app.present.art_pack_open()
+    }
+
+    /// Note whether the interface shown is Horizon, the only one the remaster draws under. The
+    /// drawn world takes it at once (its next preference poll stands the remaster up or takes it
+    /// down), and every world built after it starts with it. A build without the remaster does
+    /// nothing here.
+    #[cfg_attr(not(feature = "fidelity"), allow(clippy::unused_self))]
+    pub fn set_horizon_interface(&mut self, horizon: bool) {
+        #[cfg(feature = "fidelity")]
         {
-            if self.app.hifi_interface == horizon {
+            if self.app.horizon_interface == horizon {
                 return;
             }
-            self.app.hifi_interface = horizon;
+            self.app.horizon_interface = horizon;
             let _ = self.app.present.apply_render_preference_requests(vec![
                 dereth_client_contract::UiRequest::SetPreference(
                     dereth_client_contract::options::names::fidelity::INTERFACE,
@@ -777,7 +784,7 @@ impl<'a, S: Shell> UiContext<'a, S> {
                 ),
             ]);
         }
-        #[cfg(not(feature = "hifi"))]
+        #[cfg(not(feature = "fidelity"))]
         let _ = horizon;
     }
 

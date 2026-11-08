@@ -9,17 +9,16 @@
 //! camera 0xA8B3 [182.21875 35.5 91.25] yaw -1.5707964 pitch -0.2617994 cell 0xA8B3003A;
 //! eye 0xA8B3 [182.21875 35.5 91.4]; fov 90 vertical 61.92751 aspect 1; mode chase;
 //! time 0.412 Midsong, server's clock; clock 1234567.25; weather auto; renderer wgpu;
-//! better lighting on; retail look off; effects Lighting=4,Shadows=4; render scale 100;
-//! art pack 1a2b3c4d5e6f7a8b Remastered; knobs 0f1e2d3c4b5a6978 walk_cap=0.3,cliffs=0;
-//! draw distance 8; window 1920x1080; viewport 0 0 1920 1080; build dereth-client 0.4.4 1f1943a4
+//! remaster on; effects RemasterShadows=1,RemasterSky=1; render scale 100;
+//! art pack 1a2b3c4d5e6f7a8b Remastered; draw distance 8; window 1920x1080; viewport 0 0 1920 1080; build dereth-client 0.4.4 1f1943a4
 //! ```
 //!
 //! (one line, broken here to be read). `loc` is `@loc`'s own text. The camera's place is in meters
 //! from the south-west corner of the landblock it names, which is the block the world is drawn
 //! around and need not be the one it stands in, and its numbers are written so they read back as
 //! the very same numbers: a camera read back from the line is the camera the frame was drawn
-//! from. `eye` is where the frame was drawn from when Better Lighting draws the camera moved with
-//! the ground it draws. Fields this client does not know are left out; a reader skips fields it
+//! from. `eye` is where the frame was drawn from when the presentation draws the camera moved from
+//! where it stands. Fields this client does not know are left out; a reader skips fields it
 //! does not know.
 
 use dereth_primitives::{CellId, Frame, Position, Quat, Vec3};
@@ -48,20 +47,18 @@ pub struct RenderContext {
     /// How frames are presented: the swap chain's mode, or how often the device waits for the
     /// screen.
     pub present_mode: String,
-    /// Whether Better Lighting draws the frame.
-    pub better_lighting: bool,
-    /// Whether Better Lighting draws it with the retail look.
-    pub retail_look: bool,
-    /// Better Lighting's effects as the options page has them, `Name=value` a comma between.
+    /// Whether the remaster draws the frame.
+    pub remaster: bool,
+    /// The remaster's own boxes that are on, as the options page has them, `Name=value` a comma
+    /// between.
     pub effects: String,
-    /// The art pack drawn: its name, and the hash of its manifest and every file it read.
+    /// The art pack open: its name, and the hash of its manifest and every file it read.
     pub art_pack: Option<(String, String)>,
-    /// The share of the frame's pixels Better Lighting draws the world at, each way, percent.
+    /// The share of the frame's pixels the remaster draws the world at, each way, percent.
     pub render_scale: u32,
-    /// The hash of the drawn ground's tuning file as it was last read, once it has been.
-    pub knobs_hash: Option<String>,
-    /// The drawn ground's knobs that differ from their defaults, `name` and value.
-    pub changed_knobs: Vec<(String, String)>,
+    /// The upscaler that drew the last frame: `none`, `FSR`, `DLSS` or `MetalFX`; empty where
+    /// nothing says.
+    pub upscaler: String,
     /// Where the frame is drawn from, in render space, when the presentation draws the camera
     /// moved from where the camera stands.
     pub drawn_eye: Option<Vec3>,
@@ -73,18 +70,8 @@ pub struct RenderContext {
 pub struct PresentCosts {
     /// The walk of the world that records the frame's draws.
     pub walk: f32,
-    /// The copy of the frame handed to Better Lighting.
-    pub snapshot: f32,
-    /// The drawn ground's upkeep.
-    pub drawn_ground: f32,
-    /// Better Lighting's whole time on the processor.
-    pub better_lighting: f32,
-    /// Better Lighting's steps of the frame, by name.
-    pub steps: Vec<(&'static str, f32)>,
-    /// Each pass's time preparing the frame.
-    pub prepare: Vec<(&'static str, f32)>,
-    /// Each pass's time recording its work.
-    pub encode: Vec<(&'static str, f32)>,
+    /// The remaster's time on the processor: its changes handed over and its frame recorded.
+    pub remaster: f32,
     /// Each pass's time on the GPU, where the device has timestamps; a few frames late.
     pub gpu: Vec<(&'static str, f32)>,
 }
@@ -332,32 +319,20 @@ impl VisualReport {
                 clean(&r.renderer)
             }
         ));
-        f.push(format!("better lighting {}", on_off(r.better_lighting)));
-        if r.better_lighting {
-            f.push(format!("retail look {}", on_off(r.retail_look)));
+        f.push(format!("remaster {}", on_off(r.remaster)));
+        if r.remaster {
             if !r.effects.is_empty() {
                 f.push(format!("effects {}", clean(&r.effects)));
             }
             f.push(format!("render scale {}", r.render_scale));
+            if !r.upscaler.is_empty() {
+                f.push(format!("upscaler {}", clean(&r.upscaler)));
+            }
         }
         f.push(match &r.art_pack {
             Some((name, hash)) => format!("art pack {hash} {}", clean(name)),
             None => "art pack none".to_owned(),
         });
-        if r.knobs_hash.is_some() || !r.changed_knobs.is_empty() {
-            let hash = r.knobs_hash.as_deref().unwrap_or("none");
-            let changed = r
-                .changed_knobs
-                .iter()
-                .map(|(n, v)| format!("{n}={v}"))
-                .collect::<Vec<_>>()
-                .join(",");
-            if changed.is_empty() {
-                f.push(format!("knobs {hash}"));
-            } else {
-                f.push(format!("knobs {hash} {}", clean(&changed)));
-            }
-        }
         f.push(format!("draw distance {}", self.draw_distance));
         f.push(format!("window {}x{}", self.window.0, self.window.1));
         if let Some((x, y, w, h)) = self.viewport {
@@ -423,12 +398,12 @@ impl VisualReport {
                 } else {
                     v.to_owned()
                 };
-            } else if let Some(v) = field.strip_prefix("better lighting ") {
-                r.render.better_lighting = v == "on";
-            } else if let Some(v) = field.strip_prefix("retail look ") {
-                r.render.retail_look = v == "on";
+            } else if let Some(v) = field.strip_prefix("remaster ") {
+                r.render.remaster = v == "on";
             } else if let Some(v) = field.strip_prefix("effects ") {
                 r.render.effects = v.to_owned();
+            } else if let Some(v) = field.strip_prefix("upscaler ") {
+                r.render.upscaler = v.to_owned();
             } else if let Some(v) = field.strip_prefix("render scale ") {
                 r.render.render_scale = v.parse().map_err(|_| bad("render scale"))?;
             } else if let Some(v) = field.strip_prefix("art pack ") {
@@ -436,17 +411,6 @@ impl VisualReport {
                     let (hash, name) = v.split_once(' ').unwrap_or((v, ""));
                     r.render.art_pack = Some((name.to_owned(), hash.to_owned()));
                 }
-            } else if let Some(v) = field.strip_prefix("knobs ") {
-                let (hash, changed) = v.split_once(' ').unwrap_or((v, ""));
-                r.render.knobs_hash = (hash != "none").then(|| hash.to_owned());
-                r.render.changed_knobs = changed
-                    .split(',')
-                    .filter(|s| !s.trim().is_empty())
-                    .map(|s| {
-                        let (n, v) = s.split_once('=').ok_or_else(|| bad("knobs"))?;
-                        Ok((n.trim().to_owned(), v.trim().to_owned()))
-                    })
-                    .collect::<Result<_, String>>()?;
             } else if let Some(v) = field.strip_prefix("draw distance ") {
                 r.draw_distance = v.parse().map_err(|_| bad("draw distance"))?;
             } else if let Some(v) = field.strip_prefix("window ") {
@@ -471,16 +435,6 @@ impl VisualReport {
             }
         }
         Ok(r)
-    }
-
-    /// The drawn ground's changed knobs in the tuning file's form, a line each.
-    #[must_use]
-    pub fn knobs_text(&self) -> String {
-        self.render
-            .changed_knobs
-            .iter()
-            .map(|(n, v)| format!("{n} = {v}\n"))
-            .collect()
     }
 }
 
@@ -597,16 +551,11 @@ mod tests {
             weather_off: true,
             render: RenderContext {
                 renderer: "wgpu".into(),
-                better_lighting: true,
-                retail_look: false,
-                effects: "Lighting=4,Shadows=4".into(),
+                remaster: true,
+                effects: "RemasterShadows=1,RemasterSky=1".into(),
                 art_pack: Some(("Remastered; v2".into(), "1a2b3c4d5e6f7a8b".into())),
                 render_scale: 75,
-                knobs_hash: Some("0f1e2d3c4b5a6978".into()),
-                changed_knobs: vec![
-                    ("walk_cap".into(), "0.3".into()),
-                    ("cliffs".into(), "0".into()),
-                ],
+                upscaler: "DLSS".into(),
                 ..RenderContext::default()
             },
             draw_distance: 8,
@@ -649,7 +598,6 @@ mod tests {
             back.time.as_ref().unwrap().clock.to_bits(),
             report.time.unwrap().clock.to_bits()
         );
-        assert_eq!(back.knobs_text(), "walk_cap = 0.3\ncliffs = 0\n");
     }
 
     #[test]

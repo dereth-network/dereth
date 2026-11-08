@@ -162,15 +162,30 @@ fn scripted_preference(setting: &str) -> Option<(&'static str, dereth_client_con
     };
     let (key, value) = setting.split_once('=')?;
     let key = key.trim();
-    // The optional high-fidelity presentation's options take a number, which may ask an effect
-    // for a quality level past the boxes' on.
-    #[cfg(feature = "hifi")]
+    // The remaster's options take a number: a box 0 or 1, the share of the pixels a percent.
+    #[cfg(feature = "fidelity")]
     if let Some(name) = dereth_client_contract::options::names::fidelity::NAMES
         .iter()
         .find(|n| n.eq_ignore_ascii_case(key))
     {
-        let v = value.trim().parse::<i32>().ok()?;
-        return Some((name, dereth_client_contract::PrefValue::Int(v)));
+        // As the preferences file spells them: `True` or `False` for a box, a share as `75%`; a
+        // number too, as `--fidelity` takes it.
+        let v = value.trim();
+        let n = if v.eq_ignore_ascii_case("true") {
+            1
+        } else if v.eq_ignore_ascii_case("false") {
+            0
+        } else {
+            v.trim_end_matches('%').trim().parse::<i32>().ok()?
+        };
+        // A box is a boolean in the store, so the page and the saved profile follow it; the
+        // share is a number.
+        let value = if *name == dereth_client_contract::options::names::fidelity::REMASTER_SCALE {
+            dereth_client_contract::PrefValue::Int(n)
+        } else {
+            dereth_client_contract::PrefValue::Bool(n != 0)
+        };
+        return Some((name, value));
     }
     let name: &'static str = preferences::UI_PREFERENCES
         .iter()
@@ -237,9 +252,9 @@ pub fn with_stored_options(mut cfg: crate::scene::SceneConfig) -> crate::scene::
 }
 
 /// Whether a preference set while playing is also the next world's, recorded in the scene that
-/// will be loaded: the landscape options, and the optional high-fidelity presentation's, which the
+/// will be loaded: the landscape options, and the remaster's, which the
 /// option store does not hold and [`with_stored_options`] therefore cannot read back.
-#[cfg(feature = "hifi")]
+#[cfg(feature = "fidelity")]
 pub(crate) fn kept_for_the_next_world(name: &str) -> bool {
     dereth_client_contract::options::landscape::Landscape::of(name).is_some()
         || dereth_client_contract::options::names::fidelity::NAMES.contains(&name)
@@ -248,19 +263,11 @@ pub(crate) fn kept_for_the_next_world(name: &str) -> bool {
 /// Whether a preference set while playing is also the next world's, recorded in the scene that
 /// will be loaded: the landscape options, which the option store does not hold and
 /// [`with_stored_options`] therefore cannot read back.
-#[cfg(not(feature = "hifi"))]
+#[cfg(not(feature = "fidelity"))]
 #[inline]
 pub(crate) fn kept_for_the_next_world(name: &str) -> bool {
     dereth_client_contract::options::landscape::Landscape::of(name).is_some()
 }
-
-/// What the player is told when a box of the optional high-fidelity presentation is ticked and
-/// the client draws with a renderer other than `wgpu`, the only one it draws on, and no restart
-/// onto `wgpu` is chosen. Otherwise the player is told what the device and the renderer chosen
-/// for the next start say ([`dereth_client_contract::options::fidelity::Availability::refusal`]):
-/// the presentation draws only on a device asked for it at start-up, when the client starts in the
-/// Horizon interface on `wgpu` with a box ticked, so a box first ticked takes effect at that start.
-pub const FIDELITY_REFUSED: &str = dereth_client_contract::options::fidelity::REFUSED_RENDERER;
 
 /// Consume `UiRequest::OpenUrl` requests from the two support-ticket buttons.
 ///
@@ -740,15 +747,19 @@ pub struct App<S: Shell> {
     pub orbit_keys: crate::orbit::MovementKeys,
     /// What the orbit camera's mouse buttons asked of the game since the last dispatch.
     pub orbit_pending: Vec<dereth_client_contract::actions::Action>,
-    /// Whether the interface shown is Horizon, the only one the optional high-fidelity
-    /// presentation draws under: every world this client builds takes it, and the drawn one
-    /// follows it as it changes ([`crate::ui_context::UiContext::set_hifi_interface`]).
-    #[cfg(feature = "hifi")]
-    pub hifi_interface: bool,
-    /// What the player has been told this session of a box of the presentation that this device
-    /// cannot draw: each line is said once.
-    #[cfg(feature = "hifi")]
+    /// Whether the interface shown is Horizon, the only one the remaster draws under: every world
+    /// this client builds takes it, and the drawn one follows it as it changes
+    /// ([`crate::ui_context::UiContext::set_horizon_interface`]).
+    #[cfg(feature = "fidelity")]
+    pub horizon_interface: bool,
+    /// What the player has been told this session of the remaster refused on this device: each
+    /// line is said once.
+    #[cfg(feature = "fidelity")]
     fidelity_told: Vec<&'static str>,
+    /// What this device refused before the player was in the world, where nothing shows it: told
+    /// once the player is.
+    #[cfg(feature = "fidelity")]
+    fidelity_held: Vec<&'static str>,
     /// A look stick's push, each axis from -1 to 1, which turns the orbit camera every frame.
     pub orbit_look: (f32, f32),
     /// Every animated body drawn between its animation's keyframes, as an interface asked

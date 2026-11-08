@@ -36,10 +36,11 @@ wgpu = [
     "windows/Win32_System_Diagnostics_Debug",
     "windows/Win32_Graphics_Direct3D_Dxc",
 ]
-# The high-fidelity seam of the `wgpu` device (`src/wgpu/sidecar.rs`, `src/hifi_mark.rs`): an
-# optional second presentation of the world drawn from the frame's recording. Off unless a build
-# asks for it; without it the device builds no seam and behaves exactly as before.
-hifi = ["wgpu"]
+# The remaster's seam on the Vulkan device (`src/vulkan/world_hook.rs`) and the Direct3D 12 one
+# (`src/d3d12/world_hook.rs`): the features it asks for, the device's handles it adopts, and the
+# hook it draws the world through. Off unless a build asks for it; without it the devices build no
+# seam and behave exactly as before.
+remaster = ["vulkan", "d3d12"]
 # The Direct3D 12 device (`src/d3d12.rs`).
 # Windows only: the module itself is `cfg(all(windows, feature = "d3d12"))`, and the feature only
 # turns on more of the `windows` crate, which is already a Windows-only dependency of this crate.

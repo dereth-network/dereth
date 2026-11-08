@@ -333,21 +333,30 @@ impl<S: Shell> App<S> {
     /// window, on the channel the client's own refusals use.
     pub(super) fn report_landscape_refusals(&mut self, w: &crate::frame_events::RenderPrefWork) {
         use dereth_client_contract::options::landscape::{Landscape, RegionStyle, WORLD_DEFAULT};
-        #[cfg(feature = "hifi")]
-        if w.fidelity_refused {
-            // Why, as the device and the renderer chosen for the next start say it: another
-            // renderer, or a restart that asks for the presentation. Each line once a session.
-            let why = self.hifi_availability().refusal();
-            tracing::warn!("{why}");
-            if !self.fidelity_told.contains(&why) {
-                self.fidelity_told.push(why);
-                self.objects.world.scroll.add_feedback_to_scroll(
-                    why,
-                    dereth_client_model::scroll::LOCAL_ERROR_TYPE,
-                    true,
-                    0,
-                    dereth_client_contract::feedback::Feedback::LOCAL,
-                );
+        // The remaster refused.
+        #[cfg(feature = "fidelity")]
+        if let Some(why) = w.remaster_refused {
+            // Every new scene is refused again: logged once, as it is told once.
+            if !self.fidelity_held.contains(&why) && !self.fidelity_told.contains(&why) {
+                tracing::warn!("{why}");
+                self.fidelity_held.push(why);
+            }
+        }
+        // Each line once a session, once the player is in the world: this channel shows nothing
+        // before that, and a box left on is refused at the login screen.
+        #[cfg(feature = "fidelity")]
+        if self.objects.world.player.is_some() {
+            for why in std::mem::take(&mut self.fidelity_held) {
+                if !self.fidelity_told.contains(&why) {
+                    self.fidelity_told.push(why);
+                    self.objects.world.scroll.add_feedback_to_scroll(
+                        why,
+                        dereth_client_model::scroll::LOCAL_ERROR_TYPE,
+                        true,
+                        0,
+                        dereth_client_contract::feedback::Feedback::LOCAL,
+                    );
+                }
             }
         }
         for (which, refused) in [

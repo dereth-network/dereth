@@ -328,25 +328,19 @@ impl LandContext {
             degrade_levels,
             static_billboards,
             lod_object_guard,
-            #[cfg(feature = "hifi")]
-            lamps: super::hifi_bridge::lamps_possible(gpu),
         };
         let placed = {
             let takes = |id: DataId, building: bool| {
                 self.objects.as_ref().is_some_and(|l| l.takes(id, building))
             };
-            #[cfg_attr(not(feature = "hifi"), allow(unused_mut))]
-            let mut placed = place_objects(
+            place_objects(
                 store,
                 &self.region,
                 (lb, mesh, bx, by),
                 knobs,
                 &takes,
                 scenery_shift,
-            );
-            #[cfg(feature = "hifi")]
-            cover_with_pack(&mut placed, self.art_pack.as_deref(), &takes);
-            placed
+            )
         };
         let look = self.objects.as_mut().map(|l| (&*l.files, &mut l.cache));
         let mut gathered = gather_objects(store, &mut self.bake, look, &placed, knobs);
@@ -397,10 +391,6 @@ impl LandContext {
             land_statics,
             mut cell_restrictions,
             mut emitters,
-            #[cfg(feature = "hifi")]
-            hifi_lamps,
-            #[cfg(feature = "hifi")]
-            art_pack,
             ..
         } = placed;
         let GatheredObjects {
@@ -429,6 +419,8 @@ impl LandContext {
             .filter(|_| full_detail)
             .map_or((0, 0), |info| (info.buildings.len(), info.objects.len()));
         let mut baked: BakedGroups = (Vec::new(), Vec::new(), Vec::new());
+        #[cfg(feature = "remaster")]
+        let mut remaster = Vec::new();
         for (from_look, assembly) in sides {
             let (draw_store, draw_cache): (&RetailDatStore, &mut BakeCache) =
                 match (from_look, self.objects.as_mut()) {
@@ -452,6 +444,16 @@ impl LandContext {
             // LINT-OK: a placement count bounded by the block's part count. Not a float.
             #[allow(clippy::cast_possible_truncation)]
             let offset = baked.2.len() as u32;
+            #[cfg(feature = "remaster")]
+            {
+                let mut placed = baker.placed_objects();
+                for part in placed.iter_mut().flat_map(|p| p.parts.iter_mut()) {
+                    if let Some(i) = part.placement.as_mut() {
+                        *i += offset;
+                    }
+                }
+                remaster.append(&mut placed);
+            }
             let (mut opaque, mut blended, degrade) = baker
                 .finish(gpu)
                 .map_err(|e| WorldError::Render(e.to_string()))?;
@@ -537,10 +539,8 @@ impl LandContext {
             emitters,
             hosts: Vec::new(),
             hosts_spawned: false,
-            #[cfg(feature = "hifi")]
-            hifi_lamps,
-            #[cfg(feature = "hifi")]
-            art_pack,
+            #[cfg(feature = "remaster")]
+            remaster,
         })
     }
 
@@ -764,6 +764,8 @@ impl LandContext {
             let mut statics_blended = Vec::new();
             let mut cell_degrade = Vec::new();
             let mut cell_parts: Vec<CellStaticPart> = Vec::new();
+            #[cfg(feature = "remaster")]
+            let mut cell_placed = Vec::new();
             // Static-object initialization adds each static to its cell, which registers it in
             // every cell its geometry reaches. The cell itself comes first and is left out.
             let elsewhere: Vec<Vec<CellId>> = statics
@@ -836,6 +838,19 @@ impl LandContext {
                     // LINT-OK: an index into one cell's statics. Not a float.
                     #[allow(clippy::cast_possible_truncation)]
                     baker.add_cell_static(s.id, &s.frame, i as u32);
+                }
+                #[cfg(feature = "remaster")]
+                {
+                    // LINT-OK: a placement count bounded by the cell's part count. Not a float.
+                    #[allow(clippy::cast_possible_truncation)]
+                    let offset = cell_degrade.len() as u32;
+                    let mut placed = baker.placed_objects();
+                    for part in placed.iter_mut().flat_map(|p| p.parts.iter_mut()) {
+                        if let Some(i) = part.placement.as_mut() {
+                            *i += offset;
+                        }
+                    }
+                    cell_placed.append(&mut placed);
                 }
                 let ((mut opaque, mut blended, degrade), mut parts) = baker
                     .finish_cell(gpu)
@@ -921,6 +936,8 @@ impl LandContext {
                     ..CellObjects::default()
                 }),
                 burned_count: None,
+                #[cfg(feature = "remaster")]
+                remaster: super::remaster_bridge::RoomRecord::new(&d.cell, cell_placed),
             });
             registered.push(elsewhere);
         }
@@ -964,10 +981,6 @@ pub(super) struct ObjectKnobs {
     pub(super) degrade_levels: bool,
     pub(super) static_billboards: bool,
     pub(super) lod_object_guard: bool,
-    /// Whether the device can draw the high-fidelity presentation's lamps, so the bake lists
-    /// where they may be.
-    #[cfg(feature = "hifi")]
-    pub(super) lamps: bool,
 }
 
 /// What stands on one block, as the bake places it: the world builder's placements and
@@ -982,15 +995,6 @@ pub(super) struct PlacedObjects {
     pub(super) cell_restrictions: Vec<(CellId, ObjectId)>,
     pub(super) items: Vec<BakeItem>,
     pub(super) emitters: Vec<EmitterPlacement>,
-    #[cfg(feature = "hifi")]
-    pub(super) hifi_lamps: super::hifi_lamps::BlockLamps,
-    /// For each of [`Self::items`], whether the art pack has a model for it ([`cover_with_pack`]):
-    /// such placements are baked apart from every other object.
-    #[cfg(feature = "hifi")]
-    pub(super) covered: Vec<bool>,
-    /// The placements the art pack has models for.
-    #[cfg(feature = "hifi")]
-    pub(super) art_pack: Vec<crate::art_pack::PackPlacement>,
 }
 
 /// A block's placements' triangles gathered by surface, before any is resolved to a picture: the
@@ -1067,24 +1071,6 @@ pub(super) fn place_objects(
         &object_slots,
         takes,
     );
-    // Where the outdoor placements' lamps may be, for the high-fidelity presentation alone:
-    // the baked placements and the animated ones drawn as live objects. Nothing is read for
-    // them here; the lamps are looked for only while the presentation draws them. Only a
-    // device that can draw the lamps keeps the list: one made without the presentation's
-    // request, as every classic or modern start-up's is, keeps nothing.
-    #[cfg(feature = "hifi")]
-    let hifi_lamps = if knobs.lamps {
-        super::hifi_lamps::BlockLamps::at(
-            items.iter().map(|it| (it.0, &it.1, it.2)).chain(
-                emitters
-                    .iter()
-                    .filter(|e| e.animated)
-                    .map(|e| (e.setup, &e.frame, e.scale)),
-            ),
-        )
-    } else {
-        super::hifi_lamps::BlockLamps::default()
-    };
     PlacedObjects {
         lbi,
         full_detail,
@@ -1093,46 +1079,7 @@ pub(super) fn place_objects(
         cell_restrictions,
         items,
         emitters,
-        #[cfg(feature = "hifi")]
-        hifi_lamps,
-        #[cfg(feature = "hifi")]
-        covered: Vec::new(),
-        #[cfg(feature = "hifi")]
-        art_pack: Vec::new(),
     }
-}
-
-/// Mark which of `placed`'s placements the art pack `pack` has models for, with another era's
-/// look drawing those `takes` says it draws: they are baked apart from every other object, with
-/// the look they would have without the pack, so the high-fidelity presentation can draw the
-/// models in their place. Their collision is the world's, as every placement's is.
-#[cfg(feature = "hifi")]
-pub(super) fn cover_with_pack(
-    placed: &mut PlacedObjects,
-    pack: Option<&crate::art_pack::ArtPack>,
-    takes: &dyn Fn(DataId, bool) -> bool,
-) {
-    let has = |id: DataId| pack.is_some_and(|p| p.has(id));
-    let looks = crate::art_pack::Looks {
-        pack: Some(&has),
-        classic: Some(takes),
-    };
-    placed.covered = placed
-        .items
-        .iter()
-        .map(|it| looks.of(it.0, it.3) == crate::art_pack::Look::ArtPack)
-        .collect();
-    placed.art_pack = placed
-        .items
-        .iter()
-        .zip(&placed.covered)
-        .filter(|(_, c)| **c)
-        .map(|(it, _)| crate::art_pack::PackPlacement {
-            id: it.0,
-            frame: it.1,
-            scale: it.2,
-        })
-        .collect();
 }
 
 /// `placed`'s placements' triangles gathered by surface: the world's side through `world_store`
@@ -1190,10 +1137,6 @@ pub(super) fn gather_objects(
         for (i, (id, frame, scale, building, _)) in
             items.iter().enumerate().filter(|(_, it)| it.4 == from_look)
         {
-            #[cfg(feature = "hifi")]
-            {
-                baker.covered = placed.covered.get(i).copied().unwrap_or(false);
-            }
             let shell = baker.add_object_kind(*id, frame, *scale, *building);
             if let Some(slot) = building_of[i].and_then(|k| shell_placements.get_mut(k)) {
                 *slot = shell.map(|p| p + offset);
@@ -1490,12 +1433,14 @@ impl SceneDraw {
             .object_lighting
             .then(|| self.object_light_set(Vec3::ZERO, 0.0, true));
         let sky_lights: &[D3dLight] = sun_set.as_deref().unwrap_or(&[]);
+        #[cfg(feature = "remaster")]
+        if let Some(log) = self.frame_walk.borrow_mut().as_mut() {
+            log.landscape = true;
+        }
 
         // --- the sky, pass 0 -----------------------------------------------------------
         // opens with sky pass 0, before any block.
-        if let Some(sky) = &self.sky {
-            #[cfg(feature = "hifi")]
-            gpu.hifi_mark(Mark::SkyBegin(0));
+        if let Some(sky) = self.sky.as_ref().filter(|_| self.submits()) {
             sky.draw(
                 gpu,
                 dereth_world_render::sky::SkyPass::Before,
@@ -1504,8 +1449,6 @@ impl SceneDraw {
                 outside,
                 sky_lights,
             )?;
-            #[cfg(feature = "hifi")]
-            gpu.hifi_mark(Mark::SkyEnd(0));
         }
 
         // --- the outdoor portal machinery's per-frame input ----------------------------
@@ -1583,6 +1526,13 @@ impl SceneDraw {
             let Some(mesh) = slot.mesh.as_ref().and_then(SlotMesh::get::<LandblockMesh>) else {
                 continue;
             };
+            #[cfg(feature = "remaster")]
+            if let Some(log) = self.frame_walk.borrow_mut().as_mut() {
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                // LINT-OK: block indices are 0..=0xFE. Not a float conversion.
+                log.blocks
+                    .push(((slot.block_x as u16) << 8) | (slot.block_y as u16));
+            }
             // Vertices are block-local, so the viewpoint the back-face test uses has to be too.
             let viewpoint = Vec3::new(
                 ws.camera.position.x - block.origin.0,
@@ -1614,7 +1564,12 @@ impl SceneDraw {
                     usize::from(cell) / usize::from(n),
                     usize::from(cell) % usize::from(n),
                 );
-                let tris = visible_triangles(mesh, i, j, viewpoint);
+                // Only a walk that draws rebuilds the cell's triangles.
+                let tris = if self.submits() {
+                    visible_triangles(mesh, i, j, viewpoint)
+                } else {
+                    Vec::new()
+                };
                 if !tris.is_empty() {
                     vertices.clear();
                     for p in &tris {
@@ -1622,14 +1577,6 @@ impl SceneDraw {
                             vertices.extend_from_slice(&v.to_bytes());
                         }
                     }
-                    #[cfg(feature = "hifi")]
-                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                    // LINT-OK: block indices are 0..=0xFE and a cell is 0..64. Not a float
-                    // conversion.
-                    gpu.hifi_mark(Mark::TerrainCell {
-                        block: ((slot.block_x as u16) << 8) | (slot.block_y as u16),
-                        cell: cell as u8,
-                    });
                     // The current mode's representation, or the other one while a switch is
                     // still converting this block.
                     let has_composites = !block.cell_keys.is_empty();
@@ -1698,8 +1645,6 @@ impl SceneDraw {
                             &detail_vertices,
                         )?;
                     }
-                    #[cfg(feature = "hifi")]
-                    gpu.hifi_mark(Mark::TerrainCellEnd);
                 }
 
                 // Block drawing reaches a building through its owning land cell's
@@ -1722,19 +1667,6 @@ impl SceneDraw {
                         )?;
                         alpha_pending.clear();
                     }
-                    #[cfg(feature = "hifi")]
-                    if has_building {
-                        // LINT-OK: block indices are 0..=0xFE and a cell is 0..64. Not a float
-                        // conversion.
-                        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                        gpu.hifi_mark(Mark::BuildingCell {
-                            block: ((slot.block_x as u16) << 8) | (slot.block_y as u16),
-                            cell: draw_cell as u8,
-                            side: n,
-                        });
-                    }
-                    #[cfg(feature = "hifi")]
-                    gpu.hifi_mark(Mark::Interiors);
                     self.draw_building_interiors(
                         ws,
                         gpu,
@@ -1746,8 +1678,6 @@ impl SceneDraw {
                         placed,
                         &mut drawn_cells,
                     )?;
-                    #[cfg(feature = "hifi")]
-                    gpu.hifi_mark(Mark::InteriorsEnd);
                 }
                 // Then the land cell's objects: here, the interior statics that reach out into
                 // it. Statics are baked only at full detail, where a draw cell is a land cell.
@@ -1762,23 +1692,8 @@ impl SceneDraw {
                     }
                 }
             }
-            #[cfg(feature = "hifi")]
-            gpu.hifi_mark(Mark::TerrainEnd);
 
-            // --- this block's scenery, buildings and static objects ---------------------
-            // Block drawing draws each land cell's terrain and then
-            // its sort cell's building and objects, all inside the block's own
-            // level-3 position push of (block id, identity). The batches are block-local, so
-            // `world` above is exactly that push.
-            #[cfg(feature = "hifi")]
-            if !block.art_pack.is_empty() {
-                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                // LINT-OK: block indices are 0..=0xFE. Not a float conversion.
-                gpu.hifi_mark(Mark::ArtPackBlock {
-                    block: ((slot.block_x as u16) << 8) | (slot.block_y as u16),
-                });
-            }
-            for batch in &block.opaque {
+            for batch in block.opaque.iter().filter(|_| self.submits()) {
                 submit_static_batch(
                     gpu,
                     per_frame,
@@ -1809,14 +1724,16 @@ impl SceneDraw {
                     .filter(|b| static_multipass_member(b, detail.is_some()))
                 {
                     if batch.key.alpha_test {
-                        submit_static_batch(
-                            gpu,
-                            per_frame,
-                            &world,
-                            batch,
-                            sun_set.as_deref(),
-                            detail,
-                        )?;
+                        if self.submits() {
+                            submit_static_batch(
+                                gpu,
+                                per_frame,
+                                &world,
+                                batch,
+                                sun_set.as_deref(),
+                                detail,
+                            )?;
+                        }
                         // What the walk put down, by the batch's own state.
                         stats.clip += usize::from(batch.key.alpha_test);
                         stats.blend_in_walk += usize::from(!batch.key.alpha_test);
@@ -1877,14 +1794,16 @@ impl SceneDraw {
             ));
             let mut stats = self.frame_landscape_alpha.get();
             for batch in block.blended.iter().filter(here) {
-                submit_static_batch(
-                    gpu,
-                    per_frame,
-                    &world,
-                    batch,
-                    sun_set.as_deref(),
-                    self.current_detail(dereth_world_render::detail::DetailClass::Building),
-                )?;
+                if self.submits() {
+                    submit_static_batch(
+                        gpu,
+                        per_frame,
+                        &world,
+                        batch,
+                        sun_set.as_deref(),
+                        self.current_detail(dereth_world_render::detail::DetailClass::Building),
+                    )?;
+                }
                 stats.clip += 1;
                 // How many of the frame flush's blended batches were already on the screen
                 // when this alpha-tested one went down. See [`LandscapeAlphaStats`].
@@ -1913,9 +1832,7 @@ impl SceneDraw {
         // closes with sky pass 1, after the blocks and their alpha list
         // and before `WorldObjects` draws the objects — which is why a nearby NPC still covers the
         // weather layer even though the layer was painted with `DEPTHTEST_ALWAYS`.
-        if let Some(sky) = &self.sky {
-            #[cfg(feature = "hifi")]
-            gpu.hifi_mark(Mark::SkyBegin(1));
+        if let Some(sky) = self.sky.as_ref().filter(|_| self.submits()) {
             sky.draw(
                 gpu,
                 dereth_world_render::sky::SkyPass::After,
@@ -1924,8 +1841,6 @@ impl SceneDraw {
                 outside,
                 sky_lights,
             )?;
-            #[cfg(feature = "hifi")]
-            gpu.hifi_mark(Mark::SkyEnd(1));
         }
 
         // Building drawing's own cell walk — the interiors an outdoor viewer

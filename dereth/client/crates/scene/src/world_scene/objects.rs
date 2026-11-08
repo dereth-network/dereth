@@ -61,8 +61,6 @@ impl SceneDraw {
         particles: &[crate::particles::ParticlePart],
         particle_stats: &mut crate::particles::ParticleStats,
     ) -> Result<(), RenderError> {
-        #[cfg(feature = "hifi")]
-        gpu.hifi_mark(Mark::Objects);
         // The landscape half takes the objects in each outdoor landcell and in the building
         // env cells that building drawing reached. The per-cell object draw's later half takes the
         // objects registered in the main interior cells the portal traversal actually reached.
@@ -500,6 +498,11 @@ impl SceneDraw {
                     let Some(gfx) = self.particle_gfx.get(r.gfx) else {
                         continue;
                     };
+                    #[cfg(feature = "remaster")]
+                    if let Some(log) = self.frame_walk.borrow_mut().as_mut() {
+                        log.particles
+                            .push(remaster_bridge::WalkParticle::of(r.gfx, &r.remaster));
+                    }
                     for (j, m) in gfx.meshes.iter().enumerate() {
                         let passes = if self.cfg.part_alpha_lists {
                             dereth_world_render::objects::draw::classify_subset_passes(
@@ -544,9 +547,7 @@ impl SceneDraw {
                                 }
                             }
                         }
-                        if passes.immediate {
-                            #[cfg(feature = "hifi")]
-                            gpu.hifi_mark(Mark::Particles);
+                        if passes.immediate && self.submits() {
                             crate::particles::draw_one(
                                 gpu,
                                 per_frame,
@@ -556,8 +557,6 @@ impl SceneDraw {
                                 false,
                                 particle_stats,
                             )?;
-                            #[cfg(feature = "hifi")]
-                            gpu.hifi_mark(Mark::ParticlesEnd);
                         }
                     }
                     continue;
@@ -665,6 +664,10 @@ impl SceneDraw {
                     seen.insert(id);
                 }
             }
+            #[cfg(feature = "remaster")]
+            if let Some(log) = self.frame_walk.borrow_mut().as_mut() {
+                log.parts.push(remaster_bridge::WalkPart::of(s));
+            }
             // LINT-OK: an index into this frame's own submission list; the largest scene
             // measured here holds a four-digit number of parts. Not a float conversion.
             #[allow(clippy::cast_possible_truncation)]
@@ -677,7 +680,7 @@ impl SceneDraw {
                 defer,
                 &mut pass,
                 sets[index].as_deref(),
-                multi_pass_alpha,
+                (multi_pass_alpha, self.submits()),
             )?;
             // **The selected-object visibility latch.**
             //
@@ -806,16 +809,18 @@ impl SceneDraw {
                             self.object_light_set(c, batch.sphere.1, false)
                         }
                     });
-                    submit_static_vertices(
-                        gpu,
-                        per_frame,
-                        &world,
-                        batch,
-                        vertices,
-                        set.as_deref(),
-                        self.current_detail(dereth_world_render::detail::DetailClass::Building),
-                        e.multipass,
-                    )?;
+                    if self.submits() {
+                        submit_static_vertices(
+                            gpu,
+                            per_frame,
+                            &world,
+                            batch,
+                            vertices,
+                            set.as_deref(),
+                            self.current_detail(dereth_world_render::detail::DetailClass::Building),
+                            e.multipass,
+                        )?;
+                    }
                     if let (Some(cell), Some((stamp, by, turn))) = (cell, r.drawn_by) {
                         // LINT-OK: a batch index bounded by the cell's batch count. Not a float.
                         #[allow(clippy::cast_possible_truncation)]
@@ -866,19 +871,17 @@ impl SceneDraw {
                     let Some(m) = self.particle_gfx.get(r.gfx).and_then(|g| g.meshes.get(j)) else {
                         continue;
                     };
-                    #[cfg(feature = "hifi")]
-                    gpu.hifi_mark(Mark::Particles);
-                    crate::particles::draw_one(
-                        gpu,
-                        per_frame,
-                        r,
-                        m,
-                        particles_lit,
-                        e.multipass,
-                        particle_stats,
-                    )?;
-                    #[cfg(feature = "hifi")]
-                    gpu.hifi_mark(Mark::ParticlesEnd);
+                    if self.submits() {
+                        crate::particles::draw_one(
+                            gpu,
+                            per_frame,
+                            r,
+                            m,
+                            particles_lit,
+                            e.multipass,
+                            particle_stats,
+                        )?;
+                    }
                     let kind = if k >= clip_entries {
                         AlphaDraw::ParticleBlend
                     } else if e.multipass {
@@ -915,16 +918,18 @@ impl SceneDraw {
                 // force-alpha argument: blended, not alpha-tested, no depth write. Its first
                 // pass, the in-place one, already wrote depth wherever the alpha test passed,
                 // so under `LESS` this one lands only on the edge texels the test cut away.
-                submit_part_mesh(
-                    gpu,
-                    per_frame,
-                    s.part,
-                    &s.draw_pos,
-                    m,
-                    material,
-                    sets.get(q.submission as usize).and_then(|x| x.as_deref()),
-                    e.multipass,
-                )?;
+                if self.submits() {
+                    submit_part_mesh(
+                        gpu,
+                        per_frame,
+                        s.part,
+                        &s.draw_pos,
+                        m,
+                        material,
+                        sets.get(q.submission as usize).and_then(|x| x.as_deref()),
+                        e.multipass,
+                    )?;
+                }
                 // The trace is in **device submission order**, so a deferred subset is
                 // recorded here and not where it was queued: that is the whole observable.
                 pass.trace.push(PartSubsetDraw {

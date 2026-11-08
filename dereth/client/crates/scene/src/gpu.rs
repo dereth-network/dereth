@@ -95,18 +95,21 @@ mod imp {
         object_identity:
             Option<std::sync::Arc<dereth_client_runtime::object_identity::ObjectIdentity>>,
         /// The art pack the application named ([`Self::offer_art_pack`]), once it is open: every
-        /// world loaded after is baked for it.
-        #[cfg(feature = "hifi")]
+        /// world loaded after is baked for it, and the remaster draws it as its switches say.
+        #[cfg(feature = "remaster")]
         art_pack: Option<std::sync::Arc<crate::art_pack::ArtPack>>,
-        /// The drawn ground's tuning file the application named
-        /// ([`Self::offer_terrain_tuning`]), read by every world loaded from now on.
-        #[cfg(feature = "hifi")]
-        terrain_tuning: Option<std::path::PathBuf>,
+        /// Where that pack was opened from.
+        #[cfg(feature = "remaster")]
+        art_pack_path: Option<std::path::PathBuf>,
         /// The marks drawn in the world this frame, after it and against its depth. The front
         /// end replaces them every frame.
         pub world_marks: Vec<crate::marks::WorldMark>,
         /// One white texel, which the marks are drawn with.
         marks_white: Option<TextureSlot>,
+        /// The player's look file the application named ([`Self::offer_look_file`]), read by
+        /// the remaster of every world loaded from now on.
+        #[cfg(feature = "remaster")]
+        look_file: Option<std::path::PathBuf>,
     }
 
     /// A decoded retail surface and the six vertices that stretch it over the back buffer.
@@ -159,49 +162,49 @@ mod imp {
             )?)
         }
 
-        /// [`Self::new_on`], with the device asked for what the optional high-fidelity
-        /// presentation can use when `hifi` says so.
+        /// [`Self::new_on`], with the device asked for what the remaster draws with when
+        /// `remaster` says so, in a build that has it.
         ///
         /// # Errors
         /// As [`Self::new_on`].
-        #[cfg(feature = "hifi")]
-        pub fn new_on_for_hifi(
+        pub fn new_on_for(
             backend: dereth_render::device::Backend,
             window: Option<WindowHandles>,
             width: u32,
             height: u32,
-            hifi: bool,
+            remaster: bool,
         ) -> Result<Self, RenderError> {
-            Self::from_device(Gpu::new_on(
-                backend,
-                window,
-                &DeviceConfig {
-                    hifi,
-                    ..Self::device_config(window, width, height)
-                },
-            )?)
+            #[cfg_attr(not(feature = "remaster"), allow(unused_mut))]
+            let mut config = Self::device_config(window, width, height);
+            #[cfg(feature = "remaster")]
+            {
+                config.remaster = remaster;
+            }
+            #[cfg(feature = "dlss")]
+            if remaster {
+                config.remaster_extensions = crate::world_scene::remaster_device_extensions();
+            }
+            #[cfg(not(feature = "remaster"))]
+            let _ = remaster;
+            Self::from_device(Gpu::new_on(backend, window, &config)?)
         }
 
-        /// Where the optional high-fidelity presentation stands on this device, for the options
-        /// page.
-        #[cfg(feature = "hifi")]
+        /// Whether NVIDIA's DLSS library stands beside the client, so the remaster can load it.
+        #[cfg(feature = "dlss")]
         #[must_use]
-        pub fn hifi_availability(&self) -> dereth_client_contract::options::fidelity::Availability {
-            let gpu = &self.gpu;
-            dereth_client_contract::options::fidelity::Availability {
-                built: true,
-                wgpu: gpu.backend() == dereth_render::device::Backend::Wgpu,
-                widened: gpu.hifi_requested(),
-                supported: gpu.hifi_supported(),
-                rays: gpu.hifi_rays(),
-                active: gpu.hifi_report().is_some_and(|r| r.composited),
-                failed: gpu.hifi_failed(),
-                wgpu_next: None,
-            }
+        pub fn dlss_carried(&self) -> bool {
+            crate::world_scene::remaster_dlss_carried()
+        }
+
+        /// Whether an art pack is open, which the remaster's art pack box draws.
+        #[cfg(feature = "remaster")]
+        #[must_use]
+        pub fn art_pack_open(&self) -> bool {
+            self.art_pack.is_some()
         }
 
         /// How the frame is drawn, for `@report` and `@perfcapture`: the renderer and the
-        /// adapter, Better Lighting and its options, the art pack and the drawn ground's knobs,
+        /// adapter, the remaster and its options, the art pack,
         /// and where the frame is drawn from for the camera in `ws`.
         #[must_use]
         pub fn render_context(
@@ -218,55 +221,51 @@ mod imp {
                 render_scale: 100,
                 ..Default::default()
             };
-            #[cfg(feature = "hifi")]
-            {
+            let _ = ws;
+            #[cfg(feature = "remaster")]
+            if let Some(world) = self.world.as_ref() {
                 use dereth_client_runtime::render_prefs::FidelityFeature;
-                r.render_scale = gpu.hifi_render_scale();
-                r.better_lighting = gpu.hifi_report().is_some_and(|rep| rep.composited);
-                if let Some(world) = self.world.as_ref() {
-                    let f = &world.cfg.render.fidelity;
-                    r.retail_look = f.effective(FidelityFeature::RetailLook) != 0;
+                let f = &world.cfg.render.fidelity;
+                r.remaster = world.remaster_on();
+                if r.remaster {
                     r.effects = FidelityFeature::ALL
                         .into_iter()
-                        .filter(|x| f.effective(*x) != 0)
-                        .map(|x| {
-                            let name = x.name();
-                            let name = name.strip_prefix("Fidelity.").unwrap_or(name);
-                            format!("{name}={}", f.effective(x))
+                        .filter(|&b| b != FidelityFeature::Remaster && f.effective(b) != 0)
+                        .map(|b| {
+                            let name = b.name().trim_start_matches("Fidelity.");
+                            format!("{name}={}", f.effective(b))
                         })
                         .collect::<Vec<_>>()
                         .join(",");
-                    r.art_pack = world.art_pack().map(|p| (p.name.clone(), p.hash.clone()));
-                    (r.knobs_hash, r.changed_knobs) = world.report_knobs();
-                    r.drawn_eye = ws.map(|ws| world.drawn_eye(ws).origin);
+                    let upscaled = f.effective(FidelityFeature::RemasterUpscale) != 0
+                        || f.effective(FidelityFeature::RemasterDlss) != 0;
+                    let scale = f.effective(FidelityFeature::RemasterScale);
+                    r.upscaler = crate::world_scene::remaster_upscaler_drawn().to_owned();
+                    if upscaled {
+                        r.render_scale = if scale == 0 {
+                            dereth_client_contract::options::remaster::SCALE_DEFAULT
+                        } else {
+                            scale
+                        };
+                    }
+                }
+                if let Some(pack) = self.art_pack.as_ref() {
+                    r.art_pack = Some((pack.name.clone(), pack.hash.clone()));
                 }
             }
-            #[cfg(not(feature = "hifi"))]
-            let _ = ws;
             r
         }
 
-        /// What the scene's and Better Lighting's parts of the last frame took, for
+        /// What the scene's and the remaster's parts of the last frame took, for
         /// `@perfcapture`. `None` while no world is drawn.
         #[must_use]
         pub fn present_costs(&self) -> Option<dereth_client_runtime::report::PresentCosts> {
             let c = self.world.as_ref()?.frame_costs();
-            #[allow(unused_mut)]
-            let mut p = dereth_client_runtime::report::PresentCosts {
+            Some(dereth_client_runtime::report::PresentCosts {
                 walk: c.walk,
-                snapshot: c.snapshot,
-                drawn_ground: c.drawn_ground,
+                remaster: c.remaster,
                 ..Default::default()
-            };
-            #[cfg(feature = "hifi")]
-            if let Some(rep) = self.gpu.hifi_report() {
-                p.better_lighting = rep.cpu_ms;
-                p.steps = rep.cpu_steps;
-                p.prepare = rep.cpu_prepare;
-                p.encode = rep.cpu_encode;
-                p.gpu = rep.gpu_ms;
-            }
-            Some(p)
+            })
         }
 
         /// The render device configuration as this client fills it. The same for either backend.
@@ -307,12 +306,14 @@ mod imp {
                 ground_markers: Vec::new(),
                 marker_pipeline: None,
                 object_identity: None,
-                #[cfg(feature = "hifi")]
+                #[cfg(feature = "remaster")]
                 art_pack: None,
-                #[cfg(feature = "hifi")]
-                terrain_tuning: None,
+                #[cfg(feature = "remaster")]
+                art_pack_path: None,
                 world_marks: Vec::new(),
                 marks_white: None,
+                #[cfg(feature = "remaster")]
+                look_file: None,
             })
         }
 
@@ -333,16 +334,16 @@ mod imp {
             cfg: dereth_client_runtime::scene::SceneConfig,
             world: &mut Option<dereth_client_runtime::world_state::WorldState>,
         ) -> Result<(), dereth_world_data::landblock::WorldError> {
-            let (mut scene, mut ws) = crate::world_scene::SceneDraw::load_with_looks(
+            let (mut scene, mut ws) = crate::world_scene::SceneDraw::load_with_identity(
                 store,
                 &mut self.gpu,
                 cfg,
                 self.object_identity.clone(),
-                #[cfg(feature = "hifi")]
-                self.art_pack.clone(),
             )?;
-            #[cfg(feature = "hifi")]
-            scene.set_terrain_tuning_file(self.terrain_tuning.clone());
+            #[cfg(feature = "remaster")]
+            scene.set_remaster_look_file(self.look_file.clone());
+            #[cfg(feature = "remaster")]
+            scene.set_remaster_pack(self.art_pack.clone(), self.art_pack_path.clone());
             if cfg.character {
                 // The region is re-read rather than threaded through `load`: it is one
                 // record, the data cache memoises it in the client, and keeping `load`'s signature is
@@ -494,7 +495,7 @@ mod imp {
         /// loaded from now on. A pack that will not open (a packed file that is damaged among
         /// them) is reported and the world is drawn without one; a model of it that will not read
         /// is reported and left out.
-        #[cfg(feature = "hifi")]
+        #[cfg(feature = "remaster")]
         pub fn offer_art_pack(&mut self, path: &Path) {
             let started = web_time::Instant::now();
             match crate::art_pack::ArtPack::open_path(path) {
@@ -513,6 +514,10 @@ mod imp {
                         started.elapsed().as_secs_f64()
                     );
                     self.art_pack = Some(std::sync::Arc::new(pack));
+                    #[cfg(feature = "remaster")]
+                    {
+                        self.art_pack_path = Some(path.to_path_buf());
+                    }
                 }
                 Err(e) => {
                     tracing::warn!("the art pack {} is not drawn: {e}", path.display());
@@ -520,12 +525,13 @@ mod imp {
             }
         }
 
-        /// Read the drawn ground's knobs from `file`, in the world loaded now and every one after.
-        #[cfg(feature = "hifi")]
-        pub fn offer_terrain_tuning(&mut self, file: &Path) {
-            self.terrain_tuning = Some(file.to_path_buf());
+        /// The player's look file: the remaster of the world loaded now and of every one after
+        /// reads it while it is on, and again whenever what it holds changes.
+        #[cfg(feature = "remaster")]
+        pub fn offer_look_file(&mut self, file: &Path) {
+            self.look_file = Some(file.to_path_buf());
             if let Some(world) = self.world.as_mut() {
-                world.set_terrain_tuning_file(Some(file.to_path_buf()));
+                world.set_remaster_look_file(Some(file.to_path_buf()));
             }
         }
 
@@ -1370,12 +1376,8 @@ mod imp {
         }
 
         /// Whether the world drawn this frame leaves its depth in the frame for the overlay to be
-        /// tested against: not while Better Lighting draws the world, whose depth is its own.
+        /// tested against: always.
         fn world_depth_kept(&mut self) -> bool {
-            #[cfg(feature = "hifi")]
-            if self.gpu.hifi_sidecar_mut().is_some() {
-                return false;
-            }
             true
         }
 

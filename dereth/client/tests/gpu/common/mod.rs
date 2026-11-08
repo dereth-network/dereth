@@ -27,7 +27,12 @@ pub use gpu::gpu_lock;
 /// The test device and the retail dats, opened the one way the tier's stations open them.
 pub mod device;
 
-pub use device::{dat_store, dats, test_gpu};
+pub use device::{dat_store, dats, remaster_backend, test_gpu};
+
+/// One invisible native window for the tests that need a real swap chain.
+pub mod window;
+
+pub use window::invisible_window;
 
 /// Real application construction and input helpers.
 pub mod app;

@@ -29,8 +29,6 @@ pub mod compiler;
 mod digest;
 mod levels;
 mod probes;
-#[cfg(feature = "hifi")]
-pub mod sidecar;
 mod terrain;
 
 use std::cell::{Cell, RefCell};
@@ -124,10 +122,6 @@ pub struct Prepared {
     shader_compiler: Option<ShaderCompiler>,
     bc: bool,
     anisotropy: bool,
-    /// Whether the adapter traces rays: what a device asked for the high-fidelity presentation
-    /// takes, whether or not this one was.
-    #[cfg(feature = "hifi")]
-    rays: bool,
     target: Target,
     format: wgpu::TextureFormat,
     size: (u32, u32),
@@ -163,10 +157,9 @@ async fn device_for(
     instance: &wgpu::Instance,
     surface: Option<&wgpu::Surface<'_>>,
     software: bool,
-    hifi: HifiAsk,
 ) -> Result<(wgpu::Adapter, wgpu::Device, wgpu::Queue), String> {
     let adapter = adapter_for(instance, surface, software).await?;
-    let (device, queue) = device_on(&adapter, hifi).await?;
+    let (device, queue) = device_on(&adapter).await?;
     Ok((adapter, device, queue))
 }
 
@@ -196,11 +189,8 @@ async fn adapter_for(
 }
 
 /// A device on `adapter`, with limits a WebGL 2 device can meet and block compression where the
-/// adapter has it, and the high-fidelity request when `hifi` asks for it.
-async fn device_on(
-    adapter: &wgpu::Adapter,
-    hifi: HifiAsk,
-) -> Result<(wgpu::Device, wgpu::Queue), String> {
+/// adapter has it.
+async fn device_on(adapter: &wgpu::Adapter) -> Result<(wgpu::Device, wgpu::Queue), String> {
     let features = adapter.features() & wgpu::Features::TEXTURE_COMPRESSION_BC;
     // The adapter's own bind-group and storage limits where it has more than WebGL 2's: the
     // landscape splat binds a fifth group, and the landscape composite needs storage buffers.
@@ -217,51 +207,16 @@ async fn device_on(
     limits.max_compute_workgroup_size_z = supported.max_compute_workgroup_size_z;
     limits.max_compute_workgroup_storage_size = supported.max_compute_workgroup_storage_size;
     limits.max_sampled_textures_per_shader_stage = supported.max_sampled_textures_per_shader_stage;
-    #[cfg(feature = "hifi")]
-    let (features, limits, experimental) = if hifi {
-        sidecar::widen_request(adapter, features, limits)
-    } else {
-        (features, limits, wgpu::ExperimentalFeatures::default())
-    };
-    #[cfg(not(feature = "hifi"))]
-    let () = hifi;
     adapter
         .request_device(&wgpu::DeviceDescriptor {
             label: Some("dereth"),
             required_features: features,
             required_limits: limits,
-            #[cfg(feature = "hifi")]
-            experimental_features: experimental,
             ..Default::default()
         })
         .await
         .map_err(|e| format!("no GPU device: {e}"))
 }
-
-/// Whether a device is asked for the high-fidelity request: a flag in a build with it, and
-/// nothing at all in a build without it, so such a build's device set-up is exactly as before.
-#[cfg(feature = "hifi")]
-type HifiAsk = bool;
-#[cfg(not(feature = "hifi"))]
-type HifiAsk = ();
-
-/// The ordinary request.
-#[cfg(feature = "hifi")]
-const ORDINARY: HifiAsk = false;
-#[cfg(not(feature = "hifi"))]
-const ORDINARY: HifiAsk = ();
-
-/// Whether `cfg` asks for the high-fidelity request; never, in a build without it.
-#[cfg(feature = "hifi")]
-#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
-const fn wants_hifi(cfg: &DeviceConfig) -> HifiAsk {
-    cfg.hifi
-}
-
-/// Whether `cfg` asks for the high-fidelity request; never, in a build without it.
-#[cfg(not(feature = "hifi"))]
-#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
-const fn wants_hifi(_cfg: &DeviceConfig) -> HifiAsk {}
 
 /// The adapter's line: its name and the graphics API under it, and on Direct3D 12 the compiler
 /// its shaders are built with.
@@ -301,8 +256,6 @@ fn prepared(
             .get_downlevel_capabilities()
             .flags
             .contains(wgpu::DownlevelFlags::ANISOTROPIC_FILTERING),
-        #[cfg(feature = "hifi")]
-        rays: sidecar::adapter_rays(adapter),
         device,
         queue,
         adapter_name: adapter_label(&info.name, info.backend, shader_compiler),
@@ -341,7 +294,7 @@ pub async fn prepare_canvas(
     let surface = instance
         .create_surface(wgpu::SurfaceTarget::OffscreenCanvas(canvas))
         .map_err(|e| format!("no surface: {e}"))?;
-    let (adapter, device, queue) = device_for(&instance, Some(&surface), false, ORDINARY).await?;
+    let (adapter, device, queue) = device_for(&instance, Some(&surface), false).await?;
     let caps = surface.get_capabilities(&adapter);
     let mut config = surface
         .get_default_config(&adapter, width, height)
@@ -382,18 +335,17 @@ pub async fn prepare_offscreen(
     height: u32,
     software: bool,
 ) -> Result<Prepared, String> {
-    prepare_offscreen_for(width, height, software, ORDINARY).await
+    prepare_offscreen_for(width, height, software).await
 }
 
-/// [`prepare_offscreen`], with the high-fidelity request when `hifi` asks for it.
+/// [`prepare_offscreen`]'s work.
 async fn prepare_offscreen_for(
     width: u32,
     height: u32,
     software: bool,
-    hifi: HifiAsk,
 ) -> Result<Prepared, String> {
     let (adapter, compiler) = offscreen_adapter(software).await?;
-    let (device, queue) = device_on(&adapter, hifi).await?;
+    let (device, queue) = device_on(&adapter).await?;
     let format = wgpu::TextureFormat::Bgra8Unorm;
     let texture = offscreen_texture(&device, format, width, height);
     Ok(prepared(
@@ -457,7 +409,6 @@ async fn prepare_window(
     window: WindowHandles,
     width: u32,
     height: u32,
-    hifi: HifiAsk,
 ) -> Result<Prepared, String> {
     let (desc, compiler) = compiler::native_instance();
     let instance = wgpu::Instance::new(desc);
@@ -470,7 +421,7 @@ async fn prepare_window(
         })
     }
     .map_err(|e| format!("no surface: {e}"))?;
-    let (adapter, device, queue) = device_for(&instance, Some(&surface), false, hifi).await?;
+    let (adapter, device, queue) = device_for(&instance, Some(&surface), false).await?;
     let caps = surface.get_capabilities(&adapter);
     let mut config = surface
         .get_default_config(&adapter, width, height)
@@ -669,23 +620,6 @@ pub struct Gpu {
     last_present_sync_interval: Option<u32>,
     sampler_binds: Cell<[u64; SAMPLER_COUNT as usize]>,
     stage1_binds: Cell<u64>,
-    /// The high-fidelity sidecar, while one is installed.
-    #[cfg(feature = "hifi")]
-    sidecar: Option<sidecar::Installed>,
-    /// Whether the device was asked for what the high-fidelity presentation draws with: a sidecar
-    /// is installed only on such a device.
-    #[cfg(feature = "hifi")]
-    hifi_requested: bool,
-    /// Why the last sidecar was uninstalled, if it failed.
-    #[cfg(feature = "hifi")]
-    hifi_failed: Option<String>,
-    /// The share of the frame's pixels the sidecar draws the world at, each way, percent.
-    #[cfg(feature = "hifi")]
-    hifi_scale: u32,
-    /// Whether the adapter traces rays, which a device asked for the high-fidelity presentation
-    /// takes.
-    #[cfg(feature = "hifi")]
-    adapter_rays: bool,
     /// Test builds: whether each frame's recording is digested, and the last digest.
     #[cfg(feature = "test-support")]
     digest_frames: bool,
@@ -720,18 +654,12 @@ impl Gpu {
     pub fn new(window: Option<WindowHandles>, cfg: &DeviceConfig) -> Result<Self, RenderError> {
         #[cfg(all(test, feature = "vulkan"))]
         let backend_lock = crate::backend_lock::wgpu();
-        // A device prepared ahead (a browser's canvas) was asked for nothing more.
-        let (prepared, widened) = match PREPARED.with(|p| p.borrow_mut().take()) {
-            Some(p) => (p, ORDINARY),
-            None => (Self::prepare(window, cfg)?, wants_hifi(cfg)),
+        // A device prepared ahead (a browser's canvas), or one made here.
+        let prepared = match PREPARED.with(|p| p.borrow_mut().take()) {
+            Some(p) => p,
+            None => Self::prepare(window, cfg)?,
         };
         let mut gpu = Self::from_prepared(prepared, cfg.srv_descriptors);
-        #[cfg(feature = "hifi")]
-        {
-            gpu.hifi_requested = widened;
-        }
-        #[cfg(not(feature = "hifi"))]
-        let () = widened;
         #[cfg(all(test, feature = "vulkan"))]
         {
             gpu.backend_lock = Some(backend_lock);
@@ -745,13 +673,10 @@ impl Gpu {
     #[cfg(not(target_arch = "wasm32"))]
     fn prepare(window: Option<WindowHandles>, cfg: &DeviceConfig) -> Result<Prepared, RenderError> {
         let (w, h) = (cfg.width.max(1), cfg.height.max(1));
-        // Nothing to carry in a build without the high-fidelity request.
-        #[cfg_attr(not(feature = "hifi"), allow(clippy::let_unit_value))]
-        let hifi = wants_hifi(cfg);
         pollster::block_on(async {
             match window {
-                Some(window) => prepare_window(window, w, h, hifi).await,
-                None => prepare_offscreen_for(w, h, cfg.prefers_software(), hifi).await,
+                Some(window) => prepare_window(window, w, h).await,
+                None => prepare_offscreen_for(w, h, cfg.prefers_software()).await,
             }
         })
         .map_err(RenderError::Device)
@@ -923,16 +848,6 @@ impl Gpu {
             last_present_sync_interval: None,
             sampler_binds: Cell::new([0; SAMPLER_COUNT as usize]),
             stage1_binds: Cell::new(0),
-            #[cfg(feature = "hifi")]
-            sidecar: None,
-            #[cfg(feature = "hifi")]
-            hifi_requested: false,
-            #[cfg(feature = "hifi")]
-            hifi_failed: None,
-            #[cfg(feature = "hifi")]
-            hifi_scale: 100,
-            #[cfg(feature = "hifi")]
-            adapter_rays: p.rays,
             #[cfg(feature = "test-support")]
             digest_frames: false,
             #[cfg(feature = "test-support")]
@@ -957,10 +872,6 @@ impl Gpu {
         self.vertex_arena.clear();
         self.uniform_arena.clear();
         self.last_frame_block = None;
-        #[cfg(feature = "hifi")]
-        if let Some(s) = &mut self.sidecar {
-            s.begin_frame();
-        }
         self.frame_open = true;
         self.reset_viewport();
         self.sharp_lod_bias = self.texture_filtering == 2;
@@ -1018,10 +929,6 @@ impl Gpu {
                 texture.create_view(&wgpu::TextureViewDescriptor::default()),
             ),
         };
-        #[cfg(feature = "hifi")]
-        if self.sidecar.is_some() {
-            return self.end_frame_sidecar(&commands, surface_texture, &view);
-        }
         let vertex_buffer = self.vertex_buffer_for_frame();
         let (uniform_buffer, uniform_bind) = self.uniform_buffer_for_frame();
         let depth = self.depth_view();

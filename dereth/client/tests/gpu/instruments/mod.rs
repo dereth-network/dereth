@@ -1,14 +1,14 @@
 //! Instruments: frame writers, ignored with a reason and never counted as coverage.
 
-mod art_pack_frames;
 mod building_boundary_frames;
 mod dungeon_web_frames;
-mod hifi_frames;
-pub(crate) mod hifi_stations;
 mod horizon_frames;
 pub(crate) mod nameplate_frames;
-mod perf_frames;
+pub(crate) mod remaster_frames;
+pub(crate) mod remaster_look_frames;
+mod remaster_pack_frames;
 mod scenery_edge_frames;
 mod smooth_animation_frames;
 mod smooth_movement_frames;
+pub(crate) mod stations;
 mod turn_pop_frames;

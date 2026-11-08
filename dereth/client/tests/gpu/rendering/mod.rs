@@ -4,53 +4,17 @@
 
 mod adaptive_degrade;
 mod animated_scenery;
-mod backdrop_streaming;
 mod bake_off_frame;
 mod billboards;
 pub(crate) mod building_boundary_draw;
 mod building_cell_setup;
 mod clipped_outdoor_pass;
-mod d3d12_shader_compiler;
 mod degrade_marker_parts;
 mod degraded_shell_interiors;
 mod detail_textures;
 pub(crate) mod dungeon_webs;
 mod foliage_occlusion;
 mod game_viewport;
-#[cfg(feature = "hifi")]
-mod hifi_atmosphere;
-#[cfg(feature = "hifi")]
-mod hifi_cost;
-#[cfg(feature = "hifi")]
-mod hifi_drawn_ground;
-#[cfg(feature = "hifi")]
-mod hifi_far_trees;
-#[cfg(feature = "hifi")]
-mod hifi_indoor;
-#[cfg(feature = "hifi")]
-mod hifi_lighting;
-#[cfg(feature = "hifi")]
-mod hifi_materials;
-mod hifi_off;
-#[cfg(feature = "hifi")]
-mod hifi_options;
-#[cfg(feature = "hifi")]
-mod hifi_outdoor;
-#[cfg(feature = "hifi")]
-mod hifi_pack_light;
-mod hifi_render_scale;
-#[cfg(feature = "hifi")]
-mod hifi_replay_binds;
-mod hifi_reshade;
-#[cfg(feature = "hifi")]
-mod hifi_sky;
-mod hifi_visual_only;
-#[cfg(feature = "hifi")]
-mod hifi_warm_up;
-#[cfg(feature = "hifi")]
-mod hifi_water;
-#[cfg(feature = "hifi")]
-mod hifi_weather;
 mod highres_texture_policy;
 mod hud_raster;
 mod indoor_depth_clear;
@@ -75,6 +39,27 @@ mod play_script_messages;
 mod pre_tod_ground;
 mod preview_level_zero;
 mod rain_extent;
+mod remaster_ao;
+mod remaster_d3d12;
+mod remaster_drawn;
+mod remaster_gi;
+mod remaster_lamps;
+mod remaster_lod;
+mod remaster_look;
+mod remaster_metalfx;
+mod remaster_off;
+mod remaster_on;
+mod remaster_packs;
+mod remaster_post;
+mod remaster_rt;
+mod remaster_scene;
+mod remaster_shadows;
+mod remaster_sky;
+mod remaster_terrain;
+mod remaster_traced;
+mod remaster_upscale;
+mod remaster_water;
+mod remaster_weather;
 mod render_and_day_commands;
 mod render_preferences;
 mod room_statics;

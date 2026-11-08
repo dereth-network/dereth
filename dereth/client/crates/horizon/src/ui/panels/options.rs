@@ -25,8 +25,6 @@
 //! the shared store's or the game's, so a change made in another interface shows here. A choice of
 //! several is a dropdown box whose list opens over the window.
 
-#[cfg(feature = "hifi")]
-use dereth_client_contract::options::fidelity;
 use dereth_client_contract::options::interface::Interface;
 use dereth_client_contract::options::renderer;
 use dereth_client_contract::options::sheet::{self, PageId, Row, Value};
@@ -403,9 +401,8 @@ Press Escape to leave it as it is.",
                     | Line::ScaleNote
                     | Line::Smooth(_)
                     | Line::Renderer
-                    | Line::RendererNotice => {}
-                    #[cfg(feature = "hifi")]
-                    Line::Notice(_) | Line::EffectsStatus => {}
+                    | Line::RendererNotice
+                    | Line::Attribution => {}
                     Line::Row(row) => match row.value {
                         Value::Opacity(property) => {
                             p.text_in(
@@ -541,41 +538,21 @@ Press Escape to leave it as it is.",
                         let control =
                             Rect::new(list.x + list.w * 0.55, y + 3.0 * k, list.w * 0.42, 28.0 * k);
                         self.mark(caption, control);
-                        #[cfg(feature = "hifi")]
+                        #[cfg(feature = "fidelity")]
                         {
-                            self.client_row(p, ctx, row, control, state, out);
-                            // The effect's note, over its caption where the list shows it, is the
-                            // windows' tooltip: drawn after them all, over every row of the page.
+                            self.client_row(p, ctx, row, control, out);
+                            // A remaster box's note, over its caption where the list shows it, is
+                            // the windows' tooltip: drawn after them all, over every row of the page.
                             let at = Rect::new(list.x + 16.0 * k, y, list.w * 0.5, row_h)
                                 .intersect(&list);
-                            if let Some(note) = row.note.filter(|_| effect_box(row).is_some()) {
+                            if let Some(note) = row.note.filter(|_| remaster_row(row)) {
                                 if at.is_some_and(|at| ctx.over(&at)) {
                                     self.tip = Some((caption.to_owned(), vec![note.to_owned()]));
                                 }
                             }
                         }
-                        #[cfg(not(feature = "hifi"))]
+                        #[cfg(not(feature = "fidelity"))]
                         self.client_row(p, ctx, row, control, out);
-                    }
-                    #[cfg(feature = "hifi")]
-                    Line::Notice(text) => {
-                        let dim = TextStyle::new(Family::Body, 13.0, ctx.colours.dim())
-                            .edge(ctx.colours.edge());
-                        p.text_in(
-                            &dim,
-                            Rect::new(list.x + 16.0 * k, y, list.w - 32.0 * k, row_h),
-                            Align::Left,
-                            text,
-                        );
-                    }
-                    #[cfg(feature = "hifi")]
-                    Line::EffectsStatus => {
-                        if let Some(status) = effects_status(state) {
-                            let shown = format!("Status: {status}");
-                            let at = Rect::new(list.x + 16.0 * k, y, list.w - 32.0 * k, row_h);
-                            p.text_in(&label, at, Align::Left, &shown);
-                            self.mark(&shown, at);
-                        }
                     }
                     Line::TabHeading(_) | Line::TabName(_) | Line::Opacity(..) => {}
                     Line::Renderer => {
@@ -599,6 +576,14 @@ Press Escape to leave it as it is.",
                             // Marked by its words, so a run can read what the page says.
                             self.mark(&text, at);
                         }
+                    }
+                    Line::Attribution => {
+                        let dim = TextStyle::new(Family::Body, 13.0, ctx.colours.dim())
+                            .edge(ctx.colours.edge());
+                        let text = dereth_client_contract::options::remaster::DLSS_ATTRIBUTION;
+                        let at = Rect::new(list.x + 16.0 * k, y, list.w - 32.0 * k, row_h);
+                        p.text_in(&dim, at, Align::Left, text);
+                        self.mark(text, at);
                     }
                     &Line::Smooth(n) => {
                         let (caption, note, setting) = SMOOTH_BOXES[n];
@@ -684,20 +669,12 @@ Press Escape to leave it as it is.",
         ctx: &mut Ctx<'_>,
         row: &Row,
         control: Rect,
-        #[cfg(feature = "hifi")] state: &GameState,
         out: &mut Outcome,
     ) {
         let k = p.scale;
         match row.value {
             Value::Check(name) => {
                 if let Some(PrefValue::Bool(on)) = store::inq_value(name) {
-                    // An effect whose prerequisite is off keeps its tick, greyed, and cannot be
-                    // changed until it can draw.
-                    #[cfg(feature = "hifi")]
-                    if effect_box(row).is_some() && effect_greyed(name, state) {
-                        kit::checkbox_greyed(p, control, on);
-                        return;
-                    }
                     if let Some(on) = kit::checkbox(p, ctx, control, on) {
                         set_preference(name, PrefValue::Bool(on), out);
                     }
@@ -1231,13 +1208,6 @@ type CameraSlider = (
 enum Line {
     Heading(&'static str),
     Row(&'static Row),
-    /// A line of plain words under a heading or a row: the experimental effects' warning, or why
-    /// an effect's box is greyed.
-    #[cfg(feature = "hifi")]
-    Notice(&'static str),
-    /// Where the experimental effects stand on the device, when there is something to say.
-    #[cfg(feature = "hifi")]
-    EffectsStatus,
     /// This interface's scale, under the interface choice.
     Scale,
     /// Under the scale, which scales a larger window would offer, or why the one chosen is not
@@ -1251,6 +1221,9 @@ enum Line {
     Renderer,
     /// The renderer in use now, and the one the next start takes when that is another.
     RendererNotice,
+    /// Under the remaster's boxes, the attribution NVIDIA's license asks for where the client
+    /// carries its DLSS library.
+    Attribution,
     /// The heading over a log window tab's name and its chat window's filter, by tab.
     TabHeading(usize),
     /// A log window tab's name, in a text box.
@@ -1349,9 +1322,8 @@ pub(crate) fn hidden_row(row: &Row) -> bool {
 /// not have and what this interface does its own way.
 fn sheet_lines(page: PageId, state: &GameState) -> Vec<Line> {
     let mut out = Vec::new();
-    // The renderer choice comes last on the Client page, before the experimental effects.
-    #[cfg_attr(not(feature = "hifi"), allow(unused_mut))]
-    let mut renderer_lines = (page == PageId::Client && state.renderers.shown()).then_some([
+    // The renderer choice comes last on the Client page.
+    let renderer_lines = (page == PageId::Client && state.renderers.shown()).then_some([
         Line::Heading(renderer::HEADING),
         Line::Renderer,
         Line::RendererNotice,
@@ -1362,90 +1334,52 @@ fn sheet_lines(page: PageId, state: &GameState) -> Vec<Line> {
         }
         let rows: Vec<_> = rows
             .into_iter()
-            .filter(|r| r.needs.met(state.era.as_ref()) && !hidden_row(r))
+            .filter(|r| r.needs.met(state.era.as_ref()) && !hidden_row(r) && !idle_box(r, state))
             .collect();
         if rows.is_empty() {
             continue;
         }
         let smooth = page == PageId::Client && heading.title == SMOOTH_HEADING;
-        #[cfg(feature = "hifi")]
-        if heading.title == fidelity::HEADING {
-            out.extend(renderer_lines.take().into_iter().flatten());
-        }
         out.push(Line::Heading(heading.title));
-        #[cfg(feature = "hifi")]
-        if heading.title == fidelity::HEADING {
-            out.push(Line::Notice(fidelity::WARNING));
-            if effects_status(state).is_some() {
-                out.push(Line::EffectsStatus);
-            }
-        }
         for row in rows {
             out.push(Line::Row(row));
             if matches!(row.value, Value::Menu(n) if n == dereth_client_contract::options::interface::INTERFACE)
             {
                 out.push(Line::Scale);
             }
-            #[cfg(feature = "hifi")]
-            if let Some(why) = effect_box(row)
-                .filter(|_| effects(state).offered())
-                .and_then(|name| effect_blocked(name, state))
-            {
-                out.push(Line::Notice(why.reason()));
-            }
         }
         if smooth {
             out.extend((0..SMOOTH_BOXES.len()).map(Line::Smooth));
+        }
+        if state.dlss_carried
+            && page == PageId::Client
+            && heading.title == dereth_client_contract::options::remaster::HEADING
+        {
+            out.push(Line::Attribution);
         }
     }
     out.extend(renderer_lines.into_iter().flatten());
     out
 }
 
-/// The preference of `row` when it is one of the experimental effects' boxes.
-#[cfg(feature = "hifi")]
-fn effect_box(row: &Row) -> Option<&'static str> {
-    match row.value {
-        Value::Check(name) if fidelity::find(name).is_some() => Some(name),
-        _ => None,
-    }
+/// Whether `row` is a box that would draw nothing here: the art pack's, while no pack is open.
+#[cfg(feature = "fidelity")]
+fn idle_box(row: &Row, state: &GameState) -> bool {
+    row.preference() == Some(dereth_client_contract::options::names::fidelity::REMASTER_ART_PACK)
+        && !state.art_pack_open
 }
 
-/// Whether the box `name` is ticked.
-#[cfg(feature = "hifi")]
-fn ticked(name: &str) -> bool {
-    matches!(store::inq_value(name), Some(PrefValue::Bool(true)))
+/// A build without the remaster has none of its boxes.
+#[cfg(not(feature = "fidelity"))]
+fn idle_box(_row: &Row, _state: &GameState) -> bool {
+    false
 }
 
-/// Why the effect `name` draws nothing however it is ticked: what it needs is off, or the
-/// device does not trace rays.
-#[cfg(feature = "hifi")]
-fn effect_blocked(name: &str, state: &GameState) -> Option<fidelity::Blocked> {
-    fidelity::blocked(name, ticked, state.hifi.rays)
-}
-
-/// Whether the effect's box `name` is shown greyed, its tick kept but not changeable: the client
-/// draws with a renderer the effects are not offered on and the next start is not on `wgpu` (the
-/// status line says how to get them), or what the effect needs is off.
-#[cfg(feature = "hifi")]
-fn effect_greyed(name: &str, state: &GameState) -> bool {
-    !effects(state).offered() || effect_blocked(name, state).is_some()
-}
-
-/// Where the experimental effects stand: on the device, and where the renderer choice above
-/// leaves `wgpu`, the renderer they draw on.
-#[cfg(feature = "hifi")]
-fn effects(state: &GameState) -> fidelity::Availability {
-    fidelity::Availability {
-        wgpu_next: fidelity::wgpu_next(&state.renderers, renderer::stored()),
-        ..state.hifi.clone()
-    }
-}
-
-/// The experimental effects' status line, when there is something to say.
-#[cfg(feature = "hifi")]
-fn effects_status(state: &GameState) -> Option<String> {
-    effects(state).status(fidelity::OPTIONS.iter().any(|o| ticked(o.name)))
+/// Whether `row` is one of the remaster's, whose note is its tooltip.
+#[cfg(feature = "fidelity")]
+fn remaster_row(row: &Row) -> bool {
+    row.preference()
+        .is_some_and(|name| dereth_client_contract::options::names::fidelity::NAMES.contains(&name))
 }
 
 /// Set a profile preference: shown at once, applied and kept by the game's own preference chain.

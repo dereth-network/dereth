@@ -80,15 +80,10 @@ pub struct RenderPrefWork {
     /// `[Render] Objects` asks for another era's look whose verdicts the application is still
     /// working out: the objects keep the look they have until they arrive.
     pub objects_waiting: bool,
-    /// `[Fidelity]` moved, and the optional high-fidelity presentation was installed, changed or
-    /// removed.
-    #[cfg(feature = "hifi")]
-    pub fidelity_changed: bool,
-    /// `[Fidelity]` asked for the optional high-fidelity presentation, and this device cannot
-    /// draw it (it draws only on the `wgpu` device, asked at start-up for what it draws with): it
-    /// stays off, and the player is told.
-    #[cfg(feature = "hifi")]
-    pub fidelity_refused: bool,
+    /// `[Fidelity]` asked for the remaster, and this device would not draw it: it stays off, and
+    /// the player is told this line.
+    #[cfg(feature = "fidelity")]
+    pub remaster_refused: Option<&'static str>,
 }
 
 /// Which of `App::apply_input_actions`'s five consumers took an input action.

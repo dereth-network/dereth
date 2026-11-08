@@ -18,9 +18,11 @@ default = ["wgpu"]
 vulkan = ["dereth-scene/vulkan", "dereth-render/vulkan"]
 wgpu = ["dereth-scene/wgpu", "dereth-render/wgpu"]
 d3d12 = ["dereth-scene/d3d12", "dereth-render/d3d12"]
-# The optional high-fidelity presentation, forwarded to the scene and the device, with its boxes
-# on the Horizon interface's options page.
-hifi = ["dereth-scene/hifi", "dereth-render/hifi", "dereth-client-runtime/hifi", "dereth-horizon/hifi"]
+# The remaster, forwarded to the scene and the device, with its box on the Horizon interface's
+# options page and the device asked for what it draws with when the box is ticked at start-up.
+remaster = ["dereth-scene/remaster", "dereth-render/remaster", "dereth-client-runtime/fidelity", "dereth-horizon/fidelity"]
+# The remaster's DLSS, forwarded to the scene.
+dlss = ["remaster", "dereth-scene/dlss"]
 # Tier switch only: no code is gated on it. It un-ignores the unit tests that read the retail dats
 # under $DERETH_TEST_DAT_DIR.
 retail-dats = []

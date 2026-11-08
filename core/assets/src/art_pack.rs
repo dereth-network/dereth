@@ -16,6 +16,7 @@
 //! [[model]]
 //! id = "0x02000258"          # a setup (0x02...) or a graphics object (0x01...)
 //! foliage = true             # its cut-out materials are growth: two-sided, lit through
+//! category = "tree"          # "tree", "plant", "rock" or "water"; see below
 //! author = "..."
 //! tool = "..."
 //! license = "..."
@@ -97,6 +98,26 @@
 //!
 //! Only `texture`, `base_color` and the credit are required.
 //!
+//! **A model's category** says which of a player's switches turns it on: `tree`, `plant`, `rock`
+//! or `water` (growth in and by the water: lily pads, reeds). A model that names none is a tree
+//! when it has a level of pictures round it, a plant when it is foliage, and a rock otherwise; a
+//! model is a water model only when it says so.
+//!
+//! **A pack may say how its art wants to be lit** (`[lighting]`), with the keys and the tables
+//! of a player's look file, each kind of day a table of its own within it:
+//!
+//! ```toml
+//! [lighting]
+//! sun = 1.1                  # a number, or [[time of day, value], ...] round the day
+//! tint = 0.8
+//!
+//! [lighting.rainy]
+//! fog_density = 1.5
+//! ```
+//!
+//! The manifest keeps the section's text ([`ArtPackManifest::lighting`]); what reads looks reads
+//! it.
+//!
 //! This module reads the manifest only. The models and their pictures are read by whatever
 //! draws them.
 
@@ -119,6 +140,9 @@ pub struct ArtPackManifest {
     pub grounds: Vec<ManifestGround>,
     /// Its materials for retail pictures, in the order the manifest lists them.
     pub materials: Vec<ManifestMaterial>,
+    /// Its `[lighting]` section, as the text of a look file: its keys at the top and each kind
+    /// of day's table under its own name. `None` when it has none.
+    pub lighting: Option<String>,
 }
 
 /// One material drawn in place of retail pictures: the pictures it stands for and its own.
@@ -188,8 +212,49 @@ pub struct ManifestModel {
     /// sides and lit through from behind as well as from the front. Its other materials (a
     /// trunk) are ordinary surfaces.
     pub foliage: bool,
+    /// Which switch turns it on: the one it names, or the one it is taken for.
+    pub category: Category,
     /// Who made it, with what, and under which license.
     pub credit: Credit,
+}
+
+/// Which kind of thing a model is, for the switches that turn a pack's models on by kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Category {
+    Tree,
+    Plant,
+    Rock,
+    /// Growth in and by the water: lily pads, reeds. Never taken for; only named.
+    Water,
+}
+
+impl Category {
+    /// Every category, in order.
+    pub const ALL: [Self; 4] = [Self::Tree, Self::Plant, Self::Rock, Self::Water];
+
+    /// Its name in a manifest.
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Tree => "tree",
+            Self::Plant => "plant",
+            Self::Rock => "rock",
+            Self::Water => "water",
+        }
+    }
+
+    /// What a model that names no category is taken for: a tree when it has a level of
+    /// pictures round it, a plant when it is foliage, a rock otherwise.
+    #[must_use]
+    pub fn taken_for(foliage: bool, lods: &[ManifestLod]) -> Self {
+        if lods.iter().any(|l| l.views.is_some()) {
+            Self::Tree
+        } else if foliage {
+            Self::Plant
+        } else {
+            Self::Rock
+        }
+    }
 }
 
 /// One level of detail.
@@ -331,11 +396,17 @@ impl ArtPackManifest {
             }
             materials.push(material);
         }
+        let lighting = match table.get("lighting") {
+            None => None,
+            Some(toml::Value::Table(t)) => Some(t.to_string()),
+            Some(_) => return fail("`lighting` is not a [lighting] table"),
+        };
         Ok(Self {
             name,
             models,
             grounds,
             materials,
+            lighting,
         })
     }
 
@@ -660,10 +731,26 @@ fn model(t: &toml::Table) -> Result<ManifestModel, ManifestError> {
             shadows_only,
         });
     }
+    let category = match t.get("category") {
+        None => Category::taken_for(foliage, &lods),
+        Some(v) => match v.as_str().map(str::trim).and_then(|name| {
+            Category::ALL
+                .into_iter()
+                .find(|c| c.name().eq_ignore_ascii_case(name))
+        }) {
+            Some(c) => c,
+            None => {
+                return fail(format!(
+                    "category {v} is not \"tree\", \"plant\", \"rock\" or \"water\""
+                ))
+            }
+        },
+    };
     Ok(ManifestModel {
         id,
         lods,
         foliage,
+        category,
         credit,
     })
 }
@@ -1056,5 +1143,66 @@ license = \"CC0-1.0\"
             let e = ArtPackManifest::parse(&text).expect_err(why);
             assert!(e.0.contains(why), "{why}: {}", e.0);
         }
+    }
+
+    /// A model's category is the one it names, or a tree when it has a level of pictures round
+    /// it, a plant when it is foliage, a rock otherwise; a water model only when named; a
+    /// category that is none of the four is refused.
+    #[test]
+    fn a_models_category_is_named_or_taken_from_its_levels_and_foliage() {
+        let m = ArtPackManifest::parse(PILOT).expect("reads");
+        assert_eq!(
+            m.model(DataId(0x0200_0258)).expect("tree").category,
+            Category::Plant
+        );
+        assert_eq!(
+            m.model(DataId(0x0100_0A7E)).expect("rock").category,
+            Category::Rock
+        );
+        let far = PILOT.replacen(
+            "file = \"tree/lod2.gltf\"",
+            "file = \"tree/far.gltf\"\nviews = 16",
+            1,
+        );
+        let m = ArtPackManifest::parse(&far).expect("reads");
+        assert_eq!(
+            m.model(DataId(0x0200_0258)).expect("tree").category,
+            Category::Tree
+        );
+        let named = PILOT.replacen("foliage = true", "foliage = true\ncategory = \"Water\"", 1);
+        let m = ArtPackManifest::parse(&named).expect("reads");
+        assert_eq!(
+            m.model(DataId(0x0200_0258)).expect("tree").category,
+            Category::Water
+        );
+        let wrong = PILOT.replacen("foliage = true", "foliage = true\ncategory = \"cloud\"", 1);
+        let e = ArtPackManifest::parse(&wrong).expect_err("refused");
+        assert!(e.0.contains("category"), "{e}");
+    }
+
+    /// The `[lighting]` section is kept as the text of a look file, its kinds of day as tables
+    /// of their own; a pack without one has none, and one that is not a table is refused.
+    #[test]
+    fn the_lighting_section_is_kept_as_a_look_files_text() {
+        assert_eq!(ArtPackManifest::parse(PILOT).expect("reads").lighting, None);
+        let lit = format!(
+            "{PILOT}\n[lighting]\nsun = 1.1\ntint = 0.8\n\n[lighting.rainy]\nfog_density = 1.5\n"
+        );
+        let m = ArtPackManifest::parse(&lit).expect("reads");
+        let text = m.lighting.expect("a lighting section");
+        let back: toml::Table = text.parse().expect("TOML");
+        assert_eq!(back.get("sun").and_then(toml::Value::as_float), Some(1.1));
+        assert_eq!(back.get("tint").and_then(toml::Value::as_float), Some(0.8));
+        let rainy = back
+            .get("rainy")
+            .and_then(toml::Value::as_table)
+            .expect("[rainy]");
+        assert_eq!(
+            rainy.get("fog_density").and_then(toml::Value::as_float),
+            Some(1.5)
+        );
+        assert!(back.get("pack").is_none() && back.get("model").is_none());
+        let wrong = format!("lighting = 3\n{PILOT}");
+        assert!(ArtPackManifest::parse(&wrong).is_err());
     }
 }

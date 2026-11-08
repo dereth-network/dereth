@@ -679,13 +679,13 @@ fn a_window_that_draws_at_a_share_of_its_screen_offers_the_render_scale_at_its_s
     let _ = std::fs::remove_dir_all(&folder);
 }
 
-/// A landscape or high-fidelity option set while playing is recorded in the next world's scene;
+/// A landscape or remaster option set while playing is recorded in the next world's scene;
 /// an option the store holds is read back from it instead, and is not. The interface flag is
 /// not a preference: the next world takes it from the interface shown.
 ///
-/// Behaviour: hifi.options.a-live-fidelity-change-is-kept-for-the-next-world
+/// Behaviour: remaster.options.a-live-fidelity-change-is-kept-for-the-next-world
 #[test]
-#[cfg(feature = "hifi")]
+#[cfg(feature = "fidelity")]
 fn a_live_fidelity_or_landscape_change_is_kept_for_the_next_world() {
     use dereth_client_contract::options::{landscape, names::fidelity};
     for name in fidelity::NAMES {
@@ -700,11 +700,14 @@ fn a_live_fidelity_or_landscape_change_is_kept_for_the_next_world() {
             fidelity::INTERFACE,
             dereth_client_contract::PrefValue::Bool(true),
         ),
-        (fidelity::SKY, dereth_client_contract::PrefValue::Bool(true)),
+        (
+            fidelity::REMASTER,
+            dereth_client_contract::PrefValue::Bool(true),
+        ),
     ] {
         assert!(next.render.set_named(name, &value), "{name}");
     }
-    assert!(next.render.fidelity.any_effective());
+    assert!(next.render.fidelity.remaster());
     assert!(!with_stored_options(next)
         .render
         .fidelity
@@ -979,4 +982,60 @@ fn a_host_can_advance_a_session_without_presenting_over_its_other_view() {
     assert_eq!(device.counts().end_frame, 1);
     assert_eq!(device.counts().wait_idle, 1);
     assert_eq!(log.order(), crate::shutdown::Step::ORDER);
+}
+
+/// `--set-at` takes the remaster's boxes as the preferences file spells them (`True`, `False`, a
+/// share as `75%`), and as the numbers `--fidelity` takes, and hands the store a box as the
+/// boolean it holds, so the page and the saved profile follow it.
+///
+/// Behaviour: none (a capture tool's switch)
+#[test]
+#[cfg(feature = "fidelity")]
+fn set_at_reads_the_remasters_boxes_as_the_preferences_file_spells_them() {
+    use dereth_client_contract::options::names::fidelity;
+    use dereth_client_contract::PrefValue;
+    for (raw, name, want) in [
+        (
+            "Fidelity.Remaster=True",
+            fidelity::REMASTER,
+            PrefValue::Bool(true),
+        ),
+        (
+            "fidelity.remaster=false",
+            fidelity::REMASTER,
+            PrefValue::Bool(false),
+        ),
+        (
+            "Fidelity.Remaster=1",
+            fidelity::REMASTER,
+            PrefValue::Bool(true),
+        ),
+        (
+            "Fidelity.RemasterDlss=0",
+            fidelity::REMASTER_DLSS,
+            PrefValue::Bool(false),
+        ),
+        (
+            "Fidelity.RemasterScale=75%",
+            fidelity::REMASTER_SCALE,
+            PrefValue::Int(75),
+        ),
+    ] {
+        assert_eq!(
+            scripted_preference(raw),
+            Some((name, want.clone())),
+            "{raw}"
+        );
+    }
+    // The store takes what it is handed for a box.
+    dereth_client_contract::options::store::init();
+    assert!(dereth_client_contract::options::store::set_value(
+        fidelity::REMASTER_DLSS,
+        PrefValue::Bool(true)
+    ));
+    assert_eq!(
+        dereth_client_contract::options::store::inq_value(fidelity::REMASTER_DLSS),
+        Some(PrefValue::Bool(true))
+    );
+    assert_eq!(scripted_preference("Fidelity.Remaster=lots"), None);
 }

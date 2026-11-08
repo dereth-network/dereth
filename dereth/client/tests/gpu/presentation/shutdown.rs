@@ -838,7 +838,7 @@ fn the_teardown_runs_the_documented_order() {
 /// test's own making and removed again; the installation's `UserPreferences.ini` is never opened.
 #[test]
 fn a_changed_preference_is_written_back_on_shutdown() {
-    use dereth_client_contract::options::{fidelity, renderer};
+    use dereth_client_contract::options::{names, renderer};
     let _gpu = gpu_lock();
     have_dats();
 
@@ -883,17 +883,22 @@ fn a_changed_preference_is_written_back_on_shutdown() {
         "Misc.TooltipDelay",
         dereth_ui_screens::PrefValue::Float(0.75),
     );
-    // And, in a build with the experimental effects, one of their boxes ticked.
+    // And, in a build with the remaster, one of its boxes moved from how it is at first.
     dereth_ui_screens::options::store::set_value(
-        fidelity::OPTIONS[0].name,
+        names::fidelity::REMASTER_TRACED_SHADOWS,
         dereth_ui_screens::PrefValue::Bool(true),
     );
 
     // The options the save may leave out of the profile, with the value each holds at the quit:
-    // the renderer while no page has chosen one, and each experimental-effects box that is off
-    // and that the profile does not name.
+    // the renderer while no page has chosen one, and each of the remaster's boxes while it is as
+    // it is at first and the profile does not name it.
     let at_quit: Vec<(&str, dereth_ui_screens::PrefValue)> = std::iter::once(renderer::RENDERER)
-        .chain(fidelity::OPTIONS.iter().map(|o| o.name))
+        .chain(
+            names::fidelity::NAMES
+                .iter()
+                .copied()
+                .filter(|n| *n != names::fidelity::REMASTER_SCALE),
+        )
         .filter_map(|name| dereth_ui_screens::options::store::inq_value(name).map(|v| (name, v)))
         .collect();
 

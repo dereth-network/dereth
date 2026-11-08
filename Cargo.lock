@@ -1531,6 +1531,7 @@ dependencies = [
  "dereth-console",
  "dereth-dat",
  "dereth-desktop",
+ "dereth-gfx",
  "dereth-horizon",
  "dereth-input",
  "dereth-launch",
@@ -1755,6 +1756,19 @@ dependencies = [
  "tracing-subscriber",
  "windows",
  "winit",
+]
+
+[[package]]
+name = "dereth-gfx"
+version = "0.0.0"
+dependencies = [
+ "ash",
+ "dereth-primitives",
+ "dereth-render",
+ "gpu-allocator",
+ "thiserror 2.0.20",
+ "tracing",
+ "windows",
 ]
 
 [[package]]
@@ -2085,6 +2099,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "dereth-remaster"
+version = "0.0.0"
+dependencies = [
+ "ash",
+ "dereth-gfx",
+ "dereth-primitives",
+ "dereth-render",
+ "glam",
+ "libloading",
+ "objc2 0.6.4",
+ "toml",
+ "tracing",
+]
+
+[[package]]
 name = "dereth-render"
 version = "0.0.0"
 dependencies = [
@@ -2117,20 +2146,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "dereth-render-hifi"
-version = "0.0.0"
-dependencies = [
- "dereth-primitives",
- "dereth-render",
- "dereth-render-cpu",
- "dereth-terrain",
- "glam",
- "naga",
- "sha2",
- "wgpu",
-]
-
-[[package]]
 name = "dereth-rules"
 version = "0.0.0"
 dependencies = [
@@ -2153,8 +2168,8 @@ dependencies = [
  "dereth-physics",
  "dereth-primitives",
  "dereth-protocol",
+ "dereth-remaster",
  "dereth-render",
- "dereth-render-hifi",
  "dereth-terrain",
  "dereth-ui-screens",
  "dereth-world-data",

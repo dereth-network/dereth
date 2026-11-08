@@ -1,11 +1,9 @@
-//! The Client page of the settings ends, in a build with the experimental rendering effects, with
-//! their ten boxes under a heading of their own: a box whose prerequisite is off is greyed and
-//! cannot be ticked, and the rest tick as any other.
+//! The Client page of the settings ends, in a build with the remaster, with its boxes under a
+//! heading of their own. The art pack's box is there only while a pack is open.
 //!
 //! Behaviour: none (experimental Horizon interface)
-#![cfg_attr(not(feature = "hifi"), allow(unused_imports, dead_code))]
+#![cfg_attr(not(feature = "fidelity"), allow(unused_imports, dead_code))]
 
-use dereth_client_contract::options::fidelity::{self, Availability};
 use dereth_client_contract::options::names::fidelity as names;
 use dereth_client_contract::options::store;
 use dereth_client_contract::view::PrefValue;
@@ -16,8 +14,8 @@ use dereth_horizon::ui::panels::WindowId;
 
 use crate::Harness;
 
-/// The Client page, scrolled to its end, with the device `hifi` reports.
-fn client_page(#[cfg(feature = "hifi")] hifi: Availability) -> (Harness, GameState) {
+/// The Client page, scrolled to its end, with an art pack open or not.
+fn client_page(#[cfg(feature = "fidelity")] art_pack_open: bool) -> (Harness, GameState) {
     store::init();
     #[allow(unused_mut)]
     let mut state = GameState {
@@ -25,9 +23,9 @@ fn client_page(#[cfg(feature = "hifi")] hifi: Availability) -> (Harness, GameSta
         name: "Tester".into(),
         ..GameState::default()
     };
-    #[cfg(feature = "hifi")]
+    #[cfg(feature = "fidelity")]
     {
-        state.hifi = hifi;
+        state.art_pack_open = art_pack_open;
     }
     let mut h = Harness::new(Default::default());
     h.frame(&state);
@@ -41,7 +39,7 @@ fn client_page(#[cfg(feature = "hifi")] hifi: Availability) -> (Harness, GameSta
 }
 
 /// Scroll the Client page so the row captioned `caption` shows whole in its list, from the page's
-/// top down a few pixels at a time; whether it was found. The effects' rows are more than the
+/// top down a few pixels at a time; whether it was found. The remaster's rows are more than the
 /// list shows at once.
 fn show(h: &mut Harness, state: &GameState, caption: &str) -> bool {
     let whole = |h: &Harness| {
@@ -89,355 +87,57 @@ fn sets(requests: &[UiRequest], name: &str) -> Option<PrefValue> {
     })
 }
 
-fn caption(name: &str) -> &'static str {
-    fidelity::find(name).expect("a box").caption
+/// The remaster's own box, as the page captions and notes it.
+struct Box {
+    caption: &'static str,
+    note: &'static str,
+}
+
+fn remaster_box() -> Box {
+    Box {
+        caption: dereth_client_contract::options::remaster::CAPTION,
+        note: dereth_client_contract::options::remaster::NOTE,
+    }
 }
 
 #[test]
-#[cfg(not(feature = "hifi"))]
-fn without_the_effects_the_client_page_has_none_of_their_boxes() {
+#[cfg(not(feature = "fidelity"))]
+fn without_the_remaster_the_client_page_has_none_of_its_boxes() {
     let (h, _) = client_page();
-    for o in &fidelity::OPTIONS {
-        assert!(h.ui.windows.options_page.control(o.caption).is_none());
-    }
-}
-
-#[test]
-#[cfg(feature = "hifi")]
-fn the_effects_boxes_end_the_client_page_greyed_until_what_they_need_is_ticked() {
-    let ready = Availability {
-        built: true,
-        wgpu: true,
-        widened: true,
-        supported: true,
-        rays: Some(false),
-        active: false,
-        failed: None,
-        wgpu_next: None,
-    };
-    let (mut h, state) = client_page(ready);
-    for o in &fidelity::OPTIONS {
-        assert!(
-            show(&mut h, &state, o.caption),
-            "{} is not on the page",
-            o.caption
-        );
-        assert_eq!(store::inq_value(o.name), Some(PrefValue::Bool(false)));
-    }
-    // With the better lighting off, the shadows' and the weather's boxes are greyed: a click asks
-    // for nothing.
-    let asked = tick(&mut h, &state, caption(names::SHADOWS));
-    assert_eq!(sets(&asked, names::SHADOWS), None, "{asked:?}");
-    let asked = tick(&mut h, &state, caption(names::WEATHER));
-    assert_eq!(sets(&asked, names::WEATHER), None, "{asked:?}");
-    // The lighting ticks, and then the shadows and the weather do.
-    let asked = tick(&mut h, &state, caption(names::LIGHTING));
-    assert_eq!(sets(&asked, names::LIGHTING), Some(PrefValue::Bool(true)));
-    let asked = tick(&mut h, &state, caption(names::SHADOWS));
-    assert_eq!(sets(&asked, names::SHADOWS), Some(PrefValue::Bool(true)));
-    let asked = tick(&mut h, &state, caption(names::WEATHER));
-    assert_eq!(sets(&asked, names::WEATHER), Some(PrefValue::Bool(true)));
-    // On a device without ray tracing the lamps stay greyed, the lighting ticked or not.
-    let asked = tick(&mut h, &state, caption(names::LAMPS));
-    assert_eq!(sets(&asked, names::LAMPS), None, "{asked:?}");
-    // The occlusion and the sky stand on their own.
-    let asked = tick(&mut h, &state, caption(names::SKY));
-    assert_eq!(sets(&asked, names::SKY), Some(PrefValue::Bool(true)));
-    let asked = tick(&mut h, &state, caption(names::AMBIENT_OCCLUSION));
-    assert_eq!(
-        sets(&asked, names::AMBIENT_OCCLUSION),
-        Some(PrefValue::Bool(true))
-    );
-    // The bounced light ticked leaves the occlusion's box free: indoors it is the only effect.
-    let asked = tick(&mut h, &state, caption(names::GLOBAL_ILLUMINATION));
-    assert_eq!(
-        sets(&asked, names::GLOBAL_ILLUMINATION),
-        Some(PrefValue::Bool(true))
-    );
-    let asked = tick(&mut h, &state, caption(names::AMBIENT_OCCLUSION));
-    assert_eq!(
-        sets(&asked, names::AMBIENT_OCCLUSION),
-        Some(PrefValue::Bool(false))
-    );
-}
-
-#[test]
-#[cfg(feature = "hifi")]
-fn a_device_with_ray_tracing_lets_the_lamps_be_ticked_with_the_lighting() {
-    let (mut h, state) = client_page(Availability {
-        built: true,
-        wgpu: true,
-        widened: true,
-        supported: true,
-        rays: Some(true),
-        active: false,
-        failed: None,
-        wgpu_next: None,
-    });
-    let asked = tick(&mut h, &state, caption(names::LAMPS));
-    assert_eq!(
-        sets(&asked, names::LAMPS),
-        None,
-        "greyed without the lighting"
-    );
-    let asked = tick(&mut h, &state, caption(names::LIGHTING));
-    assert_eq!(sets(&asked, names::LIGHTING), Some(PrefValue::Bool(true)));
-    let asked = tick(&mut h, &state, caption(names::LAMPS));
-    assert_eq!(sets(&asked, names::LAMPS), Some(PrefValue::Bool(true)));
-}
-
-/// On a renderer the effects do not draw on, every box is shown greyed and none can be ticked:
-/// the status line says how to get them.
-#[test]
-#[cfg(feature = "hifi")]
-fn on_a_renderer_other_than_wgpu_every_box_is_greyed() {
-    let native = Availability {
-        built: true,
-        wgpu: false,
-        widened: false,
-        supported: false,
-        rays: None,
-        active: false,
-        failed: None,
-        wgpu_next: None,
-    };
-    assert!(!native.offered());
-    let (mut h, state) = client_page(native);
-    for o in &fidelity::OPTIONS {
-        assert!(
-            show(&mut h, &state, o.caption),
-            "{} is not on the page",
-            o.caption
-        );
-        let asked = tick(&mut h, &state, o.caption);
-        assert_eq!(sets(&asked, o.name), None, "{}: {asked:?}", o.name);
-        assert_eq!(store::inq_value(o.name), Some(PrefValue::Bool(false)));
-    }
-}
-
-/// Off the wgpu renderer, the status line points at the renderer choice above the boxes, and once
-/// wgpu is chosen there it says only the restart is left.
-#[test]
-#[cfg(feature = "hifi")]
-fn off_the_wgpu_renderer_the_status_line_points_at_the_renderer_choice() {
-    use dereth_client_contract::options::renderer::{self, RendererStatus};
-    use dereth_client_contract::RendererChoice::{Vulkan, Wgpu};
-    let native = Availability {
-        built: true,
-        ..Availability::default()
-    };
-    let (mut h, mut state) = client_page(native);
-    state.renderers = RendererStatus {
-        offered: vec![Vulkan, Wgpu],
-        running: Some(Vulkan),
-        ..RendererStatus::default()
-    };
-    h.frame(&state);
-    let page = &h.ui.windows.options_page;
-    let status = "Status: Off on this renderer: choose wgpu as the Renderer above, then restart";
-    let (_, line) = page
-        .controls
-        .iter()
-        .find(|(l, _)| l == status)
-        .unwrap_or_else(|| panic!("{:?}", page.controls));
-    let choice = page
-        .control(renderer::CAPTION)
-        .expect("the renderer choice");
-    assert!(choice.y < line.y, "the choice is above the boxes' status");
-    store::set_value(renderer::RENDERER, PrefValue::Int(renderer::value(Wgpu)));
-    h.frame(&state);
     assert!(h
         .ui
         .windows
         .options_page
-        .control("Status: Off until the restart onto wgpu")
-        .is_some());
+        .control(dereth_client_contract::options::remaster::CAPTION)
+        .is_none());
 }
 
-/// The renderers a desktop build offers, with `running` drawing.
-#[cfg(feature = "hifi")]
-fn desktop_on(
-    running: dereth_client_contract::RendererChoice,
-) -> dereth_client_contract::options::renderer::RendererStatus {
-    use dereth_client_contract::RendererChoice::{Vulkan, Wgpu};
-    dereth_client_contract::options::renderer::RendererStatus {
-        offered: vec![Vulkan, Wgpu],
-        running: Some(running),
-        ..Default::default()
-    }
-}
-
-/// The status lines the page drew in its last frame.
-fn status(h: &Harness) -> Vec<String> {
-    h.ui.windows
-        .options_page
-        .controls
-        .iter()
-        .map(|(l, _)| l.clone())
-        .filter(|l| l.starts_with("Status: "))
-        .collect()
-}
-
-/// Pick wgpu, tick, restart: on another renderer with wgpu chosen for the next start, the boxes
-/// tick (the lamps too: whether the card traces rays is the restart's to find) and the status line
-/// says the restart onto wgpu applies them; after it they draw, and on a card without ray tracing
-/// the lamps' box is greyed with its tick kept.
+/// The remaster's box ticks as any other, and what it asks for is the remaster's preference.
 #[test]
-#[cfg(feature = "hifi")]
-fn with_wgpu_chosen_on_another_renderer_the_boxes_tick_and_the_restart_onto_it_applies_them() {
-    use dereth_client_contract::options::renderer;
-    use dereth_client_contract::RendererChoice::{Vulkan, Wgpu};
-    let (mut h, mut state) = client_page(Availability {
-        built: true,
-        ..Availability::default()
-    });
-    state.renderers = desktop_on(Vulkan);
-    store::set_value(renderer::RENDERER, PrefValue::Int(renderer::value(Wgpu)));
+#[cfg(feature = "fidelity")]
+fn the_remaster_box_ticks_on_and_off() {
+    let (mut h, state) = client_page(false);
+    let caption = dereth_client_contract::options::remaster::CAPTION;
+    let asked = tick(&mut h, &state, caption);
+    assert_eq!(sets(&asked, names::REMASTER), Some(PrefValue::Bool(true)));
+    store::set_value(names::REMASTER, PrefValue::Bool(true));
     h.frame(&state);
-    assert_eq!(status(&h), ["Status: Off until the restart onto wgpu"]);
-    let asked = tick(&mut h, &state, caption(names::LIGHTING));
-    assert_eq!(sets(&asked, names::LIGHTING), Some(PrefValue::Bool(true)));
-    let asked = tick(&mut h, &state, caption(names::LAMPS));
-    assert_eq!(sets(&asked, names::LAMPS), Some(PrefValue::Bool(true)));
-    h.frame(&state);
-    assert_eq!(status(&h), ["Status: Restart onto wgpu to apply"]);
-    // Restarted onto wgpu with a box ticked: the device is asked for them, and they draw.
-    state.renderers = desktop_on(Wgpu);
-    state.hifi = Availability {
-        built: true,
-        wgpu: true,
-        widened: true,
-        supported: true,
-        rays: Some(false),
-        active: true,
-        failed: None,
-        wgpu_next: None,
-    };
-    h.frame(&state);
-    assert_eq!(status(&h), ["Status: Active"]);
-    // This card does not trace rays: the lamps' box keeps its tick and cannot be changed.
-    let asked = tick(&mut h, &state, caption(names::LAMPS));
-    assert_eq!(sets(&asked, names::LAMPS), None, "{asked:?}");
-    assert_eq!(store::inq_value(names::LAMPS), Some(PrefValue::Bool(true)));
+    let asked = tick(&mut h, &state, caption);
+    assert_eq!(sets(&asked, names::REMASTER), Some(PrefValue::Bool(false)));
 }
 
-/// Pick wgpu, restart, tick: on wgpu started without the effects there is nothing to say until a
-/// box is ticked, every box ticks (the lamps on a card that traces rays), and the status line says
-/// the restart applies them; after it they draw. The page never says wgpu is needed while it is
-/// the renderer.
-#[test]
-#[cfg(feature = "hifi")]
-fn on_wgpu_started_without_the_effects_a_tick_says_the_restart_applies_it() {
-    use dereth_client_contract::options::renderer;
-    use dereth_client_contract::RendererChoice::Wgpu;
-    let (mut h, mut state) = client_page(Availability {
-        built: true,
-        wgpu: true,
-        widened: false,
-        supported: true,
-        rays: Some(true),
-        active: false,
-        failed: None,
-        wgpu_next: None,
-    });
-    state.renderers = desktop_on(Wgpu);
-    store::set_value(renderer::RENDERER, PrefValue::Int(renderer::value(Wgpu)));
-    h.frame(&state);
-    assert!(status(&h).is_empty(), "{:?}", status(&h));
-    let asked = tick(&mut h, &state, caption(names::LIGHTING));
-    assert_eq!(sets(&asked, names::LIGHTING), Some(PrefValue::Bool(true)));
-    let asked = tick(&mut h, &state, caption(names::LAMPS));
-    assert_eq!(
-        sets(&asked, names::LAMPS),
-        Some(PrefValue::Bool(true)),
-        "the lamps on a card that traces rays"
-    );
-    h.frame(&state);
-    assert_eq!(status(&h), ["Status: Restart to apply"]);
-    // Restarted with a box ticked: the device is asked for them, and they draw.
-    state.hifi = Availability {
-        widened: true,
-        active: true,
-        ..state.hifi.clone()
-    };
-    h.frame(&state);
-    assert_eq!(status(&h), ["Status: Active"]);
-}
-
-/// Off the wgpu renderer, where a plain restart would not bring wgpu up, the status line says so
-/// rather than promising the restart: this start asked for wgpu and could not create it, or
-/// `--renderer` holds the run to another while wgpu is chosen.
-#[test]
-#[cfg(feature = "hifi")]
-fn the_status_line_promises_no_restart_onto_wgpu_that_would_not_come_up_on_it() {
-    use dereth_client_contract::options::renderer::{self, RendererStatus};
-    use dereth_client_contract::RendererChoice::{Vulkan, Wgpu};
-    let desktop = RendererStatus {
-        offered: vec![Vulkan, Wgpu],
-        running: Some(Vulkan),
-        ..RendererStatus::default()
-    };
-    let cases = [
-        (
-            "the preferences file named wgpu and the start fell back",
-            RendererStatus {
-                preference: Some(Wgpu),
-                ..desktop.clone()
-            },
-            "Status: Off: wgpu did not start here",
-        ),
-        (
-            "--renderer vulkan, with wgpu chosen on the page",
-            RendererStatus {
-                command_line: Some(Vulkan),
-                ..desktop.clone()
-            },
-            "Status: Off until a restart onto wgpu without --renderer",
-        ),
-    ];
-    for (what, renderers, status) in cases {
-        let (mut h, mut state) = client_page(Availability {
-            built: true,
-            ..Availability::default()
-        });
-        store::set_value(renderer::RENDERER, PrefValue::Int(renderer::value(Wgpu)));
-        state.renderers = renderers;
-        h.frame(&state);
-        let page = &h.ui.windows.options_page;
-        assert!(
-            page.control(status).is_some(),
-            "{what}: {:?}",
-            page.controls
-        );
-        assert!(
-            page.control("Status: Off until the restart onto wgpu")
-                .is_none(),
-            "{what}"
-        );
-    }
-}
-
-/// An effect's note, shown while the pointer is over its caption, is drawn over the rows under
+/// A remaster box's note, shown while the pointer is over its caption, is drawn over the rows under
 /// it: after every row of the page, and not cut to the page's list.
 #[test]
-#[cfg(feature = "hifi")]
-fn an_effect_s_note_is_drawn_over_every_row_of_the_page() {
-    let (mut h, state) = client_page(Availability {
-        built: true,
-        wgpu: true,
-        widened: true,
-        supported: true,
-        rays: Some(false),
-        active: true,
-        failed: None,
-        wgpu_next: None,
-    });
-    // The first box, with the others in the rows under it.
-    let o = &fidelity::OPTIONS[0];
-    assert!(show(&mut h, &state, o.caption), "the first effect's box");
+#[cfg(feature = "fidelity")]
+fn a_remaster_box_s_note_is_drawn_over_every_row_of_the_page() {
+    let (mut h, state) = client_page(false);
+    // The remaster's own box, with its others in the rows under it.
+    let o = remaster_box();
+    assert!(show(&mut h, &state, o.caption), "the remaster's box");
     let page = &h.ui.windows.options_page;
     let list = page.control("list").expect("the page's list");
-    let r = page.control(o.caption).expect("the first effect's box");
+    let r = page.control(o.caption).expect("the remaster's box");
     let (x, y) = (list.x + 40.0, r.y + r.h / 2.0);
     h.move_to(x, y);
     h.frame(&state);
@@ -459,26 +159,17 @@ fn an_effect_s_note_is_drawn_over_every_row_of_the_page() {
     h.assert_over_rows(at, list, "the note");
 }
 
-/// An effect's row the list shows only in part shows its note only over the part shown: the
+/// A remaster box's row the list shows only in part shows its note only over the part shown: the
 /// pointer under the list, over the Defaults button, shows none.
 #[test]
-#[cfg(feature = "hifi")]
-fn an_effect_s_note_shows_only_over_the_part_of_its_row_the_list_shows() {
-    let (mut h, state) = client_page(Availability {
-        built: true,
-        wgpu: true,
-        widened: true,
-        supported: true,
-        rays: Some(false),
-        active: true,
-        failed: None,
-        wgpu_next: None,
-    });
-    let o = &fidelity::OPTIONS[0];
-    assert!(show(&mut h, &state, o.caption), "the first effect's box");
+#[cfg(feature = "fidelity")]
+fn a_remaster_box_s_note_shows_only_over_the_part_of_its_row_the_list_shows() {
+    let (mut h, state) = client_page(false);
+    let o = remaster_box();
+    assert!(show(&mut h, &state, o.caption), "the remaster's box");
     let page = &h.ui.windows.options_page;
     let list = page.control("list").expect("the page's list");
-    let r = page.control(o.caption).expect("the first effect's box");
+    let r = page.control(o.caption).expect("the remaster's box");
     // Scrolled back until the row's top is ten pixels above the list's foot.
     let row_top = r.y - 3.0;
     h.ui.windows.options_page.scroll[tab::CLIENT] -= list.bottom() - 10.0 - row_top;
@@ -500,115 +191,61 @@ fn an_effect_s_note_shows_only_over_the_part_of_its_row_the_list_shows() {
     assert_eq!(h.ui.windows.tip().map(|(t, _)| t.as_str()), Some(o.caption));
 }
 
-/// Not a claim: draws the Client page scrolled to the renderer choice and the experimental
-/// effects, with the interface's own art, as the wgpu renderer, another renderer, another with
-/// wgpu chosen for the next start, another held to itself by `--renderer` with wgpu chosen, and
-/// another `--renderer wgpu` fell back to would show it, and as the wgpu renderer with the pointer
-/// over the first effect's caption and with the renderer choice's list open, into the PNG files
-/// `DERETH_HORIZON_SHOT` names (`<path>-wgpu.png`, `<path>-native.png`,
-/// `<path>-native-chosen.png`, `<path>-native-held.png`, `<path>-native-fell-back.png`,
-/// `<path>-wgpu-note.png` and `<path>-wgpu-list.png`), for a person to look at. The quads are
-/// composited in software: nearest texels, straight alpha.
+/// The art pack's box is not on the page while no pack is open, since it would draw nothing; with
+/// one open it is there, ticks as any box does, and unticked draws the world's own models.
 #[test]
-#[cfg(feature = "hifi")]
+#[cfg(feature = "fidelity")]
+fn the_art_pack_box_is_on_the_page_only_while_a_pack_is_open() {
+    let (mut h, state) = client_page(false);
+    assert!(!show(&mut h, &state, "Art pack"), "no pack, no box");
+    let (mut h, state) = client_page(true);
+    let name = names::REMASTER_ART_PACK;
+    let asked = tick(&mut h, &state, "Art pack");
+    assert_eq!(sets(&asked, name), Some(PrefValue::Bool(true)));
+}
+
+/// Where the client carries NVIDIA's DLSS library, the page names it under the remaster's boxes as
+/// NVIDIA's license asks; where it does not, it says nothing of it.
+#[test]
+#[cfg(feature = "fidelity")]
+fn the_page_names_nvidia_dlss_only_where_the_client_carries_it() {
+    use dereth_client_contract::options::remaster::DLSS_ATTRIBUTION;
+    let (mut h, mut state) = client_page(false);
+    assert!(
+        !show(&mut h, &state, DLSS_ATTRIBUTION),
+        "no library, no line"
+    );
+    state.dlss_carried = true;
+    h.frame(&state);
+    assert!(
+        show(&mut h, &state, DLSS_ATTRIBUTION),
+        "the line under the boxes"
+    );
+}
+
+/// Not a claim: draws the Client page scrolled to its end, the remaster's boxes and NVIDIA's
+/// attribution under them, as a client that carries NVIDIA's DLSS library shows it, with the
+/// interface's own art, into the PNG file `DERETH_HORIZON_SHOT` names (`<path>.png`), for a person
+/// to look at. The quads are composited in software: nearest texels, straight alpha.
+#[test]
+#[cfg(feature = "fidelity")]
 #[ignore = "an instrument: set DERETH_HORIZON_SHOT to an output path without its extension"]
-fn draw_the_effects_section_for_a_person_to_look_at() {
+fn draw_the_remasters_section_for_a_person_to_look_at() {
     use dereth_horizon::art::Art;
     use dereth_horizon::draw::DrawList;
     use dereth_horizon::ui::input::InputFrame;
     use dereth_horizon::ui::HorizonUi;
     use std::sync::Arc;
-    /// Where the pointer is when the picture is taken.
-    #[derive(Clone, Copy)]
-    enum Pointer {
-        Away,
-        /// Over the first effect's caption, its note shown.
-        OverNote,
-        /// The renderer choice's list opened.
-        ListOpen,
-    }
     let Some(path) = std::env::var_os("DERETH_HORIZON_SHOT") else {
         return;
     };
     let path = std::path::PathBuf::from(path);
-    let wgpu = Availability {
-        built: true,
-        wgpu: true,
-        widened: true,
-        supported: true,
-        rays: Some(false),
-        active: true,
-        failed: None,
-        wgpu_next: None,
-    };
-    let native = Availability {
-        wgpu: false,
-        widened: false,
-        supported: false,
-        rays: None,
-        active: false,
-        ..wgpu.clone()
-    };
-    use dereth_client_contract::options::renderer::{self, RendererStatus};
-    use dereth_client_contract::RendererChoice::{Vulkan, Wgpu};
-    let on = |running| RendererStatus {
-        offered: vec![Vulkan, Wgpu],
-        running: Some(running),
-        ..RendererStatus::default()
-    };
-    let held = RendererStatus {
-        command_line: Some(Vulkan),
-        ..on(Vulkan)
-    };
-    let fell_back = RendererStatus {
-        command_line: Some(Wgpu),
-        ..on(Vulkan)
-    };
-    for (suffix, hifi, renderers, chosen, pointer) in [
-        ("wgpu", wgpu.clone(), on(Wgpu), Some(Wgpu), Pointer::Away),
-        ("native", native.clone(), on(Vulkan), None, Pointer::Away),
-        (
-            "native-chosen",
-            native.clone(),
-            on(Vulkan),
-            Some(Wgpu),
-            Pointer::Away,
-        ),
-        (
-            "native-held",
-            native.clone(),
-            held,
-            Some(Wgpu),
-            Pointer::Away,
-        ),
-        (
-            "native-fell-back",
-            native,
-            fell_back,
-            Some(Wgpu),
-            Pointer::Away,
-        ),
-        (
-            "wgpu-note",
-            wgpu.clone(),
-            on(Wgpu),
-            Some(Wgpu),
-            Pointer::OverNote,
-        ),
-        ("wgpu-list", wgpu, on(Wgpu), Some(Wgpu), Pointer::ListOpen),
-    ] {
+    {
         store::init();
-        store::set_value(names::LIGHTING, PrefValue::Bool(true));
-        store::set_value(names::SHADOWS, PrefValue::Bool(true));
-        store::set_value(names::AMBIENT_OCCLUSION, PrefValue::Bool(true));
-        if let Some(c) = chosen {
-            store::set_value(renderer::RENDERER, PrefValue::Int(renderer::value(c)));
-        }
         let state = GameState {
             in_world: true,
             name: "Tester".into(),
-            hifi,
-            renderers,
+            dlss_carried: true,
             ..GameState::default()
         };
         let art = Arc::new(Art::new(Arc::new(
@@ -630,27 +267,6 @@ fn draw_the_effects_section_for_a_person_to_look_at() {
         for _ in 0..30 {
             h.frame(&state);
         }
-        let page = &h.ui.windows.options_page;
-        let list = page.control("list").expect("the page's list");
-        match pointer {
-            Pointer::Away => {}
-            Pointer::OverNote => {
-                let r = page
-                    .control(fidelity::OPTIONS[0].caption)
-                    .expect("the first effect's box");
-                h.move_to(list.x + 120.0, r.y + r.h / 2.0);
-            }
-            Pointer::ListOpen => {
-                let r = page
-                    .control(renderer::CAPTION)
-                    .expect("the renderer choice");
-                h.move_to(r.x + 10.0, r.y + r.h / 2.0);
-                h.press();
-                h.frame(&state);
-                h.release();
-            }
-        }
-        h.frame(&state);
         let (w, hgt) = (1920usize, 1080usize);
         let mut px = vec![[24.0f32, 26.0, 30.0]; w * hgt];
         for q in &h.list.quads {
@@ -706,12 +322,7 @@ fn draw_the_effects_section_for_a_person_to_look_at() {
             .iter()
             .flat_map(|p| p.map(|c| c.clamp(0.0, 255.0) as u8))
             .collect();
-        let out = path.with_file_name(format!(
-            "{}-{suffix}.png",
-            path.file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("horizon")
-        ));
+        let out = path.with_extension("png");
         let file = std::fs::File::create(&out).expect("the picture's file");
         #[allow(clippy::cast_possible_truncation)]
         let mut enc = png::Encoder::new(std::io::BufWriter::new(file), w as u32, hgt as u32);

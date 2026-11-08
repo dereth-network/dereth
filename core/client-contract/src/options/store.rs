@@ -291,8 +291,8 @@ pub fn init() -> usize {
     super::classic::register();
     // The renderer the next start comes up on, which only the Horizon interface's page chooses.
     super::renderer::register();
-    // The optional high-fidelity presentation's options, in a build that has it.
-    #[cfg(feature = "hifi")]
+    // The remaster's options, in a build that has it.
+    #[cfg(feature = "fidelity")]
     super::fidelity::register();
     // The landscape's detail texture: registered by retail's renderer with no options row, and
     // given one by both interfaces' pages here.
@@ -403,6 +403,12 @@ const CUSTOM_ENUMS: &[CustomEnum] = &[
         format: super::render_scale::convert_to_string,
         choices: super::render_scale::choice_rows,
     },
+    CustomEnum {
+        recognizes: |name| name.eq_ignore_ascii_case(super::names::fidelity::REMASTER_SCALE),
+        parse: super::remaster::scale_value,
+        format: super::remaster::scale_words,
+        choices: super::remaster::scale_rows,
+    },
 ];
 
 fn custom_enum(name: &str) -> Option<&'static CustomEnum> {
@@ -503,10 +509,10 @@ pub fn save_into(ini: &mut UserPreferences) -> usize {
             !super::renderer::left_out_of_save(name, &var.value)
                 && !super::render_scale::left_out_of_save(name)
         });
-        #[cfg(feature = "hifi")]
+        #[cfg(feature = "fidelity")]
         let kept =
             chosen.filter(|(name, var)| !super::fidelity::left_out_of_save(name, &var.value, ini));
-        #[cfg(not(feature = "hifi"))]
+        #[cfg(not(feature = "fidelity"))]
         let kept = chosen;
         kept.map(|(name, var)| (name.clone(), convert_to_string(name, &var.value)))
             .collect()
@@ -1201,12 +1207,11 @@ mod tests {
         assert_eq!(init(), 34, "the 34 attached preferences all register");
         // ...beside this client's three presentation options from another era, its interface, its
         // performance panel, its background slow-down, the classic interface's six, the renderer
-        // and the landscape detail texture, and in a build with the high-fidelity presentation its
-        // options too.
-        #[cfg(not(feature = "hifi"))]
+        // and the landscape detail texture, and in a build with the remaster its boxes too.
+        #[cfg(not(feature = "fidelity"))]
         assert_eq!(len(), 48);
-        #[cfg(feature = "hifi")]
-        assert_eq!(len(), 48 + super::super::fidelity::OPTIONS.len());
+        #[cfg(feature = "fidelity")]
+        assert_eq!(len(), 48 + 2 + super::super::remaster::FEATURES.len());
         // The registration defaults are in force before any file is read.
         assert_eq!(
             inq_value("Input.MouseLookSensitivity"),

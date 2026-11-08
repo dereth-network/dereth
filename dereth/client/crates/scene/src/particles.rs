@@ -93,7 +93,7 @@ pub(crate) struct ParticleGfx {
 ///
 /// `[Emissive.rgb, Diffuse.rgb, a material is bound, unused]`, the same shape
 /// `WorldScene::material_lighting` produces for an animated part.
-const PARTICLE_MATERIAL_LIGHTING: [f32; 4] = [
+pub(crate) const PARTICLE_MATERIAL_LIGHTING: [f32; 4] = [
     dereth_animation::parts::DEFAULT_LUMINOSITY,
     dereth_animation::parts::DEFAULT_DIFFUSE,
     1.0,
@@ -557,6 +557,23 @@ pub(crate) struct Prepared {
     /// `SceneConfig::object_lighting` is clear, which is the unlit control and leaves
     /// `D3DRS_LIGHTING` off exactly as the part path's `lights: None` does.
     pub(crate) lights: Vec<D3dLight>,
+    /// For the remaster: where the card stands as it is drawn and its uniform scale, its
+    /// translucency, whether it is outdoors, and the placed, scaled drawing sphere its lights are
+    /// chosen by.
+    #[cfg(feature = "remaster")]
+    pub(crate) remaster: ParticleDrawn,
+}
+
+/// What the remaster draws a prepared particle by.
+#[cfg(feature = "remaster")]
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ParticleDrawn {
+    pub(crate) frame: Frame,
+    pub(crate) scale: f32,
+    pub(crate) translucency: f32,
+    pub(crate) outdoors: bool,
+    pub(crate) centre: Vec3,
+    pub(crate) radius: f32,
 }
 
 /// Compute viewer distance and choose a degrade level for every collected particle, then sort the
@@ -668,12 +685,36 @@ pub(crate) fn prepare(
             };
             f(centre, radius, p.outdoors)
         });
+        #[cfg(feature = "remaster")]
+        let remaster = {
+            let (centre, radius) = match gfx.drawing_sphere {
+                Some((c, r)) => {
+                    let s = p.scale;
+                    let scaled = Vec3::new(c.x * s, c.y * s, c.z * s);
+                    (
+                        dereth_terrain::math::localtoglobal(&draw_frame, scaled),
+                        s * r,
+                    )
+                }
+                None => (draw_frame.origin, 0.0),
+            };
+            ParticleDrawn {
+                frame: draw_frame,
+                scale: p.scale,
+                translucency: p.translucency,
+                outdoors: p.outdoors,
+                centre,
+                radius,
+            }
+        };
         ready.push(Prepared {
             cypt,
             gfx: p.gfx,
             world,
             texture_factor,
             lights,
+            #[cfg(feature = "remaster")]
+            remaster,
         });
     }
     // Sort by **descending viewer-space depth** — farthest first.

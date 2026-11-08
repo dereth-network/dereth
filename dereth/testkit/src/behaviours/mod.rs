@@ -244,7 +244,6 @@ pub mod camera;
 pub mod chat;
 pub mod combat;
 pub mod frame;
-pub mod hifi;
 pub mod inventory;
 pub mod login;
 pub mod magic;
@@ -254,6 +253,7 @@ pub mod objects;
 pub mod panels;
 pub mod plugins;
 pub mod presentation;
+pub mod remaster;
 pub mod rendering;
 pub mod selection;
 pub mod shell;
@@ -286,10 +286,6 @@ pub static SUBJECTS: &[Subject] = &[
     Subject {
         name: "frame",
         rows: frame::ROWS,
-    },
-    Subject {
-        name: "hifi",
-        rows: hifi::ROWS,
     },
     Subject {
         name: "inventory",
@@ -326,6 +322,10 @@ pub static SUBJECTS: &[Subject] = &[
     Subject {
         name: "presentation",
         rows: presentation::ROWS,
+    },
+    Subject {
+        name: "remaster",
+        rows: remaster::ROWS,
     },
     Subject {
         name: "rendering",

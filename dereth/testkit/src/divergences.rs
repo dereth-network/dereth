@@ -340,23 +340,21 @@ pub static DIVERGENCES: &[Divergence] = &[
     },
     Divergence {
         id: "CD-037",
-        title: "Opt-in experimental rendering effects under Horizon",
-        change: "Under the Horizon interface, seven boxes on its options page (better lighting, \
-                 real-time sun shadows, bounced light, ambient occlusion, lamps and torches, sky \
-                 and atmosphere, weather) draw the world a second time with modern light, on the \
-                 desktop wgpu renderer. With the weather ticked, the game's own falling-rain \
-                 layer gives way to rain (or, over snowy land, snow) drawn by the effect, on the \
-                 same rainy days. Everything the game reads still comes from the ordinary frame, \
-                 which is recorded in full either way. Every box is off by default; the classic \
-                 and modern interfaces never draw the effects, and the browser client does not \
-                 contain them. They draw only on the wgpu renderer, chosen by the player; the \
-                 client never picks it for them. Heavier frames lower the frame rate, and three \
-                 things follow the frame time as they do on a slower machine: the automatic \
-                 degrade, so detail \
-                 levels and which far objects are drawn can shift; through the degrade, which \
-                 objects at the edge of the drawing distance can be picked and selected; and the \
-                 client's physics, which steps by the time a frame took, so the predicted \
-                 positions the client reports are integrated in other steps.",
+        title: "An opt-in remaster under Horizon",
+        change: "Under the Horizon interface, a Remaster box on the Client page draws the world \
+                 with a renderer of this client's own and modern light, on the desktop Vulkan and \
+                 Direct3D 12 renderers, with a box for each of its effects under it, and with an \
+                 art pack's models and look where a pack was given and its box is on. Ticking it \
+                 takes effect at once, in the running session; unticking it gives back Retail \
+                 Look's frame exactly. Everything the game reads still comes from the ordinary \
+                 walk of the world. The box is off by default; the classic and modern interfaces \
+                 never draw the remaster, and the browser client does not contain it. Heavier \
+                 frames lower the frame rate, and three things follow the frame time as they do \
+                 on a slower machine: the automatic degrade, so detail levels and which far \
+                 objects are drawn can shift; through the degrade, which objects at the edge of \
+                 the drawing distance can be picked and selected; and the client's physics, which \
+                 steps by the time a frame took, so the predicted positions the client reports \
+                 are integrated in other steps.",
         why: "The 1999 art drawn with today's graphics, for a player who asks for it, without \
               changing how the game plays.",
     },
@@ -438,9 +436,7 @@ pub static DIVERGENCES: &[Divergence] = &[
         change: "/weather (or @weather) is a chat command of this client's own: alone it says the \
                  weather drawn and whether it is the day's own; clear, rain or snow draws the sky, \
                  its light and its fog as a clear or a rainy day in place of the one the calendar \
-                 gives, and with Horizon's Weather effect on its rain falls as rain or as snow \
-                 whatever the land (without the effect a snowy day is a rainy one, the game having \
-                 no snow of its own); reset returns to the day's own. It changes only what this \
+                 gives; reset returns to the day's own. It changes only what this \
                  client draws, never the calendar, and is never sent to the server. The final \
                  client had no such command.",
         why: "A player can look at the world in the rain, the snow or the sun without waiting for \

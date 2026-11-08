@@ -391,10 +391,13 @@ pub struct GameState {
     /// Whether the window is full screen, where the host can make it so: what the switch on the
     /// screens before the world shows.
     pub full_screen: Option<bool>,
-    /// Where the experimental rendering effects stand on the device the client draws with, for
-    /// the options page.
-    #[cfg(feature = "hifi")]
-    pub hifi: dereth_client_contract::options::fidelity::Availability,
+    /// Whether NVIDIA's DLSS library stands beside the client: the pre-game screens and the
+    /// options page then name it, as NVIDIA's license asks.
+    pub dlss_carried: bool,
+    /// Whether an art pack is open: the options page offers the remaster's art pack box only
+    /// then.
+    #[cfg(feature = "fidelity")]
+    pub art_pack_open: bool,
     // ---- the connection ----
     /// The running client's version, as its host names it (`0.3.0`): what the pre-game screens
     /// show.

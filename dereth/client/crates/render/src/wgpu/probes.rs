@@ -186,14 +186,9 @@ impl Gpu {
         self.probe_result.take()
     }
 
-    /// Whether the depth probes asked for are read back: always, but while the high-fidelity
-    /// presentation draws the frames, which read none.
+    /// Whether the depth probes asked for are read back: always.
     #[must_use]
     pub fn depth_probes_answered(&self) -> bool {
-        #[cfg(feature = "hifi")]
-        if self.sidecar.is_some() {
-            return false;
-        }
         true
     }
 
@@ -396,56 +391,6 @@ mod tests {
                 "({x}, {y}): depth {d}, want {want}"
             );
         }
-    }
-
-    /// While the high-fidelity presentation draws the frames the device reads no depth back and
-    /// says so; with it taken away, the device answers again.
-    #[cfg(feature = "hifi")]
-    #[test]
-    fn no_depth_probes_are_answered_while_the_high_fidelity_presentation_draws() {
-        use super::super::sidecar::{FrameSidecar, SidecarContext, SidecarError, SidecarFrame};
-        struct Plain;
-        impl FrameSidecar for Plain {
-            fn prepare(
-                &mut self,
-                _: &mut SidecarContext<'_>,
-            ) -> Result<SidecarFrame, SidecarError> {
-                Ok(SidecarFrame::Plain)
-            }
-            fn encode(
-                &mut self,
-                _: &mut SidecarContext<'_>,
-                _: &mut wgpu::CommandEncoder,
-                _: &wgpu::TextureView,
-            ) -> Result<(), SidecarError> {
-                Ok(())
-            }
-            fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
-                self
-            }
-        }
-        let cfg = crate::device::DeviceConfig {
-            width: 64,
-            height: 64,
-            hifi: true,
-            ..crate::device::DeviceConfig::default()
-        };
-        let mut gpu = match super::super::Gpu::new(None, &cfg) {
-            Ok(gpu) => gpu,
-            Err(e) => {
-                eprintln!("skipped: {e}");
-                return;
-            }
-        };
-        if !gpu.hifi_supported() {
-            eprintln!("skipped: the adapter cannot draw the high-fidelity presentation");
-            return;
-        }
-        assert!(gpu.depth_probes_answered());
-        gpu.hifi_install(Box::new(Plain)).expect("installed");
-        assert!(!gpu.depth_probes_answered());
-        assert!(gpu.hifi_take().is_some());
-        assert!(gpu.depth_probes_answered());
     }
 
     /// The probes' texture coordinates land on each pixel's texel center, two pixels to an

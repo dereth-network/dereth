@@ -170,11 +170,11 @@ pub struct RenderPreferences {
     /// objects draw with (`Some(LegacyHardware)` the older files, `Some(Late)` the later ones);
     /// `None` is the world's own. Not a retail preference. The scene applies a change live.
     pub objects: Option<RegionStyle>,
-    /// `[Fidelity]`: the optional high-fidelity presentation, all off by default and in effect
+    /// `[Fidelity]`: the remaster's options, all off by default and in effect
     /// only under the Horizon interface. Not a retail preference; Horizon's options page, the
     /// file and `--set-at` set it. The scene applies a change live. Only in a build with the
     /// presentation.
-    #[cfg(feature = "hifi")]
+    #[cfg(feature = "fidelity")]
     pub fidelity: FidelityPreferences,
 }
 
@@ -198,7 +198,7 @@ impl Default for RenderPreferences {
             ground: None,
             sky: None,
             objects: None,
-            #[cfg(feature = "hifi")]
+            #[cfg(feature = "fidelity")]
             fidelity: FidelityPreferences::default(),
         }
     }
@@ -315,8 +315,8 @@ impl RenderPreferences {
         if let Some(v) = prefs.f32(DEGRADE_DISTANCE) {
             r.degrade_distance = v;
         }
-        // The optional high-fidelity presentation's section, in a build that has it.
-        #[cfg(feature = "hifi")]
+        // The remaster's section, in a build that has it.
+        #[cfg(feature = "fidelity")]
         {
             r.fidelity = FidelityPreferences::from_preferences(prefs);
         }
@@ -446,13 +446,13 @@ impl RenderPreferences {
             }
             return true;
         }
-        // The optional high-fidelity presentation, which the scene's poll applies live, in a
+        // The remaster's options, which the scene's poll applies live, in a
         // build that has it.
-        #[cfg(feature = "hifi")]
+        #[cfg(feature = "fidelity")]
         {
             self.fidelity.set_named(name, value)
         }
-        #[cfg(not(feature = "hifi"))]
+        #[cfg(not(feature = "fidelity"))]
         {
             false
         }
@@ -521,115 +521,156 @@ pub fn seed_ui_registry(preference: u32) {
     );
 }
 
-/// The `[Fidelity]` names: the optional high-fidelity presentation. See
+/// The `[Fidelity]` names: the remaster's options. See
 /// [`dereth_client_contract::options::names::fidelity`].
 pub use dereth_client_contract::options::names::fidelity;
 
-/// One option of the high-fidelity presentation.
-#[cfg(feature = "hifi")]
+/// One of the remaster's options.
+#[cfg(feature = "fidelity")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FidelityFeature {
-    /// `Fidelity.Lighting`.
-    Lighting,
-    /// `Fidelity.Shadows`.
-    Shadows,
-    /// `Fidelity.GlobalIllumination`.
-    GlobalIllumination,
-    /// `Fidelity.AmbientOcclusion`.
-    AmbientOcclusion,
-    /// `Fidelity.Lamps`.
-    Lamps,
-    /// `Fidelity.Sky`.
-    Sky,
-    /// `Fidelity.Weather`.
-    Weather,
-    /// `Fidelity.RetailLook`.
-    RetailLook,
-    /// `Fidelity.NoAntiAliasing`.
-    NoAntiAliasing,
-    /// `Fidelity.NoSlopeMaterials`.
-    NoSlopeMaterials,
-    /// `Fidelity.Debug`.
-    Debug,
+    /// `Fidelity.Remaster`: the world drawn by the remaster instead of Retail Look.
+    Remaster,
+    /// The remaster's sun shadows.
+    RemasterShadows,
+    /// The remaster's sky.
+    RemasterSky,
+    /// The remaster's fog.
+    RemasterFog,
+    /// The remaster's ambient occlusion.
+    RemasterOcclusion,
+    /// The remaster's lamps indoors.
+    RemasterIndoorLamps,
+    /// The remaster's lamps outdoors.
+    RemasterOutdoorLamps,
+    /// The remaster's hdr and bloom.
+    RemasterBloom,
+    /// The remaster's smooth edges.
+    RemasterSmoothing,
+    /// The remaster's water.
+    RemasterWater,
+    /// The remaster's puddles.
+    RemasterPuddles,
+    /// The remaster's rain and snow.
+    RemasterRain,
+    /// The remaster's far detail.
+    RemasterDetail,
+    /// The remaster's bounced light.
+    RemasterBounce,
+    /// The remaster's traced sun shadows.
+    RemasterTracedShadows,
+    /// The remaster's traced occlusion.
+    RemasterTracedOcclusion,
+    /// The remaster's upscaling.
+    RemasterUpscale,
+    /// The remaster's upscaler is DLSS, where it can be.
+    RemasterDlss,
+    /// The share of the pixels the remaster draws each way while it upscales, in percent; 0 until
+    /// the player chooses one.
+    RemasterScale,
+    /// The art pack in the remaster.
+    RemasterArtPack,
 }
 
-#[cfg(feature = "hifi")]
+#[cfg(feature = "fidelity")]
 impl FidelityFeature {
     /// Every option, in the order the names list them.
-    pub const ALL: [Self; 11] = [
-        Self::Lighting,
-        Self::Shadows,
-        Self::GlobalIllumination,
-        Self::AmbientOcclusion,
-        Self::Lamps,
-        Self::Sky,
-        Self::Weather,
-        Self::RetailLook,
-        Self::NoAntiAliasing,
-        Self::NoSlopeMaterials,
-        Self::Debug,
+    pub const ALL: [Self; 20] = [
+        Self::Remaster,
+        Self::RemasterShadows,
+        Self::RemasterSky,
+        Self::RemasterFog,
+        Self::RemasterOcclusion,
+        Self::RemasterIndoorLamps,
+        Self::RemasterOutdoorLamps,
+        Self::RemasterBloom,
+        Self::RemasterSmoothing,
+        Self::RemasterWater,
+        Self::RemasterPuddles,
+        Self::RemasterRain,
+        Self::RemasterDetail,
+        Self::RemasterBounce,
+        Self::RemasterTracedShadows,
+        Self::RemasterTracedOcclusion,
+        Self::RemasterUpscale,
+        Self::RemasterDlss,
+        Self::RemasterScale,
+        Self::RemasterArtPack,
     ];
 
     /// The option's preference name.
     #[must_use]
     pub const fn name(self) -> &'static str {
         match self {
-            Self::Lighting => fidelity::LIGHTING,
-            Self::Shadows => fidelity::SHADOWS,
-            Self::GlobalIllumination => fidelity::GLOBAL_ILLUMINATION,
-            Self::AmbientOcclusion => fidelity::AMBIENT_OCCLUSION,
-            Self::Lamps => fidelity::LAMPS,
-            Self::Sky => fidelity::SKY,
-            Self::Weather => fidelity::WEATHER,
-            Self::RetailLook => fidelity::RETAIL_LOOK,
-            Self::NoAntiAliasing => fidelity::NO_ANTI_ALIASING,
-            Self::NoSlopeMaterials => fidelity::NO_SLOPE_MATERIALS,
-            Self::Debug => fidelity::DEBUG,
+            Self::Remaster => fidelity::REMASTER,
+            Self::RemasterShadows => fidelity::REMASTER_SHADOWS,
+            Self::RemasterSky => fidelity::REMASTER_SKY,
+            Self::RemasterFog => fidelity::REMASTER_FOG,
+            Self::RemasterOcclusion => fidelity::REMASTER_OCCLUSION,
+            Self::RemasterIndoorLamps => fidelity::REMASTER_INDOOR_LAMPS,
+            Self::RemasterOutdoorLamps => fidelity::REMASTER_OUTDOOR_LAMPS,
+            Self::RemasterBloom => fidelity::REMASTER_BLOOM,
+            Self::RemasterSmoothing => fidelity::REMASTER_SMOOTHING,
+            Self::RemasterWater => fidelity::REMASTER_WATER,
+            Self::RemasterPuddles => fidelity::REMASTER_PUDDLES,
+            Self::RemasterRain => fidelity::REMASTER_RAIN,
+            Self::RemasterDetail => fidelity::REMASTER_DETAIL,
+            Self::RemasterBounce => fidelity::REMASTER_BOUNCE,
+            Self::RemasterTracedShadows => fidelity::REMASTER_TRACED_SHADOWS,
+            Self::RemasterTracedOcclusion => fidelity::REMASTER_TRACED_OCCLUSION,
+            Self::RemasterUpscale => fidelity::REMASTER_UPSCALE,
+            Self::RemasterDlss => fidelity::REMASTER_DLSS,
+            Self::RemasterScale => fidelity::REMASTER_SCALE,
+            Self::RemasterArtPack => fidelity::REMASTER_ART_PACK,
         }
     }
 
-    /// The highest value the option takes: 4 for an effect (Ultra), 1 for the switches that
-    /// turn something off (the retail look's, the anti-aliasing's, the slope materials'), the last
-    /// view for the diagnostic views.
+    /// The highest value the option takes: 100 for the share of the pixels, 1 for a box.
     #[must_use]
     pub const fn max(self) -> u32 {
         match self {
-            Self::Debug => 7,
-            Self::RetailLook | Self::NoAntiAliasing | Self::NoSlopeMaterials => 1,
-            _ => 4,
+            Self::RemasterScale => 100,
+            _ => 1,
         }
     }
 
-    /// `raw` as this option stores it: an effect past Ultra is Ultra; a diagnostic view past the
-    /// last is off.
+    /// `raw` as this option stores it: past the highest is the highest.
     #[must_use]
     pub const fn clamp(self, raw: u32) -> u32 {
         if raw <= self.max() {
             raw
-        } else if matches!(self, Self::Debug) {
-            0
         } else {
             self.max()
         }
     }
 }
 
-/// The `[Fidelity]` section: what the player asked of the optional high-fidelity presentation,
-/// and whether the Horizon interface is shown, the only one it draws under. Plain data, all off
-/// by default; the scene maps it onto the presentation's own settings.
-#[cfg(feature = "hifi")]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+/// The `[Fidelity]` section: what the player asked of the remaster, and whether the Horizon
+/// interface is shown, the only one it draws under. Plain data, all off by default; the scene maps
+/// it onto the remaster's own settings.
+#[cfg(feature = "fidelity")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FidelityPreferences {
     /// Each option's stored value, in [`FidelityFeature::ALL`] order. 0 is off for every one; a
     /// ticked box is 1.
-    pub values: [u32; 11],
+    pub values: [u32; FidelityFeature::ALL.len()],
     /// Whether the interface shown is Horizon. Never kept in the profile: it is read from the
     /// interface choice at start-up and follows the interface shown after that. Off, every option
     /// is off in effect, whatever it stores.
     pub interface: bool,
 }
 
-#[cfg(feature = "hifi")]
+#[cfg(feature = "fidelity")]
+impl Default for FidelityPreferences {
+    fn default() -> Self {
+        Self {
+            values: [0; FidelityFeature::ALL.len()],
+            interface: false,
+        }
+    }
+}
+
+#[cfg(feature = "fidelity")]
 impl FidelityPreferences {
     /// The section from the profile: a box the file does not tick is off, and the interface
     /// flag is the interface the profile starts in.
@@ -638,13 +679,21 @@ impl FidelityPreferences {
         let mut f = Self::default();
         for (i, feature) in FidelityFeature::ALL.into_iter().enumerate() {
             let raw = match feature {
-                // The view a diagnostic run asks for, by number.
-                FidelityFeature::Debug => prefs.u32(feature.name()),
+                // A share, as the page writes it: "75%".
+                FidelityFeature::RemasterScale => prefs
+                    .get(feature.name())
+                    .and_then(|v| {
+                        dereth_client_contract::options::remaster::scale_value(feature.name(), v)
+                    })
+                    .and_then(|v| u32::try_from(v).ok()),
                 // A box the page ticked; a number the file holds otherwise (from an older
                 // build) is not read, as the page does not read it.
                 _ => prefs.bool(feature.name()).map(u32::from),
             };
-            if let Some(raw) = raw {
+            // A box the profile says nothing of is as it is at first.
+            let at_first =
+                dereth_client_contract::options::remaster::ticked_at_first(feature.name());
+            if let Some(raw) = raw.or(at_first.then_some(1)) {
                 f.values[i] = feature.clamp(raw);
             }
         }
@@ -682,28 +731,16 @@ impl FidelityPreferences {
         }
     }
 
-    /// Whether any option is on in effect. Without one the presentation is not installed. The
-    /// switches that turn something off (the retail look's, the anti-aliasing's, the slope
-    /// materials') draw nothing of their own, so they alone are none.
+    /// Whether the world is drawn by the remaster: its box ticked, under the Horizon interface.
     #[must_use]
-    pub fn any_effective(&self) -> bool {
-        FidelityFeature::ALL
-            .into_iter()
-            .filter(|f| {
-                !matches!(
-                    f,
-                    FidelityFeature::RetailLook
-                        | FidelityFeature::NoAntiAliasing
-                        | FidelityFeature::NoSlopeMaterials
-                )
-            })
-            .any(|f| self.effective(f) != 0)
+    pub fn remaster(&self) -> bool {
+        self.effective(FidelityFeature::Remaster) != 0
     }
 
-    /// Whether any option is stored on, whatever the interface.
+    /// Whether one of the remaster's own boxes is on in effect.
     #[must_use]
-    pub fn any_stored(&self) -> bool {
-        self.values.iter().any(|v| *v != 0)
+    pub fn remaster_feature(&self, feature: FidelityFeature) -> bool {
+        self.effective(feature) != 0
     }
 
     /// The settings a capture or a test names, as the Horizon interface draws them: a comma list
@@ -722,6 +759,18 @@ impl FidelityPreferences {
         if raw.eq_ignore_ascii_case("off") {
             return Ok(f);
         }
+        f.apply_switch(raw)?;
+        Ok(f)
+    }
+
+    /// Set the options a comma list names, as [`Self::parse_switch`] reads it, over these, and
+    /// return their names and the values they now store. `--fidelity` on the command line does
+    /// this over the profile's.
+    ///
+    /// # Errors
+    /// As [`Self::parse_switch`].
+    pub fn apply_switch(&mut self, raw: &str) -> Result<Vec<(&'static str, u32)>, String> {
+        let mut named = Vec::new();
         for item in raw
             .split([',', '+'])
             .map(str::trim)
@@ -745,14 +794,20 @@ impl FidelityPreferences {
             } else {
                 format!("Fidelity.{}", name.trim())
             };
-            if !f.set_named(
+            if !self.set_named(
                 &full,
                 &dereth_client_contract::PrefValue::Int(i32::try_from(value).unwrap_or(i32::MAX)),
             ) {
                 return Err(format!("there is no fidelity option {name:?}"));
             }
+            if let Some(feature) = FidelityFeature::ALL
+                .into_iter()
+                .find(|f| f.name().eq_ignore_ascii_case(&full))
+            {
+                named.push((feature.name(), self.value(feature)));
+            }
         }
-        Ok(f)
+        Ok(named)
     }
 
     /// Apply one `[Fidelity]` preference, or the interface flag. Returns whether `name` is one
@@ -782,18 +837,31 @@ impl FidelityPreferences {
 mod tests {
     use super::*;
 
-    /// Behaviour: hifi.options.every-fidelity-option-is-off-by-default
+    /// Behaviour: remaster.options.every-fidelity-option-is-off-by-default
     #[test]
-    #[cfg(feature = "hifi")]
-    fn every_fidelity_option_is_off_by_default_and_none_is_in_effect_outside_horizon() {
+    #[cfg(feature = "fidelity")]
+    fn the_remaster_is_off_at_first_and_none_of_it_is_in_effect_outside_horizon() {
         let d = FidelityPreferences::default();
         assert!(!d.interface);
         assert!(FidelityFeature::ALL.into_iter().all(|f| d.value(f) == 0));
-        assert!(!d.any_effective());
-        assert_eq!(
-            FidelityPreferences::from_preferences(&Preferences::parse("")),
-            d
-        );
+        assert!(!d.remaster());
+        // A fresh profile: the remaster's box off, its ordinary boxes ticked, so ticking it alone
+        // draws the whole of it.
+        let first = FidelityPreferences::from_preferences(&Preferences::parse(""));
+        for f in FidelityFeature::ALL {
+            let want = dereth_client_contract::options::remaster::ticked_at_first(f.name());
+            assert_eq!(first.value(f) != 0, want, "{f:?}");
+        }
+        assert!(!first.remaster());
+        let ticked = FidelityPreferences::from_preferences(&Preferences::parse(
+            "[UI]\nInterface=Horizon\n[Fidelity]\nRemaster=True\n",
+        ));
+        assert!(ticked.remaster_feature(FidelityFeature::RemasterShadows));
+        assert!(!ticked.remaster_feature(FidelityFeature::RemasterTracedShadows));
+        let unticked = FidelityPreferences::from_preferences(&Preferences::parse(
+            "[UI]\nInterface=Horizon\n[Fidelity]\nRemaster=True\nRemasterShadows=False\n",
+        ));
+        assert!(!unticked.remaster_feature(FidelityFeature::RemasterShadows));
         // Every box ticked, under the classic or the modern interface: nothing in effect.
         for interface in [
             "",
@@ -802,34 +870,26 @@ mod tests {
             "Interface=0\n",
         ] {
             let ticked = FidelityPreferences::from_preferences(&Preferences::parse(&format!(
-                "[UI]\n{interface}[Fidelity]\nLighting=True\nShadows=True\n\
-                 GlobalIllumination=True\nAmbientOcclusion=True\nLamps=True\nSky=True\n"
+                "[UI]\n{interface}[Fidelity]\nRemaster=True\nRemasterShadows=True\n\
+                 RemasterSky=True\nRemasterOcclusion=True\n"
             )));
             assert!(!ticked.interface, "{interface:?}");
-            assert_eq!(ticked.value(FidelityFeature::Lighting), 1);
-            assert!(ticked.any_stored());
+            assert_eq!(ticked.value(FidelityFeature::Remaster), 1);
             assert!(
                 FidelityFeature::ALL
                     .into_iter()
                     .all(|f| ticked.effective(f) == 0),
                 "{interface:?}"
             );
-            assert!(!ticked.any_effective(), "{interface:?}");
+            assert!(!ticked.remaster(), "{interface:?}");
         }
         // Under Horizon the ticked boxes are in effect.
         let horizon = FidelityPreferences::from_preferences(&Preferences::parse(
-            "[UI]\nInterface=Horizon\n[Fidelity]\nAmbientOcclusion=True\n",
+            "[UI]\nInterface=Horizon\n[Fidelity]\nRemasterOcclusion=True\n",
         ));
         assert!(horizon.interface);
-        assert_eq!(horizon.effective(FidelityFeature::AmbientOcclusion), 1);
-        assert_eq!(horizon.effective(FidelityFeature::Lighting), 0);
-        // An older build's levels, and the names of options this build does not have, are not
-        // read; neither is an error.
-        let old = FidelityPreferences::from_preferences(&Preferences::parse(
-            "[UI]\nInterface=2\n[Fidelity]\nEnabled=1\nPreset=2\nWater=3\nLighting=3\n",
-        ));
-        assert!(old.interface);
-        assert!(!old.any_effective());
+        assert_eq!(horizon.effective(FidelityFeature::RemasterOcclusion), 1);
+        assert_eq!(horizon.effective(FidelityFeature::Remaster), 0);
         // Every option has its name, and every name its option.
         assert_eq!(fidelity::NAMES.len(), FidelityFeature::ALL.len());
         for f in FidelityFeature::ALL {
@@ -837,42 +897,66 @@ mod tests {
         }
     }
 
+    /// A profile from a build that had the earlier experimental effects still loads: their boxes
+    /// are not read, nothing of them is in effect, and neither is an error.
+    ///
+    /// Behaviour: remaster.options.old-effects-boxes-are-ignored
     #[test]
-    #[cfg(feature = "hifi")]
+    #[cfg(feature = "fidelity")]
+    fn a_profile_naming_the_retired_effects_loads_and_they_are_ignored() {
+        let old = FidelityPreferences::from_preferences(&Preferences::parse(
+            "[UI]\nInterface=Horizon\n[Fidelity]\nLighting=True\nShadows=True\n\
+             GlobalIllumination=True\nAmbientOcclusion=True\nLamps=True\nSky=True\n\
+             Weather=True\nRetailLook=True\nNoAntiAliasing=True\nNoSlopeMaterials=True\n\
+             Debug=3\nEnabled=1\nPreset=2\nRemaster=True\n",
+        ));
+        assert!(old.interface);
+        assert!(old.remaster(), "the remaster's own box is still read");
+        let fresh = FidelityPreferences::from_preferences(&Preferences::parse(
+            "[UI]\nInterface=Horizon\n[Fidelity]\nRemaster=True\n",
+        ));
+        assert_eq!(old, fresh, "the retired boxes change nothing");
+        let mut q = FidelityPreferences::default();
+        for gone in ["Fidelity.Lighting", "Fidelity.Sky", "Fidelity.Debug"] {
+            assert!(!q.set_named(gone, &dereth_client_contract::PrefValue::Bool(true)));
+        }
+        assert!(FidelityPreferences::parse_switch("Lighting=1").is_err());
+    }
+
+    #[test]
+    #[cfg(feature = "fidelity")]
     fn fidelity_values_read_and_set_by_name_and_out_of_range_values_clamp() {
         use dereth_client_contract::PrefValue;
         let p = FidelityPreferences::from_preferences(&Preferences::parse(
-            "[UI]\nInterface=Horizon\n[Fidelity]\nDebug=9\nSky=1\n",
+            "[UI]\nInterface=Horizon\n[Fidelity]\nRemasterScale=75%\nRemasterSky=1\n",
         ));
-        assert_eq!(
-            p.effective(FidelityFeature::Debug),
-            0,
-            "an unknown view is off"
-        );
-        assert_eq!(p.effective(FidelityFeature::Sky), 1);
+        assert_eq!(p.effective(FidelityFeature::RemasterScale), 75);
+        assert_eq!(p.effective(FidelityFeature::RemasterSky), 1);
         let mut q = FidelityPreferences::default();
         assert!(q.set_named("fidelity.interface", &PrefValue::Bool(true)));
-        assert!(q.set_named(fidelity::SHADOWS, &PrefValue::Int(7)));
-        assert!(!q.set_named(fidelity::SHADOWS, &PrefValue::Float(2.0)));
+        assert!(q.set_named(fidelity::REMASTER_SHADOWS, &PrefValue::Int(7)));
+        assert!(!q.set_named(fidelity::REMASTER_SHADOWS, &PrefValue::Float(2.0)));
         assert!(!q.set_named("Render.FieldOfView", &PrefValue::Int(2)));
         assert!(!q.set_named("Fidelity.Water", &PrefValue::Int(2)));
         assert_eq!(
-            q.effective(FidelityFeature::Shadows),
-            4,
-            "a level saturates at Ultra"
+            q.effective(FidelityFeature::RemasterShadows),
+            1,
+            "a box saturates at on"
         );
+        assert!(q.set_named(fidelity::REMASTER_SCALE, &PrefValue::Int(250)));
+        assert_eq!(q.effective(FidelityFeature::RemasterScale), 100);
         assert!(q.set_named(fidelity::INTERFACE, &PrefValue::Bool(false)));
-        assert_eq!(q.effective(FidelityFeature::Shadows), 0);
+        assert_eq!(q.effective(FidelityFeature::RemasterShadows), 0);
         assert_eq!(
-            q.value(FidelityFeature::Shadows),
-            4,
+            q.value(FidelityFeature::RemasterShadows),
+            1,
             "the stored value is kept"
         );
     }
 
-    /// Behaviour: hifi.options.the-fidelity-section-reaches-the-render-preferences
+    /// Behaviour: remaster.options.the-fidelity-section-reaches-the-render-preferences
     #[test]
-    #[cfg(feature = "hifi")]
+    #[cfg(feature = "fidelity")]
     fn the_render_preferences_carry_the_fidelity_section_from_the_file_and_by_name() {
         use dereth_client_contract::PrefValue;
         assert_eq!(
@@ -880,35 +964,81 @@ mod tests {
             FidelityPreferences::default()
         );
         let r = RenderPreferences::from_preferences(&Preferences::parse(
-            "[UI]\nInterface=Horizon\n[Fidelity]\nDebug=1\n",
+            "[UI]\nInterface=Horizon\n[Fidelity]\nRemaster=1\n",
         ));
-        assert!(r.fidelity.any_effective());
-        assert_eq!(r.fidelity.effective(FidelityFeature::Debug), 1);
+        assert!(r.fidelity.remaster());
         // The live path: a name the render preferences do not own themselves lands in the
         // section, the interface flag with them.
         let mut live = RenderPreferences::default();
-        assert!(live.set_named(fidelity::AMBIENT_OCCLUSION, &PrefValue::Bool(true)));
-        assert!(!live.fidelity.any_effective());
+        assert!(live.set_named(fidelity::REMASTER, &PrefValue::Bool(true)));
+        assert!(!live.fidelity.remaster());
         assert!(live.set_named(fidelity::INTERFACE, &PrefValue::Bool(true)));
-        assert_eq!(
-            live.fidelity.effective(FidelityFeature::AmbientOcclusion),
-            1
-        );
+        assert!(live.fidelity.remaster());
         assert!(!live.set_named("Fidelity.NoSuchOption", &PrefValue::Int(1)));
         // A capture's settings, as Horizon draws them.
         let off = FidelityPreferences::parse_switch("off").expect("off");
-        assert!(off.interface && !off.any_effective());
-        let list = FidelityPreferences::parse_switch("Debug=1, Fidelity.Lighting=high+Sky=on")
-            .expect("list");
+        assert!(off.interface && !off.remaster());
+        let list = FidelityPreferences::parse_switch(
+            "Remaster=1, Fidelity.RemasterSky=on+RemasterFog=high",
+        )
+        .expect("list");
         assert!(list.interface);
-        assert_eq!(list.effective(FidelityFeature::Debug), 1);
-        assert_eq!(list.effective(FidelityFeature::Lighting), 3);
-        assert_eq!(list.effective(FidelityFeature::Sky), 1);
-        let classic = FidelityPreferences::parse_switch("Lighting=1,Interface=0").expect("classic");
-        assert!(!classic.any_effective() && classic.any_stored());
-        assert!(FidelityPreferences::parse_switch("Lighting").is_err());
+        assert!(list.remaster());
+        assert_eq!(list.effective(FidelityFeature::RemasterSky), 1);
+        assert_eq!(list.effective(FidelityFeature::RemasterFog), 1);
+        let classic = FidelityPreferences::parse_switch("Remaster=1,Interface=0").expect("classic");
+        assert!(!classic.remaster() && classic.value(FidelityFeature::Remaster) == 1);
+        assert!(FidelityPreferences::parse_switch("Remaster").is_err());
         assert!(FidelityPreferences::parse_switch("Water=1").is_err());
-        assert!(FidelityPreferences::parse_switch("Sky=lots").is_err());
+        assert!(FidelityPreferences::parse_switch("RemasterSky=lots").is_err());
+    }
+
+    /// The remaster's box is stored and read like its other boxes, and in effect under Horizon
+    /// alone. `--fidelity` sets it over the profile's.
+    #[test]
+    #[cfg(feature = "fidelity")]
+    fn the_remaster_box_is_read_from_the_profile_and_set_over_it_by_the_switch() {
+        let r = FidelityPreferences::from_preferences(&Preferences::parse(
+            "[UI]\nInterface=Horizon\n[Fidelity]\nRemaster=True\n",
+        ));
+        assert!(r.remaster());
+        assert_eq!(r.effective(FidelityFeature::Remaster), 1);
+        let classic = FidelityPreferences::from_preferences(&Preferences::parse(
+            "[UI]\nInterface=Classic\n[Fidelity]\nRemaster=True\n",
+        ));
+        assert!(!classic.remaster());
+        assert_eq!(classic.value(FidelityFeature::Remaster), 1);
+        let mut over = r;
+        assert_eq!(
+            over.apply_switch("remaster=0,RemasterSky=on")
+                .expect("parses"),
+            vec![(fidelity::REMASTER, 0), (fidelity::REMASTER_SKY, 1)]
+        );
+        assert!(!over.remaster());
+        assert!(over.apply_switch("Remaster=lots").is_err());
+    }
+
+    #[cfg(feature = "fidelity")]
+    #[test]
+    fn the_remasters_own_boxes_are_read_under_horizon() {
+        use super::{FidelityFeature, FidelityPreferences};
+        let r = FidelityPreferences::from_preferences(&Preferences::parse(
+            "[UI]\nInterface=Horizon\n[Fidelity]\nRemasterWater=True\nRemasterBloom=False\n\
+             RemasterPuddles=False\n",
+        ));
+        assert!(r.remaster_feature(FidelityFeature::RemasterWater));
+        assert!(
+            !r.remaster_feature(FidelityFeature::RemasterPuddles),
+            "separate"
+        );
+        assert!(!r.remaster_feature(FidelityFeature::RemasterBloom));
+        let classic = FidelityPreferences::from_preferences(&Preferences::parse(
+            "[UI]\nInterface=Classic\n[Fidelity]\nRemasterRain=True\n",
+        ));
+        assert!(!classic.remaster_feature(FidelityFeature::RemasterWater));
+        let mut over = FidelityPreferences::parse_switch("Remaster=1").expect("parses");
+        over.apply_switch("RemasterPuddles=1").expect("parses");
+        assert!(over.remaster_feature(FidelityFeature::RemasterPuddles));
     }
 
     #[test]

@@ -38,10 +38,6 @@ pub(super) struct BakeFrom {
     /// The texture detail and image scale the surfaces' pictures are decoded at, and whether
     /// the files held their high-resolution pictures.
     pub(super) pictures: (u32, dereth_render::texture::ImageScale, bool),
-    /// The art pack whose models the high-fidelity presentation may draw: the objects it has
-    /// models for are baked apart.
-    #[cfg(feature = "hifi")]
-    pub(super) art_pack: Option<Arc<crate::art_pack::ArtPack>>,
 }
 
 /// What a bake off the frame was made for: compared with what the frame would bake the block for
@@ -52,10 +48,6 @@ pub(super) struct BakeKey {
     /// The land's inputs' generation ([`LandContext`]'s `bake_epoch`).
     pub(super) epoch: u64,
     pub(super) knobs: ObjectKnobs,
-    /// The drawn ground's bake generation the scenery is moved for: nought while it is not
-    /// drawn.
-    #[cfg(feature = "hifi")]
-    pub(super) drawn: u64,
 }
 
 /// One block asked for.
@@ -64,9 +56,6 @@ pub(super) struct BakeJob {
     pub(super) from: Arc<BakeFrom>,
     /// The surfaces the frame has resolved already: their pictures are not decoded again.
     pub(super) known: Arc<HashSet<DataId>>,
-    /// What the block's scenery is moved by, while the drawn ground is drawn.
-    #[cfg(feature = "hifi")]
-    pub(super) shift: Option<Arc<super::drawn_ground::SceneryShift>>,
 }
 
 /// One block baked off the frame, as far as it is without the device.
@@ -199,18 +188,8 @@ fn bake(job: BakeJob, cache: &mut BakeCache) -> Option<BakeDone> {
         &from.table,
         spec,
     );
-    #[cfg(feature = "hifi")]
-    let shift = job
-        .shift
-        .as_ref()
-        .map(|s| move |x: f32, y: f32, z: f32| s.shift(x, y, z));
-    #[cfg(feature = "hifi")]
-    let scenery_shift: Option<&dyn Fn(f32, f32, f32) -> f32> =
-        shift.as_ref().map(|f| f as &dyn Fn(f32, f32, f32) -> f32);
-    #[cfg(not(feature = "hifi"))]
     let scenery_shift: Option<&dyn Fn(f32, f32, f32) -> f32> = None;
-    #[cfg_attr(not(feature = "hifi"), allow(unused_mut))]
-    let mut placed = land::place_objects(
+    let placed = land::place_objects(
         &from.store,
         &from.region,
         (&lb, &mesh, bx, by),
@@ -218,8 +197,6 @@ fn bake(job: BakeJob, cache: &mut BakeCache) -> Option<BakeDone> {
         &|_, _| false,
         scenery_shift,
     );
-    #[cfg(feature = "hifi")]
-    land::cover_with_pack(&mut placed, from.art_pack.as_deref(), &|_, _| false);
     let mut gathered = land::gather_objects(&from.store, cache, None, &placed, from.knobs);
     let mut surfaces = Vec::new();
     for (_, assembly) in &mut gathered.sides {
@@ -325,15 +302,12 @@ pub(super) enum OffFrame {
 impl SceneDraw {
     /// The switches the blocks' objects are baked with now.
     pub(super) fn object_knobs(&self, gpu: &Gpu) -> ObjectKnobs {
-        #[cfg(not(feature = "hifi"))]
         let _ = gpu;
         ObjectKnobs {
             part_degrades: self.cfg.part_degrades,
             degrade_levels: self.cfg.degrade_levels,
             static_billboards: self.cfg.static_billboards,
             lod_object_guard: self.cfg.lod_object_guard,
-            #[cfg(feature = "hifi")]
-            lamps: super::hifi_bridge::lamps_possible(gpu),
         }
     }
 
@@ -411,12 +385,6 @@ impl SceneDraw {
             spec,
             epoch: self.land.bake_epoch,
             knobs,
-            #[cfg(feature = "hifi")]
-            drawn: if self.drawn.active {
-                self.drawn.bake_generation
-            } else {
-                0
-            },
         };
         if let Some(done) = self.land.bakes_done.remove(&block) {
             if done.key == key {
@@ -449,13 +417,6 @@ impl SceneDraw {
                 key: key.clone(),
                 from,
                 known: Arc::new(known),
-                // The drawn ground's offset the scenery is moved by, taken now for the thread.
-                #[cfg(feature = "hifi")]
-                shift: if self.drawn.active {
-                    self.drawn.scenery_shift_for(store, block).map(Arc::new)
-                } else {
-                    None
-                },
             },
             viewer,
         );
@@ -487,8 +448,6 @@ impl SceneDraw {
             table: land.table.clone(),
             knobs,
             pictures,
-            #[cfg(feature = "hifi")]
-            art_pack: land.art_pack.clone(),
         });
         land.bake_from = Some(Arc::clone(&from));
         from

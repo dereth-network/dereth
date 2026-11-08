@@ -5,8 +5,8 @@
 //! built from: `dereth-render` (the device), `dereth-world-render` (what the world draws and in what
 //! order), `dereth-terrain`, `dereth-primitives`, `dereth-dat`, `dereth-assets`, `dereth-physics`, `dereth-animation`,
 //! `dereth-audio`, `dereth-protocol` and `dereth-world-data`, the target projection from the contract
-//! (`dereth-client-contract`), character creation's model (`dereth-chargen`), and, behind its `hifi`
-//! feature, the optional high-fidelity presentation (`dereth-render-hifi`). **Used by** the client shell
+//! (`dereth-client-contract`), character creation's model (`dereth-chargen`), and, behind its
+//! `remaster` feature, the remaster (`dereth-remaster`). **Used by** the client shell
 //! (`dereth-client-shell`), the desktop client (`dereth-client`) and the browser client
 //! (`dereth-web`).
 //!
@@ -25,7 +25,7 @@
 //! | [`textures`], [`mip_worker`] | the dat texture lookup, and compressed mip chains built off thread |
 //! | [`render_prefs`] | the `Render.*` owners on the device and on the scene |
 //! | [`camera`] | camera comparisons against the renderer's view matrix |
-//! | `art_pack` | art packs' models and which look draws an object, behind the `art-pack` feature (which `hifi` turns on) |
+//! | `art_pack` | art packs' models and which look draws an object, behind the `art-pack` feature (which `remaster` turns on) |
 
 #[cfg(feature = "art-pack")]
 pub mod art_pack;

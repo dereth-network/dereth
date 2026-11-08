@@ -78,13 +78,9 @@ pub const CRASH_LOGS_KEPT: usize = 20;
 /// documentation.
 pub const SETTINGS_DIR_ENV: &str = "DERETH_SETTINGS_DIR";
 
-/// The environment variable that names an art pack the high-fidelity presentation draws: its
+/// The environment variable that names an art pack the remaster draws: its
 /// folder, or the file it was packed into. It wins over `[Fidelity] ArtPack` in the profile; `--art-pack` wins over it.
 pub const ART_PACK_ENV: &str = "DERETH_ART_PACK";
-
-/// The environment variable that names the drawn ground's tuning file, in place of
-/// `terrain-tuning.toml` beside the preferences file.
-pub const TERRAIN_TUNING_ENV: &str = "DERETH_TERRAIN_TUNING";
 
 /// The original game's settings directory under `Documents`, which a retail installation writes.
 pub const RETAIL_SETTINGS_DIR_NAME: &str = "Asheron's Call";
@@ -439,10 +435,9 @@ pub fn load_config(
         if !cfg.art_pack_argument {
             if let Some(dir) = process_env(ART_PACK_ENV).filter(|v| !v.is_empty()) {
                 cfg.art_pack = Some(PathBuf::from(dir));
+                cfg.art_pack_argument = true;
+                cfg.tick_art_pack_box();
             }
-        }
-        if let Some(file) = process_env(TERRAIN_TUNING_ENV).filter(|v| !v.is_empty()) {
-            cfg.terrain_tuning = Some(PathBuf::from(file));
         }
         if cfg.preferences_file.as_os_str().is_empty() && !cfg.headless {
             cfg.preferences_file = default_preferences.to_path_buf();

@@ -146,21 +146,20 @@ mod imp {
             )?))
         }
 
-        /// [`Self::new_on`], asking the device for the optional high-fidelity presentation when
-        /// `hifi` says so: [`SceneRenderer::new_on_for_hifi`].
+        /// [`Self::new_on`], asking the device for what the remaster draws with as `remaster`
+        /// says: [`SceneRenderer::new_on_for`].
         ///
         /// # Errors
         /// As [`Self::new_on`].
-        #[cfg(feature = "hifi")]
-        pub fn new_on_for_hifi(
+        pub fn new_on_for(
             backend: dereth_render::device::Backend,
             window: Option<WindowHandles>,
             width: u32,
             height: u32,
-            hifi: bool,
+            remaster: bool,
         ) -> Result<Self, RenderError> {
-            Ok(Self::around(SceneRenderer::new_on_for_hifi(
-                backend, window, width, height, hifi,
+            Ok(Self::around(SceneRenderer::new_on_for(
+                backend, window, width, height, remaster,
             )?))
         }
 
@@ -996,17 +995,22 @@ mod imp {
             SceneRenderer::texture_filtering(self)
         }
 
+        #[cfg(feature = "dlss")]
+        fn dlss_carried(&self) -> bool {
+            SceneRenderer::dlss_carried(self)
+        }
+
+        #[cfg(feature = "remaster")]
+        fn art_pack_open(&self) -> bool {
+            SceneRenderer::art_pack_open(self)
+        }
+
         fn renderer_status(&self) -> dereth_client_contract::options::renderer::RendererStatus {
             renderer_status(
                 SceneRenderer::backend(self),
                 &dereth_render::device::Backend::compiled(),
                 cfg!(target_arch = "wasm32"),
             )
-        }
-
-        #[cfg(feature = "hifi")]
-        fn hifi_availability(&self) -> dereth_client_contract::options::fidelity::Availability {
-            SceneRenderer::hifi_availability(self)
         }
 
         fn render_context(
@@ -1108,14 +1112,14 @@ mod imp {
             SceneRenderer::offer_object_identity(self, identity);
         }
 
-        #[cfg(feature = "hifi")]
+        #[cfg(feature = "remaster")]
         fn offer_art_pack(&mut self, dir: &std::path::Path) {
             SceneRenderer::offer_art_pack(self, dir);
         }
 
-        #[cfg(feature = "hifi")]
-        fn offer_terrain_tuning(&mut self, file: &std::path::Path) {
-            SceneRenderer::offer_terrain_tuning(self, file);
+        #[cfg(feature = "remaster")]
+        fn offer_look_file(&mut self, file: &std::path::Path) {
+            SceneRenderer::offer_look_file(self, file);
         }
 
         fn overlay_upload(

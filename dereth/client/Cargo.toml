@@ -29,7 +29,7 @@ embed-resource = "3"
 test-support = ["dereth-client-shell/test-support"]
 # The carried classic fonts in a Windows client too, for `DERETH_CLASSIC_FONTS=carried`.
 carried-fonts = ["dereth-desktop/carried-fonts"]
-default = ["vulkan", "d3d12", "wgpu", "hifi"]
+default = ["vulkan", "d3d12", "wgpu", "remaster"]
 vulkan = ["dereth-render/vulkan", "dereth-scene/vulkan", "dereth-client-shell/vulkan"]
 # `wgpu` forwards to dereth-render's third backend: Metal, Vulkan or Direct3D 12 through `wgpu`,
 # selected with `--renderer wgpu` or `Renderer=wgpu`.
@@ -39,11 +39,16 @@ wgpu = ["dereth-render/wgpu", "dereth-scene/wgpu", "dereth-client-shell/wgpu"]
 # and which one a run uses is chosen at
 # startup by `--renderer vulkan|d3d12`, or the `Renderer=` preference.
 d3d12 = ["dereth-render/d3d12", "dereth-scene/d3d12", "dereth-client-shell/d3d12"]
-# `hifi` builds in the experimental rendering effects (`dereth-render-hifi`): drawn on the `wgpu`
-# device, only under the Horizon interface, and only for the boxes its options page ticks, each off
-# by default. The browser client never has it; a build without it is exactly the client without
-# the effects.
-hifi = ["dereth-scene/hifi", "dereth-client-shell/hifi", "dereth-render/hifi"]
+# `remaster` builds in the remaster: its seam on the Vulkan device (the features it asks for, the
+# device's handles, the world hook it draws the world through) and its scene seams (the
+# publisher that hands it each frame's changes and state, and the walk's decide-only mode).
+# Nothing is published, nothing draws through the hook and the walk draws as it always has
+# unless the remaster is turned on (its box on Horizon's Client page, or `--fidelity remaster=1`),
+# on the Vulkan renderer; a build without it is exactly the client without it.
+remaster = ["dereth-scene/remaster", "dereth-render/remaster", "dereth-client-shell/remaster"]
+# The remaster's DLSS: loaded only if NVIDIA's `nvngx_dlss.dll` stands beside the client, and no
+# DLL ships. Off, or without the DLL, its modes are drawn by FSR.
+dlss = ["remaster", "dereth-scene/dlss", "dereth-client-shell/dlss"]
 # Tier switch only: no code is gated on it. It selects the `dat` and `gpu` test binaries,
 # whose modules read the retail dats under $DERETH_TEST_DAT_DIR.
 retail-dats = []
@@ -100,6 +105,8 @@ dereth-client-net = { workspace = true, default-features = true, features = ["te
 dereth-physics = { workspace = true, features = ["trace"] }
 dereth-dat = { workspace = true, features = ["test-support"] }
 dereth-render = { workspace = true, features = ["mock", "test-support"] }
+# The libraries the process has loaded, for the check that the remaster brings none of its own.
+dereth-gfx.workspace = true
 dereth-world-data.workspace = true
 dereth-classic-ui.workspace = true
 # The Horizon interface's names, drawn over the world in the instrument that pictures them.

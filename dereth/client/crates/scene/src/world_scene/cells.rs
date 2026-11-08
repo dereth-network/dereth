@@ -217,8 +217,6 @@ impl SceneDraw {
                 // the cell's drawn-this-frame counter, which `draw_inside` does not keep;
                 // it is named rather than skipped silently.
                 IndoorStep::FlushBeforeClear => {
-                    #[cfg(feature = "hifi")]
-                    gpu.hifi_mark(Mark::IndoorFlush);
                     self.flush_pending_alpha_list(gpu, per_frame)?;
                     // The frame stamp moves on here, so a part the outdoor pass drew is drawn
                     // again by the interior cell that holds it.
@@ -239,7 +237,7 @@ impl SceneDraw {
                 // does not carry the one-frame lag: a first frame that cleared nothing would be
                 // a single-frame flash of exactly the defect, and nothing observes the counter.
                 IndoorStep::ZClear => {
-                    if self.cfg.indoor_z_clear {
+                    if self.cfg.indoor_z_clear && self.submits() {
                         gpu.clear_depth(vp.viewport);
                     }
                 }
@@ -328,18 +326,20 @@ impl SceneDraw {
                                     }
                                     let quad: Vec<[f32; 4]> =
                                         clipped.iter().map(|s| s.to_clip(fw, fh)).collect();
-                                    gpu.draw_portal_poly(
-                                        per_frame,
-                                        &quad,
-                                        portal_stamp_mask::INDOOR,
-                                    )?;
+                                    if self.submits() {
+                                        gpu.draw_portal_poly(
+                                            per_frame,
+                                            &quad,
+                                            portal_stamp_mask::INDOOR,
+                                        )?;
+                                    }
                                 }
                             }
                         }
                     }
                 }
                 IndoorStep::EnvCellMeshes => {
-                    for id in view.draw_order() {
+                    for id in view.draw_order().into_iter().filter(|_| self.submits()) {
                         let Some((cell, origin)) = placed.get(&id.0) else {
                             continue;
                         };
@@ -563,16 +563,18 @@ impl SceneDraw {
                     drawn_vertices(b)
                 }
             };
-            submit_static_vertices(
-                gpu,
-                per_frame,
-                &world,
-                b,
-                vertices,
-                set.as_deref(),
-                detail,
-                false,
-            )?;
+            if self.submits() {
+                submit_static_vertices(
+                    gpu,
+                    per_frame,
+                    &world,
+                    b,
+                    vertices,
+                    set.as_deref(),
+                    detail,
+                    false,
+                )?;
+            }
             // LINT-OK: a batch index bounded by the cell's batch count. Not a float.
             #[allow(clippy::cast_possible_truncation)]
             self.note_cell_runs(
@@ -888,8 +890,6 @@ impl SceneDraw {
         // `None` is the null-surface case.
         detail: Option<(TextureSlot, f32)>,
     ) -> Result<(), RenderError> {
-        #[cfg(feature = "hifi")]
-        gpu.hifi_mark(Mark::EnvCell { cell: cell.id.0 });
         let mut world = world_constants(&Frame::new(
             Vec3::new(origin.0, origin.1, 0.0),
             Quat::IDENTITY,
@@ -1014,7 +1014,16 @@ impl SceneDraw {
                     Quat::IDENTITY,
                 ));
                 for batch in block.blended.iter().filter(blended) {
-                    submit_static_batch(gpu, per_frame, &world, batch, sun_set.as_deref(), detail)?;
+                    if self.submits() {
+                        submit_static_batch(
+                            gpu,
+                            per_frame,
+                            &world,
+                            batch,
+                            sun_set.as_deref(),
+                            detail,
+                        )?;
+                    }
                     match when {
                         AlphaFlush::Building => stats.blend_early += 1,
                         AlphaFlush::Frame => stats.blend += 1,
@@ -1068,15 +1077,17 @@ impl SceneDraw {
                 .iter()
                 .filter(|b| static_multipass_member(b, detail.is_some()))
             {
-                submit_static_batch_with(
-                    gpu,
-                    per_frame,
-                    &world,
-                    batch,
-                    sun_set.as_deref(),
-                    detail,
-                    true,
-                )?;
+                if self.submits() {
+                    submit_static_batch_with(
+                        gpu,
+                        per_frame,
+                        &world,
+                        batch,
+                        sun_set.as_deref(),
+                        detail,
+                        true,
+                    )?;
+                }
                 stats.multipass += 1;
                 self.frame_alpha_order
                     .borrow_mut()
@@ -1299,7 +1310,9 @@ impl SceneDraw {
                     && !is_dummy_portal(&p.vertices)
                 {
                     let quad: Vec<[f32; 4]> = clipped.iter().map(|s| s.to_clip(fw, fh)).collect();
-                    gpu.draw_portal_poly(per_frame, &quad, portal_stamp_mask::BUILDING)?;
+                    if self.submits() {
+                        gpu.draw_portal_poly(per_frame, &quad, portal_stamp_mask::BUILDING)?;
+                    }
                 }
 
                 let (Some(interior), Some(view0)) = (step.interior, opened) else {
@@ -1369,14 +1382,16 @@ impl SceneDraw {
                         self.frame_cell_statics.set(stats);
                         continue;
                     }
-                    Self::draw_env_cell(
-                        gpu,
-                        per_frame,
-                        cell,
-                        *origin,
-                        cell_set.as_deref(),
-                        env_detail,
-                    )?;
+                    if self.submits() {
+                        Self::draw_env_cell(
+                            gpu,
+                            per_frame,
+                            cell,
+                            *origin,
+                            cell_set.as_deref(),
+                            env_detail,
+                        )?;
+                    }
                 }
                 // Cell drawing's second loop — the cells' objects, after all their meshes.
                 // This is what puts a table in the room you see through a window. Each cell

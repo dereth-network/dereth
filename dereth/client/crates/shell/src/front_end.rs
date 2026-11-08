@@ -1125,6 +1125,13 @@ impl<H: Host> Ui<'_, '_, H> {
                     )),
                 );
             }
+            // `--fidelity` wins over the profile's options too, and the page shows them.
+            for (name, value) in &self.cx.config().fidelity_switch {
+                let _ = dereth_client_contract::options::store::set_value(
+                    name,
+                    dereth_client_contract::PrefValue::Bool(*value != 0),
+                );
+            }
             dereth_client_runtime::render_prefs::seed_ui_registry(
                 self.cx.present().texture_filtering(),
             );
@@ -1902,7 +1909,7 @@ impl<H: Host> ClientShell<H> {
         cx.set_smooth_movement(false);
         // The game's attack controls again: held, they charge.
         cx.set_press_attacks(false);
-        cx.set_hifi_interface(false);
+        cx.set_horizon_interface(false);
         self.horizon.active = false;
         cx.hud_mut().horizon_active = false;
         flush_panel_sessions(cx);
@@ -1919,7 +1926,7 @@ impl<H: Host> ClientShell<H> {
             cx.set_orbit_camera(Some(ui.ui.options.orbit));
         }
         self.horizon.active = true;
-        cx.set_hifi_interface(true);
+        cx.set_horizon_interface(true);
         // Another interface may have rebound keys while this one was put away.
         self.horizon.keys.invalidate();
         cx.hud_mut().horizon_active = true;

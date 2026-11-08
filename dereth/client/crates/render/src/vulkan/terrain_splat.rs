@@ -87,6 +87,21 @@ impl Gpu {
             Some(s) => s,
             None => self.create_terrain_splat()?,
         };
+        #[cfg(feature = "test-support")]
+        {
+            let mut words = vec![splat.base.map_or(u32::MAX, |s| s.0), splat.base_tiling];
+            for o in &splat.overlays {
+                words.extend([
+                    o.alpha.0,
+                    o.rotation,
+                    o.tex.map_or(u32::MAX, |s| s.0),
+                    o.tiling,
+                ]);
+            }
+            self.digest
+                .borrow_mut()
+                .note(&super::digest::Step::Layers(&words));
+        }
         let prepared = self.prepare_splat(&mut state, key, splat);
         let layout = state.layout;
         self.terrain_splat = Some(state);

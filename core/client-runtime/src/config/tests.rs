@@ -184,6 +184,63 @@ fn the_classic_dat_dir_switch_names_where_the_older_files_are_and_is_optional() 
     }
 }
 
+/// Behaviour: none (experimental)
+#[cfg(feature = "fidelity")]
+#[test]
+fn naming_an_art_pack_ticks_the_remasters_box_unless_the_profile_unticks_it() {
+    use crate::render_prefs::FidelityFeature::RemasterArtPack;
+    let ticked = |c: &Config| c.render.fidelity.value(RemasterArtPack) != 0;
+    let shown = |c: &Config| {
+        c.fidelity_switch
+            .iter()
+            .any(|(name, value)| name.ends_with("RemasterArtPack") && *value != 0)
+    };
+    let none = parse(&[]).expect("parses");
+    assert!(!ticked(&none) && !shown(&none), "no pack, no tick");
+    let named = parse(&["--art-pack", "packs/pilot"]).expect("parses");
+    assert!(
+        ticked(&named) && shown(&named),
+        "the command line ticks it, and the page shows it"
+    );
+    let profile = Preferences::parse("[Fidelity]\nArtPack=packs/kept\n");
+    let kept = Config::from_args_and_prefs_with(&[], &profile).expect("parses");
+    assert!(ticked(&kept) && shown(&kept), "the profile's pack ticks it");
+    let unticked = Preferences::parse("[Fidelity]\nArtPack=packs/kept\nRemasterArtPack=False\n");
+    let off = Config::from_args_and_prefs_with(&[], &unticked).expect("parses");
+    assert!(
+        !ticked(&off) && !shown(&off),
+        "a box the player unticked in that profile stays so"
+    );
+    let argv = vec!["--art-pack".to_string(), "packs/asked".to_string()];
+    let asked = Config::from_args_and_prefs_with(&argv, &unticked).expect("parses");
+    assert!(ticked(&asked), "a pack asked for on this start ticks it");
+    let mut env = Config::from_args_and_prefs_with(&[], &unticked).expect("parses");
+    env.art_pack = Some(PathBuf::from("packs/env"));
+    env.art_pack_argument = true;
+    env.tick_art_pack_box();
+    assert!(ticked(&env), "so does one from the environment");
+    let argv = vec![
+        "--art-pack".to_string(),
+        "packs/asked".to_string(),
+        "--fidelity".to_string(),
+        "RemasterArtPack=0".to_string(),
+    ];
+    let switched = Config::from_args_and_prefs_with(&argv, &profile).expect("parses");
+    assert!(!ticked(&switched), "--fidelity naming it off wins");
+}
+
+/// Behaviour: none (experimental)
+#[cfg(feature = "fidelity")]
+#[test]
+fn an_old_profiles_art_pack_rows_are_read_as_nothing() {
+    use crate::render_prefs::FidelityFeature::RemasterArtPack;
+    let old = Preferences::parse(
+        "[Fidelity]\nRemasterPackTrees=True\nRemasterPackPlants=False\nRemasterPackGround=True\n",
+    );
+    let cfg = Config::from_args_and_prefs_with(&[], &old).expect("parses");
+    assert_eq!(cfg.render.fidelity.value(RemasterArtPack), 0);
+}
+
 /// Behaviour: none (experimental hi-fi art packs)
 #[test]
 fn the_art_pack_folder_comes_from_the_command_line_over_the_profile() {
@@ -210,6 +267,39 @@ fn the_art_pack_folder_comes_from_the_command_line_over_the_profile() {
             .art_pack,
         None
     );
+}
+
+/// Behaviour: none (experimental)
+#[test]
+#[cfg(feature = "fidelity")]
+fn the_fidelity_switch_sets_its_options_over_the_profiles() {
+    use crate::render_prefs::FidelityFeature;
+    let none = parse(&[]).expect("parses");
+    assert!(none.fidelity_switch.is_empty());
+    let profile = Preferences::parse(
+        "[UI]
+Interface=Horizon
+[Fidelity]
+RemasterSky=True
+",
+    );
+    let argv = vec!["--fidelity".to_string(), "remaster=1".to_string()];
+    let c = Config::from_args_and_prefs_with(&argv, &profile).expect("parses");
+    assert!(c.render.fidelity.remaster());
+    assert_eq!(
+        c.render.fidelity.effective(FidelityFeature::RemasterSky),
+        1,
+        "the profile's stand"
+    );
+    assert_eq!(
+        c.fidelity_switch,
+        vec![(
+            dereth_client_contract::options::names::fidelity::REMASTER,
+            1
+        )]
+    );
+    assert!(parse(&["--fidelity", "remaster"]).is_err());
+    assert!(parse(&["--fidelity", "water=1"]).is_err());
 }
 
 /// Behaviour: login.logon-version.a-world-that-wants-another-logon-version-is-sent-it
@@ -533,7 +623,8 @@ Renderer=glide
     );
 }
 
-/// The log's three switches and its two preferences, with the command line winning.
+/// The log's three switches and its two preferences, with the command line winning; the file's
+/// switch takes a path too.
 #[test]
 fn the_log_is_configured_by_switch_and_by_preference() {
     let c = parse(&[]).unwrap();
@@ -554,6 +645,17 @@ fn the_log_is_configured_by_switch_and_by_preference() {
         Some("info,dereth_client_runtime::frame=trace")
     );
     assert!(c.log_file && c.log_spans);
+    assert_eq!(
+        c.log_file_path, None,
+        "no path given: the default beside the preferences"
+    );
+    // `--log-file` takes a path too.
+    let c = parse(&["--log-file", "C:/logs/run.log", "--log-spans"]).unwrap();
+    assert!(c.log_file && c.log_spans);
+    assert_eq!(
+        c.log_file_path.as_deref(),
+        Some(std::path::Path::new("C:/logs/run.log"))
+    );
     // `--log` takes a value; with none it is a parse error like any other required value.
     assert!(parse(&["--log"]).is_err());
 

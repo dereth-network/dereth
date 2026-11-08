@@ -187,6 +187,10 @@ impl SceneDraw {
         self.character_part_levels = vec![0; parts.len()];
         self.character_part_cypt = vec![0.0; parts.len()];
         self.character_parts = parts;
+        #[cfg(feature = "remaster")]
+        {
+            self.remaster_body_generation = self.remaster_body_generation.wrapping_add(1);
+        }
     }
 
     /// Apply the server's `ObjDesc` to the player's own body.
@@ -281,16 +285,8 @@ impl SceneDraw {
         );
         self.fold_object_counters(counters);
         done?;
-        #[cfg(feature = "hifi")]
-        {
-            let started = web_time::Instant::now();
-            self.drawn_ground_step(ws, store, gpu);
-            let costs = self.frame_costs.get();
-            self.frame_costs.set(FrameCosts {
-                drawn_ground: started.elapsed().as_secs_f32() * 1000.0,
-                ..costs
-            });
-        }
+        #[cfg(feature = "remaster")]
+        self.remaster_ground_step(ws, store);
         self.stats.server_object_setups = self.object_meshes.len();
         // `server_object_batches` and `server_object_triangles` are what one
         // frame **draws**, so they are written by [`Self::refresh_part_levels`]. Seeded here

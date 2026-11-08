@@ -13,6 +13,7 @@ pub mod landscape;
 pub mod names;
 pub mod performance;
 pub mod preferences;
+pub mod remaster;
 pub mod render_scale;
 pub mod renderer;
 pub mod sheet;

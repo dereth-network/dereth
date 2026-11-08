@@ -209,14 +209,11 @@ impl<S: Shell> App<S> {
         // The art pack, before any world is loaded, so the first one is drawn with it.
         if let Some(dir) = cfg.art_pack.as_deref() {
             present.offer_art_pack(dir);
-            // And the drawn ground's tuning file, beside the preferences unless one is named.
-            let tuning = cfg.terrain_tuning.clone().or_else(|| {
-                (!cfg.preferences_file.as_os_str().is_empty())
-                    .then(|| cfg.preferences_file.with_file_name("terrain-tuning.toml"))
-            });
-            if let Some(file) = tuning.as_deref() {
-                present.offer_terrain_tuning(file);
-            }
+        }
+
+        // The player's look file, beside the preferences.
+        if !cfg.preferences_file.as_os_str().is_empty() {
+            present.offer_look_file(&cfg.preferences_file.with_file_name("look.toml"));
         }
 
         let timer = Clock::init();
@@ -279,8 +276,8 @@ impl<S: Shell> App<S> {
         let object_identity = scene_cfg.object_identity_budget.and_then(|budget| {
             ObjectIdentityPrep::start(&store, budget, scene_cfg.object_identity_cache)
         });
-        #[cfg(feature = "hifi")]
-        let hifi_interface = cfg.render.fidelity.interface;
+        #[cfg(feature = "fidelity")]
+        let horizon_interface = cfg.render.fidelity.interface;
         let mut app = Self {
             cfg,
             state: AppState::Startup,
@@ -301,10 +298,12 @@ impl<S: Shell> App<S> {
             orbit: None,
             orbit_keys: crate::orbit::MovementKeys::default(),
             orbit_pending: Vec::new(),
-            #[cfg(feature = "hifi")]
-            hifi_interface,
-            #[cfg(feature = "hifi")]
+            #[cfg(feature = "fidelity")]
+            horizon_interface,
+            #[cfg(feature = "fidelity")]
             fidelity_told: Vec::new(),
+            #[cfg(feature = "fidelity")]
+            fidelity_held: Vec::new(),
             orbit_look: (0.0, 0.0),
             smooth_animation: false,
             smooth_movement: false,

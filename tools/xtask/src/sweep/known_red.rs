@@ -36,22 +36,21 @@
 
 /// `(suite, status owner, why it is red)`. A list, not a map, so a duplicate key is a test failure
 /// rather than an entry silently lost.
-pub const KNOWN_RED: &[(&str, &str, &str)] = &[(
-    "rendering::hifi_far_trees",
-    "Better Lighting",
-    "far_trees_hold_still_under_a_still_camera_frame_after_frame: under Better Lighting's \
-     anti-aliasing the far trees' edges flicker against an art pack's sky, so about 3,480 pixels \
-     change a frame with them against 2,949 without, over the 3,346 allowed (the test passes with \
-     the pack's sky off). Better Lighting gets no more fixes",
-)];
+pub const KNOWN_RED: &[(&str, &str, &str)] = &[];
 
 /// Binaries whose every test is `#[ignore]`d on purpose, so "0 passed 0 failed" is their designed
 /// resting state and not a gate behind a feature. A NO-TESTS result for any binary not listed here
 /// is still a fault.
-pub const KNOWN_NO_TESTS: &[(&str, &str)] = &[(
-    "dereth-clipboard::roundtrip",
-    "writes the REAL system clipboard; run by hand with --ignored --test-threads=1",
-)];
+pub const KNOWN_NO_TESTS: &[(&str, &str)] = &[
+    (
+        "dereth-clipboard::roundtrip",
+        "writes the REAL system clipboard; run by hand with --ignored --test-threads=1",
+    ),
+    (
+        "dereth-client::rendering::remaster_metalfx",
+        "MetalFX draws only over Metal: off a Mac its one test is ignored",
+    ),
+];
 
 /// The red list's entry for `suite`, if it has one.
 pub fn known_red(

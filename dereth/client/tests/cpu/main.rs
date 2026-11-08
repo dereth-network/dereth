@@ -6,7 +6,7 @@
 //! * `magic` drives casting against a synthetic spell table.
 //! * `movement` checks the jump-velocity inquiry.
 //! * `rendering` checks the terrain split rule between the renderer and physics, and that the
-//!   default build leaves the high-fidelity presentation out.
+//!   desktop build carries the remaster and the browser build does not.
 //!
 //! `common/` supplies the fixture-path and corpus-size helpers.
 

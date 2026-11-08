@@ -1,2 +1,2 @@
-mod hifi_default_off;
+mod remaster_build;
 mod terrain_split_rule;

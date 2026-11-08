@@ -502,7 +502,8 @@ pub(super) fn kept_vertices(
 /// colour through `draw_params.w`, the state through [`PartMesh::key_material_alpha`].
 ///
 /// `honour` is [`SceneConfig::material_translucency`]; `counts` is
-/// `(parts submitted, parts drawn through a material alpha)`.
+/// `(parts submitted, parts drawn through a material alpha)`. `submit` is whether the subsets
+/// drawn in place go to the device: a walk that only decides queues and counts them all the same.
 #[allow(clippy::too_many_arguments)] // one parameter per input the call takes
 pub(super) fn draw_part(
     gpu: &mut Gpu,
@@ -512,8 +513,8 @@ pub(super) fn draw_part(
     defer: Option<u32>,
     pass: &mut PartPass,
     lights: Option<&[D3dLight]>,
-    // The live `Render.MultiPassAlpha` preference.
-    multi_pass_alpha: bool,
+    // The live `Render.MultiPassAlpha` preference, and whether to submit.
+    (multi_pass_alpha, submit): (bool, bool),
 ) -> Result<(), RenderError> {
     use dereth_world_render::objects::alpha::{AlphaEntry, AlphaList};
     use dereth_world_render::objects::draw::classify_subset_passes;
@@ -628,7 +629,9 @@ pub(super) fn draw_part(
             force_alpha: false,
         });
         pass.counts.immediate += 1;
-        submit_part_mesh(gpu, per_frame, part, draw_pos, m, honour, lights, false)?;
+        if submit {
+            submit_part_mesh(gpu, per_frame, part, draw_pos, m, honour, lights, false)?;
+        }
     }
     Ok(())
 }
@@ -708,12 +711,6 @@ pub(super) fn submit_static_vertices(
         gpu.bind_stage1_texture(slot);
         world.detail_params = [tiling, 1.0, 0.0, 0.0];
     }
-    // The objects an art pack has models for: the high-fidelity presentation may draw the
-    // models in their place.
-    #[cfg(feature = "hifi")]
-    if batch.art_pack {
-        gpu.hifi_mark(dereth_render::hifi_mark::Mark::ArtPackCovered);
-    }
     gpu.draw_dynamic(
         // A batch drawn with a detail surface installed is never queued for a second pass
         // ([`static_multipass_member`]), so the two never meet.
@@ -732,10 +729,6 @@ pub(super) fn submit_static_vertices(
         &world,
         vertices,
     )?;
-    #[cfg(feature = "hifi")]
-    if batch.art_pack {
-        gpu.hifi_mark(dereth_render::hifi_mark::Mark::ArtPackCoveredEnd);
-    }
     Ok(())
 }
 

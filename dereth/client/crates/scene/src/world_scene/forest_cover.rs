@@ -16,7 +16,7 @@ use dereth_assets::world::Scene;
 use dereth_primitives::DataId;
 use dereth_terrain::scenery::{check_slope, get_scene, num_scene_type, scene_count, scene_index};
 
-use super::drawn_ground::{World, WORLD_SIDE};
+use super::far_trees::{Land, WORLD_SIDE};
 
 /// The ground a landscape vertex's scene places its objects over, square meters: one cell.
 const CELL_AREA: f32 = 24.0 * 24.0;
@@ -61,7 +61,7 @@ fn to_srgb(linear: f32) -> u8 {
 /// The forest cover of `world`, its scenes chosen from `region` and read through `scenes`, the
 /// models the pack draws far off by their retail object.
 pub(crate) fn forest_cover(
-    world: &World,
+    world: &Land,
     region: &Region,
     scenes: &mut dyn FnMut(DataId) -> Option<Scene>,
     models: &HashMap<u32, CoverModel>,

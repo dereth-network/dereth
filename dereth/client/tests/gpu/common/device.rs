@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use dereth_dat::RetailDatStore;
-use dereth_render::device::{DeviceConfig, Gpu};
+use dereth_render::device::{Backend, DeviceConfig, Gpu};
 
 /// A device with a back buffer of `width` by `height`, or a failed test.
 ///
@@ -21,6 +21,14 @@ pub fn test_gpu(width: u32, height: u32) -> Gpu {
     Gpu::new(None, &cfg).unwrap_or_else(|e| {
         panic!("the gpu tier needs a device ({width}x{height}) and none opened: {e}")
     })
+}
+
+/// The backend the remaster's tests draw on: Direct3D 12 where `DERETH_TEST_RENDERER` names it,
+/// Vulkan otherwise.
+pub fn remaster_backend() -> Backend {
+    Backend::test_selection()
+        .filter(|b| *b == Backend::D3d12)
+        .unwrap_or(Backend::Vulkan)
 }
 
 /// The retail dats, shared, or a failed test that says where they were looked for.

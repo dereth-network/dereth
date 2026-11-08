@@ -49,6 +49,7 @@ mod release;
 mod seams;
 mod separation;
 mod server;
+mod shaders;
 mod skip_claims;
 mod sweep;
 mod test_lint;
@@ -118,6 +119,8 @@ Rules (each a row of `check` or `ci tier0`):
                             git checkout, default the workspace)
   skip-claims --tree [ROOT] no test skips when the retail dats are absent, and no comment claims
                             one does
+  shaders --check           the checked-in shader blobs are exactly what their sources make:
+                            hashes only, no compiler
 
 Tests:
   build [--game G] [ARGS]   cargo build of one game's products and tools, or both (ARGS go to cargo:
@@ -132,6 +135,13 @@ Tests:
   sweep [SUITE...] [--shard-binary PKG:TIER] [--serial] [--shards N] ...
                             run test targets one by one, or one tier binary sharded across
                             processes, with a verdict that cannot read as silence (--help)
+
+Shaders:
+  shaders [--dxil] [--msl] [--tools <dir>]
+                            compile the client's Slang shaders with the pinned slangc (fetched once
+                            into the per-user cache, checked by its SHA-256) into each shader
+                            folder's compiled/, which is checked in; --dxil and --msl also compile
+                            those targets outside the tree; --tools caches the compilers elsewhere
 
 Release and packaging:
   package empyrean [--target <triple>]... [--out <dir>] [--allow-dirty] | --gather <dir>
@@ -337,6 +347,7 @@ fn main() {
         Some("line-endings") => line_endings::line_endings(&args[1..]),
         Some("skip-claims") => skip_claims::skip_claims(&args[1..]),
         Some("sweep") => sweep::sweep(&args[1..]),
+        Some("shaders") => shaders::shaders(&args[1..]),
         Some("gate") => match gate_name(&args) {
             Some(g) => gates::gate(g, threads(&args), profile),
             None => {
@@ -424,6 +435,7 @@ fn cheap_lints() -> Vec<Report> {
         step("xtask comment-lint", comment_lint::comment_lint() == 0),
         step("xtask test-lint", test_lint::test_lint(&[]) == 0),
         step("xtask tier-targets", tier_targets::tier_targets() == 0),
+        step("xtask shaders --check", shaders::check_all(&ws) == 0),
         Report::new(
             "xtask server-hygiene",
             if hygiene.is_empty() {
@@ -533,9 +545,9 @@ fn tier0_steps(game: Game, profile: Profile) -> Vec<Tier0Step> {
             "cargo test (client and shared crates)".to_owned(),
             with("test", &["--exclude", "empyrean-*", "--no-fail-fast"]),
         ));
-        // A workspace build turns the device's high-fidelity seam on, because the presentation
-        // that asks for it is a member; the client is shipped without it. So the device is also
-        // built and tested on its own, as the shipped client has it.
+        // A workspace build turns the device's remaster seam on, because the remaster that asks
+        // for it is a member; the browser and headless clients are shipped without it. So the
+        // device is also built and tested on its own, as they have it.
         let mut device_alone = vec!["test", "-p", "dereth-render", "--no-fail-fast"];
         device_alone.extend_from_slice(profile.cargo_args());
         steps.push(Tier0Step::Cargo(

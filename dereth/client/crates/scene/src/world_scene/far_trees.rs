@@ -1,6 +1,6 @@
 //! The far trees, the scene's half: retail's scenery of the trees an art pack has far pictures
-//! for, worked out off the frame for every block out to the reach, so Better Lighting draws them
-//! to the horizon.
+//! for, worked out off the frame for every block out to the reach, so the remaster draws them to
+//! the horizon.
 //!
 //! Retail's scenery is placed from the land alone: each block's terrain words and heights, the
 //! region's scenes and the cells its buildings own. So a block far off grows its trees where it
@@ -19,24 +19,53 @@ use std::sync::{mpsc, Arc, Condvar, Mutex, PoisonError};
 use dereth_assets::region::Region;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::DataId;
-use dereth_terrain::land::drawn::{self, Knob, Knobs, Point, BLOCK_METERS};
+use dereth_terrain::land::drawn::{self, GroundSource, Knob, Knobs, Point, Vertex, BLOCK_METERS};
 use dereth_terrain::scenery::{generate_scenery, outside_cell_index, SceneryEnv, WithinBlockShape};
 
-use super::drawn_ground::World;
 use super::forest_cover::{cover_models, forest_cover, Cover};
-use super::hifi_bridge::FarTree;
 
 /// How far round a tree's foot the ground is looked at for the lowest of it, meters.
 const FOOT_REACH: f32 = 3.0;
 /// The blocks a side of the world.
 const WORLD_BLOCKS: i32 = 255;
 
+/// The world's landscape vertices a side.
+pub(crate) const WORLD_SIDE: usize = 2041;
+
+/// The world's landscape vertices the far trees stand on and the forest cover is worked out from,
+/// [`WORLD_SIDE`] a side, row by row from the south.
+#[derive(Debug, Clone)]
+pub(crate) struct Land {
+    pub(crate) heights: Arc<Vec<f32>>,
+    pub(crate) words: Arc<Vec<u16>>,
+}
+
+impl GroundSource for Land {
+    fn vertex(&self, gx: i32, gy: i32) -> Option<Vertex> {
+        let side = i32::try_from(WORLD_SIDE).ok()?;
+        if !(0..side).contains(&gx) || !(0..side).contains(&gy) {
+            return None;
+        }
+        let k = usize::try_from(gy).ok()? * WORLD_SIDE + usize::try_from(gx).ok()?;
+        Some(Vertex {
+            height: self.heights[k],
+            word: self.words[k],
+        })
+    }
+}
+
+/// One tree far off, as a presentation draws it: the far trees' thread writes them so, and each
+/// block's list is handed over as it is.
+pub(crate) trait Tree: Default + Send + Sync + 'static {
+    fn placed(at: glam::Vec3, rotation: glam::Quat, scale: f32, id: u32, seed: u32) -> Self;
+}
+
 /// What a block's far trees are worked out from: the same for every block.
 struct Sources {
     store: Arc<RetailDatStore>,
     region: Arc<Region>,
     table: [f32; 256],
-    world: Arc<World>,
+    world: Land,
     knobs: Knobs,
     /// The retail objects the art pack has far pictures for.
     ids: Arc<HashSet<u32>>,
@@ -61,7 +90,7 @@ fn mix(mut v: u32) -> u32 {
 
 /// The lowest of the drawn ground's far surface and retail's ground at world `(x, y)` and
 /// [`FOOT_REACH`] round it.
-fn foot(world: &World, knobs: &Knobs, x: f32, y: f32) -> f32 {
+fn foot(world: &Land, knobs: &Knobs, x: f32, y: f32) -> f32 {
     let r = FOOT_REACH;
     [(0.0, 0.0), (r, 0.0), (-r, 0.0), (0.0, r), (0.0, -r)]
         .into_iter()
@@ -75,7 +104,7 @@ fn foot(world: &World, knobs: &Knobs, x: f32, y: f32) -> f32 {
 
 /// Block `(bx, by)`'s trees that the art pack has far pictures for, where retail's scenery
 /// places them.
-fn block_trees(src: &Sources, reads: &mut Reads, bx: i32, by: i32) -> Vec<FarTree> {
+fn block_trees<T: Tree>(src: &Sources, reads: &mut Reads, bx: i32, by: i32) -> Vec<T> {
     use dereth_client_runtime::world_build::{read_landblock, read_lbi, read_scene};
     let Some(lb) = read_landblock(&src.store, bx, by) else {
         return Vec::new();
@@ -127,13 +156,13 @@ fn block_trees(src: &Sources, reads: &mut Reads, bx: i32, by: i32) -> Vec<FarTre
         .map(|p| {
             let (x, y) = (ox + p.frame.origin.x, oy + p.frame.origin.y);
             let q = p.frame.rotation;
-            FarTree {
-                at: glam::Vec3::new(x, y, foot(&src.world, &src.knobs, x, y)),
-                rotation: glam::Quat::from_xyzw(q.x, q.y, q.z, q.w),
-                scale: p.scale,
-                id: p.gfxobj.0,
-                seed: mix(x.to_bits() ^ mix(y.to_bits()) ^ p.gfxobj.0),
-            }
+            T::placed(
+                glam::Vec3::new(x, y, foot(&src.world, &src.knobs, x, y)),
+                glam::Quat::from_xyzw(q.x, q.y, q.z, q.w),
+                p.scale,
+                p.gfxobj.0,
+                mix(x.to_bits() ^ mix(y.to_bits()) ^ p.gfxobj.0),
+            )
         })
         .collect()
 }
@@ -142,16 +171,16 @@ fn block_trees(src: &Sources, reads: &mut Reads, bx: i32, by: i32) -> Vec<FarTre
 type Queue = Arc<(Mutex<VecDeque<(i32, i32)>>, Condvar)>;
 
 /// The thread that works the blocks out, and what it shares with the frame.
-struct Worker {
+struct Worker<T> {
     /// The blocks still to work out, nearest first; the frame replaces them as the eye moves.
     queue: Queue,
     /// Each block worked out, as it is done, with the milliseconds it took.
-    done: mpsc::Receiver<((i32, i32), Vec<FarTree>, f64)>,
+    done: mpsc::Receiver<((i32, i32), Vec<T>, f64)>,
     /// Set to end the thread.
     stop: Arc<AtomicBool>,
 }
 
-impl Worker {
+impl<T: Tree> Worker<T> {
     fn start(src: Sources) -> Option<Self> {
         let queue: Queue = Arc::default();
         let stop = Arc::new(AtomicBool::new(false));
@@ -175,7 +204,7 @@ impl Worker {
                     continue;
                 };
                 let started = web_time::Instant::now();
-                let trees = block_trees(&src, &mut reads, bx, by);
+                let trees = block_trees::<T>(&src, &mut reads, bx, by);
                 let ms = started.elapsed().as_secs_f64() * 1000.0;
                 if send.send(((bx, by), trees, ms)).is_err() {
                     return;
@@ -205,7 +234,7 @@ impl Worker {
     }
 }
 
-impl Drop for Worker {
+impl<T> Drop for Worker<T> {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
         self.queue.1.notify_all();
@@ -225,7 +254,7 @@ struct Key {
 
 /// The far trees' state in the scene.
 #[derive(Default)]
-pub(crate) struct FarTrees {
+pub(crate) struct FarTrees<T: Tree> {
     /// The forest cover, once worked out, with its serial and the pack and world it was worked
     /// out for.
     pub(crate) cover: Option<(u64, Arc<Cover>)>,
@@ -233,9 +262,9 @@ pub(crate) struct FarTrees {
     cover_loading: Option<mpsc::Receiver<Cover>>,
     /// How many covers have been worked out: the next one's serial.
     covers: u64,
-    worker: Option<Worker>,
+    worker: Option<Worker<T>>,
     /// Each block's trees, once worked out.
-    made: HashMap<(i32, i32), Arc<Vec<FarTree>>>,
+    made: HashMap<(i32, i32), Arc<Vec<T>>>,
     /// The blocks asked for and not yet done.
     asked: HashSet<(i32, i32)>,
     key: Option<Key>,
@@ -252,7 +281,7 @@ pub(crate) struct FarTrees {
     pub(crate) taken: (u64, f64, f64),
 }
 
-impl std::fmt::Debug for FarTrees {
+impl<T: Tree> std::fmt::Debug for FarTrees<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("FarTrees")
             .field("made", &self.made.len())
@@ -289,7 +318,7 @@ pub(crate) fn blocks_within(eye: (f32, f32), reach: f32) -> Vec<(i32, i32)> {
     out.into_iter().map(|(b, _)| b).collect()
 }
 
-impl FarTrees {
+impl<T: Tree> FarTrees<T> {
     /// One frame's upkeep. `wanted` when the far trees are drawn at all; the art pack `pack` (its
     /// serial and the retail objects it has far pictures for), the world's vertices and their
     /// serial, the knobs, and the eye in world meters.
@@ -298,7 +327,7 @@ impl FarTrees {
         &mut self,
         wanted: bool,
         pack: Option<&Arc<crate::art_pack::ArtPack>>,
-        world: Option<(&Arc<World>, u64)>,
+        world: Option<(Land, u64)>,
         knobs: &Knobs,
         store: &Arc<RetailDatStore>,
         region: &dyn Fn() -> Arc<Region>,
@@ -315,7 +344,7 @@ impl FarTrees {
             }
             return;
         };
-        self.step_cover(pack, world, world_serial, store, region);
+        self.step_cover(pack, &world, world_serial, store, region);
         if !knobs.on(Knob::FarTrees) {
             if self.active || self.worker.is_some() {
                 self.worker = None;
@@ -353,7 +382,7 @@ impl FarTrees {
                     store: Arc::clone(store),
                     region: region(),
                     table: *table,
-                    world: Arc::clone(world),
+                    world,
                     knobs: knobs.clone(),
                     ids: Arc::new(ids),
                 })
@@ -415,7 +444,7 @@ impl FarTrees {
     fn step_cover(
         &mut self,
         pack: &Arc<crate::art_pack::ArtPack>,
-        world: &Arc<World>,
+        world: &Land,
         world_serial: u64,
         store: &Arc<RetailDatStore>,
         region: &dyn Fn() -> Arc<Region>,
@@ -425,12 +454,8 @@ impl FarTrees {
             self.cover_for = Some(key);
             self.cover = None;
             let (send, receive) = mpsc::channel();
-            let (pack, world, store, region) = (
-                Arc::clone(pack),
-                Arc::clone(world),
-                Arc::clone(store),
-                region(),
-            );
+            let (pack, world, store, region) =
+                (Arc::clone(pack), world.clone(), Arc::clone(store), region());
             let spawned = crate::workers::spawn("forest cover", move || {
                 let models = cover_models(&pack);
                 let mut scenes = |id| dereth_client_runtime::world_build::read_scene(&store, id);
@@ -446,7 +471,7 @@ impl FarTrees {
     }
 
     /// The trees of the blocks within reach that are worked out, block by block, nearest first.
-    pub(crate) fn within(&self) -> impl Iterator<Item = ((i32, i32), &Arc<Vec<FarTree>>)> {
+    pub(crate) fn within(&self) -> impl Iterator<Item = ((i32, i32), &Arc<Vec<T>>)> {
         self.wanted
             .iter()
             .filter_map(|b| self.made.get(b).map(|t| (*b, t)))

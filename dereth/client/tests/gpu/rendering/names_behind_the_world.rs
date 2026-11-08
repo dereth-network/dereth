@@ -1,8 +1,7 @@
 //! Horizon's names over people and creatures stand in the world: on every renderer of the
 //! ordinary look, a name is drawn only where the world drawn this frame is farther away than the
 //! top of the body it names, pixel by pixel, and the rest of the interface is drawn over
-//! everything as it always was. Under Better Lighting, whose world's depth is its own, a name is
-//! drawn over everything as before.
+//! everything as it always was.
 //!
 //! Fixtures, on each renderer this build has, on a hardware device: a wall eight meters off across
 //! the left half of the frame, written into the frame's depth as the world's own draws write
@@ -338,69 +337,6 @@ fn the_rest_of_the_interface_is_drawn_over_the_world_unchanged() {
     }
 }
 
-/// Under Better Lighting the world's depth is its own, not the one names are placed by, so a
-/// name is drawn over everything, as it was before names stood in the world.
-#[cfg(feature = "hifi")]
-#[test]
-fn under_better_lighting_a_name_is_drawn_over_the_world() {
-    use dereth_render::wgpu::sidecar::{
-        wgpu, FrameSidecar, SidecarContext, SidecarError, SidecarFrame,
-    };
-
-    /// Better Lighting with nothing of its own to draw this frame: the frame is drawn the
-    /// ordinary way, as it is when no world stands in it.
-    struct Plain;
-
-    impl FrameSidecar for Plain {
-        fn prepare(&mut self, _cx: &mut SidecarContext<'_>) -> Result<SidecarFrame, SidecarError> {
-            Ok(SidecarFrame::Plain)
-        }
-
-        fn encode(
-            &mut self,
-            _cx: &mut SidecarContext<'_>,
-            _encoder: &mut wgpu::CommandEncoder,
-            _target: &wgpu::TextureView,
-        ) -> Result<(), SidecarError> {
-            Ok(())
-        }
-
-        fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
-            self
-        }
-    }
-
-    let _gpu = crate::common::gpu_lock();
-    let mut r = Renderer::new_on_for_hifi(Backend::Wgpu, None, W, H, true)
-        .unwrap_or_else(|e| panic!("this frame needs a wgpu device and none opened: {e}"));
-    let white = dereth_primitives::TextureData {
-        width: 1,
-        height: 1,
-        format: dereth_primitives::TextureFormat::Bgra8,
-        levels: vec![vec![255, 255, 255, 255]],
-    };
-    Presentation::overlay_upload(&mut r, WALL_TEXTURE, &white).expect("the wall's texel uploads");
-    let behind = Rect::new(30.0, 40.0, 60.0, 14.0);
-    let name = || Name {
-        id: ObjectId(0x8300_0706),
-        rect: behind,
-        colour: RED,
-        meters: BEHIND_METERS,
-    };
-    let bgra = frame(&mut r, &interface(&[name()], &[]));
-    assert_eq!(count(&bgra, RED, 0..W), 0, "the ordinary look hides it");
-    r.gpu
-        .hifi_install(Box::new(Plain))
-        .unwrap_or_else(|e| panic!("Better Lighting is not taken here: {e}"));
-    let bgra = frame(&mut r, &interface(&[name()], &[]));
-    assert_eq!(
-        count(&bgra, RED, 0..W),
-        area(behind),
-        "under Better Lighting it is drawn over the world"
-    );
-    drop(r.gpu.hifi_take());
-}
-
 /// The same in the world itself: bodies standing on the ground at Holtburg, a big one in front of
 /// the others, drawn by the world's own draw; each name placed and given its depth by the point
 /// over its body the presentation projects, as the client places it.
@@ -580,6 +516,59 @@ mod in_the_world {
                     "{backend:?}: row {y} of the name behind the edge: {row:?}"
                 );
             }
+            scene.release_textures(&mut r.gpu);
+        }
+    }
+
+    /// Under the remaster, whether it draws retail's own light, anti-aliases it or draws fewer
+    /// pixels and upscales them, a name is as hidden by the body in front of it as under Retail
+    /// Look: none of the name behind the chest, all of the one in the open, part of the one behind
+    /// its edge.
+    #[test]
+    #[cfg(feature = "remaster")]
+    fn under_the_remaster_a_name_behind_a_body_is_hidden_as_under_retail_look() {
+        use dereth_client_runtime::render_prefs::FidelityPreferences;
+        let _gpu = crate::common::gpu_lock();
+        let store = crate::common::dats();
+        for backend in [Backend::Vulkan, Backend::D3d12]
+            .into_iter()
+            .filter(|b| Backend::compiled().contains(b))
+        {
+            let mut r = Renderer::new_on_for(backend, None, WW, WH, true)
+                .unwrap_or_else(|e| panic!("{backend:?}: no device opened: {e}"));
+            let mut scene = station(&store, &mut r);
+            for boxes in [
+                "Remaster=1",
+                "Remaster=1,RemasterSmoothing=1,RemasterBloom=1",
+                "Remaster=1,RemasterUpscale=1,RemasterBloom=1",
+            ] {
+                scene.draw.cfg.render.fidelity =
+                    FidelityPreferences::parse_switch(boxes).expect("the boxes read");
+                let work = scene
+                    .update_from_preferences(&store, &mut r.gpu)
+                    .expect("the preferences poll");
+                assert_eq!(work.remaster_refused, None, "{backend:?} {boxes}");
+                let ids = [BEHIND.id, OPEN.id, EDGE.id];
+                let (in_world, rects) = names(&scene, &ids, true);
+                let mut bgra = Vec::new();
+                for _ in 0..8 {
+                    bgra = drawn(&mut r, &mut scene, &in_world);
+                }
+                assert!(scene.draw.remaster_on(), "{backend:?} {boxes}");
+                let shown: Vec<usize> = rects.iter().map(|r| inside(&bgra, *r, MAGENTA)).collect();
+                assert_eq!(shown[0], 0, "{backend:?} {boxes}: behind the chest");
+                assert_eq!(shown[1], area(rects[1]), "{backend:?} {boxes}: in the open");
+                assert!(
+                    shown[2] > 0 && shown[2] < area(rects[2]),
+                    "{backend:?} {boxes}: behind its edge, {} of {}",
+                    shown[2],
+                    area(rects[2])
+                );
+            }
+            scene
+                .draw
+                .set_remaster(false, &store, &mut r.gpu)
+                .expect("the remaster stops");
             scene.release_textures(&mut r.gpu);
         }
     }

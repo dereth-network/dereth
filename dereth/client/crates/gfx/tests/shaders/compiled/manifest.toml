@@ -1,0 +1,37 @@
+# Written by `cargo xtask shaders`: the compiler, its options, and the SHA-256 of every
+# source and blob. `cargo xtask shaders --check` compares it with the files. Regenerate it;
+# never edit it.
+
+compiler = "slangc 2026.18.3"
+
+[options]
+common = "-matrix-layout-column-major -warnings-as-errors all -warnings-disable 41012"
+spirv = "-target spirv -profile spirv_1_6 -fvk-use-entrypoint-name"
+dxil = "-target dxil -profile sm_6_6 -D DERETH_DXIL"
+
+[sources]
+"fill.slang" = "1e06129520cc5ef6d7af13a76db247a5680b646b6c58a65cc7f602a015c66c4b"
+"items.slang" = "bb38ed881bb51bdcfe4cc2276cfa7b20e5ed73eebca10c5586d2f72cbf84f972"
+"shaders.toml" = "c06e0df26e6069b3b388375769ca739ae986f034ace562b852caff48b27661e1"
+"table.slang" = "8b9dd302d64d38068ad747d8b82c1963b4fb914e7d6a2ab6f26fc3bb1ca6834d"
+"textures.slang" = "7a3273857ad9a18757fab50050e5dc9129d453012b1c535a84ed792ee6969532"
+"trace.slang" = "286ae8214ff8773fb232396e40cde0de7eea0c3ec9e2b8ac8752baa2f775458c"
+"triangle.slang" = "8e912f3f0115361b2850b75a47251f9fafc00037482ac9d67ab8c91987611a66"
+
+[blobs]
+"dxil/fill.cs_main.dxil" = { sha256 = "0fd7499237dea379d42c167687adeb8fd045636b8758aa2526928df7f8ab4ae0", bytes = 3396 }
+"dxil/items.fs_main.dxil" = { sha256 = "8bd744b9cc9cff78feea896500bec137c9dd0f4fc019a9f49c4c99b76455ee04", bytes = 2992 }
+"dxil/items.vs_main.dxil" = { sha256 = "d5ed8823214ce285577f1c2597aab539d18a18e5400d43e6886fa616e5c0ba2a", bytes = 4604 }
+"dxil/textures.fs_main.dxil" = { sha256 = "da1b30e44140599c4157198854022cf624455680f6386f27648cb092f63ab609", bytes = 4176 }
+"dxil/textures.vs_main.dxil" = { sha256 = "4a223279f81fd883850789ef655399b65c614e1465f9ca99e5d8723676f94a79", bytes = 4352 }
+"dxil/trace.cs_main.dxil" = { sha256 = "5f99b2e09231b648eb99a6b73e84995a8a7db5291537ac1e34d27fd738982bfd", bytes = 4416 }
+"dxil/triangle.fs_main.dxil" = { sha256 = "ddd71747b9d0dd5e42b5c9ec6f55419b9d6fc626da1cca920e91d36b204f8456", bytes = 3400 }
+"dxil/triangle.vs_main.dxil" = { sha256 = "78e18d554d000d3e9f414691e0432377a11ea811ffb74e2a564cb999ddb11039", bytes = 3824 }
+"spirv/fill.cs_main.spv" = { sha256 = "69f1e56d924eefd0d101508f1ee86c07b53c4fe4ff9c08ac1343c2c8bdb97bb0", bytes = 1372 }
+"spirv/items.fs_main.spv" = { sha256 = "13013771788bf690f7a8f33d3e4771d2294a9cf49e637b03a069fb79d9b7f15c", bytes = 384 }
+"spirv/items.vs_main.spv" = { sha256 = "0d048fad660db7b4f4b24ad44ae56de9bac15dd2ea4aa1dc08c30e2c4a274b9e", bytes = 2944 }
+"spirv/textures.fs_main.spv" = { sha256 = "92c9aebc9bbc7217dad04f746776a737d5f5a259aa3093b8bee11432bf5e3575", bytes = 1336 }
+"spirv/textures.vs_main.spv" = { sha256 = "56bcf724d350cce7270472eb5d8f1e5e5cddbfb4249b940a5cdd567c283d7030", bytes = 2068 }
+"spirv/trace.cs_main.spv" = { sha256 = "9b0c0dcc0d02b66a6e72984313f7637133c7bf6a1c058616b5259dc673d9b76a", bytes = 3420 }
+"spirv/triangle.fs_main.spv" = { sha256 = "87f9a5e35a28134a3b4705384de74e5fe42c413883d66d4a246c322479562ea6", bytes = 608 }
+"spirv/triangle.vs_main.spv" = { sha256 = "72d6b78e4fe3f554c07c77a6497f0ce204828e773984782b18c04cbf14386992", bytes = 1352 }

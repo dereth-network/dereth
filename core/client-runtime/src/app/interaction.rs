@@ -243,7 +243,7 @@ impl<S: Shell> App<S> {
         // Apply a display request at that same boundary; the event-loop poll remains for
         // Alt+Enter, startup and live window events that do not originate in this drain.
         self.apply_changed_display_presentation(shell);
-        // The landscape options, and the high-fidelity presentation's, are also the next
+        // The landscape options, and the remaster's, are also the next
         // world's: a choice made before the world is drawn (at character select) or kept for the
         // next login is recorded in the scene that will be loaded. A drawn world takes the change
         // live, below.

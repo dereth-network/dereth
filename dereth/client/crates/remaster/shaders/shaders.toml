@@ -1,0 +1,442 @@
+# The remaster's shaders. `cargo xtask shaders` compiles each entry point below for each target
+# into `compiled/`, which is checked in; `src/shaders.rs` embeds the blobs.
+targets = ["spirv", "dxil"]
+
+# With an art pack, the air over the land, and the clouds' shadows.
+[[entry]]
+source = "air.slang"
+entry = "fs_air"
+stage = "fragment"
+
+[[entry]]
+source = "cloud_shadow.slang"
+entry = "fs_main"
+stage = "fragment"
+
+# The openings' depth stamps, drawn into the depth alone.
+[[entry]]
+source = "stamp.slang"
+entry = "vs_main"
+stage = "vertex"
+
+# A triangle that covers the whole target, for the passes that read one picture and write
+# another.
+[[entry]]
+source = "fullscreen.slang"
+entry = "vs_main"
+stage = "vertex"
+
+# One bound texture copied to the target, pixel for pixel.
+[[entry]]
+source = "copy.slang"
+entry = "fs_main"
+stage = "fragment"
+
+# The G-buffer pass for meshes: statics, objects and rooms, lit per vertex by retail's rules.
+[[entry]]
+source = "gbuffer.slang"
+entry = "vs_main"
+stage = "vertex"
+
+[[entry]]
+source = "gbuffer.slang"
+entry = "fs_main"
+stage = "fragment"
+
+# The forward pass for translucent and additive surfaces, and the sky.
+[[entry]]
+source = "gbuffer.slang"
+entry = "fs_forward"
+stage = "fragment"
+
+# The edge pass for blended cut-outs' partly transparent texels.
+[[entry]]
+source = "gbuffer.slang"
+entry = "fs_edge"
+stage = "fragment"
+
+# The G-buffer pass for the ground.
+[[entry]]
+source = "terrain.slang"
+entry = "vs_main"
+stage = "vertex"
+
+[[entry]]
+source = "terrain.slang"
+entry = "fs_main"
+stage = "fragment"
+
+# The resolves: retail's light as the G-buffer pass worked it out per vertex, and per pixel.
+[[entry]]
+source = "resolve.slang"
+entry = "fs_vertex"
+stage = "fragment"
+
+[[entry]]
+source = "resolve.slang"
+entry = "fs_pixel"
+stage = "fragment"
+
+# The world's colors and depth written into the frame.
+[[entry]]
+source = "composite.slang"
+entry = "fs_main"
+stage = "fragment"
+
+# The visible draw items made into indirect draw commands.
+[[entry]]
+source = "cull.slang"
+entry = "cs_main"
+stage = "compute"
+
+# A caster in the sun's shadow maps: its depth, cut where a cut-out is clear.
+[[entry]]
+source = "gbuffer.slang"
+entry = "fs_caster"
+stage = "fragment"
+
+# How much of the sun reaches each pixel, from the shadow maps.
+[[entry]]
+source = "shadow_mask.slang"
+entry = "fs_main"
+stage = "fragment"
+
+# Ambient occlusion: this frame's at half resolution, gathered over the frames, and brought up to
+# the full resolution.
+[[entry]]
+source = "ao.slang"
+entry = "fs_gtao"
+stage = "fragment"
+
+[[entry]]
+source = "ao.slang"
+entry = "fs_gather"
+stage = "fragment"
+
+[[entry]]
+source = "ao.slang"
+entry = "fs_upsample"
+stage = "fragment"
+
+# The lamps: each piece of the view's list of the lamps that reach it, then the light they add
+# at each pixel.
+[[entry]]
+source = "lamps.slang"
+entry = "cs_clusters"
+stage = "compute"
+
+[[entry]]
+source = "lamps.slang"
+entry = "fs_lamps"
+stage = "fragment"
+
+# The soft halo round each lamp the eye can see, added over the scene's colors.
+[[entry]]
+source = "halo.slang"
+entry = "vs_halo"
+stage = "vertex"
+
+[[entry]]
+source = "halo.slang"
+entry = "fs_halo"
+stage = "fragment"
+
+# The post passes: the temporal anti-aliasing (and its check of the motion), the bloom down and
+# back up, and the tone map.
+[[entry]]
+source = "post.slang"
+entry = "fs_taa"
+stage = "fragment"
+
+[[entry]]
+source = "post.slang"
+entry = "fs_taa_check"
+stage = "fragment"
+
+[[entry]]
+source = "post.slang"
+entry = "fs_bloom_down"
+stage = "fragment"
+
+[[entry]]
+source = "post.slang"
+entry = "fs_bloom_up"
+stage = "fragment"
+
+[[entry]]
+source = "post.slang"
+entry = "fs_tonemap"
+stage = "fragment"
+
+# The moving objects drawn again where they moved from.
+[[entry]]
+source = "motion.slang"
+entry = "vs_main"
+stage = "vertex"
+
+[[entry]]
+source = "motion.slang"
+entry = "fs_main"
+stage = "fragment"
+
+# The sky's tables: the transmittance, the light scattered more than once, and the sky as seen
+# from the eye.
+[[entry]]
+source = "sky_tables.slang"
+entry = "fs_transmittance"
+stage = "fragment"
+
+[[entry]]
+source = "sky_tables.slang"
+entry = "fs_multiple"
+stage = "fragment"
+
+[[entry]]
+source = "sky_tables.slang"
+entry = "fs_sky_view"
+stage = "fragment"
+
+# The physical sky over the authored dome, and the haze's veil over the horizon.
+[[entry]]
+source = "sky.slang"
+entry = "fs_sky"
+stage = "fragment"
+
+[[entry]]
+source = "sky.slang"
+entry = "fs_veil"
+stage = "fragment"
+
+# The fog's volume: retail's range fog down each direction, and the sun the fog scatters.
+[[entry]]
+source = "fog_volume.slang"
+entry = "cs_main"
+stage = "compute"
+
+# The ground drawn as a grid of patches over retail's surface, with the scene's offset over it,
+# and its casters into the sun's shadows; and the drawn height at points, for the checks.
+[[entry]]
+source = "drawn.slang"
+entry = "vs_ground"
+stage = "vertex"
+
+[[entry]]
+source = "drawn.slang"
+entry = "fs_ground"
+stage = "fragment"
+
+[[entry]]
+source = "drawn.slang"
+entry = "vs_caster"
+stage = "vertex"
+
+[[entry]]
+source = "drawn.slang"
+entry = "cs_probe"
+stage = "compute"
+
+# The water over the resolved world: its waves, the rings round the bodies in it, its reflection
+# and the sun's glint; and the puddles of a rainy day.
+[[entry]]
+source = "water.slang"
+entry = "fs_main"
+stage = "fragment"
+
+# Where instances stand and how far they are lifted onto the drawn ground, as the G-buffer places
+# them: for the checks.
+[[entry]]
+source = "lift.slang"
+entry = "cs_bases"
+stage = "compute"
+
+# Far trees as impostors: a mesh drawn from round it into an atlas, then the cards drawn into the
+# G-buffer.
+[[entry]]
+source = "impostor.slang"
+entry = "vs_bake"
+stage = "vertex"
+
+[[entry]]
+source = "impostor.slang"
+entry = "fs_bake"
+stage = "fragment"
+
+[[entry]]
+source = "impostor.slang"
+entry = "vs_draw"
+stage = "vertex"
+
+[[entry]]
+source = "impostor.slang"
+entry = "fs_draw"
+stage = "fragment"
+
+# The art pack's far trees: culled on the device, then its far pictures drawn into the G-buffer.
+[[entry]]
+source = "forest.slang"
+entry = "cs_cull"
+stage = "compute"
+
+[[entry]]
+source = "forest.slang"
+entry = "vs_far"
+stage = "vertex"
+
+[[entry]]
+source = "forest.slang"
+entry = "fs_far"
+stage = "fragment"
+
+# The rain's splashes, added over the scene's colors; and the rain and the snow falling, drawn
+# over them as particles fixed in the world.
+[[entry]]
+source = "rain.slang"
+entry = "fs_splash"
+stage = "fragment"
+
+[[entry]]
+source = "rain.slang"
+entry = "vs_fall"
+stage = "vertex"
+
+[[entry]]
+source = "rain.slang"
+entry = "fs_fall"
+stage = "fragment"
+
+# The scene's acceleration structures: each resident instance's record for the top-level build,
+# from its transform, its block's offset and its lift.
+[[entry]]
+source = "rt.slang"
+entry = "cs_instances"
+stage = "compute"
+
+# A check of the acceleration structures against the G-buffer: rays from the eye through a grid
+# of the frame's pixels, each one's hit written.
+[[entry]]
+source = "rt_check.slang"
+entry = "cs_check"
+stage = "compute"
+
+# Bounced light: the probes' update, their light at each pixel, and, without ray queries, the
+# screen's rays and their blur.
+[[entry]]
+source = "gi.slang"
+entry = "cs_update"
+stage = "compute"
+
+[[entry]]
+source = "gi.slang"
+entry = "fs_probes"
+stage = "fragment"
+
+[[entry]]
+source = "gi.slang"
+entry = "fs_screen"
+stage = "fragment"
+
+[[entry]]
+source = "gi.slang"
+entry = "fs_blur"
+stage = "fragment"
+
+# Bounced light where the device traces rays: the probes' rays.
+[[entry]]
+source = "gi_trace.slang"
+entry = "cs_trace"
+stage = "compute"
+
+# How much of the sun reaches each pixel, by rays traced toward it, where the device traces rays.
+[[entry]]
+source = "rt_shadow.slang"
+entry = "fs_main"
+stage = "fragment"
+
+# The ambient occlusion by rays traced over each pixel's hemisphere, then evened out over the
+# pixels round it, where the device traces rays.
+[[entry]]
+source = "rt_ao.slang"
+entry = "fs_rays"
+stage = "fragment"
+
+[[entry]]
+source = "rt_ao.slang"
+entry = "fs_filter"
+stage = "fragment"
+
+# What an upscaler takes from the frame: the depth and the motion.
+[[entry]]
+source = "upscale_inputs.slang"
+entry = "cs_main"
+stage = "compute"
+
+# The FSR 3.1 upscaler's passes, then the upscaled picture into the display's texture.
+[[entry]]
+source = "fsr3_passes.slang"
+entry = "cs_clear_reconstructed"
+stage = "compute"
+
+[[entry]]
+source = "fsr3_passes.slang"
+entry = "cs_prepare_inputs"
+stage = "compute"
+
+[[entry]]
+source = "fsr3_passes.slang"
+entry = "cs_farthest_half"
+stage = "compute"
+
+[[entry]]
+source = "fsr3_passes.slang"
+entry = "cs_shading_level_zero"
+stage = "compute"
+
+[[entry]]
+source = "fsr3_passes.slang"
+entry = "cs_shading_level"
+stage = "compute"
+
+[[entry]]
+source = "fsr3_passes.slang"
+entry = "cs_shading_change"
+stage = "compute"
+
+[[entry]]
+source = "fsr3_passes.slang"
+entry = "cs_reactivity"
+stage = "compute"
+
+[[entry]]
+source = "fsr3_passes.slang"
+entry = "cs_luma_instability"
+stage = "compute"
+
+[[entry]]
+source = "fsr3_passes.slang"
+entry = "cs_accumulate"
+stage = "compute"
+
+[[entry]]
+source = "fsr3_passes.slang"
+entry = "cs_rcas"
+stage = "compute"
+
+[[entry]]
+source = "fsr3_passes.slang"
+entry = "fs_show"
+stage = "fragment"
+
+[[entry]]
+source = "fsr3_passes.slang"
+entry = "cs_reactive_input"
+stage = "compute"
+
+[[entry]]
+source = "fsr3_passes.slang"
+entry = "cs_exposure"
+stage = "compute"
+
+[[entry]]
+source = "fsr3_passes.slang"
+entry = "fs_inputs_as_pictures"
+stage = "fragment"

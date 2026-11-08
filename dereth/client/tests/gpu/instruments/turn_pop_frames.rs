@@ -13,7 +13,7 @@
 //! - `DERETH_TURN_BUDGET_MS`: the landscape's streaming budget a frame, as a connected client has
 //!   (default 4; `0` builds everything at once, as an offline run does).
 //! - `DERETH_TURN_DISTANCE`: the orbit camera's distance (default its own).
-//! - `DERETH_HIFI_SIZE`: `WxH`, default `1920x1080`.
+//! - `DERETH_TURN_POP_SIZE`: `WxH`, default `1920x1080`.
 //!
 //! And a walk: the same body running from the same place across a landblock line, so the window
 //! re-centres and every block whose ring changed is rebuilt, each frame written with how many of
@@ -28,7 +28,7 @@
 //!   with a heading of 0, the body backs south across the same line looking north.
 //! - `DERETH_WALK_FRAMES`: frames run (default 150, five seconds).
 //! - `DERETH_WALK_PNG_EVERY`: write every this many frames as a PNG (default 1; `0` writes none).
-//! - `DERETH_TURN_RADIUS`, `DERETH_TURN_BUDGET_MS` and `DERETH_HIFI_SIZE`, as for the turn.
+//! - `DERETH_TURN_RADIUS`, `DERETH_TURN_BUDGET_MS` and `DERETH_TURN_POP_SIZE`, as for the turn.
 
 #![cfg(gpu)]
 
@@ -38,7 +38,7 @@ use std::path::PathBuf;
 
 use dereth_scene::world_scene::SceneReads;
 
-use super::hifi_stations::{self, capture, write_png, Clock, Place, Shot, Station};
+use super::stations::{self, capture, write_png, Clock, Place, Shot, Station};
 
 fn env(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|v| !v.trim().is_empty())
@@ -70,7 +70,7 @@ fn holes(shot: &Shot) -> Vec<(i32, i32)> {
 fn capture_a_turn() {
     let _gpu = crate::common::gpu_lock();
     let store = crate::common::dats();
-    let (width, height) = env("DERETH_HIFI_SIZE")
+    let (width, height) = env("DERETH_TURN_POP_SIZE")
         .and_then(|s| {
             let (w, h) = s.split_once(['x', 'X'])?;
             Some((w.trim().parse().ok()?, h.trim().parse().ok()?))
@@ -94,7 +94,7 @@ fn capture_a_turn() {
     let place = |yaw: f32| {
         if mode == "eye" {
             Place::Free {
-                block: hifi_stations::HOLTBURG,
+                block: stations::HOLTBURG,
                 x,
                 y,
                 eye: 1.6,
@@ -103,7 +103,7 @@ fn capture_a_turn() {
             }
         } else {
             Place::Ground {
-                block: hifi_stations::HOLTBURG,
+                block: stations::HOLTBURG,
                 x,
                 y,
                 yaw,
@@ -245,7 +245,7 @@ fn window_land(shot: &Shot) -> (Blocks, Blocks) {
 fn capture_a_walk() {
     let _gpu = crate::common::gpu_lock();
     let store = crate::common::dats();
-    let (width, height) = env("DERETH_HIFI_SIZE")
+    let (width, height) = env("DERETH_TURN_POP_SIZE")
         .and_then(|s| {
             let (w, h) = s.split_once(['x', 'X'])?;
             Some((w.trim().parse().ok()?, h.trim().parse().ok()?))
@@ -267,7 +267,7 @@ fn capture_a_walk() {
         name: "walk",
         why: "",
         place: Place::Ground {
-            block: hifi_stations::HOLTBURG,
+            block: stations::HOLTBURG,
             x: 86.600_27,
             y: 5.626_395,
             yaw: heading,

@@ -237,11 +237,15 @@ pub trait Presentation: std::fmt::Debug {
     fn renderer_status(&self) -> dereth_client_contract::options::renderer::RendererStatus {
         dereth_client_contract::options::renderer::RendererStatus::default()
     }
-    /// Where the experimental rendering effects stand on this device, for the options page; a
-    /// presentation without them says they are not built.
-    #[cfg(feature = "hifi")]
-    fn hifi_availability(&self) -> dereth_client_contract::options::fidelity::Availability {
-        dereth_client_contract::options::fidelity::Availability::default()
+    /// Whether NVIDIA's DLSS library stands beside the client, which the client then names as
+    /// NVIDIA's license asks; a presentation that cannot load it says not.
+    fn dlss_carried(&self) -> bool {
+        false
+    }
+    /// Whether an art pack is open, for the options page; a presentation without one says not.
+    #[cfg(feature = "fidelity")]
+    fn art_pack_open(&self) -> bool {
+        false
     }
     /// The device-owned `Render.*` names alone.
     fn apply_device_preference_requests(
@@ -335,11 +339,10 @@ pub trait Presentation: std::fmt::Debug {
     fn offer_art_pack(&mut self, dir: &std::path::Path) {
         let _ = dir;
     }
-    /// The file the drawn ground's knobs are read from, read again whenever it changes and
-    /// written with every knob at its default when there is none: a presentation that draws the
-    /// ground itself reads it for every world loaded from now on. A presentation that draws none
-    /// ignores it.
-    fn offer_terrain_tuning(&mut self, file: &std::path::Path) {
+    /// The player's look file, beside the preferences: a presentation that lays a look over
+    /// retail's light reads it, and reads it again whenever what it holds changes. A presentation
+    /// that lays none ignores it.
+    fn offer_look_file(&mut self, file: &std::path::Path) {
         let _ = file;
     }
 
@@ -348,7 +351,7 @@ pub trait Presentation: std::fmt::Debug {
     // ---------------------------------------------------------------------------------------
 
     /// How the frame is drawn, for `@report` and `@perfcapture`: the renderer and the adapter,
-    /// Better Lighting and its options, the art pack and the drawn ground's knobs, and where the
+    /// the remaster and its options, the art pack, and where the
     /// frame is drawn from for the camera in `world`. A presentation with no device knows none of
     /// it.
     fn render_context(

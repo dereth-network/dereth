@@ -23,6 +23,8 @@ mod degrade;
 mod emitters;
 #[path = "probes.rs"]
 mod probes;
+#[cfg(feature = "remaster")]
+pub use probes::StaticCensus;
 #[path = "streaming.rs"]
 mod streaming;
 use degrade::*;
@@ -33,28 +35,97 @@ pub use views::*;
 mod bake_worker;
 #[path = "cells.rs"]
 mod cells;
-#[cfg(feature = "hifi")]
-#[path = "drawn_ground.rs"]
-mod drawn_ground;
-#[cfg(feature = "hifi")]
+#[cfg(feature = "remaster")]
 #[path = "far_trees.rs"]
 mod far_trees;
-#[cfg(feature = "hifi")]
+#[cfg(feature = "remaster")]
 #[path = "forest_cover.rs"]
 mod forest_cover;
-#[cfg(feature = "hifi")]
-#[path = "hifi_bridge.rs"]
-mod hifi_bridge;
-#[cfg(feature = "hifi")]
-#[path = "hifi_lamps.rs"]
-pub(crate) mod hifi_lamps;
+#[cfg(feature = "remaster")]
+#[path = "lamp_finder.rs"]
+pub(crate) mod lamp_finder;
 #[path = "marker.rs"]
 mod marker;
 #[path = "objects.rs"]
 mod objects;
 #[path = "picture_worker.rs"]
 mod picture_worker;
+#[cfg(feature = "remaster")]
+#[path = "remaster_assets.rs"]
+mod remaster_assets;
+#[cfg(feature = "remaster")]
+pub use remaster_assets::DatAssets;
+#[cfg(feature = "remaster")]
+#[path = "remaster_bridge.rs"]
+mod remaster_bridge;
+#[cfg(feature = "remaster")]
+#[path = "remaster_look.rs"]
+mod remaster_look;
+#[cfg(feature = "remaster")]
+#[path = "remaster_pack.rs"]
+mod remaster_pack;
+#[cfg(feature = "remaster")]
+pub use remaster_look::{RemasterLookError, RemasterLookLayer, RemasterLooks};
+#[cfg(feature = "remaster")]
+pub use remaster_pack::{RemasterForestStats, RemasterPackCounts, RemasterPacks};
+#[cfg(feature = "remaster")]
+#[path = "remaster_effects.rs"]
+mod remaster_effects;
+#[cfg(feature = "dlss")]
+pub use remaster_effects::{remaster_device_extensions, remaster_dlss_carried};
+#[cfg(feature = "remaster")]
+pub use remaster_effects::{
+    remaster_upscaler_drawn, RemasterAo, RemasterPost, RemasterPostPicture, RemasterUpscale,
+    RemasterUpscaleMode, RemasterWater,
+};
+#[cfg(feature = "remaster")]
+#[path = "remaster_weather.rs"]
+mod remaster_weather;
+#[cfg(feature = "remaster")]
+pub use remaster_weather::{RemasterWeather, RemasterWeatherStats};
+#[cfg(feature = "remaster")]
+#[path = "remaster_rt.rs"]
+mod remaster_rt;
+#[cfg(feature = "remaster")]
+pub use remaster_rt::{RemasterAcceleration, RemasterGi};
+#[cfg(feature = "remaster")]
+#[path = "remaster_traced.rs"]
+mod remaster_traced;
+#[cfg(feature = "remaster")]
+pub use remaster_traced::{RemasterTracedAo, RemasterTracedShadows};
+#[cfg(feature = "remaster")]
+#[path = "remaster_lamps.rs"]
+mod remaster_lamps;
+#[cfg(feature = "remaster")]
+#[path = "remaster_lod.rs"]
+mod remaster_lod;
+#[cfg(feature = "remaster")]
+#[path = "remaster_rows.rs"]
+mod remaster_rows;
+#[cfg(feature = "remaster")]
+pub use remaster_lod::{RemasterImpostorStats, RemasterLod, RemasterLodStats};
+#[cfg(feature = "remaster")]
+#[path = "remaster_ground.rs"]
+mod remaster_ground;
+#[cfg(feature = "remaster")]
+#[path = "remaster_view.rs"]
+mod remaster_view;
 pub use marker::{marker_mesh, MarkerCorner, MARKER_GRID, MARKER_LIFT, MARKER_MIN_RADIUS};
+/// The remaster's plain-data scene types: what the scene hands it, and the retained scene that
+/// takes them.
+#[cfg(feature = "remaster")]
+pub use remaster_bridge::remaster;
+#[cfg(feature = "remaster")]
+pub use remaster_lamps::RemasterLamps;
+#[cfg(all(feature = "remaster", feature = "test-support"))]
+pub use remaster_lamps::{RemasterHaloSeen, RemasterLampCapture};
+#[cfg(feature = "remaster")]
+pub use remaster_view::{
+    Casters as RemasterShadowCasters, RemasterCapture, RemasterCounts, RemasterLight,
+    RemasterRefused, Settings as RemasterSettings, ShadowSettings as RemasterShadows,
+    ShadowStats as RemasterShadowStats, SkySettings as RemasterSky,
+    TerrainSettings as RemasterTerrain,
+};
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -69,8 +140,6 @@ use dereth_render::device::{
     Gpu, MergeSource, PerDrawConstants, PerFrameConstants, TerrainMergeJob, TerrainMergeOverlay,
     TerrainSplat, TerrainSplatOverlay, TextureSlot,
 };
-#[cfg(feature = "hifi")]
-use dereth_render::hifi_mark::Mark;
 use dereth_render::palette::ExpandedPalette;
 use dereth_render::pso::{PipelineKey, SurfaceContext};
 use dereth_render::surface::{Surface as RenderState, SurfaceHandler};
@@ -495,26 +564,18 @@ struct BlockDraw {
     hosts_spawned: bool,
     /// [`BakedObjects::objects_visual`], kept for the release.
     objects_visual: bool,
-    /// Which build of the block this is, for the high-fidelity presentation's retained copy.
-    #[cfg(feature = "hifi")]
-    hifi_generation: u32,
-    /// The lamps of the block's outdoor placements, block-local, for the high-fidelity
-    /// presentation alone: looked for only while it draws them.
-    #[cfg(feature = "hifi")]
-    hifi_lamps: hifi_lamps::BlockLamps,
-    /// The outdoor placements the art pack has models for, block-local.
-    #[cfg(feature = "hifi")]
-    art_pack: Vec<crate::art_pack::PackPlacement>,
-    /// The drawn ground's bake generation the block's scenery was baked moved by, or nought
-    /// when it was baked where it stands.
-    #[cfg(feature = "hifi")]
-    drawn_baked: u64,
+    /// Which build of the block this is, for the remaster's retained copy.
+    #[cfg(feature = "remaster")]
+    remaster_generation: u32,
+    /// The block's own placements as the bake placed them, block-local, for the remaster.
+    #[cfg(feature = "remaster")]
+    remaster_placements: Vec<remaster_bridge::BakedPlacement>,
 }
 
-/// The number the next block build takes, so the high-fidelity presentation tells a block whose
-/// contents were rebuilt apart from the one it replaced.
-#[cfg(feature = "hifi")]
-fn next_hifi_generation() -> u32 {
+/// The number the next block build takes, so the remaster tells a block whose contents were
+/// rebuilt apart from the one it replaced: a later build has a larger number.
+#[cfg(feature = "remaster")]
+fn next_remaster_generation() -> u32 {
     static GENERATION: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
     GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
@@ -558,12 +619,9 @@ struct BakedObjects {
     /// Whether another era's look was set when the block was baked ([`LandContext::objects`]);
     /// each batch and interior cell says whether its own links are that look's.
     objects_visual: bool,
-    /// Where the lamps of the outdoor placements may be, for the high-fidelity presentation.
-    #[cfg(feature = "hifi")]
-    hifi_lamps: hifi_lamps::BlockLamps,
-    /// The outdoor placements the art pack has models for.
-    #[cfg(feature = "hifi")]
-    art_pack: Vec<crate::art_pack::PackPlacement>,
+    /// The block's own placements as the bake placed them, for the remaster.
+    #[cfg(feature = "remaster")]
+    remaster: Vec<remaster_bridge::BakedPlacement>,
 }
 
 /// One resident block's bake as [`WorldScene::block_bake`] reports it.
@@ -638,6 +696,10 @@ struct EnvCellDraw {
     /// "already current"), so a pool that swaps one light for another at the same count does
     /// not re-burn, exactly as retail does not.
     burned_count: Option<usize>,
+    /// What the remaster needs of the room's record and its statics that the draw does not
+    /// keep.
+    #[cfg(feature = "remaster")]
+    remaster: remaster_bridge::RoomRecord,
 }
 
 /// A cell's baked statics as cell drawing offers them: part by part.
@@ -759,13 +821,10 @@ pub struct CellStaticDrawStats {
 /// [`SceneDraw::frame_costs`].
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct FrameCosts {
-    /// The drawn ground's upkeep: its tuning, the near offsets worked out, the far trees, and the
-    /// blocks asked to bake again for it.
-    pub drawn_ground: f32,
     /// The walk of the world that records the frame's draws.
     pub walk: f32,
-    /// The snapshot handed to the high-fidelity presentation.
-    pub snapshot: f32,
+    /// What follows the walk: the remaster's changes handed over and its draw at the world's end.
+    pub remaster: f32,
 }
 
 /// Which submission of a cell's static batch a [`CellStaticRunDraw`] was.
@@ -1030,11 +1089,6 @@ struct StaticBatch {
     /// cell's statics, in buffer order. Empty for a landblock's batches, whose objects are
     /// drawn whole.
     part_runs: Vec<PartRun>,
-    /// Whether it holds only objects the art pack has models for, apart from every other
-    /// object so the high-fidelity presentation can draw the models in their place. Never set
-    /// without that presentation.
-    #[cfg_attr(not(feature = "hifi"), allow(dead_code))]
-    art_pack: bool,
 }
 
 /// One run of vertices in a [`StaticBatch`], and the degrade level it belongs to.
@@ -1139,15 +1193,13 @@ pub struct SceneDraw {
     /// that differs does any work. [`SceneConfig::render`] holds the current values and this is the
     /// shadow bank, so [`WorldScene::update_from_preferences`] is the same poll.
     render_shadow: dereth_client_runtime::render_prefs::RenderPreferences,
-    /// What the high-fidelity bridge remembers between frames.
-    #[cfg(feature = "hifi")]
-    hifi: RefCell<hifi_bridge::Shadow>,
-    /// The drawn ground, while the presentation draws the landscape itself.
-    #[cfg(feature = "hifi")]
-    drawn: drawn_ground::DrawnGround,
-    /// The art pack's trees far off, while the presentation draws them.
-    #[cfg(feature = "hifi")]
-    far: far_trees::FarTrees,
+    /// The remaster's ground: the world's vertices its grid is drawn from, and the offset it
+    /// draws over retail's surface, with what stands on the ground drawn on it.
+    #[cfg(feature = "remaster")]
+    remaster_ground: remaster_ground::RemasterGround,
+    /// The art pack's far trees and forest cover the remaster draws.
+    #[cfg(feature = "remaster")]
+    remaster_far: far_trees::FarTrees<remaster_bridge::FarTree>,
     /// The four generated detail surfaces and their tiling values.
     detail: dereth_world_render::detail::DetailTexturing,
     /// The device texture each generated detail surface wraps, loaded from database type
@@ -1447,6 +1499,26 @@ pub struct SceneDraw {
     /// `dereth-client-model` owns it, because its only
     /// reader and it is in that crate.
     selected_part_drawn: std::cell::Cell<bool>,
+    /// What the remaster's bridge remembers between frames: the receiver it publishes to, and
+    /// what it last sent.
+    #[cfg(feature = "remaster")]
+    remaster: RefCell<remaster_bridge::Bridge>,
+    /// Whether the walk only decides: it makes every decision a frame makes (what is picked,
+    /// what is drawn, at which level, through which openings) and submits nothing, while the
+    /// remaster draws the world. See [`Self::set_decide_only`].
+    #[cfg(feature = "remaster")]
+    decide_only: bool,
+    /// Same bracket as [`Self::frame_drawn_cells`], while a remaster receiver is installed: what
+    /// the walk drew of the moving objects and of the landscape. `None` otherwise.
+    #[cfg(feature = "remaster")]
+    frame_walk: RefCell<Option<remaster_bridge::WalkLog>>,
+    /// Counts the body's builds, so the remaster is sent a body built anew.
+    #[cfg(feature = "remaster")]
+    remaster_body_generation: u32,
+    /// The remaster, while it is on: the inbox it is published into and the dats its assets
+    /// are read from.
+    #[cfg(feature = "remaster")]
+    remaster_view: RefCell<remaster_view::View>,
 }
 
 /// One drawable piece of one animated part, prepared once and re-submitted every frame with
@@ -2617,87 +2689,6 @@ struct LandContext {
     static_geometry: HashMap<DataId, Option<Arc<dereth_physics::SetupGeometry>>>,
     /// The cell BSPs that search reads, by cell structure, memoised for the session.
     cell_bsps: dereth_world_data::env_cells::CellBspMemo,
-    /// The art pack whose models the high-fidelity presentation may draw: the outdoor objects it
-    /// has models for are baked apart from the rest ([`crate::art_pack::Looks`]).
-    #[cfg(feature = "hifi")]
-    art_pack: Option<Arc<crate::art_pack::ArtPack>>,
-    /// Retail's masks and pictures the art pack's ground is laid with, while the pack lays one
-    /// over a ground drawn by blending pictures.
-    #[cfg(feature = "hifi")]
-    retail_ground: Option<Arc<crate::art_pack::RetailGround>>,
-    /// The texture keys the retail pictures the art pack has materials for are held under, as
-    /// the objects' surfaces upload them with no palette of their own, each with the material's
-    /// index: the high-fidelity presentation finds the slots holding them each frame.
-    #[cfg(feature = "hifi")]
-    material_keys: Vec<(dereth_render::TextureKey, u32)>,
-    /// The light the retail objects the art pack's models stand for give off themselves, by
-    /// object id: their cut-out surfaces' and their other surfaces' (`hifi_lamps::surface_glow`).
-    #[cfg(feature = "hifi")]
-    // ORDER-OK: only looked up, by id.
-    pack_glow: HashMap<DataId, (f32, f32)>,
-}
-
-#[cfg(feature = "hifi")]
-impl LandContext {
-    /// Work out the light the retail objects the art pack has models for give off themselves,
-    /// or forget it when no pack is set.
-    fn refresh_pack_glow(&mut self, store: &RetailDatStore) {
-        self.pack_glow.clear();
-        let Some(pack) = self.art_pack.as_ref() else {
-            return;
-        };
-        for m in &pack.models {
-            let glow = hifi_lamps::surface_glow(store, m.id);
-            if glow != (0.0, 0.0) {
-                self.pack_glow.insert(m.id, glow);
-            }
-        }
-    }
-
-    /// Work out the texture keys of the retail pictures the art pack has materials for, or
-    /// forget them when no pack has any. A picture an object recolors with a palette of its own
-    /// is held under no key, so a material never reaches it.
-    fn refresh_material_keys(&mut self, store: &RetailDatStore) {
-        self.material_keys.clear();
-        let Some(pack) = self.art_pack.as_ref() else {
-            return;
-        };
-        let textures = TextureStore::new(store);
-        for (m, material) in (0u32..).zip(&pack.materials) {
-            for t in &material.textures {
-                let (key, _) = appearance::combined_key(&textures, Some(*t), None);
-                if key != dereth_render::TextureKey::UNCACHED {
-                    self.material_keys.push((key, m));
-                }
-            }
-        }
-    }
-
-    /// Read retail's masks and the pictures the art pack's ground needs from the ground's files,
-    /// or forget them when no pack lays a ground or the ground is not drawn by blending pictures.
-    fn refresh_retail_ground(&mut self, store: &RetailDatStore) {
-        let pack = self
-            .art_pack
-            .as_ref()
-            .filter(|p| !p.grounds.is_empty() && self.pal_shift.is_none());
-        self.retail_ground = pack.map(|pack| {
-            let store = self.ground_store.as_ref().unwrap_or(store);
-            let textures = TextureStore::new(store);
-            Arc::new(crate::art_pack::RetailGround::of(
-                &self.tex_merge,
-                pack,
-                &mut |id| {
-                    let b = textures.bgra8(id).ok()?;
-                    let rgba = b
-                        .pixels
-                        .iter()
-                        .flat_map(|p| [p[2], p[1], p[0], p[3]])
-                        .collect();
-                    Some((b.width, b.height, rgba))
-                },
-            ))
-        });
-    }
 }
 
 /// The world's objects drawn with another era's look (`[Render] Objects`).
@@ -3132,20 +3123,6 @@ impl WorldScene {
         Ok(Self { world, draw })
     }
 
-    /// [`SceneDraw::set_art_pack`] on this scene.
-    ///
-    /// # Errors
-    /// As [`SceneDraw::set_art_pack`].
-    #[cfg(feature = "hifi")]
-    pub fn set_art_pack(
-        &mut self,
-        store: &RetailDatStore,
-        gpu: &mut Gpu,
-        pack: Option<Arc<crate::art_pack::ArtPack>>,
-    ) -> Result<(), WorldError> {
-        self.draw.set_art_pack(&mut self.world, store, gpu, pack)
-    }
-
     /// The whole scene as the shared view an application's world state and a renderer's
     /// drawing half make, so one reader serves both.
     #[must_use]
@@ -3263,8 +3240,9 @@ struct ObjectBaker<'a> {
     /// Bounding spheres worked out ahead of [`Self::finish`], by surface.
     // ORDER-OK: looked up by key only.
     spheres: HashMap<BatchKey, (Vec3, f32)>,
-    /// Whether the art pack has a model for the object being placed.
-    covered: bool,
+    /// Every object this bake placed, as it placed it, for the remaster.
+    #[cfg(feature = "remaster")]
+    placed: Vec<remaster_bridge::BakedPlacement>,
 }
 
 /// One entry of the decoded-surface memo: the surface record, the two polygon flags it
@@ -3289,8 +3267,6 @@ struct BatchKey {
     /// translucent thing; a batch merging a whole block's objects has no one distance to take
     /// that place by. Opaque and alpha-tested surfaces write depth and stay merged.
     instance: Option<u32>,
-    /// Whether the art pack has a model for the placed object: such objects are batched apart.
-    art_pack: bool,
 }
 
 impl<'a> ObjectBaker<'a> {
@@ -3316,7 +3292,8 @@ impl<'a> ObjectBaker<'a> {
             parts: None,
             object: 0,
             spheres: HashMap::new(),
-            covered: false,
+            #[cfg(feature = "remaster")]
+            placed: Vec::new(),
         }
     }
 
@@ -3351,6 +3328,15 @@ impl<'a> ObjectBaker<'a> {
         building_pass: bool,
     ) -> Option<u32> {
         self.instances += 1;
+        #[cfg(feature = "remaster")]
+        {
+            self.placed.push(remaster_bridge::BakedPlacement::new(
+                obj_id,
+                *frame,
+                scale,
+                building_pass,
+            ));
+        }
         let mut first_placement = None;
         let store = self.store;
         let parts = self
@@ -3437,6 +3423,8 @@ impl<'a> ObjectBaker<'a> {
                 NO_PART
             };
             let Some(info) = record else {
+                #[cfg(feature = "remaster")]
+                self.note_part(part.gfxobj, &world, mesh_scale, None);
                 self.append_mesh(
                     part.gfxobj,
                     &world,
@@ -3468,6 +3456,8 @@ impl<'a> ObjectBaker<'a> {
             if index == 0 {
                 first_placement = Some(placement);
             }
+            #[cfg(feature = "remaster")]
+            self.note_part(part.gfxobj, &world, mesh_scale, Some(placement));
             if let Some(p) = self
                 .parts
                 .as_mut()
@@ -3525,6 +3515,24 @@ impl<'a> ObjectBaker<'a> {
         first_placement
     }
 
+    /// A part of the object being placed, as the remaster is told of it: the GfxObj it names,
+    /// where it stands, its mesh scale, and its degrading placement.
+    #[cfg(feature = "remaster")]
+    fn note_part(&mut self, gfxobj: DataId, world: &Frame, scale: Vec3, placement: Option<u32>) {
+        if let Some(p) = self.placed.last_mut() {
+            p.parts.push(remaster_bridge::BakedPart::new(
+                gfxobj, *world, scale, placement,
+            ));
+        }
+    }
+
+    /// The objects this baker has placed, as it placed them, for the remaster: handed over
+    /// before [`Self::finish`].
+    #[cfg(feature = "remaster")]
+    fn placed_objects(&mut self) -> Vec<remaster_bridge::BakedPlacement> {
+        std::mem::take(&mut self.placed)
+    }
+
     /// One graphics object's triangles into the group buffers, tagged with the placement,
     /// level and cell part they belong to (`owner`). Split out of [`Self::add_object_kind`].
     // The final flag carries building drawing's owner through the existing per-level bake.
@@ -3569,7 +3577,6 @@ impl<'a> ObjectBaker<'a> {
                 },
                 building_pass,
                 instance: blends.then_some(self.instances),
-                art_pack: self.covered,
             };
             let (buf, chunks) = self.groups.entry(key.clone()).or_insert_with(|| {
                 self.order.push(key);
@@ -3711,7 +3718,6 @@ impl<'a> ObjectBaker<'a> {
                 active: Vec::new(),
                 from_look: self.from_look,
                 part_runs,
-                art_pack: key.art_pack,
             };
             if batch.key.alpha_blend {
                 blended.push(batch);
@@ -3740,6 +3746,8 @@ impl<'a> ObjectBaker<'a> {
             placements: self.placements,
             instances: self.instances,
             spheres: self.spheres,
+            #[cfg(feature = "remaster")]
+            placed: self.placed,
         }
     }
 
@@ -3759,6 +3767,8 @@ impl<'a> ObjectBaker<'a> {
             placements,
             instances,
             spheres,
+            #[cfg(feature = "remaster")]
+            placed,
         } = assembly;
         Self {
             groups,
@@ -3766,6 +3776,8 @@ impl<'a> ObjectBaker<'a> {
             placements,
             instances,
             spheres,
+            #[cfg(feature = "remaster")]
+            placed,
             ..Self::new(store, cache, part_degrades, degrade_levels, billboards)
         }
     }
@@ -3783,6 +3795,9 @@ pub(super) struct BakerAssembly {
     /// [`ObjectBaker::finish`].
     // ORDER-OK: looked up by key only.
     spheres: HashMap<BatchKey, (Vec3, f32)>,
+    /// The objects placed, as they were placed, for the remaster.
+    #[cfg(feature = "remaster")]
+    placed: Vec<remaster_bridge::BakedPlacement>,
 }
 
 impl BakerAssembly {

@@ -1,0 +1,49 @@
+# The shaders the layer's own tests draw and dispatch with. `cargo xtask shaders` compiles each
+# entry point below into `compiled/`, which is checked in.
+targets = ["spirv", "dxil"]
+
+# One triangle in a solid color, its corners from the push constants.
+[[entry]]
+source = "triangle.slang"
+entry = "vs_main"
+stage = "vertex"
+
+[[entry]]
+source = "triangle.slang"
+entry = "fs_main"
+stage = "fragment"
+
+# A grid of squares, the square of instance `i` filled with texture `first + i` of the table.
+[[entry]]
+source = "textures.slang"
+entry = "vs_main"
+stage = "vertex"
+
+[[entry]]
+source = "textures.slang"
+entry = "fs_main"
+stage = "fragment"
+
+# One square per indirect command, at the place and in the color its draw item names; the item
+# is the command's first instance.
+[[entry]]
+source = "items.slang"
+entry = "vs_main"
+stage = "vertex"
+
+[[entry]]
+source = "items.slang"
+entry = "fs_main"
+stage = "fragment"
+
+# Writes `value + i` into word `i` of a read-write buffer.
+[[entry]]
+source = "fill.slang"
+entry = "cs_main"
+stage = "compute"
+
+# Rays cast down a grid into a top-level acceleration structure, each one's hit written.
+[[entry]]
+source = "trace.slang"
+entry = "cs_main"
+stage = "compute"

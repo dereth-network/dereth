@@ -66,27 +66,32 @@ pub fn marker_mesh(
     out
 }
 
+impl super::WorldScene {
+    /// The corners the ring `marker` is laid with under its object (see
+    /// [`SceneDraw::ground_marker_corners`]); empty for an object not in the world.
+    #[must_use]
+    pub fn ground_marker_corners(
+        &self,
+        marker: &dereth_client_contract::overlay::GroundMarker,
+    ) -> Vec<MarkerCorner> {
+        self.draw
+            .ground_marker_corners(&self.world, marker)
+            .unwrap_or_default()
+    }
+}
+
 impl SceneDraw {
-    /// Lay `marker` on the ground under its object, after the world and before the overlay: on
-    /// the terrain under it outdoors, following the land's shape, or level with the object on a
-    /// floor indoors. Hidden where the world stands in front of it, and written into no depth.
-    /// Nothing for an object not in the world.
-    ///
-    /// # Errors
-    /// The device's own.
-    pub fn draw_ground_marker(
+    /// The corners `marker` is laid with under its object: on the terrain under it outdoors,
+    /// following the land's shape (the remaster's ground as it is drawn, while it draws one), or
+    /// level with the object on a floor indoors. `None` for an object not in the world.
+    pub(crate) fn ground_marker_corners(
         &self,
         ws: &WorldState,
-        gpu: &mut Gpu,
         marker: &dereth_client_contract::overlay::GroundMarker,
-        texture: TextureSlot,
-        key: &PipelineKey,
-    ) -> Result<(), RenderError> {
-        let Some(object) = ws.objects.get(&marker.object) else {
-            return Ok(());
-        };
+    ) -> Option<Vec<MarkerCorner>> {
+        let object = ws.objects.get(&marker.object)?;
         if !object.drawn {
-            return Ok(());
+            return None;
         }
         let radius = {
             let driver = object.sim.driver.borrow();
@@ -104,7 +109,24 @@ impl SceneDraw {
             .position
             .filter(|p| dereth_physics::landdefs::is_outdoors(p.cell));
         let world = ws.character.as_ref().map(|c| &c.world);
+        // Where the remaster draws the ground with its visual offset, the ring lies on the ground
+        // as it is drawn.
+        #[cfg(feature = "remaster")]
+        let drawn = self.remaster_ground.active;
+        #[cfg(not(feature = "remaster"))]
+        let drawn = false;
+        let center = object.frame.origin;
         let ground = |dx: f32, dy: f32| -> Option<f32> {
+            #[cfg(feature = "remaster")]
+            if drawn {
+                place.as_ref()?;
+                return Some(
+                    self.remaster_ground
+                        .ground_at(center.x + dx, center.y + dy)?
+                        - center.z,
+                );
+            }
+            let _ = (drawn, center);
             let (place, world) = (place.as_ref()?, world?);
             let mut cell = place.cell;
             let mut local = Vec3::new(
@@ -118,7 +140,33 @@ impl SceneDraw {
             at.frame.origin = local;
             Some(world.terrain_height_at(&at)? - place.frame.origin.z)
         };
-        let corners = marker_mesh(object.frame.origin, radius, marker.turn, marker.uv, &ground);
+        Some(marker_mesh(
+            object.frame.origin,
+            radius,
+            marker.turn,
+            marker.uv,
+            &ground,
+        ))
+    }
+
+    /// Lay `marker` on the ground under its object, after the world and before the overlay: on
+    /// the terrain under it outdoors, following the land's shape, or level with the object on a
+    /// floor indoors. Hidden where the world stands in front of it, and written into no depth.
+    /// Nothing for an object not in the world.
+    ///
+    /// # Errors
+    /// The device's own.
+    pub fn draw_ground_marker(
+        &self,
+        ws: &WorldState,
+        gpu: &mut Gpu,
+        marker: &dereth_client_contract::overlay::GroundMarker,
+        texture: TextureSlot,
+        key: &PipelineKey,
+    ) -> Result<(), RenderError> {
+        let Some(corners) = self.ground_marker_corners(ws, marker) else {
+            return Ok(());
+        };
         let mut bytes = Vec::with_capacity(corners.len() * 24);
         for c in &corners {
             // The device's axes put up second.

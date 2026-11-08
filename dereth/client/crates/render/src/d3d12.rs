@@ -46,6 +46,8 @@ mod mipgen;
 mod probes;
 mod samplers;
 mod terrain;
+#[cfg(feature = "remaster")]
+pub mod world_hook;
 
 // The plain data both backends speak lives in `crate::device`; it is re-exported here so that
 // `dereth_render::d3d12::DeviceConfig` and its neighbours name the same types as the Vulkan
@@ -263,6 +265,9 @@ pub struct Gpu {
     /// it draws is otherwise indistinguishable from one that draws it **twice**, and those are the
     /// two ways to get a deferred-queue flush wrong.
     pub draw_calls: u64,
+    /// The remaster's seam: its hook, when one is installed.
+    #[cfg(feature = "remaster")]
+    remaster: world_hook::RemasterSeam,
 }
 
 impl Gpu {
@@ -402,6 +407,17 @@ impl Gpu {
         let root_signature = Self::create_root_signature(&device)?;
         let (vertex_shaders, pixel_shaders) = compile_shaders()?;
         let imgtex_autogen_supported = mipgen::supported(&device);
+        #[cfg(feature = "remaster")]
+        let remaster = {
+            let allowed = crate::device::remaster_allowed_on(adapter_kind, cfg.prefers_software());
+            if !allowed {
+                tracing::warn!(
+                    target: "dereth::render",
+                    "{adapter_name} draws on the CPU, so the remaster stays off"
+                );
+            }
+            world_hook::RemasterSeam::new(&device, allowed, cfg.remaster_ray_queries)
+        };
 
         let mut gpu = Self {
             device,
@@ -461,6 +477,8 @@ impl Gpu {
             stamp_texture: None,
             portal_stamps: 0,
             draw_calls: 0,
+            #[cfg(feature = "remaster")]
+            remaster,
         };
         gpu.create_views()?;
         gpu.create_samplers();
@@ -1229,6 +1247,8 @@ impl Gpu {
         }
         // At scene begin, not when the filter mode is set: normal bias changes at the scene edge.
         self.sharp_lod_bias = self.texture_filtering == 2;
+        #[cfg(feature = "remaster")]
+        self.world_begins();
         Ok(())
     }
 
@@ -2541,6 +2561,8 @@ impl Gpu {
 impl Drop for Gpu {
     fn drop(&mut self) {
         let _ = self.wait_idle();
+        #[cfg(feature = "remaster")]
+        self.destroy_world_hook();
         // SAFETY: the handle was created by CreateEventW in `new` and is not closed elsewhere.
         unsafe {
             let _ = CloseHandle(self.fence_event);

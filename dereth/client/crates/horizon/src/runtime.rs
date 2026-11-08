@@ -748,10 +748,11 @@ impl HorizonFrontEnd {
         let mut state = crate::state::snapshot(cx, chat);
         state.renderers = cx.renderer_status();
         state.full_screen = cx.full_screen_offered().then(|| cx.full_screen());
-        #[cfg(feature = "hifi")]
+        #[cfg(feature = "fidelity")]
         {
-            state.hifi = cx.hifi_availability();
+            state.art_pack_open = cx.art_pack_open();
         }
+        state.dlss_carried = cx.dlss_carried();
         state.camera_heading = cx.camera_heading().unwrap_or(state.heading);
         self.patch.follow(&cx.pregame().ddd);
         state.patch_progress = self

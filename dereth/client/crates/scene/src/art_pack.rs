@@ -1,4 +1,4 @@
-//! Art packs: models for retail objects, drawn by the high-fidelity presentation in place of the
+//! Art packs: models for retail objects, drawn by the remaster in place of the
 //! objects they replace, and the one lookup that says which look draws an object.
 //!
 //! **Which look draws an object** ([`Looks::of`]): the art pack's model, when a pack is drawn and
@@ -43,7 +43,7 @@ use std::sync::Arc;
 
 use dereth_assets::art_pack::{ArtPackManifest, Credit, ManifestGround, MANIFEST_FILE};
 
-pub use dereth_assets::art_pack::Ground;
+pub use dereth_assets::art_pack::{Category, Ground};
 use dereth_primitives::{DataId, Frame};
 
 pub use gltf::VERTEX_FLOATS;
@@ -53,7 +53,7 @@ pub use materials::TextureMaterial;
 /// Which look draws an outdoor object.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Look {
-    /// The art pack's model, by the high-fidelity presentation.
+    /// The art pack's model, by the remaster.
     ArtPack,
     /// The classic look: another era's record of the object.
     Classic,
@@ -165,6 +165,8 @@ pub struct PackModel {
     /// Cut-out growth: its cut-out materials (needles, leaves) are drawn from both sides and lit
     /// through from behind.
     pub foliage: bool,
+    /// Which kind of thing it is, for the switches that turn a pack's models on by kind.
+    pub category: Category,
     /// Its levels of detail, nearest first.
     pub lods: Vec<PackLod>,
     /// A sphere holding every level, model space: centre and radius.
@@ -573,12 +575,28 @@ pub struct ArtPack {
     pub models: Vec<PackModel>,
     /// The pictures the materials name.
     pub images: Vec<Image>,
+    /// Where each of [`Self::images`] was made from, in their order.
+    pub image_sources: Vec<ImageSource>,
     /// The ground materials that read, all their pictures one size.
     pub grounds: Vec<PackGround>,
     /// The materials for retail pictures that read.
     pub materials: Vec<TextureMaterial>,
     /// What would not read, a line each.
     pub problems: Vec<String>,
+    /// How the pack says its art wants to be lit: its manifest's `[lighting]` section, as the
+    /// text of a look file.
+    pub lighting: Option<String>,
+}
+
+/// Where one of a pack's pictures was made from: its file, whether it holds colour in the
+/// display's encoding, the alpha a cut-out picture is cut at, and whether it is a level of
+/// pictures of a model seen from round it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImageSource {
+    pub path: String,
+    pub srgb: bool,
+    pub cutoff: Option<f32>,
+    pub views: bool,
 }
 
 /// Why a pack could not be opened at all, as a sentence.
@@ -887,6 +905,7 @@ impl ArtPack {
             models.push(PackModel {
                 id: entry.id,
                 foliage: entry.foliage,
+                category: entry.category,
                 bounds: bounds(&built),
                 lods: built,
                 credit: entry.credit.clone(),
@@ -898,6 +917,15 @@ impl ArtPack {
             Some(_) => pending.iter().map(PendingPicture::key).collect(),
             None => Vec::new(),
         };
+        let image_sources: Vec<ImageSource> = pending
+            .iter()
+            .map(|p| ImageSource {
+                path: p.path.clone(),
+                srgb: p.srgb,
+                cutoff: p.cutoff,
+                views: p.views,
+            })
+            .collect();
         let decoded = images::par_map(pending, &|p| match (pictures, &p.bytes) {
             (Pictures::Packed(file), _) => file.picture(&p.key()),
             (Pictures::Made, Some(bytes)) => p.make(bytes),
@@ -1049,9 +1077,11 @@ impl ArtPack {
             hash,
             models,
             images,
+            image_sources,
             grounds,
             materials: retextured,
             problems,
+            lighting: manifest.lighting,
         })
     }
 
@@ -1589,9 +1619,11 @@ license = "CC0-1.0"
             hash: String::new(),
             models: Vec::new(),
             images: Vec::new(),
+            image_sources: Vec::new(),
             grounds: Vec::new(),
             materials: Vec::new(),
             problems: Vec::new(),
+            lighting: None,
         };
         let one = images::with_levels(4, 4, vec![9; 64], true, None);
         pack.grounds.push(PackGround {

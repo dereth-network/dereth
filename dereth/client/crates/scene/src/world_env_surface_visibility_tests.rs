@@ -117,6 +117,8 @@ fn check(surface: DataId, untextured: bool) {
         degrade: vec![],
         objects: Box::default(),
         burned_count: None,
+        #[cfg(feature = "remaster")]
+        remaster: Default::default(),
     };
     gpu.begin_frame().unwrap();
     gpu.end_frame().unwrap();

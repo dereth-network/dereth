@@ -885,6 +885,8 @@ fn the_notice_names_the_source_and_carries_the_licences_the_package_needs() {
     assert!(text.contains("Liberation OFL"));
     assert!(text.contains("serde 1.0.0"));
     assert!(text.contains("the launcher, with the Dereth client"));
+    assert!(text.contains("AMD FIDELITYFX SUPER RESOLUTION"));
+    assert!(text.contains("Advanced Micro Devices"));
     let windows = super::notice::dereth_notice(&facts(None));
     assert!(!windows.contains("MOLTENVK"));
     assert!(windows.contains("CINZEL"));

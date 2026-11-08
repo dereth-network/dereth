@@ -70,6 +70,14 @@ mod shaders;
 mod terrain_merge;
 mod terrain_splat;
 
+/// What the device asked the driver for, and, in test builds, what each frame submitted.
+mod digest;
+/// The remaster's seam: its features, the device's handles, and the world hook.
+#[cfg(feature = "remaster")]
+pub mod world_hook;
+
+pub use digest::Request as DeviceRequest;
+
 // The plain data both backends speak lives in `crate::device`; it is re-exported here so that
 // `dereth_render::vulkan::DeviceConfig` and its neighbours name the same types as the D3D12
 // backend's.
@@ -349,6 +357,14 @@ pub struct Gpu {
     pub portal_stamps: u64,
     /// How many `draw_dynamic` batches this device has issued.
     pub draw_calls: u64,
+    /// What the device asked the driver for when it was made.
+    request: DeviceRequest,
+    /// Test builds: the digest of the frame being submitted, and of the last one.
+    #[cfg(feature = "test-support")]
+    digest: RefCell<digest::FrameDigest>,
+    /// The remaster's seam: whether it was asked for and granted, and the world hook.
+    #[cfg(feature = "remaster")]
+    remaster: world_hook::RemasterSeam,
     /// This crate's tests: the backend lock, released after the device is destroyed.
     #[cfg(all(test, feature = "wgpu"))]
     _backend_lock: std::sync::RwLockReadGuard<'static, ()>,
@@ -369,6 +385,38 @@ impl std::fmt::Debug for Gpu {
 
 /// The validation layer, when the SDK is installed.
 const VALIDATION_LAYER: &CStr = c"VK_LAYER_KHRONOS_validation";
+
+/// Test builds: the validation layer's errors on every device made with
+/// [`DeviceConfig::debug`], kept until a test takes them.
+#[cfg(feature = "test-support")]
+static VALIDATION_ERRORS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// Test builds: the validation layer's errors since they were last taken, on every device made
+/// with [`DeviceConfig::debug`]; empty when there were none or the layer is not installed.
+#[cfg(feature = "test-support")]
+#[must_use]
+pub fn take_validation_errors() -> Vec<String> {
+    VALIDATION_ERRORS
+        .lock()
+        .map(|mut e| std::mem::take(&mut *e))
+        .unwrap_or_default()
+}
+
+/// Test builds: whether the validation layer is installed, so a device made with
+/// [`DeviceConfig::debug`] is checked by it.
+#[cfg(feature = "test-support")]
+#[must_use]
+pub fn validation_available() -> bool {
+    pinned_entry()
+        .ok()
+        // SAFETY: a pure loader query.
+        .and_then(|e| unsafe { e.enumerate_instance_layer_properties() }.ok())
+        .is_some_and(|layers| {
+            layers
+                .iter()
+                .any(|l| l.layer_name_as_c_str().is_ok_and(|n| n == VALIDATION_LAYER))
+        })
+}
 
 /// The messenger callback: keep warnings and errors, print errors.
 unsafe extern "system" fn debug_callback(
@@ -392,6 +440,12 @@ unsafe extern "system" fn debug_callback(
     };
     if severity.contains(vk::DebugUtilsMessageSeverityFlagsEXT::ERROR) {
         tracing::error!("vulkan validation: {text}");
+        #[cfg(feature = "test-support")]
+        if let Ok(mut e) = VALIDATION_ERRORS.lock() {
+            if e.len() < 256 {
+                e.push(text.clone());
+            }
+        }
     }
     if severity.intersects(
         vk::DebugUtilsMessageSeverityFlagsEXT::ERROR
@@ -571,7 +625,17 @@ impl Gpu {
             });
         }
         let entry = pinned_entry()?;
-        let (instance, debug_utils) = Self::create_instance(&entry, window, cfg.debug)?;
+        let mut request = DeviceRequest::default();
+        #[cfg(feature = "remaster")]
+        let remaster = cfg.remaster;
+        #[cfg(not(feature = "remaster"))]
+        let remaster = false;
+        #[cfg(feature = "remaster")]
+        let asked = cfg.remaster_extensions;
+        #[cfg(not(feature = "remaster"))]
+        let asked: (&[&'static CStr], &[&'static CStr]) = (&[], &[]);
+        let (instance, debug_utils) =
+            Self::create_instance(&entry, window, cfg.debug, remaster, asked.0, &mut request)?;
         let surface = match window {
             Some(w) => {
                 let loader = ash::khr::surface::Instance::new(&entry, &instance);
@@ -600,13 +664,32 @@ impl Gpu {
         } else {
             1
         };
-        let (device, queue, sampler_lod_bias) = Self::create_device(
+        #[cfg(feature = "remaster")]
+        let rays = cfg.remaster_ray_queries;
+        #[cfg(not(feature = "remaster"))]
+        let rays = false;
+        #[cfg(feature = "remaster")]
+        let allowed = crate::device::remaster_allowed_on(adapter_kind, cfg.prefers_software());
+        #[cfg(not(feature = "remaster"))]
+        let allowed = false;
+        if remaster && !allowed {
+            tracing::warn!(
+                target: "dereth::render",
+                "{adapter_name} draws on the CPU, so the remaster stays off"
+            );
+        }
+        let (device, queue, sampler_lod_bias, granted, ray_queries) = Self::create_device(
             &instance,
             physical_device,
             queue_family,
             surface.is_some(),
             &features,
+            (remaster && allowed, rays),
+            asked.1,
+            &mut request,
         )?;
+        #[cfg(not(feature = "remaster"))]
+        let _ = (granted, ray_queries);
         let allocator = Allocator::new(&AllocatorCreateDesc {
             instance: instance.clone(),
             device: device.clone(),
@@ -819,6 +902,11 @@ impl Gpu {
             stamp_texture: None,
             portal_stamps: 0,
             draw_calls: 0,
+            request,
+            #[cfg(feature = "test-support")]
+            digest: RefCell::new(digest::FrameDigest::default()),
+            #[cfg(feature = "remaster")]
+            remaster: world_hook::RemasterSeam::new(remaster, granted, queue_family, ray_queries),
         };
         gpu.create_target()?;
         if gpu.surface.is_some() {
@@ -828,10 +916,14 @@ impl Gpu {
         Ok(gpu)
     }
 
+    /// The instance: Vulkan 1.2, or 1.3 when `remaster` asks and the loader has it.
     fn create_instance(
         entry: &ash::Entry,
         window: Option<WindowHandles>,
         debug: bool,
+        remaster: bool,
+        asked: &[&'static CStr],
+        request: &mut DeviceRequest,
     ) -> Result<
         (
             ash::Instance,
@@ -883,6 +975,16 @@ impl Gpu {
             extensions.push(ash::khr::portability_enumeration::NAME.as_ptr());
             flags |= vk::InstanceCreateFlags::ENUMERATE_PORTABILITY_KHR;
         }
+        for name in asked {
+            if has_ext(name)
+                && !extensions.iter().any(|e| {
+                    // SAFETY: each is a live extension name, a string with its end.
+                    unsafe { CStr::from_ptr(*e) == *name }
+                })
+            {
+                extensions.push(name.as_ptr());
+            }
+        }
         let want_debug = debug && has_ext(ash::ext::debug_utils::NAME);
         if want_debug {
             extensions.push(ash::ext::debug_utils::NAME.as_ptr());
@@ -895,10 +997,30 @@ impl Gpu {
         {
             layers.push(VALIDATION_LAYER.as_ptr());
         }
+        let api = if remaster && version >= vk::API_VERSION_1_3 {
+            vk::API_VERSION_1_3
+        } else {
+            vk::API_VERSION_1_2
+        };
+        request.note(|| {
+            let names = |v: &[*const c_char]| -> Vec<String> {
+                v.iter()
+                    // SAFETY: every name is a live NUL-terminated string.
+                    .map(|p| unsafe { CStr::from_ptr(*p) }.to_string_lossy().into_owned())
+                    .collect()
+            };
+            format!(
+                "instance {}.{} layers {:?} extensions {:?} flags {flags:?}",
+                vk::api_version_major(api),
+                vk::api_version_minor(api),
+                names(&layers),
+                names(&extensions)
+            )
+        });
         let app = vk::ApplicationInfo::default()
             .application_name(c"dereth-client")
             .engine_name(c"dereth-render")
-            .api_version(vk::API_VERSION_1_2);
+            .api_version(api);
         let info = vk::InstanceCreateInfo::default()
             .application_info(&app)
             .enabled_extension_names(&extensions)
@@ -1012,14 +1134,20 @@ impl Gpu {
         })
     }
 
-    /// The device and its queue, and whether its samplers can carry a level-of-detail bias.
+    /// The device and its queue, whether its samplers can carry a level-of-detail bias, and
+    /// whether it has the remaster's features on (asked for with `remaster`), and with them the
+    /// ray queries' where the device has those.
+    #[allow(clippy::too_many_arguments)]
     fn create_device(
         instance: &ash::Instance,
         pd: vk::PhysicalDevice,
         family: u32,
         with_swapchain: bool,
         features: &vk::PhysicalDeviceFeatures,
-    ) -> Result<(ash::Device, vk::Queue, bool), RenderError> {
+        (remaster, rays): (bool, bool),
+        asked: &[&'static CStr],
+        request: &mut DeviceRequest,
+    ) -> Result<(ash::Device, vk::Queue, bool, bool, bool), RenderError> {
         // SAFETY: a pure query.
         let available = vkr("vkEnumerateDeviceExtensionProperties", unsafe {
             instance.enumerate_device_extension_properties(pd)
@@ -1042,6 +1170,16 @@ impl Gpu {
         // portability-subset features, and must have the extension enabled when it advertises it.
         // Everything it can do is enabled; a device without the extension has the whole of Vulkan,
         // sampler bias included.
+        for name in asked {
+            if has(name) {
+                extensions.push(name.as_ptr());
+            }
+        }
+        // The Metal objects behind the device's, for what only Metal offers.
+        #[cfg(target_os = "macos")]
+        if remaster && has(ash::ext::metal_objects::NAME) {
+            extensions.push(ash::ext::metal_objects::NAME.as_ptr());
+        }
         let portability = has(ash::khr::portability_subset::NAME);
         let mut subset = vk::PhysicalDevicePortabilitySubsetFeaturesKHR::default();
         if portability {
@@ -1055,15 +1193,77 @@ impl Gpu {
         let queue_info = [vk::DeviceQueueCreateInfo::default()
             .queue_family_index(family)
             .queue_priorities(&priorities)];
-        let enabled = vk::PhysicalDeviceFeatures::default()
+        #[cfg_attr(not(feature = "remaster"), allow(unused_mut))]
+        let mut enabled = vk::PhysicalDeviceFeatures::default()
             .sampler_anisotropy(features.sampler_anisotropy == vk::TRUE)
             .texture_compression_bc(features.texture_compression_bc == vk::TRUE);
         let mut vk12 = vk::PhysicalDeviceVulkan12Features::default().timeline_semaphore(true);
+        // The remaster's features join the request only when it asks and the device has them
+        // all; otherwise the request is the ordinary one.
+        #[cfg_attr(not(feature = "remaster"), allow(unused_mut))]
+        let mut vk11 = vk::PhysicalDeviceVulkan11Features::default();
+        #[cfg_attr(not(feature = "remaster"), allow(unused_mut))]
+        let mut vk13 = vk::PhysicalDeviceVulkan13Features::default();
+        #[cfg(feature = "remaster")]
+        let granted = remaster
+            && world_hook::remaster_features(
+                instance,
+                pd,
+                &mut enabled,
+                &mut vk11,
+                &mut vk12,
+                &mut vk13,
+            );
+        #[cfg(not(feature = "remaster"))]
+        let granted = {
+            let _ = remaster;
+            false
+        };
+        // With the remaster's features, the ray queries' too where the device has them all.
+        #[cfg(feature = "remaster")]
+        let ray_queries = granted && rays && world_hook::ray_query_support(instance, pd);
+        #[cfg(not(feature = "remaster"))]
+        let ray_queries = {
+            let _ = rays;
+            false
+        };
+        #[cfg(feature = "remaster")]
+        let mut accel = vk::PhysicalDeviceAccelerationStructureFeaturesKHR::default()
+            .acceleration_structure(true)
+            .descriptor_binding_acceleration_structure_update_after_bind(true);
+        #[cfg(feature = "remaster")]
+        let mut query = vk::PhysicalDeviceRayQueryFeaturesKHR::default().ray_query(true);
+        #[cfg(feature = "remaster")]
+        if ray_queries {
+            extensions.extend(world_hook::RAY_QUERY_EXTENSIONS.iter().map(|n| n.as_ptr()));
+            vk12.buffer_device_address = vk::TRUE;
+        }
+        request.note(|| {
+            let names: Vec<String> = extensions
+                .iter()
+                // SAFETY: every name is a live NUL-terminated `'static` string.
+                .map(|p| unsafe { CStr::from_ptr(*p) }.to_string_lossy().into_owned())
+                .collect();
+            format!("device extensions {names:?}")
+        });
+        request.note(|| format!("{enabled:?}"));
+        request.note(|| format!("{vk12:?}"));
+        if granted {
+            request.note(|| format!("{vk11:?}"));
+            request.note(|| format!("{vk13:?}"));
+        }
         let mut info = vk::DeviceCreateInfo::default()
             .queue_create_infos(&queue_info)
             .enabled_extension_names(&extensions)
             .enabled_features(&enabled)
             .push_next(&mut vk12);
+        if granted {
+            info = info.push_next(&mut vk11).push_next(&mut vk13);
+        }
+        #[cfg(feature = "remaster")]
+        if ray_queries {
+            info = info.push_next(&mut accel).push_next(&mut query);
+        }
         if portability {
             subset.p_next = std::ptr::null_mut();
             info = info.push_next(&mut subset);
@@ -1074,7 +1274,7 @@ impl Gpu {
         })?;
         // SAFETY: the family was chosen from the device's own list.
         let queue = unsafe { device.get_device_queue(family, 0) };
-        Ok((device, queue, sampler_lod_bias))
+        Ok((device, queue, sampler_lod_bias, granted, ray_queries))
     }
 
     fn pick_depth_format(
@@ -1131,9 +1331,23 @@ impl Gpu {
             .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
             .color_attachments(&color_ref)
             .depth_stencil_attachment(&depth_ref)];
+        let dependencies = Self::frame_dependencies();
+        let info = vk::RenderPassCreateInfo::default()
+            .attachments(&attachments)
+            .subpasses(&subpass)
+            .dependencies(&dependencies);
+        // SAFETY: live locals; owned by `self`.
+        vkr("vkCreateRenderPass", unsafe {
+            device.create_render_pass(&info, None)
+        })
+    }
+
+    /// The frame pass's two external dependencies. A pass that stands in for it must have exactly
+    /// these to stay compatible with it.
+    fn frame_dependencies() -> [vk::SubpassDependency; 2] {
         // The previous frame's blit read the colour image and its pass wrote the depth image;
         // this pass's clears must wait for both. On one queue that is a single dependency.
-        let dependencies = [
+        [
             vk::SubpassDependency::default()
                 .src_subpass(vk::SUBPASS_EXTERNAL)
                 .dst_subpass(0)
@@ -1162,15 +1376,7 @@ impl Gpu {
                 .src_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE)
                 .dst_stage_mask(vk::PipelineStageFlags::TRANSFER)
                 .dst_access_mask(vk::AccessFlags::TRANSFER_READ),
-        ];
-        let info = vk::RenderPassCreateInfo::default()
-            .attachments(&attachments)
-            .subpasses(&subpass)
-            .dependencies(&dependencies);
-        // SAFETY: live locals; owned by `self`.
-        vkr("vkCreateRenderPass", unsafe {
-            device.create_render_pass(&info, None)
-        })
+        ]
     }
 
     /// The four descriptor set layouts and the pipeline layout carry the fixed-function state
@@ -1299,12 +1505,15 @@ impl Gpu {
             TextureFormat::Bgra8,
             "back buffer",
         )?;
+        // Its depth can be copied out: the frame's captures, and the remaster's tests.
+        let depth_usage =
+            vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT | vk::ImageUsageFlags::TRANSFER_SRC;
         let depth = self.create_image(
             w,
             h,
             1,
             self.depth_format,
-            vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT | vk::ImageUsageFlags::TRANSFER_SRC,
+            depth_usage,
             vk::ImageAspectFlags::DEPTH | vk::ImageAspectFlags::STENCIL,
             TextureFormat::Bgra8,
             "depth buffer",
@@ -2154,8 +2363,16 @@ impl Gpu {
             width: self.config.width,
             height: self.config.height,
         };
+        // With a world hook installed the frame begins with the same pass keeping its depth,
+        // so the pass that resumes the frame after the hook loads it.
+        #[cfg(feature = "remaster")]
+        let render_pass = self.frame_pass();
+        #[cfg(not(feature = "remaster"))]
+        let render_pass = self.render_pass;
+        #[cfg(feature = "test-support")]
+        self.digest.borrow_mut().begin();
         let info = vk::RenderPassBeginInfo::default()
-            .render_pass(self.render_pass)
+            .render_pass(render_pass)
             .framebuffer(self.target.framebuffer)
             .render_area(vk::Rect2D {
                 offset: vk::Offset2D::default(),
@@ -2281,6 +2498,8 @@ impl Gpu {
         self.frame_open = false;
         self.frame_index = (self.frame_index + 1) % FRAME_COUNT;
         self.frame_stamp += 1;
+        #[cfg(feature = "test-support")]
+        self.digest.borrow_mut().end();
         Ok(())
     }
 
@@ -2785,6 +3004,13 @@ impl Gpu {
         // Read only by pixel shaders that apply the bias themselves; the field is otherwise
         // unused.
         frame.screen[1] = if self.shader_lod_bias { lod_bias } else { 0.0 };
+        #[cfg(feature = "test-support")]
+        self.digest.borrow_mut().note(&digest::Step::Draw {
+            key,
+            frame: as_bytes(&frame),
+            draw: as_bytes(&draw),
+            vertices,
+        });
 
         // The two constant blocks go up as one contiguous upload, so they share an arena and the
         // one descriptor set that views it; the vertices go up on their own.
@@ -3447,6 +3673,12 @@ impl Gpu {
         // Masked once, so the descriptor offset below and the census above cannot
         // disagree about which sampler this draw asked for.
         let which = sampler % SAMPLER_COUNT;
+        #[cfg(feature = "test-support")]
+        self.digest.borrow_mut().note(&digest::Step::Bind {
+            stage: 0,
+            slot: slot.0,
+            sampler: which,
+        });
         let mut counts = self.sampler_binds.get();
         counts[which as usize] += 1;
         self.sampler_binds.set(counts);
@@ -3489,6 +3721,12 @@ impl Gpu {
     /// sampler request 0 in [`Self::bind_texture`]'s table, whatever request the base surface
     /// asked for. Call it **after** [`Self::bind_texture`].
     pub fn bind_stage1_texture(&self, slot: TextureSlot) {
+        #[cfg(feature = "test-support")]
+        self.digest.borrow_mut().note(&digest::Step::Bind {
+            stage: 1,
+            slot: slot.0,
+            sampler: 0,
+        });
         // WRAP/WRAP, LINEAR/LINEAR/LINEAR -- request 0 of the effective bank.
         let descriptor = self.sampler_descriptor_index(0);
         let stage0 = self.bound_sampler.get().unwrap_or(descriptor);
@@ -3554,6 +3792,15 @@ impl Gpu {
     /// driver.
     pub fn set_viewport(&self, v: crate::camera::Viewport) {
         let v = crate::camera::clamp_viewport(v, self.config.width, self.config.height);
+        #[cfg(feature = "test-support")]
+        self.digest
+            .borrow_mut()
+            .note(&digest::Step::Viewport([v.x, v.y, v.width, v.height]));
+        self.install_viewport(v);
+    }
+
+    /// The viewport and scissor of [`Self::set_viewport`], `v` already clamped to the target.
+    fn install_viewport(&self, v: crate::camera::Viewport) {
         if v.width == 0 || v.height == 0 {
             return;
         }
@@ -3602,6 +3849,10 @@ impl Gpu {
     /// clears `D3DCLEAR_ZBUFFER` and leaves the colour already in the rectangle alone.
     pub fn clear_depth(&self, v: crate::camera::Viewport) {
         let v = crate::camera::clamp_viewport(v, self.config.width, self.config.height);
+        #[cfg(feature = "test-support")]
+        self.digest
+            .borrow_mut()
+            .note(&digest::Step::ClearDepth([v.x, v.y, v.width, v.height]));
         if v.width == 0 || v.height == 0 {
             return;
         }
@@ -3638,9 +3889,35 @@ impl Gpu {
     }
 }
 
+impl Gpu {
+    /// What the device asked the driver for when it was made.
+    #[must_use]
+    pub fn device_request(&self) -> &DeviceRequest {
+        &self.request
+    }
+
+    /// Start or stop digesting what each frame submits.
+    #[cfg(feature = "test-support")]
+    pub fn set_frame_digest(&mut self, on: bool) {
+        self.digest.borrow_mut().set(on);
+    }
+
+    /// The digest of what the last ended frame submitted, while digesting is on.
+    #[cfg(feature = "test-support")]
+    #[must_use]
+    pub fn last_frame_digest(&self) -> Option<u64> {
+        self.digest.borrow().last()
+    }
+}
+
 impl Drop for Gpu {
     fn drop(&mut self) {
         let _ = self.wait_idle();
+        #[cfg(feature = "remaster")]
+        world_hook::device_closing(ash::vk::Handle::as_raw(self.device.handle()));
+        // A world hook made on this device goes first, with everything it made.
+        #[cfg(feature = "remaster")]
+        self.destroy_world_hook();
         // SAFETY: the wait above retired every submission; nothing below is referenced by the GPU,
         // and every handle was created by this struct exactly once. Order: everything that lives
         // on the device, then the device, then the instance-level objects.

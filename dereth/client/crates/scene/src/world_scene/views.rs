@@ -41,14 +41,10 @@ impl SceneDraw {
         // While the presentation draws the drawn ground, the camera sees to its horizon.
         #[allow(unused_mut)]
         let mut zfar = dereth_render::camera::ZFAR;
-        #[cfg(feature = "hifi")]
-        if self.drawn.active && self.drawn.knobs.on(dereth_terrain::land::drawn::Knob::Far) {
-            zfar = zfar.max(
-                self.drawn
-                    .knobs
-                    .get(dereth_terrain::land::drawn::Knob::Horizon)
-                    * 1.1,
-            );
+        // And while the remaster draws its ground out to the horizon.
+        #[cfg(feature = "remaster")]
+        if let Some(h) = self.remaster_ground.horizon() {
+            zfar = zfar.max(h * 1.1);
         }
         ViewParams {
             view: dereth_render::camera::view_from_frame(&eye),
@@ -78,18 +74,19 @@ impl SceneDraw {
     }
 
     /// Where the frame is drawn from for the camera in `ws`: the camera itself, except that while
-    /// the presentation draws the drawn ground the camera is drawn moved with it, rising as the
-    /// body it follows does (see `DrawnGround::camera_offset`). A camera in a room or a dungeon
-    /// stays where it is: the ground is not under it, and lifted clear of it the camera would
-    /// leave the rooms.
+    /// the presentation or the remaster draws the drawn ground the camera is drawn moved with it,
+    /// rising as the body it follows does (see `DrawnGround::camera_offset`). A camera in a room
+    /// or a dungeon stays where it is: the ground is not under it, and lifted clear of it the
+    /// camera would leave the rooms.
     #[must_use]
     pub fn drawn_eye(&self, ws: &WorldState) -> Frame {
         #[allow(unused_mut)]
         let mut eye = ws.camera.frame();
-        #[cfg(feature = "hifi")]
-        if self.drawn.active && ws.viewer_cell().is_none() {
+        // The same over the remaster's ground, while it draws its offset.
+        #[cfg(feature = "remaster")]
+        if self.remaster_ground.active && ws.viewer_cell().is_none() {
             let body = ws.character.as_ref().map(|c| c.render_frame().origin);
-            let offset = self.drawn.camera_offset(eye.origin, body);
+            let offset = self.remaster_ground.camera_offset(eye.origin, body);
             eye.origin = Vec3::new(
                 eye.origin.x + offset.x,
                 eye.origin.y + offset.y,
@@ -331,6 +328,57 @@ impl SceneDraw {
         }
     }
 
+    /// Whether the walk submits what it decides to draw: always, unless it only decides
+    /// ([`Self::set_decide_only`]).
+    #[inline]
+    pub(super) fn submits(&self) -> bool {
+        #[cfg(feature = "remaster")]
+        {
+            !self.decide_only
+        }
+        #[cfg(not(feature = "remaster"))]
+        {
+            true
+        }
+    }
+
+    /// Make the walk only decide (`on`), or decide and draw: decided only, a frame makes every
+    /// decision it makes when it draws (what can be picked, which cells and parts are drawn, at
+    /// which level, through which openings, whether the selected object is in view) and submits
+    /// nothing to the device, and the landscape's triangles are not rebuilt for it. The remaster
+    /// draws the world instead.
+    #[cfg(feature = "remaster")]
+    pub fn set_decide_only(&mut self, on: bool) {
+        self.decide_only = on;
+    }
+
+    /// Whether the walk only decides; see [`Self::set_decide_only`].
+    #[cfg(feature = "remaster")]
+    #[must_use]
+    pub fn decide_only(&self) -> bool {
+        self.decide_only
+    }
+
+    /// Hand each frame's changes and state to `receiver` from the next frame on, starting with
+    /// everything the scene holds, and return the receiver it replaces.
+    #[cfg(feature = "remaster")]
+    pub fn install_remaster_receiver(
+        &mut self,
+        receiver: Box<dyn remaster::Receiver>,
+    ) -> Option<Box<dyn remaster::Receiver>> {
+        let bridge = self.remaster.get_mut();
+        bridge.shadow = remaster_bridge::Shadow::default();
+        bridge.receiver.replace(receiver)
+    }
+
+    /// Stop handing frames to the receiver, and return it.
+    #[cfg(feature = "remaster")]
+    pub fn remove_remaster_receiver(&mut self) -> Option<Box<dyn remaster::Receiver>> {
+        let bridge = self.remaster.get_mut();
+        bridge.shadow = remaster_bridge::Shadow::default();
+        bridge.receiver.take()
+    }
+
     /// Draw one frame of the world in normal render mode.
     ///
     /// The outdoor pass itself is `Self::draw_landscape`, because retail's normal-mode render
@@ -358,24 +406,23 @@ impl SceneDraw {
         // Reset on the error path too. A `?` that left a sub-rect installed would silently
         // clip the UI of every frame after the first failure.
         let (w, h) = gpu.size();
-        gpu.set_viewport(self.effective_viewport(ws, w, h));
-        #[cfg(feature = "hifi")]
-        gpu.hifi_mark(Mark::WorldBegin);
+        let viewport = self.effective_viewport(ws, w, h);
+        gpu.set_viewport(viewport);
         let started = web_time::Instant::now();
         let r = self.draw_in_viewport(ws, gpu);
         let walked = web_time::Instant::now();
-        // The world is down: what follows is the interface. The snapshot is taken now, after
-        // the frame's walk has finished, from shared reads only.
-        #[cfg(feature = "hifi")]
+        // The remaster is handed the frame's changes and state at the same point, after the
+        // walk, from shared reads; then, at the world's end, a renderer hooked into the device
+        // draws the world. With none hooked, nothing happens.
+        #[cfg(feature = "remaster")]
         if r.is_ok() {
-            gpu.hifi_mark(Mark::WorldEnd);
-            hifi_bridge::publish(self, &mut self.hifi.borrow_mut(), ws, gpu);
+            remaster_bridge::publish(self, &mut self.remaster.borrow_mut(), ws, (w, h));
+            super::remaster_view::deliver(self, gpu);
+            gpu.world_end(viewport);
         }
-        let costs = self.frame_costs.get();
         self.frame_costs.set(FrameCosts {
             walk: walked.duration_since(started).as_secs_f32() * 1000.0,
-            snapshot: walked.elapsed().as_secs_f32() * 1000.0,
-            ..costs
+            remaster: walked.elapsed().as_secs_f32() * 1000.0,
         });
         gpu.reset_viewport();
         r
@@ -390,6 +437,15 @@ impl SceneDraw {
         // The frame's cell walk starts here, so the previous frame's answer is
         // replaced rather than accumulated onto. See [`Self::frame_drawn_cells`].
         *self.frame_drawn_cells.borrow_mut() = Some(std::collections::BTreeSet::new());
+        // And what the remaster is told the walk drew, while one is told.
+        #[cfg(feature = "remaster")]
+        {
+            *self.frame_walk.borrow_mut() = self
+                .remaster
+                .borrow()
+                .receiving()
+                .then(remaster_bridge::WalkLog::default);
+        }
         // The frame's offered-object set starts here for the same reason, and
         // is accumulated by both of a split frame's object passes. See
         // [`Self::frame_pick_candidates`].
@@ -568,15 +624,6 @@ impl SceneDraw {
         self.frame_material_parts.set(counts);
         *self.frame_part_order.borrow_mut() = trace;
 
-        // --- the alpha flush -----------------------------------------------------------
-        // The world pass's own line, the one after its two
-        // exclusive arms: the landscape walk draws the blocks, their buildings **and their
-        // objects**, and the alpha flush comes after all three. So the landscape's
-        // translucency is the **last** world geometry on the screen, drawn over every opaque
-        // object the walk put there. A split indoor frame has already drained the queue at
-        // [`IndoorStep::FlushBeforeClear`], and this call finds it empty.
-        #[cfg(feature = "hifi")]
-        gpu.hifi_mark(Mark::AlphaFlush);
         self.flush_pending_alpha_list(gpu, &per_frame)?;
 
         self.frame_particles.set(particle_stats);

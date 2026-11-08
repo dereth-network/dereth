@@ -68,6 +68,15 @@ pub(crate) const SAMPLER_COUNT: u32 = crate::sampler::SAMPLER_COUNT;
 /// because every use of it is here.
 pub use dereth_client_contract::window::WindowHandles;
 
+/// Whether the remaster may draw on an adapter of this kind. A machine that fell back to a CPU
+/// rasteriser, having no working graphics driver, would take several times as long a frame as the
+/// ordinary picture does there, so the remaster draws on one only when it was asked for.
+#[cfg(feature = "remaster")]
+#[must_use]
+pub(crate) fn remaster_allowed_on(kind: AdapterKind, software_asked: bool) -> bool {
+    kind == AdapterKind::Hardware || software_asked
+}
+
 /// Which adapter the device was created on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AdapterKind {
@@ -104,13 +113,23 @@ pub struct DeviceConfig {
     /// be compared. Only the Vulkan device reads it: the D3D12 device's samplers always carry the
     /// bias and the `wgpu` device's never do.
     pub force_shader_lod_bias: bool,
-    /// Ask the device for what the optional high-fidelity presentation can use: the adapter's
-    /// float-filtering, timestamp, depth-clip and ray-query features where it has them, and its
-    /// own limits for storage textures, colour targets, constant and storage bindings and
-    /// samplers. Only the `wgpu` device reads it; with it off the request is exactly the ordinary
-    /// one.
-    #[cfg(feature = "hifi")]
-    pub hifi: bool,
+    /// Ask the device for what the remaster draws with: Vulkan 1.3, descriptor indexing,
+    /// indirect counts, dynamic rendering and the second synchronization model, when it has
+    /// them all. Only the Vulkan device reads it; with it off the request is exactly the
+    /// ordinary one.
+    #[cfg(feature = "remaster")]
+    pub remaster: bool,
+    /// With the remaster's features, also ask for ray queries where the device has them (on by
+    /// default); off, the device is made as one without them.
+    #[cfg(feature = "remaster")]
+    pub remaster_ray_queries: bool,
+    /// With the remaster's features, the extensions of Vulkan's instance and device an upscaler
+    /// loaded beside the client asks for, those the device has; none by default.
+    #[cfg(feature = "remaster")]
+    pub remaster_extensions: (
+        &'static [&'static std::ffi::CStr],
+        &'static [&'static std::ffi::CStr],
+    ),
 }
 
 impl Default for DeviceConfig {
@@ -125,8 +144,12 @@ impl Default for DeviceConfig {
             debug: false,
             srv_descriptors: None,
             force_shader_lod_bias: false,
-            #[cfg(feature = "hifi")]
-            hifi: false,
+            #[cfg(feature = "remaster")]
+            remaster: false,
+            #[cfg(feature = "remaster")]
+            remaster_ray_queries: true,
+            #[cfg(feature = "remaster")]
+            remaster_extensions: (&[], &[]),
         }
     }
 }
@@ -286,8 +309,7 @@ pub struct PerFrameConstants {
     pub fog_color: [f32; 4],
     /// `D3DRS_AMBIENT`, unpacked.
     pub ambient: [f32; 4],
-    /// x holds the clamped screen-brightness value. y is unused; z and w are the Better Lighting's
-    /// place in the dither and whether the frame is indoors, in its own copies of the block. See
+    /// x holds the clamped screen-brightness value. y, z and w are unused. See
     /// `Gpu::draw_dynamic`, which overwrites this
     /// field from the device's own live value so that it is device state here as it is there.
     pub screen: [f32; 4],
@@ -834,8 +856,7 @@ impl Gpu {
         dispatch!(self, g => g.take_depth_probes())
     }
 
-    /// Whether [`Self::request_depth_probes`] is answered: by every device, but by the `wgpu`
-    /// device not while the high-fidelity presentation draws its frames.
+    /// Whether [`Self::request_depth_probes`] is answered: by every device.
     #[must_use]
     pub fn depth_probes_answered(&self) -> bool {
         match self {
@@ -1140,152 +1161,136 @@ impl Gpu {
     }
 }
 
-/// The optional high-fidelity presentation's seam, on the device that has it: the `wgpu` one.
-/// On the other devices a mark is ignored and a sidecar is refused.
-#[cfg(all(gpu, feature = "hifi"))]
+/// The remaster's seam, on the devices that have it: the Vulkan and Direct3D 12 ones. On the
+/// `wgpu` device the world's end is ignored and a hook is refused.
+#[cfg(all(gpu, feature = "remaster"))]
 impl Gpu {
-    /// Note that the recording has reached `mark`. Nothing is kept when no sidecar is installed.
-    pub fn hifi_mark(&self, mark: crate::hifi_mark::Mark) {
-        #[allow(irrefutable_let_patterns)]
-        if let Gpu::Wgpu(g) = self {
-            g.hifi_mark(mark);
+    /// Whether the device was asked for the remaster's features.
+    #[must_use]
+    pub fn remaster_requested(&self) -> bool {
+        #[allow(unreachable_patterns)]
+        match self {
+            Gpu::Vulkan(g) => g.remaster_requested(),
+            #[cfg(all(windows, feature = "d3d12"))]
+            Gpu::D3d12(g) => g.remaster_requested(),
+            _ => false,
         }
     }
 
-    /// Install `sidecar`, which draws the world from now on.
+    /// Whether the device has them on: only then does it take a world hook.
+    #[must_use]
+    pub fn remaster_supported(&self) -> bool {
+        #[allow(unreachable_patterns)]
+        match self {
+            Gpu::Vulkan(g) => g.remaster_supported(),
+            #[cfg(all(windows, feature = "d3d12"))]
+            Gpu::D3d12(g) => g.remaster_supported(),
+            _ => false,
+        }
+    }
+
+    /// The Vulkan device's handles, for the remaster to adopt.
+    #[must_use]
+    pub fn remaster_device(&self) -> Option<crate::vulkan::world_hook::RemasterDevice> {
+        #[allow(unreachable_patterns)]
+        match self {
+            Gpu::Vulkan(g) => g.remaster_device(),
+            _ => None,
+        }
+    }
+
+    /// The Direct3D 12 device's handles, for the remaster to adopt.
+    #[cfg(all(windows, feature = "d3d12"))]
+    #[must_use]
+    pub fn remaster_d3d12_device(&self) -> Option<crate::d3d12::world_hook::RemasterDevice> {
+        #[allow(unreachable_patterns)]
+        match self {
+            Gpu::D3d12(g) => g.remaster_device(),
+            _ => None,
+        }
+    }
+
+    /// Install `hook`, which draws the world from the next frame on.
     ///
     /// # Errors
-    /// [`HifiRefused`](crate::wgpu::sidecar::HifiRefused) on a device other than `wgpu`, on a
-    /// `wgpu` device made without the high-fidelity request, or when one is installed already.
-    pub fn hifi_install(
+    /// [`WorldHookRefused`](crate::vulkan::world_hook::WorldHookRefused) on a device other than
+    /// Vulkan, one made without the remaster's request or without its features, or one with a
+    /// hook already.
+    pub fn install_world_hook(
         &mut self,
-        sidecar: Box<dyn crate::wgpu::sidecar::FrameSidecar>,
-    ) -> Result<(), crate::wgpu::sidecar::HifiRefused> {
+        hook: Box<dyn crate::vulkan::world_hook::WorldHook>,
+    ) -> Result<(), crate::vulkan::world_hook::WorldHookRefused> {
         #[allow(unreachable_patterns)]
         match self {
-            Gpu::Wgpu(g) => g.hifi_install(sidecar),
-            _ => Err(crate::wgpu::sidecar::HifiRefused::NotWgpu),
+            Gpu::Vulkan(g) => g.install_world_hook(hook),
+            #[cfg(all(windows, feature = "d3d12"))]
+            Gpu::D3d12(g) => g.install_world_hook(hook),
+            _ => Err(crate::vulkan::world_hook::WorldHookRefused::NotVulkan),
         }
     }
 
-    /// Uninstall the sidecar and hand it back; the device draws its ordinary frame again.
-    pub fn hifi_take(&mut self) -> Option<Box<dyn crate::wgpu::sidecar::FrameSidecar>> {
+    /// Uninstall the hook and hand it back; the device draws its ordinary frame again. It must
+    /// be dropped before the device.
+    pub fn take_world_hook(&mut self) -> Option<Box<dyn crate::vulkan::world_hook::WorldHook>> {
         #[allow(unreachable_patterns)]
         match self {
-            Gpu::Wgpu(g) => g.hifi_take(),
+            Gpu::Vulkan(g) => g.take_world_hook(),
+            #[cfg(all(windows, feature = "d3d12"))]
+            Gpu::D3d12(g) => g.take_world_hook(),
             _ => None,
         }
     }
 
-    /// The installed sidecar.
-    pub fn hifi_sidecar_mut(&mut self) -> Option<&mut dyn crate::wgpu::sidecar::FrameSidecar> {
+    /// The installed hook.
+    pub fn world_hook_mut(&mut self) -> Option<&mut dyn crate::vulkan::world_hook::WorldHook> {
         #[allow(unreachable_patterns)]
         match self {
-            Gpu::Wgpu(g) => g.hifi_sidecar_mut(),
+            Gpu::Vulkan(g) => g.world_hook_mut(),
+            #[cfg(all(windows, feature = "d3d12"))]
+            Gpu::D3d12(g) => g.world_hook_mut(),
             _ => None,
         }
     }
 
-    /// Why the last sidecar was uninstalled, if one failed.
+    /// Why the last hook was uninstalled, if one failed.
     #[must_use]
-    pub fn hifi_failed(&self) -> Option<String> {
+    pub fn world_hook_failed(&self) -> Option<String> {
         #[allow(unreachable_patterns)]
         match self {
-            Gpu::Wgpu(g) => g.hifi_failed(),
+            Gpu::Vulkan(g) => g.world_hook_failed(),
+            #[cfg(all(windows, feature = "d3d12"))]
+            Gpu::D3d12(g) => g.world_hook_failed(),
             _ => None,
         }
     }
 
-    /// What the installed sidecar did with the last frame.
-    #[must_use]
-    pub fn hifi_report(&self) -> Option<crate::wgpu::sidecar::SidecarReport> {
+    /// Test builds: the last frame's depth, a value a pixel, on the Vulkan or Direct3D 12 device;
+    /// on Vulkan only a frame drawn with a world hook installed keeps it.
+    ///
+    /// # Errors
+    /// The device's own; [`RenderError::Unsupported`] on another device.
+    #[cfg(feature = "test-support")]
+    pub fn capture_depth(&mut self) -> Result<Vec<f32>, RenderError> {
         #[allow(unreachable_patterns)]
         match self {
-            Gpu::Wgpu(g) => g.hifi_report(),
-            _ => None,
+            Gpu::Vulkan(g) => g.capture_depth(),
+            #[cfg(all(windows, feature = "d3d12"))]
+            Gpu::D3d12(g) => g.capture_depth(),
+            _ => Err(RenderError::Unsupported(
+                "only the Vulkan and Direct3D 12 devices read their depth back",
+            )),
         }
     }
 
-    /// Draw the high-fidelity presentation's world at `percent` of the frame's pixels each way
-    /// (fifty to a hundred), enlarged to the frame; ignored by a device without one.
-    pub fn hifi_set_render_scale(&mut self, percent: u32) {
-        #[allow(irrefutable_let_patterns)]
-        if let Gpu::Wgpu(g) = self {
-            g.hifi_set_render_scale(percent);
-        }
-    }
-
-    /// The share of the frame's pixels the high-fidelity presentation draws its world at, each
-    /// way, percent: a hundred on a device without one.
-    #[must_use]
-    pub fn hifi_render_scale(&self) -> u32 {
+    /// The frame's world, drawn in `viewport`, has ended: what follows is the interface. With a
+    /// hook installed it draws the world now; with none, nothing happens.
+    pub fn world_end(&mut self, viewport: crate::camera::Viewport) {
         #[allow(unreachable_patterns)]
         match self {
-            Gpu::Wgpu(g) => g.hifi_render_scale(),
-            _ => 100,
-        }
-    }
-
-    /// Wait up to `timeout` for the installed sidecar's background work, and whether none is
-    /// left; true where there is no sidecar.
-    pub fn hifi_settle(&mut self, timeout: std::time::Duration) -> bool {
-        #[allow(unreachable_patterns)]
-        match self {
-            Gpu::Wgpu(g) => g.hifi_settle(timeout),
-            _ => true,
-        }
-    }
-
-    /// Keep the installed sidecar's background work from starting anything more (`held`), or
-    /// let it go on; nothing where there is no sidecar.
-    pub fn hifi_hold(&mut self, held: bool) {
-        #[allow(irrefutable_let_patterns)]
-        if let Gpu::Wgpu(g) = self {
-            g.hifi_hold(held);
-        }
-    }
-
-    /// Whether the device was asked for what the high-fidelity presentation draws with: only a
-    /// `wgpu` device made so takes a sidecar.
-    #[must_use]
-    pub fn hifi_requested(&self) -> bool {
-        #[allow(unreachable_patterns)]
-        match self {
-            Gpu::Wgpu(g) => g.hifi_requested(),
-            _ => false,
-        }
-    }
-
-    /// Whether the device has what the high-fidelity presentation draws with: a `wgpu` device
-    /// with compute shaders, storage buffers and four colour targets.
-    #[must_use]
-    pub fn hifi_supported(&self) -> bool {
-        #[allow(unreachable_patterns)]
-        match self {
-            Gpu::Wgpu(g) => g.hifi_supported(),
-            _ => false,
-        }
-    }
-
-    /// Whether the high-fidelity presentation traces rays here, on the `wgpu` device: the
-    /// adapter's answer, the same whether or not the device was asked for the presentation at
-    /// start-up.
-    #[must_use]
-    pub fn hifi_rays(&self) -> Option<bool> {
-        #[allow(unreachable_patterns)]
-        match self {
-            Gpu::Wgpu(g) => Some(g.hifi_rays()),
-            _ => None,
-        }
-    }
-
-    /// The device's features, on the `wgpu` device.
-    #[must_use]
-    pub fn hifi_device_features(&self) -> Option<(::wgpu::Features, ::wgpu::Limits)> {
-        #[allow(unreachable_patterns)]
-        match self {
-            Gpu::Wgpu(g) => Some(g.device_features()),
-            _ => None,
+            Gpu::Vulkan(g) => g.world_end(viewport),
+            #[cfg(all(windows, feature = "d3d12"))]
+            Gpu::D3d12(g) => g.world_end(viewport),
+            _ => {}
         }
     }
 }
@@ -1294,16 +1299,19 @@ impl Gpu {
 /// shown to have recorded the same frame.
 #[cfg(all(gpu, feature = "test-support"))]
 impl Gpu {
-    /// Start or stop digesting each recorded frame. Only the `wgpu` device records frames, so
-    /// only it digests them.
+    /// Start or stop digesting each frame: what the `wgpu` device records, and what the Vulkan
+    /// device submits. The Direct3D 12 device digests nothing.
     pub fn set_frame_digest(&mut self, on: bool) {
-        #[cfg(feature = "wgpu")]
-        #[allow(irrefutable_let_patterns)]
-        if let Gpu::Wgpu(g) = self {
-            g.set_frame_digest(on);
+        #[allow(unreachable_patterns)]
+        match self {
+            #[cfg(feature = "wgpu")]
+            Gpu::Wgpu(g) => g.set_frame_digest(on),
+            #[cfg(feature = "vulkan")]
+            Gpu::Vulkan(g) => g.set_frame_digest(on),
+            _ => {
+                let _ = on;
+            }
         }
-        #[cfg(not(feature = "wgpu"))]
-        let _ = on;
     }
 
     /// The digest of the last ended frame's recording, while digesting is on.
@@ -1313,6 +1321,8 @@ impl Gpu {
         match self {
             #[cfg(feature = "wgpu")]
             Gpu::Wgpu(g) => g.last_frame_digest(),
+            #[cfg(feature = "vulkan")]
+            Gpu::Vulkan(g) => g.last_frame_digest(),
             _ => None,
         }
     }
@@ -1365,6 +1375,17 @@ pub struct DeviceObjects {
 
 #[cfg(test)]
 mod tests {
+    /// Behaviour: none (when the device lets the remaster draw).
+    #[test]
+    #[cfg(feature = "remaster")]
+    fn the_remaster_draws_on_a_cpu_only_when_that_cpu_was_asked_for() {
+        use super::{remaster_allowed_on, AdapterKind};
+        assert!(remaster_allowed_on(AdapterKind::Hardware, false));
+        assert!(remaster_allowed_on(AdapterKind::Hardware, true));
+        assert!(!remaster_allowed_on(AdapterKind::Software, false));
+        assert!(remaster_allowed_on(AdapterKind::Software, true));
+    }
+
     use super::*;
 
     /// A backend is named and parsed by the same three spellings.

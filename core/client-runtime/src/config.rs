@@ -303,16 +303,20 @@ pub struct Config {
     /// the switch was not given and the preference stands; `Some(None)`: the world's own.
     pub object_visuals: Option<Option<crate::render_prefs::RegionStyle>>,
     /// `--art-pack <path>`: an art pack's folder, or the file it was packed into, whose models
-    /// the high-fidelity presentation draws in place of the objects it has replacements for, in a
-    /// build that has it. `[Fidelity] ArtPack` names one too; the command line wins over it, and so does
+    /// the remaster draws in place of the objects it has replacements for, in a build that has
+    /// it. `[Fidelity] ArtPack` names one too; the command line wins over it, and so does
     /// `DERETH_ART_PACK` in the environment, which the desktop host reads. `None`: no art pack.
     pub art_pack: Option<PathBuf>,
-    /// Whether [`Self::art_pack`] came from the command line, which nothing overrides.
+    /// Whether [`Self::art_pack`] came from the command line, which nothing overrides, or from
+    /// the environment.
     pub art_pack_argument: bool,
-    /// The drawn ground's tuning file, which the high-fidelity presentation reads its knobs from
-    /// and reads again whenever it changes: `DERETH_TERRAIN_TUNING` in the environment, which
-    /// the desktop host reads. `None`: `terrain-tuning.toml` beside the preferences file.
-    pub terrain_tuning: Option<PathBuf>,
+    /// Whether the profile that named a pack leaves the remaster's art pack box unticked, as a
+    /// player who unticked it there left it.
+    pub art_pack_unticked: bool,
+    /// `--fidelity <Name=value,...>`: the `[Fidelity]` options it set over the profile's, with the
+    /// values they now store, so the options page shows them (`--fidelity remaster=1`). Empty:
+    /// the switch was not given.
+    pub fidelity_switch: Vec<(&'static str, u32)>,
     /// `--era <name>`: the era the server says its world plays (`eor`, `infiltration`), as the
     /// launcher reads it from the world's status. It wins over the era read from the data files,
     /// and chooses which of [`Self::dat_dir`]'s sets draws the world; `None`: the end of retail's
@@ -537,6 +541,9 @@ pub struct Config {
     /// `--log-file`, or `Log.File=True`: also append the log, with timestamps, to
     /// `dereth-client.log` beside the preferences file.
     pub log_file: bool,
+    /// `--log-file <path>`: where that copy goes, in place of `<binary>.log` beside the
+    /// preferences file.
+    pub log_file_path: Option<PathBuf>,
     /// `--log-spans`: add a line as each enabled span closes -- a frame, a frame step, a world load,
     /// a landblock build -- with how long it ran. Which of them are enabled is the filter's
     /// business: frames are `debug`, frame steps `trace`.
@@ -600,6 +607,7 @@ impl Default for Config {
             ui_mode: None,
             log_filter: None,
             log_file: false,
+            log_file_path: None,
             log_spans: false,
             windowed: true,
             width: 800,
@@ -614,12 +622,13 @@ impl Default for Config {
             capture_at: Vec::new(),
             set_at: Vec::new(),
             action_at: Vec::new(),
+            fidelity_switch: Vec::new(),
             console: true,
             dat_dir: default_dat_dir(),
             object_visuals: None,
             art_pack: None,
             art_pack_argument: false,
-            terrain_tuning: None,
+            art_pack_unticked: false,
             classic_dat_dir: None,
             overlay_dat_dir: None,
             world_base: None,
@@ -798,9 +807,15 @@ const REBUILD_SWITCHES: &[Switch] = &[
         short: None,
         arity: Arity::Required,
     },
-    // The art pack the high-fidelity presentation draws: its folder, or its packed file.
+    // The art pack the remaster draws: its folder, or its packed file.
     Switch {
         long: "art-pack",
+        short: None,
+        arity: Arity::Required,
+    },
+    // `[Fidelity]` options over the profile's, as `Name=value` a comma between.
+    Switch {
+        long: "fidelity",
         short: None,
         arity: Arity::Required,
     },
@@ -1052,7 +1067,7 @@ const REBUILD_SWITCHES: &[Switch] = &[
     Switch {
         long: "log-file",
         short: None,
-        arity: Arity::None,
+        arity: Arity::Optional,
     },
     Switch {
         long: "log-spans",
@@ -1315,6 +1330,29 @@ impl Config {
         Ok(cfg)
     }
 
+    /// A named art pack ticks the remaster's box for it: asked for on this start, by the command
+    /// line or the environment, always; named by the profile, unless the profile unticks the box.
+    /// `--fidelity` naming the box off wins.
+    pub fn tick_art_pack_box(&mut self) {
+        #[cfg(feature = "fidelity")]
+        {
+            use dereth_client_contract::options::names::fidelity::REMASTER_ART_PACK;
+            let kept_off = self
+                .fidelity_switch
+                .iter()
+                .any(|(name, value)| *name == REMASTER_ART_PACK && *value == 0);
+            if self.art_pack.is_none()
+                || kept_off
+                || (self.art_pack_unticked && !self.art_pack_argument)
+            {
+                return;
+            }
+            if let Ok(named) = self.render.fidelity.apply_switch("RemasterArtPack=1") {
+                self.fidelity_switch.extend(named);
+            }
+        }
+    }
+
     /// Read `argv` over this configuration with the command line's own parser: what a platform
     /// with no command line (a web page) is told about the world it plays (the words the launcher
     /// puts on the desktop client's command line) is read exactly as the desktop client reads them.
@@ -1349,6 +1387,9 @@ impl Config {
             .filter(|v| !v.is_empty())
         {
             self.art_pack = Some(PathBuf::from(dir));
+            self.art_pack_unticked = prefs
+                .bool(dereth_client_contract::options::names::fidelity::REMASTER_ART_PACK)
+                == Some(false);
         }
         // `Render.AutomaticDegrades` is the player's switch for the governor, registered true.
         self.auto_degrades = self.render.automatic_degrades;
@@ -1539,6 +1580,7 @@ impl Config {
             }
         }
 
+        self.tick_art_pack_box();
         match first_error {
             Some(e) => Err(e),
             None => Ok(()),
@@ -1633,7 +1675,12 @@ impl Config {
             "crash-test" => {}
             // Recorded only; the binary reads these when it installs the log.
             "log" => self.log_filter = Some(v.to_string()),
-            "log-file" => self.log_file = true,
+            "log-file" => {
+                self.log_file = true;
+                if !v.is_empty() {
+                    self.log_file_path = Some(PathBuf::from(v));
+                }
+            }
             "log-spans" => self.log_spans = true,
             "dat-dir" => self.dat_dir = PathBuf::from(v),
             "classic-dat-dir" => self.classic_dat_dir = Some(PathBuf::from(v)),
@@ -1663,6 +1710,21 @@ impl Config {
             "art-pack" => {
                 self.art_pack = Some(PathBuf::from(v));
                 self.art_pack_argument = true;
+            }
+            "fidelity" => {
+                #[cfg(feature = "fidelity")]
+                {
+                    let named = self
+                        .render
+                        .fidelity
+                        .apply_switch(v)
+                        .map_err(|e| ConfigError::new(format!("--fidelity: {e}")))?;
+                    self.fidelity_switch.extend(named);
+                }
+                #[cfg(not(feature = "fidelity"))]
+                return Err(ConfigError::new(format!(
+                    "--fidelity {v:?}: this build has no fidelity options"
+                )));
             }
             "set-at" => {
                 let (frame, setting) = v

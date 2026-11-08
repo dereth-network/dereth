@@ -1,0 +1,49 @@
+[package]
+name = "dereth-remaster"
+description = "The remaster: the world drawn from retained data, lit by retail's own light model from the frame's light inputs."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+# Test targets are declared explicitly, so a stray tests/*.rs cannot become one silently.
+autotests = false
+
+[features]
+# Read-backs for the tests of the crates that use it: the lamps' light and lists.
+test-support = []
+# NVIDIA DLSS Super Resolution, loaded from the driver where its DLL stands beside the client.
+# Nothing of it ships. Off, the upscaler's DLSS modes are drawn by FSR.
+dlss = ["dep:libloading", "dep:ash"]
+
+[dependencies]
+# The scene's deltas carry their transforms and vectors as `glam` values.
+glam.workspace = true
+# The texture type the asset tables hold pictures in, which the device takes as it is.
+dereth-primitives.workspace = true
+# The backend layer the remaster draws with.
+dereth-gfx.workspace = true
+# The Vulkan device's world hook the remaster draws through, the handles it adopts, and the
+# ordinary renderer's sampler table, which the remaster's samplers follow.
+dereth-render = { workspace = true, features = ["remaster"] }
+tracing.workspace = true
+ash = { version = "0.38", optional = true }
+libloading = { version = "0.8", optional = true }
+# A look file's text (`look.toml`, and a pack's look).
+toml.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# MetalFX, called on the Metal objects behind the Vulkan device.
+objc2 = "0.6"
+
+# The workspace's lints, but for `unsafe`: denied rather than forbidden, so the one module that
+# adopts the device and lends the layer the frame's images (`src/hook.rs`) can allow it, each
+# block with a SAFETY comment.
+
+[lints.rust]
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+cast_possible_truncation = "warn"
+undocumented_unsafe_blocks = "warn"

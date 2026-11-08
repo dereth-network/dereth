@@ -346,6 +346,24 @@ mod imp {
         meshes: Arc<Vec<PartMesh>>,
     }
 
+    /// One sky object as a frame draws it: see [`SkyScene::drawn`].
+    #[cfg(feature = "remaster")]
+    #[derive(Debug, Clone, Copy)]
+    pub struct SkyDraw {
+        /// The graphics object or setup it draws.
+        pub gfx: DataId,
+        pub properties: u32,
+        /// Where it stands as it is drawn, in render space.
+        pub frame: Frame,
+        /// Whether the pass before the landscape draws it, and the pass after.
+        pub before: bool,
+        pub after: bool,
+        /// Its translucency, diffusion and luminosity, when any is not its default.
+        pub material: Option<dereth_animation::parts::MaterialOverride>,
+        /// How far its texture has scrolled.
+        pub uv_offset: (f32, f32),
+    }
+
     /// What the sky loaded and what it costs, for the log line and the acceptance test.
     #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
     pub struct SkyStats {
@@ -689,14 +707,7 @@ mod imp {
                 // Otherwise retail draws the after-sky cell's objects.
                 return Ok(());
             }
-            #[cfg(feature = "hifi")]
-            let mut index = 0u32;
             for o in &self.objects {
-                #[cfg(feature = "hifi")]
-                let this = {
-                    index += 1;
-                    index - 1
-                };
                 let wanted = match pass {
                     SkyPass::Before => sky::draws_in_pass_0(
                         o.properties,
@@ -711,12 +722,6 @@ mod imp {
                 if !wanted || o.no_draw {
                     continue;
                 }
-                #[cfg(feature = "hifi")]
-                gpu.hifi_mark(dereth_render::hifi_mark::Mark::SkyObject {
-                    index: this,
-                    properties: o.properties,
-                    gfx: o.gfx.0,
-                });
                 let origin = if o.properties & 4 == 0 {
                     o.frame.origin
                 } else if o.properties & 8 == 0 {
@@ -795,6 +800,37 @@ mod imp {
         #[must_use]
         pub fn live(&self) -> usize {
             self.objects.len()
+        }
+
+        /// Every sky object present at this time of day, in the order they are drawn, as
+        /// [`Self::draw`] draws it for a viewer at `viewer` (outdoors when `outside`): where it
+        /// stands, in which of the two passes it is drawn, and its appearance.
+        #[cfg(feature = "remaster")]
+        pub fn drawn(&self, viewer: Vec3, outside: bool) -> impl Iterator<Item = SkyDraw> + '_ {
+            self.objects.iter().map(move |o| {
+                let origin = if o.properties & 4 == 0 {
+                    o.frame.origin
+                } else if o.properties & 8 == 0 {
+                    Vec3::new(viewer.x, viewer.y, WEATHER_FLOOR_Z)
+                } else {
+                    viewer
+                };
+                SkyDraw {
+                    gfx: o.gfx,
+                    properties: o.properties,
+                    frame: Frame::new(origin, o.frame.rotation),
+                    before: !o.no_draw
+                        && sky::draws_in_pass_0(
+                            o.properties,
+                            self.weather_enabled,
+                            self.override_enabled,
+                            self.fog_enabled,
+                        ),
+                    after: !o.no_draw && outside && self.weather_enabled && o.properties & 1 != 0,
+                    material: o.material,
+                    uv_offset: o.uv_offset,
+                }
+            })
         }
 
         /// Every sky object present at this time of day, in the order they are drawn, as a

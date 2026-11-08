@@ -2,7 +2,56 @@
 
 use super::*;
 
+/// One resident block's baked statics as the walk draws them: see [`SceneDraw::static_census`].
+#[cfg(feature = "remaster")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StaticCensus {
+    pub block: (i32, i32),
+    /// The vertices of the block's own static batches, every level of every placement.
+    pub vertices: usize,
+    /// Its batches the landscape pass draws as alpha-tested cut-outs.
+    pub cut_outs: usize,
+    /// Each interior cell: its id, how many openings it has, and its statics' vertices.
+    pub cells: Vec<(u32, usize, usize)>,
+}
+
 impl SceneDraw {
+    /// Every resident block's baked statics, counted from the batches the walk draws: what the
+    /// remaster's copy of the scene is checked against.
+    #[cfg(feature = "remaster")]
+    #[must_use]
+    pub fn static_census(&self) -> Vec<StaticCensus> {
+        let vertices = |batches: &[StaticBatch]| -> usize {
+            batches
+                .iter()
+                .map(|b| b.vertices.len() / OBJECT_VERTEX_STRIDE)
+                .sum()
+        };
+        self.blocks
+            .iter()
+            .map(|(key, b)| StaticCensus {
+                block: *key,
+                vertices: vertices(&b.opaque) + vertices(&b.blended),
+                cut_outs: b
+                    .blended
+                    .iter()
+                    .filter(|x| static_clip_list_member(x))
+                    .count(),
+                cells: b
+                    .env_cells
+                    .iter()
+                    .map(|c| {
+                        (
+                            c.id.0,
+                            c.portals.len(),
+                            vertices(&c.statics) + vertices(&c.statics_blended),
+                        )
+                    })
+                    .collect(),
+            })
+            .collect()
+    }
+
     /// How many of the resident blocks' baked batches are on the **alpha list** — the ones
     /// the alpha-list renderer would queue rather than draw in place.
     ///

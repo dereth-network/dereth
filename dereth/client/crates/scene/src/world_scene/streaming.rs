@@ -70,29 +70,6 @@ impl SceneDraw {
         cfg: SceneConfig,
         identity: Option<Arc<dereth_client_runtime::object_identity::ObjectIdentity>>,
     ) -> Result<(Self, WorldState), WorldError> {
-        Self::load_with_looks(
-            store,
-            gpu,
-            cfg,
-            identity,
-            #[cfg(feature = "hifi")]
-            None,
-        )
-    }
-
-    /// [`Self::load_with_identity`], with the art pack whose models the high-fidelity
-    /// presentation may draw (`art_pack`, in a build that has it): the outdoor objects it has
-    /// models for are baked apart from the first block on.
-    ///
-    /// # Errors
-    /// As [`Self::load`].
-    pub fn load_with_looks(
-        store: &RetailDatStore,
-        gpu: &mut Gpu,
-        cfg: SceneConfig,
-        identity: Option<Arc<dereth_client_runtime::object_identity::ObjectIdentity>>,
-        #[cfg(feature = "hifi")] art_pack: Option<Arc<crate::art_pack::ArtPack>>,
-    ) -> Result<(Self, WorldState), WorldError> {
         // The world's own region: the world's hardware region where it has one, as a client of
         // the world's time drawing with 3D hardware loaded it.
         let region = world_region(store)?;
@@ -175,8 +152,7 @@ impl SceneDraw {
                 None
             }
         };
-        #[cfg_attr(not(feature = "hifi"), allow(unused_mut))]
-        let mut land = LandContext {
+        let land = LandContext {
             region: Box::new(region),
             ground,
             ground_store,
@@ -215,21 +191,7 @@ impl SceneDraw {
             cells: dereth_world_data::env_cells::EnvCellLoader::new(),
             static_geometry: HashMap::new(),
             cell_bsps: HashMap::new(),
-            #[cfg(feature = "hifi")]
-            art_pack,
-            #[cfg(feature = "hifi")]
-            retail_ground: None,
-            #[cfg(feature = "hifi")]
-            material_keys: Vec::new(),
-            #[cfg(feature = "hifi")]
-            pack_glow: HashMap::new(),
         };
-        #[cfg(feature = "hifi")]
-        land.refresh_retail_ground(store);
-        #[cfg(feature = "hifi")]
-        land.refresh_material_keys(store);
-        #[cfg(feature = "hifi")]
-        land.refresh_pack_glow(store);
 
         // The terrain pipeline state. Row 1 of the catalogue -- an opaque textured surface --
         // with the two terrain-specific overrides land polygon drawing makes:
@@ -265,12 +227,10 @@ impl SceneDraw {
             // the first preference-update poll installs, so the frame after a load does
             // no work: seeded from the profile that was just applied, not from the defaults.
             render_shadow: cfg.render,
-            #[cfg(feature = "hifi")]
-            hifi: RefCell::new(hifi_bridge::Shadow::default()),
-            #[cfg(feature = "hifi")]
-            drawn: drawn_ground::DrawnGround::default(),
-            #[cfg(feature = "hifi")]
-            far: far_trees::FarTrees::default(),
+            #[cfg(feature = "remaster")]
+            remaster_ground: remaster_ground::RemasterGround::default(),
+            #[cfg(feature = "remaster")]
+            remaster_far: far_trees::FarTrees::default(),
             // Region installation applies the detail-texturing preference to
             // both enabled detail classes; this scene's equivalent is the
             // `apply_detail_texturing` below, once `gpu` is reachable.
@@ -296,6 +256,16 @@ impl SceneDraw {
             object_draws: BTreeMap::new(),
             viewcone_check_object_id: std::cell::Cell::new(0),
             selected_part_drawn: std::cell::Cell::new(false),
+            #[cfg(feature = "remaster")]
+            remaster: RefCell::new(remaster_bridge::Bridge::default()),
+            #[cfg(feature = "remaster")]
+            decide_only: false,
+            #[cfg(feature = "remaster")]
+            frame_walk: RefCell::new(None),
+            #[cfg(feature = "remaster")]
+            remaster_body_generation: 0,
+            #[cfg(feature = "remaster")]
+            remaster_view: RefCell::new(super::remaster_view::View::default()),
             object_meshes: BTreeMap::new(),
             host_meshes: BTreeMap::new(),
             game_viewport: None,
@@ -934,24 +904,12 @@ impl SceneDraw {
             self.apply_detail_texturing(store, gpu);
             work.detail_surfaces = self.detail.generated();
         }
-        #[cfg(feature = "hifi")]
+        // The remaster's box, turned on or off live; refused off the Vulkan device.
+        #[cfg(feature = "remaster")]
         {
-            let applied = hifi_bridge::apply_preferences(self.hifi.get_mut(), &live.fidelity, gpu);
-            work.fidelity_changed = applied.changed;
-            work.fidelity_refused = applied.refused;
-            // The lamps are looked for while the presentation draws them: turning them on finds
-            // the resident blocks' lamps with no reload, and a block streamed in later has its
-            // own looked for at the next poll.
-            // Once they are not drawn, the lamps found are let go of.
-            if hifi_bridge::lamps_drawn(gpu) {
-                for block in self.blocks.values_mut() {
-                    block.hifi_lamps.place(store);
-                }
-            } else if applied.changed {
-                for block in self.blocks.values_mut() {
-                    block.hifi_lamps.forget();
-                }
-            }
+            work.remaster_refused = self.apply_remaster(live.fidelity.remaster(), store, gpu);
+            self.apply_remaster_rows(remaster_rows::RemasterRows::of(&live.fidelity), gpu);
+            self.poll_remaster_look(gpu);
         }
         if !(work.flushed || work.mid_radius_changed) {
             return Ok(work);
@@ -1094,8 +1052,6 @@ impl SceneDraw {
         self.land.drawn = drawn;
         self.land.tex_merge = tex_merge;
         self.land.pal_shift = pal_shift;
-        #[cfg(feature = "hifi")]
-        self.land.refresh_retail_ground(store);
         self.land.gpu_merge = self.cfg.gpu_terrain_merge && !pal_shifted;
         self.land.splat_supported = splat_supported;
         self.land.splat_wanted = splat;
@@ -1117,45 +1073,6 @@ impl SceneDraw {
             }
         );
         Ok(Ok(()))
-    }
-
-    /// The art pack whose models the high-fidelity presentation may draw, or none, from the
-    /// next frame: every block is released and baked again, so the outdoor objects the pack has
-    /// models for are baked apart from the rest. Their collision is untouched.
-    ///
-    /// # Errors
-    /// [`WorldError`] when the rebuild cannot make a device resource.
-    #[cfg(feature = "hifi")]
-    pub fn set_art_pack(
-        &mut self,
-        ws: &mut WorldState,
-        store: &RetailDatStore,
-        gpu: &mut Gpu,
-        pack: Option<Arc<crate::art_pack::ArtPack>>,
-    ) -> Result<(), WorldError> {
-        self.land.art_pack = pack;
-        // A block baked off the frame for the pack before is not taken.
-        self.land.bake_epoch += 1;
-        self.land.refresh_retail_ground(store);
-        self.land.refresh_material_keys(store);
-        self.land.refresh_pack_glow(store);
-        self.flush_graphics_resources(ws, gpu);
-        let radius = ws.streamer.window.mid_radius();
-        self.rebuild_window(ws, store, gpu, radius)
-    }
-
-    /// The art pack the blocks are baked for, while one is set.
-    #[cfg(feature = "hifi")]
-    #[must_use]
-    pub fn art_pack(&self) -> Option<&Arc<crate::art_pack::ArtPack>> {
-        self.land.art_pack.as_ref()
-    }
-
-    /// How many outdoor objects of the resident blocks the art pack has models for.
-    #[cfg(feature = "hifi")]
-    #[must_use]
-    pub fn art_pack_placements(&self) -> usize {
-        self.blocks.values().map(|b| b.art_pack.len()).sum()
     }
 
     /// The object identity verdicts for this store, worked out by the application
@@ -2344,10 +2261,10 @@ impl SceneDraw {
         // updated in the same frame the client would have updated it.
         self.update_particles(ws, now);
         self.use_time_sky(ws, now.0, dt);
-        // The high-fidelity presentation times what it eases and animates by this clock.
-        #[cfg(feature = "hifi")]
+        // And the remaster's own motion.
+        #[cfg(feature = "remaster")]
         {
-            self.hifi.get_mut().now = now.0;
+            self.remaster.get_mut().shadow.now = now.0;
         }
         // Adaptive degrade runs **once per frame at the end of normal rendering**,
         // which is the last line of this function, and is next -- so the bias the

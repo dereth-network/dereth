@@ -2,7 +2,7 @@
 //!
 //! On Direct3D 12, `wgpu` compiles a pipeline's shaders as the pipeline is made, with one of two
 //! compilers. The client uses FXC, which is part of Windows, but it is slow on long shaders: the
-//! high-fidelity presentation's longest take it many seconds each. DXC builds them several times
+//! longest shaders take it many seconds each. DXC builds them several times
 //! faster, and it is the one that lets the device trace rays, but it is a library of its own,
 //! [`DXC_LIBRARY`], which the client does not carry. A player who puts Microsoft's (1.9 or newer)
 //! beside the client gets it.

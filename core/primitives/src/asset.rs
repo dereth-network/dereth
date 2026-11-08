@@ -142,6 +142,12 @@ pub enum TextureFormat {
     /// DXT4 source provenance. Same BC3 device layout, but system filtering uses
     /// the premultiplied codec. Generic uploads preserve only supplied levels.
     Bc3Premultiplied,
+    /// BC5: red and green, each to eight bits, in 16-byte blocks of four by four texels (a
+    /// normal's two parts, say). Only levels supplied are kept.
+    Bc5,
+    /// BC7: red, green, blue and alpha, each to eight bits, in 16-byte blocks of four by four
+    /// texels (a color picture at full quality). Only levels supplied are kept.
+    Bc7,
 }
 
 /// Geometry ready for upload, in the renderer's vertex layout.

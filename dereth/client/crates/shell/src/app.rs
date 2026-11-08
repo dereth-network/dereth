@@ -373,19 +373,15 @@ impl<H: Host> App<H> {
         let fallback = Backend::default_backend().ok_or_else(|| StartupError::Device {
             cause: "graphics engine: this build compiled no backend".to_string(),
         })?;
-        let (wanted, hifi) = startup_device(cfg, fallback, cfg!(feature = "hifi"));
+        let wanted = startup_backend(cfg, fallback);
         let make = |backend: Backend| {
-            // Asked for only on the device that can draw it.
-            let hifi = hifi && backend == Backend::Wgpu;
-            #[cfg(feature = "hifi")]
-            {
-                crate::gpu::Renderer::new_on_for_hifi(backend, handles, client_w, client_h, hifi)
-            }
-            #[cfg(not(feature = "hifi"))]
-            {
-                let _ = hifi;
-                crate::gpu::Renderer::new_on(backend, handles, client_w, client_h)
-            }
+            crate::gpu::Renderer::new_on_for(
+                backend,
+                handles,
+                client_w,
+                client_h,
+                startup_remaster(backend),
+            )
         };
 
         match make(wanted) {
@@ -944,44 +940,29 @@ impl<H: Host> App<H> {
     }
 }
 
-/// The backend the device first comes up on, and whether it is asked for what the optional
-/// high-fidelity presentation draws with, for `cfg` with `fallback` as the default backend and
-/// `presentation_built` saying whether this build has the presentation.
+/// The backend the device first comes up on, for `cfg` with `fallback` as the default backend.
 ///
 /// `Config::renderer` is a `dereth_client_contract::RendererChoice` -- the name a player asked
 /// for -- so that `config.rs` can live in `dereth-client-runtime`; this is where the choice meets
-/// `Backend`: the switch or preference first, then the default. The presentation never moves the
+/// `Backend`: the switch or preference first, then the default. The remaster never moves the
 /// device: the backend is exactly the one a build without it would pick.
-///
-/// The presentation draws on the `wgpu` device alone, and only under the Horizon interface. A
-/// client that starts in Horizon on the `wgpu` device with a box ticked has the device asked for
-/// what the presentation draws with; every other start-up -- another backend, another interface,
-/// no box ticked, or a build without the presentation -- is asked for nothing more, whatever
-/// `[Fidelity]` holds, and a box ticked later takes effect at the next start.
 #[cfg_attr(not(gpu), allow(dead_code))]
-fn startup_device(
+fn startup_backend(
     cfg: &Config,
     fallback: dereth_render::device::Backend,
-    presentation_built: bool,
-) -> (dereth_render::device::Backend, bool) {
-    use dereth_render::device::Backend;
-    let backend = cfg.renderer.map(Backend::from).unwrap_or(fallback);
-    let widened = presentation_built && backend == Backend::Wgpu && horizon_with_a_box(cfg);
-    (backend, widened)
+) -> dereth_render::device::Backend {
+    cfg.renderer
+        .map(dereth_render::device::Backend::from)
+        .unwrap_or(fallback)
 }
 
-/// Whether `cfg` starts in the Horizon interface with a `[Fidelity]` box ticked.
-#[cfg(feature = "hifi")]
+/// Whether the device made on `backend` is asked for what the remaster draws with: the Vulkan
+/// device in a build with the remaster, whatever the profile holds, so ticking its box later
+/// stands it up in the running session. A card without those features is made as it would be
+/// without the request. The Direct3D 12 device needs no request.
 #[cfg_attr(not(gpu), allow(dead_code))]
-fn horizon_with_a_box(cfg: &Config) -> bool {
-    cfg.render.fidelity.interface && cfg.render.fidelity.any_stored()
-}
-
-/// A build without the presentation reads no `[Fidelity]`.
-#[cfg(not(feature = "hifi"))]
-#[cfg_attr(not(gpu), allow(dead_code))]
-fn horizon_with_a_box(_cfg: &Config) -> bool {
-    false
+fn startup_remaster(backend: dereth_render::device::Backend) -> bool {
+    cfg!(feature = "remaster") && backend == dereth_render::device::Backend::Vulkan
 }
 
 #[cfg(test)]
@@ -991,7 +972,6 @@ mod tests {
     use dereth_input::host::HostEvent;
 
     /// The configuration a start-up with `argv` and the preferences file `prefs` reads.
-    #[cfg(feature = "hifi")]
     fn started_with(argv: &[&str], prefs: &[&str]) -> Config {
         let argv: Vec<String> = argv.iter().map(|a| (*a).to_owned()).collect();
         Config::from_args_and_prefs_with(
@@ -1001,215 +981,29 @@ mod tests {
         .expect("the start-up configuration parses")
     }
 
-    /// The start-up device is the named renderer or the default whatever `[Fidelity]` holds, so
-    /// the effects never move the classic or the modern interface onto another backend. Only a
-    /// client that starts in Horizon on the `wgpu` device with a box ticked has the device asked
-    /// for what the presentation draws with; with no box ticked, under another interface, on
-    /// another backend, or in a build without the presentation, the request is the ordinary one.
+    /// The start-up device is the named renderer or the default whatever `[Fidelity]` holds, and
+    /// the Vulkan device of a build with the remaster is always asked for what it draws with, so
+    /// its box ticked later needs no restart; no other device is.
     ///
-    /// Behaviour: hifi.startup.the-device-is-widened-only-on-wgpu-in-horizon-with-a-box-ticked
+    /// Behaviour: remaster.startup.the-vulkan-device-is-always-ready-for-the-remaster
     #[test]
-    #[cfg(feature = "hifi")]
-    fn the_start_up_device_is_never_moved_and_is_widened_only_on_wgpu_in_horizon_with_a_box_ticked()
-    {
+    fn the_start_up_device_is_never_moved_and_vulkan_is_always_ready_for_the_remaster() {
         use dereth_render::device::Backend;
         let vulkan = Backend::Vulkan;
-        let every_box = [
-            "[Fidelity]",
-            "Lighting=True",
-            "Shadows=True",
-            "GlobalIllumination=True",
-            "AmbientOcclusion=True",
-            "Lamps=True",
-            "Sky=True",
-        ];
-        let under = |interface: &str| {
-            let mut p = vec!["[UI]".to_owned(), format!("Interface={interface}")];
-            p.extend(every_box.iter().map(|s| (*s).to_owned()));
-            p
-        };
-        let refs = |v: &[String]| v.iter().map(String::as_str).collect::<Vec<_>>().join("\n");
-        let cfg_for = |argv: &[&str], prefs: &[String]| started_with(argv, &[&refs(prefs)]);
-        for built in [false, true] {
-            assert_eq!(
-                startup_device(&started_with(&[], &[]), vulkan, built),
-                (vulkan, false),
-                "the default preferences, built={built}"
-            );
-            for interface in ["Classic", "Modern"] {
-                assert_eq!(
-                    startup_device(&cfg_for(&[], &under(interface)), vulkan, built),
-                    (vulkan, false),
-                    "every box under {interface}, built={built}"
-                );
-                assert_eq!(
-                    startup_device(
-                        &cfg_for(&["--renderer", "wgpu"], &under(interface)),
-                        vulkan,
-                        built
-                    ),
-                    (Backend::Wgpu, false),
-                    "every box under {interface} on the named wgpu renderer, built={built}"
-                );
-            }
-            assert_eq!(
-                startup_device(
-                    &started_with(&[], &["[UI]", "Interface=Horizon"]),
-                    vulkan,
-                    built
-                ),
-                (vulkan, false),
-                "Horizon with no box ticked, built={built}"
-            );
+        for prefs in [
+            vec![],
+            vec!["[UI]", "Interface=Classic", "[Fidelity]", "Remaster=True"],
+            vec!["[UI]", "Interface=Horizon", "[Fidelity]", "Remaster=True"],
+            vec!["[UI]", "Interface=Horizon"],
+        ] {
+            let cfg = started_with(&[], &prefs);
+            assert_eq!(startup_backend(&cfg, vulkan), vulkan, "{prefs:?}");
+            let named = started_with(&["--renderer", "wgpu"], &prefs);
+            assert_eq!(startup_backend(&named, vulkan), Backend::Wgpu, "{prefs:?}");
         }
-        for built in [false, true] {
-            assert_eq!(
-                startup_device(&cfg_for(&[], &under("Horizon")), vulkan, built),
-                (vulkan, false),
-                "Horizon with a box ticked and no renderer named keeps the default, built={built}"
-            );
-        }
-        assert_eq!(
-            startup_device(&cfg_for(&[], &under("Horizon")), Backend::Wgpu, false),
-            (Backend::Wgpu, false),
-            "a build without the presentation"
-        );
-        assert_eq!(
-            startup_device(&cfg_for(&[], &under("Horizon")), Backend::Wgpu, true),
-            (Backend::Wgpu, true),
-            "Horizon with a box ticked on a default wgpu device"
-        );
-        assert_eq!(
-            startup_device(
-                &cfg_for(&["--renderer", "wgpu"], &under("Horizon")),
-                vulkan,
-                true
-            ),
-            (Backend::Wgpu, true),
-            "Horizon with a box ticked on the named wgpu renderer"
-        );
-        assert_eq!(
-            startup_device(
-                &started_with(&["--renderer", "wgpu"], &["[UI]", "Interface=Horizon"]),
-                vulkan,
-                true
-            ),
-            (Backend::Wgpu, false),
-            "Horizon on the named wgpu renderer, nothing ticked"
-        );
-        assert_eq!(
-            startup_device(
-                &cfg_for(&["--renderer", "vulkan"], &under("Horizon")),
-                Backend::Wgpu,
-                true
-            ),
-            (vulkan, false),
-            "a named renderer the presentation cannot draw on"
-        );
-    }
-
-    /// Pick wgpu, tick, restart: a player in Horizon on Vulkan who chooses wgpu for the next start
-    /// and ticks a box on the page leaves, at the save, a profile whose next start comes up on
-    /// wgpu with the device asked for what the presentation draws with.
-    ///
-    /// Behaviour: hifi.startup.the-device-is-widened-only-on-wgpu-in-horizon-with-a-box-ticked
-    #[test]
-    #[cfg(feature = "hifi")]
-    fn a_box_ticked_on_vulkan_with_wgpu_chosen_starts_the_next_run_on_the_widened_wgpu_device() {
-        use dereth_client_contract::options::fidelity::{self, Availability};
-        use dereth_client_contract::options::renderer::{self, RendererStatus};
-        use dereth_client_contract::options::store;
-        use dereth_client_contract::persist::preferences::UserPreferences;
-        use dereth_client_contract::{PrefValue, RendererChoice, UiRequest};
-        use dereth_horizon::ui::panels::{options::tab, WindowId};
-        use dereth_render::device::Backend;
-
-        // The profile the client started with: Horizon, nothing ticked, no renderer chosen.
-        store::init();
-        let started = UserPreferences::parse("[UI]\nInterface=Horizon\n").expect("a profile");
-        store::load(&started);
-        // Drawing on Vulkan, and wgpu chosen on the page for the next start.
-        let state = dereth_horizon::ui::game::GameState {
-            in_world: true,
-            name: "Tester".into(),
-            hifi: Availability {
-                built: true,
-                ..Availability::default()
-            },
-            renderers: RendererStatus {
-                offered: vec![RendererChoice::Vulkan, RendererChoice::Wgpu],
-                running: Some(RendererChoice::Vulkan),
-                ..RendererStatus::default()
-            },
-            ..Default::default()
-        };
-        assert!(store::set_value(
-            renderer::RENDERER,
-            PrefValue::Int(renderer::value(RendererChoice::Wgpu))
-        ));
-        // The Client page, scrolled to the effects.
-        let mut ui = dereth_horizon::ui::HorizonUi::new(
-            std::sync::Arc::new(dereth_horizon::art::Art::empty()),
-            dereth_horizon::options::HorizonOptions::default(),
-        );
-        let mut list = dereth_horizon::draw::DrawList::default();
-        let mut input = dereth_horizon::ui::input::InputFrame::default();
-        let mut frame =
-            |ui: &mut dereth_horizon::ui::HorizonUi,
-             input: &mut dereth_horizon::ui::input::InputFrame| {
-                let out = ui.frame(&mut list, (1920.0, 1080.0), 1.0 / 60.0, &state, input);
-                input.next_frame();
-                out.requests
-            };
-        frame(&mut ui, &mut input);
-        ui.windows.open(WindowId::Options, 0.0);
-        ui.windows.options_page.tab = tab::CLIENT;
-        frame(&mut ui, &mut input);
-        // A click on the better lighting's box, once the list is scrolled down to show its row
-        // whole: the page's rows are more than the list shows at once.
-        let lighting = fidelity::find(dereth_client_contract::options::names::fidelity::LIGHTING)
-            .expect("the lighting's box");
-        let mut shown = None;
-        for _ in 0..2000 {
-            let page = &ui.windows.options_page;
-            if let (Some(list), Some(r)) = (page.control("list"), page.control(lighting.caption)) {
-                if r.y >= list.y && r.bottom() <= list.bottom() {
-                    shown = Some(r);
-                    break;
-                }
-            }
-            ui.windows.options_page.scroll[tab::CLIENT] += 6.0;
-            frame(&mut ui, &mut input);
-        }
-        let r = shown.expect("the lighting's row");
-        input.mouse = (r.x + 10.0, r.y + r.h / 2.0);
-        input.down[0] = true;
-        input.pressed[0] = true;
-        let mut asked = frame(&mut ui, &mut input);
-        input.down[0] = false;
-        input.released[0] = true;
-        asked.extend(frame(&mut ui, &mut input));
-        assert!(
-            asked.iter().any(|r| matches!(
-                r,
-                UiRequest::SetPreference(n, PrefValue::Bool(true)) if *n == lighting.name
-            )),
-            "the box ticks: {asked:?}"
-        );
-        // Saved at quit, and read by the next start.
-        let mut saved = started;
-        store::save_into(&mut saved);
-        let next = Config::from_args_and_prefs_with(
-            &[],
-            &dereth_client_runtime::config::Preferences::parse(&saved.to_text()),
-        )
-        .expect("the saved profile starts");
-        assert_eq!(
-            startup_device(&next, Backend::Vulkan, true),
-            (Backend::Wgpu, true),
-            "{}",
-            saved.to_text()
-        );
+        assert_eq!(startup_remaster(vulkan), cfg!(feature = "remaster"));
+        assert!(!startup_remaster(Backend::Wgpu));
+        assert!(!startup_remaster(Backend::D3d12));
     }
 
     /// The host's physical resize reaches both the real backbuffer and the UI coordinate space, so

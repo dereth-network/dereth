@@ -1,0 +1,58 @@
+[package]
+name = "dereth-gfx"
+description = "The remaster's backend layer: buffers, textures and samplers, one bindless descriptor table, pipelines from precompiled shader blobs, command recording with the barriers a small render graph places, indirect draws, timestamps and read-back, on Vulkan 1.3 and Direct3D 12."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+# Test targets are declared explicitly, so a stray tests/*.rs cannot become one silently.
+autotests = false
+
+[features]
+# Tier switch only: no code is gated on it. The device tests draw on the hardware GPU, which every
+# device tier sits behind; without it they are ignored.
+retail-dats = []
+
+[dependencies]
+# The raw Vulkan binding and the memory sub-allocator, the versions the ordinary renderer uses,
+# so a device it made can be adopted with the same types.
+ash = { version = "0.38", default-features = false, features = ["loaded", "std"] }
+gpu-allocator = { version = "0.28", default-features = false, features = ["vulkan", "std"] }
+thiserror.workspace = true
+tracing.workspace = true
+
+# Direct3D 12, through the version of `windows` the ordinary renderer's D3D12 device uses, so a
+# device it made can be adopted with the same interfaces.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D12",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_System_LibraryLoader",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Threading",
+] }
+
+[dev-dependencies]
+# The ordinary renderer's Vulkan device, which the adoption tests adopt, and the texture data
+# their frames draw.
+dereth-render = { workspace = true, features = ["vulkan", "remaster", "test-support"] }
+dereth-primitives.workspace = true
+
+# This crate is allowed unsafe (Vulkan is a C ABI). It does NOT inherit the workspace lints,
+# because those forbid unsafe outright. Every unsafe block carries a SAFETY comment.
+[lints.rust]
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+cast_possible_truncation = "warn"
+undocumented_unsafe_blocks = "warn"
+
+[[test]]
+name = "gpu"
+path = "tests/gpu/main.rs"
+required-features = ["retail-dats"]
