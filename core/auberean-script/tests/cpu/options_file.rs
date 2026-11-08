@@ -69,3 +69,32 @@ fn an_import_refuses_what_it_does_not_know() {
     assert_eq!(o.bits & 8, 8);
     assert!(imp("\"GAMEPLAY OPTIONS\"").is_ok(), "nothing in it reads");
 }
+
+/// An alias is written and read in the English code page: a curly apostrophe and a euro sign are
+/// one byte each in the file and come back as themselves, a file holding those bytes reads as
+/// those letters, and text with a letter the code page lacks is written with every letter past
+/// the first 128 as its number in angle brackets.
+///
+/// Behaviour: script.options.aliases-in-the-english-code-page
+#[test]
+fn an_alias_is_written_and_read_in_the_english_code_page() {
+    let mut o = GameplayOptions::default();
+    o.set_alias(&w("tip"), &w("say it\u{2019}s 5\u{20AC}"));
+    let bytes = o.export("f").expect("written");
+    let want: &[u8] = b"\"say it\x92s 5\x80\"";
+    assert!(bytes.windows(want.len()).any(|t| t == want), "{bytes:x?}");
+    let back = GameplayOptions::import("f", &bytes).expect("read");
+    assert_eq!(back.aliases.entries, o.aliases.entries);
+
+    let file = b"\"GAMEPLAY OPTIONS\" [ Aliases [ q [ \"don\x92t \x85\" ] ] ]";
+    let read = GameplayOptions::import("f", file).expect("read");
+    assert_eq!(
+        read.aliases.entries,
+        vec![(w("q"), w("don\u{2019}t \u{2026}"))]
+    );
+
+    let mut o = GameplayOptions::default();
+    o.set_alias(&w("hi"), &w("café \u{3042}"));
+    let text = String::from_utf8(o.export("f").expect("written")).expect("text");
+    assert!(text.contains("\"caf<00e9> <3042>\""), "{text}");
+}

@@ -363,11 +363,11 @@ fn set_profile_word(c: &mut Call<'_>, f: fn(&mut GameplayOptions, u32)) -> Resul
     Ok(Status::Success)
 }
 
-/// A file name as the options' files take it: narrow, each unit past the narrow range a `?`.
+/// A file name as the options' files take it: narrowed to the English code page (as the client's
+/// narrow text is), then read back as the file system's name.
 fn narrow_name(w: &[u16]) -> String {
-    w.iter()
-        .map(|&u| char::from(u8::try_from(u).unwrap_or(b'?')))
-        .collect()
+    use auberean_text::wide::{narrow, widen};
+    String::from_utf16_lossy(&widen(&narrow(w)))
 }
 
 /// Write the receiver's profile to a file in the client's folder named by a string (`fp[-2]`);

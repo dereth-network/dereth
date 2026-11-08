@@ -1627,6 +1627,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "script.natives.options-file-names-in-the-english-code-page",
+        says: "An exported or imported options file's name is narrowed to the English code page, so                a letter that page holds, such as a curly apostrophe, stays in the name.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-OPTIONS-NAME-CODE-PAGE"),
+        station: "auberean-glue::cpu::options::an_options_files_name_is_narrowed_to_the_english_code_page",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "script.natives.reading-a-file-uses-it-up",
         says: "Reading a file that is not open opens it to read, and fails when there is none; reading \
                closes the stream while its name stays open, so it gives nothing more until it is \
@@ -1727,6 +1735,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SCRIPT-OPTIONS-OFF-WHEN-SET"),
         station: "auberean-glue::cpu::options::two_options_are_on_with_their_bit_clear",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.options.aliases-in-the-english-code-page",
+        says: "The options file holds the aliases in the English code page: a curly apostrophe or a                euro sign is one byte and reads back as itself, and text with a letter the page                lacks is written with each letter past the first 128 as its number in angle                brackets.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-OPTIONS-CODE-PAGE"),
+        station: "auberean-script::cpu::options_file::an_alias_is_written_and_read_in_the_english_code_page",
         tier: Tier::Cpu,
     },
     behaviour! {

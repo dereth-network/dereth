@@ -14,9 +14,11 @@
 //! Only the aliases and the damage text's options are written; the other sections (the windows'
 //! places, the chat filters, auto-targeting) are written as bare names and read as nothing (a
 //! confirmations section is read too). An import reads into a new profile, so everything the
-//! file does not hold is a new profile's.
+//! file does not hold is a new profile's. The aliases are written and read in the English code
+//! page, as the client's narrow text is.
 
 use auberean_dat::tree::{self, Node};
+use auberean_text::wide::{narrow, widen};
 
 use crate::options::GameplayOptions;
 
@@ -43,16 +45,6 @@ pub const NO_FILE_NAME: u32 = 0xC353;
 pub const NOT_READ: u32 = 50_000;
 pub const NOT_WRITTEN: u32 = 0xC352;
 pub const NO_OPTIONS: u32 = 0xC354;
-
-/// A wide string as the narrow text the file holds (each unit past the narrow range a `?`).
-fn narrow(w: &[u16]) -> Vec<u8> {
-    w.iter().map(|&u| u8::try_from(u).unwrap_or(b'?')).collect()
-}
-
-/// Narrow text as a wide string.
-fn widen(t: &[u8]) -> Vec<u16> {
-    t.iter().map(|&b| u16::from(b)).collect()
-}
 
 impl GameplayOptions {
     /// Show others' damage text, or not.

@@ -368,3 +368,30 @@ fn the_options_export_to_a_file_and_import_back_and_answer_the_clients_errors() 
         Status::Crash
     );
 }
+
+/// An exported options file's name is narrowed to the English code page as the client's is: a
+/// curly apostrophe in it is kept, where a letter only wide text holds would be lost, and the
+/// import of the same name reads that file.
+///
+/// Behaviour: script.natives.options-file-names-in-the-english-code-page
+#[test]
+fn an_options_files_name_is_narrowed_to_the_english_code_page() {
+    const EXPORT: u32 = 0x2B;
+    const IMPORT: u32 = 0x2C;
+    let mut b = crate::call::Bench::new();
+    let p = b.object(
+        native_type::GAMEPLAY_OPTIONS_PROFILE,
+        NativeObject::Options(Box::default()),
+    );
+    b.host.folder = Some(std::collections::BTreeMap::new());
+    let name = b.text("bob\u{2019}s \u{20AC}.txt");
+    let (status, slots) = b.call(PROFILE, EXPORT, p, &[name], 1);
+    assert_eq!((status, slots[0].0), (Status::Success, 0));
+    let folder = b.host.folder.as_ref().unwrap();
+    assert_eq!(
+        folder.keys().collect::<Vec<_>>(),
+        ["bob\u{2019}s \u{20AC}.txt"]
+    );
+    let (status, slots) = b.call(PROFILE, IMPORT, p, &[name], 1);
+    assert_eq!((status, slots[0].0), (Status::Success, 0));
+}
