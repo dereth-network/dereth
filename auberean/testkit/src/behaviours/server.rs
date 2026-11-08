@@ -415,6 +415,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.admin.persistent-rooms-of-an-admins-own",
+        says: "An admin's persistent room is made by name with the chat service's room mode, outlives its \
+               last member and a restart with its number and name, is joined by name as any admin's room \
+               is, and goes only when deleted. The mode is kept and shown by the client's own names for \
+               it (standard, user, password, private, secret) and does nothing else: nothing holds what \
+               the service did with it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-PERSISTENT-ROOMS"),
+        station: "yalain-testkit::cpu::operator::admin_calls::a_persistent_room_outlives_its_members_and_a_restart_until_deleted",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.admin.quest-removal-takes-its-subquests",
         says: "An admin's taking a quest off a player takes the subquests of its phases with it, done \
                or not, and theirs, without a word, but for one another quest the player holds at a \

@@ -2091,6 +2091,8 @@ const ROOM_CREATE: u32 = 0x8201_002A;
 const ROOM_JOIN: u32 = 0x8201_0005;
 const ROOM_LEAVE: u32 = 0x8201_004E;
 const ROOM_LEAVE_ALL: u32 = 0x8201_005A;
+const ROOM_CREATE_PERSISTENT: u32 = 0x8201_0072;
+const ROOM_DELETE_PERSISTENT: u32 = 0x8201_0018;
 
 /// An admin's chat rooms: one made by name holds its maker and whoever joins by name; a line reaches
 /// its members as an admin's answer and no one else; leaving, or the last member's leaving, ends it.
@@ -2186,6 +2188,90 @@ fn an_admins_chat_room_reaches_its_members_alone() {
         "gone with its last"
     );
     assert!(h.server.admin_rooms.rooms.is_empty());
+}
+
+/// A persistent room is made with its mode, outlives its last member and a restart with its number and
+/// name, is joined by name as any room is, and goes only when deleted; a room that ends with its last
+/// member isn't deleted this way. The mode is shown by the chat service's own names for it.
+/// Behaviour: server.admin.persistent-rooms-of-an-admins-own
+#[test]
+fn a_persistent_room_outlives_its_members_and_a_restart_until_deleted() {
+    use yalain_world::admin_calls::{ensure_rooms, room_mode_name as mode_name, Rooms};
+    let mut h = Harness::new();
+    let (a, _) = admin_in_world(&mut h, "one", "Elara");
+    let (b, _) = admin_in_world(&mut h, "two", "Cara");
+    let said = |h: &mut Harness, who: usize, call: u32, args: &[Arg]| {
+        let from = h.bots[who].inbox.len();
+        send(h, who, call, args);
+        answers(h, who, from)
+    };
+    assert_eq!(
+        said(&mut h, a, ROOM_CREATE_PERSISTENT, &[text("Council"), Arg::Int(8)]),
+        ["You made persistent room 1000000, Council, private. It stays until it is deleted; join it by name."]
+    );
+    assert_eq!(
+        said(
+            &mut h,
+            b,
+            ROOM_CREATE_PERSISTENT,
+            &[text("council"), Arg::Int(1)]
+        ),
+        ["There is a room council already: room 1000000."]
+    );
+    assert_eq!(
+        said(&mut h, a, ROOM_JOIN, &[text("COUNCIL")]),
+        ["You are in room 1000000, Council."]
+    );
+    assert_eq!(
+        said(&mut h, a, ROOM_LEAVE, &[Arg::Int(1_000_000)]),
+        ["You left room 1000000."]
+    );
+    assert!(
+        h.server.admin_rooms.rooms.contains_key(&1_000_000),
+        "it stays with no one in it"
+    );
+
+    // A restart: the world forgets its rooms and reads them back from its record.
+    h.run(1);
+    h.server.admin_rooms = Rooms::default();
+    assert!(ensure_rooms(&mut h.server), "reads");
+    let kept = &h.server.admin_rooms.rooms[&1_000_000];
+    assert_eq!(
+        (kept.name.as_str(), kept.persistent, kept.members.len()),
+        ("Council", Some(8), 0)
+    );
+    assert_eq!(
+        said(&mut h, b, ROOM_JOIN, &[text("Council")]),
+        ["You are in room 1000000, Council."]
+    );
+    assert_eq!(
+        said(&mut h, b, ROOM_CREATE, &[text("Lounge")]),
+        ["You made room 1000001, Lounge, and are in it."],
+        "a new room takes a number the kept one doesn't hold"
+    );
+    assert_eq!(
+        said(&mut h, b, ROOM_DELETE_PERSISTENT, &[text("Lounge")]),
+        ["Room 1000001, Lounge, isn't persistent: it ends when its last member leaves."]
+    );
+    assert_eq!(
+        said(&mut h, a, ROOM_DELETE_PERSISTENT, &[text("Council")]),
+        ["You deleted persistent room 1000000, Council."]
+    );
+    assert_eq!(
+        said(&mut h, a, ROOM_DELETE_PERSISTENT, &[text("Council")]),
+        ["There is no room Council."]
+    );
+    h.run(1);
+    h.server.admin_rooms = Rooms::default();
+    assert!(ensure_rooms(&mut h.server), "reads");
+    assert!(
+        !h.server.admin_rooms.rooms.contains_key(&1_000_000),
+        "deleted for good"
+    );
+    assert_eq!(
+        [1, 2, 4, 8, 0x10, 3].map(mode_name),
+        ["standard", "user", "password", "private", "secret", "mode 3"]
+    );
 }
 
 /// A place in an admin's room needs an admin's rights at that moment: taking admin away, or leaving

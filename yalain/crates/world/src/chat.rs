@@ -1136,8 +1136,10 @@ pub fn service<S: Store>(
             return;
         }
     }
-    // A room admins made: to its members, as an admin's answer, or nowhere.
+    // A room admins made: to its members, as an admin's answer, or nowhere. The persistent rooms are
+    // read first, for a line to one made before a restart.
     if let Some(world) = world {
+        crate::admin_calls::rooms::ensure(s);
         let text = String::from_utf16_lossy(&line.text);
         if let Some(went) = crate::admin_calls::rooms::said(s, net, world, line.room, &name, &text)
         {

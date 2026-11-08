@@ -41,7 +41,7 @@ use crate::{chat, progress, session, Clock, Server};
 
 pub use args::Args;
 pub use factions::{ethereal_value, Attackable, Ethereality};
-pub use rooms::Rooms;
+pub use rooms::{ensure as ensure_rooms, mode_name as room_mode_name, Rooms};
 
 /// The call family only admin characters send.
 const ADMIN_FAMILY: u32 = 0x8201;
