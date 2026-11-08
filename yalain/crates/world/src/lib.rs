@@ -98,6 +98,7 @@ pub mod kingdoms;
 pub mod levels;
 pub mod login;
 pub mod made;
+pub mod makes;
 pub mod map_trips;
 pub mod market;
 pub mod mining;
@@ -120,6 +121,7 @@ pub mod reach;
 pub mod regen;
 pub mod reload;
 pub mod requests;
+pub mod resurrections;
 pub mod rng;
 pub mod rules;
 pub mod saves;
@@ -148,7 +150,7 @@ pub mod world;
 pub mod world_patch;
 pub mod xp;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 
 use yalain_content::{Catalog, ContentPack, LootTable, SpawnTable};
@@ -396,11 +398,15 @@ pub struct Server<S: Store> {
     pub quest_ids: HashMap<String, u32>,
     /// What each player is examining.
     pub examining: HashMap<ConnId, examine::Examining>,
+    /// The players with a look at it waiting.
+    pub examine_waits: HashSet<ConnId>,
     /// The packages of the objects a player uses by walking into them (portals).
     pub walk_in_packages: std::collections::HashSet<u32>,
     /// The packages of the world's people and objects that answer a use as a person does (those
     /// derived from the script library's person), and of its faction shrines.
     pub person_packages: std::collections::HashSet<u32>,
+    /// The script packages of the world's lifestones.
+    pub lifestone_packages: std::collections::HashSet<u32>,
     /// The portal storms of crowded landblocks.
     pub storms: storms::Storms,
     pub shrine_packages: std::collections::HashSet<u32>,
@@ -444,6 +450,8 @@ pub struct Server<S: Store> {
     /// The workshops standing in the world.
     pub workshops: workshops::Workshops,
     pub market: market::Market,
+    /// The items players have put down, and when each goes.
+    pub lying: drops::Lying,
     /// The pets players have summoned.
     pub pets: pets::Pets,
     /// The dye plants players have planted, and the species' ripe looks.
@@ -531,10 +539,10 @@ pub enum Timer {
     SentBack { world: ConnId, corpse: u64 },
     /// A player's lifestone protection runs out.
     ProtectionEnds { world: ConnId, eid: u32 },
-    /// The next step of a player's use of a skill (the use's number).
+    /// The next step of a player's use of a skill (the server's number for the use).
     Skill {
         world: ConnId,
-        id: u32,
+        serial: u32,
         step: skill_use::Step,
     },
     /// A creature's opening opens, or closes.
@@ -562,6 +570,8 @@ pub enum Timer {
     AuraPulse { world: ConnId, eid: u32 },
     /// Back from a resurrection, the auras it held pulse again.
     AurasPulseAgain { world: ConnId },
+    /// A player another raised may move.
+    RaisedMoves { world: ConnId },
     /// The next step of a player's craft.
     Craft { world: ConnId, step: craft::Step },
     /// A player's day of craft experience may be over.
@@ -638,7 +648,7 @@ pub enum Timer {
     /// A player's basic attack lands (a missile arrives, a strike reaches).
     Landing(combat::Landing),
     /// Look again at what a player examines (the examination's number).
-    Examine { world: ConnId, number: u32 },
+    Examine { world: ConnId },
     /// A player's putting an item down is through: the item it asked to move, from its pack's slot.
     PutDown {
         world: ConnId,
@@ -754,8 +764,10 @@ impl<S: Store> Server<S> {
             worn_effects: HashMap::new(),
             quest_ids: HashMap::new(),
             examining: HashMap::new(),
+            examine_waits: HashSet::new(),
             walk_in_packages: std::collections::HashSet::new(),
             person_packages: std::collections::HashSet::new(),
+            lifestone_packages: std::collections::HashSet::new(),
             storms: storms::Storms::default(),
             shrine_packages: std::collections::HashSet::new(),
             shrine_kingdoms: HashMap::new(),
@@ -779,6 +791,7 @@ impl<S: Store> Server<S> {
             brokers: std::collections::BTreeMap::new(),
             workshops: workshops::Workshops::default(),
             market: market::Market::default(),
+            lying: drops::Lying::default(),
             pets: pets::Pets::default(),
             plants: plants::Plants::default(),
             locks: yalain_content::LockTable::default(),
@@ -899,8 +912,12 @@ impl<S: Store> Server<S> {
                     death::sent_back(self, net, world, corpse, clock);
                 }
                 Timer::ProtectionEnds { world, eid } => effects::runs_out(self, net, world, eid),
-                Timer::Skill { world, id, step } => {
-                    skill_use::step(self, net, world, id, step, clock);
+                Timer::Skill {
+                    world,
+                    serial,
+                    step,
+                } => {
+                    skill_use::step(self, net, world, serial, step, clock);
                 }
                 Timer::ItemEffectEnds { item, fx } => {
                     effects::item_effect_ends(self, net, item, fx, clock);
@@ -922,7 +939,7 @@ impl<S: Store> Server<S> {
                 }
                 Timer::EffectEnds { world, eid } => {
                     if !mounts::record_ends(self, net, world, eid) {
-                        effects::ends(self, net, world, eid);
+                        effects::ends(self, net, world, eid, clock);
                     }
                 }
                 Timer::EffectTick { world, eid, since } => {
@@ -937,6 +954,7 @@ impl<S: Store> Server<S> {
                     since,
                 } => effects::creature_tick(self, net, creature, eid, since, clock),
                 Timer::AuraPulse { world, eid } => effects::pulse(self, net, world, eid, clock),
+                Timer::RaisedMoves { world } => resurrections::raised_moves(self, net, world),
                 Timer::AurasPulseAgain { world } => {
                     effects::auras_pulse_again(self, net, world, clock);
                 }
@@ -987,9 +1005,7 @@ impl<S: Store> Server<S> {
                     drops::put(self, net, world, slot, &asked, clock);
                 }
                 Timer::Settle { item } => drops::settle(self, net, item, clock),
-                Timer::Examine { world, number } => {
-                    requests::examine_again(self, net, world, number, clock);
-                }
+                Timer::Examine { world } => requests::examine_again(self, net, world, clock),
                 Timer::ShardProtectionEnds { world, eid } => {
                     scenes::protection_ends(self, net, world, eid);
                 }
@@ -1041,6 +1057,9 @@ impl<S: Store> Server<S> {
         trade::look(self, net, clock);
         self.saves.piece_begins();
         market::look(self, net, clock);
+        market::look_for_expired(self, net);
+        self.saves.piece_begins();
+        drops::look(self, net, clock);
         self.saves.piece_begins();
         storms::look(self, net, clock);
         self.saves.piece_begins();

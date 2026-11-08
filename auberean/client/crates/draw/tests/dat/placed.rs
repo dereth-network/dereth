@@ -250,6 +250,62 @@ fn the_wind_moves_a_placed_tree_further_than_still_air_does() {
     assert!(gale > 2.0 * calm, "{gale} in a gale, {calm} in still air");
 }
 
+/// A placed object's volume of shadow is cast from it as it stands: the tree's differs from the
+/// one it would cast as stored, and moves as the tree plays.
+///
+/// Behaviour: draw.volume.a-placed-objects-volume-follows-its-pose
+#[test]
+fn a_placed_objects_volume_follows_its_pose() {
+    use auberean_draw::volume::{Volume, VolumeMaker, VolumeRoom};
+    let r = &install().records;
+    let (at, scale) = place(0.0, 1.0);
+    let parts = parts_of(r, TREE, &at, scale);
+    let sun = Vec3::new(0.3, 0.4, -0.866);
+    let volumes_of = |frame: &Frame| -> Vec<Volume> {
+        let (mut out, mut room) = (Vec::new(), VolumeRoom::FRAME);
+        VolumeMaker::default().cast(r, &frame.objects, sun, 1.0, 2, &mut room, &mut out);
+        out
+    };
+    let points = |volumes: &[Volume]| -> Vec<[f32; 3]> {
+        volumes
+            .iter()
+            .flat_map(|v| v.vertices.iter().copied())
+            .collect()
+    };
+    // How far the volumes' extents lie apart: their outlines differ as the pose does, so their
+    // points are not the same points.
+    let apart = |a: &[[f32; 3]], b: &[[f32; 3]]| -> f32 {
+        let extent = |v: &[[f32; 3]]| {
+            let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
+            for p in v {
+                for k in 0..3 {
+                    lo[k] = lo[k].min(p[k]);
+                    hi[k] = hi[k].max(p[k]);
+                }
+            }
+            (lo, hi)
+        };
+        let ((al, ah), (bl, bh)) = (extent(a), extent(b));
+        (0..3)
+            .map(|k| (al[k] - bl[k]).abs().max((ah[k] - bh[k]).abs()))
+            .fold(0.0, f32::max)
+    };
+    let mut frame = frame_of(&parts);
+    let stored = points(&volumes_of(&frame));
+    assert!(!stored.is_empty(), "the tree casts a volume");
+    let mut player = Player::new(1.0);
+    player.pose(&mut frame);
+    let posed = points(&volumes_of(&frame));
+    player.pass(&mut frame, 30);
+    let later = points(&volumes_of(&frame));
+    let (from_stored, on) = (apart(&stored, &posed), apart(&posed, &later));
+    println!(
+        "the volume stands {from_stored:.3} m from the stored one, moves {on:.3} m in a second"
+    );
+    assert!(from_stored > 0.0, "it is cast from the pose: {from_stored}");
+    assert!(on > 0.01, "the volume moves with the tree: {on}");
+}
+
 /// A look with no behavior table has nothing to play: it stands as stored.
 ///
 /// Behaviour: draw.world.a-placed-look-with-a-behavior-table-plays-through-one-shared-body

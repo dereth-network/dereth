@@ -154,6 +154,11 @@ impl World {
         Self::default()
     }
 
+    /// The install's property list.
+    pub(crate) const fn properties(&self) -> &PropertyList {
+        &self.properties
+    }
+
     /// The install's property list, for the physics types' bits and the properties of what is
     /// touched.
     pub fn set_property_list(&mut self, list: PropertyList) {

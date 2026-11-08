@@ -17,14 +17,14 @@ use auberean_protocol::types::{
 use auberean_protocol::ServerMessage;
 use yalain_store::StoredPosition;
 
-/// The player template: its entity, its qualities record and its script package.
-pub const PLAYER_ENTITY: u32 = 0x4700_0530;
+pub use auberean_world::chargen::{ADMIN_ENTITY, PLAYER_ENTITY};
+
+/// The player template: its qualities record and its script package.
 pub const PLAYER_QUALITIES: u32 = 0x8100_0530;
 pub const PLAYER_PACKAGE: u32 = 0x37F;
 
-/// The admin template: the same three for an admin character. A client gives a player of this
+/// The admin template: the same two for an admin character. A client gives a player of this
 /// template the admin's commands.
-pub const ADMIN_ENTITY: u32 = 0x4700_0531;
 pub const ADMIN_QUALITIES: u32 = 0x8100_0531;
 pub const ADMIN_PACKAGE: u32 = 0x298;
 

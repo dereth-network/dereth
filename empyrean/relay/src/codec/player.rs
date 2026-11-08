@@ -27,6 +27,8 @@ pub const EXPERIENCE_TOTAL_INT64: u32 = 1;
 pub const EXPERIENCE_AVAILABLE_INT64: u32 = 2;
 /// The Int key holding the combat mode.
 pub const COMBAT_MODE_INT: u32 = 0x28;
+/// The Int key holding the heritage: from zero on the 1999 wire, from one (Aluvian) on the later.
+pub const HERITAGE_INT: u32 = 0xBC;
 
 /// A 1999 enchantment id as the later wire's: the 1999 id is the spell alone, and the later one puts
 /// a layer above it, starting from one. A character holds one of a spell here, so the layer is fixed.
@@ -101,7 +103,8 @@ fn read_base(r: &mut Reader<'_>) -> Result<AcBaseQualities, MessageError> {
     })
 }
 
-/// Experience moves to its later Int64 keys, and the combat mode to its later bits.
+/// Experience moves to its later Int64 keys, the combat mode to its later bits, and the heritage
+/// to its later number.
 fn normalize(base: &mut AcBaseQualities) {
     let t = &mut base.tables;
     let Some(ints) = t.ints.as_mut() else {
@@ -118,6 +121,9 @@ fn normalize(base: &mut AcBaseQualities) {
     }
     if let Some((_, mode)) = ints.entries.iter_mut().find(|(k, _)| *k == COMBAT_MODE_INT) {
         *mode = combat_mode_to_later(*mode);
+    }
+    if let Some((_, heritage)) = ints.entries.iter_mut().find(|(k, _)| *k == HERITAGE_INT) {
+        *heritage = heritage.saturating_add(1);
     }
     if !experience.is_empty() {
         let table = t.int64s.get_or_insert_with(Default::default);

@@ -227,6 +227,7 @@ fn math(fun: MathFunction, a: &Value, b: Option<&Value>, c: Option<&Value>) -> V
         M::Ceil => each(a, &f32::ceil),
         M::Round => each(a, &f32::round_ties_even),
         M::Fract => each(a, &|x| x - x.floor()),
+        M::Saturate => each(a, &|x| x.clamp(0.0, 1.0)),
         M::Sqrt => each(a, &f32::sqrt),
         M::Sin => each(a, &math::sinf),
         M::Cos => each(a, &math::cosf),

@@ -95,3 +95,44 @@ fn a_player_follows_another_until_it_follows_again_or_uses_something() {
         "a use ends it"
     );
 }
+
+/// Each follow goes as movement orders to everyone who sees the player: asked again and again they
+/// come at a pace, and a follow asked once the pace has filled goes as ever.
+/// Behaviour: server.follow.at-a-pace
+#[test]
+fn a_follow_asked_again_and_again_reaches_those_who_see_it_at_a_pace() {
+    let mut h = Harness::new();
+    let (a, _) = h.player_in_world("one", "Elara");
+    let (b, other) = h.player_in_world("two", "Babyfare");
+    h.run(10);
+    let from = h.bots[b].inbox.len();
+    let orders = |h: &Harness, from: usize| {
+        h.world_messages(b, from)
+            .iter()
+            .filter(|m| matches!(m, ServerMessage::MoveTo(_)))
+            .count()
+    };
+    let asked = 40;
+    for _ in 0..asked {
+        h.bots[a].send(
+            true,
+            queue::WEENIE,
+            &server_call(follow::FOLLOW, &[Arg::LongInt(other)]),
+        );
+    }
+    h.run(5);
+    let seen = orders(&h, from);
+    assert!(
+        seen > 0 && seen < asked,
+        "{seen} orders of {asked} follows, two each"
+    );
+    h.advance(10.0);
+    let from = h.bots[b].inbox.len();
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &server_call(follow::FOLLOW, &[Arg::LongInt(other)]),
+    );
+    h.run(10);
+    assert!(orders(&h, from) > 0, "the pace has filled");
+}

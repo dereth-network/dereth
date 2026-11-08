@@ -35,8 +35,7 @@ pub struct Seen {
     pub head_stream: u32,
 }
 
-/// The first cell number of a landblock's interior cells.
-pub const FIRST_INTERIOR_CELL: u32 = 0x100;
+pub use auberean_physics::cells::FIRST_INTERIOR_CELL;
 
 /// Is a cell inside (an interior cell rather than one of the landblock's outdoor cells)?
 #[must_use]
@@ -48,7 +47,7 @@ pub const fn indoors(cell: u32) -> bool {
 pub const VIEW_CELLS: i64 = 3;
 
 /// A land cell's side, in meters.
-pub const CELL_SIDE: f32 = 20.0;
+pub const CELL_SIDE: f32 = auberean_physics::land::CELL_LENGTH;
 
 /// The land cell a point of a landblock lies in, counted across the whole world (x, y).
 #[must_use]

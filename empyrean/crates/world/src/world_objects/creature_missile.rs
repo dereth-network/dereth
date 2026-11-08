@@ -14,8 +14,8 @@ use dereth_primitives::{Frame, Position as PPosition, Quat, Vec3};
 use empyrean_common::dotnet::numerics::{Quaternion, Vector3};
 use empyrean_entity::enums::{
     CharacterOption, ChatMessageType, CombatMode, CombatStyle, MotionCommand, ParentLocation,
-    PhysicsState, Placement, PlayScript, PlayerKillerStatus, PropertyBool, PropertyDataId,
-    PropertyFloat, PropertyInt, Sound, WeenieError,
+    PhysicsState, Placement, PlayScript, PlayerKillerStatus, PropertyAttribute, PropertyBool,
+    PropertyDataId, PropertyFloat, PropertyInt, Sound, WeenieError,
 };
 use empyrean_entity::{ObjectGuid, Position};
 
@@ -332,6 +332,13 @@ pub fn launch_projectile(
         return None;
     }
 
+    // DIVERGE: V511, measured at release and not again in flight.
+    let launch_range_ratio = w
+        .era
+        .formulas
+        .long_range_missile_penalty
+        .then(|| launch_range_ratio(w, this, target));
+
     let ammo_wcid = object(w, ammo).biota.weenie_class_id;
     let proj = create_new_world_object(w, ammo_wcid)
         .expect("System.NullReferenceException: WorldObjectFactory.CreateNewWorldObject");
@@ -345,6 +352,7 @@ pub fn launch_projectile(
 
         links.launcher = weapon;
         links.ammo = Some(ammo);
+        links.launch_range_ratio = launch_range_ratio;
     }
 
     let mut loc = location(w, this);
@@ -509,11 +517,13 @@ pub const DEFAULT_PROJECTILE_SPEED: f32 = 20.0;
 /// The launcher's `MaximumVelocity` (20 without one, or when 0), times `fast_missile_modifier` for
 /// a player with Use Fast Missiles, capped at the physics engine's 50.
 // ACE: Creature.GetProjectileSpeed
-pub fn get_projectile_speed(w: &World, this: ObjectGuid) -> f32 {
+pub fn get_projectile_speed(w: &mut World, this: ObjectGuid) -> f32 {
     let missile_launcher = creature_equipment::get_equipped_missile_weapon(w, this);
 
-    let mut max_velocity = missile_launcher
-        .and_then(|g| object(w, g).maximum_velocity())
+    // DIVERGE: V515, a thrown weapon's speed is its thrower's on Launch.
+    let thrown = missile_launcher.and_then(|g| thrown_velocity_of(w, this, g));
+    let mut max_velocity = thrown
+        .or_else(|| missile_launcher.and_then(|g| object(w, g).maximum_velocity()))
         .unwrap_or(f64::from(DEFAULT_PROJECTILE_SPEED));
 
     #[allow(clippy::float_cmp)] // C#'s `== 0.0f`
@@ -844,12 +854,79 @@ pub const MISSILE_RANGE_CAP: f32 = 85.0 / METERS_TO_YARDS; // 85 yards = ~77.697
                                                            // ACE: Creature.DefaultMaxVelocity
 pub const DEFAULT_MAX_VELOCITY: f32 = 20.0; // ?
 
+/// The distance to `target` over the shooter's reach, 0 to 1. A target with no place in the world is
+/// at no distance.
+fn launch_range_ratio(w: &mut World, this: ObjectGuid, target: ObjectGuid) -> f64 {
+    let Some(target_loc) = w.objects.get(target).and_then(WorldObject::location) else {
+        return 0.0;
+    };
+    let reach = get_max_missile_range(w, this);
+    if reach <= 0.0 {
+        return 0.0;
+    }
+    f64::from(location(w, this).distance_to(&target_loc) / reach).clamp(0.0, 1.0)
+}
+
+// Rules ported from ac1999 (Adam Plumb), AGPL-3.0: Server/Source/PhatSDK/Support/CombatFormulas.cpp.
+/// What a missile keeps of its attack skill, from the share of the weapon's reach it had to fly:
+/// `1 - 0.5 x ratio^8`. Close and middle shots lose next to nothing, a shot at 85% of reach loses
+/// 14% and one at the limit half. Only the half is a period figure; the curve is ac1999's.
+#[must_use]
+pub fn long_range_attack_mod(ratio: f64) -> f64 {
+    1.0 - 0.5 * empyrean_common::math::pow(ratio.clamp(0.0, 1.0), 8.0)
+}
+
+// Rules ported from ac1999 (Adam Plumb), AGPL-3.0: Server/Source/PhatSDK/Support/CombatFormulas.cpp.
+/// How fast a thrown weapon leaves the hand, in meters a second:
+/// `8.1223 x strength^(1/3) / max(burden, 15)^0.2389`, times `2.4152` for a thrower that is not a
+/// player, held to the speeds that reach 3 and 80 meters. A weapon of burden 15 or less flies as far
+/// as any other. The floor, the ceiling and the reach at Strength 55 and 100 are a period guide's;
+/// the expression and the monster's multiplier are ac1999's fit to them.
+#[must_use]
+pub fn thrown_velocity(strength: u32, burden: i32, thrower_is_player: bool) -> f64 {
+    let strength = empyrean_common::math::pow(f64::from(strength).max(1.0), 1.0 / 3.0);
+    let weight = empyrean_common::math::pow(f64::from(burden).max(15.0), 0.2389);
+    let velocity = 8.1223 * strength / weight * if thrower_is_player { 1.0 } else { 2.4152 };
+    velocity.clamp((3.0f64 * 9.8).sqrt(), (80.0f64 * 9.8).sqrt())
+}
+
+/// What a thrown weapon at this speed reaches, in meters: `velocity^2 / 9.8`.
+#[must_use]
+pub fn thrown_reach(velocity: f64) -> f32 {
+    (velocity * velocity / 9.8) as f32
+}
+
+/// `thrower`'s speed with `item`, in an era that throws by Strength and when `item` is a thrown
+/// weapon: its Strength as it stands now, and one item's burden, whatever the size of the stack.
+pub fn thrown_velocity_of(w: &mut World, thrower: ObjectGuid, item: ObjectGuid) -> Option<f64> {
+    if !w.era.formulas.thrown_reach_by_strength {
+        return None;
+    }
+    let item = object(w, item);
+    if !item.is_thrown_weapon() {
+        return None;
+    }
+    let burden = item
+        .stack_unit_encumbrance()
+        .or_else(|| item.encumbrance_val())
+        .unwrap_or(0);
+    let is_player = object(w, thrower).is_player();
+    let strength = creature_combat::attribute_current(w, thrower, PropertyAttribute::Strength);
+    Some(thrown_velocity(strength, burden, is_player))
+}
+
 /// The missile weapon's range: `MaximumVelocity^2 / 9.8`, capped at 85 yards.
 // ACE: Creature.GetMaxMissileRange
 #[must_use]
 #[allow(clippy::excessive_precision)] // ACE's literal, `0.1020408163265306f`
-pub fn get_max_missile_range(w: &World, this: ObjectGuid) -> f32 {
+pub fn get_max_missile_range(w: &mut World, this: ObjectGuid) -> f32 {
     let weapon = creature_equipment::get_equipped_missile_weapon(w, this);
+
+    // DIVERGE: V515, a thrown weapon's reach is its thrower's on Launch, with its own 80 m limit.
+    if let Some(velocity) = weapon.and_then(|g| thrown_velocity_of(w, this, g)) {
+        return thrown_reach(velocity);
+    }
+
     let max_velocity = weapon
         .and_then(|g| object(w, g).maximum_velocity())
         .unwrap_or(f64::from(DEFAULT_MAX_VELOCITY));

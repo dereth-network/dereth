@@ -5,17 +5,17 @@
 //! the relay on the loopback address, and the relay connects to the world. The list has no place
 //! for such a world, and nothing says it needs a relay, so the launcher keeps them here.
 //!
-//! They are off unless the player's settings turn them on: [`shown`]. Until then a launcher never
-//! lists them and never sends them anything. On, a launcher still asks them nothing until the
-//! player presses Play: nobody reports their status, so each reads as not having said.
+//! A launcher lists them, and asks whether each is up as it asks any world, with the server-tracker
+//! login in the form that wire reads ([`crate::probe::request_1999`]). No setting turns them off:
+//! [`LISTED`] does, in the code.
 
 use dereth_primitives::{EraFeatureOverrides, EraId};
 
 use crate::state::LauncherState;
 use crate::world::{AccountModel, Emulator, Endpoint, Told, World};
 
-/// Whether a player who has never said is shown these worlds.
-pub const SHOWN_BY_DEFAULT: bool = false;
+/// Whether a launcher lists these worlds and sends them anything.
+pub const LISTED: bool = true;
 
 /// The client the worlds take: only Dereth speaks to the relay.
 const ACCEPTED_CLIENT: &str = "dereth";
@@ -74,10 +74,10 @@ impl RelayedWorld {
     }
 }
 
-/// Whether `state`'s player is shown these worlds: their own word, else [`SHOWN_BY_DEFAULT`].
+/// Whether `state`'s launcher shows these worlds.
 #[must_use]
 pub fn shown(state: &LauncherState) -> bool {
-    state.settings.relayed_worlds.unwrap_or(SHOWN_BY_DEFAULT)
+    LISTED && !state.hide_relayed_worlds
 }
 
 /// The worlds `state`'s player is shown.
@@ -132,25 +132,51 @@ mod tests {
     use crate::datset::SetKind;
     use crate::launch::describe;
 
-    fn on() -> LauncherState {
-        let mut state = LauncherState::default();
-        state.settings.relayed_worlds = Some(true);
-        state
+    fn slugs(state: &LauncherState) -> Vec<String> {
+        let list = [World::new("coldeve", "Coldeve")];
+        crate::worlds::all(&list, state).map(|w| w.slug).collect()
     }
 
     #[test]
-    fn a_player_who_has_not_said_is_not_shown_them_and_one_who_turned_them_on_is() {
-        let list = [World::new("coldeve", "Coldeve")];
-        let slugs = |state: &LauncherState| {
-            crate::worlds::all(&list, state)
-                .map(|w| w.slug)
-                .collect::<Vec<_>>()
-        };
-        assert_eq!(slugs(&LauncherState::default()), ["coldeve"]);
-        assert_eq!(slugs(&on()), ["coldeve", "ac1999"]);
-        let mut off = on();
-        off.settings.relayed_worlds = Some(false);
-        assert_eq!(slugs(&off), ["coldeve"]);
+    fn a_new_launcher_lists_them_with_nothing_set() {
+        assert_eq!(slugs(&LauncherState::default()), ["coldeve", "ac1999"]);
+    }
+
+    /// The switch this replaced was kept in the state file, either way. What a file says of it
+    /// changes nothing and is gone once the file is saved; nor can a file hide them another way.
+    #[test]
+    fn a_state_file_cannot_turn_them_off() {
+        let dir = std::env::temp_dir().join(format!("relayed-state-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for word in ["true", "false"] {
+            let file = dir.join(crate::state::STATE_FILE);
+            std::fs::write(
+                &file,
+                format!(
+                    r#"{{"schema": 1, "hide_relayed_worlds": true,
+                         "settings": {{"relayed_worlds": {word}, "auto_update": false}}}}"#
+                ),
+            )
+            .unwrap();
+            let (state, loaded) = LauncherState::load(&dir);
+            assert_eq!(loaded, crate::state::Loaded::Read);
+            assert!(!state.settings.auto_update, "the file was read");
+            assert_eq!(slugs(&state), ["coldeve", "ac1999"], "{word}");
+
+            state.save(&dir).unwrap();
+            let saved = std::fs::read_to_string(&file).unwrap();
+            assert!(!saved.contains("relayed"), "{saved}");
+        }
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_test_can_leave_them_off_the_list() {
+        assert_eq!(
+            slugs(&crate::testing::without_relayed_worlds()),
+            ["coldeve"]
+        );
     }
 
     #[test]
@@ -192,7 +218,7 @@ mod tests {
     /// What was played on a world of this table survives the list being read again.
     #[test]
     fn what_was_played_there_is_kept_when_the_list_does_not_name_it() {
-        let mut state = on();
+        let mut state = LauncherState::default();
         state.favorite_worlds.push("ac1999".to_owned());
         state.favorite_worlds.push("gone".to_owned());
         assert!(state.forget_unlisted(&std::collections::HashSet::new()));

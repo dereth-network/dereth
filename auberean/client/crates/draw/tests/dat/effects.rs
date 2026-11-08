@@ -2,7 +2,8 @@
 
 use auberean_assets::fx::Particles;
 use auberean_draw::effects::{
-    node_for, particle_is_looping, FxSpot, FxWho, NoRig, ObjectEffects, Rig,
+    node_for, particle_is_looping, FxSpot, FxWho, NoRig, ObjectEffects, PlacedEffects, PlacedLook,
+    PlacedSight, Rig,
 };
 use auberean_draw::particles::approximate_lifetime;
 use auberean_draw::systems::ParticleSystems;
@@ -1603,4 +1604,132 @@ fn puffs_of_cloud_show_near_the_tunnels_start() {
     for (now, puffs, _) in coming_in.iter().filter(|(now, _, _)| *now < 0.9) {
         assert_eq!(*puffs, 0, "none at {now} while it comes into view");
     }
+}
+
+/// The campfire, whose four systems no record forces, seen to 45 m and fading from 40 m to 60 m.
+const CAMP_FIRE: u32 = 0x1F00_0138;
+
+/// A system its record doesn't force to draw stays unqueued while its object isn't drawn (the
+/// player's own body in first person), and is queued again once it is; one its record forces is
+/// queued either way.
+/// Behaviour: draw.particles.unforced-systems-queue-only-as-their-object-is-drawn
+#[test]
+fn a_system_not_forced_to_draw_is_queued_only_while_its_object_is_drawn() {
+    let r = &install().records;
+    let systems = ParticleSystems::default();
+    let at = |id: u32| {
+        let look = Look::of_record(r, DataId(id)).expect("the look");
+        let mut fx = ObjectEffects::of_look(&look).expect("its effects");
+        fx.start(
+            &systems,
+            r,
+            (0, 0),
+            &Mat4::IDENTITY,
+            Vec3::new(1.0, 1.0, 1.0),
+            0.0,
+        );
+        fx
+    };
+    let light = Color::WHITE;
+    let think = |fx: &mut ObjectEffects, now: f64| {
+        fx.think(
+            &systems,
+            (0, 0),
+            &Mat4::IDENTITY,
+            Vec3::new(1.0, 1.0, 1.0),
+            light,
+            now,
+        );
+    };
+    let mut fire = at(CAMP_FIRE);
+    let count = fire.systems().len();
+    assert!(count > 0);
+    fire.set_drawn(false);
+    think(&mut fire, 0.1);
+    for c in fire.systems() {
+        assert!(!systems.force_draw(&c.system), "the fire's are not forced");
+        assert_ne!(
+            systems.queued_at(&c.system),
+            Some(0.1),
+            "not queued while its object isn't drawn"
+        );
+    }
+    assert_eq!(fire.systems().len(), count, "they stay");
+    fire.set_drawn(true);
+    think(&mut fire, 0.2);
+    for c in fire.systems() {
+        assert_eq!(systems.queued_at(&c.system), Some(0.2), "queued again");
+    }
+    // Some look with a system its record forces: queued while its object isn't drawn.
+    let forced = ids_of(0x1F).into_iter().find_map(|id| {
+        let look = Look::of_record(r, DataId(id)).ok()?;
+        if look.global.startup_fx.is_empty() {
+            return None;
+        }
+        ObjectEffects::of_look(&look)?;
+        let fx = at(id);
+        fx.systems()
+            .iter()
+            .any(|c| systems.force_draw(&c.system))
+            .then_some(fx)
+    });
+    let mut fx = forced.expect("a look with a forced system");
+    fx.set_drawn(false);
+    think(&mut fx, 0.3);
+    let mut seen = 0;
+    for c in fx.systems() {
+        if systems.force_draw(&c.system) {
+            seen += 1;
+            assert_eq!(systems.queued_at(&c.system), Some(0.3), "queued anyway");
+        }
+    }
+    assert!(seen > 0);
+}
+
+/// A placed object's systems are queued within its visible distance from the camera and not past
+/// it: the campfire's is 45 m, though its particles fade only from 40 m to 60 m.
+/// Behaviour: draw.particles.placed-systems-stop-past-the-objects-visible-distance
+#[test]
+fn a_placed_object_past_its_visible_distance_has_its_systems_left_unqueued() {
+    let r = &install().records;
+    let systems = ParticleSystems::default();
+    let look = Look::of_record(r, DataId(CAMP_FIRE)).expect("the look");
+    let key = 7;
+    let mut placed = PlacedEffects::default();
+    placed.sync(
+        &systems,
+        r,
+        &[PlacedLook {
+            key,
+            block: (1, 0),
+            look: std::sync::Arc::new(look),
+            place: Mat4::IDENTITY,
+            scale: Vec3::new(1.0, 1.0, 1.0),
+        }],
+        0.0,
+    );
+    let sight = |eye: Vec3| PlacedSight {
+        eye,
+        home: (0, 0),
+        block_length: 160.0,
+        scale: 1.0,
+        model_detail: 2,
+    };
+    let light = Color::WHITE;
+    let queued = |placed: &PlacedEffects, now: f64| {
+        placed
+            .systems_of(key)
+            .expect("its systems")
+            .iter()
+            .filter(|c| systems.queued_at(&c.system) == Some(now))
+            .count()
+    };
+    // In block (0, 0)'s frame the object stands at x = 160: 50 m from the camera.
+    placed.see_from(&sight(Vec3::new(110.0, 0.0, 0.0)));
+    placed.draw(&systems, 0.1, light);
+    assert_eq!(queued(&placed, 0.1), 0, "past 45 m");
+    // Within it, the same systems are queued.
+    placed.see_from(&sight(Vec3::new(120.0, 0.0, 0.0)));
+    placed.draw(&systems, 0.2, light);
+    assert!(queued(&placed, 0.2) > 0, "within 45 m");
 }

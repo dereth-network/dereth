@@ -33,9 +33,10 @@
 //! rank, one more when two or more vassals hold it, ten at most. A rank's title is by species,
 //! sex and rank.
 //!
-//! **Experience passed up**: a quarter of what a vassal earns goes into its patron's pool; a pool
-//! that reaches a fifth of the experience the patron's next level takes (fifty at least, two
-//! million at most) is paid to the patron, up to a third and a half of that level's experience
+//! **Experience passed up**: a quarter of what a vassal earns from kills goes into its patron's
+//! pool; what a quest pays does not. A pool that reaches a fifth of the experience the patron's
+//! next level takes (fifty at least, two million at most), or whatever it holds when a vassal
+//! reaches a new level, is paid to the patron, up to a third and a half of that level's experience
 //! for the level, and a tenth of the payment goes on into its own patron's pool. A patron in the
 //! world is told which vassal earned it; one away is paid as it enters.
 //!
@@ -1315,18 +1316,35 @@ fn level_of<S: Store>(s: &mut Server<S>, id: u64) -> i32 {
 /// A vassal has earned experience: its patron's pool takes a quarter, and a pool that reaches its
 /// threshold is paid to the patron, a tenth of which goes on up.
 pub fn earned<S: Store>(s: &mut Server<S>, net: &mut ServerNet, vassal: u64, amount: u64) {
-    if !ensure(s) {
-        return;
-    }
-    let mut from = vassal;
     #[allow(
         clippy::cast_possible_truncation,
         clippy::cast_sign_loss,
         clippy::cast_precision_loss
     )]
-    let mut share = (amount as f64 * 0.25) as u64;
+    let share = (amount as f64 * 0.25) as u64;
+    pass_up(s, net, vassal, share, false);
+}
+
+/// A vassal has reached a new level: what its patron's pool holds is paid at once, however little.
+pub fn level_reached<S: Store>(s: &mut Server<S>, net: &mut ServerNet, vassal: u64) {
+    pass_up(s, net, vassal, 0, true);
+}
+
+/// A share of a vassal's goes into its patron's pool, up the chain as each pool is paid; the first
+/// pool is paid `at_once`, or like the rest when it reaches its threshold.
+fn pass_up<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    vassal: u64,
+    mut share: u64,
+    at_once: bool,
+) {
+    if !ensure(s) {
+        return;
+    }
+    let mut from = vassal;
     let mut steps = 0;
-    while share > 0 && steps < 64 {
+    while (share > 0 || (at_once && steps == 0)) && steps < 64 {
         steps += 1;
         let Some(patron) = s.allegiances.nodes.get(&from).map(|n| n.patron) else {
             break;
@@ -1354,7 +1372,7 @@ pub fn earned<S: Store>(s: &mut Server<S>, net: &mut ServerNet, vassal: u64, amo
             break;
         };
         p.pooled += share;
-        if p.pooled < threshold {
+        if p.pooled < threshold && !(at_once && steps == 1) {
             break;
         }
         if p.inherited_level != level {

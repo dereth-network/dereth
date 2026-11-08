@@ -27,8 +27,18 @@
 //! profile's count says (counting the drops and extras already in). Each item drawn carries what
 //! the creature's level gives it of its own ([`crate::treasure`]).
 //!
-//! **A corpse leaves the world** three minutes after it appeared if nobody touched it, fifteen
-//! seconds after it was closed empty, a minute after it was closed with items left.
+//! **A corpse leaves the world** by its creature's template's times, for most creatures these: three
+//! minutes after it appeared, or fifteen seconds if it can hold nothing (the creature has no loot
+//! profile and left nothing); fifteen seconds after it was closed empty, a minute after it was
+//! closed with items left, if that is sooner. One still open when its time comes stays, looked at
+//! again each time an empty one's time goes by, and goes at the first such look after it is closed.
+//! A player's lasts a minute whatever is done to it.
+//!
+//! **Who may loot it** ([`may_loot`]): its killer and, in a fellowship that shares loot, the killer's
+//! fellows as they stand at that moment. The first to open it ends the rights, as does two minutes
+//! after the death, whoever is about by then; so no corpse is ever closed to everyone for longer
+//! than that, and it leaves the world when it would have anyway. A creature killed by no player, and
+//! a player's own corpse, which holds nothing, are open to all.
 //!
 //! **A character that leaves the world dead** comes back as it next enters, with no box and nothing
 //! to ask for ([`back_after_entry`]).
@@ -78,7 +88,7 @@ pub mod q {
     /// An object's name.
     pub const NAME: u32 = 256;
     /// A thing's scale.
-    pub const SCALE: u32 = 298;
+    pub use auberean_physics::body::profile::quality::SCALE;
 }
 
 /// The death's look.
@@ -99,10 +109,8 @@ pub mod look {
 pub const CORPSE_AFTER: f64 = 2.0;
 pub const LEAVES_AFTER: f64 = 3.0;
 
-/// How long a corpse lasts: untouched, closed empty, closed with items left, in seconds.
-pub const ROTS_UNTOUCHED: f64 = 180.0;
-pub const ROTS_EMPTY: f64 = 15.0;
-pub const ROTS_LEFT: f64 = 60.0;
+/// How long after a death its corpse is kept for those with a right to it, in seconds.
+pub const LOOT_LOCK: f64 = 120.0;
 
 /// The most items a corpse holds.
 pub const MOST_ITEMS: usize = 21;
@@ -128,6 +136,25 @@ pub fn credited<S: Store>(s: &Server<S>, id: u64, blow: u64) -> u64 {
         }
     }
     best.map_or(blow, |(by, _)| by)
+}
+
+/// May this character open or cut this corpse now?
+#[must_use]
+pub fn may_loot<S: Store>(s: &Server<S>, me: u64, corpse: u64, now: f64) -> bool {
+    let Some(c) = s.things.get(corpse).and_then(|t| t.corpse.as_ref()) else {
+        return false;
+    };
+    if c.first_looted_by.is_some() || now >= c.unlocks {
+        return true;
+    }
+    if c.claimant != 0 {
+        return c.claimant == me;
+    }
+    if c.killer == me || c.killer == 0 || s.things.get(c.killer).is_some() {
+        return true;
+    }
+    let f = s.fellowships.of(me);
+    f.is_some_and(|i| s.fellowships.list[i].shares_loot()) && f == s.fellowships.of(c.killer)
 }
 
 /// A creature dies by a player's blow.
@@ -256,6 +283,11 @@ fn paid_in_parts<S: Store>(
 ) {
     let all: i64 = parts.iter().map(|(_, t)| *t).sum();
     let mut told: Vec<ConnId> = Vec::new();
+    let hurt: Vec<u64> = parts
+        .iter()
+        .map(|(by, _)| s.pets.by_id.get(by).map_or(*by, |p| p.owner))
+        .collect();
+    let group = worth.group.then_some(hurt.as_slice());
     for &(by, taken) in parts {
         let owner = s.pets.by_id.get(&by).map_or(by, |p| p.owner);
         let Some(world) = world_of(s, owner) else {
@@ -269,7 +301,7 @@ fn paid_in_parts<S: Store>(
             continue;
         }
         if let Some(shares) =
-            crate::fellowship::shares(s, owner, worth.xp, worth.level, worth.group, (taken, all))
+            crate::fellowship::shares(s, owner, worth.xp, worth.level, group, (taken, all))
         {
             let focus = crate::fellowship::focus_shares(s, owner, worth.focus, (taken, all));
             for (w, amount) in shares {
@@ -424,9 +456,9 @@ pub fn corpse_create(t: &Thing) -> CreateObject {
         },
         CORPSE_NUMBERS,
     );
-    // The originator, the claimant (nobody), the killer.
+    // The originator, the claimant, the killer.
     weenie.objects[3] = originator;
-    weenie.objects[4] = 0;
+    weenie.objects[4] = t.corpse.as_ref().map_or(0, |c| c.claimant);
     weenie.objects[5] = killer;
     CreateObject {
         id: t.id,
@@ -581,10 +613,17 @@ pub fn corpse_appears<S: Store>(
     corpse.instance = 0;
     corpse.visual = 10;
     let loot = roll_loot(s, &dead);
-    let (level, quality) = dead
-        .creature
-        .as_ref()
-        .map_or((0, None), |c| (c.stats.level, c.stats.loot_quality));
+    let (level, quality, rot, has_profile) = dead.creature.as_ref().map_or(
+        (0, None, yalain_content::CorpseRot::default(), false),
+        |c| {
+            (
+                c.stats.level,
+                c.stats.loot_quality,
+                c.stats.rot,
+                c.stats.loot_profile.is_some(),
+            )
+        },
+    );
     let mut contents = Vec::new();
     for (template, value) in loot {
         if let Some(item) = crate::inventory::make_item(s, template, 1, value) {
@@ -603,14 +642,32 @@ pub fn corpse_appears<S: Store>(
         .values()
         .find(|p| p.character == killer)
         .map_or(0, |p| crate::examine::level_of(&p.qualities));
+    // One that can hold nothing goes as a corpse closed empty does.
+    let lasts = if contents.is_empty() && !has_profile {
+        rot.empty
+    } else {
+        rot.untouched
+    };
+    let group = dead.facts.group;
+    let claimant = s.fellowships.of(killer).map_or(0, |i| {
+        let Server {
+            fellowships, rng, ..
+        } = &mut *s;
+        fellowships.list[i].next_claimant(group, rng)
+    });
     corpse.corpse = Some(Corpse {
         killer,
         originator: creature,
         contents,
-        expires: clock.local.0 + ROTS_UNTOUCHED,
+        expires: clock.local.0 + lasts,
+        rot,
         creature: dead.template,
         butchered: false,
         killer_level,
+        claimant,
+        unlocks: clock.local.0 + LOOT_LOCK - CORPSE_AFTER,
+        killed_by: Some(killer_name(s, Some(killer))),
+        ..Corpse::default()
     });
     corpse.named = Some(corpse_name(dead.facts.name));
     corpse.pose = Some(pose);
@@ -643,7 +700,7 @@ pub fn corpse_appears<S: Store>(
         .get(id)
         .and_then(|t| t.named.clone())
         .unwrap_or_else(|| corpse_name(None));
-    for m in corpse_settles(id, scale, pose, killer, creature, name) {
+    for m in corpse_settles(id, scale, pose, (killer, claimant), creature, name) {
         to_all_seeing(s, net, id, &m);
     }
     s.after(clock, LEAVES_AFTER, Timer::Vanish { id: creature });
@@ -660,7 +717,7 @@ pub fn corpse_settles(
     id: u64,
     scale: f32,
     pose: f32,
-    killer: u64,
+    (killer, claimant): (u64, u64),
     creature: u64,
     name: StringInfo,
 ) -> Vec<ServerMessage> {
@@ -697,7 +754,7 @@ pub fn corpse_settles(
         }),
     ];
     for (n, quality, value) in [
-        (7, q::CLAIMANT, 0),
+        (7, q::CLAIMANT, claimant),
         (8, q::PLUNDERER, killer),
         (9, q::ORIGINATOR, creature),
     ] {
@@ -715,6 +772,24 @@ pub fn corpse_settles(
     out
 }
 
+/// A name as its examination shows it, from the string reference the world tells clients.
+#[must_use]
+pub fn shown_name(i: &StringInfo) -> TextInfo {
+    let mut t = TextInfo {
+        string_id: i.string_id,
+        table: i.table_id,
+        has_literal: i.has_literal,
+        literal: i.literal.as_ref().map(|l| l.0.clone()),
+        ..TextInfo::default()
+    };
+    for v in &i.variables {
+        if let VariableValue::Nested(n) = &v.value {
+            t.set_variable(progress::nested(v.id, shown_name(n)));
+        }
+    }
+    t
+}
+
 /// A corpse's block (see [`corpse_settles`]), from the corpse as the world keeps it; nothing for a
 /// thing that is no corpse.
 #[must_use]
@@ -726,7 +801,7 @@ pub fn corpse_block(t: &Thing) -> Vec<ServerMessage> {
         t.id,
         t.description.scale.unwrap_or(1.0),
         t.pose.unwrap_or(0.0),
-        c.killer,
+        (c.killer, c.claimant),
         c.originator,
         t.named.clone().unwrap_or_else(|| corpse_name(None)),
     )
@@ -787,28 +862,37 @@ pub fn vanish<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64) {
     }
 }
 
-/// A corpse has been closed: it goes soon, sooner when it is empty.
+/// A corpse has been closed: it goes soon, sooner when it is empty, never later than it would have.
 pub fn closed<S: Store>(s: &mut Server<S>, corpse: u64) {
     let now = s.last_step.map_or(0.0, |t| t.0);
     if let Some(c) = s.things.get_mut(corpse).and_then(|t| t.corpse.as_mut()) {
         let after = if c.contents.is_empty() {
-            ROTS_EMPTY
+            c.rot.empty
         } else {
-            ROTS_LEFT
+            c.rot.items_left
         };
         c.expires = c.expires.min(now + after);
     }
 }
 
-/// Corpses whose time is up leave the world.
+/// Corpses whose time is up leave the world; one that is open is looked at again later.
 pub fn expire_corpses<S: Store>(s: &mut Server<S>, net: &mut ServerNet, now: f64) {
-    let due: Vec<u64> = s
-        .things
-        .by_id
+    let open: Vec<u64> = s
+        .players
         .values()
-        .filter(|t| t.corpse.as_ref().is_some_and(|c| c.expires <= now))
-        .map(|t| t.id)
+        .filter_map(|p| p.open_container)
         .collect();
+    let mut due = Vec::new();
+    for t in s.things.by_id.values_mut() {
+        let Some(c) = t.corpse.as_mut().filter(|c| c.expires <= now) else {
+            continue;
+        };
+        if open.contains(&t.id) {
+            c.expires = now.max(c.expires + c.rot.empty);
+        } else {
+            due.push(t.id);
+        }
+    }
     for id in due {
         vanish(s, net, id);
     }
@@ -852,9 +936,8 @@ pub mod player_look {
 }
 
 /// When a player's corpse is made after its death (2017: 10.07 s for a human or tumerok body; a
-/// lugian's in most poses 5.09 s), and how long it lasts.
+/// lugian's in most poses 5.09 s).
 pub const PLAYER_CORPSE_AFTER: f64 = 10.07;
-pub const PLAYER_CORPSE_ROTS: f64 = 60.0;
 
 /// The vitae a resurrection takes, and the share of health and vigor a player returns with (2017:
 /// 191 of 191 resurrections took 5; 202 of 202 returned at 0.75 of the greatest health).
@@ -1149,10 +1232,13 @@ pub fn player_corpse<S: Store>(
         killer: d.killer.unwrap_or(0),
         originator: character,
         contents: Vec::new(),
-        expires: clock.local.0 + PLAYER_CORPSE_ROTS,
+        expires: clock.local.0 + yalain_content::CorpseRot::PLAYER.untouched,
+        rot: yalain_content::CorpseRot::PLAYER,
         creature: 0,
         butchered: false,
         killer_level: 0,
+        killed_by: Some(killer_name(s, d.killer)),
+        ..Corpse::default()
     });
     // Drawn as the player, "Corpse of" the character's name as the world shows it.
     corpse.drawn_as = Some(look);
@@ -1225,6 +1311,8 @@ pub fn sent_back<S: Store>(
         .get(&world)
         .is_some_and(|p| p.trip.is_none() && p.dying.is_some_and(|d| d.corpse == Some(corpse)));
     if waiting {
+        // Sent back to its lifestone: an offer it left unanswered is not taken up for it.
+        crate::resurrections::declined(s, world);
         resurrect(s, net, world, clock);
     }
 }
@@ -1244,6 +1332,10 @@ pub fn resurrect<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId
             .note("a resurrection asked for by a player not dead");
         return;
     }
+    if let Some(offer) = s.players.get_mut(&world).and_then(|p| p.offer.take()) {
+        crate::resurrections::rises(s, net, world, offer, clock);
+        return;
+    }
     let to = crate::places::resurrection_place(s, world);
     // What a death ends goes first, then it is protected for three minutes, before portal space.
     let stop = crate::effects::resurrected(s, net, world);
@@ -1252,9 +1344,9 @@ pub fn resurrect<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId
     crate::places::resurrection_trip(s, net, world, to, clock);
 }
 
-/// For everyone who sees it, a player coming back is set standing at peace, the appearances of what
-/// its death ended stop, and it glows (2017: in that order, 172 of 227 requests).
-fn resurrection_look<S: Store>(
+/// For everyone who sees it, a player coming back is set standing at peace and the appearances of
+/// what its death ended stop.
+pub(crate) fn stands_at_peace<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     world: ConnId,
@@ -1270,9 +1362,21 @@ fn resurrection_look<S: Store>(
     });
     to_all_seeing(s, net, id, &peace);
     crate::effects::stop_fx(s, net, world, stop);
+}
+
+/// For everyone who sees it, a player coming back is set standing at peace, the appearances of what
+/// its death ended stop, and it glows (2017: in that order, 172 of 227 requests).
+fn resurrection_look<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    stop: &[u32],
+) {
+    stands_at_peace(s, net, world, stop);
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
+    let id = p.character;
     let fx = ServerMessage::DoFx(ObjectEvent {
         sender: player_stamp(p),
         action: auberean_protocol::physics::Fx {
@@ -1328,7 +1432,20 @@ pub fn tap_vitae<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId
 /// Out of portal space after a resurrection, before the player is placed: its vitae, health and
 /// vigor, and alive as far as its client knows.
 pub fn returns<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
+    returns_keeping(s, net, world, 0.0);
+}
+
+/// As [`returns`], keeping this share of its greatest focus above what it would come back with.
+pub(crate) fn returns_keeping<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    kept_focus: f32,
+) {
     let costs = s.vitae_costs.clone();
+    let most_focus = s.players.get(&world).map_or(0, |p| {
+        crate::focus::back_with(crate::focus::greatest(s, p), kept_focus)
+    });
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
@@ -1354,7 +1471,7 @@ pub fn returns<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) 
     quals::set_int(&mut p.qualities, crate::player::quality::VIGOR, vigor);
     progress::send_int(net, world, crate::player::quality::HEALTH, health);
     progress::send_int(net, world, crate::player::quality::VIGOR, vigor);
-    crate::focus::resurrected(p, net, world);
+    crate::focus::resurrected(p, net, world, most_focus);
     progress::private(
         net,
         world,
@@ -1365,6 +1482,16 @@ pub fn returns<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) 
 /// Placed after a resurrection: for everyone who sees it, the player is alive, wounded as its
 /// health shows, selectable, playing its return.
 pub fn returned<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
+    returned_with(s, net, world, None);
+}
+
+/// As [`returned`], with this look just before its return plays.
+pub(crate) fn returned_with<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    look: Option<u32>,
+) {
     s.next_context = s.next_context.wrapping_add(1);
     let context = s.next_context;
     let Some(p) = s.players.get_mut(&world) else {
@@ -1406,7 +1533,15 @@ pub fn returned<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId)
         sender: player_stamp(p),
         action: b,
     });
-    for m in [alive, wounded, selectable, revive] {
+    for m in [alive, wounded, selectable] {
         to_all_seeing(s, net, id, &m);
     }
+    if let (Some(fx), Some(p)) = (look, s.players.get_mut(&world)) {
+        let m = ServerMessage::DoFx(ObjectEvent {
+            sender: player_stamp(p),
+            action: auberean_protocol::physics::Fx { fx, scalar: 1.0 },
+        });
+        to_all_seeing(s, net, id, &m);
+    }
+    to_all_seeing(s, net, id, &revive);
 }

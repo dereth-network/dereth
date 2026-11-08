@@ -283,6 +283,8 @@ pub struct Keyboard {
     /// Where the host's input method writes, while an editable text element that allows it has
     /// the keyboard.
     pub ime: Option<Ime>,
+    /// What the input method is composing, not yet written.
+    pub composing: Vec<u16>,
 }
 
 /// The input method turned on for an editable text element: where on the screen it shows (the
@@ -1721,6 +1723,17 @@ impl Ui {
         }
     }
 
+    /// What the host's input method is composing, none once it has written it or given up: drawn
+    /// at the caret of the entry that has it on, and not part of the entry's text.
+    // D2-04977
+    pub fn set_composition(&mut self, text: &str) {
+        let composing: Vec<u16> = text.encode_utf16().collect();
+        if self.keyboard.composing != composing {
+            self.keyboard.composing = composing;
+            self.touch();
+        }
+    }
+
     /// Where the host's input method writes, while it is on.
     #[must_use]
     pub const fn ime(&self) -> Option<&Ime> {
@@ -1734,6 +1747,7 @@ impl Ui {
         let editable = self.text_state(h).is_some_and(|t| t.has(bits::EDITABLE));
         if ok && was && editable {
             self.keyboard.ime = None;
+            self.keyboard.composing.clear();
             self.broadcast(h, text_msg::DEACTIVATED, 0);
             self.touch();
             return true;
@@ -2203,11 +2217,33 @@ pub(crate) fn post_blit(ui: &Ui, s: &mut Surface, h: Handle, area: Rect, clip: R
     if !ui.caret_shown(h) {
         return;
     }
-    let (cx, cy) = caret.unwrap_or((x, y));
-    let font_h = (t.font != 0)
-        .then(|| ui.assets().font(t.font))
-        .flatten()
+    let (mut cx, cy) = caret.unwrap_or((x, y));
+    let font = (t.font != 0).then(|| ui.assets().font(t.font)).flatten();
+    let font_h = font
+        .as_ref()
         .map_or(0, |f| i32::try_from(f.max_height).unwrap_or(0));
+    // What the input method is composing, underlined, with the caret after it.
+    if let Some(f) = font.filter(|_| ui.ime().is_some()) {
+        let start = cx;
+        for &ch in &ui.keyboard.composing {
+            cx += text::draw_glyph(
+                s,
+                &f,
+                ch,
+                area.x0 + cx,
+                area.y0 + cy,
+                clip,
+                t.font_color,
+                true,
+            );
+        }
+        let under = area.y0 + cy + font_h - 1;
+        if let Some(c) = Rect::new(area.x0 + start, under, area.x0 + cx, under).intersect(clip) {
+            for px in c.x0..=c.x1 {
+                s.put(px, c.y0, t.font_color.bgra());
+            }
+        }
+    }
     let r = Rect::new(
         area.x0 + cx,
         area.y0 + cy,

@@ -7,7 +7,7 @@ use std::sync::Arc;
 use athenaeum_foundry::edit::{ClearingShape, NewKind, NewRow, NEW_CLEARING};
 use athenaeum_foundry::{Layer, Session};
 use dereth_pack::store::{MemoryStore, SourceStore};
-use yalain_world_db::layer;
+use yalain_world_db::layer::{self, Base};
 use yalain_world_db::rows::{Row, Source};
 
 use crate::{base, dir, session, store, world_files};
@@ -732,4 +732,57 @@ fn placing_the_kind_clearing_with_nothing_drawn_gives_the_usual_size() {
     };
     assert_eq!(c.radius, Some(NEW_CLEARING));
     assert!(!NewKind::Clearing.has_template());
+}
+
+/// A world's kinds of pet can be read and changed: a base row is written into the target, which
+/// replaces it; a field the format lacks, a value that leaves the row unread, and the field that
+/// names it are refused.
+#[test]
+fn a_pet_row_of_the_base_is_seen_and_changed_in_the_target() {
+    let mut files = crate::base_files();
+    files.insert(
+        "seed/server/pets.toml".into(),
+        r#"[[pet]]
+effect = 0x7000092A
+template = 0x47000862
+flags = 1096
+health = [{ level = 10, health = 200 }]
+prov = { from = "authored" }
+
+[[pet_limit]]
+skill = 704
+limits = [{ most = 1, classes = 0x1000 }]
+prov = { from = "authored" }
+"#
+        .into(),
+    );
+    let base = Base::new(&files).expect("the base reads");
+    let world = crate::world_files();
+    let mut s =
+        Session::new(crate::dir(), Box::new(store(&world)), world, base, None).expect("a session");
+    assert_eq!(s.pets().len(), 2);
+    let item = "pet 0x7000092a";
+    s.set(item, "flags", "3128").unwrap();
+    let written = s
+        .pets()
+        .iter()
+        .find_map(|l| match &l.row {
+            Row::Pet(r) => Some(r.clone()),
+            _ => None,
+        })
+        .expect("the row");
+    assert_eq!(written.flags, 3128);
+    assert_eq!(written.health, vec![(10, 200)], "the rest kept");
+    s.set(
+        "pet_limit 0x000002c0",
+        "limits",
+        "[{ most = 2, classes = 0x1000 }]",
+    )
+    .unwrap();
+    let files = s.files().clone();
+    assert!(s.set(item, "colour", "1").is_err());
+    assert!(s.set(item, "effect", "1").is_err());
+    assert!(s.set(item, "template", "\"a name\"").is_err());
+    assert_eq!(s.files(), &files, "nothing changed");
+    assert!(s.problems().is_empty(), "{:?}", s.problems());
 }

@@ -3393,6 +3393,12 @@ impl Gpu {
     }
 
     /// Whether a frame's command buffer is open.
+    /// Whether the last frame found its window can't be seen.
+    #[must_use]
+    pub fn window_hidden(&self) -> bool {
+        false
+    }
+
     #[must_use]
     pub fn frame_open(&self) -> bool {
         self.frame_open

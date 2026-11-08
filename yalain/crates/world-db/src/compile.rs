@@ -130,6 +130,9 @@ pub struct Tables {
     pub weapon_rules: BTreeMap<String, yalain_content::WeaponRule>,
     /// What creatures' death effects make, by the effects' names.
     pub death_spawns: BTreeMap<String, yalain_content::DeathSpawn>,
+    /// The kinds of pet the rows make, by effect, and what each summoning skill allows its user.
+    pub pet_kinds: BTreeMap<u32, yalain_content::PetKind>,
+    pub pet_limits: BTreeMap<u32, Vec<(usize, u32)>>,
     /// The places templates name: where a person who sends players by a map sends the holder of
     /// a map of that template.
     pub places_named: BTreeMap<u32, TablePlace>,
@@ -561,6 +564,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                         Gate::Done => QUEST_COMPLETED,
                         Gate::UnderWay => QUEST_UNDERWAY,
                         Gate::Phase(n) => QUEST_UNDERWAY | n,
+                        Gate::Had => yalain_content::QuestGate::HAD,
                     },
                 });
                 if let Some((quest, _)) = o.requires {
@@ -617,9 +621,15 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     label: install.label(o.template),
                     placed: prov_text(&o.prov),
                     destination,
-                    facts: yalain_content::Facts {
-                        portal: portal_flags(o.recall, o.summon),
-                        ..facts(o.template, &entity, &ids)
+                    facts: {
+                        let f = facts(o.template, &entity, &ids);
+                        yalain_content::Facts {
+                            portal: portal_flags(o.recall, o.summon),
+                            min_level: o.min_level.or(f.min_level),
+                            hero: o.hero,
+                            kingdom: o.kingdom,
+                            ..f
+                        }
                     },
                     walks,
                     gate,
@@ -1050,6 +1060,15 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     );
                 }
             }
+            Row::Pet(r) => {
+                if cx.template(l, "template", r.template) {
+                    t.pet_kinds.insert(r.effect, pet_kind(r));
+                }
+            }
+            Row::PetLimit(r) => {
+                let limits = r.limits.iter().map(|(most, c)| (*most as usize, *c));
+                t.pet_limits.insert(r.skill, limits.collect());
+            }
             Row::Place(p) => {
                 if let (Some(row), Some(holds), Some(at)) = (
                     &p.row,
@@ -1167,4 +1186,46 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
         cx.problems.sort();
         Err(cx.problems)
     }
+}
+
+/// The kind of pet a `[[pet]]` makes: what it leaves out, the server's general numbers.
+fn pet_kind(r: &crate::rows::Pet) -> yalain_content::PetKind {
+    use yalain_content::{PetHire, PetKind, PetTends, PetWhom};
+    let mut k = PetKind::new(r.effect, r.template, r.flags, &r.health);
+    k.per_level_squared = r.per_level_squared.unwrap_or(k.per_level_squared);
+    k.variance = r.variance.unwrap_or(k.variance);
+    k.lands = r.lands.unwrap_or(k.lands);
+    k.hits = r.swing.unwrap_or(k.hits);
+    k.stays = r.stays;
+    k.area = r.area.unwrap_or(0.0);
+    k.taunts = r.taunts;
+    if r.taunts {
+        k.lands = 0.0;
+    }
+    k.outdoors_only = r.outdoors_only;
+    k.made = r.count;
+    k.corpse_after = if r.no_corpse {
+        None
+    } else {
+        Some(
+            r.corpse_after
+                .map_or(k.corpse_after.unwrap_or(0.0), f64::from),
+        )
+    };
+    k.tends = r.tends.map(|t| PetTends {
+        whom: if t.pets {
+            PetWhom::OwnersPets
+        } else {
+            PetWhom::Owner
+        },
+        effect: t.effect,
+        every: f64::from(t.every),
+        below: t.below,
+    });
+    k.hire = r.hire.map(|h| PetHire {
+        class: h.class,
+        seconds: f64::from(h.seconds),
+        level: h.level,
+    });
+    k
 }

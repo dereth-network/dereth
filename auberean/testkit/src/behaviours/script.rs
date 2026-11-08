@@ -1563,11 +1563,27 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "script.natives.examination-profile-keeps-its-lines-in-order-of-their-tabs",
+        says: "An examination profile keeps its lines in order of their tab words, among equals in the order they came.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-EXAM-LINES-SORTED"),
+        station: "auberean-glue::cpu::examination::a_profile_keeps_its_lines_in_order_of_their_tabs",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "script.natives.examination-profile-keeps-the-asked-tabs-lines",
-        says: "An examination profile adds a line (a number, a float, a yes or no, a string reference, a picture, an icon, indents, a break, a time left, a 64-bit number, an effect) by noting its tabs in the profile's tab word and keeping it, at the end, only when it shows on a tab the profile's request asks for or on the first tab; a new profile answers a request about nothing with no lines; it packs as the request, the lines by kind and the tab word; two profiles are equal when their requests, tab words and every line are; a null profile crashes the context.",
+        says: "An examination profile adds a line (a number, a float, a yes or no, a string reference, a picture, an icon, indents, a break, a time left, a 64-bit number, an effect) by noting its tabs in the profile's tab word and keeping it only when it shows on a tab the profile's request asks for or on the first tab; a new profile answers a request about nothing with no lines; it packs as the request, the lines by kind and the tab word; two profiles are equal when their requests, tab words and every line are; a null profile crashes the context.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SCRIPT-EXAM-PROFILE"),
         station: "auberean-glue::cpu::examination::a_profile_keeps_the_lines_of_the_tabs_asked_and_notes_every_tab",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.natives.examination-profile-takes-the-whole-requests-tabs",
+        says: "A profile set to a request about anything but an object keeps the lines of the tabs the request asks for, though its packed form does not say them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-EXAM-WHOLE-REQUEST"),
+        station: "auberean-client-runtime::cpu::scripts::examination::a_profile_keeps_the_lines_of_the_tabs_its_whole_request_asks_for",
         tier: Tier::Cpu,
     },
     behaviour! {

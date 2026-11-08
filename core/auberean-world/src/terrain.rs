@@ -632,7 +632,6 @@ pub fn vertex_materials(
 }
 
 /// Build block `(x, y)`'s terrain, or `None` when the world has no landblock there.
-// D2-03759, D2-03763, D2-10985
 #[must_use]
 pub fn build_block(
     land: &LandConstants,
@@ -646,7 +645,7 @@ pub fn build_block(
 
 /// [`build_block`], its squares' grounds blended or, with `blending` off, each square its one
 /// corner's ground.
-// D2-10894
+// D2-03759, D2-03763, D2-10894, D2-10985
 #[must_use]
 pub fn build_block_blending(
     land: &LandConstants,

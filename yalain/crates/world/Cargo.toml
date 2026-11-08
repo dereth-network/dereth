@@ -1,7 +1,7 @@
 [package]
 name = "yalain-world"
 description = "The game server's state and rules, sans-IO: accounts, characters, the world, its creatures and its play, driven by the server's network events and an injected clock."
-version = "0.2.1" # Yalain's own version, shared by every yalain-* crate (not the workspace's)
+version = "0.2.2" # Yalain's own version, shared by every yalain-* crate (not the workspace's)
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

@@ -37,6 +37,128 @@ pub(crate) fn body(w: &crate::common::World, at: Position, heading: f32) -> Body
     Body::new(config, at, heading)
 }
 
+/// In a room a body in the air is as high as the room's floor is below it, wherever the land is:
+/// where a body dropped in one of the hall's rooms lands, one 1.5 m above that has that height.
+///
+/// Behaviour: motion.interior.in-a-room-a-bodys-height-is-above-the-floor
+#[test]
+fn in_a_room_a_bodys_height_is_above_the_floor() {
+    let w = need_world!();
+    let land = Land::new();
+    add_block_cells(&land, &w.records, &mut Trees::default(), 0x02, 0x98);
+    let id = CellId(0x0298_010F);
+    let mut start = land.cell(id).expect("the room").frame.origin;
+    start.z += 1.0;
+    let mut b = body(
+        w,
+        Position::new(id, Frame::new(start, Quat::IDENTITY)),
+        180.0,
+    );
+    b.contact = false;
+    b.on_walkable = false;
+    for _ in 0..30 {
+        b.tick(&land, 0.1);
+    }
+    assert!(b.contact, "it lands");
+    let mut up = b.position;
+    up.frame.origin.z += 1.5;
+    let mut above = body(w, up, 180.0);
+    above.contact = false;
+    above.on_walkable = false;
+    above.tick(&land, 0.001);
+    let h = above.height_above_walkable();
+    assert!((h - 1.5).abs() < 0.1, "{h} m above the floor");
+}
+
+/// A world over `land` with a body of an object id standing at `at`, ready to jump.
+fn standing_in_its_world(w: &crate::common::World, land: &Land, at: Position) -> (Body, World) {
+    let mut world = World::new();
+    if let Some(list) = w
+        .records
+        .get::<auberean_assets::property::PropertyList>(0x3400_0000)
+    {
+        world.set_property_list(list);
+    }
+    let mut b = body(w, at, 0.0);
+    world.insert_body(land, 0x2130_0000_0000_0001, &mut b);
+    let r = b.set_position_simple(land, &mut world, at, false);
+    assert_eq!(r, 0, "placed");
+    b.contact = true;
+    b.on_walkable = true;
+    b.time_on_ground = 2.0;
+    (b, world)
+}
+
+/// A body's height is above what the world placed under it, seen as the final client sees it:
+/// over a building's deck and over a pedestal in a room, tick by tick through a jump from there,
+/// the same as the client measured, the last ticks low enough to show the landing coming.
+///
+/// Behaviour: motion.interior.a-bodys-height-is-above-what-the-world-placed
+#[test]
+fn a_bodys_height_is_above_what_the_world_placed() {
+    let w = need_world!();
+    let land = Land::new();
+    let mut trees = Trees::default();
+    for (x, y) in [(0x6E, 0xA8), (0x02, 0x98)] {
+        land.add_block(&w.records, &w.region, &mut trees, x, y);
+        add_block_cells(&land, &w.records, &mut trees, x, y);
+    }
+    let spots: [(u32, Vec3, &[f32]); 2] = [
+        (
+            0x6EA8_0013,
+            Vec3::new(54.55, 45.40, 121.967),
+            &[0.543, 1.022, 1.022, 0.985, 0.849, 0.615, 0.284],
+        ),
+        (
+            0x0298_0120,
+            Vec3::new(103.095, 241.055, -44.035),
+            &[
+                0.582, 1.061, 1.442, 1.725, 1.910, 1.996, 1.985, 1.876, 1.668, 1.363, 0.960, 0.458,
+            ],
+        ),
+    ];
+    for (cell, place, heights) in spots {
+        let at = Position::new(CellId(cell), Frame::new(place, Quat::IDENTITY));
+        let (mut b, mut world) = standing_in_its_world(w, &land, at);
+        assert!(b.jump(), "{cell:#x}: it jumps");
+        b.tick_in(&land, &mut world, 0.1);
+        for (i, want) in heights.iter().enumerate() {
+            b.tick_in(&land, &mut world, 0.1);
+            let h = b.height_above_walkable();
+            assert!(
+                (h - want).abs() < 0.002,
+                "{cell:#x} tick {i}: {h}, not {want}"
+            );
+        }
+    }
+}
+
+/// A line straight down at the very edge of a room meets what is placed there: a body over a
+/// pedestal's rim, in the cell beside the pedestal's, is as high as the floor it stands on, not at
+/// no height, its line having met nothing.
+///
+/// Behaviour: motion.interior.at-a-rooms-edge-a-bodys-height-meets-what-is-placed
+#[test]
+fn at_a_rooms_edge_a_bodys_height_meets_what_is_placed() {
+    let w = need_world!();
+    let land = Land::new();
+    let mut trees = Trees::default();
+    land.add_block(&w.records, &w.region, &mut trees, 0x02, 0x98);
+    add_block_cells(&land, &w.records, &mut trees, 0x02, 0x98);
+    let id = CellId(0x0298_011D);
+    let at = |z: f32| Position::new(id, Frame::new(Vec3::new(99.98, 242.04, z), Quat::IDENTITY));
+    let (mut b, mut world) = standing_in_its_world(w, &land, at(-43.745));
+    for (z, want) in [(-43.902, 0.138), (-43.325, 0.715), (-41.911, 2.129)] {
+        b.position = at(z);
+        b.contact = false;
+        b.on_walkable = false;
+        b.velocity = Vec3::ZERO;
+        b.tick_in(&land, &mut world, 0.0001);
+        let h = b.height_above_walkable();
+        assert!((h - want).abs() < 0.002, "{z}: {h}, not {want}");
+    }
+}
+
 /// A body dropped in a hall cell lands on the cell's floor and stays on it; running, it moves
 /// from cell to cell through the doorways, never falls through a floor, and comes to rest against
 /// a wall.

@@ -241,6 +241,8 @@ pub struct View<'a> {
     pub atlas: Option<&'a std::sync::Arc<crate::map::Atlas>>,
     /// The game's date and time, from the calendar.
     pub clock: Option<crate::map::Clock>,
+    /// The game clock now, on which an effect is cast and runs out.
+    pub game_time: f64,
     /// The crafting page's craft skills and recipes, as the player's scripts last answered.
     pub craft: Option<&'a crate::craft::Facts>,
     /// What the scripts answer for the shop panels.
@@ -596,6 +598,23 @@ pub struct GamePlay {
     playing_portal_scene: bool,
 }
 
+/// The panels' help buttons. There is no help panel for them to open, so they do not show.
+pub const HELP_BUTTONS: [Token; 13] = [
+    Token::of("BookHelpButton"),
+    Token::of("CatalogHelpButton"),
+    Token::of("ConsignmentHelpButton"),
+    Token::of("ExaminationHelpButton"),
+    Token::of("InventoryHelpButton"),
+    Token::of("NavigationHelpButton"),
+    Token::of("NewSaleHelpButton"),
+    Token::of("OptionsHelpButton"),
+    Token::of("OverviewMapHelpButton"),
+    Token::of("QuestHelpButton"),
+    Token::of("ShopHelpButton"),
+    Token::of("SkillHelpButton"),
+    Token::of("SocialHelpButton"),
+];
+
 impl GamePlay {
     /// The play screen made: its framework; the sound of the screens before it stopped; the
     /// display at the player's own size; the camera's panel; the clock and the display's being set
@@ -603,6 +622,7 @@ impl GamePlay {
     /// [`Self::login_finished`].
     // D2-01934, D2-01935, D2-01943, D2-11906
     pub fn new(ui: &mut Ui, out: &mut Vec<Request>) -> Self {
+        ui.never_show(&HELP_BUTTONS);
         let frame = ui.new_main_frame();
         out.push(Request::StopScreenSound);
         out.push(Request::DisplayInWorld(true));

@@ -255,7 +255,10 @@ fn target_of(h: &Harness, id: u64) -> Option<u64> {
 /// Behaviour: server.pets.hits-by-level
 #[test]
 fn a_pets_hit_is_its_kinds_number_times_its_level_squared_less_the_creatures_armor() {
-    let lasher = pets::kind_of(LASHER.effect).expect("a kind");
+    let lasher = pets::Pets::default()
+        .kind_of(LASHER.effect)
+        .cloned()
+        .expect("a kind");
     let mut rng = Rng::new(7);
     let mut hits: Vec<i32> = (0..2000)
         .map(|_| pets::pet_hit(&mut rng, &lasher, 53, 0))
@@ -515,4 +518,702 @@ fn an_axe_orb_hits_four_times_a_swing_and_a_taunt_orbs_strike_harms_nothing() {
             assert_eq!(health, Some(100_000));
         }
     }
+}
+
+/// An item whose use names a pet no item's use makes (a decoy) is refused and kept, not used up for
+/// nothing.
+/// Behaviour: server.makes.nothing-used-up-for-what-cannot-be-made
+#[test]
+fn an_item_summoning_a_pet_no_use_makes_is_refused_and_kept() {
+    use yalain_world::item_use::UsageEffect;
+    const DECOY: u32 = 0x4700_1C72;
+    const SUMMON: u32 = 0x7000_0F00;
+    let mut h = Harness::new();
+    h.add_creatures(1);
+    let (b, me) = h.player_in_world("one", "Kestrel");
+    h.run(10);
+    h.server.effect_table.effects.insert(
+        SUMMON,
+        EffectDef {
+            state: SUMMON,
+            kind: Kind::Pet {
+                class: 16,
+                lifetime: Scale::default(),
+            },
+            duration: Scale::default(),
+            priority: Scale::default(),
+            fx: 0,
+            external_flags: 0,
+            internal_flags: 0,
+            enum_value: 0,
+            eq_class: 0,
+            name: None,
+        },
+    );
+    let mut props = Props::default();
+    props.set("Item_IsDestroyOnUse", Prop::Bool(true));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(DECOY, 0x777, props));
+    h.server.item_uses.insert(
+        DECOY,
+        vec![UsageEffect {
+            state: SUMMON,
+            spellcraft: 1.0,
+        }],
+    );
+    let world = *h.server.players.keys().next().expect("in");
+    let item =
+        yalain_world::inventory::give(&mut h.server, &mut h.net, world, DECOY, 1).expect("given");
+    h.run(2);
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(0x8216_0016, &[yalain_testkit::play::use_of(item, me)]),
+    );
+    h.run(20);
+    assert!(
+        h.server.players[&world]
+            .play
+            .items
+            .iter()
+            .any(|i| i.id == item),
+        "kept"
+    );
+    assert!(
+        h.texts(b, from)
+            .iter()
+            .any(|(_, t)| *t == yalain_world::pets::text::SUMMONING_FAILS.0),
+        "told"
+    );
+}
+
+/// An item whose effect summons what no rule here makes, though the effect reads as changing nothing
+/// rather than as a pet (a band, an explosion), is refused and kept.
+/// Behaviour: server.makes.nothing-used-up-for-what-cannot-be-made
+#[test]
+fn an_item_naming_a_summon_no_rule_makes_is_refused_and_kept() {
+    const BAND: u32 = 0x4700_1C7D;
+    let mut h = Harness::new();
+    h.add_creatures(1);
+    let (b, me) = h.player_in_world("one", "Kestrel");
+    h.run(10);
+    let mut props = Props::default();
+    props.set("Item_IsDestroyOnUse", Prop::Bool(true)).set(
+        "Usage_Effect1",
+        Prop::Text("Eff_Tsys_Item_Summon_RockBand".into()),
+    );
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(BAND, 0x777, props));
+    h.server.item_uses.insert(
+        BAND,
+        vec![yalain_world::item_use::UsageEffect {
+            state: 0x7000_0F01,
+            spellcraft: 1.0,
+        }],
+    );
+    let world = *h.server.players.keys().next().expect("in");
+    let item =
+        yalain_world::inventory::give(&mut h.server, &mut h.net, world, BAND, 1).expect("given");
+    h.run(2);
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(0x8216_0016, &[yalain_testkit::play::use_of(item, me)]),
+    );
+    h.run(20);
+    assert!(
+        h.server.players[&world]
+            .play
+            .items
+            .iter()
+            .any(|i| i.id == item),
+        "kept"
+    );
+    assert!(
+        h.texts(b, from)
+            .iter()
+            .any(|(_, t)| *t == yalain_world::pets::text::SUMMONING_FAILS.0),
+        "told"
+    );
+}
+
+/// One more skill, of this id, summoning a kind: trained by the player.
+fn teach(h: &mut Harness, me: u64, skill: u32, k: &Summoned) {
+    let mut d = h.server.skill_table.skills[&SKILL].clone();
+    let Some(u) = d.usage.as_mut() else { return };
+    u.user_effects = vec![k.effect];
+    d.id = skill;
+    h.server.skill_table.skills.insert(skill, d);
+    h.server.effect_table.effects.insert(
+        k.effect,
+        EffectDef {
+            state: k.effect,
+            kind: Kind::Pet {
+                class: k.class,
+                lifetime: Scale::default(),
+            },
+            duration: Scale::default(),
+            priority: Scale::default(),
+            fx: 0,
+            external_flags: 177,
+            internal_flags: 0x4140_8513,
+            enum_value: 538,
+            eq_class: 0,
+            name: None,
+        },
+    );
+    let mut props = Props::default();
+    props
+        .set("GameplayStatistics_MaxHealth", Prop::Int(50))
+        .set("AICombat_NaturalDamage", Prop::Float(1.0))
+        .set("AICombat_NaturalVariance", Prop::Float(0.5))
+        .set("NPC_StartingSkill1", Prop::Word(k.skill))
+        .set("NPC_StartingSkill1Level", Prop::Int(1));
+    h.server
+        .catalog
+        .insert(test_template(k.template, 0x1169, props));
+    let p = h
+        .server
+        .players
+        .values_mut()
+        .find(|p| p.character == me)
+        .expect("in the world");
+    p.play.skills.push(SkillState {
+        skill,
+        granted: 0,
+        mask: 0x1,
+        cost: 2,
+        children: 0,
+        dependents: 0,
+        spent: 0,
+    });
+}
+
+/// Use a skill, by its id, at a target (0: none) and let the use end.
+fn use_skill(h: &mut Harness, b: usize, skill: u32, target: u64) -> usize {
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(
+            USE_SKILL,
+            &[Arg::Int(1), Arg::Int(skill), Arg::LongInt(target)],
+        ),
+    );
+    h.run(120);
+    from
+}
+
+/// A skill allows so many pets of each class it names, and a pet counts toward every class it
+/// shares a bit with: one of this kind at a time, two of the family it belongs to.
+/// Behaviour: server.pets.too-many-of-the-classes-a-skill-names
+#[test]
+fn a_skill_counts_every_pet_sharing_a_class_it_limits() {
+    let kind = |effect, template, class| Summoned {
+        effect,
+        template,
+        class,
+        lifetime: 0.0,
+        skill: MELEE,
+    };
+    let avenger = kind(0x7000_0902, 0x4700_085D, 0x4800);
+    let redeemer = kind(0x7000_0904, 0x4700_085F, 0x800);
+    let vindicator = kind(0x7000_0905, 0x4700_0860, 0x1_0800);
+    let mut h = Harness::new();
+    with_kind(&mut h, &LASHER, 1);
+    let (b, me) = summoner(&mut h);
+    h.run(20);
+    let beetle = beetles(&h)[0];
+    put_near(&mut h, beetle, me, 120.0, 0.0);
+    h.server.pets.read_rows(
+        [&avenger, &redeemer, &vindicator]
+            .map(|k| pets::PetKind::new(k.effect, k.template, 1096, &[])),
+        [
+            (662, vec![(2, 0x800), (1, 0x4000)]),
+            (664, vec![(2, 0x800)]),
+            (665, vec![(2, 0x800), (1, 0x1_0000)]),
+        ],
+    );
+    teach(&mut h, me, 662, &avenger);
+    teach(&mut h, me, 664, &redeemer);
+    teach(&mut h, me, 665, &vindicator);
+    let refused = |h: &Harness, from: usize| {
+        h.calls(b, from)
+            .iter()
+            .any(|(f, v)| *f == 0x8204_001A && v.contains(&Value::Int(pets::TOO_MANY_PETS)))
+    };
+    let from = use_skill(&mut h, b, 662, 0);
+    assert!(pet_added(&h, b, from).is_some(), "the first");
+    h.run(200);
+    let from = use_skill(&mut h, b, 662, 0);
+    assert!(refused(&h, from), "one of its own class at a time");
+    assert!(pet_added(&h, b, from).is_none());
+    h.run(200);
+    let from = use_skill(&mut h, b, 664, 0);
+    h.run(400);
+    assert!(
+        pet_added(&h, b, from).is_some(),
+        "a second of the family: {:x?} {:x?}",
+        h.calls(b, from),
+        h.server.pets.of(me)
+    );
+    h.run(200);
+    let from = use_skill(&mut h, b, 665, 0);
+    assert!(refused(&h, from), "two of the family at most");
+    assert_eq!(h.server.pets.of(me).len(), 2);
+}
+
+/// A summoning that can't make what it names says so: told of, "The summoning fails.", taken off
+/// the list as the use ends. A kind the server doesn't know, and one whose template the world
+/// doesn't describe, alike.
+/// Behaviour: server.pets.a-summoning-that-cannot-make-says-so
+#[test]
+fn a_summoning_that_cant_make_what_it_names_says_the_summoning_fails() {
+    let unknown = Summoned {
+        effect: 0x7000_0FFF,
+        template: 0x4700_0FFF,
+        class: 0x100,
+        lifetime: 0.0,
+        skill: MELEE,
+    };
+    // A row names this one, whose template the world doesn't describe.
+    let undescribed = Summoned {
+        effect: 0x7000_092A,
+        template: 0x4700_0862,
+        class: 0x1000,
+        lifetime: 0.0,
+        skill: MELEE,
+    };
+    for k in [&unknown, &undescribed] {
+        let mut h = Harness::new();
+        with_kind(&mut h, k, 1);
+        let mut catalog = yalain_content::Catalog::default();
+        for (id, t) in h.server.catalog.templates.clone() {
+            if id != k.template {
+                catalog.insert(t);
+            }
+        }
+        h.server.catalog = catalog;
+        h.server.pets.read_rows(
+            [pets::PetKind::new(
+                undescribed.effect,
+                undescribed.template,
+                1096,
+                &[],
+            )],
+            [],
+        );
+        let (b, me) = summoner(&mut h);
+        h.run(20);
+        let from = summon(&mut h, b);
+        let told = pet_added(&h, b, from).expect("told of");
+        assert!(h
+            .texts(b, from)
+            .contains(&(1, pets::text::SUMMONING_FAILS.0)));
+        assert!(h.functions(b, from).contains(&function::REMOVE));
+        assert!(!h.server.pets.is_pet(told));
+        assert!(h.server.pets.of(me).is_empty());
+    }
+}
+
+/// A pet effect among the target effects of a skill used on its user makes its pet as one among its
+/// user effects does.
+/// Behaviour: server.pets.a-self-aimed-target-effect-summons
+#[test]
+fn a_pet_effect_among_a_self_aimed_skills_target_effects_makes_its_pet() {
+    let mut h = Harness::new();
+    with_kind(&mut h, &LASHER, 1);
+    if let Some(u) = h
+        .server
+        .skill_table
+        .skills
+        .get_mut(&SKILL)
+        .and_then(|d| d.usage.as_mut())
+    {
+        u.target_effects = std::mem::take(&mut u.user_effects);
+    }
+    let (b, me) = summoner(&mut h);
+    h.run(20);
+    let from = summon(&mut h, b);
+    assert!(pet_added(&h, b, from).is_some());
+    assert_eq!(h.server.pets.of(me).len(), 1);
+}
+
+/// A skill aimed at creatures whose target effect makes a pet makes it beside the creature it
+/// lands on, and the pet goes after that creature.
+/// Behaviour: server.pets.summoned-at-a-creature
+#[test]
+fn a_pet_a_skill_makes_at_a_creature_appears_beside_it_and_goes_after_it() {
+    let mut h = Harness::new();
+    with_kind(&mut h, &LASHER, 1);
+    let strike = h.server.skill_table.skills[&62].clone();
+    let mut d = h.server.skill_table.skills[&SKILL].clone();
+    let mut u = strike.usage.clone().expect("a strike");
+    u.target_effects = vec![LASHER.effect];
+    u.implements_right = -2;
+    u.implements_left = -1;
+    d.usage = Some(u);
+    h.server.skill_table.skills.insert(SKILL, d);
+    let (b, me) = summoner(&mut h);
+    h.run(20);
+    let beetle = beetles(&h)[0];
+    put_near(&mut h, beetle, me, 1.0, 1.0);
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(
+            USE_SKILL,
+            &[Arg::Int(1), Arg::Int(SKILL), Arg::LongInt(beetle)],
+        ),
+    );
+    assert!(
+        h.run_until(600, |h| pet_added(h, b, from).is_some()),
+        "it lands"
+    );
+    let pet = pet_added(&h, b, from).expect("a pet");
+    assert_eq!(target_of(&h, pet), Some(beetle));
+    let at = h.server.things.get(pet).and_then(|t| t.at).expect("placed");
+    let there = h
+        .server
+        .things
+        .get(beetle)
+        .and_then(|t| t.at)
+        .expect("placed");
+    assert!((at.origin[0] - there.origin[0]).abs() < 3.0, "beside it");
+}
+
+/// A skill aimed at a pet lands on one of its user's own of the class it names, and never harms
+/// it: what it leaves on the pet opens one attack and bars another. Another player's pet is
+/// refused.
+/// Behaviour: server.pets.effects-on-a-pet-choose-its-attack
+#[test]
+fn a_skill_aimed_at_the_users_pet_changes_which_attack_the_pet_uses() {
+    const BARREL: u32 = 3002;
+    const OTHER_CLASS: u32 = 3005;
+    const SINGLE: u32 = 3003;
+    const DOUBLE: u32 = 3004;
+    const TWIN: u32 = 0x7000_08BE;
+    let mut h = Harness::new();
+    with_kind(&mut h, &LASHER, 1);
+    // The test world's bolt, thrown from 9 m to 20 m.
+    let missile = h.server.skill_table.skills[&65].clone();
+    let mut with = |id: u32, req: Vec<u32>, bar: Vec<u32>| {
+        let mut d = missile.clone();
+        d.id = id;
+        if let Some(u) = d.usage.as_mut() {
+            u.required_effects = req;
+            u.barring_effects = bar;
+        }
+        h.server.skill_table.skills.insert(id, d);
+    };
+    with(SINGLE, Vec::new(), vec![TWIN]);
+    with(DOUBLE, vec![TWIN], Vec::new());
+    let mut barrel = h.server.skill_table.skills[&SKILL].clone();
+    barrel.id = BARREL;
+    if let Some(u) = barrel.usage.as_mut() {
+        u.user_effects = Vec::new();
+        u.target_effects = vec![TWIN];
+        u.valid_targets = 0x60_0000;
+        u.valid_pet_class = LASHER.class;
+        u.max_range = 40.0;
+        u.ui_flags = 0x12C0;
+    }
+    h.server.skill_table.skills.insert(BARREL, barrel);
+    h.server.effect_table.effects.insert(
+        TWIN,
+        EffectDef {
+            duration: Scale(vec![(1.0, 300.0)]),
+            ..yalain_testkit::plain_effect(TWIN)
+        },
+    );
+    let mut props = Props::default();
+    props
+        .set("GameplayStatistics_MaxHealth", Prop::Int(5))
+        .set("AICombat_NaturalDamage", Prop::Float(1.0))
+        .set("AICombat_NaturalVariance", Prop::Float(0.5))
+        .set("NPC_StartingSkill1", Prop::Word(SINGLE))
+        .set("NPC_StartingSkill1Level", Prop::Int(1))
+        .set("NPC_StartingSkill2", Prop::Word(DOUBLE))
+        .set("NPC_StartingSkill2Level", Prop::Int(1));
+    h.server
+        .catalog
+        .insert(test_template(LASHER.template, 0x1169, props));
+    let (b, me) = summoner(&mut h);
+    let (other, them) = h.player_in_world("two", "Merrin");
+    for who in [me, them] {
+        let p = h
+            .server
+            .players
+            .values_mut()
+            .find(|p| p.character == who)
+            .expect("in the world");
+        p.play.skills.push(SkillState {
+            skill: BARREL,
+            granted: 0,
+            mask: 0x1,
+            cost: 2,
+            children: 0,
+            dependents: 0,
+            spent: 0,
+        });
+    }
+    h.run(20);
+    h.arm(other, them, SWORD);
+    let pet = {
+        let from = summon(&mut h, b);
+        pet_added(&h, b, from)
+    }
+    .expect("a pet");
+    let beetle = beetles(&h)[0];
+    put_near(&mut h, beetle, me, 15.0, 0.0);
+    // The beetle may fight the player meanwhile: enough health to outlast the test.
+    if let Some(p) = h.server.players.values_mut().find(|p| p.character == me) {
+        quals::set_int(&mut p.qualities, quality::HEALTH_MAX, 100_000);
+        quals::set_int(&mut p.qualities, quality::HEALTH, 100_000);
+    }
+    let thrown = |h: &Harness, from: usize| {
+        h.world_messages(b, from).iter().find_map(|m| match m {
+            ServerMessage::DoStory(e) if e.sender.id == pet && e.action.skill != 0 => {
+                Some(e.action.skill)
+            }
+            _ => None,
+        })
+    };
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(function::ATTACK, &[Arg::LongInt(beetle)]),
+    );
+    assert!(h.run_until(300, |h| thrown(h, from).is_some()));
+    assert_eq!(thrown(&h, from), Some(SINGLE), "no effect on it yet");
+    // A skill that names another class of pet lands on nothing.
+    let mut other_class = h.server.skill_table.skills[&BARREL].clone();
+    other_class.id = OTHER_CLASS;
+    if let Some(u) = other_class.usage.as_mut() {
+        u.valid_pet_class = 0x100;
+    }
+    h.server.skill_table.skills.insert(OTHER_CLASS, other_class);
+    if let Some(p) = h.server.players.values_mut().find(|p| p.character == me) {
+        let mut learned = *p.play.skills.last().expect("trained");
+        learned.skill = OTHER_CLASS;
+        p.play.skills.push(learned);
+    }
+    let wrong = use_skill(&mut h, b, OTHER_CLASS, pet);
+    assert!(h
+        .calls(b, wrong)
+        .iter()
+        .any(|(f, v)| *f == 0x8204_001A && !v.is_empty()));
+    assert!(
+        yalain_world::effects::records_of(&h.server, yalain_world::effects::On::Creature(pet))
+            .is_empty()
+    );
+    h.run(200);
+    // Another player's use lands on nothing.
+    let their = use_skill(&mut h, other, BARREL, pet);
+    assert!(h
+        .calls(other, their)
+        .iter()
+        .any(|(f, v)| *f == 0x8204_001A && !v.is_empty()));
+    assert!(
+        yalain_world::effects::records_of(&h.server, yalain_world::effects::On::Creature(pet))
+            .is_empty()
+    );
+    h.run(200);
+    let used = use_skill(&mut h, b, BARREL, pet);
+    h.run(200);
+    assert!(
+        yalain_world::effects::records_of(&h.server, yalain_world::effects::On::Creature(pet))
+            .iter()
+            .any(|e| e.state == TWIN)
+    );
+    assert!(
+        !h.world_messages(b, used).iter().any(|m| matches!(
+            m,
+            ServerMessage::DoStory(e) if e.action.attacker == me
+                && e.action.hooks.iter().any(|k| k.target == pet && k.numbers[3] != 0)
+        )),
+        "it never harms the pet"
+    );
+    h.run(60);
+    let from = h.bots[b].inbox.len();
+    assert!(h.run_until(300, |h| thrown(h, from).is_some()));
+    assert_eq!(thrown(&h, from), Some(DOUBLE), "its effect opens the other");
+}
+
+/// A pet whose skills only help takes no order to attack and fights nothing.
+/// Behaviour: server.pets.one-that-only-helps-never-attacks
+#[test]
+fn a_pet_that_only_helps_takes_no_order_to_attack() {
+    let guardian = Summoned {
+        effect: 0x7000_0829,
+        template: 0x4700_0847,
+        class: 0x2000_0000,
+        lifetime: 0.0,
+        // A skill below the attacks': it helps.
+        skill: 2,
+    };
+    let mut h = Harness::new();
+    with_kind(&mut h, &guardian, 1);
+    h.server.pets.read_rows(
+        [pets::PetKind::new(
+            guardian.effect,
+            guardian.template,
+            1096,
+            &[],
+        )],
+        [],
+    );
+    let (b, me) = summoner(&mut h);
+    h.run(20);
+    let pet = {
+        let from = summon(&mut h, b);
+        pet_added(&h, b, from)
+    }
+    .expect("a pet");
+    let beetle = beetles(&h)[0];
+    put_near(&mut h, beetle, me, 3.0, 3.0);
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(function::ATTACK, &[Arg::LongInt(beetle)]),
+    );
+    h.run(120);
+    assert_eq!(target_of(&h, pet), None);
+    assert_eq!(h.server.things.get(beetle).map(|t| t.health), Some(100_000));
+}
+
+/// An owner coming out of a portal somewhere else brings the pets that follow it; one that stays
+/// is left where it stands.
+/// Behaviour: server.pets.one-that-stays-stays-behind
+#[test]
+fn a_pet_that_stays_stays_behind_when_its_owner_arrives_elsewhere() {
+    let mut h = Harness::new();
+    with_kind(&mut h, &RIFT, 1);
+    let (b, me) = summoner(&mut h);
+    h.run(20);
+    let rift = {
+        let from = summon(&mut h, b);
+        pet_added(&h, b, from)
+    }
+    .expect("a pet");
+    let at = h
+        .server
+        .things
+        .get(rift)
+        .and_then(|t| t.at)
+        .expect("placed");
+    let world = h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .map(|(c, _)| *c)
+        .expect("in the world");
+    if let Some(p) = h.server.players.get_mut(&world) {
+        p.position.origin[0] += 30.0;
+    }
+    pets::owner_arrives(&mut h.server, &mut h.net, world, 1.0);
+    assert_eq!(h.server.things.get(rift).and_then(|t| t.at), Some(at));
+}
+
+/// A kind's health at a level is its row's, between its levels the line, and never less than its
+/// template's.
+/// Behaviour: server.pets.health-by-kind-and-level
+#[test]
+fn a_kinds_health_is_its_rows_at_its_level_and_at_least_its_templates() {
+    let row = pets::PetKind::new(
+        0x7000_092C,
+        0x4700_0863,
+        1096,
+        &[(58, 1321), (60, 1377), (70, 1477)],
+    );
+    assert_eq!(row.health_at(60), Some(1377));
+    assert_eq!(row.health_at(65), Some(1427), "the line between");
+    assert_eq!(row.health_at(10), Some(1321), "held below");
+    let mut h = Harness::new();
+    with_kind(&mut h, &TAUNT_ORB, 1);
+    h.server.pets.read_rows(
+        [pets::PetKind::new(TAUNT_ORB.effect, TAUNT_ORB.template, 1096, &[(1, 3000)]).taunting()],
+        [],
+    );
+    let (b, _) = summoner(&mut h);
+    h.run(20);
+    let orb = {
+        let from = summon(&mut h, b);
+        pet_added(&h, b, from)
+    }
+    .expect("a pet");
+    assert_eq!(
+        h.server.things.get(orb).map(|t| t.max_health),
+        Some(3000),
+        "its row's at its level"
+    );
+    let mut h = Harness::new();
+    with_kind(&mut h, &TAUNT_ORB, 1);
+    h.server.pets.read_rows(
+        [pets::PetKind::new(TAUNT_ORB.effect, TAUNT_ORB.template, 1096, &[(1, 100)]).taunting()],
+        [],
+    );
+    let (b, _) = summoner(&mut h);
+    h.run(20);
+    let orb = {
+        let from = summon(&mut h, b);
+        pet_added(&h, b, from)
+    }
+    .expect("a pet");
+    assert_eq!(
+        h.server.things.get(orb).map(|t| t.max_health),
+        Some(560),
+        "the template's, the more"
+    );
+}
+
+/// A world's row names a kind no server's own list has, makes as many as it says, and replaces a
+/// listed kind of the same effect.
+/// Behaviour: server.pets.a-row-makes-a-kind
+#[test]
+fn a_row_makes_a_kind_and_replaces_a_listed_one() {
+    let row_only = Summoned {
+        effect: 0x7000_2008,
+        template: 0x4700_0864,
+        class: 0x800_0000,
+        lifetime: 120.0,
+        skill: MELEE,
+    };
+    let mut h = Harness::new();
+    with_kind(&mut h, &row_only, 1);
+    let (b, me) = summoner(&mut h);
+    h.run(20);
+    let beetle = beetles(&h)[0];
+    put_near(&mut h, beetle, me, 120.0, 0.0);
+    let from = summon(&mut h, b);
+    assert!(
+        h.texts(b, from)
+            .contains(&(1, pets::text::SUMMONING_FAILS.0)),
+        "no row, no kind"
+    );
+    h.run(200);
+    h.server.pets.read_rows(
+        [pets::PetKind::new(row_only.effect, row_only.template, 32, &[]).made(4)],
+        [],
+    );
+    summon(&mut h, b);
+    assert_eq!(h.server.pets.of(me).len(), 4, "as many as it says");
+    let mut p = pets::Pets::default();
+    assert_eq!(p.kind_of(LASHER.effect).map(|k| k.flags), Some(1096));
+    p.read_rows(
+        [pets::PetKind::new(LASHER.effect, LASHER.template, 8, &[])],
+        [],
+    );
+    assert_eq!(
+        p.kind_of(LASHER.effect).map(|k| k.flags),
+        Some(8),
+        "the row"
+    );
 }

@@ -13,9 +13,9 @@
 //!
 //! | system | the release file |
 //! |---|---|
-//! | Windows | `dereth-<v>-windows-x86_64.zip`: `dereth.exe`, `dereth-client.exe`, `dereth-plugin.exe` and the notices, under `dereth-<v>/` |
-//! | macOS | `Dereth-<v>-macos-<arch>.app.tar.gz`: `Dereth.app`, the client and the tool in `Contents/MacOS`, MoltenVK in `Contents/Frameworks` |
-//! | Linux | `Dereth-<v>-linux-x86_64.AppImage`, the client and the tool inside it |
+//! | Windows | `dereth-<v>-windows-x86_64.zip`: `dereth.exe`, `dereth-client.exe`, `dereth-plugin.exe`, `empyrean-relay.exe` and the notices, under `dereth-<v>/` |
+//! | macOS | `Dereth-<v>-macos-<arch>.app.tar.gz`: `Dereth.app`, the client, the tool and the relay in `Contents/MacOS`, MoltenVK in `Contents/Frameworks` |
+//! | Linux | `Dereth-<v>-linux-x86_64.AppImage`, the client, the tool and the relay inside it |
 //!
 //! The plugin author's tool, `dereth-plugin`, comes inside each one beside the client
 //! ([`tool_in_release`]), so a player who installed Dereth has it. Beside the release file it is
@@ -23,6 +23,11 @@
 //! `dereth-plugin-<v>-<platform>.zip` on Windows, `.tar.gz` on macOS and Linux, `dereth-plugin` and
 //! its notices under `dereth-plugin-<v>/`. A plugin repository's workflows download that one from
 //! the release its pin names and check it against `SHA256SUMS`.
+//!
+//! The relay, `empyrean-relay`, comes inside each one beside the client too ([`relay_in_release`]):
+//! the launcher starts it to play a world that speaks another wire format. It is Empyrean's program,
+//! at Empyrean's version, under Empyrean's license and not Dereth's, and nothing of Dereth links it:
+//! it stays a program of its own, with its own license and notice beside it ([`RELAY_NOTICES`]).
 //!
 //! With an update-signing key in the environment ([`sign`]) the launcher's file is signed, and
 //! the signature goes into its platform's piece of `latest.json`, `latest-<platform>.json`: the
@@ -168,6 +173,32 @@ pub const TOOL: &str = "dereth-plugin";
 /// The tool's crate, by its manifest.
 const TOOL_MANIFEST: &str = "tools/plugin/Cargo.toml";
 
+/// The relay the launcher starts for a world of another wire format, by its package and program.
+pub const RELAY: &str = "empyrean-relay";
+
+/// The relay's crate, by its manifest.
+const RELAY_MANIFEST: &str = "empyrean/relay/Cargo.toml";
+
+/// cargo-about's configuration and template for the relay: Empyrean's, as its own package has.
+const RELAY_ABOUT: (&str, &str) = ("empyrean/about.toml", "empyrean/about.hbs");
+
+/// The relay's license and notice in a package, under names of their own: `LICENSE` and
+/// `NOTICE.txt` are Dereth's.
+pub const RELAY_NOTICES: &[&str] = &["LICENSE-empyrean-relay", "NOTICE-empyrean-relay.txt"];
+
+/// The license the relay's own package carries, by its place in the tree.
+const RELAY_LICENSE: &str = "empyrean/LICENSE";
+
+/// Where the relay is in the release file for `target`, beside the client: below the archive's
+/// folder on Windows and macOS, among the AppImage's programs on Linux.
+pub fn relay_in_release(target: Target) -> String {
+    match target.os {
+        Os::Windows => format!("{RELAY}{}", target.exe_suffix()),
+        Os::Mac => format!("Contents/MacOS/{RELAY}"),
+        Os::Linux => RELAY.to_owned(),
+    }
+}
+
 /// The plugin author's tool's release file for `target`: a zip on Windows, a tarball elsewhere.
 pub fn tool_file_name(target: Target, version: &str) -> String {
     let ext = if target.os == Os::Windows {
@@ -270,8 +301,10 @@ pub fn contents(target: Target) -> (Vec<String>, Vec<String>) {
             required.push(format!("dereth{exe}"));
             required.push(format!("dereth-client{exe}"));
             required.push(tool_in_release(target));
+            required.push(relay_in_release(target));
             required.push(super::friends_dll::FILE.to_owned());
             required.extend(notices_in(""));
+            required.extend(own(RELAY_NOTICES));
         }
         Os::Mac => {
             required.extend(own(&[
@@ -282,7 +315,13 @@ pub fn contents(target: Target) -> (Vec<String>, Vec<String>) {
             ]));
             required.push(format!("Contents/Resources/{}", super::friends_dll::FILE));
             required.push(tool_in_release(target));
+            required.push(relay_in_release(target));
             required.extend(notices_in("Contents/Resources/"));
+            required.extend(
+                RELAY_NOTICES
+                    .iter()
+                    .map(|n| format!("Contents/Resources/{n}")),
+            );
             optional.extend(own(&[
                 "Contents/PkgInfo",
                 "Contents/Resources/Assets.car",
@@ -855,6 +894,7 @@ impl Job<'_> {
     fn run(&self, launcher: &BuiltLauncher) -> Result<(), String> {
         let client = self.build_client()?;
         let tool = self.build_tool()?;
+        let relay = self.build_relay()?;
         let notices = self.notices()?;
         match self.target.os {
             Os::Windows => {
@@ -862,27 +902,35 @@ impl Job<'_> {
                     ("dereth.exe".to_owned(), launcher.bundle.clone()),
                     ("dereth-client.exe".to_owned(), client),
                     (tool_in_release(self.target), tool.clone()),
+                    (relay_in_release(self.target), relay),
                     (
                         super::friends_dll::FILE.to_owned(),
                         launcher.library.clone(),
                     ),
                 ];
-                members.extend(NOTICES.iter().map(|n| ((*n).to_owned(), notices.join(n))));
+                members.extend(
+                    NOTICES
+                        .iter()
+                        .chain(RELAY_NOTICES)
+                        .map(|n| ((*n).to_owned(), notices.join(n))),
+                );
                 self.write_archive(&members)
             }
-            Os::Linux => self.write_appimage(&launcher.bundle, &client, &tool, &notices),
-            Os::Mac => self.write_app(&launcher.bundle, &client, &tool, &notices),
+            Os::Linux => self.write_appimage(&launcher.bundle, &client, &tool, &relay, &notices),
+            Os::Mac => self.write_app(&launcher.bundle, &client, &tool, &relay, &notices),
         }?;
         self.package_tool(&tool)
     }
 
-    /// macOS: the launcher's bundle with the client, the tool, MoltenVK and this package's notices
-    /// put in, and the whole signed again: what's added is signed first, then the bundle over it.
+    /// macOS: the launcher's bundle with the client, the tool, the relay, MoltenVK and this package's
+    /// notices put in, and the whole signed again: what's added is signed first, then the bundle over
+    /// it.
     fn write_app(
         &self,
         launcher: &Path,
         client: &Path,
         tool: &Path,
+        relay: &Path,
         notices: &Path,
     ) -> Result<(), String> {
         let app = self.stage.join("tree").join(LAUNCHER_APP);
@@ -891,23 +939,30 @@ impl Job<'_> {
         let (dylib, _) = self.moltenvk.ok_or("a macOS package needs MoltenVK")?;
         let client_in = "Contents/MacOS/dereth-client".to_owned();
         let tool_in = tool_in_release(self.target);
+        let relay_in = relay_in_release(self.target);
         let library_in = "Contents/Frameworks/libMoltenVK.dylib".to_owned();
         for (from, name) in [
             (client, &client_in),
             (tool, &tool_in),
+            (relay, &relay_in),
             (dylib.as_path(), &library_in),
         ] {
             copy(from, &app.join(name))?;
             super::auberean::set_executable(&app.join(name))?;
         }
-        for n in NOTICES {
+        for n in NOTICES.iter().chain(RELAY_NOTICES) {
             copy(&notices.join(n), &app.join("Contents/Resources").join(n))?;
         }
         let identity = std::env::var("APPLE_SIGNING_IDENTITY").ok();
         for args in super::auberean::codesign_runs_of(
             &app.display().to_string(),
             identity.as_deref(),
-            &[library_in.clone(), tool_in.clone(), client_in.clone()],
+            &[
+                library_in.clone(),
+                tool_in.clone(),
+                relay_in.clone(),
+                client_in.clone(),
+            ],
         ) {
             let refs: Vec<&str> = args.iter().map(String::as_str).collect();
             run_in(self.stage, "codesign", &refs, &[], &[])?;
@@ -918,6 +973,17 @@ impl Job<'_> {
     /// The plugin author's tool, built with cargo in the workspace as the client is, and staged as
     /// the client is: it goes into the release file beside the client, and into a file of its own.
     fn build_tool(&self) -> Result<PathBuf, String> {
+        self.build_console_program(TOOL)
+    }
+
+    /// The relay, built with cargo in the workspace as the client is, and staged as the client is:
+    /// it goes into the release file beside the client.
+    fn build_relay(&self) -> Result<PathBuf, String> {
+        self.build_console_program(RELAY)
+    }
+
+    /// A console program of the workspace, built and staged.
+    fn build_console_program(&self, package: &str) -> Result<PathBuf, String> {
         let t = self.target;
         let env = build_env(self.ws, self.facts, t);
         run_in(
@@ -928,29 +994,34 @@ impl Job<'_> {
                 "--locked",
                 "--release",
                 "-p",
-                TOOL,
+                package,
                 "--target",
                 t.triple,
             ],
             &env,
             &[],
         )?;
-        let exe = format!("{TOOL}{}", t.exe_suffix());
+        let exe = format!("{package}{}", t.exe_suffix());
         let built = target_dir().join(t.triple).join("release").join(&exe);
-        let staged = self
-            .stage
-            .join("bin")
-            .join(format!("{TOOL}-{}{}", t.triple, t.exe_suffix()));
+        let staged =
+            self.stage
+                .join("bin")
+                .join(format!("{package}-{}{}", t.triple, t.exe_suffix()));
         copy(&built, &staged)?;
         Ok(staged)
     }
 
     /// The tool's header, checked as a console program's: its line for the manifest.
     fn check_tool(&self, bytes: &[u8]) -> Result<String, String> {
+        self.check_console_program(TOOL, bytes)
+    }
+
+    /// A console program's header: its line for the manifest.
+    fn check_console_program(&self, name: &str, bytes: &[u8]) -> Result<String, String> {
         let t = self.target;
         headers::check_console_app(bytes, t, targets::DERETH_GLIBC_FLOOR).map_err(|problems| {
             format!(
-                "the header check refused {TOOL} for {}:\n  {}",
+                "the header check refused {name} for {}:\n  {}",
                 t.triple,
                 problems.join("\n  ")
             )
@@ -1043,7 +1114,8 @@ impl Job<'_> {
         Ok(staged)
     }
 
-    /// `LICENSE`, `NOTICE.txt` and `THIRD-PARTY-LICENSES.html`: the folder they are written in.
+    /// `LICENSE`, `NOTICE.txt` and `THIRD-PARTY-LICENSES.html`, and the relay's license and notice:
+    /// the folder they are written in.
     fn notices(&self) -> Result<PathBuf, String> {
         let t = self.target;
         let launcher_manifest = format!("{LAUNCHER_DIR}/Cargo.toml");
@@ -1073,6 +1145,7 @@ impl Job<'_> {
         let launcher_page = page(&launcher_manifest, "dereth")?;
         let client_page = page("dereth/client/Cargo.toml", "dereth-client")?;
         let tool_page = page(TOOL_MANIFEST, TOOL)?;
+        let relay_page = about_page(self.ws, RELAY_ABOUT, RELAY_MANIFEST, t, &about, RELAY)?;
 
         let dir = self.stage.join("notices");
         mkdir(&dir)?;
@@ -1088,13 +1161,35 @@ impl Job<'_> {
         });
         write(&dir.join("NOTICE.txt"), text.as_bytes())?;
         write(&dir.join("LICENSE"), mit.as_bytes())?;
+        let [relay_license, relay_notice] = RELAY_NOTICES else {
+            return Err("the relay has a license and a notice".to_owned());
+        };
+        write(
+            &dir.join(relay_license),
+            &read(&self.ws.join(RELAY_LICENSE))?,
+        )?;
+        let ac1999 =
+            String::from_utf8_lossy(&read(&self.ws.join(super::AC1999_NOTICE))?).into_owned();
+        let relay_text = notice::relay_notice(&notice::RelayFacts {
+            version: &Product::Empyrean.version(self.ws)?,
+            target: t.triple,
+            commit: &self.facts.commit,
+            source_url: &self.facts.source_url,
+            dereth_version: self.version,
+            crates: &crates_of(self.ws, "Cargo.toml", RELAY, t)?,
+            mit_license: &mit,
+            ac1999_notice: &ac1999,
+        });
+        write(&dir.join(relay_notice), relay_text.as_bytes())?;
         let client_name = format!("dereth-client{exe}");
         let launcher_name = format!("dereth{exe}");
         let tool_name = format!("{TOOL}{exe}");
+        let relay_name = format!("{RELAY}{exe}");
         let pages = [
             (launcher_name.as_str(), launcher_page),
             (client_name.as_str(), client_page),
             (tool_name.as_str(), tool_page),
+            (relay_name.as_str(), relay_page),
         ];
         write(
             &dir.join("THIRD-PARTY-LICENSES.html"),
@@ -1266,6 +1361,10 @@ impl Job<'_> {
         let d = self.check_tool(&read(&dir.join(&tool))?)?;
         println!("  {tool}: {d}");
         described.push((tool, d));
+        let relay = relay_in_release(t);
+        let d = self.check_console_program(RELAY, &read(&dir.join(&relay))?)?;
+        println!("  {relay}: {d}");
+        described.push((relay, d));
         if t.os == Os::Mac {
             let name = "Contents/Frameworks/libMoltenVK.dylib";
             if !is_macho_library(&read(&dir.join(name))?) {
@@ -1281,7 +1380,8 @@ impl Job<'_> {
                     bytes: read(&path)?,
                     executable: executable(&path)
                         || programs(t).contains(&e.path)
-                        || e.path == tool_in_release(t),
+                        || e.path == tool_in_release(t)
+                        || e.path == relay_in_release(t),
                 });
             }
         }
@@ -1325,10 +1425,14 @@ impl Job<'_> {
         launcher: &Path,
         client: &Path,
         tool: &Path,
+        relay: &Path,
         notices: &Path,
     ) -> Result<(), String> {
         let t = self.target;
         let file = release_file_name(t, self.version);
+        let [relay_license, relay_notice] = RELAY_NOTICES else {
+            return Err("the relay has a license and a notice".to_owned());
+        };
         let packed = super::auberean::repack_appimage(&super::auberean::AppImageRepack {
             ws: self.ws,
             target: t,
@@ -1336,7 +1440,13 @@ impl Job<'_> {
             stage: self.stage,
             appimagetool: self.appimagetool,
             appimage: launcher,
-            added: &[("dereth-client", client, true), (TOOL, tool, true)],
+            added: &[
+                ("dereth-client", client, true),
+                (TOOL, tool, true),
+                (RELAY, relay, true),
+                (relay_license, &notices.join(relay_license), false),
+                (relay_notice, &notices.join(relay_notice), false),
+            ],
             notices,
             file: &file,
         })?;
@@ -1355,6 +1465,10 @@ impl Job<'_> {
         let d = self.check_tool(&bytes)?;
         println!("  {}: {d}", tool_in_release(t));
         lines.push((tool_in_release(t), bytes, d));
+        let bytes = read(relay)?;
+        let d = self.check_console_program(RELAY, &bytes)?;
+        println!("  {}: {d}", relay_in_release(t));
+        lines.push((relay_in_release(t), bytes, d));
         // The AppImage compresses what it holds, so its programs are looked at as built.
         let named: Vec<(&str, &[u8])> = lines
             .iter()

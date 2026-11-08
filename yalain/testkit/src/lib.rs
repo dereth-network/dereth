@@ -84,6 +84,12 @@ pub fn test_start() -> StartRules {
         ],
     };
     let mut r = StartRules::default();
+    r.items
+        .insert(1, vec![0x4700_051B, 0x4700_051C, 0x4700_051D]);
+    r.items
+        .insert(2, vec![0x4700_0515, 0x4700_0516, 0x4700_0517]);
+    r.items
+        .insert(4, vec![0x4700_0521, 0x4700_0522, 0x4700_0523]);
     r.areas.insert(
         TEST_START_AREA,
         StartArea {
@@ -1578,6 +1584,16 @@ impl<S: Store> Harness<S> {
             now,
             unix: 1_700_000_000,
             unix_carry: 0.0,
+        }
+    }
+
+    /// A skill every character holds from now on, as if each had trained it: tests of what a skill
+    /// does use those of the test world's table, whoever uses them.
+    pub fn all_hold(&mut self, skill: u32) {
+        for list in self.server.start.skills.values_mut() {
+            if !list.iter().any(|(s, _)| *s == skill) {
+                list.push((skill, 0));
+            }
         }
     }
 

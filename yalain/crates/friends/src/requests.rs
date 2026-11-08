@@ -114,6 +114,14 @@ impl Service {
                 self.answer(stream, cx, hr, Answer::FriendDelete);
             }
             Request::IgnoredAdd { user } => {
+                // Past its pace of the hub's requests a channel stays as it was, squelched or not.
+                if let (Target::Channel(_), Some(f)) = (self.target(&user), fed.as_deref_mut()) {
+                    if let Err(why) = f.may_leave_channel(crate::secs(self.now), &h.name) {
+                        self.line(h.character, why);
+                        self.answer(stream, cx, Hr::NOT_ONLINE, Answer::IgnoredAdd);
+                        return;
+                    }
+                }
                 let hr = self.ignore(&h.name, h.character, &user, true, store);
                 // Squelching a channel's address leaves the channel.
                 if let (Hr::OK, Target::Channel(a), Some(f)) =

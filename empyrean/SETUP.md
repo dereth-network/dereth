@@ -908,11 +908,12 @@ transaction restores before another start is allowed. `managed-update rollback -
 restores the retained previous version and databases, discarding progress made since that backup.
 Keep `.empyrean-update` with the runtime until its recovery data is no longer needed.
 
-## Experimental Launch profile
+## Launch profile
 
-`[era] profile = "launch"` plays the world as it was in November 1999. It is experimental: the
-server logs a warning at start, and nothing certifies a launch world as complete. Use a separate
-shard and a `world.pack` built for `launch`; the pack may hold incomplete content for testing.
+`[era] profile = "launch"` plays the world as it was in November 1999. Its rules and content are
+still being checked against 1999, so the server logs a warning at start, and nothing certifies a
+Launch world as complete. Use a separate shard and a `world.pack` built for `launch`; the pack may
+hold incomplete content for testing.
 
 **What it sets.** The three original heritages and the 35 original skills, a level cap of 126, and
 total and unassigned experience held to 4,294,967,295. Skill costs and the experience curves come

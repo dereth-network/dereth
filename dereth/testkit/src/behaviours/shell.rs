@@ -1278,6 +1278,49 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "keymap.mac.command-is-control-and-a-release-out-of-sight-is-queued",
+        says: "On a Mac either Command key reaches the client as that side's Control key, the \
+               Control key stays Control, and a Command key let go out of the window's sight is \
+               released when the modifiers say so.",
+        since: THIS_CLIENT,
+        divergence: "CD-mac-command-key",
+        evidence: Evidence::Private("AC-EVID-MAC-COMMAND-IS-CONTROL"),
+        station: "dereth-desktop::lib::platform::window::command_key::tests::command_is_control_and_a_release_out_of_sight_is_queued_once",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "keymap.mac.command-is-named-by-its-side-and-a-chord-the-system-keeps-stays-control",
+        says: "On a Mac the key pages call the Control keys Left Cmd and Right Cmd, and plain Cmd \
+               when held with another key. A chord the system keeps for Command (Tab, Q, H or \
+               Space) is shown with Control, the only key that reaches it.",
+        since: THIS_CLIENT,
+        divergence: "CD-mac-command-key",
+        evidence: Evidence::Private("AC-EVID-MAC-COMMAND-LABELS"),
+        station: "dereth-input::lib::labels::tests::a_mac_names_command_by_its_side_and_control_on_a_chord_the_system_keeps",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "keymap.mac.only-horizons-radar-keys-are-chords-the-system-keeps",
+        says: "Of Horizon's and Classic's default keys, only Horizon's Ctrl-Tab and Ctrl-Shift-Tab \
+               are chords a Mac's system keeps for Command, so on a Mac they are pressed with \
+               Control.",
+        since: THIS_CLIENT,
+        divergence: "CD-mac-command-key",
+        evidence: Evidence::Private("AC-EVID-MAC-KEPT-CHORDS-LAYOUTS"),
+        station: "dereth-client-shell::lib::input::horizon_scheme::tests::only_the_radar_keys_are_chords_a_mac_keeps_for_command",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "keymap.mac.the-shipped-maps-bind-no-chord-the-system-keeps",
+        says: "The shipped key maps bind nothing to a chord a Mac's system keeps for Command, so \
+               none of their keys is out of reach there.",
+        since: THIS_CLIENT,
+        divergence: "CD-mac-command-key",
+        evidence: Evidence::Private("AC-EVID-MAC-KEPT-CHORDS-SHIPPED"),
+        station: "dereth-input::dat::shipped_maps::the_shipped_maps_bind_no_chord_a_mac_keeps_for_command",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "keymap.modified-digits.a-number-with-the-modifier-uses-a-quick-slot-and-not-the-chat-window",
         says: "Holding the modifier and pressing one of the first four numbers uses that quick \
                slot rather than opening the matching floating chat window: the shipped key map \

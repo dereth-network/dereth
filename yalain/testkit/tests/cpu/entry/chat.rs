@@ -1047,3 +1047,66 @@ fn every_kind_of_talk_spends_one_limit_between_them() {
             .count();
     assert!(went < 10, "{went} went on");
 }
+
+/// A notice comes to the client's reader as it was written: what it takes for a line's flags and for
+/// an escape reach the screen as they are, a remote line's text among them.
+/// Behaviour: server.chat.notice-as-written
+#[test]
+fn a_notice_with_brackets_and_backslashes_is_read_by_the_client_as_written() {
+    let mut h = Harness::new();
+    let (b, _) = h.player_in_world("one", "Elara");
+    let world = *h.server.players.keys().next().expect("in the world");
+    let from = h.bots[b].inbox.len();
+    for line in ["back [soon] now", r"a\b \[c] {d|e} #f ^g !h"] {
+        yalain_world::login::notice(&mut h.net, world, line);
+    }
+    h.run(5);
+    let read: Vec<String> = h.bots[b].inbox[from..]
+        .iter()
+        .filter_map(|r| match r.message() {
+            Some(ServerMessage::Notice(n)) => n.text.literal.map(|l| l.text()),
+            _ => None,
+        })
+        .map(|sent| {
+            let wide: Vec<u16> = sent.trim_end_matches('\n').encode_utf16().collect();
+            let mut info = auberean_text::info::StringInfo::default();
+            info.set_literal(&wide, false);
+            String::from_utf16_lossy(&info.literal_value(false))
+        })
+        .collect();
+    assert_eq!(read, ["back [soon] now", r"a\b \[c] {d|e} #f ^g !h"]);
+}
+
+/// A line said as the network's command counts as talk: past how fast a player may talk it is not
+/// kept, the player is told, and once the pace has filled it is kept again.
+/// Behaviour: server.chat.talk-has-a-limit
+#[test]
+fn the_networks_command_said_past_how_fast_one_may_talk_goes_nowhere() {
+    use yalain_world::chat::TOO_FAST;
+    // Past the burst of ten, however little time the run takes.
+    let lines = 40;
+    let mut h = Harness::new();
+    let (b, _) = h.player_in_world("one", "Elara");
+    let from = h.bots[b].inbox.len();
+    for _ in 0..lines {
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &server_call(function::SAY, &[Arg::Int(0), literal("@dn on")]),
+        );
+    }
+    h.run(5);
+    let kept = h.server.network_commands.len();
+    assert!((10..lines).contains(&kept), "{kept} of {lines} kept");
+    h.run(5);
+    assert!(h.bots[b].notices(from).iter().any(|n| n.contains(TOO_FAST)));
+    h.server.network_commands.clear();
+    h.advance(10.0);
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(function::SAY, &[Arg::Int(0), literal("@dn on")]),
+    );
+    h.run(5);
+    assert_eq!(h.server.network_commands.len(), 1, "the pace has filled");
+}

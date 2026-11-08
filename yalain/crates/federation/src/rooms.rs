@@ -222,7 +222,7 @@ impl Federation {
     /// what the hub said of them before is forgotten, since this hub may mirror them now, and the
     /// hub is to tell the world its rooms again.
     pub(crate) fn rooms_welcomed(&mut self, t: f64, offered: &[String]) {
-        let queued: Vec<_> = self.outbox.drain(..).collect();
+        let queued = self.outbox.take_all();
         if self.global_room().is_some() && offered.iter().any(|r| r == GLOBAL_ROOM) {
             self.send(
                 t,
@@ -238,7 +238,9 @@ impl Federation {
         for (room, _) in self.mirrored_rooms() {
             self.send(t, Message::RoomJoin { room, on: true });
         }
-        self.outbox.extend(queued);
+        for q in queued {
+            self.outbox.push_back(q);
+        }
     }
 
     /// The link went: requests not yet sent are dropped, and an operator waiting for the hub's

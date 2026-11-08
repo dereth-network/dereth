@@ -45,6 +45,7 @@ use crate::network::game_messages::messages::game_message_turbine_chat::game_mes
 use crate::network::handlers::turbine_chat_handler::turbine_chat_received;
 use crate::network::managers::inbound_message_manager::Payload;
 use crate::world_objects::player_character;
+use crate::world_objects::player_networking;
 use crate::world_objects::world_object_networking::shims;
 use crate::World;
 
@@ -58,6 +59,23 @@ pub fn global_slot(w: &World) -> Option<RoomSlot> {
         Some(room) => RoomSlot::parse(room).or(f.settings.global_room),
         None => f.settings.global_room,
     }
+}
+
+/// DIVERGE: V510, a character joining the network starts listening to the room that carries the
+/// Global room, which a new character doesn't, so that it hears what it joined for. Only as it
+/// joins: turning the room off afterwards stays off. The client keeps its options itself, so it is
+/// told, as `/config` tells it.
+pub(super) fn listen_on_joining(w: &mut World, player: ObjectGuid) {
+    let Some(room) = global_slot(w) else {
+        return;
+    };
+    let option = room.listen_option();
+    if player_character::get_character_option(w, player, option) {
+        return;
+    }
+    player_character::set_character_option(w, player, option, true);
+    player_networking::join_turbine_chat_channel(w, player, room.name());
+    player_networking::send_player_description(w, player);
 }
 
 /// The room that carries the Dereth Network's Global room on this world, when the network is on.

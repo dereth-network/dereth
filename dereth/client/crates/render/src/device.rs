@@ -286,7 +286,8 @@ pub struct PerFrameConstants {
     pub fog_color: [f32; 4],
     /// `D3DRS_AMBIENT`, unpacked.
     pub ambient: [f32; 4],
-    /// x holds the clamped screen-brightness value. y, z, w are unused. See
+    /// x holds the clamped screen-brightness value. y is unused; z and w are the Better Lighting's
+    /// place in the dither and whether the frame is indoors, in its own copies of the block. See
     /// `Gpu::draw_dynamic`, which overwrites this
     /// field from the device's own live value so that it is device state here as it is there.
     pub screen: [f32; 4],
@@ -727,6 +728,12 @@ impl Gpu {
     /// The backend's own.
     pub fn end_frame(&mut self) -> Result<(), RenderError> {
         dispatch!(self, g => g.end_frame())
+    }
+
+    /// Whether the last frame found its window can't be seen, so nothing waited for the display.
+    #[must_use]
+    pub fn window_hidden(&self) -> bool {
+        dispatch!(self, g => g.window_hidden())
     }
 
     /// # Errors

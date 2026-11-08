@@ -190,7 +190,7 @@ fn a_cells_record_lights_are_baked_as_they_stand_at_that_moment() {
         frequency: 1.0,
         ..Waveform::default()
     });
-    l.lit.insert(cell, vec![0]);
+    l.lit.insert(cell & 0xFFFF, vec![0]);
     let lights = BlockLights {
         lights: vec![l],
         lookup: HashMap::from([(0x0100, vec![0])]),

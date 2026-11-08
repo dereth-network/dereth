@@ -1,7 +1,7 @@
 [package]
 name = "auberean-client"
 description = "The desktop client: a window in which Asheron's Call 2's world is drawn and played."
-version = "0.1.4" # Auberean's own version, shared by the client and the headless client (not the workspace's)
+version = "0.1.5" # Auberean's own version, shared by the client and the headless client (not the workspace's)
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

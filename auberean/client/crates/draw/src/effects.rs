@@ -425,6 +425,9 @@ pub struct ObjectEffects {
     // D2-06005
     particle_scale: f32,
     table: ObjectFxTable,
+    /// Whether its object is drawn this frame: only then are its systems queued, but for those
+    /// their records force to draw.
+    drawn: bool,
     /// The effects played from the moment the object is made, with their strengths, in the
     /// object's table order.
     startup: Vec<(u32, f32)>,
@@ -593,6 +596,7 @@ impl ObjectEffects {
         Some(Self {
             particle_scale: look.particle_scale,
             table: ObjectFxTable::of_group(&look.global),
+            drawn: true,
             startup: look.global.startup_fx.entries.clone(),
             states: BTreeMap::new(),
             terrain: 0,
@@ -756,6 +760,15 @@ impl ObjectEffects {
     #[must_use]
     pub fn systems(&self) -> &[CarriedSystem] {
         &self.systems
+    }
+
+    /// Say whether its object is drawn this frame. One that isn't (the player's own body with the
+    /// camera at its eyes, a body told not to be drawn, an object past its visible distance) has
+    /// only the systems its records force to draw queued: the rest neither run nor show, and stay
+    /// until it is drawn again.
+    // D2-06658, D2-06524
+    pub fn set_drawn(&mut self, drawn: bool) {
+        self.drawn = drawn;
     }
 
     /// Play every startup effect, its systems kept by `systems`: the object was made at time
@@ -1489,12 +1502,17 @@ impl ObjectEffects {
         now: f64,
         rig: &dyn Rig,
     ) {
+        let drawn = self.drawn;
         for c in &self.systems {
+            if !drawn && !systems.force_draw(&c.system) {
+                continue;
+            }
             let at = carried_place(&c.offset, c.on, c.remove_rotation, place, rig);
             systems.queue(&c.system, home, at, scale, self.particle_scale, light, now);
         }
-        self.systems
-            .retain(|c| !systems.ready_to_die(&c.system, now));
+        self.systems.retain(|c| {
+            !(drawn || systems.force_draw(&c.system)) || !systems.ready_to_die(&c.system, now)
+        });
         let origin = place.point(Vec3::ZERO);
         let speed = match (self.velocity.take(), self.last) {
             (Some(v), _) => length(v),
@@ -1798,6 +1816,35 @@ struct Placed {
     scale: Vec3,
     effects: ObjectEffects,
     rig: Option<RestRig>,
+    /// The distances its setup is seen and degraded at, one for each model detail.
+    detail: Option<[auberean_assets::setup::DetailDistances; 3]>,
+}
+
+/// The distances a look's setup is seen and degraded at: its root part group's.
+fn seen_by(
+    records: &WorldRecords,
+    look: &Look,
+) -> Option<[auberean_assets::setup::DetailDistances; 3]> {
+    let group = look
+        .root
+        .and_then(|key| look.groups.entries.iter().find(|(k, _)| *k == key))
+        .map_or(&look.global, |(_, g)| g);
+    let setup = records.loaded_setup(group.setup)?;
+    Some(setup.get().detail)
+}
+
+/// Where the camera stands, for telling which placed objects are drawn: their systems are queued
+/// only for those.
+#[derive(Clone, Copy, Debug)]
+pub struct PlacedSight {
+    /// The camera, in block `home`'s frame.
+    pub eye: Vec3,
+    pub home: (i32, i32),
+    pub block_length: f32,
+    /// What the scenery draw distance scales visible distances by.
+    pub scale: f32,
+    /// The model detail preference.
+    pub model_detail: usize,
 }
 
 /// The effects of the objects placed with the world around the viewer: an object's begin when it
@@ -1857,8 +1904,38 @@ impl PlacedEffects {
                     scale: p.scale,
                     effects,
                     rig,
+                    detail: seen_by(records, &p.look),
                 },
             );
+        }
+    }
+
+    /// The systems the object `key` carries.
+    #[must_use]
+    pub fn systems_of(&self, key: u64) -> Option<&[CarriedSystem]> {
+        self.objects.get(&key).map(|p| p.effects.systems())
+    }
+
+    /// Say where the camera stands: an object past its visible distance from it isn't drawn, so
+    /// its systems aren't queued but for those their records force to draw.
+    // D2-06658
+    pub fn see_from(&mut self, sight: &PlacedSight) {
+        for p in self.objects.values_mut() {
+            let Some(detail) = &p.detail else {
+                continue;
+            };
+            let d = &detail[sight.model_detail.min(2)];
+            #[allow(clippy::cast_precision_loss)] // a few blocks
+            let shift = Vec3::new(
+                (p.block.0 - sight.home.0) as f32 * sight.block_length,
+                (p.block.1 - sight.home.1) as f32 * sight.block_length,
+                0.0,
+            );
+            let at = p.place.point(Vec3::ZERO);
+            let at = Vec3::new(at.x + shift.x, at.y + shift.y, at.z);
+            let far = length(sub(at, sight.eye));
+            p.effects
+                .set_drawn(far <= (sight.scale * d.visible).max(20.0));
         }
     }
 

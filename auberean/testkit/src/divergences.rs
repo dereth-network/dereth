@@ -13,6 +13,13 @@ pub struct Divergence {
 /// Every divergence, in id order.
 pub static DIVERGENCES: &[Divergence] = &[
     Divergence {
+        id: "CD2-a-bodys-reach-is-worked-out-each-frame",
+        says: "How far away a body is drawn is worked out fresh each frame. The original keeps the \
+               reach of the body's last draw, and at very high frame rates its adaptive scale can \
+               fall to its floor and stay there, so a body past 20 m isn't drawn again until the \
+               camera comes closer.",
+    },
+    Divergence {
         id: "CD2-assistance-opens-issues-page",
         says: "Request Assistance opens this project's issues page; the original client opened the \
                publisher's support site, which is gone. The box shown when the browser cannot be \
@@ -63,7 +70,9 @@ pub static DIVERGENCES: &[Divergence] = &[
         says: "Friends, presence, the ignore list, the away state and tells to other worlds reach \
                the world over this network's own friends stream, with its own greeting, ticket, \
                keep-alive and waits between reconnects, instead of the original friends service's \
-               connection.",
+               connection. A room's chat goes only through the chat service: against a server that \
+               says it has none, nothing is sent and the script says it failed, where the original \
+               sends it through the friends service.",
     },
     Divergence {
         id: "CD2-full-screen-is-borderless",
@@ -77,6 +86,11 @@ pub static DIVERGENCES: &[Divergence] = &[
         says: "In full screen at a shape other than the monitor's, the picture keeps its shape in \
                the middle with black bars around it. The original client's display mode filled \
                the monitor, so the picture was stretched.",
+    },
+    Divergence {
+        id: "CD2-help-buttons-do-not-show",
+        says: "The panels have no help button: the retail client's opens a help window this \
+               client does not have.",
     },
     Divergence {
         id: "CD2-input-method-is-always-offered",

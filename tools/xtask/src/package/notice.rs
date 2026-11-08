@@ -295,7 +295,102 @@ DERETH
     if let Some(licence) = f.moltenvk_licence {
         out.push_str(&moltenvk_section("client", licence));
     }
+    out.push_str(&format!(
+        "
+
+EMPYREAN-RELAY
+
+The program empyrean-relay comes with this package, beside the client. The launcher starts it to
+play a world that speaks another wire format, and the client talks to it over this computer's own
+network. It is a separate program, which nothing else in this package links, and the MIT licence
+above does not cover it: it is under the GNU Affero General Public License, version 3 only
+(LICENSE-empyrean-relay). NOTICE-empyrean-relay.txt says where it comes from, and its source is at
+  {url}/tree/{commit}/empyrean/relay
+",
+        commit = f.commit,
+    ));
     out.push_str(&built_from_section(&own, &third));
+    out
+}
+
+/// Everything the relay's notice in a Dereth package states.
+#[derive(Debug, Clone)]
+pub struct RelayFacts<'a> {
+    /// The relay's version, which is Empyrean's.
+    pub version: &'a str,
+    pub target: &'a str,
+    pub commit: &'a str,
+    /// The public repository, without a trailing slash.
+    pub source_url: &'a str,
+    /// The version of the Dereth release the package belongs to.
+    pub dereth_version: &'a str,
+    pub crates: &'a [Crate],
+    /// The project's MIT license (the repository's top-level `LICENSE`), of the shared crates.
+    pub mit_license: &'a str,
+    /// ac1999's notice: the relay's readers and writers of its protocol are ported from it.
+    pub ac1999_notice: &'a str,
+}
+
+/// The relay's notice in a Dereth package.
+pub fn relay_notice(f: &RelayFacts) -> String {
+    let tag = super::version::Product::Dereth.tag_for(f.dereth_version);
+    let url = f.source_url.trim_end_matches('/');
+    let title = format!("empyrean-relay {} ({})", f.version, f.target);
+    let (own, third): (Vec<&Crate>, Vec<&Crate>) = f.crates.iter().partition(|c| is_own(c));
+    let line = |c: &&Crate| format!("  {} {} ({})", c.name, c.version, c.licence);
+    let mut out = format!(
+        "{title}
+{rule}
+
+empyrean-relay is the program Dereth's launcher starts to play a world that speaks another wire
+format: the client connects to it on this computer, and it connects to the world. It is part of
+Empyrean, made by the Dereth project (https://dereth.network), and comes with Dereth as a separate
+program, which the client and the launcher start and never link. It is free software, licensed
+under the GNU Affero General Public License, version 3 only ({spdx}); the license is in
+LICENSE-empyrean-relay, beside this file.
+
+
+SOURCE CODE
+
+This build was made from commit {commit} of
+  {url}
+The relay's source at exactly that commit:
+  {url}/tree/{commit}/empyrean/relay
+The source of everything it is built from, at that commit:
+  {url}/tree/{commit}
+  {url}/archive/{commit}.tar.gz
+  {url}/archive/{commit}.zip
+The release this package belongs to:
+  {url}/releases/tag/{tag}
+
+
+ACE
+
+The relay is built on crates of Empyrean, which is derived from ACE (ACEmulator),
+https://github.com/ACEmulator/ACE, copyright its contributors, licensed under the GNU Affero General
+Public License v3.0.
+
+
+AC1999
+
+{ac1999}
+
+
+THE SHARED DERETH CRATES
+
+The dereth-* crates below are the Dereth project's shared libraries, licensed MIT:
+
+{mit}",
+        rule = "=".repeat(title.len()),
+        spdx = SERVER_LICENCE,
+        commit = f.commit,
+        ac1999 = indent(f.ac1999_notice.trim_end()),
+        mit = indent(f.mit_license.trim_end()),
+    );
+    out.push_str(&built_from_section(
+        &own.iter().map(line).collect::<Vec<_>>(),
+        &third.iter().map(line).collect::<Vec<_>>(),
+    ));
     out
 }
 

@@ -116,6 +116,11 @@ publish_portals = false
 # service or in a container with no terminal.
 interactive_console = true
 
+# default: 300 (Empyrean only)
+# Stop with a failure if the world runs no pass for this many seconds, so a service
+# manager can start it again. 0 for never.
+watchdog_seconds = 300
+
 # default: true (Empyrean only)
 # A console for programs on this computer, such as the Dereth launcher: it listens on
 # loopback only, and writes its address and a new secret to admin-channel.json in the
@@ -489,7 +494,7 @@ imminent_seconds = 60
 # its status document announces the whole set to the client.
 
 # default: "eor" (Empyrean only)
-# "eor" (end of retail), "infiltration" (February 2005), or "launch" (1999, experimental). world.pack
+# "eor" (end of retail), "infiltration" (February 2005), or "launch" (1999). world.pack
 # must have been built for the same era (`empyrean-import --era <era>`); the server refuses
 # to start otherwise.
 profile = "eor"

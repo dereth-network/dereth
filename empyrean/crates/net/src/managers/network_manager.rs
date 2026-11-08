@@ -272,6 +272,13 @@ impl ServerNet {
         }
     }
 
+    /// The session's next TimeSync goes at the next chance, for a host whose clock just moved.
+    pub fn resync_soon(&mut self, session: SessionId) {
+        if let Some(s) = self.session_mut(session) {
+            s.network.resync_soon();
+        }
+    }
+
     /// A driver's `SendTo` failed: ACE's `catch (SocketException)` in `SendPacketRaw`.
     pub fn on_send_error(&mut self, session: SessionId, error: &str, now: ClockSnapshot) {
         log::error!("SendTo failed for session {session:?}: {error}");

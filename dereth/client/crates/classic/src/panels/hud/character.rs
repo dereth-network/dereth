@@ -95,6 +95,30 @@ impl AugmentationSheet {
     }
 }
 
+/// All a Launch world's page says: the load a character carries, in the 1999 client's words.
+fn launch_burden(i: &CharacterInfo) -> String {
+    if i.load < 1.0 {
+        return "\n\nYou are not overburdened at this time".to_owned();
+    }
+    let penalty = (10 - to_i32_f64((2.0 - i.load as f64).clamp(0.0, 1.0) * 10.0)) * 10;
+    format!(
+        "\n\nYou are currently overburdened by {} Burden Units.\n\n\n\nThis is reducing your Run, \
+         Jump, Melee Defense and Missile Defense skill levels by {penalty}%.\n\n\n\nTo reduce this \
+         penalty, you must either drop some of your equipment or increase your Strength.",
+        i.encumbrance - i.capacity
+    )
+}
+
+/// What the page says of the load a character carries.
+fn burden(i: &CharacterInfo) -> String {
+    if i.load >= 1.0 {
+        let penalty = (10 - to_i32_f64((2.0 - i.load as f64).clamp(0.0, 1.0) * 10.0)) * 10;
+        format!("You are currently overburdened by {} Burden Units.This is reducing your Run, Jump, Melee Defense and Missile Defense skills by {penalty}%.\n",i.encumbrance-i.capacity)
+    } else {
+        "You are not overburdened at this time.\n".to_owned()
+    }
+}
+
 fn body(i: &CharacterInfo, augmentations: &str, endurance_benefits: bool, chess: bool) -> String {
     use dereth_presentation::character::{regeneration_band, resist_band};
     let mut s = String::new();
@@ -142,12 +166,7 @@ fn body(i: &CharacterInfo, augmentations: &str, endurance_benefits: bool, chess:
         s.push_str(augmentations);
         s.push('\n');
     }
-    if i.load >= 1.0 {
-        let penalty = (10 - to_i32_f64((2.0 - i.load as f64).clamp(0.0, 1.0) * 10.0)) * 10;
-        s.push_str(&format!("You are currently overburdened by {} Burden Units.This is reducing your Run, Jump, Melee Defense and Missile Defense skills by {penalty}%.\n",i.encumbrance-i.capacity));
-    } else {
-        s.push_str("You are not overburdened at this time.\n");
-    }
+    s.push_str(&burden(i));
     s
 }
 impl Panel for Character {
@@ -163,9 +182,15 @@ impl Panel for Character {
         let mut f = PanelFrame::new(self.width, self.height);
         image(&mut f, 0x06001398, rect(0, 0, w, h), true, None);
         image(&mut f, 0x0600127b, rect(0, 0, 276, 25), true, None);
+        // Launch's page is about the character's burden, and is named for it.
+        let launch = c.game.era_ui().launch_wording;
         f.text_box(
             rect(2, 2, 272, 21),
-            "Character Information",
+            if launch {
+                "Burden"
+            } else {
+                "Character Information"
+            },
             "16-7",
             INK,
             TextAlign::Center,
@@ -183,6 +208,9 @@ impl Panel for Character {
             .character_info()
             .as_ref()
             .map(|i| {
+                if launch {
+                    return launch_burden(i);
+                }
                 let features = c.game.era_features();
                 body(
                     i,
@@ -388,6 +416,21 @@ mod tests {
             "an era with none of the systems shows no section"
         );
         let i = CharacterInfo::default();
+        assert_eq!(
+            launch_burden(&i),
+            "\n\nYou are not overburdened at this time",
+            "all a Launch page says"
+        );
+        let heavy = CharacterInfo {
+            load: 1.5,
+            encumbrance: 150,
+            capacity: 100,
+            ..Default::default()
+        };
+        let text = launch_burden(&heavy);
+        assert!(text.contains("overburdened by 50 Burden Units."), "{text}");
+        assert!(text.contains("skill levels by 50%."), "{text}");
+        assert!(text.ends_with("increase your Strength."), "{text}");
         let text = body(&i, "Strength augmentations: 2\n", true, true);
         assert!(
             text.contains("Fishing Skill: 0\n\nStrength augmentations: 2\n\nYou are not"),

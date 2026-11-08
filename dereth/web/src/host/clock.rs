@@ -57,8 +57,8 @@ mod tests {
                 background::SLOW_DOWN_IN_BACKGROUND,
                 PrefValue::Bool(on)
             ));
-            assert_eq!(pace_frame(&mut FramePaced, false), 0, "on: {on}");
-            assert_eq!(pace_frame(&mut FramePaced, true), 0, "on: {on}");
+            assert_eq!(pace_frame(&mut FramePaced, false, false), 0, "on: {on}");
+            assert_eq!(pace_frame(&mut FramePaced, true, false), 0, "on: {on}");
         }
         store::clear();
     }

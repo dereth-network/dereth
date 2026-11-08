@@ -254,11 +254,28 @@ pub(crate) fn played_with(
                 Ok(ClientMessage::PlayCharacter(p)) => c.act(Action::PlayCharacter {
                     character: p.character,
                 }),
-                // The recorded player moved itself: its body stands where it said it stood.
+                // The recorded player moved itself: its body stands where it said it stood. No
+                // placement by the server, which would finish a change of mode under way.
                 Ok(ClientMessage::Position(p)) if c.body.placed() => {
                     #[allow(clippy::cast_precision_loss)]
                     let heading = (p.heading_motion >> 24) as f32 * 360.0 / 255.0;
-                    c.body.place(p.cell, p.origin, heading);
+                    match c.model.player.and_then(|id| scene.body_mut(id)) {
+                        Some(b) => {
+                            let o =
+                                dereth_primitives::Vec3::new(p.origin.x, p.origin.y, p.origin.z);
+                            let rotation = auberean_physics::body::heading_rotation(heading);
+                            let at = dereth_primitives::Position::new(
+                                dereth_primitives::CellId(p.cell),
+                                dereth_primitives::Frame::new(o, rotation),
+                            );
+                            b.place(at, heading);
+                            b.velocity = dereth_primitives::Vec3::ZERO;
+                            b.contact = true;
+                            b.on_walkable = true;
+                            b.contact_plane = None;
+                        }
+                        None => c.body.place(p.cell, p.origin, heading),
+                    }
                 }
                 _ => {}
             }

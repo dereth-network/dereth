@@ -309,6 +309,9 @@ h2 {
 }
 p { margin: 6px 0; }
 .muted { color: var(--muted); }
+/* A count of players grows dimmer as it ages; the words on hover say how old. */
+.count-aging { opacity: 0.75; }
+.count-old { opacity: 0.5; }
 .small { font-size: 15px; }
 .warn { color: var(--high); }
 .bad { color: #ef8a7c; }

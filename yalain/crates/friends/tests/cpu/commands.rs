@@ -374,6 +374,85 @@ fn dn_squelch_ignores_a_whole_world_without_showing_it_in_the_clients_list() {
     assert!(loaded.ignores("Ann", &addr("Bob@world7")), "kept");
 }
 
+/// Squelching a channel's address asks the hub to leave it, so it is held to the character's pace of
+/// requests: past it the squelch is refused with the line, and comes through once the pace has filled.
+/// Behaviour: server.friends.channel-squelch-paced
+#[test]
+fn squelching_a_channel_past_the_pace_of_requests_is_refused_until_the_pace_fills() {
+    use yalain_federation::TOO_QUICKLY;
+    let leaves = |w: &mut World| {
+        w.frames()
+            .iter()
+            .filter(|m| {
+                matches!(
+                    m,
+                    Message::Channel {
+                        op: ChannelOp::Leave,
+                        ..
+                    }
+                )
+            })
+            .count()
+    };
+    let mut w = World::linked();
+    let ann = w.player("Ann");
+    w.on("Ann");
+    w.frames();
+    let burst = 10;
+    for i in 0..burst {
+        let cx = w.request(
+            ann,
+            Request::IgnoredAdd {
+                user: format!("tide{i}@channel"),
+            },
+        );
+        assert_eq!(answer(&w.take(ann), cx).0, Hr::OK);
+    }
+    assert_eq!(leaves(&mut w), burst);
+    assert!(w.lines_of("Ann").is_empty());
+
+    let cx = w.request(
+        ann,
+        Request::IgnoredAdd {
+            user: "last@channel".into(),
+        },
+    );
+    assert_eq!(answer(&w.take(ann), cx).0, Hr::NOT_ONLINE);
+    assert_eq!(w.lines_of("Ann"), [TOO_QUICKLY]);
+    assert_eq!(leaves(&mut w), 0);
+    assert!(!w.service.ignores("Ann", &addr("last@channel")));
+
+    w.advance(2);
+    let cx = w.request(
+        ann,
+        Request::IgnoredAdd {
+            user: "last@channel".into(),
+        },
+    );
+    assert_eq!(answer(&w.take(ann), cx).0, Hr::OK);
+    assert_eq!(leaves(&mut w), 1);
+    assert!(w.service.ignores("Ann", &addr("last@channel")));
+}
+
+/// A character off the network squelches a channel's address as any other, and asks the hub nothing.
+/// Behaviour: server.friends.channel-squelch-paced
+#[test]
+fn a_character_off_the_network_squelches_channels_without_the_hubs_pace() {
+    let mut w = World::linked();
+    let ann = w.player("Ann");
+    w.frames();
+    for i in 0..12 {
+        let cx = w.request(
+            ann,
+            Request::IgnoredAdd {
+                user: format!("tide{i}@channel"),
+            },
+        );
+        assert_eq!(answer(&w.take(ann), cx).0, Hr::OK);
+    }
+    assert!(w.frames().is_empty());
+}
+
 /// `@dn channel ...` asks the hub, given rightly and on the network, and is answered as it answers;
 /// given wrongly it is its help line, a bad name the rule for names, a gagged character the gag's
 /// line. A tell to a channel goes through the link; squelching a channel's address leaves it.

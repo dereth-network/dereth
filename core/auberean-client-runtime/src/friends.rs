@@ -709,8 +709,7 @@ impl Friends {
     /// Take everything the connection brought, in order: each answer handed on with what its
     /// request kept, each event to the handlers listening for its kind. An answer with a mark no
     /// request is waiting for is dropped.
-    // D2-12084, D2-12086, D2-12087, D2-12105, D2-12078, D2-12079, D2-12080, D2-12081, D2-12082
-    // D2-12083
+    // D2-12084, D2-12086, D2-12087, D2-12105, D2-12078, D2-12079, D2-12080
     pub fn dispatch(&mut self, now: Duration) -> Vec<Heard> {
         self.now = now;
         let mut heard = Vec::new();

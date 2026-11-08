@@ -546,10 +546,10 @@ fn read_setup(lib: &Library, start: usize, end: usize) -> Setup {
     out
 }
 
-/// The calls an item's class makes that say what its properties would, and the property each says:
-/// a weapon's damage, variance, vigor and speed; its value; a garment's and a shield's armor and
-/// delay; its least level and race.
-const CLASS_SETTERS: [(u32, &str); 11] = [
+/// The calls a template's class makes that say what its properties would, and the property each
+/// says: a weapon's damage, variance, vigor and speed; its value; a garment's and a shield's armor
+/// and delay; its least level and race; how long a creature's corpse lasts.
+const CLASS_SETTERS: [(u32, &str); 14] = [
     (0x019E_000D, "Weapon_Damage"),
     (0x019E_000E, "Weapon_Variance"),
     (0x019E_001E, "Weapon_VigorCost"),
@@ -561,6 +561,9 @@ const CLASS_SETTERS: [(u32, &str); 11] = [
     (0x019D_000C, "Item_CombatDelay"),
     (0x0172_00EA, "Usage_MinLevel"),
     (0x0172_0001, "Usage_RequiredRace"),
+    (0x00B7_004D, "NPC_BaseRotTime"),
+    (0x00B7_00C2, "NPC_MaxAcceleratedRotTime"),
+    (0x00B7_0098, "NPC_MinAcceleratedRotTime"),
 ];
 
 /// What the code of an item's class literally says of its properties, the class's own over its bases',

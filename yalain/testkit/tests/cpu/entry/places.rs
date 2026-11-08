@@ -8,7 +8,7 @@ use yalain_content::{ContentObject, ContentPack, Description, Facts, Kind, Place
 use yalain_testkit::play::server_call;
 use yalain_testkit::Harness;
 use yalain_world::graph::{Builder, Slot};
-use yalain_world::places::{function as trip, fx, LIFESTONES};
+use yalain_world::places::{function as trip, fx};
 use yalain_world::requests::function;
 use yalain_world::session::function::{MOVEMENT_FROZEN, SHOW_TEXT};
 use yalain_world::skill_use::LIFESTONE_RECALL;
@@ -157,8 +157,9 @@ fn a_portal_takes_the_player_through_portal_space_to_its_destination() {
 #[test]
 fn a_lifestone_binds_and_the_recall_takes_the_player_back_where_it_bound() {
     let mut h = Harness::new();
+    h.server.lifestone_packages.insert(0x1A00);
     h.server.content = ContentPack {
-        objects: vec![object(STONE, LIFESTONES[0], [60.0, 241.0, -44.6], None)],
+        objects: vec![object(STONE, 0x4700_113A, [60.0, 241.0, -44.6], None)],
         ..ContentPack::default()
     };
     let (a, ida) = h.player_in_world("one", "Elara");
@@ -295,14 +296,21 @@ fn a_use_in_portal_space_is_refused_as_actions_locked() {
     assert_eq!(answers, [1029], "refused: actions locked");
 }
 
-/// Every kind of lifestone binds: the Lugian's, the Tumerok's and the plain one are answered as
-/// the human's is, the use made and the player told it is bound.
+/// Every kind of lifestone binds: the Lugian's, the Tumerok's, the plain one and any other of the
+/// kind are answered as the human's is, the use made and the player told it is bound.
 /// Behaviour: server.places.every-lifestone-binds
 #[test]
 fn every_kind_of_lifestone_binds_the_player() {
-    // The human's, the Lugian's, the Tumerok's, the plain one.
-    for template in [0x4700_113A, 0x4700_113D, 0x4700_1143, 0x4700_113B] {
+    // The human's, the Lugian's, the Tumerok's, the plain one, another of the human's.
+    for template in [
+        0x4700_113A,
+        0x4700_113D,
+        0x4700_1143,
+        0x4700_113B,
+        0x4700_1138,
+    ] {
         let mut h = Harness::new();
+        h.server.lifestone_packages.insert(0x1A00);
         h.server.content = ContentPack {
             objects: vec![object(STONE, template, [60.0, 241.0, -44.6], None)],
             ..ContentPack::default()
@@ -352,8 +360,9 @@ fn every_kind_of_lifestone_binds_the_player() {
 #[test]
 fn binding_plays_the_players_behavior_for_about_a_second() {
     let mut h = Harness::new();
+    h.server.lifestone_packages.insert(0x1A00);
     h.server.content = ContentPack {
-        objects: vec![object(STONE, LIFESTONES[0], [60.0, 241.0, -44.6], None)],
+        objects: vec![object(STONE, 0x4700_113A, [60.0, 241.0, -44.6], None)],
         ..ContentPack::default()
     };
     let (a, ida) = h.player_in_world("one", "Elara");
@@ -852,6 +861,225 @@ fn a_portals_effects_are_put_on_as_the_player_comes_out() {
             .iter()
             .any(|q| q.quest == QUEST && q.status == yalain_world::quests::status::UNDERWAY),
         "the quest given"
+    );
+}
+
+/// A placed portal for heroes alone refuses anyone else, at a use and a walk-in, 10049 with flags
+/// 820 and no trip; a hero it takes.
+/// Behaviour: server.places.portal-hero-only
+#[test]
+fn a_placed_portal_for_heroes_alone_refuses_anyone_else_at_a_use_and_a_walk_in() {
+    use auberean_primitives::Vec3;
+    use yalain_testkit::play::report;
+    use yalain_world::world::IDLE_MOTION;
+    const GATEWAY: u32 = 0x4700_115B;
+    let mut h = Harness::new();
+    let to = Place {
+        cell: 0x7000_0001,
+        origin: [10.0, 10.0, 50.0],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    let mut gated = object(PORTAL, GATEWAY, [61.0, 259.2, -44.6], Some(to));
+    gated.facts.hero = true;
+    gated.description.package = 0x1A01;
+    h.server.content = ContentPack {
+        objects: vec![gated],
+        ..ContentPack::default()
+    };
+    h.server.walk_in_packages.insert(0x1A01);
+    let (a, me) = h.player_in_world("one", "Elara");
+    h.run(10);
+    let from = h.bots[a].inbox.len();
+    let asks = server_call(function::USE, &[use_of(PORTAL, me)]);
+    h.bots[a].send(true, queue::WEENIE, &asks);
+    h.run(10);
+    let answers = use_answers(&h, a, from);
+    assert_eq!(answers.len(), 1, "answered once");
+    assert_eq!((answers[0].0, answers[0].1), (10_049, 820));
+    assert!(!calls(&h, a, from).contains(&trip::ENTER_PORTAL_SPACE));
+    let cell = h.server.players.values().next().expect("in").position.cell;
+    let at = |x: f32, y: f32| report(cell, Vec3::new(x, y, -44.6), 0, IDLE_MOTION, 0);
+    let from = h.bots[a].inbox.len();
+    h.bots[a].send(true, queue::WEENIE, &at(61.0, 258.2));
+    h.run(10);
+    h.bots[a].send(true, queue::WEENIE, &at(61.0, 258.21));
+    h.run(10);
+    let answers = use_answers(&h, a, from);
+    assert_eq!(answers.len(), 1, "a walk-in is answered once");
+    assert_eq!((answers[0].0, answers[0].1), (10_049, 820));
+    assert!(!calls(&h, a, from).contains(&trip::ENTER_PORTAL_SPACE));
+    h.run(100);
+    for p in h.server.players.values_mut() {
+        yalain_world::focus::set_hero_kept(&mut p.qualities, true);
+    }
+    let from = h.bots[a].inbox.len();
+    h.bots[a].send(true, queue::WEENIE, &asks);
+    h.run(40);
+    assert!(
+        calls(&h, a, from).contains(&trip::ENTER_PORTAL_SPACE),
+        "a hero is taken"
+    );
+}
+
+/// A placed portal of one kingdom refuses a player of no kingdom or another, 10011 with flags 820
+/// and no trip; one of that kingdom it takes.
+/// Behaviour: server.places.portal-kingdom
+#[test]
+fn a_placed_portal_of_a_kingdom_refuses_anyone_not_of_it() {
+    use auberean_primitives::Vec3;
+    use yalain_testkit::play::report;
+    use yalain_world::kingdoms::{kingdom, set_kingdom};
+    use yalain_world::world::IDLE_MOTION;
+    const GATEWAY: u32 = 0x4700_115B;
+    let mut h = Harness::new();
+    let to = Place {
+        cell: 0x7000_0001,
+        origin: [10.0, 10.0, 50.0],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    let mut gated = object(PORTAL, GATEWAY, [61.0, 259.2, -44.6], Some(to));
+    gated.facts.kingdom = Some(kingdom::ORDER);
+    h.server.content = ContentPack {
+        objects: vec![gated],
+        ..ContentPack::default()
+    };
+    let (a, me) = h.player_in_world("one", "Elara");
+    h.run(10);
+    let asks = server_call(function::USE, &[use_of(PORTAL, me)]);
+    for (who, k) in [("no kingdom", None), ("another", Some(kingdom::SHADOW))] {
+        if let Some(k) = k {
+            for p in h.server.players.values_mut() {
+                set_kingdom(&mut p.qualities, k);
+            }
+        }
+        let from = h.bots[a].inbox.len();
+        h.bots[a].send(true, queue::WEENIE, &asks);
+        h.run(10);
+        let answers = use_answers(&h, a, from);
+        assert_eq!(answers.len(), 1, "{who}: answered once");
+        assert_eq!((answers[0].0, answers[0].1), (10_011, 820), "{who}");
+        assert!(
+            !calls(&h, a, from).contains(&trip::ENTER_PORTAL_SPACE),
+            "{who}: no trip"
+        );
+    }
+    // One that leads nowhere keeps the same player out the same way.
+    let mut nowhere = object(PORTAL, GATEWAY, [61.0, 259.2, -44.6], None);
+    nowhere.facts.kingdom = Some(kingdom::ORDER);
+    let saved = std::mem::replace(&mut h.server.content.objects, vec![nowhere]);
+    let from = h.bots[a].inbox.len();
+    h.bots[a].send(true, queue::WEENIE, &asks);
+    h.run(10);
+    let answers = use_answers(&h, a, from);
+    assert_eq!(answers.len(), 1, "leading nowhere: answered once");
+    assert_eq!(
+        (answers[0].0, answers[0].1),
+        (10_011, 820),
+        "leading nowhere"
+    );
+    h.server.content.objects = saved;
+    for p in h.server.players.values_mut() {
+        set_kingdom(&mut p.qualities, kingdom::ORDER);
+    }
+    let cell = h.server.players.values().next().expect("in").position.cell;
+    let at = report(cell, Vec3::new(61.0, 258.2, -44.6), 0, IDLE_MOTION, 0);
+    h.bots[a].send(true, queue::WEENIE, &at);
+    h.run(10);
+    let from = h.bots[a].inbox.len();
+    h.bots[a].send(true, queue::WEENIE, &asks);
+    h.run(40);
+    assert!(
+        calls(&h, a, from).contains(&trip::ENTER_PORTAL_SPACE),
+        "one of that kingdom is taken"
+    );
+}
+
+/// A gate on a quest had in any way lets through a player with it failed, completed or under way;
+/// one who never had it hears 10019, one who cancelled it 10020.
+/// Behaviour: server.places.portal-quest-had
+#[test]
+fn a_gate_on_a_quest_had_lets_failed_completed_and_under_way_through() {
+    use yalain_world::item_use::quest_refusal;
+    use yalain_world::quests::status;
+    const QUEST: u32 = 0x4000_00C5;
+    let had = |s: u32| {
+        vec![yalain_world::state::QuestState {
+            quest: QUEST,
+            status: s,
+            phase: 0,
+            started: 0,
+            updated: 0,
+        }]
+    };
+    let at = |held: &[yalain_world::state::QuestState]| {
+        quest_refusal(held, QUEST, yalain_content::QuestGate::HAD, 0.0, 0)
+    };
+    assert_eq!(at(&[]), Some(10_019));
+    assert_eq!(at(&had(status::UNDERWAY)), None);
+    assert_eq!(at(&had(status::FAILED)), None);
+    assert_eq!(at(&had(status::COMPLETED)), None);
+    assert_eq!(at(&had(status::CANCELLED)), Some(10_020));
+}
+
+/// A placed portal's least level refuses a player below it, as a quest does: a use at once with no
+/// walk and no trip, a walk-in, each 10009 with flags 820; at that level it takes the player.
+/// Behaviour: server.places.portal-least-level
+#[test]
+fn a_placed_portal_refuses_a_player_below_its_least_level_at_a_use_and_a_walk_in() {
+    use auberean_primitives::Vec3;
+    use yalain_testkit::play::report;
+    use yalain_world::world::IDLE_MOTION;
+    const GATEWAY: u32 = 0x4700_115B;
+    let mut h = Harness::new();
+    let to = Place {
+        cell: 0x7000_0001,
+        origin: [10.0, 10.0, 50.0],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    let mut gated = object(PORTAL, GATEWAY, [61.0, 259.2, -44.6], Some(to));
+    gated.facts.min_level = Some(6);
+    gated.description.package = 0x1A01;
+    h.server.content = ContentPack {
+        objects: vec![gated],
+        ..ContentPack::default()
+    };
+    h.server.walk_in_packages.insert(0x1A01);
+    let (a, me) = h.player_in_world("one", "Elara");
+    h.run(10);
+    for p in h.server.players.values_mut() {
+        yalain_world::quals::set_int(&mut p.qualities, 302, 5);
+    }
+    let refused = |h: &Harness, from: usize, what: &str| {
+        let answers = use_answers(h, a, from);
+        assert_eq!(answers.len(), 1, "{what}: answered once");
+        assert_eq!((answers[0].0, answers[0].1), (10_009, 820), "{what}");
+        assert!(
+            !calls(h, a, from).contains(&trip::ENTER_PORTAL_SPACE),
+            "{what}: no trip"
+        );
+    };
+    let from = h.bots[a].inbox.len();
+    let asks = server_call(function::USE, &[use_of(PORTAL, me)]);
+    h.bots[a].send(true, queue::WEENIE, &asks);
+    h.run(10);
+    refused(&h, from, "a use");
+    let cell = h.server.players.values().next().expect("in").position.cell;
+    let at = |x: f32, y: f32| report(cell, Vec3::new(x, y, -44.6), 0, IDLE_MOTION, 0);
+    let from = h.bots[a].inbox.len();
+    h.bots[a].send(true, queue::WEENIE, &at(61.0, 258.2));
+    h.run(10);
+    h.bots[a].send(true, queue::WEENIE, &at(61.0, 258.21));
+    h.run(10);
+    refused(&h, from, "a walk-in");
+    for p in h.server.players.values_mut() {
+        yalain_world::quals::set_int(&mut p.qualities, 302, 6);
+    }
+    let from = h.bots[a].inbox.len();
+    h.bots[a].send(true, queue::WEENIE, &asks);
+    h.run(60);
+    assert!(
+        calls(&h, a, from).contains(&trip::ENTER_PORTAL_SPACE),
+        "at its level, the trip"
     );
 }
 

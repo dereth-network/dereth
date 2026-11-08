@@ -1256,6 +1256,55 @@ fn a_weapon_row_names_the_template_of_a_creatures_weapon_and_must_name_one_insta
 }
 
 #[test]
+fn a_pet_row_compiles_to_a_kind_and_must_name_an_installed_template() {
+    let mut files = fixture();
+    files.insert(
+        "town/server/pets.toml".into(),
+        "[[pet]]\neffect = 0x7000092A\ntemplate = 0x4700115B\nflags = 1096\ncount = 4\nstays = true\n\
+         health = [{ level = 10, health = 200 }, { level = 20, health = 400 }]\n\
+         per_level_squared = 0.03\nlands = 0.5\nswing = 2\narea = 10.0\nno_corpse = true\n\
+         tends = { whom = \"owners-pets\", effect = 0x70000772, every = 30.0, below = 0.75 }\n\
+         hire = { class = 0x100000, seconds = 3600.0, level = 20.0 }\n\
+         prov = { from = \"authored\" }\n\n\
+         [[pet_limit]]\nskill = 662\nlimits = [{ most = 2, classes = 0x800 }, { most = 1, classes = 0x4000 }]\n\
+         prov = { from = \"authored\" }\n"
+            .into(),
+    );
+    assert_eq!(check(&files), Vec::new());
+    let merged = merge(&read(&files).unwrap()).unwrap();
+    let t = compile(&merged, &Fake::new()).unwrap();
+    let k = t.pet_kinds.get(&0x7000_092A).expect("a kind");
+    assert_eq!(k.template, 0x4700_115B);
+    assert_eq!((k.flags, k.made, k.stays), (1096, 4, true));
+    assert_eq!(k.health, vec![(10, 200), (20, 400)]);
+    assert_eq!(
+        (k.per_level_squared, k.lands, k.hits, k.area),
+        (0.03, 0.5, 2, 10.0)
+    );
+    assert_eq!(k.variance, 0.35, "the server's own, left out");
+    assert_eq!(k.corpse_after, None);
+    assert!(k.tends.is_some() && k.hire.is_some());
+    assert_eq!(t.pet_limits.get(&662), Some(&vec![(2, 0x800), (1, 0x4000)]));
+    // A template the install lacks, and rows that read wrong.
+    files.insert(
+        "town/server/pets.toml".into(),
+        "[[pet]]\neffect = 1\ntemplate = 0x47009999\nprov = { from = \"authored\" }\n".into(),
+    );
+    let merged = merge(&read(&files).unwrap()).unwrap();
+    let problems = compile(&merged, &Fake::new()).unwrap_err();
+    assert!(problems[0].to_string().contains("47009999"), "{problems:?}");
+    for bad in [
+        "[[pet]]\neffect = 1\ntemplate = 0x4700115B\ncount = 0\nprov = { from = \"authored\" }\n",
+        "[[pet]]\neffect = 1\ntemplate = 0x4700115B\nlands = 2.0\nprov = { from = \"authored\" }\n",
+        "[[pet]]\neffect = 1\ntemplate = 0x4700115B\nhealth = [{ level = 9, health = 1 }, { level = 2, health = 1 }]\nprov = { from = \"authored\" }\n",
+        "[[pet_limit]]\nskill = 1\nlimits = []\nprov = { from = \"authored\" }\n",
+    ] {
+        files.insert("town/server/pets.toml".into(), bad.into());
+        assert!(read(&files).is_err(), "{bad}");
+    }
+}
+
+#[test]
 fn an_area_row_sets_the_conflict_its_landblock_allows_and_peace_is_the_default() {
     use yalain_content::Conflict;
     let mut files = fixture();
@@ -1595,6 +1644,103 @@ fn an_objects_own_scale_is_served_in_place_of_its_templates() {
     assert_ne!(own, Some(2.5));
     assert_eq!(scale_with("scale = 2.5\n"), (Some(2.5), false));
     assert_eq!(scale_with("scale = 0.0\n"), (own, true), "left as it was");
+}
+
+/// A placed object's kingdom and heroes alone read and compile, the content's text keeps them, and a
+/// quest gate can ask for a quest had in any way; a person can hold none of them, and a kingdom is
+/// one of the three.
+/// Behaviour: server.places.portal-requirement-rows
+#[test]
+fn a_static_objects_kingdom_heroes_and_had_quest_are_read_and_compiled() {
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/landblocks/77B7.toml",
+        "to = \"inn\"\nprov = { from = \"authored\" }",
+        "to = \"inn\"\nhero = true\nkingdom = 2\nrequires = { quest = 0x40000088, had = true }\nprov = { from = \"authored\" }",
+    );
+    assert_eq!(check(&files), Vec::new());
+    let merged = merge(&read(&files).unwrap()).unwrap();
+    let t = compile(&merged, &Fake::new()).unwrap();
+    assert_eq!(
+        yalain_content::ContentPack::from_text(&t.content.to_text()).unwrap(),
+        t.content,
+        "the content's text keeps them"
+    );
+    let o = t
+        .content
+        .objects
+        .iter()
+        .find(|o| o.object == Some(0x4077_B700_0000_0001))
+        .unwrap();
+    assert!(o.facts.hero);
+    assert_eq!(o.facts.kingdom, Some(2));
+    assert_eq!(
+        o.gate,
+        Some(yalain_content::QuestGate {
+            quest: 0x4000_0088,
+            status: yalain_content::QuestGate::HAD,
+        })
+    );
+    edit(
+        &mut files,
+        "town/server/landblocks/77B7.toml",
+        "kingdom = 2",
+        "kingdom = 3",
+    );
+    assert!(check(&files)
+        .iter()
+        .any(|p| p.to_string().contains("kingdom: 1 the Shadow")));
+}
+
+/// A person keeps no one out by a kingdom or heroes alone: it is talked to.
+/// Behaviour: server.places.portal-requirement-rows-person
+#[test]
+fn a_person_holds_no_kingdom_or_heroes_alone() {
+    let mut files = fixture();
+    let person = files
+        .iter()
+        .find(|(_, v)| v.contains("kind = \"npc\""))
+        .map(|(k, _)| k.clone())
+        .expect("a person in the fixture");
+    let text = files.get_mut(&person).unwrap();
+    *text = text.replacen("kind = \"npc\"", "kind = \"npc\"\nhero = true", 1);
+    assert!(check(&files)
+        .iter()
+        .any(|p| p.to_string().contains("hero, kingdom: a person")));
+}
+
+/// A placed object's least level reads and compiles over its template's, and the content's text
+/// keeps it; left out, the object has its template's.
+/// Behaviour: server.places.portal-least-level-row
+#[test]
+fn a_static_objects_least_level_is_read_and_compiled() {
+    let mut files = fixture();
+    let level = |files: &Files| {
+        let merged = merge(&read(files).unwrap()).unwrap();
+        let t = compile(&merged, &Fake::new()).unwrap();
+        assert_eq!(
+            yalain_content::ContentPack::from_text(&t.content.to_text()).unwrap(),
+            t.content,
+            "the content's text keeps it"
+        );
+        t.content
+            .objects
+            .iter()
+            .find(|o| o.object == Some(0x4077_B700_0000_0001))
+            .unwrap()
+            .facts
+            .min_level
+    };
+    assert_eq!(level(&files), None);
+    edit(
+        &mut files,
+        "town/server/landblocks/77B7.toml",
+        "to = \"inn\"\nprov = { from = \"authored\" }",
+        "to = \"inn\"\nmin_level = 6\nprov = { from = \"authored\" }",
+    );
+    assert_eq!(check(&files), Vec::new());
+    assert_eq!(level(&files), Some(6));
 }
 
 #[test]

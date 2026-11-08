@@ -99,6 +99,8 @@ struct Sent {
     /// The identity key of the address it names.
     key: String,
     announce: bool,
+    /// When it went.
+    at: f64,
 }
 
 /// The directory's state on the world.
@@ -412,9 +414,36 @@ impl Federation {
         d.pace = None;
     }
 
-    /// The paces that have filled again are forgotten.
-    pub(crate) fn directory_settle(&mut self, t: f64) {
-        self.directory.paces.retain(|_, b| !b.full_at(t));
+    /// The paces that have filled again are forgotten; what the hub has not answered in time is
+    /// owed again.
+    pub(crate) fn directory_settle(&mut self, t: f64, timeout: f64) {
+        let d = &mut self.directory;
+        d.paces.retain(|_, b| !b.full_at(t));
+        let late: Vec<String> = d
+            .sent
+            .iter()
+            .filter(|(_, s)| t - s.at >= timeout)
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in late {
+            let Some(sent) = d.sent.remove(&id) else {
+                continue;
+            };
+            let Some(key) = sent.name else {
+                d.removing.remove(&sent.key);
+                continue;
+            };
+            if d.latest.get(&key).is_some_and(|l| *l == id) {
+                d.latest.remove(&key);
+                d.due(&key, t, sent.announce);
+            }
+        }
+    }
+
+    /// How many listings the link holds that the hub has yet to answer.
+    #[must_use]
+    pub fn listings_unanswered(&self) -> usize {
+        self.directory.sent.len()
     }
 
     /// Whether the hub's pace for this world's listings allows one more now.
@@ -455,6 +484,7 @@ impl Federation {
                 name: None,
                 key,
                 announce: false,
+                at: t,
             },
         );
         Some(
@@ -505,6 +535,7 @@ impl Federation {
                     name: Some(key),
                     key: who.key(),
                     announce,
+                    at: t,
                 },
             );
             return Some(
@@ -604,6 +635,13 @@ impl Federation {
             return;
         }
         let key = who.name().to_lowercase();
+        // The world keeps what comes of this, so it takes it only of a character it knows.
+        if !self.on.contains_key(&key)
+            && !self.directory.entries.contains_key(&key)
+            && !self.directory.removals.contains_key(&who.key())
+        {
+            return;
+        }
         let name = self
             .on_name(&key)
             .map_or_else(|| who.name().to_owned(), str::to_owned);

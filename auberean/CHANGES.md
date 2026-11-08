@@ -7,6 +7,23 @@ not how it was done.
 
 ## Unreleased
 
+## 0.1.5 (2026-11-07)
+- Screenshots are taken at full detail, far objects included.
+- With an input method on, the text being composed shows in the game.
+- Your own particles no longer show in first person; far flames stop with their objects.
+- Fixed other players staying on the ground when they jump.
+- Examining a recipe shows its time and difficulty lines again.
+- Fixed an effect's bar running out too slowly after a missed pulse.
+- Fixed screenshots overwriting the ones from earlier sessions.
+- Fixed the landing animation not playing over floors and objects.
+- Fixed other players and creatures hanging in the air after a long move.
+- Fixed rooms losing their lights in copies of a shared dungeon.
+- Fixed the client staying on a server that had restarted.
+- The panels no longer show help buttons that did nothing.
+
+## 0.1.4 (2026-11-05)
+
+
 ## 0.1.4 (2026-11-05)
 
 - Fixed a crash when the graphics device goes away, as when a driver resets.

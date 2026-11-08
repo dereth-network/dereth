@@ -93,12 +93,25 @@ fn run(sent: &[(u16, Vec<u8>)], link: Link, limit: f64) -> (Run, Endpoint) {
 }
 
 /// [`run`], the server's large messages at `pace`.
-fn run_at(pace: Pace, sent: &[(u16, Vec<u8>)], mut link: Link, limit: f64) -> (Run, Endpoint) {
+fn run_at(pace: Pace, sent: &[(u16, Vec<u8>)], link: Link, limit: f64) -> (Run, Endpoint) {
+    let kinds = vec![0x23; sent.len()];
+    run_kinds(pace, sent, &kinds, link, limit)
+}
+
+/// [`run_at`], each message of this ordering kind.
+fn run_kinds(
+    pace: Pace,
+    sent: &[(u16, Vec<u8>)],
+    kinds: &[u8],
+    mut link: Link,
+    limit: f64,
+) -> (Run, Endpoint) {
     let mut now = LocalTime(1.0);
     let (mut server, mut client) = pair(now);
     server.pace = pace;
     for (i, (queue, m)) in sent.iter().enumerate() {
-        server.send_blob(*queue, 0x23F1_0000_0000_0000 | i as u64, m.clone());
+        let id = u64::from(kinds[i]) << 56 | 0x00F1_0000_0000_0000 | i as u64;
+        server.send_blob(*queue, id, m.clone());
     }
     let mut r = Run::default();
     let mut asked = false;
@@ -291,6 +304,47 @@ fn a_large_message_holds_back_only_the_messages_on_its_own_queue() {
     assert!(server.pace.is_empty());
 }
 
+/// On one queue, a small message of another ordering kind goes past a large one at once, in the order
+/// the rest of its kind has; one of the large message's own kind waits behind it.
+/// Behaviour: server.net.large-message-holds-only-its-kind
+#[test]
+fn a_large_message_holds_back_only_the_messages_of_its_kind_on_its_queue() {
+    const PRIVATE: u8 = 0x01;
+    const VISUAL: u8 = 0x02;
+    const UNORDERED: u8 = 0x03;
+    const EPHEMERAL: u8 = 0x83;
+    let mut rng = Rng(0x5EED_1234_ABCD_0007);
+    let large = rng.bytes(300_000);
+    let (own, seen, also, moved) = (rng.bytes(20), rng.bytes(30), rng.bytes(40), rng.bytes(50));
+    let link = Link {
+        loss: 0.0,
+        buffer: usize::MAX,
+        outage: (0.0, 0.0),
+        rng: Rng(1),
+    };
+    let (r, server) = run_kinds(
+        Pace::default(),
+        &[
+            (1, large.clone()),
+            (1, own.clone()),
+            (1, seen.clone()),
+            (1, also.clone()),
+            (1, moved.clone()),
+        ],
+        &[PRIVATE, PRIVATE, VISUAL, UNORDERED, EPHEMERAL],
+        link,
+        60.0,
+    );
+    let got = &r.got[&1];
+    let at = |m: &Vec<u8>| got.iter().find(|(_, x)| x == m).expect("arrived").0;
+    assert!(at(&large) > 3.0, "the large one at its pace");
+    for other in [&seen, &also, &moved] {
+        assert!(at(other) < 1.1, "{:.2} s", at(other));
+    }
+    assert!(at(&own) >= at(&large), "its own kind waits");
+    assert!(server.pace.is_empty());
+}
+
 /// A host's highest rate: a seven-megabyte message over the same lossy link, with the link down
 /// for twenty seconds on the way, arrives whole in a fraction of the two minutes. No interval
 /// carries more than the rate's budget of first sends; however fast the server goes it never has
@@ -369,8 +423,8 @@ fn a_large_message_at_the_lowest_rate_still_arrives() {
 #[test]
 fn a_higher_rate_lets_no_large_message_skip_the_pace() {
     let pace = Pace::at_rate(MAX_BYTES_PER_SECOND);
-    assert!(pace.takes(DATABASE, BYTES_PER_INTERVAL + 1));
-    assert!(!pace.takes(DATABASE, BYTES_PER_INTERVAL));
+    assert!(pace.takes(DATABASE, 0, BYTES_PER_INTERVAL + 1));
+    assert!(!pace.takes(DATABASE, 0, BYTES_PER_INTERVAL));
 }
 
 /// The rates a host may set: the 2013 servers' and the bounds, and nothing beyond them.

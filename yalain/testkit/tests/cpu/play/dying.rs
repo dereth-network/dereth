@@ -1083,6 +1083,7 @@ fn walking_to_a_corpse(h: &mut Harness, b: usize, me: u64, world: yalain_net::Co
         creature: yalain_testkit::TEST_CREATURE,
         butchered: false,
         killer_level: 0,
+        ..Default::default()
     });
     h.server.things.insert(corpse);
     h.bots[b].send(

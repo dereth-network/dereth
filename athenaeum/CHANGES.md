@@ -8,6 +8,9 @@ see, not how it was done.
 
 ## Unreleased
 
+## 0.1.4 (2026-11-07)
+- New `pets` command: see and change a world's kinds of pet.
+
 ## 0.1.3 (2026-11-05)
 
 - New clearing tool keeps a spot free of trees, rocks and grass.

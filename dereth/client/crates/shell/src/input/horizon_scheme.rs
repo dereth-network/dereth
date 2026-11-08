@@ -568,6 +568,26 @@ mod tests {
         }
     }
 
+    /// Behaviour: keymap.mac.only-horizons-radar-keys-are-chords-the-system-keeps
+    #[test]
+    fn only_the_radar_keys_are_chords_a_mac_keeps_for_command() {
+        use dereth_input::labels::KEPT_WITH_COMMAND;
+        let kept: Vec<_> = HORIZON_KEYS
+            .iter()
+            .filter(|(scan, meta, _)| meta & CTRL != 0 && KEPT_WITH_COMMAND.contains(scan))
+            .map(|(_, _, name)| *name)
+            .collect();
+        assert_eq!(
+            kept,
+            ["SelectionNextCompassItem", "SelectionPreviousCompassItem"]
+        );
+        // The classic interface's only default chord of Control is Ctrl-R.
+        let classic: Vec<_> = dereth_classic_ui::default_keys::default_keys()
+            .filter(|(scan, meta, _)| meta & CTRL != 0 && KEPT_WITH_COMMAND.contains(scan))
+            .collect();
+        assert_eq!(classic, []);
+    }
+
     #[test]
     fn every_key_of_the_layout_names_a_known_action_once() {
         let mut keys = std::collections::BTreeSet::new();

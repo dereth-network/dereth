@@ -512,3 +512,73 @@ fn a_gift_from_a_person_is_called_the_item_by_the_clients_line() {
         .collect();
     assert!(named.contains(&ITEM), "{named:x?}");
 }
+
+/// Our client takes a sale's time running out as its scripts read it: told as it runs out, then on
+/// its next entry reminded, it marks it expired and forgets its reminder. Its scripts stop nowhere on
+/// the way.
+/// Behaviour: server.market.a-sale-past-its-time-is-not-sold
+#[test]
+fn our_clients_scripts_read_a_sale_running_out_of_time() {
+    use yalain_world::market::{self, Broker, Consignment};
+    let mut s = InProcess::new();
+    ok(play::character_list(&mut s));
+    let me = ok(play::create(&mut s, "Aubrey"));
+    ok(play::enter(&mut s, me));
+    ok(play::see(&mut s, &[authored::GUARD]));
+    let keeper = play::find(s.client_ref(), authored::GUARD).expect("the guard");
+    // The guard keeps a sale for it, as a broker would.
+    s.h.server.brokers.insert(
+        authored::GUARD,
+        Broker {
+            catalog: 0x6F00_1503,
+            location: (0x0D3C_90C4, 0x2500_0CE6),
+        },
+    );
+    let item =
+        yalain_world::inventory::make_item(&mut s.h.server, authored::SWORD, 1, 0).expect("made");
+    assert!(market::ensure(&mut s.h.server));
+    let now = s.h.server.game_now;
+    s.h.server.market.list.push(Consignment {
+        sale: 1,
+        owner: me,
+        keeper: keeper.id,
+        catalog: 0x6F00_1503,
+        store: 0x6F00_150B,
+        item,
+        template: authored::SWORD,
+        price: 100.0,
+        offered: 1,
+        sold: 0,
+        entered: now - market::ON_SALE_SECONDS + market::EXPIRY_LOOK / 2.0,
+    });
+    ok(play::log_off(&mut s));
+    let stops = s.client_ref().script_stops().len();
+    ok(play::enter(&mut s, me));
+    play::wait(&mut s, 2.0);
+    s.h.server.market.expiry_look = Some(s.h.server.game_now);
+    let w = *s.h.server.players.keys().next().expect("in the world");
+    let told = s.h.net.game_time(s.h.now);
+    play::wait(&mut s, market::EXPIRY_LOOK + 2.0);
+    assert!(s.h.server.market.list[0].expired(s.h.server.game_now));
+    assert!(s.h.server.market.expiry_look.is_some_and(|t| t > told));
+    assert!(s.h.server.players.contains_key(&w), "still in the world");
+    // Its scripts forget a reminder a day past its removal, and say so when asked.
+    ok(play::log_off(&mut s));
+    ok(play::enter(&mut s, me));
+    play::wait(&mut s, 2.0);
+    s.client().act(auberean_client_sdk::Action::Say {
+        text: "/consignments".into(),
+    });
+    play::wait(&mut s, 0.5);
+    assert_eq!(
+        s.client_ref().shown.last().map(|l| l.text.string_id),
+        Some(0xD048_7DAD),
+        "none left to remind of"
+    );
+    assert_eq!(
+        s.client_ref().script_stops().len(),
+        stops,
+        "{:#?}",
+        s.client_ref().script_stops()
+    );
+}

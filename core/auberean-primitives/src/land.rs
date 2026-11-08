@@ -16,7 +16,7 @@ pub const CELLS_PER_BLOCK_SIDE: u32 = 8;
 /// that stands for the whole landblock.
 const FIRST_LAND_CELL: u32 = 1;
 const LAST_LAND_CELL: u32 = CELLS_PER_BLOCK_SIDE * CELLS_PER_BLOCK_SIDE;
-const FIRST_INTERIOR_CELL: u32 = 0x0100;
+pub const FIRST_INTERIOR_CELL: u32 = 0x0100;
 const LAST_INTERIOR_CELL: u32 = 0xFFFD;
 const BLOCK_CELL: u32 = 0xFFFF;
 

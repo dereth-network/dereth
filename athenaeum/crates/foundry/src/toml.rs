@@ -201,8 +201,18 @@ pub fn object(o: &Object, to: Option<&str>, p: &Prov) -> Table {
             Gate::Done => g.insert("done", Value::from(true)),
             Gate::UnderWay => g.insert("underway", Value::from(true)),
             Gate::Phase(n) => g.insert("phase", Value::from(i64::from(n))),
+            Gate::Had => g.insert("had", Value::from(true)),
         };
         put(&mut t, "requires", Value::InlineTable(g));
+    }
+    if let Some(level) = o.min_level {
+        put(&mut t, "min_level", Value::from(i64::from(level)));
+    }
+    if o.hero {
+        put(&mut t, "hero", Value::from(true));
+    }
+    if let Some(kingdom) = o.kingdom {
+        put(&mut t, "kingdom", Value::from(i64::from(kingdom)));
     }
     if o.recall {
         put(&mut t, "recall", Value::from(true));
@@ -352,6 +362,91 @@ pub fn clearing(c: &Clearing, p: &Prov) -> Table {
     if let Some(h) = c.heading {
         put(&mut t, "heading", number(h));
     }
+    put(&mut t, "prov", prov(p));
+    t
+}
+
+/// `[[pet]]`.
+#[must_use]
+pub fn pet(r: &yalain_world_db::rows::Pet, p: &Prov) -> Table {
+    let mut t = Table::new();
+    put(&mut t, "effect", hex(r.effect));
+    put(&mut t, "template", hex(r.template));
+    put(&mut t, "flags", Value::from(i64::from(r.flags)));
+    if r.stays {
+        put(&mut t, "stays", Value::from(true));
+    }
+    if r.count != 1 {
+        put(&mut t, "count", Value::from(i64::from(r.count)));
+    }
+    if !r.health.is_empty() {
+        let mut a = Array::new();
+        for (level, health) in &r.health {
+            let mut i = toml_edit::InlineTable::new();
+            i.insert("level", Value::from(i64::from(*level)));
+            i.insert("health", Value::from(i64::from(*health)));
+            a.push(Value::InlineTable(i));
+        }
+        put(&mut t, "health", Value::Array(a));
+    }
+    for (name, v) in [
+        ("per_level_squared", r.per_level_squared),
+        ("variance", r.variance),
+        ("lands", r.lands),
+        ("area", r.area),
+        ("corpse_after", r.corpse_after),
+    ] {
+        if let Some(v) = v {
+            put(&mut t, name, number(v));
+        }
+    }
+    if let Some(v) = r.swing {
+        put(&mut t, "swing", Value::from(i64::from(v)));
+    }
+    for (name, on) in [
+        ("taunts", r.taunts),
+        ("outdoors_only", r.outdoors_only),
+        ("no_corpse", r.no_corpse),
+    ] {
+        if on {
+            put(&mut t, name, Value::from(true));
+        }
+    }
+    if let Some(v) = r.tends {
+        let mut i = toml_edit::InlineTable::new();
+        i.insert(
+            "whom",
+            Value::from(if v.pets { "owners-pets" } else { "owner" }),
+        );
+        i.insert("effect", hex(v.effect));
+        i.insert("every", number(v.every));
+        i.insert("below", number(v.below));
+        put(&mut t, "tends", Value::InlineTable(i));
+    }
+    if let Some(v) = r.hire {
+        let mut i = toml_edit::InlineTable::new();
+        i.insert("class", hex(v.class));
+        i.insert("seconds", number(v.seconds));
+        i.insert("level", number(v.level));
+        put(&mut t, "hire", Value::InlineTable(i));
+    }
+    put(&mut t, "prov", prov(p));
+    t
+}
+
+/// `[[pet_limit]]`.
+#[must_use]
+pub fn pet_limit(r: &yalain_world_db::rows::PetLimit, p: &Prov) -> Table {
+    let mut t = Table::new();
+    put(&mut t, "skill", Value::from(i64::from(r.skill)));
+    let mut a = Array::new();
+    for (most, classes) in &r.limits {
+        let mut i = toml_edit::InlineTable::new();
+        i.insert("most", Value::from(i64::from(*most)));
+        i.insert("classes", hex(*classes));
+        a.push(Value::InlineTable(i));
+    }
+    put(&mut t, "limits", Value::Array(a));
     put(&mut t, "prov", prov(p));
     t
 }

@@ -60,8 +60,8 @@ impl Product {
 
     /// The packages its release ships, each with the lock file of the workspace it is built in
     /// ([`LOCKS`]): what a change must reach for the product to be released. Dereth's are the
-    /// client and the web client, whose one release carries both games' modules and the launcher's
-    /// at Dereth's version; Auberean's is its client, Yalain's its program. The ACE mod is not built by cargo; Lyceum and Athenaeum are
+    /// client, the relay beside it and the web client, whose one release carries both games' modules
+    /// and the launcher's at Dereth's version; Auberean's is its client, Yalain's its program. The ACE mod is not built by cargo; Lyceum and Athenaeum are
     /// released for their own folders' changes ([`products_of`]), and the client's drawing each is
     /// built on (and, for Athenaeum, the server and client it carries) reaches it with its next
     /// release.
@@ -76,6 +76,7 @@ impl Product {
             Self::Launcher => &[("launcher/Cargo.lock", "dereth-launcher")],
             Self::Dereth => &[
                 ("Cargo.lock", "dereth-client"),
+                ("Cargo.lock", "empyrean-relay"),
                 ("Cargo.lock", "dereth-web"),
                 ("Cargo.lock", "dereth-web-front"),
                 ("Cargo.lock", "auberean-web"),

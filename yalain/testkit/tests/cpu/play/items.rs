@@ -1284,3 +1284,37 @@ fn a_tessera_used_gives_a_hero_skill_credit_and_is_spent() {
     assert_eq!(h.server.players[&world].play.hero_credits, 39);
     assert!(held(&h, world, TESSERA).is_none(), "spent");
 }
+
+/// An item that plays a Tessera's behavior and is no Tessera gives no hero skill credit: only a
+/// Tessera's kind does.
+/// Behaviour: server.items.tessera-gives-a-hero-skill-credit
+#[test]
+fn an_item_playing_a_tesseras_behavior_gives_no_hero_skill_credit() {
+    const ROCKET: u32 = 0x4700_08EE;
+    const TESSERA_PACKAGE: u32 = 0x1B33;
+    const ROCKET_PACKAGE: u32 = 0x1B34;
+    const EFFECT: u32 = 0x6F00_2255;
+    let mut h = world();
+    let mut p = Props::default();
+    p.set("Item_IsDestroyOnUse", Prop::Bool(true)).set(
+        yalain_world::usable::interactions::USER_BEHAVIOR,
+        Prop::Word(item_use::TESSERA_BEHAVIOR),
+    );
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(ROCKET, ROCKET_PACKAGE, p));
+    h.server.item_uses.insert(
+        ROCKET,
+        vec![item_use::UsageEffect {
+            state: EFFECT,
+            spellcraft: 1.0,
+        }],
+    );
+    h.server.tesserae.insert(TESSERA_PACKAGE);
+    let (b, me, world) = in_world(&mut h);
+    h.server.players.get_mut(&world).unwrap().play.hero_credits = 38;
+    let rocket = give(&mut h, world, ROCKET, 1);
+    let _ = send_use(&mut h, b, me, rocket, 1.0);
+    run_for(&mut h, 3.0);
+    assert_eq!(h.server.players[&world].play.hero_credits, 38);
+}

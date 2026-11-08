@@ -103,8 +103,11 @@ pub fn call<S: Store>(
         }
         crate::market::function::SELL => crate::market::sell(s, net, world, &values, clock),
         crate::market::function::COLLECT => crate::market::collect(s, net, world, &values),
+        crate::market::function::RESTOCK => crate::market::restock(s, net, world, &values, clock),
         // Leaving a catalog or the consignments is not answered.
-        crate::market::function::LEAVE_CATALOG | crate::market::function::LEAVE_CONSIGNMENT => {}
+        crate::market::function::LEAVE_CATALOG | crate::market::function::LEAVE_CONSIGNMENT => {
+            crate::market::left_consignments(s, world);
+        }
         crate::follow::FOLLOW => crate::follow::start(s, net, world, &values),
         crate::mounts::DISMOUNT => crate::mounts::dismount(s, net, world),
         crate::personal::function::SET_ALIAS => crate::personal::set_alias(s, world, &values),
@@ -189,6 +192,7 @@ pub fn call<S: Store>(
         crate::skills::function::UNTRAIN => crate::skills::untrain(s, net, world, &values, clock),
         crate::skills::function::UNTRAIN_CANCEL => crate::skills::cancel_untraining(s, net, world),
         crate::death::player_fn::RESURRECT => crate::death::resurrect(s, net, world, clock),
+        crate::resurrections::function::DECLINE => crate::resurrections::declined(s, world),
         crate::skills::function::RAISE => crate::skills::raise(s, net, world, &values, clock),
         crate::pets::function::ATTACK
         | crate::pets::function::RETURN
@@ -437,35 +441,44 @@ fn examine_object<S: Store>(
         BlobKind::PRIVATE,
         profile::message_of(&sent).encode(),
     );
-    let number = s.examining.get(&world).map_or(1, |e| e.number + 1);
     s.examining.insert(
         world,
         examine::Examining {
             request: bytes,
-            number,
             asked_at: clock.local.0,
+            look_at: clock.local.0 + examine::AGAIN_SECONDS,
             sent,
         },
     );
-    s.after(
-        clock,
-        examine::AGAIN_SECONDS,
-        crate::Timer::Examine { world, number },
-    );
+    // One look waits for a player, however often it asks.
+    if s.examine_waits.insert(world) {
+        s.after(
+            clock,
+            examine::AGAIN_SECONDS,
+            crate::Timer::Examine { world },
+        );
+    }
 }
 
 /// Look again at what a player examines: its profile sent again if it changed, and another look
-/// later; nothing more once the examination is over or replaced, or the object is gone.
+/// later; nothing more once the examination is over or the object is gone. An examination newer
+/// than the look was set for has its own first look, in its own time.
 pub fn examine_again<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     world: ConnId,
-    number: u32,
     clock: Clock,
 ) {
-    let Some(e) = s.examining.get(&world).filter(|e| e.number == number) else {
+    s.examine_waits.remove(&world);
+    let Some(e) = s.examining.get(&world) else {
         return;
     };
+    if e.look_at > clock.local.0 {
+        let left = e.look_at - clock.local.0;
+        s.examine_waits.insert(world);
+        s.after(clock, left, crate::Timer::Examine { world });
+        return;
+    }
     let req = profile::read_request(&e.request);
     let Some(now) = profile_bytes(s, world, &req, clock.local.0) else {
         s.examining.remove(&world);
@@ -481,11 +494,13 @@ pub fn examine_again<S: Store>(
             );
             e.sent = now;
         }
+        e.look_at = clock.local.0 + examine::AGAIN_SECONDS;
     }
+    s.examine_waits.insert(world);
     s.after(
         clock,
         examine::AGAIN_SECONDS,
-        crate::Timer::Examine { world, number },
+        crate::Timer::Examine { world },
     );
 }
 
@@ -540,6 +555,25 @@ fn profile_bytes<S: Store>(
                 profile::item(req.asked, &v)
             }
             crate::things::Kind::Plant => crate::plants::profile(s, req.asked, t, now),
+            crate::things::Kind::Corpse if t.corpse.is_some() => {
+                let c = t.corpse.as_ref()?;
+                let empty = c.contents.is_empty();
+                profile::corpse(
+                    req.asked,
+                    &profile::CorpseView {
+                        name: t
+                            .named
+                            .as_ref()
+                            .map_or_else(|| profile::item_name(&t.facts), crate::death::shown_name),
+                        killed_by: c.killed_by.clone().unwrap_or_else(|| profile::literal("")),
+                        butchered_by: c.butchered_by.clone(),
+                        first_looted_by: c.first_looted_by.clone(),
+                        may_loot: crate::death::may_loot(s, me.character, req.object, now),
+                        holds: (empty || c.first_looted_by.is_some())
+                            .then(|| u32::try_from(c.contents.len()).unwrap_or(0)),
+                    },
+                )
+            }
             crate::things::Kind::Corpse
             | crate::things::Kind::Node
             | crate::things::Kind::Portal => {
@@ -571,7 +605,15 @@ fn profile_bytes<S: Store>(
                 f,
             ),
             yalain_content::Kind::Static => {
-                let lifestone = crate::places::LIFESTONES.contains(&o.template);
+                let lifestone = crate::places::is_lifestone(s, o.description.package);
+                let quest = o.gate.and_then(|g| {
+                    let def = s.quests.quest(g.quest)?;
+                    Some(if def.hidden {
+                        profile::QuestLine::Hidden
+                    } else {
+                        profile::QuestLine::Named(profile::quest_line(g.status), def.name)
+                    })
+                });
                 let recall = if lifestone {
                     profile::line::LIFESTONE_RECALL
                 } else {
@@ -583,6 +625,7 @@ fn profile_bytes<S: Store>(
                         named.unwrap_or_else(|| profile::item_name(f)),
                         recall,
                         f,
+                        quest,
                     )
                 } else {
                     // An object for monarchs alone goes by its plain name (2017: 14 of 14).
@@ -606,6 +649,8 @@ fn profile_bytes<S: Store>(
                     let mut p = profile::npc(req.asked, name, f);
                     if monarchs {
                         profile::monarch_lines(&mut p);
+                    } else {
+                        profile::requirement_lines(&mut p, f, quest);
                     }
                     p
                 }
