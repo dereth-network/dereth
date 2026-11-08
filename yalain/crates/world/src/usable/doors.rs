@@ -55,10 +55,6 @@ pub const LOCKOUT: f64 = 3.0;
 pub const KEY_TURNING: f64 = 1.39;
 pub const TURN_KEY: u32 = 0x4100_00FA;
 
-/// The key ids the vault keys' kind gives them (their templates name none): Ariaki's to
-/// Winterhollows', in their templates' order.
-pub const VAULT_KEYS: (u32, u32, u32) = (0x4700_1126, 0x4700_1137, 0x4000_0032);
-
 /// The door's qualities its opening and closing set: how solid it is (passable while open) and
 /// whether it is open.
 pub mod quality {
@@ -259,13 +255,9 @@ pub fn in_front(door: &StoredPosition, at: &StoredPosition) -> bool {
     -math::sinf(heading) * dx + math::cosf(heading) * dy > 0.0
 }
 
-/// The key id a key's template gives it.
+/// The key id a key's or a glyph's template gives it, or its class.
 #[must_use]
 pub fn key_id<S: Store>(s: &Server<S>, template: u32) -> Option<u32> {
-    let (first, last, id) = VAULT_KEYS;
-    if (first..=last).contains(&template) {
-        return Some(id + (template - first));
-    }
     s.catalog
         .get(template)
         .and_then(|t| t.props.word("Lock_KeyID"))

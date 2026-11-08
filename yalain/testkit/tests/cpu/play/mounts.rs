@@ -189,7 +189,7 @@ fn world() -> Harness {
     );
     m.items.insert(SADDLE, LEY);
     m.items.insert(EGG, HERO);
-    for (race, sex, _) in yalain_world::chargen::BODY_ENTITIES {
+    for (race, sex, _) in yalain_testkit::BODY_ENTITIES {
         for t in [LEY_TYPE, HERO_TYPE] {
             m.looks.insert((t, race, sex), table_look());
         }

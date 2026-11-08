@@ -550,8 +550,9 @@ fn read_setup(lib: &Library, start: usize, end: usize) -> Setup {
 /// The calls a template's class makes that say what its properties would, and the property each
 /// says: a weapon's damage, variance, vigor and speed; its value; a garment's and a shield's armor
 /// and delay; its least level and race; the quest and its status that taking it asks; how long a
-/// creature's corpse lasts.
-const CLASS_SETTERS: [(u32, &str); 16] = [
+/// creature's corpse lasts; whether it is bound to whoever holds it; the key it carries; whether
+/// its use destroys it.
+const CLASS_SETTERS: [(u32, &str); 19] = [
     (0x019E_000D, "Weapon_Damage"),
     (0x019E_000E, "Weapon_Variance"),
     (0x019E_001E, "Weapon_VigorCost"),
@@ -568,14 +569,28 @@ const CLASS_SETTERS: [(u32, &str); 16] = [
     (0x00B7_004D, "NPC_BaseRotTime"),
     (0x00B7_00C2, "NPC_MaxAcceleratedRotTime"),
     (0x00B7_0098, "NPC_MinAcceleratedRotTime"),
+    (0x0172_005D, ATTUNABLE),
+    (0x0172_008A, KEY_ID),
+    (0x0172_0035, DESTROYED_ON_USE),
 ];
+
+/// The key a key's or a glyph's class gives it.
+const KEY_ID: &str = "Lock_KeyID";
+
+/// Destroyed by its use: a truth either way, as [`ATTUNABLE`].
+const DESTROYED_ON_USE: &str = "Item_IsDestroyOnUse";
+
+/// Bound to whoever holds it: a truth a class says either way, so a subclass's "no" stands over its
+/// base's "yes".
+const ATTUNABLE: &str = "Item_IsAttunable";
 
 /// The library's call that turns a name into its enumeration's value.
 const LOOK_UP_NAME: u32 = 0x0023_0003;
 
 /// What the code of an item's class literally says of its properties, the class's own over its bases',
 /// for a template that names them nowhere else (2017: the weapons that keep what their class says,
-/// damage and variance, 3 of 3 exactly).
+/// damage and variance, 3 of 3 exactly). Within one class its later start-up's word stands: what
+/// the server's own start-up says over what both sides' says, over its constructor's.
 #[must_use]
 pub fn class_properties(lib: &Library, package: u32) -> Vec<(&'static str, Prop)> {
     let mut out: Vec<(&'static str, Prop)> = Vec::new();
@@ -585,21 +600,23 @@ pub fn class_properties(lib: &Library, package: u32) -> Vec<(&'static str, Prop)
         let Some(p) = lib.packages.get(i) else {
             break;
         };
-        for f in p.functions.iter().filter(|f| {
-            matches!(
-                f.name.as_str(),
-                "constructor" | "ClientServerInit" | "ServerOnlyInit"
-            )
-        }) {
-            let Some(offset) = f.offset else {
-                continue;
-            };
-            let start = (offset / 4) as usize;
-            let end = (start + (f.size / 4) as usize).min(lib.code.len());
-            for (name, value) in class_literals(lib, start, end) {
-                if !out.iter().any(|(n, _)| *n == name) {
-                    out.push((name, value));
+        let mut own: Vec<(&'static str, Prop)> = Vec::new();
+        for phase in ["constructor", "ClientServerInit", "ServerOnlyInit"] {
+            for f in p.functions.iter().filter(|f| f.name == phase) {
+                let Some(offset) = f.offset else {
+                    continue;
+                };
+                let start = (offset / 4) as usize;
+                let end = (start + (f.size / 4) as usize).min(lib.code.len());
+                for (name, value) in class_literals(lib, start, end) {
+                    own.retain(|(n, _)| *n != name);
+                    own.push((name, value));
                 }
+            }
+        }
+        for (name, value) in own {
+            if !out.iter().any(|(n, _)| *n == name) {
+                out.push((name, value));
             }
         }
         at = p.parent;
@@ -665,8 +682,12 @@ fn class_literals(lib: &Library, start: usize, end: usize) -> Vec<(&'static str,
                                 out.push((*name, Prop::Text(n)));
                             }
                         }
-                        // A quest's status is an enumeration's value.
-                        (TAKING_STATUS, Some(Prop::Int(i))) => {
+                        // A truth, either way.
+                        (ATTUNABLE | DESTROYED_ON_USE, Some(Prop::Int(i))) => {
+                            out.push((*name, Prop::Bool(i != 0)));
+                        }
+                        // A quest's status and a key are enumerations' values.
+                        (TAKING_STATUS | KEY_ID, Some(Prop::Int(i))) => {
                             out.push((*name, Prop::Word(u32::try_from(i).unwrap_or(0))));
                         }
                         // A class that sets its value at nothing is worth nothing, whatever its

@@ -13,7 +13,7 @@ use auberean_protocol::{queue, ClientMessage, ServerMessage};
 use auberean_script::library::Elem;
 use auberean_script::native_object::{Item, NativeObject};
 use yalain_content::{ContentObject, ContentPack, Description, Kind};
-use yalain_store::MemoryStore;
+use yalain_store::{MemoryStore, Store as _};
 use yalain_testkit::{Harness, Received};
 use yalain_world::graph::{hash, Builder};
 use yalain_world::options::Options;
@@ -718,4 +718,24 @@ fn an_option_goes_with_the_characters_next_save_soon_enough() {
     assert_eq!(stored(&mut h), first, "the next, not with its call");
     log_off(&mut h, b, id);
     assert_ne!(stored(&mut h), first, "kept as it leaves");
+}
+
+/// A new character is made from its race and sex's body entity, as the rules read it: a human
+/// man's.
+/// Behaviour: server.characters.body-entities-from-the-install
+#[test]
+fn a_new_character_is_made_from_its_race_and_sexs_body_entity() {
+    let mut h = Harness::new();
+    let (_, id) = h.player_in_world("one", "One");
+    let st = h
+        .server
+        .store
+        .world_state(id)
+        .expect("the store reads")
+        .expect("kept");
+    let q = yalain_world::quals::read(&st.qualities);
+    assert_eq!(
+        q.data_ids.get(yalain_world::player::quality::BODY),
+        Some(&0x4700_00CD)
+    );
 }

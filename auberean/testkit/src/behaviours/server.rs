@@ -979,6 +979,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.characters.body-entities-from-the-install",
+        says: "Each race and sex's character is made from the body entity the character generation \
+               data's race and sex table names for it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-BODY-ENTITIES"),
+        station: "yalain-testkit::dat::skills::the_install_names_each_race_and_sexs_body_entity",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.characters.created-and-listed",
         says: "A character the client creates is answered with its identity: an object id in the \
                players' range, its name and the look its choices give; it is in the account's \
@@ -1485,6 +1494,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.content.attunable-of-classes",
+        says: "An item whose class, or one of its bases, binds it to whoever holds it reads as \
+               attunable.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ATTUNABLE-CLASSES"),
+        station: "yalain-testkit::dat::skills::an_item_whose_class_binds_it_reads_attunable",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.content.body-a-visual-description",
         says: "A template whose qualities name a visual description itself as its body is drawn as \
                that description.",
@@ -1512,11 +1530,38 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.content.destroyed-on-use-of-classes",
+        says: "An item whose class, or one of its bases, makes its use destroy it is spent by its \
+               use, unless its own data says otherwise or it wears by its uses, which spend it \
+               instead.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-DESTROYED-ON-USE-CLASSES"),
+        station: "yalain-testkit::dat::skills::keys_whose_own_data_keeps_them_are_not_destroyed_on_use",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.content.glyph-keys-of-classes",
+        says: "A glyph carries the key its class gives it, and opens the vault locked to that key.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-GLYPH-KEYS-CLASSES"),
+        station: "yalain-testkit::dat::skills::a_glyph_carries_the_key_its_class_gives_it",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.content.take-gates-of-classes",
         says: "The items whose classes name a quest for taking them read with it.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-TAKE-GATES"),
         station: "yalain-testkit::dat::skills::an_item_whose_class_names_a_quest_for_taking_reads_with_it",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.content.vault-keys-of-classes",
+        says: "A vault door's key carries the key its class gives it, and opens the door locked to \
+               that key.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-VAULT-KEYS-CLASSES"),
+        station: "yalain-testkit::dat::skills::a_vault_doors_key_carries_the_key_its_class_gives_it",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -4259,11 +4304,11 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.examination.destroyed-on-use-by-kind",
-        says: "Keys, glyphs, potions and the other kinds whose class makes them so say they are \
-               destroyed on use, even when their template does not.",
+        says: "Keys, glyphs, potions and the other items whose template or class makes them so say \
+               they are destroyed on use; an item that wears by its uses does not.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-ITEM-DESTROYED-KIND"),
-        station: "yalain-testkit::cpu::entry::examine::a_potions_profile_says_it_is_destroyed_on_use_by_its_kind",
+        station: "yalain-testkit::cpu::entry::examine::a_potions_profile_says_it_is_destroyed_on_use_and_a_worn_items_does_not",
         tier: Tier::Cpu,
     },
     behaviour! {

@@ -432,7 +432,10 @@ pub fn begin<S: Store>(
             crate::pets::made_by_item(s, net, world, (effect, spellcraft, icon), clock).is_some();
         let me = s.players.get(&world).map_or(0, |p| p.character);
         let told = if made {
-            let spent = s.catalog.get(template).is_some_and(|t| spends(s, t));
+            let spent = s
+                .catalog
+                .get(template)
+                .is_some_and(|t| spends(t.id, &t.props));
             if spent {
                 crate::craft::use_up(s, net, world, u.item, 1);
             }
@@ -965,7 +968,7 @@ fn carry_out<S: Store>(
     }
     // A seed's plant stands.
     crate::plants::sow(s, net, world, template, clock);
-    let spent = spends(s, &t);
+    let spent = spends(t.id, &t.props);
     if spent {
         crate::craft::use_up(s, net, world, u.item, 1);
     }
@@ -1019,7 +1022,7 @@ pub fn arrived<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, 
     else {
         return;
     };
-    let spent = spends(s, &t);
+    let spent = spends(t.id, &t.props);
     if spent {
         crate::craft::use_up(s, net, world, u.item, 1);
     }
@@ -1050,9 +1053,24 @@ fn answer_flags(props: &Props, played: bool) -> u32 {
     f
 }
 
-/// Is an item of this template spent by its use: destroyed on use by its own flag or its kind's?
-fn spends<S: Store>(s: &Server<S>, t: &yalain_content::Template) -> bool {
-    t.props.flag("Item_IsDestroyOnUse") || s.destroyed_on_use.contains(&t.description.package)
+/// Does an item of this template wear by its uses rather than go at its first: its template gives
+/// it durability, or it is a forager's food, whose forage would. The script library holds an item
+/// that has durability and is destroyed on use to be in error; such an item is spent by its wear
+/// (2017: the food, destroyed on use by its class, 65 of 65 uses not spent, 12 of 12 gone at the
+/// fifth).
+#[must_use]
+pub fn wears(template: u32, props: &Props) -> bool {
+    template == FOOD
+        || props
+            .int("Item_Durability_MaxLevel")
+            .is_some_and(|most| most > 0)
+}
+
+/// Is an item of this template spent by its use: destroyed on use, as its template or its class
+/// says, and not one that wears?
+#[must_use]
+pub fn spends(template: u32, props: &Props) -> bool {
+    props.flag("Item_IsDestroyOnUse") && !wears(template, props)
 }
 
 /// Put one of an item's effects on its user, cast by it from the item: one with no duration that

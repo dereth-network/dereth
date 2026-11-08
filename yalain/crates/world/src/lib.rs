@@ -458,8 +458,6 @@ pub struct Server<S: Store> {
     pub death_spawned: HashMap<String, Vec<u64>>,
     /// The effects creatures' templates put on whoever kills them.
     pub death_effects: item_use::ItemUses,
-    /// The packages whose items are destroyed on use by their kind (keys, potions, ...).
-    pub destroyed_on_use: std::collections::HashSet<u32>,
     /// The packages of the treasure items that carry properties of their own (equipment, potions).
     pub treasure: treasure::Kinds,
     /// The packages of the Tesserae (each use a hero skill credit more).
@@ -840,7 +838,6 @@ impl<S: Store> Server<S> {
             death_spawns: HashMap::new(),
             death_spawned: HashMap::new(),
             death_effects: HashMap::new(),
-            destroyed_on_use: std::collections::HashSet::new(),
             treasure: treasure::Kinds::default(),
             tesserae: std::collections::HashSet::new(),
             touching: HashMap::new(),

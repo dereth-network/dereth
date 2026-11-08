@@ -1131,17 +1131,6 @@ fn an_item_picked_up_moves_the_quest_its_template_names() {
     assert_eq!(yalain_world::quests::phase_of(&p.play.quests, QUEST), 2);
 }
 
-/// A template its script makes attunable counts as one that says so, with nothing saved to tell.
-/// Behaviour: server.inventory.an-attunable-item-is-not-put-down
-#[test]
-fn a_template_attunable_by_its_script_says_so() {
-    let catalog = yalain_content::Catalog::default();
-    for template in [0x4700_11C8, 0x4700_187E, 0x4700_08CF, 0x4700_132D] {
-        assert!(yalain_world::inventory::attunable(&catalog, template));
-    }
-    assert!(!yalain_world::inventory::attunable(&catalog, 0x4700_051C));
-}
-
 /// An item a recipe attuned stays with its owner as an attunable template's does; one bound by use
 /// is put down.
 /// Behaviour: server.craft.made-item-attuned

@@ -149,15 +149,32 @@ pub fn test_physique(
     physique
 }
 
-/// The bodies the chargen rules start from in tests: one look id per race and sex, made up; and
-/// the install's physique map.
+/// Each race and sex's body entity, `(race, sex, entity)`, as the install's character generation
+/// data holds them (a dat test holds them equal).
+pub const BODY_ENTITIES: [(u32, u32, u32); 10] = [
+    (1, MALE, 0x4700_00CD),
+    (1, FEMALE, 0x4700_00CE),
+    (2, MALE, 0x4700_00CF),
+    (2, FEMALE, 0x4700_00D1),
+    (4, MALE, 0x4700_00D0),
+    (4, FEMALE, 0x4700_00D2),
+    (8, MALE, 0x4700_0514),
+    (8, FEMALE, 0x4700_0514),
+    (16, MALE, 0x4700_0512),
+    (16, FEMALE, 0x4700_0513),
+];
+
+/// The bodies the chargen rules start from in tests: the install's body entities, one look id per
+/// race and sex, made up; and the install's physique map.
 #[must_use]
 pub fn test_rules() -> CharGenRules {
     let mut bodies = std::collections::BTreeMap::new();
-    for (race, sex, entity) in yalain_world::chargen::BODY_ENTITIES {
+    let mut entities = std::collections::BTreeMap::new();
+    for (race, sex, entity) in BODY_ENTITIES {
         bodies.insert((race, sex), 0x1F00_0000 | (entity & 0xFFFF));
+        entities.insert((race, sex), entity);
     }
-    CharGenRules::new(bodies, test_physique())
+    CharGenRules::new(bodies, test_physique()).with_entities(entities)
 }
 
 /// The start area kind the test rules give every race.
@@ -193,7 +210,7 @@ pub fn test_start() -> StartRules {
             places: vec![place(0x0299), place(0x0298)],
         },
     );
-    for (race, _, _) in yalain_world::chargen::BODY_ENTITIES {
+    for (race, _, _) in BODY_ENTITIES {
         r.by_race.insert(race, vec![TEST_START_AREA]);
         let mut skills = vec![(835, 0), (96, 0), (176, 0), (207, 0), (1, 1), (7, 1)];
         // The basic attacks every human holds, and a heal, a vigor heal and a buff as if trained.

@@ -18,6 +18,7 @@ const VAULT_TEMPLATE: u32 = 0x4700_1CE8;
 const ESPER_GLYPH: u32 = 0x4700_10B1;
 const GEVOTH_GLYPH: u32 = 0x4700_10B3;
 const ESPER_KEY: u32 = 0x4000_0021;
+const GEVOTH_KEY: u32 = 0x4000_0023;
 const USE: u32 = 0x8216_0016;
 const USE_DONE: u32 = 0x8216_0021;
 const DISCRETE_DESTROY: u32 = 0x820E_0058;
@@ -96,13 +97,15 @@ fn hall() -> Harness {
             key: Some(ESPER_KEY),
         },
     );
-    for t in [ESPER_GLYPH, GEVOTH_GLYPH] {
+    for (t, key) in [(ESPER_GLYPH, ESPER_KEY), (GEVOTH_GLYPH, GEVOTH_KEY)] {
+        let mut props = Props::default();
+        props.set("Lock_KeyID", yalain_content::Prop::Word(key));
         h.server.catalog.insert(yalain_content::Template {
             facts: yalain_content::Facts {
                 name: Some((0x2B0C_0002, 0x2500_0002)),
                 ..yalain_content::Facts::default()
             },
-            ..yalain_testkit::test_template(t, 0x18F, Props::default())
+            ..yalain_testkit::test_template(t, 0x18F, props)
         });
     }
     h

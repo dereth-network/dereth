@@ -1,6 +1,9 @@
 //! The skills' definitions as the server reads them from the September 2013 data: how each used
 //! skill is used.
 
+use std::collections::BTreeSet;
+
+use yalain_content::Props;
 use yalain_testkit::authored::Portal;
 use yalain_world::missiles::attack_skill;
 use yalain_world::rules::Kind;
@@ -1369,6 +1372,36 @@ fn the_install_names_the_appearance_each_physique_type_changes() {
     assert_eq!(read, yalain_testkit::test_physique());
 }
 
+/// The character generation data's race and sex table names each race and sex's body entity: ten,
+/// the drudges' one for both sexes; the test rules hold the same, and so did the table the server
+/// once kept, entry for entry.
+/// Behaviour: server.characters.body-entities-from-the-install
+#[test]
+fn the_install_names_each_race_and_sexs_body_entity() {
+    use yalain_world::chargen::{FEMALE, MALE};
+    const KEPT: [(u32, u32, u32); 10] = [
+        (1, MALE, 0x4700_00CD),
+        (1, FEMALE, 0x4700_00CE),
+        (2, MALE, 0x4700_00CF),
+        (2, FEMALE, 0x4700_00D1),
+        (4, MALE, 0x4700_00D0),
+        (4, FEMALE, 0x4700_00D2),
+        (8, MALE, 0x4700_0514),
+        (8, FEMALE, 0x4700_0514),
+        (16, MALE, 0x4700_0512),
+        (16, FEMALE, 0x4700_0513),
+    ];
+    let read = Portal::open().body_entities();
+    let kept: std::collections::BTreeMap<(u32, u32), u32> =
+        KEPT.iter().map(|(r, s, e)| ((*r, *s), *e)).collect();
+    assert_eq!(read, kept);
+    let test: std::collections::BTreeMap<(u32, u32), u32> = yalain_testkit::BODY_ENTITIES
+        .iter()
+        .map(|(r, s, e)| ((*r, *s), *e))
+        .collect();
+    assert_eq!(read, test);
+}
+
 /// The knives are the install's templates of the butchery tools' class: the hunting knife and the
 /// crude one, each butchering with the behavior the server plays.
 /// Behaviour: server.craft.butchery-knives-from-the-install
@@ -1497,4 +1530,439 @@ fn the_toggle_flag_reads_on_every_skill_retail_toggled_and_not_on_one_only_used(
         assert!(!matches!(d.kind, Kind::Aura(_)), "{st:08X}");
         assert_eq!(d.categories(), 1, "{st:08X}");
     }
+}
+
+/// Every template of the install with a class, and its properties: its own, then what its class
+/// or one of its bases says where its own say nothing.
+fn every_item(p: &Portal) -> Vec<(u32, Props, Props)> {
+    let lib = p.library();
+    let entity = |id: u32| auberean_assets::decode(id, &p.dat.read(id).ok()?, &p.ctx).ok();
+    let name = |q: u32| {
+        p.ctx
+            .properties()
+            .and_then(|l| l.names.name(q))
+            .map(str::to_string)
+    };
+    let mut by_class = std::collections::HashMap::new();
+    let ids: Vec<u32> = p
+        .dat
+        .entries_in(0x4700_0000, 0x47FF_FFFF)
+        .map(|e| e.id)
+        .collect();
+    ids.into_iter()
+        .filter_map(|t| {
+            let class = Props::class_of(t, &entity)?;
+            let said = by_class
+                .entry(class)
+                .or_insert_with(|| yalain_world_db::install::class_properties(&lib, class));
+            let own = Props::of(t, &entity, &name);
+            let read = own.clone().with_class(said);
+            Some((t, own, read))
+        })
+        .collect()
+}
+
+/// Items whose class binds them to whoever holds them read as attunable: a relic through its
+/// class's base, a medallion and a glyph by their own classes; a starting sword is not.
+/// Behaviour: server.content.attunable-of-classes
+#[test]
+fn an_item_whose_class_binds_it_reads_attunable() {
+    let p = Portal::open();
+    for t in [
+        0x4700_11C8,
+        0x4700_187E,
+        0x4700_08CF,
+        0x4700_132D,
+        0x4700_1AED,
+    ] {
+        assert!(p.template(t).props.flag("Item_IsAttunable"), "{t:#x}");
+    }
+    assert!(!p.template(0x4700_051C).props.flag("Item_IsAttunable"));
+}
+
+/// The table the server once kept of the templates bound by their classes, against the install:
+/// every one of its 118 reads attunable, and of every other template the read binds only the two
+/// training halls' glyphs, whose classes bind them too.
+/// Behaviour: server.content.attunable-of-classes
+#[test]
+fn the_kept_attunable_table_is_the_classes_but_for_the_training_halls_glyphs() {
+    const KEPT: [u32; 118] = [
+        0x4700_0605,
+        0x4700_0606,
+        0x4700_0608,
+        0x4700_0609,
+        0x4700_060A,
+        0x4700_060B,
+        0x4700_060C,
+        0x4700_0615,
+        0x4700_0616,
+        0x4700_0617,
+        0x4700_0618,
+        0x4700_0619,
+        0x4700_061E,
+        0x4700_0620,
+        0x4700_0621,
+        0x4700_0675,
+        0x4700_080B,
+        0x4700_0895,
+        0x4700_0896,
+        0x4700_0897,
+        0x4700_0898,
+        0x4700_08CF,
+        0x4700_08D0,
+        0x4700_08D1,
+        0x4700_0AE9,
+        0x4700_0AEA,
+        0x4700_0AEB,
+        0x4700_0AEC,
+        0x4700_0AED,
+        0x4700_0AEE,
+        0x4700_11C7,
+        0x4700_11C8,
+        0x4700_11C9,
+        0x4700_11CA,
+        0x4700_11CB,
+        0x4700_11CC,
+        0x4700_11CD,
+        0x4700_11CE,
+        0x4700_11D1,
+        0x4700_11D4,
+        0x4700_11D5,
+        0x4700_11D6,
+        0x4700_11D7,
+        0x4700_11D8,
+        0x4700_11D9,
+        0x4700_11DA,
+        0x4700_11DB,
+        0x4700_11DC,
+        0x4700_132D,
+        0x4700_1330,
+        0x4700_1331,
+        0x4700_1332,
+        0x4700_1333,
+        0x4700_1334,
+        0x4700_1335,
+        0x4700_1345,
+        0x4700_1346,
+        0x4700_13F5,
+        0x4700_1469,
+        0x4700_146A,
+        0x4700_146B,
+        0x4700_146C,
+        0x4700_14CE,
+        0x4700_14CF,
+        0x4700_14D0,
+        0x4700_14D1,
+        0x4700_14D2,
+        0x4700_14D3,
+        0x4700_14D4,
+        0x4700_14D5,
+        0x4700_14D7,
+        0x4700_14D8,
+        0x4700_14DB,
+        0x4700_14DC,
+        0x4700_14DD,
+        0x4700_14DE,
+        0x4700_14DF,
+        0x4700_14E0,
+        0x4700_14E1,
+        0x4700_14E2,
+        0x4700_14E3,
+        0x4700_16C0,
+        0x4700_16C1,
+        0x4700_16C2,
+        0x4700_1863,
+        0x4700_1864,
+        0x4700_1865,
+        0x4700_1866,
+        0x4700_1868,
+        0x4700_1869,
+        0x4700_186A,
+        0x4700_186B,
+        0x4700_186C,
+        0x4700_186E,
+        0x4700_1870,
+        0x4700_1871,
+        0x4700_1872,
+        0x4700_1873,
+        0x4700_1874,
+        0x4700_1875,
+        0x4700_1876,
+        0x4700_1877,
+        0x4700_1878,
+        0x4700_187B,
+        0x4700_187C,
+        0x4700_187D,
+        0x4700_187E,
+        0x4700_188C,
+        0x4700_1A53,
+        0x4700_1A54,
+        0x4700_1A55,
+        0x4700_1AF1,
+        0x4700_1CE4,
+        0x4700_1CE5,
+        0x4700_1CE6,
+        0x4700_2056,
+        0x4700_2057,
+        0x4700_2058,
+    ];
+    let p = Portal::open();
+    let items = every_item(&p);
+    let mut kept = 0;
+    let mut more = BTreeSet::new();
+    let mut fewer = BTreeSet::new();
+    for (t, own, read) in &items {
+        let was = KEPT.contains(t) || own.flag("Item_IsAttunable");
+        let is = read.flag("Item_IsAttunable");
+        match (was, is) {
+            (true, true) if KEPT.contains(t) => kept += 1,
+            (false, true) => {
+                more.insert(*t);
+            }
+            (true, false) => {
+                fewer.insert(*t);
+            }
+            _ => {}
+        }
+    }
+    assert!(items.len() > 9_000, "{}", items.len());
+    assert_eq!(kept, 118);
+    assert_eq!(fewer, BTreeSet::new());
+    assert_eq!(more, BTreeSet::from([0x4700_1AEC, 0x4700_1AED]));
+}
+
+/// A glyph carries the key its class gives it: Esper's, Gevoth's and Cragstone's the keys of their
+/// vaults.
+/// Behaviour: server.content.glyph-keys-of-classes
+#[test]
+fn a_glyph_carries_the_key_its_class_gives_it() {
+    let p = Portal::open();
+    for (t, key) in [
+        (0x4700_10B1, 0x4000_0021),
+        (0x4700_10B3, 0x4000_0023),
+        (0x4700_10AC, 0x4000_0004),
+    ] {
+        assert_eq!(p.template(t).props.word("Lock_KeyID"), Some(key), "{t:#x}");
+    }
+}
+
+/// The table the server once kept of the key each glyph carries, against the install: its 22
+/// glyphs carry the keys their classes give them, and no other item carries one of those keys; the
+/// training halls' two glyphs carry a key of their own.
+/// Behaviour: server.content.glyph-keys-of-classes
+#[test]
+fn the_kept_glyph_keys_are_the_classes() {
+    const KEPT: [(u32, u32); 22] = [
+        (0x4700_10AC, 0x4000_0004),
+        (0x4700_10AD, 0x4000_002B),
+        (0x4700_10AE, 0x4000_002D),
+        (0x4700_10AF, 0x4000_0020),
+        (0x4700_10B0, 0x4000_001F),
+        (0x4700_10B1, 0x4000_0021),
+        (0x4700_10B2, 0x4000_001C),
+        (0x4700_10B3, 0x4000_0023),
+        (0x4700_10B4, 0x4000_0029),
+        (0x4700_10B5, 0x4000_002E),
+        (0x4700_10B6, 0x4000_002C),
+        (0x4700_10B7, 0x4000_0022),
+        (0x4700_10B8, 0x4000_0028),
+        (0x4700_10B9, 0x4000_001B),
+        (0x4700_10BA, 0x4000_0025),
+        (0x4700_10BB, 0x4000_001A),
+        (0x4700_10BC, 0x4000_001E),
+        (0x4700_10BD, 0x4000_0027),
+        (0x4700_10BE, 0x4000_0026),
+        (0x4700_10BF, 0x4000_001D),
+        (0x4700_10C0, 0x4000_002A),
+        (0x4700_10C1, 0x4000_0024),
+    ];
+    let p = Portal::open();
+    let items = every_item(&p);
+    let key = |t: u32| {
+        items
+            .iter()
+            .find(|(i, _, _)| *i == t)
+            .and_then(|(_, _, read)| read.word("Lock_KeyID"))
+    };
+    for (t, k) in KEPT {
+        assert_eq!(key(t), Some(k), "{t:#x}");
+    }
+    let opening: BTreeSet<u32> = items
+        .iter()
+        .filter(|(_, _, read)| {
+            read.word("Lock_KeyID")
+                .is_some_and(|k| KEPT.iter().any(|g| g.1 == k))
+        })
+        .map(|(t, _, _)| *t)
+        .collect();
+    assert_eq!(opening, KEPT.iter().map(|g| g.0).collect());
+    assert_eq!(key(0x4700_1AEC), Some(0x4000_004A));
+    assert_eq!(key(0x4700_1AED), Some(0x4000_004A));
+}
+
+/// A vault door's key carries the key its class gives it, and a door asks that of it: Ariaki's,
+/// Citadel's and Cobalt's.
+/// Behaviour: server.content.vault-keys-of-classes
+#[test]
+fn a_vault_doors_key_carries_the_key_its_class_gives_it() {
+    let p = Portal::open();
+    let mut h = yalain_testkit::Harness::new();
+    for (t, key) in [
+        (0x4700_1126, 0x4000_0032),
+        (0x4700_1127, 0x4000_0034),
+        (0x4700_1128, 0x4000_0033),
+    ] {
+        h.server.catalog.insert(p.template(t));
+        assert_eq!(
+            yalain_world::usable::doors::key_id(&h.server, t),
+            Some(key),
+            "{t:#x}"
+        );
+    }
+}
+
+/// The band the server once kept of the vault doors' keys, against the install: 16 of its 18 keys
+/// carry what their classes give them; Citadel's and Cobalt's classes give each other's, as their
+/// doors asked of them in 2017.
+/// Behaviour: server.content.vault-keys-of-classes
+#[test]
+fn the_kept_vault_key_band_is_the_classes_but_for_citadels_and_cobalts() {
+    const KEPT: (u32, u32, u32) = (0x4700_1126, 0x4700_1137, 0x4000_0032);
+    let p = Portal::open();
+    let items = every_item(&p);
+    let key = |t: u32| {
+        items
+            .iter()
+            .find(|(i, _, _)| *i == t)
+            .and_then(|(_, _, read)| read.word("Lock_KeyID"))
+    };
+    let mut same = 0;
+    let mut swapped = Vec::new();
+    for t in KEPT.0..=KEPT.1 {
+        let kept = KEPT.2 + (t - KEPT.0);
+        match key(t) {
+            Some(k) if k == kept => same += 1,
+            Some(k) => swapped.push((t, kept, k)),
+            None => panic!("{t:#x} carries no key"),
+        }
+    }
+    assert_eq!(same, 16);
+    assert_eq!(
+        swapped,
+        [
+            (0x4700_1127, 0x4000_0033, 0x4000_0034),
+            (0x4700_1128, 0x4000_0034, 0x4000_0033)
+        ]
+    );
+}
+
+/// The table the server once kept of the classes whose items their use destroys, against the
+/// install: of every template, whether its use spends it reads the same from its own data and its
+/// class's, but for three keys whose own data says their use doesn't, which the table's kind
+/// overrode; the forager's food, which its class destroys on use, wears instead, as the table
+/// held.
+/// Behaviour: server.content.destroyed-on-use-of-classes
+#[test]
+fn the_kept_destroyed_on_use_kinds_are_the_classes_but_for_three_keys() {
+    const KEPT: [(&str, bool); 15] = [
+        ("KeyTemplate", true),
+        ("GlyphTemplate", true),
+        ("PotionTemplate", true),
+        ("PotionTutorialTemplate", true),
+        ("SaddleTemplate", true),
+        ("Totem", true),
+        ("CharmRatSmasher", true),
+        ("ElixirBeetleSlayer", true),
+        ("ElixirWaspBane", true),
+        ("SealAcademy", true),
+        ("MedallionOpening", true),
+        ("Coin", false),
+        ("HeartTyrantLiving", false),
+        ("HeroSkillCreditToken", false),
+        ("FoodForaged", false),
+    ];
+    use yalain_world::item_use::{spends, FOOD};
+    let p = Portal::open();
+    let lib = p.library();
+    let entity = |id: u32| auberean_assets::decode(id, &p.dat.read(id).ok()?, &p.ctx).ok();
+    let kinds: Vec<(u32, bool)> = KEPT
+        .iter()
+        .filter_map(|(n, on)| Some((lib.package_id(n)?, *on)))
+        .collect();
+    assert_eq!(kinds.len(), 15);
+    // The nearest of the kinds a class derives from says.
+    let by_kind = |class: u32| {
+        let of: Vec<(u32, bool)> = kinds
+            .iter()
+            .copied()
+            .filter(|(k, _)| lib.derives_from(class, *k))
+            .collect();
+        of.iter()
+            .find(|(k, _)| of.iter().all(|(o, _)| lib.derives_from(*k, *o)))
+            .is_some_and(|(_, on)| *on)
+    };
+    let items = every_item(&p);
+    let mut same = 0;
+    let mut differ = BTreeSet::new();
+    for (t, own, read) in &items {
+        let Some(class) = Props::class_of(*t, &entity) else {
+            continue;
+        };
+        let was = own.flag("Item_IsDestroyOnUse") || by_kind(class);
+        if was == spends(*t, read) {
+            same += 1;
+        } else {
+            assert!(was, "{t:#x} spent now, not before");
+            differ.insert(*t);
+        }
+    }
+    assert_eq!(same, items.len() - 3);
+    assert_eq!(
+        differ,
+        BTreeSet::from([0x4700_1106, 0x4700_166B, 0x4700_166C])
+    );
+    // The wear rule changes the food alone: no other template both wears and is destroyed on use.
+    let worn: BTreeSet<u32> = items
+        .iter()
+        .filter(|(t, _, read)| {
+            read.flag("Item_IsDestroyOnUse") && yalain_world::item_use::wears(*t, read)
+        })
+        .map(|(t, _, _)| *t)
+        .collect();
+    assert_eq!(worn, BTreeSet::from([FOOD]));
+    let food = items.iter().find(|(t, _, _)| *t == FOOD).expect("the food");
+    assert!(food.2.flag("Item_IsDestroyOnUse"), "its class destroys it");
+    assert!(!spends(FOOD, &food.2), "it wears");
+}
+
+/// Three keys whose own data says their use doesn't destroy them read so, over their class, which
+/// says it does: the Study Key and the two Skyport keys. No 2017 recording holds one of them.
+/// Behaviour: server.content.destroyed-on-use-of-classes
+#[test]
+fn keys_whose_own_data_keeps_them_are_not_destroyed_on_use() {
+    let p = Portal::open();
+    for t in [0x4700_1106, 0x4700_166B, 0x4700_166C] {
+        let key = p.template(t);
+        assert!(!key.props.flag("Item_IsDestroyOnUse"), "{t:#x}");
+        assert!(!yalain_world::item_use::spends(t, &key.props), "{t:#x}");
+    }
+    let potion = p.template(0x4700_11B4);
+    assert!(yalain_world::item_use::spends(0x4700_11B4, &potion.props));
+}
+
+/// The Tesserae's class says its use destroys them on both sides and that it doesn't on the
+/// server's own: the server's own start-up comes later and stands.
+/// Behaviour: server.content.destroyed-on-use-of-classes
+#[test]
+fn a_classs_own_server_start_up_stands_over_its_shared_one() {
+    let p = Portal::open();
+    let lib = p.library();
+    let class = lib.package_id("HeroSkillCreditToken").expect("the class");
+    let said = yalain_world_db::install::class_properties(&lib, class);
+    assert_eq!(
+        said.iter()
+            .find(|(n, _)| *n == "Item_IsDestroyOnUse")
+            .map(|(_, v)| v.clone()),
+        Some(yalain_content::Prop::Bool(false))
+    );
 }

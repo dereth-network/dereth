@@ -474,11 +474,8 @@ fn item_profiles_are_built_from_their_templates_as_2017_built_them() {
             view.durability = i.durability;
         }
         view.crafter = crafter_in(bytes, 20);
-        view.destroyed_on_use |= profile::destroyed_on_use_kind(
-            i.package,
-            |n| inst.lib.package_id(n),
-            |a, b| inst.lib.derives_from(a, b),
-        );
+        view.destroyed_on_use =
+            yalain_world::item_use::spends(i.template, &with_class(inst, i.template, p.clone()));
         view.icon = icons
             .entry(i.look)
             .or_insert_with(|| {
@@ -1049,11 +1046,7 @@ fn made_items_profiles_are_built_from_their_recipes_item_level_as_2017_built_the
                 matches!(a, Action::Bind { ordinal: o, spinners }
                     if *o == ordinal && (spinners.0..=spinners.1).contains(&spinner))
             });
-            view.destroyed_on_use |= profile::destroyed_on_use_kind(
-                package,
-                |n| lib.package_id(n),
-                |a, b| lib.derives_from(a, b),
-            );
+            view.destroyed_on_use = yalain_world::item_use::spends(template, &props);
             view.icon = icons
                 .entry(look)
                 .or_insert_with(|| {

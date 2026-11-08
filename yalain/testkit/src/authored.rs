@@ -147,6 +147,18 @@ impl Portal {
         yalain_world::chargen::physique_of_matrix(lib, &self.matrix()).expect("the map reads")
     }
 
+    /// Each race and sex's body entity, as the server reads them from the character generation
+    /// data.
+    ///
+    /// # Panics
+    /// The data does not read.
+    #[must_use]
+    pub fn body_entities(&self) -> std::collections::BTreeMap<(u32, u32), u32> {
+        let lib = self.library.get_or_init(|| self.library());
+        yalain_world::chargen::body_entities_of_matrix(lib, &self.matrix())
+            .expect("the table reads")
+    }
+
     /// The character generation data's graph.
     fn matrix(&self) -> auberean_script::graph::Graph {
         let lib = self.library.get_or_init(|| self.library());
@@ -384,9 +396,10 @@ impl Portal {
                 auberean_assets::decode(id, &self.dat.read(id).ok()?, &self.ctx).ok()?;
             Graph::decode(&st.graph, &lib).ok()
         };
-        let bodies: Vec<u32> = yalain_world::chargen::BODY_ENTITIES
-            .iter()
-            .filter_map(|(_, _, e)| self.entity(*e).and_then(|e| e.object))
+        let bodies: Vec<u32> = self
+            .body_entities()
+            .values()
+            .filter_map(|e| self.entity(*e).and_then(|e| e.object))
             .collect();
         let mut m = yalain_world::mounts::Mounts::read(
             &lib,

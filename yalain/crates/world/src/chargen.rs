@@ -30,20 +30,6 @@ pub const CHOICE: u32 = 0x2;
 /// The modifier set to 1 beside every choice.
 const SHOWN: u32 = 0x10;
 
-/// The body entity of each race and sex: `(race, sex, entity)`.
-pub const BODY_ENTITIES: [(u32, u32, u32); 10] = [
-    (1, MALE, 0x4700_00CD),
-    (1, FEMALE, 0x4700_00CE),
-    (2, MALE, 0x4700_00CF),
-    (2, FEMALE, 0x4700_00D1),
-    (4, MALE, 0x4700_00D0),
-    (4, FEMALE, 0x4700_00D2),
-    (8, MALE, 0x4700_0514),
-    (8, FEMALE, 0x4700_0514),
-    (16, MALE, 0x4700_0512),
-    (16, FEMALE, 0x4700_0513),
-];
-
 /// One physique type's effect on the look.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PhysiqueEffect {
@@ -97,6 +83,34 @@ pub fn physique_of_matrix(
     Ok(out)
 }
 
+/// Each race and sex's body entity, as the character generation data's race and sex table holds
+/// it: per (race, sex), the entity its body is made from, the first word of the table's record.
+///
+/// # Errors
+/// The data has no such table, or a record is not one.
+pub fn body_entities_of_matrix(
+    lib: &Library,
+    g: &Graph,
+) -> Result<BTreeMap<(u32, u32), u32>, String> {
+    use crate::start::Nav;
+    use auberean_script::native_object::NativeObject;
+    let nav = Nav::new(lib, g);
+    let root = nav.object(g.root().ok_or("an empty graph")?)?;
+    let mut out = BTreeMap::new();
+    for (key, info) in nav.entries(nav.field(root, "m_RaceSexInfoTable")?)? {
+        let key = Nav::word(key)?;
+        let entity = match nav.native(Nav::reference(info)?)? {
+            NativeObject::Packed { bytes, .. } => bytes
+                .first_chunk::<4>()
+                .map(|w| u32::from_le_bytes(*w))
+                .ok_or_else(|| format!("race and sex {key:#x}: an empty record"))?,
+            other => return Err(format!("race and sex {key:#x}: {other:?} is not a record")),
+        };
+        out.insert((key & !(MALE | FEMALE), key & (MALE | FEMALE)), entity);
+    }
+    Ok(out)
+}
+
 /// The rules for making a character's look.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CharGenRules {
@@ -104,18 +118,37 @@ pub struct CharGenRules {
     pub bodies: BTreeMap<(u32, u32), u32>,
     /// Per (race, sex): what each physique type changes.
     pub physique: BTreeMap<(u32, u32), Vec<PhysiqueEffect>>,
+    /// Per (race, sex): the entity a new character's body is made from.
+    pub entities: BTreeMap<(u32, u32), u32>,
 }
 
 impl CharGenRules {
-    /// The rules with these bodies' looks (as read from the body entities, [`BODY_ENTITIES`]) and
-    /// what each physique type changes (as read from the character generation data,
-    /// [`physique_of_matrix`]).
+    /// The rules with these bodies' looks (as read from the body entities) and what each physique
+    /// type changes (as read from the character generation data, [`physique_of_matrix`]).
     #[must_use]
     pub fn new(
         bodies: BTreeMap<(u32, u32), u32>,
         physique: BTreeMap<(u32, u32), Vec<PhysiqueEffect>>,
     ) -> Self {
-        Self { bodies, physique }
+        Self {
+            bodies,
+            physique,
+            entities: BTreeMap::new(),
+        }
+    }
+
+    /// These rules with each race and sex's body entity (as read from the character generation
+    /// data, [`body_entities_of_matrix`]).
+    #[must_use]
+    pub fn with_entities(mut self, entities: BTreeMap<(u32, u32), u32>) -> Self {
+        self.entities = entities;
+        self
+    }
+
+    /// The entity a new character of this race and sex is made from.
+    #[must_use]
+    pub fn entity(&self, race: u32, sex: u32) -> Option<u32> {
+        self.entities.get(&(race, sex)).copied()
     }
 
     /// Does the race and sex exist?

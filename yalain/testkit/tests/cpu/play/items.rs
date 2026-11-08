@@ -1072,7 +1072,8 @@ fn a_jump_or_a_death_cuts_a_drink_short() {
 /// A forager's food: drunk as a potion is, then at once health and vigor each healed by 244 (its
 /// effects at the spellcraft of 40, the greatest values a cap), the answer with the drink's text
 /// and the flags of a use that took its time (never spent), and the food one durability down;
-/// at its fifth use it is destroyed through overuse instead.
+/// at its fifth use it is destroyed through overuse instead. Its class makes it destroyed on use,
+/// but its wear spends it, as 2017 shows (65 of 65 uses not spent, 12 of 12 gone at the fifth).
 /// Behaviour: server.items.food-heals-and-wears
 #[test]
 fn a_forager_s_food_heals_health_and_vigor_and_wears_out_at_its_fifth_use() {
@@ -1080,7 +1081,9 @@ fn a_forager_s_food_heals_health_and_vigor_and_wears_out_at_its_fifth_use() {
     const HEALTH: u32 = 258;
     const VIGOR: u32 = 259;
     let mut h = world();
-    template(&mut h, FOOD, Props::default());
+    let mut food_props = Props::default();
+    food_props.set("Item_IsDestroyOnUse", yalain_content::Prop::Bool(true));
+    template(&mut h, FOOD, food_props);
     let heals = |state: u32, flags: u32, top: f32| {
         let mut d = def(
             state,

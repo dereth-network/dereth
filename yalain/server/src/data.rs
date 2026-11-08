@@ -16,7 +16,6 @@ use auberean_dat::DatFile;
 use auberean_script::graph::Graph;
 use auberean_script::library::{Library, RECORD};
 use yalain_content::{describe, Catalog, LootTable, Props, SpawnTable, Template};
-use yalain_world::chargen::BODY_ENTITIES;
 use yalain_world::{CharGenRules, StartRules};
 
 /// The install's files a client's requests for records are served from: its portal file, its
@@ -197,14 +196,15 @@ impl Portal {
     }
 }
 
-/// Each race and sex's body look, read from its body entity, and which appearance each physique
-/// type changes, read from the character generation data.
+/// Each race and sex's body entity, read from the character generation data, and its look, read
+/// from the entity; and which appearance each physique type changes, read from the same data.
 ///
 /// # Errors
 /// A body entity, the library or the data does not read.
 pub fn chargen_rules(p: &Portal) -> Result<CharGenRules, String> {
+    let entities = yalain_world::chargen::body_entities_of_matrix(library(p)?, &matrix(p)?)?;
     let mut bodies = BTreeMap::new();
-    for (race, sex, entity) in BODY_ENTITIES {
+    for (&(race, sex), &entity) in &entities {
         let bytes = p
             .dat
             .read(entity)
@@ -223,7 +223,7 @@ pub fn chargen_rules(p: &Portal) -> Result<CharGenRules, String> {
         }
     }
     let physique = yalain_world::chargen::physique_of_matrix(library(p)?, &matrix(p)?)?;
-    Ok(CharGenRules::new(bodies, physique))
+    Ok(CharGenRules::new(bodies, physique).with_entities(entities))
 }
 
 /// The character generation data's graph (read with the script library's field names).
@@ -1000,29 +1000,6 @@ pub fn treasure(p: &Portal, catalog: &Catalog) -> Result<yalain_world::treasure:
     })
 }
 
-/// The packages of the catalog's templates whose items are destroyed on use by their kind.
-///
-/// # Errors
-/// The library does not read.
-pub fn destroyed_on_use(
-    p: &Portal,
-    catalog: &Catalog,
-) -> Result<std::collections::HashSet<u32>, String> {
-    let lib = library(p)?;
-    Ok(catalog
-        .templates
-        .values()
-        .map(|t| t.description.package)
-        .filter(|pkg| {
-            yalain_world::profile::destroyed_on_use_kind(
-                *pkg,
-                |n| lib.package_id(n),
-                |a, b| lib.derives_from(a, b),
-            )
-        })
-        .collect())
-}
-
 /// The craft skills and recipes a new character starts with, and the recipes `more` names (the
 /// ones effects grant), read from their saved states.
 ///
@@ -1712,6 +1689,104 @@ mod tests {
         assert_eq!(gate(0x4700_080B), (Some(0x4000_005A), None));
     }
 
+    /// A start reads which items are bound to whoever holds them from their classes: a relic
+    /// through its class's base, a training hall's glyph by its own; a starting sword is not.
+    /// Behaviour: server.content.attunable-of-classes
+    #[test]
+    fn a_start_reads_which_items_are_bound_from_their_classes() {
+        let dir = auberean_dat::testing::require_target_install();
+        let p = Portal::open(&dir, None).expect("opens");
+        let (c, _) = catalog(
+            &p,
+            &SpawnTable::default(),
+            &LootTable::default(),
+            &[0x4700_11C8, 0x4700_1AED, 0x4700_051C],
+        )
+        .expect("the catalog");
+        assert!(yalain_world::inventory::attunable(&c, 0x4700_11C8));
+        assert!(yalain_world::inventory::attunable(&c, 0x4700_1AED));
+        assert!(!yalain_world::inventory::attunable(&c, 0x4700_051C));
+    }
+
+    /// A start reads the key each glyph carries from its class: Esper's and Cragstone's.
+    /// Behaviour: server.content.glyph-keys-of-classes
+    #[test]
+    fn a_start_reads_the_keys_glyphs_carry_from_their_classes() {
+        let dir = auberean_dat::testing::require_target_install();
+        let p = Portal::open(&dir, None).expect("opens");
+        let (c, _) = catalog(
+            &p,
+            &SpawnTable::default(),
+            &LootTable::default(),
+            &[0x4700_10B1, 0x4700_10AC],
+        )
+        .expect("the catalog");
+        let key = |t: u32| c.get(t).expect("described").props.word("Lock_KeyID");
+        assert_eq!(key(0x4700_10B1), Some(0x4000_0021));
+        assert_eq!(key(0x4700_10AC), Some(0x4000_0004));
+    }
+
+    /// A start reads the key each vault door's key carries from its class: Citadel's and Cobalt's
+    /// keys open their own doors.
+    /// Behaviour: server.content.vault-keys-of-classes
+    #[test]
+    fn a_start_reads_the_keys_vault_door_keys_carry_from_their_classes() {
+        let dir = auberean_dat::testing::require_target_install();
+        let p = Portal::open(&dir, None).expect("opens");
+        let (c, _) = catalog(
+            &p,
+            &SpawnTable::default(),
+            &LootTable::default(),
+            &[0x4700_1127, 0x4700_1128],
+        )
+        .expect("the catalog");
+        let key = |t: u32| c.get(t).expect("described").props.word("Lock_KeyID");
+        assert_eq!(key(0x4700_1127), Some(0x4000_0034));
+        assert_eq!(key(0x4700_1128), Some(0x4000_0033));
+    }
+
+    /// A start reads each race and sex's body entity from the character generation data, and a new
+    /// character is made from its own: a human woman's, a drudge's for either sex.
+    /// Behaviour: server.characters.body-entities-from-the-install
+    #[test]
+    fn a_start_reads_each_race_and_sexs_body_entity() {
+        use yalain_world::chargen::{FEMALE, MALE};
+        let dir = auberean_dat::testing::require_target_install();
+        let p = Portal::open(&dir, None).expect("opens");
+        let rules = chargen_rules(&p).expect("the rules");
+        assert_eq!(rules.entities.len(), 10);
+        assert_eq!(rules.entity(1, FEMALE), Some(0x4700_00CE));
+        assert_eq!(rules.entity(8, MALE), Some(0x4700_0514));
+        assert_eq!(rules.entity(8, FEMALE), Some(0x4700_0514));
+        assert_eq!(rules.bodies.len(), 10);
+    }
+
+    /// A start reads which items their use destroys from their classes: a potion's; not a key's
+    /// whose own data keeps it, nor the forager's food, which wears instead.
+    /// Behaviour: server.content.destroyed-on-use-of-classes
+    #[test]
+    fn a_start_reads_which_items_their_use_destroys_from_their_classes() {
+        use yalain_world::item_use::{spends, FOOD};
+        let dir = auberean_dat::testing::require_target_install();
+        let p = Portal::open(&dir, None).expect("opens");
+        let (c, _) = catalog(
+            &p,
+            &SpawnTable::default(),
+            &LootTable::default(),
+            &[0x4700_11B4, 0x4700_1106, FOOD],
+        )
+        .expect("the catalog");
+        let spent = |t: u32| spends(t, &c.get(t).expect("described").props);
+        assert!(spent(0x4700_11B4));
+        assert!(!spent(0x4700_1106));
+        assert!(!spent(FOOD));
+        assert!(c
+            .get(FOOD)
+            .expect("described")
+            .props
+            .flag("Item_IsDestroyOnUse"));
+    }
+
     /// The catalog reads what an item's appearance table does to its icon: a recorded armor piece at
     /// its recorded value shows its recorded color.
     /// Behaviour: server.examination.an-items-icon-takes-its-appearance
@@ -2096,7 +2171,8 @@ mod tests {
         let served = install_files(&p);
         assert!(served.portal.is_some() && served.cell.is_some() && served.english.is_some());
         let total = |r: &Tally| r.lock().expect("the tally").values().sum::<u32>();
-        let entity = BODY_ENTITIES[0].2;
+        // The human male's body.
+        let entity = 0x4700_00CD;
         let qualities = p
             .dat
             .entries_in(0x8100_0000, 0x81FF_FFFF)

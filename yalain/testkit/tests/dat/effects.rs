@@ -1179,8 +1179,9 @@ fn a_recipe_that_binds_its_product_reads_the_bind_on_its_ordinal() {
     assert!(bound >= 3, "{bound} binds");
 }
 
-/// A forager's food is drunk as a potion is and is no item its use destroys; its two effects heal
-/// health and vigor, 244 at the spellcraft of 40 (2017: the heal of 10 of 15 foods).
+/// A forager's food is drunk as a potion is; its class makes it destroyed on use, but it wears by
+/// its uses, so its use doesn't spend it; its two effects heal health and vigor, 244 at the
+/// spellcraft of 40 (2017: the heal of 10 of 15 foods).
 /// Behaviour: server.items.food-read
 #[test]
 fn a_forager_s_food_reads_as_a_drink_that_heals_health_and_vigor() {
@@ -1192,19 +1193,8 @@ fn a_forager_s_food_reads_as_a_drink_that_heals_health_and_vigor() {
         item_use::behavior_of(FOOD, &food.props),
         Some(item_use::DRINK)
     );
-    let lib = p
-        .dat
-        .read_checked(
-            auberean_script::library::RECORD,
-            auberean_script::library::Library::from_record,
-        )
-        .expect("reads")
-        .value;
-    assert!(!yalain_world::profile::destroyed_on_use_kind(
-        food.description.package,
-        |n| lib.package_id(n),
-        |a, b| lib.derives_from(a, b),
-    ));
+    assert!(food.props.flag("Item_IsDestroyOnUse"), "its class says so");
+    assert!(!item_use::spends(FOOD, &food.props), "it wears instead");
     let t = p.effects(&FOOD_EFFECTS);
     let mut flags = Vec::new();
     for state in FOOD_EFFECTS {
@@ -1806,7 +1796,7 @@ fn a_classs_value_is_its_own_though_it_be_nothing_else_its_bases() {
 #[test]
 fn a_glyph_and_treasure_are_named_though_only_their_qualities_say() {
     let p = Portal::open();
-    for (t, _) in yalain_world::usable::vaults::GLYPH_KEYS {
+    for t in 0x4700_10AC..=0x4700_10C1 {
         assert!(p.template(t).facts.name.is_some(), "{t:#x}");
     }
     assert_eq!(

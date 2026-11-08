@@ -832,7 +832,6 @@ struct Play {
     doors: std::collections::HashMap<u32, yalain_world::usable::doors::Kind>,
     doors_through_locks: std::collections::HashSet<u32>,
     chests: std::collections::HashSet<u32>,
-    destroyed_on_use: std::collections::HashSet<u32>,
     treasure: yalain_world::treasure::Kinds,
     tesserae: std::collections::HashSet<u32>,
     inscribable: std::collections::HashSet<u32>,
@@ -1044,7 +1043,6 @@ fn run<S: Store>(
     server.doors.packages = play.doors;
     server.doors.creatures_through_locks = play.doors_through_locks;
     server.chests.packages = play.chests;
-    server.destroyed_on_use = play.destroyed_on_use;
     server.treasure = play.treasure;
     server.tesserae = play.tesserae;
     server.inscribable_packages = play.inscribable;
@@ -1948,7 +1946,6 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             chests = chests.len(),
             "the doors' and chests' kinds read"
         );
-        let destroyed_on_use = data::destroyed_on_use(portal, &catalog)?;
         let treasure = data::treasure(portal, &catalog)?;
         let tesserae =
             data::catalog_packages_from(portal, &catalog, &[yalain_world::treasure::TESSERAE])?;
@@ -2027,7 +2024,6 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             doors,
             doors_through_locks,
             chests,
-            destroyed_on_use,
             treasure,
             tesserae,
             inscribable,

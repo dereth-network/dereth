@@ -1412,47 +1412,6 @@ pub const STATS: u32 = 8;
 /// The tab an item's inscription is on.
 pub const INSCRIPTION: u32 = 0x80;
 
-/// The script classes whose start-up makes their items destroyed on use (`true`) or not
-/// (`false`): an item is destroyed on use when the nearest of these its class derives from says
-/// so. Keys, glyphs, potions, saddles, totems and some trophies are; coins and two trophies are
-/// not.
-pub const DESTROYED_ON_USE_KINDS: [(&str, bool); 15] = [
-    ("KeyTemplate", true),
-    ("GlyphTemplate", true),
-    ("PotionTemplate", true),
-    ("PotionTutorialTemplate", true),
-    ("SaddleTemplate", true),
-    ("Totem", true),
-    ("CharmRatSmasher", true),
-    ("ElixirBeetleSlayer", true),
-    ("ElixirWaspBane", true),
-    ("SealAcademy", true),
-    ("MedallionOpening", true),
-    ("Coin", false),
-    ("HeartTyrantLiving", false),
-    ("HeroSkillCreditToken", false),
-    // A forager's food wears with each use instead (2017: 65 of 65 uses answered as not spent).
-    ("FoodForaged", false),
-];
-
-/// Whether items of a package are destroyed on use by their kind: the nearest of
-/// [`DESTROYED_ON_USE_KINDS`] the package derives from says so (`id_of` gives a class's package,
-/// `derives(a, b)` whether package `a` is `b` or derives from it).
-pub fn destroyed_on_use_kind(
-    package: u32,
-    id_of: impl Fn(&str) -> Option<u32>,
-    derives: impl Fn(u32, u32) -> bool,
-) -> bool {
-    let of: Vec<(u32, bool)> = DESTROYED_ON_USE_KINDS
-        .iter()
-        .filter_map(|(n, on)| Some((id_of(n)?, *on)))
-        .filter(|(k, _)| derives(package, *k))
-        .collect();
-    of.iter()
-        .find(|(k, _)| of.iter().all(|(o, _)| derives(*k, *o)))
-        .is_some_and(|(_, on)| *on)
-}
-
 /// Where armor is worn (its valid places' bits) and each place's name.
 pub const WORN_PLACES: [(u32, u32); 5] = [
     (0x1, 0x11E3_EE99),

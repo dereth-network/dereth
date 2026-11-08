@@ -44,7 +44,6 @@ use auberean_protocol::{queue, ClientBlob, ClientMessage, ServerMessage};
 use yalain_net::{BlobKind, ConnId, ServerNet};
 use yalain_store::{Store, StoredPosition, WorldState};
 
-use crate::chargen::BODY_ENTITIES;
 use crate::options::{Options, Pairs};
 use crate::player;
 use crate::presence::{self, Seen};
@@ -307,10 +306,7 @@ fn start_place<S: Store>(s: &Server<S>, race: u32, chosen: u32) -> Option<Stored
 
 /// What a character is in the world, made the first time it enters.
 pub(crate) fn first_state<S: Store>(s: &Server<S>, c: &yalain_store::Character) -> WorldState {
-    let body = BODY_ENTITIES
-        .iter()
-        .find(|(r, x, _)| *r == c.race && *x == c.sex)
-        .map_or(0, |(_, _, e)| *e);
+    let body = s.rules.entity(c.race, c.sex).unwrap_or(0);
     let skills = s.start.skills.get(&c.race).cloned().unwrap_or_default();
     WorldState {
         position: start_place(s, c.race, c.start_area),

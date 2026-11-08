@@ -21,32 +21,6 @@ use yalain_store::Store;
 use crate::places::{self, Use};
 use crate::{presence, progress, Clock, Server};
 
-/// The key id each glyph carries, by its template.
-pub const GLYPH_KEYS: [(u32, u32); 22] = [
-    (0x4700_10AC, 0x4000_0004),
-    (0x4700_10AD, 0x4000_002B),
-    (0x4700_10AE, 0x4000_002D),
-    (0x4700_10AF, 0x4000_0020),
-    (0x4700_10B0, 0x4000_001F),
-    (0x4700_10B1, 0x4000_0021),
-    (0x4700_10B2, 0x4000_001C),
-    (0x4700_10B3, 0x4000_0023),
-    (0x4700_10B4, 0x4000_0029),
-    (0x4700_10B5, 0x4000_002E),
-    (0x4700_10B6, 0x4000_002C),
-    (0x4700_10B7, 0x4000_0022),
-    (0x4700_10B8, 0x4000_0028),
-    (0x4700_10B9, 0x4000_001B),
-    (0x4700_10BA, 0x4000_0025),
-    (0x4700_10BB, 0x4000_001A),
-    (0x4700_10BC, 0x4000_001E),
-    (0x4700_10BD, 0x4000_0027),
-    (0x4700_10BE, 0x4000_0026),
-    (0x4700_10BF, 0x4000_001D),
-    (0x4700_10C0, 0x4000_002A),
-    (0x4700_10C1, 0x4000_0024),
-];
-
 /// How long after the glyph's use begins the vault opens, in seconds (2017: median 2.58 s, 45
 /// trips).
 pub const OPENS_AFTER: f64 = 2.58;
@@ -76,15 +50,6 @@ pub struct Trips {
 
 /// The vaults' trips, by vault.
 pub type VaultTrips = HashMap<u64, Trips>;
-
-/// The key id a glyph's template carries.
-#[must_use]
-pub fn glyph_key(template: u32) -> Option<u32> {
-    GLYPH_KEYS
-        .iter()
-        .find(|(t, _)| *t == template)
-        .map(|(_, k)| *k)
-}
 
 /// A vault of the world, by its id: a locked object that takes a player somewhere. Its key id,
 /// when one is known.
@@ -152,7 +117,10 @@ pub fn glyph_at_vault<S: Store>(
         refuse(net, world, &u, refusal::IN_USE, refusal::IN_USE_FLAGS);
         return;
     }
-    let glyph = s.things.get(u.item).and_then(|t| glyph_key(t.template));
+    let glyph = s
+        .things
+        .get(u.item)
+        .and_then(|t| crate::usable::doors::key_id(s, t.template));
     if key.is_none() || glyph != key {
         needs_glyph(s, net, world, &u, vault_id);
         return;

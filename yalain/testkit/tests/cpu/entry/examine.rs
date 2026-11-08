@@ -1126,45 +1126,40 @@ fn a_made_items_maker_is_named_again_after_a_logout() {
     );
 }
 
-/// An item whose kind is destroyed on use (a key, a potion) says so on its requirements tab even
-/// when its template does not; the kind is the nearest of the classes that set it the item's class
-/// derives from (a coin, though an item, is not).
+/// An item its template or its class makes destroyed on use (a key, a potion) says so on its
+/// requirements tab; one that wears by its uses (a forager's food, anything with durability) does
+/// not, as its wear spends it.
 /// Behaviour: server.examination.destroyed-on-use-by-kind
 #[test]
-fn a_potions_profile_says_it_is_destroyed_on_use_by_its_kind() {
+fn a_potions_profile_says_it_is_destroyed_on_use_and_a_worn_items_does_not() {
     use profile::{item_line as l, Node};
-    // A made-up class tree: a potion kind under the potions, a coin beside them.
-    let id_of = |n: &str| match n {
-        "PotionTemplate" => Some(0x10),
-        "Coin" => Some(0x20),
-        _ => None,
-    };
-    let derives = |a: u32, b: u32| a == b || (a == 0x11 && b == 0x10) || (a == 0x21 && b == 0x20);
+    use yalain_content::Prop;
+    let mut destroyed = yalain_content::Props::default();
+    destroyed.set("Item_IsDestroyOnUse", Prop::Bool(true));
+    assert!(yalain_world::item_use::spends(0x4700_7001, &destroyed));
+    let mut worn = destroyed.clone();
+    worn.set("Item_Durability_MaxLevel", Prop::Int(5));
     assert!(
-        profile::destroyed_on_use_kind(0x11, id_of, derives),
-        "a potion"
+        !yalain_world::item_use::spends(0x4700_7001, &worn),
+        "it wears"
     );
     assert!(
-        !profile::destroyed_on_use_kind(0x21, id_of, derives),
-        "a coin"
-    );
-    assert!(
-        !profile::destroyed_on_use_kind(0x30, id_of, derives),
-        "anything else"
+        !yalain_world::item_use::spends(yalain_world::item_use::FOOD, &destroyed),
+        "the forager's food wears"
     );
 
     let mut h = Harness::new();
     h.server.catalog = yalain_testkit::test_catalog();
     let (a, _) = h.player_in_world("one", "Elara");
     let world = *h.server.players.keys().next().expect("in the world");
-    let package = h
+    if let Some(t) = h
         .server
         .catalog
-        .get(yalain_testkit::TEST_ITEM)
-        .expect("in the catalog")
-        .description
-        .package;
-    h.server.destroyed_on_use.insert(package);
+        .templates
+        .get_mut(&yalain_testkit::TEST_ITEM)
+    {
+        t.props.set("Item_IsDestroyOnUse", Prop::Bool(true));
+    }
     let item = yalain_world::inventory::give(
         &mut h.server,
         &mut h.net,
