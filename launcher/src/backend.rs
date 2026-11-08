@@ -41,9 +41,42 @@ const STATUS_INTERVAL: Duration = Duration::from_secs(60);
 /// How many servers are asked whether they are up at once.
 const PROBES_AT_ONCE: usize = 8;
 
+/// A world to ask whether it is up, and how.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ProbeTarget {
+    slug: String,
+    host: String,
+    port: u16,
+    /// Ask with the status ping first.
+    ping: bool,
+    /// An Asheron's Call 2 world, which the server-tracker login says nothing of.
+    yalain: bool,
+    /// The world is of the November 1999 wire, played through a relay.
+    wire_1999: bool,
+}
+
 /// Ask a server whether it is up with the server-tracker login ([`dereth_launch::probe`]): three
 /// tries, 700 ms apiece. Any well-formed packet back from its address is a yes.
 pub(crate) fn probe_host(host: &str, port: u16) -> bool {
+    knock(
+        host,
+        port,
+        &dereth_launch::probe::request(),
+        dereth_launch::probe::is_reply,
+    )
+}
+
+/// [`probe_host`] for a server of the November 1999 wire, in the form it reads.
+pub(crate) fn probe_host_1999(host: &str, port: u16) -> bool {
+    knock(
+        host,
+        port,
+        &dereth_launch::probe::request_1999(),
+        dereth_launch::probe::is_reply_1999,
+    )
+}
+
+fn knock(host: &str, port: u16, request: &[u8], is_reply: fn(&[u8]) -> bool) -> bool {
     use std::net::{ToSocketAddrs, UdpSocket};
     let Some(addr) = (host, port)
         .to_socket_addrs()
@@ -52,25 +85,25 @@ pub(crate) fn probe_host(host: &str, port: u16) -> bool {
     else {
         return false;
     };
+    // A test never reaches past this computer, whatever address a list names.
+    #[cfg(test)]
+    if !addr.ip().is_loopback() {
+        return false;
+    }
     let Ok(sock) = UdpSocket::bind(("0.0.0.0", 0)) else {
         return false;
     };
     let wait = Duration::from_millis(700);
     let _ = sock.set_read_timeout(Some(wait));
-    let request = dereth_launch::probe::request();
     let mut buf = [0u8; 1500];
     for _ in 0..3 {
-        if sock.send_to(&request, addr).is_err() {
+        if sock.send_to(request, addr).is_err() {
             return false;
         }
         let until = Instant::now() + wait;
         while Instant::now() < until {
             match sock.recv_from(&mut buf) {
-                Ok((n, from))
-                    if from.ip() == addr.ip() && dereth_launch::probe::is_reply(&buf[..n]) =>
-                {
-                    return true
-                }
+                Ok((n, from)) if from.ip() == addr.ip() && is_reply(&buf[..n]) => return true,
                 Ok(_) => {}
                 // A timeout, or the system reporting that nothing listens there.
                 Err(_) => break,
@@ -1090,11 +1123,37 @@ impl Backend {
             let b = lock(shared);
             b.all_worlds()
                 .filter(|w| w.status_method != StatusMethod::EmpyreanHttp)
-                .filter(|w| !w.relayed)
                 .map(|w| w.slug)
                 .collect()
         };
         Self::probe(shared, slugs);
+    }
+
+    /// What each of the named worlds is asked, those not being asked already.
+    fn probe_targets(&self, slugs: &[String]) -> Vec<ProbeTarget> {
+        slugs
+            .iter()
+            .filter(|s| !self.probing.contains(*s))
+            .filter_map(|s| self.world(s))
+            .filter_map(|w| {
+                // Empyrean and Yalain answer the status ping on their login port.
+                let ping = w.status_method != StatusMethod::EmpyreanHttp
+                    && matches!(
+                        w.emulator,
+                        Emulator::Empyrean | Emulator::Yalain | Emulator::Unknown
+                    );
+                let yalain = w.emulator == Emulator::Yalain;
+                let wire_1999 = w.relayed;
+                w.endpoint.map(|e| ProbeTarget {
+                    slug: w.slug,
+                    host: e.address,
+                    port: e.port,
+                    ping,
+                    yalain,
+                    wire_1999,
+                })
+            })
+            .collect()
     }
 
     /// Ask the named worlds whether they are up, a few at a time, on threads of their own. A world
@@ -1102,28 +1161,11 @@ impl Backend {
     /// is asked with the status ping first, which tells its state, players, era, systems, software
     /// and name; one that does not answer it, and every other, with the server-tracker login.
     pub fn probe(shared: &Shared, slugs: Vec<String>) {
-        let queue: Vec<(String, String, u16, bool, bool)> = {
+        let queue: Vec<ProbeTarget> = {
             let mut b = lock(shared);
-            let targets: Vec<(String, String, u16, bool, bool)> = slugs
-                .iter()
-                .filter(|s| !b.probing.contains(*s))
-                .filter_map(|s| b.world(s))
-                // A world played through a relay is asked nothing until the player presses Play.
-                .filter(|w| !w.relayed)
-                .filter_map(|w| {
-                    // Empyrean and Yalain answer the status ping on their login port.
-                    let ping = w.status_method != StatusMethod::EmpyreanHttp
-                        && matches!(
-                            w.emulator,
-                            Emulator::Empyrean | Emulator::Yalain | Emulator::Unknown
-                        );
-                    let yalain = w.emulator == Emulator::Yalain;
-                    w.endpoint
-                        .map(|e| (w.slug, e.address, e.port, ping, yalain))
-                })
-                .collect();
-            for (slug, ..) in &targets {
-                b.probing.insert(slug.clone());
+            let targets = b.probe_targets(&slugs);
+            for target in &targets {
+                b.probing.insert(target.slug.clone());
             }
             targets
         };
@@ -1135,13 +1177,27 @@ impl Backend {
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .pop();
-                let Some((slug, host, port, ping, yalain)) = next else {
+                let Some(ProbeTarget {
+                    slug,
+                    host,
+                    port,
+                    ping,
+                    yalain,
+                    wire_1999,
+                }) = next
+                else {
                     break;
                 };
                 let live = ping.then(|| ping_status(&host, port)).flatten();
                 // The server-tracker login is Asheron's Call's: an Asheron's Call 2 world is up
                 // by its ping alone.
-                let up = live.is_some() || (!yalain && probe_host(&host, port));
+                let up = live.is_some()
+                    || (!yalain
+                        && if wire_1999 {
+                            probe_host_1999(&host, port)
+                        } else {
+                            probe_host(&host, port)
+                        });
                 let mut b = lock(&shared);
                 b.probing.remove(&slug);
                 b.probed.insert(slug.clone(), up);
@@ -1214,12 +1270,6 @@ impl Backend {
             });
         }
         lock(shared).poll_running();
-    }
-
-    /// Whether the worlds played through a relay are listed, kept with the launcher's state.
-    pub fn set_relayed_worlds(&mut self, on: bool) {
-        self.state.settings.relayed_worlds = Some(on);
-        self.save();
     }
 
     /// The page shows the worlds, or no longer does ([`Self::pings_due`]).
@@ -1386,6 +1436,13 @@ impl Backend {
         let Some(world) = self.world(&choice.world_slug) else {
             return err("That world is no longer listed.".into());
         };
+        // Home's Play or a favorite can name a client the world's page no longer offers.
+        if choice.client == ClientKind::Retail && !choices::retail_can_play(&world) {
+            return err(format!(
+                "The retail client can't play {}: use the Dereth client.",
+                world.name
+            ));
+        }
         let world = match relay {
             Some(port) => dereth_launch::relayed::on_relay(world, port),
             None => world,
@@ -1522,6 +1579,12 @@ impl Backend {
 
         let mut command = Command::new(&plan.exe);
         crate::components::leave_the_mount(&mut command, &plan.exe);
+        // In the environment, which a client too old to report takes no notice of.
+        if dereth {
+            if let Some(hub) = dereth_launch::serverlist::other_hub(self.list.sources()) {
+                command.env("DERETH_PLAYER_COUNT_HUB", hub);
+            }
+        }
         let child = match command
             .current_dir(&plan.working_dir)
             .args(plan.argv(&password))
@@ -2226,6 +2289,13 @@ mod tests {
         d
     }
 
+    /// A launcher that doesn't list the worlds played through a relay: these tests read the list
+    /// whole, and those worlds are real servers.
+    fn without_relayed_worlds(mut b: Backend) -> Backend {
+        b.state.hide_relayed_worlds = true;
+        b
+    }
+
     /// A state folder, and a "Dereth client" with an end-of-retail set beside it. On a Unix system
     /// the client is a script that records how it was started.
     fn backend(name: &str) -> (Backend, PathBuf) {
@@ -2251,6 +2321,8 @@ mod tests {
             "memory",
             Some(dir.join("settings").join("UserPreferences.ini")),
         );
+        // These tests never reach a real server, and a world played through a relay is one.
+        b.state.hide_relayed_worlds = true;
         let mut w = World::new("eulmore", "Eulmore");
         w.emulator = Emulator::Empyrean;
         w.state = WorldState::Online;
@@ -3895,6 +3967,22 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
+    /// A choice saved before a world said it plays Launch can't start the retail client on it.
+    #[test]
+    fn a_launch_world_is_not_started_on_the_retail_client() {
+        let (mut b, dir) = backend("retail-on-launch");
+        b.list.worlds_mut()[0].era = Some("launch".into());
+        let out = b.launch(Choice {
+            client: ClientKind::Retail,
+            ..choice(Some("pw"))
+        });
+        assert!(
+            matches!(&out, LaunchOutcome::Error { message } if message.contains("can't play")),
+            "{out:?}"
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     #[test]
     fn a_launch_world_is_not_started_on_the_february_2005_pair() {
         let (mut b, dir) = backend("original-needed");
@@ -3981,14 +4069,14 @@ mod tests {
         }
         .save(&folders.data)
         .unwrap();
-        let b = Backend::new(
+        let b = without_relayed_worlds(Backend::new(
             folders,
             Vec::new(),
             None,
             Box::new(MemoryVault::default()),
             "memory",
             None,
-        );
+        ));
         let s = b.snapshot();
         assert_eq!(s.worlds.len(), 1);
         assert_eq!(s.worlds[0].slug, "leafcull");
@@ -4023,14 +4111,14 @@ mod tests {
         .save(&folders.data)
         .unwrap();
         let launcher = |sources: Vec<ListSource>| -> Shared {
-            Arc::new(Mutex::new(Backend::new(
+            Arc::new(Mutex::new(without_relayed_worlds(Backend::new(
                 folders.clone(),
                 sources,
                 None,
                 Box::new(MemoryVault::default()),
                 "memory",
                 None,
-            )))
+            ))))
         };
         let slugs = |shared: &Shared| -> Vec<String> {
             lock(shared)
@@ -4096,14 +4184,14 @@ mod tests {
         }
         .save(&folders.data)
         .unwrap();
-        let shared: Shared = Arc::new(Mutex::new(Backend::new(
+        let shared: Shared = Arc::new(Mutex::new(without_relayed_worlds(Backend::new(
             folders.clone(),
             serverlist::sources(None),
             None,
             Box::new(MemoryVault::default()),
             "memory",
             None,
-        )));
+        ))));
         lock(&shared).state.record_recent(Recent {
             world_slug: "leafcull-isle".into(),
             account: "player".into(),
@@ -4235,14 +4323,14 @@ mod tests {
     fn the_window_shows_the_worlds_every_launcher_shows_from_the_same_answers() {
         use dereth_launch::testing::world_list as fixture;
         let dir = tmp("same-worlds");
-        let shared: Shared = Arc::new(Mutex::new(Backend::new(
+        let shared: Shared = Arc::new(Mutex::new(without_relayed_worlds(Backend::new(
             Folders::single(dir.join("state")),
             serverlist::sources(None),
             None,
             Box::new(MemoryVault::default()),
             "memory",
             None,
-        )));
+        ))));
         let read = |hub_answers: bool| {
             Backend::refresh_with(&shared, fixture::fetch(hub_answers))
                 .join()
@@ -4646,26 +4734,108 @@ mod tests {
         }
     }
 
-    /// A world played through a relay is listed only for a player who turned it on, which is kept
-    /// with the launcher's state, and is asked nothing: nothing but a launch contacts it.
+    /// A launcher with an empty state folder lists AC1999, and so does one whose file still says it
+    /// was turned off; nothing is asked of it here.
     #[test]
-    fn a_relayed_world_is_listed_when_turned_on_and_never_probed() {
+    fn a_new_launcher_lists_ac1999_whatever_an_old_state_file_says() {
+        let dir = tmp("relayed-new");
+        let folders = Folders::single(dir.join("state"));
+        let listed = |folders: &Folders| {
+            let b = Backend::new(
+                folders.clone(),
+                Vec::new(),
+                None,
+                Box::new(MemoryVault::default()),
+                "memory",
+                None,
+            );
+            b.snapshot().worlds.iter().any(|w| w.slug == "ac1999")
+        };
+        assert!(listed(&folders), "an empty state folder");
+        std::fs::create_dir_all(&folders.data).unwrap();
+        std::fs::write(
+            folders.data.join(dereth_launch::state::STATE_FILE),
+            r#"{"schema": 1, "settings": {"relayed_worlds": false}}"#,
+        )
+        .unwrap();
+        assert!(listed(&folders), "a file that had it turned off");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A world played through a relay is listed with nothing set, and asked as any world is, in the
+    /// form its wire reads, and with no status ping. Off the list, it is asked nothing. This doesn't
+    /// send anything: its address is real.
+    #[test]
+    fn a_relayed_world_is_listed_and_asked_in_its_own_form() {
         let (b, dir) = backend("relayed");
-        assert!(b.world("ac1999").is_none(), "off to begin with");
         let shared: Shared = Arc::new(Mutex::new(b));
-        lock(&shared).set_relayed_worlds(true);
+        let slugs = ["ac1999".to_owned()];
+        assert!(lock(&shared).world("ac1999").is_none(), "the tests hide it");
+        assert!(lock(&shared).probe_targets(&slugs).is_empty());
+
+        lock(&shared).state.hide_relayed_worlds = false;
         let world = lock(&shared).world("ac1999").expect("listed");
         assert!(world.relayed);
-        Backend::probe_all(&shared);
-        Backend::probe(&shared, vec!["ac1999".to_owned()]);
-        let b = lock(&shared);
-        assert!(!b.probing.contains("ac1999") && !b.probed.contains_key("ac1999"));
-        let saved =
-            std::fs::read_to_string(dir.join("state").join(dereth_launch::state::STATE_FILE))
-                .unwrap();
-        assert!(saved.contains("\"relayed_worlds\": true"), "{saved}");
-        drop(b);
+        let targets = lock(&shared).probe_targets(&slugs);
+        let [target] = &targets[..] else {
+            panic!("{targets:?}");
+        };
+        assert!(target.wire_1999 && !target.ping && !target.yalain);
+        assert_eq!(
+            (target.host.as_str(), target.port),
+            ("ac1999.cobradragon.com", 9110)
+        );
+
+        // What it answered is what the list shows.
+        lock(&shared).probed.insert("ac1999".into(), false);
+        assert_eq!(
+            lock(&shared).world("ac1999").unwrap().state,
+            WorldState::Offline
+        );
+        lock(&shared).probed.insert("ac1999".into(), true);
+        assert_eq!(
+            lock(&shared).world("ac1999").unwrap().state,
+            WorldState::Online
+        );
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A server of the 1999 wire is asked in that wire's form, and its login failure is a yes; silence
+    /// is a no. A stand-in on loopback.
+    #[test]
+    fn a_server_of_the_1999_wire_is_online_by_its_login_failure() {
+        use std::net::UdpSocket;
+        let server = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let port = server.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 1500];
+            if let Ok((n, from)) = server.recv_from(&mut buf) {
+                assert_eq!(&buf[..n], &dereth_launch::probe::request_1999()[..]);
+                let mut failure = [0_u8; 28];
+                failure[4..8].copy_from_slice(&0x10_0000_u32.to_le_bytes());
+                failure[16..18].copy_from_slice(&8_u16.to_le_bytes());
+                let _ = server.send_to(&failure, from);
+            }
+        });
+        assert!(probe_host_1999("127.0.0.1", port));
+        let silent = UdpSocket::bind("127.0.0.1:0").unwrap();
+        assert!(!probe_host_1999(
+            "127.0.0.1",
+            silent.local_addr().unwrap().port()
+        ));
+    }
+
+    /// The knock against a real server of the 1999 wire, on this computer only.
+    #[test]
+    #[ignore = "needs a local ac1999 server; DERETH_TEST_AC1999 names its loopback host:port"]
+    fn a_real_server_of_the_1999_wire_answers_the_knock() {
+        let address = std::env::var("DERETH_TEST_AC1999").expect("DERETH_TEST_AC1999");
+        let (host, port) = address.rsplit_once(':').expect("host:port");
+        assert!(
+            host == "127.0.0.1" || host == "localhost",
+            "this test never leaves this computer, not {host}"
+        );
+        assert!(probe_host_1999(host, port.parse().expect("a port")));
     }
 
     /// The relay goes when the client it serves ends.

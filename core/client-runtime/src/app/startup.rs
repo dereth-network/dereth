@@ -164,6 +164,14 @@ impl<S: Shell> App<S> {
             pacer,
             dialog,
         } = platform(&cfg)?;
+        // The size the window last closed at is where the force lifts to, for a window the player
+        // sizes (client divergence CD-resizable-window).
+        let unforced_resolution = match cfg.display.window_size {
+            Some(size) if from_preference && window.player_sizes_window() => {
+                crate::config::fit_window_size(size, window.largest_client_size())
+            }
+            _ => unforced_resolution,
+        };
         let (client_w, client_h) = window.client_size();
         // A headless run has no window, so the rectangle it would have had is
         // seeded from the normal creation placement over the headless screen. That is
@@ -342,6 +350,7 @@ impl<S: Shell> App<S> {
             perf: crate::perf::FramePerf::default(),
             perf_steps: [0.0; crate::frame::STEPS],
             perf_font: false,
+            window_has_no_extent: false,
             perf_capture: None,
             build_commit: "unknown",
             playable_at: None,
@@ -371,12 +380,14 @@ impl<S: Shell> App<S> {
             frame_metrics,
             window_rect,
             windowed_rect_before_full_screen: None,
+            windowed_size: None,
             startup_sound_played: false,
             ui_sound_table: None,
             hud: S::Hud::default(),
             teleport: crate::teleport::Teleport::new(),
             anim_assets,
             frame_hook: None,
+            world_players: None,
             hook_control_losses: 0,
             hook_chat: Vec::new(),
             hook_outcomes: Vec::new(),
@@ -609,6 +620,14 @@ impl<S: Shell> App<S> {
         use dereth_client_contract::options::{interface, store};
         self.duties.preferences_started = true;
         self.register_display_modes();
+        // A window that draws full screen at a share of its screen's pixels offers the render
+        // scale, at the share it starts at. Where the profile keeps it, it is registered before
+        // the profile is read, and otherwise after, so the file cannot change it.
+        let render_scale = self.window.render_scale();
+        let in_profile = self.window.profile_keeps_render_scale();
+        if let (Some(start), true) = (render_scale, in_profile) {
+            dereth_client_contract::options::render_scale::register_in_profile(start);
+        }
         let ini = crate::platform::files::read_to_string(&self.cfg.preferences_file)
             .ok()
             .and_then(|t| {
@@ -623,10 +642,7 @@ impl<S: Shell> App<S> {
             // and the registered defaults are then what the page shows.
             None => tracing::info!("no UserPreferences.ini; registered defaults stand"),
         }
-        // A window that draws full screen at a share of its screen's pixels offers the render
-        // scale, at the share it starts at. The profile does not keep it, so it is registered
-        // after the profile is read.
-        if let Some(start) = self.window.render_scale() {
+        if let (Some(start), false) = (render_scale, in_profile) {
             dereth_client_contract::options::render_scale::register(start);
         }
         if let Some(first) = self.cfg.new_player_interface {

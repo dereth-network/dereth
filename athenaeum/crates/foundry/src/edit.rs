@@ -171,6 +171,8 @@ pub struct Session {
     target_name: String,
     world_packs: BTreeSet<String>,
     entries: Vec<Entry>,
+    /// The world's `[[pet]]` and `[[pet_limit]]` rows as they stand.
+    pets: Vec<Located>,
     index: HashMap<String, usize>,
     /// Every item a row of the world or its base names, removed or not.
     taken: BTreeSet<String>,
@@ -275,6 +277,7 @@ impl Session {
             target_name,
             world_packs: BTreeSet::new(),
             entries: Vec::new(),
+            pets: Vec::new(),
             index: HashMap::new(),
             taken: BTreeSet::new(),
             removed: Vec::new(),
@@ -501,6 +504,11 @@ impl Session {
                     removed.push((item.clone(), self.base.merged.rows[*i].clone()));
                 }
             }
+            self.pets = rows
+                .iter()
+                .filter(|l| matches!(l.row, Row::Pet(_) | Row::PetLimit(_)))
+                .cloned()
+                .collect();
             for l in rows {
                 if !matches!(
                     l.row,
@@ -658,6 +666,9 @@ impl Session {
                     route_start: 0,
                     route_backward: false,
                     requires: None,
+                    min_level: None,
+                    hero: false,
+                    kingdom: None,
                     recall: false,
                     summon: false,
                     prov: p.clone(),
@@ -952,6 +963,13 @@ impl Session {
     /// No such row, a row of another pack, the key, a field the row's kind lacks, a value that is
     /// not TOML, a change the row would not read after, or a file that is not TOML.
     pub fn set(&mut self, item: &str, field: &str, value: &str) -> Result<String, String> {
+        if self
+            .pets
+            .iter()
+            .any(|l| item_key(l).as_deref() == Some(item))
+        {
+            return self.set_pet(item, field, value);
+        }
         if field == "key" {
             return Err("a row's key names it: place a new row to have another".into());
         }
@@ -990,6 +1008,83 @@ impl Session {
             });
         }
         Ok(result)
+    }
+
+    /// The world's `[[pet]]` and `[[pet_limit]]` rows as they stand.
+    #[must_use]
+    pub fn pets(&self) -> &[Located] {
+        &self.pets
+    }
+
+    /// Set a field of a `[[pet]]` or `[[pet_limit]]`, by its item. The row is changed where the
+    /// target writes it; a row of another pack or the base is written into the target, which
+    /// replaces it. A value that leaves the row unread is refused and nothing changes.
+    fn set_pet(&mut self, item: &str, field: &str, value: &str) -> Result<String, String> {
+        let row = self
+            .pets
+            .iter()
+            .find(|l| item_key(l).as_deref() == Some(item))
+            .cloned()
+            .ok_or_else(|| not_found(item))?;
+        let kind = row.row.kind();
+        let fields = yalain_world_db::rows::FIELDS
+            .iter()
+            .find(|(k, _)| *k == kind)
+            .map_or(&[][..], |(_, f)| *f);
+        if !fields.contains(&field) {
+            return Err(format!(
+                "{field} is not a field of [[{kind}]]: one of {}",
+                fields.join(", ")
+            ));
+        }
+        let (id_field, id, mut table) = match &row.row {
+            Row::Pet(r) => ("effect", r.effect, rowtoml::pet(r, &Prov::AUTHORED)),
+            Row::PetLimit(r) => ("skill", r.skill, rowtoml::pet_limit(r, &Prov::AUTHORED)),
+            _ => return Err(not_found(item)),
+        };
+        if field == id_field {
+            return Err(format!(
+                "{id_field} names the row: write a new one to have another"
+            ));
+        }
+        if value.trim().is_empty() {
+            table.remove(field);
+        } else {
+            let v = value
+                .trim()
+                .parse::<Value>()
+                .map_err(|e| format!("{field}: {value:?} is not a TOML value: {e}"))?;
+            table.insert(field, Item::Value(v));
+        }
+        let file = format!("{}/server/pets.toml", self.target);
+        let mut doc = self.doc(&file)?;
+        let same = |t: &Table| {
+            t.get(id_field)
+                .and_then(Item::as_integer)
+                .is_some_and(|v| v == i64::from(id))
+        };
+        let there = doc
+            .get_mut(kind)
+            .and_then(Item::as_array_of_tables_mut)
+            .and_then(|a| a.iter_mut().find(|t| same(t)));
+        match there {
+            Some(t) => *t = table,
+            None => push_row(&mut doc, kind, table),
+        }
+        let steps = self.history.len();
+        self.commit(vec![(file.clone(), Some(doc.to_string()))]);
+        let why: Vec<String> = self
+            .problems
+            .iter()
+            .filter(|p| p.file == file)
+            .map(ToString::to_string)
+            .collect();
+        if !why.is_empty() && self.history.len() > steps {
+            self.undo();
+            self.history.clear_redo();
+            return Err(why.join("\n"));
+        }
+        Ok(item.to_string())
     }
 
     fn set_unchecked(&mut self, item: &str, field: &str, value: &str) -> Result<String, String> {

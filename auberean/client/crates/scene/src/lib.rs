@@ -157,6 +157,8 @@ struct Player {
     /// The description it was last sent, and its own descriptions (none when its look is a stored
     /// record's).
     visual: auberean_client_sdk::protocol::types::VisualDesc,
+    /// The object's count of descriptions sent, at the last one taken.
+    visual_updates: u32,
     dress: Option<auberean_animation::look::ObjectLook>,
     body: Body,
     figure: Figure,
@@ -887,7 +889,7 @@ struct CameraWorld<'a, 'w> {
 /// before, and it stands at the new place; each frame in mouse look, both, so a frame draws it
 /// there and nowhere between. With no loaded cell for a line to start from it stays where it
 /// stood.
-// D2-10664, D2-10662, D2-10647
+// D2-10664, D2-10662
 fn place_camera(
     camera: &mut CameraControl,
     stands: &mut Option<camera::Stands>,
@@ -951,21 +953,12 @@ fn place_camera(
     } else {
         Some(viewer.stand_at(pos.cell, viewer.origin))
     };
-    match (stands.as_mut(), placed) {
-        (Some(s), Some(at)) => {
-            s.set_previous(s.current);
-            s.set_current(at);
-            if each_frame.is_some() && traced {
-                s.set_previous(at);
-            }
-        }
-        (Some(s), None) => s.set_previous(s.current),
-        (None, Some(at)) => *stands = Some(camera::Stands::at(at)),
-        // Placed the first time with no line to keep it off the world: where it wants to be.
-        (None, None) => {
-            *stands = Some(camera::Stands::at(viewer.stand_at(pos.cell, viewer.origin)));
-        }
-    }
+    let placed = camera::take_place(
+        stands,
+        placed,
+        viewer.stand_at(pos.cell, viewer.origin),
+        each_frame.is_some() && traced,
+    );
     // Where the next glide starts from, in the body's landblock's frame.
     if let Some(at) = placed {
         let shift = auberean_physics::geom::block_offset(pos.cell, at.cell);
@@ -2444,6 +2437,7 @@ impl<'w> Scene<'w> {
         Some(Player {
             id: o.id,
             visual: o.visual.clone(),
+            visual_updates: o.visual_updates,
             dress,
             body,
             figure,
@@ -2474,6 +2468,7 @@ impl<'w> Scene<'w> {
             return;
         };
         p.visual = o.visual.clone();
+        p.visual_updates = o.visual_updates;
         let records = &self.world.records;
         let Some(look) = figures::look_after(records, &self.anims, &o.visual, &mut p.dress) else {
             return;
@@ -2525,7 +2520,7 @@ impl<'w> Scene<'w> {
                 }
             }
             (Some(o), Some(p)) if p.id == o.id => {
-                if p.visual != o.visual {
+                if p.visual != o.visual || p.visual_updates != o.visual_updates {
                     self.player_takes_visual(o);
                 }
             }
@@ -3818,6 +3813,14 @@ impl<'w> Scene<'w> {
         )
     }
 
+    /// Draw at full detail, or not: while a screenshot is taken nothing degrades or goes with its
+    /// distance. The frame in hand was chosen under the other setting, so it is made again.
+    // D2-10548, D2-10549
+    pub fn set_full_detail(&mut self, on: bool) {
+        auberean_draw::mesh::set_full_detail(on);
+        self.built = None;
+    }
+
     /// The frame to draw: the world around the camera and the bodies in it. `None` before the
     /// player has a body.
     pub fn frame(&mut self, now: f64) -> Option<&Frame> {
@@ -4649,6 +4652,14 @@ impl<'w> Scene<'w> {
             l.direct_color.b * l.direct_brightness,
             1.0,
         );
+        self.placed_effects
+            .see_from(&auberean_draw::effects::PlacedSight {
+                eye: dv(eye),
+                home: (bx, by),
+                block_length: BLOCK_LENGTH,
+                scale: auberean_draw::mesh::scenery_scale(self.builder.scenery_draw_distance),
+                model_detail: usize::try_from(self.builder.model_detail).unwrap_or(2),
+            });
         self.placed_effects.draw(&self.systems, now, light);
         self.others.draw_effects(
             &self.systems,
@@ -4656,6 +4667,7 @@ impl<'w> Scene<'w> {
             &self.anims,
             &mut self.trees,
             &self.land,
+            &mut self.drawer,
             (bx, by),
             self.ticker.alpha(now),
             now,
@@ -4673,6 +4685,8 @@ impl<'w> Scene<'w> {
             if let Some(fx) = pl.effects.as_mut() {
                 // Its repulsors take the speed its physics moves it at.
                 fx.fx.set_velocity(dv(pl.body.velocity));
+                // Its systems are queued as its body is drawn.
+                fx.fx.set_drawn(draws_player);
                 let changed = fx.think(
                     &self.systems,
                     &self.world.records,
@@ -4710,6 +4724,7 @@ impl<'w> Scene<'w> {
         for (id, at, scale) in &made {
             if let Some(t) = self.temporaries.get_mut(*id) {
                 if let Some(fx) = t.effects.as_mut() {
+                    fx.fx.set_drawn(!t.body.is_no_draw());
                     let changed = fx.think(
                         &self.systems,
                         &self.world.records,
@@ -5019,6 +5034,7 @@ fn cast_volumes(
         placed_casters, setting, Caster, VolumeRoom, Volumes, VOLUME_REACH,
     };
     frame.volumes.volumes.clear();
+    maker.begin_frame();
     // A body its drawing properties make seen through is drawn with those seen through.
     for (id, range, _, _) in noted {
         let seen_through = c.table.find(*id).is_some_and(|k| {

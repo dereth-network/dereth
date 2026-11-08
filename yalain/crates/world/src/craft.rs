@@ -1891,6 +1891,11 @@ pub fn slots_in(g: &[(u32, Node)]) -> Vec<(u32, u64)> {
         .unwrap_or_default()
 }
 
+/// How far from its target a recipe that asks for one is made, in meters. The distance is the world's
+/// own: a target is a mine, whose place is its middle, well off where one stands at it (2017: 62
+/// made at three mines, 4.82 to 22.08 m from their places; none refused for being farther).
+pub const TARGET_REACH: f32 = 30.0;
+
 /// Has a player the money a recipe costs?
 fn affords<S: Store>(s: &Server<S>, world: ConnId, def: &RecipeDef) -> bool {
     s.players
@@ -1938,8 +1943,12 @@ pub fn execute<S: Store>(
         return refuse(net, error::NOT_RESET);
     }
     if !def.targets.is_empty()
-        && !presence::content_by_id(&s.content.objects, *target)
-            .is_some_and(|i| def.targets.contains(&s.content.objects[i].template))
+        && !presence::content_by_id(&s.content.objects, *target).is_some_and(|i| {
+            let o = &s.content.objects[i];
+            def.targets.contains(&o.template)
+                && crate::places::reach(&p.position, o.cell, o.origin)
+                    .is_some_and(|d| d <= TARGET_REACH)
+        })
     {
         return refuse(net, error::WRONG_TARGET);
     }
@@ -2102,6 +2111,23 @@ fn result<S: Store>(
     let Some(outcome) = def.outcome(value, roll).cloned() else {
         return;
     };
+    // What can't be made uses nothing up.
+    let cannot = outcome.actions.iter().any(|a| match a {
+        Action::Produce { template, .. } => !crate::makes::can_make(s, *template),
+        Action::Custom => matches!(def.custom, Custom::Refine { product }
+            if !crate::makes::can_make(s, product)),
+        _ => false,
+    });
+    if cannot {
+        let line = progress::text(NOTHING_PRODUCED);
+        progress::private(
+            net,
+            world,
+            &crate::chat::show_text(progress::TEXT_KIND, line),
+        );
+        progress::private(net, world, &executed(error::FAILED, m.recipe));
+        return;
+    }
     let makes_item = outcome.actions.iter().any(|a| match a {
         Action::Produce { .. } => true,
         Action::Custom => matches!(def.custom, Custom::Refine { .. }),

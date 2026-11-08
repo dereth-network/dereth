@@ -14,6 +14,20 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+## 0.3.11 (2026-11-07)
+- Launch is no longer marked experimental.
+- Relay: shooting from too far now says Out of Range in the chat.
+- Relay: the character page shows an ac1999 character's heritage.
+- Relay: the sky and calendar now follow the ac1999 world's clock.
+- Launch: spells ask for the tapers of the player's own account.
+- A world that hangs now stops itself after five minutes, so it can be restarted.
+- Joining the Dereth Network with @dn on now turns on the room that carries Global.
+- Launch: long shots lose accuracy near the limit of the weapon's range.
+- Launch: enchantments last longer the higher their level.
+- Launch: harm and drain spells on others reach less far, and portal spells are harder to cast.
+- Launch: how far you throw depends on your Strength and the weapon's weight.
+- Launch: Imperil Other can now be resisted.
+
 ## 0.3.10 (2026-11-05)
 - New relay that lets Dereth play an ac1999 server.
 - Fixed idle WebSocket connections shutting out browser players.

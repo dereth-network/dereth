@@ -149,6 +149,8 @@ pub struct Shell<'w, H: Host> {
     pub costs: [f64; 9],
     quit: bool,
     screenshot: bool,
+    /// The frame was drawn at full detail for a screenshot.
+    shooting: bool,
     last: f64,
     frames: VecDeque<f64>,
     heard: VecDeque<String>,
@@ -275,6 +277,7 @@ impl<'w, H: Host> Shell<'w, H> {
             costs: [0.0; 9],
             quit: false,
             screenshot: false,
+            shooting: false,
             last,
             frames: VecDeque::new(),
             heard: VecDeque::new(),
@@ -333,6 +336,7 @@ impl<'w, H: Host> Shell<'w, H> {
             }
             Event::Key { .. }
             | Event::Text(_)
+            | Event::Composing(_)
             | Event::Button { .. }
             | Event::Pointer { .. }
             | Event::Motion { .. }
@@ -789,6 +793,16 @@ impl<'w, H: Host> Shell<'w, H> {
                 self.command(cmd);
             }
         }
+        // The frame a screenshot is taken of is drawn at full detail, and the next as before.
+        // D2-10548, D2-10549
+        if std::mem::take(&mut self.shooting) {
+            self.scene.set_full_detail(false);
+        }
+        let screenshot = std::mem::take(&mut self.screenshot);
+        if screenshot {
+            self.shooting = true;
+            self.scene.set_full_detail(true);
+        }
         if let Some(c) = &mut self.client {
             let t0 = self.host.now();
             self.scene.entering = self.entering;
@@ -889,7 +903,6 @@ impl<'w, H: Host> Shell<'w, H> {
         let t = self.host.now();
         let views = self.scene.view_frames(&self.overlay.scenes, dt);
         self.costs[8] = self.host.now() - t;
-        let screenshot = std::mem::take(&mut self.screenshot);
         let frames = self.scene.frames(now, phase == Phase::World);
         Output {
             world: frames.world,

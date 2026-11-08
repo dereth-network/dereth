@@ -293,3 +293,130 @@ fn a_skill_being_untrained_is_not_raised_and_nothing_is_trained_on_it() {
     assert!(!p.play.skills.iter().any(|s| s.skill == CHILD));
     assert_eq!(p.play.credits, 10);
 }
+
+/// The skill made a perk of this kind.
+fn a_perk(h: &mut Harness, kind: u32) {
+    let d = h
+        .server
+        .skill_table
+        .skills
+        .get_mut(&SKILL)
+        .expect("defined");
+    d.perk = Some(yalain_world::skills::Perk {
+        kind,
+        ..yalain_world::skills::Perk::default()
+    });
+}
+
+/// A perk is untrained no sooner than a week after the last perk was; a skill that is no perk
+/// neither waits for that week nor starts it.
+/// Behaviour: server.skills.a-perk-goes-once-a-week
+#[test]
+fn a_perk_is_untrained_no_sooner_than_a_week_after_the_last() {
+    use yalain_world::quals;
+    let (mut h, b, world) = trained(0);
+    let now = h.server.game_now;
+    let week = untraining::PERK_WAIT;
+    let last_perk = |h: &Harness| {
+        quals::timestamp(
+            &h.server.players[&world].qualities,
+            untraining::LAST_PERK_UNTRAIN,
+        )
+    };
+    let set = |h: &mut Harness, at: f64| {
+        let p = h.server.players.get_mut(&world).expect("in");
+        quals::set_timestamp(&mut p.qualities, untraining::LAST_PERK_UNTRAIN, at);
+    };
+    set(&mut h, now - week / 2.0);
+    let from = ask(&mut h, b, function::UNTRAIN, &[Arg::Int(SKILL)]);
+    assert_eq!(texts(&h, b, from), [untraining::UNTRAINED], "not a perk");
+    assert_eq!(
+        last_perk(&h),
+        Some(now - week / 2.0),
+        "and its week is not begun"
+    );
+
+    let (mut h, b, world) = trained(0);
+    a_perk(&mut h, 3);
+    let now = h.server.game_now;
+    let set = |h: &mut Harness, at: f64| {
+        let p = h.server.players.get_mut(&world).expect("in");
+        quals::set_timestamp(&mut p.qualities, untraining::LAST_PERK_UNTRAIN, at);
+    };
+    set(&mut h, now - week + 60.0);
+    let from = ask(&mut h, b, function::UNTRAIN, &[Arg::Int(SKILL)]);
+    assert!(texts(&h, b, from).is_empty(), "within the week");
+    assert!(holds(&h, world));
+    set(&mut h, now - week - 1.0);
+    let from = ask(&mut h, b, function::UNTRAIN, &[Arg::Int(SKILL)]);
+    assert_eq!(texts(&h, b, from), [untraining::UNTRAINED]);
+    assert!(!holds(&h, world));
+    let begun = quals::timestamp(
+        &h.server.players[&world].qualities,
+        untraining::LAST_PERK_UNTRAIN,
+    );
+    assert!(begun.is_some_and(|t| t >= now), "the next week begun");
+}
+
+/// The perk that gives a bag stays while the last bag is full, and goes once it has a free place.
+/// Behaviour: server.skills.the-bags-perk-wants-room
+#[test]
+fn the_bags_perk_stays_while_the_last_bag_is_full() {
+    use yalain_world::inventory::{segment_start, SEGMENTS};
+    use yalain_world::state::Held;
+    let (mut h, b, world) = trained(0);
+    a_perk(&mut h, untraining::BAGS_PERK);
+    let last = SEGMENTS.len() - 1;
+    let start = segment_start(last);
+    let p = h.server.players.get_mut(&world).expect("in");
+    p.play.items = (0..SEGMENTS[last])
+        .map(|i| Held {
+            id: u64::from(i) + 1,
+            template: 0x4700_0001,
+            slot: start + i,
+            location: 0,
+            quantity: 1,
+        })
+        .collect();
+    let from = ask(&mut h, b, function::UNTRAIN, &[Arg::Int(SKILL)]);
+    assert!(texts(&h, b, from).is_empty(), "full");
+    assert!(holds(&h, world));
+    h.server
+        .players
+        .get_mut(&world)
+        .expect("in")
+        .play
+        .items
+        .pop();
+    let from = ask(&mut h, b, function::UNTRAIN, &[Arg::Int(SKILL)]);
+    assert_eq!(texts(&h, b, from), [untraining::UNTRAINED]);
+    assert!(!holds(&h, world));
+}
+
+/// A skill still on its timer stays until the timer has run; a skill with no use has none.
+/// Behaviour: server.skills.untrain-waits-for-the-timer
+#[test]
+fn a_skill_on_its_timer_is_not_untrained_until_it_has_run() {
+    use yalain_world::skills::Usage;
+    let (mut h, b, world) = trained(0);
+    h.server
+        .skill_table
+        .skills
+        .get_mut(&SKILL)
+        .expect("defined")
+        .usage = Some(Usage {
+        recovery: 30.0,
+        ..Usage::default()
+    });
+    let now = h.server.game_now;
+    let p = h.server.players.get_mut(&world).expect("in");
+    p.last_used.insert(SKILL, now);
+    let from = ask(&mut h, b, function::UNTRAIN, &[Arg::Int(SKILL)]);
+    assert!(texts(&h, b, from).is_empty(), "on its timer");
+    assert!(holds(&h, world));
+    let p = h.server.players.get_mut(&world).expect("in");
+    p.last_used.insert(SKILL, now - 31.0);
+    let from = ask(&mut h, b, function::UNTRAIN, &[Arg::Int(SKILL)]);
+    assert_eq!(texts(&h, b, from), [untraining::UNTRAINED]);
+    assert!(!holds(&h, world));
+}

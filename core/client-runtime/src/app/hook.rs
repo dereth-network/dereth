@@ -3,6 +3,12 @@
 use super::*;
 
 impl<S: Shell> App<S> {
+    /// Call `told` with how many players a world says it has, each time it says so at login
+    /// (`0xF7E1 Login_WorldInfo`). The runtime names nothing that listens.
+    pub fn on_world_players(&mut self, told: Box<dyn FnMut(u32)>) {
+        self.world_players = Some(told);
+    }
+
     /// Install the frame's extension step (see [`crate::frame_hook`]), replacing any installed
     /// before; answers the one it replaced.
     pub fn install_frame_hook(

@@ -161,6 +161,10 @@ pub enum Item {
     Weapon { name: String },
     /// What a creature's death effect makes around its killer, by the effect's name.
     DeathSpawn { effect: String },
+    /// A kind of pet, by the effect or contract that names it.
+    Pet { effect: u32 },
+    /// What a summoning skill allows its user, by the skill.
+    PetLimit { skill: u32 },
     /// A route creatures walk at rest, by its key.
     Route { key: String },
     /// The kind of player conflict a landblock allows, by the landblock.
@@ -219,6 +223,12 @@ impl Item {
             ["death_spawn", effect] => Self::DeathSpawn {
                 effect: identifier(effect)?,
             },
+            ["pet", effect] => Self::Pet {
+                effect: number(effect)?,
+            },
+            ["pet_limit", skill] => Self::PetLimit {
+                skill: number(skill)?,
+            },
             ["route", key] => Self::Route { key: symbol(key)? },
             ["area", lb] => Self::Area {
                 landblock: u16::from_str_radix(lb, 16).ok().filter(|_| lb.len() == 4)?,
@@ -257,6 +267,8 @@ impl fmt::Display for Item {
             Self::Shard { object } => write!(f, "shard {object:#018x}"),
             Self::Weapon { name } => write!(f, "weapon {name}"),
             Self::DeathSpawn { effect } => write!(f, "death_spawn {effect}"),
+            Self::Pet { effect } => write!(f, "pet {effect:#010x}"),
+            Self::PetLimit { skill } => write!(f, "pet_limit {skill:#010x}"),
             Self::Route { key } => write!(f, "route {key}"),
             Self::Area { landblock } => write!(f, "area {landblock:04X}"),
             Self::Clearing { key, landblock } => write!(f, "clearing {key}@{landblock:04X}"),

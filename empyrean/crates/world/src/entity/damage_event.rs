@@ -20,7 +20,7 @@ use std::collections::HashSet;
 use std::sync::LazyLock;
 
 use dereth_animation::hooks::AttackCone;
-use empyrean_common::dotnet::{self, math};
+use empyrean_common::dotnet::{self, math, CsCast};
 use empyrean_common::thread_safe_random::ThreadSafeRandom;
 use empyrean_entity::enums::{
     AttackConditions, AttackHeight, AttackType, ChatMessageType, CombatBodyPart, DamageType,
@@ -35,6 +35,7 @@ use crate::world_objects::creature_body_part::CreatureBodyPart;
 use crate::world_objects::creature_combat::shim;
 use crate::world_objects::creature_combat::{self, CombatType, DebugDamageType};
 use crate::world_objects::creature_equipment;
+use crate::world_objects::creature_missile;
 use crate::world_objects::creature_rating;
 use crate::world_objects::skill_check;
 use crate::world_objects::world_object::{self, WorldObject};
@@ -703,6 +704,21 @@ impl DamageEvent {
 
         self.effective_attack_skill =
             crate::dispatch::get_effective_attack_skill::get_effective_attack_skill(w, attacker);
+
+        // DIVERGE: V511, a shot from near the limit of the weapon's reach has less skill behind it.
+        if let Some(ratio) = w
+            .objects
+            .get(self.damage_source)
+            .and_then(|o| o.projectile)
+            .and_then(|p| p.launch_range_ratio)
+        {
+            let range_mod = creature_missile::long_range_attack_mod(ratio);
+            #[allow(clippy::cast_possible_truncation)] // C#'s `(float)`, as the accuracy bar's
+            let accuracy = range_mod as f32;
+            self.accuracy_mod *= accuracy;
+            self.effective_attack_skill =
+                math::round(f64::from(self.effective_attack_skill) * range_mod).cs_cast();
+        }
 
         //var attackType = attacker.GetCombatType();
 

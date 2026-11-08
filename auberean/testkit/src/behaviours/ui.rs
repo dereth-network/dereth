@@ -1813,6 +1813,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.panels.help-buttons-do-not-show",
+        says: "The panels' help buttons do not show, on the panels made with the play screen and \
+               on those made when they first open.",
+        since: THIS_CLIENT,
+        divergence: "CD2-help-buttons-do-not-show",
+        evidence: Evidence::Private("AC2-EVID-UI-HELP-HIDDEN"),
+        station: "auberean-ui-game::dat::play::help::the_panels_help_buttons_do_not_show",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.pet.the-mode-buttons-step-from-the-mode-asked",
         says: "The mode buttons step from the mode last asked, not the one the pet has taken: \
                Next twice before the pet answers is two steps on, and Previous then one back.",
@@ -2284,6 +2294,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.statusbar.a-missed-pulse-runs-the-bar-out-over-the-time-left",
+        says: "A pulsed effect that misses its pulse runs its bar out over what is left of its time at that moment.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PULSE-MISSED-CLOCK"),
+        station: "auberean-ui-game::dat::play::bar::a_missed_pulse_runs_the_bar_out_over_the_time_left",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.statusbar.the-effects-from-the-scripts-are-the-players-effects",
         says: "Each time a recorded session's scripts said an effect on the player changed, the effects the player's scripts list for the effects panel each have a number, a name and an icon, no number twice, and each was among the player's effects when the session started or was added by the server since, and was not taken off since.",
         since: RETAIL,
@@ -2449,6 +2467,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-TEXT-CARET"),
         station: "auberean-ui::cpu::text::the_caret_shows_steadily_then_blinks",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "ui.text.the-input-methods-composition-shows-at-the-caret",
+        says: "What the input method is composing shows at the caret of the entry that has it on, \
+               underlined, and isn't part of the entry's text; what it writes is typed as any text.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-IME-COMPOSE"),
+        station: "auberean-ui::cpu::text::the_input_methods_composition_shows_at_the_caret",
         tier: Tier::Cpu,
     },
     behaviour! {

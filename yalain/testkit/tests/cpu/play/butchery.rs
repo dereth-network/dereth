@@ -121,6 +121,7 @@ fn corpse_by(h: &mut Harness, world: yalain_net::ConnId, killer: u64, killer_lev
         creature: TEST_CREATURE,
         butchered: false,
         killer_level,
+        ..Default::default()
     });
     h.server.things.insert(corpse);
     id
@@ -254,8 +255,7 @@ fn a_knife_used_on_a_corpse_butchers_it_once_for_a_material_and_experience() {
 }
 
 /// How many units a knife cuts: ten above its own yield, whatever the creature: a crude knife's 1
-/// gives 11; an item that is not a knife cuts nothing. An expert cut comes more often the more the
-/// butcher's level passes the creature's.
+/// gives 11; an item that is not a knife cuts nothing.
 /// Behaviour: server.craft.butchery-units-by-knife
 #[test]
 fn a_knife_cuts_ten_units_above_its_own_yield() {
@@ -276,8 +276,43 @@ fn a_knife_cuts_ten_units_above_its_own_yield() {
     }
     assert!(butchery::is_knife(CRUDE_KNIFE) && butchery::is_knife(0x4700_0CBB));
     assert!(!butchery::is_knife(BONE));
-    assert!(butchery::expert_chance(-5) < butchery::expert_chance(10));
-    assert!(butchery::expert_chance(10) < butchery::expert_chance(45));
+}
+
+/// An expert cut's chance goes by the butcher's level alone, a six hundredth of it: 25% at level
+/// 150, nothing at no level.
+/// Behaviour: server.craft.butchery-expert-by-skill
+#[test]
+fn an_expert_cuts_chance_goes_by_the_butchers_level_alone() {
+    assert!((butchery::expert_chance(150) - 0.25).abs() < 1e-6);
+    assert!((butchery::expert_chance(60) - 0.1).abs() < 1e-6);
+    assert!(butchery::expert_chance(0).abs() < 1e-6);
+    // A cut asks it of the butcher's own level: at the level of certainty every cut is an expert one.
+    let (mut h, b, me, world, knife, corpse) = at_a_corpse();
+    let state = yalain_world::state::CraftSkillState {
+        skill: BUTCHERY,
+        level: 600,
+        today: 0,
+        available: 0,
+    };
+    let held = &mut h
+        .server
+        .players
+        .get_mut(&world)
+        .expect("in")
+        .play
+        .craft_skills;
+    held.retain(|c| c.skill != BUTCHERY);
+    held.push(state);
+    let mut corpses = vec![corpse];
+    for _ in 0..4 {
+        corpses.push(corpse_by(&mut h, world, me, 0));
+    }
+    for c in corpses {
+        let from = butcher(&mut h, b, me, knife, c, 2.2);
+        let got = use_answers(&h, b, from);
+        assert_eq!(got.len(), 1, "answered once");
+        assert_eq!(got[0].1, butchery::text::EXPERTLY.0);
+    }
 }
 
 /// A corpse another player is on its way to open is refused at once with "target locked"; once
@@ -664,5 +699,48 @@ fn a_knife_is_not_put_down_while_it_cuts_and_one_gone_pays_nothing() {
             .expect("the corpse")
             .butchered,
         "the corpse is left"
+    );
+}
+
+/// A corpse still another's is refused the knife as it is refused opening, and its material stays.
+/// Behaviour: server.loot.a-knife-asks-too
+#[test]
+fn a_knife_is_refused_a_corpse_still_another_players() {
+    let (mut h, b, me, world, knife, _) = at_a_corpse();
+    let (_, other) = h.player_in_world("two", "Rowan");
+    let corpse = corpse_by(&mut h, world, other, 0);
+    let now = h.now.0;
+    if let Some(c) = h
+        .server
+        .things
+        .get_mut(corpse)
+        .and_then(|t| t.corpse.as_mut())
+    {
+        c.unlocks = now + 60.0;
+    }
+    let from = butcher(&mut h, b, me, knife, corpse, 0.0);
+    assert_eq!(
+        use_answers(&h, b, from).first().map(|a| a.0),
+        Some(yalain_world::butchery::refusal::NO_RIGHT)
+    );
+    let cut = h
+        .server
+        .things
+        .get(corpse)
+        .and_then(|t| t.corpse.as_ref())
+        .is_some_and(|c| c.butchered);
+    assert!(!cut, "still to butcher");
+    if let Some(c) = h
+        .server
+        .things
+        .get_mut(corpse)
+        .and_then(|t| t.corpse.as_mut())
+    {
+        c.unlocks = now - 1.0;
+    }
+    let from = butcher(&mut h, b, me, knife, corpse, 3.0);
+    assert!(
+        use_answers(&h, b, from).iter().any(|a| a.0 == 0),
+        "once it is free"
     );
 }

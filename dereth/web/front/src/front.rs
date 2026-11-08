@@ -44,7 +44,7 @@ use dereth_launch::world::{AccountModel, Emulator, Game, World};
 use serde_json::{json, Value};
 
 /// The launcher behind the front page.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Front {
     /// The world list, its day's copy, and the hub's word on its worlds.
     list: WorldList,
@@ -56,6 +56,26 @@ pub struct Front {
     fetch: Option<ListFetch>,
     /// The hub's list being read for status, while the page fetches it.
     hub_read: Option<ListFetch>,
+}
+
+impl Default for Front {
+    fn default() -> Self {
+        Self {
+            list: WorldList::default(),
+            state: in_the_browser(LauncherState::default()),
+            live: BTreeMap::new(),
+            unanswered: BTreeMap::new(),
+            fetch: None,
+            hub_read: None,
+        }
+    }
+}
+
+/// The browser can't run the relay a world played through a relay needs, so the page never lists
+/// one.
+fn in_the_browser(mut state: LauncherState) -> LauncherState {
+    state.hide_relayed_worlds = true;
+    state
 }
 
 /// The name of the folder a world's overlay is kept in, from the world's address (`host:port`):
@@ -173,11 +193,11 @@ impl Front {
     /// # Errors
     /// A record that does not read; the state before stands.
     pub fn set_state(&mut self, json: &str) -> Result<(), String> {
-        self.state = if json.trim().is_empty() {
+        self.state = in_the_browser(if json.trim().is_empty() {
             LauncherState::default()
         } else {
             serde_json::from_str(json).map_err(|e| e.to_string())?
-        };
+        });
         Ok(())
     }
 
@@ -1371,6 +1391,23 @@ mod tests {
             again.state.accounts.is_empty() && again.state.recent.is_empty(),
             "its account and its start go with it"
         );
+    }
+
+    /// The page never lists a world played through a relay, which the browser can't run, from a
+    /// new page or from a kept state record.
+    #[test]
+    fn the_page_never_lists_a_world_played_through_a_relay() {
+        let listed = |f: &Front| {
+            f.worlds(NOW)["worlds"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|w| dereth_launch::relayed::is_relayed(w["slug"].as_str().unwrap_or("")))
+        };
+        let mut f = Front::default();
+        assert!(!listed(&f), "a new page");
+        f.set_state(r#"{"schema": 1}"#).unwrap();
+        assert!(!listed(&f), "a kept record");
     }
 
     /// The (world, account, favourite) of each favourite, then of each recent combination, as kept.

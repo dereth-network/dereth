@@ -78,6 +78,8 @@ pub struct Bridge {
     phase: Phase,
     asked_again: bool,
     handshake: Option<Handshake>,
+    /// The world's clock when its grant arrived.
+    world_time: Option<f64>,
     connection: Option<connection::Connection>,
     last_ack: Option<LocalTime>,
     client: ClientFiles,
@@ -131,6 +133,7 @@ impl Bridge {
             phase: Phase::Asked,
             asked_again: false,
             handshake: None,
+            world_time: None,
             connection: None,
             last_ack: None,
             client: ClientFiles::default(),
@@ -326,6 +329,12 @@ impl Bridge {
             self.client.portal,
             self.client.cell
         );
+        if self.client.portal == 0 || self.client.cell == 0 {
+            log::warn!("Dereth named no iteration for a data file; not logging in upstream");
+            self.password = String::new();
+            self.end(" because your client didn't say which data files it holds".to_owned());
+            return;
+        }
         let metadata = LoginMetadata {
             portal_iteration: self.client.portal,
             cell_iteration: self.client.cell,
@@ -455,6 +464,12 @@ impl Bridge {
         self.pump(now);
     }
 
+    /// The world's clock when its grant arrived, once it has.
+    #[must_use]
+    pub fn world_time(&self) -> Option<f64> {
+        self.world_time
+    }
+
     fn handshake_datagram(&mut self, bytes: &[u8], from: SocketAddr, now: LocalTime) {
         let Some(h) = self.handshake.as_mut() else {
             return;
@@ -467,6 +482,7 @@ impl Bridge {
                 let grant = h.accepted().cloned();
                 let keys = h.take_keys();
                 if let (Some(grant), Some(keys)) = (grant, keys) {
+                    self.world_time = Some(grant.world_epoch);
                     match connection::Connection::new(
                         from,
                         &grant,

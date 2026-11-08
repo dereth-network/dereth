@@ -278,6 +278,7 @@ fn fellowship(h: &mut Harness, ids: &[u64]) {
                 next_check: f64::INFINITY,
             })
             .collect(),
+        last_claimant: 0,
     });
 }
 

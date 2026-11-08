@@ -22,7 +22,7 @@ use std::collections::HashMap;
 use std::ffi::CStr;
 
 use windows::core::{Interface, PCSTR};
-use windows::Win32::Foundation::{CloseHandle, HANDLE, HWND, RECT};
+use windows::Win32::Foundation::{CloseHandle, DXGI_STATUS_OCCLUDED, HANDLE, HWND, RECT};
 use windows::Win32::Graphics::Direct3D::Fxc::{D3DCompile, D3DCOMPILE_OPTIMIZATION_LEVEL3};
 use windows::Win32::Graphics::Direct3D::{
     ID3DBlob, D3D_FEATURE_LEVEL_11_0, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST, D3D_SHADER_MACRO,
@@ -243,6 +243,8 @@ pub struct Gpu {
     present_sync_interval: u32,
     /// The interval most recently handed to a real swap chain. Offscreen frames leave this `None`.
     last_present_sync_interval: Option<u32>,
+    /// The last present found the window can't be seen.
+    window_hidden: bool,
     /// The device's gamma brightness value.
     gamma: f32,
     /// The 1x1 opaque-white texture the pre-transformed portal stamp samples, created on first use.
@@ -454,6 +456,7 @@ impl Gpu {
             frame_stamp: 0,
             present_sync_interval: 0,
             last_present_sync_interval: None,
+            window_hidden: false,
             gamma: 0.0,
             stamp_texture: None,
             portal_stamps: 0,
@@ -488,12 +491,19 @@ impl Gpu {
                 let mut device: Option<ID3D12Device> = None;
                 // SAFETY: the adapter outlives the call; `device` is an out-parameter that is only
                 // read on success.
-                if unsafe { D3D12CreateDevice(&adapter, D3D_FEATURE_LEVEL_11_0, &mut device) }
-                    .is_ok()
-                {
-                    if let Some(d) = device {
-                        return Ok((d, AdapterKind::Hardware, adapter_description(&desc)));
+                let made =
+                    unsafe { D3D12CreateDevice(&adapter, D3D_FEATURE_LEVEL_11_0, &mut device) };
+                if let Err(e) = &made {
+                    if stops_at_a_refusal(desc.VendorId) {
+                        return Err(RenderError::Device(format!(
+                            "{} refused a device, and a test build doesn't fall to the software \
+                             rasterizer: {e}",
+                            adapter_description(&desc)
+                        )));
                     }
+                }
+                if let (true, Some(d)) = (made.is_ok(), device) {
+                    return Ok((d, AdapterKind::Hardware, adapter_description(&desc)));
                 }
             }
         }
@@ -1250,9 +1260,9 @@ impl Gpu {
             // SAFETY: the chain is alive and the list has been submitted.
             let sync_interval = self.present_sync_interval;
             // SAFETY: the chain is alive and the list has been submitted.
-            hr("Present", unsafe {
-                chain.Present(sync_interval, DXGI_PRESENT(0)).ok()
-            })?;
+            let presented = unsafe { chain.Present(sync_interval, DXGI_PRESENT(0)) };
+            self.window_hidden = presented == DXGI_STATUS_OCCLUDED;
+            hr("Present", presented.ok())?;
             self.last_present_sync_interval = Some(sync_interval);
         }
         let value = self.next_fence_value;
@@ -2218,6 +2228,12 @@ impl Gpu {
 
     /// Whether a frame's command list is open. A non-zero [`DescriptorUsage::deferred`] while this
     /// is false means releases are stranded in a frame that was begun and never ended.
+    /// Whether the last frame found its window can't be seen.
+    #[must_use]
+    pub fn window_hidden(&self) -> bool {
+        self.window_hidden
+    }
+
     #[must_use]
     pub fn frame_open(&self) -> bool {
         self.frame_open
@@ -2772,6 +2788,15 @@ fn compile_source(
 thread_local! {
     /// Set by the one test instrument that needs a slow rasteriser to hold a timing window open.
     static REQUIRE_SOFTWARE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Whether a device refused by the adapter of vendor `vendor` ends the search. In a test build it
+/// does for a real GPU: going on to the software rasterizer would run a test tier several times
+/// slower with every core busy, and hide why. Microsoft's own adapters are a machine with no GPU,
+/// which the software rasterizer is there for. Outside a test build a player still gets a picture.
+fn stops_at_a_refusal(vendor: u32) -> bool {
+    const MICROSOFT: u32 = 0x1414;
+    cfg!(any(test, feature = "test-support")) && vendor != MICROSOFT
 }
 
 /// Whether the calling test asked for the software rasteriser explicitly. Test devices otherwise
@@ -3373,6 +3398,14 @@ mod tests {
             gpu.release_texture(s);
         }
         gpu.wait_idle().expect("idle");
+    }
+
+    /// A test build stops at a real GPU's refusal, and goes on from a machine's basic adapter.
+    #[test]
+    fn a_test_build_stops_at_a_real_gpus_refusal_and_not_at_a_basic_adapters() {
+        assert!(stops_at_a_refusal(0x10DE));
+        assert!(stops_at_a_refusal(0x1002));
+        assert!(!stops_at_a_refusal(0x1414));
     }
 
     /// Every catalogue row constructs a pipeline state D3D12 accepts.

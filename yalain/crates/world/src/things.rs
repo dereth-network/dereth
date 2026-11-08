@@ -119,7 +119,7 @@ pub struct Creature {
 }
 
 /// A corpse's state: who killed what, what it holds, when it goes.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Corpse {
     /// The player that killed the creature (its character id).
     pub killer: u64,
@@ -134,6 +134,18 @@ pub struct Corpse {
     pub killer_level: i32,
     /// When it leaves the world (world seconds).
     pub expires: f64,
+    /// How long it lasts.
+    pub rot: yalain_content::CorpseRot,
+    /// The fellow a fellowship's turn or draw gave it to (its character id; 0 when none).
+    pub claimant: u64,
+    /// When the rights to loot it end, whoever has opened it (world seconds; 0 when it has none).
+    pub unlocks: f64,
+    /// The name of whoever first opened it, as the world writes it. Opening it ends the rights.
+    pub first_looted_by: Option<String>,
+    /// The name of whoever butchered it, as the world writes it.
+    pub butchered_by: Option<String>,
+    /// What its examination says killed it.
+    pub killed_by: Option<auberean_script::native_object::TextInfo>,
 }
 
 /// A resource node's state: who summoned it, what it yields, how often it has been mined, when

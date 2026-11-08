@@ -82,6 +82,9 @@ pub struct WorldTables {
     pub weapon_rules: std::collections::HashMap<String, yalain_content::WeaponRule>,
     /// What creatures' death effects make.
     pub death_spawns: std::collections::HashMap<String, yalain_content::DeathSpawn>,
+    /// The kinds of pet the rows make, and what each summoning skill allows its user.
+    pub pet_kinds: Vec<yalain_content::PetKind>,
+    pub pet_limits: Vec<(u32, Vec<(usize, u32)>)>,
     /// The operator's banned names read again, when the server was given a list.
     pub names: Option<NameRules>,
     /// What the install says of the placed objects' packages and templates, read again with
@@ -103,6 +106,7 @@ pub struct PlacedKinds {
     pub brokers: BTreeMap<u32, crate::market::Broker>,
     pub walk_in: HashSet<u32>,
     pub persons: HashSet<u32>,
+    pub lifestones: HashSet<u32>,
     pub shrines: HashSet<u32>,
     pub cannot_use: HashSet<u32>,
     pub doors: HashMap<u32, crate::usable::doors::Kind>,
@@ -279,6 +283,10 @@ impl<S: Store> Server<S> {
         self.creature_weapons = t.weapons;
         self.creature_weapon_rules = t.weapon_rules;
         self.death_spawns = t.death_spawns;
+        let fresh = crate::pets::Pets::default();
+        self.pets.kinds = fresh.kinds;
+        self.pets.limits = fresh.limits;
+        self.pets.read_rows(t.pet_kinds, t.pet_limits);
 
         if let Some(names) = t.names {
             r.note(table::BANNED_NAMES, names != self.names, true);
@@ -290,6 +298,7 @@ impl<S: Store> Server<S> {
             self.brokers.extend(k.brokers);
             self.walk_in_packages.extend(k.walk_in);
             self.person_packages.extend(k.persons);
+            self.lifestone_packages.extend(k.lifestones);
             self.shrine_packages.extend(k.shrines);
             self.cannot_use_packages.extend(k.cannot_use);
             self.doors.packages.extend(k.doors);

@@ -49,6 +49,34 @@ fn counts(v: &ScenarioView<'_>) -> NullPresentationCounts {
 // -------------------------------------------------------------------------------------------
 
 /// The whole client runs with no device and no window, on a clock that is exactly its own steps.
+pub fn the_count_a_world_gives_at_login_is_passed_on() {
+    let records = recording(FIRST_LOGIN);
+    let told = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let listening = std::rc::Rc::clone(&told);
+    let mut c = HeadlessClient::new(ClientSpec::retail());
+    c.app_mut().on_world_players(Box::new(move |players| {
+        listening.borrow_mut().push(players)
+    }));
+    c.attach_replay(endpoint(&records, "seam"));
+    // Up to a little past the count: the recording goes on to log off.
+    let mut after = 0;
+    for r in records.iter().filter(|r| !r.c2s) {
+        let app = c.app_mut();
+        let now = LocalTime(app.clock().local_time);
+        let net = app.replay_network_mut().expect("the endpoint is attached");
+        net.feed(&r.raw, r.peer(), now);
+        assert!(app.frame(), "the client stopped during the log-in");
+        after += usize::from(!told.borrow().is_empty());
+        if after > 10 {
+            break;
+        }
+    }
+    c.assert_behaviour(
+        "net.player-count.the-count-a-world-gives-at-login-is-passed-on",
+        move |_| told.borrow().len() == 1,
+    );
+}
+
 pub fn a_whole_client_with_no_device_or_window() {
     use dereth_client_runtime::platform::clock::HEADLESS_STEP;
 
@@ -85,6 +113,7 @@ pub fn a_whole_client_with_no_device_or_window() {
 
 dereth_testkit::scenarios! {
     scenario_a_whole_client_with_no_device_or_window => a_whole_client_with_no_device_or_window ["headless.a-whole-client-with-no-device-or-window"],
+    scenario_the_count_a_world_gives_at_login_is_passed_on => the_count_a_world_gives_at_login_is_passed_on ["net.player-count.the-count-a-world-gives-at-login-is-passed-on"],
     scenario_entering_the_world_reaches_the_hud_from_the_wizard => entering_the_world_reaches_the_hud_from_the_wizard ["login.enter-world.reaches-the-hud-from-the-wizard-as-well-as-from-character-select"],
     scenario_two_bodies_cannot_share_one_id => two_bodies_cannot_share_one_id ["login.player-identity.two-bodies-cannot-share-one-id"],
     scenario_any_front_end_tells_the_server_the_character_arrived => any_front_end_tells_the_server_the_character_arrived ["login.arrival.any-front-end-tells-the-server-the-character-arrived"],

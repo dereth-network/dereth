@@ -510,7 +510,11 @@ pub fn decode_string(id: u32, data: &[u8]) -> Result<String, String> {
     }
     let text = r.legacy_text()?;
     r.0.end()?;
-    Ok(text)
+    // A few of the 1999 texts count a zero at their end.
+    Ok(match text.split_once('\0') {
+        Some((text, _)) => text.to_owned(),
+        None => text,
+    })
 }
 
 /// The texture key a strip's description names, or empty when it names none.

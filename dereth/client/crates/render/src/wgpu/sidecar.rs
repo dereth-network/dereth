@@ -386,6 +386,20 @@ pub fn build_derived_pipeline(
     key: &PipelineKey,
     targets: &[Option<wgpu::ColorTargetState>],
 ) -> wgpu::RenderPipeline {
+    build_derived_pipeline_with_constants(device, layout, module, fragment, key, targets, &[])
+}
+
+/// [`build_derived_pipeline`] with the fragment stage's overridable `constants` set.
+#[must_use]
+pub fn build_derived_pipeline_with_constants(
+    device: &wgpu::Device,
+    layout: &wgpu::PipelineLayout,
+    module: &wgpu::ShaderModule,
+    fragment: &str,
+    key: &PipelineKey,
+    targets: &[Option<wgpu::ColorTargetState>],
+    constants: &[(&str, f64)],
+) -> wgpu::RenderPipeline {
     use dereth_render_cpu::pso::{CullFace, FrontFace, FRONT_FACE};
     let (attributes, stride) = SidecarContext::legacy_vertex_layout(key);
     device.render_pipeline_alone(&wgpu::RenderPipelineDescriptor {
@@ -425,7 +439,10 @@ pub fn build_derived_pipeline(
         fragment: Some(wgpu::FragmentState {
             module,
             entry_point: Some(fragment),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            compilation_options: wgpu::PipelineCompilationOptions {
+                constants,
+                ..Default::default()
+            },
             targets,
         }),
         multiview_mask: None,

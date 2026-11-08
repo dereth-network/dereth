@@ -479,6 +479,12 @@ impl Body {
     /// not its look's), into the air.
     // D2-06134
     pub fn jump(&mut self) -> bool {
+        let impulse = self.motion_values_for_element(EARTH).jump_impulse;
+        self.jump_at(impulse)
+    }
+
+    /// A jump at the given impulse of walking on the earth.
+    fn jump_at(&mut self, impulse: f32) -> bool {
         if !self.contact {
             return false;
         }
@@ -486,12 +492,12 @@ impl Body {
         if !ground(self.desired_element()) || !ground(self.element()) {
             return false;
         }
+        self.note_leaving_while_placing();
         self.contact = false;
         self.set_misc_active(true);
         self.stop_move_to_cancels_behaviors();
         let scale = self.object_scale.z.max(0.5);
-        let values = self.motion_values_for_element(EARTH);
-        self.velocity.z = self.jump_scale * values.jump_impulse * scale;
+        self.velocity.z = self.jump_scale * impulse * scale;
         self.do_element(AIR);
         self.jumps += 1;
         true
@@ -502,6 +508,13 @@ impl Body {
     /// otherwise it jumps at once. Whether it may jump.
     // D2-06180
     pub fn jump_logic(&mut self) -> bool {
+        let impulse = self.motion_values_for_element(EARTH).jump_impulse;
+        self.jump_logic_at(impulse)
+    }
+
+    /// The jump asked for, at the given impulse of walking on the earth: the motion interpreter
+    /// asks this from within its step, when it holds the values itself.
+    pub(super) fn jump_logic_at(&mut self, impulse: f32) -> bool {
         if !self.can_jump() {
             return false;
         }
@@ -512,7 +525,7 @@ impl Body {
             self.behaviors.insert(super::JUMP_BEHAVIOR);
             return true;
         }
-        self.jump();
+        self.jump_at(impulse);
         true
     }
 

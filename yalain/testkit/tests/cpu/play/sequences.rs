@@ -432,6 +432,7 @@ fn step(s: &mut Script) -> String {
             let skill = skills[s.dice.below(skills.len())];
             let id = u32::try_from(s.dice.below(1 << 20)).unwrap_or(1);
             let args = [Arg::Int(id), Arg::Int(skill), Arg::LongInt(target)];
+            s.h.all_hold(skill);
             ask(s, b, skill_use::function::USE, &args);
             format!("{me:#x} uses {skill} on {target:#x}")
         }
@@ -622,6 +623,13 @@ fn step(s: &mut Script) -> String {
                     .filter(|c| c.sold < c.offered)
                     .map(|c| (c.item, c.offered - c.sold))
                     .collect();
+            // Now and then a sale's time has run out: buying it is refused, its seller still has it.
+            if s.dice.below(4) == 0 {
+                let now = s.h.server.game_now;
+                if let Some(c) = s.h.server.market.list.iter_mut().find(|c| c.in_stock()) {
+                    c.entered = now - market::ON_SALE_SECONDS - 1.0;
+                }
+            }
             match s.dice.pick(&sales) {
                 Some((item, n)) => {
                     let f = store::function::PURCHASE;
@@ -630,6 +638,29 @@ fn step(s: &mut Script) -> String {
                 }
                 None => "nothing on sale".into(),
             }
+        }
+        21 if s.dice.below(2) == 0 => {
+            let mine: Vec<u32> =
+                s.h.server
+                    .market
+                    .list
+                    .iter()
+                    .filter(|c| c.owner == me)
+                    .map(|c| c.sale)
+                    .collect();
+            let (Some(sale), Some((gem, n))) = (s.dice.pick(&mine), s.dice.pick(&gems_of(s, w)))
+            else {
+                return "nothing to restock".into();
+            };
+            let q = 1 + u32::try_from(s.dice.below(n as usize)).unwrap_or(0);
+            let args = [
+                Arg::Int(sale),
+                Arg::Int(q),
+                Arg::LongInt(gem),
+                Arg::LongInt(BROKER),
+            ];
+            ask(s, b, market::function::RESTOCK, &args);
+            format!("{me:#x} restocks {sale} with {q} of {gem:#x}")
         }
         21 => {
             let mine: Vec<u32> =

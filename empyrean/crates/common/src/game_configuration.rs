@@ -133,6 +133,11 @@ pub struct GameConfiguration {
     #[serde(rename = "InteractiveConsole")]
     pub interactive_console: bool,
 
+    /// Not ACE (V508): seconds the world may run no pass before the server stops with a failure,
+    /// so a service manager can start it again; 0 for never (default 300).
+    #[serde(rename = "WatchdogSeconds", deserialize_with = "json::num_u32")]
+    pub watchdog_seconds: u32,
+
     /// Not ACE: the admin channel, the console for a program on this computer: on loopback, its
     /// secret in `admin-channel.json` in the server's folder (default true).
     /// DIVERGE: an extra key; ACE's console is its terminal alone.
@@ -230,6 +235,7 @@ impl Default for GameConfiguration {
             status_public_url: String::new(),
             publish_portals: false,
             interactive_console: true,
+            watchdog_seconds: 300,
             admin_channel: true,
             source_url: String::new(),
             update: DEFAULT_UPDATE.to_owned(),

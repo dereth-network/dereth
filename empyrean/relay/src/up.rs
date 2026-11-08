@@ -159,10 +159,12 @@ fn action_body(action: u32, body: &[u8]) -> Result<(u32, Vec<u8>), MessageError>
             codec::write_string(&mut w, &name, codec::MAX_NAME)?;
             return Ok((if add { 0x0058 } else { 0x0059 }, w.into_inner()));
         }
-        // An advocate's teleport: a name, then a position in the same form.
+        // An advocate's teleport: a name, then a position in the same form. The server moves to the
+        // next word after this name, an empty one too, as it doesn't after most strings.
         0x00D6 => {
             let name = later_string(&mut r)?;
             codec::write_string(&mut w, &name, codec::MAX_NAME)?;
+            w.align4();
             w.bytes(r.rest());
         }
         // ac1999 reads nothing after the opcode; the later client says whether to disband.

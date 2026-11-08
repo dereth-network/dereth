@@ -7,6 +7,7 @@ mod admin;
 mod dye_plants;
 mod effects;
 mod interactions;
+mod makes;
 mod mounts;
 mod patrols;
 mod quests;

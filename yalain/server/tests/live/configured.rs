@@ -6,18 +6,22 @@
 //! A world whose release of the world database is not in the cache, as after a rebuild that moved
 //! this build's pin, fetches it as it starts, or says it could not and does not start. Fixture: a
 //! cache of its own in a scratch folder, and a local folder as the source, so nothing is downloaded.
+//!
+//! A real start describes what the server's rules and a world's rows make, asked through an
+//! operator's own recipe. Fixture: the built executable, the install and the authored world.
 
 use std::io::{Read as _, Write as _};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream, UdpSocket};
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
-use yalain_testkit::authored;
+use yalain_testkit::authored::{self, Portal};
 use yalain_testkit::session::{self as play};
+use yalain_world::makes::{by_the_rows, by_the_server, Rows};
 use yalain_world_db::release::PINNED_TAG;
 
-use crate::session::{must, scratch, serving, Loopback, LIFE};
+use crate::session::{free_ports, must, scratch, serving, Loopback, Running, Turn, LIFE};
 
 /// What the log says before the status endpoint's address.
 const STATUS_AT: &str = "status endpoint listening on http://127.0.0.1:";
@@ -267,4 +271,101 @@ fn a_world_on_a_pin_it_cannot_fetch_says_so_and_does_not_start() {
     );
     assert!(!store.exists(), "no store made");
     std::fs::remove_dir_all(&dir).ok();
+}
+
+/// How many items a recipe asks for: a pack holds them all.
+const TO_A_RECIPE: usize = 40;
+
+/// The world's log once it has answered a recipe for each share of the templates, whichever way: a
+/// recipe is refused by the running world's catalog, so a template the start left out stops it.
+fn answered(templates: &[u32], name: &str) -> String {
+    let dir = scratch(name);
+    let shares: Vec<&[u32]> = templates.chunks(TO_A_RECIPE).collect();
+    let install = auberean_dat::testing::require_target_install();
+    let log_path = dir.join("server.log");
+    let log = std::fs::File::create(&log_path).expect("the server's log");
+    let mut server = Command::new(env!("CARGO_BIN_EXE_yalain"));
+    server
+        .arg("--dats")
+        .arg(&install)
+        .args(["--memory", "--bind", "127.0.0.1"])
+        .args(["--login-port", &free_ports().to_string()])
+        .args(["--world-port", &free_ports().to_string()])
+        .arg("--world-db")
+        .arg(authored::database_dir())
+        .args(["--seconds", &LIFE.to_string()]);
+    for (n, share) in shares.iter().enumerate() {
+        let items: Vec<String> = share
+            .iter()
+            .map(|t| format!("{{ template = {t:#x}, quantity = 1 }}"))
+            .collect();
+        let letter = char::from(b'a' + u8::try_from(n).expect("few shares"));
+        let recipe = dir.join(format!("recipe-{n}.toml"));
+        std::fs::write(
+            &recipe,
+            format!(
+                "account = \"builder{letter}\"\nname = \"Asker{letter}\"\nrace = 1\nsex = 4096\n\
+                 items = [{}]\n",
+                items.join(", ")
+            ),
+        )
+        .expect("the recipe");
+        server.arg("--make-character").arg(&recipe);
+    }
+    let _turn = Turn::take();
+    let child = server
+        .current_dir(&dir)
+        .stdin(Stdio::null())
+        .stdout(log.try_clone().expect("the log twice"))
+        .stderr(log)
+        .spawn()
+        .expect("the server starts");
+    let _server = Running(child);
+    let started = Instant::now();
+    loop {
+        let text = std::fs::read_to_string(&log_path).unwrap_or_default();
+        if text.matches("make-character").count() >= shares.len() {
+            return text;
+        }
+        assert!(
+            started.elapsed().as_secs_f64() < play::HANG,
+            "the recipes were never answered:\n{text}"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// Were all the shares' recipes made, none refused?
+fn all_made(log: &str, templates: &[u32]) -> bool {
+    log.matches("[ok make-character]").count() == templates.chunks(TO_A_RECIPE).count()
+}
+
+/// A start describes every pet, plant and map node the server's rules make: a recipe holding all of
+/// them is made. A template no rule makes is refused, so a recipe does ask.
+/// Behaviour: server.makes.a-real-start-describes-what-the-server-makes
+#[test]
+fn a_real_start_describes_everything_the_servers_rules_make() {
+    let named = by_the_server(&Portal::open().start_rules());
+    let log = answered(&named, "yalain-live-catalog-server");
+    assert!(all_made(&log, &named), "{log}");
+    let log = answered(&[0x4700_0001], "yalain-live-catalog-control");
+    assert!(log.contains("among the world's templates"), "{log}");
+}
+
+/// A start describes what the hall's rows make.
+/// Behaviour: server.makes.a-real-start-describes-what-the-rows-make
+#[test]
+fn a_real_start_describes_everything_a_worlds_rows_make() {
+    let t = authored::world(&Portal::open());
+    let named = by_the_rows(Rows {
+        objects: &t.content.objects,
+        stores: &t.stores,
+        quests: &t.quests,
+        crafting: &t.crafting,
+        death_spawns: &t.death_spawns,
+        pets: &t.pet_kinds,
+    });
+    assert!(!named.is_empty());
+    let log = answered(&named, "yalain-live-catalog-rows");
+    assert!(all_made(&log, &named), "{log}");
 }

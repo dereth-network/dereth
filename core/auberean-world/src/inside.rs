@@ -87,7 +87,8 @@ pub struct Light {
     pub most_intensity: Option<f32>,
     /// The most its range reaches (0 when that is not known).
     pub most_range: f32,
-    /// Per cell (by full id), the indices of the cell mesh's vertices it lights.
+    /// Per cell (by its low word: a block built as a copy of another keeps the original's ids
+    /// here), the indices of the cell mesh's vertices it lights.
     pub lit: HashMap<u32, Vec<u32>>,
 }
 
@@ -904,7 +905,10 @@ impl BlockLights {
             );
             for c in &l.lit {
                 if c.count > 0 {
-                    light.lit.insert(c.cell, unpack_indices(&c.packed));
+                    light
+                        .lit
+                        .entry(c.cell & 0xFFFF)
+                        .or_insert_with(|| unpack_indices(&c.packed));
                 }
             }
             self.lights.push(light);
@@ -1146,7 +1150,8 @@ impl BlockLights {
             .map_or(&[][..], |v| v.as_slice())
         {
             let l = &self.lights[k];
-            let Some(lit) = l.lit.get(&cell) else {
+            // D2-03898
+            let Some(lit) = l.lit.get(&(cell & 0xFFFF)) else {
                 continue;
             };
             let from = frame.rigid_preimage(l.origin);

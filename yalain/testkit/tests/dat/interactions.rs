@@ -148,3 +148,75 @@ fn forges_and_road_signs_are_told_by_their_script_kinds() {
         assert!(!p.derives(t, &CANNOT_BE_USED), "{t:08X}");
     }
 }
+
+/// The templates of the install's lifestone class are lifestones, the two placed ones that only
+/// their class says so of among them; a real row's object binds as any does, and no other kind is
+/// one.
+/// Behaviour: server.places.lifestones-by-their-class
+#[test]
+fn a_placed_lifestone_of_the_lifestone_class_binds_its_user() {
+    use yalain_testkit::play::{server_call, use_of};
+    use yalain_world::places::{kind, LIFESTONE};
+    use yalain_world::requests::function;
+    let p = Portal::open();
+    for t in [
+        0x4700_1138,
+        0x4700_113A,
+        0x4700_113B,
+        0x4700_113D,
+        0x4700_113E,
+        0x4700_1140,
+        0x4700_1143,
+        0x4700_1144,
+    ] {
+        assert!(p.derives(t, &[LIFESTONE]), "{t:08X} a lifestone");
+    }
+    for t in [0x4700_114D, 0x4700_33ED, 0x4700_100D] {
+        assert!(!p.derives(t, &[LIFESTONE]), "{t:08X} no lifestone");
+    }
+    // As the world's rows describe them, standing beside the player.
+    for t in [0x4700_1138, 0x4700_1140] {
+        let template = p.template(t);
+        const STONE: u64 = 0x404D_A200_0000_0003;
+        let mut h = yalain_testkit::Harness::new();
+        h.server
+            .lifestone_packages
+            .insert(template.description.package);
+        h.server.content = yalain_content::ContentPack {
+            objects: vec![yalain_content::ContentObject {
+                object: Some(STONE),
+                template: t,
+                description: template.description.clone(),
+                cell: 0x0299_0109,
+                origin: [60.0, 241.0, -44.6],
+                rotation: [1.0, 0.0, 0.0, 0.0],
+                kind: yalain_content::Kind::Static,
+                label: String::new(),
+                placed: "as a world row places it".into(),
+                destination: None,
+                facts: template.facts,
+                walks: None,
+                gate: None,
+            }],
+            ..yalain_content::ContentPack::default()
+        };
+        let (a, me) = h.player_in_world("one", "Elara");
+        h.run(10);
+        h.bots[a].send(
+            true,
+            auberean_protocol::queue::WEENIE,
+            &server_call(function::USE, &[use_of(STONE, me)]),
+        );
+        h.run(40);
+        let bound = h
+            .server
+            .players
+            .values()
+            .next()
+            .expect("in the world")
+            .places
+            .iter()
+            .any(|(k, _)| *k == kind::LIFESTONE);
+        assert!(bound, "{t:08X} binds");
+    }
+}

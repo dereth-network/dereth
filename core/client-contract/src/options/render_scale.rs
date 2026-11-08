@@ -1,15 +1,17 @@
 //! The render scale: the share of its screen's own pixels the client draws while it fills the
-//! screen. Fewer pixels draw faster, and the picture, enlarged to fill the screen, looks softer.
+//! screen, or on a Mac whenever Horizon shows. Fewer pixels draw faster, and the picture, enlarged
+//! to fill the screen, looks softer.
 //!
 //! It is this client's own option, not a retail one, and only a host that can draw the game at
 //! fewer pixels than its screen and enlarge the picture offers it: the browser, whose page is the
-//! screen in full screen. Such a host registers the option as the client starts ([`register`]), at
-//! the share it starts at, which in a browser is the front page's choice. A host that does not
-//! offer it never registers it, and the options pages leave its row out
-//! ([`super::sheet::Row::hosted`]). Every interface that shows the row shows it under Display,
-//! after Full Screen; the host reads the share from the store every frame ([`percent`]), so a
-//! change applies at once. The front page keeps the choice, and the host hands a change made on a
-//! page back to it, so the profile does not keep it ([`left_out_of_save`]).
+//! screen in full screen, and a window that goes by points. Such a host registers the option as
+//! the client starts ([`register`]), at the share it starts at. A host that does not offer it
+//! never registers it, and the options pages leave its row out ([`super::sheet::Row::hosted`]).
+//! Every interface that shows the row shows it under Display, after Full Screen; the host reads
+//! the share from the store every frame ([`percent`]), so a change applies at once. In a browser
+//! the front page keeps the choice, and the host hands a change made on a page back to it, so the
+//! profile does not keep it; a desktop window has no front page, and the profile does
+//! ([`left_out_of_save`]).
 
 use crate::view::PrefValue;
 
@@ -40,10 +42,24 @@ const fn kept(share: u32) -> u32 {
     }
 }
 
+std::thread_local! {
+    /// Whether the profile keeps the option, for a host with nowhere else to keep it.
+    static IN_PROFILE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// [`register`], for a host that leaves the choice to the profile: it registers the option before
+/// the profile is read.
+pub fn register_in_profile(start: u32) -> usize {
+    let registered = register(start);
+    IN_PROFILE.set(true);
+    registered
+}
+
 /// Register the option in the option value store at `start` percent (kept between [`LEAST`] and
 /// [`ALL`]): what a host that offers it does as the client starts. A store that already has it
 /// keeps what it holds.
 pub fn register(start: u32) -> usize {
+    IN_PROFILE.set(false);
     usize::from(super::store::register_preference(
         RENDER_SCALE,
         PrefValue::Int(i32::try_from(kept(start)).unwrap_or(100)),
@@ -111,11 +127,11 @@ pub fn choice_rows(name: &str) -> Option<Vec<super::store::Choice>> {
     )
 }
 
-/// Whether the store's save leaves `name` out of the profile: the render scale always, which
-/// the browser's front page keeps.
+/// Whether the store's save leaves `name` out of the profile: the render scale, where the
+/// browser's front page keeps it.
 #[must_use]
 pub fn left_out_of_save(name: &str) -> bool {
-    name.eq_ignore_ascii_case(RENDER_SCALE)
+    name.eq_ignore_ascii_case(RENDER_SCALE) && !IN_PROFILE.get()
 }
 
 #[cfg(test)]
@@ -223,6 +239,23 @@ mod tests {
         store::load(&ini);
         register(67);
         assert_eq!(percent(), 67);
+        store::clear();
+    }
+
+    /// A desktop window has no front page, so its profile keeps the choice.
+    ///
+    /// Behaviour: presentation.window.a-mac-window-counts-its-size-in-points
+    #[test]
+    fn a_host_with_no_front_page_keeps_the_render_scale_in_the_profile() {
+        store::init();
+        register_in_profile(ALL);
+        let ini =
+            crate::persist::preferences::UserPreferences::parse("[Display]\r\nRenderScale=50\r\n")
+                .unwrap();
+        store::load(&ini);
+        assert_eq!(percent(), 50);
+        let text = store::save().to_text();
+        assert!(text.contains("RenderScale=50"), "{text}");
         store::clear();
     }
 

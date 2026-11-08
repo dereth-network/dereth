@@ -1147,6 +1147,12 @@ mod imp {
             self.gpu.end_frame()
         }
 
+        /// Whether the last frame found its window can't be seen.
+        #[must_use]
+        pub fn window_hidden(&self) -> bool {
+            self.gpu.window_hidden()
+        }
+
         /// Read the last presented frame back and write it as a PNG.
         ///
         /// # Errors

@@ -32,6 +32,7 @@ impl ModeKey {
 
 /// A change of mode: an element in one mode going to an element in another.
 // D2-15098
+// D2-15104
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
 pub struct ModeChange {
     pub from: ModeKey,

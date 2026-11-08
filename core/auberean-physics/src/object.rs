@@ -270,8 +270,8 @@ impl Shape {
         hit.then_some((best, back))
     }
 
-    /// Where the line from `from` to `to` (both in the landblock frame of `at`) first meets the
-    /// polygons of this shape's physics trees standing at `at` at `scale`, as a fraction of the
+    /// Where the line from `from` to `to` (both in the landblock frame of `at`) first reaches the
+    /// solid side of this shape's physics trees standing at `at` at `scale`, as a fraction of the
     /// way along it; none when it meets none.
     #[must_use]
     pub fn check_trees(
@@ -284,7 +284,7 @@ impl Shape {
         self.check_trees_facing(at, scale, from, to).map(|(t, _)| t)
     }
 
-    /// [`Self::check_trees`], with the facing of the polygon met, turned into the world.
+    /// [`Self::check_trees`], with the facing met, turned into the world.
     #[must_use]
     pub fn check_trees_facing(
         &self,
@@ -294,14 +294,14 @@ impl Shape {
         to: Vec3,
     ) -> Option<(f32, Vec3)> {
         let (a, b) = unscaled_line(at, scale, from, to);
+        let line = crate::geom::Ray::segment(a, b);
         let mut best: Option<(f32, Vec3)> = None;
         for tree in &self.trees {
-            for poly in &tree.polygons {
-                if let Some(t) = crate::land::segment_polygon(a, b, &poly.vertices) {
-                    if best.is_none_or(|(x, _)| t < x) {
-                        best = Some((t, poly.plane.normal));
-                    }
-                }
+            let (mut t, mut n) = (1.0, Vec3::ZERO);
+            if crate::parts::trace_ray(tree, &line, &mut t, &mut n)
+                && best.is_none_or(|(x, _)| t < x)
+            {
+                best = Some((t, n));
             }
         }
         best.map(|(t, n)| {

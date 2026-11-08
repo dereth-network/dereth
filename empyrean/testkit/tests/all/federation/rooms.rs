@@ -9,7 +9,11 @@ use dereth_primitives::NetQueue;
 use dereth_protocol::comms::CommunicationHearDirectSpeech;
 use dereth_protocol::turbine::{decode_incoming, ExtraBlob, IncomingPayload, SendToRoomById};
 
-use super::{seed, two_worlds, Net, TELL, TURBINE_CHAT};
+use empyrean_entity::enums::CharacterOption;
+use empyrean_entity::ObjectGuid;
+use empyrean_world::world_objects::player_character;
+
+use super::{seed, two_worlds, Net, Seed, TELL, TURBINE_CHAT};
 
 fn room_events(
     net: &mut Net,
@@ -420,6 +424,127 @@ fn dng_and_dn_global_reach_the_other_worlds_and_show_here_in_the_carrying_room()
             "{line}"
         );
     }
+}
+
+/// A character on `slug` who listens to no room.
+fn deaf(account: &'static str, name: &'static str) -> Seed {
+    let mut s = seed(account, 0x5000_0001, name);
+    s.listens = &[];
+    s
+}
+
+/// Whether `who` on `slug` is listening to the room that carries the Global room here.
+fn listens(net: &mut Net, slug: &str, who: ObjectGuid) -> bool {
+    player_character::get_character_option(
+        &net.world(slug).ts.world,
+        who,
+        CharacterOption::ListenToRoleplayChat,
+    )
+}
+
+/// How many player descriptions `who` has been sent since `mark`.
+fn descriptions(net: &mut Net, slug: &str, who: &str, mark: usize) -> usize {
+    const GAME_EVENT: u32 = 0xF7B0;
+    const PLAYER_DESCRIPTION: u32 = 0x0013;
+    let w = net.world(slug);
+    w.ts.received_raw(w.clients[who])[mark..]
+        .iter()
+        .filter(|m| m.opcode == GAME_EVENT && m.body[8..12] == PLAYER_DESCRIPTION.to_le_bytes())
+        .count()
+}
+
+/// **Joining the network turns on the room that carries Global**: a character who listened to no
+/// room hears the Global room from the moment it joins, and its client is told. Turning the room
+/// off afterwards stays off, whatever `@dn on` it says while it is on the network already.
+/// Divergence: V510
+#[test]
+fn joining_the_network_turns_on_the_global_room_and_turning_it_off_stays_off() {
+    let (ann, bob) = (seed("ann", 0x5000_0001, "Ann"), deaf("bob", "Bob"));
+    let bob_guid = ObjectGuid::new(0x5000_0001);
+    let mut net = Net::new(&[("aa", &[ann]), ("bb", &[bob])]);
+    net.link("aa");
+    net.link("bb");
+    net.enter("aa", ann);
+    net.enter("bb", bob);
+    net.say("aa", "Ann", "@dn on");
+    assert!(
+        !listens(&mut net, "bb", bob_guid),
+        "a new character doesn't"
+    );
+
+    let mb = net.mark("bb", "Bob");
+    net.say("bb", "Bob", "@dn on");
+    assert!(listens(&mut net, "bb", bob_guid));
+    assert_eq!(
+        descriptions(&mut net, "bb", "Bob", mb),
+        1,
+        "its client is told"
+    );
+    assert!(
+        Net::lines(&net.since("bb", "Bob", mb))
+            .iter()
+            .any(|l| l.starts_with("You are on the Dereth Network as Bob@bb")),
+        "the join said what it always says"
+    );
+    let mb = net.mark("bb", "Bob");
+    post(&mut net, "aa", "Ann", 0x5000_0001, "anyone there?");
+    let heard = room_events(&mut net, "bb", "Bob", mb);
+    assert_eq!(heard.len(), 1, "Bob hears the Global room now");
+    assert_eq!(heard[0].2, "anyone there?");
+
+    player_character::set_character_option(
+        &mut net.world("bb").ts.world,
+        bob_guid,
+        CharacterOption::ListenToRoleplayChat,
+        false,
+    );
+    net.say("bb", "Bob", "@dn on");
+    assert!(
+        !listens(&mut net, "bb", bob_guid),
+        "@dn on while on the network already is no new join"
+    );
+    let mb = net.mark("bb", "Bob");
+    post(&mut net, "aa", "Ann", 0x5000_0001, "still there?");
+    assert!(room_events(&mut net, "bb", "Bob", mb).is_empty());
+}
+
+/// **A character already listening is told nothing new** as it joins: no second entry into the
+/// room, and no description sent for nothing.
+/// Divergence: V510
+#[test]
+fn a_character_already_listening_joins_with_nothing_more_said() {
+    let (ann, bob) = (
+        seed("ann", 0x5000_0001, "Ann"),
+        seed("bob", 0x5000_0001, "Bob"),
+    );
+    let mut net = Net::new(&[("aa", &[ann]), ("bb", &[bob])]);
+    net.link("bb");
+    net.enter("bb", bob);
+    let mb = net.mark("bb", "Bob");
+    net.say("bb", "Bob", "@dn on");
+    assert_eq!(descriptions(&mut net, "bb", "Bob", mb), 0);
+}
+
+/// **A world that carries no Global room turns nothing on**: a character joining there keeps
+/// listening to what it did.
+/// Divergence: V510
+#[test]
+fn joining_on_a_world_that_carries_no_global_room_turns_nothing_on() {
+    let (ann, bob) = (seed("ann", 0x5000_0001, "Ann"), deaf("bob", "Bob"));
+    let bob_guid = ObjectGuid::new(0x5000_0001);
+    let mut net = Net::new(&[("aa", &[ann]), ("bb", &[bob])]);
+    net.link("bb");
+    net.enter("bb", bob);
+    let asked = empyrean_world::federation::commands::admin(
+        &mut net.world("bb").ts.world,
+        &["global".into(), "off".into()],
+    );
+    assert!(asked.starts_with("Asking"), "{asked}");
+    net.pump();
+    let mb = net.mark("bb", "Bob");
+    net.say("bb", "Bob", "@dn on");
+    assert!(!listens(&mut net, "bb", bob_guid));
+    assert_eq!(descriptions(&mut net, "bb", "Bob", mb), 0);
 }
 
 /// Divergence: V449

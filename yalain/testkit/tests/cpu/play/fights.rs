@@ -2078,6 +2078,50 @@ fn turning_a_corpses_stack_into_money_pays_for_each_piece() {
     assert_eq!(slot(&v, 4), 21, "earned");
 }
 
+/// Turning a corpse's items into money pays their seller's transmutation perk as the money bag does:
+/// each piece's value times it, rounded down.
+/// Behaviour: server.inventory.money-bag-pays-a-perk
+#[test]
+fn turning_a_corpses_items_into_money_pays_the_players_transmutation_perk() {
+    let (mut h, b, me, _) = fight();
+    h.server.skill_table.skills.insert(
+        9001,
+        yalain_world::skills::SkillDef {
+            id: 9001,
+            perk: Some(yalain_world::skills::Perk {
+                kind: yalain_world::skills::perk_kind::TRANSMUTATION,
+                value: 1.03,
+                priority: 1,
+            }),
+            ..yalain_world::skills::SkillDef::default()
+        },
+    );
+    h.server
+        .players
+        .values_mut()
+        .find(|p| p.character == me)
+        .expect("in")
+        .play
+        .skills
+        .push(yalain_world::state::SkillState {
+            skill: 9001,
+            granted: 0,
+            mask: 0,
+            cost: 0,
+            children: 0,
+            dependents: 0,
+            spent: 0,
+        });
+    let corpse = open_corpse(&mut h, b, me);
+    let item = held_by(&h, corpse)[0];
+    if let Some(t) = h.server.things.get_mut(item) {
+        t.value = 150;
+        t.quantity = 2;
+    }
+    let v = transmute(&mut h, b, me, corpse);
+    assert_eq!(slot(&v, 4), 308, "154 each");
+}
+
 /// A quest item is kept back however much it is worth, while the corpse's other items are turned
 /// into money: the answer's status 0, its error 1105.
 /// Behaviour: server.loot.quest-items-kept-from-money

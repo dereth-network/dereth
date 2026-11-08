@@ -22,7 +22,8 @@ permissions:
 
 concurrency:
   group: release-network-ace-${{ github.ref }}
-  cancel-in-progress: false
+  # A tag can reach this repository twice at once: the newer run takes over, for one build.
+  cancel-in-progress: ${{ github.event_name == 'push' }}
 
 env:
   # The ACE release the mod is built and checked against, pinned by its digest. The mod is
@@ -164,6 +165,12 @@ jobs:
           EOF
           PRE=""
           case "$VERSION" in *-*) PRE="--prerelease" ;; esac
+          # A second draft of one tag can't be told from the first, and GitHub allows it.
+          tags=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq '.[].tag_name')
+          if grep -qxF "$TAG" <<< "$tags"; then
+            echo "::notice::$TAG already has a release"
+            exit 0
+          fi
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --latest=false $PRE \
             --title "Dereth.Network ACE $VERSION" --notes-file ../notes.md \
             "Dereth.Network-$VERSION.zip#Dereth.Network for ACE (mod folder)" \

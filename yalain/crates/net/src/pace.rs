@@ -15,9 +15,11 @@
 //!   acknowledged (by its acknowledgement, or by asking for a later packet first), so that even a
 //!   whole window lost is asked for again long before any of it is let go.
 //!
-//! A message on a queue that already has a large message waiting waits behind it, whatever its
-//! length, so each queue keeps its order; the other queues' messages are not held. What counts as
-//! large does not change with the rate, so no rate lets a large message skip the window.
+//! A message on a queue that already has a large message of its ordering kind waiting waits behind
+//! it, whatever its length, so each kind keeps its order on its queue; the other kinds on that queue
+//! and the other queues' messages are not held (2017's servers let them by: over 852 long messages on
+//! the event queue, 877 messages of other kinds came in before the long one's last packet). What
+//! counts as large does not change with the rate, so no rate lets a large message skip the window.
 
 use std::collections::{BTreeMap, VecDeque};
 
@@ -79,6 +81,12 @@ pub fn check_rate(bytes_per_second: u32) -> Result<(), String> {
     }
 }
 
+/// A blob's ordering kind: the top byte of its id.
+#[allow(clippy::cast_possible_truncation)]
+const fn kind_of(blob_id: u64) -> u8 {
+    (blob_id >> 56) as u8
+}
+
 /// One connection's large messages, waiting as fragments.
 #[derive(Debug)]
 pub struct Pace {
@@ -86,8 +94,9 @@ pub struct Pace {
     budget: usize,
     /// The fragments waiting, in the order they go.
     fragments: VecDeque<Fragment>,
-    /// How many of them each queue has.
+    /// How many of them each queue has, and each ordering kind on it.
     by_queue: BTreeMap<u16, usize>,
+    by_kind: BTreeMap<(u16, u8), usize>,
     /// Bytes sent in the current interval.
     spent: usize,
     /// The interval `spent` counts.
@@ -109,22 +118,33 @@ impl Pace {
             budget: usize::try_from(bytes_per_second / 2).unwrap_or(usize::MAX),
             fragments: VecDeque::new(),
             by_queue: BTreeMap::new(),
+            by_kind: BTreeMap::new(),
             spent: 0,
             interval: None,
         }
     }
 
-    /// Does a message of `len` bytes on `queue` go by the pace: longer than the 2013 servers' budget
-    /// of an interval, or on a queue with a large message waiting?
+    /// Does a message of `len` bytes with this blob id on `queue` go by the pace: longer than the
+    /// 2013 servers' budget of an interval, or of a kind with a large message waiting on the queue?
     #[must_use]
-    pub fn takes(&self, queue: u16, len: usize) -> bool {
-        len > BYTES_PER_INTERVAL || self.by_queue.get(&queue).is_some_and(|n| *n > 0)
+    pub fn takes(&self, queue: u16, blob_id: u64, len: usize) -> bool {
+        len > BYTES_PER_INTERVAL
+            || self
+                .by_kind
+                .get(&(queue, kind_of(blob_id)))
+                .is_some_and(|n| *n > 0)
     }
 
     /// Queue a message, as its fragments.
     pub fn push(&mut self, blob: &NetBlob) {
         let frags = blob.fragmentize();
         *self.by_queue.entry(blob.queue_id).or_default() += frags.len();
+        for f in &frags {
+            *self
+                .by_kind
+                .entry((f.header.queue_id, kind_of(f.header.blob_id())))
+                .or_default() += 1;
+        }
         self.fragments.extend(frags);
     }
 
@@ -193,6 +213,13 @@ impl Pace {
                     *n -= 1;
                     if *n == 0 {
                         self.by_queue.remove(&f.header.queue_id);
+                    }
+                }
+                let kind = (f.header.queue_id, kind_of(f.header.blob_id()));
+                if let Some(n) = self.by_kind.get_mut(&kind) {
+                    *n -= 1;
+                    if *n == 0 {
+                        self.by_kind.remove(&kind);
                     }
                 }
                 // The bounds were just checked, so this cannot fail.

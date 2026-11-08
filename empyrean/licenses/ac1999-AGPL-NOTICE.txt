@@ -11,6 +11,11 @@ from ac1999's server (its client events, chat, object and player messages, books
 fellowships, allegiances and appraisal), using facts about those messages stated on the message
 pages of its knowledge base. Those ports were made and changed for Empyrean in 2026.
 
+Empyrean's Launch rules take the long-range missile accuracy penalty and the speed and reach of
+thrown weapons from ac1999's server, and the rule effects of its dat migrations for enchantment
+durations, spell ranges and power, and a resistable Imperil. Those rules were ported for Empyrean
+in 2026.
+
 ac1999 is free software: you can redistribute it and/or modify it under the terms of the GNU
 Affero General Public License as published by the Free Software Foundation, version 3 of the
 License (the license ac1999 ships as Server/LICENSE, which every converted bundle carries in its

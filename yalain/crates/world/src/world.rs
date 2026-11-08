@@ -132,12 +132,16 @@ pub struct Player {
     pub play: crate::state::PlayState,
     /// The store it is in: the storekeeper, the store, the first sale of the page shown.
     pub shopping: Option<(u64, u32, u32)>,
+    /// The broker whose consignments page it has open.
+    pub at_consignments: Option<u64>,
     /// The rows of market pages its connection may yet have ([`crate::market`]).
     pub page_rows: Option<crate::call_limit::Bucket>,
     /// Its attack run, while it attacks.
     pub attacking: Option<crate::combat::Run>,
     /// Its death, until it is resurrected.
     pub dying: Option<crate::death::Dying>,
+    /// An offer of a return that stands on it while it is dead.
+    pub offer: Option<crate::resurrections::Offer>,
     /// The container it has open.
     pub open_container: Option<u64>,
     /// When its vitals last regenerated, and when they next do (world seconds; 0 before its first
@@ -154,14 +158,22 @@ pub struct Player {
     pub flying: Vec<crate::skill_use::Flying>,
     /// Its lifestone protection, while it lasts.
     pub protected: Option<crate::effects::Protected>,
-    /// The skill it is using, while the use runs.
+    /// When its next swing's time is, and what it has of swinging ahead of that by asking again.
+    pub swing_ready: f64,
+    pub early_swings: Option<crate::call_limit::Bucket>,
+    /// The skill it is using, while the use runs, and the server's number for its last use.
     pub using: Option<crate::skill_use::Using>,
+    pub uses: u32,
     /// A skill's use waiting for the running one to end.
     pub queued: Option<crate::skill_use::Request>,
     /// A special waiting for its attack run's next swing.
     pub in_run: Option<crate::skill_use::Request>,
     /// How fast it may talk, once it has, and when it was last told it is past that.
     pub talk: Option<(crate::call_limit::Bucket, Option<f64>)>,
+    /// How fast it may put questions to other players, once it has.
+    pub asks: Option<crate::call_limit::Bucket>,
+    /// How fast it may ask to follow, once it has.
+    pub follows: Option<crate::call_limit::Bucket>,
     /// When it last used each skill (game time), from which the skill's recovery counts.
     pub last_used: std::collections::HashMap<u32, f64>,
     /// Another player it is walked to, and what for.
@@ -492,9 +504,11 @@ pub fn enter<S: Store>(
         places: st.places.clone(),
         play,
         shopping: None,
+        at_consignments: None,
         page_rows: None,
         attacking: None,
         dying: None,
+        offer: None,
         open_container: None,
         last_regen: 0.0,
         next_regen: 0.0,
@@ -504,11 +518,16 @@ pub fn enter<S: Store>(
         flying: Vec::new(),
         protected: None,
         passwd_at: None,
+        swing_ready: 0.0,
+        early_swings: None,
         using: None,
+        uses: 0,
         queued: None,
         in_run: None,
         last_used: std::collections::HashMap::new(),
         talk: None,
+        asks: None,
+        follows: None,
         approaching: None,
         shard_protection: None,
         riding: None,
@@ -608,9 +627,12 @@ pub fn enter<S: Store>(
     });
     send(net, world, BlobKind::VISUAL, &stop);
     if new_character {
-        // A new character's pack: its race's starting weapons, from the character data.
-        for template in crate::inventory::starting_pack(c.race) {
-            if s.catalog.get(*template).is_some() {
+        // A new character's pack: the weapons among its race's starting items, from the character
+        // data. The clothes it starts in are part of its look.
+        for template in s.start.items.get(&c.race).into_iter().flatten() {
+            if s.catalog.get(*template).is_some()
+                && crate::skill_use::implement_of(&s.catalog, *template).is_some()
+            {
                 let id = s.things.new_id();
                 let slot = u32::try_from(p.play.items.len()).unwrap_or(0);
                 p.play.items.push(crate::state::Held {
@@ -654,6 +676,7 @@ pub fn enter<S: Store>(
     let game_epoch = game_now - clock.unix as f64;
     // The effects that ran out while the character was away are gone before its session starts.
     crate::effects::prune(&mut p.play, game_now);
+    crate::effects::bound_kept(&mut p.play, p.character);
     // So have the quests with no time left when it left; the others' time stood still.
     #[allow(clippy::cast_possible_truncation)]
     let away_s = away as i64;
@@ -1136,7 +1159,7 @@ pub fn message<S: Store>(
         }
         ClientMessage::ServerCall(call) => {
             if kept_call(&mut p, call.function.0, &call.args.0) {
-                keep(s, &p);
+                s.saves.option_changed(p.character);
             } else {
                 s.players.insert(world, p);
                 return crate::requests::call(s, net, world, &call, clock);

@@ -99,10 +99,11 @@ pub const QUEST_INFO_LIST: u16 = 0xA1;
 
 /// Quest statuses and update kinds (the client's values).
 pub mod status {
-    pub const UNDERWAY: u32 = 0x1000_0000;
-    pub const FAILED: u32 = 0x2000_0000;
-    pub const COMPLETED: u32 = 0x3000_0000;
-    pub const CANCELLED: u32 = 0x8000_0000;
+    use auberean_script::native_object::QuestInfo;
+    pub const UNDERWAY: u32 = QuestInfo::UNDERWAY;
+    pub const FAILED: u32 = QuestInfo::FAILED;
+    pub const COMPLETED: u32 = QuestInfo::COMPLETED;
+    pub const CANCELLED: u32 = QuestInfo::CANCELLED;
 }
 pub mod update {
     pub const BESTOW: u32 = 0x1000_0000;
@@ -534,6 +535,10 @@ fn may_run_at_any_level<S: Store>(s: &Server<S>, world: ConnId, st: &Step, now_u
     };
     let held = &p.play.quests;
     if phase_of(held, st.quest) != st.needs {
+        return false;
+    }
+    // A step whose gift can't be made doesn't run: it would take what it takes for nothing.
+    if !st.gives.iter().all(|t| crate::makes::can_make(s, *t)) {
         return false;
     }
     if !st.races.is_empty() && !st.races.contains(&p.race) {
@@ -1239,11 +1244,13 @@ pub fn give_for<S: Store>(
 ) -> Option<yalain_content::quests::Give> {
     let held = &s.players.get(&world)?.play.quests;
     let meets = |g: &&yalain_content::quests::Give| {
-        g.requires.iter().all(|(q, need)| match need {
-            Need::Phase(n) => phase_of(held, *q) == *n,
-            Need::Done => done(held, *q),
-            Need::Free => phase_of(held, *q) == 0,
-        })
+        // One whose gift can't be made takes nothing: the item goes back to its giver.
+        g.gives.iter().all(|t| crate::makes::can_make(s, *t))
+            && g.requires.iter().all(|(q, need)| match need {
+                Need::Phase(n) => phase_of(held, *q) == *n,
+                Need::Done => done(held, *q),
+                Need::Free => phase_of(held, *q) == 0,
+            })
     };
     let rows: Vec<&yalain_content::quests::Give> = s
         .quests

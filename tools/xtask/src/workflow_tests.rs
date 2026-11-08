@@ -195,3 +195,26 @@ fn the_clean_between_runs_names_the_build_in_a_form_git_bash_leaves_alone() {
         );
     }
 }
+
+/// **Dereth's release runs the relay it carries**, on every system, and holds it to Empyrean's
+/// version, with its license and notice beside it.
+#[test]
+fn dereth_s_release_runs_the_relay_at_empyrean_s_version() {
+    let workflow = read(".github/workflows/release-dereth.yml");
+    let version = job(&workflow, "version");
+    assert!(version.contains("relay=$(cargo xtask version empyrean)"));
+    assert!(version.contains("relay: ${{ steps.version.outputs.relay }}"));
+    let package = job(&workflow, "package");
+    assert!(package.contains("RELAY: ${{ needs.version.outputs.relay }}"));
+    for at in [
+        "relay=\"smoke/dereth-$VERSION/empyrean-relay.exe\"",
+        "relay=\"smoke/squashfs-root/usr/bin/empyrean-relay\"",
+        "relay=\"smoke/Dereth.app/Contents/MacOS/empyrean-relay\"",
+    ] {
+        assert!(package.contains(at), "{at}");
+    }
+    assert!(package.contains("run \"$relay\" --version"));
+    assert!(package.contains("grep -qx \"empyrean-relay $RELAY\" version-relay.txt"));
+    assert!(package.contains("$relay_notices/LICENSE-empyrean-relay"));
+    assert!(package.contains("$relay_notices/NOTICE-empyrean-relay.txt"));
+}

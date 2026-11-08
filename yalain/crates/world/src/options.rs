@@ -30,7 +30,7 @@
 use auberean_script::wire::{In, Out};
 
 /// The record's version, the client's own.
-pub const VERSION: u32 = 6;
+pub use auberean_script::options::VERSION;
 
 /// The option bits' top bit, which the client's packer always sets.
 pub const BITS_PACKED: u32 = 0x8000_0000;
@@ -41,23 +41,7 @@ pub const SHORTCUTS: usize = 100;
 /// A shortcut's kind word for a skill.
 pub const SHORTCUT_SKILL: u32 = 0x4000_0001;
 
-/// Part flags.
-pub mod part {
-    pub const ALIASES: u32 = 0x1;
-    pub const SHORTCUTS: u32 = 0x2;
-    pub const SHORTCUT_SET: u32 = 0x4;
-    pub const DAMAGE_TEXT_RANGE: u32 = 0x8;
-    pub const WINDOW_PLACES: u32 = 0x10;
-    pub const RADAR_MASK: u32 = 0x20;
-    pub const CHAT_FILTERS: u32 = 0x40;
-    pub const OPTION_BITS: u32 = 0x80;
-    pub const FONT_COLORS: u32 = 0x100;
-    pub const FONT_SIZES: u32 = 0x200;
-    pub const POPUP_FLAGS: u32 = 0x400;
-    pub const OPACITIES: u32 = 0x800;
-    pub const SHORTCUT_HEIGHT: u32 = 0x1000;
-    pub const DEVOTED_WINDOWS: u32 = 0x2000;
-}
+pub use auberean_script::options::part;
 
 /// A table of word pairs, in packing order, with its bucket count's place.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -388,7 +372,7 @@ impl Options {
     /// The flags word: which parts are present.
     #[must_use]
     pub fn flags(&self) -> u32 {
-        let mut f = part::OPTION_BITS;
+        let mut f = part::BITS;
         let mut set = |b: bool, bit: u32| {
             if b {
                 f |= bit;
@@ -399,9 +383,9 @@ impl Options {
         set(self.shortcut_set.is_some(), part::SHORTCUT_SET);
         set(self.shortcut_height.is_some(), part::SHORTCUT_HEIGHT);
         set(self.damage_text_range.is_some(), part::DAMAGE_TEXT_RANGE);
-        set(self.window_places.is_some(), part::WINDOW_PLACES);
+        set(self.window_places.is_some(), part::UI_LOCATIONS);
         set(self.radar_mask.is_some(), part::RADAR_MASK);
-        set(self.chat_filters.is_some(), part::CHAT_FILTERS);
+        set(self.chat_filters.is_some(), part::FILTERS);
         set(self.font_colors.is_some(), part::FONT_COLORS);
         set(self.font_sizes.is_some(), part::FONT_SIZES);
         set(self.devoted_windows.is_some(), part::DEVOTED_WINDOWS);
@@ -491,16 +475,16 @@ impl Options {
         if has(part::DAMAGE_TEXT_RANGE) {
             o.damage_text_range = Some(f32::from_bits(r.u32().map_err(e)?));
         }
-        if has(part::WINDOW_PLACES) {
+        if has(part::UI_LOCATIONS) {
             o.window_places = Some(window_places(&mut r)?);
         }
         if has(part::RADAR_MASK) {
             o.radar_mask = Some(r.u32().map_err(e)?);
         }
-        if has(part::CHAT_FILTERS) {
+        if has(part::FILTERS) {
             o.chat_filters = Some(Pairs::read(&mut r)?);
         }
-        if !has(part::OPTION_BITS) {
+        if !has(part::BITS) {
             return Err("option bits are always sent".into());
         }
         o.option_bits = r.u32().map_err(e)? & !BITS_PACKED;

@@ -619,7 +619,7 @@ pub fn update_ammo_after_launch(w: &mut World, this: ObjectGuid, ammo: ObjectGui
 /// Whether the target is within the missile weapon's range (3D distance).
 // ACE: Player.TargetInRange
 #[must_use]
-pub fn target_in_range(w: &World, this: ObjectGuid, target: ObjectGuid) -> bool {
+pub fn target_in_range(w: &mut World, this: ObjectGuid, target: ObjectGuid) -> bool {
     // 2d or 3d distance?
     let loc = object(w, this)
         .location()

@@ -168,6 +168,38 @@ fn a_stale_leaving_or_holding_changes_nothing() {
     assert!(m.object(thing).and_then(|o| o.parent).is_none(), "later");
 }
 
+/// Every description the server sends is counted, one that changes nothing too, so it can be
+/// applied again.
+///
+/// Behaviour: desktop.looks.a-look-sent-again-plays-its-effects-again
+#[test]
+fn every_description_sent_is_counted() {
+    use auberean_protocol::physics::ObjectEvent;
+    use auberean_protocol::types::ObjectStamp;
+    let mut m = Model::default();
+    let other = 0x2130_0000_0000_0007;
+    let c = crate::create(other, 1, 1);
+    let look = c.visual.clone();
+    m.apply(&item(3, 0, ServerMessage::CreateObject(c)));
+    assert_eq!(m.object(other).expect("made").visual_updates, 0);
+    for sent in 1..=2 {
+        m.apply(&item(
+            2,
+            0,
+            ServerMessage::UpdateVisualDesc(ObjectEvent {
+                sender: ObjectStamp {
+                    id: other,
+                    instance_stamp: 1,
+                    other_stamp: 0,
+                },
+                action: look.clone(),
+            }),
+        ));
+        let o = m.object(other).expect("kept");
+        assert_eq!((o.visual_updates, &o.visual), (sent, &look));
+    }
+}
+
 /// A creation of an object the client still has, after it left the world, puts it back in the
 /// world where the creation says it stands: a player who went on ahead through a door is there when
 /// the client arrives.

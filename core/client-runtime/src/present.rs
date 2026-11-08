@@ -196,6 +196,10 @@ pub trait Presentation: std::fmt::Debug {
         world: Option<&crate::world_state::WorldState>,
     ) -> Result<(), PresentError>;
     fn end_frame(&mut self) -> Result<(), PresentError>;
+    /// Whether the last frame found its window can't be seen, so nothing waited for the display.
+    fn window_hidden(&self) -> bool {
+        false
+    }
     /// The last release of the shutdown sequence.
     fn wait_idle(&mut self) -> Result<(), PresentError>;
 
@@ -533,6 +537,18 @@ pub struct NullPresentation {
     texture_filtering: u32,
     counts: NullPresentationCounts,
     ground_markers: Vec<dereth_client_contract::overlay::GroundMarker>,
+    /// Told when this presentation is dropped.
+    #[cfg(test)]
+    pub(crate) drop_log: Option<std::rc::Rc<std::cell::RefCell<Vec<&'static str>>>>,
+}
+
+#[cfg(test)]
+impl Drop for NullPresentation {
+    fn drop(&mut self) {
+        if let Some(log) = &self.drop_log {
+            log.borrow_mut().push("device");
+        }
+    }
 }
 
 impl NullPresentation {
@@ -544,6 +560,8 @@ impl NullPresentation {
             texture_filtering: 0,
             counts: NullPresentationCounts::default(),
             ground_markers: Vec::new(),
+            #[cfg(test)]
+            drop_log: None,
         }
     }
 

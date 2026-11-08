@@ -327,6 +327,7 @@ fn fellows(h: &mut Harness, ids: &[u64]) {
                 next_check: f64::MAX,
             })
             .collect(),
+        last_claimant: 0,
     });
 }
 
@@ -882,4 +883,45 @@ fn a_weapon_under_both_kinds_of_aura_is_multiplied_first() {
         230,
         "100 x 1.5 + 80"
     );
+}
+
+/// Asked inside an attack run, a toggled skill already on turns off as from rest: one aura's record
+/// is all a player ever holds of it.
+/// Behaviour: server.auras.inside-a-run-as-from-rest
+#[test]
+fn a_toggled_skill_used_again_inside_a_run_turns_off() {
+    let mut h = Harness::new();
+    h.add_creatures(1);
+    let (b, me) = armed(&mut h, "one", "Elara");
+    let beetle = h
+        .world_messages(b, 0)
+        .iter()
+        .find_map(|m| match m {
+            ServerMessage::CreateObject(o)
+                if o.weenie.entity_did == yalain_testkit::TEST_CREATURE =>
+            {
+                Some(o.id)
+            }
+            _ => None,
+        })
+        .expect("the camp's creature");
+    let auras = |h: &mut Harness| {
+        held(h, me)
+            .iter()
+            .filter(|e| e.state == ESPIRIT_AURA)
+            .count()
+    };
+    turned_on(&mut h, b);
+    assert_eq!(auras(&mut h), 1);
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(0x8204_0008, &[Arg::LongInt(beetle)]),
+    );
+    h.run(2);
+    use_skill(&mut h, b, 2, ESPIRIT, 0);
+    for _ in 0..100 {
+        h.step();
+    }
+    assert_eq!(auras(&mut h), 0, "off");
 }

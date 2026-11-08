@@ -319,6 +319,13 @@ pub struct World {
     pub websocket_url: Option<String>,
     pub state: WorldState,
     pub players: Option<u32>,
+    /// How old the count of players is, in seconds, when the hub's list gave it; `None` for a
+    /// world's own answer just now, or no count.
+    #[serde(default)]
+    pub players_age: Option<u64>,
+    /// Where the hub has the count from: `ping`, `heartbeat`, `client` or `treestats`.
+    #[serde(default)]
+    pub players_source: Option<String>,
     pub links: Links,
     pub operator: Option<Operator>,
     pub updated_at: Option<String>,

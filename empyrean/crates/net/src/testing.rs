@@ -72,6 +72,11 @@ pub struct TestClient {
 }
 
 impl TestClient {
+    /// The time in the last TimeSync, once.
+    pub fn take_time_sync(&mut self) -> Option<f64> {
+        self.net.take_time_sync()
+    }
+
     /// A client at `addr` that will log in to the server at `server` (its port `P`).
     #[must_use]
     pub fn new(addr: SocketAddr, server: SocketAddr, account: &str, password: &str) -> Self {

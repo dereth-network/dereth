@@ -147,10 +147,10 @@ fetches at most once a day (the refresh button fetches again) and keeps the copy
 `DERETH_HUB_LIST` another hub's list.
 
 **A world played through a relay** speaks another wire format than Dereth's. The launcher keeps
-these in a table of its own, and lists them only when `--relayed-worlds on` has turned them on
-(`--relayed-worlds off` turns them off; the choice is kept). Play starts `empyrean-relay`, which comes
-with Empyrean, on this computer's loopback address and starts the client towards it; the relay goes
-when the client does. Nothing else contacts such a world.
+these in a table of its own, and lists them. Play starts `empyrean-relay`, which comes with Dereth
+beside the client, on this computer's loopback address and starts the client towards it; the relay
+goes when the client does. Otherwise the launcher only asks such a world whether it is up, as it asks any
+world.
 
 **A world's era and systems** come from its Empyrean status, else the launcher's table of worlds
 that run a client of their own, else the end of retail.
@@ -164,6 +164,10 @@ that run a client of their own, else the end of retail.
    with the network's mod included), read about once a minute;
 4. the server-tracker login, which ACE, GDLE and Empyrean all answer: up or down, with no player
    count.
+
+A world with no count of its own takes the hub's, which may come from a player's Dereth client or
+from TreeStats. The count grows dimmer as it ages, and hovering over it says where it came from and
+how old it is.
 
 On Windows and Linux, a button beside the version under the rail creates a desktop shortcut. On
 Linux each start also writes the launcher's application entry (`network.dereth.dereth.desktop`

@@ -654,16 +654,6 @@ fn version_text() -> String {
     )
 }
 
-/// What `--relayed-worlds on` or `off` says, if it is among `args`.
-fn relayed_worlds_switch(args: &[String]) -> Option<bool> {
-    let at = args.iter().position(|a| a == "--relayed-worlds")?;
-    match args.get(at + 1)?.as_str() {
-        "on" => Some(true),
-        "off" => Some(false),
-        _ => None,
-    }
-}
-
 fn main() {
     // `--version` alone: what this build is, with no window and nothing read or written.
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -845,11 +835,6 @@ fn main() {
                 .with_tool(tool.clone())
                 .with_first_realm(defaults),
             ));
-            // `--relayed-worlds on` or `off`: the player's word on listing the worlds played through a
-            // relay, kept from then on.
-            if let Some(on) = relayed_worlds_switch(&args) {
-                lock(&shared).set_relayed_worlds(on);
-            }
             Backend::load_list(&shared);
             // Every plugin source's list is read at start, and the updates the setting allows are
             // applied.

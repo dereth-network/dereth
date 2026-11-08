@@ -197,6 +197,17 @@ pub fn fill_target_types_from_formulas(table: &mut SpellTable) {
     }
 }
 
+/// Not ACE: the first spell tables leave every formula version at zero, and their clients always
+/// work out an account's tapers the first way; the tapers such a table stores are placeholders.
+/// Gives every spell of such a table the first version; a table naming any version is left as it is.
+pub fn name_the_only_formula_version(table: &mut SpellTable) {
+    if table.spells.values().all(|s| s.formula_version == 0) {
+        for spell in table.spells.values_mut() {
+            spell.formula_version = 1;
+        }
+    }
+}
+
 /// Not ACE: puts a table's caster, target and fizzle scripts into the later numbering every other
 /// script the server names is in; a message puts them back as it goes out.
 pub fn renumber_effects(table: &mut SpellTable, era: dereth_primitives::ContainerEra) {
@@ -408,6 +419,24 @@ mod target_type_tests {
         let mut t = table(0);
         fill_target_types_from_formulas(&mut t);
         assert_eq!(the_type(&t), 0x0008_8B8F);
+    }
+
+    /// Divergence: V509
+    #[test]
+    fn a_table_naming_no_formula_versions_takes_the_first() {
+        let mut t = table(0);
+        t.spells.values_mut().for_each(|s| s.formula_version = 0);
+        name_the_only_formula_version(&mut t);
+        assert!(t.spells.values().all(|s| s.formula_version == 1));
+    }
+
+    /// Divergence: V509
+    #[test]
+    fn a_table_naming_a_formula_version_keeps_them() {
+        let mut t = table(0);
+        t.spells.values_mut().for_each(|s| s.formula_version = 3);
+        name_the_only_formula_version(&mut t);
+        assert!(t.spells.values().all(|s| s.formula_version == 3));
     }
 
     /// Divergence: V494

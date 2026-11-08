@@ -78,6 +78,7 @@ fn practice_target(h: &mut Harness, beetle: u64) {
 /// Ask to use a skill on a target, as the client packs it (the use's number, the skill, the
 /// target).
 fn use_skill(h: &mut Harness, b: usize, id: u32, skill: u32, target: u64) -> usize {
+    h.all_hold(skill);
     let from = h.bots[b].inbox.len();
     h.bots[b].send(
         true,
@@ -1521,4 +1522,300 @@ fn a_skills_harm_counts_at_a_draw_by_its_points_and_takes_only_its_damage() {
         assert_eq!(harm, harm_noticed(skill, lost), "skill {skill}");
         assert!(harm > i64::from(lost));
     }
+}
+
+/// A skill its user neither started with nor trained is refused in one tick, and costs nothing: on a
+/// target from rest and inside a run; trained, it goes as any other.
+/// Behaviour: server.skills.used-only-when-held
+#[test]
+fn a_player_uses_only_a_skill_it_holds() {
+    use yalain_world::skills::refusal::UNTRAINED;
+    const NOT_HELD: u32 = 925;
+    let (mut h, b, me, beetle) = beside_a_beetle();
+    practice_target(&mut h, beetle);
+    h.arm(b, me, SWORD);
+    let asked = |h: &mut Harness, id: u32| {
+        let from = h.bots[b].inbox.len();
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &server_call(
+                function::USE,
+                &[Arg::Int(id), Arg::Int(NOT_HELD), Arg::LongInt(0)],
+            ),
+        );
+        from
+    };
+    let from = asked(&mut h, 1);
+    h.run(10);
+    assert!(
+        calls_of(&h, b, from)
+            .iter()
+            .any(|(f, v)| *f == function::REFUSED && v.contains(&Value::Int(UNTRAINED))),
+        "refused, the reason told"
+    );
+    assert!(vigor_sent(&h, b, from).is_empty(), "nothing is paid");
+    let world = h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .map(|(c, _)| *c)
+        .expect("in the world");
+    assert!(
+        h.server.players[&world].using.is_none(),
+        "no use is under way"
+    );
+    // Inside a run, where a special waits for its swing, as from rest.
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(START_ATTACK, &[Arg::LongInt(beetle)]),
+    );
+    h.run(2);
+    let from = asked(&mut h, 2);
+    h.run(2);
+    h.advance(2.0);
+    h.run(5);
+    assert!(
+        calls_of(&h, b, from)
+            .iter()
+            .any(|(f, v)| *f == function::REFUSED && v.contains(&Value::Int(UNTRAINED))),
+        "refused at its swing"
+    );
+    h.bots[b].send(true, queue::WEENIE, &server_call(0x8204_0010, &[]));
+    h.run(5);
+    // Held by what it trained.
+    if let Some(p) = h.server.players.get_mut(&world) {
+        p.play.skills.push(yalain_world::state::SkillState {
+            skill: NOT_HELD,
+            granted: 0,
+            mask: 1,
+            cost: 0,
+            children: 0,
+            dependents: 0,
+            spent: 0,
+        });
+    }
+    let from = asked(&mut h, 3);
+    h.run(10);
+    assert!(
+        !calls_of(&h, b, from)
+            .iter()
+            .any(|(f, v)| *f == function::REFUSED && v.contains(&Value::Int(UNTRAINED))),
+        "trained, it is not refused so"
+    );
+    assert!(
+        h.server.players[&world].using.is_some(),
+        "its use is under way"
+    );
+}
+
+/// A client numbers its own uses, and a number may come again. A use cut short leaves nothing behind
+/// to run another use of that number: each use asked and cut before its story tells no story, and the
+/// one left to run tells one and strikes once.
+/// Behaviour: server.skills.a-use-is-told-once-whatever-its-number
+#[test]
+fn a_use_is_told_once_however_often_its_number_comes_again() {
+    const STOP_ATTACK: u32 = 0x8204_0010;
+    let (mut h, b, me, beetle) = beside_a_beetle();
+    practice_target(&mut h, beetle);
+    h.arm(b, me, BOW);
+    if let Some(u) = h
+        .server
+        .skill_table
+        .skills
+        .get_mut(&DEADEYE)
+        .and_then(|d| d.usage.as_mut())
+    {
+        u.ui_flags &= !yalain_world::skill_use::ui_flag::USE_WHILE_MOVING;
+    }
+    // Away from it: Deadeye has a least range.
+    h.run(5);
+    let told = |h: &Harness, from: usize| {
+        h.world_messages(b, from)
+            .iter()
+            .filter(|m| {
+                matches!(m, ServerMessage::DoStory(e) if e.action.attacker == me && e.action.skill == DEADEYE && e.sender.id == me)
+            })
+            .count()
+    };
+    let vigor_paid = |h: &Harness, from: usize| vigor_sent(h, b, from).len();
+    let from = h.bots[b].inbox.len();
+    for _ in 0..10 {
+        use_skill(&mut h, b, 7, DEADEYE, beetle);
+        h.bots[b].send(true, queue::WEENIE, &server_call(STOP_ATTACK, &[]));
+    }
+    use_skill(&mut h, b, 7, DEADEYE, beetle);
+    h.run(3);
+    assert_eq!(told(&h, from), 0, "nothing told before its time");
+    h.advance(0.2);
+    h.run(3);
+    assert_eq!(told(&h, from), 1, "one told, of the one that ran");
+    assert_eq!(vigor_paid(&h, from), 1, "and one paid");
+    h.advance(3.0);
+    h.run(5);
+    assert_eq!(told(&h, from), 1, "still one when it is over");
+}
+
+/// A skill that walks its user and throws from afar is told only within its greatest range: out of
+/// it, it waits for its user to come in reach, and gives up after a while.
+/// Behaviour: server.skills.a-walking-throw-waits-for-its-range
+#[test]
+fn a_skill_that_walks_and_throws_is_told_only_within_its_range() {
+    use yalain_world::skill_use::{ui_flag, MOST_WAITED_FOR_RANGE};
+    let (mut h, b, me, beetle) = beside_a_beetle();
+    practice_target(&mut h, beetle);
+    h.arm(b, me, BOW);
+    let u = h
+        .server
+        .skill_table
+        .skills
+        .get_mut(&DEADEYE)
+        .and_then(|d| d.usage.as_mut())
+        .expect("its use");
+    u.ui_flags |= ui_flag::MOVE_TO;
+    let range = u.max_range;
+    let at = h
+        .server
+        .players
+        .values()
+        .find(|p| p.character == me)
+        .map(|p| p.position)
+        .expect("in the world");
+    let place = |h: &mut Harness, off: f32| {
+        let mut there = at;
+        there.origin[0] += off;
+        if let Some(t) = h.server.things.get_mut(beetle) {
+            t.at = Some(there);
+        }
+    };
+    let told = |h: &Harness, from: usize| {
+        h.world_messages(b, from)
+            .iter()
+            .filter(|m| {
+                matches!(m, ServerMessage::DoStory(e)
+                    if e.sender.id == me && e.action.skill == DEADEYE)
+            })
+            .count()
+    };
+    place(&mut h, range + 20.0);
+    let from = use_skill(&mut h, b, 1, DEADEYE, beetle);
+    for _ in 0..40 {
+        h.step();
+    }
+    assert_eq!(told(&h, from), 0, "not out of its range");
+    place(&mut h, range - 5.0);
+    for _ in 0..10 {
+        h.step();
+    }
+    assert_eq!(told(&h, from), 1, "told as its user comes in reach");
+    h.run_to(yalain_net::LocalTime(h.now.0 + 120.0));
+    // Out of range and left there, it gives up.
+    place(&mut h, range + 20.0);
+    let from = use_skill(&mut h, b, 2, DEADEYE, beetle);
+    h.run_to(yalain_net::LocalTime(h.now.0 + MOST_WAITED_FOR_RANGE + 3.0));
+    h.run(5);
+    assert_eq!(told(&h, from), 0, "never told");
+    assert!(
+        calls_of(&h, b, from)
+            .iter()
+            .any(|(f, v)| *f == function::REFUSED && v.contains(&Value::Int(refusal::TOO_FAR))),
+        "told it is too far"
+    );
+}
+
+/// A strike that walks its user there, its target out of reach.
+fn a_walking_strike_out_of_reach() -> (Harness, usize, u64, u64) {
+    use yalain_world::skill_use::ui_flag;
+    let (mut h, b, me, beetle) = beside_a_beetle();
+    practice_target(&mut h, beetle);
+    h.arm(b, me, SWORD);
+    let u = h
+        .server
+        .skill_table
+        .skills
+        .get_mut(&RIPOSTE)
+        .and_then(|d| d.usage.as_mut())
+        .expect("its use");
+    u.ui_flags |= ui_flag::MOVE_TO | ui_flag::USE_WHILE_MOVING;
+    u.max_range = 0.0;
+    let mut there = h
+        .server
+        .players
+        .values()
+        .find(|p| p.character == me)
+        .map(|p| p.position)
+        .expect("in the world");
+    there.origin[0] += 30.0;
+    if let Some(t) = h.server.things.get_mut(beetle) {
+        t.at = Some(there);
+    }
+    (h, b, me, beetle)
+}
+
+fn vigor_of(h: &Harness, me: u64) -> i32 {
+    h.server
+        .players
+        .values()
+        .find(|p| p.character == me)
+        .and_then(|p| yalain_world::quals::int(&p.qualities, VIGOR))
+        .expect("it has vigor")
+}
+
+fn using(h: &Harness, me: u64) -> bool {
+    h.server
+        .players
+        .values()
+        .find(|p| p.character == me)
+        .is_some_and(|p| p.using.is_some())
+}
+
+/// A strike that walks its user there waits for it to come in reach, for so long: then it is over,
+/// too far, nothing paid, and the player may use another skill.
+/// Behaviour: server.skills.a-walking-strike-gives-up
+#[test]
+fn a_walking_strike_gives_up_when_its_user_never_comes_in_reach() {
+    use yalain_world::skill_use::MOST_WAITED_FOR_REACH;
+    let (mut h, b, me, beetle) = a_walking_strike_out_of_reach();
+    let vigor = vigor_of(&h, me);
+    let from = use_skill(&mut h, b, 1, RIPOSTE, beetle);
+    h.run_to(yalain_net::LocalTime(h.now.0 + MOST_WAITED_FOR_REACH - 2.0));
+    assert!(using(&h, me), "it waits, for so long");
+    h.run_to(yalain_net::LocalTime(h.now.0 + 5.0));
+    h.run(5);
+    assert!(!using(&h, me), "it has given up");
+    assert!(
+        calls_of(&h, b, from)
+            .iter()
+            .any(|(f, v)| *f == function::REFUSED && v.contains(&Value::Int(refusal::TOO_FAR))),
+        "told it is too far"
+    );
+    assert!(vigor_of(&h, me) >= vigor, "nothing paid");
+}
+
+/// A stop cuts a strike that walks its user there while it is still walking: over, nothing paid, the
+/// player free to use another.
+/// Behaviour: server.skills.a-stop-cuts-a-walking-strike
+#[test]
+fn a_stop_cuts_a_walking_strike_before_its_story() {
+    let (mut h, b, me, beetle) = a_walking_strike_out_of_reach();
+    let vigor = vigor_of(&h, me);
+    let from = use_skill(&mut h, b, 1, RIPOSTE, beetle);
+    h.run(10);
+    assert!(using(&h, me), "it is walking");
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(yalain_world::combat::function::STOP_ATTACK, &[]),
+    );
+    h.run(10);
+    assert!(!using(&h, me), "the stop cut it");
+    assert!(
+        calls_of(&h, b, from)
+            .iter()
+            .any(|(f, v)| *f == function::ENDED && v.contains(&Value::Int(1))),
+        "the use is over"
+    );
+    assert!(vigor_of(&h, me) >= vigor, "nothing paid");
 }

@@ -12,7 +12,7 @@ struct Chunk {
 }
 
 /// A slot's place: its buffer's bind group and the offset to bind it at.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Slot {
     pub(crate) group: wgpu::BindGroup,
     pub(crate) offset: u32,
@@ -48,13 +48,25 @@ impl UniformPool {
         self.used = 0;
     }
 
-    /// The next slot, holding `bytes` once the frame is written.
+    /// The slot holding `bytes` once the frame is written: the last one taken when it holds the
+    /// same, else the next.
     pub(crate) fn take(
         &mut self,
         device: &wgpu::Device,
         layout: &wgpu::BindGroupLayout,
         bytes: &[u8],
     ) -> Slot {
+        if let Some(last) = self.used.checked_sub(1) {
+            let chunk = &self.chunks[last / self.slots];
+            let at = (last % self.slots) * self.stride;
+            let n = bytes.len().min(self.size);
+            if chunk.data[at..at + n] == bytes[..n] {
+                return Slot {
+                    group: chunk.group.clone(),
+                    offset: u32::try_from(at).unwrap_or(u32::MAX),
+                };
+            }
+        }
         let (c, k) = (self.used / self.slots, self.used % self.slots);
         self.used += 1;
         if c == self.chunks.len() {

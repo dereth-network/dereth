@@ -904,6 +904,9 @@ pub struct App<S: Shell> {
     perf_steps: [f32; crate::frame::STEPS],
     /// Whether the performance panel's font is on the device.
     perf_font: bool,
+    /// The host's last size for the window had no extent: it is minimized, where a display shows
+    /// nothing and some renderers can't tell.
+    window_has_no_extent: bool,
     /// The performance capture `@perfcapture` started, while it records.
     pub perf_capture: Option<crate::perf_capture::PerfCapture>,
     /// The commit the program was built from, as its host names it, for `@report`.
@@ -1017,6 +1020,9 @@ pub struct App<S: Shell> {
     /// divergence CD-001). Taken, and so cleared, when full screen is left. `None` when the window
     /// is windowed, or when it went full screen with no rectangle to remember.
     pub windowed_rect_before_full_screen: Option<dereth_client_contract::window_proc::Rect>,
+    /// The window's last windowed size with the login size not forced, saved at exit as
+    /// [`crate::config::DISPLAY_WINDOW_SIZE`]. `None` until the window has reported one.
+    pub windowed_size: Option<(u32, u32)>,
     /// The UI button-press sound (`0x72`) proof, played once. See `App::start_shell`.
     pub startup_sound_played: bool,
     /// UI sound-table id, resolved and cached once per session.
@@ -1037,6 +1043,9 @@ pub struct App<S: Shell> {
     /// The step a product installed into the frame, run before the UI step. See
     /// [`crate::frame_hook`].
     frame_hook: Option<Box<dyn crate::frame_hook::FrameHook>>,
+    /// Told how many players a world says it has, each time it says so at login
+    /// ([`Self::on_world_players`]).
+    world_players: Option<Box<dyn FnMut(u32)>>,
     /// The chat lines this frame's messages produced, gathered for the frame hook. Kept only while
     /// a hook is installed.
     hook_chat: Vec<dereth_client_contract::chat::interface::ChatMessage>,
