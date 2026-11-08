@@ -14,6 +14,7 @@ not how it was done.
 - Fixed range checks on moving creatures and players using where they last stood.
 - Fixed skin and dye colors tinting parts of bodies and clothes they don't cover.
 - The connecting screen counts login attempts out of twenty and says when it is logging in.
+- Fixed characters missing their details on servers that pad their messages.
 
 ## 0.1.5 (2026-11-07)
 - Screenshots are taken at full detail, far objects included.

@@ -155,24 +155,6 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
-        id: "session.login.a-refused-entry-logs-off-no-character-and-may-ask-again",
-        says: "An entry the server refuses is seen with its reason; the client logs off with no \
-               character, stays at the character list on its login connection, and a second entry \
-               goes into the world.",
-        since: RETAIL,
-        evidence: Evidence::Private("AC2-EVID-SESS-REFUSED-ENTRY"),
-        station: "auberean-headless::cpu::world_entry::a_refused_entry_logs_off_no_character_and_a_second_entry_goes_in",
-        tier: Tier::Cpu,
-    },
-    behaviour! {
-        id: "session.login.each-attempt-is-told-out-of-twenty",
-        says: "Each login that goes out is told as its attempt of the twenty the client makes,                for the connecting screen to count.",
-        since: RETAIL,
-        evidence: Evidence::Private("AC2-EVID-SESS-LOGIN-ATTEMPTS"),
-        station: "auberean-client-net::cpu::server_lost::each_login_attempt_is_told_out_of_twenty",
-        tier: Tier::Cpu,
-    },
-    behaviour! {
         id: "session.login.a-login-server-lost-before-its-first-packet-fails-the-login",
         says: "A login server that answers the login and is then given up for dead before its                first ordinary packet fails the login, once, with the generic connection error.",
         since: RETAIL,
@@ -181,11 +163,13 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
-        id: "session.login.the-login-servers-acknowledgement-is-told",
-        says: "Each acknowledgement of the login server's connection request is told, as the                client starts waiting for that server's first packet.",
+        id: "session.login.a-refused-entry-logs-off-no-character-and-may-ask-again",
+        says: "An entry the server refuses is seen with its reason; the client logs off with no \
+               character, stays at the character list on its login connection, and a second entry \
+               goes into the world.",
         since: RETAIL,
-        evidence: Evidence::Private("AC2-EVID-SESS-LOGIN-ACKNOWLEDGED"),
-        station: "auberean-client-net::cpu::server_lost::the_login_servers_acknowledgement_is_told_before_it_connects",
+        evidence: Evidence::Private("AC2-EVID-SESS-REFUSED-ENTRY"),
+        station: "auberean-headless::cpu::world_entry::a_refused_entry_logs_off_no_character_and_a_second_entry_goes_in",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -207,6 +191,22 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "session.login.each-attempt-is-told-out-of-twenty",
+        says: "Each login that goes out is told as its attempt of the twenty the client makes,                for the connecting screen to count.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-LOGIN-ATTEMPTS"),
+        station: "auberean-client-net::cpu::server_lost::each_login_attempt_is_told_out_of_twenty",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.login.the-login-servers-acknowledgement-is-told",
+        says: "Each acknowledgement of the login server's connection request is told, as the                client starts waiting for that server's first packet.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-LOGIN-ACKNOWLEDGED"),
+        station: "auberean-client-net::cpu::server_lost::the_login_servers_acknowledgement_is_told_before_it_connects",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "session.logon.no-ticket-is-an-account-login",
         says: "With no ticket the login is an account login: the account and the session-key blob, \
                nothing in the ticket's place.",
@@ -224,6 +224,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SESS-LOGON"),
         station: "auberean-client-net::cpu::logon::the_login_carries_version_ticket_account_and_key_blob",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.message.bytes-after-a-messages-fields-are-not-read",
+        says: "A message from a server with bytes after its fields (an end padded with zeros) is                read for its fields and takes effect; the bytes after them are not read.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-MESSAGE-TRAILING-BYTES"),
+        station: "auberean-client-net::cpu::server_lost::a_message_with_bytes_after_its_fields_is_read_for_its_fields",
         tier: Tier::Cpu,
     },
     behaviour! {

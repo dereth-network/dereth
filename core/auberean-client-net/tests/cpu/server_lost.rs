@@ -4,7 +4,7 @@
 use std::net::{Ipv4Addr, SocketAddr};
 
 use auberean_client_net::logon::{Logon, KEY_LEN};
-use auberean_client_net::session::{received_rate, Event, Session, Settings};
+use auberean_client_net::session::{received_rate, Event, Incoming, Session, Settings};
 use auberean_client_net::LocalTime;
 use auberean_protocol::login::Empty;
 use auberean_protocol::ServerMessage;
@@ -31,6 +31,11 @@ fn logon() -> Logon {
 
 /// A login connection that sends one message and then, from `silent` on, nothing more.
 fn script(silent: Option<f64>) -> Script {
+    script_sending(ServerMessage::DownloadEnds(Empty).encode(), silent)
+}
+
+/// [`script`], the one message being `raw`.
+fn script_sending(raw: Vec<u8>, silent: Option<f64>) -> Script {
     let mut events = vec![Row::Msg {
         t: 0.2,
         msg: Msg {
@@ -39,7 +44,7 @@ fn script(silent: Option<f64>) -> Script {
             queue: 1,
             blob_id: 0x0300_0000_0000_0001,
             mtype: ServerMessage::DownloadEnds(Empty).message_type(),
-            raw: ServerMessage::DownloadEnds(Empty).encode(),
+            raw,
         },
     }];
     if let Some(t) = silent {
@@ -76,7 +81,11 @@ struct Run {
 
 impl Run {
     fn new(silent: Option<f64>) -> Self {
-        let double = ServerDouble::new(script(silent), Ipv4Addr::LOCALHOST, 1.0, 7);
+        Self::over(script(silent))
+    }
+
+    fn over(script: Script) -> Self {
+        let double = ServerDouble::new(script, Ipv4Addr::LOCALHOST, 1.0, 7);
         let settings = Settings {
             login_server: double.login_addr(),
             logon: logon(),
@@ -483,6 +492,33 @@ fn the_login_servers_acknowledgement_is_told_before_it_connects() {
     .expect("the acknowledgement is told");
     let connected = at(&Event::LoginConnected).expect("the login connects");
     assert!(acked < connected, "{:?}", run.events);
+}
+
+/// A message with bytes after its fields (a sender that pads its end with zeros) is read for its
+/// fields and takes effect; the bytes after them are not read.
+///
+/// Behaviour: session.message.bytes-after-a-messages-fields-are-not-read
+#[test]
+fn a_message_with_bytes_after_its_fields_is_read_for_its_fields() {
+    let mut raw = ServerMessage::DownloadEnds(Empty).encode();
+    raw.extend_from_slice(&[0; 16]);
+    let mut run = Run::over(script_sending(raw, None));
+    run.run_until(3.0);
+    let messages: Vec<&Incoming> = run
+        .events
+        .iter()
+        .filter_map(|(_, e)| match e {
+            Event::Message(r) => Some(&r.incoming),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        messages,
+        [&Incoming::Message(Box::new(ServerMessage::DownloadEnds(
+            Empty
+        )))]
+    );
+    assert_eq!(run.session.stats().undecodable, 0);
 }
 
 /// A login server that answers the login and then falls silent before its first ordinary packet

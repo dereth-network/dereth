@@ -976,22 +976,6 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
-        id: "desktop.interface.the-connecting-screen-counts-the-login-attempts",
-        says: "While nobody answers the login, the connecting screen counts each attempt out of                the twenty the client makes, two seconds apart.",
-        since: RETAIL,
-        evidence: Evidence::Private("AC2-EVID-UI-LOGIN-ATTEMPTS"),
-        station: "auberean-interface::dat::screens::the_connecting_screen_counts_the_login_attempts",
-        tier: Tier::Dat,
-    },
-    behaviour! {
-        id: "desktop.interface.the-connecting-screen-says-when-it-waits-for-the-server",
-        says: "Once the login server has answered and been acknowledged, the connecting screen                says it is logging in until the server's first packet.",
-        since: RETAIL,
-        evidence: Evidence::Private("AC2-EVID-UI-LOGIN-WAITING"),
-        station: "auberean-interface::dat::screens::the_connecting_screen_says_when_it_waits_for_the_server",
-        tier: Tier::Dat,
-    },
-    behaviour! {
         id: "desktop.interface.a-boot-at-login-shows-its-line-on-the-disconnected-screen",
         says: "An account the server ends with a boot as it logs in (before the character list) \
                goes from connecting to the disconnected screen, which shows the boot's line (the \
@@ -1150,6 +1134,22 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-SELECT-PORTAL"),
         station: "auberean-interface::dat::screens::the_character_screen_runs_the_portal_under_its_backdrop",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.interface.the-connecting-screen-counts-the-login-attempts",
+        says: "While nobody answers the login, the connecting screen counts each attempt out of                the twenty the client makes, two seconds apart.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-LOGIN-ATTEMPTS"),
+        station: "auberean-interface::dat::screens::the_connecting_screen_counts_the_login_attempts",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.interface.the-connecting-screen-says-when-it-waits-for-the-server",
+        says: "Once the login server has answered and been acknowledged, the connecting screen                says it is logging in until the server's first packet.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-LOGIN-WAITING"),
+        station: "auberean-interface::dat::screens::the_connecting_screen_says_when_it_waits_for_the_server",
         tier: Tier::Dat,
     },
     behaviour! {

@@ -66,6 +66,21 @@ macro_rules! messages {
                 Ok(m)
             }
 
+            /// Read one message's fields, leaving whatever follows them unread: the client reads
+            /// what a server sends this way, as a message from a sender that pads its end still
+            /// takes effect.
+            ///
+            /// # Errors
+            /// The message is not of a known type, or its fields do not read.
+            pub fn decode_fields(bytes: &[u8]) -> Result<Self> {
+                let mut r = Reader::new(bytes);
+                let t = r.u32()?;
+                match t {
+                    $( $code => Ok(Self::$variant(<$ty as Field>::read(&mut r)?)), )*
+                    _ => Err(DecodeError::UnknownType(t)),
+                }
+            }
+
             /// The message's bytes.
             #[must_use]
             pub fn encode(&self) -> Vec<u8> {

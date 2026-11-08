@@ -20,7 +20,8 @@
 //! connection to only refreshes that connection's cookie, and the switch follows on it.
 //!
 //! **Messages.** Reassembled messages are read queue by queue in the client's frame order
-//! ([`crate::queues`]), and each is decoded whole. A message the client sends goes out on its
+//! ([`crate::queues`]), and each is read for its fields: bytes a sender leaves after them are
+//! not read. A message the client sends goes out on its
 //! type's queue: the login-bound queues to the login server, the rest to the current world server.
 //! Its blob id carries the ordering type and stamp of the counter it is stamped from
 //! ([`crate::queues::counter_of`]), and the client's blob sequence starts at 0.
@@ -498,7 +499,8 @@ impl Session {
         }
     }
 
-    /// Every reassembled message, in the client's queue order.
+    /// Every reassembled message, in the client's queue order. A message is read for its fields;
+    /// bytes after them are left unread.
     fn read_messages(&mut self) {
         while let Some(m) = self.net.poll() {
             let queue = from_seam_queue(m.queue).map_or(0, Queue::id);
@@ -508,7 +510,7 @@ impl Session {
             }
             let mut bytes = m.opcode.to_le_bytes().to_vec();
             bytes.extend_from_slice(&m.body);
-            let incoming = match ServerMessage::decode(&bytes) {
+            let incoming = match ServerMessage::decode_fields(&bytes) {
                 Ok(msg) => Incoming::Message(Box::new(msg)),
                 Err(error) => {
                     self.stats.undecodable += 1;

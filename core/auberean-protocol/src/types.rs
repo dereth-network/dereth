@@ -1485,7 +1485,7 @@ pub struct IterationSet {
 const MAX_ITERATIONS: u32 = 100_000;
 
 impl Field for IterationSet {
-    // D2-14026
+    // D2-17659
     fn read(r: &mut Reader<'_>) -> Result<Self> {
         let total = r.u32()?;
         if total > MAX_ITERATIONS {
