@@ -342,6 +342,42 @@ pub fn offer(have: Option<&str>, newest: Option<&str>) -> Offer {
     }
 }
 
+/// What the launcher does on its own about a product's newest release.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Automatic {
+    /// Nothing: it is current, it was never fetched, or the player keeps it up to date by hand.
+    Leave,
+    /// It is running: the update waits until it closes.
+    Wait,
+    /// Fetch the newer release and use it from now on.
+    Fetch,
+}
+
+/// What to do about a product whose downloaded copy is `have` when its newest release is `newest`.
+/// Only a copy that is here is kept up to date: having fetched a product is what says the player
+/// wants it. The package's own client (`root`) always is; any other only while the Library's
+/// setting (`optional`) is on. Nothing is replaced while it is `running`.
+#[must_use]
+pub fn automatic(
+    have: Option<&str>,
+    newest: &str,
+    root: bool,
+    optional: bool,
+    running: bool,
+) -> Automatic {
+    let behind = match (have.and_then(version), version(newest)) {
+        (Some(ours), Some(theirs)) => theirs > ours,
+        _ => false,
+    };
+    if !behind || !(root || optional) {
+        Automatic::Leave
+    } else if running {
+        Automatic::Wait
+    } else {
+        Automatic::Fetch
+    }
+}
+
 /// The lines of a `SHA256SUMS` file: (SHA-256, file name).
 #[must_use]
 pub fn parse_sums(text: &str) -> Vec<(String, String)> {
@@ -549,6 +585,39 @@ mod tests {
         );
         assert_eq!(offer(Some("0.4.0"), Some("0.3.3")), Offer::None);
         assert_eq!(offer(Some("0.3.3"), None), Offer::None);
+    }
+
+    /// A product the player fetched is kept up to date on its own: the package's client always,
+    /// any other while the setting is on. A newer release waits while the product runs, and a
+    /// product never fetched is never fetched for it.
+    #[test]
+    fn a_fetched_product_updates_on_its_own_unless_the_setting_is_off_or_it_runs() {
+        use Automatic::{Fetch, Leave, Wait};
+        let optional = |have, newest, on, running| automatic(have, newest, false, on, running);
+        assert_eq!(optional(Some("0.3.3"), "0.3.4", true, false), Fetch);
+        assert_eq!(optional(Some("0.3.3"), "0.10.0", true, false), Fetch);
+        assert_eq!(optional(Some("0.3.3"), "0.3.4", false, false), Leave, "off");
+        assert_eq!(
+            optional(Some("0.3.3"), "0.3.4", true, true),
+            Wait,
+            "running"
+        );
+        assert_eq!(optional(Some("0.3.3"), "0.3.4", false, true), Leave);
+        assert_eq!(optional(Some("0.3.4"), "0.3.4", true, false), Leave);
+        assert_eq!(optional(Some("0.4.0"), "0.3.4", true, false), Leave);
+        assert_eq!(optional(None, "0.3.4", true, false), Leave, "never fetched");
+        assert_eq!(optional(Some("what"), "0.3.4", true, false), Leave);
+        assert_eq!(optional(Some("0.3.3"), "what", true, false), Leave);
+
+        let root = |have, newest, on, running| automatic(have, newest, true, on, running);
+        assert_eq!(
+            root(Some("0.4.9"), "0.4.10", false, false),
+            Fetch,
+            "whatever the setting"
+        );
+        assert_eq!(root(Some("0.4.9"), "0.4.10", true, false), Fetch);
+        assert_eq!(root(Some("0.4.9"), "0.4.10", false, true), Wait);
+        assert_eq!(root(None, "0.4.10", true, false), Leave);
     }
 
     #[test]

@@ -231,6 +231,17 @@ itself: it unpacks it into `.dereth-update`, renames each file it replaces aside
 becomes `dereth.exe.dereth-old`), moves the new ones in and restarts. A failure part-way puts
 everything back.
 
+**The other programs.** At the same start, every program the player has downloaded (Empyrean,
+Lyceum, Yalain, Athenaeum and the other game's client) is updated to its newest release the same
+way, while the Library's **Automatically update components** is on, as it is to
+begin with. Off, each waits for its **Update to <version>**; the client the package came with is
+updated either way. A program is never replaced while it runs, whoever started it: the launcher
+looks for any process running a program from its folder in the components folder, and fetches the
+update once there is none, or at the next start. A hosted world runs its own copy of its server
+and updates that itself. Each download is checked against its release's `SHA256SUMS`, and a failure
+leaves the version in use as it was. The top right of the page shows each one's download, its wait,
+and that it is ready or could not update.
+
 On Windows the page is drawn by the Microsoft Edge WebView2 runtime, which Windows 11 includes and
 nearly every Windows 10 has. If it's missing, the launcher says so and links the download.
 
@@ -241,7 +252,8 @@ The rail has **Play**, **Worlds**, **Accounts** and, started with `--plugins`, *
 with the launcher.
 
 **Getting them.** Each page shows the newest version and offers **Download**, then **Update to
-<version>** when a newer one is out, and **Remove**. The launcher asks GitHub when either page opens
+<version>** when a newer one is out (which the launcher takes itself at its next start, unless
+that's turned off: [Updates](#updates)), and **Remove**. The launcher asks GitHub when either page opens
 (at most every ten minutes) for the newest release tagged `empyrean-v<version>` or
 `lyceum-v<version>`. It downloads this system's file and the release's `SHA256SUMS`, and checks one
 against the other before unpacking. Offline, or while GitHub is limiting requests, the page says so

@@ -998,6 +998,91 @@ pub fn stop_all(shared: &Shared) {
 
 // ----- the system ---------------------------------------------------------------------------------
 
+/// Whether any process on this computer runs a program from under `folder`, whoever started it: a
+/// program the launcher must not replace while it runs. A folder that is not there runs nothing.
+pub fn runs_from(folder: &Path) -> bool {
+    let Ok(folder) = folder.canonicalize() else {
+        return false;
+    };
+    running_programs(&folder).iter().any(|program| {
+        program.starts_with(&folder) || program.canonicalize().is_ok_and(|p| p.starts_with(&folder))
+    })
+}
+
+/// The programs running here, as far as the system lets the launcher read them, among them every
+/// one from under `folder`.
+#[cfg(windows)]
+fn running_programs(folder: &Path) -> Vec<PathBuf> {
+    // Only a process named as a file in the folder can run from it; the others are not opened.
+    fn names(dir: &Path, depth: usize, out: &mut HashSet<String>) {
+        if depth > 8 {
+            return;
+        }
+        for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+            match e.file_type() {
+                Ok(t) if t.is_dir() => names(&e.path(), depth + 1, out),
+                Ok(_) => {
+                    out.insert(e.file_name().to_string_lossy().to_lowercase());
+                }
+                Err(_) => {}
+            }
+        }
+    }
+    let mut here = HashSet::new();
+    names(folder, 0, &mut here);
+    windows::processes()
+        .into_iter()
+        .filter(|(_, _, name)| here.contains(&name.to_lowercase()))
+        .filter_map(|(pid, _, _)| windows::image(pid))
+        .collect()
+}
+
+#[cfg(target_os = "linux")]
+fn running_programs(_folder: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for e in std::fs::read_dir("/proc").into_iter().flatten().flatten() {
+        if !e
+            .file_name()
+            .to_string_lossy()
+            .bytes()
+            .all(|b| b.is_ascii_digit())
+        {
+            continue;
+        }
+        let dir = e.path();
+        out.extend(std::fs::read_link(dir.join("exe")));
+        // An AppImage runs from its mount; the file it was started from is in its environment.
+        if let Ok(environ) = std::fs::read(dir.join("environ")) {
+            out.extend(
+                environ
+                    .split(|c| *c == 0)
+                    .find_map(|v| v.strip_prefix(b"APPIMAGE="))
+                    .map(|v| PathBuf::from(String::from_utf8_lossy(v).into_owned())),
+            );
+        }
+    }
+    out
+}
+
+#[cfg(target_os = "macos")]
+fn running_programs(_folder: &Path) -> Vec<PathBuf> {
+    crate::components::command(Path::new("/bin/ps"))
+        .args(["-axww", "-o", "comm="])
+        .output()
+        .map(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .lines()
+                .map(|l| PathBuf::from(l.trim()))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+fn running_programs(_folder: &Path) -> Vec<PathBuf> {
+    Vec::new()
+}
+
 /// Whether a program's file name could be a server's, before anything more is read of it.
 fn could_be_server(name: &str) -> bool {
     let name = name
@@ -1264,6 +1349,22 @@ mod windows {
         String::from_utf16_lossy(std::slice::from_raw_parts(p, n))
     }
 
+    /// The full path of the program process `pid` runs, when Windows lets the launcher read it.
+    pub fn image(pid: u32) -> Option<PathBuf> {
+        unsafe {
+            let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+            if handle.is_null() {
+                return None;
+            }
+            let mut buf = vec![0u16; 32768];
+            let mut len = buf.len() as u32;
+            let read =
+                QueryFullProcessImageNameW(handle, PROCESS_NAME_WIN32, buf.as_mut_ptr(), &mut len);
+            CloseHandle(handle);
+            (read != 0).then(|| PathBuf::from(String::from_utf16_lossy(&buf[..len as usize])))
+        }
+    }
+
     /// Every process: its id, its starter's and its program's file name.
     pub fn processes() -> Vec<(u32, u32, String)> {
         let mut out = Vec::new();
@@ -1484,6 +1585,40 @@ fn udp_rows(table: &[u32]) -> Vec<(u32, IpAddr, u16)> {
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
+
+    /// A program running from a folder is found there whoever started it, and nothing is found
+    /// running from another folder or once it has exited.
+    #[test]
+    fn a_program_running_from_a_folder_is_found_until_it_exits() {
+        let temp = tempfile::tempdir().unwrap();
+        let (folder, other) = (temp.path().join("component"), temp.path().join("other"));
+        std::fs::create_dir_all(folder.join("1.0.0")).unwrap();
+        std::fs::create_dir_all(&other).unwrap();
+        // A program that waits until it is stopped, copied into the folder.
+        let (system, args): (&str, &[&str]) = if cfg!(windows) {
+            (r"C:\Windows\System32\PING.EXE", &["-n", "600", "127.0.0.1"])
+        } else {
+            ("/bin/sleep", &["600"])
+        };
+        let program = folder
+            .join("1.0.0")
+            .join(Path::new(system).file_name().unwrap());
+        std::fs::copy(system, &program).unwrap();
+        assert!(!runs_from(&folder), "nothing started yet");
+        let mut child = std::process::Command::new(&program)
+            .args(args)
+            .stdout(Stdio::null())
+            .spawn()
+            .unwrap();
+        let found = runs_from(&folder);
+        let elsewhere = runs_from(&other);
+        let _ = child.kill();
+        let _ = child.wait();
+        assert!(found, "running from the folder");
+        assert!(!elsewhere, "nothing runs from the other folder");
+        assert!(!runs_from(&folder), "exited");
+        assert!(!runs_from(&temp.path().join("missing")));
+    }
 
     struct Fake(Vec<Running>);
     impl System for Fake {

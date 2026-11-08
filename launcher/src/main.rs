@@ -491,6 +491,16 @@ fn set_discord_presence(b: State<'_, Shared>, on: bool) {
     lock(&b).set_discord_presence(on);
 }
 
+/// "Automatically update components", on or off. Turned on, the programs the player
+/// fetched are looked over at once.
+#[tauri::command]
+fn set_update_components(b: State<'_, Shared>, c: State<'_, components::Shared>, on: bool) {
+    lock(&b).set_update_components(on);
+    if on {
+        components::look_again(&c);
+    }
+}
+
 /// The game the page shows, kept so the launcher opens in it again.
 #[tauri::command]
 fn set_realm(b: State<'_, Shared>, realm: Realm) {
@@ -934,6 +944,8 @@ fn main() {
             remove_custom_world,
             set_interface,
             set_discord_presence,
+            set_update_components,
+            components::dismiss_component_update,
             set_realm,
             dismiss_message,
             open_url,
@@ -1224,6 +1236,21 @@ mod tests {
         assert!(page_function("statusArea").contains(
             "const msg = (s.message?.error ? s.message : null) ?? localToast ?? s.message;"
         ));
+    }
+
+    /// The Library's setting for the programs the player downloaded is one checkbox, "Automatically
+    /// update components", which says what it does in its tooltip and nothing under it.
+    #[test]
+    fn the_component_update_setting_is_one_checkbox_whose_tooltip_says_what_it_does() {
+        let page = include_str!("../ui/app.js");
+        let row = &page[page.find("function updatesRow()").expect("the setting's row")..];
+        let row = &row[..row.find("\n}\n").unwrap()];
+        assert!(row.contains(">Automatically update components</label>"), "{row}");
+        assert!(row.contains(
+            r#"title="When checked components you've downloaded (Empyrean, Lyceum, etc.) will automatically update.""#
+        ));
+        assert!(!row.contains("class=\"sub\""), "no explainer under it");
+        assert!(!page.contains("added optional components"));
     }
 
     /// Every command the page calls is one the app registers, and one the demo backend answers, so

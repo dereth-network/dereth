@@ -21,12 +21,17 @@
 //! `current.json` there names the version in use. A failed download or unpack leaves the version
 //! in use as it was.
 //!
+//! **Kept up to date.** Having fetched a program is what says the player wants it: at start a
+//! release updates each one that is here to its newest release ([`keep_up_to_date`]), the client
+//! the package carries always and the others while the Library's setting is on. Nothing is
+//! replaced while it runs ([`is_running`]); its update waits until it closes.
+//!
 //! A development build (one the release packaging did not make: [`DEVELOPMENT`]) downloads
 //! nothing it can find built in its own checkout: it uses the newest build of the program beside
 //! the launcher or in the checkout's `target/release`, `target/test-release` or `target/debug`.
 //! Started with [`DOWNLOADS_SWITCH`], it looks for none and downloads as a release does.
 
-use dereth_launch::components::{self, Offer, Product};
+use dereth_launch::components::{self, Automatic, Offer, Product};
 use dereth_launch::releases::{self, Need};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -102,6 +107,23 @@ pub struct View {
     pub worlds: Vec<LyceumWorld>,
     /// Lyceum's folder for new worlds.
     pub home: Option<PathBuf>,
+    /// Where an update the launcher is making on its own stands, for the corner of the page.
+    pub auto: Option<Auto>,
+}
+
+/// An update the launcher makes on its own ([`keep_up_to_date`]), as the corner of the page shows
+/// it until the player dismisses it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Auto {
+    /// Downloading `version`; [`View::progress`] says how far it has got.
+    Downloading { version: String },
+    /// `version` is out, and is fetched once the program closes.
+    Waiting { version: String },
+    /// `version` is in use from now on.
+    Done { version: String },
+    /// Fetching `version` failed; the version in use is as it was.
+    Failed { version: String, reason: String },
 }
 
 /// One of Lyceum's worlds, as the page lists it.
@@ -145,6 +167,20 @@ pub struct Store {
     /// The worlds listed a moment ago, with their stamps: the list is read again every few
     /// seconds, or at once after the launcher opens or makes a world.
     listed: Option<(Instant, Vec<Listed>)>,
+    /// What keeps the fetched programs up to date, once a release has started it.
+    keeping: Option<Keeping>,
+}
+
+/// The launcher keeping its programs up to date ([`keep_up_to_date`]).
+struct Keeping {
+    /// The client the launcher's package carries, which is kept up to date whatever the setting.
+    root: Option<Product>,
+    /// Whether the Library's setting is on, asked each time it matters.
+    optional: Arc<dyn Fn() -> bool + Send + Sync>,
+    app: Option<tauri::AppHandle>,
+    /// A look is going on, and whether another was asked for meanwhile.
+    looking: bool,
+    again: bool,
 }
 
 /// A world on the list, with when its sources last changed.
@@ -322,6 +358,7 @@ pub fn new(root: PathBuf, here: &Path, checkout: bool) -> Shared {
                 bundled: false,
                 worlds: Vec::new(),
                 home: None,
+                auto: None,
             },
             children: Vec::new(),
         })
@@ -342,6 +379,7 @@ pub fn new(root: PathBuf, here: &Path, checkout: bool) -> Shared {
         versions_asking: false,
         bundled,
         listed: None,
+        keeping: None,
     }))
 }
 
@@ -964,6 +1002,23 @@ fn get(shared: &Shared, root: &Path, product: Product) -> Result<Installed, Stri
             product.title()
         )
     })?;
+    fetch_release(shared, root, product, &release, &mut download)
+}
+
+/// How a file is downloaded: its address, the most bytes it may have, and what to tell of its
+/// progress ([`download`]).
+type Fetch<'a> =
+    dyn FnMut(&str, u64, &mut dyn FnMut(u64, Option<u64>)) -> Result<Vec<u8>, String> + 'a;
+
+/// Download `product`'s `release` with `fetch`, check it against the release's checksums, unpack
+/// it and use it from now on. A failure leaves the version in use as it was.
+fn fetch_release(
+    shared: &Shared,
+    root: &Path,
+    product: Product,
+    release: &components::Release,
+    fetch: &mut Fetch,
+) -> Result<Installed, String> {
     {
         let mut store = lock(shared);
         let e = entry(&mut store, product);
@@ -981,27 +1036,25 @@ fn get(shared: &Shared, root: &Path, product: Product) -> Result<Installed, Stri
         return Ok(installed);
     }
     let (name, url) = release.archive(product, target())?;
-    let sums = String::from_utf8(download(
+    let sums = String::from_utf8(fetch(
         release.asset(components::SUMS_ASSET)?,
         1024 * 1024,
         &mut |_, _| {},
     )?)
     .map_err(|_| "The release's checksums could not be read.")?;
     let sums = components::parse_sums(&sums);
-    let bytes = download(url, components::MAX_ARCHIVE_BYTES, &mut |done, total| {
+    let bytes = fetch(url, components::MAX_ARCHIVE_BYTES, &mut |done, total| {
         entry(&mut lock(shared), product).view.progress = Some((done, total));
     })?;
     components::check_sum(&name, &bytes, &sums)?;
-    let installed = install_archive(
+    install_archive(
         root,
         product,
         &release.version,
         &release.notes,
         &name,
         &bytes,
-    )?;
-    remove_other_versions(root, product, &installed.version);
-    Ok(installed)
+    )
 }
 
 fn install_archive(
@@ -1261,34 +1314,193 @@ fn dress_client(executable: &Path, product: Product, version: &str) {
     }
 }
 
-/// Whether the release at `latest` is newer than the client at `installed`. No copy of the client
-/// means none is wanted: the player has removed it, or never got it.
-fn client_is_behind(installed: Option<&str>, latest: &str) -> bool {
-    match (
-        installed.and_then(components::version),
-        components::version(latest),
-    ) {
-        (Some(ours), Some(theirs)) => theirs > ours,
-        _ => false,
-    }
+/// How often a program an update waits for is looked for again: only this computer's processes
+/// are listed, GitHub is not asked.
+const WAIT_LOOK: Duration = Duration::from_secs(10);
+
+/// Whether `product` runs here, so nothing may replace it: a program the launcher opened from it,
+/// or any process running a program from its folder in the components folder, whoever started it
+/// (a client, an editor, or a server started by hand from there). A hosted world runs its own
+/// copy of its server, which is not in that folder.
+pub fn is_running(shared: &Shared, product: Product) -> bool {
+    let folder = {
+        let mut store = lock(shared);
+        let e = entry(&mut store, product);
+        e.children
+            .retain_mut(|child| !matches!(child.try_wait(), Ok(Some(_))));
+        if !e.children.is_empty() {
+            return true;
+        }
+        store.root.join("components").join(product.name())
+    };
+    crate::local::runs_from(&folder)
 }
 
-/// Fetch `product`'s newer release when one is published, in the background: how a game's client is
-/// kept up to date, apart from the launcher. Asks GitHub, so this waits for it.
-pub fn update_client(app: tauri::AppHandle, shared: Shared, product: Product) {
-    let root = lock(&shared).root.clone();
-    let Ok(list) = release_list(false, &[product.newest_release()]) else {
-        return;
-    };
-    let Ok(Some(release)) = components::newest(&list, product) else {
-        return;
-    };
-    let installed = read_installed(&root, product);
-    if client_is_behind(
-        installed.as_ref().map(|i| i.version.as_str()),
-        &release.version,
-    ) {
-        let _ = start_get(app, shared, product);
+/// Keep every program the player has fetched up to date from now on, as a release does at start:
+/// the client the package carries (`root`) always, and Empyrean, Lyceum, Yalain, Athenaeum and the
+/// other game's client while the Library's setting is on ([`components::automatic`]). GitHub is
+/// asked once; a program that is running is fetched once it closes, or at the next start.
+pub fn keep_up_to_date(app: tauri::AppHandle, shared: Shared, root: Option<Product>) {
+    use tauri::Manager;
+    let handle = app.clone();
+    let optional = Arc::new(move || {
+        handle
+            .try_state::<crate::backend::Shared>()
+            .is_none_or(|b| crate::backend::lock(&b).update_components())
+    });
+    lock(&shared).keeping = Some(Keeping {
+        root,
+        optional,
+        app: Some(app),
+        looking: false,
+        again: false,
+    });
+    look_again(&shared);
+}
+
+/// Look over every fetched program for an update to make on its own, now: at start, and when the
+/// Library's setting is turned on. Nothing, before a release has started keeping them.
+pub fn look_again(shared: &Shared) {
+    {
+        let mut store = lock(shared);
+        let Some(keeping) = store.keeping.as_mut() else {
+            return;
+        };
+        if keeping.looking {
+            keeping.again = true;
+            return;
+        }
+        keeping.looking = true;
+    }
+    let shared = shared.clone();
+    std::thread::spawn(move || {
+        let list = release_list(false, &Product::ALL.map(Product::newest_release));
+        let mut waiting: Vec<Product> = Product::ALL.to_vec();
+        loop {
+            let again = lock(&shared)
+                .keeping
+                .as_mut()
+                .is_some_and(|k| std::mem::take(&mut k.again));
+            let look = if again {
+                Product::ALL.to_vec()
+            } else {
+                waiting
+            };
+            waiting = match list.as_deref() {
+                Ok(list) => keep_pass(
+                    &shared,
+                    list,
+                    &look,
+                    &|p| is_running(&shared, p),
+                    &mut download,
+                ),
+                // Not reaching GitHub is no reason to bother the player: the next start asks again.
+                Err(_) => Vec::new(),
+            };
+            {
+                let mut store = lock(&shared);
+                let Some(keeping) = store.keeping.as_mut() else {
+                    return;
+                };
+                if waiting.is_empty() && !keeping.again {
+                    keeping.looking = false;
+                    return;
+                }
+            }
+            std::thread::sleep(WAIT_LOOK);
+        }
+    });
+}
+
+/// One look over `products` with the releases `list`: each one fetched and older than its newest
+/// release is fetched now, or waits while `running` says it runs ([`components::automatic`]).
+/// Returns those left waiting.
+fn keep_pass(
+    shared: &Shared,
+    list: &[u8],
+    products: &[Product],
+    running: &dyn Fn(Product) -> bool,
+    fetch: &mut Fetch,
+) -> Vec<Product> {
+    let mut waiting = Vec::new();
+    for &product in products {
+        let (root, keep_root, optional, checkout, busy) = {
+            let mut store = lock(shared);
+            let checkout = newest_build(&store.builds, product.program()).is_some();
+            let Some(keeping) = store.keeping.as_ref() else {
+                return Vec::new();
+            };
+            let keep_root = keeping.root == Some(product);
+            let optional = keeping.optional.clone();
+            let root = store.root.clone();
+            let busy = entry(&mut store, product).view.busy;
+            (root, keep_root, optional, checkout, busy)
+        };
+        let newest = components::newest(list, product).ok().flatten();
+        let (Some(release), false, false) = (newest, checkout, busy) else {
+            continue;
+        };
+        let installed = read_installed(&root, product);
+        let is_running = running(product);
+        // What an earlier update set aside, once nothing runs from it.
+        if let (Some(i), false) = (installed.as_ref(), is_running) {
+            remove_other_versions(&root, product, &i.version);
+        }
+        let version = release.version.clone();
+        match components::automatic(
+            installed.as_ref().map(|i| i.version.as_str()),
+            &release.version,
+            keep_root,
+            optional(),
+            is_running,
+        ) {
+            Automatic::Leave => {
+                let mut store = lock(shared);
+                let e = entry(&mut store, product);
+                if matches!(e.view.auto, Some(Auto::Waiting { .. })) {
+                    e.view.auto = None;
+                }
+            }
+            Automatic::Wait => {
+                entry(&mut lock(shared), product).view.auto = Some(Auto::Waiting { version });
+                waiting.push(product);
+            }
+            Automatic::Fetch => {
+                if begin_get(shared, product).is_err() {
+                    continue;
+                }
+                entry(&mut lock(shared), product).view.auto = Some(Auto::Downloading {
+                    version: version.clone(),
+                });
+                let result = fetch_release(shared, &root, product, &release, fetch);
+                if let Ok(installed) = &result {
+                    if !running(product) {
+                        remove_other_versions(&root, product, &installed.version);
+                    }
+                }
+                let auto = match &result {
+                    Ok(_) => Auto::Done { version },
+                    Err(reason) => Auto::Failed {
+                        version,
+                        reason: reason.clone(),
+                    },
+                };
+                let app = lock(shared).keeping.as_ref().and_then(|k| k.app.clone());
+                finish_get(app.as_ref(), shared, product, result);
+                entry(&mut lock(shared), product).view.auto = Some(auto);
+            }
+        }
+    }
+    waiting
+}
+
+/// Forget an update's last word in the corner of the page, once it is done or has failed.
+#[tauri::command]
+pub fn dismiss_component_update(shared: State<'_, Shared>, product: Product) {
+    let mut store = lock(&shared);
+    let e = entry(&mut store, product);
+    if matches!(e.view.auto, Some(Auto::Done { .. } | Auto::Failed { .. })) {
+        e.view.auto = None;
     }
 }
 
@@ -1325,65 +1537,91 @@ pub fn get_component(
     start_get(app, shared.inner().clone(), product)
 }
 
-/// [`get_component`], from the launcher itself: the update check fetches a game's newer client
-/// this way when its release carries an older launcher.
+/// [`get_component`], from the page's Download and Update.
 ///
 /// # Errors
 /// This checkout's build is used instead, or the product is busy or running.
 pub fn start_get(app: tauri::AppHandle, shared: Shared, product: Product) -> Result<(), String> {
-    let root = {
-        let mut store = lock(&shared);
-        let root = store.root.clone();
-        let builds = store.builds.clone();
-        let e = entry(&mut store, product);
-        if newest_build(&builds, product.program()).is_some() {
-            return Err("This launcher uses this checkout's build.".into());
-        }
-        if e.view.busy {
-            return Err(format!("{} is already downloading.", product.title()));
-        }
-        if e.view.running {
-            return Err(format!("Close {} before updating it.", product.title()));
-        }
-        e.view.busy = true;
-        e.view.error = false;
-        e.view.progress = None;
-        e.view.message = Some(match &e.view.latest {
-            Some(v) => format!("Downloading {} {v}...", product.title()),
-            None => "Asking GitHub for the newest release...".to_owned(),
-        });
-        root
-    };
+    let root = begin_get(&shared, product)?;
     std::thread::spawn(move || {
         let result = get(&shared, &root, product);
-        let mut store = lock(&shared);
-        let e = entry(&mut store, product);
-        e.view.busy = false;
-        e.view.progress = None;
-        match result {
-            Ok(installed) => {
-                e.view.message = Some(format!(
-                    "{} {} is ready.",
-                    product.title(),
-                    installed.version
-                ));
-                e.view.error = false;
-                // The Dereth client plays from the main page, which learns of it at once.
-                if product == Product::Dereth {
-                    use tauri::Manager;
-                    if let Some(b) = app.try_state::<crate::backend::Shared>() {
-                        crate::backend::lock(&b).use_dereth_client(&installed.executable);
-                    }
-                }
-                e.view.installed = Some(installed);
-            }
-            Err(error) => {
-                e.view.message = Some(error);
-                e.view.error = true;
+        if let Ok(installed) = &result {
+            if !is_running(&shared, product) {
+                remove_other_versions(&root, product, &installed.version);
             }
         }
+        finish_get(Some(&app), &shared, product, result);
     });
     Ok(())
+}
+
+/// Mark `product` as downloading, unless it can't be: this checkout's build is used instead, it is
+/// already downloading, or it runs ([`is_running`]). Returns the launcher's data folder.
+fn begin_get(shared: &Shared, product: Product) -> Result<PathBuf, String> {
+    let running = is_running(shared, product);
+    let mut store = lock(shared);
+    let root = store.root.clone();
+    let builds = store.builds.clone();
+    let e = entry(&mut store, product);
+    if newest_build(&builds, product.program()).is_some() {
+        return Err("This launcher uses this checkout's build.".into());
+    }
+    if e.view.busy {
+        return Err(format!("{} is already downloading.", product.title()));
+    }
+    if running {
+        return Err(format!("Close {} before updating it.", product.title()));
+    }
+    e.view.busy = true;
+    e.view.error = false;
+    e.view.progress = None;
+    e.view.message = Some(match &e.view.latest {
+        Some(v) => format!("Downloading {} {v}...", product.title()),
+        None => "Asking GitHub for the newest release...".to_owned(),
+    });
+    Ok(root)
+}
+
+/// Say how a download [`begin_get`] began ended, and use what it fetched.
+fn finish_get(
+    app: Option<&tauri::AppHandle>,
+    shared: &Shared,
+    product: Product,
+    result: Result<Installed, String>,
+) {
+    let mut store = lock(shared);
+    let e = entry(&mut store, product);
+    e.view.busy = false;
+    e.view.progress = None;
+    match result {
+        Ok(installed) => {
+            e.view.message = Some(format!(
+                "{} {} is ready.",
+                product.title(),
+                installed.version
+            ));
+            e.view.error = false;
+            // An update fetched by hand needs no word from one waiting or failed before it.
+            if matches!(
+                e.view.auto,
+                Some(Auto::Waiting { .. } | Auto::Failed { .. })
+            ) {
+                e.view.auto = None;
+            }
+            // The Dereth client plays from the main page, which learns of it at once.
+            if let (Product::Dereth, Some(app)) = (product, app) {
+                use tauri::Manager;
+                if let Some(b) = app.try_state::<crate::backend::Shared>() {
+                    crate::backend::lock(&b).use_dereth_client(&installed.executable);
+                }
+            }
+            e.view.installed = Some(installed);
+        }
+        Err(error) => {
+            e.view.message = Some(error);
+            e.view.error = true;
+        }
+    }
 }
 
 /// Remove the downloaded copy of `product`. Servers and worlds are kept.
@@ -1412,6 +1650,7 @@ pub fn remove_component(shared: State<'_, Shared>, product: Product) -> Result<(
     std::fs::remove_file(selection(&root, product)).map_err(|e| e.to_string())?;
     remove_other_versions(&root, product, "");
     e.view.installed = None;
+    e.view.auto = None;
     e.view.error = false;
     e.view.message = Some(match product {
         Product::Dereth | Product::Auberean => format!("Removed {}.", product.title()),
@@ -3160,14 +3399,249 @@ mod tests {
         assert_eq!(pick("0.4.10"), (PathBuf::from("packaged"), true));
     }
 
-    /// A client is fetched only to replace one that's there and older: no copy means the player
-    /// removed it or never got it, and that isn't this update's to undo.
+    /// What a release serves: its list (one release of `product` at `version`, and an Empyrean
+    /// release the player never fetched), and each file by its address.
+    fn serving(
+        product: Product,
+        version: &str,
+        archive: &[u8],
+    ) -> (Vec<u8>, HashMap<String, Vec<u8>>) {
+        let mut files = HashMap::new();
+        let mut list = Vec::new();
+        for (product, version) in [(product, version), (Product::Empyrean, "9.9.9")] {
+            let tag = product.tag(version);
+            let name = product.archive_name(target(), version).unwrap();
+            let sums = format!("{}  {name}\n", components::sha256_hex(archive));
+            let url = |file: &str| format!("https://example.invalid/{tag}/{file}");
+            files.insert(url(&name), archive.to_vec());
+            files.insert(url(components::SUMS_ASSET), sums.into_bytes());
+            let assets: Vec<serde_json::Value> = [name.as_str(), components::SUMS_ASSET]
+                .iter()
+                .map(|file| {
+                    serde_json::json!({ "name": file, "size": 1, "browser_download_url": url(file) })
+                })
+                .collect();
+            list.push(serde_json::json!({
+                "tag_name": tag, "draft": false, "prerelease": false, "body": "Notes.",
+                "assets": assets,
+            }));
+        }
+        (serde_json::to_vec(&list).unwrap(), files)
+    }
+
+    /// Lyceum's file for this system, holding its program.
+    fn lyceum_archive() -> Vec<u8> {
+        let name = Product::Lyceum.archive_name(target(), "1.0.0").unwrap();
+        if name.ends_with(".zip") {
+            return package();
+        }
+        let mut tar = tar::Builder::new(flate2::write::GzEncoder::new(
+            Vec::new(),
+            flate2::Compression::fast(),
+        ));
+        let body = b"synthetic executable";
+        let mut header = tar::Header::new_gnu();
+        header.set_size(body.len() as u64);
+        header.set_mode(0o755);
+        header.set_cksum();
+        tar.append_data(
+            &mut header,
+            format!("package/{}", program_file("lyceum-editor")),
+            &body[..],
+        )
+        .unwrap();
+        tar.into_inner().unwrap().finish().unwrap()
+    }
+
+    type Setting = Arc<std::sync::atomic::AtomicBool>;
+
+    fn setting(on: bool) -> Setting {
+        Arc::new(std::sync::atomic::AtomicBool::new(on))
+    }
+
+    /// The store over `root` with Lyceum 1.2.3 fetched, keeping things up to date with the
+    /// Library's setting as `on` says and `root_client` as the package's client.
+    fn keeping(root: &Path, on: &Setting, root_client: Option<Product>) -> Shared {
+        install_archive(root, Product::Lyceum, "1.2.3", "", "test.zip", &package()).unwrap();
+        let shared = new(root.to_path_buf(), &root.join("no-package"), false);
+        let on = on.clone();
+        lock(&shared).keeping = Some(Keeping {
+            root: root_client,
+            optional: Arc::new(move || on.load(std::sync::atomic::Ordering::SeqCst)),
+            app: None,
+            looking: false,
+            again: false,
+        });
+        shared
+    }
+
+    fn auto_of(shared: &Shared, product: Product) -> Option<Auto> {
+        entry(&mut lock(shared), product).view.auto.clone()
+    }
+
+    /// A download from what [`serving`] serves.
+    fn from(files: &HashMap<String, Vec<u8>>) -> Box<Fetch<'_>> {
+        Box::new(|url, _, progress| {
+            let bytes = files
+                .get(url)
+                .cloned()
+                .ok_or_else(|| "The download stopped part way.".to_owned())?;
+            progress(bytes.len() as u64, Some(bytes.len() as u64));
+            Ok(bytes)
+        })
+    }
+
+    /// A component the player fetched is updated on its own when a newer release is out and the
+    /// setting is on: checked against the release's checksums, used from now on, the version it
+    /// replaces removed, and the corner of the page told. One never fetched is left alone.
     #[test]
-    fn a_client_is_fetched_only_when_one_is_here_and_older() {
-        assert!(client_is_behind(Some("0.4.9"), "0.4.10"));
-        assert!(!client_is_behind(Some("0.4.9"), "0.4.9"));
-        assert!(!client_is_behind(Some("0.4.10"), "0.4.9"));
-        assert!(!client_is_behind(None, "0.4.10"));
-        assert!(!client_is_behind(Some("what"), "0.4.10"));
+    fn an_added_component_updates_on_its_own_when_a_newer_release_is_out() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let shared = keeping(root, &setting(true), None);
+        let (list, files) = serving(Product::Lyceum, "1.3.0", &lyceum_archive());
+        let mut asked = Vec::new();
+        let mut served = from(&files);
+        let mut fetch = |url: &str, limit: u64, progress: &mut dyn FnMut(u64, Option<u64>)| {
+            asked.push(url.to_owned());
+            served(url, limit, progress)
+        };
+        let waiting = keep_pass(&shared, &list, &Product::ALL, &|_| false, &mut fetch);
+        assert!(waiting.is_empty());
+        let now = read_installed(root, Product::Lyceum).unwrap();
+        assert_eq!(now.version, "1.3.0");
+        assert_eq!(
+            std::fs::read(&now.executable).unwrap(),
+            b"synthetic executable"
+        );
+        assert!(
+            !root.join("components/lyceum/1.2.3").exists(),
+            "the old version goes"
+        );
+        assert_eq!(
+            auto_of(&shared, Product::Lyceum),
+            Some(Auto::Done {
+                version: "1.3.0".into()
+            })
+        );
+        assert!(
+            asked.iter().all(|u| u.contains("lyceum-v1.3.0")),
+            "{asked:?}"
+        );
+        assert!(
+            read_installed(root, Product::Empyrean).is_none(),
+            "a program never fetched is not fetched for the player"
+        );
+        assert_eq!(auto_of(&shared, Product::Empyrean), None);
+    }
+
+    /// With "Automatically update components" off, a fetched component waits for
+    /// the player's Update; the package's own client is updated all the same.
+    #[test]
+    fn with_the_setting_off_an_added_component_waits_for_the_player() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let shared = keeping(root, &setting(false), None);
+        let (list, files) = serving(Product::Lyceum, "1.3.0", &lyceum_archive());
+        let mut fetched = 0;
+        let mut served = from(&files);
+        let mut fetch = |url: &str, limit: u64, progress: &mut dyn FnMut(u64, Option<u64>)| {
+            fetched += 1;
+            served(url, limit, progress)
+        };
+        assert!(keep_pass(&shared, &list, &Product::ALL, &|_| false, &mut fetch).is_empty());
+        assert_eq!(
+            read_installed(root, Product::Lyceum).unwrap().version,
+            "1.2.3"
+        );
+        assert_eq!(auto_of(&shared, Product::Lyceum), None);
+
+        lock(&shared).keeping.as_mut().unwrap().root = Some(Product::Lyceum);
+        keep_pass(&shared, &list, &Product::ALL, &|_| false, &mut fetch);
+        assert_eq!(
+            read_installed(root, Product::Lyceum).unwrap().version,
+            "1.3.0",
+            "the package's own client is kept up to date whatever the setting"
+        );
+        assert_eq!(fetched, 2, "its checksums and its file, once");
+    }
+
+    /// A component is never replaced while it runs: its update waits, says so, and is made at a
+    /// look after it has closed.
+    #[test]
+    fn an_added_component_waits_while_it_runs_then_updates_once_it_closes() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let shared = keeping(root, &setting(true), None);
+        let (list, files) = serving(Product::Lyceum, "1.3.0", &lyceum_archive());
+        let mut fetch = from(&files);
+        let open = std::cell::Cell::new(true);
+        let running = |p: Product| p == Product::Lyceum && open.get();
+        let waiting = keep_pass(&shared, &list, &Product::ALL, &running, &mut fetch);
+        assert_eq!(waiting, vec![Product::Lyceum]);
+        assert_eq!(
+            read_installed(root, Product::Lyceum).unwrap().version,
+            "1.2.3"
+        );
+        assert!(root.join("components/lyceum/1.2.3").is_dir());
+        assert_eq!(
+            auto_of(&shared, Product::Lyceum),
+            Some(Auto::Waiting {
+                version: "1.3.0".into()
+            })
+        );
+
+        open.set(false);
+        let waiting = keep_pass(&shared, &list, &waiting, &running, &mut fetch);
+        assert!(waiting.is_empty());
+        assert_eq!(
+            read_installed(root, Product::Lyceum).unwrap().version,
+            "1.3.0"
+        );
+        assert_eq!(
+            auto_of(&shared, Product::Lyceum),
+            Some(Auto::Done {
+                version: "1.3.0".into()
+            })
+        );
+    }
+
+    /// A download that fails, or that doesn't match the release's checksums, leaves the version in
+    /// use as it was and working, and says why.
+    #[test]
+    fn a_failed_automatic_update_keeps_the_version_in_use() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let shared = keeping(root, &setting(true), None);
+        let before = read_installed(root, Product::Lyceum).unwrap();
+        let (list, mut files) = serving(Product::Lyceum, "1.3.0", &lyceum_archive());
+        let archive = files
+            .keys()
+            .find(|u| u.contains("lyceum-v1.3.0") && !u.ends_with(components::SUMS_ASSET))
+            .unwrap()
+            .clone();
+        for broken in [None, Some(b"not the file that was summed".to_vec())] {
+            match broken {
+                None => files.remove(&archive),
+                Some(bytes) => files.insert(archive.clone(), bytes),
+            };
+            let mut fetch = from(&files);
+            assert!(keep_pass(&shared, &list, &Product::ALL, &|_| false, &mut fetch).is_empty());
+            let now = read_installed(root, Product::Lyceum).unwrap();
+            assert_eq!(now.version, before.version);
+            assert_eq!(
+                std::fs::read(&now.executable).unwrap(),
+                b"synthetic executable"
+            );
+            assert!(!root.join("components/lyceum/1.3.0").exists());
+            assert!(!root.join("components/lyceum/staging").exists());
+            let auto = auto_of(&shared, Product::Lyceum);
+            assert!(
+                matches!(&auto, Some(Auto::Failed { version, reason })
+                    if version == "1.3.0" && !reason.is_empty()),
+                "{auto:?}"
+            );
+            assert!(!entry(&mut lock(&shared), Product::Lyceum).view.busy);
+        }
     }
 }

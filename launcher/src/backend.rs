@@ -976,6 +976,17 @@ impl Backend {
         self.save();
     }
 
+    /// "Automatically update components": whether the programs the player fetched
+    /// are kept up to date on their own ([`crate::components::keep_up_to_date`]).
+    pub fn update_components(&self) -> bool {
+        self.state.settings.update_components
+    }
+
+    pub fn set_update_components(&mut self, on: bool) {
+        self.state.settings.update_components = on;
+        self.save();
+    }
+
     /// The game the page shows ([`Realm`]), kept so the launcher opens in it again.
     pub fn set_realm(&mut self, realm: Realm) {
         self.state.settings.realm = realm;
@@ -5014,6 +5025,23 @@ mod tests {
             other => panic!("{other:?}"),
         }
         assert_eq!(next(&rx), Seen::Closed);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// "Automatically update components" is on to begin with, and what the player
+    /// sets it to is there after a restart.
+    #[test]
+    fn updating_added_components_is_on_to_begin_with_and_kept_across_a_restart() {
+        let (mut b, dir) = backend("update-components");
+        assert!(b.update_components(), "on to begin with");
+        b.set_update_components(false);
+        let (saved, _) = LauncherState::load(&dir.join("state"));
+        assert!(!saved.settings.update_components, "kept with the state");
+        let json = serde_json::to_value(b.snapshot()).unwrap();
+        assert_eq!(json["state"]["settings"]["update_components"], false);
+        b.set_update_components(true);
+        let (saved, _) = LauncherState::load(&dir.join("state"));
+        assert!(saved.settings.update_components);
         let _ = std::fs::remove_dir_all(dir);
     }
 

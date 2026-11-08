@@ -16,6 +16,7 @@ section, dated, and opens a new empty one in the same commit as the version.
 - An AC2 world that writes to the retail client's files can now be played from a private copy.
 - Icefire, an Asheron's Call 2 server, is now in the world list.
 - AC2 worlds no longer show their era as assumed.
+- Components you've added now update themselves; there's a setting in the Library to turn it off.
 
 ## 0.5.2 (2026-11-07)
 - AC1999 is listed and played through a relay.

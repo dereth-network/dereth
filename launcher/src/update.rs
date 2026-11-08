@@ -11,7 +11,8 @@
 //! unsigned or wrongly signed file is refused. Once it is in, the page offers a restart.
 //!
 //! The game's client isn't in that release. It's a component, and the launcher fetches its game's
-//! newer client from that game's own releases ([`crate::components::update_client`]).
+//! newer client from that game's own releases, with every other program the player has fetched
+//! ([`crate::components::keep_up_to_date`]).
 //!
 //! Installing differs by system. On macOS and Linux the updater replaces the app bundle or the
 //! AppImage itself. On Windows the release is a zip with no installer, which the updater cannot
@@ -68,8 +69,9 @@ fn set(app: &AppHandle, view: UpdateView) {
         .unwrap_or_else(std::sync::PoisonError::into_inner) = view;
 }
 
-/// Check for a newer launcher and download it, and for a newer client of the game `channel`, in the
-/// background. `is_release` says whether this launcher updates itself.
+/// Check for a newer launcher and download it, and for a newer client of the game `channel` and of
+/// every other program the player has fetched, in the background. `is_release` says whether this
+/// launcher updates itself.
 pub fn check(app: &AppHandle, is_release: bool, channel: Game) {
     let override_url = std::env::var("DERETH_UPDATE_URL")
         .ok()
@@ -80,10 +82,7 @@ pub fn check(app: &AppHandle, is_release: bool, channel: Game) {
     if is_release {
         if let Some(shared) = app.try_state::<crate::components::Shared>() {
             let shared = shared.inner().clone();
-            let app = app.clone();
-            std::thread::spawn(move || {
-                crate::components::update_client(app, shared, channel_client(channel));
-            });
+            crate::components::keep_up_to_date(app.clone(), shared, Some(channel_client(channel)));
         }
     }
     let app = app.clone();

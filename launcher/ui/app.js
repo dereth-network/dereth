@@ -1494,6 +1494,27 @@ function foot() {
   return `<span>${esc(say("foot.version", `Dereth Network ${s.version}`, s.version))}</span><span class="sep">|</span><a href="#" data-url="https://dereth.network">dereth.network</a>${shortcut}`;
 }
 
+// A program the launcher updates on its own, in the notice: its download, the wait while it runs,
+// then that it is ready or could not update (the version in use stays), until dismissed.
+const COMPONENT_TITLES = { empyrean: "Empyrean", lyceum: "Lyceum", ...PRODUCTS };
+function autoUpdateLines(c) {
+  const a = c.auto;
+  const title = COMPONENT_TITLES[c.product] ?? c.product;
+  const dismiss = `<button data-dismiss-update="${esc(c.product)}" title="Dismiss">✕</button>`;
+  if (a.kind === "downloading") {
+    const [done, total] = c.progress ?? [0, null];
+    const frac = total ? Math.min(1, done / total) : null;
+    return `<div class="bar ${frac == null ? "sweep" : ""}"><i style="width:${frac == null ? 33 : (frac * 100).toFixed(1)}%"></i></div>
+      <div class="line"><span>Downloading ${title} ${esc(a.version)}${frac == null ? "..." : `  ${Math.round(frac * 100)}%`}</span></div>`;
+  }
+  if (a.kind === "waiting") {
+    const ends = c.product === "empyrean" || c.product === "yalain" ? "stops" : "closes";
+    return `<div class="line"><span>${title} will update to ${esc(a.version)} once it ${ends}.</span></div>`;
+  }
+  if (a.kind === "done") return `<div class="line"><span>${title} ${esc(a.version)} is ready.</span>${dismiss}</div>`;
+  return `<div class="line error"><span>${title} could not update to ${esc(a.version)}: ${esc(a.reason)}</span>${dismiss}</div>`;
+}
+
 // The notice: a job's progress and the last message, floating over the top right corner rather than
 // taking room in any screen, so changing screens never moves it and it never moves them.
 function statusArea() {
@@ -1505,7 +1526,9 @@ function statusArea() {
   // A launcher update: its download, then the offer to restart, which stays until taken.
   const up = s.update ?? { kind: "none" };
   const updating = up.kind === "downloading" || up.kind === "ready";
-  if (!job && !msg && !updating) return "";
+  // The programs the launcher updates on its own, the same way.
+  const autos = offered("downloads") ? (s.components ?? []).filter((c) => c.auto) : [];
+  if (!job && !msg && !updating && !autos.length) return "";
   let html = `<div class="status panel">`;
   if (up.kind === "downloading") {
     const frac = up.total ? Math.min(1, up.done / up.total) : null;
@@ -1514,6 +1537,7 @@ function statusArea() {
   } else if (up.kind === "ready") {
     html += `<div class="line"><span>Dereth Network ${esc(up.version)} is ready.</span><button class="btn" data-act="restart-update">Restart to update</button></div>`;
   }
+  for (const c of autos) html += autoUpdateLines(c);
   if (job) {
     const frac = job.total ? Math.min(1, job.done / job.total) : null;
     html += `<div class="bar ${frac == null ? "sweep" : ""}"><i style="width:${frac == null ? 33 : (frac * 100).toFixed(1)}%"></i></div>`;
@@ -2055,8 +2079,16 @@ function discordRow() {
       <div class="sub">While a game the launcher started is running, Discord on this computer shows its world, its client and its era.</div></div></div>`;
 }
 
+// Whether the programs the player added are kept up to date on their own, on unless the player turns
+// it off: one setting, in both realms' Library. The client the launcher came with always is.
+function updatesRow() {
+  const s = ui.snap.state;
+  return `<div class="row static"><div class="grow">
+      <label class="check" title="When checked components you've downloaded (Empyrean, Lyceum, etc.) will automatically update."><input type="checkbox" id="update-components" ${s.settings.update_components !== false ? "checked" : ""}>Automatically update components</label></div></div>`;
+}
+
 // The Library of the realm's game, Dereth's and Auberean's alike: the retail client (on Windows),
-// the game's own client and where it is, the data sets, and the Discord setting. Asheron's Call's
+// the game's own client and where it is, the data sets, and the update and Discord settings. Asheron's Call's
 // sets are of two kinds, Modern and Classic; Asheron's Call 2's of one, the *.dat files from an
 // install. The retail client plays with the data files beside it.
 function library() {
@@ -2137,6 +2169,7 @@ function library() {
           ${client}
           ${sets}
           ${host.librarySections?.(ui.snap) ?? ""}
+          ${offered("downloads") ? `<h2>UPDATES</h2><div class="list">${updatesRow()}</div>` : ""}
           ${offered("discord") ? `<h2>DISCORD</h2><div class="list">${discordRow()}</div>` : ""}</div>
       </section>
     </div>`;
@@ -2594,7 +2627,7 @@ async function saveInterface() {
 // ----- events -------------------------------------------------------------------------------------
 
 document.addEventListener("click", async (ev) => {
-  const t = ev.target.closest("[data-ath-open],[data-ath-export],[data-ath-publish],[data-ath-row],[data-ath-confirm-delete],[data-ath-delete],[data-srv-start],[data-srv-stop],[data-srv-prepare],[data-srv-play],[data-srv-open],[data-srv-publish],[data-srv-republish],[data-srv-unpublish],[data-srv-service],[data-srv-config],[data-srv-folder],[data-srv-delete],[data-confirm-delete],[data-srv-export],[data-local-open],[data-local-start],[data-local-stop],[data-local-play],[data-local-forget],[data-reveal-local],[data-reveal-host],[data-copy],[data-copy-link],[data-check-outside],[data-allow-service],[data-send],[data-shutdown-cancel],[data-ly-row],[data-ly-export],[data-ly-publish],[data-ly-confirm-delete],[data-ly-delete],[data-srv-check],[data-srv-approve],[data-srv-cancel-update],[data-srv-rollback],[data-lyceum-world],[data-lyceum-upgrade],[data-get],[data-remove],[data-go],[data-act],[data-url],[data-home],[data-world],[data-filter],[data-unfav],[data-fav],[data-client],[data-default-set],[data-reset-set],[data-delete-set],[data-remember],[data-forget-account],[data-show-password],[data-section],[data-open-world],[data-trash],[data-iface],[data-stop],[data-plugin-install],[data-plugin-update],[data-plugin-remove],[data-plugin-source-remove],[data-plugin-open],[data-plugin-folder-remove],[data-plugin-row],[data-plugin-fold],[data-realm-pick],[data-world-fav]");
+  const t = ev.target.closest("[data-ath-open],[data-ath-export],[data-ath-publish],[data-ath-row],[data-ath-confirm-delete],[data-ath-delete],[data-srv-start],[data-srv-stop],[data-srv-prepare],[data-srv-play],[data-srv-open],[data-srv-publish],[data-srv-republish],[data-srv-unpublish],[data-srv-service],[data-srv-config],[data-srv-folder],[data-srv-delete],[data-confirm-delete],[data-srv-export],[data-local-open],[data-local-start],[data-local-stop],[data-local-play],[data-local-forget],[data-reveal-local],[data-reveal-host],[data-copy],[data-copy-link],[data-check-outside],[data-allow-service],[data-send],[data-shutdown-cancel],[data-ly-row],[data-ly-export],[data-ly-publish],[data-ly-confirm-delete],[data-ly-delete],[data-srv-check],[data-srv-approve],[data-srv-cancel-update],[data-srv-rollback],[data-lyceum-world],[data-lyceum-upgrade],[data-get],[data-remove],[data-dismiss-update],[data-go],[data-act],[data-url],[data-home],[data-world],[data-filter],[data-unfav],[data-fav],[data-client],[data-default-set],[data-reset-set],[data-delete-set],[data-remember],[data-forget-account],[data-show-password],[data-section],[data-open-world],[data-trash],[data-iface],[data-stop],[data-plugin-install],[data-plugin-update],[data-plugin-remove],[data-plugin-source-remove],[data-plugin-open],[data-plugin-folder-remove],[data-plugin-row],[data-plugin-fold],[data-realm-pick],[data-world-fav]");
   if (!t) return;
   if (t.dataset.stop !== undefined && !ev.target.closest("[data-act]")) return;
   // A form's own submit button submits it (below).
@@ -2709,6 +2742,7 @@ document.addEventListener("click", async (ev) => {
   if (d.lyceumUpgrade) { await act("upgrade_lyceum_world", { world: d.lyceumUpgrade }); return; }
   if (d.get) { await act("get_component", { product: d.get }); return; }
   if (d.remove) { await act("remove_component", { product: d.remove }); return; }
+  if (d.dismissUpdate) { await act("dismiss_component_update", { product: d.dismissUpdate }); return; }
   if (d.url) { ev.preventDefault(); await act("open_url", { url: d.url }); return; }
   if (d.home) { ui.homeSel = Number(d.home); render(); return; }
   // A row opens in place, one at a time; its ">" goes to the world's page.
@@ -2998,6 +3032,7 @@ document.addEventListener("change", async (ev) => {
   }
   if (ui.addServer && (t.id === "srv-ruleset" || t.id === "srv-emulator")) { ui.addServer[t.id.slice(4)] = t.value; return; }
   if (t.id === "discord-presence") { await act("set_discord_presence", { on: t.checked }); return; }
+  if (t.id === "update-components") { await act("set_update_components", { on: t.checked }); return; }
   if (t.id === "plugin-updates") { await act("set_plugin_updates", { setting: t.value }); return; }
   if (t.tagName === "SELECT" && t.dataset.lyField && ui.lyceumDraft) { ui.lyceumDraft[t.dataset.lyField] = t.value; return; }
   if (t.dataset.publishPick) { ui.publishPick[t.dataset.publishPick] = t.value; render(); return; }

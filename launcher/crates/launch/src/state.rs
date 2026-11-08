@@ -333,6 +333,12 @@ pub struct Settings {
     /// Discord app on this computer shows its world, client and era ([`crate::discord`]).
     #[serde(default = "yes")]
     pub discord_presence: bool,
+    /// "Automatically update components": the programs the player fetched (Empyrean,
+    /// Lyceum, Yalain, Athenaeum and the other game's client) are kept up to date as the package's
+    /// own client is. Off, they wait for the player's Update. Written only when off, so a state
+    /// with it on is one an older launcher wrote the same.
+    #[serde(default = "yes", skip_serializing_if = "is_yes")]
+    pub update_components: bool,
     /// The game the page last showed, which it opens in again ([`Realm`]).
     #[serde(default, skip_serializing_if = "Realm::is_dereth")]
     pub realm: Realm,
@@ -340,6 +346,11 @@ pub struct Settings {
 
 fn yes() -> bool {
     true
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn is_yes(on: &bool) -> bool {
+    *on
 }
 
 /// The realm the launcher's page shows: Dereth's or Auberean's. Every launcher offers both; a first
@@ -391,6 +402,7 @@ impl Default for Settings {
             allow_play_anyway: false,
             auto_update: true,
             discord_presence: true,
+            update_components: true,
             realm: Realm::Dereth,
         }
     }
@@ -1516,6 +1528,10 @@ mod tests {
         let s: LauncherState =
             serde_json::from_str(r#"{"schema":1,"settings":{"discord_presence":false}}"#).unwrap();
         assert!(!s.settings.discord_presence && s.settings.auto_update);
+        assert!(
+            s.settings.update_components,
+            "added components update on their own until the player turns it off"
+        );
         assert_eq!(
             s.settings.realm,
             Realm::Dereth,

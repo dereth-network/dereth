@@ -126,7 +126,7 @@
       { world_slug: "shardfall", account: "alt1", client: "auberean", last_played: 18 },
       { world_slug: "duskmere", account: "player", client: "auberean", last_played: 12 },
     ],
-    settings: { allow_play_anyway: false, auto_update: true, discord_presence: true, realm },
+    settings: { allow_play_anyway: false, auto_update: true, discord_presence: true, update_components: true, realm },
     custom_worlds: [{ slug: "custom-1", name: "My test world", host: "127.0.0.1", port: 9000, ruleset: "PvE" }],
   };
   // The kept passwords, by world and account; shardfall's player's is one an earlier launcher made up.
@@ -281,7 +281,7 @@
   const components = ["empyrean", "lyceum", "dereth", "auberean", "yalain", "athenaeum"].map((product) => ({
     product, installed: packaged[product] ?? null, bundled: !!packaged[product], checkout: development ? checkout[product] : null, checkout_version: development ? { empyrean: "0.4.0", lyceum: "0.1.1" }[product] : null,
     latest: null, latest_notes: "", latest_size: null,
-    offer: { kind: "none" }, checking: false, busy: false, progress: null, message: null, error: false, running: false, worlds: [],
+    offer: { kind: "none" }, checking: false, busy: false, progress: null, message: null, error: false, running: false, auto: null, worlds: [],
     home: product === "lyceum" ? "C:\\Users\\you\\Documents\\Lyceum" : null,
   }));
   // A Lyceum world as the backend lists it.
@@ -745,6 +745,8 @@
       chosenInterface = offer.name;
     },
     set_discord_presence: ({ on }) => { state.settings.discord_presence = on; },
+    set_update_components: ({ on }) => { state.settings.update_components = on; },
+    dismiss_component_update: ({ product }) => { const c = components.find((c) => c.product === product); if (c) c.auto = null; },
     set_realm: ({ realm }) => { state.settings.realm = realm; },
     dismiss_message: () => { message = null; },
     open_url: ({ url }) => { window.open(url, "_blank"); },
