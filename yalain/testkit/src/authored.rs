@@ -346,17 +346,17 @@ impl Portal {
     }
 
     /// The effects of these saved states (and those they add), as the server reads them at start
-    /// with a world that has no `[[effect_rule]]` rows.
+    /// with the test world's wards ([`crate::test_wards`]).
     ///
     /// # Panics
     /// The library does not read.
     #[must_use]
     pub fn effects(&self, states: &[u32]) -> yalain_world::effect_defs::EffectTable {
-        self.effects_warded(states, &yalain_world::effect_defs::fallback_wards())
+        self.effects_warded(states, &crate::test_wards())
     }
 
     /// The effects of these saved states (and those they add), as the server reads them at start
-    /// with these wards (a world's, [`yalain_world::effect_defs::world_wards`]).
+    /// with these wards (a world's `[[effect_rule]]` rows).
     ///
     /// # Panics
     /// The library does not read.

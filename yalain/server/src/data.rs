@@ -2209,8 +2209,7 @@ mod tests {
         let (dat, _) = tallied(&DatName::Portal);
         let p = Portal::over(dat, Vec::new(), None).expect("a context");
         let wanted: Vec<u32> = tables.states().collect();
-        let table = effect_table(&p, &wanted, &yalain_world::effect_defs::fallback_wards())
-            .expect("the table");
+        let table = effect_table(&p, &wanted, &yalain_testkit::test_wards()).expect("the table");
         for s in &wanted {
             let d = table.get(*s);
             assert!(d.is_some(), "{s:08x} reads");
@@ -2230,8 +2229,7 @@ mod tests {
         let (dat, _) = tallied(&DatName::Portal);
         let p = Portal::over(dat, Vec::new(), None).expect("a context");
         let wanted: Vec<u32> = tables.states().collect();
-        let table = effect_table(&p, &wanted, &yalain_world::effect_defs::fallback_wards())
-            .expect("the table");
+        let table = effect_table(&p, &wanted, &yalain_testkit::test_wards()).expect("the table");
         let family = tables
             .weapon
             .families
@@ -2263,12 +2261,8 @@ mod tests {
         const CHAINED: u32 = 0x6F00_2607;
         let (dat, _) = tallied(&DatName::Portal);
         let p = Portal::over(dat, Vec::new(), None).expect("a context");
-        let table = effect_table(
-            &p,
-            &[STASIS, CHAINED],
-            &yalain_world::effect_defs::fallback_wards(),
-        )
-        .expect("the table");
+        let table =
+            effect_table(&p, &[STASIS, CHAINED], &yalain_testkit::test_wards()).expect("the table");
         let (when, tier) = TreasureTables::retail_2017()
             .tier_of(STASIS)
             .expect("a tier");
@@ -2295,8 +2289,7 @@ mod tests {
         let (dat, _) = tallied(&DatName::Portal);
         let p = Portal::over(dat, Vec::new(), None).expect("a context");
         let wanted: Vec<u32> = tables.states().collect();
-        let table = effect_table(&p, &wanted, &yalain_world::effect_defs::fallback_wards())
-            .expect("the table");
+        let table = effect_table(&p, &wanted, &yalain_testkit::test_wards()).expect("the table");
         for (state, name) in [(0x6F00_03DB, 0x2500_08C9), (0x6F00_03E0, 0x2500_08CE)] {
             let (_, tier) = tables.tier_of(state).expect("a tier");
             assert_eq!(tier.puts_on, state, "it puts itself on what it hits");

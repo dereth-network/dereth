@@ -124,20 +124,6 @@ pub fn knife_yield(unmade: &HashMap<u32, u32>, template: u32, made: Option<u32>)
 /// The yield of a knife neither made nor named by a row.
 const UNMADE_YIELD: u32 = 1;
 
-/// What unmade tools yield, by template: a world's `[[tool]]` rows alone, or, for a world with none,
-/// the server's own: the hunting knife's 6, the lowest level it is made at.
-#[must_use]
-pub fn world_tool_yields(rows: impl IntoIterator<Item = (u32, u32)>) -> HashMap<u32, u32> {
-    let rows: HashMap<u32, u32> = rows.into_iter().collect();
-    if !rows.is_empty() {
-        return rows;
-    }
-    HashMap::from([(HUNTING_KNIFE, 6)])
-}
-
-/// The hunting knife, made by a recipe, as against the crude one bought.
-const HUNTING_KNIFE: u32 = 0x4700_0CBB;
-
 /// The class of the butchery tools: the knives are its templates.
 pub const TOOL_CLASS: &str = "ButcheryToolTemplate";
 

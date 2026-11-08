@@ -258,9 +258,9 @@ fn a_knife_used_on_a_corpse_butchers_it_once_for_a_material_and_experience() {
 }
 
 /// How many units a knife cuts: ten above its own yield, whatever the creature: a made one's own
-/// yield, else its template's unmade yield as the world's rows give it (the hunting knife's 6, which
-/// the server keeps for a world with no tool rows), else a crude knife's 1, which gives 11; an item
-/// that is not a knife cuts nothing.
+/// yield, else its template's unmade yield as the world's rows give it (the hunting knife's 6), else
+/// a crude knife's 1, which gives 11, as in a world with no tool rows; an item that is not a knife
+/// cuts nothing.
 /// Behaviour: server.craft.butchery-units-by-knife
 #[test]
 fn a_knife_cuts_ten_units_above_its_own_yield() {
@@ -277,17 +277,6 @@ fn a_knife_cuts_ten_units_above_its_own_yield() {
     // A world whose rows name no yield for it: a crude knife's.
     assert_eq!(
         butchery::units(butchery::knife_yield(&none, 0x4700_0CBB, None)),
-        11
-    );
-    // A world with no `[[tool]]` rows at all keeps the hunting knife's 6; one with rows has them alone.
-    let fallback = butchery::world_tool_yields([]);
-    assert_eq!(
-        butchery::units(butchery::knife_yield(&fallback, 0x4700_0CBB, None)),
-        16
-    );
-    let other = butchery::world_tool_yields([(0x4700_0001, 3)]);
-    assert_eq!(
-        butchery::units(butchery::knife_yield(&other, 0x4700_0CBB, None)),
         11
     );
     // 2017's examined knives: yield 16 cut 26, 22 cut 32, 25 cut 35, 28 cut 38, 33 cut 43.

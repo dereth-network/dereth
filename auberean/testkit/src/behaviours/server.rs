@@ -4116,22 +4116,22 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
-        id: "server.effects.ward-rows-as-the-servers-own",
-        says: "A world's ward rows hold each of the server's own wards with the same classes and chance, \
-               so a world with them keeps off what one without does.",
+        id: "server.effects.ward-rows-hold-the-six",
+        says: "A world's ward rows hold the six wards of fire, what lowers vigor, poison and what lowers \
+               armor, each with the classes and chance its description gives.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-WARD-ROWS-AS-OWN"),
-        station: "yalain-testkit::corpus::world_db::the_worlds_ward_rows_are_the_servers_own_wards_entry_for_entry",
+        station: "yalain-testkit::corpus::world_db::the_worlds_ward_rows_hold_the_six_wards_entry_for_entry",
         tier: Tier::Corpus,
     },
     behaviour! {
         id: "server.effects.wards-without-rows",
-        says: "A world with no `[[effect_rule]]` rows has the server's own six wards: of fire, poison and \
-               what lowers vigor 15% of the time, and the three that keep off what lowers armor always.",
+        says: "A world with no `[[effect_rule]]` rows has no wards beyond what their own data names: a \
+               ward its data names nothing for reads as a record.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-WARDS-FALLBACK"),
-        station: "yalain-testkit::cpu::play::creature_tactics::a_world_with_no_ward_rows_has_the_servers_own_six",
-        tier: Tier::Cpu,
+        station: "yalain-testkit::dat::effects::a_ward_reads_as_its_worlds_row_says_and_without_rows_as_a_record",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "server.effects.watcher-absorbs",

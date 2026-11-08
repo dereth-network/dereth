@@ -158,42 +158,6 @@ mod watcher_flag {
 /// What a ward keeps off, where its own data names nothing: the world's `[[effect_rule]]` rows.
 pub use yalain_content::effect_rules::Ward;
 
-/// The wards of a world with no `[[effect_rule]]` rows, as their descriptions say: the classes of
-/// fire and of what lowers vigor are those the install's own protections from them name, of poison
-/// those its poisons are in, of what lowers armor those that hold its armor-lowering effects. Their
-/// own data names neither. Our choice. A world with any row has its rows alone ([`world_wards`]).
-#[must_use]
-pub fn fallback_wards() -> BTreeMap<u32, Ward> {
-    const FIRE: &[u32] = &[48, 1119, 5013];
-    const VIGOR: &[u32] = &[49, 5014, 26, 4015, 5043, 5050];
-    const POISON: &[u32] = &[53, 5007, 5022, 5046];
-    const ARMOR: &[u32] = &[22, 5061];
-    let ward = |classes: &[u32], chance: f32| Ward {
-        classes: classes.to_vec(),
-        effects: Vec::new(),
-        chance,
-    };
-    BTreeMap::from([
-        (0x6F00_2671, ward(VIGOR, 0.15)),
-        (0x6F00_2672, ward(FIRE, 0.15)),
-        (0x6F00_2675, ward(POISON, 0.15)),
-        (0x6F00_266E, ward(ARMOR, 1.0)),
-        (0x6F00_2670, ward(ARMOR, 1.0)),
-        (0x6F00_2674, ward(ARMOR, 1.0)),
-    ])
-}
-
-/// The wards a world knows, by the effect's saved state: its `[[effect_rule]]` wards alone, or, for
-/// a world with none, the server's own ([`fallback_wards`]).
-#[must_use]
-pub fn world_wards(rows: &BTreeMap<u32, Ward>) -> BTreeMap<u32, Ward> {
-    if rows.is_empty() {
-        fallback_wards()
-    } else {
-        rows.clone()
-    }
-}
-
 /// The kind of an effect a world's row makes a ward: its chance the same at any spellcraft.
 #[must_use]
 pub fn ward_kind(w: &Ward) -> Kind {

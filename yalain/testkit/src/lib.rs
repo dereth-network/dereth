@@ -2097,6 +2097,29 @@ pub fn test_pet_limits() -> Vec<(u32, Vec<(usize, u32)>)> {
     ]
 }
 
+/// The wards the test world's rows would name, by the effect's saved state: the six of fire, what
+/// lowers vigor, poison and what lowers armor, as their descriptions say.
+#[must_use]
+pub fn test_wards() -> std::collections::BTreeMap<u32, yalain_world::effect_defs::Ward> {
+    const FIRE: &[u32] = &[48, 1119, 5013];
+    const VIGOR: &[u32] = &[49, 5014, 26, 4015, 5043, 5050];
+    const POISON: &[u32] = &[53, 5007, 5022, 5046];
+    const ARMOR: &[u32] = &[22, 5061];
+    let ward = |classes: &[u32], chance: f32| yalain_world::effect_defs::Ward {
+        classes: classes.to_vec(),
+        effects: Vec::new(),
+        chance,
+    };
+    std::collections::BTreeMap::from([
+        (0x6F00_2671, ward(VIGOR, 0.15)),
+        (0x6F00_2672, ward(FIRE, 0.15)),
+        (0x6F00_2675, ward(POISON, 0.15)),
+        (0x6F00_266E, ward(ARMOR, 1.0)),
+        (0x6F00_2670, ward(ARMOR, 1.0)),
+        (0x6F00_2674, ward(ARMOR, 1.0)),
+    ])
+}
+
 impl<S: Store> Harness<S> {
     /// A server with these settings, store and rules.
     #[must_use]

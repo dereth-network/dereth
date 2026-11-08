@@ -179,18 +179,15 @@ fn every_row_of_the_world_database_compiles_against_the_install() {
     }
 }
 
-/// A world's ward rows keep off what the server's own wards do: every ward the server holds for a
-/// world with no rows has a row of the same classes, effects and chance, entry for entry, so a world
-/// with them fights as one without; its other rows name what their effects' own data names nothing
-/// for. A world with none has the server's own.
-/// Behaviour: server.effects.ward-rows-as-the-servers-own
+/// A world's ward rows hold the six wards of fire, what lowers vigor, poison and what lowers armor,
+/// each with the classes and chance its description gives, entry for entry; its other rows name
+/// what their effects' own data names nothing for.
+/// Behaviour: server.effects.ward-rows-hold-the-six
 #[test]
-fn the_worlds_ward_rows_are_the_servers_own_wards_entry_for_entry() {
-    use yalain_world::effect_defs::{fallback_wards, world_wards};
-    let rows = &compiled().tables.effect_rules.wards;
-    let wards = world_wards(rows);
-    for (state, own) in fallback_wards() {
-        assert_eq!(wards.get(&state), Some(&own), "{state:08X}");
+fn the_worlds_ward_rows_hold_the_six_wards_entry_for_entry() {
+    let wards = &compiled().tables.effect_rules.wards;
+    for (state, six) in yalain_testkit::test_wards() {
+        assert_eq!(wards.get(&state), Some(&six), "{state:08X}");
     }
     assert!(wards
         .values()
@@ -1803,7 +1800,7 @@ fn effects_of(def: &yalain_content::quests::QuestDef) -> yalain_world::effect_de
         .expect("the library reads")
         .value;
     let states: Vec<u32> = def.effects.iter().map(|(_, e)| *e).collect();
-    let wards = yalain_world::effect_defs::world_wards(&compiled().tables.effect_rules.wards);
+    let wards = compiled().tables.effect_rules.wards.clone();
     yalain_world::effect_defs::EffectTable::read(
         &lib,
         &states,

@@ -1730,7 +1730,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
     let play = (|| {
         if effect_rules.wards.is_empty() {
             tracing::warn!(
-                "this world has no [[effect_rule]] rows: its wards keep off what the server's own say"
+                "this world has no [[effect_rule]] rows: its wards keep off only what their own data names"
             );
         }
         if !fell_back.is_empty() {
@@ -1740,7 +1740,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
                 kinds.join(", ")
             );
         }
-        let wards = yalain_world::effect_defs::world_wards(&effect_rules.wards);
+        let wards = effect_rules.wards.clone();
         let skills = data::skill_table(portal)?;
         tracing::info!(
             skills = skills.skills.len(),
@@ -1773,7 +1773,12 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             })
             .collect();
         let mut craft = data::crafting(portal, &crafting, &granted)?;
-        craft.tool_yields = yalain_world::butchery::world_tool_yields(crafting.tool_yields.clone());
+        if crafting.tool_yields.is_empty() {
+            tracing::warn!(
+                "this world has no [[tool]] rows: every unmade knife yields what a crude one does"
+            );
+        }
+        craft.tool_yields = crafting.tool_yields.clone().into_iter().collect();
         craft.butchery = crafting
             .butchery
             .iter()

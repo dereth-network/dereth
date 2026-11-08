@@ -2273,21 +2273,23 @@ fn tyrant_world() -> yalain_world_db::Files {
 
 /// A ward the data names nothing for reads as nothing but a record without a world's row (its own
 /// data holds no list), and as the ward the row says with one; a world's rows are its wards alone,
-/// so the server's own six read as records there too.
-/// Behaviour: server.effects.ward-from-a-row
+/// so a ward they don't name reads as a record, and a world with no rows has no such ward at all.
+/// Behaviour: server.effects.wards-without-rows
 #[test]
-fn a_ward_reads_as_its_worlds_row_says_and_without_rows_as_the_servers_own() {
-    use yalain_world::effect_defs::world_wards;
+fn a_ward_reads_as_its_worlds_row_says_and_without_rows_as_a_record() {
     let p = Portal::open();
     let states = [TYRANT_WARD, 0x6F00_266E, 0x6F00_2672];
-    let none = p.effects(&states);
-    assert_eq!(none.get(TYRANT_WARD).map(|d| &d.kind), Some(&Kind::Other));
+    let none = p.effects_warded(&states, &std::collections::BTreeMap::new());
+    for s in states {
+        assert_eq!(none.get(s).map(|d| &d.kind), Some(&Kind::Other), "{s:08X}");
+    }
+    let six = p.effects(&states);
     assert!(matches!(
-        none.get(0x6F00_2672).map(|d| &d.kind),
+        six.get(0x6F00_2672).map(|d| &d.kind),
         Some(Kind::Ward { classes, .. }) if classes == &[48, 1119, 5013]
     ));
     let t = p.compile(&tyrant_world());
-    let rows = p.effects_warded(&states, &world_wards(&t.effect_rules.wards));
+    let rows = p.effects_warded(&states, &t.effect_rules.wards);
     match rows.get(TYRANT_WARD).map(|d| &d.kind) {
         Some(Kind::Ward {
             classes,
@@ -2311,7 +2313,6 @@ fn a_ward_reads_as_its_worlds_row_says_and_without_rows_as_the_servers_own() {
 /// Behaviour: server.effects.tyrant-ward
 #[test]
 fn the_tyrant_warder_stone_puts_on_a_ward_that_keeps_off_what_bars_skills() {
-    use yalain_world::effect_defs::world_wards;
     use yalain_world::effects::{self, Cast};
     let p = Portal::open();
     let t = p.compile(&tyrant_world());
@@ -2322,7 +2323,7 @@ fn the_tyrant_warder_stone_puts_on_a_ward_that_keeps_off_what_bars_skills() {
     let mut h = yalain_testkit::Harness::new();
     h.server.catalog.insert(p.template(TYRANT_STONE));
     h.server.item_uses = uses;
-    h.server.effect_table = p.effects_warded(&states, &world_wards(&t.effect_rules.wards));
+    h.server.effect_table = p.effects_warded(&states, &t.effect_rules.wards);
     h.server.quests = t.quests.clone();
     for s in [SILENCE, PACIFY, CLOUDED_EYES] {
         let class = h.server.effect_table.get(s).map(|d| d.eq_class);
