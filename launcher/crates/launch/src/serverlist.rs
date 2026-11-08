@@ -105,8 +105,12 @@ pub fn sources_from(named: Option<&str>, hub: Option<&str>) -> Vec<ListSource> {
     }
 }
 
-/// The hub a Dereth client's count of players goes to when it is not the network's own: the hub
-/// `sources` read, by its address.
+/// The variable in a client's environment that names the hub its count of players goes to, when
+/// that is not the network's own ([`other_hub`]). The Dereth client and Auberean both read it.
+pub const PLAYER_COUNT_HUB_ENV: &str = "DERETH_PLAYER_COUNT_HUB";
+
+/// The hub a client's count of players goes to when it is not the network's own: the hub `sources`
+/// read, by its address.
 #[must_use]
 pub fn other_hub(sources: &[ListSource]) -> Option<String> {
     let list = sources.iter().find(|s| s.format == ListFormat::Hub)?;

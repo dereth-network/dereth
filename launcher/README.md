@@ -149,7 +149,8 @@ world.
 
 **Asheron's Call 2 worlds not on the hub** (Icefire) have no list either. The launcher keeps them
 in another table of its own and lists them in that game's realm, played directly by Auberean or the
-retail client. It asks them whether they are up as it asks any world.
+retail client. It asks them whether they are up as it asks any world. Once the hub lists one
+(of that game, under its name or at its address and port), the hub's row shows instead.
 
 **A world's era and systems** come from its Empyrean status, else the launcher's table of worlds
 that run a client of their own, else the end of retail. Every Asheron's Call 2 world plays the end

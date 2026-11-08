@@ -891,6 +891,14 @@ impl Backend {
         })
     }
 
+    /// Put the hub this launcher reads in `command`'s environment, for the client it starts to
+    /// report its world's count of players to, when it is not the network's own.
+    pub fn report_players_to_hub(&self, command: &mut Command) {
+        if let Some(hub) = dereth_launch::serverlist::other_hub(self.list.sources()) {
+            command.env(dereth_launch::serverlist::PLAYER_COUNT_HUB_ENV, hub);
+        }
+    }
+
     /// The slugs of the worlds the Dereth Network's hub lists, as the list in use has them; none
     /// while the list is another's.
     pub fn hub_slugs(&self) -> HashSet<String> {
@@ -1567,9 +1575,7 @@ impl Backend {
         crate::components::leave_the_mount(&mut command, &plan.exe);
         // In the environment, which a client too old to report takes no notice of.
         if dereth {
-            if let Some(hub) = dereth_launch::serverlist::other_hub(self.list.sources()) {
-                command.env("DERETH_PLAYER_COUNT_HUB", hub);
-            }
+            self.report_players_to_hub(&mut command);
         }
         let child = match command
             .current_dir(&plan.working_dir)
@@ -4751,6 +4757,41 @@ mod tests {
         )
         .unwrap();
         assert!(listed(&folders), "a file that had it turned off");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A client started by a launcher that reads another hub's list is told that hub, for the count
+    /// of players it reports; one started by a launcher on the network's own list is told nothing.
+    /// The Dereth client and Auberean are told alike.
+    #[test]
+    fn a_client_reports_its_players_to_the_hub_whose_list_the_launcher_reads() {
+        const DEV: &str = "https://dev-hub.example.org/v1/servers";
+        let dir = tmp("player-count-hub");
+        let told = |sources: Vec<ListSource>| {
+            let b = Backend::new(
+                Folders::single(dir.join("state")),
+                sources,
+                None,
+                Box::new(MemoryVault::default()),
+                "memory",
+                None,
+            );
+            let mut command = Command::new("auberean");
+            b.report_players_to_hub(&mut command);
+            command
+                .get_envs()
+                .map(|(k, v)| (k.to_owned(), v.map(std::ffi::OsStr::to_owned)))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            told(serverlist::sources_from(None, Some(DEV))),
+            [(
+                std::ffi::OsString::from(serverlist::PLAYER_COUNT_HUB_ENV),
+                Some(std::ffi::OsString::from("https://dev-hub.example.org"))
+            )]
+        );
+        assert!(told(serverlist::sources(None)).is_empty());
+        assert_eq!(serverlist::PLAYER_COUNT_HUB_ENV, "DERETH_PLAYER_COUNT_HUB");
         let _ = std::fs::remove_dir_all(dir);
     }
 

@@ -13,13 +13,13 @@ use crate::world::{AccountModel, Emulator, EraState, Game, Told, World, WorldSta
 
 /// Every world: the list's, then the servers the player added, as their rows say, then those the
 /// launcher knows of its own: played through a relay ([`crate::relayed`]), then reached directly
-/// ([`crate::built_in`]).
+/// ([`crate::built_in`]) where the list does not name them.
 pub fn all<'a>(list: &'a [World], state: &'a LauncherState) -> impl Iterator<Item = World> + 'a {
     list.iter()
         .cloned()
         .chain(state.custom_worlds.iter().map(|c| c.to_world()))
         .chain(crate::relayed::worlds(state))
-        .chain(crate::built_in::worlds(state))
+        .chain(crate::built_in::worlds(list, state))
 }
 
 /// Whether a server the player added (`added`, as shown) is a world of the list (`listed`, as

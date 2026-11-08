@@ -2,7 +2,9 @@
 //! directly. (A world reached through a relay is [`crate::relayed`]'s.)
 //!
 //! Asheron's Call 2 has no community list, so the worlds of its realm that are not on the Dereth
-//! Network's hub are kept here. Each is listed always; nothing turns it off but this table.
+//! Network's hub are kept here. Each is listed until the list the launcher reads names it (the
+//! hub's, once the world is registered there): then the list's row is shown in its place, with
+//! what the hub says of it. Nothing else turns one off but this table.
 //!
 //! A launcher asks such a world whether it is up as it asks any world that takes no status ping:
 //! with the server-tracker login ([`crate::probe`]).
@@ -66,12 +68,28 @@ impl BuiltInWorld {
     }
 }
 
-/// The worlds `state`'s player is shown: all of them, unless the state keeps the launcher's own
-/// worlds off the list ([`LauncherState::hide_built_in_worlds`]).
-pub fn worlds(state: &LauncherState) -> impl Iterator<Item = World> + '_ {
+impl BuiltInWorld {
+    /// Whether `listed`, a world of the list, is this one: of its game, and kept under its key or
+    /// its hub slug, or at its address and port.
+    #[must_use]
+    pub fn is_listed_as(&self, listed: &World) -> bool {
+        listed.game == self.game
+            && (listed.slug == self.slug
+                || listed.hub_slug.as_deref() == Some(self.slug)
+                || listed.endpoint.as_ref().is_some_and(|e| {
+                    e.address.eq_ignore_ascii_case(self.host) && e.port == self.port
+                }))
+    }
+}
+
+/// The worlds `state`'s player is shown beside the list's worlds (`list`): those the list does
+/// not name, unless the state keeps the launcher's own worlds off the list
+/// ([`LauncherState::hide_built_in_worlds`]).
+pub fn worlds<'a>(list: &'a [World], state: &'a LauncherState) -> impl Iterator<Item = World> + 'a {
     BUILT_IN_WORLDS
         .iter()
         .filter(move |_| !state.hide_built_in_worlds)
+        .filter(move |b| !list.iter().any(|w| b.is_listed_as(w)))
         .map(BuiltInWorld::to_world)
 }
 
@@ -99,6 +117,75 @@ mod tests {
     fn slugs(state: &LauncherState) -> Vec<String> {
         let list = [World::new("coldeve", "Coldeve")];
         crate::worlds::all(&list, state).map(|w| w.slug).collect()
+    }
+
+    /// Once the hub lists Icefire, its row is shown in the built-in one's place, once, with what the
+    /// hub says of it; while the hub doesn't, the built-in row is.
+    #[test]
+    fn icefire_gives_way_to_the_hubs_row_for_it() {
+        let page = |rows: &str| format!(r#"{{"data": [{rows}]}}"#);
+        let icefire_row = r#"{"slug": "icefire", "name": "Icefire", "game": "auberean",
+            "endpoint": {"address": "icefire.portalspace.net", "port": 8610},
+            "emulator": {"family": "Icefire"}, "maturity": "Development"}"#;
+        let coldeve_row = r#"{"slug": "coldeve", "name": "Coldeve",
+            "endpoint": {"address": "play.example.org", "port": 9000}}"#;
+        let shown = |rows: &str| -> Vec<World> {
+            let list = crate::serverlist::parse_hub_pages(&[page(rows)]).unwrap();
+            crate::worlds::all(&list, &LauncherState::default())
+                .filter(|w| w.slug != "ac1999")
+                .collect()
+        };
+
+        let without = shown(coldeve_row);
+        assert_eq!(
+            without.iter().map(|w| w.slug.as_str()).collect::<Vec<_>>(),
+            ["coldeve", "icefire"]
+        );
+        assert_eq!(without[1].hub_slug, None, "the built-in row");
+
+        let with = shown(&format!("{coldeve_row}, {icefire_row}"));
+        let icefire: Vec<&World> = with.iter().filter(|w| w.slug == "icefire").collect();
+        let [hubs] = icefire[..] else {
+            panic!("{with:?}");
+        };
+        assert_eq!(hubs.hub_slug.as_deref(), Some("icefire"), "the hub's row");
+        assert_eq!(
+            (hubs.game, hubs.emulator),
+            (Game::Auberean, Emulator::Icefire)
+        );
+    }
+
+    /// The hub's row is the built-in world's when it is of its game and has its key, its hub slug,
+    /// or its address and port, however the address is spelt; a world of the other game is not.
+    #[test]
+    fn a_listed_world_is_the_built_in_one_by_its_key_its_hub_slug_or_its_address() {
+        let ours = BUILT_IN_WORLDS[0];
+        let listed = |slug: &str, hub_slug: Option<&str>, at: Option<(&str, u16)>| {
+            let mut w = World::new(slug, slug);
+            w.game = Game::Auberean;
+            w.hub_slug = hub_slug.map(str::to_owned);
+            w.endpoint = at.map(|(address, port)| Endpoint {
+                address: address.to_owned(),
+                port,
+                transport: None,
+            });
+            w
+        };
+        assert!(ours.is_listed_as(&listed("icefire", None, None)));
+        assert!(ours.is_listed_as(&listed("icefire-ac2", Some("icefire"), None)));
+        assert!(ours.is_listed_as(&listed(
+            "frost",
+            Some("frost"),
+            Some(("IceFire.PortalSpace.net", 8610))
+        )));
+        assert!(!ours.is_listed_as(&listed(
+            "frost",
+            Some("frost"),
+            Some(("icefire.portalspace.net", 8611))
+        )));
+        let mut other_game = listed("icefire", Some("icefire"), None);
+        other_game.game = Game::Dereth;
+        assert!(!ours.is_listed_as(&other_game));
     }
 
     #[test]

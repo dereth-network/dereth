@@ -455,6 +455,8 @@ fn start_client(
                 to.yalain,
             );
             let mut cmd = command(&plan.exe);
+            // In the environment, which an Auberean too old to report takes no notice of.
+            backend::lock(b).report_players_to_hub(&mut cmd);
             // What it says goes in a file of the launcher's, so one that stops as it starts can
             // say why on the page.
             let file = client_log(&data, account);
