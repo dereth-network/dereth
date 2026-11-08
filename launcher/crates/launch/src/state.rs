@@ -333,9 +333,10 @@ pub struct Settings {
     /// Discord app on this computer shows its world, client and era ([`crate::discord`]).
     #[serde(default = "yes")]
     pub discord_presence: bool,
-    /// "Automatically update components": the programs the player fetched (Empyrean,
-    /// Lyceum, Yalain, Athenaeum and the other game's client) are kept up to date as the package's
-    /// own client is. Off, they wait for the player's Update. Written only when off, so a state
+    /// "Automatically update components": the programs the player fetched (Empyrean, Lyceum,
+    /// Yalain, Athenaeum and the other game's client) and the art packs they installed
+    /// ([`crate::art`]) are kept up to date as the package's own client is. Off, they wait for the
+    /// player's Update. Written only when off, so a state
     /// with it on is one an older launcher wrote the same.
     #[serde(default = "yes", skip_serializing_if = "is_yes")]
     pub update_components: bool,

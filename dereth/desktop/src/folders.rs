@@ -78,8 +78,10 @@ pub const CRASH_LOGS_KEPT: usize = 20;
 /// documentation.
 pub const SETTINGS_DIR_ENV: &str = "DERETH_SETTINGS_DIR";
 
-/// The environment variable that names an art pack the remaster draws: its
-/// folder, or the file it was packed into. It wins over `[Fidelity] ArtPack` in the profile; `--art-pack` wins over it.
+/// The environment variable that names the art packs the remaster draws: each its folder, or the
+/// file it was packed into, several joined with the platform's path-list separator (`:`, or `;`
+/// on Windows), bottom first, a later pack winning over an earlier one. It wins over
+/// `[Fidelity] ArtPack` in the profile; `--art-pack` wins over it.
 pub const ART_PACK_ENV: &str = "DERETH_ART_PACK";
 
 /// The original game's settings directory under `Documents`, which a retail installation writes.
@@ -118,6 +120,15 @@ fn xdg_state_root(env: Env<'_>) -> Option<PathBuf> {
 /// `%USERPROFILE%\Documents`, spelled the way the original resolves its documents folder.
 fn windows_documents(env: Env<'_>) -> Option<PathBuf> {
     absolute(env, "USERPROFILE").map(|h| h.join("Documents"))
+}
+
+/// The art packs [`ART_PACK_ENV`] names, in its order: each path of the list, the empty ones
+/// left out.
+#[must_use]
+pub fn art_packs_in(value: &OsString) -> Vec<PathBuf> {
+    std::env::split_paths(value)
+        .filter(|p| !p.as_os_str().is_empty())
+        .collect()
 }
 
 /// The process environment.
@@ -433,8 +444,9 @@ pub fn load_config(
             settings_dir_override().is_some(),
         )?;
         if !cfg.art_pack_argument {
-            if let Some(dir) = process_env(ART_PACK_ENV).filter(|v| !v.is_empty()) {
-                cfg.art_pack = Some(PathBuf::from(dir));
+            let packs = process_env(ART_PACK_ENV).map_or_else(Vec::new, |v| art_packs_in(&v));
+            if !packs.is_empty() {
+                cfg.art_packs = packs;
                 cfg.art_pack_argument = true;
                 cfg.tick_art_pack_box();
             }
@@ -500,6 +512,25 @@ mod tests {
             .map(|(k, v)| ((*k).to_string(), OsString::from(v)))
             .collect();
         move |name| vars.iter().find(|(k, _)| k == name).map(|(_, v)| v.clone())
+    }
+
+    /// Behaviour: none (experimental hi-fi art packs)
+    ///
+    /// The environment names a stack of art packs with the platform's path-list separator, bottom
+    /// first; an empty part names nothing.
+    #[test]
+    fn the_environment_names_several_art_packs_in_their_order() {
+        let sep = if cfg!(windows) { ";" } else { ":" };
+        let list = OsString::from(format!("{}{sep}{sep}{}", abs("base"), abs("bush")));
+        assert_eq!(
+            art_packs_in(&list),
+            vec![PathBuf::from(abs("base")), PathBuf::from(abs("bush"))]
+        );
+        assert_eq!(
+            art_packs_in(&OsString::from(abs("one"))),
+            vec![PathBuf::from(abs("one"))]
+        );
+        assert!(art_packs_in(&OsString::new()).is_empty());
     }
 
     /// An absolute path that is absolute on the host running the test, whatever that host is.

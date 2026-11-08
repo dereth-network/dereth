@@ -55,6 +55,10 @@ ctrlc = { version = "3.5", features = ["termination"] }
 # Passwords in the login Keychain.
 keyring = { version = "3", features = ["apple-native"] }
 
+[target.'cfg(unix)'.dependencies]
+# The free room on a disk, asked before an art pack of up to 2 GiB is fetched.
+libc = "0.2"
+
 [target.'cfg(windows)'.dependencies]
 # The worlds already running here: the process list, a process's command line, the UDP ports each
 # process holds, and the services.
@@ -82,6 +86,8 @@ tempfile = "3"
 # A world's half of the friends stream, the stand-in the probe's test greets.
 auberean-friends = { path = "../core/auberean-friends" }
 dereth-launch = { path = "crates/launch", features = ["testing"] }
+# The SHA-256 a test's stand-in for an art pack's download answers, as the shelf computes it.
+dereth-plugin-package = { path = "../core/plugin-package" }
 
 
 [profile.test-release]

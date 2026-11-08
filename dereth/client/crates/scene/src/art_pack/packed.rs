@@ -43,82 +43,16 @@ use std::sync::{Mutex, PoisonError};
 
 use dereth_assets::art_pack::{ManifestGround, ManifestMaterial, FORMAT};
 use dereth_dat::overlay::record_hash;
-use dereth_dat::{DatFile, DatStorage, DatStorageMut, DatWriter, MemoryFile};
+use dereth_dat::{DatFile, DatStorage};
 use dereth_primitives::DataId;
 
 use super::images::{BlockFormat, Image};
 use super::{ArtPack, Pictures, Recording};
 
-/// The layout of packed pack this module writes and reads.
-pub const LAYOUT: u32 = 1;
-
-/// The container's block size: large, since a pack's records are mostly pictures of megabytes,
-/// each read a block at a time.
-pub const BLOCK: u32 = 0x4000;
-
-/// The data subset a packed pack's header carries: `Pack`.
-pub const SUBSET: u32 = u32::from_le_bytes(*b"Pack");
-
-/// The contents' magic: `DAPK`.
-const MAGIC: u32 = u32::from_le_bytes(*b"DAPK");
-
-/// The contents' record.
-const CONTENTS: DataId = DataId(1);
-
-/// The first record after the contents.
-const FIRST: u32 = 2;
-
-/// The largest packed pack: a container's blocks lie below 2 GiB, where the high bit of a link
-/// marks a free block.
-const LARGEST: u64 = 0x8000_0000;
-
-/// The blocks the writer keeps free beyond what the record it writes needs.
-const RESERVE: u64 = 0x34;
-
-/// What a record of a packed pack holds.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum Kind {
-    /// One of the pack's files, byte for byte.
-    File,
-    /// Pictures made from the pack's files.
-    Pictures,
-}
-
-/// One record a packed pack's contents name.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Record {
-    /// What it holds.
-    pub kind: Kind,
-    /// A file's path, or how its pictures are made.
-    pub key: String,
-    /// Its id in the container; 0 for an empty file, which has no record.
-    pub id: DataId,
-    /// Its length.
-    pub size: u32,
-    /// The SHA-256 of its bytes.
-    pub sha256: [u8; 32],
-}
-
-/// A packed pack's contents: what the pack is and every record it holds.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Contents {
-    /// The manifest format the pack was packed for.
-    pub format: u32,
-    /// The pack's name.
-    pub name: String,
-    /// The hash of the folder it was packed from.
-    pub hash: String,
-    /// Its records, in their ids' order.
-    pub records: Vec<Record>,
-}
-
+use dereth_assets::packed_art::CONTENTS;
+pub use dereth_assets::packed_art::{Contents, Kind, Record, BLOCK, LAYOUT, SUBSET};
 fn put(out: &mut Vec<u8>, v: u32) {
     out.extend_from_slice(&v.to_le_bytes());
-}
-
-fn put_text(out: &mut Vec<u8>, s: &str) {
-    put(out, u32::try_from(s.len()).unwrap_or(u32::MAX));
-    out.extend_from_slice(s.as_bytes());
 }
 
 /// Bytes read from the front.
@@ -136,106 +70,6 @@ impl<'a> Bytes<'a> {
 
     fn u32(&mut self) -> Option<u32> {
         Some(u32::from_le_bytes(self.take(4)?.try_into().ok()?))
-    }
-
-    fn text(&mut self) -> Option<String> {
-        let n = usize::try_from(self.u32()?).ok()?;
-        String::from_utf8(self.take(n)?.to_vec()).ok()
-    }
-}
-
-impl Contents {
-    /// The contents' record.
-    #[must_use]
-    pub fn encode(&self) -> Vec<u8> {
-        let mut out = Vec::new();
-        put(&mut out, MAGIC);
-        put(&mut out, LAYOUT);
-        put(&mut out, self.format);
-        put_text(&mut out, &self.name);
-        put_text(&mut out, &self.hash);
-        put(
-            &mut out,
-            u32::try_from(self.records.len()).unwrap_or(u32::MAX),
-        );
-        for r in &self.records {
-            out.push(match r.kind {
-                Kind::File => 0,
-                Kind::Pictures => 1,
-            });
-            put_text(&mut out, &r.key);
-            put(&mut out, r.id.raw());
-            put(&mut out, r.size);
-            out.extend_from_slice(&r.sha256);
-        }
-        let sum = record_hash(&out);
-        out.extend_from_slice(&sum);
-        out
-    }
-
-    /// The contents' record, read: the reason, as a sentence, when it is not a packed pack's, or
-    /// one of another layout or manifest format, or damaged.
-    ///
-    /// # Errors
-    /// As above.
-    pub fn decode(bytes: &[u8]) -> Result<Self, String> {
-        let mut b = Bytes(bytes);
-        if b.u32() != Some(MAGIC) {
-            return Err("not a packed art pack".into());
-        }
-        match b.u32() {
-            Some(LAYOUT) => {}
-            Some(n) => {
-                return Err(format!(
-                    "packed in layout {n}, and this client reads layout {LAYOUT}; pack it again"
-                ))
-            }
-            None => return Err("its contents are damaged; pack it again".into()),
-        }
-        let damaged = || "its contents are damaged; pack it again".to_owned();
-        let (body, sum) = bytes.split_at(bytes.len().checked_sub(32).ok_or_else(damaged)?);
-        if record_hash(body)[..] != sum[..] {
-            return Err(damaged());
-        }
-        let mut b = Bytes(body.get(8..).ok_or_else(damaged)?);
-        let format = b.u32().ok_or_else(damaged)?;
-        if i64::from(format) != FORMAT {
-            return Err(format!(
-                "packed from manifest format {format}, and this client reads format {FORMAT}; \
-                 pack it again"
-            ));
-        }
-        let read = |b: &mut Bytes<'_>| -> Option<Self> {
-            let name = b.text()?;
-            let hash = b.text()?;
-            let count = b.u32()?;
-            let mut records = Vec::new();
-            for _ in 0..count {
-                let kind = match b.take(1)?[0] {
-                    0 => Kind::File,
-                    1 => Kind::Pictures,
-                    _ => return None,
-                };
-                let key = b.text()?;
-                let id = DataId(b.u32()?);
-                let size = b.u32()?;
-                let sha256 = b.take(32)?.try_into().ok()?;
-                records.push(Record {
-                    kind,
-                    key,
-                    id,
-                    size,
-                    sha256,
-                });
-            }
-            b.0.is_empty().then_some(Self {
-                format,
-                name,
-                hash,
-                records,
-            })
-        };
-        read(&mut b).ok_or_else(damaged)
     }
 }
 
@@ -580,89 +414,23 @@ pub fn pack(
                 .iter()
                 .map(|(key, made)| (Kind::Pictures, key, pictures_len(made))),
         );
-    let mut next = FIRST;
     for (kind, key, len) in listed {
         let size = u32::try_from(len).map_err(|_| too_large(key))?;
-        let id = if size == 0 {
-            DataId(0)
-        } else {
-            next += 1;
-            DataId(next - 1)
-        };
         contents.records.push(Record {
             kind,
             key: key.clone(),
-            id,
+            id: DataId(0),
             size,
             sha256: [0; 32],
         });
     }
-    // The container exactly as large as the records need: a chain each, the contents', the
-    // directory's nodes as it grows, and the room the writer keeps in hand.
-    let per = u64::from(BLOCK - 4);
-    let blocks = |len: usize| (len as u64).div_ceil(per);
-    let records = (next - FIRST) as usize + 1;
-    let nodes = blocks(dereth_dat::btree::NODE_SIZE) * (1 + 2 * (records as u64).div_ceil(30));
-    let total = contents
-        .records
-        .iter()
-        .map(|r| blocks(r.size as usize))
-        .sum::<u64>()
-        + blocks(contents.encode().len())
-        + nodes
-        + RESERVE
-        + 2;
-    let size = 0x400 + u64::from(BLOCK) * total;
-    if size > LARGEST {
-        return Err(format!(
-            "the pack takes {} MB packed, and one file holds {} MB",
-            size >> 20,
-            LARGEST >> 20
-        ));
-    }
-    let size = u32::try_from(size).map_err(|_| too_large("the pack"))?;
-    let storage = MemoryFile::default();
-    // Its length set once, before the writer fills it.
-    storage
-        .clone()
-        .write_all_at(u64::from(size) - 1, &[0])
-        .map_err(|e| e.to_string())?;
-    let fail = |e: dereth_dat::DatError| e.to_string();
-    let mut w = DatWriter::create_in(
-        PathBuf::from(&pack.name),
-        Box::new(storage.clone()),
-        BLOCK,
-        dereth_dat::container::PORTAL_DATFILE,
-        SUBSET,
-        size,
-    )
-    .map_err(fail)?;
-    for r in &mut contents.records {
-        if r.size == 0 {
-            continue;
-        }
-        let bytes: Cow<'_, [u8]> = match r.kind {
-            Kind::File => Cow::Borrowed(&files[&r.key]),
-            Kind::Pictures => Cow::Owned(encode_pictures(&pictures[&r.key])),
-        };
-        r.sha256 = record_hash(&bytes);
-        w.save(r.id, &bytes, 1, 0, 0)
-            .map_err(|e| format!("{}: {e}", r.key))?;
-    }
-    w.save(CONTENTS, &contents.encode(), 1, 0, 0)
-        .map_err(fail)?;
-    // Grown past what was reckoned, it may not reach past what one file holds either.
-    if u64::from(w.header().file_size) > LARGEST {
-        return Err(format!(
-            "the pack takes {} MB packed, and one file holds {} MB",
-            w.header().file_size >> 20,
-            LARGEST >> 20
-        ));
-    }
-    drop(w);
+    let (bytes, records) = dereth_assets::packed_art::write(contents, &mut |r| match r.kind {
+        Kind::File => Cow::Borrowed(&files[&r.key][..]),
+        Kind::Pictures => Cow::Owned(encode_pictures(&pictures[&r.key])),
+    })?;
     Ok(Packed {
         pack,
-        bytes: storage.bytes(),
+        bytes,
         records,
     })
 }
@@ -957,7 +725,7 @@ license = "CC0-1.0"
         );
         // Exactly as large as its records need: no more than the writer's own room left over.
         let file = DatFile::from_storage("t".into(), Box::new(first.bytes)).expect("opens");
-        assert!(u64::from(file.header().free_count) <= RESERVE + 2 + 16);
+        assert!(u64::from(file.header().free_count) <= dereth_assets::packed_art::RESERVE + 2 + 16);
     }
 
     /// `bytes` with the byte `at` bytes into the record `id`'s first block changed.

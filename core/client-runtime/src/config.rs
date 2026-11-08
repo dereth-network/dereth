@@ -302,12 +302,14 @@ pub struct Config {
     /// with, over `[Render] Objects` (which it also sets, so the options page shows it). `None`:
     /// the switch was not given and the preference stands; `Some(None)`: the world's own.
     pub object_visuals: Option<Option<crate::render_prefs::RegionStyle>>,
-    /// `--art-pack <path>`: an art pack's folder, or the file it was packed into, whose models
-    /// the remaster draws in place of the objects it has replacements for, in a build that has
-    /// it. `[Fidelity] ArtPack` names one too; the command line wins over it, and so does
-    /// `DERETH_ART_PACK` in the environment, which the desktop host reads. `None`: no art pack.
-    pub art_pack: Option<PathBuf>,
-    /// Whether [`Self::art_pack`] came from the command line, which nothing overrides, or from
+    /// `--art-pack <path>`, as many times as there are packs: each an art pack's folder, or the
+    /// file it was packed into, whose models the remaster draws in place of the objects it has
+    /// replacements for, in a build that has it. The packs are stacked in their order, a later
+    /// one's models, grounds, materials and lighting winning over an earlier one's.
+    /// `[Fidelity] ArtPack` names one too; the command line wins over it, and so does
+    /// `DERETH_ART_PACK` in the environment, which the desktop host reads. Empty: no art pack.
+    pub art_packs: Vec<PathBuf>,
+    /// Whether [`Self::art_packs`] came from the command line, which nothing overrides, or from
     /// the environment.
     pub art_pack_argument: bool,
     /// Whether the profile that named a pack leaves the remaster's art pack box unticked, as a
@@ -626,7 +628,7 @@ impl Default for Config {
             console: true,
             dat_dir: default_dat_dir(),
             object_visuals: None,
-            art_pack: None,
+            art_packs: Vec::new(),
             art_pack_argument: false,
             art_pack_unticked: false,
             classic_dat_dir: None,
@@ -807,7 +809,8 @@ const REBUILD_SWITCHES: &[Switch] = &[
         short: None,
         arity: Arity::Required,
     },
-    // The art pack the remaster draws: its folder, or its packed file.
+    // An art pack the remaster draws: its folder, or its packed file. Given again, it names the
+    // next pack up the stack.
     Switch {
         long: "art-pack",
         short: None,
@@ -1341,7 +1344,7 @@ impl Config {
                 .fidelity_switch
                 .iter()
                 .any(|(name, value)| *name == REMASTER_ART_PACK && *value == 0);
-            if self.art_pack.is_none()
+            if self.art_packs.is_empty()
                 || kept_off
                 || (self.art_pack_unticked && !self.art_pack_argument)
             {
@@ -1379,14 +1382,15 @@ impl Config {
         // as set there because it is a `SceneConfig` field of its own; `self.render` carries the
         // same value so that the live options-page path and the start-up path agree.
         self.render = crate::render_prefs::RenderPreferences::from_preferences(prefs);
-        // `[Fidelity] ArtPack=`: a folder or a packed file, read at start-up. The command line,
-        // parsed after the preferences, wins over it.
+        // `[Fidelity] ArtPack=`: a folder or a packed file, read at start-up. The command line
+        // wins over it, whether it was read before the preferences or is read after them.
         if let Some(dir) = prefs
             .get(dereth_client_contract::options::names::fidelity::ART_PACK)
+            .filter(|_| !self.art_pack_argument)
             .map(str::trim)
             .filter(|v| !v.is_empty())
         {
-            self.art_pack = Some(PathBuf::from(dir));
+            self.art_packs = vec![PathBuf::from(dir)];
             self.art_pack_unticked = prefs
                 .bool(dereth_client_contract::options::names::fidelity::REMASTER_ART_PACK)
                 == Some(false);
@@ -1707,9 +1711,17 @@ impl Config {
                 self.render.objects = style;
                 self.object_visuals = Some(style);
             }
+            // The first names the bottom of the stack in place of the profile's pack; the
+            // command line is read twice (around the preferences), and a pack is stacked once.
             "art-pack" => {
-                self.art_pack = Some(PathBuf::from(v));
-                self.art_pack_argument = true;
+                if !self.art_pack_argument {
+                    self.art_packs.clear();
+                    self.art_pack_argument = true;
+                }
+                let pack = PathBuf::from(v);
+                if !self.art_packs.contains(&pack) {
+                    self.art_packs.push(pack);
+                }
             }
             "fidelity" => {
                 #[cfg(feature = "fidelity")]

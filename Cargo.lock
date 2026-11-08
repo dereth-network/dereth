@@ -1411,6 +1411,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "dereth-art-catalog"
+version = "0.0.0"
+dependencies = [
+ "dereth-assets",
+ "serde_json",
+]
+
+[[package]]
 name = "dereth-assets"
 version = "0.0.0"
 dependencies = [
@@ -1851,6 +1859,8 @@ name = "dereth-launch"
 version = "0.0.0"
 dependencies = [
  "auberean-friends",
+ "dereth-art-catalog",
+ "dereth-assets",
  "dereth-client-contract",
  "dereth-client-runtime",
  "dereth-dat",
@@ -2182,6 +2192,7 @@ dependencies = [
  "png",
  "serde_json",
  "thiserror 2.0.20",
+ "toml",
  "tracing",
  "web-time",
 ]
@@ -7144,6 +7155,8 @@ name = "xtask"
 version = "0.0.0"
 dependencies = [
  "base64 0.23.1",
+ "dereth-art-catalog",
+ "dereth-assets",
  "dereth-dat",
  "dereth-launch",
  "dereth-plugin-package",

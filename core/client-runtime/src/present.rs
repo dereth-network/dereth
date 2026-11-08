@@ -332,12 +332,14 @@ pub trait Presentation: std::fmt::Debug {
     ) {
         let _ = identity;
     }
-    /// The art pack the application was told of (`--art-pack`, `DERETH_ART_PACK` or
-    /// `[Fidelity] ArtPack`), a folder or the file it was packed into: a presentation that draws
-    /// art packs opens it, and draws its models in place of the objects they replace in the world
-    /// loaded now and every one after. A presentation that draws none ignores it.
-    fn offer_art_pack(&mut self, dir: &std::path::Path) {
-        let _ = dir;
+    /// The art packs the application was told of (`--art-pack`, `DERETH_ART_PACK` or
+    /// `[Fidelity] ArtPack`), each a folder or the file it was packed into, bottom first: a
+    /// presentation that draws art packs opens them as one, a later pack's models, grounds,
+    /// materials and lighting winning over an earlier one's, and draws its models in place of
+    /// the objects they replace in the world loaded now and every one after. A presentation that
+    /// draws none ignores them.
+    fn offer_art_packs(&mut self, packs: &[std::path::PathBuf]) {
+        let _ = packs;
     }
     /// The player's look file, beside the preferences: a presentation that lays a look over
     /// retail's light reads it, and reads it again whenever what it holds changes. A presentation

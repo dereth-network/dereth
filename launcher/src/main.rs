@@ -12,6 +12,7 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod art;
 mod auberean;
 mod backend;
 mod client_bundle;
@@ -212,6 +213,71 @@ fn remove_plugin(b: State<'_, Shared>, id: String) -> Cmd<()> {
 #[tauri::command]
 fn set_plugin_updates(b: State<'_, Shared>, setting: String) -> Cmd<()> {
     lock(&b).set_plugin_updates(&setting)
+}
+
+/// Refresh the art packs: read every source's list again, and update what the setting allows.
+#[tauri::command]
+async fn refresh_art(b: State<'_, Shared>) -> Cmd<String> {
+    let shared = b.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        Backend::refresh_art(&shared, &backend::fetch_plugin_file, &art::fetch_pack)
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// Add an art pack source by its list's address, and read it.
+#[tauri::command]
+async fn add_art_source(b: State<'_, Shared>, url: String) -> Cmd<String> {
+    let shared = b.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        Backend::add_art_source(&shared, &backend::fetch_plugin_file, &url)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn remove_art_source(b: State<'_, Shared>, url: String) -> Cmd<()> {
+    lock(&b).remove_art_source(&url)
+}
+
+/// Install an art pack from the source that lists it.
+#[tauri::command]
+async fn install_art_pack(b: State<'_, Shared>, source: String, id: String) -> Cmd<String> {
+    let shared = b.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        Backend::install_art_pack(&shared, &art::fetch_pack, &source, &id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Update an installed art pack from its own source.
+#[tauri::command]
+async fn update_art_pack(b: State<'_, Shared>, id: String) -> Cmd<String> {
+    let shared = b.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        Backend::update_art_pack(&shared, &art::fetch_pack, &id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn remove_art_pack(b: State<'_, Shared>, id: String) -> Cmd<()> {
+    lock(&b).remove_art_pack(&id)
+}
+
+#[tauri::command]
+fn set_art_pack_on(b: State<'_, Shared>, id: String, on: bool) -> Cmd<()> {
+    lock(&b).set_art_pack_on(&id, on)
+}
+
+/// Move an art pack up (it wins over one more) or down.
+#[tauri::command]
+fn move_art_pack(b: State<'_, Shared>, id: String, up: bool) -> Cmd<()> {
+    lock(&b).move_art_pack(&id, up)
 }
 
 /// Build a new plugin: the name and the repository are checked, then the player chooses an empty
@@ -827,6 +893,12 @@ fn main() {
             std::thread::spawn(move || {
                 Backend::refresh_plugins_at_start(&checking, &backend::fetch_plugin_file);
             });
+            // And every art pack source's, with the installed packs brought up to date while the
+            // Library's setting says so.
+            let art = shared.clone();
+            std::thread::spawn(move || {
+                Backend::refresh_art_at_start(&art, &backend::fetch_plugin_file, &art::fetch_pack);
+            });
             // The author's tool's copy in each folder Make Your Own wrote in is this launcher's
             // tool again: after an update, the new release's.
             let keeping = shared.clone();
@@ -1004,6 +1076,14 @@ fn main() {
             update_plugin,
             remove_plugin,
             set_plugin_updates,
+            refresh_art,
+            add_art_source,
+            remove_art_source,
+            install_art_pack,
+            update_art_pack,
+            remove_art_pack,
+            set_art_pack_on,
+            move_art_pack,
             create_plugin,
             pick_plugin_folder,
             add_plugin_folder,

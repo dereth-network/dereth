@@ -45,6 +45,7 @@ pub mod geometry;
 pub mod hook;
 pub mod material;
 pub mod motion;
+pub mod packed_art;
 pub mod region;
 pub mod subids;
 pub mod tables;

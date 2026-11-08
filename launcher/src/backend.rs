@@ -347,7 +347,30 @@ pub struct Snapshot {
     pub interface: Option<InterfaceView>,
     /// The Plugins page: the sources, what they list and what is installed for the Dereth client.
     pub plugins: PluginsView,
+    /// The Library's art packs: the sources, what they list, and what is installed in its order.
+    pub art: dereth_launch::art::ArtView,
+    /// The art pack being fetched, when one is.
+    pub art_progress: Option<ArtProgress>,
 }
+
+/// An art pack being fetched, as the page shows it.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct ArtProgress {
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    pub done: u64,
+    pub total: u64,
+    /// Whether it replaces a version installed.
+    pub update: bool,
+}
+
+/// How an art pack is fetched: streamed into its download's file, telling the progress, answering
+/// the file's length and SHA-256. The launcher's is [`crate::art::fetch_pack`]; a test's writes
+/// its own.
+pub type FetchPack<'a> = dyn Fn(&dereth_launch::art::Download, &dyn Fn(u64, u64)) -> Result<(u64, String), String>
+    + Sync
+    + 'a;
 
 /// A plugin the Plugins page made: the repository's folder, the plugin's own folder in it, and
 /// what was made, in the words the author's tool says it in.
@@ -690,6 +713,8 @@ pub struct Backend {
     /// interface it starts in ([`interface::preferences_file`]).
     client_preferences: Option<PathBuf>,
     plugins: Shelf,
+    art: dereth_launch::art::Shelf,
+    art_progress: Option<ArtProgress>,
     /// The plugin author's tool this launcher ships with, which it keeps a copy of in the folders
     /// Make Your Own wrote in; `None` when there is none to copy.
     tool: Option<PathBuf>,
@@ -770,6 +795,7 @@ impl Backend {
         // The launcher asks each world how it is itself, with the status ping.
         list.set_asks_worlds(true);
         let plugins = Shelf::open(folders.plugins());
+        let art = dereth_launch::art::Shelf::open(folders.art());
         let mut secrets = SecretFile::new(folders.data.join(SECRETS_FILE));
         let mut vault = vault;
         // A world added for Auberean that was given a name of its own takes its saved passwords
@@ -791,6 +817,8 @@ impl Backend {
         }
         Self {
             plugins,
+            art,
+            art_progress: None,
             folders,
             state,
             dereth,
@@ -927,6 +955,8 @@ impl Backend {
             library_dir: self.library_dir().display().to_string(),
             interface: self.interface_view(),
             plugins: self.plugins.view(),
+            art: self.art.view(),
+            art_progress: self.art_progress.clone(),
         }
     }
 
@@ -1558,6 +1588,7 @@ impl Backend {
             extra_args: &extra_args,
             plugin_policy_file,
             plugins: self.offered_plugins(),
+            art_packs: self.art.stack(),
         };
         let plan = match plan(&req) {
             Ok(p) => p,
@@ -2188,6 +2219,218 @@ impl Backend {
     /// What stood in the way, in words for the page.
     pub fn remove_plugin(&mut self, id: &str) -> Result<(), String> {
         self.plugins.remove(id).map_err(|e| e.to_string())
+    }
+
+    // ----- art packs -----------------------------------------------------------------------------
+
+    /// Whether a Dereth client the launcher started is running, which may have the art packs open:
+    /// nothing replaces one while it does.
+    fn dereth_running(&self) -> bool {
+        self.running.iter().any(|r| r.kind == ClientKind::Dereth)
+    }
+
+    /// Read every art pack source's list again, then, while the Library's setting for added
+    /// optional components is on, update each installed pack with a newer version in its own
+    /// source (a thread's work: it fetches). Answers what is new, a line each: the packs a source
+    /// lists now that it did not, the updates made or waiting, and the sources that could not be
+    /// read. Empty when nothing is.
+    pub fn refresh_art(shared: &Shared, fetch: &Fetch<'_>, fetch_pack: &FetchPack<'_>) -> String {
+        let urls: Vec<String> = lock(shared)
+            .art
+            .sources
+            .iter()
+            .map(|s| s.url.clone())
+            .collect();
+        let mut said = Vec::new();
+        for url in urls {
+            let fetched = fetch(&url, dereth_launch::art::MAX_LIST);
+            let mut b = lock(shared);
+            let Ok(new) = b.art.record_read(&url, fetched, now()) else {
+                continue;
+            };
+            if let Some(s) = b.art.source(&url) {
+                if let Some(e) = &s.error {
+                    said.push(format!("{}: {e}", s.label()));
+                } else if !new.is_empty() {
+                    said.push(format!("New from {}: {}.", s.label(), new.join(", ")));
+                }
+            }
+        }
+        let (auto, waiting) = {
+            let b = lock(shared);
+            let pending = b.art.pending();
+            if pending.is_empty() {
+                (Vec::new(), Vec::new())
+            } else if !b.state.settings.update_components || b.dereth_running() {
+                (Vec::new(), pending)
+            } else {
+                (pending, Vec::new())
+            }
+        };
+        for p in auto {
+            match Self::fetch_art(shared, fetch_pack, None, &p.id) {
+                Ok(done) => said.push(done),
+                Err(e) => said.push(format!("{} could not update to {}: {e}", p.name, p.to)),
+            }
+        }
+        for p in waiting {
+            said.push(format!("{} {} is ready to update.", p.name, p.to));
+        }
+        said.join("\n")
+    }
+
+    /// At start: [`Backend::refresh_art`], and what it came to in the notice. A source that could
+    /// not be read says so on its own row, not in the notice.
+    pub fn refresh_art_at_start(shared: &Shared, fetch: &Fetch<'_>, fetch_pack: &FetchPack<'_>) {
+        let said = Self::refresh_art(shared, fetch, fetch_pack);
+        let lines: Vec<&str> = said
+            .lines()
+            .filter(|l| {
+                l.starts_with("New from")
+                    || l.starts_with("Updated")
+                    || l.contains("ready to update")
+                    || l.contains("could not update")
+            })
+            .collect();
+        if !lines.is_empty() {
+            lock(shared).say(format!("Art packs: {}", lines.join(" ")), false);
+        }
+    }
+
+    /// Add the art pack source at `url`, which the page has the player confirm first, and read its
+    /// list (a thread's work).
+    ///
+    /// # Errors
+    /// The address was refused, in words for the page.
+    pub fn add_art_source(shared: &Shared, fetch: &Fetch<'_>, url: &str) -> Result<String, String> {
+        let url = lock(shared)
+            .art
+            .add_source(url)
+            .map_err(|e| e.to_string())?;
+        let fetched = fetch(&url, dereth_launch::art::MAX_LIST);
+        let mut b = lock(shared);
+        b.art
+            .record_read(&url, fetched, now())
+            .map_err(|e| e.to_string())?;
+        let s = b.art.source(&url).ok_or("the source went away")?;
+        Ok(match &s.error {
+            Some(e) => format!("Added {url}, but its list could not be read: {e}"),
+            None => match s.catalog.packs.len() {
+                1 => format!("Added {}: 1 art pack.", s.label()),
+                n => format!("Added {}: {n} art packs.", s.label()),
+            },
+        })
+    }
+
+    /// Remove the art pack source at `url`; what was installed from it stays, with no updates.
+    ///
+    /// # Errors
+    /// Dereth's own source, or not a source.
+    pub fn remove_art_source(&mut self, url: &str) -> Result<(), String> {
+        self.art.remove_source(url).map_err(|e| e.to_string())
+    }
+
+    /// Install art pack `id` from `source`, or (with no source) update it from its own (a thread's
+    /// work: it downloads the pack, showing how far it has got). One at a time.
+    fn fetch_art(
+        shared: &Shared,
+        fetch_pack: &FetchPack<'_>,
+        source: Option<&str>,
+        id: &str,
+    ) -> Result<String, String> {
+        let plan = {
+            let mut b = lock(shared);
+            if b.art_progress.is_some() {
+                return Err("Another art pack is downloading.".into());
+            }
+            let plan = match source {
+                Some(source) => b.art.plan_install(source, id),
+                None => b.art.plan_update(id),
+            }
+            .map_err(|e| e.to_string())?;
+            let update = b.art.get(id).is_some();
+            if update && b.dereth_running() {
+                return Err(format!("Close Dereth to update {}.", plan.name));
+            }
+            b.art_progress = Some(ArtProgress {
+                id: plan.id.clone(),
+                name: plan.name.clone(),
+                version: plan.version.clone(),
+                done: 0,
+                total: plan.size,
+                update,
+            });
+            plan
+        };
+        let progress_to = shared.clone();
+        let fetched = fetch_pack(&plan, &move |done, total| {
+            if let Some(p) = lock(&progress_to).art_progress.as_mut() {
+                p.done = done;
+                p.total = total;
+            }
+        });
+        let mut b = lock(shared);
+        b.art_progress = None;
+        let (size, sha256) = fetched?;
+        if b.art.get(id).is_some() && b.dereth_running() {
+            return Err(format!("Close Dereth to update {}.", plan.name));
+        }
+        b.art
+            .finish(&plan, size, &sha256)
+            .map(|done| done.said())
+            .map_err(|e| e.to_string())
+    }
+
+    /// Install art pack `id` from `source` (a thread's work).
+    ///
+    /// # Errors
+    /// The download, or a check the pack failed, in words for the page.
+    pub fn install_art_pack(
+        shared: &Shared,
+        fetch_pack: &FetchPack<'_>,
+        source: &str,
+        id: &str,
+    ) -> Result<String, String> {
+        Self::fetch_art(shared, fetch_pack, Some(source), id)
+    }
+
+    /// Update art pack `id` from its own source (a thread's work).
+    ///
+    /// # Errors
+    /// Nothing newer, the download, or a check the pack failed.
+    pub fn update_art_pack(
+        shared: &Shared,
+        fetch_pack: &FetchPack<'_>,
+        id: &str,
+    ) -> Result<String, String> {
+        Self::fetch_art(shared, fetch_pack, None, id)
+    }
+
+    /// Remove art pack `id` and its file.
+    ///
+    /// # Errors
+    /// Not installed, a Dereth client is running, or its folder could not be deleted.
+    pub fn remove_art_pack(&mut self, id: &str) -> Result<(), String> {
+        if self.dereth_running() {
+            return Err("Close Dereth to remove an art pack.".into());
+        }
+        self.art.remove(id).map_err(|e| e.to_string())
+    }
+
+    /// Turn art pack `id` on or off, for the next client started.
+    ///
+    /// # Errors
+    /// Not installed.
+    pub fn set_art_pack_on(&mut self, id: &str, on: bool) -> Result<(), String> {
+        self.art.set_on(id, on).map_err(|e| e.to_string())
+    }
+
+    /// Move art pack `id` one place: `up` so it wins over one more, or down.
+    ///
+    /// # Errors
+    /// Not installed.
+    pub fn move_art_pack(&mut self, id: &str, up: bool) -> Result<(), String> {
+        self.art.move_pack(id, up).map_err(|e| e.to_string())
     }
 
     /// Which plugins update without the player: `none`, `all` or `first_party`.
@@ -3106,6 +3349,126 @@ mod tests {
     /// The Plugins page's flow over a fake network: Dereth's own source is read, a plugin is
     /// installed from it, another source is added and read at once, and a check for
     /// updates applies Dereth's own plugin's update on its own while one that asks for more waits.
+    /// An art pack is fetched into its own file and checked, and the client is given the packs
+    /// that are on, in their order. An installed pack updates on its own only while the Library's
+    /// setting to update components is on; off, the update waits for the player.
+    #[test]
+    fn art_packs_install_reach_the_client_in_order_and_update_as_the_setting_says() {
+        use dereth_launch::art::FIRST_PARTY as ART;
+        use dereth_launch::testing::{art_list, art_pack};
+        let (b, dir) = backend("art-packs");
+        let shared: Shared = Arc::new(Mutex::new(b));
+        let at = ART.trim_end_matches("art.json");
+        let serve = |packs: &[&[u8]]| {
+            let mut files = vec![(ART.to_owned(), art_list(packs))];
+            for p in packs {
+                let bytes = p.to_vec();
+                let id = String::from_utf8_lossy(&bytes)
+                    .split("id = \"")
+                    .nth(1)
+                    .and_then(|r| r.split('"').next())
+                    .unwrap()
+                    .to_owned();
+                files.push((format!("{at}{id}.dat"), bytes));
+            }
+            files
+        };
+        let fetch_pack = |files: &[(String, Vec<u8>)]| {
+            let files = files.to_vec();
+            move |d: &dereth_launch::art::Download, progress: &dyn Fn(u64, u64)| {
+                let bytes = files
+                    .iter()
+                    .find(|(u, _)| *u == d.url)
+                    .map(|(_, b)| b.clone())
+                    .ok_or_else(|| format!("{} was not found (404)", d.url))?;
+                std::fs::create_dir_all(d.partial.parent().unwrap()).unwrap();
+                std::fs::write(&d.partial, &bytes).unwrap();
+                progress(bytes.len() as u64, d.size);
+                Ok((
+                    bytes.len() as u64,
+                    dereth_plugin_package::catalog::sha256_hex(&bytes),
+                ))
+            }
+        };
+        let (trees1, rocks1) = (
+            art_pack("network.dereth.trees", "1.0.0"),
+            art_pack("network.dereth.rocks", "1.0.0"),
+        );
+        let files = serve(&[&trees1, &rocks1]);
+        let served = Served::new(
+            &files
+                .iter()
+                .map(|(u, b)| (u.as_str(), b.clone()))
+                .collect::<Vec<_>>(),
+        );
+        let fetch = |u: &str, l: usize| served.fetch(u, l);
+        let packs = fetch_pack(&files);
+        assert_eq!(Backend::refresh_art(&shared, &fetch, &packs), "");
+        assert_eq!(lock(&shared).snapshot().art.available.len(), 2);
+        for id in ["network.dereth.trees", "network.dereth.rocks"] {
+            let said = Backend::install_art_pack(&shared, &packs, ART, id);
+            assert_eq!(said, Ok(format!("Installed {id} 1.0.0.")));
+        }
+        assert!(lock(&shared).snapshot().art_progress.is_none());
+        let stack = lock(&shared).art.stack();
+        let art = dir.join("state").join("art");
+        assert_eq!(
+            stack,
+            [
+                art.join("network.dereth.trees").join("current.dat"),
+                art.join("network.dereth.rocks").join("current.dat")
+            ]
+        );
+        lock(&shared)
+            .move_art_pack("network.dereth.trees", true)
+            .unwrap();
+        lock(&shared)
+            .set_art_pack_on("network.dereth.rocks", false)
+            .unwrap();
+        assert_eq!(
+            lock(&shared).art.stack(),
+            [art.join("network.dereth.trees").join("current.dat")]
+        );
+
+        // A newer trees: with the setting off it waits; on, it is fetched.
+        let trees2 = art_pack("network.dereth.trees", "1.1.0");
+        let files = serve(&[&trees2, &rocks1]);
+        let served = Served::new(
+            &files
+                .iter()
+                .map(|(u, b)| (u.as_str(), b.clone()))
+                .collect::<Vec<_>>(),
+        );
+        let fetch = |u: &str, l: usize| served.fetch(u, l);
+        let packs = fetch_pack(&files);
+        lock(&shared).set_update_components(false);
+        let said = Backend::refresh_art(&shared, &fetch, &packs);
+        assert_eq!(said, "network.dereth.trees 1.1.0 is ready to update.");
+        assert_eq!(
+            lock(&shared)
+                .art
+                .get("network.dereth.trees")
+                .unwrap()
+                .release
+                .version,
+            "1.0.0"
+        );
+        lock(&shared).set_update_components(true);
+        let said = Backend::refresh_art(&shared, &fetch, &packs);
+        assert_eq!(said, "Updated network.dereth.trees to 1.1.0.");
+        assert_eq!(
+            lock(&shared)
+                .art
+                .get("network.dereth.trees")
+                .unwrap()
+                .release
+                .version,
+            "1.1.0"
+        );
+        assert_eq!(Backend::refresh_art(&shared, &fetch, &packs), "");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     #[test]
     fn plugins_install_from_sources_and_update_as_the_setting_says() {
         use dereth_launch::testing::{plugin_list, plugin_zip};

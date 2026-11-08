@@ -1113,8 +1113,8 @@ mod imp {
         }
 
         #[cfg(feature = "remaster")]
-        fn offer_art_pack(&mut self, dir: &std::path::Path) {
-            SceneRenderer::offer_art_pack(self, dir);
+        fn offer_art_packs(&mut self, packs: &[std::path::PathBuf]) {
+            SceneRenderer::offer_art_packs(self, packs);
         }
 
         #[cfg(feature = "remaster")]

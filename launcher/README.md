@@ -211,6 +211,33 @@ logic is `dereth-launch`'s `plugins` module; the files are under the launcher's 
 `plugins` (`sources.json`, which also keeps the folders on this computer and those it keeps the
 tool in, `installed.json`, a folder per plugin).
 
+## Art packs
+
+The Library's **Art packs** install art packs for the Dereth client's Remaster from art pack sources,
+each an `art.json` at an `https://` address listing packs at their latest version
+([`docs/art/sources.md`](../docs/art/sources.md)); making a pack is in
+[`docs/art/README.md`](../docs/art/README.md). Dereth's own source,
+`https://art.dereth.network/art.json`, is there from the start, with nothing installed; the player
+adds others by their address, once they confirm it, and removes them. A pack's row opens to what it
+is, who made it, its license and the data it was made for.
+
+A pack runs to 2 GiB, so it is streamed to a file beside where it is kept, hashed as it comes, after
+the launcher checks the disk has room. A download that stops part way goes on from where it stopped
+the next time, when the host answers ranges. The file is kept only when its size and SHA-256 are
+the ones its source lists and the pack inside names the id, the version and the content hash the
+entry lists; an id under `network.dereth.` installs only from Dereth's source. An installed pack
+updates only from its own source, to a higher version: by hand, or at start and on **Refresh**
+while **Automatically update components** is on. Nothing is replaced or removed
+while a Dereth client the launcher started is running.
+
+The installed packs are kept in an order, and each is on or off. The client is given those that are
+on with `--art-pack`, once each, the lowest first, and where two replace the same object, ground,
+retail picture or lighting key, the higher one wins. A new pack goes to the top. Packs are the
+player's, not a world's: every world the Dereth client plays draws them. The logic is
+`dereth-launch`'s `art` module, over `dereth-art-catalog`; the files are under the launcher's data
+folder, in `art` (`sources.json`, `installed.json` in the stack's order, a folder per pack holding
+its `current.dat`).
+
 ## Updates
 
 At start a release asks GitHub's API for the repository's releases and picks the newest launcher

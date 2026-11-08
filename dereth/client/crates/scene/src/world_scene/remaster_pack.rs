@@ -8,8 +8,8 @@
 //!   its part's color factor;
 //! - a part's material becomes a surface: its base color picture, its cut, both its faces where
 //!   it is foliage or two-sided, drawn under its vertices' colors;
-//! - a picture becomes a texture. A cut-out picture is made again from its file when the pack is a
-//!   folder, its cut-away texels filled from its edge first
+//! - a picture becomes a texture. A cut-out picture is made again from its file when the pack it
+//!   came from is a folder, its cut-away texels filled from its edge first
 //!   ([`dereth_remaster::assets::pack::fill_cut_away`]), on a thread of its own from when the pack
 //!   is given, and kept; any other picture is taken as the pack made it.
 //!
@@ -94,7 +94,8 @@ impl dereth_remaster::scene::FarPictures for PackFarPictures {
 pub(crate) struct PackAssets {
     pack: Arc<ArtPack>,
     /// The folder it was opened from, when it is one: its cut-out pictures are made again from
-    /// their files.
+    /// their files. A picture whose source names a folder of its own (a stack's) is made from
+    /// that one.
     folder: Option<PathBuf>,
     /// Each model's place in the pack, by the retail object it stands for.
     by_id: HashMap<u32, u32>,
@@ -136,7 +137,8 @@ impl PackAssets {
             })
             .collect();
         let filled = Arc::new(Mutex::new(HashMap::new()));
-        if let Some(folder) = folder.clone() {
+        if folder.is_some() || pack.image_sources.iter().any(|s| s.folder.is_some()) {
+            let folder = folder.clone();
             // Every cut-out picture made again ahead of the frames that will want it.
             let (pack, filled) = (Arc::clone(&pack), Arc::clone(&filled));
             let made = std::thread::Builder::new()
@@ -155,7 +157,10 @@ impl PackAssets {
                         if have {
                             continue;
                         }
-                        if let Ok(image) = Self::filled(&folder, &s.path, s.srgb, s.cutoff) {
+                        let Some(folder) = s.folder.as_ref().or(folder.as_ref()) else {
+                            continue;
+                        };
+                        if let Ok(image) = Self::filled(folder, &s.path, s.srgb, s.cutoff) {
                             if let Ok(mut f) = filled.lock() {
                                 f.entry(k).or_insert_with(|| Arc::new(image));
                             }
@@ -557,7 +562,8 @@ impl PackAssets {
         }
         let made = self.pack.images.get(k as usize)?;
         let source = self.pack.image_sources.get(k as usize);
-        match (source, self.folder.as_ref()) {
+        let folder = source.and_then(|s| s.folder.as_ref().or(self.folder.as_ref()));
+        match (source, folder) {
             (Some(s), Some(folder)) if s.cutoff.is_some() && !s.views => {
                 // A cut-out picture made again from its file, its cut-away texels filled first:
                 // as the thread made it, or here when it has not yet.

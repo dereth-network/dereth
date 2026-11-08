@@ -12,6 +12,13 @@
 //! [pack]
 //! name = "Remastered"
 //! format = 1
+//! id = "network.dereth.remastered"   # what a source lists it by; see below
+//! version = "1.0.0"
+//! description = "Trees, plants and rocks made again."
+//! authors = ["..."]
+//! license = "CC-BY-4.0"
+//! homepage = "https://..."
+//! made_for = ["end-of-retail", "1999"]
 //!
 //! [[model]]
 //! id = "0x02000258"          # a setup (0x02...) or a graphics object (0x01...)
@@ -118,6 +125,14 @@
 //! The manifest keeps the section's text ([`ArtPackManifest::lighting`]); what reads looks reads
 //! it.
 //!
+//! **What a source lists the pack by** ([`About`]): `id`, `version`, `description`, `authors`,
+//! `license`, `homepage` and `made_for` in `[pack]`, which a pack needs only to be listed by an
+//! art pack source (`dereth-art-catalog`); a pack opened from its folder or its file needs
+//! none of them. The id is lowercase words joined by dots, its author's own domain reversed and
+//! a name (`com.example.holtburg-houses`); the version is `MAJOR.MINOR.PATCH`; `made_for` names
+//! the data the pack's ids are chosen from, `end-of-retail` or `1999` (a pack only replaces
+//! things by their ids, so it draws on any world whose data has them).
+//!
 //! This module reads the manifest only. The models and their pictures are read by whatever
 //! draws them.
 
@@ -134,6 +149,8 @@ pub const MANIFEST_FILE: &str = "manifest.toml";
 pub struct ArtPackManifest {
     /// The pack's name.
     pub name: String,
+    /// What a source lists it by, where it says.
+    pub about: About,
     /// Its models, in the order the manifest lists them.
     pub models: Vec<ManifestModel>,
     /// Its ground materials, in the order the manifest lists them.
@@ -143,6 +160,111 @@ pub struct ArtPackManifest {
     /// Its `[lighting]` section, as the text of a look file: its keys at the top and each kind
     /// of day's table under its own name. `None` when it has none.
     pub lighting: Option<String>,
+}
+
+/// What an art pack source lists a pack by: the optional keys of its `[pack]` table. Each is
+/// empty where the manifest leaves it out.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct About {
+    /// Lowercase words joined by dots (`com.example.holtburg-houses`).
+    pub id: String,
+    /// `MAJOR.MINOR.PATCH`.
+    pub version: String,
+    pub description: String,
+    pub authors: Vec<String>,
+    /// The license the pack as a whole is under; each model's own credit says its own.
+    pub license: String,
+    pub homepage: String,
+    /// The data its ids are chosen from: `end-of-retail`, `1999`.
+    pub made_for: Vec<String>,
+}
+
+/// The data a pack's ids may be chosen from ([`About::made_for`]).
+pub const MADE_FOR: [&str; 2] = ["end-of-retail", "1999"];
+
+/// Whether `id` is a pack id: lowercase words of letters, digits and `-`, joined by dots, at
+/// least two of them, at most 128 bytes in all.
+#[must_use]
+pub fn is_pack_id(id: &str) -> bool {
+    let word = |w: &str| {
+        !w.is_empty()
+            && !w.starts_with('-')
+            && !w.ends_with('-')
+            && w.bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+    };
+    id.len() <= 128 && id.split('.').count() >= 2 && id.split('.').all(word)
+}
+
+/// Whether `version` is `MAJOR.MINOR.PATCH`, three whole numbers with no leading zero.
+#[must_use]
+pub fn is_pack_version(version: &str) -> bool {
+    let mut parts = version.split('.');
+    let number = |p: Option<&str>| {
+        p.is_some_and(|p| {
+            !p.is_empty()
+                && p.len() <= 9
+                && p.bytes().all(|b| b.is_ascii_digit())
+                && (p == "0" || !p.starts_with('0'))
+        })
+    };
+    number(parts.next()) && number(parts.next()) && number(parts.next()) && parts.next().is_none()
+}
+
+fn about(pack: &toml::Table) -> Result<About, ManifestError> {
+    let text = |key: &str| -> Result<String, ManifestError> {
+        match pack.get(key) {
+            None => Ok(String::new()),
+            Some(toml::Value::String(s)) => Ok(s.trim().to_owned()),
+            Some(_) => fail(format!("[pack] {key} is not text")),
+        }
+    };
+    let list = |key: &str| -> Result<Vec<String>, ManifestError> {
+        match pack.get(key) {
+            None => Ok(Vec::new()),
+            Some(toml::Value::String(s)) => Ok(vec![s.trim().to_owned()]),
+            Some(toml::Value::Array(a)) => a
+                .iter()
+                .map(|v| match v {
+                    toml::Value::String(s) => Ok(s.trim().to_owned()),
+                    _ => fail(format!("[pack] {key} is not a list of text")),
+                })
+                .collect(),
+            Some(_) => fail(format!("[pack] {key} is not a list of text")),
+        }
+    };
+    let about = About {
+        id: text("id")?,
+        version: text("version")?,
+        description: text("description")?,
+        authors: list("authors")?,
+        license: text("license")?,
+        homepage: text("homepage")?,
+        made_for: list("made_for")?,
+    };
+    if !about.id.is_empty() && !is_pack_id(&about.id) {
+        return fail(format!(
+            "[pack] id {:?} is not lowercase words joined by dots",
+            about.id
+        ));
+    }
+    if !about.version.is_empty() && !is_pack_version(&about.version) {
+        return fail(format!(
+            "[pack] version {:?} is not MAJOR.MINOR.PATCH",
+            about.version
+        ));
+    }
+    if let Some(bad) = about
+        .made_for
+        .iter()
+        .find(|m| !MADE_FOR.contains(&m.as_str()))
+    {
+        return fail(format!(
+            "[pack] made_for names {bad:?}, not {}",
+            MADE_FOR.join(" or ")
+        ));
+    }
+    Ok(about)
 }
 
 /// One material drawn in place of retail pictures: the pictures it stands for and its own.
@@ -331,6 +453,7 @@ impl ArtPackManifest {
             .and_then(toml::Value::as_str)
             .unwrap_or_default()
             .to_owned();
+        let about = about(pack)?;
         let empty = Vec::new();
         let listed = match table.get("model") {
             None => &empty,
@@ -403,6 +526,7 @@ impl ArtPackManifest {
         };
         Ok(Self {
             name,
+            about,
             models,
             grounds,
             materials,
@@ -1204,5 +1328,37 @@ license = \"CC0-1.0\"
         assert!(back.get("pack").is_none() && back.get("model").is_none());
         let wrong = format!("lighting = 3\n{PILOT}");
         assert!(ArtPackManifest::parse(&wrong).is_err());
+    }
+
+    #[test]
+    fn a_packs_listing_keys_are_read_when_named_and_refused_when_malformed() {
+        let head = "[pack]\nname = \"Houses\"\nformat = 1\n";
+        let plain = ArtPackManifest::parse(head).expect("reads");
+        assert_eq!(plain.about, About::default(), "none of them is needed");
+        let named = ArtPackManifest::parse(&format!(
+            "{head}id = \"com.example.houses\"\nversion = \"0.10.2\"\nauthors = \"Ann\"\n\
+             license = \"CC0-1.0\"\nmade_for = [\"1999\"]\ndescription = \" Roofs. \"\n"
+        ))
+        .expect("reads");
+        assert_eq!(named.about.id, "com.example.houses");
+        assert_eq!(named.about.version, "0.10.2");
+        assert_eq!(named.about.authors, ["Ann"]);
+        assert_eq!(named.about.license, "CC0-1.0");
+        assert_eq!(named.about.made_for, ["1999"]);
+        assert_eq!(named.about.description, "Roofs.");
+        for bad in [
+            "id = \"Houses\"",
+            "id = \"houses\"",
+            "id = \"com..houses\"",
+            "version = \"1.0\"",
+            "version = \"01.0.0\"",
+            "made_for = [\"2005\"]",
+            "authors = 3",
+        ] {
+            assert!(
+                ArtPackManifest::parse(&format!("{head}{bad}\n")).is_err(),
+                "{bad}"
+            );
+        }
     }
 }

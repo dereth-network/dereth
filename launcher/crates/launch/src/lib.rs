@@ -6,7 +6,9 @@
 //! layout, the client's contract (`dereth-client-contract`), for the client's preferences file
 //! and the interface it names, the client's input crate (`dereth-input`), for a pad's state as
 //! the client reads it, the plugin packages crate (`dereth-plugin-package`), for the plugins it
-//! installs and the lists of the sources it installs them from, and the plugin interface
+//! installs and the lists of the sources it installs them from, the art pack source list
+//! (`dereth-art-catalog`) and the asset formats (`dereth-assets`), for the art packs it installs
+//! and the packed file each is, and the plugin interface
 //! (`dereth-plugin-api`), for the client's plugin API version and plugins' versions, the
 //! plugin template (`dereth-plugin-template`), for which folders of a plugin repository hold its
 //! plugins, and Asheron's Call 2's friends stream (`auberean-friends`), for the greeting that asks
@@ -57,6 +59,7 @@
 //! | [`local`] | the worlds already running on this computer, recognized from their processes, and where each keeps its configuration, data and logs, and an Empyrean world's admin channel |
 //! | [`outside`] | asking the Dereth Network's hub to try a hosted world from outside, and its answer |
 //! | [`plugins`] | the plugins it installs for the Dereth client: the sources it reads them from, what each lists, installing and updating them |
+//! | [`art`] | the art packs it installs for the Dereth client: their sources, installing and updating them, and the order they are drawn in |
 //! | [`join`] | a join link (`dereth://join?...`, or the site's page for it): a world to add, and the scheme's registration |
 //!
 //! The launcher's window is one front end over this. The web client's front page is another: it
@@ -65,6 +68,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod art;
 pub mod auberean;
 pub mod built_in;
 pub mod check;

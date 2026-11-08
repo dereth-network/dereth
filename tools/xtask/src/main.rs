@@ -1,9 +1,11 @@
 //! The workspace task runner: the gate tiers, the clippy policy, the seams and the checks clippy
 //! cannot express.
 //!
-//! **Depends on** two of the workspace's crates: `dereth-dat`, for the tests' lookup of the retail
-//! dats (`dereth_dat::testing`), and `dereth-plugin-package`, to pack and list Dereth's own plugin
-//! source (`package plugins`); otherwise it runs `cargo` and reads the workspace's files.
+//! **Depends on** four of the workspace's crates: `dereth-dat`, for the tests' lookup of the retail
+//! dats (`dereth_dat::testing`); `dereth-plugin-package`, to pack and list Dereth's own plugin
+//! source (`package plugins`); and `dereth-assets` and `dereth-art-catalog`, to read packed art packs
+//! and list Dereth's own art pack source (`package art`). Otherwise it runs `cargo` and reads the
+//! workspace's files.
 //! **Used by**
 //! nothing: it is the `cargo xtask` binary (the alias is in `.cargo/config.toml`).
 //!
@@ -198,6 +200,12 @@ Release and packaging:
                             Dereth's plugin source: each sample of dereth/plugins packed into a zip
                             and listed in plugins.json, as the web release publishes it beside
                             the page (docs/plugins/sources.md)
+  package art [--packs <dir>] [--out <dir>] [--guide]
+                            Dereth's art pack source: the packed packs of --packs (or
+                            DERETH_ART_PACKS) listed in art.json with each file beside it, by
+                            dereth/art/source.toml, and with --guide the guide to making a pack
+                            as its front page
+                            (docs/art/sources.md)
   publish drafts [<tag>...] [--wait] [--repo <owner/name>] [--yes]
                             publish the whole drafts the release workflows left, Dereth's final
                             release as Latest; --wait stays until the tags named (else those on
@@ -221,6 +229,11 @@ Release and packaging:
                             of https://plugins.dereth.network/plugins.json: built from a commit
                             main has (a branch's with --force), with its _headers; the project is
                             --project or DERETH_PLUGINS_PAGES_PROJECT (docs/plugins/sources.md)
+  deploy art [--packs <dir>] [--guide] [--project <name>] [--force] [--uploaded] [--dry-run]
+                            put Dereth's art pack source on its Cloudflare Pages project, the
+                            host of https://art.dereth.network/art.json, as deploy plugins does;
+                            a pack too large for it is uploaded to the source's files_url first
+                            (--uploaded); the project is --project or DERETH_ART_PAGES_PROJECT
   release empyrean|dereth|lyceum|auberean|yalain|athenaeum <version> [--push] [--remote <name>]
                             cut a release on a clean main: set the version and commit it, run
                             tier 0 (and, for Asheron's Call 2's products, tier 1 --game auberean

@@ -227,6 +227,48 @@
     const automatic = allowed && !needs_newer_dereth && !new_permissions.length && !new_domains.length;
     return { id: p.id, name: e.name, from: p.version, to: e.version, notes: e.notes, released: e.released, size: e.size, needs_newer_dereth, new_permissions, new_domains, automatic };
   };
+  // The art packs, as the backend keeps them: the sources' lists, and what is installed in the
+  // stack's order, the last winning.
+  const ART_FIRST_PARTY = "https://art.dereth.network/art.json";
+  const artRelease = (name, version, size, description) => ({ name, version, sha256: "0".repeat(64), size, hash: "", description, authors: ["Dereth"], license: "CC-BY-4.0", homepage: "", made_for: ["end-of-retail", "1999"], released: "2026-11-08", notes: "" });
+  const artSources = [{ url: ART_FIRST_PARTY, name: "Dereth", first_party: true, error: null, skipped: [],
+    packs: { "network.dereth.remastered": artRelease("Remastered", "1.0.0", 1176519680, "Trees, plants and rocks made again."),
+      "network.dereth.holtburg": artRelease("Holtburg Houses", "0.2.0", 48234496, "Holtburg's houses with new roofs and walls.") } }];
+  const artInstalled = [];
+  const artView = () => ({
+    sources: artSources.map((x) => ({ url: x.url, name: x.name, first_party: x.first_party, packs: Object.keys(x.packs).length, error: x.error, skipped: x.skipped })),
+    installed: [...artInstalled].reverse().map((p) => ({ ...p, source_name: artSources.find((x) => x.url === p.source)?.name ?? "removed", source_removed: !artSources.some((x) => x.url === p.source), update: null })),
+    available: artSources.flatMap((x) => Object.entries(x.packs).filter(([id]) => !artInstalled.some((p) => p.id === id))
+      .map(([id, release]) => ({ id, source: x.url, source_name: x.name, installable: !id.startsWith("network.dereth.") || x.first_party, release }))),
+  });
+  const artDemo = () => ({
+    refresh_art: () => "",
+    add_art_source: ({ url }) => {
+      url = url.trim();
+      if (!/^https:\/\/[^/\s]+/i.test(url)) throw `${url} is not an https:// address`;
+      if (artSources.some((x) => x.url === url)) throw `${url} is a source already`;
+      artSources.push({ url, name: new URL(url).host, first_party: false, error: null, skipped: [], packs: { "org.example.bushes": artRelease("Bushes", "1.0.0", 9437184, "Just the bushes.") } });
+      return `Added ${new URL(url).host}: 1 art pack.`;
+    },
+    remove_art_source: ({ url }) => {
+      if (url === ART_FIRST_PARTY) throw "Dereth's own source can't be removed";
+      artSources.splice(artSources.findIndex((x) => x.url === url), 1);
+    },
+    install_art_pack: ({ source, id }) => {
+      const release = artSources.find((x) => x.url === source).packs[id];
+      artInstalled.push({ id, source, release, on: true });
+      return `Installed ${release.name} ${release.version}.`;
+    },
+    update_art_pack: ({ id }) => { throw `${artInstalled.find((p) => p.id === id)?.release.name ?? id} is up to date`; },
+    remove_art_pack: ({ id }) => { artInstalled.splice(artInstalled.findIndex((p) => p.id === id), 1); },
+    set_art_pack_on: ({ id, on }) => { artInstalled.find((p) => p.id === id).on = on; },
+    move_art_pack: ({ id, up }) => {
+      const at = artInstalled.findIndex((p) => p.id === id);
+      const to = up ? Math.min(at + 1, artInstalled.length - 1) : Math.max(at - 1, 0);
+      [artInstalled[at], artInstalled[to]] = [artInstalled[to], artInstalled[at]];
+    },
+  });
+
   const pluginsView = () => ({
     sources: pluginSources.map((s) => ({ url: s.url, name: s.name, first_party: s.url === FIRST_PARTY, error: s.error, plugins: s.entries.length, skipped: s.skipped })),
     // As the backend: an installed plugin is not offered again, by any source.
@@ -568,6 +610,9 @@
     open_athenaeum: () => { message = { kind: "info", text: "The app opens Athenaeum here." }; },
     choose_athenaeum_world: () => {},
     open_athenaeum_folder: () => {},
+    // As the backend's art packs: Dereth's own source lists two, nothing is installed at first,
+    // and an install lands at the top of the stack.
+    ...artDemo(),
     snapshot: () => ({
       hosts, components, local: looked ? local : [], sharing, join_waiting: !!join, worlds: allWorlds(), list_state: "loaded", list_error: null, list_fetched_at: Math.floor(Date.now() / 1000) - 3600, eras, features,
       state: structuredClone(state), dereth, auberean, running: [], job, message,
@@ -575,6 +620,8 @@
       update: { kind: "none" }, version: "0.1.0", shortcut: platform !== "macos", development,
       interface: { chosen: chosenInterface, offers: interfaceOffers, file: "C:\\Users\\you\\AppData\\Roaming\\Dereth\\client\\UserPreferences.ini" },
       plugins: pluginsView(),
+      art: artView(),
+      art_progress: null,
     }),
     refresh: () => {},
     // As the backend: the updates the setting lets apply are applied, and the rest are told.

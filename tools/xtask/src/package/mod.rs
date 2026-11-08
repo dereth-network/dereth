@@ -30,6 +30,7 @@
 //! fixed permissions.
 
 pub(crate) mod archive;
+pub mod art;
 pub mod athenaeum;
 pub mod auberean;
 pub mod declaration;
@@ -40,6 +41,7 @@ mod guard;
 mod headers;
 pub mod launcher;
 pub mod lyceum;
+mod markdown;
 mod notice;
 pub mod plugins;
 pub(crate) mod sign;
@@ -459,6 +461,9 @@ pub fn package(args: &[String]) -> i32 {
     }
     if args.first().map(String::as_str) == Some("plugins") {
         return plugins::package(&args[1..]);
+    }
+    if args.first().map(String::as_str) == Some("art") {
+        return art::package(&args[1..]);
     }
     if args.first().map(String::as_str) == Some("friends-dll") {
         return friends_dll::package(&args[1..]);

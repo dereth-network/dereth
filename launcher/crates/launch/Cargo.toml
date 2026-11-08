@@ -28,6 +28,10 @@ ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
 # A dat's identity and iteration count, read through the data-file crate's own container reader,
 # which knows both layouts: the files from before Throne of Destiny and the later ones.
 dereth-dat.workspace = true
+# Art packs the launcher installs: the lists art pack sources publish, and a packed pack's manifest,
+# read as the client reads them.
+dereth-art-catalog.workspace = true
+dereth-assets.workspace = true
 # Plugin packages the launcher installs: their zips and manifests, read as the client reads them,
 # and the lists plugin sources publish.
 dereth-plugin-package.workspace = true

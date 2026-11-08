@@ -94,13 +94,10 @@ mod imp {
         /// look with them.
         object_identity:
             Option<std::sync::Arc<dereth_client_runtime::object_identity::ObjectIdentity>>,
-        /// The art pack the application named ([`Self::offer_art_pack`]), once it is open: every
+        /// The art pack the application named ([`Self::offer_art_packs`]), once it is open: every
         /// world loaded after is baked for it, and the remaster draws it as its switches say.
         #[cfg(feature = "remaster")]
         art_pack: Option<std::sync::Arc<crate::art_pack::ArtPack>>,
-        /// Where that pack was opened from.
-        #[cfg(feature = "remaster")]
-        art_pack_path: Option<std::path::PathBuf>,
         /// The marks drawn in the world this frame, after it and against its depth. The front
         /// end replaces them every frame.
         pub world_marks: Vec<crate::marks::WorldMark>,
@@ -308,8 +305,6 @@ mod imp {
                 object_identity: None,
                 #[cfg(feature = "remaster")]
                 art_pack: None,
-                #[cfg(feature = "remaster")]
-                art_pack_path: None,
                 world_marks: Vec::new(),
                 marks_white: None,
                 #[cfg(feature = "remaster")]
@@ -343,7 +338,8 @@ mod imp {
             #[cfg(feature = "remaster")]
             scene.set_remaster_look_file(self.look_file.clone());
             #[cfg(feature = "remaster")]
-            scene.set_remaster_pack(self.art_pack.clone(), self.art_pack_path.clone());
+            // Each picture names the folder of the pack it came from, if any.
+            scene.set_remaster_pack(self.art_pack.clone(), None);
             if cfg.character {
                 // The region is re-read rather than threaded through `load`: it is one
                 // record, the data cache memoises it in the client, and keeping `load`'s signature is
@@ -491,36 +487,38 @@ mod imp {
             self.world.as_mut()
         }
 
-        /// Open the art pack at `path`, a folder or the file it was packed into, for every world
-        /// loaded from now on. A pack that will not open (a packed file that is damaged among
-        /// them) is reported and the world is drawn without one; a model of it that will not read
-        /// is reported and left out.
+        /// Open the art packs at `paths`, each a folder or the file it was packed into, bottom
+        /// first, as one stack for every world loaded from now on: a later pack's models,
+        /// grounds, materials and lighting win over an earlier one's. A pack that will not open
+        /// (a packed file that is damaged among them) is reported and left out, and with none the
+        /// world is drawn without one; a model that will not read is reported and left out.
         #[cfg(feature = "remaster")]
-        pub fn offer_art_pack(&mut self, path: &Path) {
+        pub fn offer_art_packs(&mut self, paths: &[std::path::PathBuf]) {
             let started = web_time::Instant::now();
-            match crate::art_pack::ArtPack::open_path(path) {
+            let from = paths
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            match crate::art_pack::ArtPack::open_stack(paths) {
                 Ok(pack) => {
                     for problem in &pack.problems {
-                        tracing::warn!("art pack {}: {problem}", path.display());
+                        tracing::warn!("art pack {from}: {problem}");
                     }
                     tracing::info!(
                         "art pack {:?} from {}: {} models, {} triangles, {} pictures, opened in \
                          {:.2} s",
                         pack.name,
-                        path.display(),
+                        from,
                         pack.models.len(),
                         pack.triangles(),
                         pack.images.len(),
                         started.elapsed().as_secs_f64()
                     );
                     self.art_pack = Some(std::sync::Arc::new(pack));
-                    #[cfg(feature = "remaster")]
-                    {
-                        self.art_pack_path = Some(path.to_path_buf());
-                    }
                 }
                 Err(e) => {
-                    tracing::warn!("the art pack {} is not drawn: {e}", path.display());
+                    tracing::warn!("the art pack {from} is not drawn: {e}");
                 }
             }
         }

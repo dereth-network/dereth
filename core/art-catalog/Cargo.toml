@@ -1,0 +1,15 @@
+[package]
+name = "dereth-art-catalog"
+description = "The list an art pack source publishes, art.json: one JSON file at a stable HTTPS address listing many art packs, each at its latest version, with where its packed file is and the file's SHA-256; read, written, and a downloaded file checked against it."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+dereth-assets.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

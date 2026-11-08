@@ -32,6 +32,9 @@ const ui = {
   // first), and the new plugin being made: its name, its GitHub repository and what the last one
   // made was.
   plugin: { add: "", confirm: false, search: "", busy: null, open: null, folded: { installed: false, available: true, sources: true, build: true }, make: { name: "", github: "", made: null } },
+  // The Library's art packs: the source being added and whether it waits to be confirmed, the
+  // slow call under way, and the one open row.
+  art: { add: "", confirm: false, busy: null, open: null },
   screen: "home",          // home | worlds | world | library | accounts | plugins | first-run | interface
   realm: "dereth",         // the game the page is about: dereth | auberean
   snap: null,
@@ -1528,7 +1531,9 @@ function statusArea() {
   const updating = up.kind === "downloading" || up.kind === "ready";
   // The programs the launcher updates on its own, the same way.
   const autos = offered("downloads") ? (s.components ?? []).filter((c) => c.auto) : [];
-  if (!job && !msg && !updating && !autos.length) return "";
+  // An art pack being fetched.
+  const art = s.art_progress;
+  if (!job && !msg && !updating && !autos.length && !art) return "";
   let html = `<div class="status panel">`;
   if (up.kind === "downloading") {
     const frac = up.total ? Math.min(1, up.done / up.total) : null;
@@ -1538,6 +1543,11 @@ function statusArea() {
     html += `<div class="line"><span>Dereth Network ${esc(up.version)} is ready.</span><button class="btn" data-act="restart-update">Restart to update</button></div>`;
   }
   for (const c of autos) html += autoUpdateLines(c);
+  if (art) {
+    const frac = art.total ? Math.min(1, art.done / art.total) : null;
+    html += `<div class="bar ${frac == null ? "sweep" : ""}"><i style="width:${frac == null ? 33 : (frac * 100).toFixed(1)}%"></i></div>
+      <div class="line"><span>Downloading ${esc(art.name)} ${esc(art.version)}${frac == null ? "..." : `  ${Math.round(frac * 100)}%`}</span></div>`;
+  }
   if (job) {
     const frac = job.total ? Math.min(1, job.done / job.total) : null;
     html += `<div class="bar ${frac == null ? "sweep" : ""}"><i style="width:${frac == null ? 33 : (frac * 100).toFixed(1)}%"></i></div>`;
@@ -2168,11 +2178,110 @@ function library() {
         <div class="scroll">${retailHere() ? `<h2>RETAIL CLIENT</h2><div class="list">${retail}</div>` : ""}
           ${client}
           ${sets}
+          ${!ac2Realm && ui.snap.art ? artPacks() : ""}
           ${host.librarySections?.(ui.snap) ?? ""}
           ${offered("downloads") ? `<h2>UPDATES</h2><div class="list">${updatesRow()}</div>` : ""}
           ${offered("discord") ? `<h2>DISCORD</h2><div class="list">${discordRow()}</div>` : ""}</div>
       </section>
     </div>`;
+}
+
+// ----- art packs ------------------------------------------------------------------------------------
+
+// An art pack's facts, for its open row: what it is in full, who made it, its license, what data it
+// was made for, its size and what changed in it.
+function artDetail(r, extra) {
+  const made = { "end-of-retail": "end of retail", 1999: "1999" };
+  const facts = [["VERSION", r.version], ["AUTHORS", (r.authors ?? []).join(", ")], ["LICENSE", r.license],
+    ["MADE FOR", (r.made_for ?? []).map((m) => made[m] ?? m).join(", ")], ["RELEASED", r.released ? longDate(r.released) : ""],
+    ["SIZE", r.size ? kb(r.size) : ""]].filter(([, x]) => x);
+  return `<div class="plugin-detail" data-stop><p class="desc ${r.description ? "" : "muted"}">${esc(r.description || "No description.")}</p>
+    <div class="strip">${facts.map(([k, x]) => `<span><b>${k}</b>${esc(x)}</span>`).join("")}</div>
+    ${r.notes ? `<div class="said"><b>WHAT CHANGED</b>${esc(r.notes)}</div>` : ""}${extra ?? ""}
+    ${r.homepage ? `<div class="btns"><button class="btn" data-url="${esc(r.homepage)}">Homepage</button></div>` : ""}</div>`;
+}
+
+// One art pack's row; open, its facts under it.
+function artRow(key, r, sourceName, line, buttons, extra) {
+  const open = ui.art.open === key;
+  const row = `<div class="row plugin-row" data-art-row="${esc(key)}"><div class="grow">
+      <div class="name">${esc(r.name)} ${esc(r.version)} <span class="muted small">${esc(sourceName)}</span></div>
+      ${r.description && !open ? `<div class="sub">${esc(r.description.split("\n")[0])}</div>` : ""}${line}</div>
+      <div class="btns" data-stop>${buttons}</div></div>`;
+  return open ? `<div class="plugin open">${row}${artDetail(r, extra)}</div>` : row;
+}
+
+// The Library's art packs: those installed, the first winning where two replace the same thing,
+// each on or off; those the sources list; and the sources.
+function artPacks() {
+  const a = ui.snap.art;
+  const st = ui.art;
+  const busy = !!st.busy || !!ui.snap.art_progress;
+  const n = a.installed.length;
+  const installed = a.installed.map((p, i) => {
+    const u = p.update;
+    const line = (u ? `<div class="sub">Update ${esc(u.to)} is ready.</div>` : "")
+      + (p.source_removed ? `<div class="sub warn">You removed its source, so it gets no updates.</div>` : "");
+    const buttons = `<label class="check small" title="Use it in the game"><input type="checkbox" data-art-on="${esc(p.id)}" ${p.on ? "checked" : ""}>On</label>
+      <button class="btn mini-btn" data-art-move="${esc(p.id)}" data-art-up="1" title="Move up" ${i === 0 ? "disabled" : ""}>▲</button>
+      <button class="btn mini-btn" data-art-move="${esc(p.id)}" data-art-up="0" title="Move down" ${i === n - 1 ? "disabled" : ""}>▼</button>
+      ${u ? `<button class="btn" data-art-update="${esc(p.id)}" ${busy ? "disabled" : ""}>Update</button>` : ""}
+      <button class="btn" data-art-remove="${esc(p.id)}" ${busy ? "disabled" : ""}>Remove</button>`;
+    return artRow(`i:${p.id}`, p.release, p.source_name, line, buttons);
+  }).join("") || `<p class="muted empty">No art packs installed.</p>`;
+  const available = a.available.map((p) => {
+    const button = p.installable
+      ? `<button class="btn" data-art-install="${esc(p.source)}" data-art-id="${esc(p.id)}" ${busy ? "disabled" : ""}>Install</button>`
+      : `<span class="muted small">Only from Dereth</span>`;
+    return artRow(`a:${p.source} ${p.id}`, p.release, p.source_name, `<div class="sub muted small">${esc(kb(p.release.size))}</div>`, button);
+  }).join("") || `<p class="muted empty">${a.sources.some((x) => x.packs > 0) ? "Every art pack the sources list is installed." : "No art packs listed yet. Refresh to read the sources."}</p>`;
+  const sources = a.sources.map((x) => {
+    const skipped = x.skipped?.length ? ` · <span class="warn" title="${esc(x.skipped.join("\n"))}">${x.skipped.length} could not be read</span>` : "";
+    return `<div class="row static source-row"><div class="grow">
+        <div class="line"><span class="name">${esc(x.name)}</span><span class="muted small">${x.packs} pack${x.packs === 1 ? "" : "s"}${skipped}</span><span class="muted small addr" title="${esc(x.url)}">${esc(x.url)}</span></div>
+        ${x.error ? `<div class="sub warn" title="${esc(x.error)}">Could not be read: ${esc(x.error)}</div>` : ""}</div>
+        ${x.first_party ? "" : `<div class="btns"><button class="btn" data-art-source-remove="${esc(x.url)}">Remove</button></div>`}</div>`;
+  }).join("");
+  const add = `<div class="plugin-line add"><input id="art-source" class="field mini-field" type="text" placeholder="https://…/art.json" spellcheck="false" autocomplete="off" aria-label="An art pack source's address" value="${esc(st.add)}">
+      <button class="btn" data-act="art-source-add" ${busy || !st.add.trim() ? "disabled" : ""}>Add source</button></div>
+    ${st.confirm ? `<div class="plugin-confirm"><span>Dereth does not review art packs from other sources.</span>
+      <button class="btn mini-btn" data-act="art-source-confirm" ${busy ? "disabled" : ""}>Add</button><button class="btn mini-btn" data-act="art-source-cancel">Cancel</button></div>` : ""}`;
+  return `<h2>ART PACKS <button class="btn mini-btn" data-act="art-refresh" ${busy ? "disabled" : ""}>Refresh</button></h2>
+    <p class="muted small">New models and textures for the Remaster. Where two packs change the same thing, the higher one wins.</p>
+    <div class="list">${installed}</div>
+    <h2>AVAILABLE ART PACKS</h2><div class="list">${available}</div>
+    <h2>ART PACK SOURCES</h2><div class="list">${sources}</div>${add}`;
+}
+
+// One of the art packs' slow calls (it fetches), with the section busy, and how it went said.
+async function artFetch(cmd, args) {
+  ui.art.busy = cmd;
+  render();
+  let ok = false;
+  try {
+    const said = await api(cmd, args);
+    toast(String(said || (cmd === "refresh_art" ? "Nothing new." : "Done.")).replace(/\n/g, " "));
+    ok = true;
+  } catch (e) {
+    toast(String(e), true);
+  }
+  ui.art.busy = null;
+  await pull();
+  render();
+  return ok;
+}
+
+async function addArtSource(confirmed) {
+  const url = ui.art.add.trim();
+  if (!url) return;
+  if (!confirmed) {
+    ui.art.confirm = true;
+    render();
+    return;
+  }
+  ui.art.confirm = false;
+  if (await artFetch("add_art_source", { url })) ui.art.add = "";
+  render();
 }
 
 // What a folder holds. `purpose` says what it was chosen for: the retail client, or data files (in
@@ -2627,7 +2736,7 @@ async function saveInterface() {
 // ----- events -------------------------------------------------------------------------------------
 
 document.addEventListener("click", async (ev) => {
-  const t = ev.target.closest("[data-ath-open],[data-ath-export],[data-ath-publish],[data-ath-row],[data-ath-confirm-delete],[data-ath-delete],[data-srv-start],[data-srv-stop],[data-srv-prepare],[data-srv-play],[data-srv-open],[data-srv-publish],[data-srv-republish],[data-srv-unpublish],[data-srv-service],[data-srv-config],[data-srv-folder],[data-srv-delete],[data-confirm-delete],[data-srv-export],[data-local-open],[data-local-start],[data-local-stop],[data-local-play],[data-local-forget],[data-reveal-local],[data-reveal-host],[data-copy],[data-copy-link],[data-check-outside],[data-allow-service],[data-send],[data-shutdown-cancel],[data-ly-row],[data-ly-export],[data-ly-publish],[data-ly-confirm-delete],[data-ly-delete],[data-srv-check],[data-srv-approve],[data-srv-cancel-update],[data-srv-rollback],[data-lyceum-world],[data-lyceum-upgrade],[data-get],[data-remove],[data-dismiss-update],[data-go],[data-act],[data-url],[data-home],[data-world],[data-filter],[data-unfav],[data-fav],[data-client],[data-default-set],[data-reset-set],[data-delete-set],[data-remember],[data-forget-account],[data-show-password],[data-section],[data-open-world],[data-trash],[data-iface],[data-stop],[data-plugin-install],[data-plugin-update],[data-plugin-remove],[data-plugin-source-remove],[data-plugin-open],[data-plugin-folder-remove],[data-plugin-row],[data-plugin-fold],[data-realm-pick],[data-world-fav]");
+  const t = ev.target.closest("[data-ath-open],[data-ath-export],[data-ath-publish],[data-ath-row],[data-ath-confirm-delete],[data-ath-delete],[data-srv-start],[data-srv-stop],[data-srv-prepare],[data-srv-play],[data-srv-open],[data-srv-publish],[data-srv-republish],[data-srv-unpublish],[data-srv-service],[data-srv-config],[data-srv-folder],[data-srv-delete],[data-confirm-delete],[data-srv-export],[data-local-open],[data-local-start],[data-local-stop],[data-local-play],[data-local-forget],[data-reveal-local],[data-reveal-host],[data-copy],[data-copy-link],[data-check-outside],[data-allow-service],[data-send],[data-shutdown-cancel],[data-ly-row],[data-ly-export],[data-ly-publish],[data-ly-confirm-delete],[data-ly-delete],[data-srv-check],[data-srv-approve],[data-srv-cancel-update],[data-srv-rollback],[data-lyceum-world],[data-lyceum-upgrade],[data-get],[data-remove],[data-dismiss-update],[data-go],[data-act],[data-url],[data-home],[data-world],[data-filter],[data-unfav],[data-fav],[data-client],[data-default-set],[data-reset-set],[data-delete-set],[data-remember],[data-forget-account],[data-show-password],[data-section],[data-open-world],[data-trash],[data-iface],[data-stop],[data-art-row],[data-art-move],[data-art-update],[data-art-remove],[data-art-install],[data-art-source-remove],[data-plugin-install],[data-plugin-update],[data-plugin-remove],[data-plugin-source-remove],[data-plugin-open],[data-plugin-folder-remove],[data-plugin-row],[data-plugin-fold],[data-realm-pick],[data-world-fav]");
   if (!t) return;
   if (t.dataset.stop !== undefined && !ev.target.closest("[data-act]")) return;
   // A form's own submit button submits it (below).
@@ -2743,6 +2852,12 @@ document.addEventListener("click", async (ev) => {
   if (d.get) { await act("get_component", { product: d.get }); return; }
   if (d.remove) { await act("remove_component", { product: d.remove }); return; }
   if (d.dismissUpdate) { await act("dismiss_component_update", { product: d.dismissUpdate }); return; }
+  if (d.artRow !== undefined) { ui.art.open = ui.art.open === d.artRow ? null : d.artRow; render(); return; }
+  if (d.artMove) { await act("move_art_pack", { id: d.artMove, up: d.artUp === "1" }); return; }
+  if (d.artUpdate) { await artFetch("update_art_pack", { id: d.artUpdate }); return; }
+  if (d.artRemove) { await act("remove_art_pack", { id: d.artRemove }); return; }
+  if (d.artInstall) { await artFetch("install_art_pack", { source: d.artInstall, id: d.artId }); return; }
+  if (d.artSourceRemove) { await act("remove_art_source", { url: d.artSourceRemove }); return; }
   if (d.url) { ev.preventDefault(); await act("open_url", { url: d.url }); return; }
   if (d.home) { ui.homeSel = Number(d.home); render(); return; }
   // A row opens in place, one at a time; its ">" goes to the world's page.
@@ -2882,6 +2997,10 @@ document.addEventListener("click", async (ev) => {
     case "forget-retail": await act("forget_retail", { game: realmGame() }); break;
     case "forget-all-accounts": await act("forget_all_accounts"); break;
     case "plugins-refresh": await pluginFetch("refresh_plugins", {}); break;
+    case "art-refresh": await artFetch("refresh_art", {}); break;
+    case "art-source-add": await addArtSource(false); break;
+    case "art-source-confirm": await addArtSource(true); break;
+    case "art-source-cancel": ui.art.confirm = false; render(); break;
     case "plugin-source-add": await addPluginSource(false); break;
     case "plugin-source-confirm": await addPluginSource(true); break;
     case "plugin-source-cancel": ui.plugin.confirm = false; render(); break;
@@ -2989,6 +3108,14 @@ document.addEventListener("input", (ev) => {
   const t = ev.target;
   if (t.id === "search") { ui.search = t.value; render(); return; }
   if (ui.addServer && t.id.startsWith("srv-")) { ui.addServer[t.id.slice(4)] = t.value; return; }
+  if (t.id === "art-source") {
+    const was = !ui.art.add.trim();
+    const confirming = ui.art.confirm;
+    ui.art.add = t.value;
+    ui.art.confirm = false;
+    if (confirming || was !== !ui.art.add.trim()) render();
+    return;
+  }
   if (t.id === "plugin-source") {
     const was = !ui.plugin.add.trim();
     const confirming = ui.plugin.confirm;
@@ -3033,6 +3160,7 @@ document.addEventListener("change", async (ev) => {
   if (ui.addServer && (t.id === "srv-ruleset" || t.id === "srv-emulator")) { ui.addServer[t.id.slice(4)] = t.value; return; }
   if (t.id === "discord-presence") { await act("set_discord_presence", { on: t.checked }); return; }
   if (t.id === "update-components") { await act("set_update_components", { on: t.checked }); return; }
+  if (t.dataset.artOn) { await act("set_art_pack_on", { id: t.dataset.artOn, on: t.checked }); return; }
   if (t.id === "plugin-updates") { await act("set_plugin_updates", { setting: t.value }); return; }
   if (t.tagName === "SELECT" && t.dataset.lyField && ui.lyceumDraft) { ui.lyceumDraft[t.dataset.lyField] = t.value; return; }
   if (t.dataset.publishPick) { ui.publishPick[t.dataset.publishPick] = t.value; render(); return; }
@@ -3095,6 +3223,7 @@ document.addEventListener("keydown", async (ev) => {
   }
   if (ev.key === "Enter" && ui.addServer && ev.target.id?.startsWith("srv-")) { await addServer(); return; }
   if (ev.key === "Enter" && ev.target.id === "plugin-source") { await addPluginSource(false); return; }
+  if (ev.key === "Enter" && ev.target.id === "art-source") { await addArtSource(false); return; }
   if (ev.key === "Enter" && (ev.target.id === "plugin-make-name" || ev.target.id === "plugin-make-github")) { await createPlugin(); return; }
   if (ev.key === "Enter" && ev.target.dataset?.cmd) { await submitCommand(ev.target.dataset.cmd); return; }
   if (ev.key === "Enter" && ev.target.dataset?.keyField !== undefined) { await saveKey(); return; }

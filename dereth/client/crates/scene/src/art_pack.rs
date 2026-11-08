@@ -16,6 +16,12 @@
 //! here, so the file opens without decoding or compressing a picture. [`ArtPack::open_path`]
 //! opens either.
 //!
+//! **Packs stack** ([`ArtPack::open_stack`]): several, bottom first, open as one, a later pack's
+//! model for an object, material for a ground or a retail picture, and `[lighting]` key winning
+//! over an earlier one's. Each pack's manifest is read first and what a pack above it claims is
+//! taken out of it ([`keep_winners`]), so only what is drawn is read. Below the stack, the classic
+//! look and the world's own answer as they do for one pack.
+//!
 //! **A pack may lay the ground** ([`PackGround`]): a material for each retail terrain type it
 //! covers, its pictures packed three to a material and brought to one size, so the presentation
 //! holds them all in three arrays.
@@ -36,8 +42,8 @@ pub mod images;
 pub mod materials;
 pub mod packed;
 
-use std::collections::{BTreeMap, HashMap};
-use std::path::Path;
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -589,14 +595,16 @@ pub struct ArtPack {
 }
 
 /// Where one of a pack's pictures was made from: its file, whether it holds colour in the
-/// display's encoding, the alpha a cut-out picture is cut at, and whether it is a level of
-/// pictures of a model seen from round it.
+/// display's encoding, the alpha a cut-out picture is cut at, whether it is a level of
+/// pictures of a model seen from round it, and the folder of the pack it is in, when that pack
+/// was opened from a folder.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ImageSource {
     pub path: String,
     pub srgb: bool,
     pub cutoff: Option<f32>,
     pub views: bool,
+    pub folder: Option<PathBuf>,
 }
 
 /// Why a pack could not be opened at all, as a sentence.
@@ -711,6 +719,70 @@ fn bounds(lods: &[PackLod]) -> ([f32; 3], f32) {
     (centre, radius)
 }
 
+/// Leave in each manifest of a stack, bottom first, only what no manifest above it claims: a model
+/// for an object one above has a model for, a ground (flat or steep) one above has a material for,
+/// a retail picture one above has a material for. A material left with no ground or picture is
+/// taken out whole. `[lighting]` is kept whole in each, to be merged key by key
+/// ([`merged_lighting`]).
+pub fn keep_winners(manifests: &mut [ArtPackManifest]) {
+    let mut models: HashSet<DataId> = HashSet::new();
+    let mut grounds: HashSet<(bool, Ground)> = HashSet::new();
+    let mut textures: HashSet<DataId> = HashSet::new();
+    for m in manifests.iter_mut().rev() {
+        m.models.retain(|model| !models.contains(&model.id));
+        models.extend(m.models.iter().map(|model| model.id));
+        for g in &mut m.grounds {
+            let steep = g.steep;
+            g.grounds.retain(|k| !grounds.contains(&(steep, *k)));
+        }
+        m.grounds.retain(|g| !g.grounds.is_empty());
+        grounds.extend(
+            m.grounds
+                .iter()
+                .flat_map(|g| g.grounds.iter().map(move |k| (g.steep, *k))),
+        );
+        for material in &mut m.materials {
+            material.textures.retain(|t| !textures.contains(t));
+        }
+        m.materials.retain(|material| !material.textures.is_empty());
+        textures.extend(
+            m.materials
+                .iter()
+                .flat_map(|material| material.textures.iter().copied()),
+        );
+    }
+}
+
+/// The lighting of a stack: `above`'s keys over `below`'s, table within table, so a pack that
+/// names only the rainy fog keeps the rest of the one below. Either alone is taken as it is; text
+/// that does not read as a table gives way to the other.
+#[must_use]
+pub fn merged_lighting(below: Option<String>, above: Option<String>) -> Option<String> {
+    fn over(into: &mut toml::Table, from: toml::Table) {
+        for (k, v) in from {
+            match (into.get_mut(&k), v) {
+                (Some(toml::Value::Table(i)), toml::Value::Table(f)) => over(i, f),
+                (_, v) => {
+                    into.insert(k, v);
+                }
+            }
+        }
+    }
+    match (below, above) {
+        (None, one) | (one, None) => one,
+        (Some(below), Some(above)) => {
+            match (below.parse::<toml::Table>(), above.parse::<toml::Table>()) {
+                (Ok(mut b), Ok(a)) => {
+                    over(&mut b, a);
+                    Some(b.to_string())
+                }
+                (Err(_), _) => Some(above),
+                (Ok(_), Err(_)) => Some(below),
+            }
+        }
+    }
+}
+
 impl ArtPack {
     /// The pack at `path`: the folder of one ([`Self::open_dir`]), or the file it was packed into
     /// ([`Self::open_packed`]).
@@ -762,9 +834,163 @@ impl ArtPack {
     pub fn open_dir(dir: &Path) -> Result<Self, OpenError> {
         let manifest = std::fs::read_to_string(dir.join(MANIFEST_FILE))
             .map_err(|e| format!("{}: {e}", dir.join(MANIFEST_FILE).display()))?;
-        Self::open(&manifest, &mut |path| {
-            std::fs::read(dir.join(path)).map_err(|e| format!("{path}: {e}"))
-        })
+        let parsed = ArtPackManifest::parse(&manifest).map_err(|e| e.to_string())?;
+        Self::open_dir_with(dir, &manifest, parsed)
+    }
+
+    /// The pack in the folder `dir`, whose manifest's text is `text`, opened as `manifest` says.
+    fn open_dir_with(dir: &Path, text: &str, manifest: ArtPackManifest) -> Result<Self, OpenError> {
+        let mut pack = Self::open_manifest(
+            text,
+            manifest,
+            &mut |path| std::fs::read(dir.join(path)).map_err(|e| format!("{path}: {e}")),
+            Pictures::Made,
+            None,
+        )?;
+        for s in &mut pack.image_sources {
+            s.folder = Some(dir.to_path_buf());
+        }
+        Ok(pack)
+    }
+
+    /// The packed pack in `file`, whose manifest's text is `text`, opened as `manifest` says.
+    fn open_packed_with(
+        file: &packed::PackedFile,
+        text: &str,
+        manifest: ArtPackManifest,
+    ) -> Result<Self, OpenError> {
+        let pack = Self::open_manifest(
+            text,
+            manifest,
+            &mut |path| file.file(path),
+            Pictures::Packed(file),
+            None,
+        );
+        match file.damage() {
+            Some(e) => Err(e),
+            None => pack,
+        }
+    }
+
+    /// The packs at `paths`, bottom first, opened as one ([`Self::open_path`] for one alone):
+    /// each pack's manifest read, what a pack above it claims taken out of it ([`keep_winners`]),
+    /// and each opened with what is left. The pack's pictures, models, grounds and materials are
+    /// all of theirs; its lighting is theirs merged key by key, a later pack's winning; its name
+    /// is theirs, joined; and its hash is a hash of theirs, in order. A pack that will not open is
+    /// said among the problems and left out, and the others are opened.
+    ///
+    /// # Errors
+    /// No pack of the stack would open, or none was named.
+    pub fn open_stack(paths: &[PathBuf]) -> Result<Self, OpenError> {
+        if let [one] = paths {
+            return Self::open_path(one);
+        }
+        /// Where one pack of the stack is read from.
+        enum Layer {
+            Folder(PathBuf),
+            Packed(Box<packed::PackedFile>),
+        }
+        let mut problems = Vec::new();
+        let mut layers: Vec<(Layer, String)> = Vec::new();
+        let mut manifests: Vec<ArtPackManifest> = Vec::new();
+        for path in paths {
+            let read = (|| -> Result<(Layer, String, ArtPackManifest), String> {
+                let (layer, text) = if path.is_dir() {
+                    let at = path.join(MANIFEST_FILE);
+                    let text = std::fs::read_to_string(&at)
+                        .map_err(|e| format!("{}: {e}", at.display()))?;
+                    (Layer::Folder(path.clone()), text)
+                } else {
+                    let file = packed::PackedFile::open(path)?;
+                    let text = String::from_utf8(file.file(MANIFEST_FILE)?)
+                        .map_err(|_| "its manifest is not text".to_owned())?;
+                    (Layer::Packed(Box::new(file)), text)
+                };
+                let manifest = ArtPackManifest::parse(&text).map_err(|e| e.to_string())?;
+                Ok((layer, text, manifest))
+            })();
+            match read {
+                Ok((layer, text, manifest)) => {
+                    layers.push((layer, text));
+                    manifests.push(manifest);
+                }
+                Err(e) => problems.push(format!("{}: {e}", path.display())),
+            }
+        }
+        keep_winners(&mut manifests);
+        let mut opened = Vec::with_capacity(layers.len());
+        for ((layer, text), manifest) in layers.into_iter().zip(manifests) {
+            let (pack, at) = match &layer {
+                Layer::Folder(dir) => (Self::open_dir_with(dir, &text, manifest), dir.clone()),
+                Layer::Packed(file) => (
+                    Self::open_packed_with(file, &text, manifest),
+                    PathBuf::from(file.name()),
+                ),
+            };
+            match pack {
+                Ok(pack) => opened.push(pack),
+                Err(e) => problems.push(format!("{}: {e}", at.display())),
+            }
+        }
+        if opened.is_empty() {
+            return Err(if problems.is_empty() {
+                "no art pack was named".to_owned()
+            } else {
+                format!("no art pack would open: {}", problems.join("; "))
+            });
+        }
+        Ok(Self::merged(opened, problems))
+    }
+
+    /// The packs `opened`, bottom first, as one: every model's pictures numbered after the packs'
+    /// before it, each pack's problems said under its name after `problems`.
+    fn merged(opened: Vec<Self>, mut problems: Vec<String>) -> Self {
+        let mut hash = dereth_client_runtime::report::ContentHash::new();
+        let mut names = Vec::with_capacity(opened.len());
+        let mut out = Self {
+            name: String::new(),
+            serial: next_serial(),
+            hash: String::new(),
+            models: Vec::new(),
+            images: Vec::new(),
+            image_sources: Vec::new(),
+            grounds: Vec::new(),
+            materials: Vec::new(),
+            problems: Vec::new(),
+            lighting: None,
+        };
+        for pack in opened {
+            hash.part("pack", pack.hash.as_bytes());
+            let base = u32::try_from(out.images.len()).unwrap_or(u32::MAX);
+            for mut model in pack.models {
+                for p in model.lods.iter_mut().flat_map(|l| &mut l.primitives) {
+                    let m = &mut p.material;
+                    for i in [
+                        &mut m.base_color_image,
+                        &mut m.normal_image,
+                        &mut m.metal_rough_image,
+                        &mut m.occlusion_image,
+                    ]
+                    .into_iter()
+                    .flatten()
+                    {
+                        *i = i.saturating_add(base);
+                    }
+                }
+                out.models.push(model);
+            }
+            out.images.extend(pack.images);
+            out.image_sources.extend(pack.image_sources);
+            out.grounds.extend(pack.grounds);
+            out.materials.extend(pack.materials);
+            problems.extend(pack.problems.iter().map(|e| format!("{}: {e}", pack.name)));
+            out.lighting = merged_lighting(out.lighting.take(), pack.lighting);
+            names.push(pack.name);
+        }
+        out.name = names.join(" + ");
+        out.hash = hash.finish();
+        out.problems = problems;
+        out
     }
 
     /// The pack whose manifest is `manifest`, every file it names read through `read` by its
@@ -785,6 +1011,20 @@ impl ArtPack {
         manifest_text: &str,
         read_file: &mut dyn FnMut(&str) -> Result<Vec<u8>, String>,
         pictures: Pictures<'_>,
+        recording: Option<&mut Recording>,
+    ) -> Result<Self, OpenError> {
+        let manifest = ArtPackManifest::parse(manifest_text).map_err(|e| e.to_string())?;
+        Self::open_manifest(manifest_text, manifest, read_file, pictures, recording)
+    }
+
+    /// The pack whose manifest's text is `manifest_text`, opened as `manifest` says (the text's
+    /// own, or what of it a stack leaves to it): its files read through `read_file` and its
+    /// pictures made or read as `pictures` says; what it read and made kept in `recording`.
+    fn open_manifest(
+        manifest_text: &str,
+        manifest: ArtPackManifest,
+        read_file: &mut dyn FnMut(&str) -> Result<Vec<u8>, String>,
+        pictures: Pictures<'_>,
         mut recording: Option<&mut Recording>,
     ) -> Result<Self, OpenError> {
         // Every file read is hashed as it is read, after the manifest.
@@ -797,7 +1037,6 @@ impl ArtPack {
         if let Some(kept) = reader.kept.as_mut() {
             kept.insert(MANIFEST_FILE.to_owned(), manifest_text.as_bytes().to_vec());
         }
-        let manifest = ArtPackManifest::parse(manifest_text).map_err(|e| e.to_string())?;
         let mut problems = Vec::new();
         let mut models = Vec::new();
         // Each picture once, by path and whether it holds colour, read here and made below.
@@ -924,6 +1163,7 @@ impl ArtPack {
                 srgb: p.srgb,
                 cutoff: p.cutoff,
                 views: p.views,
+                folder: None,
             })
             .collect();
         let decoded = images::par_map(pending, &|p| match (pictures, &p.bytes) {
@@ -1687,5 +1927,296 @@ license = "CC0-1.0"
             .iter()
             .all(|(i, k)| i.width == BROAD_SIZE && *k == 2));
         assert_eq!(&ground.broad[1].0.levels[0][..4], &[128, 128, 128, 255]);
+    }
+
+    /// A folder of its own for one test, empty.
+    fn folder(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "dereth-art-pack-stack-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_nanos())
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("the folder");
+        dir
+    }
+
+    /// The pack `manifest` in `dir`, with `files` beside it.
+    fn write_pack(dir: &Path, manifest: &str, files: &[(String, Vec<u8>)]) {
+        std::fs::write(dir.join(MANIFEST_FILE), manifest).expect("the manifest");
+        for (path, bytes) in files {
+            let at = dir.join(path);
+            std::fs::create_dir_all(at.parent().expect("a parent")).expect("its folder");
+            std::fs::write(at, bytes).expect("the file");
+        }
+    }
+
+    /// The tree's files of [`files`], under `model/` in place of `tree/`.
+    fn model_files(model: &str) -> Vec<(String, Vec<u8>)> {
+        files()
+            .into_iter()
+            .map(|(path, bytes)| (path.replacen("tree/", &format!("{model}/"), 1), bytes))
+            .collect()
+    }
+
+    const CREDIT: &str = "author = \"a\"\ntool = \"t\"\nlicense = \"CC0-1.0\"\n";
+
+    #[test]
+    fn a_later_pack_in_a_stack_takes_what_it_claims_out_of_the_packs_below_it() {
+        let manifest = |text: &str| ArtPackManifest::parse(text).expect("the manifest reads");
+        let bottom = format!(
+            "[pack]\nname = \"Bottom\"\nformat = 1\n\
+             [[model]]\nid = \"0x02000258\"\n{CREDIT}[[model.lod]]\nfile = \"tree/lod0.gltf\"\n\
+             [[model]]\nid = \"0x020005C9\"\n{CREDIT}[[model.lod]]\nfile = \"rock/lod0.gltf\"\n\
+             [[terrain]]\nground = [1, 9]\nbase_color = \"g/a.png\"\nsize = 4\n{CREDIT}\
+             [[steep]]\nground = [9]\nbase_color = \"g/s.png\"\nsize = 4\n{CREDIT}\
+             [[material]]\ntexture = [\"0x05000001\", \"0x05000002\"]\nbase_color = \"m/a.png\"\n{CREDIT}\
+             [[material]]\ntexture = \"0x05000003\"\nbase_color = \"m/c.png\"\n{CREDIT}"
+        );
+        let top = format!(
+            "[pack]\nname = \"Top\"\nformat = 1\n\
+             [[model]]\nid = \"0x020005C9\"\n{CREDIT}[[model.lod]]\nfile = \"rock/lod0.gltf\"\n\
+             [[terrain]]\nground = [9]\nbase_color = \"g/b.png\"\nsize = 2\n{CREDIT}\
+             [[material]]\ntexture = [\"0x05000002\", \"0x05000003\"]\nbase_color = \"m/b.png\"\n{CREDIT}"
+        );
+        let mut stack = vec![manifest(&bottom), manifest(&top)];
+        keep_winners(&mut stack);
+        let [below, above] = &stack[..] else {
+            panic!("two manifests")
+        };
+        assert_eq!(
+            below.models.iter().map(|m| m.id).collect::<Vec<_>>(),
+            [DataId(0x0200_0258)],
+            "the rock is the top pack's"
+        );
+        assert_eq!(below.grounds.len(), 2);
+        assert_eq!(
+            below.grounds[0].grounds,
+            [Ground::Type(1)],
+            "flat ground 9 is the top pack's"
+        );
+        assert!(
+            below.grounds[1].steep && below.grounds[1].grounds == [Ground::Type(9)],
+            "the steep slopes of ground 9 are still the bottom pack's"
+        );
+        assert_eq!(
+            below
+                .materials
+                .iter()
+                .map(|m| m.textures.clone())
+                .collect::<Vec<_>>(),
+            [vec![DataId(0x0500_0001)]],
+            "a material left with no picture is taken out"
+        );
+        assert_eq!(*above, manifest(&top), "the top pack keeps all it has");
+    }
+
+    #[test]
+    fn a_stack_reads_only_what_it_draws_and_a_later_packs_model_and_ground_win() {
+        let (bottom, top) = (folder("bottom"), folder("top"));
+        // The bottom pack's rock is never read: the top pack has one, so its files need not be
+        // there at all.
+        let mut bottom_files = files().into_iter().collect::<Vec<_>>();
+        bottom_files.push((
+            "g/a.png".to_owned(),
+            png_of(2, 2, &[200, 100, 50, 255].repeat(4)),
+        ));
+        write_pack(
+            &bottom,
+            &format!(
+                "[pack]\nname = \"Bottom\"\nformat = 1\n\
+                 [[model]]\nid = \"0x02000258\"\n{CREDIT}[[model.lod]]\nfile = \"tree/lod0.gltf\"\n\
+                 [[model]]\nid = \"0x020005C9\"\n{CREDIT}[[model.lod]]\nfile = \"rock/lod0.gltf\"\n\
+                 [[terrain]]\nground = [1, 9]\nbase_color = \"g/a.png\"\nsize = 4\n{CREDIT}\
+                 [lighting]\nsun = 1.1\ntint = 0.8\n[lighting.rainy]\nfog_density = 1.5\nhaze = 0.2\n"
+            ),
+            &bottom_files,
+        );
+        let mut top_files = model_files("rock");
+        top_files.push((
+            "g/b.png".to_owned(),
+            png_of(2, 2, &[10, 20, 30, 255].repeat(4)),
+        ));
+        write_pack(
+            &top,
+            &format!(
+                "[pack]\nname = \"Top\"\nformat = 1\n\
+                 [[model]]\nid = \"0x020005C9\"\n{CREDIT}[[model.lod]]\nfile = \"rock/lod0.gltf\"\n\
+                 [[terrain]]\nground = [9]\nbase_color = \"g/b.png\"\nsize = 2\n{CREDIT}\
+                 [lighting]\nsun = 1.3\n[lighting.rainy]\nfog_density = 2.0\n"
+            ),
+            &top_files,
+        );
+        let pack = ArtPack::open_stack(&[bottom.clone(), top.clone()]).expect("the stack opens");
+        assert!(pack.problems.is_empty(), "{:?}", pack.problems);
+        assert_eq!(pack.name, "Bottom + Top");
+        assert!(pack.has(DataId(0x0200_0258)) && pack.has(DataId(0x0200_05C9)));
+        assert_eq!(pack.models.len(), 2, "one model an object");
+        // Each model's picture is its own pack's, numbered past the pictures below it.
+        let picture_of = |id: u32| {
+            let m = pack
+                .models
+                .iter()
+                .find(|m| m.id == DataId(id))
+                .expect("the model");
+            let i = m.lods[0].primitives[0]
+                .material
+                .base_color_image
+                .expect("a picture");
+            pack.image_sources[i as usize].folder.clone()
+        };
+        assert_eq!(picture_of(0x0200_0258), Some(bottom.clone()));
+        assert_eq!(picture_of(0x0200_05C9), Some(top.clone()));
+        assert_eq!(pack.ground(Ground::Type(9)).map(|g| g.size), Some(2.0));
+        assert_eq!(pack.ground(Ground::Type(1)).map(|g| g.size), Some(4.0));
+        let lighting: toml::Table = pack
+            .lighting
+            .as_deref()
+            .expect("lighting")
+            .parse()
+            .expect("it reads");
+        assert_eq!(lighting["sun"].as_float(), Some(1.3), "the top pack's key");
+        assert_eq!(
+            lighting["tint"].as_float(),
+            Some(0.8),
+            "the bottom pack's own"
+        );
+        assert_eq!(lighting["rainy"]["fog_density"].as_float(), Some(2.0));
+        assert_eq!(lighting["rainy"]["haze"].as_float(), Some(0.2));
+
+        let alone = ArtPack::open_path(&bottom).expect("the bottom pack opens");
+        assert!(
+            alone.problems.iter().any(|p| p.contains("rock/lod0.gltf")),
+            "alone, the bottom pack reads its rock, which is not there: {:?}",
+            alone.problems
+        );
+        let _ = (
+            std::fs::remove_dir_all(&bottom),
+            std::fs::remove_dir_all(&top),
+        );
+    }
+
+    #[test]
+    fn a_stack_of_one_pack_is_that_pack_and_a_pack_that_will_not_open_is_left_out() {
+        let one = folder("one");
+        write_pack(&one, MANIFEST, &model_files("tree"));
+        let alone = ArtPack::open_path(&one).expect("the pack opens");
+        let stacked = ArtPack::open_stack(std::slice::from_ref(&one)).expect("the stack opens");
+        assert_eq!(
+            (&stacked.name, &stacked.hash, &stacked.problems),
+            (&alone.name, &alone.hash, &alone.problems)
+        );
+        assert_eq!(stacked.models, alone.models);
+        assert_eq!(stacked.lighting, alone.lighting);
+
+        let missing = one.join("no-such-pack");
+        let with_missing =
+            ArtPack::open_stack(&[missing.clone(), one.clone()]).expect("the stack opens");
+        assert_eq!(with_missing.name, "Test");
+        assert!(with_missing.has(DataId(0x0200_0258)));
+        assert!(
+            with_missing
+                .problems
+                .iter()
+                .any(|p| p.starts_with(&missing.display().to_string())),
+            "{:?}",
+            with_missing.problems
+        );
+        assert!(
+            with_missing
+                .problems
+                .iter()
+                .any(|p| p.starts_with("Test: ") && p.contains("0x020005C9")),
+            "the pack's own problems are said under its name: {:?}",
+            with_missing.problems
+        );
+        assert_ne!(
+            with_missing.hash, alone.hash,
+            "a stack is named by its packs together"
+        );
+        assert!(ArtPack::open_stack(&[missing]).is_err());
+        assert!(ArtPack::open_stack(&[]).is_err());
+        let _ = std::fs::remove_dir_all(&one);
+    }
+
+    #[test]
+    fn a_packed_pack_under_a_folder_pack_keeps_its_pictures_and_gives_way_where_the_folder_claims()
+    {
+        let (root, top) = (folder("packed"), folder("packed-top"));
+        let files = files();
+        let packed = packed::pack(MANIFEST, &mut |path| {
+            files
+                .get(path)
+                .cloned()
+                .ok_or_else(|| format!("{path}: missing"))
+        })
+        .expect("it packs");
+        let file = root.join("bottom.dat");
+        std::fs::write(&file, &packed.bytes).expect("the packed file");
+        let tree = DataId(0x0200_0258);
+        write_pack(
+            &top,
+            &format!(
+                "[pack]\nname = \"Top\"\nformat = 1\n\
+                 [[model]]\nid = \"0x02000258\"\n{CREDIT}[[model.lod]]\nfile = \"tree/lod0.gltf\"\n"
+            ),
+            &model_files("tree"),
+        );
+        let alone = ArtPack::open_path(&file).expect("the packed file opens");
+        assert!(alone.has(tree));
+        let under = ArtPack::open_stack(&[file.clone(), top.clone()]).expect("the stack opens");
+        let model = under
+            .models
+            .iter()
+            .find(|m| m.id == tree)
+            .expect("the tree");
+        assert_eq!(model.lods.len(), 1, "the top pack's tree, of one level");
+        let i = model.lods[0].primitives[0]
+            .material
+            .base_color_image
+            .expect("a picture");
+        assert_eq!(under.image_sources[i as usize].folder, Some(top.clone()));
+        let over = ArtPack::open_stack(&[top.clone(), file.clone()]).expect("the stack opens");
+        let model = over.models.iter().find(|m| m.id == tree).expect("the tree");
+        assert_eq!(model.lods.len(), 2, "the packed pack's tree, of two levels");
+        let i = model.lods[0].primitives[0]
+            .material
+            .base_color_image
+            .expect("a picture");
+        assert_eq!(
+            over.image_sources[i as usize].folder, None,
+            "read as packed"
+        );
+        assert_eq!(over.images[i as usize], alone.images[0]);
+        let _ = (
+            std::fs::remove_dir_all(&root),
+            std::fs::remove_dir_all(&top),
+        );
+    }
+
+    #[test]
+    fn a_stacks_lighting_takes_the_later_packs_keys_table_within_table() {
+        assert_eq!(merged_lighting(None, None), None);
+        assert_eq!(
+            merged_lighting(Some("sun = 1.0\n".into()), None).as_deref(),
+            Some("sun = 1.0\n")
+        );
+        assert_eq!(
+            merged_lighting(None, Some("sun = 2.0\n".into())).as_deref(),
+            Some("sun = 2.0\n")
+        );
+        let merged: toml::Table = merged_lighting(
+            Some("sun = 1.0\ntint = 0.5\n[rainy]\nfog_density = 1.5\n".into()),
+            Some("sun = [[0.0, 1.0], [12.0, 2.0]]\n[rainy]\nhaze = 0.3\n".into()),
+        )
+        .expect("merged")
+        .parse()
+        .expect("it reads");
+        assert!(merged["sun"].is_array());
+        assert_eq!(merged["tint"].as_float(), Some(0.5));
+        assert_eq!(merged["rainy"]["fog_density"].as_float(), Some(1.5));
+        assert_eq!(merged["rainy"]["haze"].as_float(), Some(0.3));
     }
 }

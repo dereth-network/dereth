@@ -29,6 +29,7 @@
 //! **`--dry-run`** does the first three steps and prints the command it would run. It runs no
 //! program, and keeps the unpacked folder for a look.
 
+pub mod art;
 pub mod plugins;
 #[cfg(test)]
 mod tests;
@@ -202,10 +203,13 @@ impl Programs for Real {
     }
 }
 
-/// `cargo xtask deploy web ...`, or `deploy plugins ...` ([`plugins`]).
+/// `cargo xtask deploy web ...`, `deploy plugins ...` ([`plugins`]) or `deploy art ...` ([`art`]).
 pub fn deploy(args: &[String]) -> i32 {
     if args.first().map(String::as_str) == Some("plugins") {
         return plugins::deploy(&args[1..]);
+    }
+    if args.first().map(String::as_str) == Some("art") {
+        return art::deploy(&args[1..]);
     }
     let o = match parse(args, &|k| std::env::var(k).ok()) {
         Ok(o) => o,

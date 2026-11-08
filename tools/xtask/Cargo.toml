@@ -40,6 +40,9 @@ base64.workspace = true
 # `package plugins`: Dereth's plugin source, its plugins packed and listed as the author's tool
 # packs and lists them.
 dereth-plugin-package.workspace = true
+# Dereth's art pack source: each packed pack's manifest, and the list it is published in.
+dereth-assets.workspace = true
+dereth-art-catalog.workspace = true
 # `publish`: GitHub's REST API over HTTPS (rustls with its ring provider and the bundled web
 # roots, so no system TLS library), as the importer downloads with.
 ureq = { version = "3", default-features = false, features = ["rustls"] }

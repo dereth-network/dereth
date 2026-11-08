@@ -1,0 +1,8 @@
+# Dereth's own art pack source (https://art.dereth.network/art.json): its name, where its front
+# page sends a visitor, and the packs it publishes. `cargo xtask package art` and
+# `cargo xtask deploy art` read this file; the packs folder (`--packs`, or DERETH_ART_PACKS) only
+# holds the packed files. A `[[pack]]` row names each file published, with any listing keys its
+# manifest leaves out; a packed file no row names is held back. With no rows, every packed file in
+# the folder is published.
+name = "Dereth"
+front = "https://dereth.network/art/"

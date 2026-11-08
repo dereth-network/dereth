@@ -30,7 +30,7 @@ remaster = ["dep:dereth-remaster", "dereth-render/remaster", "dereth-client-runt
 dlss = ["remaster", "dereth-remaster/dlss"]
 # Art packs (`art_pack`): their manifests, models and pictures, opened, and packed into one file,
 # with no device. The remaster draws them; the art tool packs them.
-art-pack = ["dep:serde_json"]
+art-pack = ["dep:serde_json", "dep:toml"]
 # Opt-in capture controls for the test and capture tools: the remaster's own, when it is built in.
 test-support = ["dereth-remaster?/test-support"]
 # Tier switch only: no code is gated on it. It un-ignores the unit tests that read the retail dats
@@ -69,6 +69,8 @@ web-time.workspace = true
 png.workspace = true
 # An art pack's models are glTF, whose text is JSON.
 serde_json = { workspace = true, optional = true }
+# A stack of art packs merges their `[lighting]` sections, which are TOML.
+toml = { workspace = true, optional = true }
 
 [dev-dependencies]
 # The options page's restore-defaults list, which one test checks the renderer's seed against.

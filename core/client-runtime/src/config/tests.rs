@@ -215,7 +215,7 @@ fn naming_an_art_pack_ticks_the_remasters_box_unless_the_profile_unticks_it() {
     let asked = Config::from_args_and_prefs_with(&argv, &unticked).expect("parses");
     assert!(ticked(&asked), "a pack asked for on this start ticks it");
     let mut env = Config::from_args_and_prefs_with(&[], &unticked).expect("parses");
-    env.art_pack = Some(PathBuf::from("packs/env"));
+    env.art_packs = vec![PathBuf::from("packs/env")];
     env.art_pack_argument = true;
     env.tick_art_pack_box();
     assert!(ticked(&env), "so does one from the environment");
@@ -245,28 +245,70 @@ fn an_old_profiles_art_pack_rows_are_read_as_nothing() {
 #[test]
 fn the_art_pack_folder_comes_from_the_command_line_over_the_profile() {
     let none = parse(&[]).expect("parses");
-    assert_eq!(none.art_pack, None);
+    assert!(none.art_packs.is_empty());
     assert!(!none.art_pack_argument);
     let named = parse(&["--art-pack", "packs/pilot"]).expect("parses");
-    assert_eq!(named.art_pack, Some(PathBuf::from("packs/pilot")));
+    assert_eq!(named.art_packs, vec![PathBuf::from("packs/pilot")]);
     assert!(named.art_pack_argument);
     let profile = Preferences::parse("[Fidelity]\nArtPack= packs/kept \n");
     let kept = Config::from_args_and_prefs_with(&[], &profile).expect("parses");
-    assert_eq!(kept.art_pack, Some(PathBuf::from("packs/kept")));
+    assert_eq!(kept.art_packs, vec![PathBuf::from("packs/kept")]);
     assert!(
         !kept.art_pack_argument,
         "the profile's folder may be overridden"
     );
     let argv = vec!["--art-pack".to_string(), "packs/asked".to_string()];
     let over = Config::from_args_and_prefs_with(&argv, &profile).expect("parses");
-    assert_eq!(over.art_pack, Some(PathBuf::from("packs/asked")));
+    assert_eq!(over.art_packs, vec![PathBuf::from("packs/asked")]);
     let blank = Preferences::parse("[Fidelity]\nArtPack=\n");
+    assert!(Config::from_args_and_prefs_with(&[], &blank)
+        .expect("parses")
+        .art_packs
+        .is_empty());
+}
+
+/// Behaviour: none (experimental hi-fi art packs)
+///
+/// `--art-pack` given several times names a stack, bottom first, in place of the profile's
+/// pack, the same whether the command line is read after the profile or around it.
+#[test]
+fn several_art_packs_on_the_command_line_stack_in_their_order_over_the_profiles() {
+    let args = |a: &[&str]| a.iter().map(|s| (*s).to_string()).collect::<Vec<_>>();
+    let stack = args(&[
+        "--art-pack",
+        "packs/base",
+        "--art-pack",
+        "packs/holtburg",
+        "--art-pack",
+        "packs/bush",
+    ]);
+    let want: Vec<PathBuf> = ["packs/base", "packs/holtburg", "packs/bush"]
+        .iter()
+        .map(PathBuf::from)
+        .collect();
+    let profile = Preferences::parse("[Fidelity]\nArtPack=packs/kept\n");
+    let after = Config::from_args_and_prefs_with(&stack, &profile).expect("parses");
+    assert_eq!(after.art_packs, want, "the profile's pack gives way");
+    assert!(after.art_pack_argument);
+
+    let dir = std::env::temp_dir().join(format!(
+        "dereth-art-pack-stack-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos())
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("UserPreferences.ini");
+    std::fs::write(&file, "[Fidelity]\r\nArtPack=packs/kept\r\n").unwrap();
+    let around = Config::from_args_and_prefs_at(&stack, &file).unwrap();
     assert_eq!(
-        Config::from_args_and_prefs_with(&[], &blank)
-            .expect("parses")
-            .art_pack,
-        None
+        around.art_packs, want,
+        "read twice, around the profile, it names each pack once"
     );
+    let profile_only = Config::from_args_and_prefs_at(&[], &file).unwrap();
+    assert_eq!(profile_only.art_packs, vec![PathBuf::from("packs/kept")]);
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// Behaviour: none (experimental)

@@ -86,6 +86,11 @@ impl Folders {
         self.data.join("plugins")
     }
 
+    /// Where the art packs the launcher installed are kept ([`crate::art::Shelf`]).
+    pub fn art(&self) -> PathBuf {
+        self.data.join("art")
+    }
+
     /// Where the web view keeps its cache.
     pub fn webview(&self) -> PathBuf {
         self.data.join("webview")

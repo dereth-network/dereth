@@ -121,6 +121,16 @@ suite a host is tested with; start with [plugins/README.md](plugins/README.md).
 | [plugins/guide/README.md](plugins/guide/README.md) — writing a plugin in Lua or WebAssembly, its lifecycle and sandbox, installing and updating, and each bundled sample walked through | design |
 | [plugins/reference/README.md](plugins/reference/README.md) — every operation, permission, capability, UI node, limit and conformance case, generated from the code | design |
 
+### Art packs
+
+Models and pictures the remaster draws in place of the world's own, and the sources they are
+installed from; start with [art/README.md](art/README.md).
+
+| Page | Provenance |
+|---|---|
+| [art/README.md](art/README.md) — making an art pack: the manifest, models, ground, retail pictures, lighting, stacking, the tools and credits | design |
+| [art/sources.md](art/sources.md) — art pack sources: `art.json`, how a download is checked, and publishing your own | design |
+
 ### Message catalogue
 
 What the client sends and expects above a reassembled message; start with [networking/messages/README.md](networking/messages/README.md).

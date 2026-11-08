@@ -91,6 +91,9 @@ pub struct LaunchRequest<'a> {
     /// the first time it sees it, until the player unticks it
     /// ([`crate::plugins::Shelf::offered_packages`]).
     pub plugins: Vec<PathBuf>,
+    /// The art packs the player turned on, in the order they are drawn: a later one wins where two
+    /// replace the same thing ([`crate::art::Shelf::stack`]).
+    pub art_packs: Vec<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -217,6 +220,9 @@ pub fn plan(req: &LaunchRequest<'_>) -> Result<LaunchPlan, PlanError> {
             for p in &req.plugins {
                 args.extend([plain("--offer-plugins"), plain(p.display().to_string())]);
             }
+            for p in &req.art_packs {
+                args.extend([plain("--art-pack"), plain(p.display().to_string())]);
+            }
         }
         ClientKind::Auberean => return Err(PlanError::OtherGame),
         ClientKind::Retail if req.world.emulator == Emulator::Gdle => {
@@ -337,7 +343,29 @@ mod tests {
             extra_args: &[],
             plugin_policy_file: None,
             plugins: Vec::new(),
+            art_packs: Vec::new(),
         }
+    }
+
+    #[test]
+    fn the_art_packs_turned_on_reach_the_dereth_client_in_their_order_and_never_retail() {
+        let (w, i) = (world(Emulator::Empyrean), inst(ClientKind::Dereth));
+        let mut r = req(&w, &i);
+        r.art_packs = vec![
+            PathBuf::from("/a/trees/current.dat"),
+            PathBuf::from("/a/houses/current.dat"),
+        ];
+        let argv = plan(&r).unwrap().argv("x");
+        assert!(argv.ends_with(&[
+            "--art-pack".into(),
+            "/a/trees/current.dat".into(),
+            "--art-pack".into(),
+            "/a/houses/current.dat".into()
+        ]));
+        let retail = inst(ClientKind::Retail);
+        let mut r = req(&w, &retail);
+        r.art_packs = vec![PathBuf::from("/a/trees/current.dat")];
+        assert!(!plan(&r).unwrap().argv("x").contains(&"--art-pack".into()));
     }
 
     #[test]

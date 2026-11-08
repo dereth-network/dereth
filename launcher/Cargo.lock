@@ -869,6 +869,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "dereth-art-catalog"
+version = "0.0.0"
+dependencies = [
+ "dereth-assets",
+ "serde_json",
+]
+
+[[package]]
 name = "dereth-assets"
 version = "0.0.0"
 dependencies = [
@@ -911,6 +919,8 @@ name = "dereth-launch"
 version = "0.0.0"
 dependencies = [
  "auberean-friends",
+ "dereth-art-catalog",
+ "dereth-assets",
  "dereth-client-contract",
  "dereth-dat",
  "dereth-input",
@@ -933,11 +943,13 @@ dependencies = [
  "auberean-friends",
  "ctrlc",
  "dereth-launch",
+ "dereth-plugin-package",
  "dereth-plugin-template",
  "flate2",
  "gilrs",
  "glib",
  "keyring",
+ "libc",
  "mslnk",
  "rfd",
  "serde",

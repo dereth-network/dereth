@@ -351,6 +351,59 @@ pub fn plugin_list(zips: &[&[u8]]) -> Vec<u8> {
     c.to_json().into_bytes()
 }
 
+/// A packed art pack holding only its manifest, which names `id` and `version` (and `id` as its
+/// name).
+#[must_use]
+pub fn art_pack(id: &str, version: &str) -> Vec<u8> {
+    let manifest =
+        format!("[pack]\nname = \"{id}\"\nformat = 1\nid = \"{id}\"\nversion = \"{version}\"\n");
+    let files =
+        std::collections::BTreeMap::from([("manifest.toml".to_owned(), manifest.into_bytes())]);
+    dereth_assets::packed_art::pack_files(id, &format!("hash-{id}-{version}"), &files)
+        .expect("a packed pack")
+}
+
+/// A source's `art.json` listing `packs` (each a packed file), each at `<id>.dat` beside the list.
+#[must_use]
+pub fn art_list(packs: &[&[u8]]) -> Vec<u8> {
+    use dereth_art_catalog::{Catalog, Entry};
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static N: AtomicU32 = AtomicU32::new(0);
+    let dir = std::env::temp_dir().join(format!(
+        "dereth-art-list-{}-{}",
+        std::process::id(),
+        N.fetch_add(1, Ordering::Relaxed)
+    ));
+    std::fs::create_dir_all(&dir).expect("a test folder");
+    let mut c = Catalog {
+        name: String::new(),
+        packs: Vec::new(),
+    };
+    for (i, bytes) in packs.iter().enumerate() {
+        let path = dir.join(format!("{i}.dat"));
+        std::fs::write(&path, bytes).expect("a test pack");
+        let packed = dereth_assets::packed_art::read_manifest(&path).expect("a packed pack");
+        let id = dereth_assets::art_pack::ArtPackManifest::parse(&packed.manifest)
+            .expect("its manifest")
+            .about
+            .id;
+        let sha = dereth_plugin_package::catalog::sha256_hex(bytes);
+        let e = Entry::for_packed(
+            &packed,
+            &dereth_assets::art_pack::About::default(),
+            &format!("{id}.dat"),
+            bytes.len() as u64,
+            &sha,
+            "Notes.",
+            "2026-11-08",
+        )
+        .expect("an entry");
+        c.packs.push(e);
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+    c.to_json().into_bytes()
+}
+
 /// Write a plugin's folder at `dir`, as an author keeps it on disk: its `plugin.toml`, for this
 /// client's API version, and its script.
 pub fn write_plugin_folder(dir: &Path, id: &str, name: &str, version: &str) {

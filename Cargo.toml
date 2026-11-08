@@ -10,6 +10,7 @@ members = [
     "core/primitives",
     "core/dat",
     "core/assets",
+    "core/art-catalog",
     "core/text",
     "core/world-data",
     "core/landscape",
@@ -221,6 +222,7 @@ publish = false
 [workspace.dependencies]
 # Workspace members share versions and explicit per-consumer feature choices.
 dereth-animation = { path = "core/animation" }
+dereth-art-catalog = { path = "core/art-catalog" }
 dereth-assets = { path = "core/assets" }
 dereth-audio = { path = "core/audio" }
 dereth-builder = { path = "core/builder" }
