@@ -750,19 +750,18 @@ fn a_panic_tells_everyone_and_ends_their_connections() {
 #[test]
 fn a_whole_event_in_the_pass_of_a_panic_is_still_kept() {
     let mut h = Harness::with(ServerConfig::default(), FaultStore::default(), test_rules());
-    let (a, id, _, _) = in_world_with_coins(&mut h);
+    let (a, id, coins, _) = in_world_with_coins(&mut h);
     let c = h.at_character_list("two");
     h.run(2);
     assert!(h.server.saves.unsaved().is_empty());
-    let mut b = yalain_world::graph::Builder::new();
-    let text =
-        auberean_script::native_object::NativeObject::Text("/loadui".encode_utf16().collect());
-    let kind = auberean_script::native_object::native_type::WP_STRING;
-    b.native(u16::try_from(kind).expect("a native type"), text);
-    let alias = Arg::Object(b.graph());
     let call = yalain_testkit::play::server_call(
-        yalain_world::personal::function::SET_ALIAS,
-        &[Arg::Int(1), alias.clone(), alias],
+        yalain_world::pack::function::TO_MONEY_BAG,
+        &[
+            Arg::LongInt(id),
+            Arg::Int(0),
+            Arg::Int(100),
+            Arg::LongInt(coins),
+        ],
     );
     h.bots[a].send(true, queue::WEENIE, &call);
     h.server.store.name_taken_panics = true;

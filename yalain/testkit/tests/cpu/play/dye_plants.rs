@@ -790,3 +790,25 @@ fn a_planter_leaving_the_world_takes_its_plants_with_it() {
     assert!(h.server.plants.by_id.is_empty());
     assert!(h.server.things.get(plant).is_none());
 }
+
+/// A seed whose plant this world can't make is refused and kept: nothing stands, none is spent, and
+/// the planter is told the summoning fails.
+/// Behaviour: server.makes.nothing-used-up-for-what-cannot-be-made
+#[test]
+fn a_seed_whose_plant_cannot_be_made_is_refused_and_kept() {
+    let mut h = garden();
+    let (a, me, world) = gardener(&mut h, "one", &[(SEED, 2)]);
+    h.server.catalog.templates.remove(&PLANT);
+    let (seed, before) = held(&h, world, SEED).expect("seeds");
+    let from = h.bots[a].inbox.len();
+    send_use(&mut h, a, me, seed, 0);
+    run_for(&mut h, 2.1);
+    assert_eq!(the_plant(&h), None, "nothing stands");
+    assert_eq!(held(&h, world, SEED), Some((seed, before)), "kept");
+    assert!(
+        h.texts(a, from)
+            .iter()
+            .any(|(_, t)| *t == yalain_world::pets::text::SUMMONING_FAILS.0),
+        "told"
+    );
+}

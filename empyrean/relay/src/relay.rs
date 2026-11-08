@@ -99,6 +99,8 @@ pub struct Relay {
     refusing: BTreeMap<SessionId, String>,
     to_server: Vec<ToServer>,
     finished: Vec<Finished>,
+    /// The world's clock as its first grant gave it, and this relay's own clock at that moment.
+    world_clock: Option<(f64, f64)>,
 }
 
 impl Relay {
@@ -137,6 +139,18 @@ impl Relay {
             refusing: BTreeMap::new(),
             to_server: Vec::new(),
             finished: Vec::new(),
+            world_clock: None,
+        }
+    }
+
+    /// `now` on the world's clock, which is what sets Dereth's sky and calendar.
+    fn on_world_clock(&self, now: ClockSnapshot) -> ClockSnapshot {
+        match self.world_clock {
+            Some((time, at)) => ClockSnapshot {
+                portal_year_ticks: time + now.monotonic.as_secs_f64() - at,
+                ..now
+            },
+            None => now,
         }
     }
 
@@ -164,6 +178,7 @@ impl Relay {
         bytes: &[u8],
         now: ClockSnapshot,
     ) {
+        let now = self.on_world_clock(now);
         self.net.on_datagram(kind, from, bytes, now);
     }
 
@@ -175,8 +190,17 @@ impl Relay {
         bytes: &[u8],
         now: ClockSnapshot,
     ) {
-        if let Some(b) = self.bridges.get_mut(&session) {
-            b.from_server(bytes, from, local(now));
+        let Some(b) = self.bridges.get_mut(&session) else {
+            return;
+        };
+        b.from_server(bytes, from, local(now));
+        if self.world_clock.is_none() {
+            if let Some(time) = b.world_time() {
+                self.world_clock = Some((time, now.monotonic.as_secs_f64()));
+                for session in self.bridges.keys() {
+                    self.net.resync_soon(*session);
+                }
+            }
         }
     }
 
@@ -260,6 +284,7 @@ impl Relay {
     /// One turn: the later sessions' timers, what happened on them, the bridges' timers, and what
     /// each bridge has to send.
     pub fn step(&mut self, now: ClockSnapshot) {
+        let now = self.on_world_clock(now);
         let events: Vec<Event> = self.net.events().collect();
         for event in events {
             self.on_event(event, now);

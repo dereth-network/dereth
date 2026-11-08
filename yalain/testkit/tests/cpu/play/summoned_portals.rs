@@ -52,6 +52,7 @@ fn keeps(h: &mut Harness, me: u64, k: u32, at: StoredPosition) {
 }
 
 fn use_skill(h: &mut Harness, b: usize, skill: u32) -> usize {
+    h.all_hold(skill);
     let from = h.bots[b].inbox.len();
     h.bots[b].send(
         true,

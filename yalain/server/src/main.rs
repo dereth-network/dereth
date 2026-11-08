@@ -819,6 +819,7 @@ struct Play {
     brokers: std::collections::BTreeMap<u32, yalain_world::market::Broker>,
     walk_in: std::collections::HashSet<u32>,
     persons: std::collections::HashSet<u32>,
+    lifestones: std::collections::HashSet<u32>,
     shrines: std::collections::HashSet<u32>,
     shrine_kingdoms: std::collections::HashMap<u32, u32>,
     cannot_use: std::collections::HashSet<u32>,
@@ -834,6 +835,8 @@ struct Play {
     weapon_rules: std::collections::HashMap<String, yalain_content::WeaponRule>,
     death_spawns: std::collections::HashMap<String, yalain_content::DeathSpawn>,
     death_effects: yalain_world::item_use::ItemUses,
+    pet_kinds: Vec<yalain_content::PetKind>,
+    pet_limits: Vec<(u32, Vec<(usize, u32)>)>,
 }
 
 /// The exit code of a server whose ports another program holds, beside the line that says so
@@ -1017,6 +1020,7 @@ fn run<S: Store>(
     server.brokers = play.brokers;
     server.walk_in_packages = play.walk_in;
     server.person_packages = play.persons;
+    server.lifestone_packages = play.lifestones;
     server.shrine_packages = play.shrines;
     server.shrine_kingdoms = play.shrine_kingdoms;
     server.cannot_use_packages = play.cannot_use;
@@ -1032,6 +1036,16 @@ fn run<S: Store>(
     server.creature_weapon_rules = play.weapon_rules;
     server.death_spawns = play.death_spawns;
     server.death_effects = play.death_effects;
+    server.pets.read_rows(play.pet_kinds, play.pet_limits);
+    let unmade = yalain_world::pets::skills_with_no_kind(&server);
+    if !unmade.is_empty() {
+        tracing::warn!(
+            skills = unmade.len(),
+            first = ?unmade.iter().take(8).collect::<Vec<_>>(),
+            "summoning skills name a pet this world has no [[pet]] row for: they tell their users \
+             the summoning fails"
+        );
+    }
     for path in &o.recipes {
         make_character(&mut server, path, unix_now());
     }
@@ -1667,6 +1681,8 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         weapons: listed_weapons,
         weapon_rules,
         death_spawns,
+        pet_kinds,
+        pet_limits,
         ..
     } = compiled;
     let play = (|| {
@@ -1747,26 +1763,19 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             craft_skills = craft.skills.len(),
             "the effects and crafting read"
         );
-        let more: Vec<u32> = data::MORE_TEMPLATES
-            .iter()
-            .copied()
-            .chain(yalain_world::mounts::ITEMS)
-            .chain([yalain_world::usable::portals::TEMPLATE])
-            .chain(stores.sales.iter().map(|s| s.product))
-            .chain(quests.steps.iter().flat_map(|s| s.gives.iter().copied()))
-            .chain(
-                crafting
-                    .butchery
-                    .iter()
-                    .flat_map(|b| b.items.iter().copied()),
-            )
-            .chain(quests.steps.iter().filter_map(|s| match s.trigger {
-                yalain_content::quests::Trigger::Take(t) => Some(t),
-                _ => None,
-            }))
+        let more: Vec<u32> = yalain_world::makes::by_the_server(&data::start_rules(portal)?)
+            .into_iter()
+            .chain(yalain_world::makes::by_the_rows(
+                yalain_world::makes::Rows {
+                    objects: &content.objects,
+                    stores: &stores,
+                    quests: &quests,
+                    crafting: &crafting,
+                    death_spawns: &death_spawns,
+                    pets: &pet_kinds,
+                },
+            ))
             .chain(craft.templates())
-            // The placed objects' own (a chest's lock and contents, a door's).
-            .chain(content.objects.iter().map(|o| o.template))
             .collect();
         let (mut catalog, mut skipped) = data::catalog(portal, &spawns, &loot, &more)?;
         // The weapons the creatures wield, described with the rest.
@@ -1856,6 +1865,8 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         let walk_in = data::walk_in_packages(portal, &content)?;
         let persons =
             data::packages_deriving_from(portal, &content, &yalain_world::places::PERSONS)?;
+        let lifestones =
+            data::packages_deriving_from(portal, &content, &[yalain_world::places::LIFESTONE])?;
         let shrines = data::packages_deriving_from(
             portal,
             &content,
@@ -1940,6 +1951,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             brokers,
             walk_in,
             persons,
+            lifestones,
             shrines,
             shrine_kingdoms,
             cannot_use,
@@ -1955,6 +1967,8 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             weapon_rules: weapon_rules.into_iter().collect(),
             death_spawns: death_spawns.into_iter().collect(),
             death_effects,
+            pet_kinds: pet_kinds.into_values().collect(),
+            pet_limits: pet_limits.into_iter().collect(),
         })
     })();
     play.map(|p| (content, p))
@@ -1993,11 +2007,14 @@ fn reload_world(
         weapons: p.weapons,
         weapon_rules: p.weapon_rules,
         death_spawns: p.death_spawns,
+        pet_kinds: p.pet_kinds,
+        pet_limits: p.pet_limits,
         names,
         kinds: Some(yalain_world::reload::PlacedKinds {
             brokers: p.brokers,
             walk_in: p.walk_in,
             persons: p.persons,
+            lifestones: p.lifestones,
             shrines: p.shrines,
             cannot_use: p.cannot_use,
             doors: p.doors,

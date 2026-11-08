@@ -126,6 +126,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "hifi.lighting.every-additive-blend-adds-what-the-ordinary-frame-adds",
+        says: "Under the better lighting the three blends that add to what is there, of the \
+               color, of the color times its alpha and of the color times one less its alpha, \
+               all add what the ordinary frame would add over a surface of middling brightness, \
+               and no other blend does.",
+        since: THIS_CLIENT,
+        divergence: "CD-037",
+        evidence: Evidence::Private("AC-EVID-HIFI-ADDITIVE-BLENDS"),
+        station: "dereth-render-hifi::cpu::derive::pipeline::the_three_additive_blends_of_the_catalogue_count_as_additive_and_no_other_does",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "hifi.lighting.every-box-still-draws-the-occlusion-indoors",
         says: "Underground, in a house's room and at a doorway seen from the room, every \
                high-fidelity box ticked still draws the ambient occlusion: the bounced light, \
@@ -550,6 +562,17 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC-EVID-HIFI-SKY-HEIGHT-UP"),
         station: "dereth-render-hifi::cpu::sky::atmosphere::a_projected_point_comes_back_height_up_and_a_ray_points_at_it",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "hifi.sky.smoke-before-far-land-is-not-hazed-by-the-lands-distance",
+        says: "Translucent draws go over the air and keep the fog they were drawn with, so \
+               chimney smoke in front of far hills darkens them evenly at noon and stands out at \
+               dusk, and is not faded by the distance of the land behind it.",
+        since: THIS_CLIENT,
+        divergence: "CD-037",
+        evidence: Evidence::Private("AC-EVID-HIFI-SKY-SMOKE-OVER-AIR"),
+        station: "dereth-client::gpu::rendering::hifi_atmosphere::smoke_in_front_of_far_land_is_not_hazed_by_the_lands_distance",
+        tier: Tier::Gpu,
     },
     behaviour! {
         id: "hifi.sky.the-authored-night-sky-and-its-stars-are-kept",

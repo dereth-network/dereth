@@ -287,3 +287,44 @@ fn rooms_seen_from_outside_are_lit_as_rooms() {
     assert!(walls.iter().all(|&k| frame.objects[k].points.inside));
     println!("{in_rooms} draws in {} rooms", rooms.len());
 }
+
+/// While a screenshot is taken nothing degrades or goes with its distance: objects past their
+/// visible distance are in the frame, and an object comes at its full detail at any distance.
+///
+/// Behaviour: draw.mesh.a-screenshot-is-drawn-at-full-detail
+#[test]
+fn a_screenshot_is_drawn_at_full_detail() {
+    use auberean_assets::setup::DetailDistances;
+    use auberean_draw::mesh::{degrade, set_full_detail};
+    let d = DetailDistances {
+        visible: 45.0,
+        ..DetailDistances::default()
+    };
+    assert!(
+        degrade(&d, 100.0, 1.0, 2).is_none(),
+        "gone past its distance"
+    );
+
+    let i = install();
+    let region = i.records.region().expect("the region");
+    let block = (0x69, 0x67);
+    let at = spot(block, Vec3::new(109.75, 92.0, 101.0));
+    let shown = |mut f: auberean_draw::scene::Frame| {
+        let eye = f.camera.position;
+        auberean_draw::scene::fade_objects(&mut f.objects, eye, &[]);
+        f.objects.iter().filter(|b| b.drawn() && b.shown()).count()
+    };
+    let plain = shown(SceneBuilder::new(&i.records, &region).frame(&at, 60.0));
+
+    set_full_detail(true);
+    let g = degrade(&d, 100.0, 1.0, 2);
+    let full = shown(SceneBuilder::new(&i.records, &region).frame(&at, 60.0));
+    set_full_detail(false);
+
+    let g = g.expect("there at any distance");
+    assert_eq!((g.detail, g.opacity, g.material_detail), (1.0, 1.0, 2));
+    assert!(
+        full > plain,
+        "objects past their distance show too: {full} against {plain}"
+    );
+}

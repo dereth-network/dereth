@@ -55,7 +55,7 @@ impl KeyHash for ModeKey {
 
 /// What a combination plays: an animation key on a layer. A combination the table lacks has no
 /// key and layer [`NO_LAYER`].
-// D2-15103, D2-15104, D2-15105
+// D2-15103, D2-15105
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Combo {
     pub anim_key: u32,

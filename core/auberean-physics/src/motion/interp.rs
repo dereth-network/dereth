@@ -11,12 +11,14 @@
 
 use std::collections::VecDeque;
 
+use auberean_assets::animation::ModeKey;
 use dereth_physics::V3;
 use dereth_primitives::{Position, Vec3};
 
 use crate::geom::{self, Heading, EPS};
 use crate::motion::moveto::Steer;
-use crate::motion::{MotionInterp, Owner, AIR};
+use crate::motion::values::default_values;
+use crate::motion::{MotionInterp, Owner, AIR, EARTH};
 
 /// Within this of an impulse's keyframe the impulse is applied.
 const IMPULSE_REACH: f32 = 0.100_000_01;
@@ -621,7 +623,12 @@ impl Follower {
             let mut l = geom::global_to_local(&at.frame, velocity);
             mi.clamp_velocity(&*owner, &mut l);
             owner.set_velocity(geom::local_to_global(&at.frame, l));
-            owner.jump_logic()
+            let earth = ModeKey {
+                element: EARTH,
+                mode: owner.desired_mode_state().mode,
+            };
+            let values = mi.find_motion_values(earth).unwrap_or_else(default_values);
+            owner.jump_logic(values.jump_impulse)
         } else {
             owner.apply_impulse(velocity)
         };

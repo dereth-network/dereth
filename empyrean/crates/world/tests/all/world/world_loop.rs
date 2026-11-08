@@ -239,6 +239,31 @@ fn update_world_sleeps_between_updates_and_advances_portal_year_ticks_by_the_loo
     );
 }
 
+/// V508: the real loop counts its passes for the watch outside it, says the stage it reached, and
+/// ends the watch when it stops.
+#[test]
+fn the_world_loop_counts_its_passes_and_ends_the_watch_when_it_stops() {
+    let clock = VirtualClock::default();
+    let mut w = world_on(&clock);
+    let passes = w.world_manager.passes.clone();
+    assert_eq!(passes.count(), 0, "no pass until the loop runs");
+    assert!(!passes.is_over());
+    let mut host = Host {
+        clock: &clock,
+        sleeps: Vec::new(),
+        iterations: 0,
+        limit: 3,
+    };
+    wm::update_world(&mut w, &mut NoWire, &clock, &mut host);
+    assert_eq!(passes.count(), 3, "one for each time round the loop");
+    assert_eq!(
+        passes.stage(),
+        "PropertyManager worker timer",
+        "the last stage"
+    );
+    assert!(passes.is_over(), "stopping as it should ends the watch");
+}
+
 #[test]
 fn a_panicking_action_is_caught_and_the_loop_goes_on() {
     let clock = VirtualClock::default();

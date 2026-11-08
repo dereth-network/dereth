@@ -1567,7 +1567,7 @@ function home() {
           ${bead(w?.state ?? "unknown")}
           <div class="grow"><div class="name">${esc(w?.name ?? e.world_slug)}</div>
           <div class="sub">${esc(e.account || "no account yet")} · ${esc(clientShort(e.client))} · ${esc(era)}</div></div>
-          <div class="end">${esc(end)}</div>
+          <div class="end">${w ? playersCount(w, end) : esc(end)}</div>
           <div class="pin">${pin}</div>
         </div>`;
     }).join("") + `</div>`;
@@ -1628,7 +1628,7 @@ function visibleWorlds() {
       if (ui.filter === "pvp") return rs.includes("pvp") || rs.includes("pk");
       return true;
     })
-    .sort((a, b) => (reached(b) - reached(a)) || (rank[a.state] - rank[b.state]) || ((b.players ?? 0) - (a.players ?? 0)) || a.name.localeCompare(b.name));
+    .sort((a, b) => (reached(b) - reached(a)) || (rank[a.state] - rank[b.state]) || (rankedPlayers(b) - rankedPlayers(a)) || a.name.localeCompare(b.name));
 }
 
 // A chevron on the same pixel grid as the rest of the chrome: "<" goes back.
@@ -1637,6 +1637,28 @@ const CHEVRON_LEFT = `<svg viewBox="0 0 8 12" fill="currentColor" aria-hidden="t
 function playersLabel(w) {
   return w.state === "offline" ? "offline" : w.players != null ? `${w.players}` : "unknown";
 }
+
+// How long ago, in plain words.
+function agoWords(seconds) {
+  const plural = (n, unit) => `${n} ${unit}${n === 1 ? "" : "s"} ago`;
+  if (seconds < 60) return "just now";
+  if (seconds < 3600) return plural(Math.floor(seconds / 60), "minute");
+  return plural(Math.floor(seconds / 3600), "hour");
+}
+
+const COUNT_FROM = { ping: "From the world", heartbeat: "From the world", client: "From a player's game", treestats: "From TreeStats" };
+
+// A count as it is drawn: dimmer as it ages, with where it came from and its age on hover.
+function playersCount(w, text) {
+  const age = w.players_age;
+  if (w.state === "offline" || w.players == null || age == null) return esc(text);
+  const look = age < 300 ? "" : age < 3600 ? "count-aging" : "count-old";
+  const from = COUNT_FROM[w.players_source] ?? "From the hub";
+  return `<span class="${look}" title="${esc(`${from}, ${agoWords(age)}`)}">${esc(text)}</span>`;
+}
+
+// A count only a player's game reported can't be checked, so it doesn't move a world up the list.
+const rankedPlayers = (w) => (w.players_source === "client" ? 0 : w.players ?? 0);
 
 // What a world changes from its era, in words: what it adds and what it goes without. Empty when it
 // plays the era as it was.
@@ -1684,7 +1706,7 @@ function worldRow(w) {
   return `<tr data-world="${esc(w.slug)}" class="${w.state === "offline" ? "dim" : ""} ${open ? "open" : ""}">
       <td>${bead(w.state)}</td><td class="name">${esc(w.name)}</td>
       <td>${esc(emulatorLabel(w))}</td><td>${esc(eraText(w))}</td>
-      <td>${esc(w.ruleset ?? "")}</td><td>${esc(playersLabel(w))}</td><td class="end"><div class="pin">${pin}</div></td></tr>`
+      <td>${esc(w.ruleset ?? "")}</td><td>${playersCount(w, playersLabel(w))}</td><td class="end"><div class="pin">${pin}</div></td></tr>`
     + (open ? worldDetail(w) : "");
 }
 
@@ -1885,7 +1907,8 @@ function worldPage() {
   const f = w.form;
 
   const isAc2 = world.game === "auberean";
-  const facts = [stateLabel(world), world.players != null ? `${world.players} players` : "players unknown", world.ruleset, eraFact(world), isAc2 ? null : emulatorLabel(world)].filter(Boolean);
+  const playersFact = world.players != null ? `${world.players} players` : "players unknown";
+  const facts = [stateLabel(world), playersFact, world.ruleset, eraFact(world), isAc2 ? null : emulatorLabel(world)].filter(Boolean);
   const links = [["Website", world.links.website], ["Discord", world.links.discord], ["Rules", world.links.rules]].filter(([, u]) => u);
   const custom = ui.snap.state.custom_worlds.some((c) => c.slug === world.slug);
 
@@ -1967,7 +1990,7 @@ function worldPage() {
           ${links.map(([l, u]) => `<button type="button" class="btn" data-url="${esc(u)}">${l}</button>`).join("")}
           ${custom ? `<button type="button" class="btn" data-act="server-remove">Remove world</button>` : ""}</header>
         <div class="scroll">
-          <div class="facts">${bead(world.state)}<span>${facts.map((f) => f === eraFact(world) ? esc(f) + eraNote(world) : esc(f)).join("  ·  ")}</span></div>
+          <div class="facts">${bead(world.state)}<span>${facts.map((f) => f === playersFact ? playersCount(world, f) : f === eraFact(world) ? esc(f) + eraNote(world) : esc(f)).join("  ·  ")}</span></div>
           ${world.description ? `<p class="muted small">${esc(world.description)}</p>` : ""}
           <div class="form" style="margin-top:14px">
             ${login ?? `<label class="lab" for="${f.adding ? "acct-name" : "account"}">ACCOUNT</label>${accountField}
@@ -1976,7 +1999,7 @@ function worldPage() {
                 placeholder="${f.remembered && !f.password ? "saved" : ""}" value="${esc(f.password)}">
               <label class="check"><input type="checkbox" id="remember" ${f.remember ? "checked" : ""}>${esc(remembers)}</label></div>`}
             <p class="note warn" id="world-note" ${note ? "" : "hidden"}>${esc(note)}</p>
-            ${isAc2 ? ac2Client : `${offered("client_choice") ? `<label class="lab">CLIENT</label>${clientRow ?? `<div class="pair">${clientBtn("dereth")}${clientBtn("retail")}${clientNote}</div>`}` : ""}
+            ${isAc2 ? ac2Client : `${offered("client_choice") ? `<label class="lab">CLIENT</label>${clientRow ?? `<div class="pair">${clientBtn("dereth")}${needs === "original" ? "" : clientBtn("retail")}${clientNote}</div>`}` : ""}
             ${dataRow}`}
             ${host.worldRows?.(w.view) ?? ""}
           </div>

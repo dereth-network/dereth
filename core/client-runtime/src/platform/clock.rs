@@ -67,16 +67,27 @@ pub trait Clock {
 pub trait Pacer {
     /// Sleep this frame's share and return the milliseconds slept, for the recorder.
     fn frame_sleep(&mut self, is_active_app: bool) -> u32;
+
+    /// The same for a frame at full rate in a window that can't be seen, which nothing else spaces.
+    /// It rests the frame and leaves the timestep to the clock, as any slower display would.
+    fn hidden_frame_sleep(&mut self) -> u32 {
+        self.frame_sleep(true)
+    }
 }
 
 /// Pace one frame as the player's options ask: while Slow Down in the Background is on, which it
 /// is at first, a frame drawn while the window is not the active one is spaced as the original
 /// spaced it; off, every frame is paced as the active window's, so the frame rate holds in the
 /// background. The option is read every frame, so a change on any page applies to the next one.
-/// Returns the milliseconds slept.
-pub fn pace_frame(pacer: &mut dyn Pacer, is_active_app: bool) -> u32 {
+/// A frame at full rate in a window that can't be seen rests instead of drawing flat out. Returns
+/// the milliseconds slept.
+pub fn pace_frame(pacer: &mut dyn Pacer, is_active_app: bool, window_hidden: bool) -> u32 {
     let slows = dereth_client_contract::options::background::slows_down();
-    pacer.frame_sleep(is_active_app || !slows)
+    let full_rate = is_active_app || !slows;
+    if full_rate && window_hidden {
+        return pacer.hidden_frame_sleep();
+    }
+    pacer.frame_sleep(full_rate)
 }
 
 /// Read wall-clock Unix time, leaving each caller's fallback and integer conversion to that caller.
@@ -118,7 +129,7 @@ pub const HEADLESS_STEP: f64 = dereth_physics::globals::MIN_QUANTUM;
 
 use web_time::Instant;
 
-use dereth_client_contract::window_proc::frame_sleep_ms;
+use dereth_client_contract::window_proc::{frame_sleep_ms, hidden_frame_sleep_ms};
 
 /// System clock: monotonic elapsed time, wall-clock Unix time, and frame pacing through
 /// the platform sleep adapter.
@@ -174,10 +185,21 @@ impl Pacer for SystemClock {
     /// Returns the milliseconds slept, for the recorder.
     ///
     /// Active: `Sleep(0)` — a bare yield, no frame limiter. Inactive: frames are spaced at least
-    /// 99 ms apart. **There is no other frame limiter**, and inventing one changes the timestep and
+    /// 99 ms apart. **Past a window nobody can see, there is no other limiter**: inventing one changes the timestep and
     /// therefore the physics.
     fn frame_sleep(&mut self, is_active_app: bool) -> u32 {
         let ms = frame_sleep_ms(is_active_app, self.tick_ms(), self.last_frame_tick_ms);
+        self.sleep_and_stamp(ms)
+    }
+
+    fn hidden_frame_sleep(&mut self) -> u32 {
+        let ms = hidden_frame_sleep_ms(self.tick_ms(), self.last_frame_tick_ms);
+        self.sleep_and_stamp(ms)
+    }
+}
+
+impl SystemClock {
+    fn sleep_and_stamp(&mut self, ms: u32) -> u32 {
         if ms == 0 {
             std::thread::yield_now();
         } else {
@@ -416,7 +438,7 @@ mod tests {
     use super::{
         FixedStepClock, Pacer as _, SystemClock, Timer, EXTERNAL_TIME_EPSILON, HEADLESS_STEP,
     };
-    use dereth_client_contract::window_proc::frame_sleep_ms;
+    use dereth_client_contract::window_proc::{frame_sleep_ms, hidden_frame_sleep_ms};
     use std::time::Duration;
 
     // Oracle: the verified device/window frame-pacing behavior.
@@ -443,6 +465,18 @@ mod tests {
         );
     }
 
+    /// A frame nobody can see rests out what is left of its seventeen milliseconds, and a slow one
+    /// doesn't rest at all, across the millisecond counter's wrap as well.
+    ///
+    /// Behaviour: frame.pace.slowing-down-in-the-background-is-an-option-on-at-first
+    #[test]
+    fn a_hidden_frame_rests_out_a_sixtieth_of_a_second_and_a_slow_one_not_at_all() {
+        assert_eq!(hidden_frame_sleep_ms(1_000, 1_000), 17);
+        assert_eq!(hidden_frame_sleep_ms(1_010, 1_000), 7);
+        assert_eq!(hidden_frame_sleep_ms(1_040, 1_000), 0);
+        assert_eq!(hidden_frame_sleep_ms(4, u32::MAX - 5), 7);
+    }
+
     /// A frame drawn in the background is spaced as the original spaced it while Slow Down in
     /// the Background is on, which it is at first, and keeps the full rate while it is off; the
     /// change applies to the next frame, both ways. A frame drawn in the foreground never waits.
@@ -461,32 +495,40 @@ mod tests {
             fn frame_sleep(&mut self, is_active_app: bool) -> u32 {
                 frame_sleep_ms(is_active_app, 1_000, 1_000)
             }
+            fn hidden_frame_sleep(&mut self) -> u32 {
+                hidden_frame_sleep_ms(1_000, 1_000)
+            }
         }
 
         store::init();
         let mut pacer = StoppedClock;
+        // A window that can't be seen: a background frame keeps its 99 ms; an active one, which
+        // nothing else spaces, rests.
+        assert_eq!(pace_frame(&mut pacer, false, true), 99);
+        assert_eq!(pace_frame(&mut pacer, true, true), 17);
         // On at first: a background frame waits out the 99 ms, a foreground one does not wait.
-        assert_eq!(pace_frame(&mut pacer, false), 99);
-        assert_eq!(pace_frame(&mut pacer, true), 0);
-        // Off: a background frame does not wait either.
+        assert_eq!(pace_frame(&mut pacer, false, false), 99);
+        assert_eq!(pace_frame(&mut pacer, true, false), 0);
+        // Off: a background frame does not wait either, unless nobody can see it.
         assert!(store::set_value(
             background::SLOW_DOWN_IN_BACKGROUND,
             PrefValue::Bool(false)
         ));
-        assert_eq!(pace_frame(&mut pacer, false), 0);
-        assert_eq!(pace_frame(&mut pacer, true), 0);
+        assert_eq!(pace_frame(&mut pacer, false, true), 17);
+        assert_eq!(pace_frame(&mut pacer, false, false), 0);
+        assert_eq!(pace_frame(&mut pacer, true, false), 0);
         // On again: the next background frame waits once more.
         assert!(store::set_value(
             background::SLOW_DOWN_IN_BACKGROUND,
             PrefValue::Bool(true)
         ));
-        assert_eq!(pace_frame(&mut pacer, false), 99);
+        assert_eq!(pace_frame(&mut pacer, false, false), 99);
         // The real pace with the option off: no wait in the background.
         assert!(store::set_value(
             background::SLOW_DOWN_IN_BACKGROUND,
             PrefValue::Bool(false)
         ));
-        assert_eq!(pace_frame(&mut SystemClock::new(), false), 0);
+        assert_eq!(pace_frame(&mut SystemClock::new(), false, false), 0);
         store::clear();
     }
 

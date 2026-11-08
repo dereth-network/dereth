@@ -570,6 +570,141 @@ fn game_registration(slug: &str, emulator: &str) -> dereth_network_hub::registry
     .expect("a registration")
 }
 
+/// A world's `population` once it is `wanted`, read from the list, whose snapshot may be a moment
+/// behind. The wait only guards against a hang.
+fn population_until(
+    addr: std::net::SocketAddr,
+    slug: &str,
+    wanted: impl Fn(&serde_json::Value) -> bool,
+) -> serde_json::Value {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    loop {
+        let (status, body) = http(addr, "GET", "/v1/servers", None, "");
+        assert_eq!(status, 200, "{body}");
+        let page: serde_json::Value = serde_json::from_str(&body).expect("a page");
+        let row = page["data"]
+            .as_array()
+            .expect("rows")
+            .iter()
+            .find(|w| w["slug"] == slug)
+            .expect("listed");
+        if wanted(&row["population"]) {
+            return row["population"].clone();
+        }
+        assert!(std::time::Instant::now() < deadline, "{row}");
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+}
+
+/// Spec: hub: a client's report for a listed world's address and port is listed with its source and
+/// age and left out of the network's totals, and a world's own heartbeat goes before it; a report
+/// that names no listed world is answered alike and leaves nothing; a report past the limits or out
+/// of range is refused.
+#[test]
+fn a_clients_report_is_listed_until_the_worlds_own_word_takes_over() {
+    let (running, worlds, _) = super::conformance::hub();
+    let addr = running.local_addr();
+    let port = public_world(addr, "aa")["endpoint"]["port"]
+        .as_u64()
+        .expect("a port");
+    let report = |host: &str, players: u32| {
+        format!(r#"{{"host":"{host}","port":{port},"players":{players}}}"#)
+    };
+    let post = |body: &str| http(addr, "POST", "/v1/players", None, body);
+
+    let nowhere = post(&report("nowhere.example.org", 9));
+    assert_eq!(nowhere.0, 200, "{nowhere:?}");
+    assert_eq!(nowhere.1, "{}");
+    assert_eq!(
+        public_world(addr, "aa")["population"],
+        serde_json::Value::Null
+    );
+
+    assert_eq!(post(&report("192.0.2.1", 5001)).0, 400, "past the most");
+    assert_eq!(http(addr, "GET", "/v1/players", None, "").0, 405);
+
+    let said = post(&report("192.0.2.1", 9));
+    assert_eq!(said, nowhere, "answered alike");
+    let shown = population_until(addr, "aa", |p| p["source"] == "client");
+    assert_eq!(shown["players"], 9);
+    assert_eq!(
+        public_world(addr, "aa")["population"]["players"],
+        9,
+        "one world too"
+    );
+    assert!(shown["ageSeconds"].is_u64(), "{shown}");
+
+    let (_, totals) = http(addr, "GET", "/v1/status", None, "");
+    let totals: serde_json::Value = serde_json::from_str(&totals).expect("totals");
+    assert_eq!(totals["playersOnline"], 0, "not in the totals");
+    let (_, counts) = http(
+        addr,
+        "GET",
+        "/compat/treestats/player_counts-latest.json",
+        None,
+        "",
+    );
+    assert!(!counts.contains("\"count\":9"), "not in the feed: {counts}");
+
+    let beat = r#"{"state":"online","playersOnline":7,"playersKind":"connected-characters"}"#;
+    let (status, body) = http(
+        addr,
+        "POST",
+        "/v1/servers/aa/heartbeat",
+        Some(&worlds[0].1),
+        beat,
+    );
+    assert_eq!(status, 200, "{body}");
+    let shown = population_until(addr, "aa", |p| p["source"] == "heartbeat");
+    assert_eq!(shown["players"], 7);
+
+    for _ in 0..8 {
+        if post(&report("192.0.2.1", 1)).0 == 429 {
+            return;
+        }
+    }
+    panic!("one address has only a few reports");
+}
+
+/// Spec: hub: a hub told where TreeStats' counts are reads them by itself and lists a count for a
+/// world nothing better speaks for, under the world's name.
+#[test]
+fn a_world_with_nothing_better_has_treestats_count() {
+    use std::io::{Read as _, Write as _};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+    let url = format!(
+        "http://{}/counts.json",
+        listener.local_addr().expect("addr")
+    );
+    let (running, _, _) = super::conformance::hub();
+    let name = public_world(running.local_addr(), "aa")["name"]
+        .as_str()
+        .expect("a name")
+        .to_owned();
+    drop(running);
+    let now = dereth_network_hub::registry::iso(std::time::SystemTime::now());
+    let date = format!("{} {} UTC", &now[..10], &now[11..19]);
+    let body = format!(r#"[{{"server":"{name}","count":630,"date":"{date}"}}]"#);
+    std::thread::spawn(move || {
+        while let Ok((mut stream, _)) = listener.accept() {
+            let mut head = [0u8; 2048];
+            let _ = stream.read(&mut head);
+            let _ = write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+        }
+    });
+    let (running, _, _) = super::conformance::hub_with(dereth_network_hub::server::HubConfig {
+        treestats_url: Some(url),
+        loopback_allowed: true,
+        ..Default::default()
+    });
+    let shown = population_until(running.local_addr(), "aa", |p| p["source"] == "treestats");
+    assert_eq!(shown["players"], 630);
+}
+
 /// The slugs and games of a page of `/v1/servers`, in its order.
 fn listed_games(addr: std::net::SocketAddr, query: &str) -> Vec<(String, String)> {
     let (status, body) = http(addr, "GET", &format!("/v1/servers{query}"), None, "");

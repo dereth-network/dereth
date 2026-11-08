@@ -55,6 +55,7 @@ export function serve({ ready, start, each = () => {}, release = () => {}, rate,
   }
 
   function connect(msg) {
+    counted = msg.counted ?? null;
     const ws = new WebSocket(msg.server);
     socket = ws;
     ws.binaryType = 'arraybuffer';
@@ -72,6 +73,18 @@ export function serve({ ready, start, each = () => {}, release = () => {}, rate,
       log(`connected to ${msg.server}; logging in as ${msg.account}`);
       loop();
     };
+  }
+
+  // The world this play is counted under, and how many it said are on when it logged in: the hub
+  // is told for the launcher's list, as the desktop client tells it. Nothing waits on the answer.
+  let counted = null;
+  function reportPlayers(players) {
+    if (!counted) return;
+    fetch(`${counted.hub}/v1/players`, {
+      method: 'POST',
+      credentials: 'omit',
+      body: JSON.stringify({ host: counted.host, port: counted.port, players }),
+    }).catch(() => {});
   }
 
   let lastWill = null;
@@ -100,6 +113,8 @@ export function serve({ ready, start, each = () => {}, release = () => {}, rate,
       for (const m of play.takeMessages()) {
         if (socket.readyState === WebSocket.OPEN) socket.send(m);
       }
+      const players = play.takeWorldPlayers?.();
+      if (players !== undefined) reportPlayers(players);
       // The server's copy of the goodbye, renewed when the connections change, in case the page goes
       // away before the worker can log off.
       const will = play.will?.();

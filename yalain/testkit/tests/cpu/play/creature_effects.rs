@@ -81,6 +81,7 @@ fn place(h: &mut Harness, me: u64, beetle: u64, dx: f32, dy: f32) {
 }
 
 fn use_skill(h: &mut Harness, b: usize, id: u32, skill: u32, target: u64) -> usize {
+    h.all_hold(skill);
     let from = h.bots[b].inbox.len();
     h.bots[b].send(
         true,
@@ -469,4 +470,201 @@ fn a_dead_creatures_damage_over_time_runs_on_and_changes_nothing() {
         Some(0),
         "and change nothing"
     );
+}
+
+/// One caster's records of one effect on a creature stop at the most it holds, as on a player: the
+/// oldest goes, and nothing is left waiting for its end or its next tick.
+/// Behaviour: server.effects.one-caster-of-one-effect-stops-at-a-limit
+#[test]
+fn records_on_a_creature_stop_at_the_limit_with_nothing_left_waiting() {
+    let (mut h, _, me, beetles) = beside_beetles(1);
+    let beetle = beetles[0];
+    if let Some(t) = h.server.things.get_mut(beetle) {
+        t.max_health = 100_000;
+        t.health = 100_000;
+    }
+    let cast = effects::Cast {
+        caster: me,
+        spellcraft: 1.0,
+        ..effects::Cast::default()
+    };
+    let on = On::Creature(beetle);
+    let put = |h: &mut Harness| {
+        let clock = h.clock();
+        effects::apply_on(
+            &mut h.server,
+            &mut h.net,
+            on,
+            CHARGED_AIR_EFFECT,
+            cast,
+            clock,
+        );
+    };
+    for _ in 0..effects::MOST_OF_ONE_EFFECT {
+        put(&mut h);
+    }
+    let waiting = |h: &Harness| {
+        h.server
+            .timers
+            .iter()
+            .filter(|(_, t)| {
+                matches!(t,
+                yalain_world::Timer::CreatureEffectEnds { creature, .. }
+                | yalain_world::Timer::CreatureEffectTick { creature, .. }
+                if *creature == beetle)
+            })
+            .count()
+    };
+    let before = waiting(&h);
+    let first = effects::records_of(&h.server, on)[0].eid;
+    put(&mut h);
+    let held = effects::records_of(&h.server, on);
+    assert_eq!(held.len(), effects::MOST_OF_ONE_EFFECT);
+    assert!(held.iter().all(|e| e.eid != first), "the oldest went");
+    assert_eq!(waiting(&h), before, "nothing of it waits");
+    // A crowd may stack on a creature past what a player holds: none of it goes.
+    let crowd = effects::MOST_FROM_OTHERS + 10;
+    for caster in 0..crowd {
+        let by = effects::Cast {
+            caster: 0x2130_0000_0001_0000 + u64::try_from(caster).expect("few"),
+            ..cast
+        };
+        let clock = h.clock();
+        effects::apply_on(&mut h.server, &mut h.net, on, CHARGED_AIR_EFFECT, by, clock);
+    }
+    assert_eq!(
+        effects::records_of(&h.server, on).len(),
+        effects::MOST_OF_ONE_EFFECT + crowd
+    );
+}
+
+/// The stun fixture: a harm of class 55, of another class, the short immunity and what it leaves
+/// (their classes and times as the data has them), put in the world's table.
+const SHORT: u32 = 0x7000_0720;
+const LONG: u32 = 0x7000_0721;
+const STUN: u32 = 0x7000_8101;
+const OTHER_STUN: u32 = 0x7000_8102;
+const SLOW: u32 = 0x7000_8103;
+
+fn with_immunity(h: &mut Harness) {
+    use yalain_world::effect_defs::{EffectDef, Kind, Scale};
+    let def = |state: u32, kind: Kind, class: u32, seconds: f32| EffectDef {
+        state,
+        kind,
+        duration: Scale(vec![(0.0, seconds)]),
+        priority: Scale(vec![(0.0, 1.0)]),
+        fx: 0,
+        external_flags: 0,
+        internal_flags: yalain_world::effect_defs::HARMFUL,
+        enum_value: 0,
+        eq_class: class,
+        name: None,
+    };
+    let t = &mut h.server.effect_table.effects;
+    t.insert(SHORT, def(SHORT, Kind::Immunity { then: LONG }, 100, 5.0));
+    let ward = Kind::Ward {
+        classes: vec![55, 100],
+        chance: Scale(vec![(0.0, 1.0)]),
+    };
+    t.insert(LONG, def(LONG, ward, 100, 60.0));
+    for (state, class) in [(STUN, 55), (OTHER_STUN, 55), (SLOW, 7)] {
+        t.insert(state, def(state, Kind::Other, class, 10.0));
+    }
+}
+
+/// A use that stuns: its stun and the short immunity, as a skill's target effects come on.
+fn stunned(h: &mut Harness, on: On, stun: u32, caster: u64) -> bool {
+    let clock = h.clock();
+    let cast = effects::Cast {
+        caster,
+        spellcraft: 10.0,
+        ..effects::Cast::default()
+    };
+    let landed = effects::apply_on(&mut h.server, &mut h.net, on, stun, cast, clock);
+    if landed {
+        effects::apply_on(&mut h.server, &mut h.net, on, SHORT, cast, clock);
+    }
+    landed
+}
+
+fn step_for(h: &mut Harness, seconds: u32) {
+    for _ in 0..seconds * 10 {
+        h.step_by(0.1);
+    }
+}
+
+/// A stun that lands leaves its target open to another for five seconds, then keeps every stun off,
+/// whoever's and of whatever skill, for sixty; a harm of another kind still lands, and when the
+/// time is up a stun lands again. A second stun within the five seconds starts them over.
+/// Behaviour: server.effects.crowd-control-immunity
+#[test]
+fn a_stun_keeps_its_kind_off_a_creature_for_a_minute_after_five_seconds() {
+    let (mut h, _b, me, beetles) = beside_beetles(1);
+    with_immunity(&mut h);
+    let on = On::Creature(beetles[0]);
+    assert!(stunned(&mut h, on, STUN, me), "the first lands");
+    step_for(&mut h, 3);
+    assert!(stunned(&mut h, on, STUN, me), "within the five seconds");
+    step_for(&mut h, 3);
+    let holds = |h: &Harness, state: u32| {
+        effects::records_of(&h.server, on)
+            .iter()
+            .any(|e| e.state == state)
+    };
+    assert!(holds(&h, SHORT), "started over at the second");
+    assert!(!holds(&h, LONG), "the first's end leaves nothing yet");
+    assert!(stunned(&mut h, on, STUN, me), "still open");
+    step_for(&mut h, 6);
+    assert!(holds(&h, LONG), "the long one on");
+    assert!(!holds(&h, SHORT));
+    assert!(!stunned(&mut h, on, STUN, me), "kept off");
+    assert!(
+        !stunned(&mut h, on, OTHER_STUN, 7),
+        "another's, another skill's"
+    );
+    let clock = h.clock();
+    let cast = effects::Cast {
+        caster: me,
+        spellcraft: 10.0,
+        ..effects::Cast::default()
+    };
+    assert!(
+        effects::apply_on(&mut h.server, &mut h.net, on, SLOW, cast, clock),
+        "another kind lands"
+    );
+    step_for(&mut h, 58);
+    assert!(!stunned(&mut h, on, STUN, me), "58 s into the minute");
+    step_for(&mut h, 3);
+    assert!(!holds(&h, LONG), "the minute is over");
+    assert!(stunned(&mut h, on, STUN, me), "lands again");
+}
+
+/// On a player the rule is the same; its client is never told of the five seconds, and is told of
+/// the minute when it starts and ends.
+/// Behaviour: server.effects.crowd-control-immunity-on-a-player
+#[test]
+fn a_stun_keeps_its_kind_off_a_player_and_only_the_minute_is_told() {
+    let (mut h, b, me, beetles) = beside_beetles(1);
+    with_immunity(&mut h);
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .map(|(w, _)| w)
+        .expect("in the world");
+    let on = On::Player(world);
+    let from = h.bots[b].inbox.len();
+    let told =
+        |h: &Harness, from: usize, f: u32| h.functions(b, from).iter().filter(|x| **x == f).count();
+    assert!(stunned(&mut h, on, STUN, beetles[0]));
+    h.run(3);
+    assert_eq!(told(&h, from, effects::function::ADD), 1, "the stun alone");
+    step_for(&mut h, 6);
+    assert_eq!(told(&h, from, effects::function::ADD), 2, "and the minute");
+    assert!(!stunned(&mut h, on, OTHER_STUN, beetles[0]), "kept off");
+    let removes = told(&h, from, effects::function::REMOVE);
+    assert_eq!(removes, 0, "the five seconds' end is not told");
+    step_for(&mut h, 61);
+    assert!(stunned(&mut h, on, STUN, beetles[0]), "lands again");
 }

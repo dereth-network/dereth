@@ -438,7 +438,7 @@ fn award(h: &mut Harness, id: u64, amount: u64) {
         &mut h.net,
         w,
         amount,
-        yalain_world::progress::Award::Step,
+        yalain_world::progress::Award::Part,
     );
     h.run(5);
 }
@@ -487,6 +487,120 @@ fn a_vassals_experience_is_pooled_and_paid_to_its_patron_up_to_the_levels_cap() 
     // Another 1,000: 250 pooled, but nothing left under the level's cap.
     award(&mut h, vid, 1_000);
     assert_eq!(total(&h), 350);
+}
+
+fn pool_of(h: &Harness, patron: u64) -> u64 {
+    h.server
+        .allegiances
+        .nodes
+        .get(&patron)
+        .map_or(0, |n| n.pooled)
+}
+
+fn total_of(h: &Harness, id: u64) -> u64 {
+    let p = h
+        .server
+        .players
+        .values()
+        .find(|p| p.character == id)
+        .expect("in the world");
+    yalain_world::quals::long(&p.qualities, 300).unwrap_or(0)
+}
+
+/// Pay a player, for what a kill's share or a quest pays.
+fn pay(h: &mut Harness, id: u64, amount: u64, why: yalain_world::progress::Award) {
+    let w = yalain_world::social::world_of(&h.server, id).expect("in the world");
+    yalain_world::progress::award(&mut h.server, &mut h.net, w, amount, why);
+    h.run(5);
+}
+
+/// A quarter of a kill's part or a fellow's share goes into the patron's pool; nothing of what a
+/// quest pays, on its way or at its end.
+/// Behaviour: server.allegiance.quest-experience-is-not-passed-up
+#[test]
+fn what_a_quest_pays_is_not_passed_up_and_what_a_kill_pays_is() {
+    use yalain_world::progress::Award;
+    let (mut h, a, b) = two();
+    let (_, vid) = a;
+    let (_, pid) = b;
+    h.server.levels = levels();
+    sworn(&mut h, a, b);
+    pay(&mut h, vid, 400, Award::Quest((0, 0)));
+    pay(&mut h, vid, 400, Award::Step);
+    assert_eq!(pool_of(&h, pid), 0, "a quest's and its steps'");
+    pay(&mut h, vid, 40, Award::Part);
+    assert_eq!(pool_of(&h, pid), 10, "a quarter of a part");
+    pay(&mut h, vid, 40, Award::Share);
+    assert_eq!(pool_of(&h, pid), 20, "and of a share");
+}
+
+/// A vassal reaching a new level, by a quest's pay as by anything, pays its patron what the pool
+/// holds at once, however far under the threshold, naming that vassal; a pool of nothing pays and
+/// tells nothing.
+/// Behaviour: server.allegiance.a-vassals-new-level-pays-the-pool
+#[test]
+fn a_vassal_reaching_a_level_pays_its_patron_the_pool_at_once() {
+    use yalain_world::progress::Award;
+    let (mut h, a, b) = two();
+    let (_, vid) = a;
+    let (pa, pid) = b;
+    h.server.levels = levels();
+    sworn(&mut h, a, b);
+    pay(&mut h, vid, 100, Award::Part);
+    assert_eq!(pool_of(&h, pid), 25, "under the threshold of 200");
+    assert_eq!(total_of(&h, pid), 0, "nothing paid yet");
+    let from = h.bots[pa].inbox.len();
+    pay(&mut h, vid, 900, Award::Quest((0, 0)));
+    assert_eq!(pool_of(&h, pid), 0, "paid out");
+    assert_eq!(total_of(&h, pid), 25);
+    assert!(h.texts(pa, from).contains(&(8, text::VASSAL_EARNED.0)));
+    let from = h.bots[pa].inbox.len();
+    pay(&mut h, vid, 2_000, Award::Quest((0, 0)));
+    assert_eq!(total_of(&h, pid), 25, "no more for a pool of nothing");
+    assert!(!h.texts(pa, from).contains(&(8, text::VASSAL_EARNED.0)));
+}
+
+/// A patron away when its vassal reaches a level is kept what the pool held, through a save and
+/// the world forgetting its allegiances, and paid as it enters; a pool already held when the rule
+/// came in pays the same way. A vassal with no patron pays no one.
+/// Behaviour: server.allegiance.a-new-level-with-the-patron-away
+#[test]
+fn a_new_level_with_the_patron_away_is_kept_through_a_restart_and_paid_as_it_enters() {
+    use yalain_world::progress::Award;
+    let (mut h, a, b) = two();
+    let (_, vid) = a;
+    let (pa, pid) = b;
+    h.server.levels = levels();
+    sworn(&mut h, a, b);
+    let before = h.bots[pa].inbox.len();
+    h.bots[pa].send(
+        false,
+        queue::LOGON,
+        &ClientMessage::LogOff(CharacterRef { character: pid }),
+    );
+    assert!(h.run_until(STEPS, |h| h.bots[pa].inbox[before..]
+        .iter()
+        .any(|r| matches!(r.message(), Some(ServerMessage::CharacterList(_))))));
+    // What a saved world already held in the pool.
+    h.server
+        .allegiances
+        .nodes
+        .get_mut(&pid)
+        .expect("a member")
+        .pooled = 30;
+    pay(&mut h, vid, 1_000, Award::Quest((0, 0)));
+    assert_eq!(pool_of(&h, pid), 0);
+    assert_eq!(h.server.allegiances.nodes[&pid].owed, 30, "kept for it");
+    h.run(STEPS);
+    h.server.allegiances = yalain_world::allegiance::Allegiances::default();
+    assert!(yalain_world::allegiance::ensure(&mut h.server), "reads");
+    assert_eq!(h.server.allegiances.nodes[&pid].owed, 30, "through a stop");
+    let from = h.bots[pa].inbox.len();
+    h.enter_world(pa, "two", pid);
+    h.run(5);
+    assert!(h.texts(pa, from).contains(&(8, text::AWAY_EARNED.0)));
+    assert_eq!(total_of(&h, pid), 30);
+    assert_eq!(h.server.allegiances.nodes[&pid].owed, 0, "once");
 }
 
 /// A store edited by hand into a circle of oaths still has an end: every walk counts each member

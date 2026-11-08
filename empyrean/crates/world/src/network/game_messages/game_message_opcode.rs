@@ -94,6 +94,6 @@ impl GameMessageOpcode {
     pub const DDD_EndDDD: Self = Self(0xF7EA);
     // Not ACE: the overlay extension's manifest (V437).
     pub const DDD_OverlayManifest: Self = Self(0xF7EC);
-    /// Not ACE (V508): the bulk patch stream's offer.
+    /// Not ACE (V516): the bulk patch stream's offer.
     pub const DDD_BulkOffer: Self = Self(0xF7ED);
 }

@@ -232,6 +232,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "world.inside.a-copys-lights-light-its-own-cells",
+        says: "A light record's cells match by their low word, so a block copied from another lights its own cells by the original's list.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-LIT-CELLS-LOW-WORD"),
+        station: "auberean-world::dat::inside::a_copys_lights_light_its_own_cells",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "world.inside.a-dim-suns-share-falls-with-its-brightness",
         says: "The share of the sun a cell's nearest stored direction takes is its product with \
                the light, whose length is the sun's brightness, and the next direction takes the \

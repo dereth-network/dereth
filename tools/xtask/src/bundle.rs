@@ -373,6 +373,10 @@ fn info_plist(icon: IconForm) -> String {
 	<string>{MINIMUM_MACOS}</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.role-playing-games</string>
+	<key>LSSupportsGameMode</key>
+	<true/>
+	<key>GCSupportsGameMode</key>
+	<true/>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 </dict>
@@ -448,6 +452,7 @@ mod tests {
                 "{plist}"
             );
             assert!(plist.starts_with("<?xml version=\"1.0\""), "{plist}");
+            assert!(plist.contains("<key>LSSupportsGameMode</key>"), "{plist}");
         }
     }
 

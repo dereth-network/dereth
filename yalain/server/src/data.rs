@@ -316,22 +316,6 @@ pub fn skill_table(p: &Portal) -> Result<yalain_world::skills::SkillTable, Strin
     Ok(SkillTable::read(lib, &names.names, &graph))
 }
 
-/// Templates the world makes things of beyond the camps' creatures and their loot: the corpse,
-/// the starting packs of the races and the book a new character is given.
-pub const MORE_TEMPLATES: [u32; 11] = [
-    0x4700_0539,
-    0x4700_051B,
-    0x4700_051C,
-    0x4700_051D,
-    0x4700_0515,
-    0x4700_0516,
-    0x4700_0517,
-    0x4700_0521,
-    0x4700_0522,
-    0x4700_0523,
-    0x4700_06CD,
-];
-
 /// The generator-profile names' enumeration (loot profiles among them).
 pub const PROFILE_NAMES: u32 = 0x2300_0100;
 
@@ -398,9 +382,7 @@ pub fn catalog(
                 continue;
             }
         };
-        if let Some(stats) = yalain_content::CreatureStats::from_props(&props) {
-            want.extend(stats.trophies.iter().map(|(x, _)| *x));
-        }
+        want.extend(yalain_world::makes::by_a_template(&props));
         let icon = icon_layers(p, description.look);
         if !icon.is_empty() {
             c.icons.insert(t, icon);

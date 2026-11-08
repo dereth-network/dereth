@@ -1355,3 +1355,60 @@ fn an_add_past_what_a_character_may_list_is_refused_with_the_rows_counted() {
         vec![yalain_friends::FRIENDS_FULL.to_owned()]
     );
 }
+
+/// However much of what waits for the hub is other characters', a character's tell waits for one
+/// turn of each.
+/// Behaviour: server.network.a-tell-waits-a-turn-of-each
+#[test]
+fn a_tell_waits_a_turn_of_each_character_however_much_waits_for_the_hub() {
+    let mut w = World::linked();
+    let ann = w.player("Ann");
+    w.on("Ann");
+    w.frames();
+    let mut streams = Vec::new();
+    for i in 0..60u8 {
+        let name = format!(
+            "Pl{}{}",
+            char::from(b'a' + i / 26),
+            char::from(b'a' + i % 26)
+        );
+        w.character(&name);
+        let id = w.connect_from(IpAddr::V4(Ipv4Addr::new(10, 0, 0, i + 1)));
+        w.present(id, &format!("acct-{name}"));
+        w.check_tickets();
+        w.take(id);
+        w.enter(&name);
+        w.take(id);
+        w.on(&name);
+        streams.push(id);
+    }
+    w.frames();
+    for _ in 0..30 {
+        w.advance(1);
+        w.frames();
+    }
+    for (i, id) in streams.iter().enumerate() {
+        for k in 0..10 {
+            let user = format!("ch{i}{k}@channel");
+            w.request(*id, Request::IgnoredAdd { user });
+        }
+        w.take(*id);
+    }
+    w.request(
+        ann,
+        Request::SendToUserEx {
+            user: "Bob@coldeve".into(),
+            text: "hi".into(),
+            extra: None,
+        },
+    );
+    let queued = w.fed.as_ref().expect("on the network").queued();
+    assert!(queued > 400, "the hub's pace is well behind: {queued}");
+    let told = |frames: &[Message]| frames.iter().any(|m| matches!(m, Message::Tell { .. }));
+    let mut seen = told(&w.frames());
+    for _ in 0..2 {
+        w.advance(1);
+        seen = seen || told(&w.frames());
+    }
+    assert!(seen, "the tell has gone, in two seconds");
+}

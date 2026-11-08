@@ -1,4 +1,4 @@
-//! Not ACE (V508): the patch as one TCP stream, for a client that asks for it.
+//! Not ACE (V516): the patch as one TCP stream, for a client that asks for it.
 //!
 //! A client patched to a world with a data overlay that sets `FLAG_BULK` in its interrogation
 //! response is sent `0xF7ED` after `0xF7E7`, in place of the patch's `0xF7E2`s: a port and a

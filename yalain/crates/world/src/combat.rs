@@ -74,7 +74,7 @@ pub mod error {
 
 /// Modes.
 pub mod mode {
-    pub const PEACE: u32 = 0x4000_0001;
+    pub use auberean_physics::motion::PEACE;
     /// A player with a one-handed melee weapon (or none).
     pub const ONE_HANDED: u32 = 0x4100_000A;
     /// A creature without a weapon.
@@ -190,6 +190,15 @@ pub const PLAYER_REACH: f32 = 3.2;
 
 /// When a player's first swing comes after it asks to attack, in seconds.
 pub const FIRST_SWING: f64 = 0.23;
+
+/// What a player may ask to attack ahead of its next swing's time, and still swing as soon as it
+/// asks: so many at once, then so many a second. Asking does not lose a swing or put it off. 2017's
+/// clients swung soon after asking, at once after a swing or a special too (36 asks within 0.9 s of
+/// a swing, 0.05 to 0.42 s after asking, most at another target), and asked so 148 times of 4,226, at
+/// most 2 in 5 s, 4 in 30 s and 9 in 300 s; these numbers, which would have held none of them back,
+/// are ours.
+pub const EARLY_SWINGS_AT_ONCE: f64 = 5.0;
+pub const EARLY_SWINGS_PER_SECOND: f64 = 0.2;
 
 /// How often a run walking to its target looks whether it has arrived, in seconds (a world step).
 pub const WALKING_CHECK: f64 = 0.2;
@@ -499,12 +508,11 @@ pub fn may_attack_thing<S: Store>(s: &Server<S>, world: ConnId, thing: u64) -> R
     }
 }
 
-/// The bits of a hook's target health change and target PK damage change.
-const TARGET_HEALTH: u32 = 0x800;
-const TARGET_PK_DAMAGE: u32 = 0x2000;
 /// The bits of a hook's attacker health change and attacker PK damage change.
-pub(crate) const ATTACKER_HEALTH: u32 = 0x1000;
-const ATTACKER_PK_DAMAGE: u32 = 0x4000;
+pub(crate) use auberean_physics::story::hook_bits::ATTACKER_HEALTH;
+use auberean_physics::story::hook_bits::ATTACKER_PK_DAMAGE;
+/// The bits of a hook's target health change and target PK damage change.
+use auberean_physics::story::hook_bits::{TARGET_HEALTH, TARGET_PK_DAMAGE};
 
 /// A story's hits on another player are told as PK damage too: each hook that takes that player's
 /// health gives the same amount as PK damage (2017: every harmful hook between two players, 109 of
@@ -680,9 +688,10 @@ pub fn begin<S: Store>(
         return;
     };
     let mode_sent = p.attacking.is_some_and(|r| r.mode_sent) || in_range;
+    let next_swing = swing_when_asked(p, clock.local.0);
     p.attacking = Some(Run {
         target,
-        next_swing: clock.local.0 + FIRST_SWING,
+        next_swing,
         context,
         mode_sent,
         walking: false,
@@ -699,6 +708,55 @@ pub fn begin<S: Store>(
                 let turn = crate::skill_use::turn_to(p, target, context);
                 to_all_seeing(s, net, me, &turn);
             }
+        }
+    }
+}
+
+/// When a player asking to attack next swings: a moment after it asks, unless its next swing's time
+/// is nearer. Ahead of that time, or while it uses a skill, as soon as it asks only within what
+/// [`EARLY_SWINGS_AT_ONCE`] allows; past that its swing keeps its time, or waits for the use's end.
+fn swing_when_asked(p: &mut Player, now: f64) -> f64 {
+    let first = now + FIRST_SWING;
+    let ready = if p.using.is_some() {
+        f64::INFINITY
+    } else {
+        p.swing_ready
+    };
+    // Long past, no swing is owed; just past or near, this is the one it is owed.
+    let at = if ready < now - FIRST_SWING {
+        first
+    } else if ready <= first {
+        ready
+    } else {
+        let at_now = yalain_net::LocalTime(now);
+        let allowed = p
+            .early_swings
+            .get_or_insert_with(|| {
+                crate::call_limit::Bucket::with(
+                    EARLY_SWINGS_AT_ONCE,
+                    EARLY_SWINGS_PER_SECOND,
+                    at_now,
+                )
+            })
+            .allow(at_now);
+        if allowed {
+            first
+        } else {
+            ready
+        }
+    };
+    if at.is_finite() {
+        p.swing_ready = at;
+    }
+    at
+}
+
+/// A player has swung: its run's next swing, the time asking again goes by.
+fn swung<S: Store>(s: &mut Server<S>, world: ConnId, next: f64) {
+    if let Some(p) = s.players.get_mut(&world) {
+        p.swing_ready = next;
+        if let Some(r) = p.attacking.as_mut() {
+            r.next_swing = next;
         }
     }
 }
@@ -949,14 +1007,12 @@ fn swing<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock:
         with_pk_damage(&mut st, run.target);
     }
     to_all_seeing(s, net, id, &st);
-    if let Some(r) = s.players.get_mut(&world).and_then(|p| p.attacking.as_mut()) {
-        let period = if two_blows.is_some() {
-            two_blow_seconds(skill)
-        } else {
-            swing_seconds(None, false)
-        };
-        r.next_swing = now + next_swing_after(period, ts);
-    }
+    let period = if two_blows.is_some() {
+        two_blow_seconds(skill)
+    } else {
+        swing_seconds(None, false)
+    };
+    swung(s, world, now + next_swing_after(period, ts));
     for (nth, blow) in blows.iter().enumerate() {
         if blow.outcome.landed() {
             let seconds = if nth == 0 {
@@ -1149,9 +1205,11 @@ fn stand_and_swing<S: Store>(
         None => hit_seconds(skill, implement) / f64::from(ts),
     };
     s.after(clock, after, crate::Timer::Landing(landing));
-    if let Some(r) = s.players.get_mut(&world).and_then(|p| p.attacking.as_mut()) {
-        r.next_swing = now + next_swing_after(swing_seconds(implement, thrown.is_some()), ts);
-    }
+    swung(
+        s,
+        world,
+        now + next_swing_after(swing_seconds(implement, thrown.is_some()), ts),
+    );
 }
 
 /// A swing of a skill with two thrown hooks: its story names each hand's weapon, each throw's
@@ -1248,9 +1306,7 @@ fn throw_twice<S: Store>(
     for (landing, after) in told_of {
         s.after(clock, after, crate::Timer::Landing(landing));
     }
-    if let Some(r) = s.players.get_mut(&world).and_then(|p| p.attacking.as_mut()) {
-        r.next_swing = clock.local.0 + next_swing_after(period, ts);
-    }
+    swung(s, world, clock.local.0 + next_swing_after(period, ts));
 }
 
 /// The kind of a player's swing, for its landing chance: its skill's (a bow's strikes up close are

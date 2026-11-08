@@ -96,6 +96,11 @@ fn inq_enum(c: &mut Call<'_>) -> Result<Status, Stop> {
 /// The enumeration of an admin's ethereality overrides, which the game's data files do not carry:
 /// the words its command takes, numbered as this game's servers read them.
 const ETHEREALITY: u32 = 0x4100_0026;
+const ETHEREALITY_WORDS: [(&str, u32); 3] = [
+    ("Super", 0x4000_0001),
+    ("Normal", 0x4000_0002),
+    ("Admin", 0x4000_0003),
+];
 
 /// The enumeration of an admin's log types, which the game's data files do not carry either, and
 /// the one this game's servers answer an admin under.
@@ -105,10 +110,10 @@ const ADMIN_LOG: (u32, &str) = (1, "Admin");
 /// The value of a word of an enumeration no install holds.
 fn unshipped_value(map: u32, name: &str) -> Option<u32> {
     match map {
-        ETHEREALITY => ["normal", "admin", "super"]
+        ETHEREALITY => ETHEREALITY_WORDS
             .iter()
-            .position(|w| w.eq_ignore_ascii_case(name))
-            .and_then(|i| u32::try_from(i + 1).ok()),
+            .find(|(w, _)| w.eq_ignore_ascii_case(name))
+            .map(|(_, v)| *v),
         LOG_TYPE => ADMIN_LOG
             .1
             .eq_ignore_ascii_case(name)

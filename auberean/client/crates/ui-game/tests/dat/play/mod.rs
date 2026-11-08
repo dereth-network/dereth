@@ -7,6 +7,7 @@ mod chat;
 mod craft;
 mod dialogs;
 mod examination;
+mod help;
 mod ingredients;
 mod inventory;
 mod map;

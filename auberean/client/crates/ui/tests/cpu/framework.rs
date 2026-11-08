@@ -25,6 +25,34 @@ fn field(name: &str, rect: [i16; 4], attrs: Vec<(&str, V)>) -> auberean_assets::
     )
 }
 
+/// An element named as never shown stays hidden when asked to show, and so does one made later
+/// with that name.
+///
+/// Behaviour: none (a choice of this client: which elements are hidden is tested where it is made).
+#[test]
+fn an_element_named_as_never_shown_stays_hidden() {
+    let mut u = ui(
+        vec![
+            field("Made", [0, 0, 9, 9], vec![]),
+            field("Later", [0, 0, 9, 9], vec![]),
+            field("Other", [0, 0, 9, 9], vec![]),
+        ],
+        vec![],
+    );
+    let l = u.load_layout(LAYOUT).unwrap();
+    let made = u.create_root(l, Token::of("Made")).unwrap();
+    let other = u.create_root(l, Token::of("Other")).unwrap();
+    assert!(u.shown(made));
+
+    u.never_show(&[Token::of("Made"), Token::of("Later")]);
+    assert!(!u.shown(made));
+    u.set_visible(made, true);
+    assert!(!u.shown(made));
+    let later = u.create_root(l, Token::of("Later")).unwrap();
+    assert!(!u.shown(later));
+    assert!(u.shown(other));
+}
+
 /// A listener outside the element tree hears an element's message only once registered for it,
 /// as mail; an undoing waits for the next delivery; a global message registered twice needs two
 /// undoings.

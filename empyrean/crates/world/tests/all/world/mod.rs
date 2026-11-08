@@ -12,6 +12,7 @@ pub(crate) mod server_properties;
 pub(crate) mod spawning;
 pub(crate) mod terrain;
 pub(crate) mod world_loop;
+pub(crate) mod world_watch;
 use crate::content::emotes;
 use crate::inventory::containers;
 pub(crate) mod build_information;

@@ -28,7 +28,8 @@ pub const SAMPLES: [&str; 7] = [
 
 /// The rules a derived row or field may name; each is stated in the database's format
 /// description.
-pub const RULES: [&str; 20] = [
+pub const RULES: [&str; 21] = [
+    "pet-from-its-effect",
     "camp-regen-generator",
     "camp-regen-median",
     "camp-regen-hall",
@@ -175,6 +176,17 @@ pub fn check_database(db: &Database) -> Vec<Problem> {
                     problems.push(at(
                         "requires: a person is talked to; only a static object keeps a quest gate"
                             .into(),
+                    ));
+                }
+                if (r.hero || r.kingdom.is_some()) && r.kind == crate::rows::ObjectKind::Npc {
+                    problems.push(at(
+                        "hero, kingdom: a person is talked to; only a static object keeps a player out"
+                            .into(),
+                    ));
+                }
+                if r.kingdom.is_some_and(|k| ![1, 2, 4].contains(&k)) {
+                    problems.push(at(
+                        "kingdom: 1 the Shadow, 2 the Order, 4 the Dominion".into()
                     ));
                 }
                 match &r.route {

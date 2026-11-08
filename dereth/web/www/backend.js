@@ -374,10 +374,16 @@ export function webBackend({ call, start, params, log, scale }) {
     await persist();
     await storePassword(login, password);
     web.playing = true;
+    // A world of the list is counted under the address the list gives it; the player's own are not.
+    const endpoint = page.world.endpoint;
+    const added = st.custom_worlds.some((c) => c.slug === page.world.slug);
+    const hub = (params.get('hub') || 'https://hub.dereth.network/v1/servers').replace(/\/v1\/servers.*$/, '').replace(/\/$/, '');
+    const counted = game === 'dereth' && endpoint && !added ? { hub, host: endpoint.address, port: endpoint.port } : undefined;
     start({
       game,
       dats,
       server,
+      counted,
       account,
       password,
       args: page.args,

@@ -7,8 +7,12 @@ impl<S: Shell> App<S> {
     ///
     /// The order is [`crate::shutdown::Step::ORDER`]; the recording it returns is what
     /// `dereth/client/tests/gpu/presentation/shutdown.rs` asserts on, because an ordering nothing checks is a comment.
-    pub fn shutdown(self, shell: &mut S) -> crate::shutdown::CleanupLog {
-        self.shutdown_retaining_presentation(shell).1
+    pub fn shutdown(mut self, shell: &mut S) -> crate::shutdown::CleanupLog {
+        let log = self.release_session(shell);
+        // The device goes first, while the window it presents to is still open. Vulkan on Wayland
+        // reads the display connection as it destroys the swap chain, so the other order crashes.
+        drop(self.present);
+        log
     }
 
     /// Release the session and its resources, returning the device to its host.
@@ -16,6 +20,12 @@ impl<S: Shell> App<S> {
         mut self,
         shell: &mut S,
     ) -> (Box<S::Present>, crate::shutdown::CleanupLog) {
+        let log = self.release_session(shell);
+        (self.present, log)
+    }
+
+    /// Everything shutting down does but letting the device go.
+    fn release_session(&mut self, shell: &mut S) -> crate::shutdown::CleanupLog {
         use crate::shutdown::{Outcome, Step};
         if let Some(effect) = self.resolution.cancel() {
             self.apply_resolution_effect(effect);
@@ -98,7 +108,7 @@ impl<S: Shell> App<S> {
         log.push(Step::LanguageInfo, Outcome::NotInThisBuild);
         // 5. UI cleanup: the flow and every root element it holds, then the element manager.
         //    **Before the database**, because UI elements hold dat objects.
-        shell.cleanup_ui(&mut UiContext::new(&mut self));
+        shell.cleanup_ui(&mut UiContext::new(self));
         log.push(Step::CleanupUi, Outcome::Ran);
         // 6. Preference cleanup, whose last two operations are
         //    save preferences, then run the remaining preference cleanup.
@@ -138,6 +148,7 @@ impl<S: Shell> App<S> {
                         },
                     );
                 let n = dereth_client_contract::options::store::save_into(&mut ini);
+                self.save_window_size(&mut ini);
                 match crate::platform::files::write(&path, ini.to_text()) {
                     Ok(()) => {
                         tracing::info!("saved {n} preferences to {}", path.display());
@@ -181,6 +192,23 @@ impl<S: Shell> App<S> {
                 }
             },
         );
-        (self.present, log)
+        log
+    }
+
+    /// Write [`crate::config::DISPLAY_WINDOW_SIZE`] into the profile being saved: the window's last
+    /// windowed size, once it differs from the resolution or the key is there already.
+    pub(super) fn save_window_size(
+        &self,
+        ini: &mut dereth_client_contract::persist::preferences::UserPreferences,
+    ) {
+        let Some((w, h)) = self.windowed_size else {
+            return;
+        };
+        let resolution = self.cfg.display.resolution;
+        let key = crate::config::DISPLAY_WINDOW_SIZE;
+        if (w, h) != (resolution >> 16, resolution & 0xFFFF) || ini.get(key).is_some() {
+            let (section, name) = key.split_once('.').unwrap_or(("Display", key));
+            ini.write_profile_string(section, name, &format!("{w}x{h}"));
+        }
     }
 }

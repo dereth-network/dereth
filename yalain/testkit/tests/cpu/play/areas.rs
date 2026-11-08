@@ -80,6 +80,7 @@ fn place(h: &mut Harness, me: u64, beetle: u64, dx: f32, dy: f32) {
 }
 
 fn use_skill(h: &mut Harness, b: usize, id: u32, skill: u32, target: u64) -> usize {
+    h.all_hold(skill);
     let from = h.bots[b].inbox.len();
     h.bots[b].send(
         true,

@@ -70,7 +70,7 @@ impl InputManager {
             | Event::Button { .. }
             | Event::Wheel { .. }
             | Event::Motion { .. } => self.active,
-            Event::Text(_) | Event::Resized { .. } | Event::Close => true,
+            Event::Text(_) | Event::Composing(_) | Event::Resized { .. } | Event::Close => true,
         }
     }
 

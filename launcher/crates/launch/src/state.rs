@@ -336,10 +336,6 @@ pub struct Settings {
     /// The game the page last showed, which it opens in again ([`Realm`]).
     #[serde(default, skip_serializing_if = "Realm::is_dereth")]
     pub realm: Realm,
-    /// Whether the worlds played through a relay are listed ([`crate::relayed`]). `None`: the
-    /// player has not said, and [`crate::relayed::SHOWN_BY_DEFAULT`] decides.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub relayed_worlds: Option<bool>,
 }
 
 fn yes() -> bool {
@@ -396,7 +392,6 @@ impl Default for Settings {
             auto_update: true,
             discord_presence: true,
             realm: Realm::Dereth,
-            relayed_worlds: None,
         }
     }
 }
@@ -467,6 +462,11 @@ pub struct LauncherState {
     /// Auberean's realm's: the player's install and account.
     #[serde(default, skip_serializing_if = "AubereanSettings::is_empty")]
     pub auberean: AubereanSettings,
+    /// Keeps the worlds played through a relay off the list: for the browser, which can't run the
+    /// relay, and for a test that reads a list whole, since those worlds are real servers. Never
+    /// read or written with the file.
+    #[serde(skip)]
+    pub hide_relayed_worlds: bool,
 }
 
 impl Default for LauncherState {
@@ -483,6 +483,7 @@ impl Default for LauncherState {
             world_prefs: BTreeMap::new(),
             settings: Settings::default(),
             auberean: AubereanSettings::default(),
+            hide_relayed_worlds: false,
         }
     }
 }

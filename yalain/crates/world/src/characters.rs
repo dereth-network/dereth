@@ -632,6 +632,7 @@ pub fn delete_now<S: Store>(
     crate::saves::write_out(s).map_err(|e| e.to_string())?;
     s.store.purge_character(c.id).map_err(|e| e.to_string())?;
     s.saves.forget(c.id);
+    crate::market::seller_gone(s, net, c.id);
     // An account at its character list sees it gone at once.
     let mut selecting: Vec<ConnId> = s
         .sessions

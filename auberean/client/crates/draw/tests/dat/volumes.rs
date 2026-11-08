@@ -1,6 +1,7 @@
 //! The dynamic objects' volumes of shadow from the install's bodies.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use auberean_animation::body::Body as Figure;
 use auberean_animation::CachedRecords;
@@ -568,4 +569,73 @@ fn the_waters_reflection_sees_a_body_at_its_own_level_of_detail() {
         0,
         "out of the reflection's reach"
     );
+}
+
+/// A mesh standing as it did under the same light keeps its volume from one frame to the next, and
+/// what fits the frame's room is what a volume made afresh would give. Another light makes another
+/// volume, and a volume no frame took for a whole frame is let go.
+///
+/// Behaviour: draw.volume.a-mesh-standing-as-it-did-keeps-its-volume
+#[test]
+fn a_mesh_standing_as_it_did_keeps_its_volume() {
+    let r = &install().records;
+    let recs = CachedRecords::new(r);
+    let figure = Figure::assemble(&recs, HUMAN_MALE).expect("the human male");
+    let poses = figure.pose(&recs);
+    let place = Mat4::IDENTITY;
+    let batches = BodyDrawer::default().batches(r, &figure, &poses, &place);
+    let sun = normalize(Vec3::new(0.5, 0.3, -0.8));
+    let other = normalize(Vec3::new(-0.5, 0.3, -0.8));
+    let take = |maker: &mut VolumeMaker, toward: Vec3, room: VolumeRoom| {
+        let (mut room, mut out) = (room, Vec::new());
+        maker.cast(r, &batches, toward, 1.0, 2, &mut room, &mut out);
+        out
+    };
+    let same = |a: &[auberean_draw::volume::Volume], b: &[auberean_draw::volume::Volume]| {
+        a.len() == b.len()
+            && a.iter()
+                .zip(b)
+                .all(|(x, y)| Arc::ptr_eq(&x.vertices, &y.vertices))
+    };
+    let mut maker = VolumeMaker::default();
+    let first = take(&mut maker, sun, VolumeRoom::FRAME);
+    assert!(first.len() >= 5, "{} volumes", first.len());
+    maker.begin_frame();
+    let again = take(&mut maker, sun, VolumeRoom::FRAME);
+    assert!(same(&first, &again), "kept from the frame before");
+    assert_eq!(
+        first,
+        take(&mut VolumeMaker::default(), sun, VolumeRoom::FRAME)
+    );
+
+    let lit = take(&mut maker, other, VolumeRoom::FRAME);
+    assert_eq!(lit.len(), first.len());
+    assert!(
+        lit.iter()
+            .zip(&first)
+            .all(|(a, b)| a.vertices != b.vertices),
+        "another light, another volume"
+    );
+
+    // A room that lets some through, and lets through the same as when each is made afresh.
+    let vertices: usize = first.iter().take(2).map(|v| v.vertices.len()).sum();
+    let tight = VolumeRoom {
+        vertices,
+        ..VolumeRoom::FRAME
+    };
+    let fits = take(&mut maker, sun, tight);
+    assert!(
+        !fits.is_empty() && fits.len() < first.len(),
+        "{}",
+        fits.len()
+    );
+    assert_eq!(fits, take(&mut VolumeMaker::default(), sun, tight));
+
+    // Taken in no frame since, it goes.
+    maker.begin_frame();
+    maker.begin_frame();
+    maker.begin_frame();
+    let made = take(&mut maker, sun, VolumeRoom::FRAME);
+    assert!(!same(&first, &made), "made anew");
+    assert_eq!(first, made);
 }

@@ -7,7 +7,7 @@ use crate::types::button_id;
 
 impl Ui {
     /// A new drag bar follows its flags (`allow_updating` on).
-    // D2-11490, D2-11491, D2-11492
+    // D2-11490, D2-11491
     pub(crate) fn dragbar_created(&mut self, h: Handle) {
         self.set_attr(h, attr::ALLOW_UPDATING, crate::Value::Bool(true));
     }

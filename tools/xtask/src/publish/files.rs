@@ -298,6 +298,8 @@ The launcher keeps itself and the client up to date from this repository's newes
 
 For plugin authors: Dereth Plugin Tools, `dereth-plugin`, comes with Dereth, beside the client. `dereth-plugin-{VERSION}-<platform>` is the same tool on its own (`.zip` on Windows, `.tar.gz` on macOS and Linux); unpack it and run `dereth-plugin`.
 
+`empyrean-relay`, also beside the client, is how the launcher plays a world that speaks another wire format. It is a separate program under the GNU Affero General Public License, version 3 only: `NOTICE-empyrean-relay.txt` says where its source is.
+
 **No game data is included**: the client plays with the data files of your own Asheron's Call install.
 
 These builds are not code-signed yet. Windows SmartScreen asks once (More info, then Run anyway); macOS asks once (System Settings, Privacy & Security, Open Anyway).

@@ -52,6 +52,7 @@ pub mod landblock_group;
 pub mod landblock_group_split_helper;
 pub mod landblock_mesh;
 pub mod landcell;
+pub mod launch_spell_fixes;
 pub mod line2;
 pub mod magic_state;
 pub mod mesh;

@@ -1760,3 +1760,213 @@ fn icon_in(bytes: &[u8], request_len: usize) -> Option<Vec<[u32; 3]>> {
     }
     None
 }
+
+/// A recorded corpse's profile, read: its text lines.
+fn text_lines(bytes: &[u8], request_len: usize) -> Option<Vec<TextInfo>> {
+    let mut r = In::new(bytes.get(request_len..)?);
+    let n = r.u32().ok()?;
+    let mut out = Vec::new();
+    for _ in 0..n {
+        let ty = r.u32().ok()?;
+        r.u32().ok()?;
+        match ty {
+            0x4000_0004 => {
+                r.u32().ok()?;
+                out.push(TextInfo::unpack(&mut r).ok()?);
+            }
+            0x4000_0006 => {}
+            _ => return None,
+        }
+    }
+    Some(out)
+}
+
+fn literal_of(v: &auberean_script::native_object::Variable) -> Option<String> {
+    let VariableValue::Nested(t) = &v.value else {
+        return None;
+    };
+    t.literal.as_ref().map(|l| String::from_utf16_lossy(l))
+}
+
+/// Every recorded examination of a corpse is, byte for byte, what this server builds from who
+/// killed it, who butchered and first opened it, whether the one asking may loot it, and how much
+/// it is known to hold.
+/// Behaviour: server.loot.an-examination-as-2017
+#[test]
+fn corpse_profiles_are_built_as_2017_built_them() {
+    use profile::corpse_line as l;
+    use profile::line;
+    let path = auberean_testkit::data::require_capture_index();
+    let con = open(&path);
+    let mut st = con
+        .prepare("SELECT raw FROM message WHERE status = 'ac2' AND dir = 's2c' AND mtype = 65638")
+        .expect("prepares");
+    let mut rows = st.query([]).expect("runs");
+    let (mut seen, mut exact) = (0, 0);
+    while let Some(row) = rows.next().expect("a row") {
+        let raw: Vec<u8> = row.get(0).expect("raw");
+        let Ok(ServerMessage::PlayerCall(c)) = ServerMessage::decode(&raw) else {
+            continue;
+        };
+        if c.function.0 != profile::EXAMINATION_PROFILE {
+            continue;
+        }
+        let v = calls::values(&c.args.map(|a| a.0).unwrap_or_default()).unwrap_or_default();
+        let Some(Node::Native { bytes, .. }) = v.first().and_then(Value::root) else {
+            continue;
+        };
+        let Some(lines) = text_lines(bytes, 20) else {
+            continue;
+        };
+        let has = |id: u32| {
+            lines
+                .iter()
+                .find(|t| t.string_id == id && t.table == line::TABLE)
+        };
+        let may_loot = has(l::YOU_CAN_LOOT).is_some();
+        if !may_loot && has(l::YOU_CANNOT_LOOT).is_none() {
+            continue;
+        }
+        seen += 1;
+        let name_in = |id: u32, var: u32| -> Option<String> {
+            has(id)?
+                .variables
+                .iter()
+                .find(|v| v.id == var)
+                .and_then(literal_of)
+        };
+        let killed_by = has(l::KILLED_BY)
+            .and_then(|t| t.variables.iter().find(|v| v.id == l::KILLER))
+            .and_then(|v| match &v.value {
+                VariableValue::Nested(t) => Some((**t).clone()),
+                _ => None,
+            });
+        let holds = has(l::CONTAINS).and_then(|t| {
+            t.variables.iter().find_map(|v| match (v.id, &v.value) {
+                (l::HOW_MANY, VariableValue::Word(n)) => Some(*n),
+                _ => None,
+            })
+        });
+        let view = profile::CorpseView {
+            name: lines[0].clone(),
+            killed_by: killed_by.unwrap_or_default(),
+            butchered_by: name_in(l::BUTCHERED_BY, l::NAMED),
+            first_looted_by: name_in(l::FIRST_LOOTED_BY, l::NAMED),
+            may_loot,
+            holds,
+        };
+        let req = profile::read_request(bytes);
+        if profile::corpse(req.asked, &view).packed(&bytes[..20]) == bytes[..] {
+            exact += 1;
+        }
+    }
+    println!("{exact} of {seen} recorded corpse examinations as this server builds them");
+    assert!(seen >= 13_000, "the recordings hold them: {seen}");
+    assert!(exact * 1000 >= seen * 995, "{exact} of {seen}");
+}
+
+#[derive(Default)]
+struct CorpseTold {
+    born: f64,
+    creature: u64,
+    touched: bool,
+    gone: Option<f64>,
+}
+
+/// A corpse's life in one session, where it was told appearing and leaving and nobody opened it.
+fn corpse_lives(con: &Connection, session: i64) -> Vec<(u32, f64)> {
+    let mut st = con
+        .prepare(
+            "SELECT t, raw FROM message WHERE session_id = ?1 AND dir = 's2c' AND status = 'ac2'
+             AND mtype IN (65624, 65727, 65644, 65652) ORDER BY idx",
+        )
+        .expect("prepares");
+    let mut rows = st.query([session]).expect("runs");
+    let mut templates: HashMap<u64, u32> = HashMap::new();
+    let mut corpses: HashMap<u64, CorpseTold> = HashMap::new();
+    while let Some(row) = rows.next().expect("a row") {
+        let t: f64 = row.get(0).expect("t");
+        let raw: Vec<u8> = row.get(1).expect("raw");
+        match ServerMessage::decode(&raw) {
+            Ok(ServerMessage::CreateObject(c)) => {
+                let template = c.weenie.entity_did;
+                templates.insert(c.id, template);
+                if template == yalain_world::death::CORPSE_TEMPLATE {
+                    corpses.entry(c.id).or_default().born = t;
+                }
+            }
+            Ok(ServerMessage::ObjectLeaves(e)) => {
+                if let Some(c) = corpses.get_mut(&e.sender.id) {
+                    c.gone.get_or_insert(t);
+                }
+            }
+            Ok(ServerMessage::UpdateInstanceIdVisual(v))
+                if v.quality == yalain_world::death::q::ORIGINATOR =>
+            {
+                if let Some(c) = corpses.get_mut(&v.object.id) {
+                    c.creature = v.value;
+                }
+            }
+            Ok(ServerMessage::UpdateBoolVisual(v))
+                if v.quality == yalain_world::inventory::q::OPEN =>
+            {
+                if let Some(c) = corpses.get_mut(&v.object.id) {
+                    c.touched = true;
+                }
+            }
+            _ => {}
+        }
+    }
+    corpses
+        .values()
+        .filter(|c| !c.touched)
+        .filter_map(|c| Some((*templates.get(&c.creature)?, c.gone? - c.born)))
+        .collect()
+}
+
+/// Corpses nobody opened: of creatures with a loot profile they last the time for one untouched,
+/// of those with none the time for an empty one, whatever that creature's template makes it.
+/// Those that left a client's sight sooner count as neither. (No profile: 1,096 of 1,159. A
+/// profile: 706 at the time for one untouched, 11 at the time for an empty one.)
+/// Behaviour: server.corpse.recorded-times
+#[test]
+fn corpses_nobody_opened_lasted_their_templates_times_in_2017() {
+    let path = auberean_testkit::data::require_capture_index();
+    let con = open(&path);
+    let sessions: Vec<i64> = con
+        .prepare(
+            "SELECT DISTINCT s.session_id FROM session s JOIN capture c USING (capture_id)
+             WHERE s.game = 'ac2' AND c.file LIKE '2017-%'",
+        )
+        .expect("prepares")
+        .query_map([], |r| r.get(0))
+        .expect("runs")
+        .map(|r| r.expect("a session"))
+        .collect();
+    let p = yalain_testkit::authored::Portal::open();
+    let mut of: HashMap<u32, (bool, yalain_content::CorpseRot)> = HashMap::new();
+    let (mut soon, mut soon_all, mut long, mut long_at_short) = (0, 0, 0, 0);
+    for session in sessions {
+        for (template, life) in corpse_lives(&con, session) {
+            let (profile, rot) = *of.entry(template).or_insert_with(|| {
+                let props = p.template(template).props;
+                (
+                    props.word("NPC_DeathLootProfile").is_some(),
+                    yalain_content::CorpseRot::from_props(&props),
+                )
+            });
+            let near = |want: f64| (life - want).abs() < 1.0;
+            if profile {
+                long += i32::from(near(rot.untouched));
+                long_at_short += i32::from(near(rot.empty));
+            } else {
+                soon_all += 1;
+                soon += i32::from(near(rot.empty));
+            }
+        }
+    }
+    assert!(soon * 100 >= soon_all * 90, "{soon} of {soon_all}");
+    assert!(soon > 500, "{soon}");
+    assert!(long > 500, "{long}");
+    assert!(long_at_short * 50 <= long, "{long_at_short} against {long}");
+}

@@ -229,6 +229,17 @@ fn read_spell_base(c: &mut Cursor<'_>, tail: SpellTail) -> Result<SpellBase, Ass
     })
 }
 
+/// The first tables leave every spell's formula version at zero. There was only one way of working
+/// out an account's tapers then, and those tables' clients always use it: the taper slots such a
+/// table stores are placeholders. A table that names any version is left as it is.
+fn name_the_only_formula_version(spells: &mut BTreeMap<u32, SpellBase>) {
+    if spells.values().all(|s| s.formula_version == 0) {
+        for spell in spells.values_mut() {
+            spell.formula_version = 1;
+        }
+    }
+}
+
 /// One `SpellSet`: tiers keyed by the number of equipped pieces.
 ///
 /// Stored as a plain list of tiers (one `u32` count, then each tier); no shipped set repeats a
@@ -274,14 +285,15 @@ impl Decode for SpellTable {
                 Ok(spells)
             });
             match outcome {
-                Ok((spell_buckets, spells)) => {
+                Ok((spell_buckets, mut spells)) => {
+                    name_the_only_formula_version(&mut spells);
                     return Ok(Self {
                         id,
                         spell_buckets,
                         spells,
                         spellset_bucket_index: 0,
                         spellsets: BTreeMap::new(),
-                    })
+                    });
                 }
                 Err(e) => {
                     first_error.get_or_insert(e);

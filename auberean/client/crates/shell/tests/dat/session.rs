@@ -13,7 +13,7 @@ use auberean_client_sdk::dat::locate::{install_dats, DatName};
 use auberean_client_sdk::dat::DatFile;
 use auberean_client_sdk::net::LocalTime;
 use auberean_client_sdk::protocol::login::{CharacterList, DataQuery, Empty, PlayerObject};
-use auberean_client_sdk::protocol::physics::{CreateObject, ObjectPosition};
+use auberean_client_sdk::protocol::physics::{CreateObject, ObjectEvent, ObjectPosition};
 use auberean_client_sdk::protocol::text::{NarrowString, WideString};
 use auberean_client_sdk::protocol::types::{
     CharacterIdentity, ObjectStamp, PhysicsDesc, Placement, VisualDesc, WeenieDesc,
@@ -4340,6 +4340,84 @@ fn an_objects_startup_effects_make_their_objects() {
         (2, 2),
         "this one makes two and holds them"
     );
+}
+
+/// A look the server sends again plays its startup effects again, and what they make replaces what
+/// they made. Fixture: a server double sending the object's own look again after it arrives.
+///
+/// Behaviour: desktop.bodies.an-objects-startup-effects-make-their-objects
+#[test]
+fn a_look_sent_again_replaces_the_objects_its_startup_effects_made() {
+    const CELL: u32 = 0x0298_0121;
+    const OBJECT: u64 = 0x8130_1B05_CC00_0191;
+    const MAKES_TWO: u32 = 0x1F00_0CBE;
+    let visual = VisualDesc {
+        bits: VisualDesc::DID,
+        did: MAKES_TWO,
+        ..VisualDesc::default()
+    };
+    let object = CreateObject {
+        id: OBJECT,
+        visual: visual.clone(),
+        physics: PhysicsDesc {
+            bits: PhysicsDesc::POSITION,
+            instance_stamp: 1,
+            visual_ordering_stamp: 1,
+            position: Placement {
+                cell: CELL,
+                frame: Frame {
+                    origin: Vec3 {
+                        x: -3.9,
+                        y: 337.5,
+                        z: -44.7,
+                    },
+                    rotation: Quat::IDENTITY,
+                },
+            },
+            ..PhysicsDesc::default()
+        },
+        ..CreateObject::default()
+    };
+    let at = Vec3 {
+        x: 2.0,
+        y: 330.0,
+        z: -43.76,
+    };
+    let again = ServerMessage::UpdateVisualDesc(ObjectEvent {
+        sender: ObjectStamp {
+            id: OBJECT,
+            instance_stamp: 1,
+            other_stamp: 2,
+        },
+        action: visual,
+    });
+    let script = script_until(CELL, at, Quat::IDENTITY, &[object], &[(24.0, again)], 50.0);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    while s.host.time < 14.0 {
+        step(&mut s);
+    }
+    let first = s.scene.made_objects();
+    assert_eq!(first.len(), 2, "made as it arrives");
+    while s.host.time < 40.0 {
+        step(&mut s);
+    }
+    let now = s.scene.made_objects();
+    assert_eq!(
+        now.len(),
+        2,
+        "replaced, not added to: {first:?} then {now:?}"
+    );
+    assert!(now.iter().all(|m| !first.contains(m)), "made anew");
 }
 
 /// A behavior that names a target and a look to clone gives them to the effects its animation sets

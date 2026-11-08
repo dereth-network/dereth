@@ -1,6 +1,6 @@
 //! The patch as one TCP stream (client divergence CD-044).
 //!
-//! A server that knows it (Empyrean, V508) answers a client that asks (`FLAG_BULK` in `0xF7E6`)
+//! A server that knows it (Empyrean, V516) answers a client that asks (`FLAG_BULK` in `0xF7E6`)
 //! with `0xF7ED` in place of the patch's `0xF7E2`s: a port and a token. A thread connects to that
 //! port at the server's address, sends the magic, the version and the token, and reads the records
 //! as `DddData` bodies, each behind its length, until a length of 0. TCP's flow control paces it;

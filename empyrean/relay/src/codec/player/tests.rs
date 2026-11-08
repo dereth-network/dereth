@@ -79,6 +79,17 @@ fn experience_moves_from_its_int_keys_to_the_later_int64_table() {
 }
 
 #[test]
+fn the_heritage_becomes_the_later_number() {
+    for (aluvian_first, later) in [(0, 1), (1, 2), (2, 3)] {
+        let d = through(&description(
+            vec![(HERITAGE_INT, aluvian_first)],
+            Vec::new(),
+        ));
+        assert_eq!(int(&d, HERITAGE_INT), Some(later));
+    }
+}
+
+#[test]
 fn the_combat_mode_becomes_the_later_bits() {
     let d = through(&description(vec![(COMBAT_MODE_INT, 4)], Vec::new()));
     assert_eq!(int(&d, COMBAT_MODE_INT), Some(8));

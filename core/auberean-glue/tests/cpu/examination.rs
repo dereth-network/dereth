@@ -85,6 +85,24 @@ impl Bench {
     }
 }
 
+/// Lines stay in order of their tab words, whatever order they are added in; among equal tab words,
+/// in the order they came.
+///
+/// Behaviour: script.natives.examination-profile-keeps-its-lines-in-order-of-their-tabs
+#[test]
+fn a_profile_keeps_its_lines_in_order_of_their_tabs() {
+    let mut b = Bench::new();
+    let p = b.profile();
+    let q = b.request(&[0x4000_0002, 0, 7, 0, 0x3FF]);
+    b.call(0x03, p, &[(q, tag::REFERENCE)]);
+    let int = tag::INT;
+    for (value, tabs) in [(1, 0x100), (2, 0x02), (3, 0x02), (4, 0x08)] {
+        b.call(0x08, p, &[(value, int), (0xAB, int), (tabs, int)]);
+    }
+    let order: Vec<u64> = b.read(p).nodes.iter().map(|n| n.value).collect();
+    assert_eq!(order, vec![2, 3, 4, 1]);
+}
+
 /// Behaviour: script.natives.examination-profile-keeps-the-asked-tabs-lines
 #[test]
 fn a_profile_keeps_the_lines_of_the_tabs_asked_and_notes_every_tab() {
@@ -123,8 +141,8 @@ fn a_profile_keeps_the_lines_of_the_tabs_asked_and_notes_every_tab() {
     assert_eq!(
         kinds,
         vec![
-            (kind::INT, 6),
             (kind::INT, 7),
+            (kind::INT, 6),
             (kind::BREAK, 0),
             (kind::INDENT, 2),
             (kind::IMAGE, 0x0600_0001),

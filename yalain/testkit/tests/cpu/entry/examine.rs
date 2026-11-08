@@ -10,7 +10,7 @@ use yalain_world::calls::{self, Node, Value};
 use yalain_world::examine::function as answered;
 use yalain_world::examine::Vitals;
 use yalain_world::graph::Builder;
-use yalain_world::profile;
+use yalain_world::profile::{self, QuestLine};
 use yalain_world::requests::function;
 
 /// Selecting another player is answered with that player's selection information: the selected
@@ -229,6 +229,210 @@ fn examining_a_player_is_answered_with_its_profile_and_stopping_is_not_answered(
     );
 }
 
+/// A placed object's requirements read as 2017's pages did, word for word from the section's head:
+/// its least level, then its kingdom, then heroes alone, then its quest's line by the status its
+/// gate names; a hidden quest leaves the section with no line.
+/// Behaviour: server.examination.place-requirements
+#[test]
+fn a_placed_objects_requirements_read_as_the_recorded_pages_did() {
+    const HEAD: [u32; 6] = [0x4000_0004, 0x20, 0x33BE_4035, 0x4F39_B658, 0x2500_0011, 0];
+    const BRK: [u32; 2] = [0x4000_0006, 0x20];
+    const TAB: [u32; 3] = [0x4000_0007, 0x20, 0];
+    const LEVEL: [u32; 10] = [
+        0x4000_0004,
+        0x20,
+        0x33BE_4035,
+        0x4ED2_0478,
+        0x2500_0011,
+        0,
+        0x4000_0001,
+        0x20,
+        0xBE5B_6513,
+        45,
+    ];
+    const HERO: [u32; 6] = [0x4000_0004, 0x20, 0xBE5B_6513, 0xE9AE_E04E, 0x2500_0011, 0];
+    let quest = |line: u32| {
+        [
+            0x4000_0004,
+            0x20,
+            0xBE5B_6513,
+            line,
+            0x2500_0011,
+            1,
+            0x2356_2D3A,
+            9,
+            0xA860_4EEC,
+            0x2500_1658,
+            0,
+        ]
+    };
+    let shadow: [u32; 20] = [
+        0x4000_0004,
+        0x20,
+        0x33BE_4035,
+        0xF2F5_0D95,
+        0x2500_0011,
+        1,
+        0x073E_ACEA,
+        2,
+        1,
+        0x4000_0004,
+        0x20,
+        0xBE5B_6513,
+        0x9923_CC4A,
+        0x2500_0011,
+        1,
+        0x9D06_6C50,
+        9,
+        0x1260_95B3,
+        0x2500_000F,
+        0,
+    ];
+    let page = |f: yalain_content::Facts, q: Option<QuestLine>| -> Vec<u32> {
+        let mut p = profile::Profile::new(0x3FF);
+        assert!(profile::requirement_lines(&mut p, &f, q));
+        let bytes = p.packed(&[]);
+        let words: Vec<u32> = bytes
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|c| u32::from_le_bytes(*c))
+            .collect();
+        let head = words
+            .iter()
+            .position(|w| *w == 0x4F39_B658)
+            .expect("the section's head");
+        words[head - 3..].to_vec()
+    };
+    let same = |got: Vec<u32>, want: Vec<u32>, what: &str| {
+        assert_eq!(got[..want.len()], want[..], "{what}");
+        assert_eq!(got.len(), want.len() + 1, "{what}: the page ends there");
+    };
+    let name = (0xA860_4EEC, 0x2500_1658);
+    let hero = yalain_content::Facts {
+        hero: true,
+        ..yalain_content::Facts::default()
+    };
+    let level = yalain_content::Facts {
+        min_level: Some(45),
+        ..yalain_content::Facts::default()
+    };
+    let all = yalain_content::Facts {
+        min_level: Some(45),
+        kingdom: Some(1),
+        hero: true,
+        ..yalain_content::Facts::default()
+    };
+    let join = |parts: &[&[u32]]| -> Vec<u32> { parts.concat() };
+    same(
+        page(hero, None),
+        join(&[&HEAD, &BRK, &TAB, &TAB, &HERO, &BRK]),
+        "heroes alone",
+    );
+    same(
+        page(all, None),
+        join(&[
+            &HEAD, &BRK, &TAB, &LEVEL, &BRK, &TAB, &shadow, &BRK, &TAB, &TAB, &HERO, &BRK,
+        ]),
+        "level, kingdom, heroes alone",
+    );
+    for (status, line) in [
+        (0x3000_0000, 0x510A_7F47),
+        (0x1000_0000, 0xDB7C_0ACC),
+        (0x1000_0002, 0x6C86_F753),
+        (yalain_content::QuestGate::HAD, 0x8D31_AAA4),
+    ] {
+        let said = Some(QuestLine::Named(profile::quest_line(status), name));
+        same(
+            page(yalain_content::Facts::default(), said),
+            join(&[&HEAD, &BRK, &TAB, &quest(line), &BRK]),
+            &format!("{status:x}"),
+        );
+    }
+    same(
+        page(
+            level,
+            Some(QuestLine::Named(profile::quest_line(0x1000_0000), name)),
+        ),
+        join(&[
+            &HEAD,
+            &BRK,
+            &TAB,
+            &LEVEL,
+            &BRK,
+            &TAB,
+            &quest(0xDB7C_0ACC),
+            &BRK,
+        ]),
+        "level and quest",
+    );
+    same(
+        page(yalain_content::Facts::default(), Some(QuestLine::Hidden)),
+        join(&[&HEAD, &BRK]),
+        "a hidden quest",
+    );
+}
+
+/// A placed object that leads nowhere names what it keeps players out by, and one for monarchs alone
+/// keeps its own lines.
+/// Behaviour: server.examination.place-requirements-no-destination
+#[test]
+fn a_placed_object_leading_nowhere_names_its_kingdom_when_examined() {
+    const SANCTUARY: u64 = 0x40CE_8C00_0000_000B;
+    let mut h = Harness::new();
+    let o = yalain_content::ContentObject {
+        object: Some(SANCTUARY),
+        template: 0x4700_1154,
+        description: yalain_content::Description {
+            name_text: None,
+            package: 0x13C1,
+            look: 0x1F00_0ED5,
+            enter_fx: 0,
+            scale: None,
+            name: None,
+            numbers: [0; 6],
+            source: "authored for a test".into(),
+        },
+        cell: 0x0299_0109,
+        origin: [61.0, 241.0, -44.6],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+        kind: yalain_content::Kind::Static,
+        label: String::new(),
+        placed: "authored for a test".into(),
+        destination: None,
+        facts: yalain_content::Facts {
+            kingdom: Some(2),
+            ..yalain_content::Facts::default()
+        },
+        walks: None,
+        gate: None,
+    };
+    h.server.content = yalain_content::ContentPack {
+        objects: vec![o],
+        ..yalain_content::ContentPack::default()
+    };
+    let (a, _) = h.player_in_world("one", "Elara");
+    h.run(10);
+    let from = h.bots[a].inbox.len();
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &server_call(function::EXAMINE, &[about(SANCTUARY, 0x3FF)]),
+    );
+    h.run(30);
+    let got = profile_nodes(&h, a, from);
+    assert_eq!(got.len(), 1, "one profile");
+    let words: Vec<u32> = got[0]
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| u32::from_le_bytes(*c))
+        .collect();
+    assert!(words.contains(&0x4F39_B658), "the section");
+    assert!(words.contains(&0xF2F5_0D95), "the kingdom's line");
+    assert!(words.contains(&0x1278_95B3), "the Order, by name");
+}
+
 /// A placed object for monarchs alone says so on its requirements tab, as 2017's Allegiance Sign's
 /// profile did word for word.
 /// Behaviour: server.examination.monarch-only-object
@@ -396,8 +600,14 @@ fn a_profile_keeps_lines_in_tab_order_for_the_tabs_asked_and_notes_every_tab() {
         ..Facts::default()
     };
     let name = profile::literal("Gateway");
-    let all = profile::place(0x3FF, name.clone(), profile::line::CANNOT_RECALL_PORTAL, &f);
-    let general = profile::place(0x203, name, profile::line::CANNOT_RECALL_PORTAL, &f);
+    let all = profile::place(
+        0x3FF,
+        name.clone(),
+        profile::line::CANNOT_RECALL_PORTAL,
+        &f,
+        None,
+    );
+    let general = profile::place(0x203, name, profile::line::CANNOT_RECALL_PORTAL, &f, None);
     assert_eq!((all.orders, general.orders), (34, 34));
     assert!(
         general.nodes.len() < all.nodes.len(),
@@ -1602,4 +1812,44 @@ fn a_row_with_a_name_of_its_own_is_examined_under_it() {
     assert!(own.ends_with(&of_name(profile::literal("Old Tom"))));
     let plain = says(&mut h, OTHER);
     assert!(plain.ends_with(&of_name(profile::string(template_name.1, template_name.0))));
+}
+
+/// However often a player asks to examine, one look waits for it: what the world keeps for it does
+/// not grow with what it asks, and the newest asked is the one looked at.
+/// Behaviour: server.examination.one-look-waits
+#[test]
+fn asking_to_examine_again_and_again_leaves_one_look_waiting() {
+    use yalain_testkit::STEP;
+    const STACK: u32 = 0x4700_7A01;
+    let mut h = Harness::new();
+    let (a, me) = h.player_in_world("one", "Elara");
+    let mut props = yalain_content::Props::default();
+    props.set("Item_Value", yalain_content::Prop::Int(3));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(STACK, 0x1145, props));
+    let item = h.arm(a, me, STACK);
+    for _ in 0..50 {
+        h.bots[a].send(
+            true,
+            queue::WEENIE,
+            &server_call(function::EXAMINE, &[about(item, 0x3FF)]),
+        );
+    }
+    h.run(5);
+    let waiting = h
+        .server
+        .timers
+        .iter()
+        .filter(|(_, t)| matches!(t, yalain_world::Timer::Examine { .. }))
+        .count();
+    assert_eq!(waiting, 1);
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let period = (yalain_world::examine::AGAIN_SECONDS / STEP).ceil() as usize + 2;
+    if let Some(t) = h.server.things.get_mut(item) {
+        t.quantity = 5;
+    }
+    let from = h.bots[a].inbox.len();
+    h.run(period);
+    assert_eq!(profile_nodes(&h, a, from).len(), 1, "looked at again");
 }

@@ -23,7 +23,8 @@ permissions:
 
 concurrency:
   group: release-empyrean-${{ github.ref }}
-  cancel-in-progress: false
+  # A tag can reach this repository twice at once: the newer run takes over, for one build.
+  cancel-in-progress: ${{ github.event_name == 'push' }}
 
 env:
   # The build tools, pinned.
@@ -292,6 +293,12 @@ jobs:
           PRE=""
           # A pre-release version carries a suffix (`0.2.0-rc.1`); the tag always holds a hyphen.
           case "$VERSION" in *-*) PRE="--prerelease" ;; esac
+          # A second draft of one tag can't be told from the first, and GitHub allows it.
+          tags=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq '.[].tag_name')
+          if grep -qxF "$TAG" <<< "$tags"; then
+            echo "::notice::$TAG already has a release"
+            exit 0
+          fi
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --latest=false $PRE \
             --title "Empyrean $VERSION" --notes-file ../notes.md \
             "${assets[@]}"

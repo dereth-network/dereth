@@ -46,6 +46,7 @@ pub mod interactions;
 pub mod operators;
 pub mod persons;
 pub mod ping;
+pub mod population;
 pub mod probe;
 pub mod registry;
 pub mod resolver;

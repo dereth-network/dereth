@@ -527,14 +527,15 @@ fn no_skill_aimed_at_a_weapon_can_come_to_a_lute() {
 #[test]
 fn the_contracts_and_their_mercenaries_read_from_the_data() {
     use yalain_world::effect_defs::Kind;
-    use yalain_world::pets::{kind_of, mercenary};
+    use yalain_world::pets::{mercenary, Pets};
     let portal = Portal::open();
+    let kinds = Pets::default();
     for contract in [mercenary::CRAFTER, mercenary::KEEPER, mercenary::MEDIC] {
         let t = portal.template(contract);
         assert!(yalain_world::quests::acquiring_does_more_than_quests(
             &t.props
         ));
-        let pet = portal.template(kind_of(contract).expect("a kind").template);
+        let pet = portal.template(kinds.kind_of(contract).expect("a kind").template);
         let stats = yalain_content::CreatureStats::from_props(&pet.props).expect("a pet");
         assert_eq!(stats.max_health, 150);
     }
@@ -556,4 +557,149 @@ fn the_contracts_and_their_mercenaries_read_from_the_data() {
         heal.get(mercenary::TEND_EFFECT).expect("known").kind,
         Kind::InstantVital { .. }
     ));
+}
+
+/// The perks read from their definitions: 187 of them; Transmutation Master gives 1.03 to 1.18 times an
+/// item's worth, each overriding the one before it by its priority.
+/// Behaviour: server.skills.perks-read-from-their-definitions
+#[test]
+fn perks_read_with_their_kind_value_and_priority() {
+    let t = Portal::open().skills();
+    let perks = t.skills.values().filter(|d| d.perk.is_some()).count();
+    assert_eq!(perks, 187);
+    let perk = |id: u32| t.skills[&id].perk.expect("a perk");
+    let values: Vec<f64> = (2053..=2058).map(|id| perk(id).value).collect();
+    assert_eq!(values, [1.03, 1.06, 1.09, 1.12, 1.15, 1.18]);
+    let priorities: Vec<i32> = (2053..=2058).map(|id| perk(id).priority).collect();
+    assert_eq!(priorities, [1, 2, 3, 4, 5, 6]);
+    assert!((2053..=2058).all(|id| perk(id).kind == 19));
+}
+
+/// A hero trains the install's first Transmutation Master for its 100 hero credits and the money bag
+/// pays it 1.03 times the install's values, as it paid in 2017: 4,000 brought 4,120 and five of
+/// 1,000 brought 5,150. Without the perk those pay their value.
+/// Behaviour: server.inventory.money-bag-pays-a-perk
+#[test]
+fn a_hero_with_the_first_transmutation_master_is_paid_as_in_2017() {
+    use auberean_script::args::Arg;
+    use yalain_world::pack::function::TO_MONEY_BAG;
+    const FOUR_THOUSAND: u32 = 0x4700_1C91;
+    const ONE_THOUSAND: u32 = 0x4700_140F;
+    let portal = Portal::open();
+    let mut h = yalain_testkit::Harness::new();
+    h.server.skill_table = portal.skills();
+    h.server.catalog.insert(portal.template(FOUR_THOUSAND));
+    h.server.catalog.insert(portal.template(ONE_THOUSAND));
+    let (b, me) = h.player_in_world("one", "Elara");
+    let world = *h.server.players.keys().next().expect("in the world");
+    let sell = |h: &mut yalain_testkit::Harness, template: u32, n: u32| {
+        yalain_world::inventory::give(&mut h.server, &mut h.net, world, template, n);
+        h.run(3);
+        yalain_world::quals::set_int(
+            &mut h.server.players.get_mut(&world).unwrap().qualities,
+            yalain_world::store::MONEY,
+            0,
+        );
+        let item = h.server.players[&world]
+            .play
+            .items
+            .iter()
+            .find(|i| i.template == template)
+            .expect("in the pack")
+            .id;
+        h.ask(
+            b,
+            TO_MONEY_BAG,
+            &[
+                Arg::LongInt(me),
+                Arg::Int(0),
+                Arg::Int(n),
+                Arg::LongInt(item),
+            ],
+            5,
+        );
+        yalain_world::store::money(&h.server.players[&world].qualities)
+    };
+    assert_eq!(sell(&mut h, FOUR_THOUSAND, 1), 4_000, "no perk");
+    assert_eq!(sell(&mut h, ONE_THOUSAND, 5), 5_000, "no perk");
+    let p = h.server.players.get_mut(&world).unwrap();
+    yalain_world::focus::set_hero_kept(&mut p.qualities, true);
+    p.play.hero_credits = 100;
+    h.ask(
+        b,
+        yalain_world::skills::function::TRAIN,
+        &[Arg::Int(2053)],
+        10,
+    );
+    assert_eq!(h.server.players[&world].play.hero_credits, 0, "paid for");
+    assert_eq!(sell(&mut h, FOUR_THOUSAND, 1), 4_120);
+    assert_eq!(sell(&mut h, ONE_THOUSAND, 5), 5_150);
+}
+
+/// A new character of each of the five races holds the weapons its data names, and no clothes: a
+/// Drudge two, the others three.
+/// Behaviour: server.characters.starting-pack-from-the-install
+#[test]
+fn a_new_character_of_each_race_holds_the_weapons_its_data_names() {
+    use auberean_protocol::login::{CharacterCreated, CreateCharacter};
+    use auberean_protocol::table::{Table, SMALL};
+    use auberean_protocol::text::{NarrowString, WideString};
+    use auberean_protocol::{queue, ClientMessage, ServerMessage};
+    let p = Portal::open();
+    let rules = p.start_rules();
+    let lib = p.library();
+    let mut catalog = yalain_content::Catalog::default();
+    for t in rules.items.values().flatten() {
+        catalog.insert(p.template(*t));
+    }
+    catalog.implements =
+        yalain_world::skill_use::implements_of_catalog(&catalog, |package, class| {
+            lib.package_id(class)
+                .is_some_and(|c| lib.derives_from(package, c))
+        });
+    for (race, want) in [
+        (1, vec![0x4700_051B, 0x4700_051C, 0x4700_051D]),
+        (2, vec![0x4700_0515, 0x4700_0516, 0x4700_0517]),
+        (4, vec![0x4700_0521, 0x4700_0522, 0x4700_0523]),
+        (8, vec![0x4700_052C, 0x4700_052D]),
+        (16, vec![0x4700_0526, 0x4700_0527, 0x4700_0528]),
+    ] {
+        let mut h = yalain_testkit::Harness::new();
+        let areas = h.server.start.by_race.clone();
+        h.server.start = rules.clone();
+        h.server.start.by_race = areas;
+        h.server.start.areas = yalain_testkit::test_start().areas;
+        h.server.catalog = catalog.clone();
+        let account = format!("race{race}");
+        let b = h.at_character_list(&account);
+        let before = h.bots[b].inbox.len();
+        let m = ClientMessage::CreateCharacter(CreateCharacter {
+            account: NarrowString::from(account.as_str()),
+            name: WideString::from("Newcomer"),
+            entity_did: 0x4700_110F,
+            start_area: 0x4000_0001,
+            race,
+            sex: 0x1000,
+            class: 2,
+            implement: 1,
+            physique: Table::from_inserted(SMALL, [(1, 1.0), (2, 1.0)]),
+        });
+        h.bots[b].send(false, queue::LOGON, &m);
+        assert!(h.run_until(1000, |h| h.bots[b].inbox.len() > before));
+        let Some(ServerMessage::CharacterCreated(CharacterCreated { identity, .. })) =
+            h.bots[b].inbox[before].message()
+        else {
+            panic!("race {race} is not answered with a character");
+        };
+        assert_ne!(identity.id, 0, "race {race} makes a character");
+        h.enter_world(b, &account, identity.id);
+        let me = h
+            .server
+            .players
+            .values()
+            .find(|p| p.character == identity.id)
+            .expect("in the world");
+        let held: Vec<u32> = me.play.items.iter().map(|i| i.template).collect();
+        assert_eq!(held, want, "race {race}");
+    }
 }

@@ -8,6 +8,7 @@ mod answers;
 mod characters;
 mod item_ids;
 mod moderation;
+mod old_saves;
 mod reload;
 mod reload_camps;
 mod reload_placed;

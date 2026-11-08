@@ -186,6 +186,7 @@ impl DatFileType for assets::SpellTable {
     fn unpack_in(era: ContainerEra, file_id: u32, bytes: &[u8]) -> Result<Self, UnpackError> {
         let mut table = <Self as Decode>::decode_payload_in(era, DataId(file_id), bytes)?;
         crate::file_types::spell_table::fill_target_types_from_formulas(&mut table);
+        crate::file_types::spell_table::name_the_only_formula_version(&mut table);
         crate::file_types::spell_table::renumber_effects(&mut table, era);
         Ok(table)
     }

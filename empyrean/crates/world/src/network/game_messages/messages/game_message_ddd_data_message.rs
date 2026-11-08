@@ -53,7 +53,7 @@ pub fn game_message_ddd_data_message(
     msg
 }
 
-/// Not ACE: the `0xF7E2` body for `contents`, which the bulk stream sends as well (V508).
+/// Not ACE: the `0xF7E2` body for `contents`, which the bulk stream sends as well (V516).
 #[must_use]
 pub fn ddd_data_body(
     contents: ddd_manager::DatFileContents,

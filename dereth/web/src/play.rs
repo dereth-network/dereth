@@ -59,6 +59,8 @@ pub struct Play {
     page: Rc<Page>,
     server: IpAddr,
     frames: u64,
+    /// How many players the world last said it has, until the page takes it.
+    world_players: Rc<std::cell::Cell<Option<u32>>>,
     /// The cursor [`Play::cursor_change`] last returned.
     cursor_shown: Option<(dereth_primitives::DataId, i32, i32)>,
 }
@@ -164,6 +166,7 @@ impl Play {
         let page = Page::new(page, (width, height), render_scale);
         let window_page = Rc::clone(&page);
         let events = WindowEvents::default();
+        let world_players = Rc::new(std::cell::Cell::new(None));
         let mut app = App::bring_up_with_store(
             cfg,
             Some(store),
@@ -203,6 +206,8 @@ impl Play {
         // is sent that one, as the desktop client sends it.
         net.set_logon_version(&logon_version);
         let server = net.logon_addr().ip();
+        let told = Rc::clone(&world_players);
+        app.on_world_players(Box::new(move |players| told.set(Some(players))));
         app.attach_relay_network(net)
             .map_err(|_| "the client already has a connection".to_string())?;
         // The page has the focus when the client starts; a window that has not been told so is
@@ -216,6 +221,7 @@ impl Play {
             page,
             server,
             frames: 0,
+            world_players,
             cursor_shown: None,
         })
     }
@@ -242,6 +248,11 @@ impl Play {
         }
         self.frames += 1;
         self.app.frame()
+    }
+
+    /// How many players the world said it has at login, once each time it says so.
+    pub fn take_world_players(&mut self) -> Option<u32> {
+        self.world_players.take()
     }
 
     /// Everything the connection wants sent, framed for the WebSocket.

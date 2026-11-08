@@ -299,6 +299,33 @@ fn making_a_recipe_plays_its_animation_then_makes_its_product_and_uses_up_its_in
 }
 
 /// Making a recipe while attacking is refused at once with the answer alone: not at peace.
+/// A recipe whose product this world can't make uses up nothing: its ingredients stay and it is
+/// answered as failed.
+/// Behaviour: server.makes.nothing-used-up-for-what-cannot-be-made
+#[test]
+fn a_recipe_whose_product_cannot_be_made_uses_up_nothing() {
+    let (mut h, b, me, world) = in_world();
+    let iron = with_recipe_and_iron(&mut h, world, me, 20);
+    h.server.catalog.templates.remove(&MINES_SWORD);
+    let from = execute(&mut h, b, MINES_RECIPE, &[(1, iron)]);
+    wait(&mut h, 5.0);
+    let p = h.server.players.get(&world).expect("in the world");
+    assert!(
+        p.play
+            .items
+            .iter()
+            .any(|i| i.id == iron && i.quantity == 20),
+        "kept"
+    );
+    assert!(!p.play.items.iter().any(|i| i.template == MINES_SWORD));
+    assert!(
+        calls_of(&h, b, from)
+            .iter()
+            .any(|(f, v)| *f == function::EXECUTED && v.contains(&Value::Int(MINES_RECIPE))),
+        "answered"
+    );
+}
+
 /// Behaviour: server.craft.refused
 #[test]
 fn making_a_recipe_while_attacking_is_refused_with_the_answer_alone() {
@@ -482,6 +509,14 @@ fn a_recipe_made_pays_the_experience_of_its_spinner_and_tells_the_pool_then_the_
             first: 1,
             values: vec![5, 6, 8, 9, 11],
         });
+    }
+    for t in h.server.crafting.templates() {
+        if h.server.catalog.get(t).is_none() {
+            let props = yalain_content::Props::default();
+            h.server
+                .catalog
+                .insert(yalain_testkit::test_template(t, 0x200, props));
+        }
     }
     let from = execute_at(&mut h, b, KNIFE_RECIPE, &[], 3);
     h.run(4);
@@ -1132,6 +1167,77 @@ fn a_recipe_asking_for_a_target_is_made_at_one_of_its_own_and_nowhere_else() {
         .find(|r| r.recipe == AT_MINE)
         .expect("held");
     assert_eq!(r.charges, 2, "the refusals spent nothing");
+}
+
+/// A recipe that asks for a target is made within reach of it: a mine across the world's no target.
+///
+/// Behaviour: server.craft.a-target-is-in-reach
+#[test]
+fn a_recipe_asking_for_a_target_is_refused_past_its_reach() {
+    const AT_MINE: u32 = 0x6F00_0FF0;
+    const MINE: u32 = 0x4700_0B3D;
+    const THE_MINE: u64 = 0x4079_9500_0000_000C;
+    let (mut h, b, _me, world) = in_world();
+    let here = h.server.players[&world].position;
+    h.server
+        .content
+        .objects
+        .push(yalain_content::ContentObject {
+            object: Some(THE_MINE),
+            template: MINE,
+            description: yalain_content::Description {
+                name_text: None,
+                package: 0x103E,
+                look: 0x1F00_0100,
+                enter_fx: 0,
+                scale: None,
+                name: Some((0xA860_7CEC, 0x2500_1B44)),
+                numbers: [0; 6],
+                source: "authored for a test".into(),
+            },
+            cell: here.cell,
+            origin: here.origin,
+            rotation: [1.0, 0.0, 0.0, 0.0],
+            kind: yalain_content::Kind::Static,
+            label: String::new(),
+            placed: "authored for a test".into(),
+            destination: None,
+            facts: yalain_content::Facts::default(),
+            walks: None,
+            gate: None,
+        });
+    h.server
+        .crafting
+        .recipes
+        .insert(AT_MINE, charged(AT_MINE, 9, vec![MINE]));
+    let clock = h.clock();
+    yalain_world::craft::learn(&mut h.server, &mut h.net, world, AT_MINE, clock);
+    let stand = |h: &mut Harness, cell: u32, x: f32| {
+        let p = h.server.players.get_mut(&world).expect("in the world");
+        p.position.cell = cell;
+        p.position.origin[0] = here.origin[0] + x;
+    };
+    let reach = yalain_world::craft::TARGET_REACH;
+    stand(&mut h, here.cell, reach + 0.5);
+    let from = execute_on(&mut h, b, AT_MINE, THE_MINE);
+    wait(&mut h, 1.0);
+    assert_eq!(
+        answer(&h, b, from),
+        Some(error::WRONG_TARGET),
+        "past its reach"
+    );
+    stand(&mut h, 0x0100_0001, 0.0);
+    let from = execute_on(&mut h, b, AT_MINE, THE_MINE);
+    wait(&mut h, 1.0);
+    assert_eq!(
+        answer(&h, b, from),
+        Some(error::WRONG_TARGET),
+        "another block"
+    );
+    stand(&mut h, here.cell, reach - 0.5);
+    let from = execute_on(&mut h, b, AT_MINE, THE_MINE);
+    wait(&mut h, 8.0);
+    assert_eq!(answer(&h, b, from), Some(0), "within it");
 }
 
 /// A hidden quest given starts the step waiting on its giving, as a shown one's update and a recipe
@@ -2160,6 +2266,62 @@ fn made_recipe(product: u32, tables: &[u32]) -> yalain_world::craft::RecipeDef {
         }],
         ..RecipeDef::default()
     }
+}
+
+/// An item a recipe makes without an item level, with a permanent effect, holds the effect after a
+/// logout and is not given numbers by it.
+/// Behaviour: server.craft.made-item-no-level-keeps-effects
+#[test]
+fn an_item_made_without_an_item_level_keeps_its_permanent_effect_across_a_logout() {
+    use auberean_protocol::login::CharacterRef;
+    use auberean_protocol::ClientMessage;
+    use yalain_world::craft::{item_effect, Action, Custom};
+    const EFFECT: u32 = 0x6F00_7001;
+    let (mut h, b, me, world) = in_world();
+    let mut def = made_recipe(SWORD, &[]);
+    for o in def.checks.iter_mut().flat_map(|c| c.outcomes.iter_mut()) {
+        o.actions.push(Action::ItemEffect {
+            ordinal: 10_001,
+            state: EFFECT,
+            kind: item_effect::STATIC,
+            spellcraft: 2.5,
+            by_spinner: None,
+        });
+    }
+    def.custom = Custom::None;
+    with_level_tables(&mut h);
+    with_own_recipe(&mut h, world, def, 50, &[SWORD, IRON, WOOD]);
+    let iron =
+        yalain_world::inventory::give(&mut h.server, &mut h.net, world, IRON, 40).expect("iron");
+    let wood =
+        yalain_world::inventory::give(&mut h.server, &mut h.net, world, WOOD, 40).expect("wood");
+    h.run(2);
+    execute_at(&mut h, b, SMALL_SWORD_RECIPE, &[(1, iron), (3, wood)], 20);
+    h.run(4);
+    wait(&mut h, 9.0);
+    let item = h.server.players[&world]
+        .play
+        .items
+        .iter()
+        .find(|i| i.template == SWORD)
+        .map(|i| i.id)
+        .expect("made");
+    let t = h.server.things.get(item).expect("in the world");
+    assert_eq!(t.own.made, None, "no item level, no numbers");
+    assert_eq!(t.enchantments, vec![(EFFECT, 2.5)]);
+    let before = h.bots[b].inbox.len();
+    h.bots[b].send(
+        false,
+        queue::LOGON,
+        &ClientMessage::LogOff(CharacterRef { character: me }),
+    );
+    assert!(h.run_until(400, |h| h.bots[b].inbox[before..]
+        .iter()
+        .any(|r| matches!(r.message(), Some(ServerMessage::CharacterList(_))))));
+    h.enter_world(b, "one", me);
+    let t = h.server.things.get(item).expect("back in the world");
+    assert_eq!(t.own.made, None);
+    assert_eq!(t.enchantments, vec![(EFFECT, 2.5)]);
 }
 
 fn with_level_tables(h: &mut Harness) {

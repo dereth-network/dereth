@@ -63,6 +63,7 @@ fn with_a_bow_by_a_beetle() -> (Harness, usize, u64, u64) {
 }
 
 fn use_skill(h: &mut Harness, b: usize, id: u32, skill: u32, target: u64) -> usize {
+    h.all_hold(skill);
     let from = h.bots[b].inbox.len();
     h.bots[b].send(
         true,

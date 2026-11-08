@@ -669,3 +669,53 @@ fn the_line_that_friends_are_out_of_reach_comes_at_entry_only_without_a_friends_
         );
     }
 }
+
+/// An option the client sends isn't kept with each call: it reaches the store with the next save of
+/// its character, at most so long on; and a save of the character, or its leaving, takes it along.
+/// Behaviour: server.world.options-kept-soon
+#[test]
+fn an_option_goes_with_the_characters_next_save_soon_enough() {
+    let mut h = Harness::new();
+    let b = at_character_list(&mut h, "tester");
+    let id = create(&mut h, b, "Babyfare");
+    enter(&mut h, b, id, true);
+    h.run(20);
+    let stored = |h: &mut Harness| {
+        use yalain_store::Store as _;
+        h.server
+            .store
+            .world_state(id)
+            .expect("the store reads")
+            .expect("it is kept")
+            .options
+    };
+    let before = stored(&mut h);
+    let send = |h: &mut Harness, height: u32| {
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &call(
+                request::GAME_OPTIONS,
+                &[
+                    Arg::Int(0x3F1),
+                    Arg::Int(0x7F),
+                    Arg::Int(height),
+                    Arg::Float(0.5f32.to_bits()),
+                ],
+            ),
+        );
+        h.run(5);
+    };
+    send(&mut h, 2);
+    assert_eq!(stored(&mut h), before, "not with the call");
+    h.run_to(yalain_net::LocalTime(
+        h.now.0 + yalain_world::saves::OPTIONS_SECONDS + 1.0,
+    ));
+    h.run(5);
+    let first = stored(&mut h);
+    assert_ne!(first, before, "kept, soon enough");
+    send(&mut h, 3);
+    assert_eq!(stored(&mut h), first, "the next, not with its call");
+    log_off(&mut h, b, id);
+    assert_ne!(stored(&mut h), first, "kept as it leaves");
+}

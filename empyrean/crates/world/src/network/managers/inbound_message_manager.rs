@@ -85,7 +85,7 @@ pub fn message_handler(opcode: u32) -> Option<&'static MessageHandlerInfo> {
 
 /// Game messages ACE never dispatches, which Empyrean handles.
 pub static EMPYREAN_MESSAGE_HANDLERS: &[MessageHandlerInfo] = &[
-    // A client that could not take its patch stream (V508).
+    // A client that could not take its patch stream (V516).
     MessageHandlerInfo {
         name: "DDD_BulkDecline",
         handler: crate::network::handlers::ddd_handler::ddd_bulk_decline,

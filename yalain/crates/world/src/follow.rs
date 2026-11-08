@@ -20,6 +20,12 @@ pub const STARTED: (u32, u32) = (0x5754_9382, 0x2500_000B);
 pub const STOPPED: (u32, u32) = (0x5712_F382, 0x2500_000B);
 pub const SHOWN_AS: u32 = 8;
 
+/// How many follows a player may ask at once, and how many a second after that. (2017: 1,701 asked,
+/// 7 in a second at most, none past these; our figures.)
+pub const ASKS_AT_ONCE: f64 = 10.0;
+/// See [`ASKS_AT_ONCE`].
+pub const ASKS_PER_SECOND: f64 = 5.0;
+
 /// The standing movement order's flags, and how near it keeps the player, in meters.
 pub const ORDER_FLAGS: u32 = 0x6B;
 pub const DISTANCE: f32 = 1.0;
@@ -33,6 +39,18 @@ pub fn start<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v:
         s.unhandled.note("a follow that does not read");
         return;
     };
+    // Each order goes to everyone who sees the player: asked past the pace, nothing changes.
+    let now = s.saves.now;
+    let Some(p) = s.players.get_mut(&world) else {
+        return;
+    };
+    let asks = p
+        .follows
+        .get_or_insert_with(|| crate::call_limit::Bucket::with(ASKS_AT_ONCE, ASKS_PER_SECOND, now));
+    if !asks.allow(now) {
+        s.unhandled.note("a follow past the pace");
+        return;
+    }
     stop(s, net, world);
     s.next_context = s.next_context.wrapping_add(1);
     let context = s.next_context;

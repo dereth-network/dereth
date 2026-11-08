@@ -151,6 +151,8 @@ pub enum Needs {
     SpellResearch,
     /// The spellcasting panel's tabs of favorites.
     SpellTabs,
+    /// Anything but a Launch world: an option the client came to have after it.
+    AfterLaunch,
 }
 
 impl Needs {
@@ -179,6 +181,7 @@ impl Needs {
             Self::Contracts => S::Contracts.offered(f),
             Self::SpellResearch => S::SpellResearch.offered(f),
             Self::SpellTabs => f.spell_tabs,
+            Self::AfterLaunch => f != dereth_primitives::EraFeatures::LAUNCH,
         }
     }
 }
@@ -456,28 +459,40 @@ const CHARACTER: [Heading; 7] = [
                 Needs::Tinkering,
                 opt("Salvage Multiple Materials at Once", P::SalvageMultiple),
             ),
-            opt(
-                "Use Main Pack as Default for Picking Up Items",
-                P::MainPackPreferred,
+            needs(
+                Needs::AfterLaunch,
+                opt(
+                    "Use Main Pack as Default for Picking Up Items",
+                    P::MainPackPreferred,
+                ),
             ),
             opt("Vivid Targeting Indicator", P::VividTargetingIndicator),
             opt("Display Tooltips", P::ShowTooltips),
-            opt_c(
-                "Show Coordinates By the Radar",
-                P::CoordinatesOnRadar,
-                "Show Coordinates Below The Radar",
-                false,
+            needs(
+                Needs::AfterLaunch,
+                opt_c(
+                    "Show Coordinates By the Radar",
+                    P::CoordinatesOnRadar,
+                    "Show Coordinates Below The Radar",
+                    false,
+                ),
             ),
             only(
                 Shown::Only(Interface::Modern),
                 opt("Side By Side Vitals", P::SideBySideVitals),
             ),
-            opt("Display Spell Durations", P::SpellDuration),
-            opt_c(
-                "Use Crafting Chance of Success Dialog",
-                P::UseCraftSuccessDialog,
-                "Display Crafting Chance of Success Dialog",
-                false,
+            needs(
+                Needs::AfterLaunch,
+                opt("Display Spell Durations", P::SpellDuration),
+            ),
+            needs(
+                Needs::AfterLaunch,
+                opt_c(
+                    "Use Crafting Chance of Success Dialog",
+                    P::UseCraftSuccessDialog,
+                    "Display Crafting Chance of Success Dialog",
+                    false,
+                ),
             ),
             needs(
                 Needs::Rares,
@@ -490,8 +505,14 @@ const CHARACTER: [Heading; 7] = [
         text: Text::preference("ID_CharacterOption_UIDisplay_Section", "World Display"),
         rows: &[
             opt("Disable Most Weather Effects", P::DisableMostWeatherEffects),
-            opt("Disable Distance Fog", P::DisableDistanceFog),
-            opt("Always Daylight Outdoors", P::PersistentAtDay),
+            needs(
+                Needs::AfterLaunch,
+                opt("Disable Distance Fog", P::DisableDistanceFog),
+            ),
+            needs(
+                Needs::AfterLaunch,
+                opt("Always Daylight Outdoors", P::PersistentAtDay),
+            ),
             needs(
                 Needs::Housing,
                 opt(
@@ -511,7 +532,10 @@ const CHARACTER: [Heading; 7] = [
                 "Stay in Chat Mode after sending a message",
                 false,
             ),
-            opt("Display Timestamps", P::DisplayTimeStamps),
+            needs(
+                Needs::AfterLaunch,
+                opt("Display Timestamps", P::DisplayTimeStamps),
+            ),
             opt("Filter Language", P::FilterLanguage),
             needs(
                 Needs::AllegianceChat,
@@ -542,7 +566,10 @@ const CHARACTER: [Heading; 7] = [
                 Needs::GlobalChatRooms,
                 opt("Listen to Society Chat", P::HearSocietyChat),
             ),
-            opt("Listen to PK Death Messages", P::HearPKDeaths),
+            needs(
+                Needs::AfterLaunch,
+                opt("Listen to PK Death Messages", P::HearPKDeaths),
+            ),
         ],
     },
     Heading {
@@ -564,9 +591,12 @@ const CHARACTER: [Heading; 7] = [
                 "Accept Fellowship Requests",
                 true,
             ),
-            opt(
-                "Show Allegiance Logons",
-                P::DisplayAllegianceLogonNotifications,
+            needs(
+                Needs::AfterLaunch,
+                opt(
+                    "Show Allegiance Logons",
+                    P::DisplayAllegianceLogonNotifications,
+                ),
             ),
             needs(
                 Needs::FellowshipOptions,
@@ -608,7 +638,10 @@ const CHARACTER: [Heading; 7] = [
                     false,
                 ),
             ),
-            opt("Show Your Helm or Head Gear", P::ShowHelm),
+            needs(
+                Needs::AfterLaunch,
+                opt("Show Your Helm or Head Gear", P::ShowHelm),
+            ),
             needs(Needs::Cloaks, opt("Show Your Cloak", P::ShowCloak)),
         ],
     },
@@ -616,13 +649,19 @@ const CHARACTER: [Heading; 7] = [
         title: "Allow Others to See Your",
         text: Text::literal("Allow Others to See Your"),
         rows: &[
-            opt_c(
-                "Date of Birth",
-                P::DisplayDateOfBirth,
-                "Allow others to see your Date of Birth",
-                false,
+            needs(
+                Needs::AfterLaunch,
+                opt_c(
+                    "Date of Birth",
+                    P::DisplayDateOfBirth,
+                    "Allow others to see your Date of Birth",
+                    false,
+                ),
             ),
-            opt_c("Age", P::DisplayAge, "Allow others to see your Age", false),
+            needs(
+                Needs::AfterLaunch,
+                opt_c("Age", P::DisplayAge, "Allow others to see your Age", false),
+            ),
             needs(
                 Needs::Chess,
                 opt_c(
@@ -632,17 +671,23 @@ const CHARACTER: [Heading; 7] = [
                     false,
                 ),
             ),
-            opt_c(
-                "Fishing Skill",
-                P::DisplayFishingSkill,
-                "Allow others to see your Fishing Skill",
-                false,
+            needs(
+                Needs::AfterLaunch,
+                opt_c(
+                    "Fishing Skill",
+                    P::DisplayFishingSkill,
+                    "Allow others to see your Fishing Skill",
+                    false,
+                ),
             ),
-            opt_c(
-                "Number of Deaths",
-                P::DisplayNumberDeaths,
-                "Allow others to see your Number of Deaths",
-                false,
+            needs(
+                Needs::AfterLaunch,
+                opt_c(
+                    "Number of Deaths",
+                    P::DisplayNumberDeaths,
+                    "Allow others to see your Number of Deaths",
+                    false,
+                ),
             ),
             needs(
                 Needs::Titles,
@@ -671,9 +716,18 @@ const CHARACTER: [Heading; 7] = [
             ),
             opt("Auto Target", P::AutoTarget),
             opt("Automatically Repeat Attacks", P::AutoRepeatAttack),
-            opt("Use Charge Attack", P::UseChargeAttack),
-            opt("Lead Missile Targets", P::LeadMissileTargets),
-            opt("Use Fast Missiles", P::UseFastMissiles),
+            needs(
+                Needs::AfterLaunch,
+                opt("Use Charge Attack", P::UseChargeAttack),
+            ),
+            needs(
+                Needs::AfterLaunch,
+                opt("Lead Missile Targets", P::LeadMissileTargets),
+            ),
+            needs(
+                Needs::AfterLaunch,
+                opt("Use Fast Missiles", P::UseFastMissiles),
+            ),
         ],
     },
 ];

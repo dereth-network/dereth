@@ -30,6 +30,7 @@
 //! <pack>/server/crafting.toml     [[craft]]
 //! <pack>/server/story.toml        [[scene]], [[shard]]
 //! <pack>/server/weapons.toml      [[weapon]]
+//! <pack>/server/pets.toml         [[pet]], [[pet_limit]]
 //! <pack>/server/routes.toml       [[route]]
 //! <pack>/server/areas.toml        [[area]]
 //! ```

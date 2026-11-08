@@ -254,3 +254,57 @@ fn a_pets_skill_and_a_basic_attack_count_at_a_draw_by_their_points() {
     );
     assert_eq!(harm(&h)[2], 1050);
 }
+
+/// A level table of `top` levels, each taking 1,000 more than the one before.
+fn thousand_a_level(top: i32) -> yalain_world::levels::LevelTable {
+    use yalain_world::levels::{Level, LevelTable};
+    LevelTable {
+        levels: (0..u64::try_from(top).expect("a count"))
+            .map(|n| Level {
+                xp: n * 1_000,
+                ..Level::default()
+            })
+            .collect(),
+    }
+}
+
+/// Experience enough for level 52 takes a character that is no hero to level 50 and no further,
+/// its total still counted in full; made a hero, its next award brings the levels it had earned;
+/// a hero all along goes straight there.
+/// Behaviour: server.experience.a-non-hero-stops-at-level-fifty
+#[test]
+fn a_character_that_is_no_hero_stops_at_level_fifty_until_it_is_one() {
+    use yalain_world::progress::{award, q, Award};
+    use yalain_world::{focus, quals};
+    let mut h = Harness::new();
+    let (_, me) = h.player_in_world("one", "Kestrel");
+    h.run(20);
+    h.server.levels = thousand_a_level(60);
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .map(|(w, _)| w)
+        .expect("in the world");
+    let read = |h: &Harness| {
+        let p = h.server.players.get(&world).expect("in the world");
+        (
+            quals::int(&p.qualities, q::LEVEL).unwrap_or(0),
+            quals::long(&p.qualities, q::TOTAL_XP).unwrap_or(0),
+        )
+    };
+    let had = read(&h).1;
+    award(&mut h.server, &mut h.net, world, 51_000, Award::Step);
+    assert_eq!(
+        read(&h),
+        (50, had + 51_000),
+        "stopped at 50, all of it kept"
+    );
+    award(&mut h.server, &mut h.net, world, 1_000, Award::Step);
+    assert_eq!(read(&h), (50, had + 52_000), "still 50");
+    let p = h.server.players.get_mut(&world).expect("in the world");
+    quals::set_bool(&mut p.qualities, focus::HERO, true);
+    award(&mut h.server, &mut h.net, world, 1, Award::Step);
+    assert_eq!(read(&h).0, 53, "a hero has what it earned");
+}

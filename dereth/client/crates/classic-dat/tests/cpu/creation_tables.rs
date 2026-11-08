@@ -270,6 +270,13 @@ fn creation_data_survives_a_json_round_trip() {
 }
 
 #[test]
+fn a_string_record_ends_at_a_zero_it_counts() {
+    let mut e = Enc::default();
+    e.u32(0x3100_0005).legacy_text("Hi.\0");
+    assert_eq!(creation::decode_string(0x3100_0005, &e.0).unwrap(), "Hi.");
+}
+
+#[test]
 fn a_string_record_must_echo_its_id() {
     let mut e = Enc::default();
     e.u32(0x3100_0005).legacy_text("Hi");

@@ -576,6 +576,13 @@ impl WebPlay {
             .unwrap_or_default()
     }
 
+    /// How many players the world said it has at login, once each time it says so; the page tells
+    /// the hub.
+    #[wasm_bindgen(js_name = takeWorldPlayers)]
+    pub fn take_world_players(&mut self) -> Option<u32> {
+        self.play.as_mut()?.take_world_players()
+    }
+
     /// Everything the connection wants sent, framed for the WebSocket.
     #[wasm_bindgen(js_name = takeMessages)]
     pub fn take_messages(&mut self) -> Vec<js_sys::Uint8Array> {

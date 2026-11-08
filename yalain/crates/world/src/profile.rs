@@ -74,6 +74,16 @@ pub mod line {
     pub const REQUIREMENTS: u32 = 0x4F39_B658;
     pub const MINIMUM_LEVEL: u32 = 0x4ED2_0478;
     pub const IN_AN_ALLEGIANCE: u32 = 0x9D7D_54C6;
+    pub const IN_A_KINGDOM: u32 = 0xF2F5_0D95;
+    pub const KINGDOM_NAMED: u32 = 0x9923_CC4A;
+    pub const KINGDOM_COUNT_VAR: u32 = 0x073E_ACEA;
+    pub const KINGDOM_NAME_VAR: u32 = 0x9D06_6C50;
+    pub const A_HERO: u32 = 0xE9AE_E04E;
+    pub const QUEST_DONE: u32 = 0x510A_7F47;
+    pub const QUEST_UNDER_WAY: u32 = 0xDB7C_0ACC;
+    pub const QUEST_AT_A_POINT: u32 = 0x6C86_F753;
+    pub const QUEST_HAD: u32 = 0x8D31_AAA4;
+    pub const QUEST_NAME_VAR: u32 = 0x2356_2D3A;
     pub const A_MONARCH: u32 = 0x8ADC_E384;
     /// The kingdoms' table, and the neutral kingdom's name.
     pub const KINGDOMS: u32 = 0x2500_000F;
@@ -665,6 +675,82 @@ pub fn npc(asked: u32, name: TextInfo, f: &Facts) -> Profile {
     p
 }
 
+/// What a corpse's examination says.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CorpseView {
+    pub name: TextInfo,
+    pub killed_by: TextInfo,
+    pub butchered_by: Option<String>,
+    pub first_looted_by: Option<String>,
+    /// May the one examining it loot it?
+    pub may_loot: bool,
+    /// How many items it holds, once that is known: when it has been opened, or holds none.
+    pub holds: Option<u32>,
+}
+
+/// A corpse's profile (recorded: 13,255 of 13,264 examinations exactly so).
+#[must_use]
+pub fn corpse(asked: u32, v: &CorpseView) -> Profile {
+    let by = |line: u32, name: TextInfo| {
+        with_vars(line::TABLE, line, vec![nested(corpse_line::NAMED, name)])
+    };
+    let mut p = Profile::new(asked);
+    p.text(GENERAL, look::VALUE, v.name.clone());
+    p.brk(GENERAL);
+    p.brk(GENERAL);
+    p.text(
+        GENERAL,
+        look::LABEL,
+        with_vars(
+            line::TABLE,
+            corpse_line::KILLED_BY,
+            vec![nested(corpse_line::KILLER, v.killed_by.clone())],
+        ),
+    );
+    p.brk(GENERAL);
+    for (line, name) in [
+        (corpse_line::BUTCHERED_BY, &v.butchered_by),
+        (corpse_line::FIRST_LOOTED_BY, &v.first_looted_by),
+    ] {
+        if let Some(name) = name {
+            p.text(GENERAL, look::LABEL, by(line, literal(name)));
+            p.brk(GENERAL);
+        }
+    }
+    let right = if v.may_loot {
+        corpse_line::YOU_CAN_LOOT
+    } else {
+        corpse_line::YOU_CANNOT_LOOT
+    };
+    p.text(GENERAL, look::LABEL, string(line::TABLE, right));
+    p.brk(GENERAL);
+    let holds = match v.holds {
+        Some(n) => with_vars(
+            line::TABLE,
+            corpse_line::CONTAINS,
+            vec![number(corpse_line::HOW_MANY, n)],
+        ),
+        None => string(line::TABLE, corpse_line::CONTENTS_UNKNOWN),
+    };
+    p.text(GENERAL, look::LABEL, holds);
+    p.brk(GENERAL);
+    p
+}
+
+/// The strings of a corpse's profile, in the general strings' table, and their variables.
+pub mod corpse_line {
+    pub const KILLED_BY: u32 = 0x32A6_B06F;
+    pub const KILLER: u32 = 0x23A6_64C8;
+    pub const BUTCHERED_BY: u32 = 0x4167_081E;
+    pub const FIRST_LOOTED_BY: u32 = 0x0539_8B05;
+    pub const NAMED: u32 = 0x15B2_0D98;
+    pub const YOU_CAN_LOOT: u32 = 0x9750_666D;
+    pub const YOU_CANNOT_LOOT: u32 = 0x3AE8_BD92;
+    pub const CONTENTS_UNKNOWN: u32 = 0x4C5A_2B82;
+    pub const CONTAINS: u32 = 0x40DA_243B;
+    pub const HOW_MANY: u32 = 0x073E_ACEA;
+}
+
 /// What the requirements tab says of an object for monarchs alone.
 pub fn monarch_lines(p: &mut Profile) {
     p.brk(REQUIREMENTS);
@@ -689,6 +775,97 @@ pub fn monarch_lines(p: &mut Profile) {
         string(line::TABLE, line::A_MONARCH),
     );
     p.brk(REQUIREMENTS);
+}
+
+/// What a placed object's requirements say of the quest it needs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QuestLine {
+    /// A hidden quest: the section stands with no line for it (2017: 12 of 12 objects whose quest
+    /// is hidden).
+    Hidden,
+    /// One of the quest's lines, and the quest's name (string, table).
+    Named(u32, (u32, u32)),
+}
+
+/// Which line says a quest is needed at a status, written as [`yalain_content::QuestGate`] writes it.
+#[must_use]
+pub const fn quest_line(status: u32) -> u32 {
+    match status {
+        yalain_content::QuestGate::HAD => line::QUEST_HAD,
+        0x3000_0000 => line::QUEST_DONE,
+        0x1000_0000 => line::QUEST_UNDER_WAY,
+        _ => line::QUEST_AT_A_POINT,
+    }
+}
+
+/// A placed object's requirements, as 2017's pages laid them out: its least level, its kingdom, for
+/// heroes alone, its quest. Whether there is such a section.
+pub fn requirement_lines(p: &mut Profile, f: &Facts, quest: Option<QuestLine>) -> bool {
+    if f.min_level.is_none() && f.kingdom.is_none() && !f.hero && quest.is_none() {
+        return false;
+    }
+    p.brk(REQUIREMENTS);
+    p.text(
+        REQUIREMENTS,
+        look::LABEL,
+        string(line::TABLE, line::REQUIREMENTS),
+    );
+    p.brk(REQUIREMENTS);
+    if let Some(level) = f.min_level {
+        p.tab(REQUIREMENTS, 0);
+        p.text(
+            REQUIREMENTS,
+            look::LABEL,
+            string(line::TABLE, line::MINIMUM_LEVEL),
+        );
+        p.int(REQUIREMENTS, look::VALUE, level);
+        p.brk(REQUIREMENTS);
+    }
+    if let Some(k) = f.kingdom {
+        p.tab(REQUIREMENTS, 0);
+        p.text(
+            REQUIREMENTS,
+            look::LABEL,
+            with_vars(
+                line::TABLE,
+                line::IN_A_KINGDOM,
+                vec![number(line::KINGDOM_COUNT_VAR, 1)],
+            ),
+        );
+        p.text(
+            REQUIREMENTS,
+            look::VALUE,
+            with_vars(
+                line::TABLE,
+                line::KINGDOM_NAMED,
+                vec![nested(
+                    line::KINGDOM_NAME_VAR,
+                    string(line::KINGDOMS, kingdom(k)),
+                )],
+            ),
+        );
+        p.brk(REQUIREMENTS);
+    }
+    if f.hero {
+        p.tab(REQUIREMENTS, 0);
+        p.tab(REQUIREMENTS, 0);
+        p.text(REQUIREMENTS, look::VALUE, string(line::TABLE, line::A_HERO));
+        p.brk(REQUIREMENTS);
+    }
+    if let Some(QuestLine::Named(said, (sid, table))) = quest {
+        p.tab(REQUIREMENTS, 0);
+        p.text(
+            REQUIREMENTS,
+            look::VALUE,
+            with_vars(
+                line::TABLE,
+                said,
+                vec![nested(line::QUEST_NAME_VAR, string(table, sid))],
+            ),
+        );
+        p.brk(REQUIREMENTS);
+    }
+    true
 }
 
 /// An item's name composed of its template's name with no prefix or suffix.
@@ -790,7 +967,13 @@ pub fn portal_line(flags: u32) -> u32 {
 /// A portal's or a lifestone's profile: its name, what may be recalled to it, its description,
 /// and the level a player needs to use it.
 #[must_use]
-pub fn place(asked: u32, name: TextInfo, recall: u32, f: &Facts) -> Profile {
+pub fn place(
+    asked: u32,
+    name: TextInfo,
+    recall: u32,
+    f: &Facts,
+    quest: Option<QuestLine>,
+) -> Profile {
     let mut p = Profile::new(asked);
     p.text(GENERAL, look::VALUE, name);
     p.brk(GENERAL);
@@ -802,25 +985,8 @@ pub fn place(asked: u32, name: TextInfo, recall: u32, f: &Facts) -> Profile {
         .map_or_else(|| literal(""), |(s, t)| string(t, s));
     p.text(GENERAL, look::LABEL, desc);
     p.brk(GENERAL);
-    match f.min_level {
-        Some(level) => {
-            p.brk(REQUIREMENTS);
-            p.text(
-                REQUIREMENTS,
-                look::LABEL,
-                string(line::TABLE, line::REQUIREMENTS),
-            );
-            p.brk(REQUIREMENTS);
-            p.tab(REQUIREMENTS, 0);
-            p.text(
-                REQUIREMENTS,
-                look::LABEL,
-                string(line::TABLE, line::MINIMUM_LEVEL),
-            );
-            p.int(REQUIREMENTS, look::VALUE, level);
-            p.brk(REQUIREMENTS);
-        }
-        None => p.brk(GENERAL),
+    if !requirement_lines(&mut p, f, quest) {
+        p.brk(GENERAL);
     }
     p
 }

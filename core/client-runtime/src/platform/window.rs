@@ -152,6 +152,18 @@ pub trait WindowHost {
         None
     }
 
+    /// Whether the profile keeps the render scale, for a host with nowhere else to keep it.
+    fn profile_keeps_render_scale(&self) -> bool {
+        false
+    }
+
+    /// The window's own size, as it is asked for and kept, for a `client` size as
+    /// [`Self::client_size`] says it. They differ where the window goes by one unit and the picture
+    /// by another.
+    fn window_size_of(&self, client: (u32, u32)) -> (u32, u32) {
+        client
+    }
+
     /// Ask for a client rectangle and answer with the one the window system granted.
     fn request_inner_size(&self, width: u32, height: u32) -> (u32, u32) {
         (width, height)
@@ -159,6 +171,27 @@ pub trait WindowHost {
 
     /// `SetWindowPos`'s move half.
     fn set_outer_position(&self, _x: i32, _y: i32) {}
+
+    /// Whether the current screen holds the window at the login size, so the player cannot drag
+    /// it. The default is for a window the player never sizes.
+    fn hold_at_login_size(&self, _held: bool) {}
+
+    /// Whether this is a window the player sizes, so the size it closes at is kept for the next
+    /// start. No other window keeps one, a tool's among them.
+    fn player_sizes_window(&self) -> bool {
+        false
+    }
+
+    /// Whether the window system has made the window full screen with no word from the client:
+    /// its size isn't one the player chose for a window.
+    fn full_screen_of_its_own(&self) -> bool {
+        false
+    }
+
+    /// The largest client size that fits the window's monitor, where that is known.
+    fn largest_client_size(&self) -> Option<(u32, u32)> {
+        None
+    }
 
     /// drain the queue completely.
     ///

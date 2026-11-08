@@ -619,3 +619,193 @@ fn a_record_changing_the_jump_tells_the_jump_scale_as_it_comes_and_goes() {
     h.run(20);
     assert_eq!(jumps(&h, later), [1.0], "{:x?}", calls_of(&h, b, later));
 }
+
+fn world_of(h: &Harness, me: u64) -> yalain_net::ConnId {
+    *h.server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .expect("in the world")
+        .0
+}
+
+fn cast_by(caster: u64) -> effects::Cast {
+    effects::Cast {
+        caster,
+        spellcraft: 1.0,
+        ..effects::Cast::default()
+    }
+}
+
+fn put_on(h: &mut Harness, world: yalain_net::ConnId, state: u32, caster: u64) {
+    let clock = h.clock();
+    effects::apply(
+        &mut h.server,
+        &mut h.net,
+        world,
+        state,
+        cast_by(caster),
+        clock,
+    );
+}
+
+fn records(h: &Harness, world: yalain_net::ConnId) -> Vec<yalain_world::state::EffectState> {
+    h.server
+        .players
+        .get(&world)
+        .map(|p| p.play.effects.clone())
+        .expect("in the world")
+}
+
+/// One caster's records of one effect on one target stop at the most it holds: past it the oldest
+/// goes, its client told, and nothing is left waiting for its end.
+/// Behaviour: server.effects.one-caster-of-one-effect-stops-at-a-limit
+#[test]
+fn one_casters_records_of_one_effect_stop_at_the_limit_the_oldest_going() {
+    let (mut h, b, me) = armed();
+    let world = world_of(&h, me);
+    let friend = 0x2130_0000_0000_0077;
+    let from = h.bots[b].inbox.len();
+    for _ in 0..effects::MOST_OF_ONE_EFFECT {
+        put_on(&mut h, world, COURAGE_EFFECT, friend);
+    }
+    h.run(2);
+    let ids: Vec<u32> = added(&h, b, from).iter().map(|r| r.0).collect();
+    assert_eq!(ids.len(), effects::MOST_OF_ONE_EFFECT, "all of them stack");
+    assert!(
+        !calls_of(&h, b, from)
+            .iter()
+            .any(|(f, _)| *f == REMOVE_EFFECT),
+        "up to the limit nothing goes"
+    );
+    let ends = |h: &Harness| {
+        h.server
+            .timers
+            .iter()
+            .filter(|(_, t)| matches!(t, yalain_world::Timer::EffectEnds { world: w, .. } if *w == world))
+            .count()
+    };
+    let waiting = ends(&h);
+    put_on(&mut h, world, COURAGE_EFFECT, friend);
+    h.run(2);
+    assert!(
+        calls_of(&h, b, from).contains(&(REMOVE_EFFECT, vec![Value::Int(ids[0])])),
+        "the oldest goes"
+    );
+    let held = records(&h, world);
+    assert_eq!(held.len(), effects::MOST_OF_ONE_EFFECT);
+    assert!(held.iter().all(|e| e.eid != ids[0]));
+    assert_eq!(ends(&h), waiting, "its end isn't waiting any more");
+    put_on(&mut h, world, COURAGE_EFFECT, friend + 1);
+    assert_eq!(
+        records(&h, world).len(),
+        effects::MOST_OF_ONE_EFFECT + 1,
+        "another caster's is another's"
+    );
+}
+
+/// Records from others stop at the most a target holds: past it the oldest of whoever holds the
+/// most goes, so what one stacks doesn't push out another's; its own and what it wears aren't
+/// counted.
+/// Behaviour: server.effects.records-from-others-stop-at-a-limit
+#[test]
+fn records_from_others_stop_at_the_limit_from_whoever_holds_the_most() {
+    let (mut h, _, me) = armed();
+    let world = world_of(&h, me);
+    let friend = 0x2130_0000_0000_0077;
+    let stacker = 0x2130_0000_0000_0078;
+    put_on(&mut h, world, DASH_EFFECT, friend);
+    put_on(&mut h, world, COURAGE_EFFECT, me);
+    for state in [COURAGE_EFFECT, DASH_EFFECT] {
+        for _ in 0..effects::MOST_OF_ONE_EFFECT {
+            put_on(&mut h, world, state, stacker);
+        }
+    }
+    let by_stacker = 2 * effects::MOST_OF_ONE_EFFECT;
+    let first = records(&h, world)
+        .iter()
+        .find(|e| e.caster == stacker)
+        .map(|e| e.eid)
+        .expect("its oldest");
+    let room = effects::MOST_FROM_OTHERS - by_stacker - 1;
+    let others = 0x2130_0000_0001_0000..;
+    for caster in others.take(room) {
+        put_on(&mut h, world, COURAGE_EFFECT, caster);
+    }
+    assert!(records(&h, world).iter().any(|e| e.eid == first), "not yet");
+    put_on(&mut h, world, COURAGE_EFFECT, 0x2130_0000_0002_0000);
+    let held = records(&h, world);
+    assert_eq!(
+        held.iter().filter(|e| e.caster != me).count(),
+        effects::MOST_FROM_OTHERS
+    );
+    assert!(held.iter().all(|e| e.eid != first), "the stacker's oldest");
+    assert_eq!(
+        held.iter().filter(|e| e.caster == stacker).count(),
+        by_stacker - 1
+    );
+    assert!(
+        held.iter().any(|e| e.caster == friend),
+        "the friend's stays"
+    );
+    assert!(held.iter().any(|e| e.caster == me), "its own stays");
+}
+
+/// A character kept with more records than a target holds comes back with as many as it may, the
+/// newest, and nothing else of its save changes.
+/// Behaviour: server.effects.records-bounded-as-a-character-enters
+#[test]
+fn a_character_kept_with_too_many_records_comes_back_with_the_newest() {
+    let (mut h, b, me) = armed();
+    let world = world_of(&h, me);
+    let template = {
+        put_on(&mut h, world, COURAGE_EFFECT, me);
+        records(&h, world)[0]
+    };
+    let held = |eid: u32, caster: u64| yalain_world::state::EffectState {
+        eid,
+        caster,
+        ..template
+    };
+    // More than a session start can carry and be read.
+    let many = 40 * effects::MOST_FROM_OTHERS;
+    let newest = 10_000 + u32::try_from(many).expect("few") - 1;
+    let own = held(9_000, me);
+    {
+        let p = h.server.players.get_mut(&world).expect("in the world");
+        p.play.effects = vec![template, own];
+        p.play.effects.extend((0..many).map(|i| {
+            held(
+                10_000 + u32::try_from(i).expect("few"),
+                0x2130_0000_0001_0000 + u64::try_from(i).expect("few"),
+            )
+        }));
+        p.play.effect_counter = newest;
+    }
+    yalain_world::world::keep_player(&mut h.server, world);
+    log_off(&mut h, b, me);
+    let from = h.bots[b].inbox.len();
+    h.enter_world(b, "one", me);
+    let world = world_of(&h, me);
+    let back = records(&h, world);
+    assert!(
+        calls_of(&h, b, from).iter().any(|(f, _)| *f == 0x8212_0027),
+        "its session start reads"
+    );
+    assert_eq!(
+        back.iter().filter(|e| e.caster != me).count(),
+        effects::MOST_FROM_OTHERS
+    );
+    assert!(back.iter().any(|e| e.eid == newest), "the newest stays");
+    assert!(back.iter().any(|e| e.eid == 9_000), "its own stays");
+    assert!(back.iter().all(|e| e.eid != 10_000), "the oldest went");
+    let waiting = h
+        .server
+        .timers
+        .iter()
+        .filter(
+            |(_, t)| matches!(t, yalain_world::Timer::EffectEnds { world: w, .. } if *w == world),
+        )
+        .count();
+    assert_eq!(waiting, back.len(), "an end waits for each, no others");
+}
