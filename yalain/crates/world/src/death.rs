@@ -570,8 +570,9 @@ fn treasure_value<S: Store>(s: &mut Server<S>, level: i32) -> u32 {
 }
 
 /// What a dead creature leaves: its fixed drops, its profile's extras, the profile's draw (from its
-/// items, or its pools for its killer: [`crate::treasure_pools`]), and its death treasures.
-fn roll_loot<S: Store>(s: &mut Server<S>, creature: &Thing, killer: u64) -> Vec<(u32, u32)> {
+/// items, or its pools for its killer: [`crate::treasure_pools`]), and its death treasures. Each
+/// item is its template and its value (0 for all but those drawn from the profile).
+pub fn roll_loot<S: Store>(s: &mut Server<S>, creature: &Thing, killer: u64) -> Vec<(u32, u32)> {
     let Some(c) = creature.creature.as_ref() else {
         return Vec::new();
     };

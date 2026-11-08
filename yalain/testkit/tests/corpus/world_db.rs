@@ -3633,3 +3633,352 @@ fn everything_the_worlds_rows_make_reads_from_the_install() {
         );
     }
 }
+
+/// A corpse 2017 recorded opened: the dead creature's template, and what the corpse held at its
+/// first opening, each item's template and value.
+struct OpenedCorpse {
+    creature: u32,
+    items: Vec<(u32, u32)>,
+}
+
+/// Every corpse the January 2017 recordings show opened, once (its first opening), with the
+/// creature it was of.
+fn opened_corpses(lib: &Library) -> Vec<OpenedCorpse> {
+    use auberean_script::args::{decode, Arg};
+    use auberean_script::native_object::Item;
+    use std::collections::{BTreeMap, HashMap, HashSet};
+    use yalain_world::inventory::function::OPEN_DONE;
+    const CORPSE: u32 = 0x4700_0539;
+    let con = rusqlite::Connection::open_with_flags(
+        auberean_testkit::data::require_capture_index(),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .expect("the capture index opens");
+    let mut st = con
+        .prepare(
+            "SELECT m.session_id, m.raw FROM message m JOIN session s USING (session_id) \
+             JOIN capture c USING (capture_id) WHERE c.file LIKE '2017-%' AND m.status = 'ac2' \
+             AND m.dir = 's2c' AND m.mtype IN (65624, 65638, 65738) ORDER BY m.session_id, m.idx",
+        )
+        .expect("prepares");
+    let mut rows = st.query([]).expect("runs");
+    // One session's objects (template, value), corpses (their creature) and openings.
+    #[derive(Default)]
+    struct Session {
+        objects: HashMap<u64, (u32, u32)>,
+        corpses: HashMap<u64, u64>,
+        opened: Vec<(u64, Vec<u64>)>,
+    }
+    let mut out: BTreeMap<u64, OpenedCorpse> = BTreeMap::new();
+    let mut seen: HashSet<u64> = HashSet::new();
+    let mut close = |s: &mut Session| {
+        for (corpse, contents) in std::mem::take(&mut s.opened) {
+            let Some(creature) = s.corpses.get(&corpse).and_then(|o| s.objects.get(o)) else {
+                continue;
+            };
+            if !seen.insert(corpse) {
+                continue;
+            }
+            let items = contents
+                .iter()
+                .map(|i| s.objects.get(i).copied().unwrap_or((0, 0)))
+                .collect();
+            out.insert(
+                corpse,
+                OpenedCorpse {
+                    creature: creature.0,
+                    items,
+                },
+            );
+        }
+        *s = Session::default();
+    };
+    let (mut at, mut s) = (-1_i64, Session::default());
+    while let Some(r) = rows.next().expect("a row") {
+        let sid: i64 = r.get(0).expect("session");
+        if sid != at {
+            close(&mut s);
+            at = sid;
+        }
+        let raw: Vec<u8> = r.get(1).expect("raw");
+        match ServerMessage::decode(&raw) {
+            Ok(ServerMessage::CreateObject(o)) => {
+                let value = u32::try_from(o.weenie.numbers[1]).unwrap_or(0);
+                s.objects
+                    .entry(o.id)
+                    .or_insert((o.weenie.entity_did, value));
+                if o.weenie.entity_did == CORPSE && o.weenie.objects[3] != 0 {
+                    s.corpses.entry(o.id).or_insert(o.weenie.objects[3]);
+                }
+            }
+            Ok(ServerMessage::PlayerCall(c) | ServerMessage::PlayerCallAlternate(c))
+                if c.function.0 == OPEN_DONE =>
+            {
+                let bytes = c.args.map(|a| a.0).unwrap_or_default();
+                let Ok(args) = decode(&bytes, lib) else {
+                    continue;
+                };
+                let (Some(Arg::Int(0)), Some(Arg::Object(g)), Some(Arg::LongInt(corpse))) =
+                    (args.first(), args.get(2), args.get(3))
+                else {
+                    continue;
+                };
+                let nav = yalain_world::start::Nav::new(lib, g);
+                let contents = g
+                    .root()
+                    .and_then(|r| nav.items(r).ok())
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter_map(|i| match i {
+                        Item::Long(v) => Some(v),
+                        _ => None,
+                    })
+                    .collect();
+                s.opened.push((*corpse, contents));
+            }
+            _ => {}
+        }
+    }
+    close(&mut s);
+    out.into_values().collect()
+}
+
+/// A level band: tens of levels, 70 and up as one.
+fn band_of(level: i32) -> usize {
+    usize::try_from(level.clamp(0, 70) / 10).unwrap_or(0)
+}
+
+const BANDS: usize = 8;
+
+/// A mean, with its 95% interval as a normal approximation of the mean's spread.
+#[derive(Default, Clone, Copy)]
+struct Tally {
+    n: f64,
+    sum: f64,
+    squares: f64,
+}
+
+impl Tally {
+    fn add(&mut self, x: f64, weight: f64) {
+        self.n += weight;
+        self.sum += x * weight;
+        self.squares += x * x * weight;
+    }
+
+    fn mean(&self) -> f64 {
+        self.sum / self.n.max(1e-9)
+    }
+
+    fn interval(&self) -> (f64, f64) {
+        let m = self.mean();
+        let var = (self.squares / self.n - m * m).max(0.0) * self.n / (self.n - 1.0).max(1.0);
+        let half = 1.96 * (var / self.n).sqrt();
+        (m - half, m + half)
+    }
+}
+
+/// What a corpse holds by this server's measure: the items beside the creature's trophies, and the
+/// value of the treasure among them (neither trophies nor the profile's own extras).
+fn measured(items: &[(u32, u32)], trophies: &[u32], extras: &[u32]) -> (f64, f64) {
+    let held: Vec<&(u32, u32)> = items
+        .iter()
+        .filter(|(t, _)| !trophies.contains(t))
+        .collect();
+    let value: u32 = held
+        .iter()
+        .filter(|(t, _)| !extras.contains(t))
+        .map(|(_, v)| *v)
+        .sum();
+    #[allow(clippy::cast_precision_loss)]
+    (held.len() as f64, f64::from(value))
+}
+
+/// The measures the recorded creatures' corpses made again are held inside 2017's interval on, in
+/// every band of 20 corpses or more. The rest (value, and the world's creatures by population) are
+/// printed, inside or out, and not held, until they are ruled on.
+const HELD: &[&str] = &["items"];
+
+/// The world's loot draw, run again for every creature of a corpse the January 2017 recordings show
+/// opened, gives items and value a corpse by level band inside 2017's 95% interval of each, where
+/// the band is held; the world's creatures, by their camps' populations, are printed beside, with
+/// what share of their items would bring each band outside inside.
+/// Behaviour: server.loot.inside-2017s-intervals
+#[test]
+fn the_loot_draw_holds_items_and_value_a_corpse_inside_2017s_intervals() {
+    use std::collections::BTreeMap;
+    use yalain_world_db::compile::Install;
+    const REPS: usize = 50;
+    const WORLD_REPS: usize = 200;
+    let t = &compiled().tables;
+    let portal = yalain_testkit::authored::Portal::open();
+    let lib = portal.library();
+    let install = dat_install();
+    let mut h = Harness::new();
+    h.add_creatures(1);
+    h.run(20);
+    let mut creature = h
+        .server
+        .things
+        .by_id
+        .values()
+        .find(|t| t.creature.is_some())
+        .cloned()
+        .expect("a creature");
+    h.server.loot = t.loot.clone();
+    h.server.rng = yalain_world::rng::Rng::new(716);
+    let mut stats_of: BTreeMap<u32, Option<yalain_content::CreatureStats>> = BTreeMap::new();
+    let mut stats = |template: u32, h: &mut Harness| {
+        stats_of
+            .entry(template)
+            .or_insert_with(|| {
+                let s =
+                    yalain_content::CreatureStats::from_props(&portal.template(template).props)?;
+                let v = s.loot_profile?;
+                let name = install.profile_name(v)?;
+                h.server.catalog.profiles.insert(v, name);
+                Some(s)
+            })
+            .clone()
+    };
+    let pooled = |h: &Harness, s: &yalain_content::CreatureStats| {
+        s.loot_profile
+            .and_then(|v| h.server.catalog.profile_name(v))
+            .is_some_and(|n| yalain_world::treasure_pools::draws_from_pools(&h.server, n))
+    };
+    let extras = |h: &Harness, s: &yalain_content::CreatureStats| -> Vec<u32> {
+        s.loot_profile
+            .and_then(|v| h.server.catalog.profile_name(v))
+            .and_then(|n| h.server.loot.profile(n))
+            .map(|p| p.extras.iter().map(|(t, _)| *t).collect())
+            .unwrap_or_default()
+    };
+    let mut roll = |h: &mut Harness, s: &yalain_content::CreatureStats| {
+        if let Some(c) = creature.creature.as_mut() {
+            c.stats = s.clone();
+            c.camp = None;
+        }
+        yalain_world::death::roll_loot(&mut h.server, &creature, 0)
+    };
+    // 2017's corpses and the same creatures' corpses made again: [items, value] by band.
+    let mut recorded = [[Tally::default(); 2]; BANDS];
+    let mut again = [[Tally::default(); 2]; BANDS];
+    let mut again_pooled = [0.0_f64; BANDS];
+    let corpses = opened_corpses(&lib);
+    let mut used = 0;
+    for c in &corpses {
+        let Some(s) = stats(c.creature, &mut h) else {
+            continue;
+        };
+        used += 1;
+        let band = band_of(s.level);
+        let trophies: Vec<u32> = s.trophies.iter().map(|(t, _)| *t).collect();
+        let extras = extras(&h, &s);
+        let (items, value) = measured(&c.items, &trophies, &extras);
+        recorded[band][0].add(items, 1.0);
+        recorded[band][1].add(value, 1.0);
+        again_pooled[band] += f64::from(u8::from(pooled(&h, &s)));
+        for _ in 0..REPS {
+            let made = roll(&mut h, &s);
+            let (items, value) = measured(&made, &trophies, &extras);
+            again[band][0].add(items, 1.0);
+            again[band][1].add(value, 1.0);
+        }
+    }
+    // The world's creatures with a loot profile, each by its share of its camps' populations:
+    // [all, seed rows, pool rows] by band, of [items, value].
+    let mut population: BTreeMap<u32, f64> = BTreeMap::new();
+    for camp in &t.spawns.camps {
+        let total: u32 = camp.templates.iter().map(|(_, w)| *w).sum();
+        for (template, w) in &camp.templates {
+            *population.entry(*template).or_default() +=
+                f64::from(camp.population) * f64::from(*w) / f64::from(total.max(1));
+        }
+    }
+    let mut world = [[[Tally::default(); 2]; 3]; BANDS];
+    for (template, people) in &population {
+        let Some(s) = stats(*template, &mut h) else {
+            continue;
+        };
+        let band = band_of(s.level);
+        let trophies: Vec<u32> = s.trophies.iter().map(|(t, _)| *t).collect();
+        let extras = extras(&h, &s);
+        let kind = if pooled(&h, &s) { 2 } else { 1 };
+        #[allow(clippy::cast_precision_loss)]
+        let weight = people / WORLD_REPS as f64;
+        for _ in 0..WORLD_REPS {
+            let made = roll(&mut h, &s);
+            let (items, value) = measured(&made, &trophies, &extras);
+            for k in [0, kind] {
+                world[band][k][0].add(items, weight);
+                world[band][k][1].add(value, weight);
+            }
+        }
+    }
+    println!(
+        "{used} of {} recorded corpses of creatures with a loot profile",
+        corpses.len()
+    );
+    let mut outside = Vec::new();
+    for (m, measure) in ["items", "value"].iter().enumerate() {
+        let held = HELD.contains(measure);
+        println!(
+            "{measure} a corpse by level band | 2017: corpses, mean [95%] | made again{} \
+             (pool rows' share) | world creatures by population: all (seed rows / pool rows, \
+             pool rows' share)",
+            if held { ", held" } else { "" }
+        );
+        for band in 0..BANDS {
+            let r = recorded[band][m];
+            if r.n < 1.0 {
+                continue;
+            }
+            let (lo, hi) = r.interval();
+            let a = again[band][m].mean();
+            let w = world[band];
+            let judge = |x: f64| {
+                if r.n < 20.0 {
+                    "few".to_string()
+                } else if (lo..=hi).contains(&x) {
+                    "inside".to_string()
+                } else {
+                    format!("OUTSIDE: x{:.2}-x{:.2} of it inside", lo / x, hi / x)
+                }
+            };
+            // The pool rows' mean that brings the world's band inside, its seed rows as they are.
+            let share = w[2][m].n / w[0][m].n.max(1e-9);
+            let need = |x: f64| (x - (1.0 - share) * w[1][m].mean()) / share;
+            let pools_for = if r.n < 20.0 || (lo..=hi).contains(&w[0][m].mean()) {
+                String::new()
+            } else if share >= 0.02 && need(hi) >= 0.0 {
+                format!("; pool rows at {:.2}-{:.2}", need(lo).max(0.0), need(hi))
+            } else {
+                "; not by the pool rows alone".to_string()
+            };
+            println!(
+                "{measure} {:>2}s | {:>5} {:>7.2} [{:.2}, {:.2}] | {:>7.2} ({:.2}) {} | {:>7.2} ({:.2} / {:.2}, {:.2}) {}{}",
+                band * 10,
+                r.n,
+                r.mean(),
+                lo,
+                hi,
+                a,
+                again_pooled[band] / r.n,
+                judge(a),
+                w[0][m].mean(),
+                w[1][m].mean(),
+                w[2][m].mean(),
+                share,
+                judge(w[0][m].mean()),
+                pools_for,
+            );
+            if held && r.n >= 20.0 && !(lo..=hi).contains(&a) {
+                outside.push(format!(
+                    "{measure} {}s: {a:.2} not in [{lo:.2}, {hi:.2}]",
+                    band * 10
+                ));
+            }
+        }
+    }
+    assert!(used > 3_000, "the recordings hold the corpses: {used}");
+    assert!(outside.is_empty(), "{outside:#?}");
+}

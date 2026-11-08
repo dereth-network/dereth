@@ -6371,6 +6371,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.loot.inside-2017s-intervals",
+        says: "The world's loot draw, run again for the creature of every corpse recorded opened \
+               in 2017, leaves as many items beside the trophies a corpse as 2017's corpses held, \
+               inside the 95% interval of each level band of 20 corpses or more.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-LOOT-INTERVALS-2017"),
+        station: "yalain-testkit::corpus::world_db::the_loot_draw_holds_items_and_value_a_corpse_inside_2017s_intervals",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.loot.kept-for-whom-the-kill-went-to",
         says: "The right to a corpse is the kill's: it goes to the player that did the most damage \
                and not to the last blow.",
