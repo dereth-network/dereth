@@ -276,7 +276,8 @@ fn the_hubs_operator_holds_a_character_out_until_its_next_login() {
         }
         .to_json(),
     );
-    assert_eq!(what(&mut w), [l("ann@dawnsong", false, None)]);
+    let heard = answered(&mut w, ListingOutcome::Ok, None);
+    assert_eq!((heard.who.as_str(), heard.on), ("ann@dawnsong", false));
     assert!(w.fed.take_notices(|_| false).is_empty(), "away: it waits");
     assert_eq!(notices(&mut w), [line("Ann", TAKEN_DOWN)]);
     assert!(!w.fed.listed("Ann") && w.fed.is_on("Ann"));
@@ -485,4 +486,40 @@ fn a_directory_line_waiting_for_a_renamed_character_reaches_its_new_name() {
         w.fed.take_notices(|n| n == "Anna"),
         [("Anna".to_owned(), TAKEN_DOWN.to_owned())]
     );
+}
+
+/// What the hub doesn't answer in time is owed again, and what the link holds of it doesn't grow: a
+/// listing that takes a character out goes again, and so does a profile.
+/// Behaviour: server.network.directory-unanswered-goes-again
+#[test]
+fn a_listing_the_hub_does_not_answer_in_time_goes_again() {
+    let timeout = dereth_network_protocol::limits::Limits::DEFAULT.result_timeout_secs;
+    let mut w = listed();
+    w.set_on("Ann", false);
+    assert_eq!(what(&mut w), [l("Ann@dawnsong", false, None)]);
+    assert_eq!(w.fed.listings_unanswered(), 1);
+    w.advance(timeout - 1.0);
+    assert!(what(&mut w).is_empty(), "not before its time");
+    w.advance(2.0);
+    assert_eq!(
+        what(&mut w),
+        [l("Ann@dawnsong", false, None)],
+        "unanswered in time: again"
+    );
+    assert_eq!(w.fed.listings_unanswered(), 1, "the first is forgotten");
+    w.character("Bob");
+    w.set_on("Bob", true);
+    on(&mut w, "Bob", 3);
+    let first = what(&mut w);
+    assert!(
+        first.contains(&l("Bob@dawnsong", true, Some(3))),
+        "{first:?}"
+    );
+    w.advance(timeout + 1.0);
+    let again = what(&mut w);
+    assert!(
+        again.contains(&l("Bob@dawnsong", true, Some(3))),
+        "{again:?}"
+    );
+    assert_eq!(w.fed.listings_unanswered(), 2, "one for each");
 }

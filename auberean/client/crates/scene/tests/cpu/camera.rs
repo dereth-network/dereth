@@ -1026,3 +1026,57 @@ fn a_new_default_distance_or_tilt_applies_at_once() {
     assert!(close(c.offset.z, 0.5, 1e-6), "{}", c.offset.z);
     assert!(close(c.distance, 6.0, 1e-6), "{}", c.distance);
 }
+
+/// A place whose frame isn't one is not taken: the camera stays where it stood, or stays unplaced;
+/// every way the camera can look is a frame.
+///
+/// Behaviour: desktop.camera.a-frame-that-isnt-one-is-not-taken
+#[test]
+#[allow(clippy::cast_possible_truncation)]
+fn a_frame_that_isnt_one_is_not_taken() {
+    use auberean_scene::camera::{take_place, Stands};
+    use dereth_primitives::{CellId, Frame, Position, Quat};
+    let cell = CellId(0x4040_0001);
+    let good = Position::new(cell, Frame::new(Vec3::new(1.0, 2.0, 3.0), Quat::IDENTITY));
+    let not_a_number = Position::new(
+        cell,
+        Frame::new(Vec3::new(f32::NAN, 2.0, 3.0), Quat::IDENTITY),
+    );
+    let long = Position::new(
+        cell,
+        Frame::new(Vec3::new(1.0, 2.0, 3.0), Quat::new(2.0, 0.0, 0.0, 0.0)),
+    );
+    for bad in [not_a_number, long] {
+        let mut stands = Some(Stands::at(good));
+        assert_eq!(take_place(&mut stands, Some(bad), good, false), None);
+        assert_eq!(stands.unwrap().current, good, "it stays where it stood");
+        let mut unplaced = None;
+        take_place(&mut unplaced, None, bad, false);
+        assert!(unplaced.is_none(), "it stays unplaced");
+    }
+    let mut stands = None;
+    assert_eq!(take_place(&mut stands, Some(good), good, false), Some(good));
+    assert_eq!(stands.unwrap().current, good);
+    for yaw in 0..72 {
+        for pitch in -8..=8 {
+            let (yaw, pitch) = (
+                f64::from(yaw) * 0.087_266_46,
+                f64::from(pitch) * 0.174_532_9,
+            );
+            let viewer = Viewer {
+                origin: Vec3::new(1.0, 2.0, 3.0),
+                look: Vec3::new(
+                    (math::cos(pitch) * math::sin(yaw)) as f32,
+                    (math::cos(pitch) * math::cos(yaw)) as f32,
+                    math::sin(pitch) as f32,
+                ),
+                rotation: None,
+            };
+            let at = viewer.stand_at(cell, viewer.origin);
+            assert!(
+                auberean_physics::geom::frame_is_valid(&at.frame),
+                "yaw {yaw} pitch {pitch}: {at:?}"
+            );
+        }
+    }
+}

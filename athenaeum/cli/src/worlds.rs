@@ -6,6 +6,7 @@
 //! athenaeum build <world> --dats <install> [--base <folder>] [--out <folder>]
 //! athenaeum validate <world> [--dats <install>] [--base <folder>]
 //! athenaeum facts <world> [--base <folder>]
+//! athenaeum pets <world> [<item> <field> <value>] [--base <folder>]
 //! ```
 //!
 //! `<world>` is a world's folder (or its `world.toml`). Its base is the release of the world
@@ -148,6 +149,54 @@ fn facts_cmd(dir: &str, o: &Options) -> Result<(), String> {
     Ok(())
 }
 
+/// `athenaeum pets <world>`: the kinds of pet and what each skill allows, as the world has them;
+/// `athenaeum pets <world> <item> <field> <value>` changes one and saves it. An item is what the
+/// list prints first (`pet 0x7000092a`), quoted.
+fn pets_cmd(args: &[String]) -> Result<(), String> {
+    let (dir, rest) = args.split_first().ok_or("pets takes a world's folder")?;
+    // What's not an option and the option's value is what the command is told to do.
+    let (mut positional, mut flags) = (Vec::new(), Vec::new());
+    let mut it = rest.iter();
+    while let Some(a) = it.next() {
+        if a.starts_with("--") {
+            flags.push(a.clone());
+            flags.extend(it.next().cloned());
+        } else {
+            positional.push(a);
+        }
+    }
+    let o = options(&flags)?;
+    let opened = world::open(&world_dir(dir), o.base.as_deref())?;
+    let mut session = athenaeum_foundry::Session::open(opened, None)?;
+    if let [item, field, value] = positional[..] {
+        session.set(item, field, value)?;
+        session.save()?;
+        println!("{item}: {field} = {value}");
+        return Ok(());
+    }
+    if !positional.is_empty() {
+        return Err("pets takes <item> <field> <value>, or nothing to list them".into());
+    }
+    for l in session.pets() {
+        match &l.row {
+            yalain_world_db::rows::Row::Pet(r) => println!(
+                "pet {:#010x}\tin {}\ttemplate {:#010x}\tflags {}\tcount {}\t{}",
+                r.effect,
+                l.pack,
+                r.template,
+                r.flags,
+                r.count,
+                if r.stays { "stays" } else { "follows" }
+            ),
+            yalain_world_db::rows::Row::PetLimit(r) => {
+                println!("pet_limit {:#010x}\tin {}\t{:?}", r.skill, l.pack, r.limits)
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
 /// Run a world command, if `cmd` is one. `None` when it is not.
 pub fn run(cmd: &str, args: &[String]) -> Option<Result<(), String>> {
     let run = |f: fn(&str, &Options) -> Result<(), String>| {
@@ -161,6 +210,7 @@ pub fn run(cmd: &str, args: &[String]) -> Option<Result<(), String>> {
         "build" => run(build_cmd),
         "validate" => run(validate_cmd),
         "facts" => run(facts_cmd),
+        "pets" => pets_cmd(args),
         _ => return None,
     })
 }

@@ -34,7 +34,27 @@
 //!
 //! **Buying a player's sale**: the price taken, the item moved from the broker into the buyer's
 //! pack, the sale's stock told as gone; the seller collects the price. A seller in the world is told
-//! of the sale, which its client marks on its reminder of that broker.
+//! of the sale, which its client marks on its reminder of that broker. A client shopping at that
+//! broker doesn't take that word, so it is sent the reminder whole, and the consignments page if it
+//! has it open.
+//!
+//! **A sale's time.** What is unsold [`ON_SALE_SECONDS`] after it went up is expired: it leaves its
+//! store, can't be bought, and its seller's lists mark it, the seller told if in the world. Nothing
+//! moves and nothing is written when that happens: it comes of the time the record already holds, so
+//! a stop or a crash can't touch it. The item stays with its broker, whole, for as long as it takes
+//! its seller to collect it, with room in the pack as any collection needs.
+//!
+//! **Restocking**: more of what a consignment holds, put up with it at its price. The client's window
+//! offers it for any consignment not sold out, and asks once it has said what it will cost: a hundredth
+//! of what those would fetch, at least 1, as a sale. They must be of the sale's template and numbers,
+//! and with what is left make less than a full stack. What is left and what comes make one sale, on
+//! sale from now, an expired one too. Anything else is refused, nothing taken and nothing moved. This
+//! rests on the client's code and its script library: no recording has one.
+//!
+//! **A seller that is gone.** A character deleted keeps what it has with brokers through the hour it
+//! may come back in, on sale as before. When it is gone, that goes with it as its pack does: what is
+//! unsold leaves its store and the world, and the price of what it sold and did not collect is paid
+//! to no one. What a buyer bought stays the buyer's.
 
 use std::collections::BTreeMap;
 
@@ -62,6 +82,7 @@ pub mod function {
     pub const LEAVE_CONSIGNMENT: u32 = 0x9B5E_002A;
     pub const SELL: u32 = 0x9B5E_0028;
     pub const COLLECT: u32 = 0x9B5E_003F;
+    pub const RESTOCK: u32 = 0x9B5E_0016;
     pub const SALES: u32 = 0x9B5E_0009;
     /// The server's.
     pub const ENTER_CATALOG: u32 = 0x9B5E_0052;
@@ -100,6 +121,14 @@ pub const CATALOG_EVERY: f64 = 34.0;
 pub const FIRST_UPDATE: f64 = 2.5;
 /// How far a broker is walked to.
 pub const BROKER_REACH: f32 = 5.0;
+
+/// How long a consignment stays on sale, in seconds. The client counts down to ten days and forgets
+/// its reminder of one at eleven; the one sale recorded that long was unexpired at 10.91 days.
+pub const ON_SALE_SECONDS: f64 = 11.0 * 86_400.0;
+/// How often the game clock is compared with the sales' times, in seconds.
+pub const EXPIRY_LOOK: f64 = 60.0;
+/// A consignment's flag: expired.
+const FLAG_EXPIRED: u32 = 1;
 
 /// The most consignments a character holds at once. The client has words for a character's maximum,
 /// so the 2017 servers had one; its number was never recorded (of 2 sales put up in the recordings,
@@ -143,6 +172,26 @@ pub struct Consignment {
     pub entered: f64,
 }
 
+impl Consignment {
+    /// Are any of it left?
+    #[must_use]
+    pub const fn in_stock(&self) -> bool {
+        self.sold < self.offered
+    }
+
+    /// Is what is left of it past its time on sale, at this game time?
+    #[must_use]
+    pub fn expired(&self, now: f64) -> bool {
+        self.in_stock() && now - self.entered >= ON_SALE_SECONDS
+    }
+
+    /// May it be seen and bought in its store, at this game time?
+    #[must_use]
+    pub fn on_sale(&self, now: f64) -> bool {
+        self.in_stock() && !self.expired(now)
+    }
+}
+
 /// Every consignment, read from the world's record once; who shops at which broker.
 #[derive(Debug, Clone, Default)]
 pub struct Market {
@@ -155,6 +204,8 @@ pub struct Market {
     pub shoppers: Vec<(ConnId, u64, f64)>,
     /// When the shoppers were last looked at.
     pub last_look: f64,
+    /// The game time the sales' times were last compared with.
+    pub expiry_look: Option<f64>,
 }
 
 impl Market {
@@ -334,11 +385,12 @@ fn view<S: Store>(s: &Server<S>, keeper: u64, catalog: u32) -> Arg {
             counts.insert(k.store, n);
         }
     }
+    let now = s.game_now;
     for c in s
         .market
         .list
         .iter()
-        .filter(|c| c.catalog == catalog && c.sold < c.offered)
+        .filter(|c| c.catalog == catalog && c.on_sale(now))
     {
         *counts.entry(c.store).or_default() += 1;
     }
@@ -454,6 +506,9 @@ pub fn look<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
                 world,
                 &call(function::LEAVE_CATALOG_DONE, &[Arg::LongInt(keeper)]),
             );
+            if let Some(p) = s.players.get_mut(&world) {
+                p.at_consignments = None;
+            }
             continue;
         }
         if next <= clock.local.0 {
@@ -529,7 +584,13 @@ fn name_and_icon<S: Store>(s: &Server<S>, c: &Consignment) -> ((u32, u32), Vec<[
 }
 
 /// A consignment as the client holds it.
-fn consignment(b: &mut Builder, c: &Consignment, name: (u32, u32), icon: &[[u32; 3]]) -> u32 {
+fn consignment(
+    b: &mut Builder,
+    c: &Consignment,
+    name: (u32, u32),
+    icon: &[[u32; 3]],
+    now: f64,
+) -> u32 {
     let me = b.reserve(CONSIGNMENT.0);
     let profile = sale_profile(b, c, name, icon);
     let t = c.entered.to_bits();
@@ -545,7 +606,7 @@ fn consignment(b: &mut Builder, c: &Consignment, name: (u32, u32), icon: &[[u32;
             Slot::Int(c.sold),
             Slot::Tagged(0x84, t as u32),
             Slot::Tagged(tag::HIGH, (t >> 32) as u32),
-            Slot::Int(0),
+            Slot::Int(if c.expired(now) { FLAG_EXPIRED } else { 0 }),
         ],
     );
     me
@@ -565,7 +626,7 @@ fn consignments_list<S: Store>(s: &Server<S>, b: &mut Builder, owner: u64, keepe
     let mut refs = Vec::new();
     for c in &mine {
         let (name, icon) = name_and_icon(s, c);
-        refs.push(Item::Ref(consignment(b, c, name, &icon)));
+        refs.push(Item::Ref(consignment(b, c, name, &icon, s.game_now)));
     }
     b.replace_native(list_id, list(Elem::Ref, refs));
     list_id
@@ -596,18 +657,95 @@ fn reminders<S: Store>(s: &Server<S>, owner: u64, keeper: u64, br: Broker) -> Se
     )
 }
 
-/// Tells a reminder its client holds of a consignment that this many of it have sold.
-fn reminder_of_a_sale(c: &Consignment) -> ServerMessage {
+/// Tells a reminder its client holds of these consignments at a broker what has become of each: has
+/// it expired, how many have sold.
+fn reminder_of(changed: &[Consignment], keeper: u64, now: f64) -> ServerMessage {
     let mut b = Builder::new();
     let list_id = b.next_id();
     b.native(REF_LIST, list(Elem::Ref, Vec::new()));
-    let desc = b.reserve(CONSIGNMENT_DESC.0);
-    b.fill(desc, &[Slot::Int(c.sale), Slot::Int(0), Slot::Int(c.sold)]);
-    b.replace_native(list_id, list(Elem::Ref, vec![Item::Ref(desc)]));
+    let mut refs = Vec::new();
+    for c in changed {
+        let desc = b.reserve(CONSIGNMENT_DESC.0);
+        b.fill(
+            desc,
+            &[
+                Slot::Int(c.sale),
+                Slot::Int(u32::from(c.expired(now))),
+                Slot::Int(c.sold),
+            ],
+        );
+        refs.push(Item::Ref(desc));
+    }
+    b.replace_native(list_id, list(Elem::Ref, refs));
     call(
         function::UPDATE_SALE_REMINDERS,
-        &[Arg::Object(b.graph()), Arg::LongInt(c.keeper)],
+        &[Arg::Object(b.graph()), Arg::LongInt(keeper)],
     )
+}
+
+/// A seller in the world told what has become of these of its consignments at a broker. A client
+/// shopping at that broker doesn't take the word: it takes the reminder whole, and its page shows
+/// them only when sent again.
+fn tell_seller<S: Store>(
+    s: &Server<S>,
+    net: &mut ServerNet,
+    seller: ConnId,
+    keeper: u64,
+    changed: &[Consignment],
+) {
+    let Some(p) = s.players.get(&seller) else {
+        return;
+    };
+    let me = p.character;
+    let on_page = p.at_consignments == Some(keeper);
+    progress::private(net, seller, &reminder_of(changed, keeper, s.game_now));
+    let shopping = s
+        .market
+        .shoppers
+        .iter()
+        .any(|(w, k, _)| *w == seller && *k == keeper);
+    if shopping || on_page {
+        if let Some(br) = broker_of(s, keeper) {
+            progress::private(net, seller, &reminders(s, me, keeper, br));
+        }
+    }
+    if on_page {
+        let m = consignment_message(s, function::UPDATE_CONSIGNMENT, me, keeper);
+        progress::private(net, seller, &m);
+    }
+}
+
+/// Sellers in the world told of what has gone past its time on sale since this was last looked at.
+/// Nothing changes for that: a sale's time comes of the record as it stands.
+pub fn look_for_expired<S: Store>(s: &mut Server<S>, net: &mut ServerNet) {
+    if !s.market.loaded {
+        return;
+    }
+    let now = s.game_now;
+    let Some(last) = s.market.expiry_look else {
+        s.market.expiry_look = Some(now);
+        return;
+    };
+    if now - last < EXPIRY_LOOK {
+        return;
+    }
+    s.market.expiry_look = Some(now);
+    let mut told: BTreeMap<(u64, u64), Vec<Consignment>> = BTreeMap::new();
+    for c in &s.market.list {
+        if c.expired(now) && !c.expired(last) {
+            told.entry((c.owner, c.keeper)).or_default().push(*c);
+        }
+    }
+    for ((owner, keeper), changed) in told {
+        let seller = s
+            .players
+            .iter()
+            .find(|(_, q)| q.character == owner)
+            .map(|(w, _)| *w);
+        if let Some(seller) = seller {
+            tell_seller(s, net, seller, keeper, &changed);
+        }
+    }
 }
 
 fn broker_of<S: Store>(s: &Server<S>, keeper: u64) -> Option<Broker> {
@@ -678,11 +816,12 @@ fn page_of<S: Store>(
     f: u32,
     now: LocalTime,
 ) -> Option<ServerMessage> {
+    let game_now = s.game_now;
     let listed: Vec<&Consignment> = s
         .market
         .list
         .iter()
-        .filter(|c| c.catalog == catalog && c.store == store && c.sold < c.offered)
+        .filter(|c| c.catalog == catalog && c.store == store && c.on_sale(game_now))
         .collect();
     let size = listed.len();
     let pos = (pos as usize).min(size.saturating_sub(1));
@@ -733,11 +872,12 @@ pub fn turn_page<S: Store>(
     if !near(s, world, keeper) {
         return;
     }
+    let game_now = s.game_now;
     let size = s
         .market
         .list
         .iter()
-        .filter(|c| c.catalog == br.catalog && c.store == store && c.sold < c.offered)
+        .filter(|c| c.catalog == br.catalog && c.store == store && c.on_sale(game_now))
         .count();
     let size = u32::try_from(size).unwrap_or(u32::MAX);
     let next = if !forward {
@@ -821,6 +961,16 @@ pub fn enter_consignment<S: Store>(
     progress::private(net, world, &reminders(s, me, keeper, br));
     let m = consignment_message(s, function::ENTER_CONSIGNMENT_DONE, me, keeper);
     progress::private(net, world, &m);
+    if let Some(p) = s.players.get_mut(&world) {
+        p.at_consignments = Some(keeper);
+    }
+}
+
+/// The client leaves the consignments page, or its catalog (not answered).
+pub fn left_consignments<S: Store>(s: &mut Server<S>, world: ConnId) {
+    if let Some(p) = s.players.get_mut(&world) {
+        p.at_consignments = None;
+    }
 }
 
 /// An item put up for sale: the charge taken, the item moved to the broker, the consignment shown.
@@ -981,6 +1131,148 @@ pub fn sell<S: Store>(
     crate::world::keep_player(s, world);
 }
 
+/// More of a consignment's item put up with it, for the charge a sale of those would take.
+pub fn restock<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    v: &[Value],
+    clock: Clock,
+) {
+    if !ensure(s) {
+        return;
+    }
+    // The values come last parameter first: the sale, how many, the item, the keeper.
+    let w = ints(v);
+    let (Some(keeper), Some(item)) = (long_of(v, 1), long_of(v, 0)) else {
+        return;
+    };
+    let (sale, quantity) = match w.as_slice() {
+        [sale, quantity] => (*sale, *quantity),
+        _ => return,
+    };
+    let Some(br) = broker_of(s, keeper) else {
+        return;
+    };
+    if !near(s, world, keeper) {
+        return;
+    }
+    let refuse = |net: &mut ServerNet, error: u32| {
+        progress::private(
+            net,
+            world,
+            &call(store::function::REQUEST_DONE, &[Arg::Int(error)]),
+        );
+    };
+    let Some(p) = s.players.get(&world) else {
+        return;
+    };
+    let me = p.character;
+    let money = store::money(&p.qualities);
+    let held = p
+        .play
+        .items
+        .iter()
+        .find(|h| h.id == item && h.location == 0)
+        .copied();
+    let row = s
+        .market
+        .list
+        .iter()
+        .position(|c| c.sale == sale && c.owner == me && c.keeper == keeper && c.in_stock());
+    let (Some(held), Some(row)) = (held, row) else {
+        return refuse(net, store::error::SALE_REFUSED);
+    };
+    let c = s.market.list[row];
+    let left = c.offered - c.sold;
+    let most = s
+        .catalog
+        .get(c.template)
+        .and_then(|t| t.props.int("Item_MaxStackSize"))
+        .unwrap_or(0);
+    if crate::places::pack_spoken_for(s, world)
+        || quantity == 0
+        || quantity > held.quantity.max(1)
+        || held.template != c.template
+        || !inventory::same_numbers(s, item, c.item)
+        || i64::from(left) + i64::from(quantity) >= most
+    {
+        return refuse(net, store::error::SALE_REFUSED);
+    }
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let charge = ((f64::from(quantity) * f64::from(c.price) * CHARGE).ceil() as u32).max(1);
+    if money < charge {
+        return refuse(net, store::error::NOT_ENOUGH_COIN);
+    }
+    let all_taken = quantity >= held.quantity.max(1);
+    let Some(p) = s.players.get_mut(&world) else {
+        return;
+    };
+    let left_money = money - charge;
+    crate::quals::set_int(&mut p.qualities, store::MONEY, left_money.cast_signed());
+    progress::send_int(net, world, store::MONEY, left_money.cast_signed());
+    if all_taken {
+        p.play.items.retain(|h| h.id != item);
+        inventory::close_up(&mut p.play.items);
+    } else if let Some(h) = p.play.items.iter_mut().find(|h| h.id == item) {
+        h.quantity -= quantity;
+    }
+    if let Some(t) = s.things.get_mut(c.item) {
+        t.quantity = left + quantity;
+    }
+    if !all_taken {
+        if let Some(t) = s.things.get_mut(item) {
+            t.quantity -= quantity;
+        }
+    }
+    s.market.list[row].offered += quantity;
+    s.market.list[row].entered = net.game_time(clock.local);
+    let m = Move {
+        move_type: MOVE_IN,
+        item,
+        split_item: c.item,
+        quantity,
+        from: me,
+        actual_from: me,
+        actual_from_slot: i32::try_from(held.slot).unwrap_or(-1),
+        target: keeper,
+        actual_target: keeper,
+        target_slot: 1,
+        actual_target_slot: 1,
+        merge_container: keeper,
+        merge_slot: 1,
+        all_taken,
+        unlock: true,
+        no_anim: true,
+        grab: true,
+        quiet: true,
+        no_move: true,
+        contain: true,
+        auto_merge: true,
+        template: held.template,
+        split_quantity: quantity,
+        ..Move::default()
+    };
+    progress::private(net, world, &inventory::move_done(&m));
+    if all_taken {
+        // What was its own stack is the sale's now.
+        crate::death::vanish(s, net, item);
+    } else if s.things.get(item).is_some() {
+        let told = s.things.get(item).map_or(0, |t| t.quantity);
+        let m = ServerMessage::UpdateIntVisual(auberean_protocol::quality::VisualQuality {
+            object: inventory::visual(s, item),
+            quality: crate::craft::QUANTITY,
+            value: i32::try_from(told).unwrap_or(i32::MAX),
+        });
+        inventory::to_holder(s, net, world, item, &m);
+    }
+    keep(s);
+    progress::private(net, world, &reminders(s, me, keeper, br));
+    let m = consignment_message(s, function::UPDATE_CONSIGNMENT, me, keeper);
+    progress::private(net, world, &m);
+    crate::world::keep_player(s, world);
+}
+
 /// A consignment collected: an unsold one's item back as a new item holding all the old one held,
 /// a sold one's price paid.
 pub fn collect<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v: &[Value]) {
@@ -1047,7 +1339,12 @@ pub fn collect<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, 
             progress::private(net, world, &m);
             return;
         }
-        s.market.list.remove(i);
+        // What sold of it stays to be paid.
+        if c.sold > 0 {
+            s.market.list[i].offered = c.sold;
+        } else {
+            s.market.list.remove(i);
+        }
         let stamp = s
             .things
             .get(c.item)
@@ -1080,6 +1377,31 @@ pub fn collect<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, 
     crate::world::keep_player(s, world);
 }
 
+/// A character is gone for good: what it has with brokers goes with it. While the store can't answer
+/// nothing is done, and its rows only wait for no one.
+pub fn seller_gone<S: Store>(s: &mut Server<S>, net: &mut ServerNet, character: u64) {
+    if !ensure(s) {
+        return;
+    }
+    let unsold: Vec<u64> = s
+        .market
+        .list
+        .iter()
+        .filter(|c| c.owner == character && c.in_stock())
+        .map(|c| c.item)
+        .collect();
+    let before = s.market.list.len();
+    s.market.list.retain(|c| c.owner != character);
+    if s.market.list.len() == before {
+        return;
+    }
+    // A sold row's item is its buyer's, and stays.
+    for item in unsold {
+        crate::death::vanish(s, net, item);
+    }
+    keep(s);
+}
+
 /// A player entering the world is reminded of its consignments, one reminder per broker.
 pub fn enter<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
     if !ensure(s) {
@@ -1095,6 +1417,7 @@ pub fn enter<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
         .filter(|c| c.owner == me)
         .map(|c| c.keeper)
         .collect();
+    keepers.sort_unstable();
     keepers.dedup();
     for keeper in keepers {
         if let Some(br) = broker_of(s, keeper) {
@@ -1115,11 +1438,15 @@ pub fn purchase<S: Store>(
     if !ensure(s) {
         return false;
     }
+    // A sold row keeps its item's number until its price is collected, and the buyer may have put
+    // the item up again.
+    let of_item = |c: &Consignment| c.item == item && c.keeper == keeper;
     let Some(i) = s
         .market
         .list
         .iter()
-        .position(|c| c.item == item && c.keeper == keeper)
+        .position(|c| of_item(c) && c.in_stock())
+        .or_else(|| s.market.list.iter().position(of_item))
     else {
         return false;
     };
@@ -1145,8 +1472,9 @@ pub fn purchase<S: Store>(
         progress::private(net, world, &m);
         return true;
     }
-    // An item its template no longer makes isn't in the world to be bought.
-    if left == 0 || s.things.get(item).is_none() {
+    // An item its template no longer makes isn't in the world to be bought, and one past its time
+    // isn't on sale.
+    if left == 0 || s.things.get(item).is_none() || c.expired(s.game_now) {
         progress::private(
             net,
             world,
@@ -1260,7 +1588,7 @@ pub fn purchase<S: Store>(
             sold: c.offered,
             ..c
         };
-        progress::private(net, seller, &reminder_of_a_sale(&sold));
+        tell_seller(s, net, seller, keeper, &[sold]);
     }
     keep(s);
     crate::world::keep_player(s, world);

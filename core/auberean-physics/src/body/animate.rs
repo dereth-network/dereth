@@ -40,6 +40,8 @@ pub enum Animate {
     PlacementFrame(u32),
     /// Go to mode `mode` (for `context`).
     Mode { context: u32, mode: u32 },
+    /// Finish at once the change of mode under way.
+    SnapMode,
     /// Go to element `element` (the air, the earth, the water...).
     Element(u32),
     /// Play effect `fx` at `intensity`.

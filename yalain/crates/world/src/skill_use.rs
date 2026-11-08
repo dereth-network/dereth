@@ -4,7 +4,7 @@
 //!
 //! **Refused**, in one tick: the player attacking (unless it already was), the use over (its
 //! number), why (the client writes the reason), and not attacking again. The checks, first failure
-//! first: dead; not wielding what the skill is used with; no vigor at all; the skill still waiting
+//! first: dead; away; a skill it does not hold; not wielding what the skill is used with; no vigor at all; the skill still waiting
 //! (its own recovery since its last use, or the wait every skill shares after a recall); vigor
 //! short of the cost; an effect the skill needs its user to carry missing; the target gone or dead,
 //! too far or too close ([`crate::reach`]: the distance between the bodies, beyond the skill's
@@ -39,7 +39,8 @@
 //! appearance stopped.
 //!
 //! **Cut short**: moving cuts a use not used on the move; stopping all attacks cuts it, and
-//! stopping attacks on its target cuts one aimed at it. After its story it counts as used.
+//! stopping attacks on its target cuts one aimed at it, as it does any use before its story. After
+//! its story it counts as used.
 //!
 //! **An attack special** from rest: the player attacking, in its weapon's combat mode, turned to
 //! its target (a skill used from afar) or walked to it (one used within reach); then its vigor
@@ -220,6 +221,12 @@ pub const ON_ITEM_POLEARM_SECONDS: f64 = 2.27;
 /// A strike lands at this share of its animation, over the time scale (2017: Riposte's hits
 /// 0.70-0.72 s x time scale after the story).
 pub const STRIKE_LANDS: f64 = 0.71;
+/// How long a skill that walks and throws waits for its user to come within its range, in seconds.
+/// Ours: 2017's longest walk in was 2.31 s.
+pub const MOST_WAITED_FOR_RANGE: f64 = 10.0;
+/// How long a strike that walks its user to its target waits for it to come in reach (2017: of 6,394
+/// told, 28 past 5 s, 2 past 10 s, the longest 13.33 s).
+pub const MOST_WAITED_FOR_REACH: f64 = 20.0;
 /// A missile's windup before it flies, in seconds (2017: Deadeye's about 0.98 s).
 pub const MISSILE_WINDUP: f64 = 0.98;
 /// After a special inside a run, the run's next swing, in seconds (2017: a median 0.123 s).
@@ -267,7 +274,7 @@ pub mod story_hook {
     /// A missile: kind 3 with the target, the weapon throwing it, the animation hook.
     pub const MISSILE: u32 = 0x323;
     /// The bit of a hook after the first: its index follows.
-    pub const ATTACK_HOOK: u32 = 0x400;
+    pub use auberean_physics::story::hook_bits::ATTACK_HOOK;
 }
 
 /// Implement kinds (bits a skill's definition allows).
@@ -450,11 +457,17 @@ pub enum Aim {
     Thing(u64),
     /// An item its user holds.
     Item(u64),
+    /// A pet of its user's.
+    Pet(u64),
+    /// The corpse of a dead player.
+    Corpse(u64),
 }
 
 /// A use under way.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Using {
+    /// The server's own number for it, which its steps go by: a client's number may come again.
+    pub serial: u32,
     pub req: Request,
     pub usage: Usage,
     /// When it began (game time), which the skill's information keeps.
@@ -490,6 +503,8 @@ pub struct Landing {
 /// A special's missile in flight: its request, how it is used, how it will come out.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Flying {
+    /// Its use's number, as [`Using::serial`].
+    pub serial: u32,
     pub req: Request,
     pub usage: Usage,
     pub outcome: Option<(Outcome, i32)>,
@@ -779,6 +794,8 @@ pub fn recall_places<S: Store>(s: &Server<S>, world: ConnId, r: &Recall) -> Vec<
 pub mod target_bit {
     /// An item its user holds, in the pack or in hand.
     pub const OWN_ITEM: u32 = 0x2;
+    /// Only a pet of the class the skill names.
+    pub const PET_ONLY: u32 = 0x40_0000;
     /// Only an object of the kinds the skill names.
     pub const OF_KINDS: u32 = 0x80_0000;
     /// An item its user has in hand.
@@ -789,6 +806,12 @@ pub mod target_bit {
 pub mod object_kind {
     pub const SHIELD: u32 = 0x1_0081;
     pub const WEAPON: u32 = 0x2_0081;
+}
+
+/// Is this skill aimed at a pet of its user's, of the class it names?
+#[must_use]
+pub fn aims_at_pet(u: &Usage) -> bool {
+    u.valid_targets & target_bit::PET_ONLY != 0
 }
 
 /// Is this skill aimed at an item?
@@ -865,8 +888,14 @@ pub fn helpful(u: &Usage) -> bool {
 #[must_use]
 pub fn aim_of<S: Store>(s: &Server<S>, world: ConnId, r: Request, u: &Usage) -> Aim {
     let me = s.players.get(&world).map_or(0, |p| p.character);
+    if crate::resurrections::raises(s, u) {
+        return Aim::Corpse(r.target);
+    }
     if aims_at_item(u) {
         return Aim::Item(item_aim(s, me, u, r.target).unwrap_or(0));
+    }
+    if aims_at_pet(u) {
+        return Aim::Pet(r.target);
     }
     if self_only(u) || (r.target == me && helpful(u)) {
         return Aim::Me;
@@ -917,6 +946,16 @@ pub(crate) fn effective_rating<S: Store>(
 #[must_use]
 pub fn rating_of_for_test<S: Store>(s: &Server<S>, world: ConnId, skill: u32) -> f32 {
     rating_of(s, world, skill)
+}
+
+/// Does a player hold a skill: its race's starting skills and what it has trained (2017: 40,712 of
+/// the 40,924 uses asked by players with a known list named a skill in it; the rest were told on a
+/// session's second character, or trained after that player's last list).
+fn holds<S: Store>(s: &Server<S>, p: &crate::world::Player, skill: u32) -> bool {
+    let starting = s.start.skills.get(&p.race).cloned().unwrap_or_default();
+    crate::skills::held(&starting, &p.play.skills)
+        .iter()
+        .any(|h| h.skill == skill)
 }
 
 /// Does a player carry an effect of each of these saved states?
@@ -1089,6 +1128,9 @@ fn check<S: Store>(
     if p.trip.is_some() {
         return Err(refusal::INTERRUPTED);
     }
+    if !holds(s, p, r.skill) {
+        return Err(crate::skills::refusal::UNTRAINED);
+    }
     if !implement_allowed(&s.catalog, &u, hands(s, p.character)) {
         return Err(refusal::WRONG_IMPLEMENT);
     }
@@ -1122,6 +1164,36 @@ fn check<S: Store>(
     }
     match aim_of(s, world, r, &u) {
         Aim::Me | Aim::Item(_) => {}
+        Aim::Corpse(corpse) => {
+            if crate::resurrections::may_be_offered(s, corpse).is_none() {
+                return Err(refusal::TARGET_GONE);
+            }
+            let Some(at) = s.things.get(corpse).and_then(|t| t.at) else {
+                return Err(refusal::TARGET_GONE);
+            };
+            if crate::presence::distance(&p.position, &at).is_none_or(|d| d > u.max_range) {
+                return Err(refusal::TOO_FAR);
+            }
+        }
+        Aim::Pet(pet) => {
+            let held = s
+                .pets
+                .by_id
+                .get(&pet)
+                .filter(|q| q.owner == p.character)
+                .filter(|q| u.valid_pet_class == 0 || q.class & u.valid_pet_class != 0);
+            if held.is_none() {
+                return Err(refusal::TARGET_GONE);
+            }
+            let Some(at) = s.things.get(pet).filter(|t| t.alive()).and_then(|t| t.at) else {
+                return Err(refusal::TARGET_GONE);
+            };
+            if u.max_range >= 0.0
+                && crate::presence::distance(&p.position, &at).is_none_or(|d| d > u.max_range)
+            {
+                return Err(refusal::TOO_FAR);
+            }
+        }
         Aim::Player(c, other) => {
             // A hostile skill at another player: only as who may harm whom allows.
             if !helpful(&u) {
@@ -1172,7 +1244,8 @@ fn check<S: Store>(
     if u.ui_flags & ui_flag::USE_WHILE_MOVING == 0 && moving(p) {
         return Err(refusal::MOVING);
     }
-    if crate::pets::too_many(s, p.character, &u.user_effects) {
+    let summons = u.user_effects.iter().chain(&u.target_effects).copied();
+    if crate::pets::too_many(s, p.character, r.skill, &summons.collect::<Vec<u32>>()) {
         return Err(crate::pets::TOO_MANY_PETS);
     }
     Ok(u)
@@ -1250,8 +1323,12 @@ pub fn starts<S: Store>(
     } else {
         STORY_AFTER
     };
+    let mut serial = 0;
     if let Some(p) = s.players.get_mut(&world) {
+        p.uses = p.uses.wrapping_add(1);
+        serial = p.uses;
         p.using = Some(Using {
+            serial,
             req: r,
             usage: u,
             began,
@@ -1270,7 +1347,7 @@ pub fn starts<S: Store>(
         story_in,
         Timer::Skill {
             world,
-            id: r.id,
+            serial,
             step: Step::Story,
         },
     );
@@ -1412,6 +1489,9 @@ pub fn slot<S: Store>(
     r: Request,
     clock: Clock,
 ) -> bool {
+    if toggles_off(s, net, world, r) {
+        return false;
+    }
     let u = match check(s, net, world, r, clock) {
         Ok(u) => u,
         Err(err) => {
@@ -1430,7 +1510,10 @@ pub fn slot<S: Store>(
         run.next_swing = f64::INFINITY;
     }
     let powerup = (u.powerup > 0.0).then_some((u.powerup, u.powerup_behavior));
+    p.uses = p.uses.wrapping_add(1);
+    let serial = p.uses;
     p.using = Some(Using {
+        serial,
         req: r,
         usage: u,
         began,
@@ -1475,12 +1558,12 @@ pub fn slot<S: Store>(
                 f64::from(time) * POWERUP_SCALE,
                 Timer::Skill {
                     world,
-                    id: r.id,
+                    serial,
                     step: Step::Story,
                 },
             );
         }
-        None => story(s, net, world, r.id, clock),
+        None => story(s, net, world, serial, clock),
     }
     true
 }
@@ -1490,23 +1573,23 @@ pub fn step<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     world: ConnId,
-    id: u32,
+    serial: u32,
     st: Step,
     clock: Clock,
 ) {
     if st == Step::Arrives {
-        return arrives(s, net, world, id, clock);
+        return arrives(s, net, world, serial, clock);
     }
     let current = s
         .players
         .get(&world)
         .and_then(|p| p.using.as_ref())
-        .is_some_and(|u| u.req.id == id);
+        .is_some_and(|u| u.serial == serial);
     if !current {
         return;
     }
     match st {
-        Step::Story => story(s, net, world, id, clock),
+        Step::Story => story(s, net, world, serial, clock),
         Step::Strike => strike(s, net, world, clock),
         Step::Arrives => {}
         Step::Portal => recall_portal(s, net, world, clock),
@@ -1802,7 +1885,13 @@ pub(crate) fn story_params(behavior: u32, ts: f32) -> BehaviorParams {
 /// The story of a use: its vigor paid, the story told to all who see the player, the wielded
 /// things playing the behavior; then the strike's landing, the missile's arrival, the recall's
 /// portal, or the end.
-fn story<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u32, clock: Clock) {
+fn story<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    serial: u32,
+    clock: Clock,
+) {
     let Some((r, u, ts, aim)) = s
         .players
         .get(&world)
@@ -1820,7 +1909,7 @@ fn story<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u3
     let rating = rating_of(s, world, r.skill);
     let held = wielded(s, me);
     let on_self = aim == Aim::Me;
-    let on_item = matches!(aim, Aim::Item(_));
+    let on_item = matches!(aim, Aim::Item(_) | Aim::Pet(_) | Aim::Corpse(_));
     let target = aimed_at(aim).unwrap_or(me);
     // A strike that walks the player to its target does not reach from afar: wait for the player
     // to come into reach.
@@ -1830,12 +1919,16 @@ fn story<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u3
         match d {
             None => return interrupt(s, net, world, refusal::TARGET_GONE, clock),
             Some(d) if d > combat::PLAYER_REACH => {
+                let began = p.using.as_ref().map_or(0.0, |x| x.began);
+                if net.game_time(clock.local) - began > MOST_WAITED_FOR_REACH {
+                    return interrupt(s, net, world, refusal::TOO_FAR, clock);
+                }
                 s.after(
                     clock,
                     0.2,
                     Timer::Skill {
                         world,
-                        id,
+                        serial,
                         step: Step::Story,
                     },
                 );
@@ -1843,6 +1936,54 @@ fn story<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u3
             }
             Some(_) => {}
         }
+    }
+    // One that walks and throws waits for its range likewise (2017: of 1,760 asked with a place
+    // known for both, 6 beyond their range: 4 told once the player had come in reach, up to 2.31 s
+    // after, and 2 cut short; told beyond it, 0 of 1,624), for so long.
+    if !on_self && !on_item && missile_hook(&u).is_some() && u.ui_flags & ui_flag::MOVE_TO != 0 {
+        let gap = position_of(s, aim, target).and_then(|a| {
+            let body = match aim {
+                Aim::Player(..) => crate::reach::PLAYER,
+                _ => crate::reach::body_of(s, target),
+            };
+            crate::reach::gap(&p.position, crate::reach::PLAYER, &a, body)
+        });
+        let began = p.using.as_ref().map_or(0.0, |x| x.began);
+        match gap {
+            None => return interrupt(s, net, world, refusal::TARGET_GONE, clock),
+            Some(d) if d > u.max_range => {
+                if net.game_time(clock.local) - began > MOST_WAITED_FOR_RANGE {
+                    return interrupt(s, net, world, refusal::TOO_FAR, clock);
+                }
+                s.after(
+                    clock,
+                    0.2,
+                    Timer::Skill {
+                        world,
+                        serial,
+                        step: Step::Story,
+                    },
+                );
+                return;
+            }
+            Some(_) => {}
+        }
+    }
+    // As each swing of a run does, it asks again who it may harm: it may have walked or powered up
+    // a while. A target dead by now tells its story still, as a miss.
+    let allowed = match aim {
+        Aim::Player(c, _) if !helpful(&u) => combat::may_attack_player(s, world, c),
+        Aim::Thing(t) => combat::may_attack_thing(s, world, t),
+        _ => Ok(()),
+    };
+    if let Err(err) = allowed.or_else(|err| {
+        if err == crate::kingdoms::refusal::DEAD {
+            Ok(())
+        } else {
+            Err(err)
+        }
+    }) {
+        return interrupt(s, net, world, err, clock);
     }
     if u.powerup > 0.0 {
         if let Some(p) = s.players.get_mut(&world) {
@@ -1853,7 +1994,7 @@ fn story<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u3
     pay(s, net, world, &u);
     // The outcome of its damaging hook (a strike's at once; a missile's as it arrives).
     let target_thing = match aim {
-        Aim::Item(_) => None,
+        Aim::Item(_) | Aim::Pet(_) | Aim::Corpse(_) => None,
         // Another player: its level, no armor.
         Aim::Player(c, _) if !helpful(&u) => s
             .players
@@ -1945,7 +2086,7 @@ fn story<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u3
             crate::usable::portals::APPEARS_AFTER,
             Timer::Skill {
                 world,
-                id,
+                serial,
                 step: Step::Summon,
             },
         );
@@ -1963,7 +2104,7 @@ fn story<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u3
             wait,
             Timer::Skill {
                 world,
-                id,
+                serial,
                 step: Step::Portal,
             },
         );
@@ -1997,7 +2138,7 @@ fn story<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u3
                 after(hook_seconds(behavior, on_self)),
                 Timer::Skill {
                     world,
-                    id,
+                    serial,
                     step: Step::Hook,
                 },
             );
@@ -2007,6 +2148,7 @@ fn story<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u3
         if let Some(p) = s.players.get_mut(&world) {
             let spellcraft = p.using.as_ref().map_or(1.0, |x| x.spellcraft);
             p.flying.push(Flying {
+                serial,
                 req: r,
                 usage: u.clone(),
                 outcome,
@@ -2027,7 +2169,7 @@ fn story<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u3
             MISSILE_WINDUP + f64::from(d / speed),
             Timer::Skill {
                 world,
-                id,
+                serial,
                 step: Step::Arrives,
             },
         );
@@ -2037,7 +2179,7 @@ fn story<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u3
             after(STRIKE_LANDS),
             Timer::Skill {
                 world,
-                id,
+                serial,
                 step: Step::Strike,
             },
         );
@@ -2047,7 +2189,7 @@ fn story<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u3
         after(animation_seconds(behavior)),
         Timer::Skill {
             world,
-            id,
+            serial,
             step: Step::End,
         },
     );
@@ -2076,7 +2218,7 @@ fn landings_of<S: Store>(
             .players
             .get(&c)
             .map(|p| (p.position, crate::reach::PLAYER)),
-        Aim::Me | Aim::Item(_) => s
+        Aim::Me | Aim::Item(_) | Aim::Pet(_) | Aim::Corpse(_) => s
             .players
             .get(&world)
             .map(|p| (p.position, crate::reach::PLAYER)),
@@ -2154,7 +2296,9 @@ fn position_of<S: Store>(s: &Server<S>, aim: Aim, target: u64) -> Option<StoredP
 pub const fn aimed_at(aim: Aim) -> Option<u64> {
     match aim {
         Aim::Me => None,
-        Aim::Player(_, id) | Aim::Thing(id) | Aim::Item(id) => Some(id),
+        Aim::Player(_, id) | Aim::Thing(id) | Aim::Item(id) | Aim::Pet(id) | Aim::Corpse(id) => {
+            Some(id)
+        }
     }
 }
 
@@ -2194,12 +2338,40 @@ fn hook<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: 
         Aim::Me => world,
         Aim::Player(c, _) => c,
         Aim::Thing(_) => return,
+        Aim::Corpse(corpse) => {
+            crate::resurrections::offers(s, net, world, corpse, &u, spellcraft);
+            return;
+        }
         Aim::Item(item) => {
             lands_on_item(s, net, world, &u, item, spellcraft, clock);
             return;
         }
+        Aim::Pet(pet) => {
+            let at = s.things.get(pet).and_then(|t| t.at);
+            for state in &u.target_effects {
+                if !summons_at(s, net, world, (&u, *state), spellcraft, at, clock) {
+                    crate::effects::apply_on(
+                        s,
+                        net,
+                        crate::effects::On::Creature(pet),
+                        *state,
+                        crate::effects::Cast {
+                            caster: me,
+                            spellcraft,
+                            pk: true,
+                            ..crate::effects::Cast::default()
+                        },
+                        clock,
+                    );
+                }
+            }
+            return;
+        }
     };
     for state in &u.target_effects {
+        if summons_at(s, net, world, (&u, *state), spellcraft, None, clock) {
+            continue;
+        }
         crate::effects::apply(
             s,
             net,
@@ -2214,6 +2386,12 @@ fn hook<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: 
             clock,
         );
     }
+}
+
+/// May a blow on its way still hurt this player? Not dead or dying, nor gone into portal space, as
+/// with a basic attack's or a creature's.
+fn can_be_struck(q: &crate::world::Player) -> bool {
+    q.dying.is_none() && q.trip.is_none() && !combat::is_dead(q)
 }
 
 /// A use's strikes land: each target it landed on hurt, then the skill's target effects put on
@@ -2240,7 +2418,7 @@ fn strike<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock
             continue;
         }
         if let Some(c) = combat::player_target(s, world, l.target) {
-            if s.players.get(&c).is_some_and(|q| q.dying.is_none()) {
+            if s.players.get(&c).is_some_and(can_be_struck) {
                 if l.damage > 0 {
                     combat::hurt_player(s, net, c, me, l.damage, clock);
                 }
@@ -2263,6 +2441,10 @@ fn strike<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock
     for t in &hit {
         let on = combat::player_target(s, world, *t)
             .map_or(crate::effects::On::Creature(*t), crate::effects::On::Player);
+        if matches!(on, crate::effects::On::Player(c) if !s.players.get(&c).is_some_and(can_be_struck))
+        {
+            continue;
+        }
         put_target_effects(s, net, me, &u, on, spellcraft, clock);
         if matches!(on, crate::effects::On::Creature(_)) {
             crate::treasure::on_hit(s, net, world, *t, clock);
@@ -2281,8 +2463,63 @@ fn strike<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock
     }
 }
 
+/// If this target effect summons a pet: the pet appears (at `at`, or before its user), and it is
+/// true. A summoning aimed at a creature goes after it ([`put_target_effects`]).
+fn summons_at<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    (u, effect): (&Usage, u32),
+    rating: f32,
+    at: Option<StoredPosition>,
+    clock: Clock,
+) -> bool {
+    summon_from(s, net, world, (u, effect), rating, (at, None), clock)
+}
+
+/// A pet a skill's target effect names appears now, the skill's own icon on it.
+fn summon_from<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    (u, effect): (&Usage, u32),
+    rating: f32,
+    (at, after): (Option<StoredPosition>, Option<u64>),
+    clock: Clock,
+) -> bool {
+    let is_pet = matches!(
+        s.effect_table.get(effect).map(|d| &d.kind),
+        Some(EffectKind::Pet { .. })
+    );
+    if !is_pet {
+        return false;
+    }
+    let skill = s
+        .skill_table
+        .skills
+        .iter()
+        .find(|(_, d)| {
+            d.usage
+                .as_ref()
+                .is_some_and(|x| x.target_effects == u.target_effects)
+        })
+        .map_or(0, |(id, _)| *id);
+    let what = crate::pets::Summoning {
+        skill,
+        effect,
+        rating,
+        at,
+        after,
+    };
+    for pet in crate::pets::summon(s, net, world, what, clock) {
+        crate::pets::appear(s, net, pet);
+    }
+    true
+}
+
 /// A skill's target effects put on a creature or another player it landed on, cast by the player
-/// at its rating.
+/// at its rating. One that summons makes its pet beside the creature, to go after it; at a player
+/// it tells its user the summoning fails, as pets take on creatures alone.
 pub(crate) fn put_target_effects<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -2292,7 +2529,42 @@ pub(crate) fn put_target_effects<S: Store>(
     spellcraft: f32,
     clock: Clock,
 ) {
+    let user = s
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .map(|(c, _)| *c);
     for state in &u.target_effects {
+        if let Some(world) = user {
+            let summons = match on {
+                crate::effects::On::Creature(id) => {
+                    let at = s.things.get(id).and_then(|t| t.at);
+                    summon_from(
+                        s,
+                        net,
+                        world,
+                        (u, *state),
+                        spellcraft,
+                        (at, Some(id)),
+                        clock,
+                    )
+                }
+                crate::effects::On::Player(_) => {
+                    let pet = matches!(
+                        s.effect_table.get(*state).map(|d| &d.kind),
+                        Some(EffectKind::Pet { .. })
+                    );
+                    if pet {
+                        let fails = crate::progress::text(crate::pets::text::SUMMONING_FAILS);
+                        crate::progress::private(net, world, &crate::chat::show_text(1, fails));
+                    }
+                    pet
+                }
+            };
+            if summons {
+                continue;
+            }
+        }
         crate::effects::apply_on(
             s,
             net,
@@ -2310,9 +2582,15 @@ pub(crate) fn put_target_effects<S: Store>(
 }
 
 /// A missile arrives: the target tells how it came out (its health first when it is hurt).
-fn arrives<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u32, clock: Clock) {
+fn arrives<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    serial: u32,
+    clock: Clock,
+) {
     let Some(f) = s.players.get_mut(&world).and_then(|p| {
-        let i = p.flying.iter().position(|f| f.req.id == id)?;
+        let i = p.flying.iter().position(|f| f.serial == serial)?;
         Some(p.flying.remove(i))
     }) else {
         return;
@@ -2321,7 +2599,7 @@ fn arrives<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: 
     let me = s.players.get(&world).map_or(0, |p| p.character);
     let player = combat::player_target(s, world, r.target);
     let alive = |s: &Server<S>| match player {
-        Some(c) => s.players.get(&c).is_some_and(|q| q.dying.is_none()),
+        Some(c) => s.players.get(&c).is_some_and(can_be_struck),
         None => s.things.get(r.target).is_some_and(|t| t.alive()),
     };
     if !alive(s) {
@@ -2420,11 +2698,11 @@ fn arrives<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: 
 /// A recall's story is over: into portal space toward its place (one of several at random), or,
 /// with none, told it failed (a city's recall, whose place the world lacks, says nothing).
 fn recall_portal<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: Clock) {
-    let Some((id, skill)) = s
+    let Some((serial, skill)) = s
         .players
         .get(&world)
         .and_then(|p| p.using.as_ref())
-        .map(|u| (u.req.id, u.req.skill))
+        .map(|u| (u.serial, u.req.skill))
     else {
         return;
     };
@@ -2455,7 +2733,7 @@ fn recall_portal<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId
             FAILED_ENDS_AFTER,
             Timer::Skill {
                 world,
-                id,
+                serial,
                 step: Step::End,
             },
         );
@@ -2469,7 +2747,7 @@ fn recall_portal<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId
         RECALL_IN_PORTAL,
         Timer::Skill {
             world,
-            id,
+            serial,
             step: Step::Out,
         },
     );
@@ -2478,11 +2756,11 @@ fn recall_portal<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId
 /// A summoning's story is over: its portal appears (when the summoner keeps a place of its kind);
 /// its end follows.
 fn summon_portal<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: Clock) {
-    let Some((id, skill)) = s
+    let Some((serial, skill)) = s
         .players
         .get(&world)
         .and_then(|p| p.using.as_ref())
-        .map(|u| (u.req.id, u.req.skill))
+        .map(|u| (u.serial, u.req.skill))
     else {
         return;
     };
@@ -2492,7 +2770,7 @@ fn summon_portal<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId
         crate::usable::portals::ENDS_AFTER,
         Timer::Skill {
             world,
-            id,
+            serial,
             step: Step::End,
         },
     );
@@ -2500,18 +2778,18 @@ fn summon_portal<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId
 
 /// A recall comes out of portal space at its place; its end follows.
 fn recall_out<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: Clock) {
-    let id = s
+    let serial = s
         .players
         .get(&world)
         .and_then(|p| p.using.as_ref())
-        .map_or(0, |u| u.req.id);
+        .map_or(0, |u| u.serial);
     crate::places::recall_arrives(s, net, world, clock);
     s.after(
         clock,
         RECALL_ENDS_AFTER,
         Timer::Skill {
             world,
-            id,
+            serial,
             step: Step::End,
         },
     );
@@ -2555,15 +2833,14 @@ fn end<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: C
             Some(crate::effect_defs::Kind::Pet { .. })
         );
         if pet {
-            summons.extend(crate::pets::summon(
-                s,
-                net,
-                world,
-                x.req.skill,
-                *state,
-                x.spellcraft,
-                clock,
-            ));
+            let what = crate::pets::Summoning {
+                skill: x.req.skill,
+                effect: *state,
+                rating: x.spellcraft,
+                at: None,
+                after: None,
+            };
+            summons.extend(crate::pets::summon(s, net, world, what, clock));
             continue;
         }
         crate::effects::apply(
@@ -2608,6 +2885,7 @@ fn end<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: C
             to_all_seeing(s, net, me, &stop);
         }
         combat::set_player_mode(s, net, world, combat::mode::PEACE);
+        run_waits_no_more(s, world, clock);
     } else if let Some(run) = s.players.get_mut(&world).and_then(|p| p.attacking.as_mut()) {
         run.next_swing = clock.local.0 + NEXT_SWING_AFTER;
     }
@@ -2702,8 +2980,18 @@ fn aura_turns_on<S: Store>(
             to_all_seeing(s, net, me, &stop);
         }
         combat::set_player_mode(s, net, world, combat::mode::PEACE);
+        run_waits_no_more(s, world, clock);
     } else if let Some(run) = s.players.get_mut(&world).and_then(|p| p.attacking.as_mut()) {
         run.next_swing = clock.local.0 + NEXT_SWING_AFTER;
+    }
+}
+
+/// A use is over or cut short: a run waiting for it goes on.
+fn run_waits_no_more<S: Store>(s: &mut Server<S>, world: ConnId, clock: Clock) {
+    if let Some(run) = s.players.get_mut(&world).and_then(|p| p.attacking.as_mut()) {
+        if run.next_swing.is_infinite() {
+            run.next_swing = clock.local.0 + NEXT_SWING_AFTER;
+        }
     }
 }
 
@@ -2766,6 +3054,7 @@ pub fn interrupt<S: Store>(
         me
     };
     progress::private(net, world, &refused(err, named, x.req.skill));
+    run_waits_no_more(s, world, clock);
     if !x.alone {
         return;
     }
@@ -2842,7 +3131,10 @@ pub fn cut_by_transmute<S: Store>(
 
 /// The client stops attacking: everything (`None`), or one target. A use not used on the move is
 /// cut short: by stopping everything; by stopping its target, a use aimed at it (2017: 726 of 731
-/// such uses aimed at what was stopped, 78 of 78 by stopping everything; uses on the move never).
+/// such uses aimed at what was stopped, 78 of 78 by stopping everything). A use on the move is cut
+/// the same way before its story, and left past it (2017: of 275 that walk, stopped before their
+/// story, 262 were over with no story, 249 within half a second, and 4 told; past it, 1,573 stopped
+/// and 3 over within half a second).
 pub fn stopped<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -2852,7 +3144,7 @@ pub fn stopped<S: Store>(
 ) {
     let cut = s.players.get(&world).is_some_and(|p| {
         p.using.as_ref().is_some_and(|x| {
-            x.usage.ui_flags & ui_flag::USE_WHILE_MOVING == 0
+            (!x.told || x.usage.ui_flags & ui_flag::USE_WHILE_MOVING == 0)
                 && target.is_none_or(|t| aimed_at(x.aim) == Some(t))
         })
     });

@@ -265,6 +265,34 @@ fn a_surveyors_map_tells_how_far_its_place_is_and_conjures_its_node_there() {
     );
 }
 
+/// A map at its place whose node this world can't make is kept: it isn't spent, and the summoning
+/// fails.
+/// Behaviour: server.makes.nothing-used-up-for-what-cannot-be-made
+#[test]
+fn a_map_whose_node_cannot_be_made_is_kept() {
+    let mut h = world();
+    let (b, me, world, map) = with_map(&mut h);
+    h.server.catalog.templates.remove(&NODE);
+    let (dx, dy) = (0x80 as f32 * 160.0 + 50.0, 0x62 as f32 * 160.0 + 70.0);
+    h.server.things.get_mut(map).expect("map").destination = Some(maps::place_of(dx, dy));
+    stand(&mut h, world, dx + 30.0, dy);
+    let from = use_map(&mut h, b, me, map);
+    assert!(
+        h.server.players[&world]
+            .play
+            .items
+            .iter()
+            .any(|i| i.id == map),
+        "kept"
+    );
+    assert!(
+        h.texts(b, from)
+            .iter()
+            .any(|(_, t)| *t == yalain_world::pets::text::SUMMONING_FAILS.0),
+        "told"
+    );
+}
+
 /// A map's place is the center of one of its rectangle's cells (its two corner cells whole), chosen
 /// at its first use and kept with the map.
 /// Behaviour: server.craft.surveyors-map-place-kept

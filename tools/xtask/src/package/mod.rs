@@ -127,7 +127,7 @@ const LIFESTONED_NOTICE: &str = "empyrean/licenses/Lifestoned-MIT.txt";
 
 /// ac1999's notice, for the Launch-era world base and loot rules that come from it. Spelled in
 /// two halves for the same reason as [`notice::SERVER_LICENCE`].
-const AC1999_NOTICE: &str = concat!("empyrean/licenses/ac1999-A", "GPL-NOTICE.txt");
+pub(crate) const AC1999_NOTICE: &str = concat!("empyrean/licenses/ac1999-A", "GPL-NOTICE.txt");
 
 /// Every file a package for `target` holds, and nothing else.
 pub fn allowlist(target: Target) -> Vec<String> {

@@ -12,7 +12,8 @@
 //! sessions.
 //!
 //! **A record** stays on its own clock: a new one never replaces or refreshes an older one, each
-//! running out at its cast time plus its timeout, when its client is told it is gone. Records of a
+//! running out at its cast time plus its timeout, when its client is told it is gone, up to the
+//! most one target holds ([`MOST_OF_ONE_EFFECT`], [`MOST_FROM_OTHERS`]). Records of a
 //! class compete: the one of highest priority (then spellcraft, then the later) is the class's top
 //! effect, and only top effects change the qualities. A player's client changes its qualities
 //! itself from the records; the server sends no quality for it, except its speed (velocity and
@@ -133,6 +134,17 @@ pub const AURAS_PULSE_AFTER_RETURN: f64 = 3.0;
 pub const CREATURE_TICK_FIRST: f64 = 10.4;
 pub const CREATURE_TICK_LEAST: f64 = 5.6;
 pub const CREATURE_TICK_MOST: f64 = 11.3;
+
+/// The most timed records of one effect from one caster one target holds: past it its oldest goes.
+/// Ours: 2017's most on a player was 11, and the most a change over time that harms or heals can come
+/// to by its duration over its recovery is 30.
+pub const MOST_OF_ONE_EFFECT: usize = 32;
+
+/// The most timed records from others a player holds, each kept in its save: past it the oldest of
+/// whoever holds the most goes, so one who stacks them makes room from its own. Ours: 2017's most was
+/// 74, from 8 casters; 104 on one player, its own too. A creature keeps nothing, and a crowd may
+/// stack on it.
+pub const MOST_FROM_OTHERS: usize = 256;
 
 /// The private effect a combination found on its target plays for its caster.
 pub const COMBO_FX: u32 = 0x4100_051A;
@@ -574,13 +586,14 @@ pub fn apply_on<S: Store>(
         | (Kind::Aura(_), _) => false,
         // A pet is summoned as its skill's use ends ([`crate::pets`]), never as an effect; a
         // recall is its skill's trip ([`crate::skill_use`]).
-        (Kind::Pet { .. } | Kind::Recall(_), _) => false,
+        (Kind::Pet { .. } | Kind::Recall(_) | Kind::Resurrect { .. }, _) => false,
         (Kind::Combo(c), _) => {
             combine(s, net, on, &def, c, cast, clock);
             true
         }
         (
             Kind::Other
+            | Kind::Immunity { .. }
             | Kind::Counter { .. }
             | Kind::Reply { .. }
             | Kind::Watcher(_)
@@ -1008,7 +1021,9 @@ fn harm_by_player(me: u64, amount: i32, (caster, pk): (u64, bool)) -> bool {
 
 /// Change a player's vital by an amount (a heal: positive), not past its greatest value; the
 /// story of a health change tells the whole amount. Harm another player did is told as PK damage
-/// too, and with no health left the player dies, the caster its killer.
+/// too. Harm that takes its last health kills it, the caster its killer, or none for its own: 2017,
+/// 4 of 4 players a creature's effect took to no health had their death told; no recording has a
+/// player's own harm do it.
 fn change_vital<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -1023,7 +1038,8 @@ fn change_vital<S: Store>(
     };
     let max = max_vital(s, p, max_quality).max(1);
     let was = quals::int(&p.qualities, cur).unwrap_or(max);
-    let now = (was + amount).clamp(0, max.max(was));
+    let least = i32::from(cur == quality::HEALTH && p.admin.never_say_die);
+    let now = (was + amount).clamp(least.min(was), max.max(was));
     let by_player = cur == quality::HEALTH && harm_by_player(p.character, amount, (caster, pk));
     if cur == quality::HEALTH {
         let Some(p) = s.players.get_mut(&world) else {
@@ -1047,8 +1063,12 @@ fn change_vital<S: Store>(
         #[allow(clippy::cast_precision_loss)]
         let (share, before) = (now as f32 / max as f32, was as f32 / max as f32);
         crate::combat::wounded(s, net, me, share, before);
-        if by_player && now == 0 && was > 0 {
-            crate::combat::after_hurt(s, net, world, caster, clock);
+        if now == 0 && was > 0 {
+            if caster == me {
+                crate::death::player_dies(s, net, world, None, clock);
+            } else {
+                crate::combat::after_hurt(s, net, world, caster, clock);
+            }
         }
     }
 }
@@ -1070,6 +1090,11 @@ pub fn add_on<S: Store>(
         show_fx_on(s, net, on, def.fx);
     }
     Some(eid)
+}
+
+/// Is a record of this effect kept from its holder's client?
+const fn hidden(def: &EffectDef) -> bool {
+    matches!(def.kind, Kind::Immunity { .. })
 }
 
 /// Is this appearance shown by one record alone (the one just added)?
@@ -1133,7 +1158,9 @@ pub(crate) fn add_quietly<S: Store>(
     };
     records_mut(s, on)?.push(e);
     if let On::Player(world) = on {
-        progress::private(net, world, &add_call(&e));
+        if !hidden(def) {
+            progress::private(net, world, &add_call(&e));
+        }
     }
     send_speed(s, net, on, speed_before, &e);
     schedule_on(s, on, &e, now, clock);
@@ -1165,10 +1192,85 @@ pub(crate) fn add_quietly<S: Store>(
         };
         s.after(clock, wait, timer);
     }
+    make_room(s, net, on, &e);
     if let On::Player(world) = on {
         crate::world::keep_player(s, world);
     }
     Some(eid)
+}
+
+/// Is a record of those that run out, which a target's bounds count? An item's and an aura's last
+/// while what holds them does.
+const fn counted(e: &EffectState) -> bool {
+    e.flags & record_flag::INFINITE == 0
+}
+
+/// The record a target holds too many of now, if it does: the oldest of this one's effect from its
+/// caster, else the oldest of whoever holds the most from others. Records are held oldest first.
+fn one_too_many(records: &[EffectState], holder: Option<u64>, new: &EffectState) -> Option<u32> {
+    let mut same = records
+        .iter()
+        .filter(|e| counted(e) && e.state == new.state && e.caster == new.caster);
+    if same.clone().count() > MOST_OF_ONE_EFFECT {
+        return same.next().map(|e| e.eid);
+    }
+    let holder = holder?;
+    let others = || records.iter().filter(|e| counted(e) && e.caster != holder);
+    if others().count() <= MOST_FROM_OTHERS {
+        return None;
+    }
+    let mut held: HashMap<u64, usize> = HashMap::new();
+    for e in others() {
+        *held.entry(e.caster).or_default() += 1;
+    }
+    let most = held.values().copied().max()?;
+    others()
+        .find(|e| held.get(&e.caster) == Some(&most))
+        .map(|e| e.eid)
+}
+
+/// A target takes a new record: one too many of what it holds goes, its end no longer due.
+fn make_room<S: Store>(s: &mut Server<S>, net: &mut ServerNet, on: On, new: &EffectState) {
+    if !counted(new) {
+        return;
+    }
+    let holder = match on {
+        On::Player(world) => s.players.get(&world).map(|p| p.character),
+        On::Creature(_) => None,
+    };
+    let Some(eid) = one_too_many(records_of(s, on), holder, new) else {
+        return;
+    };
+    remove_on(s, net, on, eid);
+    s.timers.retain(|(_, t)| match (t, on) {
+        (
+            Timer::EffectEnds { world, eid: e } | Timer::EffectTick { world, eid: e, .. },
+            On::Player(w),
+        ) => *world != w || *e != eid,
+        (
+            Timer::CreatureEffectEnds { creature, eid: e }
+            | Timer::CreatureEffectTick {
+                creature, eid: e, ..
+            },
+            On::Creature(c),
+        ) => *creature != c || *e != eid,
+        _ => true,
+    });
+}
+
+/// A character's records as it comes back: no more of them than a target holds, for a save from
+/// before there was a limit. Oldest first, as they are held.
+pub fn bound_kept(play: &mut crate::state::PlayState, holder: u64) {
+    let mut held = Vec::new();
+    for e in std::mem::take(&mut play.effects) {
+        held.push(e);
+        if counted(&e) {
+            if let Some(eid) = one_too_many(&held, Some(holder), &e) {
+                held.retain(|r| r.eid != eid);
+            }
+        }
+    }
+    play.effects = held;
 }
 
 /// Schedule a record's end, from the time now (a player's game time, a creature's world time).
@@ -1311,7 +1413,8 @@ pub(crate) fn take_off<S: Store>(
     let records = records_mut(s, on)?;
     let i = records.iter().position(|e| e.eid == eid)?;
     let e = records.remove(i);
-    if let On::Player(world) = on {
+    let def = s.effect_table.get(e.state);
+    if let (On::Player(world), false) = (on, def.is_some_and(hidden)) {
         progress::private(net, world, &remove_call(eid));
     }
     send_speed(s, net, on, speed_before, &e);
@@ -1320,10 +1423,60 @@ pub(crate) fn take_off<S: Store>(
 }
 
 /// A player's record's time is up: it is taken off, if it is still on.
-pub fn ends<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, eid: u32) {
+pub fn ends<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    eid: u32,
+    clock: Clock,
+) {
+    let on = On::Player(world);
+    let ended = records_of(s, on).iter().find(|e| e.eid == eid).copied();
     if remove(s, net, world, eid) {
+        if let Some(e) = ended {
+            immunity_ended(s, net, on, &e, clock);
+        }
         crate::world::keep_player(s, world);
     }
+}
+
+/// An immunity under way has run out: unless the same has come on again since, what it leaves goes
+/// on its holder, replacing one it holds already, past anything that would keep it off.
+fn immunity_ended<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    on: On,
+    ended: &EffectState,
+    clock: Clock,
+) {
+    let Some(Kind::Immunity { then }) = s.effect_table.get(ended.state).map(|d| d.kind.clone())
+    else {
+        return;
+    };
+    if records_of(s, on).iter().any(|e| e.state == ended.state) {
+        return;
+    }
+    let Some(def) = s.effect_table.get(then).cloned() else {
+        return;
+    };
+    let held: Vec<u32> = records_of(s, on)
+        .iter()
+        .filter(|e| e.state == then)
+        .map(|e| e.eid)
+        .collect();
+    for eid in held {
+        remove_on(s, net, on, eid);
+    }
+    let cast = Cast {
+        caster: ended.caster,
+        spellcraft: ended.spellcraft,
+        pk: ended.pk,
+        skill: ended.skill,
+        item: ended.item,
+        giver: None,
+        answers: true,
+    };
+    add_on(s, net, on, &def, cast, Shape::TIMED, clock);
 }
 
 /// A creature's record's time is up: a change over time's last tick (for the seconds since the
@@ -1347,6 +1500,7 @@ pub fn creature_ends<S: Store>(
         creature_change(s, net, creature, &e, clock.local.0 - since, clock);
     }
     remove_on(s, net, on, eid);
+    immunity_ended(s, net, on, &e, clock);
     let empty = records_of(s, on).is_empty();
     if empty {
         s.creature_effects.on.remove(&creature);
@@ -1626,7 +1780,13 @@ pub fn resurrected<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: Conn
 /// effect, the records by category, the qualities and appearances the top effects apply.
 #[must_use]
 pub fn registry<S: Store>(s: &Server<S>, p: &crate::world::Player) -> session::Registry {
-    let records = p.play.effects.clone();
+    let records: Vec<EffectState> = p
+        .play
+        .effects
+        .iter()
+        .filter(|e| !s.effect_table.get(e.state).is_some_and(hidden))
+        .copied()
+        .collect();
     let top = tops(&s.effect_table, &records);
     let mut categories: Vec<(u32, u32)> = records.iter().map(|e| (e.categories, e.eid)).collect();
     categories.sort_unstable();

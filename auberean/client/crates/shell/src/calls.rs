@@ -26,10 +26,9 @@ pub const TEXT_TYPE: u16 = 106;
 
 /// Slot tags as the script machine sets them.
 mod tag {
-    pub const REF: u8 = 0x01;
-    pub const INT: u8 = 0x02;
-    pub const LONG: u8 = 0x82;
-    pub const HIGH: u8 = 0xCD;
+    pub use auberean_client_sdk::script::value::tag::{
+        FRESH as HIGH, INT, LONG_INT as LONG, REFERENCE as REF,
+    };
 }
 
 /// Every entry of a packed graph: an object, loaded, scannable.

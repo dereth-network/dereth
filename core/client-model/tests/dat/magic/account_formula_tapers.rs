@@ -2,7 +2,8 @@
 //! 1/2/3 randomise taper slots and unknown versions change nothing; other accounts get other
 //! tapers; the world and the cast path use the account formula; the ACE port agrees over the whole
 //! table.
-//! Fixture: shipped formula tables, spell data and taboo patterns from the retail DATs.
+//! Fixture: shipped formula tables, spell data and taboo patterns from the retail DATs, and the
+//! historical dat captures (`DERETH_TEST_DAT_CAPTURES_DIR`).
 
 #![allow(clippy::pedantic)]
 
@@ -454,6 +455,29 @@ fn the_world_formula_is_the_accounts_and_not_the_dats() {
 
     assert_eq!(f(&mine, STRENGTH_SELF_I), DAT_STRENGTH_SELF_I);
     assert_eq!(f(&theirs, STRENGTH_SELF_I), DAT_STRENGTH_SELF_I);
+}
+
+/// Behaviour: magic.formula.a-spells-tapers-are-the-accounts-and-not-the-dats
+/// The October 1999 table stores placeholder tapers and names no formula version. Its spell takes
+/// the same tapers a 1999 server works out for that account.
+#[test]
+fn a_1999_spell_takes_the_accounts_tapers_and_not_its_placeholders() {
+    let files = dereth_dat::testing::dat_captures_or_fail();
+    let (_, _, path) = files
+        .iter()
+        .find(|(c, n, _)| c == "1999-10-09" && n == "portal.dat")
+        .expect("the October 1999 capture");
+    let file = dereth_dat::DatFile::open(path).expect("opens");
+    let id = DataId(0x0E00_000E);
+    let bytes = file.read(id).expect("the spell table");
+    let table = SpellTable::decode_payload_in(file.era(), id, &bytes).expect("decodes");
+
+    let spell = &table.spells[&0x3E];
+    assert_eq!(spell.name, "Acid Stream V");
+    assert_eq!(
+        world_with("rtest1").spell_formula(spell),
+        [0x05, 0x44, 0x0F, 0x42, 0x22, 0x25, 0x42, 0x37]
+    );
 }
 
 // =================================================================================================

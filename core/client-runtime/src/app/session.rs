@@ -652,6 +652,12 @@ impl<S: Shell> App<S> {
                     max_connections,
                 } => {
                     tracing::info!("world {name:?}, {connections}/{max_connections} connections");
+                    if let (Some(told), Some(players)) = (
+                        self.world_players.as_mut(),
+                        players_said(connections, max_connections),
+                    ) {
+                        told(players);
+                    }
                     // The restore response flows through the character-generation response notice
                     // and updates the character row that the UI then reads back.
                     self.host_state.world_name = Some(name);
@@ -1693,4 +1699,46 @@ pub(super) fn adopt_store_into(
     holders.ddd.set_bases(&fresh);
     *holders.store = fresh;
     *holders.generation += 1;
+}
+
+/// How many players a world says it has, from `0xF7E1 Login_WorldInfo`: none when what it says
+/// cannot be so, a count below zero or above a maximum it names, and none when it says nothing, a
+/// count of zero with no maximum, which is all a relay for a wire with no count can say.
+fn players_said(connections: i32, max_connections: i32) -> Option<u32> {
+    let players = u32::try_from(connections).ok()?;
+    if max_connections <= 0 {
+        return (connections > 0).then_some(players);
+    }
+    (connections <= max_connections).then_some(players)
+}
+
+#[cfg(test)]
+mod world_players_tests {
+    use super::players_said;
+
+    /// Behaviour: net.player-count.a-count-that-cannot-be-so-is-not-passed-on
+    #[test]
+    fn a_count_below_zero_or_over_the_worlds_maximum_is_no_count() {
+        assert_eq!(players_said(12, 128), Some(12));
+        assert_eq!(players_said(0, 128), Some(0));
+        assert_eq!(players_said(128, 128), Some(128));
+        assert_eq!(
+            players_said(12, -1),
+            Some(12),
+            "a world that names no maximum"
+        );
+        assert_eq!(
+            players_said(12, 0),
+            Some(12),
+            "a world that names no maximum"
+        );
+        assert_eq!(players_said(129, 128), None);
+        assert_eq!(players_said(-1, 128), None);
+        assert_eq!(
+            players_said(0, 0),
+            None,
+            "a relay that has no count to give"
+        );
+        assert_eq!(players_said(0, -1), None);
+    }
 }

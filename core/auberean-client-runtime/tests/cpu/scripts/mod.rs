@@ -3,6 +3,7 @@
 
 mod distributor;
 mod dumps;
+mod examination;
 mod files;
 mod game_time;
 mod log_system;

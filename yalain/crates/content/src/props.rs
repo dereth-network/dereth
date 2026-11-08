@@ -396,6 +396,8 @@ pub struct CreatureStats {
     /// It plays its idle behaviors now and then at rest: it has a class of behavior, and not the
     /// summoned creatures' ([`SUMMONED_CLASS`]).
     pub idles: bool,
+    /// How long its corpse lasts.
+    pub rot: CorpseRot,
 }
 
 /// The property names [`CreatureStats`] reads.
@@ -435,6 +437,55 @@ pub mod creature_property {
     pub const SPEED_RESISTANCE: &str = "NPC_CombatSpeedResistance";
     pub const NPC_TABLE: &str = "AI_NPCTable";
     pub const SUPER_CLASS: &str = "AI_AISuperClass";
+    pub const ROT_UNTOUCHED: &str = "NPC_BaseRotTime";
+    pub const ROT_ITEMS_LEFT: &str = "NPC_MaxAcceleratedRotTime";
+    pub const ROT_EMPTY: &str = "NPC_MinAcceleratedRotTime";
+}
+
+/// How long a corpse lasts, in seconds: its creature's template's, each where the template sets it,
+/// else a creature's (3 minutes, 1 minute, 15 seconds).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CorpseRot {
+    /// From its making, when it may hold something.
+    pub untouched: f64,
+    /// From its closing with items left.
+    pub items_left: f64,
+    /// From its closing empty, and from its making when it can hold nothing.
+    pub empty: f64,
+}
+
+impl CorpseRot {
+    /// Any creature's whose template sets none.
+    pub const CREATURE: Self = Self {
+        untouched: 180.0,
+        items_left: 60.0,
+        empty: 15.0,
+    };
+    /// A player's, whatever is done to it.
+    pub const PLAYER: Self = Self {
+        untouched: 60.0,
+        items_left: 60.0,
+        empty: 60.0,
+    };
+
+    /// A template's times.
+    #[must_use]
+    pub fn from_props(p: &Props) -> Self {
+        use creature_property as k;
+        let time =
+            |n: &str, default: f64| p.float(n).filter(|t| *t >= 0.0).map_or(default, f64::from);
+        Self {
+            untouched: time(k::ROT_UNTOUCHED, Self::CREATURE.untouched),
+            items_left: time(k::ROT_ITEMS_LEFT, Self::CREATURE.items_left),
+            empty: time(k::ROT_EMPTY, Self::CREATURE.empty),
+        }
+    }
+}
+
+impl Default for CorpseRot {
+    fn default() -> Self {
+        Self::CREATURE
+    }
 }
 
 /// The share of its health at or below which a creature whose template names none heals itself
@@ -551,6 +602,7 @@ impl CreatureStats {
                 .unwrap_or(1.0),
             npc_table: p.text(k::NPC_TABLE).map(str::to_string),
             idles: p.word(k::SUPER_CLASS).is_some_and(|c| c != SUMMONED_CLASS),
+            rot: CorpseRot::from_props(p),
         };
         stats.fights = stats.fights_with(stats.movement);
         Some(stats)

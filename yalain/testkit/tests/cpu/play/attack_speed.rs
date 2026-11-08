@@ -505,3 +505,206 @@ fn a_basic_attack_waits_for_the_skills_it_names() {
     let told = attacks_told(&mut h, b, me, beetle, 1200);
     assert!(told.iter().any(|k| k % 2 == 0), "{told:?}");
 }
+
+/// A run of so many seconds, asked again every so often (none: asked once), and whether a stop goes
+/// before each ask: how many swings were told, and when.
+fn run_asked_again(
+    h: &mut Harness,
+    b: usize,
+    me: u64,
+    beetle: u64,
+    (seconds, every, stopping): (f64, Option<f64>, bool),
+) -> Vec<f64> {
+    h.run(10);
+    let from = h.bots[b].inbox.len();
+    let ask = |h: &mut Harness| {
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &server_call(START_ATTACK, &[Arg::LongInt(beetle)]),
+        );
+    };
+    ask(h);
+    let began = h.now.0;
+    let mut next = every.map(|e| began + e);
+    let mut at = Vec::new();
+    while h.now.0 - began < seconds {
+        h.step();
+        let told = stories(h, b, from, me);
+        while told.len() > at.len() {
+            at.push(h.now.0);
+        }
+        if next.is_some_and(|n| h.now.0 >= n) {
+            if stopping {
+                h.bots[b].send(
+                    true,
+                    queue::WEENIE,
+                    &server_call(combat::function::STOP_ATTACK, &[]),
+                );
+            }
+            ask(h);
+            next = next.map(|n| n + every.unwrap_or(0.0));
+        }
+    }
+    at
+}
+
+/// However often it asks, a player's swings come no faster than their pace and what asking allows,
+/// and asking never costs it one.
+/// Behaviour: server.combat.asking-again-keeps-the-swings-pace
+#[test]
+fn asking_to_attack_again_and_again_neither_quickens_swings_nor_loses_them() {
+    const SECONDS: f64 = 120.0;
+    let (mut h, b, me, beetle) = with_a_sword();
+    let left_alone = run_asked_again(&mut h, b, me, beetle, (SECONDS, None, false)).len();
+    assert!(left_alone > 50, "{left_alone} swings");
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let allowed =
+        (combat::EARLY_SWINGS_AT_ONCE + combat::EARLY_SWINGS_PER_SECOND * SECONDS) as usize;
+    for every in [0.06, 0.1, 0.25, 0.5, 1.0] {
+        for stopping in [false, true] {
+            let (mut h, b, me, beetle) = with_a_sword();
+            let n = run_asked_again(&mut h, b, me, beetle, (SECONDS, Some(every), stopping)).len();
+            assert!(
+                n + 5 >= left_alone,
+                "{n} swings asked every {every} s (stopping {stopping}), {left_alone} left alone"
+            );
+            assert!(
+                n <= left_alone + 2 * allowed,
+                "{n} swings asked every {every} s (stopping {stopping}), {left_alone} left alone"
+            );
+        }
+    }
+}
+
+/// A change of target soon after a swing swings a moment after it is asked (2017: 0.05 to 0.42 s, 36
+/// of 36 asks within 0.9 s of a swing), and asked with the next swing nearer than that, keeps its time.
+/// Behaviour: server.combat.a-change-of-target-swings-as-it-is-asked
+#[test]
+fn asking_soon_after_a_swing_swings_a_moment_later_and_a_nearer_swing_keeps_its_time() {
+    let (mut h, b, me, beetle) = with_a_sword();
+    let _ = swings(&mut h, b, me, beetle, 30);
+    let ready = |h: &Harness| {
+        h.server
+            .players
+            .values()
+            .find(|p| p.character == me)
+            .and_then(|p| p.attacking)
+            .map(|r| r.next_swing)
+            .expect("a run")
+    };
+    while ready(&h) - h.now.0 < 0.8 {
+        h.step();
+    }
+    let asked = h.now.0;
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(START_ATTACK, &[Arg::LongInt(beetle)]),
+    );
+    h.run(2);
+    let at = ready(&h);
+    assert!(
+        (at - (asked + combat::FIRST_SWING)).abs() <= 0.11,
+        "{:.3} after asking",
+        at - asked
+    );
+    // That swing told, the next is its pace off. Asked with it nearly due, it keeps its time.
+    while ready(&h) <= at {
+        h.step();
+    }
+    let natural = ready(&h);
+    while natural - h.now.0 > combat::FIRST_SWING - 0.05 {
+        h.step();
+    }
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(START_ATTACK, &[Arg::LongInt(beetle)]),
+    );
+    h.run(2);
+    assert!(
+        (ready(&h) - natural).abs() < 1e-9,
+        "{:.3} from its time",
+        ready(&h) - natural
+    );
+}
+
+/// Asked past what asking allows, a swing keeps its own time, and asked while a skill is used, it
+/// waits for the use's end.
+/// Behaviour: server.combat.asking-past-what-it-allows-keeps-the-swings-time
+#[test]
+fn past_its_allowance_an_ask_keeps_the_swings_time_and_waits_for_a_use() {
+    let (mut h, b, me, beetle) = with_a_sword();
+    let _ = swings(&mut h, b, me, beetle, 30);
+    let world = *h.server.players.keys().next().expect("in the world");
+    let ready = |h: &Harness| {
+        h.server.players[&world]
+            .attacking
+            .map(|r| r.next_swing)
+            .expect("a run")
+    };
+    let ask = |h: &mut Harness| {
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &server_call(START_ATTACK, &[Arg::LongInt(beetle)]),
+        );
+        h.run(2);
+    };
+    if let Some(p) = h.server.players.get_mut(&world) {
+        p.early_swings = Some(yalain_world::call_limit::Bucket::with(
+            0.0,
+            combat::EARLY_SWINGS_PER_SECOND,
+            h.now,
+        ));
+    }
+    while ready(&h) - h.now.0 < 0.8 {
+        h.step();
+    }
+    let natural = ready(&h);
+    ask(&mut h);
+    assert!((ready(&h) - natural).abs() < 1e-9, "its own time");
+    // The same asked with a use under way: no swing till its end, then one.
+    let from = h.bots[b].inbox.len();
+    h.all_hold(176);
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(yalain_world::combat::function::STOP_ATTACK, &[]),
+    );
+    h.run(2);
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(
+            yalain_world::skill_use::function::USE,
+            &[Arg::Int(1), Arg::Int(176), Arg::LongInt(beetle)],
+        ),
+    );
+    h.run(3);
+    assert!(
+        h.server.players[&world].using.is_some(),
+        "its use is under way"
+    );
+    ask(&mut h);
+    assert!(ready(&h).is_infinite(), "it waits for the use");
+    let mut steps = 0;
+    while h.server.players[&world].using.is_some() {
+        h.step();
+        steps += 1;
+        assert!(steps < 1000, "the use ends");
+    }
+    let basic = |h: &Harness| {
+        stories(h, b, from, me)
+            .iter()
+            .filter(|s| s.skill != 176)
+            .count()
+    };
+    assert_eq!(basic(&h), 0, "no swing while it ran");
+    assert!(ready(&h).is_finite(), "the run goes on");
+    for _ in 0..20 {
+        h.step();
+    }
+    assert_eq!(basic(&h), 1, "and swings");
+}

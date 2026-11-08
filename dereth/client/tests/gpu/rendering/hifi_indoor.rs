@@ -257,15 +257,16 @@ fn with_the_lamps_rays_a_rooms_light_does_not_reach_past_what_shuts_it_out() {
             gpu.adapter_name()
         );
     }
-    // A body in a corner of the drudges' hideout, the camera close behind it: up to the right a
-    // stretch of wall within the reach of the hall's lights, with the corner's own walls and
-    // ceiling standing between them and it.
+    // A body a meter out of a corner of the drudges' hideout, the camera close behind it: up to
+    // the right a stretch of wall within the reach of the hall's lights, with the corner's own
+    // walls and ceiling standing between them and it. (Stood on the corner itself, as nobody can
+    // stand, the eye is on the wall's plane and half the frame looks out of the room.)
     let station = Station {
         name: "dungeon-corner",
         why: "a corner of a dungeon where its walls stand between the lights and the wall in view",
         place: Place::Body {
             cell: 0x019E_011B,
-            origin: dereth_primitives::Vec3::ZERO,
+            origin: dereth_primitives::Vec3::new(23.5, -23.5, 0.0),
             yaw: 0.0,
         },
         clock: Clock::Sunny(0.5),

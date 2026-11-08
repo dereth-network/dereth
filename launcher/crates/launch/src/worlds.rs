@@ -5,6 +5,7 @@
 //! Every front end over this crate (the launcher's window, a web page) shows a world this way, so
 //! a world reads the same in each.
 
+use crate::hubstatus::HubCount;
 use crate::hubstatus::HubStatus;
 use crate::state::LauncherState;
 use crate::status::LiveStatus;
@@ -34,6 +35,17 @@ pub fn same_world(listed: &World, added: &World) -> bool {
         &added.websocket_url,
         crate::direct::same_websocket,
     )
+}
+
+/// `w`, shown, takes the hub's count of its players, unless the world answered this launcher itself
+/// with one (`own_count`) or is offline.
+pub fn take_hub_count(w: &mut World, count: Option<&HubCount>, own_count: bool) {
+    let Some(count) = count.filter(|_| !own_count && w.state != WorldState::Offline) else {
+        return;
+    };
+    w.players = Some(count.players);
+    w.players_age = Some(count.age);
+    w.players_source = Some(count.source.clone());
 }
 
 /// `w` as it is shown, with what it says of itself (`live`: its state, players, software, era,
@@ -157,7 +169,7 @@ mod tests {
 
     #[test]
     fn a_world_is_shown_with_its_status_over_its_row() {
-        let mut state = LauncherState::default();
+        let mut state = crate::testing::without_relayed_worlds();
         let slug = state
             .add_custom_world("", "play.example.org", "9000", None, Emulator::Unknown)
             .unwrap();
@@ -219,7 +231,7 @@ mod tests {
     /// added by, or its status document's; and nothing else.
     #[test]
     fn a_world_is_reached_directly_where_the_hub_or_its_own_status_says() {
-        let mut state = LauncherState::default();
+        let mut state = crate::testing::without_relayed_worlds();
         let mut listed = World::new("ironwood", "Ironwood");
         listed.websocket_url = Some("wss://ironwood.example.org/old".into());
         let linked = HubStatus {
@@ -301,7 +313,7 @@ mod tests {
     /// hub's word from its heartbeat, then the probe.
     #[test]
     fn the_worlds_own_answer_goes_before_the_hubs_word_and_the_hubs_before_the_probe() {
-        let state = LauncherState::default();
+        let state = crate::testing::without_relayed_worlds();
         let mut listed = World::new("frostfell", "Frostfell");
         listed.emulator = Emulator::Empyrean;
         let own = LiveStatus {
@@ -345,7 +357,7 @@ mod tests {
             Some(true),
             None,
             Some(&hub(WorldState::Online, Some(57))),
-            &LauncherState::default(),
+            &crate::testing::without_relayed_worlds(),
         );
         assert_eq!((w.state, w.players), (WorldState::Online, Some(57)));
         assert_eq!(
@@ -358,7 +370,7 @@ mod tests {
 
     #[test]
     fn a_server_the_player_added_never_takes_the_hubs_word() {
-        let mut state = LauncherState::default();
+        let mut state = crate::testing::without_relayed_worlds();
         let slug = state
             .add_custom_world("Coldeve", "play.example.org", "9000", None, Emulator::Ace)
             .unwrap();
@@ -425,7 +437,7 @@ mod tests {
             state: WorldState::Online,
             ..LiveStatus::default()
         };
-        let state = LauncherState::default();
+        let state = crate::testing::without_relayed_worlds();
         let w = shown(empyrean, None, Some(&said), None, &state);
         assert_eq!(
             (w.era.as_deref(), era_state(&w, true, false)),
@@ -454,7 +466,7 @@ mod tests {
     #[test]
     fn a_world_plays_the_era_it_says_else_the_tables_else_the_end_of_retail() {
         const SEEDSOW: &str = "394C58D0-885D-466B-B17F-D7E0B96FE3E2";
-        let mut state = LauncherState::default();
+        let mut state = crate::testing::without_relayed_worlds();
         let added = state
             .add_custom_world("", "play.example.org", "9000", None, Emulator::Unknown)
             .unwrap();
@@ -563,5 +575,36 @@ mod tests {
             &state,
         );
         assert_eq!(told(&w), ["--era", "infiltration"]);
+    }
+
+    /// Behaviour: none (what a launcher shows of a world).
+    #[test]
+    fn a_world_takes_the_hubs_count_unless_it_answered_with_its_own_or_is_offline() {
+        let count = HubCount {
+            players: 630,
+            source: "treestats".into(),
+            age: 2000,
+        };
+        let mut w = World::new("coldeve", "Coldeve");
+        w.state = WorldState::Online;
+        take_hub_count(&mut w, Some(&count), false);
+        assert_eq!(
+            (w.players, w.players_age, w.players_source.as_deref()),
+            (Some(630), Some(2000), Some("treestats"))
+        );
+
+        let mut own = World::new("coldeve", "Coldeve");
+        own.players = Some(3);
+        take_hub_count(&mut own, Some(&count), true);
+        assert_eq!((own.players, own.players_age), (Some(3), None));
+
+        let mut off = World::new("coldeve", "Coldeve");
+        off.state = WorldState::Offline;
+        take_hub_count(&mut off, Some(&count), false);
+        assert_eq!((off.players, off.players_age), (None, None));
+
+        let mut none = World::new("coldeve", "Coldeve");
+        take_hub_count(&mut none, None, false);
+        assert_eq!((none.players, none.players_age), (None, None));
     }
 }

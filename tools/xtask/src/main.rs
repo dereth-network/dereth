@@ -728,13 +728,14 @@ fn tier1_first_game(args: &[String], profile: Profile, game: Game) -> Vec<Report
     match server::launch_fixture() {
         Some(p) => println!("the Launch world fixture found at {}", p.display()),
         None => println!(
-            "the Launch world fixture NOT found; the Launch world row reports NO-ORACLE. Set              EMPYREAN_TEST_LAUNCH_FIXTURE to its manifest (the 1999 dats and an ac1999 pack)."
+            "the Launch world fixture NOT found; the Launch world rows report NO-ORACLE. Set              EMPYREAN_TEST_LAUNCH_FIXTURE to its manifest (the 1999 dats and an ac1999 pack)."
         ),
     }
     let mut reports = gates::gates(threads(args), profile, gates::GpuTier::Exclude);
     reports.extend(server::real_content(profile, dats.as_deref()));
     reports.push(server::real_dump(profile));
     reports.push(server::launch_content(profile));
+    reports.push(server::launch_art(profile));
     reports
 }
 

@@ -219,6 +219,12 @@ pub const SECTIONS: &[Section] = &[
                  service or in a container with no terminal.",
             ),
             e(
+                "watchdog_seconds",
+                "WatchdogSeconds",
+                "Stop with a failure if the world runs no pass for this many seconds, so a service\n\
+                 manager can start it again. 0 for never.",
+            ),
+            e(
                 "admin_channel",
                 "AdminChannel",
                 "A console for programs on this computer, such as the Dereth launcher: it listens on\n\
@@ -666,7 +672,7 @@ pub const SECTIONS: &[Section] = &[
             e(
                 "profile",
                 "Profile",
-                "\"eor\" (end of retail), \"infiltration\" (February 2005), or \"launch\" (1999, experimental). world.pack\n\
+                "\"eor\" (end of retail), \"infiltration\" (February 2005), or \"launch\" (1999). world.pack\n\
                  must have been built for the same era (`empyrean-import --era <era>`); the server refuses\n\
                  to start otherwise.",
             ),

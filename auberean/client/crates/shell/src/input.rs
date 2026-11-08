@@ -228,6 +228,9 @@ pub enum Event {
     Key { key: Key, down: bool, repeat: bool },
     /// Text typed.
     Text(String),
+    /// What the input method is composing, not yet written; empty once it has written it or given
+    /// up.
+    Composing(String),
     /// A mouse button went down or up.
     Button { button: Button, down: bool },
     /// The pointer moved to a point of the window, in pixels from its top left.

@@ -276,6 +276,13 @@ pub(super) fn census(s: &mut Script) -> Census {
 }
 
 pub(super) fn check(s: &mut Script, what: &str) {
+    // What lay on the ground its whole time has gone, as it should.
+    let mut gone = Census::default();
+    for (template, n) in std::mem::take(&mut s.h.server.lying.gone) {
+        gone.count(template, u32::try_from(n).expect("a count"), false);
+    }
+    s.wealth -= gone.wealth;
+    s.gems -= gone.gems;
     let c = census(s);
     let twice: Vec<String> = c
         .places
@@ -514,6 +521,7 @@ pub(super) fn act(s: &mut Script) -> String {
                 butchered: false,
                 killer_level: 1,
                 expires: 1.0e12,
+                ..Default::default()
             });
             s.h.server.things.insert(c);
             s.wealth += WORTH * count as u64;
@@ -771,6 +779,7 @@ pub(super) fn act(s: &mut Script) -> String {
                 _ => s.dice.pick(&mine).unwrap_or(me),
             };
             let number = 1 + u32::try_from(s.dice.below(100)).unwrap_or(0);
+            s.h.all_hold(ON_ITEM);
             ask(
                 s,
                 b,

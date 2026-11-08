@@ -63,7 +63,7 @@ pub const NAMED_SYSTEMS: &[(&str, &str)] = &[
 
 fn era_label(era: EraId) -> &'static str {
     match era {
-        EraId::Launch => "Launch (1999, experimental)",
+        EraId::Launch => "Launch (1999)",
         EraId::Infiltration => "Infiltration (February 2005)",
         EraId::Eor => "End of Retail",
     }
@@ -207,7 +207,7 @@ mod tests {
 
     #[test]
     fn an_era_in_words_is_the_launchers_label_the_worlds_word_or_the_end_of_retail() {
-        assert_eq!(label(Some("launch")), "Launch (1999, experimental)");
+        assert_eq!(label(Some("launch")), "Launch (1999)");
         assert_eq!(label(None), "End of Retail");
         assert_eq!(label(Some(" ")), "End of Retail");
         assert_eq!(label(Some("eor")), "End of Retail");

@@ -257,7 +257,10 @@ impl WorldList {
                 } else {
                     listed && self.hub.word_pending()
                 };
+                let own_count = live.is_some_and(|l| l.players.is_some());
+                let count = self.hub.count(&w.slug, now).filter(|_| listed);
                 let mut w = worlds::shown(w, answered, heard, hub, state);
+                worlds::take_hub_count(&mut w, count.as_ref(), own_count);
                 w.era_state = worlds::era_state(&w, heard.is_some(), may_answer);
                 w.favorite = state.is_favorite_world(&w.slug);
                 w
@@ -277,9 +280,11 @@ mod tests {
     use crate::world::{Emulator, Told, WorldState};
 
     fn summaries(list: &WorldList, now: u64) -> Vec<fixture::Summary> {
-        list.shown(&LauncherState::default(), now, |_| (None, None))
-            .map(|w| fixture::summary(&w))
-            .collect()
+        list.shown(&crate::testing::without_relayed_worlds(), now, |_| {
+            (None, None)
+        })
+        .map(|w| fixture::summary(&w))
+        .collect()
     }
 
     /// The list marks the worlds the player starred, which a launcher shows first; a world a Play
@@ -289,7 +294,7 @@ mod tests {
         let now = fixture::READ_AT;
         let mut list = WorldList::default();
         list.read_with(now, fixture::fetch(true)).unwrap();
-        let mut state = LauncherState::default();
+        let mut state = crate::testing::without_relayed_worlds();
         state.set_favorite_world("ironwood", true);
         state.favourites.push(crate::state::Favourite {
             id: "f1".into(),
@@ -332,7 +337,7 @@ mod tests {
         };
         let era = |list: &WorldList, answered: Option<bool>, live: Option<&LiveStatus>| {
             list.shown_as(
-                &LauncherState::default(),
+                &crate::testing::without_relayed_worlds(),
                 now,
                 |_| (live, answered),
                 "ironwood",
@@ -341,8 +346,13 @@ mod tests {
             .era_state
         };
         let unnamed = |list: &WorldList| {
-            list.shown_as(&LauncherState::default(), now, |_| (None, None), "coldeve")
-                .unwrap()
+            list.shown_as(
+                &crate::testing::without_relayed_worlds(),
+                now,
+                |_| (None, None),
+                "coldeve",
+            )
+            .unwrap()
         };
 
         // A browser: the hub's word comes with the list it reads, and has nothing from Ironwood.
@@ -388,7 +398,9 @@ mod tests {
         assert!(copy.is_hubs());
         assert_eq!(summaries(&list, now), fixture::from_the_hub());
         let coldeve = list
-            .shown(&LauncherState::default(), now, |_| (None, None))
+            .shown(&crate::testing::without_relayed_worlds(), now, |_| {
+                (None, None)
+            })
             .find(|w| w.slug == "coldeve")
             .unwrap();
         assert_eq!(
@@ -426,7 +438,7 @@ mod tests {
         let mut list = WorldList::default();
         list.read_with(now, fixture::fetch(true))
             .expect("the hub answers");
-        let mut state = LauncherState::default();
+        let mut state = crate::testing::without_relayed_worlds();
         let add = |state: &mut LauncherState, host: &str, url: &str| {
             let slug = state
                 .add_custom_world("", host, "9000", None, crate::world::Emulator::Unknown)
@@ -514,7 +526,7 @@ mod tests {
             }
         })
         .expect("the hub answers");
-        let mut state = LauncherState::default();
+        let mut state = crate::testing::without_relayed_worlds();
         let shown = |state: &LauncherState, at: u64, slug: &str| {
             list.shown_as(state, at, |_| (None, None), slug)
                 .expect("a world")
@@ -602,7 +614,9 @@ mod tests {
 
         let again = WorldList::new(serverlist::sources(None), Some(copy.clone()));
         let shown: Vec<_> = again
-            .shown(&LauncherState::default(), now, |_| (None, None))
+            .shown(&crate::testing::without_relayed_worlds(), now, |_| {
+                (None, None)
+            })
             .map(|w| (w.slug, w.players))
             .collect();
         assert_eq!(shown.len(), fixture::from_the_hub().len());

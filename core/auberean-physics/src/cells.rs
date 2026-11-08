@@ -23,7 +23,7 @@ use crate::land::{land_cell_id, Land, CELLS_PER_SIDE, CELL_LENGTH};
 const LAND_SIDE: i64 = 255 * 8;
 /// The last land cell number of a block, and the first and last interior cell numbers.
 const LAST_LAND_CELL: u32 = 64;
-const FIRST_INTERIOR_CELL: u32 = 0x100;
+pub use auberean_primitives::land::FIRST_INTERIOR_CELL;
 const LAST_INTERIOR_CELL: u32 = 0xFFFD;
 /// The number a whole landblock is filed under.
 const BLOCK_CELL: u32 = 0xFFFF;

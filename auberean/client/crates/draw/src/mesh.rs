@@ -380,6 +380,14 @@ pub fn degrade_in(
     share: f32,
     material_detail: u32,
 ) -> Option<Degrade> {
+    if full_detail() {
+        return Some(Degrade {
+            detail: 1.0,
+            material_detail,
+            opacity: 1.0,
+            visible: f32::MAX,
+        });
+    }
     let visible = (scale * d.visible).max(20.0) * share;
     let scale = scale * share;
     if distance > visible {
@@ -411,6 +419,23 @@ pub fn degrade_in(
         opacity,
         visible,
     })
+}
+
+std::thread_local! {
+    static FULL_DETAIL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Draw at full detail, or not: nothing degrades or goes with its distance, as while a screenshot
+/// is taken.
+// D2-10548, D2-10549
+pub fn set_full_detail(on: bool) {
+    FULL_DETAIL.set(on);
+}
+
+/// Whether everything is drawn at full detail ([`set_full_detail`]).
+#[must_use]
+pub fn full_detail() -> bool {
+    FULL_DETAIL.get()
 }
 
 /// How opaque an object seen to `visible` is at `distance`: fading from 1 to 0 over the last 7.5%

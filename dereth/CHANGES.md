@@ -17,6 +17,22 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Horizon: two settings under Display: Status Bar Colors gives the health, stamina and mana bars the
   original game's red, amber and blue, and unticking Large Status Bar Numbers draws their numbers
   smaller, clear of the bars' titles.
+## 0.4.15 (2026-11-07)
+- The relay that plays AC1999 now comes with Dereth.
+- Logging in now reports the world's player count to the hub, with no opt-out.
+- Fixed a crash on exit on Linux with Wayland and NVIDIA.
+- Launch: the character page and character options show only what 1999's did.
+- Launch: spells ask for the tapers of your own account.
+- A window nobody can see no longer runs flat out.
+- macOS: Command works as Control, for shortcuts and copy and paste too.
+- macOS: the client asks for Game Mode.
+- macOS: drag the window to any size; it reopens that size, in points on Retina.
+- macOS: Horizon draws at the screen's own pixels, sharp in a window too, with a new render scale option.
+- Horizon: lighter text outlines, easier to read over a bright sky.
+- macOS: fixed the game running at 10 frames a second after starting behind another window.
+- macOS: logging out of full screen puts the window back where it was.
+- Better Lighting: smoke now covers distant trees instead of fading into the haze.
+- Better Lighting: glows and torches add as they do in the ordinary picture.
 
 ## 0.4.14 (2026-11-05)
 

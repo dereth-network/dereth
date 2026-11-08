@@ -540,6 +540,86 @@ fn set_at_takes_the_status_bar_options_in_the_profile_s_words() {
     store::clear();
 }
 
+/// A minimized window, which the host reports as having no extent, rests a frame at full rate, and
+/// goes back to full rate when it is restored. The world goes on running throughout.
+///
+/// Behaviour: frame.pace.slowing-down-in-the-background-is-an-option-on-at-first
+#[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads the retail dats: --features retail-dats"
+)]
+fn a_minimized_window_rests_its_frames_until_it_is_restored() {
+    use crate::platform::clock::Pacer;
+    use dereth_client_contract::options::{background, store};
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    /// What each frame's pace was asked for, never sleeping.
+    struct Told(Rc<RefCell<Vec<&'static str>>>);
+    impl Pacer for Told {
+        fn frame_sleep(&mut self, _is_active_app: bool) -> u32 {
+            self.0.borrow_mut().push("full rate");
+            0
+        }
+        fn hidden_frame_sleep(&mut self) -> u32 {
+            self.0.borrow_mut().push("rests");
+            0
+        }
+    }
+
+    let store_ = std::sync::Arc::new(dereth_dat::testing::open_store().unwrap_or_else(|| {
+        panic!(
+            "the retail dats are this test's oracle and they are not under {}",
+            dereth_dat::testing::dat_dir().display()
+        )
+    }));
+    let told = Rc::new(RefCell::new(Vec::new()));
+    let pacer = Told(Rc::clone(&told));
+    let cfg = Config {
+        headless: true,
+        frames: None,
+        connect: false,
+        sound: false,
+        dat_dir: std::path::PathBuf::from("a directory that does not exist"),
+        ..Config::default()
+    };
+    let mut app = App::<NullShell>::bring_up_with_store(
+        cfg,
+        Some(store_),
+        move |_| {
+            Ok(Platform {
+                pacer: Box::new(pacer),
+                ..Platform::headless(64, 64)
+            })
+        },
+        |_, _, _, _| Ok(Box::new(crate::present::NullPresentation::new(64, 64))),
+    )
+    .expect("bring-up");
+    let mut shell = NullShell;
+    store::init();
+    assert!(store::set_value(
+        background::SLOW_DOWN_IN_BACKGROUND,
+        dereth_client_contract::PrefValue::Bool(false)
+    ));
+    app.pump.state.is_active_app = false;
+    assert!(app.frame(&mut shell));
+    let minimized = HostEvent::Resized {
+        width: 0,
+        height: 0,
+    };
+    app.handle_window_event(&mut shell, &minimized, 0);
+    assert!(app.frame(&mut shell));
+    let restored = HostEvent::Resized {
+        width: 64,
+        height: 64,
+    };
+    app.handle_window_event(&mut shell, &restored, 0);
+    assert!(app.frame(&mut shell));
+    assert_eq!(*told.borrow(), ["full rate", "rests", "full rate"]);
+    store::clear();
+}
+
 /// A window that draws full screen at a share of its screen's pixels offers the render scale: the
 /// preferences, once read, hold it at the share the window starts at, whatever the profile says. A
 /// window that cannot leaves it out.
@@ -555,7 +635,7 @@ fn a_window_that_draws_at_a_share_of_its_screen_offers_the_render_scale_at_its_s
     use dereth_client_contract::options::{render_scale, store};
 
     /// A window that draws full screen at the share it holds, where it holds one.
-    struct Scaled(Option<u32>);
+    struct Scaled(Option<u32>, bool);
     impl WindowHost for Scaled {
         fn client_size(&self) -> (u32, u32) {
             (64, 64)
@@ -569,6 +649,9 @@ fn a_window_that_draws_at_a_share_of_its_screen_offers_the_render_scale_at_its_s
         fn render_scale(&self) -> Option<u32> {
             self.0
         }
+        fn profile_keeps_render_scale(&self) -> bool {
+            self.1
+        }
     }
 
     let data = std::sync::Arc::new(dereth_dat::testing::open_store().unwrap_or_else(|| {
@@ -581,7 +664,11 @@ fn a_window_that_draws_at_a_share_of_its_screen_offers_the_render_scale_at_its_s
     std::fs::create_dir_all(&folder).unwrap();
     let profile = folder.join("UserPreferences.ini");
     std::fs::write(&profile, "[Display]\r\nRenderScale=50\r\n").unwrap();
-    for (share, held) in [(Some(67), Some(67)), (None, None)] {
+    for (share, in_profile, held) in [
+        (Some(67), false, Some(67)),
+        (None, false, None),
+        (Some(100), true, Some(50)),
+    ] {
         let cfg = Config {
             headless: true,
             frames: None,
@@ -596,7 +683,7 @@ fn a_window_that_draws_at_a_share_of_its_screen_offers_the_render_scale_at_its_s
             Some(std::sync::Arc::clone(&data)),
             move |_| {
                 Ok(Platform {
-                    window: Box::new(Scaled(share)),
+                    window: Box::new(Scaled(share, in_profile)),
                     ..Platform::headless(64, 64)
                 })
             },
@@ -725,6 +812,43 @@ fn tick(app: &mut App<Screens>, shell: &mut Screens, on: bool) {
     app.apply_changed_display_presentation(shell);
 }
 
+/// Behaviour: presentation.window.a-screen-held-at-the-login-size-cannot-be-dragged
+#[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads the retail dats: --features retail-dats"
+)]
+fn the_window_is_held_only_on_a_screen_that_keeps_the_login_size() {
+    struct Told(std::rc::Rc<std::cell::Cell<Option<bool>>>);
+    impl crate::platform::window::WindowHost for Told {
+        fn screen_metrics(
+            &self,
+            _frame: (i32, i32, i32),
+        ) -> dereth_client_contract::window_proc::ScreenMetrics {
+            crate::platform::window::headless_screen_metrics()
+        }
+        fn client_size(&self) -> (u32, u32) {
+            (800, 600)
+        }
+        fn hold_at_login_size(&self, held: bool) {
+            self.0.set(Some(held));
+        }
+    }
+    let told = std::rc::Rc::new(std::cell::Cell::new(None));
+    let mut shell = Screens::default();
+    let mut app = full_screen_client(&mut shell);
+    app.window = Box::new(Told(told.clone()));
+    let _ = app.do_event_loop(&mut shell);
+    assert_eq!(told.get(), Some(true), "the login screen holds it");
+    shell.world = true;
+    let _ = app.do_event_loop(&mut shell);
+    assert_eq!(told.get(), Some(false), "the world does not");
+    shell.world = false;
+    shell.own_size = true;
+    let _ = app.do_event_loop(&mut shell);
+    assert_eq!(told.get(), Some(false), "nor a screen at the player's size");
+}
+
 /// Behaviour: window.full-screen.screens-drawn-at-the-players-own-size-are-full-screen-before-the-world-too
 #[test]
 #[cfg_attr(
@@ -781,6 +905,68 @@ fn screens_before_the_world_drawn_at_the_players_size_are_full_screen_and_a_swit
     login.own_size = false;
     show(&mut app, &mut login);
     assert!(!app.applied_full_screen);
+}
+
+/// A window that says when it closes.
+#[derive(Debug)]
+struct ClosingWindow {
+    inner: NullWindow,
+    drop_log: std::rc::Rc<std::cell::RefCell<Vec<&'static str>>>,
+}
+
+impl Drop for ClosingWindow {
+    fn drop(&mut self) {
+        self.drop_log.borrow_mut().push("window");
+    }
+}
+
+impl WindowHost for ClosingWindow {
+    fn client_size(&self) -> (u32, u32) {
+        self.inner.client_size()
+    }
+    fn screen_metrics(
+        &self,
+        frame_metrics: (i32, i32, i32),
+    ) -> dereth_client_contract::window::ScreenMetrics {
+        self.inner.screen_metrics(frame_metrics)
+    }
+}
+
+/// Behaviour: none (the order the host's objects go in at exit).
+#[test]
+#[cfg_attr(not(feature = "retail-dats"), ignore = "reads retail data")]
+fn at_exit_the_device_goes_before_the_window_it_presents_to() {
+    let store = std::sync::Arc::new(dereth_dat::testing::open_store().unwrap());
+    let cfg = Config {
+        headless: true,
+        connect: false,
+        sound: false,
+        ..Config::default()
+    };
+    let drop_log = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let (window_log, device_log) = (drop_log.clone(), drop_log.clone());
+    let app = App::<NullShell>::bring_up_with_store(
+        cfg,
+        Some(store),
+        move |_| {
+            let mut platform = Platform::headless(64, 64);
+            platform.window = Box::new(ClosingWindow {
+                inner: NullWindow::new(64, 64),
+                drop_log: window_log,
+            });
+            Ok(platform)
+        },
+        move |_, _, _, _| {
+            let mut device = crate::present::NullPresentation::new(64, 64);
+            device.drop_log = Some(device_log);
+            Ok(Box::new(device))
+        },
+    )
+    .unwrap();
+    let mut shell = NullShell;
+    let log = app.shutdown(&mut shell);
+    assert_eq!(log.order(), crate::shutdown::Step::ORDER);
+    assert_eq!(*drop_log.borrow(), ["device", "window"]);
 }
 
 /// Behaviour: none (hosting a connected simulation behind another view).

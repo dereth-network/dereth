@@ -529,6 +529,55 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "net.player-count.a-count-that-cannot-be-so-is-not-passed-on",
+        says: "A count below zero, above a maximum the world names, or zero with no maximum, is no count, and is not passed \
+               on to the hub.",
+        since: THIS_CLIENT,
+        divergence: "CD-reports-player-count",
+        evidence: Evidence::Private("AC-EVID-PLAYER-COUNT-INVALID"),
+        station: "dereth-client-runtime::lib::app::session::world_players_tests::a_count_below_zero_or_over_the_worlds_maximum_is_no_count",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "net.player-count.a-login-tells-the-hub-the-worlds-count-and-nothing-else",
+        says: "A login tells the Dereth Network's hub the world's address and port and the count the \
+               world said, and nothing else: no account, no character and no id of this client.",
+        since: THIS_CLIENT,
+        divergence: "CD-reports-player-count",
+        evidence: Evidence::Private("AC-EVID-PLAYER-COUNT-WHAT-IT-SAYS"),
+        station: "dereth-client::lib::player_count::tests::a_report_says_the_worlds_address_and_the_count_and_nothing_else",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "net.player-count.a-report-that-fails-is-forgotten",
+        says: "A hub that is gone or refuses a report is nobody's concern: the report ends, with \
+               nothing shown and nothing retried.",
+        since: THIS_CLIENT,
+        divergence: "CD-reports-player-count",
+        evidence: Evidence::Private("AC-EVID-PLAYER-COUNT-FAILS"),
+        station: "dereth-client::lib::player_count::tests::a_hub_that_is_gone_or_refuses_is_nobodys_concern",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "net.player-count.a-world-on-a-private-network-is-never-reported",
+        says: "A world on this computer or a private network is never reported under its own address.",
+        since: THIS_CLIENT,
+        divergence: "CD-reports-player-count",
+        evidence: Evidence::Private("AC-EVID-PLAYER-COUNT-PRIVATE"),
+        station: "dereth-client::lib::player_count::tests::only_a_world_on_the_internet_is_reported_under_its_own_address",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "net.player-count.the-count-a-world-gives-at-login-is-passed-on",
+        says: "The count a world gives at login reaches what listens for it once, from a whole \
+               recorded login through the client's own endpoint.",
+        since: THIS_CLIENT,
+        divergence: "CD-reports-player-count",
+        evidence: Evidence::Private("AC-EVID-PLAYER-COUNT-PASSED-ON"),
+        station: "dereth-testkit::dat::login::scenario_the_count_a_world_gives_at_login_is_passed_on",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "net.plugin-audit.with-no-plugins-the-answer-is-that-no-third-party-interface-is-in-use",
         says: "When the server asks which plugins are running and none is, the client answers \
                that no third-party interface is in use; asked about one plugin by name, it \

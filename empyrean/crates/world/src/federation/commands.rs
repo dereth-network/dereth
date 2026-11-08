@@ -276,6 +276,7 @@ fn on(w: &mut World, player: ObjectGuid) {
     directory::announce(w, player);
     social::on_login(w, player);
     directory::back_on(w, player);
+    super::rooms::listen_on_joining(w, player);
 }
 
 /// `/dn squelch <world>` and `/dn unsquelch <world>`.

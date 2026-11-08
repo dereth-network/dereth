@@ -105,6 +105,19 @@ pub fn sources_from(named: Option<&str>, hub: Option<&str>) -> Vec<ListSource> {
     }
 }
 
+/// The hub a Dereth client's count of players goes to when it is not the network's own: the hub
+/// `sources` read, by its address.
+#[must_use]
+pub fn other_hub(sources: &[ListSource]) -> Option<String> {
+    let list = sources.iter().find(|s| s.format == ListFormat::Hub)?;
+    if list.url == HUB_LIST_URL {
+        return None;
+    }
+    list.url
+        .split_once("/v1/servers")
+        .map(|(hub, _)| hub.to_owned())
+}
+
 /// The address of the page of the hub's list `base` that starts at `offset`: every game's worlds,
 /// unless `base` names a game itself.
 fn hub_page_url(base: &str, offset: u64) -> String {
@@ -1489,5 +1502,22 @@ mod tests {
         std::fs::write(d.join(CACHE_FILE), b"{").unwrap();
         assert_eq!(ListCache::load(&d), None, "a damaged copy is no copy");
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_client_reports_to_the_hub_whose_list_the_launcher_reads() {
+        assert_eq!(other_hub(&sources(None)), None, "the network's own");
+        assert_eq!(
+            other_hub(&sources(Some("https://a.example.org/Servers.xml"))),
+            None
+        );
+        assert_eq!(
+            other_hub(&sources_from(
+                None,
+                Some("https://dev-hub.example.org/v1/servers")
+            ))
+            .as_deref(),
+            Some("https://dev-hub.example.org")
+        );
     }
 }

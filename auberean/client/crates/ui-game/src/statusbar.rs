@@ -984,12 +984,11 @@ impl Child for Effects {
             self.started = true;
             self.init(ui);
         }
-        let now = self.effects.as_ref().map_or(0.0, |e| e.now);
         for n in std::mem::take(&mut self.noticed) {
             if n.native == notice::UPDATE_EFFECT {
                 self.init(ui);
             } else if n.native == notice::PULSE_MISSED {
-                self.pulse_missed(ui, n.word(), now);
+                self.pulse_missed(ui, n.word(), view.game_time);
             } else if let Some(request) = examined(&n) {
                 self.examination_request_changed(ui, request);
             }

@@ -226,8 +226,8 @@ fn release_files_are_named_for_version_and_platform_and_read_back() {
 }
 
 /// The Windows zip is what the launcher's own update installs: one top-level folder holding
-/// `dereth.exe` and the client, the plugin author's tool and the retail client's friends library
-/// beside it.
+/// `dereth.exe` and the client, the plugin author's tool, the relay with its license and notice,
+/// and the retail client's friends library beside it.
 #[test]
 fn the_windows_launcher_zip_holds_the_launcher_and_the_client_in_one_folder() {
     let w = target(WINDOWS);
@@ -237,12 +237,15 @@ fn the_windows_launcher_zip_holds_the_launcher_and_the_client_in_one_folder() {
         required,
         [
             "LICENSE",
+            "LICENSE-empyrean-relay",
+            "NOTICE-empyrean-relay.txt",
             "NOTICE.txt",
             "THIRD-PARTY-LICENSES.html",
             "auberean_friends.dll",
             "dereth-client.exe",
             "dereth-plugin.exe",
-            "dereth.exe"
+            "dereth.exe",
+            "empyrean-relay.exe"
         ]
     );
     assert!(optional.is_empty());
@@ -285,6 +288,132 @@ fn the_launchers_release_configuration_names_no_machine_folder() {
         assert!(
             guard::local_paths_in(text.as_bytes(), &[ws.display().to_string()]).is_empty(),
             "{text}"
+        );
+    }
+}
+
+/// The relay comes with Dereth, where the launcher looks for it: beside the client, in the Windows
+/// folder, in the macOS bundle's `Contents/MacOS` and among the AppImage's programs. Its license and
+/// notice go with it, and a release file without any of them is refused.
+#[test]
+fn a_release_carries_the_relay_and_its_license_beside_the_client() {
+    assert_eq!(
+        dereth::relay_in_release(target(WINDOWS)),
+        "empyrean-relay.exe"
+    );
+    assert_eq!(
+        dereth::relay_in_release(target(MAC_ARM)),
+        "Contents/MacOS/empyrean-relay"
+    );
+    assert_eq!(dereth::relay_in_release(target(LINUX)), "empyrean-relay");
+    for (t, notices) in [(WINDOWS, ""), (MAC_ARM, "Contents/Resources/")] {
+        let t = target(t);
+        let (required, _) = dereth::contents(t);
+        let mut wanted = vec![dereth::relay_in_release(t)];
+        wanted.extend(
+            dereth::RELAY_NOTICES
+                .iter()
+                .map(|n| format!("{notices}{n}")),
+        );
+        for name in &wanted {
+            assert!(required.contains(name), "{name}: {required:?}");
+            let without: Vec<Entry> = required
+                .iter()
+                .filter(|n| *n != name)
+                .map(|n| Entry {
+                    path: n.clone(),
+                    kind: Kind::File,
+                    size: 1,
+                    head: Vec::new(),
+                })
+                .collect();
+            let findings = guard::scan_tree(&without, &required, &[], 1 << 20, 1 << 20);
+            assert!(findings.iter().any(|f| f.contains(name)), "{findings:?}");
+        }
+    }
+    // Auberean's package and the launcher's own hold no relay.
+    for t in [WINDOWS, MAC_ARM] {
+        let t = target(t);
+        let (required, optional) = super::auberean::contents(t);
+        let (own, own_optional) = super::launcher::contents(t);
+        for name in required
+            .iter()
+            .chain(&optional)
+            .chain(&own)
+            .chain(&own_optional)
+        {
+            assert!(!name.contains("empyrean"), "{name}");
+        }
+    }
+}
+
+/// The relay's notice says what it is under and where its source is, at the commit it was built
+/// from and by the version it answers to; Dereth's says it is apart from the MIT license above it.
+#[test]
+fn the_relay_s_notice_names_its_license_and_its_source() {
+    let crates = vec![
+        super::notice::Crate {
+            name: "empyrean-net".to_owned(),
+            version: "0.3.10".to_owned(),
+            licence: super::notice::SERVER_LICENCE.to_owned(),
+        },
+        super::notice::Crate {
+            name: "log".to_owned(),
+            version: "0.4.0".to_owned(),
+            licence: "MIT OR Apache-2.0".to_owned(),
+        },
+    ];
+    let text = super::notice::relay_notice(&super::notice::RelayFacts {
+        version: "0.3.10",
+        target: WINDOWS,
+        commit: "abc123",
+        source_url: "https://github.com/dereth-network/dereth/",
+        dereth_version: "0.6.0",
+        crates: &crates,
+        mit_license: "MIT License",
+        ac1999_notice: "ac1999's own words",
+    });
+    for wanted in [
+        "empyrean-relay 0.3.10 (x86_64-pc-windows-msvc)",
+        super::notice::SERVER_LICENCE,
+        "LICENSE-empyrean-relay",
+        "https://github.com/dereth-network/dereth/tree/abc123/empyrean/relay",
+        "https://github.com/dereth-network/dereth/archive/abc123.tar.gz",
+        "releases/tag/dereth-v0.6.0",
+        "ac1999's own words",
+        "MIT License",
+        "empyrean-net 0.3.10",
+        "log 0.4.0",
+    ] {
+        assert!(
+            text.contains(wanted),
+            "{wanted}
+{text}"
+        );
+    }
+
+    let fonts = vec![];
+    let dereth = super::notice::dereth_notice(&super::notice::DerethFacts {
+        version: V,
+        target: WINDOWS,
+        commit: "abc123",
+        source_url: "https://github.com/dereth-network/dereth",
+        crates: &crates,
+        mit_licence: "MIT License",
+        fonts: &fonts,
+        moltenvk_licence: None,
+    });
+    for wanted in [
+        "EMPYREAN-RELAY",
+        "LICENSE-empyrean-relay",
+        "NOTICE-empyrean-relay.txt",
+        "GNU Affero General Public License",
+        "https://github.com/dereth-network/dereth/tree/abc123/empyrean/relay",
+    ] {
+        assert!(
+            dereth.contains(wanted),
+            "{wanted}
+{dereth}"
         );
     }
 }

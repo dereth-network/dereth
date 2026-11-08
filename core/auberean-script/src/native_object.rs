@@ -544,6 +544,12 @@ impl Default for QuestInfo {
 impl QuestInfo {
     /// The status of a quest under way.
     pub const UNDERWAY: u32 = 0x1000_0000;
+    /// The status of a quest failed.
+    pub const FAILED: u32 = 0x2000_0000;
+    /// The status of a quest done.
+    pub const COMPLETED: u32 = 0x3000_0000;
+    /// The status of a quest given up.
+    pub const CANCELLED: u32 = 0x8000_0000;
 
     /// Read one record in its packed form (its id, name, description, icon, status, phase,
     /// journal entry, challenge, the given and done times, whether it runs out, the time left,

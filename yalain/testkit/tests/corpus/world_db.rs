@@ -489,6 +489,15 @@ fn served(t: &Tables) -> (Harness, usize, u64) {
     h.server.stores = t.stores.clone();
     h.server.quests = t.quests.clone();
     h.server.talk = t.talk.clone();
+    // What its quests give can be made, as on a real start.
+    let gifts = t.quests.steps.iter().flat_map(|s| s.gives.iter());
+    for gift in gifts.chain(t.quests.gives.iter().flat_map(|g| g.gives.iter())) {
+        if h.server.catalog.get(*gift).is_none() {
+            let props = yalain_content::Props::default();
+            let made = yalain_testkit::test_template(*gift, 0x1067, props);
+            h.server.catalog.insert(made);
+        }
+    }
     let (b, me) = h.player_in_world("world", "Rowan");
     (h, b, me)
 }
@@ -3564,4 +3573,63 @@ fn the_rouge_mirra_goes_as_the_other_mirras() {
     assert_eq!(quest_state(&h, QUEST), Some((status::UNDERWAY, 3)));
     hand_in(&mut h, &portal, 0x4700_076A, 0x4700_3331);
     assert_eq!(quest_state(&h, QUEST).map(|q| q.0), Some(status::COMPLETED));
+}
+
+/// What the best transmutation perk pays for what a store sells is no more than its price, so no
+/// buying and selling back makes money. Every store of the world database, each sale in coins.
+/// Behaviour: server.inventory.money-bag-pays-a-perk
+#[test]
+fn no_store_sale_pays_back_more_than_it_cost_at_the_best_transmutation_perk() {
+    let t = &compiled().tables;
+    let portal = yalain_testkit::authored::Portal::open();
+    let mut checked = 0;
+    let mut over = Vec::new();
+    for sale in t
+        .stores
+        .sales
+        .iter()
+        .filter(|s| s.currency == yalain_world::pack::COINS)
+    {
+        let Some(value) = portal.template(sale.product).props.int("Item_Value") else {
+            continue;
+        };
+        checked += 1;
+        let back = (f64::from(i32::try_from(value).unwrap_or(0)) * 1.18).floor();
+        if back > f64::from(sale.cost) {
+            over.push((sale.store, sale.product, sale.cost, value));
+        }
+    }
+    assert!(checked > 100, "{checked}");
+    assert!(over.is_empty(), "{} pay back more: {over:x?}", over.len());
+}
+
+/// Every template a world's rows make reads from the install, so a real start can describe it, and
+/// a row a death or a use makes by is a creature.
+/// Behaviour: server.makes.the-rows-name-what-they-make
+#[test]
+fn everything_the_worlds_rows_make_reads_from_the_install() {
+    let t = &compiled().tables;
+    let portal = yalain_testkit::authored::Portal::open();
+    let named = yalain_world::makes::by_the_rows(yalain_world::makes::Rows {
+        objects: &t.content.objects,
+        stores: &t.stores,
+        quests: &t.quests,
+        crafting: &t.crafting,
+        death_spawns: &t.death_spawns,
+        pets: &t.pet_kinds,
+    });
+    for template in named {
+        assert_eq!(portal.template(template).id, template);
+    }
+    for (name, spawn) in &t.death_spawns {
+        let mut props = portal.template(spawn.template).props;
+        props.set(
+            yalain_content::props::creature_property::LEVEL,
+            yalain_content::Prop::Int(20),
+        );
+        assert!(
+            yalain_content::CreatureStats::from_props(&props).is_some(),
+            "{name}"
+        );
+    }
 }

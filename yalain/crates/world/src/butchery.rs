@@ -13,8 +13,8 @@
 //!
 //! **The yield** is one of the creature's butchery profile's materials, by their shares; so many
 //! units by the knife, ten above the yield its recipe's item level gave it (a crude one's 1 gives
-//! 11), twice that for an expert cut, which comes more often the more the player's butchery passes
-//! the creature's level. A profile may also hold a share of nothing: a cut that
+//! 11), twice that for an expert cut, which comes more often the higher the player's butchery.
+//! A profile may also hold a share of nothing: a cut that
 //! draws it gathers nothing, pays nothing, and is answered "empty" at the result, the corpse left
 //! to butcher again. The knife stays in the pack until the result; one gone by then cuts nothing.
 
@@ -43,6 +43,8 @@ pub const WORK_SECONDS: f64 = 1.95;
 
 /// Why a butchery is refused, as the use's answer says.
 pub mod refusal {
+    /// The corpse is another's yet.
+    pub const NO_RIGHT: u32 = 10_000;
     /// Another player is on its way to open the corpse.
     pub const LOCKED: u32 = 1030;
     /// The corpse has been butchered.
@@ -126,15 +128,13 @@ pub const fn is_knife(template: u32) -> bool {
     matches!(template, HUNTING_KNIFE | CRUDE_KNIFE)
 }
 
-/// The chance of an expert cut, by the player's butchery level less the creature's: 3 in 100
-/// below it, 6.5 up to 39 above, 17 from 40 above (2017: 250 of 3,005 cuts).
+/// The chance of an expert cut, by the player's butchery level alone: a six hundredth of it (2017:
+/// 250 of 2,999 cuts, 2% below level 20, 20% at 100 to 119; within a band of level the creature's
+/// makes no difference).
 #[must_use]
-pub fn expert_chance(margin: i64) -> f32 {
-    match margin {
-        i64::MIN..=-1 => 0.03,
-        0..=39 => 0.065,
-        _ => 0.17,
-    }
+pub fn expert_chance(level: u32) -> f32 {
+    #[allow(clippy::cast_precision_loss)]
+    (level as f32 / 600.0).min(1.0)
 }
 
 /// Is this use a knife the player holds, used on a corpse?
@@ -226,7 +226,9 @@ pub fn begin<S: Store>(
         .get(&world)
         .and_then(|p| p.play.craft_skills.iter().find(|c| c.skill == SKILL))
         .map_or(1, |c| c.level);
-    let refused = if needs.is_some_and(|n| level < n) {
+    let refused = if !crate::death::may_loot(s, me, corpse, clock.local.0) {
+        Some(refusal::NO_RIGHT)
+    } else if needs.is_some_and(|n| level < n) {
         Some(refusal::CRAFT_TOO_LOW)
     } else {
         refusal_at(s, world, corpse)
@@ -286,7 +288,6 @@ pub fn done<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, w: 
     let Some(t) = s.catalog.get(creature) else {
         return;
     };
-    let level = t.props.int("GameplayStatistics_Level").unwrap_or(1);
     let name = t.facts.name;
     let Some(yields) = t
         .props
@@ -347,10 +348,12 @@ pub fn done<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, w: 
         progress::private(net, world, &m);
         return;
     }
+    let butcher = crate::social::name_of(s, world);
     if let Some(c) = s.things.get_mut(w.corpse).and_then(|t| t.corpse.as_mut()) {
         c.butchered = true;
+        c.butchered_by = Some(butcher);
     }
-    let expert = s.rng.chance(expert_chance(i64::from(record.level) - level));
+    let expert = s.rng.chance(expert_chance(record.level));
     let own = s
         .things
         .get(w.used.item)

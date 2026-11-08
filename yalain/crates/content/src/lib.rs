@@ -44,7 +44,7 @@ pub mod worn_table;
 pub use locks::{Lock, LockTable};
 pub use loot::{ChestTreasure, LootProfile, LootTable};
 pub use movement::{CampMoves, Movement, MovementOverrides, MovementType, Route};
-pub use props::{CreatureStats, Prop, Props};
+pub use props::{CorpseRot, CreatureStats, Prop, Props};
 pub use quests::QuestTable;
 pub use spawns::{Camp, SpawnTable};
 pub use stores::StoreTable;
@@ -102,6 +102,183 @@ pub struct DeathSpawn {
     pub offset: [f32; 2],
     /// How long each stands, in seconds, where it doesn't stay until killed.
     pub lasts: Option<f32>,
+}
+
+/// Whom a kind of pet tends.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PetWhom {
+    Owner,
+    OwnersPets,
+}
+
+/// How a kind of pet tends: whom, with what effect (at the pet's level), how often in seconds, and
+/// the share of whole health below which it does.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PetTends {
+    pub whom: PetWhom,
+    pub effect: u32,
+    pub every: f64,
+    pub below: f32,
+}
+
+/// A contract's terms: the mercenary's class of pet, how long it stays in seconds, its level.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PetHire {
+    pub class: u32,
+    pub seconds: f64,
+    pub level: f32,
+}
+
+/// A kind of pet: what an effect (or a contract's template) makes, and how it fights and ends.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PetKind {
+    /// The pet effect that names it, or the template of the contract that hires it.
+    pub effect: u32,
+    pub template: u32,
+    /// The flags of a pet's data as its owner is told them.
+    pub flags: u32,
+    /// Its greatest health at levels, where known (between them the line, beyond them held).
+    pub health: Vec<(i32, i32)>,
+    /// What a hit of it takes: `per_level_squared` times its level squared, varied by `variance`
+    /// either side, less the target's armor; the share of its strikes that land.
+    pub per_level_squared: f32,
+    pub variance: f32,
+    pub lands: f32,
+    /// Hits a swing on its one target.
+    pub hits: u32,
+    /// Whom it tends, when it does.
+    pub tends: Option<PetTends>,
+    /// It stays where it is made (it never follows; it takes on what comes within its reach).
+    pub stays: bool,
+    /// Its missile lands on every creature this near where it falls (0: on its target alone).
+    pub area: f32,
+    /// Its strikes taunt (no harm; the creature may turn on it).
+    pub taunts: bool,
+    /// It cannot be set down indoors ("The summoning fails.").
+    pub outdoors_only: bool,
+    /// Its corpse after its death, in seconds (none: its body leaves without one).
+    pub corpse_after: Option<f64>,
+    /// How many of it its effect makes at once.
+    pub made: u32,
+    /// A contract's terms, when a contract hires it.
+    pub hire: Option<PetHire>,
+    /// How many of its own class a skill that summons it allows, when the world lists no limits for
+    /// the skill.
+    pub most_of_class: Option<usize>,
+}
+
+impl PetKind {
+    /// How long after it dies a pet's corpse comes, in seconds (2017: a median 1.5 s after it is
+    /// taken off the list).
+    pub const CORPSE_AFTER: f64 = 1.5;
+
+    #[must_use]
+    pub fn new(effect: u32, template: u32, flags: u32, health: &[(i32, i32)]) -> Self {
+        Self {
+            effect,
+            template,
+            flags,
+            health: health.to_vec(),
+            per_level_squared: 0.05,
+            variance: 0.35,
+            lands: 0.8,
+            hits: 1,
+            tends: None,
+            stays: false,
+            area: 0.0,
+            taunts: false,
+            outdoors_only: false,
+            corpse_after: Some(Self::CORPSE_AFTER),
+            made: 1,
+            hire: None,
+            most_of_class: None,
+        }
+    }
+
+    #[must_use]
+    pub const fn hits_for(mut self, per_level_squared: f32, variance: f32, lands: f32) -> Self {
+        self.per_level_squared = per_level_squared;
+        self.variance = variance;
+        self.lands = lands;
+        self
+    }
+
+    #[must_use]
+    pub const fn hits_a_swing(mut self, hits: u32) -> Self {
+        self.hits = hits;
+        self
+    }
+
+    #[must_use]
+    pub const fn tending(mut self, tends: PetTends) -> Self {
+        self.tends = Some(tends);
+        self
+    }
+
+    #[must_use]
+    pub const fn hired(mut self, hire: PetHire) -> Self {
+        self.hire = Some(hire);
+        self
+    }
+
+    #[must_use]
+    pub const fn staying(mut self) -> Self {
+        self.stays = true;
+        self
+    }
+
+    #[must_use]
+    pub const fn landing_on_all_within(mut self, area: f32) -> Self {
+        self.area = area;
+        self
+    }
+
+    #[must_use]
+    pub const fn taunting(mut self) -> Self {
+        self.taunts = true;
+        self.lands = 0.0;
+        self
+    }
+
+    #[must_use]
+    pub const fn outdoors_only(mut self) -> Self {
+        self.outdoors_only = true;
+        self
+    }
+
+    #[must_use]
+    pub const fn corpse(mut self, after: Option<f64>) -> Self {
+        self.corpse_after = after;
+        self
+    }
+
+    #[must_use]
+    pub const fn made(mut self, made: u32) -> Self {
+        self.made = made;
+        self
+    }
+
+    #[must_use]
+    pub const fn most_of_its_class(mut self, most: usize) -> Self {
+        self.most_of_class = Some(most);
+        self
+    }
+
+    /// Its greatest health at a level, when known.
+    #[must_use]
+    pub fn health_at(&self, level: i32) -> Option<i32> {
+        let (first, last) = (self.health.first()?, self.health.last()?);
+        if level <= first.0 {
+            return Some(first.1);
+        }
+        if level >= last.0 {
+            return Some(last.1);
+        }
+        self.health.windows(2).find_map(|w| {
+            let ((l0, h0), (l1, h1)) = (w[0], w[1]);
+            (level >= l0 && level <= l1).then(|| h0 + (h1 - h0) * (level - l0) / (l1 - l0).max(1))
+        })
+    }
 }
 
 /// The templates the world makes objects of, by id, and the names of the generator profiles
@@ -247,6 +424,10 @@ pub struct Facts {
     /// A placed portal's flags: whether a player's portal recall returns to where it leads, and
     /// whether a summoned portal opens to it.
     pub portal: u32,
+    /// A placed object only a hero may use.
+    pub hero: bool,
+    /// The kingdom a player must be of to use a placed object, as a description's faction names it.
+    pub kingdom: Option<u32>,
 }
 
 /// A portal's flags.
@@ -288,6 +469,12 @@ impl Facts {
         if self.portal != 0 {
             out.push(format!("portal={:X}", self.portal));
         }
+        if self.hero {
+            out.push("hero=1".into());
+        }
+        if let Some(k) = self.kingdom {
+            out.push(format!("kingdom={k:X}"));
+        }
         out.join(";")
     }
 
@@ -318,6 +505,8 @@ impl Facts {
                 "faction" => f.faction = Some(hex32(v)?),
                 "group" => f.group = v == "1",
                 "portal" => f.portal = hex32(v)?,
+                "hero" => f.hero = v == "1",
+                "kingdom" => f.kingdom = Some(hex32(v)?),
                 other => return Err(format!("an unknown fact {other}")),
             }
         }
@@ -443,7 +632,7 @@ pub struct ContentObject {
 
 /// A quest a use needs: the quest, and the status it must be at, written as a template's
 /// `Usage_RequiredQuestStatus` is (completed `0x30000000`; under way `0x10000000`, with the phase
-/// in the low bits when one is needed).
+/// in the low bits when one is needed; [`QuestGate::HAD`]: failed, completed or under way).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct QuestGate {
     pub quest: u32,
@@ -451,6 +640,9 @@ pub struct QuestGate {
 }
 
 impl QuestGate {
+    /// The status a gate names when any of failed, completed or under way will do.
+    pub const HAD: u32 = 0;
+
     /// The gate as text: the quest and the status in hex, `:` between.
     #[must_use]
     pub fn to_text(&self) -> String {

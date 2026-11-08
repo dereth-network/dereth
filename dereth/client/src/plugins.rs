@@ -9,17 +9,17 @@
 //! first time the client sees them, and the others wait for the player's Enable; a Disable is kept
 //! as an Enable is. A `--plugins` folder's plugins load at once: the command line names them. With
 //! `--plugin-dev` a plugin is reloaded whenever one of its files changes. Plugins beside the
-//! program are found too ([`bundled_dir_for`](crate::plugins::bundled_dir_for)): releases carry
+//! program are found too ([`bundled_dir_for`]): releases carry
 //! none (players install Dereth's from its plugin source, through the launcher). A client built
 //! from the repository finds what any client finds and no more: a developer names the samples'
 //! folder with `--plugins`, or adds it as a folder on the launcher's Plugins page.
 //!
 //! The desktop offers every drawn capability (windows, HUDs, markers, the arrow, radar and map
 //! marks), movement, the character list, a bus between the player's clients on this machine
-//! ([`LoopbackPeers`](crate::plugins::LoopbackPeers): loopback datagrams, each client's port listed in the settings folder), and
-//! HTTPS off the frame's thread ([`ThreadNet`](crate::plugins::ThreadNet)). The world's policy comes from `--plugin-policy`,
+//! ([`LoopbackPeers`]: loopback datagrams, each client's port listed in the settings folder), and
+//! HTTPS off the frame's thread ([`ThreadNet`]). The world's policy comes from `--plugin-policy`,
 //! a file or an `https://` URL, which the launcher passes from the world's entry. Each plugin's
-//! data folder ([`DirFiles`](crate::plugins::DirFiles)) is `plugin-data/<id>` in the settings
+//! data folder ([`DirFiles`]) is `plugin-data/<id>` in the settings
 //! folder: the player puts files there for it (a profile, a route) and it saves files there.
 
 use std::collections::BTreeMap;

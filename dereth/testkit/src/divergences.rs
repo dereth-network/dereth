@@ -92,7 +92,8 @@ pub static DIVERGENCES: &[Divergence] = &[
         id: "CD-004",
         title: "A resolution is real screen pixels at any desktop scaling",
         change: "The client is aware of desktop scaling, so the configured resolution is exactly \
-                 that many pixels on any monitor.",
+                 that many pixels on any monitor. On macOS it is points instead \
+                 (CD-mac-window-goes-by-points).",
         why: "A window the desktop enlarges no longer fits the monitor it was sized for.",
     },
     Divergence {
@@ -451,8 +452,8 @@ pub static DIVERGENCES: &[Divergence] = &[
         change: "Every interface's Client Options page has a Slow Down in the Background box. \
                  Ticked, which it is at first, the client draws about ten frames a second while \
                  its window is not the active one, as the final client always did; unticked, it \
-                 keeps its full frame rate in the background. The final client had no such \
-                 choice.",
+                 keeps its full frame rate in the background, resting to about sixty a second if \
+                 nobody can see the window. The final client had no such choice.",
         why: "A player who watches the game in a window beside another, or records it, can keep \
               it smooth; one who wants the lighter load in the background keeps the default.",
     },
@@ -494,6 +495,28 @@ pub static DIVERGENCES: &[Divergence] = &[
               did can have them.",
     },
     Divergence {
+        id: "CD-mac-command-key",
+        title: "On a Mac, Command works as Control",
+        change: "On a Mac either Command key reaches the client as Control, and the key pages name \
+                 it Left Cmd, Right Cmd or Cmd. The Control key stays Control. A chord the system \
+                 keeps for Command (Tab, Q, H or Space) is pressed with Control and shown with \
+                 it. The final client ran on Windows only.",
+        why: "Mac shortcuts, copy and paste among them, are pressed with Command, and macOS keeps \
+              several Control chords for itself.",
+    },
+    Divergence {
+        id: "CD-mac-window-goes-by-points",
+        title: "On macOS a window's size is in points",
+        change: "On macOS the size of the client's window and the pointer's place in it are in \
+                 points, and the picture of the interfaces with a fixed size is drawn at that size \
+                 and scaled to fill the window, so a Retina screen shows it as large as any other; \
+                 Horizon, which sizes itself, is drawn at the window's own pixels, or the render \
+                 scale's share of them. The final client ran only where a window's size is in the \
+                 screen's pixels.",
+        why: "A resolution in the screen's pixels is half as wide and half as tall on a Retina \
+              screen, which makes the login window very small.",
+    },
+    Divergence {
         id: "CD-network-channel-lines",
         title: "Dereth Network channel lines are drawn as channel lines",
         change: "A Dereth Network channel reaches every client as a tell from the channel, since \
@@ -528,6 +551,26 @@ pub static DIVERGENCES: &[Divergence] = &[
                  folder, saying where. Neither sends anything. The final client had neither.",
         why: "A player who sees something drawn wrong, or slow frames, can hand over exactly what \
               is needed to see it again on another machine.",
+    },
+    Divergence {
+        id: "CD-reports-player-count",
+        title: "A login tells the Dereth Network's hub the world's player count",
+        change: "The count a world gives at login goes to the hub with the world's address and \
+                 port, and nothing else, for the launcher's list of worlds. There is no setting to \
+                 turn it off. A world on the player's own computer or network is not reported.",
+        why: "Most worlds have no other way to say how many are on; a world's count is public and \
+              says nothing of who is playing.",
+    },
+    Divergence {
+        id: "CD-resizable-window",
+        title: "On macOS the window can be dragged to any size",
+        change: "On macOS the player can drag the window's edges, down to the login size, and the \
+                 picture and the interface follow. Leaving full screen comes back to a dragged \
+                 size, and the next start opens at the size the window closed at, which this \
+                 client keeps beside the saved resolution; choosing a resolution still sizes the \
+                 window to it. A screen held at the login size cannot \
+                 be dragged. The final client's window kept the size its resolution named.",
+        why: "A Mac window is expected to resize.",
     },
 ];
 

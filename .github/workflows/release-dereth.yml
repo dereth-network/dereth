@@ -1,7 +1,7 @@
 name: Release Dereth
 
-# Builds, checks and drafts a Dereth release: the launcher, with the client inside it, and the
-# plugin author's tool, for Windows, macOS and Linux. A pushed `dereth-v<version>` tag builds every
+# Builds, checks and drafts a Dereth release: the launcher, with the client and the relay inside it,
+# and the plugin author's tool, for Windows, macOS and Linux. A pushed `dereth-v<version>` tag builds every
 # target and creates a DRAFT GitHub release, which a maintainer reviews and publishes by hand. Its
 # latest.json names the launcher it holds, for installs from before the launcher had releases of its
 # own; every other launcher updates from those.
@@ -31,7 +31,8 @@ permissions:
 
 concurrency:
   group: release-dereth-${{ github.ref }}
-  cancel-in-progress: false
+  # A tag can reach this repository twice at once: the newer run takes over, for one build.
+  cancel-in-progress: ${{ github.event_name == 'push' }}
 
 env:
   # The build tools, pinned.
@@ -57,6 +58,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       launcher: ${{ steps.version.outputs.launcher }}
+      relay: ${{ steps.version.outputs.relay }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -83,9 +85,12 @@ jobs:
             version=$(cargo xtask version dereth)
           fi
           launcher=$(cargo xtask version launcher)
+          # The relay beside the client is at Empyrean's version.
+          relay=$(cargo xtask version empyrean)
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "launcher=$launcher" >> "$GITHUB_OUTPUT"
-          echo "Dereth $version, with the launcher $launcher"
+          echo "relay=$relay" >> "$GITHUB_OUTPUT"
+          echo "Dereth $version, with the launcher $launcher and the relay $relay"
       - name: The release notes, from CHANGES.md and the commits since the previous release
         shell: bash
         env:
@@ -223,6 +228,7 @@ jobs:
           TARGET: ${{ matrix.target }}
           VERSION: ${{ needs.version.outputs.version }}
           LAUNCHER: ${{ needs.version.outputs.launcher }}
+          RELAY: ${{ needs.version.outputs.relay }}
         run: |
           mkdir smoke
           run() { "$@"; }
@@ -233,6 +239,8 @@ jobs:
               launcher="smoke/dereth-$VERSION/dereth.exe"
               client="smoke/dereth-$VERSION/dereth-client.exe"
               bundled="smoke/dereth-$VERSION/dereth-plugin.exe"
+              relay="smoke/dereth-$VERSION/empyrean-relay.exe"
+              relay_notices="smoke/dereth-$VERSION"
               tool="smoke/dereth-plugin-$VERSION/dereth-plugin.exe"
               library="smoke/dereth-$VERSION/auberean_friends.dll" ;;
             *linux*)
@@ -241,6 +249,8 @@ jobs:
               launcher="smoke/squashfs-root/usr/bin/dereth"
               client="smoke/squashfs-root/usr/bin/dereth-client"
               bundled="smoke/squashfs-root/usr/bin/dereth-plugin"
+              relay="smoke/squashfs-root/usr/bin/empyrean-relay"
+              relay_notices="smoke/squashfs-root/usr/bin"
               tar -xzf "dist/dereth-plugin-$VERSION-linux-x86_64.tar.gz" -C smoke
               tool="smoke/dereth-plugin-$VERSION/dereth-plugin"
               library=$(find smoke/squashfs-root -name auberean_friends.dll | head -n 1) ;;
@@ -251,6 +261,8 @@ jobs:
               launcher="smoke/Dereth.app/Contents/MacOS/dereth"
               client="smoke/Dereth.app/Contents/MacOS/dereth-client"
               bundled="smoke/Dereth.app/Contents/MacOS/dereth-plugin"
+              relay="smoke/Dereth.app/Contents/MacOS/empyrean-relay"
+              relay_notices="smoke/Dereth.app/Contents/Resources"
               tar -xzf "dist/dereth-plugin-$VERSION-macos-$arch.tar.gz" -C smoke
               tool="smoke/dereth-plugin-$VERSION/dereth-plugin"
               library="smoke/Dereth.app/Contents/Resources/auberean_friends.dll" ;;
@@ -267,6 +279,12 @@ jobs:
           # The same tool comes with Dereth, beside the client.
           run "$bundled" --version | tee version-bundled-tool.txt
           cmp version-tool.txt version-bundled-tool.txt
+          # The relay comes with Dereth too, at Empyrean's version, with its own license and notice.
+          run "$relay" --version | tee version-relay.txt
+          grep -qx "empyrean-relay $RELAY" version-relay.txt
+          grep -q "GNU AFFERO GENERAL PUBLIC LICENSE" "$relay_notices/LICENSE-empyrean-relay"
+          grep -q "empyrean-relay $RELAY ($TARGET)" "$relay_notices/NOTICE-empyrean-relay.txt"
+          grep -q "/tree/.*/empyrean/relay" "$relay_notices/NOTICE-empyrean-relay.txt"
           # The retail client's friends library came with the launcher.
           test -s "$library"
           echo "::notice::the launcher has no headless mode, so its window is not opened here"
@@ -365,6 +383,8 @@ jobs:
 
           For plugin authors: Dereth Plugin Tools, \`dereth-plugin\`, comes with Dereth, beside the client. \`dereth-plugin-$VERSION-<platform>\` is the same tool on its own (\`.zip\` on Windows, \`.tar.gz\` on macOS and Linux); unpack it and run \`dereth-plugin\`.
 
+          \`empyrean-relay\`, also beside the client, is how the launcher plays a world that speaks another wire format. It is a separate program under the GNU Affero General Public License, version 3 only: \`NOTICE-empyrean-relay.txt\` says where its source is.
+
           **No game data is included**: the client plays with the data files of your own Asheron's Call install.
 
           These builds are not code-signed yet. Windows SmartScreen asks once (More info, then Run anyway); macOS asks once (System Settings, Privacy & Security, Open Anyway).
@@ -414,6 +434,12 @@ jobs:
           # A final Dereth release is the repository's Latest; every other product's draft is not.
           LATEST="--latest"
           case "$VERSION" in *-*) PRE="--prerelease"; LATEST="--latest=false" ;; esac
+          # A second draft of one tag can't be told from the first, and GitHub allows it.
+          tags=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq '.[].tag_name')
+          if grep -qxF "$TAG" <<< "$tags"; then
+            echo "::notice::$TAG already has a release"
+            exit 0
+          fi
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag $LATEST $PRE \
             --title "Dereth $VERSION" --notes-file ../notes.md \
             "${assets[@]}"

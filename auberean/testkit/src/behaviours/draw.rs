@@ -790,6 +790,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "draw.mesh.a-bodys-reach-is-worked-out-each-frame",
+        says: "How far away a body is drawn is worked out fresh each frame: one that a low scale \
+               left undrawn is drawn again once the scale comes back, wherever the camera stands.",
+        since: THIS_CLIENT,
+        divergence: "CD2-a-bodys-reach-is-worked-out-each-frame",
+        evidence: Evidence::Private("AC2-EVID-BODY-REACH-FRESH"),
+        station: "auberean-draw::cpu::objects::a_bodys_reach_is_worked_out_each_frame",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "draw.mesh.a-faded-draw-stops-marking-depth-and-testing-its-alpha",
         says: "A draw not wholly opaque of a layer that tests or blends by alpha marks no \n               depth and passes every texel with some alpha: a blending layer under 0.8, any \n               such layer past 40 m.",
         since: RETAIL,
@@ -814,6 +824,15 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-DEVICE-LOST"),
         station: "auberean-gpu::gpu::lost::a_lost_device_is_noticed_and_does_not_stop_the_game",
         tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "draw.mesh.a-screenshot-is-drawn-at-full-detail",
+        says: "While a screenshot is taken nothing degrades or goes with its distance from the \
+               camera: far objects come out at full detail, and the next frame is as before.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SHOT-FULL-DETAIL"),
+        station: "auberean-draw::dat::outdoors::a_screenshot_is_drawn_at_full_detail",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "draw.mesh.a-vertex-format-lays-its-elements-out-in-order",
@@ -1093,6 +1112,22 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-DRAW-PARTICLE-KEY-LINKS"),
         station: "auberean-draw::cpu::effects::particles::keyframes_link_to_the_next_that_blends_each_value",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "draw.particles.placed-systems-stop-past-the-objects-visible-distance",
+        says: "A placed object's particle systems aren't queued past its visible distance from the                camera, whatever their own fade distances.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PARTICLES-OBJECT-DRAWN"),
+        station: "auberean-draw::dat::effects::a_placed_object_past_its_visible_distance_has_its_systems_left_unqueued",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "draw.particles.unforced-systems-queue-only-as-their-object-is-drawn",
+        says: "A particle system its record doesn't force to draw is queued only while its object                is drawn, so a player in first person at peace sees none of its own; one its record                forces is queued either way.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PARTICLES-OBJECT-NOT-DRAWN"),
+        station: "auberean-draw::dat::effects::a_system_not_forced_to_draw_is_queued_only_while_its_object_is_drawn",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "draw.particles.waveforms-take-their-shape-at-a-time",
@@ -1562,6 +1597,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "draw.volume.a-mesh-standing-as-it-did-keeps-its-volume",
+        says: "A mesh standing as it did in the frame before, under the same light, keeps its volume, and what fits the frame's room is what a volume made afresh would give.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-VOLUMES-KEPT"),
+        station: "auberean-draw::dat::volumes::a_mesh_standing_as_it_did_keeps_its_volume",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "draw.volume.a-placed-object-takes-its-drawing-properties-from-its-entities",
         says: "An object a landblock or a cell places takes its drawing properties as any object \
                made from an entity does: the entities it is made from first, innermost first, then \
@@ -1581,6 +1624,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-VOLUME-PLACED-CARRIED"),
         station: "auberean-draw::dat::volumes::a_placed_objects_shadow_turns_away_from_a_carried_light",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "draw.volume.a-placed-objects-volume-follows-its-pose",
+        says: "A placed object's volume of shadow is cast from it as it stands, and moves as it plays.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PLACED-VOLUME-POSED"),
+        station: "auberean-draw::dat::placed::a_placed_objects_volume_follows_its_pose",
         tier: Tier::Dat,
     },
     behaviour! {

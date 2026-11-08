@@ -294,6 +294,8 @@ journalctl -u dereth-network-hub -f
   and a hub refuses to start with a flag it does not know.
 - `remove <slug>` removes any world for good; `unlist <slug>` and `relist <slug>` take one out of
   the public lists and put it back (run them as the hub's user, below).
+- `--no-treestats`: the hub reads no player counts from TreeStats, which it otherwise does every 15
+  minutes for the worlds that have no count of their own, over HTTPS to `treestats.net`.
 - `--deny-fetch` (repeated, or one range to a line in a `--deny-fetch-file`): ranges the hub never
   reads a verification page from, and never sends a verification challenge to, whatever else
   allows them. The hub already refuses private and reserved addresses; list what is public but

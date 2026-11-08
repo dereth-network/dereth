@@ -1832,6 +1832,7 @@ fn a_product_is_built_from_what_it_ships_through_normal_and_build_dependencies_a
             (
                 Product::Dereth,
                 set(&[
+                    "empyrean-relay",
                     "dereth-client",
                     "dereth-client-runtime",
                     "dereth-web",
@@ -1904,6 +1905,11 @@ fn a_product_is_built_from_what_it_ships_through_normal_and_build_dependencies_a
     // A crate only tests are built with ships in nothing, nor does what only it brings.
     assert_eq!(of("empyrean/testkit/src/lib.rs"), [] as [Product; 0]);
     assert_eq!(of("core/client-runtime/src/audio.rs"), [Product::Dereth]);
+    assert_eq!(
+        of("empyrean/relay/src/main.rs"),
+        [Product::Empyrean, Product::Dereth],
+        "the relay comes with both"
+    );
     // A vendored crate outside the workspace is its users'.
     assert_eq!(of("vendor/mlua/src/lua.rs"), [Product::Dereth]);
     assert_eq!(

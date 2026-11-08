@@ -757,7 +757,7 @@ impl Ui {
         self.flush_pending();
         // What each kind does when it is made (a field is made as any element is, remembering no
         // state of its own).
-        // D2-11271, D2-11263, D2-11493, D2-11497
+        // D2-11271, D2-11263, D2-11492, D2-11493, D2-11497
         if kind == crate::token::kind::BUTTON {
             self.button_created(h);
         } else if kind == crate::token::kind::DRAGBAR {
@@ -1142,6 +1142,7 @@ impl Ui {
     // D2-11360, D2-11171
     pub fn set_visible(&mut self, h: Handle, v: bool) {
         let Some(n) = self.node(h) else { return };
+        let v = v && !self.mgr.never_shown.contains(&n.id);
         let parent_shown = n.parent.is_none_or(|p| self.shown(p));
         let was = n.visible;
         let before = parent_shown && was;

@@ -16,3 +16,4 @@ pub mod recipe_manager_new;
 pub mod server_manager;
 pub mod server_performance_monitor;
 pub mod world_manager;
+pub mod world_watch;

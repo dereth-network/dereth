@@ -3,6 +3,7 @@
 
 mod channels;
 mod directory;
+mod hub_bounds;
 mod operator;
 mod persons;
 mod presence;

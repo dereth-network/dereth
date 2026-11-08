@@ -43,6 +43,9 @@ pub const OVERALL: Rate = Rate {
     per_sec: 1.0,
 };
 
+/// The most callers whose allowances are kept at once.
+const MAX_CALLERS: usize = 10_000;
+
 /// The most probes waiting for an answer at once across the hub.
 pub const MAX_PROBING: usize = 32;
 
@@ -255,8 +258,15 @@ impl Limits {
             .callers
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if callers.len() > 10_000 {
+        if callers.len() > MAX_CALLERS {
             callers.retain(|_, b| !b.full_at(now));
+        }
+        // A table still full holds off those it does not know: a flood of addresses costs them
+        // the wait, and the hub no more memory.
+        if callers.len() > MAX_CALLERS && !callers.contains_key(&counted_as(caller)) {
+            return Err(Refused {
+                wait: whole_seconds(60.0),
+            });
         }
         let mine = callers
             .entry(counted_as(caller))
@@ -395,6 +405,39 @@ mod tests {
 
     fn ip(s: &str) -> IpAddr {
         s.parse().expect("an address")
+    }
+
+    /// Spec: hub: the table of callers' allowances stays bounded under a flood of addresses.
+    #[test]
+    fn a_table_of_callers_stays_bounded_under_a_flood_of_addresses() {
+        let limits = Limits::new(
+            PER_CALLER,
+            Rate {
+                burst: 1e9,
+                per_sec: 1e9,
+            },
+        );
+        let ip = |n: usize| {
+            let n = u32::try_from(n).expect("small");
+            IpAddr::V4(std::net::Ipv4Addr::from(0x0b00_0000 + n))
+        };
+        for n in 0..=MAX_CALLERS {
+            assert!(limits.take(ip(n), 0.0).is_ok());
+        }
+        let known = ip(0);
+        assert!(
+            limits.take(ip(MAX_CALLERS + 1), 0.0).is_err(),
+            "not one more"
+        );
+        assert!(limits.take(known, 0.0).is_ok(), "one it knows still counts");
+        assert_eq!(
+            limits.callers.lock().expect("the table").len(),
+            MAX_CALLERS + 1
+        );
+        assert!(
+            limits.take(ip(MAX_CALLERS + 1), 1e6).is_ok(),
+            "room again once the other allowances are whole"
+        );
     }
 
     /// Spec: hub: a caller has five probes, then one every twelve minutes, counted on the limits'

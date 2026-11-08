@@ -122,8 +122,8 @@ fn holds_its_effect<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, c
 }
 
 /// The side of a landblock and of a land cell, in meters.
-pub const BLOCK_SIDE: f32 = 160.0;
-pub const CELL_SIDE: f32 = 20.0;
+pub const BLOCK_SIDE: f32 = auberean_physics::rules::BLOCK_LENGTH;
+pub const CELL_SIDE: f32 = auberean_physics::land::CELL_LENGTH;
 /// The side of the whole land, of 256 landblocks.
 pub const LAND_SIDE: f32 = 256.0 * BLOCK_SIDE;
 

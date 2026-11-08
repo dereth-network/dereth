@@ -114,9 +114,16 @@ pub const HELD_ANSWERED: [(&str, u32, u32); 3] = [
 pub const TEACHING_STONE: u32 = 0x1352;
 pub const FORCE_EXAMINE: u32 = 0x8212_0026;
 
-/// The lifestone templates: the human's, the Lugian's, the Tumerok's and the plain one (2017
-/// answered a use of each alike: bound, with the same text and behaviors).
-pub const LIFESTONES: [u32; 4] = [0x4700_113A, 0x4700_113D, 0x4700_1143, 0x4700_113B];
+/// The script library's lifestone: whatever derives from it is one (2017 answered a use of the
+/// human's, the Lugian's, the Tumerok's and the plain one alike: bound, with the same text and
+/// behaviors).
+pub const LIFESTONE: &str = "Lifestone";
+
+/// Is an object of this script package a lifestone?
+#[must_use]
+pub fn is_lifestone<S: Store>(s: &Server<S>, package: u32) -> bool {
+    s.lifestone_packages.contains(&package)
+}
 
 /// How close a player must be to use a portal and a lifestone, in meters.
 pub const PORTAL_REACH: f32 = 5.0;
@@ -316,6 +323,9 @@ fn portal_scene<S: Store>(s: &Server<S>, f: u32, scene: u32) -> ServerMessage {
     call(f, &[Arg::Object(b.graph()), Arg::LongFloat(0f64.to_bits())])
 }
 
+/// The use answer's status for a corpse the player has no right to yet.
+pub const USE_STATUS_NO_RIGHT: u32 = 10000;
+
 /// The use answer's status and control flags for a corpse another player has open.
 pub const USE_STATUS_IN_USE: u32 = 10001;
 pub const USE_FLAGS_IN_USE: u32 = 956;
@@ -356,6 +366,39 @@ pub(crate) fn stop_walking<S: Store>(s: &mut Server<S>, net: &mut ServerNet, wor
     to_all_knowing(s, net, id, &stop);
 }
 
+/// A player using a corpse it has no right to is refused where it stands: is this that?
+fn corpse_refused<S: Store>(
+    s: &Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    u: &Use,
+    clock: Clock,
+) -> bool {
+    let Some(at) = s
+        .things
+        .get(u.item)
+        .filter(|t| t.kind == crate::things::Kind::Corpse)
+        .and_then(|t| t.at)
+    else {
+        return false;
+    };
+    let me = s.players.get(&world).map_or(0, |p| p.character);
+    if crate::death::may_loot(s, me, u.item, clock.local.0) {
+        return false;
+    }
+    let distance = presence::distance(&u.from, &at).unwrap_or(0.0);
+    let no = use_answer(
+        u,
+        me,
+        Some(USE_FLAGS_IN_USE),
+        false,
+        distance,
+        USE_STATUS_NO_RIGHT,
+    );
+    send(net, world, BlobKind::PRIVATE, &no);
+    true
+}
+
 /// A player uses a thing of the world (in reach where reach matters).
 fn use_thing<S: Store>(
     s: &mut Server<S>,
@@ -368,6 +411,9 @@ fn use_thing<S: Store>(
         return;
     };
     let me = s.players.get(&world).map_or(0, |p| p.character);
+    if corpse_refused(s, net, world, &u, clock) {
+        return;
+    }
     match t.kind {
         // One viewer at a time: a corpse another player has open refuses the use.
         crate::things::Kind::Corpse if crate::inventory::viewed_by_another(s, world, u.item) => {
@@ -445,11 +491,52 @@ fn quest_keeps_out<S: Store>(
     o: &yalain_content::ContentObject,
     clock: Clock,
 ) -> Option<u32> {
+    if let Some(why) = under_its_level(s, world, o) {
+        return Some(why);
+    }
+    if let Some(why) = not_who_it_is_for(s, world, o) {
+        return Some(why);
+    }
     if let Some(g) = o.gate {
         return crate::item_use::needs_quest(s, world, g.quest, g.status, clock);
     }
     let props = &s.catalog.get(o.template)?.props;
     crate::item_use::quest_gate(s, world, props, clock)
+}
+
+/// The refusal of a player below a placed object's least level, the one its examination names.
+fn under_its_level<S: Store>(
+    s: &Server<S>,
+    world: ConnId,
+    o: &yalain_content::ContentObject,
+) -> Option<u32> {
+    let least = o.facts.min_level?;
+    let p = s.players.get(&world)?;
+    (crate::examine::level_of(&p.qualities) < least)
+        .then_some(crate::item_use::refusal::LEVEL_TOO_LOW)
+}
+
+/// The refusal of a player a placed object is not for: of another kingdom than the one it names, or
+/// no hero when it is for heroes alone, as its examination says.
+fn not_who_it_is_for<S: Store>(
+    s: &Server<S>,
+    world: ConnId,
+    o: &yalain_content::ContentObject,
+) -> Option<u32> {
+    let p = s.players.get(&world)?;
+    if o.facts
+        .kingdom
+        .is_some_and(|k| crate::kingdoms::of(&p.qualities) != Some(k))
+    {
+        return Some(crate::item_use::refusal::WRONG_KINGDOM);
+    }
+    (o.facts.hero && !crate::focus::is_hero(&p.qualities))
+        .then_some(crate::item_use::refusal::HERO_ONLY)
+}
+
+/// Does a placed object keep some players out by what its own row says: a quest, a kingdom, heroes?
+fn keeps_players_out(o: &yalain_content::ContentObject) -> bool {
+    o.gate.is_some() || o.facts.hero || o.facts.kingdom.is_some()
 }
 
 /// Is a template one a player talks to by using it (a storekeeper, a person or object a quest
@@ -461,7 +548,11 @@ fn is_person<S: Store>(s: &Server<S>, template: u32) -> bool {
             .steps
             .iter()
             .any(|st| st.trigger == yalain_content::quests::Trigger::Use(template))
-        || (crate::talk::talks_when_used(s, template) && !LIFESTONES.contains(&template))
+        || (crate::talk::talks_when_used(s, template)
+            && !s
+                .catalog
+                .get(template)
+                .is_some_and(|t| is_lifestone(s, t.description.package)))
 }
 
 /// Is a content object one a player talks to: a person, never a portal. A placed person or object
@@ -758,6 +849,9 @@ pub fn use_object<S: Store>(
         // A thing of the world: a corpse to open (walked to it first), an item to take, a creature
         // to attack.
         if let (Some(at), crate::things::Kind::Corpse) = (t.at, t.kind) {
+            if corpse_refused(s, net, world, &u, clock) {
+                return;
+            }
             if presence::distance(&p.position, &at)
                 .is_some_and(|d| d <= crate::inventory::CORPSE_REACH)
             {
@@ -827,7 +921,7 @@ pub fn use_object<S: Store>(
         }
         return;
     }
-    let lifestone = LIFESTONES.contains(&o.template);
+    let lifestone = is_lifestone(s, o.description.package);
     let person = talks_to(s, o);
     let broker = crate::market::broker(s, o.template).is_some();
     // An object for monarchs alone is refused at once, wherever the player stands, whatever else it
@@ -852,7 +946,7 @@ pub fn use_object<S: Store>(
     // (2017: 2 of 2, at 13.5 and 56.9 m; the generic portals kept by their placed instance's
     // quest, 21 of 21 requests answered in 0.09-0.46 s, at 2.9-76.0 m), whether or not where it
     // leads is known.
-    if (o.destination.is_some() || o.gate.is_some()) && !lifestone && !person && !broker {
+    if (o.destination.is_some() || keeps_players_out(o)) && !lifestone && !person && !broker {
         if let Some(why) = quest_keeps_out(s, world, o, clock) {
             let distance = reach(&u.from, o.cell, o.origin).unwrap_or(0.0);
             let no = use_refused(&u, 0, Some(USE_FLAGS_QUEST_KEEPS_OUT), distance, why);
@@ -936,7 +1030,7 @@ fn use_held<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, u: 
         return;
     }
     // A contract kept because it could not hire when it was bought tries again.
-    if crate::pets::is_contract(item) && in_the_pack(s, world, u.item) {
+    if s.pets.is_contract(item) && in_the_pack(s, world, u.item) {
         let hired = crate::pets::hire(s, net, world, item, clock);
         let me = s.players.get(&world).map_or(0, |p| p.character);
         let told = if hired {
@@ -1296,7 +1390,7 @@ pub fn walked<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, c
         .objects
         .iter()
         .filter(|o| {
-            (o.destination.is_some() || o.gate.is_some())
+            (o.destination.is_some() || keeps_players_out(o))
                 && s.walk_in_packages.contains(&o.description.package)
         })
         .find(|o| touches(&at, o.cell, o.origin))
@@ -1328,6 +1422,14 @@ pub fn arrived<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, 
         return;
     };
     let goal = walk_goal(&u);
+    // What it was walking to has gone (taken, or its time up): there is nothing to arrive at, and it
+    // isn't left walking, which would refuse all it does next.
+    let there = s.things.get(goal).is_some_and(|t| t.at.is_some())
+        || presence::content_by_id(&s.content.objects, goal).is_some();
+    if !there {
+        walk_cut_short(s, net, world);
+        return;
+    }
     // The client ends a walk by its own measure (the bodies, not their centers, within the range):
     // a player reporting itself at rest has arrived a little farther out.
     let still = p.heading_motion & 0x00FF_FFFF == crate::world::IDLE_MOTION & 0x00FF_FFFF;
@@ -1403,7 +1505,7 @@ fn walk_refusal_flags<S: Store>(s: &Server<S>, u: &Use) -> u32 {
     }
     let place = presence::content_by_id(&s.content.objects, walk_goal(u)).is_some_and(|i| {
         let o = &s.content.objects[i];
-        LIFESTONES.contains(&o.template) || o.destination.is_some() || o.gate.is_some()
+        is_lifestone(s, o.description.package) || o.destination.is_some() || keeps_players_out(o)
     });
     if place {
         USE_FLAGS_BOUND
@@ -1533,7 +1635,7 @@ fn carry_out<S: Store>(
         crate::usable::shrines::at_shrine(s, net, world, &u, o.description.package, clock);
         return;
     }
-    if LIFESTONES.contains(&o.template) {
+    if is_lifestone(s, o.description.package) {
         bind(s, net, world, &u, &o, clock);
         return;
     }
@@ -2083,7 +2185,7 @@ pub fn resurrection_place_of<S: Store>(
     s.content
         .objects
         .iter()
-        .filter(|o| LIFESTONES.contains(&o.template))
+        .filter(|o| is_lifestone(s, o.description.package))
         .filter_map(|o| reach(&fell, o.cell, o.origin).map(|d| (d, o)))
         .min_by(|a, b| a.0.total_cmp(&b.0))
         .map_or(fell, |(_, o)| beside(o.cell, o.origin, &fell))

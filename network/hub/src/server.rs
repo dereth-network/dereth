@@ -159,6 +159,10 @@ pub struct HubConfig {
     /// A probe's copies and its wait ([`crate::probe::EVERY`], [`crate::probe::WAIT`]), and the
     /// status ping's to the listed Empyrean worlds ([`crate::ping`]).
     pub probe_timing: crate::probe::Timing,
+    /// Where TreeStats' public counts are read from, for the worlds nothing better speaks for
+    /// ([`crate::population`]); `None`, the default here, reads nothing. `serve` names
+    /// [`crate::population::TREESTATS_URL`] unless told otherwise.
+    pub treestats_url: Option<String>,
     /// How long after a listed Empyrean world answered the status ping it is asked again
     /// ([`crate::ping::EVERY`]).
     pub status_ping_every: Duration,
@@ -208,6 +212,7 @@ impl Default for HubConfig {
             probe_per_caller: crate::probe::PER_CALLER,
             probe_overall: crate::probe::OVERALL,
             probe_timing: crate::probe::Timing::default(),
+            treestats_url: None,
             status_ping_every: crate::ping::EVERY,
             status_ping_after_silence: crate::ping::AFTER_SILENCE,
             limits: Limits::DEFAULT,
@@ -412,6 +417,8 @@ pub(crate) struct Shared {
     pub(crate) probes: crate::probe::Limits,
     /// What the listed Empyrean worlds said when the hub asked them, kept in memory only.
     pub(crate) pings: crate::ping::Answers,
+    /// What Dereth clients and TreeStats said of each world's players, kept in memory only.
+    pub(crate) counts: crate::population::Counts,
     /// The Discord broker, on a hub given the bot token.
     pub(crate) broker: Option<crate::broker::Service>,
     started: Instant,
@@ -587,6 +594,7 @@ impl Shared {
         for w in &mut worlds {
             public_web_addresses(w, &linked);
             self.pings.list(w, at);
+            self.counts.list(w, at);
         }
         let now = std::time::SystemTime::now();
         let fresh = Arc::new(Public {
@@ -875,6 +883,10 @@ pub fn start_with(config: HubConfig, mut registry: Registry) -> io::Result<Runni
         challenges: crate::challenge::Waiting::default(),
         probes,
         pings: crate::ping::Answers::default(),
+        counts: crate::population::Counts::new(
+            crate::probe::PER_CALLER,
+            crate::population::OVERALL,
+        ),
         broker,
         started: Instant::now(),
         next_conn: AtomicU64::new(1),
@@ -896,6 +908,7 @@ pub fn start_with(config: HubConfig, mut registry: Registry) -> io::Result<Runni
         .spawn(move || accept_loop(&s2, &listener))?;
     let mut threads = vec![accept, router];
     threads.extend(crate::ping::start(&shared)?);
+    threads.extend(crate::population::start(&shared)?);
     if let Some(broker) = shared.broker.as_ref() {
         let mirrors = broker.bridge.mirrors().len();
         log(
@@ -1788,6 +1801,10 @@ fn connection(shared: &Arc<Shared>, mut stream: TcpStream, peer: SocketAddr) -> 
         let reply = crate::probe::handle(shared, &head.method, &body, ip);
         return write_reply(&mut stream, &reply);
     }
+    if head.path.split('?').next() == Some(crate::population::PATH) {
+        let reply = crate::population::handle(shared, &head.method, &body, ip);
+        return write_reply(&mut stream, &reply);
+    }
     if crate::api::is_api(&head.path) {
         let req = crate::api::Req {
             method: &head.method,
@@ -2093,6 +2110,7 @@ fn http(shared: &Shared, head: &Head, body: &[u8], ip: IpAddr) -> (u16, String, 
                 Ok(Some(mut s)) => {
                     public_web_addresses(&mut s, &shared.linked());
                     shared.pings.list(&mut s, at);
+                    shared.counts.list(&mut s, at);
                     (200, s.to_string())
                 }
                 Ok(None) => (404, error_json(404, "Server not found")),
