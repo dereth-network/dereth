@@ -775,7 +775,7 @@ impl Child for AllegiancePage {
 
     /// It goes: its questions taken down.
     // D2-02771, D2-02777
-    fn close(self: Box<Self>, ui: &mut Ui) {
+    fn close(self: Box<Self>, ui: &mut Ui, _out: &mut Vec<PlayRequest>) {
         ui.drop_frame(self.frame);
     }
 

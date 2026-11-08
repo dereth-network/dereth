@@ -1000,7 +1000,7 @@ impl Child for Shop {
 
     /// It goes: its window gone (a question it asked for with it).
     // D2-02300
-    fn close(mut self: Box<Self>, ui: &mut Ui) {
+    fn close(mut self: Box<Self>, ui: &mut Ui, _out: &mut Vec<Request>) {
         self.destroy_managed_elements(ui);
         ui.drop_frame(self.frame);
     }

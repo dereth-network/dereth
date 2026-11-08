@@ -8,6 +8,7 @@ not how it was done.
 ## Unreleased
 - Fixed falling through some large dungeon floors.
 - Fixed buildings just outside a cave being lit as if they stood inside it.
+- Questions left open no longer stay on the screen after leaving the world.
 
 ## 0.1.5 (2026-11-07)
 - Screenshots are taken at full detail, far objects included.

@@ -372,15 +372,15 @@ impl Child for SocialWindow {
         }
     }
 
-    fn close(mut self: Box<Self>, ui: &mut Ui) {
+    fn close(mut self: Box<Self>, ui: &mut Ui, out: &mut Vec<PlayRequest>) {
         if let Some(p) = self.friends.take() {
-            Box::new(p).close(ui);
+            Box::new(p).close(ui, out);
         }
         if let Some(p) = self.fellowship.take() {
-            Box::new(p).close(ui);
+            Box::new(p).close(ui, out);
         }
         if let Some(p) = self.allegiance.take() {
-            Box::new(p).close(ui);
+            Box::new(p).close(ui, out);
         }
         ui.drop_frame(self.frame);
     }

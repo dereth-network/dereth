@@ -636,7 +636,7 @@ impl Child for Pets {
 
     /// It goes: hidden, its listening undone, its rows let go, its panel gone.
     // D2-02381, D2-02370
-    fn close(mut self: Box<Self>, ui: &mut Ui) {
+    fn close(mut self: Box<Self>, ui: &mut Ui, _out: &mut Vec<Request>) {
         self.show(ui, false, &mut Vec::new());
         self.pets.clear();
         if let Some(r) = self.root {

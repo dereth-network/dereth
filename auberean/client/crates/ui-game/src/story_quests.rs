@@ -320,7 +320,7 @@ impl Child for StoryQuests {
 
     /// It goes: its acts, rows and listening.
     // D2-02729, D2-02733
-    fn close(mut self: Box<Self>, ui: &mut Ui) {
+    fn close(mut self: Box<Self>, ui: &mut Ui, _out: &mut Vec<Request>) {
         self.acts.clear();
         self.rows.clear();
         if let Some(l) = self.list {

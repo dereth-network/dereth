@@ -1299,7 +1299,7 @@ impl Child for Names {
     }
 
     // D2-02132, D2-02139
-    fn close(mut self: Box<Self>, ui: &mut Ui) {
+    fn close(mut self: Box<Self>, ui: &mut Ui, _out: &mut Vec<Request>) {
         self.clean_up(ui);
         let parts = self.reticle.into_iter().chain([
             self.off_screen,

@@ -346,7 +346,7 @@ impl Child for Catalog {
 
     /// It goes: its window gone.
     // D2-02316, D2-02319
-    fn close(mut self: Box<Self>, ui: &mut Ui) {
+    fn close(mut self: Box<Self>, ui: &mut Ui, _out: &mut Vec<Request>) {
         self.destroy_managed_elements(ui);
         ui.drop_frame(self.frame);
     }

@@ -209,6 +209,25 @@ fn leave_world_and_quit_ask_first() {
     assert!(out.contains(&Request::KeepOptions) && out.contains(&Request::Quit));
 }
 
+/// The play screen going while the window asks to leave the world takes the question down.
+///
+/// Behaviour: ui.options.a-question-up-goes-with-the-play-screen
+#[test]
+fn a_question_up_goes_with_the_play_screen() {
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut t = 0.0;
+    let b = el(&ui, "OptionButton");
+    click(&mut ui, &mut p, &mut t, b);
+    let leave = el(&ui, "LeaveButton");
+    let out = click(&mut ui, &mut p, &mut t, leave);
+    let asked = dialogs(&out);
+    assert_eq!(asked.len(), 1, "{out:?}");
+    let mut out = Vec::new();
+    p.close(&mut ui, false, &mut out);
+    assert!(out.contains(&Request::DialogDown(asked[0].0)), "{out:?}");
+}
+
 /// Hidden with an option changed and not applied, the window asks whether to apply it; no puts
 /// back what was applied.
 ///

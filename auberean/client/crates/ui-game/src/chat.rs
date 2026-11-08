@@ -1731,7 +1731,7 @@ impl Child for ChatUi {
 
     /// The panel goes: its windows and the line of messages' rows.
     // D2-02471
-    fn close(mut self: Box<Self>, ui: &mut Ui) {
+    fn close(mut self: Box<Self>, ui: &mut Ui, _out: &mut Vec<Request>) {
         for w in self.windows.drain(..) {
             w.close(ui);
         }

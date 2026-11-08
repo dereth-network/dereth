@@ -1145,7 +1145,7 @@ impl Child for Ingredients {
     }
 
     // D2-02206, D2-02196
-    fn close(self: Box<Self>, ui: &mut Ui) {
+    fn close(self: Box<Self>, ui: &mut Ui, _out: &mut Vec<Request>) {
         ui.drop_frame(self.frame);
     }
 

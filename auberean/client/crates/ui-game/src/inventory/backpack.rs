@@ -384,7 +384,7 @@ impl Child for Backpack {
         }
     }
 
-    fn close(self: Box<Self>, ui: &mut Ui) {
+    fn close(self: Box<Self>, ui: &mut Ui, _out: &mut Vec<gameplay::Request>) {
         self.close_with(ui, &mut Vec::new());
     }
 

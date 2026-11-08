@@ -646,7 +646,7 @@ impl Child for Inventory {
         }
     }
 
-    fn close(mut self: Box<Self>, ui: &mut Ui) {
+    fn close(mut self: Box<Self>, ui: &mut Ui, _out: &mut Vec<gameplay::Request>) {
         self.cleanup_children(ui, &mut Vec::new());
         ui.drop_frame(self.frame);
     }

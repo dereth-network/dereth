@@ -835,7 +835,7 @@ impl Child for Examination {
 
     /// The window goes: its rows, its tab table, its listening.
     // D2-02620, D2-02628, D2-02626
-    fn close(mut self: Box<Self>, ui: &mut Ui) {
+    fn close(mut self: Box<Self>, ui: &mut Ui, _out: &mut Vec<Request>) {
         self.cleanup_rows(ui);
         self.flush_tabs();
         ui.drop_frame(self.frame);

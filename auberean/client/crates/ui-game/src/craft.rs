@@ -894,7 +894,7 @@ impl Child for Craft {
 
     /// It goes: its rows forgotten and its lists of categories and recipes emptied.
     // D2-02652, D2-02658, D2-02649, D2-02650, D2-02651
-    fn close(mut self: Box<Self>, ui: &mut Ui) {
+    fn close(mut self: Box<Self>, ui: &mut Ui, _out: &mut Vec<Request>) {
         self.clear_selection_info();
         self.categories.clear();
         self.recipes.clear();

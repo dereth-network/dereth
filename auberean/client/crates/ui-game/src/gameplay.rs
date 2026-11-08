@@ -460,8 +460,8 @@ pub trait Child: Any + std::fmt::Debug {
     }
     /// What the game shows this frame.
     fn update(&mut self, _ui: &mut Ui, _view: &View<'_>, _out: &mut Vec<Request>) {}
-    /// It goes: its elements and its listening.
-    fn close(self: Box<Self>, ui: &mut Ui);
+    /// It goes: its elements and its listening; what it asks for as it goes (a question it put up taken down) in `out`.
+    fn close(self: Box<Self>, ui: &mut Ui, out: &mut Vec<Request>);
     /// Itself, to be reached by what holds it.
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
@@ -524,7 +524,7 @@ impl Child for Pending {
     fn frame(&self) -> FrameId {
         self.frame
     }
-    fn close(self: Box<Self>, ui: &mut Ui) {
+    fn close(self: Box<Self>, ui: &mut Ui, _out: &mut Vec<crate::gameplay::Request>) {
         ui.drop_frame(self.frame);
     }
     fn as_any(&self) -> &dyn Any {
@@ -1300,10 +1300,10 @@ impl GamePlay {
 
     /// The panels go: each one's elements and listening.
     // D2-01928
-    pub fn cleanup_children(&mut self, ui: &mut Ui) {
+    pub fn cleanup_children(&mut self, ui: &mut Ui, out: &mut Vec<Request>) {
         for c in self.children.drain(..) {
             self.registry.unregister_all(Handler::Panel(c.id));
-            c.child.close(ui);
+            c.child.close(ui, out);
         }
     }
 
@@ -1327,7 +1327,7 @@ impl GamePlay {
         out.push(Request::KeepOptions);
         if wait {
             self.make_please_wait_dialog(ui, out);
-            self.cleanup_children(ui);
+            self.cleanup_children(ui, out);
         }
         out.push(Request::LogOff);
         self.ended = true;
@@ -1382,7 +1382,7 @@ impl GamePlay {
             self.close_dialog(m, out);
         }
         self.close_story(ui, out);
-        self.cleanup_children(ui);
+        self.cleanup_children(ui, out);
         if let Some(c) = self.camera.take() {
             let mut cam = Vec::new();
             c.close(ui, &mut cam);

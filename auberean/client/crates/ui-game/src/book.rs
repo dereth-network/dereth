@@ -512,7 +512,7 @@ impl Child for Book {
 
     /// It goes: its window gone.
     // D2-02270
-    fn close(mut self: Box<Self>, ui: &mut Ui) {
+    fn close(mut self: Box<Self>, ui: &mut Ui, _out: &mut Vec<Request>) {
         self.show(ui, false, &mut Vec::new());
         ui.drop_frame(self.frame);
     }

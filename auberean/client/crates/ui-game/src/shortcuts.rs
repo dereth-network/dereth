@@ -1545,7 +1545,7 @@ impl Child for Shortcuts {
 
     /// The bar goes: its slots, its root, its listening.
     // D2-02525, D2-02528
-    fn close(self: Box<Self>, ui: &mut Ui) {
+    fn close(self: Box<Self>, ui: &mut Ui, _out: &mut Vec<Request>) {
         if let Some(l) = self.list {
             ui.list_flush(l);
         }

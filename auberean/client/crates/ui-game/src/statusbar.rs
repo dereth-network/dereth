@@ -632,7 +632,7 @@ impl Child for Vitals {
 
     /// The vitals go: the clicks no longer heard.
     // D2-02399, D2-02403
-    fn close(self: Box<Self>, ui: &mut Ui) {
+    fn close(self: Box<Self>, ui: &mut Ui, _out: &mut Vec<Request>) {
         ui.drop_frame(self.frame);
     }
 
@@ -997,7 +997,7 @@ impl Child for Effects {
 
     /// The effects go: the presses no longer heard.
     // D2-02407
-    fn close(self: Box<Self>, ui: &mut Ui) {
+    fn close(self: Box<Self>, ui: &mut Ui, _out: &mut Vec<Request>) {
         if let Some(l) = self.list {
             ui.list_flush(l);
         }
@@ -1361,7 +1361,7 @@ impl Child for NetworkIndicator {
     }
 
     // D2-02435, D2-02436
-    fn close(self: Box<Self>, ui: &mut Ui) {
+    fn close(self: Box<Self>, ui: &mut Ui, _out: &mut Vec<Request>) {
         ui.drop_frame(self.frame);
     }
 
@@ -1449,7 +1449,7 @@ impl Child for PkStatus {
     }
 
     // D2-02443
-    fn close(self: Box<Self>, ui: &mut Ui) {
+    fn close(self: Box<Self>, ui: &mut Ui, _out: &mut Vec<Request>) {
         ui.drop_frame(self.frame);
     }
 
@@ -1589,7 +1589,7 @@ impl Child for VitaeStatus {
     }
 
     // D2-02447
-    fn close(self: Box<Self>, ui: &mut Ui) {
+    fn close(self: Box<Self>, ui: &mut Ui, _out: &mut Vec<Request>) {
         ui.drop_frame(self.frame);
     }
 
@@ -1646,9 +1646,9 @@ impl Indicators {
 
     /// The indicators go.
     // D2-02423, D2-02424
-    fn cleanup_children(&mut self, ui: &mut Ui) {
+    fn cleanup_children(&mut self, ui: &mut Ui, out: &mut Vec<Request>) {
         for c in self.children.drain(..) {
-            c.close(ui);
+            c.close(ui, out);
         }
     }
 }
@@ -1695,8 +1695,8 @@ impl Child for Indicators {
         }
     }
 
-    fn close(mut self: Box<Self>, ui: &mut Ui) {
-        self.cleanup_children(ui);
+    fn close(mut self: Box<Self>, ui: &mut Ui, out: &mut Vec<Request>) {
+        self.cleanup_children(ui, out);
         ui.drop_frame(self.frame);
     }
 
@@ -1853,9 +1853,9 @@ impl Child for StatusBar {
         }
     }
 
-    fn close(mut self: Box<Self>, ui: &mut Ui) {
+    fn close(mut self: Box<Self>, ui: &mut Ui, out: &mut Vec<Request>) {
         for c in self.children.drain(..) {
-            c.close(ui);
+            c.close(ui, out);
         }
         if let Some(r) = self.root {
             ui.frame_remove_root(self.frame, r);

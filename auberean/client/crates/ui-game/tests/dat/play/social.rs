@@ -419,6 +419,35 @@ fn a_place_offered_in_a_fellowship_is_asked_about() {
     assert_eq!(social(&out), [Social::DeclineRecruitment(0x138D)]);
 }
 
+/// The play screen going while a place offered is still asked about takes the question down.
+///
+/// Behaviour: ui.social.a-place-offered-still-asked-about-goes-with-the-play-screen
+#[test]
+fn a_place_offered_still_asked_about_goes_with_the_play_screen() {
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut t = 0.0;
+    let w = world(0);
+    tick(&mut ui, &mut p, &mut t, &w, &[]);
+    let offer = Notice {
+        native: notice::REQUEST_RECRUITMENT,
+        about: Some(ME),
+        words: vec![hi(OTHER), lo(OTHER), 7, 8],
+        records: vec![
+            None,
+            None,
+            Some(Record::Text(StringInfo::literal("Other"))),
+            Some(Record::Text(StringInfo::literal("The Band"))),
+        ],
+    };
+    let out = tick(&mut ui, &mut p, &mut t, &w, &[offer]);
+    let asked = dialogs(&out);
+    assert_eq!(asked.len(), 1, "{out:?}");
+    let mut out = Vec::new();
+    p.close(&mut ui, false, &mut out);
+    assert!(out.contains(&Request::DialogDown(asked[0].0)), "{out:?}");
+}
+
 fn member(id: u64, name: &str, level: u32) -> Member {
     Member {
         id,

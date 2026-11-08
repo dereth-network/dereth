@@ -705,7 +705,7 @@ impl Child for Trade {
 
     /// It goes: its window gone (its question with it), the offers let go.
     // D2-02173, D2-02174
-    fn close(mut self: Box<Self>, ui: &mut Ui) {
+    fn close(mut self: Box<Self>, ui: &mut Ui, _out: &mut Vec<Request>) {
         for c in std::mem::take(&mut self.mine)
             .into_iter()
             .chain(std::mem::take(&mut self.theirs))

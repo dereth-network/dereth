@@ -1056,7 +1056,7 @@ impl Child for SkillTree {
 
     /// It goes: its nodes, its questions (they go with the play screen), its framework.
     // D2-02695
-    fn close(mut self: Box<Self>, ui: &mut Ui) {
+    fn close(mut self: Box<Self>, ui: &mut Ui, _out: &mut Vec<Request>) {
         self.clear_nodes();
         if let Some(t) = self.tree {
             ui.tree_flush(t);

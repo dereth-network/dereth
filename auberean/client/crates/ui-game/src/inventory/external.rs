@@ -268,7 +268,7 @@ impl Child for ExternalContainer {
 
     /// It goes: its cells, its window.
     // D2-02177, D2-02183
-    fn close(mut self: Box<Self>, ui: &mut Ui) {
+    fn close(mut self: Box<Self>, ui: &mut Ui, _out: &mut Vec<gameplay::Request>) {
         if let Some(d) = self.display.take() {
             d.close(ui, &mut Vec::new());
         }

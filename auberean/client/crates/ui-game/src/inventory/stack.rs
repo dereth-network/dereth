@@ -361,7 +361,7 @@ impl Child for StackSplitter {
 
     /// It goes: closed, its window gone.
     // D2-02243, D2-02248
-    fn close(mut self: Box<Self>, ui: &mut Ui) {
+    fn close(mut self: Box<Self>, ui: &mut Ui, _out: &mut Vec<gameplay::Request>) {
         self.close_with(ui, None, &mut Vec::new());
         if let Some(r) = self.root.take() {
             ui.frame_remove_root(self.frame, r);

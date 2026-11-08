@@ -1590,6 +1590,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.options.a-question-up-goes-with-the-play-screen",
+        says: "The play screen going while the options window asks to apply, quit or leave takes the question down.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-OPTIONS-CLOSE"),
+        station: "auberean-ui-game::dat::play::options::a_question_up_goes_with_the_play_screen",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.options.a-resized-window-is-the-displays-size",
         says: "While the game is a window, a window the player resizes is the display's size: its \
                row shows it and keeping keeps it. In full screen the window's size says nothing of \
@@ -2249,6 +2257,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-SOCIAL-FELLOWSHIP-OFFER"),
         station: "auberean-ui-game::dat::play::social::a_place_offered_in_a_fellowship_is_asked_about",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.social.a-place-offered-still-asked-about-goes-with-the-play-screen",
+        says: "The play screen going while a place offered in a fellowship is still asked about takes the question down.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-FELLOWSHIP-CLOSE"),
+        station: "auberean-ui-game::dat::play::social::a_place_offered_still_asked_about_goes_with_the_play_screen",
         tier: Tier::Dat,
     },
     behaviour! {

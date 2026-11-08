@@ -476,7 +476,7 @@ impl Toolbar {
 
     /// The panels go: each one, and the windows' fields no longer heard.
     // D2-02465
-    pub fn cleanup_children(&mut self, ui: &mut Ui) {
+    pub fn cleanup_children(&mut self, ui: &mut Ui, out: &mut Vec<Request>) {
         let l = ui.frame_listener(self.frame);
         for c in self.children.drain(..) {
             if let (Some(l), true) = (l, c.field != Token(0)) {
@@ -486,7 +486,7 @@ impl Toolbar {
                     msg::SET_SHOW_STATE,
                 );
             }
-            c.child.close(ui);
+            c.child.close(ui, out);
         }
     }
 }
@@ -613,8 +613,8 @@ impl Child for Toolbar {
 
     /// The toolbar goes: its panels, its toolbar and windows' fields, the help panel closed.
     // D2-02468
-    fn close(mut self: Box<Self>, ui: &mut Ui) {
-        self.cleanup_children(ui);
+    fn close(mut self: Box<Self>, ui: &mut Ui, out: &mut Vec<Request>) {
+        self.cleanup_children(ui, out);
         for r in self.root.into_iter().chain(self.fields.iter().copied()) {
             ui.frame_remove_root(self.frame, r);
             ui.remove(r);

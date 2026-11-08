@@ -645,7 +645,7 @@ impl Child for Journal {
 
     /// The journal goes: its quests and their rows, its listening.
     // D2-02726
-    fn close(mut self: Box<Self>, ui: &mut Ui) {
+    fn close(mut self: Box<Self>, ui: &mut Ui, _out: &mut Vec<Request>) {
         for (quests, list) in [
             (&mut self.underway, self.underway_list),
             (&mut self.finished, self.finished_list),
@@ -844,12 +844,12 @@ impl Child for QuestWindow {
     }
 
     // D2-02701
-    fn close(self: Box<Self>, ui: &mut Ui) {
+    fn close(self: Box<Self>, ui: &mut Ui, out: &mut Vec<Request>) {
         if let Some(j) = self.journal {
-            Box::new(j).close(ui);
+            Box::new(j).close(ui, out);
         }
         if let Some(s) = self.story {
-            Box::new(s).close(ui);
+            Box::new(s).close(ui, out);
         }
         ui.drop_frame(self.frame);
     }

@@ -825,7 +825,7 @@ impl Child for Consignments {
 
     /// It goes: its window and the figure gone (a question it asked for with them).
     // D2-02343
-    fn close(mut self: Box<Self>, ui: &mut Ui) {
+    fn close(mut self: Box<Self>, ui: &mut Ui, _out: &mut Vec<Request>) {
         self.destroy_managed_elements(ui);
         ui.drop_frame(self.frame);
     }

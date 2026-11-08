@@ -661,7 +661,7 @@ impl Child for Radar {
     }
 
     // D2-02032, D2-02039
-    fn close(self: Box<Self>, ui: &mut Ui) {
+    fn close(self: Box<Self>, ui: &mut Ui, _out: &mut Vec<Request>) {
         for h in [self.root, self.heading].into_iter().flatten() {
             ui.frame_remove_root(self.frame, h);
             ui.remove(h);

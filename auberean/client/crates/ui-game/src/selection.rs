@@ -503,7 +503,7 @@ impl Child for Selection {
     }
 
     // D2-01982
-    fn close(self: Box<Self>, ui: &mut Ui) {
+    fn close(self: Box<Self>, ui: &mut Ui, _out: &mut Vec<Request>) {
         if let Some(f) = self.field {
             ui.frame_remove_root(self.frame, f);
             ui.remove(f);

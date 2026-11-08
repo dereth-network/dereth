@@ -517,7 +517,7 @@ impl Child for NewSale {
 
     /// It goes: its window gone (a question it asked for with it).
     // D2-02358, D2-02364
-    fn close(mut self: Box<Self>, ui: &mut Ui) {
+    fn close(mut self: Box<Self>, ui: &mut Ui, _out: &mut Vec<Request>) {
         self.destroy_managed_elements(ui);
         ui.drop_frame(self.frame);
     }

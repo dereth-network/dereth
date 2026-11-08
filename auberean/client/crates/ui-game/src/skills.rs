@@ -159,12 +159,12 @@ impl Child for SkillWindow {
     }
 
     // D2-02633
-    fn close(self: Box<Self>, ui: &mut Ui) {
+    fn close(self: Box<Self>, ui: &mut Ui, out: &mut Vec<Request>) {
         if let Some(c) = self.craft {
-            Box::new(c).close(ui);
+            Box::new(c).close(ui, out);
         }
         if let Some(t) = self.tree {
-            Box::new(t).close(ui);
+            Box::new(t).close(ui, out);
         }
         ui.drop_frame(self.frame);
     }

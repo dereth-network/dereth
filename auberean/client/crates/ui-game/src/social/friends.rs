@@ -500,7 +500,7 @@ impl Child for FriendsPage {
     }
 
     // D2-02804
-    fn close(self: Box<Self>, ui: &mut Ui) {
+    fn close(self: Box<Self>, ui: &mut Ui, _out: &mut Vec<PlayRequest>) {
         ui.drop_frame(self.frame);
     }
 

@@ -505,16 +505,20 @@ impl Child for OptionWindow {
 
     /// The window goes: its pages, its questions.
     // D2-02816, D2-02819
-    fn close(mut self: Box<Self>, ui: &mut Ui) {
-        let mut out = Vec::new();
+    fn close(mut self: Box<Self>, ui: &mut Ui, out: &mut Vec<gameplay::Request>) {
+        for id in [self.confirm, self.quit_context, self.logout_context] {
+            if id != 0 {
+                out.push(gameplay::Request::DialogDown(id));
+            }
+        }
         if let Some(c) = self.client.take() {
-            c.close(ui, &mut out);
+            c.close(ui, out);
         }
         if let Some(c) = self.character.take() {
-            c.close(ui, &mut out);
+            c.close(ui, out);
         }
         if let Some(c) = self.chat.take() {
-            c.close(ui, &mut out);
+            c.close(ui, out);
         }
         if let Some(a) = self.assistance.take() {
             a.close(ui);

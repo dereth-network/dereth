@@ -364,7 +364,7 @@ impl Child for OverviewMap {
 
     /// It goes: its window gone.
     // D2-02254
-    fn close(mut self: Box<Self>, ui: &mut Ui) {
+    fn close(mut self: Box<Self>, ui: &mut Ui, _out: &mut Vec<Request>) {
         if let Some(f) = self.field.take() {
             ui.frame_remove_root(self.frame, f);
             ui.remove(f);
@@ -1437,9 +1437,9 @@ impl Child for Navigation {
 
     /// It goes: the overview, every marker, the closer map's pictures.
     // D2-02575, D2-02581
-    fn close(mut self: Box<Self>, ui: &mut Ui) {
+    fn close(mut self: Box<Self>, ui: &mut Ui, out: &mut Vec<Request>) {
         if let Some(o) = self.overview.take() {
-            Box::new(o).close(ui);
+            Box::new(o).close(ui, out);
         }
         self.flush_all_markers(ui);
         for p in self.panels.iter().flatten() {

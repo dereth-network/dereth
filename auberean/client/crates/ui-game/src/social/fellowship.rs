@@ -515,11 +515,14 @@ impl Child for FellowshipPage {
 
     /// It goes: the question taken down, the rows gone.
     // D2-02750, D2-02754
-    fn close(mut self: Box<Self>, ui: &mut Ui) {
-        let mut out = Vec::new();
+    fn close(mut self: Box<Self>, ui: &mut Ui, out: &mut Vec<PlayRequest>) {
+        if self.recruit != 0 {
+            out.push(PlayRequest::DialogDown(self.recruit));
+            self.recruit = 0;
+        }
         if let Some(f) = self.fellows.take() {
             let facts = self.facts();
-            f.close(ui, &facts, &mut out);
+            f.close(ui, &facts, out);
         }
         ui.drop_frame(self.frame);
     }

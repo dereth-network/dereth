@@ -235,11 +235,10 @@ impl Child for MiniFellowship {
 
     /// It goes: the rows gone, its root gone.
     // D2-02142
-    fn close(mut self: Box<Self>, ui: &mut Ui) {
-        let mut out = Vec::new();
+    fn close(mut self: Box<Self>, ui: &mut Ui, out: &mut Vec<Request>) {
         if let Some(f) = self.fellows.take() {
             let facts = self.facts();
-            f.close(ui, &facts, &mut out);
+            f.close(ui, &facts, out);
         }
         if let Some(r) = self.root.take() {
             ui.frame_remove_root(self.frame, r);
