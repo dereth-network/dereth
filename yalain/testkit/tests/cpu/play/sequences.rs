@@ -62,6 +62,7 @@ fn lasting(state: u32, class: u32, kind: Kind, harmful: bool) -> EffectDef {
             } else {
                 0
             },
+        ends_at_logout: false,
         enum_value: 0,
         eq_class: class,
         name: None,

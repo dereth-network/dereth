@@ -66,6 +66,7 @@ fn def(state: u32, kind: Kind, seconds: Option<f32>) -> EffectDef {
         fx: 0,
         external_flags: 0,
         internal_flags: 0,
+        ends_at_logout: false,
         enum_value: 0,
         eq_class: 0,
         name: None,

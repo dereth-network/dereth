@@ -3752,6 +3752,46 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "server.effects.ends-at-logout",
+        says: "A record of an effect whose definition says it ends at logout is told so, is taken \
+               off as its holder logs off and is not in its next session start; a record of any \
+               other effect is told without it and comes back.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ENDS-AT-LOGOUT"),
+        station: "yalain-testkit::cpu::play::effects::an_effect_that_ends_at_logout_goes_as_its_holder_logs_off_and_one_that_does_not_comes_back",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.effects.ends-at-logout-not-kept",
+        says: "A character leaving the world keeps no record of what ends at logout, even with no \
+               logging off; a save from before such records were told so has them dropped as the \
+               character enters.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ENDS-AT-LOGOUT-SAVES"),
+        station: "yalain-testkit::cpu::play::effects::an_older_saves_record_of_what_ends_at_logout_is_dropped_and_none_is_kept_as_the_server_stops",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.effects.ends-at-logout-read",
+        says: "Which effects end at logout reads from their definitions: Lumbering Might's, an \
+               Ataur potion's, a hero mount's and Leader of the Pack's do; Dash, Courage and \
+               Vengeance don't.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ENDS-AT-LOGOUT-READ"),
+        station: "yalain-testkit::dat::effects::the_effects_that_end_at_logout_read_as_the_data_marks_them",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.effects.ends-told",
+        says: "A record is told with its end as its definition gives it: one with no end held until \
+               taken off, one that ends at logout so; Lumbering Might's armor held until taken off \
+               and gone at logout, a Ley Ataur potion's timed and gone at logout, Dash's timed.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ENDS-TOLD"),
+        station: "yalain-testkit::dat::effects::lumbering_might_is_told_held_until_taken_off_and_a_potion_timed_both_gone_at_logout",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.effects.harm-over-time-kills",
         says: "A change over time a creature put on a player kills it when it takes the last of its \
                health, the creature its killer.",
@@ -3898,6 +3938,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-EFFECTS-STACK"),
         station: "yalain-testkit::cpu::play::effects::the_same_effect_twice_is_two_records_each_running_out_on_its_own",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.effects.records-with-no-end-bounded",
+        says: "One caster's records of an effect with no end, held until taken off, stop at the \
+               same limit as timed ones.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-RECORDS-BOUND-NO-END"),
+        station: "yalain-testkit::cpu::play::effects::one_casters_records_of_an_effect_with_no_end_stop_at_the_same_limit",
         tier: Tier::Cpu,
     },
     behaviour! {

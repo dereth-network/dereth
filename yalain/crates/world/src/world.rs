@@ -693,8 +693,9 @@ pub fn enter<S: Store>(
     p.last_used = p.play.last_used.iter().copied().collect();
     #[allow(clippy::cast_precision_loss)]
     let game_epoch = game_now - clock.unix as f64;
-    // The effects that ran out while the character was away are gone before its session starts.
-    crate::effects::prune(&mut p.play, game_now);
+    // The effects that ran out while the character was away, and those that end at logout, are
+    // gone before its session starts.
+    crate::effects::prune(&mut p.play, &s.effect_table, game_now);
     crate::effects::bound_kept(&mut p.play, p.character);
     // So have the quests with no time left when it left; the others' time stood still.
     #[allow(clippy::cast_possible_truncation)]
@@ -866,8 +867,12 @@ pub fn leave<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
         crate::usable::chests::left(s, net, world);
         crate::usable::vaults::left(s, world);
     }
-    if let Some(p) = s.players.remove(&world) {
+    if let Some(mut p) = s.players.remove(&world) {
         presence::depart(s, net, &p);
+        // What ends at logout is not kept.
+        p.play
+            .effects
+            .retain(|e| !crate::effects::goes_at_logout(&s.effect_table, e));
         keep(s, &p);
         crate::admin::left(s, p.character);
         crate::inventory::leave(s, &p.play.items);
@@ -1050,7 +1055,7 @@ pub fn log_off_step<S: Store>(
                 p.play
                     .effects
                     .iter()
-                    .filter(|e| e.flags & crate::effects::record_flag::LOGOUT != 0)
+                    .filter(|e| crate::effects::goes_at_logout(&s.effect_table, e))
                     .map(|e| e.eid)
                     .collect()
             });

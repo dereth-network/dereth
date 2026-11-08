@@ -85,6 +85,7 @@ fn boost() -> EffectDef {
         fx: 0,
         external_flags: 0x9,
         internal_flags: 0x0100_0713,
+        ends_at_logout: false,
         enum_value: 0,
         eq_class: 4101,
         name: None,

@@ -855,6 +855,7 @@ fn an_update_puts_on_its_definitions_effects_before_it_is_told() {
             fx: 0,
             external_flags: 0,
             internal_flags: 0,
+            ends_at_logout: false,
             enum_value: 0,
             eq_class: 0,
             name: None,

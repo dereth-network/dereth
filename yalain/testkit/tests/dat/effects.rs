@@ -2045,3 +2045,84 @@ fn the_effects_that_change_what_kills_pay_read_as_the_data_defines_them() {
         2.0f32.to_bits()
     );
 }
+
+/// The effects marked to end at logout read so, and others not: both of Lumbering Might's, a Ley
+/// Ataur potion's, a hero mount's and Leader of the Pack's pulsed attack speed are marked; Dash,
+/// Aunmauri's Courage and Vengeance are not.
+/// Behaviour: server.effects.ends-at-logout-read
+#[test]
+fn the_effects_that_end_at_logout_read_as_the_data_marks_them() {
+    let marked = [
+        0x7000_0922,
+        0x7000_0924,
+        0x6F00_19F2,
+        0x6F00_1C4C,
+        0x6F00_1157,
+    ];
+    let unmarked = [0x7000_07E4, 0x6F00_1DF7, 0x6F00_1DF9];
+    let p = Portal::open();
+    let all: Vec<u32> = marked.iter().chain(&unmarked).copied().collect();
+    let t = p.effects(&all);
+    let read = |states: &[u32]| -> Vec<Option<bool>> {
+        states
+            .iter()
+            .map(|s| t.get(*s).map(|d| d.ends_at_logout))
+            .collect()
+    };
+    assert_eq!(read(&marked), [Some(true); 5]);
+    assert_eq!(read(&unmarked), [Some(false); 3]);
+}
+
+/// Records are told with their ends as 2017's were: Lumbering Might's armor, which has no end, held
+/// until taken off and gone at logout (2017's flags, but for the bit of its skill's toggle, which
+/// this server does not turn on); a Ley Ataur potion's timed and gone at logout; Dash's timed and
+/// kept.
+/// Behaviour: server.effects.ends-told
+#[test]
+fn lumbering_might_is_told_held_until_taken_off_and_a_potion_timed_both_gone_at_logout() {
+    use yalain_world::effects::{self, record_flag, Cast};
+    const LUMBERING_MIGHT_ARMOR: u32 = 0x7000_0922;
+    const LEY_ATAUR: u32 = 0x6F00_19F2;
+    const DASH: u32 = 0x7000_07E4;
+    let p = Portal::open();
+    let mut h = yalain_testkit::Harness::new();
+    h.server.effect_table = p.effects(&[LUMBERING_MIGHT_ARMOR, LEY_ATAUR, DASH]);
+    let (_, me) = h.player_in_world("one", "Elara");
+    let world = *h.server.players.keys().next().expect("in the world");
+    let cast = Cast {
+        caster: me,
+        spellcraft: 30.0,
+        ..Cast::default()
+    };
+    for state in [LUMBERING_MIGHT_ARMOR, LEY_ATAUR, DASH] {
+        let clock = h.clock();
+        assert!(effects::apply(
+            &mut h.server,
+            &mut h.net,
+            world,
+            state,
+            cast,
+            clock
+        ));
+    }
+    let told: Vec<(u32, u32)> = h.server.players[&world]
+        .play
+        .effects
+        .iter()
+        .map(|e| (e.state, e.flags))
+        .collect();
+    let (infinite, normal, logout, transient) = (
+        record_flag::INFINITE,
+        record_flag::NORMAL,
+        record_flag::LOGOUT,
+        record_flag::TRANSIENT,
+    );
+    assert_eq!(
+        told,
+        [
+            (LUMBERING_MIGHT_ARMOR, infinite | logout | transient),
+            (LEY_ATAUR, normal | logout | transient),
+            (DASH, normal | transient),
+        ]
+    );
+}

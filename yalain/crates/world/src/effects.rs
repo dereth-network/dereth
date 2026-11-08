@@ -20,7 +20,8 @@
 //! acceleration, each as it changes). An effect's appearance shows from the first record holding
 //! it to the last one's end. A record that changes vitals over time does so every few seconds, by
 //! its rate times the seconds since the last change. A player's records still running are carried
-//! in the session start; the ones a resurrection takes off go then.
+//! in the session start, but for those of effects that end at logout, which go as it leaves; the ones
+//! a resurrection takes off go then.
 //!
 //! **On a creature** (2017: every lasting effect a player's skill put on one showed its appearance
 //! from its add to cast plus duration, within 0.1 s, 9,621 of 9,621 that stopped): the appearance
@@ -106,6 +107,8 @@ pub mod record_flag {
     pub const TRANSIENT: u32 = 0x40;
     /// It is an item's effect on the one who wears or wields it.
     pub const EQUIPPED: u32 = 0x80;
+    /// It is held while a toggled skill is on.
+    pub const TOGGLED: u32 = 0x200;
 }
 
 /// The flags of an item's effect on its wearer: held until the item comes off, kept across
@@ -1462,6 +1465,7 @@ pub(crate) fn add_quietly<S: Store>(
     let timeout = shape
         .timeout
         .unwrap_or_else(|| def.duration.at(cast.spellcraft).unwrap_or(f32::MAX));
+    let flags = record_flags(def, shape.flags, timeout);
     let speed_before = speeds_on(s, on);
     let over_time = matches!(def.kind, Kind::VitalOverTime { .. });
     let eid = match on {
@@ -1483,7 +1487,7 @@ pub(crate) fn add_quietly<S: Store>(
         acting: shape.acting,
         skill: cast.skill,
         item: cast.item,
-        flags: shape.flags,
+        flags,
         // Filed by its definition's flags (2017: 54,046 of 54,046 records); a change over time
         // always beats.
         categories: shape.categories.unwrap_or(
@@ -1538,10 +1542,33 @@ pub(crate) fn add_quietly<S: Store>(
     Some(eid)
 }
 
-/// Is a record of those that run out, which a target's bounds count? An item's and an aura's last
-/// while what holds them does.
+/// A record's flags as its effect's definition shapes them: one with no end is held until taken
+/// off rather than timed (2017: 1,567 of 1,567 records told with no end), and one of an effect that
+/// ends at logout goes then (2017: 3,171 of 3,171 records of such effects told so; none of the
+/// 2,528 records a session start carried was).
+#[must_use]
+pub fn record_flags(def: &EffectDef, flags: u32, timeout: f32) -> u32 {
+    let mut f = flags;
+    if timeout >= f32::MAX && f & record_flag::NORMAL != 0 {
+        f = f & !record_flag::NORMAL | record_flag::INFINITE;
+    }
+    if def.ends_at_logout {
+        f |= record_flag::LOGOUT;
+    }
+    f
+}
+
+/// Does a record go when its holder leaves the world: told so, or of an effect that ends at logout
+/// (a save's from before its records were told so)?
+#[must_use]
+pub fn goes_at_logout(table: &EffectTable, e: &EffectState) -> bool {
+    e.flags & record_flag::LOGOUT != 0 || table.get(e.state).is_some_and(|d| d.ends_at_logout)
+}
+
+/// Is a record of those which a target's bounds count? An item's and a toggled skill's last while
+/// what holds them does.
 const fn counted(e: &EffectState) -> bool {
-    e.flags & record_flag::INFINITE == 0
+    e.flags & (record_flag::EQUIPPED | record_flag::TOGGLED) == 0
 }
 
 /// The record a target holds too many of now, if it does: the oldest of this one's effect from its
@@ -2048,11 +2075,10 @@ fn combine<S: Store>(
     }
 }
 
-/// The records that ran out (or went with the player's last session) by the game time `now`.
-pub fn prune(play: &mut crate::state::PlayState, now: f64) {
+/// The records that ran out by the game time `now`, or went with the player's last session.
+pub fn prune(play: &mut crate::state::PlayState, table: &EffectTable, now: f64) {
     play.effects.retain(|e| {
-        e.flags & record_flag::LOGOUT == 0
-            && (e.timeout >= f32::MAX || e.cast + f64::from(e.timeout) > now)
+        !goes_at_logout(table, e) && (e.timeout >= f32::MAX || e.cast + f64::from(e.timeout) > now)
     });
 }
 
@@ -2063,7 +2089,7 @@ pub fn enter<S: Store>(s: &mut Server<S>, net: &ServerNet, world: ConnId, clock:
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
-    prune(&mut p.play, now);
+    prune(&mut p.play, &s.effect_table, now);
     let records = p.play.effects.clone();
     for e in &records {
         schedule(s, world, e, now, clock);

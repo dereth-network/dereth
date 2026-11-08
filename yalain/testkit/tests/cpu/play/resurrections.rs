@@ -81,6 +81,7 @@ fn with_raising(h: &mut Harness) {
             fx: 0,
             external_flags: 18,
             internal_flags: 0x4140_0513,
+            ends_at_logout: false,
             enum_value: 6100,
             eq_class: 0,
             name: None,

@@ -242,6 +242,7 @@ fn armor_effect(state: u32, class: u32, value: f32, multiplies: bool) -> EffectD
         fx: 0,
         external_flags: 0,
         internal_flags: 0x1100_0003,
+        ends_at_logout: false,
         enum_value: 0,
         eq_class: class,
         name: None,

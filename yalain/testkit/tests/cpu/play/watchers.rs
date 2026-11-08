@@ -60,6 +60,7 @@ fn def(state: u32, class: u32, w: Watcher) -> EffectDef {
         fx: 0,
         external_flags: 0,
         internal_flags: 0x1100_0003,
+        ends_at_logout: false,
         enum_value: 0,
         eq_class: class,
         name: None,

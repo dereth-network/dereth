@@ -840,6 +840,7 @@ fn an_effects_spellcraft_shows_unless_it_happens_at_once_or_never_varies() {
         fx: 0,
         external_flags: 0,
         internal_flags: internal,
+        ends_at_logout: false,
         enum_value: 0,
         eq_class: 0,
         name: Some((0xA860_7CEC, 0x2500_7103)),

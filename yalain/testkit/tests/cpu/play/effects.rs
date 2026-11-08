@@ -433,6 +433,186 @@ fn an_effect_still_running_comes_back_in_the_session_start_and_runs_out_on_the_g
     assert!(!any, "a record that ran out while away is gone");
 }
 
+/// An effect that ends at logout, and one that doesn't, both an hour long.
+const ENDS_AT_LOGOUT: u32 = 0x6F00_7A01;
+const OUTLASTS_LOGOUT: u32 = 0x6F00_7A02;
+
+/// A player armed as [`armed`] whose effects know [`ENDS_AT_LOGOUT`] and [`OUTLASTS_LOGOUT`];
+/// returns its world connection too.
+fn armed_with_logout_effects() -> (Harness, usize, u64, yalain_net::ConnId) {
+    use yalain_world::effect_defs::{EffectDef, Scale};
+    let (mut h, b, me) = armed();
+    for (state, ends) in [(ENDS_AT_LOGOUT, true), (OUTLASTS_LOGOUT, false)] {
+        h.server.effect_table.effects.insert(
+            state,
+            EffectDef {
+                duration: Scale(vec![(0.0, 3600.0)]),
+                ends_at_logout: ends,
+                ..yalain_testkit::plain_effect(state)
+            },
+        );
+    }
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .expect("in the world")
+        .0;
+    (h, b, me, world)
+}
+
+/// Put both of [`armed_with_logout_effects`]'s effects on the player; returns their ids.
+fn both_on(h: &mut Harness, me: u64, world: yalain_net::ConnId) -> (u32, u32) {
+    let cast = effects::Cast {
+        caster: me,
+        spellcraft: 1.0,
+        ..effects::Cast::default()
+    };
+    for state in [ENDS_AT_LOGOUT, OUTLASTS_LOGOUT] {
+        let clock = h.clock();
+        assert!(effects::apply(
+            &mut h.server,
+            &mut h.net,
+            world,
+            state,
+            cast,
+            clock
+        ));
+    }
+    h.run(2);
+    let eid = |state: u32| {
+        h.server
+            .players
+            .get(&world)
+            .and_then(|p| p.play.effects.iter().find(|e| e.state == state))
+            .map(|e| e.eid)
+            .expect("a record")
+    };
+    (eid(ENDS_AT_LOGOUT), eid(OUTLASTS_LOGOUT))
+}
+
+/// The ids of the records a session start told since `from` carries.
+fn records_in_start(h: &Harness, b: usize, from: usize) -> Vec<u32> {
+    let start = calls_of(h, b, from)
+        .into_iter()
+        .find(|(f, _)| *f == 0x8212_0027)
+        .expect("the session start");
+    start
+        .1
+        .iter()
+        .filter_map(|v| match v {
+            Value::Graph(g) => Some(g),
+            _ => None,
+        })
+        .flat_map(|g| g.iter())
+        .filter_map(|(_, n)| match n {
+            Node::Script { package, slots } if *package == 0x14E => slots.get(23).map(|(_, x)| *x),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A record of an effect that ends at logout is told so, is taken off as its holder logs off, and
+/// is not in its next session start; a record of one that doesn't end so is told without it and
+/// comes back.
+/// Behaviour: server.effects.ends-at-logout
+#[test]
+fn an_effect_that_ends_at_logout_goes_as_its_holder_logs_off_and_one_that_does_not_comes_back() {
+    use yalain_world::effects::record_flag::LOGOUT;
+    let (mut h, b, me, world) = armed_with_logout_effects();
+    let from = h.bots[b].inbox.len();
+    let (ends, outlasts) = both_on(&mut h, me, world);
+    let told: Vec<(u32, u32)> = added(&h, b, from)
+        .iter()
+        .map(|r| (r.0, r.4 & LOGOUT))
+        .collect();
+    assert_eq!(
+        told,
+        [(ends, LOGOUT), (outlasts, 0)],
+        "told as ending at logout"
+    );
+    let leaving = h.bots[b].inbox.len();
+    log_off(&mut h, b, me);
+    let gone = calls_of(&h, b, leaving);
+    assert!(gone.contains(&(REMOVE_EFFECT, vec![Value::Int(ends)])));
+    assert!(!gone.contains(&(REMOVE_EFFECT, vec![Value::Int(outlasts)])));
+    let back = h.bots[b].inbox.len();
+    h.enter_world(b, "one", me);
+    assert_eq!(records_in_start(&h, b, back), [outlasts]);
+}
+
+/// A save from before records of effects that end at logout were told so, holding one, has it
+/// dropped as the character enters; and what ends at logout is not kept when its holder leaves the
+/// world with no logging off (the server stopping).
+/// Behaviour: server.effects.ends-at-logout-not-kept
+#[test]
+fn an_older_saves_record_of_what_ends_at_logout_is_dropped_and_none_is_kept_as_the_server_stops() {
+    use yalain_store::Store;
+    use yalain_world::state::PlayState;
+    let (mut h, b, me, world) = armed_with_logout_effects();
+    let (ends, outlasts) = both_on(&mut h, me, world);
+    // An older save's record: of the same effect, told without the mark.
+    let old = h
+        .server
+        .players
+        .get(&world)
+        .and_then(|p| p.play.effects.iter().find(|e| e.eid == ends))
+        .map(|e| yalain_world::state::EffectState {
+            eid: e.eid + 100,
+            flags: effects::TIMED,
+            ..*e
+        })
+        .expect("a record");
+    log_off(&mut h, b, me);
+    yalain_world::saves::write_out(&mut h.server).expect("written");
+    let saved = |h: &mut Harness| {
+        let st = h
+            .server
+            .store
+            .world_state(me)
+            .expect("reads")
+            .expect("kept");
+        let play = PlayState::from_bytes(&st.play).expect("reads");
+        (st, play)
+    };
+    let (mut st, mut play) = saved(&mut h);
+    play.effects.push(old);
+    st.play = play.to_bytes();
+    h.server.store.set_world_state(me, &st).expect("kept");
+    let back = h.bots[b].inbox.len();
+    h.enter_world(b, "one", me);
+    assert_eq!(
+        records_in_start(&h, b, back),
+        [outlasts],
+        "the older save's record dropped"
+    );
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .expect("in the world")
+        .0;
+    let cast = effects::Cast {
+        caster: me,
+        spellcraft: 1.0,
+        ..effects::Cast::default()
+    };
+    let clock = h.clock();
+    assert!(effects::apply(
+        &mut h.server,
+        &mut h.net,
+        world,
+        ENDS_AT_LOGOUT,
+        cast,
+        clock
+    ));
+    yalain_world::shutdown::save_everyone(&mut h.server, &mut h.net);
+    let kept: Vec<u32> = saved(&mut h).1.effects.iter().map(|e| e.state).collect();
+    assert_eq!(kept, [OUTLASTS_LOGOUT], "kept without what ends at logout");
+}
+
 /// A change of health over time heals every few seconds by its rate times the seconds since its
 /// last change, each told by the healed one before its health.
 /// Behaviour: server.effects.over-time
@@ -702,6 +882,36 @@ fn one_casters_records_of_one_effect_stop_at_the_limit_the_oldest_going() {
         effects::MOST_OF_ONE_EFFECT + 1,
         "another caster's is another's"
     );
+}
+
+/// One caster's records of an effect with no end, each told as held until taken off, stop at the
+/// same most a target holds.
+/// Behaviour: server.effects.records-with-no-end-bounded
+#[test]
+fn one_casters_records_of_an_effect_with_no_end_stop_at_the_same_limit() {
+    use yalain_world::effect_defs::{EffectDef, Kind, Scale};
+    use yalain_world::effects::record_flag::INFINITE;
+    const NO_END: u32 = 0x6F00_7A03;
+    let (mut h, _, me) = armed();
+    h.server.effect_table.effects.insert(
+        NO_END,
+        EffectDef {
+            kind: Kind::Numeric {
+                flags: 0,
+                stats: Vec::new(),
+                magnitude: Scale::default(),
+            },
+            ..yalain_testkit::plain_effect(NO_END)
+        },
+    );
+    let world = world_of(&h, me);
+    let friend = 0x2130_0000_0000_0077;
+    for _ in 0..=effects::MOST_OF_ONE_EFFECT {
+        put_on(&mut h, world, NO_END, friend);
+    }
+    let held = records(&h, world);
+    assert_eq!(held.len(), effects::MOST_OF_ONE_EFFECT);
+    assert!(held.iter().all(|e| e.flags & INFINITE != 0));
 }
 
 /// Records from others stop at the most a target holds: past it the oldest of whoever holds the

@@ -391,6 +391,8 @@ pub struct EffectDef {
     pub eq_class: u32,
     /// Its name (string id, table), when it has one.
     pub name: Option<(u32, u32)>,
+    /// Does it end when its holder leaves the world (its records gone at logout)?
+    pub ends_at_logout: bool,
 }
 
 impl EffectDef {
@@ -501,6 +503,7 @@ impl EffectDef {
             enum_value: 0,
             eq_class: 0,
             name: None,
+            ends_at_logout: false,
         }
     }
 
@@ -854,6 +857,7 @@ impl EffectDef {
                     NativeObject::TextInfo(t) if t.string_id != 0 => Some((t.string_id, t.table)),
                     _ => None,
                 }),
+            ends_at_logout: word("m_removeOnLogout").unwrap_or(0) != 0,
         })
     }
 }

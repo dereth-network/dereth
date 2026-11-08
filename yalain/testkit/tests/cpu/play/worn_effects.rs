@@ -42,6 +42,7 @@ fn effect(state: u32, internal_flags: u32, name: Option<(u32, u32)>) -> EffectDe
         fx: 0,
         external_flags: 0x5,
         internal_flags,
+        ends_at_logout: false,
         enum_value: 0,
         eq_class: state & 0xFFFF,
         name,
