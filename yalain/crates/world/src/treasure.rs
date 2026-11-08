@@ -121,7 +121,8 @@ pub const POTIONS: [&str; 1] = ["PotionMagic"];
 /// The script package of the Tesserae.
 pub const TESSERAE: &str = "HeroSkillCreditToken";
 
-/// The packages of the catalog's treasure equipment and potions.
+/// What treasure reads from the install: the packages of the catalog's treasure equipment and
+/// potions, and the game's Arcane Lore table.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Kinds {
     pub equipment: std::collections::HashSet<u32>,
@@ -131,6 +132,8 @@ pub struct Kinds {
     pub potions: std::collections::HashSet<u32>,
     /// Each potion effect's name table and the strength of the color it gives its potion.
     pub potion_looks: std::collections::HashMap<u32, (u32, f32)>,
+    /// The game's Arcane Lore table ([`ARCANE_LORE_TABLE`]).
+    pub lore: crate::craft::LevelMap,
 }
 
 /// The strength of the color a potion effect gives its potion, from its saved state's graph.
@@ -641,30 +644,45 @@ pub const MOST_LEVEL: i32 = 50;
 /// How many of the 2017 items' least levels stood 0, 1, 2 and 3 above the base.
 const ABOVE_BASE: [f32; 4] = [436.0, 519.0, 220.0, 39.0];
 
-/// The game's Arcane Lore table: the lore of each item level from 50 to 150.
-pub const ARCANE_LORE: [u16; 101] = [
-    0, 17, 26, 34, 41, 49, 56, 65, 74, 82, 90, 98, 105, 112, 120, 127, 134, 142, 149, 157, 165,
-    172, 180, 188, 196, 204, 212, 220, 229, 237, 245, 254, 262, 270, 279, 287, 296, 304, 312, 321,
-    329, 337, 345, 354, 362, 370, 379, 387, 395, 404, 412, 421, 429, 438, 447, 455, 464, 473, 481,
-    490, 499, 508, 517, 526, 535, 544, 554, 563, 572, 581, 591, 600, 610, 619, 629, 638, 648, 657,
-    667, 677, 687, 696, 706, 716, 726, 736, 746, 755, 765, 775, 785, 795, 805, 816, 826, 836, 846,
-    856, 866, 876, 887,
-];
+/// The saved state of the game's Arcane Lore table: the lore of each item level from 50 to 150.
+pub const ARCANE_LORE_TABLE: u32 = 0x7000_1BE5;
 
-/// The Arcane Lore of an item level (between the table's levels in proportion, whole), none at 50
-/// or below.
+/// Read the Arcane Lore table's graph.
+///
+/// # Errors
+/// Its list is missing, or holds fewer than two levels.
+pub fn lore_table(
+    lib: &auberean_script::library::Library,
+    g: &auberean_script::graph::Graph,
+) -> Result<crate::craft::LevelMap, String> {
+    let table = crate::craft::LevelMap::from_state(lib, g)?;
+    if table.values.len() < 2 {
+        return Err(format!(
+            "the Arcane Lore table holds {} levels",
+            table.values.len()
+        ));
+    }
+    Ok(table)
+}
+
+/// The Arcane Lore of an item level by the game's table (between the table's levels in proportion,
+/// whole), none at its first level or below.
 #[must_use]
-pub fn lore_at(level: f32) -> Option<i32> {
-    if level <= 50.0 {
+pub fn lore_at(table: &crate::craft::LevelMap, level: f32) -> Option<i32> {
+    let values = &table.values;
+    #[allow(clippy::cast_precision_loss)]
+    let first = table.first as f32;
+    if level <= first || values.len() < 2 {
         return None;
     }
-    let at = (level - 50.0).min(100.0);
+    #[allow(clippy::cast_precision_loss)]
+    let at = (level - first).min((values.len() - 1) as f32);
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let i = (at.floor() as usize).min(ARCANE_LORE.len() - 2);
+    let i = (at.floor() as usize).min(values.len() - 2);
     #[allow(clippy::cast_precision_loss)]
     let frac = at - i as f32;
-    let lo = f32::from(ARCANE_LORE[i]);
-    let hi = f32::from(ARCANE_LORE[i + 1]);
+    #[allow(clippy::cast_precision_loss)]
+    let (lo, hi) = (values[i] as f32, values[i + 1] as f32);
     let lore = dereth_primitives::num::to_i32(lo + (hi - lo) * frac);
     (lore > 0).then_some(lore)
 }
@@ -696,15 +714,15 @@ pub fn min_level(rng: &mut Rng, base: i32) -> i32 {
     (base + i32::try_from(above).unwrap_or(0)).clamp(1, MOST_LEVEL)
 }
 
-/// A treasure item's own Arcane Lore, from its dropper's base: none when the item level drawn is
-/// 50 or below.
-pub fn arcane_lore(rng: &mut Rng, base: i32) -> Option<i32> {
+/// A treasure item's own Arcane Lore, from its dropper's base, by the game's table: none when the
+/// item level drawn is 50 or below.
+pub fn arcane_lore(rng: &mut Rng, table: &crate::craft::LevelMap, base: i32) -> Option<i32> {
     if base <= 51 {
         return None;
     }
     #[allow(clippy::cast_precision_loss)]
     let top = (base - 1) as f32;
-    lore_at(rng.between(top - 5.0, top))
+    lore_at(table, rng.between(top - 5.0, top))
 }
 
 /// A treasure potion's effect, from its dropper's level: its kind drawn evenly, at the level's
@@ -741,7 +759,7 @@ pub fn endow<S: yalain_store::Store>(
         own.look = draw_look(&mut s.rng, template);
         let least = min_level(&mut s.rng, base);
         own.min_level = Some(least);
-        own.arcane_lore = arcane_lore(&mut s.rng, base);
+        own.arcane_lore = arcane_lore(&mut s.rng, &s.treasure.lore, base);
         let value = s.things.get(item).map_or(0, |t| t.value);
         let shield = s.treasure.shields.contains(&package);
         if let Some(t) = s.catalog.get(template) {
@@ -761,7 +779,7 @@ pub fn endow<S: yalain_store::Store>(
         let least = min_level(&mut s.rng, base);
         if put_enchantments(s, item, &mut own, Sort::Jewelry, least.max(base)) {
             own.min_level = Some(least);
-            own.arcane_lore = arcane_lore(&mut s.rng, base);
+            own.arcane_lore = arcane_lore(&mut s.rng, &s.treasure.lore, base);
         }
     } else if s.treasure.potions.contains(&package) {
         let (state, spellcraft) = potion_effect(&mut s.rng, level);

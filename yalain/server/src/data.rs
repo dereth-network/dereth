@@ -968,10 +968,10 @@ pub fn catalog_packages_from(
 }
 
 /// The packages of the catalog's treasure equipment (not its instruments), its shields and treasure
-/// potions, and each treasure potion effect's name table and color.
+/// potions, each treasure potion effect's name table and color, and the game's Arcane Lore table.
 ///
 /// # Errors
-/// The library does not read.
+/// The library or the Arcane Lore table does not read.
 pub fn treasure(p: &Portal, catalog: &Catalog) -> Result<yalain_world::treasure::Kinds, String> {
     use yalain_world::treasure;
     let lib = library(p)?;
@@ -997,7 +997,26 @@ pub fn treasure(p: &Portal, catalog: &Catalog) -> Result<yalain_world::treasure:
         jewelry: catalog_packages_from(p, catalog, &treasure::JEWELRY)?,
         potions: catalog_packages_from(p, catalog, &treasure::POTIONS)?,
         potion_looks,
+        lore: lore_table(p, treasure::ARCANE_LORE_TABLE)?,
     })
+}
+
+/// The game's Arcane Lore table, from its saved state `id`.
+///
+/// # Errors
+/// The library or the table does not read.
+fn lore_table(p: &Portal, id: u32) -> Result<yalain_world::craft::LevelMap, String> {
+    let lib = library(p)?;
+    let bytes = p
+        .dat
+        .read(id)
+        .map_err(|e| format!("the Arcane Lore table {id:08X}: {e}"))?;
+    let st: ScriptState = auberean_assets::decode(id, &bytes, &p.ctx)
+        .map_err(|e| format!("the Arcane Lore table {id:08X}: {e}"))?;
+    let g = Graph::decode(&st.graph, lib)
+        .map_err(|e| format!("the Arcane Lore table {id:08X}: {e}"))?;
+    yalain_world::treasure::lore_table(lib, &g)
+        .map_err(|e| format!("the Arcane Lore table {id:08X}: {e}"))
 }
 
 /// The craft skills and recipes a new character starts with, and the recipes `more` names (the
@@ -1660,6 +1679,48 @@ mod tests {
             yalain_world::equip::hold_of(&c, 0x4700_051C),
             yalain_world::equip::SWORD
         );
+    }
+
+    /// A start reads the game's Arcane Lore table with the treasure's kinds, item levels 50 to 150;
+    /// a world whose overlay deletes it stops the start, naming the table.
+    /// Behaviour: server.loot.treasure-own-properties-by-level
+    #[test]
+    fn a_start_reads_the_arcane_lore_table_and_a_world_without_it_stops() {
+        use dereth_dat::ModernDat;
+        use dereth_primitives::DataId;
+        use yalain_world::treasure::ARCANE_LORE_TABLE;
+
+        let dir = auberean_dat::testing::require_target_install();
+        let p = Portal::open(&dir, None).expect("opens");
+        let lore = treasure(&p, &Catalog::default())
+            .expect("the treasure")
+            .lore;
+        assert_eq!((lore.first, lore.values.len()), (50, 101));
+        assert_eq!((lore.values[1], lore.values[100]), (17, 887));
+
+        let portal = file_of(&DatName::Portal);
+        let world = world_with_overlay("no-lore", "a-world", |d| {
+            let mut w = d
+                .writer(
+                    ModernDat::Portal,
+                    portal.shared(),
+                    role_file(ModernDat::Portal),
+                    "a-world",
+                    0,
+                )
+                .expect("a writer");
+            w.tombstone(DataId(ARCANE_LORE_TABLE), 0, 0).unwrap();
+            w.flush(0).unwrap();
+        });
+        let overlay = crate::world::overlay_of(&world.display().to_string(), None)
+            .expect("reads")
+            .expect("a world's overlay");
+        let p = Portal::open(&dir, Some(overlay)).expect("opens");
+        let Err(why) = treasure(&p, &Catalog::default()) else {
+            panic!("a start without the Arcane Lore table read its treasure");
+        };
+        assert!(why.starts_with("the Arcane Lore table 70001BE5"), "{why}");
+        std::fs::remove_dir_all(&world).ok();
     }
 
     /// A start reads the quest taking an item asks from its class, by the quest's name: a piece of

@@ -2291,15 +2291,22 @@ fn turning_a_corpses_items_into_money_keeps_a_quest_item_and_pays_the_rest() {
 
 /// What a treasure item carries of its own follows its dropper: the loot base is the loot quality
 /// in tens (else the level); equipment's least level the base plus 0 to 3, every one of those
-/// drawn, at most 50; Arcane Lore only above a base of 51, from the game's table, below the base's
-/// own; a potion's effect of its level's tier (up to 15, 16-29, 30-39, 40-44, 45 up) at a
-/// spellcraft from 0 to 100.
+/// drawn, at most 50; Arcane Lore only above a base of 51, from the game's table (between its
+/// levels in proportion, its last level's past its end), below the base's own; a potion's effect of
+/// its level's tier (up to 15, 16-29, 30-39, 40-44, 45 up) at a spellcraft from 0 to 100.
 /// Behaviour: server.loot.treasure-own-properties-by-level
 #[test]
 fn a_treasure_items_own_properties_follow_its_droppers_level() {
+    use yalain_world::craft::LevelMap;
     use yalain_world::rng::Rng;
     use yalain_world::treasure::{
         arcane_lore, base_of, lore_at, min_level, potion_effect, potion_tier, POTION_EFFECTS,
+    };
+    // A table of this test's own, ten lore a level from 50 to 150; the install's is read in the
+    // dat tests.
+    let table = LevelMap {
+        first: 50,
+        values: (0..=100).map(|i| i * 10).collect(),
     };
     assert_eq!(base_of(43, Some(440)), 44);
     assert_eq!(base_of(20, None), 20);
@@ -2308,10 +2315,21 @@ fn a_treasure_items_own_properties_follow_its_droppers_level() {
         .map(|l| potion_tier(*l))
         .collect();
     assert_eq!(tiers, [0, 0, 1, 1, 2, 2, 3, 3, 4, 4]);
-    assert_eq!(lore_at(50.0), None);
-    assert_eq!(lore_at(50.5), Some(8));
-    assert_eq!(lore_at(51.0), Some(17));
-    assert_eq!(lore_at(150.0), Some(887));
+    assert_eq!(lore_at(&table, 50.0), None);
+    assert_eq!(lore_at(&table, 50.5), Some(5));
+    assert_eq!(lore_at(&table, 51.0), Some(10));
+    assert_eq!(lore_at(&table, 55.25), Some(52), "cut to a whole number");
+    assert_eq!(lore_at(&table, 150.0), Some(1000));
+    assert_eq!(
+        lore_at(&table, 170.0),
+        Some(1000),
+        "the last level's past the end"
+    );
+    assert_eq!(
+        lore_at(&LevelMap::default(), 60.0),
+        None,
+        "no table, no lore"
+    );
     let mut rng = Rng::new(7);
     let mut seen = [false; 4];
     let (mut low, mut high) = (100.0f32, 0.0f32);
@@ -2321,9 +2339,9 @@ fn a_treasure_items_own_properties_follow_its_droppers_level() {
         seen[usize::try_from(l - 20).unwrap()] = true;
         assert!(min_level(&mut rng, 49) <= 50);
         assert_eq!(min_level(&mut rng, 60), 50);
-        assert_eq!(arcane_lore(&mut rng, 51), None);
-        let lore = arcane_lore(&mut rng, 57).expect("a base of 57 always draws above 50");
-        assert!((17..=lore_at(56.0).unwrap()).contains(&lore), "{lore}");
+        assert_eq!(arcane_lore(&mut rng, &table, 51), None);
+        let lore = arcane_lore(&mut rng, &table, 57).expect("a base of 57 always draws above 50");
+        assert!((10..=60).contains(&lore), "{lore}");
         let (state, spellcraft) = potion_effect(&mut rng, 10);
         assert!(POTION_EFFECTS.iter().any(|k| k[0] == state), "{state:08X}");
         assert!((0.0..=100.0).contains(&spellcraft));
@@ -2336,7 +2354,7 @@ fn a_treasure_items_own_properties_follow_its_droppers_level() {
         "spellcraft over 0 to 100: {low} to {high}"
     );
     let some = (0..200)
-        .filter(|_| arcane_lore(&mut rng, 53).is_some())
+        .filter(|_| arcane_lore(&mut rng, &table, 53).is_some())
         .count();
     assert!(
         (40..=120).contains(&some),

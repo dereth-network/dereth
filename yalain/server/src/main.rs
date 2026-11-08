@@ -1954,6 +1954,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             shields = treasure.shields.len(),
             potions = treasure.potions.len(),
             looks = treasure.potion_looks.len(),
+            lore_levels = treasure.lore.values.len(),
             tesserae = tesserae.len(),
             "the treasure items' kinds read"
         );

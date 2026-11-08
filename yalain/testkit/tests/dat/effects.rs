@@ -1,5 +1,5 @@
-//! Effects, recipes, basic attacks and bodies as the server reads them from the September 2013
-//! data.
+//! Effects, recipes, basic attacks, bodies and treasure as the server reads them from the September
+//! 2013 data.
 
 use yalain_testkit::authored::Portal;
 use yalain_world::craft::Action;
@@ -2392,4 +2392,57 @@ fn the_tyrant_warder_stone_puts_on_a_ward_that_keeps_off_what_bars_skills() {
         clock
     ));
     assert!(held(&h, TYRANT_MAUL));
+}
+
+/// The Arcane Lore a treasure item takes reads from the game's own table: item levels 50 to 150,
+/// none at 50, 17 at 51, 412 at 100, 887 at 150, rising at every level, 42,920 in all; between its
+/// levels in proportion, cut to a whole number.
+/// Behaviour: server.loot.treasure-own-properties-by-level
+#[test]
+fn the_arcane_lore_of_an_item_level_reads_from_the_games_table() {
+    use yalain_world::treasure::lore_at;
+    let t = Portal::open().lore_table();
+    assert_eq!((t.first, t.values.len()), (50, 101));
+    assert_eq!(
+        (t.values[0], t.values[1], t.values[50], t.values[100]),
+        (0, 17, 412, 887)
+    );
+    assert!(t.values.windows(2).all(|w| w[1] > w[0]), "rising");
+    assert_eq!(t.values.iter().sum::<u32>(), 42_920);
+    assert_eq!(lore_at(&t, 50.0), None);
+    assert_eq!(lore_at(&t, 50.5), Some(8));
+    assert_eq!(lore_at(&t, 51.0), Some(17));
+    assert_eq!(lore_at(&t, 150.0), Some(887));
+}
+
+/// Treasure equipment from a dropper of base 60 takes an Arcane Lore by the server's table: an item
+/// level from 54 to 59, so a lore from the table's 54 to its 59.
+/// Behaviour: server.loot.treasure-own-properties-by-level
+#[test]
+fn treasure_equipment_takes_its_arcane_lore_by_the_servers_table() {
+    use yalain_world::treasure::{endow, lore_at};
+    let p = Portal::open();
+    let template = p.template(0x4700_1DA1);
+    let mut h = yalain_testkit::Harness::new();
+    h.server
+        .treasure
+        .equipment
+        .insert(template.description.package);
+    h.server.catalog.insert(template);
+    h.server.treasure.lore = p.lore_table();
+    let (least, most) = (
+        lore_at(&h.server.treasure.lore, 54.0).expect("above 50"),
+        lore_at(&h.server.treasure.lore, 59.0).expect("above 50"),
+    );
+    assert_eq!((least, most), (41, 82));
+    for _ in 0..50 {
+        let item =
+            yalain_world::inventory::make_item(&mut h.server, 0x4700_1DA1, 1, 0).expect("made");
+        endow(&mut h.server, item, 60, None);
+        let lore = h.server.things.get(item).expect("made").own.arcane_lore;
+        assert!(
+            lore.is_some_and(|l| (least..=most).contains(&l)),
+            "{lore:?}"
+        );
+    }
 }

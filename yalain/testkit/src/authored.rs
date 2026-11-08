@@ -627,6 +627,27 @@ impl Portal {
         LevelTable::from_state(&lib, &g).expect("the levels read")
     }
 
+    /// The game's Arcane Lore table, as the server reads it.
+    ///
+    /// # Panics
+    /// The table does not read.
+    #[must_use]
+    pub fn lore_table(&self) -> yalain_world::craft::LevelMap {
+        use yalain_world::treasure::{lore_table, ARCANE_LORE_TABLE};
+        let lib = self.library.get_or_init(|| self.library());
+        let st: ScriptState = auberean_assets::decode(
+            ARCANE_LORE_TABLE,
+            &self
+                .dat
+                .read(ARCANE_LORE_TABLE)
+                .expect("the Arcane Lore table"),
+            &self.ctx,
+        )
+        .expect("the Arcane Lore table reads");
+        let g = Graph::decode(&st.graph, lib).expect("its graph reads");
+        lore_table(lib, &g).expect("the lore reads")
+    }
+
     /// A world database's files checked, merged and compiled against this install.
     ///
     /// # Panics
