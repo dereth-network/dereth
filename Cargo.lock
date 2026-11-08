@@ -340,6 +340,7 @@ dependencies = [
  "chrono",
  "dereth-audio",
  "dereth-audio-out",
+ "dereth-clipboard",
  "dereth-console",
  "dereth-primitives",
  "embed-resource",

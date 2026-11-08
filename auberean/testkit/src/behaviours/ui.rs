@@ -2439,6 +2439,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.text.an-entry-cuts-copies-and-pastes-through-the-systems-clipboard",
+        says: "An entry with the keyboard pastes what the system's clipboard holds at Ctrl+V, in place \
+               of the selection; Ctrl+C puts the selection on the clipboard and Ctrl+X puts it there \
+               and drops it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-TEXT-CLIPBOARD"),
+        station: "auberean-interface::dat::screens::the_chat_entry_cuts_copies_and_pastes_through_the_systems_clipboard",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.text.an-entry-of-the-string-table-is-a-reference",
         says: "An element's entry of its string table is added as a string reference: written as \
                the client writes one, waiting for its tables if the data lacks them.",

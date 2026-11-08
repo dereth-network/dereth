@@ -2463,6 +2463,14 @@ impl Interface for Retail {
         let media = random.clone();
         self.ui.set_dice(Box::new(move || media.draw()));
     }
+
+    fn set_clipboard(&mut self, text: Option<String>) {
+        self.ui.set_clipboard(text);
+    }
+
+    fn take_copied(&mut self) -> Option<String> {
+        self.ui.take_copied()
+    }
 }
 
 /// The character the chosen avatar makes, as the developer's login makes one too.

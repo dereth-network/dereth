@@ -391,6 +391,14 @@ pub trait Interface {
 
     /// The client's random numbers, the one generator everything in the program draws from.
     fn set_random(&mut self, _random: &auberean_primitives::random::Random) {}
+
+    /// The text the system's clipboard holds now, for a paste; none when it holds no text.
+    fn set_clipboard(&mut self, _text: Option<String>) {}
+
+    /// The text cut or copied since last asked, for the system's clipboard.
+    fn take_copied(&mut self) -> Option<String> {
+        None
+    }
 }
 
 /// The interface with nothing in it: no screen, no request. The world's controls get every event.

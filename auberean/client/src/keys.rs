@@ -121,6 +121,49 @@ pub fn button(b: MouseButton) -> Option<Button> {
     }
 }
 
+/// A key pressed, as the window system read it: its text with every modifier (its first text has
+/// Control taken off), and the key with none (the letter it bears on the layout).
+#[derive(Clone, Debug, Default)]
+pub struct Pressed {
+    pub text_with_all_modifiers: Option<String>,
+    pub bare: Option<String>,
+}
+
+impl Pressed {
+    /// The window system's key event.
+    #[must_use]
+    pub fn of(event: &winit::event::KeyEvent) -> Self {
+        use winit::platform::modifier_supplement::KeyEventExtModifierSupplement as _;
+        let bare = match event.key_without_modifiers() {
+            winit::keyboard::Key::Character(c) => Some(c.to_string()),
+            _ => None,
+        };
+        Self {
+            text_with_all_modifiers: event.text_with_all_modifiers().map(str::to_owned),
+            bare,
+        }
+    }
+}
+
+/// What a key press types into the interface: its text with every modifier applied, so Ctrl+C,
+/// Ctrl+X and Ctrl+V type the control characters an entry copies, cuts and pastes for (as the
+/// original read the system's characters), not the bare letter. With Command held (`command`, on
+/// a Mac) the same three keys, by the letter they bear on the layout, type those characters, and
+/// any other key types nothing.
+#[must_use]
+pub fn typed(key: &Pressed, command: bool) -> Option<String> {
+    if !command {
+        return key.text_with_all_modifiers.clone();
+    }
+    let control = match key.bare.as_deref().map(str::to_ascii_lowercase).as_deref() {
+        Some("c") => '\u{3}',
+        Some("v") => '\u{16}',
+        Some("x") => '\u{18}',
+        _ => return None,
+    };
+    Some(control.to_string())
+}
+
 /// A key by the name a script gives it (the shell's name: `W`, `Numpad5`, `Space`...).
 #[must_use]
 pub fn named(name: &str) -> Option<Key> {
@@ -220,4 +263,59 @@ pub fn named(name: &str) -> Option<Key> {
     ALL.iter()
         .copied()
         .find(|k| format!("{k:?}").eq_ignore_ascii_case(name))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{typed, Pressed};
+
+    fn pressed(all: &str, bare: &str) -> Pressed {
+        Pressed {
+            text_with_all_modifiers: Some(all.to_owned()),
+            bare: Some(bare.to_owned()),
+        }
+    }
+
+    /// Ctrl+V, Ctrl+C and Ctrl+X type the control characters an entry pastes, copies and cuts for,
+    /// as the window system makes them with Control applied; a plain key types its letter.
+    ///
+    /// Behaviour: desktop.input.ctrl-with-a-letter-types-its-control-character
+    #[test]
+    fn ctrl_with_a_letter_types_its_control_character() {
+        assert_eq!(
+            typed(&pressed("\u{16}", "v"), false).as_deref(),
+            Some("\u{16}")
+        );
+        assert_eq!(
+            typed(&pressed("\u{3}", "c"), false).as_deref(),
+            Some("\u{3}")
+        );
+        assert_eq!(
+            typed(&pressed("\u{18}", "x"), false).as_deref(),
+            Some("\u{18}")
+        );
+        assert_eq!(typed(&pressed("V", "v"), false).as_deref(), Some("V"));
+        assert_eq!(typed(&Pressed::default(), false), None);
+    }
+
+    /// With Command held on a Mac, V, C and X (by the letter on the layout) type the paste, copy
+    /// and cut characters, and any other key types nothing.
+    ///
+    /// Behaviour: desktop.input.command-with-v-c-or-x-pastes-copies-or-cuts-on-a-mac
+    #[test]
+    fn command_with_v_c_or_x_pastes_copies_or_cuts_on_a_mac() {
+        assert_eq!(typed(&pressed("v", "v"), true).as_deref(), Some("\u{16}"));
+        assert_eq!(typed(&pressed("c", "c"), true).as_deref(), Some("\u{3}"));
+        assert_eq!(typed(&pressed("X", "X"), true).as_deref(), Some("\u{18}"));
+        assert_eq!(
+            typed(&pressed("a", "a"), true),
+            None,
+            "Command+A types nothing"
+        );
+        assert_eq!(
+            typed(&pressed("v", "k"), true),
+            None,
+            "the letter on the layout decides, not the key's place"
+        );
+    }
 }

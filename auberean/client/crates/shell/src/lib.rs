@@ -226,6 +226,9 @@ impl FriendsService {
 /// The original friends service's port, which a service named without one is on.
 const FRIENDS_PORT: u16 = 2310;
 
+/// The character Ctrl+V types: a text entry pastes for it.
+const PASTE: char = '\u{16}';
+
 /// How the client names itself to the friends service.
 const FRIENDS_SOFTWARE: &str = concat!("auberean/", env!("CARGO_PKG_VERSION"));
 
@@ -372,13 +375,27 @@ impl<'w, H: Host> Shell<'w, H> {
             | Event::Wheel { .. }
             | Event::Focus(_) => {}
         }
+        // Ctrl+V's character pastes what the system's clipboard holds as it is typed.
+        // D2-08342
+        if matches!(e, Event::Text(t) if t.contains(PASTE)) {
+            self.interface.set_clipboard(self.host.clipboard_text());
+        }
         let phase = self.phase();
         let game = game!(self, phase);
         if !self.interface.event(e, &game) {
             self.controls.event(e, &self.keys);
         }
+        self.hand_on_copied();
         if let Some((x, y)) = self.input.take_missed() {
             self.event(&Event::Pointer { x, y });
+        }
+    }
+
+    /// What the interface cut or copied, put on the system's clipboard.
+    // D2-08338
+    fn hand_on_copied(&mut self) {
+        if let Some(text) = self.interface.take_copied() {
+            self.host.set_clipboard_text(&text);
         }
     }
 
@@ -805,6 +822,7 @@ impl<'w, H: Host> Shell<'w, H> {
         let phase = self.phase();
         let game = game!(self, phase);
         self.interface.update(&game, &mut requests);
+        self.hand_on_copied();
         self.world_pick = None;
         for r in requests {
             self.request(r);

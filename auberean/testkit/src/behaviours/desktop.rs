@@ -949,6 +949,27 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "desktop.input.command-with-v-c-or-x-pastes-copies-or-cuts-on-a-mac",
+        says: "On a Mac, Command with V, C or X (the letter the layout puts on the key) pastes, \
+               copies or cuts in a text entry as Control does elsewhere; Command with any other \
+               key types nothing.",
+        since: THIS_CLIENT,
+        divergence: "CD2-mac-command-is-control-for-the-clipboard",
+        evidence: Evidence::Private("AC2-EVID-MAC-COMMAND-CLIPBOARD"),
+        station: "auberean-client::bin.auberean::keys::tests::command_with_v_c_or_x_pastes_copies_or_cuts_on_a_mac",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.input.ctrl-with-a-letter-types-its-control-character",
+        says: "A key pressed with Control types the character the system makes of it with Control \
+               applied, so Ctrl+V, Ctrl+C and Ctrl+X reach an entry as its paste, copy and cut, \
+               and no letter is typed with them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-INPUT-CTRL-CHARACTERS"),
+        station: "auberean-client::bin.auberean::keys::tests::ctrl_with_a_letter_types_its_control_character",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "desktop.input.mouse-look-holds-the-pointer-at-the-middle",
         says: "While the pointer is held for mouse look nothing hears where it is; taking hold of it \
                puts it at the middle of the display.",

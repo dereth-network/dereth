@@ -312,6 +312,9 @@ struct DoubleHost {
     boxes: Vec<(String, String)>,
     /// The files it keeps.
     files: std::collections::HashMap<String, Vec<u8>>,
+    /// The system's clipboard: what it holds, and each text put on it.
+    clipboard: Option<String>,
+    copied: Vec<String>,
 }
 
 fn me() -> SocketAddr {
@@ -361,6 +364,13 @@ impl Host for DoubleHost {
     fn error_box(&mut self, title: &str, text: &str) {
         self.boxes.push((title.to_owned(), text.to_owned()));
     }
+    fn clipboard_text(&mut self) -> Option<String> {
+        self.clipboard.clone()
+    }
+    fn set_clipboard_text(&mut self, text: &str) {
+        self.copied.push(text.to_owned());
+        self.clipboard = Some(text.to_owned());
+    }
 }
 
 /// The interface, shared with the test so it can look at the screens while the shell drives it.
@@ -390,6 +400,12 @@ impl Interface for Shared {
     }
     fn prepare(&mut self, client: &mut auberean_client_sdk::Client) {
         self.0.borrow_mut().prepare(client);
+    }
+    fn set_clipboard(&mut self, text: Option<String>) {
+        self.0.borrow_mut().set_clipboard(text);
+    }
+    fn take_copied(&mut self) -> Option<String> {
+        self.0.borrow_mut().take_copied()
     }
 }
 
@@ -489,6 +505,8 @@ fn shell_over(
         page_error: None,
         boxes: Vec::new(),
         files: std::collections::HashMap::new(),
+        clipboard: None,
+        copied: Vec::new(),
     };
     let mut s = Shell::new(
         host,
@@ -927,6 +945,42 @@ fn alt_reaches_the_interface_from_either_key_and_goes_with_the_window() {
     assert!(!retail.borrow().ui().alt_held(), "gone with the window");
 }
 
+/// The chat entry cuts, copies and pastes through the system's clipboard: Ctrl+V types what the
+/// clipboard holds as it is pressed; with the line selected, Ctrl+C puts it on the clipboard and
+/// Ctrl+X puts it there and drops it from the line.
+///
+/// Behaviour: ui.text.an-entry-cuts-copies-and-pastes-through-the-systems-clipboard
+#[test]
+fn the_chat_entry_cuts_copies_and_pastes_through_the_systems_clipboard() {
+    let (mut s, retail) = into_the_world();
+    assert!(
+        until(&mut s, 2.0, |_| retail.borrow().vitals_shown().is_some()),
+        "in the world"
+    );
+    press(&mut s, Key::Enter);
+    s.host.clipboard = Some("well met".into());
+    s.event(&Event::Text("\u{16}".into()));
+    step(&mut s);
+    assert_eq!(
+        text_of(&retail, "ChatEntry").as_deref(),
+        Some("well met"),
+        "pasted"
+    );
+    s.host.clipboard = Some("changed since".into());
+    {
+        let mut r = retail.borrow_mut();
+        let entry = r.ui().find(Token::of("ChatEntry")).expect("the entry");
+        r.ui_mut().select_all(entry);
+    }
+    s.event(&Event::Text("\u{3}".into()));
+    step(&mut s);
+    assert_eq!(s.host.copied, vec!["well met".to_owned()], "copied");
+    s.event(&Event::Text("\u{18}".into()));
+    step(&mut s);
+    assert_eq!(s.host.copied.len(), 2, "cut: {:?}", s.host.copied);
+    assert_eq!(text_of(&retail, "ChatEntry").as_deref(), Some(""), "cut");
+}
+
 /// The chat window's scroll bars, each with its bar's height and its widget's, when the widget shows.
 fn chat_bars(retail: &Rc<RefCell<Retail>>) -> Vec<(i32, Option<i32>)> {
     fn walk(ui: &auberean_ui::Ui, h: auberean_ui::Handle, out: &mut Vec<(i32, Option<i32>)>) {
@@ -1174,6 +1228,8 @@ fn shell_logging_in_to(
         page_error: None,
         boxes: Vec::new(),
         files: std::collections::HashMap::new(),
+        clipboard: None,
+        copied: Vec::new(),
     };
     let mut s = Shell::new(
         host,
@@ -1303,6 +1359,8 @@ fn a_boot_at_login_shows_its_line_on_the_disconnected_screen() {
         page_error: None,
         boxes: Vec::new(),
         files: std::collections::HashMap::new(),
+        clipboard: None,
+        copied: Vec::new(),
     };
     let mut s = Shell::new(
         host,
@@ -1386,6 +1444,8 @@ fn a_record_that_cannot_be_stored_ends_the_session_on_the_disconnected_screen_wi
         page_error: None,
         boxes: Vec::new(),
         files: std::collections::HashMap::new(),
+        clipboard: None,
+        copied: Vec::new(),
     };
     let mut s = Shell::new(
         host,
@@ -1445,6 +1505,8 @@ fn the_screens_before_the_world_keep_1024_by_768_in_any_window() {
         page_error: None,
         boxes: Vec::new(),
         files: std::collections::HashMap::new(),
+        clipboard: None,
+        copied: Vec::new(),
     };
     let mut s = Shell::new(
         host,

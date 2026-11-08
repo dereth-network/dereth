@@ -6,7 +6,7 @@
 //! `auberean-ui`) and the world it shows (`auberean-scene`), the
 //! world's device (`auberean-gpu`, `auberean-present`) and its frames (`auberean-draw`), the data files
 //! (`auberean-dat`, `auberean-assets`, `auberean-world`, `auberean-client-sdk`), the shared math
-//! (`dereth-primitives`), the console (`dereth-console`), the window system (`winit`), the device (`wgpu`) and the sound device
+//! (`dereth-primitives`), the console (`dereth-console`), the clipboard (`dereth-clipboard`), the window system (`winit`), the device (`wgpu`) and the sound device
 //! (`dereth-audio-out`, through the sound engine's output seam in `dereth-audio`). **Used by** nothing:
 //! it is the `auberean` program.
 //!
@@ -537,6 +537,19 @@ impl Host for Desktop {
         }
     }
 
+    fn clipboard_text(&mut self) -> Option<String> {
+        dereth_clipboard::get_text().unwrap_or_else(|e| {
+            tracing::warn!("reading the clipboard: {e:?}");
+            None
+        })
+    }
+
+    fn set_clipboard_text(&mut self, text: &str) {
+        if let Err(e) = dereth_clipboard::set_text(text) {
+            tracing::warn!("writing the clipboard: {e:?}");
+        }
+    }
+
     fn load_settings(&self) -> Option<String> {
         std::fs::read_to_string(&self.settings_file).ok()
     }
@@ -702,6 +715,8 @@ struct App<'w> {
     shot_next: Option<PathBuf>,
     shot_count: u32,
     alt: bool,
+    /// A Command key is held (on a Mac only): Command with C, X or V copies, cuts and pastes.
+    command: bool,
     failed: Option<String>,
     /// The interface's cursor shown over the window (by its picture), and the cursors made.
     cursor: Option<u32>,
@@ -983,8 +998,10 @@ impl ApplicationHandler for App<'_> {
                         });
                     }
                 }
-                if let Some(t) = event.text.filter(|_| event.state == ElementState::Pressed) {
-                    self.send(&Event::Text(t.to_string()));
+                if event.state == ElementState::Pressed {
+                    if let Some(t) = keys::typed(&keys::Pressed::of(&event), self.command) {
+                        self.send(&Event::Text(t));
+                    }
                 }
             }
             WindowEvent::MouseInput { state, button, .. } => {
@@ -1018,6 +1035,9 @@ impl ApplicationHandler for App<'_> {
                     MouseScrollDelta::PixelDelta(p) => (p.y / 120.0) as f32,
                 };
                 self.send(&Event::Wheel { notches });
+            }
+            WindowEvent::ModifiersChanged(m) => {
+                self.command = cfg!(target_os = "macos") && m.state().super_key();
             }
             // What the input method wrote is typed as the keys' own text is.
             WindowEvent::Ime(winit::event::Ime::Commit(t)) => self.send(&Event::Text(t)),
@@ -1185,6 +1205,7 @@ fn run() -> Result<(), String> {
         shot_next: None,
         shot_count: 0,
         alt: false,
+        command: false,
         failed: None,
         cursor: None,
         cursors: std::collections::HashMap::new(),

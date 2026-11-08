@@ -104,6 +104,11 @@ pub static DIVERGENCES: &[Divergence] = &[
                need, so an admin's login isn't held up for minutes downloading them.",
     },
     Divergence {
+        id: "CD2-mac-command-is-control-for-the-clipboard",
+        says: "On a Mac, Command with V, C or X pastes, copies or cuts in a text entry, as Control \
+               does on the other systems. The original client ran only on Windows.",
+    },
+    Divergence {
         id: "CD2-mac-window-goes-by-points",
         says: "On macOS a window's size is in points, and the picture is drawn at that size and \
                scaled to fill the window, so a Retina screen shows it as large as any other. The \

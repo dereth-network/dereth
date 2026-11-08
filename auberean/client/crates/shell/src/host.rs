@@ -92,6 +92,14 @@ pub trait Host {
     fn set_input_method(&mut self, area: Option<InputArea>) {
         let _ = area;
     }
+    /// The text on the system's clipboard; none when it holds no text or can't be read.
+    fn clipboard_text(&mut self) -> Option<String> {
+        None
+    }
+    /// Put text on the system's clipboard.
+    fn set_clipboard_text(&mut self, text: &str) {
+        let _ = text;
+    }
 }
 
 /// The part of the window the input method writes over: its top left corner and its size, in
@@ -204,6 +212,9 @@ pub struct TestHost {
     pub boxes: Vec<(String, String)>,
     /// How the game was asked to be shown, each time.
     pub presentations: Vec<crate::settings::Presentation>,
+    /// The system's clipboard: what it holds, and each text put on it.
+    pub clipboard: Option<String>,
+    pub copied: Vec<String>,
 }
 
 impl Host for TestHost {
@@ -267,5 +278,12 @@ impl Host for TestHost {
     }
     fn error_box(&mut self, title: &str, text: &str) {
         self.boxes.push((title.to_owned(), text.to_owned()));
+    }
+    fn clipboard_text(&mut self) -> Option<String> {
+        self.clipboard.clone()
+    }
+    fn set_clipboard_text(&mut self, text: &str) {
+        self.copied.push(text.to_owned());
+        self.clipboard = Some(text.to_owned());
     }
 }

@@ -45,6 +45,8 @@ tracing-subscriber.workspace = true
 # The web page a request opens, and the box when it cannot.
 open = "5"
 dereth-console.workspace = true
+# The system's clipboard, for cutting, copying and pasting text.
+dereth-clipboard.workspace = true
 # The local time for the scripts' chat log.
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 

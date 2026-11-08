@@ -594,11 +594,11 @@ impl WebPlay {
         self.shell.event(&Event::Text(text));
     }
 
-    /// The text the client copied since the last call: the client copies nothing.
+    /// The text the client cut or copied since the last call, for the page's clipboard.
     #[wasm_bindgen(js_name = takeCopied)]
     #[must_use]
     pub fn take_copied(&mut self) -> Vec<String> {
-        Vec::new()
+        self.shell.host.take_copied()
     }
 
     /// The addresses the client asked to open since the last call: it asks for none.

@@ -94,6 +94,8 @@ pub struct PageHost<B> {
     friends_news: VecDeque<FriendsNews>,
     /// A message has opened the connection's numbering of its ports.
     numbered: bool,
+    /// The text cut or copied since the page last took it, for its clipboard.
+    copied: Vec<String>,
 }
 
 impl<B: Browser> PageHost<B> {
@@ -112,6 +114,7 @@ impl<B: Browser> PageHost<B> {
             friends_open: None,
             friends_news: VecDeque::new(),
             numbered: false,
+            copied: Vec::new(),
         }
     }
 
@@ -157,6 +160,11 @@ impl<B: Browser> PageHost<B> {
     pub fn pointer_held(&self) -> bool {
         self.held
     }
+
+    /// The text cut or copied since the last call, for the page's clipboard.
+    pub fn take_copied(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.copied)
+    }
 }
 
 /// How long a world has to answer on the friends stream before the client takes it as not served,
@@ -171,6 +179,10 @@ const fn pair_of(port: u16) -> u16 {
 impl<B: Browser> Host for PageHost<B> {
     fn now(&self) -> f64 {
         self.browser.now()
+    }
+
+    fn set_clipboard_text(&mut self, text: &str) {
+        self.copied.push(text.to_owned());
     }
 
     fn unix_time(&self) -> u32 {
@@ -383,6 +395,15 @@ mod tests {
             ))
         );
         assert_eq!(h.receive(), None);
+    }
+
+    #[test]
+    fn text_cut_or_copied_waits_for_the_page_to_take_it() {
+        let mut h = host();
+        h.set_clipboard_text("one");
+        h.set_clipboard_text("two");
+        assert_eq!(h.take_copied(), vec!["one".to_owned(), "two".to_owned()]);
+        assert!(h.take_copied().is_empty());
     }
 
     #[test]
