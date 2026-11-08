@@ -504,6 +504,12 @@ impl Walls {
         }
     }
 
+    /// Read the block of a place, if it is not read yet.
+    pub fn read_place(&mut self, cell: u32) {
+        let (x, y) = block_of(cell);
+        self.read_block(x, y);
+    }
+
     /// How many blocks have been read.
     #[must_use]
     pub fn blocks_read(&self) -> usize {

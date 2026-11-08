@@ -1077,12 +1077,11 @@ pub fn icon_layers(p: &Portal, look: u32) -> Vec<[u32; 3]> {
     yalain_content::icon_layers(look, &|did| p.visual(did))
 }
 
-/// The ground outdoors, from the land of the blocks the camps stand in and their neighbors; and
-/// what each interior cell of the world sees.
+/// The ground outdoors, from the land of the blocks the camps stand in and their neighbors and those
+/// the walls read since; and what each interior cell of the world sees and joins.
 pub struct LandGround {
-    land: std::sync::Arc<auberean_physics::land::Land>,
+    known: yalain_world::reported::Known,
     blocks: usize,
-    sees: std::collections::HashMap<u32, Vec<u32>>,
 }
 
 impl std::fmt::Debug for LandGround {
@@ -1091,25 +1090,22 @@ impl std::fmt::Debug for LandGround {
             f,
             "LandGround({} blocks, {} interior cells)",
             self.blocks,
-            self.sees.len()
+            self.known.rooms.sees.len()
         )
     }
 }
 
 impl yalain_world::Ground for LandGround {
     fn height(&self, cell: u32, origin: [f32; 3]) -> Option<f32> {
-        #[allow(clippy::cast_possible_truncation)]
-        let block = dereth_primitives::LandblockId((cell >> 16) as u16);
-        self.land
-            .ground(
-                block,
-                dereth_primitives::Vec3::new(origin[0], origin[1], origin[2]),
-            )
-            .map(|(z, _)| z)
+        self.known.height(cell, origin)
     }
 
     fn sees(&self, cell: u32) -> Option<&[u32]> {
-        self.sees.get(&cell).map(Vec::as_slice)
+        self.known.sees(cell)
+    }
+
+    fn joins(&self, cell: u32) -> Option<&[u32]> {
+        self.known.joins(cell)
     }
 }
 
@@ -1156,24 +1152,9 @@ pub fn land_ground(
         }
     }
     drop(near);
-    // Every interior cell of the world, with the cells it sees (about a second's reading).
-    let mut sees = std::collections::HashMap::new();
-    for place in 0..=0xFFFF_u32 {
-        let [_, _, bx, by] = place.to_be_bytes();
-        let (x, y) = (i32::from(bx), i32::from(by));
-        let Some(info) = records.landblock_info(x, y) else {
-            continue;
-        };
-        for i in 0..info.cell_count {
-            let Ok(low) = u16::try_from(0x100 + i) else {
-                break;
-            };
-            if let Some(c) = records.cell(x, y, low) {
-                let whole = |l: u16| place << 16 | u32::from(l);
-                sees.insert(whole(low), c.visible.iter().map(|l| whole(*l)).collect());
-            }
-        }
-    }
+    // Every interior cell of the world, with the cells it sees and those it joins (about a
+    // second's reading).
+    let rooms = yalain_world::reported::Rooms::read(&records);
     let land = std::sync::Arc::new(land);
     let mut world = auberean_physics::world::World::new();
     if let Some(list) = records.get::<auberean_assets::property::PropertyList>(0x3400_0000) {
@@ -1188,9 +1169,8 @@ pub fn land_ground(
     walls.walkers = walkers;
     Ok((
         LandGround {
-            land,
+            known: yalain_world::reported::Known { land, rooms },
             blocks: n,
-            sees,
         },
         walls,
     ))

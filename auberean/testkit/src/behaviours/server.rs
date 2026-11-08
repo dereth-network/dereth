@@ -9606,6 +9606,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.a-place-given-starts-the-reckoning-again",
+        says: "Where a trip ends, the player's next report there is taken, and its reach is reckoned from \
+               that place and the moment the trip ended, not from before the trip; a place told back \
+               is taken from in the same way.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-REPORT-PLACED"),
+        station: "yalain-testkit::cpu::play::reported_places::a_trips_end_and_a_place_told_back_are_taken_and_the_reckoning_starts_there",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.places.a-place-off-the-land-is-no-place",
         says: "A place reported further from its block than the whole land's side is not \
                taken and the player stays where it was; a point that far from a block comes \
@@ -9617,6 +9627,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.a-place-outdoors-is-not-under-the-land",
+        says: "A report outdoors more than half a meter below the land is not taken, and the player is \
+               told where it stands; at the land or just under it, it is.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-REPORT-LAND"),
+        station: "yalain-testkit::cpu::play::reported_places::a_place_far_under_the_land_or_further_above_it_than_its_time_allows_is_not_taken",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.places.a-place-too-far-is-told-back",
         says: "A report that goes further than a body could have leaves the player where it stood: \
                its client alone is told that place under a newer force-position stamp, and reports \
@@ -9624,6 +9643,26 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-PLACE-TOLD-BACK"),
         station: "yalain-testkit::cpu::play::reported_places::a_place_too_far_leaves_the_player_where_it_stood_and_its_client_is_told",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.places.a-report-is-within-reach-of-its-time",
+        says: "A report is taken within 30 m of the place last taken, and 15 m more for each second \
+               between their arrivals; one further is not, and its client alone is told where the \
+               player stands.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-REPORT-REACH"),
+        station: "yalain-testkit::cpu::play::reported_places::a_report_reaches_thirty_meters_and_fifteen_more_a_second_since_the_last",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.places.a-room-is-entered-by-a-doorway-or-sight",
+        says: "A report into a room is taken from a room that a doorway joins to it or that sees it, and \
+               from outdoors only into a room with a doorway to the outdoors; a room the world's \
+               records lack is let in and out of either way.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-REPORT-ROOMS"),
+        station: "yalain-testkit::cpu::play::reported_places::a_room_is_entered_only_through_a_doorway_or_a_room_seen",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -10175,6 +10214,24 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-RECALL-FAILS"),
         station: "yalain-testkit::cpu::play::specials::a_recall_never_bound_plays_and_fails",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.places.recorded-reports-pass-the-checks",
+        says: "Every report of a player's place recorded in January 2017 passes the checks reports are \
+               held to, the places the server gave starting the reckoning again.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-REPORT-REPLAY"),
+        station: "yalain-testkit::corpus::invariants::every_2017_report_of_a_players_place_passes_the_checks_a_world_holds_reports_to",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.places.steady-going-is-held-to-a-window",
+        says: "Reports each within a second of the last cover at most 400 m in any 10 s; one that would \
+               go further is not taken, and going just under that goes on as long as it likes.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-REPORT-STEADY"),
+        station: "yalain-testkit::cpu::play::reported_places::steady_reports_cover_at_most_four_hundred_meters_in_ten_seconds",
         tier: Tier::Cpu,
     },
     behaviour! {

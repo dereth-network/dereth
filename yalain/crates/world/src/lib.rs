@@ -121,6 +121,7 @@ pub mod quests;
 pub mod reach;
 pub mod regen;
 pub mod reload;
+pub mod reported;
 pub mod requests;
 pub mod resurrections;
 pub mod rng;
@@ -202,9 +203,9 @@ pub struct ServerConfig {
     /// Send each player its own position and head back as it reports them.
     pub echo_positions: bool,
     /// Hold what a player reports of its place to what a body can do: a land cell its point does not
-    /// lie in is ignored, and a player told it stands where it stood when a place is further than it
-    /// could have gone, as the 2017 servers told a client gone astray. An admin character is not
-    /// held.
+    /// lie in is ignored, and a player told it stands where it stood when a place fails a check of
+    /// [`reported`] (reach, steady going, rooms, the land), as the 2017 servers told a client gone
+    /// astray. An admin character is not held.
     pub holds_reports: bool,
     /// The seed of the world's dice.
     pub seed: u64,
@@ -485,12 +486,18 @@ pub struct Server<S: Store> {
 }
 
 /// The height of the ground under a point outdoors (a cell, a point in its landblock), and the
-/// interior cells seen from an interior cell.
+/// interior cells: those seen from each, and those its doorways join.
 pub trait Ground: std::fmt::Debug {
     fn height(&self, cell: u32, origin: [f32; 3]) -> Option<f32>;
 
     /// The interior cells (whole ids) visible from an interior cell, when the host knows them.
     fn sees(&self, _cell: u32) -> Option<&[u32]> {
+        None
+    }
+
+    /// The cells an interior cell's doorways join (whole ids, [`reported::OUTDOORS`] for the
+    /// outdoors), when the host knows them.
+    fn joins(&self, _cell: u32) -> Option<&[u32]> {
         None
     }
 }

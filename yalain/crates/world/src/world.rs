@@ -48,6 +48,7 @@ use crate::chargen::BODY_ENTITIES;
 use crate::options::{Options, Pairs};
 use crate::player;
 use crate::presence::{self, Seen};
+use crate::reported::Travel;
 use crate::session::{self, request, SessionStart};
 use crate::uploads::{self, Value};
 use crate::{Clock, Server};
@@ -88,7 +89,7 @@ pub struct Player {
     pub teleport_stamp: u16,
     /// The force-position stamp: moved on each time the server refuses a place the player reported.
     pub force_position_stamp: u16,
-    /// How far its reports may yet take it.
+    /// The reckoning of its reports since its last place was taken or given.
     pub travel: Travel,
     /// When it was last told where it stands after a place it reported was refused.
     pub told_back: f64,
@@ -479,7 +480,7 @@ pub fn enter<S: Store>(
         position_stamp: 1,
         teleport_stamp: 0,
         force_position_stamp: 0,
-        travel: Travel::default(),
+        travel: Travel::placed(clock.local.0),
         told_back: f64::NEG_INFINITY,
         view_brought: f64::NEG_INFINITY,
         view_owed: false,
@@ -1202,45 +1203,8 @@ pub const fn motion(sideways: u8, forward: u8, vertical: u8) -> u32 {
 /// The asked motion of a player standing still: every motion byte at its middle.
 pub const IDLE_MOTION: u32 = motion(127, 127, 127);
 
-/// How many meters of a player's reports go unquestioned at once, and how fast more come, in meters
-/// a second. Of 1,825,084 recorded reports, one needed more: 1,422 m after 252 s unheard. No 5 s of
-/// recorded play covered more than 42 m a second.
-pub const TRAVEL_HELD: f32 = 500.0;
-pub const TRAVEL_SPEED: f32 = 60.0;
 /// How long a client that has not heard where it stands goes before it is told again, in seconds.
 pub const TOLD_BACK_AGAIN: f64 = 1.0;
-
-/// How far a player's reports may yet take it, and when that was last reckoned.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Travel {
-    meters: f32,
-    at: f64,
-}
-
-impl Default for Travel {
-    fn default() -> Self {
-        Self {
-            meters: TRAVEL_HELD,
-            at: f64::NEG_INFINITY,
-        }
-    }
-}
-
-impl Travel {
-    /// A report would take the player this far, at this time: whether it may. A place it may not
-    /// reach takes nothing from what it holds.
-    #[allow(clippy::cast_possible_truncation)]
-    pub fn spend(&mut self, meters: f32, now: f64) -> bool {
-        let gained = (now - self.at).max(0.0) * f64::from(TRAVEL_SPEED);
-        self.meters = (f64::from(self.meters) + gained).min(f64::from(TRAVEL_HELD)) as f32;
-        self.at = now;
-        if meters > self.meters {
-            return false;
-        }
-        self.meters -= meters;
-        true
-    }
-}
 
 /// Is this land cell the one a point of its landblock lies in? All 1,503,957 reports recorded on the
 /// land were.
@@ -1303,13 +1267,23 @@ fn moved<S: Store>(
             origin: [c.origin.x, c.origin.y, c.origin.z],
             rotation: p.position.rotation,
         };
-        let (dx, dy, dz) = crate::ai::offset(&p.position, &reported);
-        let far = (dx * dx + dy * dy + dz * dz).sqrt();
-        if !p.travel.spend(far, clock.local.0) {
+        let now = clock.local.0;
+        let meters = crate::reported::meters(&p.position, &reported);
+        let checked = p.travel.reaches(meters, now).and_then(|()| {
+            if !presence::indoors(c.cell) {
+                // The land under it, read the first time a player stands in its block.
+                if let Some(w) = s.walls.as_mut() {
+                    w.read_place(c.cell);
+                }
+            }
+            crate::reported::rooms_and_land(s.ground.as_deref(), &p.position, &reported)
+        });
+        if let Err(why) = checked {
             tracing::debug!(
                 ?world,
-                far,
-                "a place too far: the player is told where it stands"
+                ?why,
+                cell = format_args!("{:08X}", c.cell),
+                "a place not taken: the player is told where it stands"
             );
             p.force_position_stamp = p.force_position_stamp.wrapping_add(1);
             p.told_back = clock.local.0;
@@ -1318,6 +1292,7 @@ fn moved<S: Store>(
             net.send_ephemeral(world, queue::EVENT, p.position_stream, told);
             return;
         }
+        p.travel.take(meters, now);
     }
     if c.cell != p.position.cell {
         tracing::debug!(

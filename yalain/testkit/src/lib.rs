@@ -1593,10 +1593,13 @@ pub fn test_loot() -> yalain_content::LootTable {
     }
 }
 
-/// Ground made up for a test: no land, and the interior cells each listed cell sees.
+/// Ground made up for a test: the land at one height everywhere if any, and the interior cells each
+/// listed cell sees and those its doorways join.
 #[derive(Debug, Default)]
 pub struct TestGround {
+    pub land: Option<f32>,
     pub sees: std::collections::BTreeMap<u32, Vec<u32>>,
+    pub joins: std::collections::BTreeMap<u32, Vec<u32>>,
 }
 
 impl TestGround {
@@ -1605,17 +1608,30 @@ impl TestGround {
     pub fn seeing(cells: &[(u32, &[u32])]) -> Self {
         Self {
             sees: cells.iter().map(|(c, v)| (*c, v.to_vec())).collect(),
+            ..Self::default()
         }
+    }
+
+    /// A room: the cells its doorways join and those it sees.
+    #[must_use]
+    pub fn with_room(mut self, cell: u32, joins: &[u32], sees: &[u32]) -> Self {
+        self.joins.insert(cell, joins.to_vec());
+        self.sees.insert(cell, sees.to_vec());
+        self
     }
 }
 
 impl yalain_world::Ground for TestGround {
     fn height(&self, _cell: u32, _origin: [f32; 3]) -> Option<f32> {
-        None
+        self.land
     }
 
     fn sees(&self, cell: u32) -> Option<&[u32]> {
         self.sees.get(&cell).map(Vec::as_slice)
+    }
+
+    fn joins(&self, cell: u32) -> Option<&[u32]> {
+        self.joins.get(&cell).map(Vec::as_slice)
     }
 }
 

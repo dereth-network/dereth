@@ -2488,6 +2488,7 @@ fn arrive<S: Store>(
     });
     p.teleport_stamp = p.teleport_stamp.wrapping_add(1);
     p.position = trip.to;
+    p.travel = crate::reported::Travel::placed(clock.local.0);
     p.heading_motion =
         u32::from(heading_of_rotation(trip.to.rotation)) << 24 | crate::world::IDLE_MOTION;
     if trip.used.as_ref().is_some_and(|u| recalled_to(s, u)) {
