@@ -547,17 +547,29 @@ fn admins_say_the_commands_in_game_and_a_players_line_is_only_said() {
     assert!(!h.server.gags.gagged(elara), "and gags nobody");
 }
 
-/// `@dn verify <token>` needs an admin's account: an admin's line is kept for the network's half
-/// marked as an admin's; a player's line is kept as any other of its `@dn` words, for the friends
+/// A character of an admin's account made an admin character before it entered the world.
+fn admin_in_world(h: &mut Harness, account: &str, name: &str) -> (usize, u64) {
+    let b = h.at_character_list(account);
+    let id = h.create_character(b, account, name);
+    console(h, &format!("set-accountadmin {account}"));
+    console(h, &format!("set-characteradmin {name}"));
+    h.enter_world(b, account, id);
+    (b, id)
+}
+
+/// `@dn verify <token>` needs an admin character of an admin's account, as every admin call does:
+/// an admin's line is kept for the network's half marked as an admin's; anyone else's, an ordinary
+/// character of an admin's account too, is kept as any other of its `@dn` words, for the friends
 /// service to answer. Nobody hears any of them.
 /// Behaviour: server.network.verify-in-game-for-admins
 #[test]
 fn dn_verify_said_in_game_is_only_an_admins() {
     let mut h = Harness::new();
-    let (a, elara) = h.player_in_world("one", "Elara");
+    let (a, elara) = admin_in_world(&mut h, "one", "Elara");
     let (b, babyfare) = h.player_in_world("two", "Babyfare");
     let (c, cara) = h.player_in_world("three", "Cara");
-    console(&mut h, "set-accountadmin one");
+    // An admin's account, its character an ordinary one.
+    console(&mut h, "set-accountadmin two");
     let token = "dnv_abcdefghijklmnopqrstuvwxyzAB-_01";
     let from = [
         h.bots[a].inbox.len(),
@@ -593,18 +605,26 @@ fn dn_verify_said_in_game_is_only_an_admins() {
     assert!(chat::is_verify("VERIFY x") && !chat::is_verify("verified") && !chat::is_verify(""));
 }
 
-/// `@dn admin ...` needs an admin's account, as `@dn verify` does: an admin's line is kept marked as
-/// an admin's; a player's is kept as any other of its `@dn` words, which the friends service answers
-/// with its help. Nobody hears any of them.
+/// `@dn admin ...` needs an admin character of an admin's account, as `@dn verify` does: an admin's
+/// line is kept marked as an admin's; anyone else's, an ordinary character of an admin's account
+/// too, is kept as any other of its `@dn` words, which the friends service answers with its help.
+/// Nobody hears any of them.
 /// Behaviour: server.network.operator-words-in-game-for-admins
 #[test]
 fn dn_admin_said_in_game_is_only_an_admins() {
     let mut h = Harness::new();
-    let (a, elara) = h.player_in_world("one", "Elara");
+    let (a, elara) = admin_in_world(&mut h, "one", "Elara");
+    let (b, babyfare) = h.player_in_world("two", "Babyfare");
     let (c, cara) = h.player_in_world("three", "Cara");
-    console(&mut h, "set-accountadmin one");
-    let from = [h.bots[a].inbox.len(), h.bots[c].inbox.len()];
+    // An admin's account, its character an ordinary one.
+    console(&mut h, "set-accountadmin two");
+    let from = [
+        h.bots[a].inbox.len(),
+        h.bots[b].inbox.len(),
+        h.bots[c].inbox.len(),
+    ];
     say(&mut h, a, "@dn admin block coldeve");
+    say(&mut h, b, "@dn admin block coldeve");
     room_line(&mut h, c, "@dn admin block coldeve");
     let kept: Vec<(u64, String, bool)> = h
         .server
@@ -616,11 +636,12 @@ fn dn_admin_said_in_game_is_only_an_admins() {
         kept,
         [
             (elara, "admin block coldeve".to_owned(), true),
+            (babyfare, "admin block coldeve".to_owned(), false),
             (cara, "admin block coldeve".to_owned(), false),
         ]
     );
-    for (bot, f) in [(a, from[0]), (c, from[1])] {
-        for speaker in [elara, cara] {
+    for (bot, f) in [(a, from[0]), (b, from[1]), (c, from[2])] {
+        for speaker in [elara, babyfare, cara] {
             assert_eq!(heard(&h, bot, f, speaker), 0, "nobody hears it");
         }
         assert_eq!(room_lines(&h, bot, f), 0, "nor in the room");

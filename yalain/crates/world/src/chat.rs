@@ -223,11 +223,13 @@ pub struct NetworkCommand {
     pub name: String,
     /// The words after `@dn`.
     pub words: String,
-    /// The speaker's account is an admin's: the operator's words are its to give.
+    /// The speaker is an admin character of an admin's account, as for every admin call: the
+    /// operator's words are its to give.
     pub admin: bool,
 }
 
-/// The network's words for the operator, `@dn verify <token>` and `@dn admin ...`: an admin's.
+/// The network's words for the operator, `@dn verify <token>` and `@dn admin ...`: an admin
+/// character's, of an admin's account.
 pub const VERIFY: &str = "verify";
 /// See [`VERIFY`].
 pub const ADMIN: &str = "admin";
@@ -269,9 +271,11 @@ fn network_command<S: Store>(
     let Some(p) = s.players.get(&world) else {
         return true;
     };
-    let admin = s.sessions.get(&p.login).is_some_and(|x| x.account.admin);
+    // An admin is a character of the admin class, which only an admin's account may play: the same
+    // two the admin calls need.
+    let admin = crate::admin_calls::allowed(s, world).is_some();
     if !admin && (is_verify(&words) || is_admin_word(&words)) {
-        tracing::warn!(character = %p.name, "refused: the network's operator words need an admin's account");
+        tracing::warn!(character = %p.name, "refused: the network's operator words need an admin character");
     }
     let command = NetworkCommand {
         world,

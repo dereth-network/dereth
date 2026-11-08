@@ -7592,9 +7592,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.network.operator-words-in-game-for-admins",
-        says: "The network's operator words said in game need an admin's account, as its verification does: \
-               an admin's line is kept marked as an admin's; a player's is the friends service's, which \
-               answers with its help, and is logged; nobody hears it.",
+        says: "The network's operator words said in game need an admin character of an admin's account, as \
+               its verification does: an admin's line is kept marked as an admin's; anyone else's, an \
+               ordinary character of an admin's account too, is the friends service's, which answers with \
+               its help, and is logged; nobody hears it.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-NET-OPERATOR-SAID"),
         station: "yalain-testkit::cpu::operator::moderation::dn_admin_said_in_game_is_only_an_admins",
@@ -7918,9 +7919,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.network.verify-in-game-for-admins",
-        says: "The world's verification said in game needs an admin's account: an admin's line goes to the \
-               network marked as an admin's; a player's is the friends service's, which reads it as no word \
-               it knows, and is logged; nobody hears it.",
+        says: "The world's verification said in game needs an admin character of an admin's account, as \
+               every admin call does: an admin's line goes to the network marked as an admin's; anyone \
+               else's, an ordinary character of an admin's account too, is the friends service's, which \
+               reads it as no word it knows, and is logged; nobody hears it.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-NET-VERIFY-SAID"),
         station: "yalain-testkit::cpu::operator::moderation::dn_verify_said_in_game_is_only_an_admins",
