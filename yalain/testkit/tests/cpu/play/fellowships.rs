@@ -5,10 +5,11 @@ use auberean_primitives::Vec3;
 use auberean_protocol::{queue, ServerMessage};
 use auberean_script::args::Arg;
 use auberean_script::native_object::{native_type, NativeObject};
-use yalain_testkit::play::report;
+use yalain_testkit::play::{report, server_call};
 use yalain_testkit::Harness;
-use yalain_world::calls::Value;
+use yalain_world::calls::{self, Node, Value};
 use yalain_world::fellowship::{function, text};
+use yalain_world::profile;
 
 fn string_arg(s: &str) -> Arg {
     let mut b = yalain_world::graph::Builder::new();
@@ -223,6 +224,126 @@ fn leaving_and_disbanding_clear_the_fellows_and_tell_them() {
         assert!(h.texts(x, from).contains(&(8, text::DISBANDED.0)));
     }
     assert!(h.server.fellowships.list.is_empty());
+}
+
+/// The packed examination of a player another player asks for.
+fn examination(h: &mut Harness, by: usize, of: u64) -> Vec<u8> {
+    let mut req = Vec::new();
+    for w in [0x4000_0002u32, 0] {
+        req.extend(w.to_le_bytes());
+    }
+    req.extend(of.to_le_bytes());
+    req.extend(0x203u32.to_le_bytes());
+    let mut b = yalain_world::graph::Builder::new();
+    b.native(
+        profile::REQUEST_TYPE,
+        NativeObject::Packed {
+            ty: profile::REQUEST_TYPE.into(),
+            bytes: req,
+        },
+    );
+    let from = h.bots[by].inbox.len();
+    h.bots[by].send(
+        true,
+        queue::WEENIE,
+        &server_call(
+            yalain_world::requests::function::EXAMINE,
+            &[Arg::Object(b.graph())],
+        ),
+    );
+    h.run(30);
+    h.world_messages(by, from)
+        .into_iter()
+        .find_map(|m| match m {
+            ServerMessage::PlayerCall(c) if c.function.0 == profile::EXAMINATION_PROFILE => {
+                let v = calls::values(&c.args?.0).ok()?;
+                match v[0].root() {
+                    Some(Node::Native { bytes, .. }) => Some(bytes.clone()),
+                    _ => None,
+                }
+            }
+            _ => None,
+        })
+        .expect("an examination")
+}
+
+/// Where a run of words starts in packed bytes.
+fn find_words(bytes: &[u8], words: &[u32]) -> Option<usize> {
+    let want: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
+    bytes.windows(want.len()).position(|w| w == want)
+}
+
+/// Examining a fellow, whoever examines it, ends its profile with "Fellowship: " and the
+/// fellowship's name (in the label and as its value), after its allegiance's lines; one in no
+/// fellowship, or no longer in one, shows no such line.
+/// Behaviour: server.examination.fellowship-line
+#[test]
+fn examining_a_fellow_ends_with_its_fellowships_name() {
+    let (mut h, [(a, aid), (b, bid), (c, cid)]) = three();
+    create(&mut h, a, "The Band");
+    join(&mut h, (a, aid), (b, bid));
+    h.ask(
+        b,
+        yalain_world::allegiance::function::SWEAR,
+        &[Arg::LongInt(aid)],
+        10,
+    );
+    h.ask(
+        a,
+        yalain_world::allegiance::function::ACCEPT_VASSAL,
+        &[Arg::LongInt(bid)],
+        10,
+    );
+    assert!(h.server.allegiances.member(bid), "sworn");
+    let label = [0x4000_0004, profile::GENERAL, profile::look::LABEL];
+    // "Fellowship: " with the name as its variable, then the name, then a break.
+    let head = [label.as_slice(), &[0x70BB_8430, 0x2500_04E2]].concat();
+    let mut line = profile::Profile::new(profile::GENERAL);
+    line.text(
+        profile::GENERAL,
+        profile::look::LABEL,
+        profile::with_vars(
+            0x2500_04E2,
+            0x70BB_8430,
+            vec![profile::nested(0x38FF_AC5A, profile::literal("The Band"))],
+        ),
+    );
+    line.text(
+        profile::GENERAL,
+        profile::look::VALUE,
+        profile::literal("The Band"),
+    );
+    line.brk(profile::GENERAL);
+    let line = line.packed(&[]);
+    let line = &line[4..line.len() - 4];
+    let by_stranger = examination(&mut h, c, bid);
+    let lines = &by_stranger[..by_stranger.len() - 4];
+    assert!(lines.ends_with(line), "the last line, as recorded");
+    let at = lines.len() - line.len();
+    let rank = [
+        label.as_slice(),
+        &[
+            profile::allegiance_line::RANK,
+            profile::allegiance_line::TABLE,
+        ],
+    ]
+    .concat();
+    assert!(
+        find_words(&by_stranger, &rank).is_some_and(|r| r < at),
+        "after the allegiance's lines"
+    );
+    assert_eq!(
+        examination(&mut h, a, bid),
+        by_stranger,
+        "a fellow sees the same"
+    );
+    let own = examination(&mut h, a, aid);
+    assert!(find_words(&own, &head).is_some(), "the leader's own");
+    let unfellowed = examination(&mut h, a, cid);
+    assert!(find_words(&unfellowed, &head).is_none(), "in none");
+    h.ask(b, function::LEAVE, &[], 10);
+    let left = examination(&mut h, c, bid);
+    assert!(find_words(&left, &head).is_none(), "no longer in one");
 }
 
 /// A fellow's changed health goes to every fellow, itself included, within seven and a half

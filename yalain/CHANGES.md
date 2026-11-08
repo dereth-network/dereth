@@ -11,6 +11,7 @@ what they see, not how it was done.
 - Busy servers spend much less time sending to players.
 - Kingdom points can now be earned by handing in Enlightenment gems at your kingdom's shrine.
 - Allegiances: message of the day, officers, titles, kingdom restrictions and messages to patron and vassals.
+- Examining a player now shows their fellowship.
 - Worlds can now schedule events that switch camps, objects and quests on and off.
 - Experience boosts such as mana charges now raise kill experience.
 - A fellow's quest hand-in now moves the whole fellowship.

@@ -579,6 +579,14 @@ pub mod allegiance_line {
     pub const RANK_TITLE: u32 = 0x0926_A4C8;
 }
 
+/// The strings of a fellow's fellowship line (string id), its table and its variable.
+pub mod fellowship_line {
+    pub const TABLE: u32 = 0x2500_04E2;
+    pub const FELLOWSHIP: u32 = 0x70BB_8430;
+    /// The fellowship's name, in its label.
+    pub const NAME_VAR: u32 = 0x38FF_AC5A;
+}
+
 /// A player's profile as another player (or itself) sees it: its name, its first craft title,
 /// its race and sex, its level, its kingdom (the neutral one for a player in none), its health
 /// and vigor, its kingdom points and quest rating.
@@ -604,12 +612,14 @@ pub fn player(
         v,
         quest_rating,
         None,
+        None,
     )
 }
 
 /// A player's profile, a member of an allegiance's naming it by its rank's title and ending with
 /// its allegiance: the allegiance's name, its monarch (or that it is the monarch), its patron when
-/// that is not the monarch, its rank and rank title, and the title an officer gave it.
+/// that is not the monarch, its rank and rank title, and the title an officer gave it. A fellow's
+/// ends with its fellowship's name, after the allegiance's lines; whoever examines it.
 #[must_use]
 #[allow(clippy::too_many_arguments)]
 pub fn member(
@@ -622,6 +632,7 @@ pub fn member(
     v: Vitals,
     quest_rating: u32,
     allegiance: Option<&AllegianceView>,
+    fellowship: Option<&str>,
 ) -> Profile {
     let mut p = Profile::new(asked);
     let name = || literal(world_name);
@@ -695,7 +706,26 @@ pub fn member(
     if let Some(a) = allegiance {
         allegiance_lines(&mut p, a);
     }
+    if let Some(f) = fellowship {
+        fellowship_lines(&mut p, f);
+    }
     p
+}
+
+/// "Fellowship: " with the fellowship's name in it, then the name.
+fn fellowship_lines(p: &mut Profile, name: &str) {
+    use fellowship_line as l;
+    p.text(
+        GENERAL,
+        look::LABEL,
+        with_vars(
+            l::TABLE,
+            l::FELLOWSHIP,
+            vec![nested(l::NAME_VAR, literal(name))],
+        ),
+    );
+    p.text(GENERAL, look::VALUE, literal(name));
+    p.brk(GENERAL);
 }
 
 /// An allegiance not named yet goes by its monarch's: "(monarch)'s Allegiance".

@@ -402,6 +402,7 @@ fn examining_a_member_ends_with_its_allegiance_as_the_recorded_pages_did() {
         vitals,
         0,
         Some(&view),
+        None,
     );
     assert_eq!(bytes, want.packed(&request), "the whole profile");
     assert!(holds(&bytes, profile::allegiance_line::PATRON));

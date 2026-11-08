@@ -541,6 +541,10 @@ fn profile_bytes<S: Store>(
             q.character,
         );
         let allegiance = crate::allegiance::view(s, id);
+        let fellowship = s
+            .fellowships
+            .of(id)
+            .map(|i| s.fellowships.list[i].name.clone());
         profile::member(
             req.asked,
             &name,
@@ -551,6 +555,7 @@ fn profile_bytes<S: Store>(
             v,
             rating,
             allegiance.as_ref(),
+            fellowship.as_deref(),
         )
     } else if let Some(t) = s.things.get(req.object) {
         // An item in another player's pack is seen by no one until it is offered.

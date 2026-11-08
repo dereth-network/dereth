@@ -4134,6 +4134,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.examination.fellowship-line",
+        says: "Examining a player in a fellowship, whoever examines it, ends its profile with \
+               \"Fellowship: \" and the fellowship's name, after its allegiance's lines; one in no \
+               fellowship shows no such line.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-EXAM-FELLOWSHIP"),
+        station: "yalain-testkit::cpu::play::fellowships::examining_a_fellow_ends_with_its_fellowships_name",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.examination.item-effect-spellcraft-shown",
         says: "An item's profile lists only the effects a player is ever shown, and shows the \
                spellcraft one is cast with unless it happens at once or changes the same \
