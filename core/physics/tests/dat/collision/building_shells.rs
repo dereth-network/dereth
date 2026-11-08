@@ -73,7 +73,10 @@ fn convert_bsp(g: &GfxObj) -> Option<BspTree> {
                 .collect(),
         });
     }
-    Some(BspTree { nodes, polygons })
+    Some(BspTree {
+        nodes,
+        polygons: polygons.into(),
+    })
 }
 
 /// One original-client building, represented with the fields needed by this test.

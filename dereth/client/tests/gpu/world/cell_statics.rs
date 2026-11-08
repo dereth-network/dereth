@@ -711,7 +711,7 @@ fn collision_top(store: &RetailDatStore, frame: &Frame, id: u32) -> (f32, f32) {
             continue;
         };
         let m = dereth_physics::math::l2g(part.pos.frame.rotation);
-        for poly in &tree.polygons {
+        for poly in tree.polygons.iter() {
             for v in &poly.vertices {
                 let w = dereth_physics::math::localtoglobalvec(m, v.mul(part.gfxobj_scale))
                     .add(part.pos.frame.origin);

@@ -725,7 +725,7 @@ fn floor_tree() -> Arc<BspTree> {
             leaf(false, Vec::new(), 10.0),
             leaf(true, Vec::new(), 10.0),
         ],
-        polygons: Vec::new(),
+        polygons: Vec::new().into(),
     })
 }
 
@@ -737,7 +737,8 @@ fn ball_tree() -> Arc<BspTree> {
             Vec3::new(-1.0, -1.0, 0.0),
             Vec3::new(1.0, -1.0, 0.0),
             Vec3::new(0.0, 1.0, 0.0),
-        ])],
+        ])]
+        .into(),
     })
 }
 

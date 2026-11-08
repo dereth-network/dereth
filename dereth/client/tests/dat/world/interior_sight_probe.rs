@@ -52,7 +52,7 @@ fn bounds(g: &EnvCellGeometry) -> Option<(Vec3, Vec3)> {
     }
     let mut lo = Vec3::new(f32::MAX, f32::MAX, f32::MAX);
     let mut hi = Vec3::new(f32::MIN, f32::MIN, f32::MIN);
-    for p in &g.physics_polygons {
+    for p in g.physics_polygons.iter() {
         for v in &p.vertices {
             lo = Vec3::new(lo.x.min(v.x), lo.y.min(v.y), lo.z.min(v.z));
             hi = Vec3::new(hi.x.max(v.x), hi.y.max(v.y), hi.z.max(v.z));

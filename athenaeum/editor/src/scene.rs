@@ -345,7 +345,7 @@ impl<'w> Scene<'w> {
                             };
                             let (a, b) = (inward(start), inward(end));
                             let turn = dereth_physics::math::l2g(frame.rotation);
-                            for poly in &tree.polygons {
+                            for poly in tree.polygons.iter() {
                                 let corners: Vec<[f32; 3]> =
                                     poly.vertices.iter().map(|p| [p.x, p.y, p.z]).collect();
                                 let along = [b.x - a.x, b.y - a.y, b.z - a.z];
@@ -464,7 +464,7 @@ impl<'w> Scene<'w> {
                 v([from[0] + dir[0], from[1] + dir[1], from[2] + dir[2]]),
             );
             let along = [end.x - start.x, end.y - start.y, end.z - start.z];
-            for polygon in &g.physics_polygons {
+            for polygon in g.physics_polygons.iter() {
                 let corners: Vec<[f32; 3]> =
                     polygon.vertices.iter().map(|p| [p.x, p.y, p.z]).collect();
                 let begin = [start.x, start.y, start.z];

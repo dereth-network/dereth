@@ -114,7 +114,7 @@ fn in_the_room_separates_clear_floor_from_masonry_and_from_open_air() {
             face(Vec3::new(0.0, 0.0, -1.0), 6),
             leaf(false, vec![]),
         ],
-        polygons: vec![],
+        polygons: vec![].into(),
     });
 
     // The masonry: everything with `x < -1`. Physics-BSP point intersection treats a leaf that
@@ -140,7 +140,8 @@ fn in_the_room_separates_clear_floor_from_masonry_and_from_open_air() {
             Vec3::new(-1.0, HALF, -HALF),
             Vec3::new(-1.0, HALF, HALF),
             Vec3::new(-1.0, -HALF, HALF),
-        ])],
+        ])]
+        .into(),
     });
 
     let cell = EnvCellGeometry {

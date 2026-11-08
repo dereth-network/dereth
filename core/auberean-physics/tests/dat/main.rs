@@ -4,6 +4,7 @@
 mod camera;
 mod collision;
 mod common;
+mod first_step;
 mod interior;
 mod objects;
 mod pathfind;

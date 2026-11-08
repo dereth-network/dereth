@@ -21,7 +21,7 @@ use dereth_physics::V3;
 use dereth_primitives::{CellId, Frame, Quat, Vec3};
 
 use crate::land::{segment_distance, segment_polygon, CellMaterial, Land, Solid};
-use crate::mesh::{convert, physics_polygons, physics_tree, positions, Trees};
+use crate::mesh::{convert, physics_polygons, polygon_ids, positions, Trees};
 
 /// The lowest cell index of an interior cell; land cells are numbered 1 to 64.
 pub const FIRST_INTERIOR: u32 = 0x100;
@@ -41,11 +41,11 @@ fn v3(v: auberean_primitives::Vec3) -> Vec3 {
 /// What every cell built on one cell mesh shares, read from the mesh once: its vertices'
 /// positions, its physics polygons, its physics tree and its inside test, all in the cell's own
 /// frame. A dungeon repeats a few meshes over hundreds of its rooms, so its cells hold one copy of
-/// each mesh's trees between them.
+/// each mesh's polygons and trees between them, and both trees are over that one list.
 #[derive(Debug)]
 pub struct CellShape {
     positions: Vec<Vec3>,
-    polygons: Vec<Polygon>,
+    polygons: Arc<[Polygon]>,
     physics_bsp: Option<Arc<BspTree>>,
     cell_bsp: Arc<BspTree>,
 }
@@ -55,19 +55,15 @@ impl CellShape {
     #[must_use]
     pub fn of(mesh: &CellMesh) -> Option<Self> {
         let positions = positions(&mesh.mesh.vertices)?;
-        let polygons = physics_polygons(&mesh.mesh)?;
-        let by_id: HashMap<u16, u32> = mesh
-            .mesh
-            .physics_polygons
-            .iter()
-            .enumerate()
-            .filter_map(|(i, p)| Some((p.id, u32::try_from(i).ok()?)))
-            .collect();
-        let cell_bsp = Arc::new(convert(&mesh.cell_tree, polygons.clone(), &by_id));
+        let polygons: Arc<[Polygon]> = physics_polygons(&mesh.mesh)?.into();
+        let by_id = polygon_ids(&mesh.mesh);
+        let tree = |t| Arc::new(convert(t, Arc::clone(&polygons), &by_id));
+        let physics_bsp = mesh.mesh.physics_tree.as_ref().map(tree);
+        let cell_bsp = tree(&mesh.cell_tree);
         Some(Self {
             positions,
             polygons,
-            physics_bsp: physics_tree(&mesh.mesh).map(Arc::new),
+            physics_bsp,
             cell_bsp,
         })
     }
@@ -140,7 +136,7 @@ pub fn cell_on_shape(
         id: CellId(block | u32::from(low)),
         frame: Frame::new(v3(cell.frame.origin), Quat::new(q.w, q.x, q.y, q.z)),
         portals,
-        physics_polygons: shape.polygons.clone(),
+        physics_polygons: Arc::clone(&shape.polygons),
         physics_bsp: shape.physics_bsp.clone(),
         cell_bsp: Some(Arc::clone(&shape.cell_bsp)),
         stab_list: cell
@@ -256,7 +252,7 @@ pub fn trace(
             };
             let lf = dereth_physics::math::globaltolocal(frame, from).mul(inv);
             let lt = dereth_physics::math::globaltolocal(frame, to).mul(inv);
-            for poly in &tree.polygons {
+            for poly in tree.polygons.iter() {
                 if let Some(t) = segment_polygon(lf, lt, &poly.vertices) {
                     if best.is_none_or(|(b, _)| t < b) {
                         let n = dereth_physics::math::localtoglobalvec(

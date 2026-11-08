@@ -216,8 +216,8 @@ pub struct EnvCellGeometry {
     /// by the rest of this geometry.
     pub frame: Frame,
     pub portals: Vec<CellPortal>,
-    /// Collision polygons in **cell-local** space.
-    pub physics_polygons: Vec<Polygon>,
+    /// Collision polygons in **cell-local** space. Every cell on one mesh may hold the same list.
+    pub physics_polygons: Arc<[Polygon]>,
     /// The tree the environment-collision search walks. **Cell-local.**
     pub physics_bsp: Option<Arc<BspTree>>,
     /// The tree the point and sphere cell-containment queries walk.

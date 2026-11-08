@@ -544,7 +544,7 @@ impl<'s, S: NavSource + ?Sized> Builder<'s, S> {
     fn add_cell(&mut self, g: &EnvCellGeometry) {
         let off = self.offset(g.id.0);
         let slot = self.slot(g.id);
-        for poly in &g.physics_polygons {
+        for poly in g.physics_polygons.iter() {
             let verts: Vec<Vec3> = poly
                 .vertices
                 .iter()

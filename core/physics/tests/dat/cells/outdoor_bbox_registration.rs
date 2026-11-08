@@ -34,7 +34,7 @@ fn tree(radius: f32) -> BspTree {
             },
             in_polys: vec![0],
         }],
-        polygons: vec![sq],
+        polygons: vec![sq].into(),
     }
 }
 
@@ -345,7 +345,7 @@ fn room(id: CellId, origin: Vec3) -> EnvCellGeometry {
                 in_polys: vec![],
             },
         ],
-        polygons: vec![],
+        polygons: vec![].into(),
     }));
     geom.portals = vec![CellPortal {
         other_cell_id: 0xFFFF_FFFF,

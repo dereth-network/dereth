@@ -76,7 +76,13 @@ fn convert(g: &GfxObj) -> Option<(BspTree, Stats)> {
             in_polys,
         });
     }
-    Some((BspTree { nodes, polygons }, stats))
+    Some((
+        BspTree {
+            nodes,
+            polygons: polygons.into(),
+        },
+        stats,
+    ))
 }
 
 #[derive(Default, Debug)]

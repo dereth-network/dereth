@@ -31,3 +31,8 @@ dereth-dat = { workspace = true, features = ["test-support"] }
 
 [lints]
 workspace = true
+
+[[test]]
+name = "dat"
+path = "tests/dat/main.rs"
+required-features = ["retail-dats"]

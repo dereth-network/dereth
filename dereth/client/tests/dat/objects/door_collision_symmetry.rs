@@ -165,7 +165,7 @@ fn slab_normal(g: &SetupGeometry, pos: &Position) -> Option<Vec3> {
         Vec3::new(f32::MAX, f32::MAX, f32::MAX),
         Vec3::new(f32::MIN, f32::MIN, f32::MIN),
     );
-    for p in &tree.polygons {
+    for p in tree.polygons.iter() {
         for v in &p.vertices {
             lo = Vec3::new(lo.x.min(v.x), lo.y.min(v.y), lo.z.min(v.z));
             hi = Vec3::new(hi.x.max(v.x), hi.y.max(v.y), hi.z.max(v.z));

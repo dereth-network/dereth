@@ -266,7 +266,7 @@ pub(crate) fn bsp_shapes(
     mut floor: impl FnMut(Poly),
 ) -> Vec<Shape> {
     let mut out = Vec::new();
-    for poly in &bsp.polygons {
+    for poly in bsp.polygons.iter() {
         let verts: Vec<Vec3> = poly
             .vertices
             .iter()

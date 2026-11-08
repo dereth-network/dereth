@@ -249,7 +249,7 @@ fn slab_on(w: &mut PhysicsWorld, id: u32, x: (f32, f32), y: (f32, f32), base: f3
             },
             in_polys: (0..5).collect(),
         }],
-        polygons: faces,
+        polygons: faces.into(),
     };
     let geometry = Arc::new(SetupGeometry {
         parts: vec![SetupPart {
@@ -581,7 +581,7 @@ fn ramp(w: &mut PhysicsWorld, id: u32, x: (f32, f32), y: (f32, f32), high: f32) 
             },
             in_polys: vec![0],
         }],
-        polygons: vec![face],
+        polygons: vec![face].into(),
     };
     let geometry = Arc::new(SetupGeometry {
         parts: vec![SetupPart {

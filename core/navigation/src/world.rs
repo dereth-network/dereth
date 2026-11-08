@@ -676,7 +676,8 @@ mod tests {
                 floor(0.0, 0.0, 12.0, 6.0),
                 wall(8.0, 0.0, 8.0, 3.0),
                 wall(8.0, 3.0, gap, 3.0),
-            ],
+            ]
+            .into(),
             ..EnvCellGeometry::default()
         };
         NavWorld::new(Rooms(vec![Arc::new(cell)]), NavConfig::default())
@@ -772,7 +773,7 @@ mod tests {
             Arc::new(EnvCellGeometry {
                 id,
                 frame: Frame::default(),
-                physics_polygons: vec![floor],
+                physics_polygons: vec![floor].into(),
                 portals,
                 ..EnvCellGeometry::default()
             })
@@ -856,7 +857,7 @@ mod tests {
         let cell = EnvCellGeometry {
             id: CELL,
             frame: Frame::default(),
-            physics_polygons: floors,
+            physics_polygons: floors.into(),
             ..EnvCellGeometry::default()
         };
         NavWorld::new(Rooms(vec![Arc::new(cell)]), NavConfig::default())

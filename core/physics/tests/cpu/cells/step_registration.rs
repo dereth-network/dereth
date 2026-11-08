@@ -63,7 +63,7 @@ fn mesh() -> Arc<BspTree> {
             },
             in_polys: vec![0],
         }],
-        polygons: vec![square],
+        polygons: vec![square].into(),
     })
 }
 

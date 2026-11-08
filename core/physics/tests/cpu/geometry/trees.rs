@@ -37,7 +37,7 @@ fn split(front: BspNode, back: BspNode, polygons: Vec<Polygon>) -> BspTree {
             front,
             back,
         ],
-        polygons,
+        polygons: polygons.into(),
     }
 }
 

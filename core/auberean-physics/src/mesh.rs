@@ -67,18 +67,23 @@ pub fn physics_polygons(mesh: &Mesh) -> Option<Vec<Polygon>> {
 pub fn physics_tree(mesh: &Mesh) -> Option<BspTree> {
     let tree = mesh.physics_tree.as_ref()?;
     let polygons = physics_polygons(mesh)?;
-    let by_id: HashMap<u16, u32> = mesh
-        .physics_polygons
+    Some(convert(tree, polygons.into(), &polygon_ids(mesh)))
+}
+
+/// Where each of a mesh's physics polygons is in its list, by the polygon's id.
+#[must_use]
+pub fn polygon_ids(mesh: &Mesh) -> HashMap<u16, u32> {
+    mesh.physics_polygons
         .iter()
         .enumerate()
         .filter_map(|(i, p)| Some((p.id, u32::try_from(i).ok()?)))
-        .collect();
-    Some(convert(tree, polygons, &by_id))
+        .collect()
 }
 
-/// A tree over `polygons`, its leaves' polygon ids resolved through `by_id`.
+/// A tree over `polygons`, its leaves' polygon ids resolved through `by_id`. The tree holds the
+/// list it is given, so trees over one mesh can share it.
 #[must_use]
-pub fn convert(tree: &Tree, polygons: Vec<Polygon>, by_id: &HashMap<u16, u32>) -> BspTree {
+pub fn convert(tree: &Tree, polygons: Arc<[Polygon]>, by_id: &HashMap<u16, u32>) -> BspTree {
     let mut nodes = Vec::new();
     let mut leaves = 0i32;
     push(&tree.root, &mut nodes, &mut leaves, by_id, polygons.len());

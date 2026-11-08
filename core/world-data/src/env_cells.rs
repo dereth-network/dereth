@@ -256,7 +256,7 @@ fn vertices(va: &VertexArray, p: &RawPolygon) -> Vec<Vec3> {
 /// pool.
 ///
 /// This conversion also applies to graphics-object records. `'PORT'` is `0x504F5254`.
-fn convert_bsp(src: &RawBspTree, polygons: Vec<Polygon>, ids: &[i16]) -> BspTree {
+fn convert_bsp(src: &RawBspTree, polygons: Arc<[Polygon]>, ids: &[i16]) -> BspTree {
     // ORDER-OK: keyed by the polygon id and only ever looked up.
     let mut by_id: HashMap<i16, u32> = HashMap::new();
     for (i, id) in ids.iter().enumerate() {
@@ -319,7 +319,7 @@ pub fn gfxobj_physics_bsp(g: &GfxObj) -> Option<BspTree> {
     if src.nodes.is_empty() {
         return None;
     }
-    let polygons: Vec<Polygon> = g
+    let polygons: Arc<[Polygon]> = g
         .physics_polygons
         .iter()
         .map(|p| Polygon::new(vertices(&g.vertex_array, p)))
@@ -344,16 +344,17 @@ pub fn physics_geometry(d: &DecodedCell) -> EnvCellGeometry {
     let block = d.id.0 & 0xFFFF_0000;
     let portals = cell_portals(d);
 
-    let physics_polygons: Vec<Polygon> = cs
+    let physics_polygons: Arc<[Polygon]> = cs
         .physics_polygons
         .iter()
         .map(|p| Polygon::new(vertices(&cs.vertex_array, p)))
         .collect();
     let physics_ids: Vec<i16> = cs.physics_polygons.iter().map(|p| p.poly_id).collect();
+    // The cell and its tree hold one list of polygons between them.
     let physics_bsp = (!cs.physics_bsp.nodes.is_empty()).then(|| {
         Arc::new(convert_bsp(
             &cs.physics_bsp,
-            physics_polygons.clone(),
+            Arc::clone(&physics_polygons),
             &physics_ids,
         ))
     });
@@ -362,7 +363,7 @@ pub fn physics_geometry(d: &DecodedCell) -> EnvCellGeometry {
     // splitting planes, so its polygon pool is empty by construction rather than by omission.
     debug_assert!(matches!(BspKind::Cell, BspKind::Cell));
     let cell_bsp = (!cs.cell_bsp.nodes.is_empty())
-        .then(|| Arc::new(convert_bsp(&cs.cell_bsp, Vec::new(), &[])));
+        .then(|| Arc::new(convert_bsp(&cs.cell_bsp, Arc::default(), &[])));
 
     EnvCellGeometry {
         id: d.id,
@@ -603,8 +604,9 @@ impl<'a> BlockCellSource<'a> {
                 let cell_bsp = memo
                     .entry((d.cell.environment, d.cell.cell_struct))
                     .or_insert_with(|| {
-                        (!d.structure.cell_bsp.nodes.is_empty())
-                            .then(|| Arc::new(convert_bsp(&d.structure.cell_bsp, Vec::new(), &[])))
+                        (!d.structure.cell_bsp.nodes.is_empty()).then(|| {
+                            Arc::new(convert_bsp(&d.structure.cell_bsp, Arc::default(), &[]))
+                        })
                     })
                     .clone();
                 (d.id.0, Arc::new(registration_geometry(d, cell_bsp)))
@@ -627,7 +629,7 @@ fn registration_geometry(d: &DecodedCell, cell_bsp: Option<Arc<BspTree>>) -> Env
         id: d.id,
         frame: d.cell.frame,
         portals: cell_portals(d),
-        physics_polygons: Vec::new(),
+        physics_polygons: Arc::default(),
         physics_bsp: None,
         cell_bsp,
         // The cell-list search drops a cell a static's spheres reach unless it is in the

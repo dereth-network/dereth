@@ -935,6 +935,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "physics.cells.a-cell-and-its-tree-hold-one-list-of-polygons",
+        says: "An interior cell built from the cell file and its collision tree hold one list of \
+               the cell's polygons between them.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC-EVID-CELL-TREE-SHARES-POLYGONS"),
+        station: "dereth-world-data::dat::cells::a_cell_and_its_tree_hold_one_list_of_polygons",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "physics.cells.a-moved-body-is-registered-where-its-collision-spheres-are",
         says: "After it moves, a body without a collision mesh is counted as present in the \
                squares of ground its move found its collision spheres in, not where its larger \
@@ -1017,6 +1026,18 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC-EVID-P1106B-CELLS"),
         station: "dereth-physics::cpu::cells::resident_window::an_outdoor_cell_outside_the_resident_window_resolves_to_nothing",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "physics.cells.interior-cells-build-to-the-recorded-geometry",
+        says: "The interior cells of the dungeon column, the training dungeon, four more dungeons \
+               and Holtburg, built from the cell file as the client and the server build them, \
+               with what each cell bakes in and the buildings on those blocks, hold the same \
+               collision geometry, polygon for polygon and tree for tree, as when it was \
+               recorded.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC-EVID-CELL-GEOMETRY-DIGEST"),
+        station: "dereth-world-data::dat::cells::interior_cells_build_to_the_recorded_geometry",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "physics.collision.a-cylinder-only-object-stops-a-walking-body",

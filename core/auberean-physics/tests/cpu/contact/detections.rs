@@ -712,13 +712,13 @@ fn walled_cell(land: &Land) -> CellId {
             leaf(0, false, vec![0]),
             leaf(1, true, Vec::new()),
         ],
-        polygons: vec![wall.clone()],
+        polygons: vec![wall.clone()].into(),
     };
     land.insert_cell(EnvCellGeometry {
         id,
         frame: Frame::new(Vec3::ZERO, Quat::IDENTITY),
         portals: Vec::new(),
-        physics_polygons: vec![wall],
+        physics_polygons: vec![wall].into(),
         physics_bsp: Some(Arc::new(tree)),
         cell_bsp: None,
         stab_list: Vec::new(),
@@ -1147,7 +1147,7 @@ mod rooms {
                 leaf(0, false),
                 leaf(1, true),
             ],
-            polygons: Vec::new(),
+            polygons: Vec::new().into(),
         }
     }
 
@@ -1155,7 +1155,7 @@ mod rooms {
     fn open() -> BspTree {
         BspTree {
             nodes: vec![leaf(0, false)],
-            polygons: Vec::new(),
+            polygons: Vec::new().into(),
         }
     }
 
@@ -1193,7 +1193,7 @@ mod rooms {
             id,
             frame: Frame::new(Vec3::ZERO, Quat::IDENTITY),
             portals,
-            physics_polygons: Vec::new(),
+            physics_polygons: Vec::new().into(),
             physics_bsp: Some(Arc::new(tree)),
             cell_bsp: None,
             stab_list: Vec::new(),
@@ -1328,7 +1328,7 @@ mod rooms {
             id,
             frame: Frame::new(middle, Quat::IDENTITY),
             portals: vec![doorway(Vec3::new(5.0, 0.0, 0.0), false, OUTDOORS, -1)],
-            physics_polygons: Vec::new(),
+            physics_polygons: Vec::new().into(),
             physics_bsp: Some(Arc::new(tree)),
             cell_bsp: None,
             stab_list: Vec::new(),
@@ -1362,7 +1362,7 @@ mod rooms {
             id: FAR,
             frame: Frame::new(Vec3::new(50.0, 50.0, 11.0), Quat::IDENTITY),
             portals: vec![doorway(Vec3::ZERO, true, OUTDOORS, -1)],
-            physics_polygons: Vec::new(),
+            physics_polygons: Vec::new().into(),
             physics_bsp: None,
             cell_bsp: None,
             stab_list: Vec::new(),
@@ -1592,7 +1592,7 @@ mod rooms {
             id,
             frame: Frame::new(Vec3::ZERO, Quat::IDENTITY),
             portals: Vec::new(),
-            physics_polygons: Vec::new(),
+            physics_polygons: Vec::new().into(),
             physics_bsp: None,
             cell_bsp: Some(Arc::new(solid_behind(Vec3::new(1.0, 0.0, 0.0), d))),
             stab_list: Vec::new(),

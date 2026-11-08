@@ -39,6 +39,8 @@
 //! The collision walk's two-sphere branch operand order is not yet known. That affects
 //! [`crate::transition::collide`], not this module.
 
+use std::sync::Arc;
+
 use dereth_primitives::Vec3;
 
 use crate::geom::plane::{Plane, Sidedness};
@@ -168,11 +170,12 @@ impl BspNode {
 /// A single root plus the polygon pool indexed by its leaves.
 ///
 /// The original client shares polygons with the owning environment-cell geometry or
-/// graphics object. This tree owns a copy because physics does not mutate them.
+/// graphics object. The pool is shared the same way: physics never changes a polygon, so a tree,
+/// the cell it belongs to and every other tree over the same mesh can hold one list between them.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct BspTree {
     pub nodes: Vec<BspNode>,
-    pub polygons: Vec<Polygon>,
+    pub polygons: Arc<[Polygon]>,
 }
 
 impl BspTree {
@@ -775,7 +778,7 @@ mod tests {
                     in_polys: vec![0],
                 },
             ],
-            polygons: vec![floor],
+            polygons: vec![floor].into(),
         }
     }
 
@@ -1010,7 +1013,7 @@ mod tests {
         });
         let t = BspTree {
             nodes,
-            polygons: vec![],
+            polygons: vec![].into(),
         };
         assert_eq!(t.max_depth(), 5001);
         assert!(t.point_inside_cell_bsp(Vec3::new(0.0, 0.0, 1e9)));

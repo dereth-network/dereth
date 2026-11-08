@@ -814,7 +814,7 @@ fn wall_tree() -> crate::geom::BspTree {
                 in_polys: vec![0],
             },
         ],
-        polygons: vec![wall],
+        polygons: vec![wall].into(),
     }
 }
 
@@ -1404,7 +1404,8 @@ fn an_interior_with_a_floor() -> (Cell, Transition) {
             Vec3::new(5.0, -5.0, 0.0),
             Vec3::new(5.0, 5.0, 0.0),
             Vec3::new(-5.0, 5.0, 0.0),
-        ])],
+        ])]
+        .into(),
     };
     let id = CellId(0xA9B4_0100);
     let cell = Cell::Env {

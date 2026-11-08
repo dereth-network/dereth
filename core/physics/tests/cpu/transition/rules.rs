@@ -492,7 +492,7 @@ fn square_floor() -> dereth_physics::geom::bsp::BspTree {
             leaf(false, vec![]),
             leaf(true, vec![0]),
         ],
-        polygons: vec![square],
+        polygons: vec![square].into(),
     }
 }
 
@@ -825,7 +825,7 @@ fn a_world_chooses_whether_a_cell_with_no_portals_holds_points() {
             kind: BspNodeKind::Node,
             in_polys: Vec::new(),
         }],
-        polygons: Vec::new(),
+        polygons: Vec::new().into(),
     };
     let id = CellId(0x1020_0100);
     let room = |holds_without_portals| Cell::Env {

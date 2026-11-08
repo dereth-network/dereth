@@ -36,7 +36,7 @@ fn split(normal: Vec3, front: BspNode, back: BspNode, polygons: Vec<Polygon>) ->
             front,
             back,
         ],
-        polygons,
+        polygons: polygons.into(),
     }
 }
 

@@ -327,11 +327,11 @@ fn west_room(seen_outside: bool) -> dereth_physics::source::EnvCellGeometry {
             dereth_primitives::Quat::IDENTITY,
         ),
         portals: Vec::new(),
-        physics_polygons: Vec::new(),
+        physics_polygons: Vec::new().into(),
         physics_bsp: None,
         cell_bsp: Some(std::sync::Arc::new(BspTree {
             nodes: vec![west],
-            polygons: Vec::new(),
+            polygons: Vec::new().into(),
         })),
         stab_list: Vec::new(),
         seen_outside,

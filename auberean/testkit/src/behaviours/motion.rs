@@ -486,13 +486,13 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
-        id: "motion.interior.cells-on-one-mesh-share-its-trees",
-        says: "The interior cells built on one cell mesh hold that mesh's physics tree and inside \
-               test between them, one copy for all, and each cell is the cell built alone from its \
-               record and mesh.",
+        id: "motion.interior.cells-on-one-mesh-share-its-polygons-and-trees",
+        says: "The interior cells built on one cell mesh hold that mesh's polygons, physics tree \
+               and inside test between them, one copy for all, both trees over that one list of \
+               polygons, and each cell is the cell built alone from its record and mesh.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-CELL-SHAPES-SHARED"),
-        station: "auberean-physics::dat::interior::cells_on_one_mesh_share_its_trees",
+        station: "auberean-physics::dat::interior::cells_on_one_mesh_share_its_polygons_and_trees",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -501,6 +501,17 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-HEIGHT-ABOVE-WALKABLE-ROOM"),
         station: "auberean-physics::dat::interior::in_a_room_a_bodys_height_is_above_the_floor",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "motion.interior.the-first-steps-cells-build-to-the-recorded-geometry",
+        says: "The interior cells of the 150 blocks a server's first step reads, read into one \
+               land as the server reads them, with the solid parts of what stands in each, hold \
+               the same collision geometry, polygon for polygon and tree for tree, as when it was \
+               recorded.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-CELL-GEOMETRY-DIGEST"),
+        station: "auberean-physics::dat::first_step::the_first_steps_cells_build_to_the_recorded_geometry",
         tier: Tier::Dat,
     },
     behaviour! {

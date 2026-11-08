@@ -690,12 +690,13 @@ fn a_body_falls_by_the_gravity_where_it_is() {
     assert!((g.z + 0.1568).abs() < 1e-3, "{g:?}");
 }
 
-/// The hall's cells built on one mesh hold that mesh's physics tree and inside test between them,
-/// one copy for all, and each cell is the cell built alone from its record and mesh.
+/// The hall's cells built on one mesh hold that mesh's polygons, physics tree and inside test
+/// between them, one copy for all, both trees over that one list of polygons, and each cell is the
+/// cell built alone from its record and mesh.
 ///
-/// Behaviour: motion.interior.cells-on-one-mesh-share-its-trees
+/// Behaviour: motion.interior.cells-on-one-mesh-share-its-polygons-and-trees
 #[test]
-fn cells_on_one_mesh_share_its_trees() {
+fn cells_on_one_mesh_share_its_polygons_and_trees() {
     let w = need_world!();
     let land = Land::new();
     let (x, y) = (0x02, 0x98);
@@ -718,6 +719,13 @@ fn cells_on_one_mesh_share_its_trees() {
             "cell {:08X}",
             id.0
         );
+        for tree in [&built.physics_bsp, &built.cell_bsp].into_iter().flatten() {
+            assert!(
+                Arc::ptr_eq(&tree.polygons, &built.physics_polygons),
+                "cell {:08X} holds a tree over polygons of its own",
+                id.0
+            );
+        }
         let Some(&first) = first_of_mesh.get(&record.mesh.0) else {
             first_of_mesh.insert(record.mesh.0, id);
             continue;
@@ -731,6 +739,11 @@ fn cells_on_one_mesh_share_its_trees() {
         assert!(
             same(&built.physics_bsp, &first.physics_bsp) && same(&built.cell_bsp, &first.cell_bsp),
             "cell {:08X} holds trees of its own",
+            id.0
+        );
+        assert!(
+            Arc::ptr_eq(&built.physics_polygons, &first.physics_polygons),
+            "cell {:08X} holds polygons of its own",
             id.0
         );
         shared += 1;
