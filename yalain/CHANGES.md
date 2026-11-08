@@ -27,6 +27,7 @@ what they see, not how it was done.
 - The server logs slow world steps, and /status shows step times.
 - @dn admin and @dn verify now need an admin character, as other admin commands do.
 - Admins can make persistent chat rooms, which stay through restarts until deleted.
+- Creatures' trophies no longer take the place of their other loot.
 - Loot profiles can draw treasure of the creature's level from shared treasure pools.
 - World rows can now give a creature or chest a fixed item at a chance of its own.
 - Named bounty targets: a camp can name its creature, and a quest can ask for that kill alone.

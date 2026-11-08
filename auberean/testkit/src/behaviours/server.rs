@@ -7169,6 +7169,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.loot.trophies-beside-the-count",
+        says: "A creature's trophies are left beside the items its loot profile's count gives, \
+               and its template's bounds hold those items, not the trophies.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-LOOT-TROPHIES-BESIDE"),
+        station: "yalain-testkit::cpu::play::treasure_pools::a_creatures_trophies_come_beside_the_items_its_count_and_bounds_give",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.loot.turned-into-money",
         says: "Turning a corpse's items into money moves each into the pack and destroys it \
                there, the money going up by its value, and the answer says what was earned; each \

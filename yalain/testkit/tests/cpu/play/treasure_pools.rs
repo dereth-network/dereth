@@ -1,6 +1,7 @@
 //! Treasure drawn from pools: a creature's profile that draws from pools leaves the templates its
 //! level's windows hold, a killer's race takes its race's pool at that pool's share, and a rare is
-//! rolled once a corpse.
+//! rolled once a corpse. A creature's own trophies come beside the count, from pools or a
+//! profile's own items alike.
 
 use auberean_protocol::{queue, ServerMessage};
 use auberean_script::args::Arg;
@@ -86,7 +87,15 @@ fn scene_drawn(h: &mut Harness, b: usize) {
 }
 
 /// The beetle (level 2) killed by a player; the templates its corpse holds, with their values.
-fn killed(mut h: Harness) -> Vec<(u32, u32)> {
+fn killed(h: Harness) -> Vec<(u32, u32)> {
+    killed_with(h, |_| {})
+}
+
+/// The beetle killed, its stats first changed as given.
+fn killed_with(
+    mut h: Harness,
+    change: impl FnOnce(&mut yalain_content::CreatureStats),
+) -> Vec<(u32, u32)> {
     let (b, me) = h.player_in_world("one", "Elara");
     scene_drawn(&mut h, b);
     h.arm(b, me, STARTER_SWORD);
@@ -105,6 +114,7 @@ fn killed(mut h: Harness) -> Vec<(u32, u32)> {
         .and_then(|t| t.creature.as_mut())
     {
         c.stats.natural_damage = 1.0;
+        change(&mut c.stats);
     }
     h.bots[b].send(
         true,
@@ -245,4 +255,31 @@ fn a_draw_no_window_holds_and_a_pool_leading_to_itself_give_nothing() {
     assert_eq!(pools.draw("GP_Low", 10, 0, &mut rng), None);
     assert_eq!(pools.draw("GP_Loop", 5, 0, &mut rng), None);
     assert_eq!(pools.draw("GP_Missing", 5, 0, &mut rng), None);
+}
+
+/// A creature's trophies are left beside the items its profile's count gives, and its template's
+/// bounds hold those items, not the trophies: a beetle with a sure trophy, a profile of one item
+/// and bounds of 1 leaves the trophy once and the one item, as it does when its profile draws from
+/// pools (2017: 1,672 of 1,702 corpses whose templates set bounds held their other items within
+/// them, against 1,606 counting the trophies too).
+/// Behaviour: server.loot.trophies-beside-the-count
+#[test]
+fn a_creatures_trophies_come_beside_the_items_its_count_and_bounds_give() {
+    let trophy = |c: &mut yalain_content::CreatureStats| {
+        c.trophies = vec![(HIGH_ITEM, 1.0)];
+        c.loot_min = Some(1);
+        c.loot_max = Some(1);
+    };
+    for pools in [false, true] {
+        let mut h = pooled(None);
+        if !pools {
+            h.server.loot.pools = Pools::default();
+        }
+        let mut held: Vec<u32> = killed_with(h, trophy).iter().map(|(t, _)| *t).collect();
+        held.sort_unstable();
+        let item = if pools { TEST_ITEM } else { LISTED_ITEM };
+        let mut want = vec![HIGH_ITEM, item];
+        want.sort_unstable();
+        assert_eq!(held, want, "drawing from pools {pools}");
+    }
 }

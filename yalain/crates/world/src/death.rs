@@ -37,8 +37,11 @@
 //!
 //! **What a corpse holds**: the creature's fixed drops at their rates, the named extras of its
 //! loot profile at theirs, and as many items again drawn from the profile's items as the
-//! profile's count says (counting the drops and extras already in). Each item drawn carries what
-//! the creature's level gives it of its own ([`crate::treasure`]).
+//! profile's count says (counting the extras already in, and not the fixed drops, which come
+//! beside the count as the template's bounds on it do). Each item drawn carries what the
+//! creature's level gives it of its own ([`crate::treasure`]). (2017: 1,672 of 1,702 corpses whose
+//! templates set bounds held their other items within them, against 1,606 counting the fixed
+//! drops too.)
 //!
 //! **Death treasures** ([`yalain_content::DeathTreasure`]): a world's fixed item for a creature's
 //! template or its camp, each rolled once at its chance as the corpse is made, on top of all the
@@ -709,8 +712,8 @@ pub fn roll_loot<S: Store>(
         let base = crate::treasure::base_of(level, c.stats.loot_quality);
         let race = crate::treasure_pools::race_of(s, killer);
         let profile_name = name.as_deref().unwrap_or_default();
+        // The template's trophies are drawn beside the count; the profile's extras are in it.
         if pooled {
-            // The template's trophies are drawn beside the count; the profile's extras are in it.
             let extras = out.len() - trophies;
             let items = crate::treasure_pools::drawn(
                 s,
@@ -724,7 +727,7 @@ pub fn roll_loot<S: Store>(
                 out.push((t, value));
             }
         }
-        while !pooled && out.len() < count && !p.items.is_empty() {
+        while !pooled && out.len() - trophies < count && !p.items.is_empty() {
             #[allow(clippy::cast_precision_loss)]
             let Some(i) = s.rng.weighted(p.items.iter().map(|(_, w)| *w as f32)) else {
                 break;
