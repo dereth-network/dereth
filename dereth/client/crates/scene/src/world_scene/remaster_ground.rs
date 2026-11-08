@@ -680,6 +680,9 @@ fn smoothstep(lo: f32, hi: f32, x: f32) -> f32 {
 impl super::SceneDraw {
     /// The remaster's ground's upkeep for this frame: the world's vertices, whether the offset
     /// is drawn, and the near blocks' offsets.
+    ///
+    /// It runs before the frame's re-centre, so [`Self::place_remaster_ground`] runs again after
+    /// it.
     pub(super) fn remaster_ground_step(
         &mut self,
         ws: &super::WorldState,
@@ -687,6 +690,16 @@ impl super::SceneDraw {
     ) {
         let wanted = self.remaster_ground_wanted();
         self.remaster_ground.step(wanted, store, &self.land.table);
+        self.place_remaster_ground(ws);
+        self.remaster_ground.keep_fields(store);
+        self.remaster_far_step(wanted.0, store);
+    }
+
+    /// Where the remaster's ground stands this frame: the world's origin in render space, the
+    /// viewer's block and the eye, as the window holds the blocks now. A re-centre moves the
+    /// blocks' origins, so this runs again after one; otherwise the frame that crosses into the
+    /// next block reads the ground a block away.
+    pub(super) fn place_remaster_ground(&mut self, ws: &super::WorldState) {
         if let Some((&(bx, by), b)) = self.blocks.iter().next() {
             // LINT-OK: block coordinates, far inside f32's exact range.
             #[allow(clippy::cast_precision_loss)]
@@ -701,8 +714,6 @@ impl super::SceneDraw {
             self.remaster_ground.viewer = v;
         }
         self.remaster_ground.eye = ws.camera.position;
-        self.remaster_ground.keep_fields(store);
-        self.remaster_far_step(wanted.0, store);
     }
 
     /// The far trees' and the forest cover's upkeep for this frame: while the ground is drawn as

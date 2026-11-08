@@ -12,6 +12,8 @@
 //!   and the water's share is kept beside it, so the water ends along the shore's own blend.
 //! - **The ground alone.** A block built again for its ground alone (its level of detail or its
 //!   stitching) takes back its ground and nothing else of it.
+//! - **Where the world stands.** On the frame a walk crosses a block line, the ground is read
+//!   where the world stands, not a block away.
 //!
 //! Fixture: the retail dats (`DERETH_TEST_DAT_DIR`) and a hardware Vulkan 1.3 device.
 //!
@@ -466,6 +468,77 @@ fn a_block_built_again_for_its_ground_alone_takes_back_its_ground_alone() {
         differ, 0,
         "the walked scene draws as the scene come to at once"
     );
+}
+
+/// The ground is read where the world stands on every frame of a walk across block lines, the
+/// frame each line is crossed on too: a point of the world reads the same ground all the way,
+/// though the window's re-centre moves it a block in render space under it. The grid is drawn
+/// without its offset, so the ground read is retail's own height and nothing else moves it.
+#[test]
+fn the_ground_stands_where_the_world_does_on_the_frame_a_block_line_is_crossed() {
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    let (mut gpu, mut shot) = walking_town(&store);
+    shot.scene.draw.set_remaster_terrain(
+        dereth_scene::world_scene::RemasterTerrain {
+            splat: true,
+            grid: true,
+            drawn: false,
+            horizon: false,
+        },
+        &mut gpu,
+    );
+    shot.step_held(&mut gpu);
+    shot.scene.wait_for_remaster_ground();
+    shot.step_held(&mut gpu);
+    let eye = shot.scene.camera.position;
+    let points: Vec<(f32, f32)> = (-4..=4)
+        .flat_map(|j| (-4..=4).map(move |i| (i as f32 * 13.0, j as f32 * 13.0)))
+        .map(|(x, y)| (eye.x + x, eye.y + y))
+        .collect();
+    let read = |shot: &crate::instruments::stations::Shot, moved: (f32, f32)| -> Vec<f32> {
+        points
+            .iter()
+            .map(|&(x, y)| {
+                shot.scene
+                    .remaster_ground_at(x - moved.0, y - moved.1)
+                    .expect("the world's vertices are read")
+            })
+            .collect()
+    };
+    let first = read(&shot, (0.0, 0.0));
+    let start = shot.scene.viewer_block().expect("a viewer's block");
+    let mut block = start;
+    let mut crossed = 0;
+    // East two meters a frame for 150 frames, across two of the town's block lines.
+    for frame in 0..150 {
+        shot.scene.camera.position.x += 2.0;
+        shot.step_held(&mut gpu);
+        let now = shot.scene.viewer_block().expect("a viewer's block");
+        crossed += usize::from(now != block);
+        block = now;
+        let moved = (
+            (block.0 - start.0) as f32 * 192.0,
+            (block.1 - start.1) as f32 * 192.0,
+        );
+        let got = read(&shot, moved);
+        let off = first
+            .iter()
+            .zip(&got)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0f32, f32::max);
+        assert!(
+            off < 1e-3,
+            "frame {frame}, in block {block:?}: the ground is read {off} m off where the world \
+             stands"
+        );
+    }
+    println!("{crossed} block lines crossed");
+    assert!(crossed >= 1, "the walk crosses a block line");
+    drop(shot);
+    drop(gpu);
+    let errors = dereth_render::vulkan::take_validation_errors();
+    assert!(errors.is_empty(), "the validation layer: {errors:#?}");
 }
 
 #[test]
