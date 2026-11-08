@@ -604,6 +604,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.allegiance.charter-kept",
+        says: "The allegiance's record keeps each allegiance's message of the day, officers and kingdom \
+               restriction and each member's title, and a record written before it kept them still \
+               reads, with none.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ALLEG-KEPT"),
+        station: "yalain-testkit::cpu::play::allegiance_management::the_allegiance_record_keeps_its_charter_and_titles_and_reads_an_older_record",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.allegiance.experience-passed-up",
         says: "A quarter of what a vassal earns goes into its patron's pool; a pool reaching a \
                fifth of the patron's next level's experience is paid to the patron, up to a third \
@@ -612,6 +622,84 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-ALLEG-XP"),
         station: "yalain-testkit::cpu::play::allegiance::a_vassals_experience_is_pooled_and_paid_to_its_patron_up_to_the_levels_cap",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.allegiance.kingdom-restriction",
+        says: "The monarch alone restricts its allegiance to its kingdom, with or without neutrals, and \
+               lifts it, told each; an oath from one of another kingdom is refused and the would-be \
+               vassal told which kingdom it would have to join.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ALLEG-KINGDOM"),
+        station: "yalain-testkit::cpu::play::allegiance_management::a_kingdom_restriction_refuses_an_oath_from_another_kingdom",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.allegiance.leaving-drops-office-and-title",
+        says: "A member who breaks away is no longer an officer of the allegiance it left and loses \
+               the title it was given there.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ALLEG-LEAVING"),
+        station: "yalain-testkit::cpu::play::allegiance_management::a_member_who_breaks_away_is_no_longer_an_officer_and_loses_its_title",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.allegiance.lookups-out-of-an-allowance",
+        says: "A call that looks among an allegiance's members by name, or sends them their profiles, \
+               comes out of the connection's allowance of rows by the allegiance's size: one is \
+               answered however long the allegiance, one straight after it is not, and in time \
+               another is.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ALLEG-LOOKUPS"),
+        station: "yalain-testkit::cpu::play::allegiance_management::a_search_among_a_long_allegiance_comes_out_of_an_allowance",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.allegiance.member-search",
+        says: "Looking for a member of one's allegiance by name says it was found and sends its \
+               profile; a name outside the allegiance is told so.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ALLEG-SEARCH"),
+        station: "yalain-testkit::cpu::play::allegiance_management::a_member_found_by_name_is_sent_as_its_profile",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.allegiance.member-titles",
+        says: "An officer of an allegiance, its monarch among them, sets or removes a member's title, \
+               told each; others' examinations of the member show it. Anyone else is refused.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ALLEG-TITLES"),
+        station: "yalain-testkit::cpu::play::allegiance_management::an_officer_gives_a_member_a_title_that_its_examination_shows",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.allegiance.message-of-the-day",
+        says: "The monarch or an officer sets or clears the allegiance's message of the day, told each, \
+               and every member in the world is sent its profile carrying it; a member asking is shown \
+               it, or told there is none. Anyone else is refused.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ALLEG-MOTD"),
+        station: "yalain-testkit::cpu::play::allegiance_management::the_monarch_sets_the_message_of_the_day_and_every_member_is_sent_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.allegiance.messages",
+        says: "Words to one's patron, to one's vassals or to every follower below reach those of them \
+               in the world alone, and the sender sees what it said; a monarch has no patron to tell, \
+               and a patron away is said so.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ALLEG-MESSAGES"),
+        station: "yalain-testkit::cpu::play::allegiance_management::words_to_patron_vassals_and_followers_reach_them_alone",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.allegiance.officers-appointed",
+        says: "The monarch alone appoints and revokes officers by name from among its members, at most \
+               four, told whom and how many of how many; every profile flags them, and an officer may \
+               set the message of the day.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ALLEG-APPOINT"),
+        station: "yalain-testkit::cpu::play::allegiance_management::the_monarch_appoints_and_revokes_officers_by_name",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -687,6 +775,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-ALLEG-EXPORT"),
         station: "yalain-testkit::cpu::play::allegiance::the_tree_export_sends_the_whole_allegiance_and_the_files_name",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.allegiance.unnamed-goes-by-its-monarch",
+        says: "An allegiance not named yet is sent in its profile as its monarch's allegiance, in the \
+               words its members' examinations use; a named one by its name.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ALLEG-UNNAMED"),
+        station: "yalain-testkit::cpu::play::allegiance_management::an_unnamed_allegiances_profile_names_it_by_its_monarch",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -3921,6 +4018,16 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-EXAMINE-OWN-NAME"),
         station: "yalain-testkit::cpu::entry::examine::a_row_with_a_name_of_its_own_is_examined_under_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.examination.allegiance-lines",
+        says: "Examining a member of an allegiance names it by its rank's title and ends with its \
+               allegiance: the allegiance's name, its monarch (or that it is the monarch), its patron \
+               when that is not the monarch, its rank, and the title an officer gave it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-EXAM-ALLEGIANCE"),
+        station: "yalain-testkit::cpu::play::allegiance_management::examining_a_member_ends_with_its_allegiance_as_the_recorded_pages_did",
         tier: Tier::Cpu,
     },
     behaviour! {

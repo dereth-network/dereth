@@ -304,6 +304,7 @@ pub const TOO_LONG: &str = "That is too long to say.";
 pub const fn carries_words(function: u32) -> bool {
     use crate::requests::function::{SAY, TELL, TYPED_EMOTE};
     matches!(function, SAY | TELL | TYPED_EMOTE)
+        || crate::allegiance_management::carries_words(function)
 }
 
 /// A line past [`MOST_TALK_BYTES`]: nobody hears it, and its speaker is told.

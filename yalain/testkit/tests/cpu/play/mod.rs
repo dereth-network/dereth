@@ -2,6 +2,7 @@
 //! rolls; heals, buffs and effects; crafting and butchery; the basic attacks of each weapon.
 
 mod allegiance;
+mod allegiance_management;
 mod areas;
 mod armor;
 mod attack_speed;

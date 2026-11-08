@@ -539,6 +539,46 @@ fn kingdom_lines(p: &mut Profile, faction: u32) {
     p.brk(GENERAL);
 }
 
+/// What a member's examination says of its allegiance.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AllegianceView {
+    /// The allegiance's name, when it has one (else it is its monarch's).
+    pub name: Option<String>,
+    /// The monarch's name as the world writes it, and whether the member is the monarch.
+    pub monarch: String,
+    pub is_monarch: bool,
+    /// The patron's name, when the patron is not the monarch.
+    pub patron: Option<String>,
+    /// The member's rank, and the rank's title for its species and sex.
+    pub rank: u32,
+    pub rank_title: Option<TextInfo>,
+    /// The title an officer gave it.
+    pub title: Option<String>,
+}
+
+/// The strings of a member's allegiance lines (string ids), their tables and variables.
+pub mod allegiance_line {
+    pub const TABLE: u32 = 0x2500_04AB;
+    pub const ALLEGIANCE: u32 = 0x3215_52B3;
+    pub const MONARCH: u32 = 0x0289_EF2B;
+    pub const IS_MONARCH: u32 = 0x493E_E206;
+    pub const PATRON: u32 = 0xA0EE_DDB2;
+    pub const RANK: u32 = 0x03D5_22B3;
+    pub const TITLE: u32 = 0xA32C_7AF2;
+    /// "(monarch)'s Allegiance", an unnamed allegiance's name, in the allegiance's other table.
+    pub const NAMES_TABLE: u32 = 0x2500_0012;
+    pub const UNNAMED: u32 = 0x6837_FCED;
+    /// "(rank) ((title))" and "(title) (name)", in the general table.
+    pub const RANK_VALUE: u32 = 0x7B6E_1E2B;
+    pub const TITLED_NAME: u32 = 0xBFB4_ECCD;
+    /// Variables: the monarch's name in its label, the monarch of an unnamed allegiance, the rank,
+    /// a rank's title.
+    pub const MONARCH_VAR: u32 = 0xCBDA_741A;
+    pub const UNNAMED_MONARCH: u32 = 0x4D87_675C;
+    pub const RANK_VAR: u32 = 0x313C_55EA;
+    pub const RANK_TITLE: u32 = 0x0926_A4C8;
+}
+
 /// A player's profile as another player (or itself) sees it: its name, its first craft title,
 /// its race and sex, its level, its kingdom (the neutral one for a player in none), its health
 /// and vigor, its kingdom points and quest rating.
@@ -554,17 +594,53 @@ pub fn player(
     v: Vitals,
     quest_rating: u32,
 ) -> Profile {
+    member(
+        asked,
+        world_name,
+        race,
+        sex,
+        level,
+        kingdom,
+        v,
+        quest_rating,
+        None,
+    )
+}
+
+/// A player's profile, a member of an allegiance's naming it by its rank's title and ending with
+/// its allegiance: the allegiance's name, its monarch (or that it is the monarch), its patron when
+/// that is not the monarch, its rank and rank title, and the title an officer gave it.
+#[must_use]
+#[allow(clippy::too_many_arguments)]
+pub fn member(
+    asked: u32,
+    world_name: &str,
+    race: u32,
+    sex: u32,
+    level: i32,
+    kingdom: Option<u32>,
+    v: Vitals,
+    quest_rating: u32,
+    allegiance: Option<&AllegianceView>,
+) -> Profile {
     let mut p = Profile::new(asked);
     let name = || literal(world_name);
-    p.text(
-        GENERAL,
-        look::VALUE,
-        with_vars(
+    let name_line = match allegiance.and_then(|a| a.rank_title.clone()) {
+        Some(t) => with_vars(
+            line::TABLE,
+            allegiance_line::TITLED_NAME,
+            vec![
+                nested(allegiance_line::RANK_TITLE, t),
+                nested(var::NAME, name()),
+            ],
+        ),
+        None => with_vars(
             line::TABLE,
             line::PLAYER_NAME,
             vec![nested(var::NAME, name())],
         ),
-    );
+    };
+    p.text(GENERAL, look::VALUE, name_line);
     p.brk(GENERAL);
     let craft = with_vars(
         line::CRAFTS,
@@ -616,7 +692,70 @@ pub fn player(
     p.int(GENERAL, look::VALUE, quest_rating.cast_signed());
     p.brk(GENERAL);
     p.brk(GENERAL);
+    if let Some(a) = allegiance {
+        allegiance_lines(&mut p, a);
+    }
     p
+}
+
+/// An allegiance not named yet goes by its monarch's: "(monarch)'s Allegiance".
+pub fn unnamed_allegiance(monarch: &str) -> TextInfo {
+    use allegiance_line as l;
+    with_vars(
+        l::NAMES_TABLE,
+        l::UNNAMED,
+        vec![nested(l::UNNAMED_MONARCH, literal(monarch))],
+    )
+}
+
+fn allegiance_lines(p: &mut Profile, a: &AllegianceView) {
+    use allegiance_line as l;
+    let label = |id: u32| string(l::TABLE, id);
+    p.text(GENERAL, look::LABEL, label(l::ALLEGIANCE));
+    let name = a
+        .name
+        .as_deref()
+        .map_or_else(|| unnamed_allegiance(&a.monarch), literal);
+    p.text(GENERAL, look::VALUE, name);
+    p.brk(GENERAL);
+    if a.is_monarch {
+        p.text(GENERAL, look::LABEL, label(l::IS_MONARCH));
+    } else {
+        p.text(
+            GENERAL,
+            look::LABEL,
+            with_vars(
+                l::TABLE,
+                l::MONARCH,
+                vec![nested(l::MONARCH_VAR, literal(&a.monarch))],
+            ),
+        );
+        p.text(GENERAL, look::VALUE, literal(&a.monarch));
+    }
+    p.brk(GENERAL);
+    if let Some(patron) = &a.patron {
+        p.text(GENERAL, look::LABEL, label(l::PATRON));
+        p.text(GENERAL, look::VALUE, literal(patron));
+        p.brk(GENERAL);
+    }
+    p.text(GENERAL, look::LABEL, label(l::RANK));
+    let mut vars = vec![number(l::RANK_VAR, a.rank)];
+    if let Some(t) = &a.rank_title {
+        vars.push(nested(var::NAME, t.clone()));
+    }
+    p.text(
+        GENERAL,
+        look::VALUE,
+        with_vars(line::TABLE, l::RANK_VALUE, vars),
+    );
+    p.brk(GENERAL);
+    if let Some(t) = &a.title {
+        let units: Vec<u16> = t.encode_utf16().collect();
+        let escaped = String::from_utf16_lossy(&auberean_text::meta::escape(&units));
+        p.text(GENERAL, look::LABEL, label(l::TITLE));
+        p.text(GENERAL, look::VALUE, literal(&escaped));
+        p.brk(GENERAL);
+    }
 }
 
 /// A monster's profile as a player who can attack it sees it: its name, description, level,

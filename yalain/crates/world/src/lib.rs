@@ -36,8 +36,9 @@
 //! - [`talk`]: what people say, and when: with a quest step, when used, to a player come near,
 //!   unprompted, fighting and dying.
 //! - [`graph`], [`uploads`], [`calls`]: script-call values built and read.
-//! - [`social`], [`allegiance`], [`fellowship`], [`trade`]: what players ask of one another: the
-//!   allegiance's oaths and profiles, fellowships and their shared experience, trades.
+//! - [`social`], [`allegiance`], [`allegiance_management`], [`fellowship`], [`trade`]: what players
+//!   ask of one another: the allegiance's oaths, profiles and running, fellowships and their shared
+//!   experience, trades.
 //! - [`pets`]: the creatures players' skills summon, their orders, their behavior and their end.
 //! - [`kingdoms`]: a player's kingdom, joined at a faction shrine, and the kind of player conflict
 //!   each place allows, which the client is told of as its player comes and goes.
@@ -67,6 +68,7 @@ pub mod admin_groups;
 pub mod admin_library;
 pub mod ai;
 pub mod allegiance;
+pub mod allegiance_management;
 pub mod answers;
 pub mod arms;
 pub mod books;

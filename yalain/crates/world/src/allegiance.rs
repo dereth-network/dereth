@@ -17,8 +17,18 @@
 //! that member is sent, online or not; asked for nothing (id 0: the page no longer follows a
 //! member), nothing is sent.
 //!
-//! **Officers**: the monarch is an officer of its allegiance; a member's data says whether it is
-//! one, and a profile carries the officers. No officer is appointed on this server.
+//! **Officers**: the monarch is an officer of its allegiance, and so is each member it appoints
+//! ([`crate::allegiance_management`]); a member's data says whether it is one, and a profile carries
+//! the officers. A member that leaves the allegiance stops being one of its officers and loses the
+//! title it was given there.
+//!
+//! **What the allegiance keeps besides its members**: its message of the day (in every profile and
+//! the tree's export), its appointed officers, its kingdom restriction, and each member's title.
+//! An allegiance whose monarch swears to another leaves these behind.
+//!
+//! **A kingdom restriction** refuses an oath from one of another kingdom than the monarch's (a
+//! neutral one is let in when the restriction allows neutrals): the would-be vassal is told which
+//! kingdom it would have to join.
 //!
 //! **Swearing**: the would-be vassal is walked to the would-be patron; the patron is asked; when it
 //! accepts, the patron is told who swore (and of its rank if it rose), the vassal hears the chat
@@ -118,6 +128,9 @@ pub const TOP_RANK: u32 = 10;
 /// has a patron already, an oath that would close a circle.
 pub mod error {
     pub const DONE: u32 = 0;
+    /// Of another kingdom than the allegiance's restriction lets in (neutrals not let in, let in).
+    pub const KINGDOM: u32 = 5514;
+    pub const KINGDOM_OR_NEUTRAL: u32 = 5521;
     pub const DECLINED: u32 = 5509;
     pub const TOO_MANY_VASSALS: u32 = 5506;
     pub const HAS_PATRON: u32 = 5507;
@@ -136,6 +149,12 @@ pub mod text {
     pub const TITLED: (u32, u32) = (0x6780_74F5, TABLE);
     /// The rank titles' table.
     pub const TITLES: u32 = 0x2500_0631;
+    /// "You cannot swear to (patron) unless you join the (kingdom)", and "... or the (neutral)".
+    pub const JOIN_KINGDOM: (u32, u32) = (0xE9BE_3AD1, TABLE);
+    pub const JOIN_KINGDOM_OR_NEUTRAL: (u32, u32) = (0x557B_DB59, TABLE);
+    /// Variables: a kingdom, the neutral kingdom.
+    pub const KINGDOM: u32 = 0xBEE1_1D49;
+    pub const NEUTRAL: u32 = 0x2C6D_BBF4;
     /// Variables: a title, a name, an amount, a vassal, a patron.
     pub const TITLE: u32 = 0x0926_A4C8;
     pub const NAME: u32 = 0x9D06_6C50;
@@ -288,6 +307,42 @@ pub struct Allegiances {
     pub offers: Vec<(u64, u64)>,
     /// Chat rooms given out, by monarch.
     pub rooms: BTreeMap<u64, u32>,
+    /// What each allegiance keeps besides its members, by monarch.
+    pub charters: BTreeMap<u64, Charter>,
+    /// Members' titles, set by an officer of their allegiance.
+    pub titles: BTreeMap<u64, String>,
+}
+
+/// What an allegiance keeps besides its members.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Charter {
+    /// The message of the day, as the client sent it (its meta marks escaped).
+    pub motd: Option<Vec<u16>>,
+    /// The members the monarch appointed officers.
+    pub officers: BTreeSet<u64>,
+    /// Who may swear into it, when restricted.
+    pub restriction: Option<Restriction>,
+}
+
+impl Charter {
+    fn is_empty(&self) -> bool {
+        self.motd.is_none() && self.officers.is_empty() && self.restriction.is_none()
+    }
+}
+
+/// An allegiance's kingdom restriction: new members must be of the monarch's kingdom (or neutral,
+/// when neutrals are let in).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Restriction {
+    pub neutrals: bool,
+}
+
+/// The kingdom an oath would need, when a restriction refuses it: the allegiance's kingdom, and
+/// whether the neutral one would do too.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KingdomNeeded {
+    pub kingdom: u32,
+    pub or_neutral: bool,
 }
 
 impl Allegiances {
@@ -416,16 +471,77 @@ impl Allegiances {
         out
     }
 
-    /// The officers of a monarch's allegiance: those appointed (none on this server), with the
-    /// monarch itself when `with_monarch` (a profile names it; the allegiance's own record does
-    /// not).
+    /// The officers of a monarch's allegiance: those appointed, with the monarch itself first
+    /// when `with_monarch` (a profile names it; the allegiance's own record does not).
     #[must_use]
     pub fn officers(&self, monarch: u64, with_monarch: bool) -> Vec<u64> {
+        let mut out = Vec::new();
         if with_monarch && self.nodes.contains_key(&monarch) {
-            vec![monarch]
-        } else {
-            Vec::new()
+            out.push(monarch);
         }
+        if let Some(c) = self.charters.get(&monarch) {
+            out.extend(
+                c.officers
+                    .iter()
+                    .filter(|o| **o != monarch && self.monarch(**o) == Some(monarch)),
+            );
+        }
+        out
+    }
+
+    /// Is the member an officer of its allegiance (its monarch, or one the monarch appointed)?
+    #[must_use]
+    pub fn is_officer(&self, id: u64) -> bool {
+        match self.monarch(id) {
+            Some(m) if m == id => true,
+            Some(m) => self
+                .charters
+                .get(&m)
+                .is_some_and(|c| c.officers.contains(&id)),
+            None => false,
+        }
+    }
+
+    /// The message of the day of a monarch's allegiance.
+    #[must_use]
+    pub fn motd(&self, monarch: u64) -> Option<&[u16]> {
+        self.charters.get(&monarch).and_then(|c| c.motd.as_deref())
+    }
+
+    /// The charter of a monarch's allegiance, made when first needed.
+    pub fn charter_mut(&mut self, monarch: u64) -> &mut Charter {
+        self.charters.entry(monarch).or_default()
+    }
+
+    /// Drop a monarch's charter when it keeps nothing.
+    pub fn tidy_charter(&mut self, monarch: u64) {
+        if self.charters.get(&monarch).is_some_and(Charter::is_empty) {
+            self.charters.remove(&monarch);
+        }
+    }
+
+    /// Would a monarch's restriction refuse an oath from one of this kingdom (none: the neutral
+    /// one), the monarch being of `monarch_kingdom`? What it would need, if so.
+    #[must_use]
+    pub fn kingdom_needed(
+        &self,
+        monarch: u64,
+        monarch_kingdom: Option<u32>,
+        kingdom: Option<u32>,
+    ) -> Option<KingdomNeeded> {
+        let r = self.charters.get(&monarch)?.restriction?;
+        let neutral = crate::kingdoms::kingdom::NEUTRAL;
+        let (theirs, ours) = (
+            kingdom.unwrap_or(neutral),
+            monarch_kingdom.unwrap_or(neutral),
+        );
+        if (r.neutrals && theirs == neutral) || theirs == ours {
+            return None;
+        }
+        Some(KingdomNeeded {
+            kingdom: ours,
+            or_neutral: r.neutrals,
+        })
     }
 
     /// The members of a monarch's allegiance.
@@ -437,7 +553,7 @@ impl Allegiances {
     /// The record in the server's encoding.
     #[must_use]
     pub fn to_bytes(&self) -> Vec<u8> {
-        let mut out = vec![1u8];
+        let mut out = vec![2u8];
         let n = u32::try_from(self.nodes.len()).unwrap_or(0);
         out.extend(n.to_le_bytes());
         for (id, x) in &self.nodes {
@@ -456,6 +572,38 @@ impl Allegiances {
         for (id, name) in &self.names {
             out.extend(id.to_le_bytes());
             let b = name.as_bytes();
+            out.extend(u32::try_from(b.len()).unwrap_or(0).to_le_bytes());
+            out.extend(b);
+        }
+        let n = u32::try_from(self.charters.len()).unwrap_or(0);
+        out.extend(n.to_le_bytes());
+        for (id, c) in &self.charters {
+            out.extend(id.to_le_bytes());
+            match &c.motd {
+                Some(m) => {
+                    out.push(1);
+                    out.extend(u32::try_from(m.len()).unwrap_or(0).to_le_bytes());
+                    for u in m {
+                        out.extend(u.to_le_bytes());
+                    }
+                }
+                None => out.push(0),
+            }
+            out.extend(u32::try_from(c.officers.len()).unwrap_or(0).to_le_bytes());
+            for o in &c.officers {
+                out.extend(o.to_le_bytes());
+            }
+            out.push(match c.restriction {
+                None => 0,
+                Some(Restriction { neutrals: false }) => 1,
+                Some(Restriction { neutrals: true }) => 2,
+            });
+        }
+        let n = u32::try_from(self.titles.len()).unwrap_or(0);
+        out.extend(n.to_le_bytes());
+        for (id, t) in &self.titles {
+            out.extend(id.to_le_bytes());
+            let b = t.as_bytes();
             out.extend(u32::try_from(b.len()).unwrap_or(0).to_le_bytes());
             out.extend(b);
         }
@@ -478,9 +626,17 @@ impl Allegiances {
             fn u64(&mut self) -> Option<u64> {
                 Some(u64::from_le_bytes(self.take(8)?.try_into().ok()?))
             }
+            fn byte(&mut self) -> Option<u8> {
+                Some(self.take(1)?[0])
+            }
+            fn text(&mut self) -> Option<String> {
+                let n = self.u32()? as usize;
+                String::from_utf8(self.take(n)?.to_vec()).ok()
+            }
         }
+        // Version 1 kept the members and the names alone.
         let (&version, rest) = b.split_first()?;
-        if version != 1 {
+        if version != 1 && version != 2 {
             return None;
         }
         let mut r = In(rest);
@@ -501,9 +657,41 @@ impl Allegiances {
         }
         for _ in 0..r.u32()? {
             let id = r.u64()?;
-            let n = r.u32()? as usize;
-            let name = String::from_utf8(r.take(n)?.to_vec()).ok()?;
+            let name = r.text()?;
             a.names.insert(id, name);
+        }
+        if version >= 2 {
+            for _ in 0..r.u32()? {
+                let id = r.u64()?;
+                let mut c = Charter::default();
+                if r.byte()? == 1 {
+                    let n = r.u32()? as usize;
+                    let units = r.take(n.checked_mul(2)?)?;
+                    c.motd = Some(
+                        units
+                            .as_chunks::<2>()
+                            .0
+                            .iter()
+                            .map(|u| u16::from_le_bytes(*u))
+                            .collect(),
+                    );
+                }
+                for _ in 0..r.u32()? {
+                    c.officers.insert(r.u64()?);
+                }
+                c.restriction = match r.byte()? {
+                    0 => None,
+                    1 => Some(Restriction { neutrals: false }),
+                    2 => Some(Restriction { neutrals: true }),
+                    _ => return None,
+                };
+                a.charters.insert(id, c);
+            }
+            for _ in 0..r.u32()? {
+                let id = r.u64()?;
+                let t = r.text()?;
+                a.titles.insert(id, t);
+            }
         }
         r.0.is_empty().then_some(a)
     }
@@ -545,6 +733,8 @@ pub struct Facts {
     pub sex: u32,
     pub level: u32,
     pub online: bool,
+    /// Its kingdom (none for one that never joined one).
+    pub kingdom: Option<u32>,
 }
 
 /// A character's facts: from the world when it is in it, else from the store.
@@ -560,18 +750,22 @@ pub fn facts<S: Store>(s: &mut Server<S>, id: u64) -> Facts {
                 .cast_unsigned(),
             // A cloaked admin is told to nobody as in the world.
             online: !p.admin.cloaked,
+            kingdom: crate::kingdoms::of(&p.qualities),
         };
     }
     let Some(c) = s.store.character(id).ok().flatten() else {
         return Facts::default();
     };
-    let level = crate::saves::state_of(s, id)
-        .ok()
-        .flatten()
+    let state = crate::saves::state_of(s, id).ok().flatten();
+    let level = state
+        .as_ref()
         .and_then(|w| quals::int(&w.qualities, progress::q::LEVEL))
         .unwrap_or(1)
         .max(1)
         .cast_unsigned();
+    let kingdom = state
+        .as_ref()
+        .and_then(|w| crate::kingdoms::of(&w.qualities));
     Facts {
         name: crate::player::world_name(&c.name, c.sex),
         plain: c.name.clone(),
@@ -579,7 +773,33 @@ pub fn facts<S: Store>(s: &mut Server<S>, id: u64) -> Facts {
         sex: c.sex,
         level,
         online: false,
+        kingdom,
     }
+}
+
+/// What a member's examination says of its allegiance (none for one in no allegiance).
+pub fn view<S: Store>(s: &mut Server<S>, id: u64) -> Option<crate::profile::AllegianceView> {
+    let _ = ensure(s);
+    let monarch = s.allegiances.monarch(id)?;
+    let patron = s.allegiances.nodes.get(&id).map_or(0, |n| n.patron);
+    let me = facts(s, id);
+    let monarch_name = facts(s, monarch).name;
+    let patron_name = (patron != 0 && patron != monarch).then(|| facts(s, patron).name);
+    let rank = s.allegiances.rank(id);
+    Some(crate::profile::AllegianceView {
+        name: s
+            .allegiances
+            .names
+            .get(&monarch)
+            .filter(|n| !n.is_empty())
+            .cloned(),
+        monarch: monarch_name,
+        is_monarch: monarch == id,
+        patron: patron_name,
+        rank,
+        rank_title: title(me.species, me.sex, rank),
+        title: s.allegiances.titles.get(&id).cloned(),
+    })
 }
 
 /// A rank's title for a species and sex.
@@ -605,7 +825,7 @@ pub fn no_allegiance() -> ServerMessage {
 
 fn data(b: &mut Builder, s_: &Allegiances, id: u64, f: &Facts, rank: u32) -> u32 {
     let node = s_.nodes.get(&id).copied().unwrap_or_default();
-    let officer = s_.monarch(id) == Some(id);
+    let officer = s_.is_officer(id);
     let me = b.reserve(DATA.0);
     let name = b.native(TEXT, NativeObject::TextInfo(name_text(&f.name)));
     b.fill(
@@ -641,17 +861,15 @@ pub fn profile<S: Store>(s: &mut Server<S>, member: u64) -> ServerMessage {
     // the patron.
     let mf = (monarch != member && monarch != patron).then(|| facts(s, monarch));
     let vf: Vec<(u64, Facts)> = vassals.iter().map(|v| (*v, facts(s, *v))).collect();
+    // An allegiance not named yet goes by its monarch's, as its members' examinations name it.
+    let name_info = match s.allegiances.names.get(&monarch).filter(|n| !n.is_empty()) {
+        Some(n) => name_text(n),
+        None => crate::profile::unnamed_allegiance(&facts(s, monarch).name),
+    };
     let all = &s.allegiances;
     let mut b = Builder::new();
     let root = b.reserve(PROFILE.0);
-    // An allegiance not named yet is sent an empty name (the retail client writes an error for
-    // none).
-    let name = Some(b.native(
-        TEXT,
-        NativeObject::TextInfo(name_text(
-            all.names.get(&monarch).map_or("", String::as_str),
-        )),
-    ));
+    let name = Some(b.native(TEXT, NativeObject::TextInfo(name_info)));
     let patron_ref = pf
         .as_ref()
         .map(|f| data(&mut b, all, patron, f, all.rank(patron)));
@@ -686,6 +904,7 @@ pub fn profile<S: Store>(s: &mut Server<S>, member: u64) -> ServerMessage {
         (Some(list), Some(online))
     };
     let total = all.size(monarch);
+    let motd = motd_text(&mut b, all, monarch);
     let officers = b.native(ID_SET, id_set(&all.officers(monarch, true)));
     b.fill(
         root,
@@ -698,7 +917,7 @@ pub fn profile<S: Store>(s: &mut Server<S>, member: u64) -> ServerMessage {
             Slot::Tagged(4, u32::from(pf.as_ref().is_some_and(|f| f.online))),
             Slot::Ref(list),
             Slot::Ref(online),
-            Slot::Ref(None),
+            Slot::Ref(motd),
             Slot::Tagged(4, u32::from(mf.as_ref().is_some_and(|f| f.online))),
             Slot::Tagged(2, PROFILE_FACTION),
             Slot::Tagged(4, total),
@@ -706,6 +925,19 @@ pub fn profile<S: Store>(s: &mut Server<S>, member: u64) -> ServerMessage {
         ],
     );
     session::call(function::PROFILE, &[Arg::Object(b.graph())]).expect("a profile packs")
+}
+
+/// The message of the day of a monarch's allegiance, as a literal string reference, if it has one.
+fn motd_text(b: &mut Builder, all: &Allegiances, monarch: u64) -> Option<u32> {
+    let m = all.motd(monarch)?;
+    Some(b.native(
+        TEXT,
+        NativeObject::TextInfo(TextInfo {
+            has_literal: 1,
+            literal: Some(m.to_vec()),
+            ..TextInfo::default()
+        }),
+    ))
 }
 
 /// The chat room of a monarch's allegiance, given out the first time it is asked for.
@@ -944,6 +1176,8 @@ fn hierarchy<S: Store>(s: &mut Server<S>, monarch: u64) -> Builder {
         crate::graph::hash(Elem::Long, Elem::Ref, EXPORT_TABLES_SIZE, &by_id),
     );
     let officers = b.native(ID_SET, id_set(&all.officers(monarch, false)));
+    let motd = motd_text(&mut b, all, monarch);
+    let restriction = all.charters.get(&monarch).and_then(|c| c.restriction);
     b.fill(
         root,
         &[
@@ -954,12 +1188,12 @@ fn hierarchy<S: Store>(s: &mut Server<S>, monarch: u64) -> Builder {
             Slot::Int(0),
             Slot::Ref(Some(room_name)),
             Slot::Tagged(4, 1),
-            Slot::Int(0),
+            Slot::Int(u32::from(restriction.is_some())),
             Slot::Ref(Some(names)),
             Slot::Ref(Some(ids)),
-            Slot::Ref(None),
+            Slot::Ref(motd),
             Slot::Int(1),
-            Slot::Int(0),
+            Slot::Int(u32::from(restriction.is_some_and(|r| r.neutrals))),
             Slot::Int(PROFILE_FACTION),
             Slot::Int(0),
             Slot::Ref(Some(officers)),
@@ -1060,7 +1294,66 @@ fn refusal<S: Store>(s: &mut Server<S>, vassal: u64, patron: u64) -> Option<u32>
     if s.allegiances.vassals(patron).len() >= most_vassals(level) {
         return Some(error::TOO_MANY_VASSALS);
     }
-    None
+    kingdom_needed(s, vassal, patron).map(|k| {
+        if k.or_neutral {
+            error::KINGDOM_OR_NEUTRAL
+        } else {
+            error::KINGDOM
+        }
+    })
+}
+
+/// The kingdom the vassal would have to join to swear to the patron, when the patron's
+/// allegiance is restricted to its monarch's kingdom.
+fn kingdom_needed<S: Store>(s: &mut Server<S>, vassal: u64, patron: u64) -> Option<KingdomNeeded> {
+    let monarch = s.allegiances.monarch(patron)?;
+    s.allegiances.charters.get(&monarch)?.restriction?;
+    let ours = facts(s, monarch).kingdom;
+    let theirs = facts(s, vassal).kingdom;
+    s.allegiances.kingdom_needed(monarch, ours, theirs)
+}
+
+/// What a would-be vassal is told when a kingdom restriction refuses its oath.
+fn tell_kingdom_needed<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    vassal: u64,
+    patron: u64,
+) {
+    let Some(k) = kingdom_needed(s, vassal, patron) else {
+        return;
+    };
+    let pname = facts(s, patron).name;
+    let kingdom = |f: u32| {
+        progress::nested(
+            text::KINGDOM,
+            crate::profile::string(crate::profile::line::KINGDOMS, crate::profile::kingdom(f)),
+        )
+    };
+    let neutral = crate::kingdoms::kingdom::NEUTRAL;
+    let t = if k.or_neutral {
+        progress::text_with(
+            text::JOIN_KINGDOM_OR_NEUTRAL,
+            vec![
+                name_var(text::PATRON, &pname),
+                kingdom(k.kingdom),
+                progress::nested(
+                    text::NEUTRAL,
+                    crate::profile::string(
+                        crate::profile::line::KINGDOMS,
+                        crate::profile::kingdom(neutral),
+                    ),
+                ),
+            ],
+        )
+    } else {
+        progress::text_with(
+            text::JOIN_KINGDOM,
+            vec![name_var(text::PATRON, &pname), kingdom(k.kingdom)],
+        )
+    };
+    show(net, world, REFUSED, t);
 }
 
 /// A player swears to another: walked to it, then the other is asked.
@@ -1082,6 +1375,9 @@ pub fn swear<S: Store>(
     if let Some(err) = refusal(s, me, target) {
         let name = social::name_of(s, other);
         progress::private(net, world, &swore_to(target, &name, err));
+        if matches!(err, error::KINGDOM | error::KINGDOM_OR_NEUTRAL) {
+            tell_kingdom_needed(s, net, world, me, target);
+        }
         return;
     }
     social::approach(s, net, world, other, social::Approach::Swear, clock);
@@ -1141,10 +1437,15 @@ pub fn accept<S: Store>(
     if let Some(err) = refusal(s, vassal, patron) {
         progress::private(net, world, &swore_by(vassal, &vname, err));
         progress::private(net, vw, &swore_to(patron, &pname, err));
+        if matches!(err, error::KINGDOM | error::KINGDOM_OR_NEUTRAL) {
+            tell_kingdom_needed(s, net, vw, vassal, patron);
+        }
         return;
     }
     let before = s.allegiances.ranks();
     let new_monarch = !s.allegiances.member(patron);
+    // A monarch that swears to another leaves its allegiance's charter behind.
+    s.allegiances.charters.remove(&vassal);
     let now = net.game_time(clock.local);
     s.allegiances.nodes.entry(patron).or_default();
     s.allegiances.nodes.insert(
@@ -1283,6 +1584,19 @@ pub fn break_with<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnI
 /// the allegiances; a patron left with nothing leaves too.
 fn unlink<S: Store>(s: &mut Server<S>, vassal: u64) {
     let patron = s.allegiances.nodes.get(&vassal).map_or(0, |n| n.patron);
+    // Those leaving are no longer the old allegiance's officers, nor keep the titles it gave.
+    if let Some(old) = s.allegiances.monarch(vassal) {
+        let leaving = s.allegiances.tree(vassal);
+        if let Some(c) = s.allegiances.charters.get_mut(&old) {
+            for id in &leaving {
+                c.officers.remove(id);
+            }
+        }
+        for id in &leaving {
+            s.allegiances.titles.remove(id);
+        }
+        s.allegiances.tidy_charter(old);
+    }
     if s.allegiances.vassals(vassal).is_empty() {
         s.allegiances.nodes.remove(&vassal);
     } else if let Some(n) = s.allegiances.nodes.get_mut(&vassal) {
@@ -1298,6 +1612,8 @@ fn unlink<S: Store>(s: &mut Server<S>, vassal: u64) {
     {
         s.allegiances.nodes.remove(&patron);
         s.allegiances.names.remove(&patron);
+        s.allegiances.charters.remove(&patron);
+        s.allegiances.titles.remove(&patron);
     }
 }
 

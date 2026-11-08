@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Allegiances: message of the day, officers, titles, kingdom restrictions and messages to patron and vassals.
 - @dn admin and @dn verify now need an admin character, as other admin commands do.
 - Admins can make persistent chat rooms, which stay through restarts until deleted.
 - Loot profiles can draw treasure of the creature's level from shared treasure pools.

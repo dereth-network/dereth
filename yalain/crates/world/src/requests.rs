@@ -75,6 +75,9 @@ pub fn call<S: Store>(
         crate::allegiance::function::TREE_EXPORT => {
             crate::allegiance::export(s, net, world, &values, clock.local);
         }
+        f if crate::allegiance_management::handles(f) => {
+            crate::allegiance_management::call(s, net, world, f, &values, clock.local);
+        }
         crate::fellowship::function::CREATE => {
             crate::fellowship::create(s, net, world, &values, clock);
         }
@@ -528,15 +531,26 @@ fn profile_bytes<S: Store>(
     let seen = crate::presence::player_for(s, world, req.object).and_then(|w| s.players.get(&w));
     let profile = if let Some(q) = seen {
         let v = with_skills_greatest(s, q, Vitals::of_qualities(&q.qualities).unwrap_or_default());
-        profile::player(
-            req.asked,
-            &crate::player::world_name(&q.name, q.sex),
+        let (name, race, sex, level, kingdom, rating, id) = (
+            crate::player::world_name(&q.name, q.sex),
             q.race,
             q.sex,
             examine::level_of(&q.qualities),
             crate::kingdoms::of(&q.qualities),
-            v,
             q.play.quest_rating,
+            q.character,
+        );
+        let allegiance = crate::allegiance::view(s, id);
+        profile::member(
+            req.asked,
+            &name,
+            race,
+            sex,
+            level,
+            kingdom,
+            v,
+            rating,
+            allegiance.as_ref(),
         )
     } else if let Some(t) = s.things.get(req.object) {
         // An item in another player's pack is seen by no one until it is offered.
