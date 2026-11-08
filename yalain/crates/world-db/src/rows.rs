@@ -146,6 +146,8 @@ pub struct Object {
     /// A portal a player who used it may recall to, and summon a portal to.
     pub recall: bool,
     pub summon: bool,
+    /// The `[[event]]` it stands only while it runs.
+    pub event: Option<String>,
     pub prov: Prov,
 }
 
@@ -185,6 +187,8 @@ pub struct Camp {
     pub route_backward: bool,
     /// The name its creatures are told by in place of their template's.
     pub name: Option<StrRef>,
+    /// The `[[event]]` it keeps its creatures only while it runs.
+    pub event: Option<String>,
     pub prov: Prov,
 }
 
@@ -390,6 +394,8 @@ pub struct Step {
     pub text: Option<StrRef>,
     /// Other quests it requires.
     pub requires: Vec<(u32, Need)>,
+    /// The `[[event]]`s it runs only while they run.
+    pub events: Vec<String>,
     /// The items it takes from the player's pack, which the player must hold.
     pub takes: Vec<u32>,
     /// The place it takes the player to, its update made on arrival.
@@ -503,6 +509,20 @@ pub enum Row {
     Clearing(Clearing),
     TreasurePool(TreasurePool),
     EffectName(EffectName),
+    Event(Event),
+}
+
+/// `[[event]]`: a named state of the world, on for its times: what it gates (camps, objects and
+/// steps that name it) stands or runs only while it is on, and its effects are on every player in
+/// the world while it is.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Event {
+    pub key: String,
+    /// The install's game event it stands for (a value of its game-event enumeration).
+    pub game_event: Option<u32>,
+    pub when: Vec<yalain_content::events::Window>,
+    pub on_players: Vec<u32>,
+    pub prov: Prov,
 }
 
 /// `[[effect_name]]`: the saved state an effect's name stands for, where the install names the
@@ -757,6 +777,7 @@ impl Row {
             Self::Clearing(_) => "clearing",
             Self::TreasurePool(_) => "treasure_pool",
             Self::EffectName(_) => "effect_name",
+            Self::Event(_) => "event",
         }
     }
 
@@ -789,13 +810,14 @@ impl Row {
             Self::Clearing(r) => Some(&r.prov),
             Self::TreasurePool(r) => Some(&r.prov),
             Self::EffectName(r) => Some(&r.prov),
+            Self::Event(r) => Some(&r.prov),
             Self::Remove(_) => None,
         }
     }
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 26] = [
+pub const KINDS: [&str; 27] = [
     "object",
     "camp",
     "loot",
@@ -822,10 +844,11 @@ pub const KINDS: [&str; 26] = [
     "death_treasure",
     "treasure_pool",
     "effect_name",
+    "event",
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 26] = [
+pub const FIELDS: [(&str, &[&str]); 27] = [
     (
         "object",
         &[
@@ -854,6 +877,7 @@ pub const FIELDS: [(&str, &[&str]); 26] = [
             "kingdom",
             "recall",
             "summon",
+            "event",
             "prov",
         ],
     ),
@@ -882,6 +906,7 @@ pub const FIELDS: [(&str, &[&str]); 26] = [
             "route_start",
             "route_direction",
             "name",
+            "event",
             "prov",
         ],
     ),
@@ -1095,6 +1120,10 @@ pub const FIELDS: [(&str, &[&str]); 26] = [
         &["name", "race", "own", "pools", "items", "prov"],
     ),
     ("effect_name", &["name", "state", "prov"]),
+    (
+        "event",
+        &["key", "game_event", "when", "on_players", "prov"],
+    ),
 ];
 
 /// A shared-format error as a problem at its file and line.
@@ -1430,6 +1459,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 kingdom: f.int("kingdom").and_then(|v| u32::try_from(v).ok()),
                 recall: f.bool("recall").unwrap_or(false),
                 summon: f.bool("summon").unwrap_or(false),
+                event: f.symbol("event"),
                 prov: f.req_prov()?,
             })
         }
@@ -1453,6 +1483,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 route_start: f.u32("route_start").unwrap_or(0),
                 route_backward,
                 name: f.strref("name"),
+                event: f.symbol("event"),
                 prov: f.req_prov()?,
             })
         }
@@ -1526,6 +1557,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                     return None;
                 }
             };
+            let (requires, events) = f.requires_and_events("requires");
             Row::Step(Step {
                 key: f.req_symbol("key")?,
                 quest: f.req_id("quest")?,
@@ -1540,7 +1572,8 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 counts: f.ids("counts"),
                 effects: f.ids("effects"),
                 text: f.strref("text"),
-                requires: f.requires("requires"),
+                requires,
+                events,
                 takes: f.ids("takes"),
                 to: f.symbol("to"),
                 races: f.ids("races"),
@@ -1693,6 +1726,16 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 template: f.req_id("template")?,
                 two_share,
                 stance: f.id("stance"),
+                prov: f.req_prov()?,
+            })
+        }
+        "event" => {
+            let when = f.windows("when")?;
+            Row::Event(Event {
+                key: f.req_symbol("key")?,
+                game_event: f.id("game_event"),
+                when,
+                on_players: f.ids("on_players"),
                 prov: f.req_prov()?,
             })
         }
@@ -2538,6 +2581,89 @@ impl<'a> Fields<'a> {
                 Some((quest, gate))
             },
         )
+    }
+
+    /// A step's `requires`: other quests, as [`Self::requires`] reads them, and `{ event = "key" }`,
+    /// an `[[event]]` that must be on.
+    fn requires_and_events(&mut self, name: &str) -> (Vec<(u32, Need)>, Vec<String>) {
+        enum Req {
+            Quest(u32, Need),
+            Event(String),
+        }
+        let all = self.list_of(
+            name,
+            "a list of { quest, phase }, { quest, done = true }, { quest, free = true } or { event }",
+            &["quest", "phase", "done", "free", "event"],
+            |t| {
+                if let Some(e) = t.get("event") {
+                    return (t.len() == 1)
+                        .then(|| e.as_str().filter(|s| is_symbol(s)).map(str::to_string))
+                        .flatten()
+                        .map(Req::Event);
+                }
+                let quest = as_u32(t.get("quest")?)?;
+                let need = match (t.get("phase"), t.get("done"), t.get("free")) {
+                    (Some(p), None, None) => Need::Phase(as_u32(p)?),
+                    (None, Some(d), None) if d.as_bool() == Some(true) => Need::Done,
+                    (None, None, Some(f)) if f.as_bool() == Some(true) => Need::Free,
+                    _ => return None,
+                };
+                Some(Req::Quest(quest, need))
+            },
+        );
+        let mut quests = Vec::new();
+        let mut events = Vec::new();
+        for r in all {
+            match r {
+                Req::Quest(q, n) => quests.push((q, n)),
+                Req::Event(e) => events.push(e),
+            }
+        }
+        (quests, events)
+    }
+
+    /// An `[[event]]`'s `when`: at least one window, each `{ from, until }` (UTC times,
+    /// `YYYY-MM-DDTHH:MMZ`, the end after the start) or `{ days, from, until }` (days of the week,
+    /// `mon` to `sun`, and UTC times of day, `HH:MM`).
+    fn windows(&mut self, name: &str) -> Option<Vec<yalain_content::events::Window>> {
+        use yalain_content::events::{time_of_day, utc, Window, DAYS};
+        let Some(v) = self.get(name) else {
+            return self.missing(name);
+        };
+        let empty = v.as_array().is_some_and(Vec::is_empty);
+        let w = self.list_of(
+            name,
+            "a list of { from, until } (UTC: \"2026-12-24T09:00Z\", the end after the start) or { days, from, until } (days \"mon\" to \"sun\", UTC times of day \"HH:MM\")",
+            &["days", "from", "until"],
+            |t| {
+                let (from, until) = (t.get("from")?.as_str()?, t.get("until")?.as_str()?);
+                match t.get("days") {
+                    None => {
+                        let (from, until) = (utc(from)?, utc(until)?);
+                        (until > from).then_some(Window::Dated { from, until })
+                    }
+                    Some(d) => {
+                        let mut days = 0u8;
+                        for day in d.as_array()? {
+                            let i = DAYS.iter().position(|n| Some(*n) == day.as_str())?;
+                            days |= 1 << i;
+                        }
+                        (days != 0).then_some(Window::Weekly {
+                            days,
+                            from: time_of_day(from)?,
+                            until: time_of_day(until)?,
+                        })
+                    }
+                }
+            },
+        );
+        if w.is_empty() {
+            if empty {
+                self.bad(name, "an event needs at least one window");
+            }
+            return None;
+        }
+        Some(w)
     }
 
     /// `[{ quest = Q, phase = N }, { quest = Q, done = true }, ...]`.

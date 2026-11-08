@@ -698,6 +698,7 @@ impl Session {
                     kingdom: None,
                     recall: false,
                     summon: false,
+                    event: None,
                     prov: p.clone(),
                 };
                 let item = ItemKey::Object {
@@ -734,6 +735,7 @@ impl Session {
                     route_start: 0,
                     route_backward: false,
                     name: None,
+                    event: None,
                     prov: p.clone(),
                 };
                 let item = ItemKey::Camp {

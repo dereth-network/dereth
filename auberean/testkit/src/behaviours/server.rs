@@ -4038,6 +4038,29 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.events.gate-camps-objects-steps-and-players",
+        says: "While a world's scheduled event is on, the camps that name it keep their creatures, \
+               the objects that name it stand, the quest steps that name it may run, and every \
+               player in the world holds its effects, lasting to the event's end (a player who \
+               comes in while it is on is given them); as it ends the creatures leave the world, \
+               the objects are forgotten, the steps stop and the effects run out. A world with no \
+               events gates nothing.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-EVENTS-GATES"),
+        station: "yalain-testkit::cpu::play::events::an_events_camp_object_step_and_effect_are_there_only_while_it_runs",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.events.windows-in-utc",
+        says: "An event's weekly window runs on its days from its time to its end, into the next \
+               day when the end is not after the start; a dated one from its start to its end, the \
+               end not included; all times UTC.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-EVENTS-WINDOWS"),
+        station: "yalain-testkit::cpu::play::events::an_events_windows_hold_their_days_and_times_in_utc",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.examination.a-plain-shield-shows-shield-stats",
         says: "A shield no one made shows its template's numbers under Shield Stats: its rating first, \
                the combat delay it wears with, its damage last; its effects when wielded indented once.",
@@ -13356,6 +13379,15 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-WDB-EFFECT-NAMES"),
         station: "yalain::bin.yalain::data::tests::an_effect_name_row_is_refused_where_the_install_names_the_effect_itself",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.world-db.event-game-events-from-the-install",
+        says: "A world's `[[event]]` may name only a game event the install has; one naming a \
+               value the install's game events lack is a problem.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WDB-EVENT-GAME-EVENTS"),
+        station: "yalain::bin.yalain::data::tests::an_event_row_names_a_game_event_of_the_install",
         tier: Tier::Cpu,
     },
     behaviour! {

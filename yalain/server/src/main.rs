@@ -1857,6 +1857,14 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         states.extend(yalain_world::treasure::POTION_EFFECTS.iter().flatten());
         // What the practice dummies hold.
         states.push(yalain_world::spawn::PRACTICE_DUMMY_EFFECT);
+        // What the world's scheduled events put on its players.
+        states.extend(
+            content
+                .events
+                .events
+                .iter()
+                .flat_map(|e| e.on_players.iter().copied()),
+        );
         // The protections: a resurrection's and a city recall's.
         states.extend([
             yalain_world::effects::protection::STATE,

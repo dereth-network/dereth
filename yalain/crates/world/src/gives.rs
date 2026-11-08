@@ -127,7 +127,7 @@ fn refuse(net: &mut ServerNet, world: ConnId, m: &Move, why: u32) {
 
 /// The content object a give goes to, and whether it is an object (no body of its own).
 fn target<S: Store>(s: &Server<S>, id: u64) -> Option<(usize, bool)> {
-    let i = presence::content_by_id(&s.content.objects, id)?;
+    let i = crate::events::content_standing(s, id)?;
     Some((i, s.content.objects[i].kind == yalain_content::Kind::Static))
 }
 

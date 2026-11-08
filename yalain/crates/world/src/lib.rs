@@ -87,6 +87,7 @@ pub mod drops;
 pub mod effect_defs;
 pub mod effects;
 pub mod equip;
+pub mod events;
 pub mod examine;
 pub mod fellowship;
 pub mod focus;
@@ -388,6 +389,8 @@ pub struct Server<S: Store> {
     pub effect_table: effect_defs::EffectTable,
     /// The effects on creatures (the server's alone: no client holds them).
     pub creature_effects: effects::CreatureRecords,
+    /// Which of the world's scheduled events are on.
+    pub events: events::Events,
     pub crafting: craft::Crafting,
     /// The vitae cost table: the experience to raise vitae by one at full vitae, by level from 1.
     pub vitae_costs: Vec<u64>,
@@ -791,6 +794,7 @@ impl<S: Store> Server<S> {
             calendar: None,
             effect_table: effect_defs::EffectTable::default(),
             creature_effects: effects::CreatureRecords::default(),
+            events: events::Events::default(),
             crafting: craft::Crafting::default(),
             vitae_costs: Vec::new(),
             last_step: None,
@@ -1086,6 +1090,7 @@ impl<S: Store> Server<S> {
         self.saves.piece_begins();
         if due {
             self.last_step = Some(clock.local);
+            events::step(self, net, clock);
             spawn::step(self, net, clock);
         }
         self.saves.piece_begins();

@@ -775,6 +775,24 @@ pub fn effect_of_name(p: &Portal, name: &str) -> Result<Option<u32>, String> {
     ))
 }
 
+/// The install's enumeration of game events.
+pub const GAME_EVENTS: u32 = 0x2300_0105;
+
+/// The install's game events, by their values.
+///
+/// # Errors
+/// The enumeration does not read.
+pub fn game_events(p: &Portal) -> Result<std::collections::HashSet<u32>, String> {
+    let bytes = p
+        .dat
+        .read(GAME_EVENTS)
+        .map_err(|e| format!("{GAME_EVENTS:08X}: {e}"))?;
+    let names: auberean_assets::strings::EnumMap =
+        auberean_assets::decode(GAME_EVENTS, &bytes, &p.ctx)
+            .map_err(|e| format!("{GAME_EVENTS:08X}: {e}"))?;
+    Ok(names.names.into_iter().map(|(v, _)| v).collect())
+}
+
 /// The enumeration of quests: each quest's id by its name.
 pub const QUEST_NAMES: u32 = 0x2300_0090;
 
@@ -1674,6 +1692,39 @@ mod tests {
         assert!(
             problems[0].message.contains("Eff_Initiation_ManaInfusion")
                 && problems[0].message.contains("0x6f001c71"),
+            "{problems:?}"
+        );
+    }
+
+    /// An `[[event]]` may name only a game event the install has: the fireworks' is one, a value
+    /// the enumeration lacks is a problem.
+    /// Behaviour: server.world-db.event-game-events-from-the-install
+    #[test]
+    fn an_event_row_names_a_game_event_of_the_install() {
+        let (dat, _) = tallied(&DatName::Portal);
+        let p = Portal::over(dat, Vec::new(), None).expect("a context");
+        assert!(game_events(&p).expect("reads").contains(&0x4000_0149));
+        let mut files = yalain_world_db::Files::new();
+        files.insert(
+            "world.toml".into(),
+            "format_version = 1\nkey = \"w\"\ngame = \"ac2\"\nera = \"eor\"\npacks = [\"p\"]\n"
+                .into(),
+        );
+        files.insert(
+            "p/pack.toml".into(),
+            "format_version = 1\nname = \"p\"\nversion = \"0.1.0\"\ngame = \"ac2\"\nauthors = [\"a\"]\nlicense = \"CC0-1.0\"\ndescription = \"d\"\n".into(),
+        );
+        files.insert(
+            "p/server/events.toml".into(),
+            "[[event]]\nkey = \"lights\"\ngame_event = 0x40000149\nwhen = [{ days = [\"sat\"], from = \"20:00\", until = \"23:00\" }]\nprov = { from = \"authored\" }\n\n\
+             [[event]]\nkey = \"none\"\ngame_event = 0x4FFFFFFF\nwhen = [{ days = [\"sat\"], from = \"20:00\", until = \"23:00\" }]\nprov = { from = \"authored\" }\n"
+                .into(),
+        );
+        let db = yalain_world_db::rows::read(&files).expect("reads");
+        let problems = crate::world::install_problems(&p, &db).expect("checks");
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(
+            problems[0].message.contains("[[event]] none"),
             "{problems:?}"
         );
     }

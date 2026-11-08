@@ -2680,3 +2680,100 @@ fn an_effect_name_row_compiles_to_the_state_its_name_stands_for() {
         assert!(read(&files).is_err(), "{bad}");
     }
 }
+
+#[test]
+fn an_event_row_reads_its_windows_and_gates_compile_to_the_event_table() {
+    use yalain_content::events::Window;
+    let mut files = fixture();
+    files.insert(
+        "town/server/events.toml".into(),
+        "[[event]]\nkey = \"fair\"\ngame_event = 0x40000149\n\
+         when = [{ from = \"2026-12-24T09:00Z\", until = \"2026-12-25T09:00Z\" }, \
+         { days = [\"sat\", \"sun\"], from = \"22:00\", until = \"02:00\" }]\n\
+         on_players = [0x70002015]\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    edit(
+        &mut files,
+        "town-fixes/server/landblocks/77B7.toml",
+        "key = \"beetles\"\n",
+        "key = \"beetles\"\nevent = \"fair\"\n",
+    );
+    edit(
+        &mut files,
+        "town/server/landblocks/77B7.toml",
+        "key = \"gate\"\n",
+        "key = \"gate\"\nevent = \"fair\"\n",
+    );
+    edit(
+        &mut files,
+        "town/server/quests/40000088.toml",
+        "requires = [{ quest = 0x40000016, done = true }",
+        "requires = [{ event = \"fair\" }, { quest = 0x40000016, done = true }",
+    );
+    assert!(check(&files).is_empty(), "{:?}", check(&files));
+    let db = read(&files).unwrap();
+    let event = db
+        .rows()
+        .find_map(|l| match &l.row {
+            Row::Event(e) => Some(e.clone()),
+            _ => None,
+        })
+        .expect("the event");
+    assert_eq!(
+        (
+            event.game_event,
+            event.on_players.clone(),
+            event.when.clone()
+        ),
+        (
+            Some(0x4000_0149),
+            vec![0x7000_2015],
+            vec![
+                Window::Dated {
+                    from: 1_798_102_800,
+                    until: 1_798_189_200
+                },
+                Window::Weekly {
+                    days: (1 << 5) | (1 << 6),
+                    from: 22 * 3600,
+                    until: 2 * 3600
+                },
+            ]
+        )
+    );
+    let t = compile(&merge(&db).unwrap(), &Fake::new()).unwrap();
+    let ev = &t.content.events;
+    assert_eq!(ev.events.len(), 1);
+    assert_eq!(ev.of_camp("beetles"), Some("fair"));
+    assert_eq!(ev.objects.len(), 1);
+    assert_eq!(ev.steps.len(), 1);
+    assert_eq!(
+        ev.steps[0].0.requires.len(),
+        2,
+        "the quests it requires are kept"
+    );
+    // A gate naming no event is a problem; so are bad times and unknown fields.
+    let mut no_event = files.clone();
+    no_event.remove("town/server/events.toml");
+    let problems = check(&no_event);
+    assert_eq!(problems.len(), 3, "{problems:?}");
+    assert!(problems
+        .iter()
+        .all(|p| p.message.contains("no [[event]] fair")));
+    for bad in [
+        "when = [{ from = \"2026-12-24T09:00\", until = \"2026-12-25T09:00Z\" }]",
+        "when = [{ from = \"2026-12-25T09:00Z\", until = \"2026-12-24T09:00Z\" }]",
+        "when = [{ days = [\"someday\"], from = \"22:00\", until = \"02:00\" }]",
+        "when = [{ days = [\"sat\"], from = \"25:00\", until = \"02:00\" }]",
+        "when = []",
+        "when = [{ days = [\"sat\"], from = \"22:00\", until = \"02:00\" }]\nlasts = 3",
+    ] {
+        let mut f = files.clone();
+        f.insert(
+            "town/server/events.toml".into(),
+            format!("[[event]]\nkey = \"fair\"\n{bad}\nprov = {{ from = \"authored\" }}\n"),
+        );
+        assert!(read(&f).is_err(), "{bad}");
+    }
+}

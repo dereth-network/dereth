@@ -177,6 +177,7 @@ fn a_rows_letter_says_where_it_came_from() {
             kingdom: None,
             recall: false,
             summon: false,
+            event: None,
             prov: Prov::AUTHORED,
         })
     };

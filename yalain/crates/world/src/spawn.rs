@@ -184,6 +184,9 @@ pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
 
 /// Make the creatures a camp lacks that are due.
 fn fill<S: Store>(s: &mut Server<S>, net: &mut ServerNet, i: usize, clock: Clock) {
+    if !crate::events::camp_stands(s, i) {
+        return;
+    }
     let now = clock.local.0;
     let Some(state) = s.camps.get_mut(i) else {
         return;

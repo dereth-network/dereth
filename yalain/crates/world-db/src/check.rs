@@ -372,7 +372,38 @@ pub fn check_database(db: &Database) -> Vec<Problem> {
         }
     }
     problems.extend(crate::pools_check::check(db));
+    problems.extend(check_events(db));
     problems
+}
+
+/// Every camp, object and step that names an `[[event]]` names one the database has.
+fn check_events(db: &Database) -> Vec<Problem> {
+    let keys: BTreeSet<&str> = db
+        .rows()
+        .filter_map(|l| match &l.row {
+            Row::Event(e) => Some(e.key.as_str()),
+            _ => None,
+        })
+        .collect();
+    let mut out = Vec::new();
+    for l in db.rows() {
+        let named: Vec<&String> = match &l.row {
+            Row::Object(o) => o.event.iter().collect(),
+            Row::Camp(c) => c.event.iter().collect(),
+            Row::Step(s) => s.events.iter().collect(),
+            _ => Vec::new(),
+        };
+        for e in named {
+            if !keys.contains(e.as_str()) {
+                out.push(Problem::new(
+                    &l.file,
+                    l.line,
+                    format!("event: no [[event]] {e}"),
+                ));
+            }
+        }
+    }
+    out
 }
 
 /// A line has its words, its token name is its string's, its person is placed, and only an

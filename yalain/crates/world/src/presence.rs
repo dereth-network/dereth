@@ -268,6 +268,9 @@ pub fn refresh<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) 
         let id = content_id(&s.content.objects, i);
         let o = &s.content.objects[i];
         let known = p.known.contains_key(&id);
+        if crate::events::hides(s, o) {
+            continue;
+        }
         if !known && in_sight(ground, &p, o.cell, o.origin) {
             let m = ServerMessage::CreateObject(crate::usable::doors::created(s, id, o));
             learn(net, &mut p, world, id, &m);
@@ -722,6 +725,9 @@ pub fn content_moves<S: Store>(
     let Some(o) = s.content.objects.get(index) else {
         return;
     };
+    if crate::events::hides(s, o) {
+        return;
+    }
     let id = content_id(&s.content.objects, index);
     let (cell, origin) = (o.cell, o.origin);
     let create = ServerMessage::CreateObject(crate::usable::doors::created(s, id, o));
@@ -795,6 +801,26 @@ pub(crate) fn content_placed<S: Store>(
             learn(net, &mut p, c, id, &create);
         }
         s.players.insert(c, p);
+    }
+}
+
+/// A content object taken from the world (an event it stands for has ended): every client that
+/// knows it forgets it.
+pub(crate) fn content_gone<S: Store>(s: &mut Server<S>, net: &mut ServerNet, index: usize) {
+    if index >= s.content.objects.len() {
+        return;
+    }
+    let id = content_id(&s.content.objects, index);
+    let forget = ServerMessage::ForgetObject(auberean_protocol::physics::ObjectOnly(ObjectStamp {
+        id,
+        instance_stamp: s.placed.instance(id),
+        other_stamp: 0,
+    }));
+    for (c, p) in &mut s.players {
+        if p.known.contains_key(&id) {
+            send(net, *c, BlobKind::UNORDERED, &forget);
+            lose(p, id);
+        }
     }
 }
 

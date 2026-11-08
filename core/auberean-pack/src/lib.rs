@@ -179,6 +179,8 @@ pub enum Item {
     TreasurePool { name: String },
     /// The saved state an effect's name stands for, by the name.
     EffectName { name: String },
+    /// A scheduled event, by its key.
+    Event { key: String },
 }
 
 impl Item {
@@ -245,6 +247,7 @@ impl Item {
             ["treasure_pool", name] => Self::TreasurePool {
                 name: identifier(name)?,
             },
+            ["event", key] => Self::Event { key: symbol(key)? },
             ["effect_name", name] => Self::EffectName {
                 name: identifier(name)?,
             },
@@ -294,6 +297,7 @@ impl fmt::Display for Item {
             Self::Clearing { key, landblock } => write!(f, "clearing {key}@{landblock:04X}"),
             Self::TreasurePool { name } => write!(f, "treasure_pool {name}"),
             Self::EffectName { name } => write!(f, "effect_name {name}"),
+            Self::Event { key } => write!(f, "event {key}"),
         }
     }
 }

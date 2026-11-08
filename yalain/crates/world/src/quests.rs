@@ -534,7 +534,7 @@ fn may_run_at_any_level<S: Store>(s: &Server<S>, world: ConnId, st: &Step, now_u
         return false;
     };
     let held = &p.play.quests;
-    if phase_of(held, st.quest) != st.needs {
+    if phase_of(held, st.quest) != st.needs || !crate::events::step_runs(s, st) {
         return false;
     }
     // A step whose gift can't be made doesn't run: it would take what it takes for nothing.

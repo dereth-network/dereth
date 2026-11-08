@@ -8,7 +8,8 @@
 //!   the quests, what people say, the story's scenes, the doors' locks, the effects and the
 //!   crafting, the templates of creatures' weapons, the operator's banned names, the placed
 //!   objects, the camps and the veins, and the areas of player conflict (a player whose
-//!   landblock's status changed is told it at once). A template or an effect the new database no
+//!   landblock's status changed is told it at once), and the scheduled events (those on end, and
+//!   the new ones start at the next step as their times say). A template or an effect the new database no
 //!   longer has stays known, so a thing or an effect already in the world still resolves.
 //! - **Held until a restart:** nothing the world database holds.
 //!
@@ -132,6 +133,7 @@ pub mod table {
     pub const CAMPS: &str = "camps";
     pub const VEINS: &str = "veins";
     pub const CONFLICT: &str = "conflict areas";
+    pub const EVENTS: &str = "scheduled events";
 }
 
 /// What a reload did, table by table.
@@ -216,6 +218,14 @@ impl<S: Store> Server<S> {
     /// it was.
     pub fn reload(&mut self, net: &mut ServerNet, clock: Clock, mut t: WorldTables) -> Reloaded {
         let mut r = Reloaded::default();
+        // The scheduled events: what the old ones gate ends with them, and which of the new ones
+        // are on is worked out at the next step.
+        let changed = t.content.events != self.content.events;
+        r.note(table::EVENTS, changed, true);
+        if changed {
+            crate::events::end_all(self, net);
+            self.content.events = std::mem::take(&mut t.content.events);
+        }
         // The placed objects as the world holds them: with camps, the camps keep the creatures.
         if !t.spawns.camps.is_empty() {
             t.content.objects.retain(|o| o.kind != Kind::Creature);

@@ -502,6 +502,8 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
     // camp's creature triggers, to point at that row once every camp has its own.
     let mut camps_at: BTreeMap<(&str, u16), usize> = BTreeMap::new();
     let mut kills_in: Vec<(&Located, usize, &str)> = Vec::new();
+    // The steps an event gates, by their row in the quest table, to copy once each is whole.
+    let mut event_steps: Vec<(usize, String)> = Vec::new();
     // The scenes a new character holds, by their order.
     let mut door_scenes: Vec<(&Located, u32)> = Vec::new();
     let mut starts: Vec<(u32, u32)> = Vec::new();
@@ -608,6 +610,18 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     }
                 }
                 objects_at.insert((l.pack.clone(), o.key.clone(), lb), t.content.objects.len());
+                let cell = o.cell.unwrap_or_else(|| outdoor_cell(lb, o.at.x, o.at.y));
+                if let Some(event) = &o.event {
+                    t.content
+                        .events
+                        .objects
+                        .push(yalain_content::events::ObjectGate {
+                            template: o.template,
+                            cell,
+                            origin,
+                            event: event.clone(),
+                        });
+                }
                 t.content.objects.push(ContentObject {
                     object: match o.kind {
                         ObjectKind::Static => o.id,
@@ -615,7 +629,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     },
                     template: o.template,
                     description: d,
-                    cell: o.cell.unwrap_or_else(|| outdoor_cell(lb, o.at.x, o.at.y)),
+                    cell,
                     origin,
                     rotation: o
                         .rotation
@@ -678,6 +692,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     c.key.clone()
                 };
                 camps_at.insert((c.key.as_str(), lb), t.spawns.camps.len());
+                if let Some(event) = &c.event {
+                    t.content.events.camps.push((id.clone(), event.clone()));
+                }
                 t.spawns.camps.push(TableCamp {
                     id,
                     cell: c.cell.unwrap_or_else(|| outdoor_cell(lb, c.at.x, c.at.y)),
@@ -944,6 +961,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 if let Trigger::KillIn(_, camp) = &s.trigger {
                     kills_in.push((l, t.quests.steps.len(), camp.as_str()));
                 }
+                for e in &s.events {
+                    event_steps.push((t.quests.steps.len(), e.clone()));
+                }
                 t.quests.steps.push(TableStep {
                     quest: s.quest,
                     needs: s.needs,
@@ -1087,6 +1107,12 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
             Row::EffectName(r) => {
                 t.effect_names.insert(r.name.clone(), r.state);
             }
+            Row::Event(r) => t.content.events.events.push(yalain_content::events::Event {
+                key: r.key.clone(),
+                game_event: r.game_event,
+                windows: r.when.clone(),
+                on_players: r.on_players.clone(),
+            }),
             Row::Weapon(r) => {
                 if cx.template(l, "template", r.template) {
                     t.weapons.insert(r.name.clone(), r.template);
@@ -1232,6 +1258,32 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 l,
                 format!("trigger: several camps are {camp}: name one as {camp}@XXYY"),
             ),
+        }
+    }
+    // The steps events gate, whole; and a gate names an event.
+    for (i, e) in event_steps {
+        if let Some(st) = t.quests.steps.get(i) {
+            t.content.events.steps.push((st.clone(), e));
+        }
+    }
+    let keys: std::collections::BTreeSet<&str> = t
+        .content
+        .events
+        .events
+        .iter()
+        .map(|e| e.key.as_str())
+        .collect();
+    for l in &merged.rows {
+        let named: Vec<&String> = match &l.row {
+            Row::Object(o) => o.event.iter().collect(),
+            Row::Camp(c) => c.event.iter().collect(),
+            Row::Step(s) => s.events.iter().collect(),
+            _ => Vec::new(),
+        };
+        for e in named {
+            if !keys.contains(e.as_str()) {
+                cx.problem(l, format!("event: no [[event]] {e} is served"));
+            }
         }
     }
     // What people say, once every placed person has its place in the content pack.

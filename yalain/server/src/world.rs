@@ -257,13 +257,32 @@ fn check_cmd(args: &[String]) -> Result<(), String> {
 }
 
 /// What a database's rows say of the install that it does not bear out: an `[[effect_name]]` row
-/// naming an effect the server already resolves to a saved state.
+/// naming an effect the server already resolves to a saved state, and an `[[event]]` naming a game
+/// event the install does not have.
 ///
 /// # Errors
 /// The install's library does not read.
 pub fn install_problems(p: &data::Portal, db: &rows::Database) -> Result<Vec<Problem>, String> {
     let mut out = Vec::new();
+    let mut game_events = None;
     for l in db.rows() {
+        if let rows::Row::Event(r) = &l.row {
+            if let Some(g) = r.game_event {
+                if game_events.is_none() {
+                    game_events = Some(data::game_events(p)?);
+                }
+                if !game_events.as_ref().is_some_and(|all| all.contains(&g)) {
+                    out.push(Problem::new(
+                        &l.file,
+                        l.line,
+                        format!(
+                            "[[event]] {}: game_event {g:#010x} is not one of the install's game events",
+                            r.key
+                        ),
+                    ));
+                }
+            }
+        }
         if let rows::Row::EffectName(r) = &l.row {
             if let Some(state) = data::effect_of_name(p, &r.name)? {
                 out.push(Problem::new(

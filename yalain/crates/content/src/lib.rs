@@ -26,6 +26,7 @@ use auberean_assets::entity::Entity;
 use auberean_assets::property::PropertyValue;
 use auberean_assets::script::Qualities;
 
+pub mod events;
 pub mod locks;
 pub mod loot;
 pub mod movement;
@@ -700,6 +701,9 @@ pub struct ContentPack {
     /// The landblocks that allow player conflict of some kind; any other is a peace area. Not part
     /// of the text form: the world database's areas fill it.
     pub conflict: BTreeMap<u16, Conflict>,
+    /// The world's scheduled events and what they gate. Not part of the text form: the world
+    /// database's events fill it.
+    pub events: events::EventTable,
 }
 
 /// The kind of player conflict a place allows.
@@ -1068,6 +1072,7 @@ impl ContentPack {
         Ok(Self {
             objects,
             conflict: BTreeMap::new(),
+            events: events::EventTable::default(),
         })
     }
 

@@ -29,6 +29,7 @@ mod drops;
 mod dye_plants;
 mod dying;
 mod effects;
+mod events;
 mod experience;
 mod fellowships;
 mod fights;

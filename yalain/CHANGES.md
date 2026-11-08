@@ -7,6 +7,7 @@ what they see, not how it was done.
 
 ## Unreleased
 - Allegiances: message of the day, officers, titles, kingdom restrictions and messages to patron and vassals.
+- Worlds can now schedule events that switch camps, objects and quests on and off.
 - Experience boosts such as mana charges now raise kill experience.
 - @dn admin and @dn verify now need an admin character, as other admin commands do.
 - Admins can make persistent chat rooms, which stay through restarts until deleted.

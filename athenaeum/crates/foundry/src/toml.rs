@@ -220,6 +220,9 @@ pub fn object(o: &Object, to: Option<&str>, p: &Prov) -> Table {
     if o.summon {
         put(&mut t, "summon", Value::from(true));
     }
+    if let Some(e) = &o.event {
+        put(&mut t, "event", Value::from(e.as_str()));
+    }
     put(&mut t, "prov", prov(p));
     t
 }
@@ -312,6 +315,9 @@ pub fn camp(c: &Camp, parent: Option<&str>, p: &Prov) -> Table {
     }
     if let Some(n) = c.name {
         put(&mut t, "name", strref(n));
+    }
+    if let Some(e) = &c.event {
+        put(&mut t, "event", Value::from(e.as_str()));
     }
     put(&mut t, "prov", prov(p));
     t

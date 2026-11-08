@@ -873,7 +873,7 @@ pub fn use_object<S: Store>(
         send(net, world, BlobKind::PRIVATE, &no);
         return;
     }
-    let Some(i) = presence::content_by_id(&s.content.objects, u.item) else {
+    let Some(i) = crate::events::content_standing(s, u.item) else {
         s.unhandled.note("using an object the world does not have");
         return;
     };
@@ -1392,6 +1392,7 @@ pub fn walked<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, c
         .filter(|o| {
             (o.destination.is_some() || keeps_players_out(o))
                 && s.walk_in_packages.contains(&o.description.package)
+                && !crate::events::hides(s, o)
         })
         .find(|o| touches(&at, o.cell, o.origin))
         .and_then(|o| s.placed.database_id(o));
