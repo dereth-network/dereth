@@ -467,11 +467,12 @@ pub struct LauncherState {
     /// Auberean's realm's: the player's install and account.
     #[serde(default, skip_serializing_if = "AubereanSettings::is_empty")]
     pub auberean: AubereanSettings,
-    /// Keeps the worlds played through a relay off the list: for the browser, which can't run the
-    /// relay, and for a test that reads a list whole, since those worlds are real servers. Never
-    /// read or written with the file.
+    /// Keeps the worlds the launcher knows of its own off the list (those played through a relay,
+    /// [`crate::relayed`], and the others, [`crate::built_in`]): for the browser, which can play
+    /// none of them, and for a test that reads a list whole, since those worlds are real servers.
+    /// Never read or written with the file.
     #[serde(skip)]
-    pub hide_relayed_worlds: bool,
+    pub hide_built_in_worlds: bool,
 }
 
 impl Default for LauncherState {
@@ -488,7 +489,7 @@ impl Default for LauncherState {
             world_prefs: BTreeMap::new(),
             settings: Settings::default(),
             auberean: AubereanSettings::default(),
-            hide_relayed_worlds: false,
+            hide_built_in_worlds: false,
         }
     }
 }
@@ -1123,7 +1124,10 @@ impl LauncherState {
         let custom: std::collections::HashSet<String> =
             self.custom_worlds.iter().map(|w| w.slug.clone()).collect();
         let keep = |slug: &str| {
-            listed.contains(slug) || custom.contains(slug) || crate::relayed::is_relayed(slug)
+            listed.contains(slug)
+                || custom.contains(slug)
+                || crate::relayed::is_relayed(slug)
+                || crate::built_in::is_built_in(slug)
         };
         let before = self.recent.len() + self.favourites.len() + self.favorite_worlds.len();
         self.recent.retain(|r| keep(&r.world_slug));

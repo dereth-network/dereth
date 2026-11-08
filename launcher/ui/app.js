@@ -172,7 +172,7 @@ function eraNote(w) {
 }
 // The server software and, when the world says it, its version: "ACE | v1.77.4778".
 function emulatorLabel(w) {
-  const name = { empyrean: "Empyrean", ace: "ACE", classic_ace: "ClassicACE", gdle: "GDLE", yalain: "Yalain", unknown: "Unknown" }[w.emulator] ?? w.emulator;
+  const name = { empyrean: "Empyrean", ace: "ACE", classic_ace: "ClassicACE", gdle: "GDLE", yalain: "Yalain", icefire: "Icefire", unknown: "Unknown" }[w.emulator] ?? w.emulator;
   const v = (w.emulator_version ?? "").replace(/^v/i, "");
   return v ? `${name} | v${v}` : name;
 }

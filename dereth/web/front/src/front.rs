@@ -71,10 +71,11 @@ impl Default for Front {
     }
 }
 
-/// The browser can't run the relay a world played through a relay needs, so the page never lists
-/// one.
+/// The page never lists the worlds the launcher knows of its own: the browser can't run the relay a
+/// world played through a relay needs, and the others are reached only over UDP, which a browser
+/// can't speak.
 fn in_the_browser(mut state: LauncherState) -> LauncherState {
-    state.hide_relayed_worlds = true;
+    state.hide_built_in_worlds = true;
     state
 }
 
@@ -1393,17 +1394,19 @@ mod tests {
         );
     }
 
-    /// The page never lists a world played through a relay, which the browser can't run, from a
-    /// new page or from a kept state record.
+    /// The page never lists a world the launcher knows of its own, from a new page or from a kept
+    /// state record: one played through a relay, which the browser can't run, or one reached only
+    /// over UDP, such as Icefire.
     #[test]
-    fn the_page_never_lists_a_world_played_through_a_relay() {
+    fn the_page_never_lists_a_world_the_launcher_knows_of_its_own() {
         let listed = |f: &Front| {
-            f.worlds(NOW)["worlds"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|w| dereth_launch::relayed::is_relayed(w["slug"].as_str().unwrap_or("")))
+            f.worlds(NOW)["worlds"].as_array().unwrap().iter().any(|w| {
+                let slug = w["slug"].as_str().unwrap_or("");
+                dereth_launch::relayed::is_relayed(slug)
+                    || dereth_launch::built_in::is_built_in(slug)
+            })
         };
+        assert!(dereth_launch::built_in::is_built_in("icefire"));
         let mut f = Front::default();
         assert!(!listed(&f), "a new page");
         f.set_state(r#"{"schema": 1}"#).unwrap();

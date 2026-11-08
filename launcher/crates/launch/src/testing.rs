@@ -363,12 +363,12 @@ pub fn write_plugin_folder(dir: &Path, id: &str, name: &str, version: &str) {
     std::fs::write(dir.join("main.lua"), "print(\"hi\")\n").expect("write its script");
 }
 
-/// A player's state that doesn't list the worlds played through a relay: a test that reads a list
-/// whole wants the list it gave, and those worlds are real servers.
+/// A player's state that doesn't list the worlds the launcher knows of its own: a test that reads a
+/// list whole wants the list it gave, and those worlds are real servers.
 #[must_use]
-pub fn without_relayed_worlds() -> crate::state::LauncherState {
+pub fn without_built_in_worlds() -> crate::state::LauncherState {
     crate::state::LauncherState {
-        hide_relayed_worlds: true,
+        hide_built_in_worlds: true,
         ..crate::state::LauncherState::default()
     }
 }

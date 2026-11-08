@@ -77,7 +77,7 @@ impl RelayedWorld {
 /// Whether `state`'s launcher shows these worlds.
 #[must_use]
 pub fn shown(state: &LauncherState) -> bool {
-    LISTED && !state.hide_relayed_worlds
+    LISTED && !state.hide_built_in_worlds
 }
 
 /// The worlds `state`'s player is shown.
@@ -139,7 +139,10 @@ mod tests {
 
     #[test]
     fn a_new_launcher_lists_them_with_nothing_set() {
-        assert_eq!(slugs(&LauncherState::default()), ["coldeve", "ac1999"]);
+        assert_eq!(
+            slugs(&LauncherState::default()),
+            ["coldeve", "ac1999", "icefire"]
+        );
     }
 
     /// The switch this replaced was kept in the state file, either way. What a file says of it
@@ -162,7 +165,7 @@ mod tests {
             let (state, loaded) = LauncherState::load(&dir);
             assert_eq!(loaded, crate::state::Loaded::Read);
             assert!(!state.settings.auto_update, "the file was read");
-            assert_eq!(slugs(&state), ["coldeve", "ac1999"], "{word}");
+            assert_eq!(slugs(&state), ["coldeve", "ac1999", "icefire"], "{word}");
 
             state.save(&dir).unwrap();
             let saved = std::fs::read_to_string(&file).unwrap();
@@ -174,7 +177,7 @@ mod tests {
     #[test]
     fn a_test_can_leave_them_off_the_list() {
         assert_eq!(
-            slugs(&crate::testing::without_relayed_worlds()),
+            slugs(&crate::testing::without_built_in_worlds()),
             ["coldeve"]
         );
     }

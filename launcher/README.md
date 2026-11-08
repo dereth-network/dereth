@@ -147,8 +147,13 @@ beside the client, on this computer's loopback address and starts the client tow
 goes when the client does. Otherwise the launcher only asks such a world whether it is up, as it asks any
 world.
 
+**Asheron's Call 2 worlds not on the hub** (Icefire) have no list either. The launcher keeps them
+in another table of its own and lists them in that game's realm, played directly by Auberean or the
+retail client. It asks them whether they are up as it asks any world.
+
 **A world's era and systems** come from its Empyrean status, else the launcher's table of worlds
-that run a client of their own, else the end of retail.
+that run a client of their own, else the end of retail. Every Asheron's Call 2 world plays the end
+of retail.
 
 **Whether a world is up**, first answer wins:
 

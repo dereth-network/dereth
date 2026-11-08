@@ -66,6 +66,7 @@
 #![forbid(unsafe_code)]
 
 pub mod auberean;
+pub mod built_in;
 pub mod check;
 pub mod choices;
 pub mod components;

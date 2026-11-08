@@ -1,6 +1,6 @@
 //! The worlds a launcher shows: the world list's, then the servers the player added, then those
-//! played through a relay if the player turned them on, each as it last said of itself (its
-//! status, or its heartbeat to the hub).
+//! the launcher knows of its own, each as it last said of itself (its status, or its heartbeat to
+//! the hub).
 //!
 //! Every front end over this crate (the launcher's window, a web page) shows a world this way, so
 //! a world reads the same in each.
@@ -9,15 +9,17 @@ use crate::hubstatus::HubCount;
 use crate::hubstatus::HubStatus;
 use crate::state::LauncherState;
 use crate::status::LiveStatus;
-use crate::world::{AccountModel, Emulator, EraState, Told, World, WorldState};
+use crate::world::{AccountModel, Emulator, EraState, Game, Told, World, WorldState};
 
-/// Every world: the list's, then the servers the player added, as their rows say, then those
-/// played through a relay ([`crate::relayed`]).
+/// Every world: the list's, then the servers the player added, as their rows say, then those the
+/// launcher knows of its own: played through a relay ([`crate::relayed`]), then reached directly
+/// ([`crate::built_in`]).
 pub fn all<'a>(list: &'a [World], state: &'a LauncherState) -> impl Iterator<Item = World> + 'a {
     list.iter()
         .cloned()
         .chain(state.custom_worlds.iter().map(|c| c.to_world()))
         .chain(crate::relayed::worlds(state))
+        .chain(crate::built_in::worlds(state))
 }
 
 /// Whether a server the player added (`added`, as shown) is a world of the list (`listed`, as
@@ -54,7 +56,8 @@ pub fn take_hub_count(w: &mut World, count: Option<&HubCount>, own_count: bool) 
 /// It plays the era it says; else the one its row gives it (the launcher's table of worlds that
 /// run a client of their own speaks for the world there); else the end of retail, which is no era
 /// named: the Dereth client then plays the end of retail from the later files its world is drawn
-/// from. Its systems are the ones it names over that era's table, or the era's whole table.
+/// from. Its systems are the ones it names over that era's table, or the era's whole table. A world
+/// of Asheron's Call 2 that names no era plays the end of retail, named, as that game has no other.
 ///
 /// Whether it is up and how many are on is the world's own word (`live`) when it has one; else
 /// the hub's from the world's heartbeat (`hub`, while it counts), for a world of the list; else
@@ -142,6 +145,12 @@ pub fn shown(
             w.account_model = AccountModel::AutoCreateOnFirstLogin;
         }
     }
+    // Every world of Asheron's Call 2 plays the end of retail, the only era that game has: a world
+    // of it that names none plays that one, and that is known.
+    if w.game == Game::Auberean && w.era.is_none() {
+        w.era = Some(dereth_primitives::EraId::Eor.name().to_owned());
+        w.era_source = Some(Told::World);
+    }
     w
 }
 
@@ -169,7 +178,7 @@ mod tests {
 
     #[test]
     fn a_world_is_shown_with_its_status_over_its_row() {
-        let mut state = crate::testing::without_relayed_worlds();
+        let mut state = crate::testing::without_built_in_worlds();
         let slug = state
             .add_custom_world("", "play.example.org", "9000", None, Emulator::Unknown)
             .unwrap();
@@ -231,7 +240,7 @@ mod tests {
     /// added by, or its status document's; and nothing else.
     #[test]
     fn a_world_is_reached_directly_where_the_hub_or_its_own_status_says() {
-        let mut state = crate::testing::without_relayed_worlds();
+        let mut state = crate::testing::without_built_in_worlds();
         let mut listed = World::new("ironwood", "Ironwood");
         listed.websocket_url = Some("wss://ironwood.example.org/old".into());
         let linked = HubStatus {
@@ -313,7 +322,7 @@ mod tests {
     /// hub's word from its heartbeat, then the probe.
     #[test]
     fn the_worlds_own_answer_goes_before_the_hubs_word_and_the_hubs_before_the_probe() {
-        let state = crate::testing::without_relayed_worlds();
+        let state = crate::testing::without_built_in_worlds();
         let mut listed = World::new("frostfell", "Frostfell");
         listed.emulator = Emulator::Empyrean;
         let own = LiveStatus {
@@ -357,7 +366,7 @@ mod tests {
             Some(true),
             None,
             Some(&hub(WorldState::Online, Some(57))),
-            &crate::testing::without_relayed_worlds(),
+            &crate::testing::without_built_in_worlds(),
         );
         assert_eq!((w.state, w.players), (WorldState::Online, Some(57)));
         assert_eq!(
@@ -370,7 +379,7 @@ mod tests {
 
     #[test]
     fn a_server_the_player_added_never_takes_the_hubs_word() {
-        let mut state = crate::testing::without_relayed_worlds();
+        let mut state = crate::testing::without_built_in_worlds();
         let slug = state
             .add_custom_world("Coldeve", "play.example.org", "9000", None, Emulator::Ace)
             .unwrap();
@@ -437,12 +446,65 @@ mod tests {
             state: WorldState::Online,
             ..LiveStatus::default()
         };
-        let state = crate::testing::without_relayed_worlds();
+        let state = crate::testing::without_built_in_worlds();
         let w = shown(empyrean, None, Some(&said), None, &state);
         assert_eq!(
             (w.era.as_deref(), era_state(&w, true, false)),
             (None, EraState::Known)
         );
+    }
+
+    /// Every world of Asheron's Call 2 plays the end of retail, and that is known whatever its
+    /// software and whether it was heard from; the era a world of it says is its own. A world of
+    /// Asheron's Call whose software nobody names is still taken to play the end of retail.
+    #[test]
+    fn an_asherons_call_2_world_plays_the_end_of_retail_known_and_an_asherons_call_world_is_assumed_to(
+    ) {
+        let state = crate::testing::without_built_in_worlds();
+        let world = |game: Game, emulator: Emulator| {
+            let mut w = World::new("w", "W");
+            w.game = game;
+            w.emulator = emulator;
+            w
+        };
+        for emulator in [Emulator::Yalain, Emulator::Icefire, Emulator::Unknown] {
+            let w = shown(world(Game::Auberean, emulator), None, None, None, &state);
+            assert_eq!(
+                (w.era.as_deref(), w.era_source),
+                (Some("eor"), Some(Told::World)),
+                "{emulator:?}"
+            );
+            for may_answer in [true, false] {
+                assert_eq!(
+                    era_state(&w, false, may_answer),
+                    EraState::Known,
+                    "{emulator:?}"
+                );
+            }
+        }
+        let says = LiveStatus {
+            state: WorldState::Online,
+            era: Some("launch".into()),
+            ..LiveStatus::default()
+        };
+        let w = shown(
+            world(Game::Auberean, Emulator::Yalain),
+            None,
+            Some(&says),
+            None,
+            &state,
+        );
+        assert_eq!(w.era.as_deref(), Some("launch"), "its own word");
+
+        let w = shown(
+            world(Game::Dereth, Emulator::Unknown),
+            None,
+            None,
+            None,
+            &state,
+        );
+        assert_eq!((w.era.as_deref(), w.era_source), (None, None));
+        assert_eq!(era_state(&w, false, false), EraState::Assumed);
     }
 
     /// A world from the list, as the community list gives it: `emulator`, and the id the
@@ -466,7 +528,7 @@ mod tests {
     #[test]
     fn a_world_plays_the_era_it_says_else_the_tables_else_the_end_of_retail() {
         const SEEDSOW: &str = "394C58D0-885D-466B-B17F-D7E0B96FE3E2";
-        let mut state = crate::testing::without_relayed_worlds();
+        let mut state = crate::testing::without_built_in_worlds();
         let added = state
             .add_custom_world("", "play.example.org", "9000", None, Emulator::Unknown)
             .unwrap();

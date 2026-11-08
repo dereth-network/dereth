@@ -49,7 +49,8 @@ struct ProbeTarget {
     port: u16,
     /// Ask with the status ping first.
     ping: bool,
-    /// An Asheron's Call 2 world, which the server-tracker login says nothing of.
+    /// A Yalain world, which the server-tracker login says nothing of. Any other world, of either
+    /// game, that does not answer the ping is asked with the login.
     yalain: bool,
     /// The world is of the November 1999 wire, played through a relay.
     wire_1999: bool,
@@ -1183,8 +1184,7 @@ impl Backend {
                     break;
                 };
                 let live = ping.then(|| ping_status(&host, port)).flatten();
-                // The server-tracker login is Asheron's Call's: an Asheron's Call 2 world is up
-                // by its ping alone.
+                // A Yalain world is up by its ping alone.
                 let up = live.is_some()
                     || (!yalain
                         && if wire_1999 {
@@ -2313,10 +2313,10 @@ mod tests {
         d
     }
 
-    /// A launcher that doesn't list the worlds played through a relay: these tests read the list
+    /// A launcher that doesn't list the worlds it knows of its own: these tests read the list
     /// whole, and those worlds are real servers.
-    fn without_relayed_worlds(mut b: Backend) -> Backend {
-        b.state.hide_relayed_worlds = true;
+    fn without_built_in_worlds(mut b: Backend) -> Backend {
+        b.state.hide_built_in_worlds = true;
         b
     }
 
@@ -2345,8 +2345,8 @@ mod tests {
             "memory",
             Some(dir.join("settings").join("UserPreferences.ini")),
         );
-        // These tests never reach a real server, and a world played through a relay is one.
-        b.state.hide_relayed_worlds = true;
+        // These tests never reach a real server, and a world the launcher knows of its own is one.
+        b.state.hide_built_in_worlds = true;
         let mut w = World::new("eulmore", "Eulmore");
         w.emulator = Emulator::Empyrean;
         w.state = WorldState::Online;
@@ -4050,7 +4050,7 @@ mod tests {
         }
         .save(&folders.data)
         .unwrap();
-        let b = without_relayed_worlds(Backend::new(
+        let b = without_built_in_worlds(Backend::new(
             folders,
             Vec::new(),
             None,
@@ -4092,7 +4092,7 @@ mod tests {
         .save(&folders.data)
         .unwrap();
         let launcher = |sources: Vec<ListSource>| -> Shared {
-            Arc::new(Mutex::new(without_relayed_worlds(Backend::new(
+            Arc::new(Mutex::new(without_built_in_worlds(Backend::new(
                 folders.clone(),
                 sources,
                 None,
@@ -4165,7 +4165,7 @@ mod tests {
         }
         .save(&folders.data)
         .unwrap();
-        let shared: Shared = Arc::new(Mutex::new(without_relayed_worlds(Backend::new(
+        let shared: Shared = Arc::new(Mutex::new(without_built_in_worlds(Backend::new(
             folders.clone(),
             serverlist::sources(None),
             None,
@@ -4304,7 +4304,7 @@ mod tests {
     fn the_window_shows_the_worlds_every_launcher_shows_from_the_same_answers() {
         use dereth_launch::testing::world_list as fixture;
         let dir = tmp("same-worlds");
-        let shared: Shared = Arc::new(Mutex::new(without_relayed_worlds(Backend::new(
+        let shared: Shared = Arc::new(Mutex::new(without_built_in_worlds(Backend::new(
             Folders::single(dir.join("state")),
             serverlist::sources(None),
             None,
@@ -4743,6 +4743,88 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
+    /// A launcher with an empty state folder lists Icefire in Asheron's Call 2's realm, and so does
+    /// one whose file is from before it was listed; nothing is asked of it here.
+    #[test]
+    fn a_new_launcher_lists_icefire_whatever_an_old_state_file_says() {
+        let dir = tmp("icefire-new");
+        let folders = Folders::single(dir.join("state"));
+        let icefire = |folders: &Folders| {
+            let b = Backend::new(
+                folders.clone(),
+                Vec::new(),
+                None,
+                Box::new(MemoryVault::default()),
+                "memory",
+                None,
+            );
+            b.snapshot()
+                .worlds
+                .into_iter()
+                .find(|w| w.slug == "icefire")
+        };
+        let w = icefire(&folders).expect("an empty state folder");
+        assert_eq!((w.game, w.emulator), (Game::Auberean, Emulator::Icefire));
+        assert_eq!(w.state, WorldState::Unknown);
+        std::fs::create_dir_all(&folders.data).unwrap();
+        std::fs::write(
+            folders.data.join(dereth_launch::state::STATE_FILE),
+            r#"{"schema": 1, "settings": {"relayed_worlds": false},
+                "auberean": {"account": "player"}}"#,
+        )
+        .unwrap();
+        assert!(icefire(&folders).is_some(), "an older file");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Icefire is asked whether it is up with the server-tracker login alone, as any world that
+    /// takes no status ping is, and shows what that said. A server added for Asheron's Call 2 whose
+    /// software nobody names is asked with the ping, then the login; a Yalain world, the ping alone.
+    /// This doesn't send anything: Icefire's address is real.
+    #[test]
+    fn icefire_is_asked_with_the_login_and_shows_what_it_said() {
+        let (b, dir) = backend("icefire-probe");
+        let shared: Shared = Arc::new(Mutex::new(b));
+        let slugs = ["icefire".to_owned()];
+        lock(&shared).state.hide_built_in_worlds = false;
+        let world = lock(&shared).world("icefire").expect("listed");
+        assert_eq!(world.state, WorldState::Unknown, "not asked yet");
+        let targets = lock(&shared).probe_targets(&slugs);
+        let [target] = &targets[..] else {
+            panic!("{targets:?}");
+        };
+        assert!(!target.ping && !target.yalain && !target.wire_1999);
+        assert_eq!(
+            (target.host.as_str(), target.port),
+            ("icefire.portalspace.net", 8610)
+        );
+        lock(&shared).probed.insert("icefire".into(), false);
+        assert_eq!(
+            lock(&shared).world("icefire").unwrap().state,
+            WorldState::Offline
+        );
+        lock(&shared).probed.insert("icefire".into(), true);
+        assert_eq!(
+            lock(&shared).world("icefire").unwrap().state,
+            WorldState::Online
+        );
+
+        let ask = |emulator: Emulator, port: &str| {
+            let added = lock(&shared)
+                .state
+                .add_custom_world_for(Game::Auberean, "", "127.0.0.1", port, None, emulator)
+                .unwrap();
+            let targets = lock(&shared).probe_targets(&[added]);
+            let [target] = &targets[..] else {
+                panic!("{targets:?}");
+            };
+            (target.ping, !target.yalain, target.wire_1999)
+        };
+        assert_eq!(ask(Emulator::Unknown, "9300"), (true, true, false));
+        assert_eq!(ask(Emulator::Yalain, "9400"), (true, false, false));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     /// A world played through a relay is listed with nothing set, and asked as any world is, in the
     /// form its wire reads, and with no status ping. Off the list, it is asked nothing. This doesn't
     /// send anything: its address is real.
@@ -4754,7 +4836,7 @@ mod tests {
         assert!(lock(&shared).world("ac1999").is_none(), "the tests hide it");
         assert!(lock(&shared).probe_targets(&slugs).is_empty());
 
-        lock(&shared).state.hide_relayed_worlds = false;
+        lock(&shared).state.hide_built_in_worlds = false;
         let world = lock(&shared).world("ac1999").expect("listed");
         assert!(world.relayed);
         let targets = lock(&shared).probe_targets(&slugs);

@@ -60,7 +60,7 @@ use crate::install::{ClientKind, IdentifyError, Installation};
 use crate::launch::{Arg, LaunchPlan};
 use crate::library::FolderFind;
 use crate::state::LauncherState;
-use crate::world::Game;
+use crate::world::{Emulator, Game, World};
 
 /// Where an Asheron's Call 2 data file's header starts, and the mark it starts with.
 const HEADER_AT: usize = 0x12C;
@@ -824,6 +824,13 @@ fn friends_args(friends: &Friends, account: &str) -> Vec<Arg> {
 
 fn plain(s: impl Into<String>) -> Arg {
     Arg::Plain(s.into())
+}
+
+/// Whether `world` runs Yalain: only such a world is told Auberean keeps its overlay, or asked for
+/// its friends service. Any other is spoken to as the retail client speaks.
+#[must_use]
+pub fn is_yalain(world: &World) -> bool {
+    world.emulator == Emulator::Yalain
 }
 
 /// The plan that starts the Auberean client `program` over `install`, logging in to the world at

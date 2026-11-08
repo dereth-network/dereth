@@ -56,6 +56,8 @@ pub enum Emulator {
     Gdle,
     /// Yalain, the Asheron's Call 2 server.
     Yalain,
+    /// Icefire, another Asheron's Call 2 server.
+    Icefire,
     /// Not said, or software the launcher does not know by name, which it treats alike. A record
     /// saved as `other` reads as this.
     #[default]
@@ -72,6 +74,7 @@ impl Emulator {
             // The community list spells it `GDL`.
             "gdle" | "gdl" => Emulator::Gdle,
             "yalain" => Emulator::Yalain,
+            "icefire" => Emulator::Icefire,
             _ => Emulator::Unknown,
         }
     }
@@ -83,6 +86,7 @@ impl Emulator {
             Emulator::ClassicAce => "ClassicACE",
             Emulator::Gdle => "GDLE",
             Emulator::Yalain => "Yalain",
+            Emulator::Icefire => "Icefire",
             Emulator::Unknown => "Unknown",
         }
     }
@@ -232,7 +236,8 @@ pub struct Operator {
 #[serde(rename_all = "snake_case")]
 pub enum Told {
     /// The world: its status ping or document, its list row, or the launcher's table of worlds
-    /// that run a client of their own, which speaks for the world.
+    /// that run a client of their own, which speaks for the world; or, for a world of Asheron's
+    /// Call 2, its game, which has only the end of retail.
     World,
 }
 
@@ -796,6 +801,13 @@ mod tests {
             "\"yalain\""
         );
         assert!(!Emulator::Yalain.requires_end_of_retail_protocol());
+        assert_eq!(Emulator::parse("icefire"), Emulator::Icefire);
+        assert_eq!(Emulator::Icefire.label(), "Icefire");
+        assert_eq!(
+            serde_json::to_string(&Emulator::Icefire).unwrap(),
+            "\"icefire\""
+        );
+        assert!(!Emulator::Icefire.requires_end_of_retail_protocol());
         assert_eq!(
             Emulator::parse("Thwarg"),
             Emulator::Unknown,

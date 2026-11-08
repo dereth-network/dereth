@@ -613,7 +613,7 @@ pub fn launch(
                 .retail_copies
                 .get(&choice.world_slug)
                 .cloned(),
-            yalain: world.emulator == dereth_launch::world::Emulator::Yalain,
+            yalain: ac2::is_yalain(&world),
         };
         let (child, log) = start_client(shared, c, b, &dats, &to)?;
         Ok::<_, String>((world, child, log))
