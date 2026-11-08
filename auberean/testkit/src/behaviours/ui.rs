@@ -1405,6 +1405,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.menu.an-open-list-stands-in-front-of-every-window",
+        says: "A menu's open list stands in front of every window, a window nearer than the menu's \
+               own included: where it opens over that window, the pointer finds its rows, and a \
+               press there chooses the row.",
+        since: THIS_CLIENT,
+        divergence: "CD2-menu-lists-open-in-front",
+        evidence: Evidence::Private("AC2-EVID-UI-MENU-IN-FRONT"),
+        station: "auberean-ui::cpu::lists::an_open_menus_list_stands_in_front_of_a_nearer_window",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "ui.menu.an-open-menu-closes-as-its-window-hides",
         says: "An open menu closes as the window it stands in hides: its popup, its own \
                top-level element, does not stay on the screen.",
@@ -2023,6 +2034,17 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-RADAR-TOOLTIP"),
         station: "auberean-ui-game::dat::play::radar::the_blip_under_the_pointer_names_and_selects_its_object",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.radar.the-coordinates-tooltip-says-what-is-shown",
+        says: "Once the player's options come, the coordinates button's tooltip says whether the \
+               place line shows as the options have it: shown with the coordinates shown, hidden \
+               with them hidden.",
+        since: THIS_CLIENT,
+        divergence: "CD2-radar-coordinates-tooltip-says-what-is-shown",
+        evidence: Evidence::Private("AC2-EVID-UI-RADAR-COORDS-TOOLTIP"),
+        station: "auberean-ui-game::dat::play::radar::the_coordinates_tooltip_says_what_is_shown_once_the_options_come",
         tier: Tier::Dat,
     },
     behaviour! {

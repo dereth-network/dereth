@@ -20,6 +20,13 @@ pub static DIVERGENCES: &[Divergence] = &[
                camera comes closer.",
     },
     Divergence {
+        id: "CD2-admin-words-the-data-lacks",
+        says: "This client knows the words of an admin's ethereality overrides and the Admin log \
+               type itself, since no install's data holds them, so `/ethereality` and the Admin \
+               log type work. The original looked them up in the data, found nothing and sent \
+               nothing, so the command did nothing.",
+    },
+    Divergence {
         id: "CD2-assistance-opens-issues-page",
         says: "Request Assistance opens this project's issues page; the original client opened the \
                publisher's support site, which is gone. The box shown when the browser cannot be \
@@ -139,6 +146,13 @@ pub static DIVERGENCES: &[Divergence] = &[
                with the original's own two over pi.",
     },
     Divergence {
+        id: "CD2-menu-lists-open-in-front",
+        says: "A drop-down list opens in front of every window, so it can always be seen and \
+               clicked. The original drew the list at its own window's depth, so a nearer window \
+               (the toolbar, over the options window's lower edge) covered the part of the list \
+               under it and took the clicks meant for those rows.",
+    },
+    Divergence {
         id: "CD2-newer-incarnation-keeps-what-waited",
         says: "What the server sends about a newer copy of an object before creating it is kept for \
                that copy when it replaces an older one the client still has; the original client \
@@ -177,6 +191,13 @@ pub static DIVERGENCES: &[Divergence] = &[
         says: "Asked to write out an object's own qualities without its record's, this client \
                writes them once; the original never answers, repeating them until it runs out of \
                memory.",
+    },
+    Divergence {
+        id: "CD2-radar-coordinates-tooltip-says-what-is-shown",
+        says: "After login, the radar's coordinates button's tooltip says whether the coordinates \
+               are shown or hidden, as they are. The original's always said hidden, even with the \
+               coordinates shown, because it read the state of a part of the radar that never \
+               changes.",
     },
     Divergence {
         id: "CD2-restore-sent-in-the-clear",

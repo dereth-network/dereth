@@ -519,6 +519,110 @@ fn an_emptied_list_keeps_its_cell_and_a_row_past_the_end_is_refused() {
     );
 }
 
+/// A menu's open list stands in front of every window, a window nearer than the menu's own
+/// included: where it opens over that window, its rows are what the pointer finds, and a press
+/// there chooses the row.
+///
+/// Behaviour: ui.menu.an-open-list-stands-in-front-of-every-window
+#[test]
+fn an_open_menus_list_stands_in_front_of_a_nearer_window() {
+    let popup = element(
+        "Popup",
+        "field",
+        [0, 0, 79, 59],
+        1,
+        vec![state(
+            "stateless",
+            0,
+            vec![],
+            vec![],
+            vec![element(
+                "MenuList",
+                "listbox",
+                [0, 0, 79, 59],
+                0,
+                vec![state(
+                    "stateless",
+                    0,
+                    vec![("click_select", V::Bool(true))],
+                    vec![],
+                    vec![],
+                )],
+            )],
+        )],
+    );
+    let item = element(
+        "Item",
+        "text",
+        [0, 0, 79, 14],
+        0,
+        vec![state("stateless", 0, vec![], vec![], vec![])],
+    );
+    let menu = element(
+        "Menu",
+        "menu",
+        [10, 10, 89, 29],
+        0,
+        vec![state(
+            "stateless",
+            0,
+            vec![
+                ("popup", id("Popup")),
+                ("listbox", id("MenuList")),
+                ("text_item", id("Item")),
+            ],
+            vec![],
+            vec![],
+        )],
+    );
+    let win = element(
+        "Window",
+        "field",
+        [0, 0, 299, 299],
+        11,
+        vec![state("stateless", 0, vec![], vec![], vec![menu])],
+    );
+    // A nearer window across the window's middle, below the menu and over where its list opens.
+    let cover = element(
+        "Cover",
+        "field",
+        [0, 35, 299, 99],
+        2,
+        vec![state("stateless", 0, vec![], vec![], vec![])],
+    );
+    let mut u = ui(vec![popup, item, win, cover], vec![]);
+    let l = u.load_layout(LAYOUT).unwrap();
+    let w = u.create_root(l, Token::of("Window")).unwrap();
+    let c = u.create_root(l, Token::of("Cover")).unwrap();
+    let m = u.child(w, Token::of("Menu")).unwrap();
+    u.menu_insert_text(m, "One", 0).unwrap();
+    u.menu_insert_text(m, "Two", 1).unwrap();
+    assert_eq!(
+        u.hit(30, 50),
+        Some(c),
+        "the nearer window is over the menu's window"
+    );
+    click(&mut u, 50, 20);
+    let popup = u
+        .roots()
+        .iter()
+        .copied()
+        .find(|r| u.node(*r).unwrap().id == Token::of("Popup"))
+        .expect("the popup is up");
+    let pr = u.screen_rect(popup).unwrap();
+    assert_eq!((pr.x0, pr.y0, pr.width(), pr.height()), (10, 29, 80, 30));
+    // The second row, from 44 to 58, lies under the nearer window.
+    let under = u.hit(30, 50).expect("something under the pointer");
+    let mut at = Some(under);
+    while let Some(h) = at.filter(|h| *h != popup) {
+        at = u.node(h).and_then(|n| n.parent);
+    }
+    assert_eq!(at, Some(popup), "the list is found, not the window over it");
+    click(&mut u, 30, 50);
+    assert_eq!(u.menu_selected_index(m), Some(1));
+    assert!(!u.shown(popup), "closed on the choice");
+}
+
 /// An open menu closes as the window it stands in hides: its popup, its own top-level element,
 /// does not stay on the screen.
 ///

@@ -200,6 +200,54 @@ fn the_place_line_reads_inside_or_the_map_coordinates() {
     assert!(ui.element_tooltip(button).is_some_and(|s| !s.is_empty()));
 }
 
+/// The coordinates' button's tooltip, once the player's options come, says whether the place line
+/// shows as the options have it: shown with the coordinates shown, hidden with them hidden.
+///
+/// Behaviour: ui.radar.the-coordinates-tooltip-says-what-is-shown
+#[test]
+fn the_coordinates_tooltip_says_what_is_shown_once_the_options_come() {
+    use auberean_ui_game::gameplay::{notice, Notice};
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut t = 0.0;
+    let wording = |ui: &Ui, id: &str| {
+        let table = ui.assets().data_id_by_enum(
+            radar::TOOLTIP_TABLE_ENUM,
+            auberean_ui_game::flow::TABLE_MAPPING,
+        );
+        let info = auberean_text::StringInfo::entry(table, Token::of(id).raw());
+        ui.assets().write(&info).unwrap_or_default()
+    };
+    let shown = wording(&ui, "ID_Radar_TT_CurLoc_Shown");
+    let hidden = wording(&ui, "ID_Radar_TT_CurLoc_Hidden");
+    assert!(!shown.is_empty() && !hidden.is_empty() && shown != hidden);
+    let button = ui.element(Token::of("CoordBoxButton")).expect("the button");
+    for show in [true, false, true] {
+        let mut w = world(0.0, false, Vec::new());
+        w.show_coordinates = show;
+        // The player's options, come to the player's own object.
+        let reload = [Notice {
+            native: notice::RELOAD_OPTIONS,
+            about: Some(ME),
+            ..Notice::default()
+        }];
+        t += 0.05;
+        ui.use_time(t);
+        let view = View {
+            world: Some(&w),
+            everyone: &reload,
+            ..View::default()
+        };
+        p.tick(&mut ui, &view, &[], &mut Vec::new());
+        let want = if show { &shown } else { &hidden };
+        assert_eq!(
+            ui.element_tooltip(button),
+            Some(want.as_str()),
+            "coordinates shown: {show}"
+        );
+    }
+}
+
 /// The objects around with a groove level add theirs while in range: the sum is the music's
 /// groove level, told when it changes.
 ///

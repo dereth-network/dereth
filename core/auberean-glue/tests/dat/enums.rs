@@ -122,3 +122,72 @@ fn an_enumerations_names_count_and_lists_come_from_its_record() {
     }
     assert!(checked >= 10, "{checked} enumerations");
 }
+
+/// Call the enumeration native `number` that looks a name up (`fp[-2]` the enumeration, `fp[-3]`
+/// the name as a new string, `fp[-4]` a reference to a local): the local's value and whether it
+/// was found.
+fn look_up(vm: &mut Vm, host: &mut Records, number: u32, map: u32, name: &str) -> (u32, u32) {
+    use auberean_script::native_object::native_type;
+    let id = NativeId::new(ENUM_MAPPER, number).0;
+    let Some(Binding::Ported(f)) = vm.program().table.get(id) else {
+        panic!("native {id:#x} is not ported");
+    };
+    let name = vm.heap.add_native(
+        native_type::WP_STRING,
+        NativeObject::Text(name.encode_utf16().collect()),
+    );
+    let local = vm.heap.add_relative(NULL, 0);
+    let mut cx = Context::new(usize::MAX, 0);
+    cx.push(0, tag::INT).unwrap();
+    cx.push(0, tag::INT).unwrap();
+    cx.push(local, tag::REFERENCE).unwrap();
+    cx.push(name, tag::REFERENCE).unwrap();
+    cx.push(map, tag::MIXED).unwrap();
+    cx.push(NULL, tag::REFERENCE).unwrap();
+    cx.fp = cx.sp;
+    let status = f(&mut Call {
+        vm,
+        cx: &mut cx,
+        host,
+        native: id,
+    })
+    .expect("the native runs");
+    assert_eq!(status, Status::Success);
+    (cx.slot(0).unwrap().0, cx.slot(1).unwrap().0)
+}
+
+/// **An admin's words the data files lack are the client's own**: no install holds the
+/// enumeration of the ethereality overrides or the log type an admin is answered under, so the
+/// client supplies them: `super`, `normal` and `admin` (letter case ignored) are found with the
+/// values the servers read, and the log type `Admin` is found and named; a word of neither is not.
+///
+/// Behaviour: script.glue.admin-words-the-data-lacks-are-the-clients-own
+#[test]
+fn the_admin_words_the_data_lacks_are_the_clients_own() {
+    const ETHEREALITY: u32 = 0x4100_0026;
+    const LOG_TYPE: u32 = 0x4000_002C;
+    let (dat, prog) = target().expect("the September 2013 install opens");
+    let mut host = Records(Database::new(vec![Arc::clone(dat)]));
+    let mut vm = Vm::new(Arc::clone(prog));
+    for (map, word) in [(ETHEREALITY, "Super"), (LOG_TYPE, "Admin")] {
+        assert!(host.0.enumeration_values(map).is_empty(), "{map:#x}");
+        assert_eq!(host.0.enumeration_value(map, word), None, "{map:#x}");
+    }
+    for (word, want) in [
+        ("super", 0x4000_0001),
+        ("Normal", 0x4000_0002),
+        ("ADMIN", 0x4000_0003),
+    ] {
+        assert_eq!(
+            look_up(&mut vm, &mut host, 0x03, ETHEREALITY, word),
+            (want, 1),
+            "{word}"
+        );
+    }
+    assert_eq!(look_up(&mut vm, &mut host, 0x03, ETHEREALITY, "ghost").1, 0);
+    assert_eq!(look_up(&mut vm, &mut host, 0x03, LOG_TYPE, "admin"), (1, 1));
+    for number in [0x02, 0x04] {
+        let s = call(&mut vm, &mut host, number, &[LOG_TYPE, 1], 1)[0];
+        assert_eq!(text(&vm, s), "Admin");
+    }
+}

@@ -317,6 +317,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "script.glue.admin-words-the-data-lacks-are-the-clients-own",
+        says: "The ethereality overrides and the Admin log type, which no install's data holds, \
+               are the client's own: their words are found, letter case ignored, with the values \
+               the servers read, and the Admin log type is named; any other word is not found.",
+        since: THIS_CLIENT,
+        divergence: "CD2-admin-words-the-data-lacks",
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-ADMIN-WORDS"),
+        station: "auberean-glue::dat::enums::the_admin_words_the_data_lacks_are_the_clients_own",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "script.glue.an-arrays-new-places-hold-nothing",
         says: "An array of references whose element count is set higher holds no reference in \
                each new place; set lower, it keeps its first places.",
