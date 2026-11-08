@@ -13,7 +13,8 @@ autotests = false
 # Read-backs for the tests of the crates that use it: the lamps' light and lists.
 test-support = []
 # NVIDIA DLSS Super Resolution, loaded from the driver where its DLL stands beside the client, as
-# the Windows release carries it. Off, or without the DLL, the upscaler's DLSS modes are drawn by FSR.
+# the Windows release carries it. Off, without the DLL, or on another system (where it builds
+# nothing), the upscaler's DLSS modes are drawn by FSR.
 dlss = ["dep:libloading", "dep:ash"]
 
 [dependencies]
@@ -27,10 +28,13 @@ dereth-gfx.workspace = true
 # ordinary renderer's sampler table, which the remaster's samplers follow.
 dereth-render = { workspace = true, features = ["remaster"] }
 tracing.workspace = true
-ash = { version = "0.38", optional = true }
-libloading = { version = "0.8", optional = true }
 # A look file's text (`look.toml`, and a pack's look).
 toml.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+# DLSS's library, loaded at run time, and the Vulkan handles it is given.
+ash = { version = "0.38", optional = true }
+libloading = { version = "0.8", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # MetalFX, called on the Metal objects behind the Vulkan device.

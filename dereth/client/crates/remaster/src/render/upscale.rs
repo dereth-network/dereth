@@ -215,12 +215,12 @@ struct Pictures {
     /// The world's colors as they stood before the blended surfaces.
     opaque: (Texture, u32),
     /// The depth and the motion as pictures, for an upscaler that takes them so.
-    #[cfg(any(feature = "dlss", target_os = "macos"))]
+    #[cfg(any(all(feature = "dlss", windows), target_os = "macos"))]
     input_pictures: (Bound2, Bound2),
 }
 
 /// A picture and its index in the table.
-#[cfg(any(feature = "dlss", target_os = "macos"))]
+#[cfg(any(all(feature = "dlss", windows), target_os = "macos"))]
 type Bound2 = (Texture, u32);
 
 impl Pictures {
@@ -239,7 +239,7 @@ impl Pictures {
             usage: TextureUsage::SAMPLED | TextureUsage::TRANSFER_DST,
         })?;
         let opaque = (opaque, gfx.bind_texture(opaque)?);
-        #[cfg(any(feature = "dlss", target_os = "macos"))]
+        #[cfg(any(all(feature = "dlss", windows), target_os = "macos"))]
         let input_pictures = {
             let mut make = |label, format| -> Result<Bound2, dereth_gfx::Error> {
                 let t = gfx.create_texture(&TextureDesc {
@@ -297,7 +297,7 @@ impl Pictures {
             input_reactive: make(render, 4)?,
             exposure: make((1, 1), 16)?,
             opaque,
-            #[cfg(any(feature = "dlss", target_os = "macos"))]
+            #[cfg(any(all(feature = "dlss", windows), target_os = "macos"))]
             input_pictures,
             shown: {
                 let texture = gfx.create_texture(&TextureDesc {
@@ -309,7 +309,7 @@ impl Pictures {
                     usage: TextureUsage::COLOR_TARGET
                         | TextureUsage::SAMPLED
                         | TextureUsage::TRANSFER_SRC
-                        | if cfg!(any(feature = "dlss", target_os = "macos")) {
+                        | if cfg!(any(all(feature = "dlss", windows), target_os = "macos")) {
                             TextureUsage::STORAGE
                         } else {
                             TextureUsage::SAMPLED
@@ -351,7 +351,7 @@ impl Pictures {
         }
         gfx.destroy_texture(self.shown.0);
         gfx.destroy_texture(self.opaque.0);
-        #[cfg(any(feature = "dlss", target_os = "macos"))]
+        #[cfg(any(all(feature = "dlss", windows), target_os = "macos"))]
         {
             gfx.destroy_texture(self.input_pictures.0 .0);
             gfx.destroy_texture(self.input_pictures.1 .0);
@@ -376,17 +376,36 @@ struct Pipelines {
     show: Pipeline,
     reactive_input: Pipeline,
     exposure: Pipeline,
-    #[cfg(any(feature = "dlss", target_os = "macos"))]
-    input_pictures: Pipeline,
+    /// The depth and the motion written as pictures, for a scaler outside the layer: made with
+    /// MetalFX's, and once DLSS's library is found (FSR, which draws without one, never needs it).
+    #[cfg(any(all(feature = "dlss", windows), target_os = "macos"))]
+    input_pictures: Option<Pipeline>,
+}
+
+/// The pipeline that writes the depth and the motion as pictures.
+#[cfg(any(all(feature = "dlss", windows), target_os = "macos"))]
+fn input_pictures_pipeline(gfx: &mut Device) -> Result<Pipeline, dereth_gfx::Error> {
+    gfx.create_graphics_pipeline(&GraphicsDesc {
+        label: "remaster upscaler inputs as pictures",
+        vertex: shader(Entry::FullscreenVsMain),
+        fragment: Some(shader(Entry::Fsr3PassesFsInputsAsPictures)),
+        color: &[dereth_gfx::Format::R32Float, LINEAR].map(|format| ColorTarget {
+            format,
+            blend: None,
+            write_alpha: true,
+        }),
+        depth: None,
+        cull: Cull::None,
+    })
 }
 
 /// The upscaler.
 #[derive(Debug)]
 pub struct UpscalePass {
     /// The driver's DLSS library, when it was found, and whether it has been looked for.
-    #[cfg(feature = "dlss")]
+    #[cfg(all(feature = "dlss", windows))]
     ngx: Option<std::sync::Arc<super::dlss::Ngx>>,
-    #[cfg(feature = "dlss")]
+    #[cfg(all(feature = "dlss", windows))]
     ngx_tried: bool,
     /// MetalFX's scaler, while one fits, and whether the device refused one.
     #[cfg(target_os = "macos")]
@@ -417,7 +436,7 @@ pub struct UpscalePass {
 pub(crate) struct UpscaleInputs {
     /// The scene's colors, by their index in the table, and themselves.
     pub color: u32,
-    #[cfg(any(feature = "dlss", target_os = "macos"))]
+    #[cfg(any(all(feature = "dlss", windows), target_os = "macos"))]
     pub color_texture: Texture,
     /// Whether there is no last frame to gather from.
     pub fresh: bool,
@@ -438,17 +457,17 @@ pub struct UpscalePlan {
     sharpens: bool,
     reactive: bool,
     /// Whether DLSS draws this frame, and what it was told of it.
-    #[cfg(feature = "dlss")]
+    #[cfg(all(feature = "dlss", windows))]
     dlss: Option<DlssFrame>,
     /// Whether MetalFX scales this frame, and what it reads and writes.
     #[cfg(target_os = "macos")]
     metalfx: Option<super::metalfx::Images>,
-    #[cfg(any(feature = "dlss", target_os = "macos"))]
+    #[cfg(any(all(feature = "dlss", windows), target_os = "macos"))]
     jitter: [f32; 2],
 }
 
 /// What DLSS is told of a frame.
-#[cfg(feature = "dlss")]
+#[cfg(all(feature = "dlss", windows))]
 #[derive(Debug, Clone)]
 struct DlssFrame {
     ngx: std::sync::Arc<super::dlss::Ngx>,
@@ -524,23 +543,14 @@ impl UpscalePass {
             depth: None,
             cull: Cull::None,
         })?;
-        #[cfg(any(feature = "dlss", target_os = "macos"))]
-        let input_pictures = gfx.create_graphics_pipeline(&GraphicsDesc {
-            label: "remaster upscaler inputs as pictures",
-            vertex: shader(Entry::FullscreenVsMain),
-            fragment: Some(shader(Entry::Fsr3PassesFsInputsAsPictures)),
-            color: &[dereth_gfx::Format::R32Float, LINEAR].map(|format| ColorTarget {
-                format,
-                blend: None,
-                write_alpha: true,
-            }),
-            depth: None,
-            cull: Cull::None,
-        })?;
+        #[cfg(target_os = "macos")]
+        let input_pictures = Some(input_pictures_pipeline(gfx)?);
+        #[cfg(all(feature = "dlss", windows))]
+        let input_pictures = None;
         Ok(Self {
-            #[cfg(feature = "dlss")]
+            #[cfg(all(feature = "dlss", windows))]
             ngx: None,
-            #[cfg(feature = "dlss")]
+            #[cfg(all(feature = "dlss", windows))]
             ngx_tried: false,
             #[cfg(target_os = "macos")]
             scaler: None,
@@ -560,7 +570,7 @@ impl UpscalePass {
                 reactivity,
                 reactive_input,
                 exposure,
-                #[cfg(any(feature = "dlss", target_os = "macos"))]
+                #[cfg(any(all(feature = "dlss", windows), target_os = "macos"))]
                 input_pictures,
                 instability,
                 accumulate,
@@ -818,7 +828,7 @@ impl UpscalePass {
             rows.0.push(words);
         }
         self.constants.write(gfx, &rows.bytes())?;
-        #[cfg(feature = "dlss")]
+        #[cfg(all(feature = "dlss", windows))]
         let dlss = {
             if self.settings.mode == UpscaleMode::DlssSr && !self.ngx_tried {
                 self.ngx_tried = true;
@@ -833,6 +843,9 @@ impl UpscalePass {
                         &data,
                     );
                 }
+                if self.ngx.is_some() && self.pipelines.input_pictures.is_none() {
+                    self.pipelines.input_pictures = Some(input_pictures_pipeline(gfx)?);
+                }
             }
             let image = |t: Texture| -> Option<super::dlss::Image> {
                 gfx.raw_texture(t)
@@ -845,8 +858,8 @@ impl UpscalePass {
                         size,
                     })
             };
-            match (&self.ngx, self.settings.mode) {
-                (Some(ngx), UpscaleMode::DlssSr) => Some(DlssFrame {
+            match (&self.ngx, self.settings.mode, self.pipelines.input_pictures) {
+                (Some(ngx), UpscaleMode::DlssSr, Some(_)) => Some(DlssFrame {
                     ngx: std::sync::Arc::clone(ngx),
                     hdr: inputs.hdr,
                     reset: start_over,
@@ -864,7 +877,7 @@ impl UpscalePass {
         let metalfx = self.metalfx_images(gfx, inputs.color_texture, &pictures);
         #[allow(unused_mut)]
         let mut drawn = 1;
-        #[cfg(feature = "dlss")]
+        #[cfg(all(feature = "dlss", windows))]
         if dlss.is_some() {
             drawn = 2;
         }
@@ -881,11 +894,11 @@ impl UpscalePass {
             start_over,
             sharpens,
             reactive: self.settings.reactive,
-            #[cfg(feature = "dlss")]
+            #[cfg(all(feature = "dlss", windows))]
             dlss,
             #[cfg(target_os = "macos")]
             metalfx,
-            #[cfg(any(feature = "dlss", target_os = "macos"))]
+            #[cfg(any(all(feature = "dlss", windows), target_os = "macos"))]
             jitter: self.jitter,
         })
     }
@@ -950,7 +963,7 @@ impl UpscalePlan {
         outdoor_depth: (Texture, u32),
         motion: Option<(Texture, u32)>,
     ) -> Result<(), dereth_gfx::Error> {
-        #[cfg(feature = "dlss")]
+        #[cfg(all(feature = "dlss", windows))]
         if let Some(d) = &self.dlss {
             return self.record_dlss(d, r, t, frame, post, outdoor_depth, motion);
         }
@@ -1177,7 +1190,7 @@ impl UpscalePlan {
     }
 }
 
-#[cfg(any(feature = "dlss", target_os = "macos"))]
+#[cfg(any(all(feature = "dlss", windows), target_os = "macos"))]
 impl UpscalePlan {
     /// The depth and the motion, worked out and written as pictures.
     fn record_input_pictures(
@@ -1222,6 +1235,9 @@ impl UpscalePlan {
             Ok(())
         })?;
         let (depth, moved) = p.input_pictures;
+        let Some(pipeline) = self.pipelines.input_pictures else {
+            return Ok((depth, moved));
+        };
         r.raster(
             &RasterPass {
                 name: "upscaler inputs",
@@ -1248,7 +1264,7 @@ impl UpscalePlan {
                 }),
             },
             |c| {
-                c.set_pipeline(self.pipelines.input_pictures)?;
+                c.set_pipeline(pipeline)?;
                 c.push(0, &push_words(&[self.constants, 0]))?;
                 c.draw(3, 1, 0, 0);
                 Ok(())
@@ -1300,7 +1316,7 @@ impl UpscalePlan {
     }
 }
 
-#[cfg(feature = "dlss")]
+#[cfg(all(feature = "dlss", windows))]
 impl UpscalePlan {
     /// Record a frame of DLSS: the depth and the motion as pictures, then the library's own work,
     /// into the picture the bloom and the tone map read.

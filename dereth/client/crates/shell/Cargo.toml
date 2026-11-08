@@ -21,7 +21,7 @@ d3d12 = ["dereth-scene/d3d12", "dereth-render/d3d12"]
 # The remaster, forwarded to the scene and the device, with its box on the Horizon interface's
 # options page and the device asked for what it draws with when the box is ticked at start-up.
 remaster = ["dereth-scene/remaster", "dereth-render/remaster", "dereth-client-runtime/fidelity", "dereth-horizon/fidelity"]
-# The remaster's DLSS, forwarded to the scene.
+# The remaster's DLSS, forwarded to the scene: on Windows only, and nothing elsewhere.
 dlss = ["remaster", "dereth-scene/dlss"]
 # Tier switch only: no code is gated on it. It un-ignores the unit tests that read the retail dats
 # under $DERETH_TEST_DAT_DIR.

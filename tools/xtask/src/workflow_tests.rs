@@ -336,3 +336,54 @@ fn the_launcher_s_release_is_titled_launcher() {
     let workflow = read(".github/workflows/release-launcher.yml");
     assert!(workflow.contains("--title \"Launcher $VERSION\""));
 }
+
+/// **The release and `cargo xtask dlss` take NVIDIA's DLSS files at one pin**: the release's step
+/// reads the commit and the hashes from the file the xtask reads, holds no copy of its own, and
+/// downloads the same two files from the same repository.
+#[test]
+fn the_release_and_the_xtask_fetch_dlss_at_the_same_pin() {
+    use crate::dlss::pin;
+    let workflow = read(".github/workflows/release-dereth.yml");
+    let package = job(&workflow, "package");
+    let step = package
+        .split_once("- name: Fetch NVIDIA DLSS (Windows)")
+        .expect("the DLSS step")
+        .1
+        .split("\n      - ")
+        .next()
+        .unwrap_or_default();
+    assert!(step.contains(". dereth/client/dlss.env\n"), "{step}");
+    assert_eq!(
+        read("dereth/client/dlss.env"),
+        pin::PIN_FILE,
+        "the xtask reads the file the workflow sources"
+    );
+    let pinned = pin::Pin::pinned();
+    for value in [
+        &pinned.commit,
+        &pinned.library_sha256,
+        &pinned.license_sha256,
+    ] {
+        assert!(
+            !workflow.contains(value.as_str()),
+            "a second copy of {value}"
+        );
+    }
+    assert!(step.contains("base=\"https://raw.githubusercontent.com/NVIDIA/DLSS/$DLSS_COMMIT\""));
+    assert_eq!(
+        pinned.url("x"),
+        "https://raw.githubusercontent.com/NVIDIA/DLSS/".to_owned() + &pinned.commit + "/x"
+    );
+    for path in [pin::LIBRARY_PATH, pin::LICENSE_PATH] {
+        assert!(step.contains(&format!("\"$base/{path}\"")), "{path}");
+    }
+    for (hash, file) in [
+        ("$DLSS_DLL_SHA256", pin::LIBRARY),
+        ("$DLSS_LICENSE_SHA256", pin::LICENSE),
+    ] {
+        assert!(
+            step.contains(&format!("echo \"{hash}  $dir/{file}\" | sha256sum -c -")),
+            "{file}"
+        );
+    }
+}

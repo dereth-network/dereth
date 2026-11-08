@@ -12,7 +12,7 @@
 //! Every pipeline is made when the renderer is ([`Renderer::new`]); none is made while drawing.
 
 pub mod ao;
-#[cfg(feature = "dlss")]
+#[cfg(all(feature = "dlss", windows))]
 pub mod dlss;
 pub mod drawn;
 pub mod forest;

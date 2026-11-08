@@ -180,7 +180,7 @@ mod imp {
             {
                 config.remaster = remaster;
             }
-            #[cfg(feature = "dlss")]
+            #[cfg(all(feature = "dlss", windows))]
             if remaster {
                 config.remaster_extensions = crate::world_scene::remaster_device_extensions();
             }
@@ -190,7 +190,7 @@ mod imp {
         }
 
         /// Whether NVIDIA's DLSS library stands beside the client, so the remaster can load it.
-        #[cfg(feature = "dlss")]
+        #[cfg(all(feature = "dlss", windows))]
         #[must_use]
         pub fn dlss_carried(&self) -> bool {
             crate::world_scene::remaster_dlss_carried()

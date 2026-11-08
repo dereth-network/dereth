@@ -349,6 +349,10 @@ pub(super) fn remaster_features(
     v13.synchronization2 = vk::TRUE;
     v13.maintenance4 = vk::TRUE;
     v13.shader_demote_to_helper_invocation = vk::TRUE;
+    // Half floats and short integers where the device has them: the upscaler's pictures for an
+    // outside scaler are written with them.
+    core.shader_int16 = hc.shader_int16;
+    v12.shader_float16 = h12.shader_float16;
     true
 }
 

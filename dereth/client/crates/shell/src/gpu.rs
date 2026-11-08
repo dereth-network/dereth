@@ -995,7 +995,7 @@ mod imp {
             SceneRenderer::texture_filtering(self)
         }
 
-        #[cfg(feature = "dlss")]
+        #[cfg(all(feature = "dlss", windows))]
         fn dlss_carried(&self) -> bool {
             SceneRenderer::dlss_carried(self)
         }

@@ -797,7 +797,7 @@ impl PostPlan {
     pub(crate) fn upscale_inputs(&self) -> super::upscale::UpscaleInputs {
         super::upscale::UpscaleInputs {
             color: self.targets.scene.index,
-            #[cfg(any(feature = "dlss", target_os = "macos"))]
+            #[cfg(any(all(feature = "dlss", windows), target_os = "macos"))]
             color_texture: self.targets.scene.texture,
             fresh: self.fresh,
             hdr: self.hdr,

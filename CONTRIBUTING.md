@@ -41,6 +41,13 @@ is `ci tier1 --game auberean`.
 - **`ci tier2`** runs the tests that draw on a real graphics device and the comparisons against
   the original game.
 
+**DLSS.** A Windows client built from a checkout upscales with FSR until NVIDIA's DLSS library is
+beside it. `cargo xtask dlss` fetches the library once, at the commit the release pins
+(`dereth/client/dlss.env`), into the client's per-user cache
+(`%LOCALAPPDATA%\Dereth\dlss\<commit>`), and every Windows build of the client then copies it
+beside the executable in the target folder; `DERETH_DLSS_DIR` names another folder to take it from.
+A build never downloads it.
+
 `cargo xtask` with no arguments lists these and every single check. Each prints a pass/fail table;
 a check that could not run says why and is never counted as a pass.
 

@@ -57,7 +57,7 @@ fn main() -> std::process::ExitCode {
             // With NVIDIA's DLSS library started, the process ends here, everything of its own
             // closed: the library's goodbyes at a release build's exit end it with an access
             // violation.
-            #[cfg(feature = "dlss")]
+            #[cfg(all(feature = "dlss", windows))]
             dereth_scene::world_scene::remaster_end_process(0);
             std::process::ExitCode::SUCCESS
         }

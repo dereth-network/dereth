@@ -36,6 +36,7 @@ mod check;
 mod comment_lint;
 mod crate_docs;
 mod deploy;
+mod dlss;
 mod game;
 mod gates;
 mod line_endings;
@@ -259,6 +260,8 @@ Release and packaging:
                             print the product's version; with --tag, fail unless the tag names it
   bundle-macos              the client as a macOS `Dereth.app` (--dat-dir <dir> links the retail
                             dats in; --debug bundles the dev profile)
+  dlss                      fetch NVIDIA's DLSS library at the pinned commit into the per-user
+                            cache, for Windows client builds to copy beside the client
   web [args]                the web client's developer runner (`dereth-web-dev`): builds the browser
                             client and serves it on 127.0.0.1; `cargo xtask web --help` lists its
                             options (--dat-dir, --server, --dev, --port, --no-build, --build-only)
@@ -366,6 +369,7 @@ fn main() {
             }
         },
         Some("bundle-macos") => bundle::bundle_macos(&args[1..]),
+        Some("dlss") => dlss::dlss(&args[1..]),
         Some("package") => package::package(&args[1..]),
         Some("publish") => publish::publish(&args[1..]),
         Some("deploy") => deploy::deploy(&args[1..]),

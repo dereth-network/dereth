@@ -13,12 +13,18 @@
 //! client are separate applications in separate workspaces, and either one may want a different
 //! icon without disturbing the other. Change this file's icon by replacing `assets/dereth.ico`.
 //!
-//! It also names the commit the client is built from ([`build_commit`]).
+//! It also names the commit the client is built from ([`build_commit`]), and puts NVIDIA's DLSS
+//! library beside a Windows client built with it ([`dlss_beside_client`]).
 
 use std::path::{Path, PathBuf};
 
+// Shared with `cargo xtask dlss`, which uses the half of it this script does not.
+#[allow(dead_code)]
+mod dlss;
+
 fn main() {
     build_commit();
+    dlss_beside_client();
     println!("cargo:rustc-check-cfg=cfg(gpu)");
     let feature = |name| std::env::var_os(name).is_some();
     if feature("CARGO_FEATURE_VULKAN")
@@ -43,6 +49,63 @@ fn main() {
         )
         .manifest_optional()
         .expect("the icon resource must compile");
+    }
+}
+
+/// NVIDIA's DLSS library beside the executable of a Windows client built with DLSS, so a client run
+/// from the target folder loads it as the release does: copied from the folder `DERETH_DLSS_DIR`
+/// names, else from the per-user cache `cargo xtask dlss` fills (see `dlss.rs`). Nothing is
+/// downloaded here. Without the library the build says how to fetch it and goes on; the client
+/// then draws its DLSS modes with FSR.
+fn dlss_beside_client() {
+    println!("cargo:rerun-if-changed=dlss.rs");
+    println!("cargo:rerun-if-changed=dlss.env");
+    println!("cargo:rerun-if-env-changed={}", dlss::DIR_ENV);
+    let windows = std::env::var("CARGO_CFG_TARGET_OS").is_ok_and(|os| os == "windows");
+    if !windows || std::env::var_os("CARGO_FEATURE_DLSS").is_none() {
+        return;
+    }
+    for var in dlss::CACHE_VARS {
+        println!("cargo:rerun-if-env-changed={var}");
+    }
+    let Some(exe_dir) = std::env::var_os("OUT_DIR").and_then(|o| dlss::exe_dir(Path::new(&o)))
+    else {
+        return;
+    };
+    let pin = dlss::Pin::pinned();
+    let cache = dlss::cache_dir(dlss::Host::this(), |n| std::env::var_os(n), &pin.commit);
+    let dir = std::env::var_os(dlss::DIR_ENV).map(PathBuf::from);
+    match dlss::plan(dir, cache, &exe_dir, Path::is_file) {
+        dlss::Plan::Copy { from, to } => {
+            // Both are watched, so a new library in the cache or one removed from beside the
+            // client copies again.
+            println!("cargo:rerun-if-changed={}", from.display());
+            let same = |a: &Path, b: &Path| {
+                std::fs::read(a)
+                    .ok()
+                    .is_some_and(|a| std::fs::read(b).is_ok_and(|b| a == b))
+            };
+            if !same(&from, &to) {
+                if let Err(e) = std::fs::copy(&from, &to) {
+                    println!(
+                        "cargo:warning=NVIDIA's DLSS library could not be copied to {}: {e}",
+                        to.display()
+                    );
+                    return;
+                }
+            }
+            println!("cargo:rerun-if-changed={}", to.display());
+        }
+        dlss::Plan::Missing { looked } => {
+            let looked = looked.map_or_else(
+                || "no per-user cache folder was found".to_owned(),
+                |l| format!("none at {}", l.display()),
+            );
+            println!(
+                "cargo:warning=NVIDIA's DLSS library is not beside the client ({looked}): run \
+                 `cargo xtask dlss` to fetch it; until then the client upscales with FSR"
+            );
+        }
     }
 }
 
