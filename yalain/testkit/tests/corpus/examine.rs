@@ -1989,6 +1989,7 @@ fn treasure_equipment_is_enchanted_as_often_as_2017s_drops() {
     let portal = yalain_testkit::authored::Portal::open();
     let lib = portal.library();
     let mut h = yalain_testkit::Harness::new();
+    h.server.treasure_tables = crate::world_db::treasure_tables();
     let mut known = HashSet::new();
     // [weapons, armor and shields][dropper's band]: 2017's drops, enchanted; ours, enchanted.
     let mut by = [[[0usize; 4]; 6]; 2];
@@ -2031,9 +2032,7 @@ fn treasure_equipment_is_enchanted_as_often_as_2017s_drops() {
 #[test]
 fn dropped_shields_carry_a_shields_numbers_as_2017s_did() {
     use std::collections::HashSet;
-    use yalain_content::treasure_effects as t;
-    use yalain_content::treasure_words as w;
-    use yalain_world::treasure::{base_of, endow, numbers, Sort, TreasureTables};
+    use yalain_world::treasure::{base_of, endow, numbers, Sort};
     const DRAWS: usize = 200;
     const NUMBERS: [&str; 5] = [
         "rating",
@@ -2073,7 +2072,7 @@ fn dropped_shields_carry_a_shields_numbers_as_2017s_did() {
     let portal = yalain_testkit::authored::Portal::open();
     let lib = portal.library();
     let mut rng = yalain_world::rng::Rng::new(753);
-    let tables = TreasureTables::retail_2017();
+    let tables = crate::world_db::treasure_tables();
     let (mut plain, mut within) = (0usize, [0usize; 5]);
     for (d, e) in examined.iter().filter(|(_, e)| e.enchantments == 0) {
         let least = i32::try_from(e.least.unwrap_or(0)).unwrap_or(0);
@@ -2120,7 +2119,7 @@ fn dropped_shields_carry_a_shields_numbers_as_2017s_did() {
         assert!(n * 100 >= plain * 88, "{name}: {n} of {plain}");
     }
     // This server's drops of the same templates from the same droppers.
-    let of = |families: &[t::Family], state: u32| {
+    let of = |families: &[yalain_content::treasure_tables::Family], state: u32| {
         families.iter().any(|f| {
             f.tiers
                 .iter()
@@ -2128,6 +2127,7 @@ fn dropped_shields_carry_a_shields_numbers_as_2017s_did() {
         })
     };
     let mut h = yalain_testkit::Harness::new();
+    h.server.treasure_tables = tables.clone();
     let mut known = HashSet::new();
     let (mut shields, mut enchanted, mut theirs_only) = (0usize, 0usize, 0usize);
     for d in &drops {
@@ -2143,7 +2143,7 @@ fn dropped_shields_carry_a_shields_numbers_as_2017s_did() {
             m.damage.is_some()
                 && m.armor.is_some()
                 && m.vigor.is_some()
-                && w::SHIELD_WORDS.iter().any(|x| x.word == m.prefix),
+                && tables.shield.words.iter().any(|x| x.word == m.prefix),
         );
         let held: Vec<u32> = thing
             .enchantments
@@ -2152,7 +2152,7 @@ fn dropped_shields_carry_a_shields_numbers_as_2017s_did() {
             .map(|e| e.0)
             .collect();
         enchanted += usize::from(!held.is_empty());
-        theirs_only += usize::from(held.iter().all(|s| of(t::SHIELD_FAMILIES, *s)));
+        theirs_only += usize::from(held.iter().all(|s| of(&tables.shield.families, *s)));
     }
     println!(
         "ours: {shields} of {} with a shield's numbers and word, {enchanted} enchanted, {theirs_only} \

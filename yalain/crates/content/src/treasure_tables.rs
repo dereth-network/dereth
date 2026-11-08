@@ -8,7 +8,7 @@
 use crate::treasure_effects::{self as effects, Tier, When};
 
 /// The sorts of item that draw numbers and enchantments.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Sort {
     Weapon,
     Armor,
@@ -29,6 +29,12 @@ impl Sort {
             Self::Shield => "shield",
             Self::Jewelry => "jewelry",
         }
+    }
+
+    /// The sort a row names.
+    #[must_use]
+    pub fn of_name(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|s| s.name() == name)
     }
 }
 
@@ -112,6 +118,20 @@ pub const POTION_EFFECTS: [[u32; 5]; 9] = [
         0x7000_0A1F,
         0x7000_0A1D,
     ],
+];
+
+/// The names of the treasure potions' nine kinds, as [`POTION_EFFECTS`] holds them: the keys of a
+/// world's potion rows.
+pub const POTION_KINDS: [&str; 9] = [
+    "attack-speed",
+    "damage-reflected",
+    "health-over-time",
+    "health-regained",
+    "greatest-health",
+    "greatest-vigor",
+    "run-speed",
+    "vigor-over-time",
+    "vigor-regained",
 ];
 
 /// The least dropper level of each tier of a potion's effect: up to 15, 16 to 29, 30 to 39, 40 to
@@ -380,6 +400,32 @@ fn band_of(froms: impl Iterator<Item = i32>, level: i32) -> usize {
         .map_or(0, |(i, _)| i)
 }
 
+/// What a world's rows give of the treasure numbers: its rules, and each sort's numbers (no
+/// families or words), by sort. A kind the world gives no rows of is none or empty.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct TreasureRows {
+    pub rules: Option<Rules>,
+    pub sorts: std::collections::BTreeMap<Sort, SortTables>,
+    /// Each sort's words, by their order.
+    pub words: std::collections::BTreeMap<Sort, std::collections::BTreeMap<u32, Word>>,
+    pub looks: Vec<LookRow>,
+    /// Each potion kind's states, one a tier, by the kind's order.
+    pub potions: std::collections::BTreeMap<u32, Vec<u32>>,
+    /// Each sort's families of enchantments, by their order.
+    pub families: std::collections::BTreeMap<Sort, std::collections::BTreeMap<u32, Family>>,
+    /// The families' pairs (a tier's state, and the state that comes with it) and the states no
+    /// item is named for, from their tiers.
+    pub pairs: Vec<(u32, u32)>,
+    pub unnaming: Vec<u32>,
+}
+
+/// A list's entries in their order: what is looked up in it, not drawn from it.
+fn sorted<T: Ord + Copy>(list: &[T]) -> Vec<T> {
+    let mut v = list.to_vec();
+    v.sort_unstable();
+    v
+}
+
 /// Every number treasure draws by.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TreasureTables {
@@ -506,8 +552,8 @@ impl TreasureTables {
                 })
                 .collect(),
             potions: POTION_EFFECTS.iter().map(|k| k.to_vec()).collect(),
-            pairs: effects::PAIRS.to_vec(),
-            unnaming: effects::UNNAMING.to_vec(),
+            pairs: sorted(effects::PAIRS),
+            unnaming: sorted(effects::UNNAMING),
         }
     }
 
@@ -520,6 +566,79 @@ impl TreasureTables {
             Sort::Shield => &self.shield,
             Sort::Jewelry => &self.jewelry,
         }
+    }
+
+    fn sort_mut(&mut self, sort: Sort) -> &mut SortTables {
+        match sort {
+            Sort::Weapon => &mut self.weapon,
+            Sort::Armor => &mut self.armor,
+            Sort::Shield => &mut self.shield,
+            Sort::Jewelry => &mut self.jewelry,
+        }
+    }
+
+    /// 2017's tables with a world's rows in place of each kind it gives: its rules, its sorts'
+    /// numbers, its words, looks, potions and families of enchantments (with their pairs and the
+    /// states nothing is named for). A kind is taken whole
+    /// or not at all, never merged with 2017's; once a world gives any sort, a sort it leaves out
+    /// draws no numbers or enchantments of its own, and once it gives any words or families, a
+    /// sort it gives none of draws none. Also returns the kinds the world gave none of, which play 2017's.
+    #[must_use]
+    pub fn with_rows(rows: &TreasureRows) -> (Self, Vec<&'static str>) {
+        let mut t = Self::retail_2017();
+        let mut fell_back = Vec::new();
+        match &rows.rules {
+            Some(rules) => t.rules = rules.clone(),
+            None => fell_back.push("treasure_rules"),
+        }
+        if rows.sorts.is_empty() {
+            fell_back.push("treasure_sort");
+        } else {
+            for sort in Sort::ALL {
+                let own = rows.sorts.get(&sort).cloned().unwrap_or_default();
+                let to = t.sort_mut(sort);
+                *to = SortTables {
+                    families: std::mem::take(&mut to.families),
+                    words: std::mem::take(&mut to.words),
+                    ..own
+                };
+            }
+        }
+        if rows.words.is_empty() {
+            fell_back.push("treasure_word");
+        } else {
+            for sort in Sort::ALL {
+                t.sort_mut(sort).words = rows
+                    .words
+                    .get(&sort)
+                    .map(|w| w.values().cloned().collect())
+                    .unwrap_or_default();
+            }
+        }
+        if rows.looks.is_empty() {
+            fell_back.push("treasure_look");
+        } else {
+            t.looks.clone_from(&rows.looks);
+        }
+        if rows.potions.is_empty() {
+            fell_back.push("treasure_potion");
+        } else {
+            t.potions = rows.potions.values().cloned().collect();
+        }
+        if rows.families.is_empty() {
+            fell_back.push("treasure_family");
+        } else {
+            for sort in Sort::ALL {
+                t.sort_mut(sort).families = rows
+                    .families
+                    .get(&sort)
+                    .map(|f| f.values().cloned().collect())
+                    .unwrap_or_default();
+            }
+            t.pairs.clone_from(&rows.pairs);
+            t.unnaming.clone_from(&rows.unnaming);
+        }
+        (t, fell_back)
     }
 
     /// Every family of enchantments, each sort's in turn.

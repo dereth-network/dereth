@@ -267,6 +267,94 @@ pub struct TreasureValue {
     pub prov: Prov,
 }
 
+/// `[[treasure_rules]]`: what every treasure item draws by, whatever its sort: its own least level
+/// above its dropper's base, its Arcane Lore, a potion's tier and spellcraft, and its look. A world
+/// has one.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TreasureRules {
+    pub rules: yalain_content::treasure_tables::Rules,
+    pub prov: Prov,
+}
+
+/// `[[treasure_sort]]`: the numbers one sort of treasure item draws by: how many enchantments by
+/// level band, and (by the sort) its share of a made item's damage, its vigor cost, its span, its
+/// combat delay, its share of a made item's rating and its enchantment slot. Its families and
+/// words are not among them.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TreasureSort {
+    pub sort: yalain_content::treasure_tables::Sort,
+    pub tables: yalain_content::treasure_tables::SortTables,
+    pub prov: Prov,
+}
+
+/// The fields of a `[[treasure_sort]]` row beside `sort`, `counts` and `prov` that each sort has;
+/// a row of a sort has all of its own and none of the others.
+pub const TREASURE_SORT_FIELDS: [(&str, &[&str]); 4] = [
+    ("weapon", &["damage_share", "vigor", "delays"]),
+    (
+        "armor",
+        &["delays", "rating_share", "rating_spread", "slot_chance"],
+    ),
+    (
+        "shield",
+        &[
+            "damage_share",
+            "vigor",
+            "span",
+            "delays",
+            "rating_share",
+            "rating_spread",
+            "slot_chance",
+        ],
+    ),
+    ("jewelry", &[]),
+];
+
+/// `[[treasure_word]]`: a word before a treasure item's name: its sort, its place in the order
+/// the words are drawn in, its string, the combat delays it goes with, and its weight in each of
+/// its sort's count bands.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TreasureWord {
+    pub sort: yalain_content::treasure_tables::Sort,
+    pub order: u32,
+    pub word: yalain_content::treasure_tables::Word,
+    pub prov: Prov,
+}
+
+/// `[[treasure_look]]`: the look a template's treasure items draw: the appearance table, and each
+/// key with the highest value it draws.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TreasureLook {
+    pub look: yalain_content::treasure_tables::LookRow,
+    pub prov: Prov,
+}
+
+/// `[[treasure_potion]]`: a kind of treasure potion: its name, its place in the order the kinds
+/// are drawn in, and its effect's saved state at each tier.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TreasurePotion {
+    pub kind: String,
+    pub order: u32,
+    pub states: Vec<u32>,
+    pub prov: Prov,
+}
+
+/// `[[treasure_family]]`: a family of enchantments one sort of treasure item draws from: its place
+/// in the order the families are drawn in, and the family; and, from its tiers, the states that
+/// come with a tier's (its pairs) and the tiers no item is named for.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TreasureFamily {
+    pub sort: yalain_content::treasure_tables::Sort,
+    pub order: u32,
+    pub family: yalain_content::treasure_tables::Family,
+    pub pairs: Vec<(u32, u32)>,
+    pub unnamed: Vec<u32>,
+    pub prov: Prov,
+}
+
+/// The string table the words before treasure items' names are in.
+pub const WORD_TABLE: u32 = 0x2500_035F;
+
 /// The races a treasure pool can be for, and their bits.
 pub const POOL_RACES: [(&str, u32); 5] = [
     ("human", 1),
@@ -528,6 +616,12 @@ pub enum Row {
     Popup(Popup),
     EffectRule(EffectRule),
     TreasureValue(TreasureValue),
+    TreasureRules(TreasureRules),
+    TreasureSort(TreasureSort),
+    TreasureWord(TreasureWord),
+    TreasureLook(TreasureLook),
+    TreasurePotion(TreasurePotion),
+    TreasureFamily(TreasureFamily),
 }
 
 /// `[[event]]`: a named state of the world, on for its times: what it gates (camps, objects and
@@ -833,6 +927,12 @@ impl Row {
             Self::Popup(_) => "popup",
             Self::EffectRule(_) => "effect_rule",
             Self::TreasureValue(_) => "treasure_value",
+            Self::TreasureRules(_) => "treasure_rules",
+            Self::TreasureSort(_) => "treasure_sort",
+            Self::TreasureWord(_) => "treasure_word",
+            Self::TreasureLook(_) => "treasure_look",
+            Self::TreasurePotion(_) => "treasure_potion",
+            Self::TreasureFamily(_) => "treasure_family",
         }
     }
 
@@ -870,13 +970,19 @@ impl Row {
             Self::Popup(r) => Some(&r.prov),
             Self::EffectRule(r) => Some(&r.prov),
             Self::TreasureValue(r) => Some(&r.prov),
+            Self::TreasureRules(r) => Some(&r.prov),
+            Self::TreasureSort(r) => Some(&r.prov),
+            Self::TreasureWord(r) => Some(&r.prov),
+            Self::TreasureLook(r) => Some(&r.prov),
+            Self::TreasurePotion(r) => Some(&r.prov),
+            Self::TreasureFamily(r) => Some(&r.prov),
             Self::Remove(_) => None,
         }
     }
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 31] = [
+pub const KINDS: [&str; 37] = [
     "object",
     "camp",
     "loot",
@@ -908,10 +1014,16 @@ pub const KINDS: [&str; 31] = [
     "popup",
     "effect_rule",
     "treasure_value",
+    "treasure_rules",
+    "treasure_sort",
+    "treasure_word",
+    "treasure_look",
+    "treasure_potion",
+    "treasure_family",
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 31] = [
+pub const FIELDS: [(&str, &[&str]); 37] = [
     (
         "object",
         &[
@@ -1191,6 +1303,50 @@ pub const FIELDS: [(&str, &[&str]); 31] = [
     ("popup", &["on", "effect", "prov"]),
     ("effect_rule", &["effect", "ward", "prov"]),
     ("treasure_value", &["level", "values", "prov"]),
+    (
+        "treasure_rules",
+        &[
+            "above_base",
+            "most_level",
+            "lore",
+            "potion_tiers",
+            "potion_spellcraft",
+            "look",
+            "prov",
+        ],
+    ),
+    (
+        "treasure_sort",
+        &[
+            "sort",
+            "counts",
+            "damage_share",
+            "vigor",
+            "span",
+            "delays",
+            "rating_share",
+            "rating_spread",
+            "slot_chance",
+            "prov",
+        ],
+    ),
+    (
+        "treasure_word",
+        &["sort", "order", "word", "delays", "weights", "prov"],
+    ),
+    ("treasure_look", &["template", "table", "keys", "prov"]),
+    ("treasure_potion", &["kind", "order", "states", "prov"]),
+    (
+        "treasure_family",
+        &[
+            "sort", "order", "when", "weight", "by_level", "tiers", "prov",
+        ],
+    ),
+];
+
+/// The fields of a `[[treasure_family]]` row's tier.
+pub const TIER_FIELDS: [&str; 7] = [
+    "least", "state", "puts_on", "chance", "glow", "pair", "named",
 ];
 
 /// A shared-format error as a problem at its file and line.
@@ -2011,6 +2167,188 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
             Row::TreasureValue(TreasureValue {
                 level,
                 values,
+                prov: f.req_prov()?,
+            })
+        }
+        "treasure_rules" => {
+            let rules = f.treasure_rules()?;
+            Row::TreasureRules(TreasureRules {
+                rules,
+                prov: f.req_prov()?,
+            })
+        }
+        "treasure_sort" => {
+            let (sort, tables) = f.treasure_sort()?;
+            Row::TreasureSort(TreasureSort {
+                sort,
+                tables,
+                prov: f.req_prov()?,
+            })
+        }
+        "treasure_word" => {
+            use yalain_content::treasure_tables::{Sort, Word};
+            let name = f.req_str("sort")?;
+            let sort = Sort::of_name(&name).filter(|s| *s != Sort::Jewelry);
+            let sort = f.held("sort", sort, sort.is_some(), "weapon, armor or shield")??;
+            let order = f.req_u32("order")?;
+            let word = f.req_id("word")?;
+            let delays = f.req("delays", "[least, most], whole numbers", |v| {
+                let a = v.as_array().filter(|a| a.len() == 2)?;
+                Some((int_of(&a[0])?, int_of(&a[1])?))
+            })?;
+            let delays = f.held("delays", delays, delays.0 <= delays.1, "least at most most")?;
+            let weights = f.req_floats("weights")?;
+            let ok = weights_ok(&weights);
+            let weights = f.held("weights", weights, ok, WEIGHTS)?;
+            Row::TreasureWord(TreasureWord {
+                sort,
+                order,
+                word: Word {
+                    word,
+                    delays,
+                    weights,
+                },
+                prov: f.req_prov()?,
+            })
+        }
+        "treasure_look" => {
+            let template = f.req_id("template")?;
+            let table = f.req_id("table")?;
+            let keys = f.req("keys", "a list of { key, most }", |v| {
+                v.as_array()?
+                    .iter()
+                    .map(|k| {
+                        let t = exactly(k, &["key", "most"])?;
+                        Some((as_u32(t.get("key")?)?, number_of(t.get("most")?)?))
+                    })
+                    .collect::<Option<Vec<_>>>()
+            })?;
+            let ok = (1..=3).contains(&keys.len()) && keys.iter().all(|(_, m)| share_ok(*m));
+            let keys = f.held(
+                "keys",
+                keys,
+                ok,
+                "one to three keys, each with its most from 0 to 1",
+            )?;
+            Row::TreasureLook(TreasureLook {
+                look: yalain_content::treasure_tables::LookRow {
+                    template,
+                    table,
+                    keys,
+                },
+                prov: f.req_prov()?,
+            })
+        }
+        "treasure_family" => {
+            use yalain_content::treasure_effects::{Tier, When};
+            use yalain_content::treasure_tables::{Family, Sort};
+            let name = f.req_str("sort")?;
+            let sort = Sort::of_name(&name);
+            let sort = f.held(
+                "sort",
+                sort,
+                sort.is_some(),
+                "weapon, armor, shield or jewelry",
+            )??;
+            let order = f.req_u32("order")?;
+            let when = f.req("when", "permanent, equipped or hit", |v| {
+                match v.as_str()? {
+                    "permanent" => Some(When::Permanent),
+                    "equipped" => Some(When::Equipped),
+                    "hit" => Some(When::Hit),
+                    _ => None,
+                }
+            })?;
+            let weight = f.req("weight", "a number", number_of)?;
+            let weight = f.held("weight", weight, weight >= 0.0, "0 or more")?;
+            let by_level = f.req("by_level", "true or false", toml::Value::as_bool)?;
+            type Read = (Tier, Option<u32>, bool);
+            let tiers: Vec<Read> = f.req(
+                "tiers",
+                "a list of { least, state, chance, glow }, with puts_on, pair and named where given",
+                |v| {
+                    v.as_array()?
+                        .iter()
+                        .map(|x| {
+                            let t = x.as_table()?;
+                            if t.keys().any(|k| !TIER_FIELDS.contains(&k.as_str())) {
+                                return None;
+                            }
+                            let opt_id = |k: &str| match t.get(k) {
+                                Some(v) => as_u32(v).map(Some),
+                                None => Some(None),
+                            };
+                            let tier = Tier {
+                                least: int_of(t.get("least")?)?,
+                                state: as_u32(t.get("state")?)?,
+                                puts_on: opt_id("puts_on")?.unwrap_or(0),
+                                chance: number_of(t.get("chance")?)?,
+                                glow: number_of(t.get("glow")?)?,
+                            };
+                            let named = match t.get("named") {
+                                Some(v) => v.as_bool()?,
+                                None => true,
+                            };
+                            Some((tier, opt_id("pair")?, named))
+                        })
+                        .collect::<Option<Vec<_>>>()
+                },
+            )?;
+            let ok = !tiers.is_empty()
+                && tiers.iter().all(|(t, _, _)| {
+                    t.least >= 0 && share_ok(t.chance) && share_ok(t.glow) && t.state != 0
+                });
+            let tiers = f.held(
+                "tiers",
+                tiers,
+                ok,
+                "at least one, least from 0, chance and glow from 0 to 1",
+            )?;
+            let rising = !by_level || tiers.windows(2).all(|w| w[0].0.least <= w[1].0.least);
+            let tiers = f.held(
+                "tiers",
+                tiers,
+                rising,
+                "a family by level gives its tiers from the lowest least level",
+            )?;
+            let puts = when == When::Hit || tiers.iter().all(|(t, _, _)| t.puts_on == 0);
+            let tiers = f.held(
+                "tiers",
+                tiers,
+                puts,
+                "puts_on only in a family of effects on what an item hits",
+            )?;
+            Row::TreasureFamily(TreasureFamily {
+                sort,
+                order,
+                pairs: tiers
+                    .iter()
+                    .filter_map(|(t, pair, _)| pair.map(|p| (t.state, p)))
+                    .collect(),
+                unnamed: tiers
+                    .iter()
+                    .filter(|(_, _, named)| !named)
+                    .map(|(t, _, _)| t.state)
+                    .collect(),
+                family: Family {
+                    when,
+                    weight,
+                    by_level,
+                    tiers: tiers.into_iter().map(|(t, _, _)| t).collect(),
+                },
+                prov: f.req_prov()?,
+            })
+        }
+        "treasure_potion" => {
+            let kind = f.req_symbol("kind")?;
+            let order = f.req_u32("order")?;
+            let states = f.ids("states");
+            let ok = !states.is_empty();
+            let states = f.held("states", states, ok, "a list of saved states, one a tier")?;
+            Row::TreasurePotion(TreasurePotion {
+                kind,
+                order,
+                states,
                 prov: f.req_prov()?,
             })
         }
@@ -2891,6 +3229,247 @@ impl<'a> Fields<'a> {
 
     /// `{ classes, effects, chance }`: the classes and the effects (saved states) it keeps off, at
     /// least one of either, and its chance, above 0 and at most 1.
+    /// A field that must be there, converted; what it should be is said when it is not.
+    fn req<T>(
+        &mut self,
+        name: &str,
+        what: &str,
+        conv: impl FnOnce(&toml::Value) -> Option<T>,
+    ) -> Option<T> {
+        match self.t.get(name) {
+            Some(_) => self.typed(name, what, conv),
+            None => self.missing(name),
+        }
+    }
+
+    /// A field's value held to a rule: none, and the rule said, when it breaks it.
+    fn held<T>(&mut self, name: &str, value: T, ok: bool, rule: &str) -> Option<T> {
+        if ok {
+            Some(value)
+        } else {
+            self.bad(name, rule);
+            None
+        }
+    }
+
+    /// `[[treasure_rules]]`'s fields.
+    fn treasure_rules(&mut self) -> Option<yalain_content::treasure_tables::Rules> {
+        use yalain_content::treasure_tables::{LookRule, LoreRule, Rules};
+        let above_base = self.req_floats("above_base")?;
+        let ok = weights_ok(&above_base);
+        let above_base = self.held("above_base", above_base, ok, WEIGHTS)?;
+        let most_level = self.req("most_level", "a whole number", toml::Value::as_integer)?;
+        let most_level = i32::try_from(most_level).ok().filter(|l| *l >= 1);
+        let most_level =
+            self.held("most_level", most_level, most_level.is_some(), "1 or more")??;
+        let lore = self.req("lore", "{ above, from, to }: whole numbers", |v| {
+            let t = exactly(v, &["above", "from", "to"])?;
+            Some(LoreRule {
+                above: int_of(t.get("above")?)?,
+                from: int_of(t.get("from")?)?,
+                to: int_of(t.get("to")?)?,
+            })
+        })?;
+        let lore = self.held("lore", lore, lore.from <= lore.to, "from at most to")?;
+        let potion_tiers = self.req("potion_tiers", "a list of whole numbers", ints)?;
+        let ok = edges_ok(&potion_tiers);
+        let potion_tiers = self.held(
+            "potion_tiers",
+            potion_tiers,
+            ok,
+            "the least dropper level of each tier of the potions, from 0, rising",
+        )?;
+        let spellcraft = self.req("potion_spellcraft", "[least, most]", pair_of)?;
+        let ok = spellcraft.0 <= spellcraft.1;
+        let potion_spellcraft =
+            self.held("potion_spellcraft", spellcraft, ok, "least at most most")?;
+        let look = self.req(
+            "look",
+            "{ glow_most, round_chance, round_from, round_tenths }",
+            |v| {
+                let t = exactly(
+                    v,
+                    &["glow_most", "round_chance", "round_from", "round_tenths"],
+                )?;
+                Some(LookRule {
+                    glow_most: number_of(t.get("glow_most")?)?,
+                    round_chance: number_of(t.get("round_chance")?)?,
+                    round_from: number_of(t.get("round_from")?)?,
+                    round_tenths: as_u32(t.get("round_tenths")?)?,
+                })
+            },
+        )?;
+        let ok = [look.glow_most, look.round_chance, look.round_from]
+            .into_iter()
+            .all(share_ok)
+            && look.round_tenths >= 1;
+        let look = self.held(
+            "look",
+            look,
+            ok,
+            "glow_most, round_chance and round_from from 0 to 1, round_tenths 1 or more",
+        )?;
+        Some(Rules {
+            above_base,
+            most_level,
+            lore,
+            potion_tiers,
+            potion_spellcraft,
+            look,
+        })
+    }
+
+    /// `[[treasure_sort]]`'s fields: its sort, and the numbers it draws by.
+    #[allow(clippy::too_many_lines)]
+    fn treasure_sort(
+        &mut self,
+    ) -> Option<(
+        yalain_content::treasure_tables::Sort,
+        yalain_content::treasure_tables::SortTables,
+    )> {
+        use yalain_content::treasure_tables::{CountBand, Delays, Sort, SortTables, VigorBand};
+        let name = self.req_str("sort")?;
+        let sort = Sort::of_name(&name);
+        let sort = self.held(
+            "sort",
+            sort,
+            sort.is_some(),
+            "weapon, armor, shield or jewelry",
+        )??;
+        let own = TREASURE_SORT_FIELDS
+            .iter()
+            .find(|(s, _)| *s == name)
+            .map_or(&[][..], |(_, f)| *f);
+        for (_, fields) in &TREASURE_SORT_FIELDS {
+            for field in *fields {
+                let has = self.t.contains_key(*field);
+                if has && !own.contains(field) {
+                    self.bad(field, &format!("not a field of a {name} row"));
+                } else if !has && own.contains(field) {
+                    self.bad(field, &format!("missing: a {name} row has it"));
+                }
+            }
+        }
+        if self.bad {
+            return None;
+        }
+        let counts = self.req("counts", "a list of { from, weights }", |v| {
+            v.as_array()?
+                .iter()
+                .map(|b| {
+                    let t = exactly(b, &["from", "weights"])?;
+                    Some(CountBand {
+                        from: int_of(t.get("from")?)?,
+                        weights: numbers(t.get("weights")?)?,
+                    })
+                })
+                .collect::<Option<Vec<_>>>()
+        })?;
+        let ok = edges_ok(&counts.iter().map(|b| b.from).collect::<Vec<_>>())
+            && counts.iter().all(|b| weights_ok(&b.weights));
+        let counts = self.held(
+            "counts",
+            counts,
+            ok,
+            &format!("bands from 0, rising, each with {WEIGHTS}"),
+        )?;
+        let mut tables = SortTables {
+            counts,
+            ..SortTables::default()
+        };
+        if own.contains(&"damage_share") {
+            let p = self.req("damage_share", "[least, most]", pair_of)?;
+            let ok = share_ok(p.0) && share_ok(p.1) && p.0 <= p.1;
+            tables.damage_share = Some(self.held("damage_share", p, ok, SHARES)?);
+        }
+        if own.contains(&"vigor") {
+            let bands = self.req(
+                "vigor",
+                "a list of { from, least, most, every }, every may be left out",
+                |v| {
+                    v.as_array()?
+                        .iter()
+                        .map(|b| {
+                            let t = b.as_table()?;
+                            if t.keys()
+                                .any(|k| !["from", "least", "most", "every"].contains(&k.as_str()))
+                            {
+                                return None;
+                            }
+                            Some(VigorBand {
+                                from: int_of(t.get("from")?)?,
+                                least: int_of(t.get("least")?)?,
+                                most: int_of(t.get("most")?)?,
+                                every: match t.get("every") {
+                                    Some(e) => Some(int_of(e)?),
+                                    None => None,
+                                },
+                            })
+                        })
+                        .collect::<Option<Vec<_>>>()
+                },
+            )?;
+            let last = bands.len().saturating_sub(1);
+            let ok = edges_ok(&bands.iter().map(|b| b.from).collect::<Vec<_>>())
+                && bands.iter().enumerate().all(|(i, b)| {
+                    b.least >= 1 && b.least <= b.most && b.every.is_none_or(|e| i == last && e >= 1)
+                });
+            tables.vigor = self.held(
+                "vigor",
+                bands,
+                ok,
+                "bands from 0, rising, least 1 or more and at most most; every (1 or more) only on the last",
+            )?;
+        }
+        if own.contains(&"span") {
+            let p = self.req("span", "[least, most]", pair_of)?;
+            let ok = share_ok(p.0) && share_ok(p.1) && p.0 <= p.1;
+            tables.span = Some(self.held("span", p, ok, SHARES)?);
+        }
+        if own.contains(&"delays") {
+            let d = self.req("delays", "{ from, weights }", |v| {
+                let t = exactly(v, &["from", "weights"])?;
+                Some(Delays {
+                    from: int_of(t.get("from")?)?,
+                    weights: numbers(t.get("weights")?)?,
+                })
+            })?;
+            let ok = d.from >= 0 && weights_ok(&d.weights);
+            let rule = format!("from 0 or more, and {WEIGHTS}");
+            tables.delays = Some(self.held("delays", d, ok, &rule)?);
+        }
+        if own.contains(&"rating_share") {
+            let points = self.req("rating_share", "a list of [level, share]", |v| {
+                v.as_array()?
+                    .iter()
+                    .map(|p| {
+                        let p = p.as_array().filter(|p| p.len() == 2)?;
+                        Some((int_of(&p[0])?, number_of(&p[1])?))
+                    })
+                    .collect::<Option<Vec<_>>>()
+            })?;
+            let ok = !points.is_empty()
+                && points.windows(2).all(|w| w[0].0 < w[1].0)
+                && points.iter().all(|(l, s)| *l >= 0 && share_ok(*s));
+            tables.rating_share = self.held(
+                "rating_share",
+                points,
+                ok,
+                "at least one point, levels from 0 and rising, each share from 0 to 1",
+            )?;
+            for name in ["rating_spread", "slot_chance"] {
+                let x = self.req(name, "a number", number_of)?;
+                let x = self.held(name, x, share_ok(x), "from 0 to 1")?;
+                if name == "rating_spread" {
+                    tables.rating_spread = x;
+                } else {
+                    tables.slot_chance = x;
+                }
+            }
+        }
+        Some((sort, tables))
+    }
+
     fn ward(&mut self) -> Option<yalain_content::effect_rules::Ward> {
         let Some(v) = self.get("ward") else {
             return self.missing("ward");
@@ -2953,6 +3532,54 @@ pub fn is_reference(s: &str) -> bool {
     pack.is_none_or(is_symbol)
         && is_symbol(key)
         && lb.is_none_or(|l| l.len() == 4 && l.bytes().all(|b| b.is_ascii_hexdigit()))
+}
+
+/// What a list of weights must be.
+const WEIGHTS: &str = "weights: numbers from 0, at least one above 0";
+
+/// What a pair of shares must be.
+const SHARES: &str = "[least, most], each from 0 to 1, least at most most";
+
+/// Weights to draw by: none below 0, and some above.
+fn weights_ok(w: &[f32]) -> bool {
+    w.iter().all(|x| x.is_finite() && *x >= 0.0) && w.iter().any(|x| *x > 0.0)
+}
+
+/// The least levels of bands: from 0, each above the one before.
+fn edges_ok(e: &[i32]) -> bool {
+    e.first() == Some(&0) && e.windows(2).all(|w| w[0] < w[1])
+}
+
+/// A share or a chance: from 0 to 1.
+fn share_ok(x: f32) -> bool {
+    (0.0..=1.0).contains(&x)
+}
+
+/// A table with exactly these keys.
+fn exactly<'v>(v: &'v toml::Value, keys: &[&str]) -> Option<&'v toml::Table> {
+    v.as_table()
+        .filter(|t| t.len() == keys.len() && keys.iter().all(|k| t.contains_key(*k)))
+}
+
+fn int_of(v: &toml::Value) -> Option<i32> {
+    v.as_integer().and_then(|i| i32::try_from(i).ok())
+}
+
+fn ints(v: &toml::Value) -> Option<Vec<i32>> {
+    v.as_array()?.iter().map(int_of).collect()
+}
+
+fn number_of(v: &toml::Value) -> Option<f32> {
+    as_number(v).map(to_f32).filter(|x| x.is_finite())
+}
+
+fn numbers(v: &toml::Value) -> Option<Vec<f32>> {
+    v.as_array()?.iter().map(number_of).collect()
+}
+
+fn pair_of(v: &toml::Value) -> Option<(f32, f32)> {
+    let a = v.as_array().filter(|a| a.len() == 2)?;
+    Some((number_of(&a[0])?, number_of(&a[1])?))
 }
 
 fn as_u32(v: &toml::Value) -> Option<u32> {

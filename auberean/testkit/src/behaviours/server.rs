@@ -6981,6 +6981,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.loot.treasure-numbers-from-rows",
+        says: "A world's treasure numbers are its rows: its rules, each sort's counts, shares, \
+               vigor bands, delays and slot chance, the words before names, the looks, the \
+               potions and the families of enchantments, each kind taken whole, the server's own for a kind it gives none of, and \
+               all four sorts or none. The base world's rows draw the seeded drops exactly as the \
+               server's own numbers did.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-TREASURE-NUMBER-ROWS"),
+        station: "yalain-testkit::corpus::world_db::the_worlds_treasure_numbers_draw_the_seeded_drops_as_recorded",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.loot.treasure-own-properties",
         says: "An item drawn from a creature's loot profile is given what its dropper's level \
                gives it of its own: equipment its own least level.",

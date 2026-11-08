@@ -105,7 +105,9 @@ impl Dialect for Ac2 {
          loot <value>, keeper <template>, sale <store> <ordinal>, quest <id>, \
          step <quest> <key>, talk <key>, weapon <name>, route <key>, area <XXYY>, \
          clearing <key>@<XXYY>, death_treasure <key>, treasure_pool <name>, \
-         treasure_value <level>, or landblock <XXYY>";
+         treasure_value <level>, treasure_rules, treasure_sort <sort>, treasure_word <sort> <word>, \
+         treasure_look <template>, treasure_potion <kind>, \
+         treasure_family <sort> <order>, or landblock <XXYY>";
     const NAMES_BASE: bool = true;
     type Kind = Kind;
     type Era = Era;
@@ -190,6 +192,18 @@ pub enum Item {
     EffectRule { effect: u32 },
     /// The values treasure is drawn worth, by the level of the creature that leaves it.
     TreasureValue { level: u32 },
+    /// The rules every treasure item draws by: the world has one.
+    TreasureRules,
+    /// The numbers one sort of treasure item draws by, by the sort's name.
+    TreasureSort { sort: String },
+    /// A word before treasure items' names, by its sort and its string.
+    TreasureWord { sort: String, word: u32 },
+    /// The look a template's treasure items draw, by the template.
+    TreasureLook { template: u32 },
+    /// A kind of treasure potion, by its name.
+    TreasurePotion { kind: String },
+    /// A family of enchantments treasure draws, by its sort and its place in the order.
+    TreasureFamily { sort: String, order: u32 },
 }
 
 impl Item {
@@ -270,6 +284,24 @@ impl Item {
             ["treasure_value", level] => Self::TreasureValue {
                 level: number(level)?,
             },
+            ["treasure_rules"] => Self::TreasureRules,
+            ["treasure_sort", sort] => Self::TreasureSort {
+                sort: (*sort).to_string(),
+            },
+            ["treasure_word", sort, word] => Self::TreasureWord {
+                sort: (*sort).to_string(),
+                word: number(word)?,
+            },
+            ["treasure_look", template] => Self::TreasureLook {
+                template: number(template)?,
+            },
+            ["treasure_potion", kind] => Self::TreasurePotion {
+                kind: (*kind).to_string(),
+            },
+            ["treasure_family", sort, order] => Self::TreasureFamily {
+                sort: (*sort).to_string(),
+                order: number(order)?,
+            },
             ["area", lb] => Self::Area {
                 landblock: u16::from_str_radix(lb, 16).ok().filter(|_| lb.len() == 4)?,
             },
@@ -321,6 +353,12 @@ impl fmt::Display for Item {
             Self::Popup { on } => write!(f, "popup {on}"),
             Self::EffectRule { effect } => write!(f, "effect_rule {effect:#010x}"),
             Self::TreasureValue { level } => write!(f, "treasure_value {level}"),
+            Self::TreasureRules => write!(f, "treasure_rules"),
+            Self::TreasureSort { sort } => write!(f, "treasure_sort {sort}"),
+            Self::TreasureWord { sort, word } => write!(f, "treasure_word {sort} {word:#010x}"),
+            Self::TreasureLook { template } => write!(f, "treasure_look {template:#010x}"),
+            Self::TreasurePotion { kind } => write!(f, "treasure_potion {kind}"),
+            Self::TreasureFamily { sort, order } => write!(f, "treasure_family {sort} {order}"),
         }
     }
 }

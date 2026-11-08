@@ -74,6 +74,12 @@ fn compiled() -> &'static Compiled {
     C.get_or_init(|| compile_at(&database()))
 }
 
+/// The treasure numbers the database's world plays by: its rows', the server's own for each kind
+/// it gives none of.
+pub(crate) fn treasure_tables() -> yalain_world::treasure::TreasureTables {
+    yalain_world::treasure::TreasureTables::with_rows(&compiled().tables.treasure).0
+}
+
 /// The pinned release compiled, once (the database itself when it is the pinned release).
 fn pinned() -> &'static Compiled {
     static P: OnceLock<Compiled> = OnceLock::new();
@@ -4059,4 +4065,17 @@ fn the_loot_draw_holds_items_and_value_a_corpse_inside_2017s_intervals() {
     }
     assert!(used > 3_000, "the recordings hold the corpses: {used}");
     assert!(outside.is_empty(), "{outside:#?}");
+}
+
+/// The world's treasure numbers, words, looks, potions and enchantments, its rows' or the server's
+/// own for each kind it gives none of, draw the seeded drops exactly as they were recorded: the world's treasure
+/// rows are 2017's.
+/// Behaviour: server.loot.treasure-numbers-from-rows
+#[test]
+fn the_worlds_treasure_numbers_draw_the_seeded_drops_as_recorded() {
+    let t = &compiled().tables;
+    let (tables, fell_back) = yalain_world::treasure::TreasureTables::with_rows(&t.treasure);
+    println!("the world's treasure numbers, the server's own for: {fell_back:?}");
+    let p = yalain_testkit::authored::Portal::open();
+    yalain_testkit::treasure_drops::seeded_drops(&p, tables).hold_recorded();
 }

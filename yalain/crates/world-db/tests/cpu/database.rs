@@ -3054,3 +3054,515 @@ fn treasure_values_compile_by_level_and_bad_ones_are_problems() {
         );
     }
 }
+
+/// The treasure numbers written as `[[treasure_rules]]` and `[[treasure_sort]]` rows, each weighted
+/// list in its order.
+fn treasure_rows(t: &yalain_content::treasure_tables::TreasureTables) -> String {
+    use std::fmt::Write as _;
+    use yalain_content::treasure_tables::Sort;
+    let floats = |xs: &[f32]| {
+        let v: Vec<String> = xs.iter().map(|x| format!("{x:?}")).collect();
+        format!("[{}]", v.join(", "))
+    };
+    let r = &t.rules;
+    let mut out = String::new();
+    let _ = write!(
+        out,
+        "[[treasure_rules]]\nabove_base = {}\nmost_level = {}\nlore = {{ above = {}, from = {}, to = {} }}\npotion_tiers = {:?}\npotion_spellcraft = [{:?}, {:?}]\nlook = {{ glow_most = {:?}, round_chance = {:?}, round_from = {:?}, round_tenths = {} }}\nprov = {{ from = \"authored\" }}\n",
+        floats(&r.above_base),
+        r.most_level,
+        r.lore.above,
+        r.lore.from,
+        r.lore.to,
+        r.potion_tiers,
+        r.potion_spellcraft.0,
+        r.potion_spellcraft.1,
+        r.look.glow_most,
+        r.look.round_chance,
+        r.look.round_from,
+        r.look.round_tenths,
+    );
+    for sort in Sort::ALL {
+        let s = t.sort(sort);
+        let _ = write!(
+            out,
+            "\n[[treasure_sort]]\nsort = \"{}\"\ncounts = [",
+            sort.name()
+        );
+        let bands: Vec<String> = s
+            .counts
+            .iter()
+            .map(|b| format!("{{ from = {}, weights = {} }}", b.from, floats(&b.weights)))
+            .collect();
+        let _ = writeln!(out, "{}]", bands.join(", "));
+        if let Some((lo, hi)) = s.damage_share {
+            let _ = writeln!(out, "damage_share = [{lo:?}, {hi:?}]");
+        }
+        if !s.vigor.is_empty() {
+            let bands: Vec<String> = s
+                .vigor
+                .iter()
+                .map(|b| {
+                    let every = b
+                        .every
+                        .map(|e| format!(", every = {e}"))
+                        .unwrap_or_default();
+                    format!(
+                        "{{ from = {}, least = {}, most = {}{every} }}",
+                        b.from, b.least, b.most
+                    )
+                })
+                .collect();
+            let _ = writeln!(out, "vigor = [{}]", bands.join(", "));
+        }
+        if let Some((lo, hi)) = s.span {
+            let _ = writeln!(out, "span = [{lo:?}, {hi:?}]");
+        }
+        if let Some(d) = &s.delays {
+            let _ = writeln!(
+                out,
+                "delays = {{ from = {}, weights = {} }}",
+                d.from,
+                floats(&d.weights)
+            );
+        }
+        if !s.rating_share.is_empty() {
+            let points: Vec<String> = s
+                .rating_share
+                .iter()
+                .map(|(l, x)| format!("[{l}, {x:?}]"))
+                .collect();
+            let _ = writeln!(out, "rating_share = [{}]", points.join(", "));
+            let _ = writeln!(out, "rating_spread = {:?}", s.rating_spread);
+            let _ = writeln!(out, "slot_chance = {:?}", s.slot_chance);
+        }
+        let _ = writeln!(out, "prov = {{ from = \"authored\" }}");
+    }
+    out
+}
+
+/// The words, looks and potions written as `[[treasure_word]]`, `[[treasure_look]]` and
+/// `[[treasure_potion]]` rows, words and potions with their order.
+fn treasure_text_rows(t: &yalain_content::treasure_tables::TreasureTables) -> String {
+    use std::fmt::Write as _;
+    use yalain_content::treasure_tables::{Sort, POTION_KINDS};
+    let floats = |xs: &[f32]| {
+        let v: Vec<String> = xs.iter().map(|x| format!("{x:?}")).collect();
+        format!("[{}]", v.join(", "))
+    };
+    let mut out = String::new();
+    for sort in Sort::ALL {
+        for (order, w) in t.sort(sort).words.iter().enumerate() {
+            let _ = writeln!(
+                out,
+                "[[treasure_word]]\nsort = \"{}\"\norder = {order}\nword = {:#010x}\ndelays = [{}, {}]\nweights = {}\nprov = {{ from = \"authored\" }}\n",
+                sort.name(),
+                w.word,
+                w.delays.0,
+                w.delays.1,
+                floats(&w.weights)
+            );
+        }
+    }
+    for l in &t.looks {
+        let keys: Vec<String> = l
+            .keys
+            .iter()
+            .map(|(k, m)| format!("{{ key = {k:#010x}, most = {m:?} }}"))
+            .collect();
+        let _ = writeln!(
+            out,
+            "[[treasure_look]]\ntemplate = {:#010x}\ntable = {:#010x}\nkeys = [{}]\nprov = {{ from = \"authored\" }}\n",
+            l.template,
+            l.table,
+            keys.join(", ")
+        );
+    }
+    for sort in Sort::ALL {
+        for (order, f) in t.sort(sort).families.iter().enumerate() {
+            let when = match f.when {
+                yalain_content::treasure_effects::When::Permanent => "permanent",
+                yalain_content::treasure_effects::When::Equipped => "equipped",
+                yalain_content::treasure_effects::When::Hit => "hit",
+            };
+            let tiers: Vec<String> = f
+                .tiers
+                .iter()
+                .map(|x| {
+                    let mut one = format!(
+                        "{{ least = {}, state = {:#010x}, chance = {:?}, glow = {:?}",
+                        x.least, x.state, x.chance, x.glow
+                    );
+                    if x.puts_on != 0 {
+                        let _ = write!(one, ", puts_on = {:#010x}", x.puts_on);
+                    }
+                    if let Some((_, p)) = t.pairs.iter().find(|(a, _)| *a == x.state) {
+                        let _ = write!(one, ", pair = {p:#010x}");
+                    }
+                    if t.unnaming.contains(&x.state) {
+                        one.push_str(", named = false");
+                    }
+                    one.push_str(" }");
+                    one
+                })
+                .collect();
+            let _ = writeln!(
+                out,
+                "[[treasure_family]]\nsort = \"{}\"\norder = {order}\nwhen = \"{when}\"\nweight = {:?}\nby_level = {}\ntiers = [{}]\nprov = {{ from = \"authored\" }}\n",
+                sort.name(),
+                f.weight,
+                f.by_level,
+                tiers.join(", ")
+            );
+        }
+    }
+    for (order, states) in t.potions.iter().enumerate() {
+        let states: Vec<String> = states.iter().map(|s| format!("{s:#010x}")).collect();
+        let _ = writeln!(
+            out,
+            "[[treasure_potion]]\nkind = \"{}\"\norder = {order}\nstates = [{}]\nprov = {{ from = \"authored\" }}\n",
+            POTION_KINDS[order],
+            states.join(", ")
+        );
+    }
+    out
+}
+
+/// The test world with these rows in a file of its town's.
+fn with_treasure(rows: &str) -> Files {
+    let mut files = fixture();
+    files.insert("town/server/treasure.toml".into(), rows.to_string());
+    files
+}
+
+/// Every problem the check and the merge find.
+fn problems_of(files: &Files) -> Vec<String> {
+    check(files).iter().map(ToString::to_string).collect()
+}
+
+#[test]
+fn the_2017_treasure_numbers_written_as_rows_compile_back_to_the_same_tables() {
+    use yalain_content::treasure_tables::TreasureTables;
+    let defaults = TreasureTables::retail_2017();
+    let mut files = with_treasure(&treasure_rows(&defaults));
+    files.insert(
+        "town/server/treasure_words.toml".into(),
+        treasure_text_rows(&defaults),
+    );
+    assert_eq!(problems_of(&files), Vec::<String>::new());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert!(
+        !t.warnings.iter().any(|w| w.message.contains("treasure")),
+        "every band has a weighted word: {:?}",
+        t.warnings
+    );
+    let (tables, fell_back) = TreasureTables::with_rows(&t.treasure);
+    assert_eq!(fell_back, Vec::<&str>::new(), "the world gives every kind");
+    assert_eq!(tables, defaults, "the rows are 2017's numbers, exactly");
+    // A world with none plays 2017's, and says which kinds it fell back to.
+    let t = compile(&merge(&read(&fixture()).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let (tables, fell_back) = TreasureTables::with_rows(&t.treasure);
+    assert_eq!(
+        fell_back,
+        [
+            "treasure_rules",
+            "treasure_sort",
+            "treasure_word",
+            "treasure_look",
+            "treasure_potion",
+            "treasure_family"
+        ]
+    );
+    assert_eq!(tables, defaults);
+}
+
+#[test]
+fn a_worlds_treasure_rows_replace_the_kinds_they_give_whole() {
+    use yalain_content::treasure_tables::{Sort, TreasureTables};
+    let defaults = TreasureTables::retail_2017();
+    let mut own = defaults.clone();
+    own.rules.most_level = 40;
+    own.rules.above_base = vec![0.0, 1.0];
+    own.weapon.vigor[0].most = 2;
+    own.shield.slot_chance = 0.25;
+    own.jewelry.counts = vec![yalain_content::treasure_tables::CountBand {
+        from: 0,
+        weights: vec![1.0, 1.0],
+    }];
+    let files = with_treasure(&treasure_rows(&own));
+    assert_eq!(problems_of(&files), Vec::<String>::new());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let (tables, _) = TreasureTables::with_rows(&t.treasure);
+    assert_eq!(tables, own, "the world's numbers");
+    assert_eq!(
+        tables.sort(Sort::Weapon).families,
+        defaults.sort(Sort::Weapon).families,
+        "a sort keeps its families and words"
+    );
+}
+
+#[test]
+fn treasure_rows_that_break_their_rules_are_problems() {
+    use yalain_content::treasure_tables::TreasureTables;
+    let good = treasure_rows(&TreasureTables::retail_2017());
+    assert_eq!(problems_of(&with_treasure(&good)), Vec::<String>::new());
+    let shield_at = good.find("sort = \"shield\"").expect("a shield row");
+    let without_shield = {
+        let start = good[..shield_at]
+            .rfind("[[treasure_sort]]")
+            .expect("its header");
+        let end = good[shield_at..]
+            .find("[[treasure_sort]]")
+            .map_or(good.len(), |e| shield_at + e);
+        format!("{}{}", &good[..start], &good[end..])
+    };
+    for (rows, says) in [
+        (without_shield, "no row of shield"),
+        (
+            good.replace("above_base = [436.0, 519.0, 220.0, 39.0]", "above_base = [0.0, 0.0]"),
+            "above_base: weights",
+        ),
+        (
+            good.replace("potion_tiers = [0, 16, 30, 40, 45]", "potion_tiers = [0, 16, 30, 45, 40]"),
+            "potion_tiers",
+        ),
+        (
+            good.replace("potion_tiers = [0, 16, 30, 40, 45]", "potion_tiers = [0, 16, 30, 40]"),
+            "the server's own potions have 5 states",
+        ),
+        (
+            good.replace("lore = { above = 51, from = -6, to = -1 }", "lore = { above = 51, from = -1, to = -6 }"),
+            "lore: from at most to",
+        ),
+        (good.replace("most_level = 50", "most_level = 0"), "most_level"),
+        (
+            good.replace("round_chance = 0.1", "round_chance = 1.5"),
+            "look: glow_most",
+        ),
+        (
+            good.replacen("{ from = 0, least = 1, most = 1 }", "{ from = 0, least = 1, most = 1, every = 5 }", 1),
+            "vigor: bands",
+        ),
+        (good.replacen("{ from = 8, least = 3, most = 3 }", "{ from = 8, least = 3, most = 2 }", 1), "vigor: bands"),
+        (good.replacen("{ from = 10, weights", "{ from = 9, weights", 0).replacen("counts = [{ from = 0,", "counts = [{ from = 1,", 1), "counts: bands"),
+        (
+            good.replacen("{ from = 50, weights = [610.0, 64.0, 36.0, 12.0] }", "", 1).replacen(", ]", "]", 1),
+            "the server's own words for a weapon are weighted by 6",
+        ),
+        (good.replacen("damage_share = [0.84, 0.97]", "damage_share = [0.97, 0.84]", 1), "damage_share"),
+        (good.replacen("sort = \"jewelry\"", "sort = \"jewelry\"\nspan = [0.25, 0.29]", 1), "span: not a field of a jewelry row"),
+        (good.replacen("span = [0.25, 0.29]\n", "", 1), "span: missing: a shield row has it"),
+        (good.replacen("sort = \"weapon\"", "sort = \"wand\"", 1), "sort: weapon, armor, shield or jewelry"),
+        (good.replacen("rating_share = [[0, 0.75], [50, 1.0]]", "rating_share = [[50, 0.75], [0, 1.0]]", 1), "rating_share"),
+        (good.replacen("slot_chance = 0.5", "slot_chance = 2.0", 1), "slot_chance: from 0 to 1"),
+        (format!("{good}\n[[treasure_rules]]\nabove_base = [1.0]\nmost_level = 9\nlore = {{ above = 51, from = -6, to = -1 }}\npotion_tiers = [0, 16, 30, 40, 45]\npotion_spellcraft = [0.0, 100.0]\nlook = {{ glow_most = 0.65, round_chance = 0.1, round_from = 0.1, round_tenths = 4 }}\nprov = {{ from = \"authored\" }}\n"), "treasure_rules"),
+    ] {
+        let files = with_treasure(&rows);
+        let problems: Vec<String> = problems_of(&files);
+        assert!(
+            problems.iter().any(|p| p.contains(says)),
+            "{says}: {problems:?}"
+        );
+    }
+}
+
+#[test]
+fn treasure_words_looks_and_potions_that_break_their_rules_are_problems() {
+    use yalain_content::treasure_tables::TreasureTables;
+    let defaults = TreasureTables::retail_2017();
+    let numbers = treasure_rows(&defaults);
+    let good = treasure_text_rows(&defaults);
+    let files = |numbers: &str, text: &str| {
+        let mut f = with_treasure(numbers);
+        f.insert("town/server/treasure_words.toml".into(), text.to_string());
+        f
+    };
+    assert_eq!(problems_of(&files(&numbers, &good)), Vec::<String>::new());
+    // Counts of three bands with the server's own words: refused; with words of three weights: fine.
+    let three = numbers.replacen(
+        "{ from = 0, weights = [102.0, 20.0, 0.0, 0.0] }, { from = 10, weights = [267.0, 34.0, 1.0, 1.0] }, { from = 20, weights = [462.0, 43.0, 7.0, 1.0] }, ",
+        "",
+        1,
+    );
+    assert_ne!(three, numbers);
+    let three = three.replacen("counts = [{ from = 30,", "counts = [{ from = 0,", 1);
+    let problems = problems_of(&with_treasure(&three));
+    assert!(
+        problems
+            .iter()
+            .any(|p| p.contains("the server's own words for a weapon are weighted by 6")),
+        "{problems:?}"
+    );
+    let mut weapon_words = String::new();
+    for (i, w) in defaults.weapon.words.iter().enumerate() {
+        weapon_words.push_str(&format!(
+            "[[treasure_word]]\nsort = \"weapon\"\norder = {i}\nword = {:#010x}\ndelays = [{}, {}]\nweights = [1.0, 1.0, 1.0]\nprov = {{ from = \"authored\" }}\n\n",
+            w.word, w.delays.0, w.delays.1
+        ));
+    }
+    let f = files(&three, &weapon_words);
+    assert_eq!(problems_of(&f), Vec::<String>::new());
+    let t = compile(&merge(&read(&f).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert!(
+        t.warnings
+            .iter()
+            .any(|w| w.message.contains("no armor word is weighted")),
+        "a sort the world gives no words: {:?}",
+        t.warnings
+    );
+    let first_word = format!("word = {:#010x}", defaults.weapon.words[0].word);
+    for (text, says) in [
+        (
+            good.replacen(
+                "weights = [0.0, 136.0, 149.0, 29.0, 0.0, 0.0]",
+                "weights = [0.0, 136.0, 149.0, 29.0, 0.0]",
+                1,
+            ),
+            "weights: 5, but a weapon's counts have 6 bands",
+        ),
+        (
+            good.replacen(
+                "sort = \"weapon\"\norder = 1\n",
+                "sort = \"weapon\"\norder = 0\n",
+                1,
+            ),
+            "order 0: another weapon word has it",
+        ),
+        (
+            good.replacen("sort = \"weapon\"", "sort = \"jewelry\"", 1),
+            "sort: weapon, armor or shield",
+        ),
+        (
+            good.replacen(
+                &format!("{first_word}\ndelays = [7, 18]"),
+                &format!("{first_word}\ndelays = [18, 7]"),
+                1,
+            ),
+            "delays: least at most most",
+        ),
+        (
+            good.replacen(
+                "keys = [{ key = 0x41000021, most = 1.0 }]",
+                "keys = [{ key = 0x41000021, most = 1.5 }]",
+                1,
+            ),
+            "keys: one to three keys",
+        ),
+        (
+            good.replacen("keys = [{ key = 0x41000021, most = 1.0 }]", "keys = []", 1),
+            "keys: one to three keys",
+        ),
+        (
+            good.replacen(
+                "order = 0\nstates = [0x700009f7, 0x700009f4, 0x700009f5, 0x700009f8, 0x700009f6]",
+                "order = 0\nstates = [0x700009f7, 0x700009f4]",
+                1,
+            ),
+            "states: 2, but the potions have 5 tiers",
+        ),
+        (
+            good.replacen(
+                "kind = \"damage-reflected\"\norder = 1",
+                "kind = \"damage-reflected\"\norder = 0",
+                1,
+            ),
+            "order 0: another potion has it",
+        ),
+    ] {
+        assert_ne!(text, good, "{says}: the case changes the rows");
+        let problems = problems_of(&files(&numbers, &text));
+        assert!(
+            problems.iter().any(|p| p.contains(says)),
+            "{says}: {problems:?}"
+        );
+    }
+}
+
+#[test]
+fn treasure_families_that_break_their_rules_are_problems_and_a_dropped_state_is_warned_of() {
+    use yalain_content::treasure_tables::TreasureTables;
+    let defaults = TreasureTables::retail_2017();
+    let good = treasure_text_rows(&defaults);
+    let files = |text: &str| {
+        let mut f = fixture();
+        f.insert("town/server/treasure_words.toml".into(), text.to_string());
+        f
+    };
+    assert_eq!(problems_of(&files(&good)), Vec::<String>::new());
+    let first = format!(
+        "state = {:#010x}",
+        defaults.weapon.families[0].tiers[0].state
+    );
+    let second = format!(
+        "state = {:#010x}",
+        defaults.weapon.families[0].tiers[1].state
+    );
+    for (text, says) in [
+        (
+            good.replacen("when = \"hit\"", "when = \"struck\"", 1),
+            "is not permanent, equipped or hit",
+        ),
+        (
+            good.replacen("order = 1\nwhen", "order = 0\nwhen", 1),
+            "treasure_family weapon 0 is set twice",
+        ),
+        (
+            good.replacen(&second, &first, 1),
+            "is a tier of another family too",
+        ),
+        (
+            good.replacen("pair = 0x6f00266e", "pair = 0x6f00ffff", 1),
+            "is no tier of the world's families",
+        ),
+        (
+            good.replacen("{ least = 16,", "{ least = -1,", 1),
+            "tiers: at least one, least from 0",
+        ),
+        (
+            good.replacen("{ least = 16,", "{ least = 99,", 1),
+            "a family by level gives its tiers from the lowest",
+        ),
+        (
+            good.replacen("chance = 0.1,", "chance = 1.5,", 1),
+            "tiers: at least one",
+        ),
+        (
+            good.replacen("when = \"hit\"", "when = \"permanent\"", 1),
+            "puts_on only in a family of effects on what an item hits",
+        ),
+    ] {
+        assert_ne!(text, good, "{says}: the case changes the rows");
+        let problems = problems_of(&files(&text));
+        assert!(
+            problems.iter().any(|p| p.contains(says)),
+            "{says}: {problems:?}"
+        );
+    }
+    // A world whose families leave out one of the server's own states is warned of, not refused.
+    let start = good.find("[[treasure_family]]").expect("a family");
+    let end = good[start + 1..]
+        .find("[[treasure_family]]")
+        .map_or(good.len(), |e| start + 1 + e);
+    let dropped = format!("{}{}", &good[..start], &good[end..]);
+    let f = files(&dropped);
+    assert_eq!(problems_of(&f), Vec::<String>::new(), "not refused");
+    let t = compile(&merge(&read(&f).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let warned: Vec<&str> = t
+        .warnings
+        .iter()
+        .map(|w| w.message.as_str())
+        .filter(|m| m.contains("enchantments are in none of the world's families"))
+        .collect();
+    assert_eq!(warned.len(), 1, "{:?}", t.warnings);
+    assert!(
+        warned[0].starts_with("[[treasure_family]]: 5 of"),
+        "{}",
+        warned[0]
+    );
+    let t = compile(&merge(&read(&files(&good)).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert!(
+        !t.warnings.iter().any(|w| w.message.contains("treasure")),
+        "every state kept: {:?}",
+        t.warnings
+    );
+}

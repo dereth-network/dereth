@@ -1715,20 +1715,26 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         kingdoms: kingdom_rows,
         popups,
         effect_rules,
+        treasure,
         ..
     } = compiled;
-    // The numbers treasure draws by: 2017's, until the world gives its own.
-    let treasure_tables = yalain_content::treasure_tables::TreasureTables::retail_2017();
+    // The numbers treasure draws by: the world's rows, 2017's for each kind it gives none of.
+    let (treasure_tables, mut fell_back) =
+        yalain_content::treasure_tables::TreasureTables::with_rows(&treasure);
+    if loot.values.is_empty() {
+        fell_back.push("treasure_value");
+    }
     let play = (|| {
         if effect_rules.wards.is_empty() {
             tracing::warn!(
                 "this world has no [[effect_rule]] rows: its wards keep off what the server's own say"
             );
         }
-        if loot.values.is_empty() {
+        if !fell_back.is_empty() {
+            let kinds: Vec<String> = fell_back.iter().map(|k| format!("[[{k}]]")).collect();
             tracing::warn!(
-                "this world has no [[treasure_value]] rows: its treasure is worth the server's own \
-                 values by level"
+                "this world has no {} rows: its treasure draws by the server's own numbers there",
+                kinds.join(", ")
             );
         }
         let wards = yalain_world::effect_defs::world_wards(&effect_rules.wards);

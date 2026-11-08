@@ -246,6 +246,11 @@ fn check_cmd(args: &[String]) -> Result<(), String> {
         ));
     }
     let db = rows::read(&files).map_err(|p| report(&p))?;
+    if let Ok(merged) = yalain_world_db::merge::merge(&db) {
+        for w in yalain_world_db::compile::treasure_warnings(&merged) {
+            println!("warning: {w}");
+        }
+    }
     let rows: usize = db.packs.iter().map(|p| p.rows.len()).sum();
     println!(
         "{}: {} packs, {rows} rows, {} files: no problems",
@@ -260,8 +265,10 @@ fn check_cmd(args: &[String]) -> Result<(), String> {
 /// naming an effect the server already resolves to a saved state, an `[[event]]` naming a game
 /// event the install does not have, a `[[points_bonus]]` naming an effect the install holds no
 /// saved state of, a `[[popup]]` naming an effect the install holds no saved state of or one
-/// whose effect has no description to show, and an `[[effect_rule]]` naming an effect, or a ward
-/// keeping off an effect, the install holds no saved state of.
+/// whose effect has no description to show, an `[[effect_rule]]` naming an effect, or a ward
+/// keeping off an effect, the install holds no saved state of, a `[[treasure_look]]` naming a
+/// table the install has not, and a `[[treasure_potion]]` or a `[[treasure_family]]` naming an
+/// effect the install has not.
 ///
 /// # Errors
 /// The install's library does not read.
@@ -306,6 +313,52 @@ pub fn install_problems(p: &data::Portal, db: &rows::Database) -> Result<Vec<Pro
                         ),
                     ));
                 }
+            }
+        }
+        if let rows::Row::TreasureLook(r) = &l.row {
+            if p.dat.read(r.look.table).is_err() {
+                out.push(Problem::new(
+                    &l.file,
+                    l.line,
+                    format!(
+                        "[[treasure_look]] {:#010x}: table {:#010x}: the install holds no such table",
+                        r.look.template, r.look.table
+                    ),
+                ));
+            }
+        }
+        if let rows::Row::TreasureFamily(r) = &l.row {
+            let named: Vec<u32> = r
+                .family
+                .tiers
+                .iter()
+                .flat_map(|t| [t.state, t.puts_on])
+                .filter(|s| *s != 0)
+                .collect();
+            let read = data::effect_table(p, &named, &std::collections::BTreeMap::new())?;
+            for state in named.iter().filter(|s| !read.effects.contains_key(s)) {
+                out.push(Problem::new(
+                    &l.file,
+                    l.line,
+                    format!(
+                        "[[treasure_family]] {} {}: state {state:#010x}: the install holds no such effect",
+                        r.sort.name(),
+                        r.order
+                    ),
+                ));
+            }
+        }
+        if let rows::Row::TreasurePotion(r) = &l.row {
+            let read = data::effect_table(p, &r.states, &std::collections::BTreeMap::new())?;
+            for state in r.states.iter().filter(|s| !read.effects.contains_key(s)) {
+                out.push(Problem::new(
+                    &l.file,
+                    l.line,
+                    format!(
+                        "[[treasure_potion]] {}: state {state:#010x}: the install holds no such effect",
+                        r.kind
+                    ),
+                ));
             }
         }
         if let rows::Row::PointsBonus(r) = &l.row {

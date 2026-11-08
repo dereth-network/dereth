@@ -24,6 +24,8 @@ pub mod invariants;
 pub mod play;
 #[cfg(feature = "retail-dats")]
 pub mod session;
+#[cfg(feature = "retail-dats")]
+pub mod treasure_drops;
 
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 

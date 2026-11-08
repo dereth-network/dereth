@@ -82,7 +82,12 @@ pub fn check(files: &Files) -> Vec<Problem> {
 pub fn check_read(db: &Database) -> (Vec<Problem>, Option<Merged>) {
     let mut problems = check_database(db);
     let merged = match merge(db) {
-        Ok(m) => Some(m),
+        Ok(m) => {
+            problems.extend(check_treasure_sorts(&m));
+            problems.extend(check_treasure_bands(&m));
+            problems.extend(check_treasure_families(&m));
+            Some(m)
+        }
         Err(p) => {
             problems.extend(p);
             None
@@ -90,6 +95,183 @@ pub fn check_read(db: &Database) -> (Vec<Problem>, Option<Merged>) {
     };
     problems.sort();
     (problems, merged)
+}
+
+/// A world that gives any sort's treasure numbers gives every sort's: a sort it left out would
+/// draw none of its own.
+fn check_treasure_sorts(m: &Merged) -> Vec<Problem> {
+    use yalain_content::treasure_tables::Sort;
+    let rows: Vec<(&Located, Sort)> = m
+        .rows
+        .iter()
+        .filter_map(|l| match &l.row {
+            Row::TreasureSort(r) => Some((l, r.sort)),
+            _ => None,
+        })
+        .collect();
+    let Some((first, _)) = rows.first() else {
+        return Vec::new();
+    };
+    let missing: Vec<&str> = Sort::ALL
+        .into_iter()
+        .filter(|s| !rows.iter().any(|(_, x)| x == s))
+        .map(Sort::name)
+        .collect();
+    if missing.is_empty() {
+        return Vec::new();
+    }
+    vec![Problem::new(
+        &first.file,
+        first.line,
+        format!(
+            "[[treasure_sort]]: no row of {}; a world that gives any sort gives all four",
+            missing.join(", ")
+        ),
+    )]
+}
+
+/// The treasure rows that must agree with each other: a word's weights, one per count band of its
+/// sort, the world's counts or the server's own; a potion's states, one per tier the world's rules
+/// or the server's own give; and each sort's words and the potions in an order given once.
+fn check_treasure_bands(m: &Merged) -> Vec<Problem> {
+    use yalain_content::treasure_tables::{Sort, TreasureTables};
+    let defaults = TreasureTables::retail_2017();
+    let mut out = Vec::new();
+    let mut counts: BTreeMap<Sort, (usize, Option<&Located>)> = Sort::ALL
+        .into_iter()
+        .map(|s| (s, (defaults.sort(s).counts.len(), None)))
+        .collect();
+    let mut tiers = (defaults.rules.potion_tiers.len(), None);
+    let mut words: Vec<(&Located, Sort, u32, usize)> = Vec::new();
+    let mut potions: Vec<(&Located, u32, usize)> = Vec::new();
+    for l in &m.rows {
+        match &l.row {
+            Row::TreasureSort(r) => {
+                counts.insert(r.sort, (r.tables.counts.len(), Some(l)));
+            }
+            Row::TreasureRules(r) => tiers = (r.rules.potion_tiers.len(), Some(l)),
+            Row::TreasureWord(r) => words.push((l, r.sort, r.order, r.word.weights.len())),
+            Row::TreasurePotion(r) => potions.push((l, r.order, r.states.len())),
+            _ => {}
+        }
+    }
+    let at = |l: &Located, m: String| Problem::new(&l.file, l.line, m);
+    if words.is_empty() {
+        // The server's own words: their sorts' counts must keep the bands they are weighted by.
+        for sort in Sort::ALL {
+            let own = defaults.sort(sort).words.first().map(|w| w.weights.len());
+            if let (Some(n), (bands, Some(l))) = (own, counts[&sort]) {
+                if n != bands {
+                    out.push(at(
+                        l,
+                        format!(
+                            "counts: {bands} bands, but the server's own words for a {} are weighted by {n}: give its [[treasure_word]] rows",
+                            sort.name()
+                        ),
+                    ));
+                }
+            }
+        }
+    }
+    let mut orders = BTreeSet::new();
+    for (l, sort, order, n) in &words {
+        let bands = counts[sort].0;
+        if *n != bands {
+            out.push(at(
+                l,
+                format!(
+                    "weights: {n}, but a {}'s counts have {bands} bands: one weight a band",
+                    sort.name()
+                ),
+            ));
+        }
+        if !orders.insert((*sort, *order)) {
+            out.push(at(
+                l,
+                format!("order {order}: another {} word has it", sort.name()),
+            ));
+        }
+    }
+    if potions.is_empty() {
+        if let (n, Some(l)) = tiers {
+            let own = defaults.potions.first().map_or(0, Vec::len);
+            if n != own {
+                out.push(at(
+                    l,
+                    format!(
+                        "potion_tiers: {n} tiers, but the server's own potions have {own} states each: give the world's [[treasure_potion]] rows"
+                    ),
+                ));
+            }
+        }
+    }
+    let mut orders = BTreeSet::new();
+    for (l, order, n) in &potions {
+        if *n != tiers.0 {
+            out.push(at(
+                l,
+                format!(
+                    "states: {n}, but the potions have {} tiers: one state a tier",
+                    tiers.0
+                ),
+            ));
+        }
+        if !orders.insert(*order) {
+            out.push(at(l, format!("order {order}: another potion has it")));
+        }
+    }
+    out
+}
+
+/// The world's families of enchantments agree with each other: each sort's in an order given once,
+/// each state a tier of one family alone, and each pair naming a tier's state of some family.
+fn check_treasure_families(m: &Merged) -> Vec<Problem> {
+    let rows: Vec<(&Located, &crate::rows::TreasureFamily)> = m
+        .rows
+        .iter()
+        .filter_map(|l| match &l.row {
+            Row::TreasureFamily(r) => Some((l, r)),
+            _ => None,
+        })
+        .collect();
+    let mut out = Vec::new();
+    let mut orders = BTreeSet::new();
+    let mut states: BTreeMap<u32, &Located> = BTreeMap::new();
+    for (l, r) in &rows {
+        if !orders.insert((r.sort, r.order)) {
+            out.push(Problem::new(
+                &l.file,
+                l.line,
+                format!("order {}: another {} family has it", r.order, r.sort.name()),
+            ));
+        }
+        for t in &r.family.tiers {
+            if let Some(other) = states.insert(t.state, l) {
+                out.push(Problem::new(
+                    &l.file,
+                    l.line,
+                    format!(
+                        "tiers: state {:#010x} is a tier of another family too ({}:{})",
+                        t.state, other.file, other.line
+                    ),
+                ));
+            }
+        }
+    }
+    for (l, r) in &rows {
+        for (from, pair) in &r.pairs {
+            if !states.contains_key(pair) {
+                out.push(Problem::new(
+                    &l.file,
+                    l.line,
+                    format!(
+                        "tiers: {from:#010x}'s pair {pair:#010x} is no tier of the world's families"
+                    ),
+                ));
+            }
+        }
+    }
+    out
 }
 
 /// A reference's pack and key (`pack:key` or `key`, this pack).

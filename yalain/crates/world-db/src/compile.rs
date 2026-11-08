@@ -148,6 +148,9 @@ pub struct Tables {
     pub popups: yalain_content::popups::PopupTable,
     /// What effects do where their own data says nothing: what wards keep off.
     pub effect_rules: yalain_content::effect_rules::EffectRules,
+    /// The treasure numbers the world gives: its rules and its sorts' numbers, each kind only
+    /// when it has rows of it.
+    pub treasure: yalain_content::treasure_tables::TreasureRows,
     /// What the compile left out or could not serve, and why.
     pub warnings: Vec<Problem>,
 }
@@ -795,6 +798,13 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     },
                 );
             }
+            // Read whole, below.
+            Row::TreasureRules(_)
+            | Row::TreasureWord(_)
+            | Row::TreasureLook(_)
+            | Row::TreasurePotion(_)
+            | Row::TreasureSort(_)
+            | Row::TreasureFamily(_) => {}
             Row::TreasureValue(r) => {
                 t.loot
                     .values
@@ -1376,6 +1386,8 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
     death_treasures(merged, &camp_keys, &mut t, &mut cx);
     subquest_definitions(&mut t.quests, install);
     t.quests.rooms = rooms.into_values().collect();
+    t.treasure = treasure_rows(merged);
+    cx.warnings.extend(treasure_warnings(merged));
     if cx.problems.is_empty() {
         t.warnings = cx.warnings;
         Ok(t)
@@ -1383,6 +1395,123 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
         cx.problems.sort();
         Err(cx.problems)
     }
+}
+
+/// What the world's rows give of the treasure numbers: each kind only where it has rows, its words,
+/// potions and families by their order, and the families' pairs and unnamed states from their tiers.
+#[must_use]
+pub fn treasure_rows(merged: &Merged) -> yalain_content::treasure_tables::TreasureRows {
+    let mut t = yalain_content::treasure_tables::TreasureRows::default();
+    for l in &merged.rows {
+        match &l.row {
+            Row::TreasureRules(r) => t.rules = Some(r.rules.clone()),
+            Row::TreasureSort(r) => {
+                t.sorts.insert(r.sort, r.tables.clone());
+            }
+            Row::TreasureWord(r) => {
+                t.words
+                    .entry(r.sort)
+                    .or_default()
+                    .insert(r.order, r.word.clone());
+            }
+            Row::TreasureLook(r) => t.looks.push(r.look.clone()),
+            Row::TreasurePotion(r) => {
+                t.potions.insert(r.order, r.states.clone());
+            }
+            Row::TreasureFamily(r) => {
+                t.families
+                    .entry(r.sort)
+                    .or_default()
+                    .insert(r.order, r.family.clone());
+                t.pairs.extend(r.pairs.iter().copied());
+                t.unnaming.extend(r.unnamed.iter().copied());
+            }
+            _ => {}
+        }
+    }
+    t.pairs.sort_unstable();
+    t.pairs.dedup();
+    t.unnaming.sort_unstable();
+    t.unnaming.dedup();
+    t
+}
+
+/// What the world's treasure rows should say but need not stop for: a band of a sort's counts where
+/// none of the world's words for it is weighted (an item of such a band takes the plain word), and
+/// a state the server's own families give that the world's families do not (an item that carries
+/// it puts nothing on what it hits, and shows it as its own).
+#[must_use]
+pub fn treasure_warnings(merged: &Merged) -> Vec<Problem> {
+    use yalain_content::treasure_tables::{Sort, TreasureTables};
+    let rows = treasure_rows(merged);
+    let (tables, _) = TreasureTables::with_rows(&rows);
+    let first = |kind: &str| {
+        merged
+            .rows
+            .iter()
+            .find(|l| l.row.kind() == kind)
+            .map_or((String::new(), 0), |l| (l.file.clone(), l.line))
+    };
+    let mut out = Vec::new();
+    if !rows.words.is_empty() {
+        for sort in [Sort::Weapon, Sort::Armor, Sort::Shield] {
+            let of = tables.sort(sort);
+            let empty: Vec<i32> = of
+                .counts
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| {
+                    !of.words
+                        .iter()
+                        .any(|w| w.weights.get(*i).is_some_and(|x| *x > 0.0))
+                })
+                .map(|(_, b)| b.from)
+                .collect();
+            if empty.is_empty() {
+                continue;
+            }
+            let at = merged.rows.iter().find(|l| match &l.row {
+                Row::TreasureWord(r) => r.sort == sort,
+                _ => false,
+            });
+            let (file, line) = at.map_or(("", 0), |l| (l.file.as_str(), l.line));
+            out.push(Problem::new(
+                file,
+                line,
+                format!(
+                    "[[treasure_word]]: no {} word is weighted in the bands from {empty:?}: their items take the plain word",
+                    sort.name()
+                ),
+            ));
+        }
+    }
+    if !rows.families.is_empty() {
+        let theirs: std::collections::BTreeSet<u32> = tables
+            .families()
+            .flat_map(|f| f.tiers.iter().map(|t| t.state))
+            .collect();
+        let dropped: Vec<String> = TreasureTables::retail_2017()
+            .families()
+            .flat_map(|f| f.tiers.iter().map(|t| t.state))
+            .filter(|s| !theirs.contains(s))
+            .map(|s| format!("{s:#010x}"))
+            .collect();
+        if !dropped.is_empty() {
+            let (file, line) = first("treasure_family");
+            let shown: Vec<&str> = dropped.iter().take(8).map(String::as_str).collect();
+            out.push(Problem::new(
+                &file,
+                line,
+                format!(
+                    "[[treasure_family]]: {} of the server's own enchantments are in none of the world's families ({}{}): an item that carries one keeps it, but it puts nothing on what the item hits and shows as the item's own",
+                    dropped.len(),
+                    shown.join(", "),
+                    if dropped.len() > shown.len() { ", ..." } else { "" }
+                ),
+            ));
+        }
+    }
+    out
 }
 
 /// The death treasures, once every camp has its id in the spawn table: each names what is in the

@@ -141,9 +141,9 @@ fn export(t: &TreasureTables) -> Value {
             "table": l.table,
             "keys": l.keys.iter().map(|(k, m)| json!({"key": k, "most": n(*m)})).collect::<Vec<_>>(),
         })).collect::<Vec<_>>(),
-        "potions": t.potions.iter().enumerate().map(|(kind, states)| json!({
-            "kind": kind,
-            "order": kind,
+        "potions": t.potions.iter().enumerate().map(|(order, states)| json!({
+            "kind": yalain_content::treasure_tables::POTION_KINDS.get(order).copied().unwrap_or("potion"),
+            "order": order,
             "states": states,
         })).collect::<Vec<_>>(),
         "families": families,

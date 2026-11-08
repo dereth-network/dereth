@@ -32,6 +32,11 @@
 //! <pack>/server/weapons.toml      [[weapon]]
 //! <pack>/server/pets.toml         [[pet]], [[pet_limit]]
 //! <pack>/server/effects.toml      [[effect_name]], [[effect_rule]]
+//! <pack>/server/treasure.toml     [[treasure_rules]], [[treasure_sort]]
+//! <pack>/server/treasure_words.toml    [[treasure_word]]
+//! <pack>/server/treasure_looks.toml    [[treasure_look]]
+//! <pack>/server/treasure_potions.toml  [[treasure_potion]]
+//! <pack>/server/treasure_families.toml [[treasure_family]]
 //! <pack>/server/routes.toml       [[route]]
 //! <pack>/server/areas.toml        [[area]]
 //! ```

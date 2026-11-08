@@ -717,8 +717,8 @@ impl Portal {
                     pets: &t.pet_kinds,
                 },
             ));
-        // The looks treasure draws: 2017's, as a world without its own plays by.
-        let treasure = yalain_content::treasure_tables::TreasureTables::retail_2017();
+        // The looks treasure draws: the world's, else the server's own.
+        let (treasure, _) = yalain_content::treasure_tables::TreasureTables::with_rows(&t.treasure);
         let mut seen = std::collections::HashSet::new();
         for id in spawned
             .chain(dropped)

@@ -62,6 +62,24 @@ pub fn item(l: &Located) -> Option<Item> {
             on: r.on.word().to_string(),
         },
         Row::TreasureValue(r) => Item::TreasureValue { level: r.level },
+        Row::TreasureRules(_) => Item::TreasureRules,
+        Row::TreasureWord(r) => Item::TreasureWord {
+            sort: r.sort.name().to_string(),
+            word: r.word.word,
+        },
+        Row::TreasureLook(r) => Item::TreasureLook {
+            template: r.look.template,
+        },
+        Row::TreasurePotion(r) => Item::TreasurePotion {
+            kind: r.kind.clone(),
+        },
+        Row::TreasureFamily(r) => Item::TreasureFamily {
+            sort: r.sort.name().to_string(),
+            order: r.order,
+        },
+        Row::TreasureSort(r) => Item::TreasureSort {
+            sort: r.sort.name().to_string(),
+        },
         Row::Scene(r) => Item::Scene { id: r.id },
         Row::Shard(r) => Item::Shard { object: r.object },
         Row::Weapon(r) => Item::Weapon {
@@ -118,6 +136,12 @@ fn value(row: &Row) -> String {
         Row::Popup(x) => x.prov = crate::rows::Prov::default(),
         Row::EffectRule(x) => x.prov = crate::rows::Prov::default(),
         Row::TreasureValue(x) => x.prov = crate::rows::Prov::default(),
+        Row::TreasureRules(x) => x.prov = crate::rows::Prov::default(),
+        Row::TreasureWord(x) => x.prov = crate::rows::Prov::default(),
+        Row::TreasureLook(x) => x.prov = crate::rows::Prov::default(),
+        Row::TreasurePotion(x) => x.prov = crate::rows::Prov::default(),
+        Row::TreasureFamily(x) => x.prov = crate::rows::Prov::default(),
+        Row::TreasureSort(x) => x.prov = crate::rows::Prov::default(),
         Row::Scene(x) => x.prov = crate::rows::Prov::default(),
         Row::Shard(x) => x.prov = crate::rows::Prov::default(),
         Row::Weapon(x) => x.prov = crate::rows::Prov::default(),

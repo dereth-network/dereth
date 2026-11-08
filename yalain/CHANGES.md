@@ -66,6 +66,7 @@ what they see, not how it was done.
 - Critical specials now crit as hard as retail.
 - Skills like Lumbering Might now toggle on and off as in retail.
 - Creatures' treasure is now worth what the world gives for each level, and trumps and rares sell for their full price.
+- Worlds can now set treasure's numbers, words, looks, potions and enchantments as rows.
 
 ## 0.2.2 (2026-11-07)
 - Resurrection skills work: the dead can accept and get up where they fell.
