@@ -2,8 +2,12 @@
 //! answering `GET /health` with `ok` and `GET /status` (also `GET /v1/world`) with the world's
 //! state as JSON: its name, the server's version and game, how long it has run, whether it is
 //! open or shutting down, the players in the world, the logins, the connections and the WebSocket
-//! endpoint's address (`websocket_url`, null with the endpoint off). It has no authentication: it is
-//! meant for loopback or a private network.
+//! endpoint's address (`websocket_url`, null with the endpoint off), and the world's step times
+//! (`world_step`, in milliseconds: the step's budget; since the start, the steps and overruns, the
+//! first step's work, which fills every camp, and the worst since; the creatures that acted at the
+//! last step; and over the last minute's steps, the last, mean, 99th percentile and worst step's
+//! work, and each stage's mean and worst). It has no authentication: it is meant for loopback or a
+//! private network.
 //!
 //! A web page may read it from a page origin the WebSocket endpoint admits
 //! (`server.websocket.allowed_origins`), so that it can find the endpoint: the answer then carries
@@ -39,6 +43,8 @@ pub struct Snapshot {
     pub websocket_url: Option<String>,
     /// The world's saves are failing.
     pub saves_failing: bool,
+    /// The world's step times.
+    pub world_step: yalain_world::step_timer::Figures,
 }
 
 impl Snapshot {
@@ -58,9 +64,47 @@ impl Snapshot {
             "max_logins": self.max_logins,
             "connections": self.connections,
             "websocket_url": self.websocket_url,
+            "world_step": step_json(&self.world_step),
         })
         .to_string()
     }
+}
+
+/// Microseconds as milliseconds.
+#[allow(clippy::cast_precision_loss)]
+fn ms(us: u64) -> f64 {
+    us as f64 / 1000.0
+}
+
+/// The world's step times as `/status` gives them.
+fn step_json(f: &yalain_world::step_timer::Figures) -> serde_json::Value {
+    let stages: serde_json::Map<String, serde_json::Value> = f
+        .stages
+        .iter()
+        .map(|(s, t)| {
+            (
+                s.name().to_owned(),
+                serde_json::json!({ "mean_ms": ms(t.mean_us), "worst_ms": ms(t.worst_us) }),
+            )
+        })
+        .collect();
+    serde_json::json!({
+        "budget_ms": ms(f.budget_us),
+        "steps": f.steps,
+        "overruns": f.overruns,
+        "first_ms": ms(f.first_us),
+        "worst_ms": ms(f.worst_ever_us),
+        "creatures": f.creatures,
+        "recent": {
+            "steps": f.recent_steps,
+            "overruns": f.recent_overruns,
+            "last_ms": ms(f.last_us),
+            "mean_ms": ms(f.mean_us),
+            "p99_ms": ms(f.p99_us),
+            "worst_ms": ms(f.worst_us),
+            "stages": stages,
+        },
+    })
 }
 
 /// The endpoint: its listener's thread, and the snapshot it answers from.
@@ -260,6 +304,7 @@ mod tests {
             logins: 4,
             max_logins: 128,
             connections: 7,
+            world_step: yalain_world::step_timer::Figures::default(),
         });
         let health = get(e.addr(), "/health");
         assert!(health.starts_with("HTTP/1.1 200 OK\r\n"), "{health}");
@@ -283,6 +328,64 @@ mod tests {
             assert_eq!(v["websocket_url"], serde_json::Value::Null);
         }
         assert!(get(e.addr(), "/nothing").starts_with("HTTP/1.1 404"));
+    }
+
+    /// `/status` gives the world's step times as the step timer draws them, in milliseconds: the
+    /// budget, the steps and overruns since the start, the first step and the worst since, the creatures that acted at
+    /// the last step, and over the last minute's steps the last, mean, 99th percentile and worst
+    /// and each stage's mean and worst.
+    /// Behaviour: server.operator.world-step-times-on-the-status-endpoint
+    #[test]
+    fn the_status_endpoint_gives_the_worlds_step_times_by_stage() {
+        use std::sync::{Arc, Mutex};
+        use yalain_world::step_timer::{Stage, StepTimer};
+        let at = Arc::new(Mutex::new(0.0_f64));
+        let read = Arc::clone(&at);
+        let mut timer = StepTimer::default();
+        timer.set_clock(Box::new(move || {
+            *read.lock().unwrap_or_else(PoisonError::into_inner)
+        }));
+        let steps = [(2.0, 0.0), (0.004, 0.001), (0.3, 0.0)];
+        for (i, (creatures, network)) in steps.into_iter().enumerate() {
+            timer.begin();
+            *at.lock().unwrap_or_else(PoisonError::into_inner) += creatures;
+            timer.lap(Stage::Creatures);
+            *at.lock().unwrap_or_else(PoisonError::into_inner) += network;
+            timer.lap(Stage::Network);
+            timer.set_creatures(12 + i);
+            timer.step_ends(f64::from(u8::try_from(i).expect("small")));
+        }
+        let e = Endpoint::start(
+            SocketAddr::from(([127, 0, 0, 1], 0)),
+            Snapshot {
+                world_step: timer.figures().clone(),
+                ..Snapshot::default()
+            },
+            Vec::new(),
+        )
+        .expect("listens");
+        let text = get(e.addr(), "/status");
+        let body = text.split("\r\n\r\n").nth(1).expect("a body");
+        let v: serde_json::Value = serde_json::from_str(body).expect("JSON");
+        let w = &v["world_step"];
+        assert_eq!(w["budget_ms"], 250.0);
+        assert_eq!((&w["steps"], &w["overruns"]), (&3.into(), &1.into()));
+        assert_eq!(w["first_ms"], 2000.0);
+        assert_eq!(w["worst_ms"], 300.0);
+        assert_eq!(w["creatures"], 14);
+        let r = &w["recent"];
+        assert_eq!((&r["steps"], &r["overruns"]), (&2.into(), &1.into()));
+        assert_eq!(r["last_ms"], 300.0);
+        assert_eq!(r["mean_ms"], 152.5);
+        assert_eq!(r["p99_ms"], 300.0);
+        assert_eq!(r["worst_ms"], 300.0);
+        assert_eq!(r["stages"]["creatures"]["mean_ms"], 152.0);
+        assert_eq!(r["stages"]["creatures"]["worst_ms"], 300.0);
+        assert_eq!(r["stages"]["network"]["mean_ms"], 0.5);
+        assert_eq!(r["stages"]["network"]["worst_ms"], 1.0);
+        let names: Vec<&String> = r["stages"].as_object().expect("by stage").keys().collect();
+        assert_eq!(names.len(), Stage::ALL.len());
+        e.stop();
     }
 
     /// `/status` reports the WebSocket endpoint's address, and a page from an origin the endpoint

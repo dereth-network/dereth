@@ -61,6 +61,8 @@
 //! - [`unhandled`]: what clients reached for that the server does not do yet, counted.
 //! - [`call_limit`]: how fast one connection may send game calls.
 //! - [`guard`]: a panic in the world stops it, whole.
+//! - [`step_timer`]: how long the world works from one step to the next, by stage, and a warning
+//!   when that passes the step.
 
 pub mod admin;
 pub mod admin_calls;
@@ -139,6 +141,7 @@ pub mod social;
 pub mod spawn;
 pub mod start;
 pub mod state;
+pub mod step_timer;
 pub mod store;
 pub mod storms;
 pub mod talk;
@@ -396,6 +399,8 @@ pub struct Server<S: Store> {
     pub vitae_costs: Vec<u64>,
     /// When the world last took a step (its creatures, camps and corpses).
     pub last_step: Option<LocalTime>,
+    /// How long the world works from one step to the next, on the host's clock.
+    pub step_timer: step_timer::StepTimer,
     /// The game clock as the world last read it (set as the world ticks and as players enter).
     pub game_now: f64,
     /// The effects each item template's profile lists.
@@ -801,6 +806,7 @@ impl<S: Store> Server<S> {
             crafting: craft::Crafting::default(),
             vitae_costs: Vec::new(),
             last_step: None,
+            step_timer: step_timer::StepTimer::default(),
             game_now: 0.0,
             item_effects: HashMap::new(),
             item_uses: HashMap::new(),
@@ -902,17 +908,22 @@ impl<S: Store> Server<S> {
     /// Handle every event the network has, then whatever is due.
     pub fn pump(&mut self, net: &mut ServerNet, clock: Clock) {
         self.saves.now = clock.local;
+        self.step_timer.begin();
         while let Some(ev) = net.poll_event() {
             self.saves.piece_begins();
             self.handle(net, ev, clock);
         }
+        self.step_timer.lap(step_timer::Stage::Network);
         self.tick(net, clock);
     }
 
     /// Run what is due by now, and the world's step when one is due.
     pub fn tick(&mut self, net: &mut ServerNet, clock: Clock) {
+        use step_timer::Stage;
         self.game_now = net.game_time(clock.local);
+        self.step_timer.begin();
         world_patch::send_due(self, net, clock);
+        self.step_timer.lap(Stage::Other);
         while let Some(i) = self.timers.iter().position(|(at, _)| at.0 <= clock.local.0) {
             let (_, t) = self.timers.remove(i);
             self.saves.piece_begins();
@@ -1086,11 +1097,13 @@ impl<S: Store> Server<S> {
                 }
             }
         }
+        self.step_timer.lap(Stage::Timers);
         let due = self
             .last_step
             .is_none_or(|t| clock.local.0 - t.0 >= spawn::STEP_SECONDS);
         self.saves.piece_begins();
         login::checks_due(self, net, clock);
+        self.step_timer.lap(Stage::Other);
         self.saves.piece_begins();
         if due {
             self.last_step = Some(clock.local);
@@ -1102,8 +1115,10 @@ impl<S: Store> Server<S> {
         // swings within 0.15 of 1.64 s over the time scale, less than a world step either side).
         combat::swing_all(self, net, clock);
         ai::attacks_due(self, net, clock);
+        self.step_timer.lap(Stage::Fights);
         self.saves.piece_begins();
         saves::tick(self, clock);
+        self.step_timer.lap(Stage::Saves);
         admin::tick(self, net, clock);
         self.saves.piece_begins();
         fellowship::tick(self, net, clock.local);
@@ -1118,8 +1133,17 @@ impl<S: Store> Server<S> {
         storms::look(self, net, clock);
         self.saves.piece_begins();
         presence::views_owed(self, net, clock);
+        self.step_timer.lap(Stage::Other);
         self.saves.piece_begins();
         saves::end_of_pass(self, net, clock);
+        self.step_timer.lap(Stage::Saves);
+        if due {
+            match self.step_timer.step_ends(clock.local.0) {
+                Some(step_timer::Said::First(news)) => tracing::info!("{news}"),
+                Some(step_timer::Said::Slow(warning)) => tracing::warn!("{warning}"),
+                None => {}
+            }
+        }
     }
 
     /// Have something happen `seconds` from now.

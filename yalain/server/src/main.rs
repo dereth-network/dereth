@@ -977,6 +977,11 @@ fn run<S: Store>(
         .map_err(|e| format!("the database will not set ids aside for the world's things: {e}"))?
         .with_world(start, content)
         .with_play(play.catalog, play.spawns, play.loot);
+    // The step timer reads the machine's clock: how long the world's work takes, never what it does.
+    let since = Instant::now();
+    server
+        .step_timer
+        .set_clock(Box::new(move || since.elapsed().as_secs_f64()));
     server.ground = Some(Box::new(play.ground));
     server.walls = Some(play.walls);
     server.stand_placed();
@@ -1300,6 +1305,7 @@ fn run<S: Store>(
             }
             let now = local();
             passes.at(yalain_world::guard::Part::Network);
+            server.step_timer.begin();
             // The status ping is answered on the login port before the transport reads anything.
             let mut pinged = Vec::new();
             let seconds = started.elapsed().as_secs();
@@ -1319,6 +1325,9 @@ fn run<S: Store>(
                 net.on_datagram(port, from, bytes, now);
             });
             wire.send(&pinged);
+            server
+                .step_timer
+                .lap(yalain_world::step_timer::Stage::Transport);
             let clock = Clock {
                 local: now,
                 unix: unix_now(),
@@ -1389,9 +1398,13 @@ fn run<S: Store>(
             for (to, bytes) in friends.take_carried_out() {
                 wire.send_friends(to, &bytes);
             }
+            server.step_timer.begin();
             net.tick(now);
             let out = net.take_datagrams();
             wire.send(&out);
+            server
+                .step_timer
+                .lap(yalain_world::step_timer::Stage::Transport);
             if server.shutdown == yalain_world::shutdown::Shutdown::Done {
                 break;
             }
@@ -1568,6 +1581,7 @@ fn snapshot<S: Store>(
         max_logins: server.cfg.max_sessions,
         connections: net.connection_count(),
         saves_failing: server.saves.failing(),
+        world_step: server.step_timer.figures().clone(),
     }
 }
 

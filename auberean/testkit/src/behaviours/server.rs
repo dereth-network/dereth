@@ -8884,6 +8884,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.operator.slow-world-steps-warned",
+        says: "A world step whose work since the step before passes the step's quarter second is \
+               warned of in the log at once, naming its largest stages; after that at most once a \
+               minute of the world's clock, counting the slow steps since the last warning.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-STEP-TIMER-WARN"),
+        station: "yalain-testkit::cpu::operator::step_timer::a_slow_step_is_warned_of_at_once_then_once_a_minute_counting_the_slow_steps_between",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.operator.start-reads-each-landblock-once",
         says: "Blocks built one after another along the world's columns read each landblock once \
                for themselves and the blocks around them, and come out as blocks built alone; \
@@ -9090,6 +9100,28 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-WS-STATUS"),
         station: "yalain::live::network::a_world_tells_its_hub_and_its_status_endpoint_its_public_websocket_address",
         tier: Tier::Live,
+    },
+    behaviour! {
+        id: "server.operator.world-step-times-by-stage",
+        says: "The server times each world step's work since the step before on the host's clock, \
+               by stage (the network, the timers, the camps, the creatures, the rest of the step, \
+               the fights, the saves, the rest of the pass and the transport), and keeps over the \
+               last minute's steps the last, mean, 99th percentile and worst, and since the start \
+               the steps, the slow steps and the worst.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-STEP-TIMER"),
+        station: "yalain-testkit::cpu::operator::step_timer::the_world_keeps_each_steps_work_by_the_stages_it_does",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.operator.world-step-times-on-the-status-endpoint",
+        says: "The status endpoint gives the world's step times in milliseconds: the budget, the \
+               steps, slow steps and worst since the start, the creatures that acted at the last \
+               step, and the last minute's last, mean, 99th percentile and worst, by stage.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-STEP-TIMER-STATUS"),
+        station: "yalain::bin.yalain::status::tests::the_status_endpoint_gives_the_worlds_step_times_by_stage",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "server.pets.a-contract-hires-a-mercenary",

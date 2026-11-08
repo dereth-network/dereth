@@ -168,11 +168,14 @@ pub fn outdoor(landblock: u32, x: f32, y: f32) -> (u32, f32, f32) {
 
 /// The world's step.
 pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
+    use crate::step_timer::Stage;
     let now = clock.local.0;
     for i in 0..s.spawns.camps.len() {
         fill(s, net, i, clock);
     }
+    s.step_timer.lap(Stage::Camps);
     crate::ai::step(s, net, clock);
+    s.step_timer.lap(Stage::Creatures);
     crate::reload::retire_rested(s, net);
     crate::walkers::step(s, net, clock);
     crate::pets::step(s, net, clock);
@@ -180,6 +183,7 @@ pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
     crate::mining::expire(s, net, now);
     crate::regen::step(s, net, now);
     crate::talk::step(s, net, clock);
+    s.step_timer.lap(Stage::Step);
 }
 
 /// Make the creatures a camp lacks that are due.

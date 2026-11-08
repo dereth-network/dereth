@@ -7164,6 +7164,7 @@ dependencies = [
  "auberean-dat",
  "auberean-friends",
  "auberean-physics",
+ "auberean-primitives",
  "auberean-protocol",
  "auberean-script",
  "auberean-world",

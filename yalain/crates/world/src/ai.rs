@@ -369,6 +369,7 @@ pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
             }
         }
     }
+    s.step_timer.set_creatures(ids.len());
     for id in ids {
         act(s, net, id, clock, now);
     }
