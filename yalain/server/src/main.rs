@@ -1721,6 +1721,12 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
                 "this world has no [[effect_rule]] rows: its wards keep off what the server's own say"
             );
         }
+        if loot.values.is_empty() {
+            tracing::warn!(
+                "this world has no [[treasure_value]] rows: its treasure is worth the server's own \
+                 values by level"
+            );
+        }
         let wards = yalain_world::effect_defs::world_wards(&effect_rules.wards);
         let skills = data::skill_table(portal)?;
         tracing::info!(

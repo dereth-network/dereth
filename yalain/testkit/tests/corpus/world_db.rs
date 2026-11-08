@@ -3833,14 +3833,17 @@ fn measured(items: &[(u32, u32)], trophies: &[u32], extras: &[u32]) -> (f64, f64
 }
 
 /// The measures the recorded creatures' corpses made again are held inside 2017's interval on, in
-/// every band of 20 corpses or more. The rest (value, and the world's creatures by population) are
-/// printed, inside or out, and not held, until they are ruled on.
-const HELD: &[&str] = &["items"];
+/// every band of 20 corpses or more: value only where the world gives treasure values (with none,
+/// treasure is worth the server's own by level band, which is printed and not held). The world's
+/// creatures by population are printed, inside or out, and not held.
+const HELD: &[&str] = &["items", "value"];
 
 /// The world's loot draw, run again for every creature of a corpse the January 2017 recordings show
 /// opened, gives items and value a corpse by level band inside 2017's 95% interval of each, where
 /// the band is held; the world's creatures, by their camps' populations, are printed beside, with
-/// what share of their items would bring each band outside inside.
+/// what share of their items would bring each band outside inside. The value is the treasure's own,
+/// what the corpse's items carry beside their templates'; the server reads which items keep their
+/// template's from the install, as it does here.
 /// Behaviour: server.loot.inside-2017s-intervals
 #[test]
 fn the_loot_draw_holds_items_and_value_a_corpse_inside_2017s_intervals() {
@@ -3865,6 +3868,39 @@ fn the_loot_draw_holds_items_and_value_a_corpse_inside_2017s_intervals() {
         .expect("a creature");
     h.server.loot = t.loot.clone();
     h.server.rng = yalain_world::rng::Rng::new(716);
+    // Every template the world's loot can leave, in the catalog, and the trumps' packages among
+    // theirs, as the server reads them from the install.
+    let trumps: Vec<u32> = yalain_world::treasure::TRUMPS
+        .iter()
+        .filter_map(|n| lib.package_id(n))
+        .collect();
+    let leaves: std::collections::BTreeSet<u32> = t
+        .loot
+        .profiles
+        .iter()
+        .flat_map(|p| p.items.iter().map(|(t, _)| *t))
+        .chain(t.loot.pools.pools.values().flat_map(|p| {
+            p.entries.iter().filter_map(|e| match e.to {
+                yalain_content::pools::Target::Template(t) => Some(t),
+                yalain_content::pools::Target::Pool(_) => None,
+            })
+        }))
+        .collect();
+    for template in leaves {
+        let x = portal.template(template);
+        if trumps
+            .iter()
+            .any(|b| lib.derives_from(x.description.package, *b))
+        {
+            h.server.treasure.trumps.insert(x.description.package);
+        }
+        h.server.catalog.insert(x);
+    }
+    assert_eq!(
+        trumps.len(),
+        yalain_world::treasure::TRUMPS.len(),
+        "the install has the trumps"
+    );
     let mut stats_of: BTreeMap<u32, Option<yalain_content::CreatureStats>> = BTreeMap::new();
     let mut stats = |template: u32, h: &mut Harness| {
         stats_of
@@ -3891,12 +3927,15 @@ fn the_loot_draw_holds_items_and_value_a_corpse_inside_2017s_intervals() {
             .map(|p| p.extras.iter().map(|(t, _)| *t).collect())
             .unwrap_or_default()
     };
-    let mut roll = |h: &mut Harness, s: &yalain_content::CreatureStats| {
+    let mut roll = |h: &mut Harness, s: &yalain_content::CreatureStats| -> Vec<(u32, u32)> {
         if let Some(c) = creature.creature.as_mut() {
             c.stats = s.clone();
             c.camp = None;
         }
         yalain_world::death::roll_loot(&mut h.server, &creature, 0)
+            .into_iter()
+            .map(|(t, v)| (t, v.unwrap_or(0)))
+            .collect()
     };
     // 2017's corpses and the same creatures' corpses made again: [items, value] by band.
     let mut recorded = [[Tally::default(); 2]; BANDS];
@@ -3959,7 +3998,7 @@ fn the_loot_draw_holds_items_and_value_a_corpse_inside_2017s_intervals() {
     );
     let mut outside = Vec::new();
     for (m, measure) in ["items", "value"].iter().enumerate() {
-        let held = HELD.contains(measure);
+        let held = HELD.contains(measure) && (*measure != "value" || !t.loot.values.is_empty());
         println!(
             "{measure} a corpse by level band | 2017: corpses, mean [95%] | made again{} \
              (pool rows' share) | world creatures by population: all (seed rows / pool rows, \

@@ -795,6 +795,11 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     },
                 );
             }
+            Row::TreasureValue(r) => {
+                t.loot
+                    .values
+                    .insert(i32::try_from(r.level).unwrap_or(i32::MAX), r.values.clone());
+            }
             Row::Keeper(k) => {
                 if !cx.template(l, "template", k.template) {
                     continue;

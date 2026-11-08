@@ -6784,7 +6784,8 @@ pub static ROWS: &[Behaviour] = &[
         id: "server.loot.inside-2017s-intervals",
         says: "The world's loot draw, run again for the creature of every corpse recorded opened \
                in 2017, leaves as many items beside the trophies a corpse as 2017's corpses held, \
-               inside the 95% interval of each level band of 20 corpses or more.",
+               and treasure of as much own value a corpse, inside the 95% interval of each level \
+               band of 20 corpses or more.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-LOOT-INTERVALS-2017"),
         station: "yalain-testkit::corpus::world_db::the_loot_draw_holds_items_and_value_a_corpse_inside_2017s_intervals",
@@ -7049,12 +7050,50 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.loot.treasure-value-bands-without-rows",
+        says: "In a world that gives treasure no values, a creature's treasure is worth one of the \
+               server's own values for its level's band, each drawn evenly.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-TREASURE-VALUE-NO-ROWS"),
+        station: "yalain-testkit::cpu::play::treasure_values::treasure_in_a_world_with_no_values_is_worth_the_servers_own_by_level_band",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.loot.treasure-value-by-level",
         says: "Treasure a creature leaves, jewelry among it, is worth what its dropper's level draws, \
                whatever its template says.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-TREASURE-VALUE-JEWELRY"),
         station: "yalain-testkit::cpu::play::fights::jewelry_a_creature_leaves_is_worth_what_treasure_of_its_level_is",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.loot.treasure-value-by-level-row",
+        says: "A treasure item's own value is one of its world's values for its dropper's level, \
+               each drawn evenly as often as it is listed; a level with none draws the nearest \
+               level's, the lower of two as near.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TREASURE-VALUE-ROWS"),
+        station: "yalain-testkit::cpu::play::treasure_values::a_treasure_items_own_value_is_drawn_from_its_worlds_values_for_its_droppers_level",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.loot.treasure-value-none-for-trumps-and-rares",
+        says: "A rare and a trump of the tarot left as treasure carry no value of their own, so \
+               selling one pays its template's, whether or not the world gives values; other \
+               treasure draws its own.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TREASURE-VALUE-TRUMPS-RARES"),
+        station: "yalain-testkit::cpu::play::treasure_values::a_rare_and_a_trump_left_as_treasure_carry_no_value_of_their_own",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.loot.treasure-value-trumps-and-rares-read-from-the-install",
+        says: "The server knows the tarot's trumps by their packages, the greater and each suit's \
+               lesser, and a rare by its own property, as the install has them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TREASURE-TRUMP-KINDS"),
+        station: "yalain::bin.yalain::data::tests::the_trumps_and_rares_are_read_from_the_install",
         tier: Tier::Cpu,
     },
     behaviour! {

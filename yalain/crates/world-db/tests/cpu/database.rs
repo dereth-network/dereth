@@ -2998,3 +2998,59 @@ fn points_bonus_rows_and_kingdom_requirements_compile_and_bad_ones_are_problems(
     );
     assert!(read(&f).is_err(), "a step's unknown kingdom");
 }
+
+#[test]
+fn treasure_values_compile_by_level_and_bad_ones_are_problems() {
+    let with = |rows: &str| {
+        let mut files = fixture();
+        let path = files
+            .keys()
+            .find(|k| k.ends_with("loot.toml"))
+            .expect("loot rows")
+            .clone();
+        let text = files.get(&path).expect("read").clone();
+        files.insert(path, format!("{text}\n{rows}"));
+        files
+    };
+    let good = "[[treasure_value]]\nlevel = 3\nvalues = [4, 4, 9]\nprov = { from = \"authored\" }\n\n[[treasure_value]]\nlevel = 7\nvalues = [20]\nprov = { from = \"authored\" }\n";
+    let files = with(good);
+    assert_eq!(check(&files), Vec::new());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(t.loot.values.get(&3), Some(&vec![4, 4, 9]), "as given");
+    assert_eq!(t.loot.values_at(3), [4, 4, 9]);
+    assert_eq!(t.loot.values_at(5), [4, 4, 9], "the lower of two as near");
+    assert_eq!(t.loot.values_at(6), [20], "the nearest");
+    assert_eq!(t.loot.values_at(90), [20], "the nearest, above all");
+    assert_eq!(
+        yalain_content::LootTable::from_text(&t.loot.to_text()).unwrap(),
+        t.loot,
+        "it reads back as written"
+    );
+    for (rows, says) in [
+        (good.replace("values = [20]", "values = []"), "a list of at least one value"),
+        (good.replace("values = [20]", "values = [-1]"), "a list of values"),
+        (good.replace("level = 7\n", ""), "level"),
+        (
+            format!("{good}\n[[treasure_value]]\nlevel = 7\nvalues = [21]\nprov = {{ from = \"authored\" }}\n"),
+            "treasure_value 7",
+        ),
+    ] {
+        let files = with(&rows);
+        let problems: Vec<String> = check(&files)
+            .iter()
+            .map(ToString::to_string)
+            .chain(
+                read(&files)
+                    .ok()
+                    .and_then(|r| merge(&r).err())
+                    .into_iter()
+                    .flatten()
+                    .map(|p| p.to_string()),
+            )
+            .collect();
+        assert!(
+            problems.iter().any(|p| p.contains(says)),
+            "{says}: {problems:?}"
+        );
+    }
+}

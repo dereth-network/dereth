@@ -81,6 +81,7 @@ mod talk;
 mod trade;
 mod trading;
 mod treasure_pools;
+mod treasure_values;
 mod two_blows;
 mod untraining;
 mod vaults;

@@ -1885,6 +1885,7 @@ pub fn test_loot() -> yalain_content::LootTable {
         }],
         treasures: Vec::new(),
         pools: yalain_content::pools::Pools::default(),
+        values: std::collections::BTreeMap::new(),
     }
 }
 

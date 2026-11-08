@@ -47,6 +47,13 @@
 //! use, a pet, or one its camp let go leaves none. A corpse is given an item once, however many
 //! rows name it.
 //!
+//! **What a treasure item is worth**: its own value is one of the values its world gives treasure
+//! of its dropper's level ([`yalain_content::LootTable::values`]), drawn evenly, the nearest level's
+//! where its own has none, and selling it pays that; a world that gives no values has the server's
+//! own by level band ([`fallback_value_band`]). A rare and a trump of the tarot carry none: selling
+//! one pays its template's value. (2017: 5,135 of the 5,205 treasure items recorded dropped carried
+//! their own; none of the 44 trumps and 7 rares among them did.)
+//!
 //! **A corpse leaves the world** by its creature's template's times, for most creatures these: three
 //! minutes after it appeared, or fifteen seconds if it can hold nothing (the creature has no loot
 //! profile and left nothing); fifteen seconds after it was closed empty, a minute after it was
@@ -612,31 +619,67 @@ pub fn dead_create(t: &Thing) -> CreateObject {
     o
 }
 
-/// The value of a treasure item a creature of a level leaves (the 2017 values' middle half by the
-/// dropper's level: 1-4 under level 10, then 4-11, 10-24, 21-34, 41-84, 75-156).
-fn treasure_value<S: Store>(s: &mut Server<S>, level: i32) -> u32 {
-    let (lo, hi): (u32, u32) = match level {
+/// Whether a treasure item of a template is worth its template's value, with none of its own: a
+/// rare, or a trump of the tarot.
+#[must_use]
+pub fn keeps_template_value<S: Store>(s: &Server<S>, template: u32) -> bool {
+    s.catalog.get(template).is_some_and(|t| {
+        t.props.flag(crate::treasure::RARE) || s.treasure.trumps.contains(&t.description.package)
+    })
+}
+
+/// The values treasure of a creature level draws from in a world that gives none
+/// (`[[treasure_value]]`), by the creature's level: each whole number from the least to the most
+/// evenly (2017's own values by dropper level, the tenth to the ninetieth percentile of each band:
+/// 1-4 under level 10, then 4-11, 10-24, 21-34, 41-84, and 75-156 from level 50).
+#[must_use]
+pub fn fallback_value_band(level: i32) -> (u32, u32) {
+    match level {
         ..=9 => (1, 4),
         10..=19 => (4, 11),
         20..=29 => (10, 24),
         30..=39 => (21, 34),
         40..=49 => (41, 84),
         _ => (75, 156),
+    }
+}
+
+/// A treasure item of a template that a creature of a level leaves: its own value, one of the
+/// world's values for the level drawn evenly, or in a world that gives none one of the server's
+/// own by level ([`fallback_value_band`]); 0, none of its own, where it keeps its template's. The
+/// value is drawn for every treasure item alike, so one that keeps its template's moves no other
+/// draw.
+fn treasure_value<S: Store>(s: &mut Server<S>, level: i32, template: u32) -> Option<u32> {
+    let value = if s.loot.values.is_empty() {
+        let (lo, hi) = fallback_value_band(level);
+        lo + u32::try_from(s.rng.below((hi - lo + 1) as usize)).unwrap_or(0)
+    } else {
+        let values = s.loot.values_at(level);
+        values.get(s.rng.below(values.len())).copied().unwrap_or(0)
     };
-    lo + u32::try_from(s.rng.below((hi - lo + 1) as usize)).unwrap_or(0)
+    Some(if keeps_template_value(s, template) {
+        0
+    } else {
+        value
+    })
 }
 
 /// What a dead creature leaves: its fixed drops, its profile's extras, the profile's draw (from its
 /// items, or its pools for its killer: [`crate::treasure_pools`]), and its death treasures. Each
-/// item is its template and its value (0 for all but those drawn from the profile).
-pub fn roll_loot<S: Store>(s: &mut Server<S>, creature: &Thing, killer: u64) -> Vec<(u32, u32)> {
+/// item is its template and, for treasure (those drawn from the profile), its own value
+/// ([`treasure_value`]); none for the rest.
+pub fn roll_loot<S: Store>(
+    s: &mut Server<S>,
+    creature: &Thing,
+    killer: u64,
+) -> Vec<(u32, Option<u32>)> {
     let Some(c) = creature.creature.as_ref() else {
         return Vec::new();
     };
-    let mut out: Vec<(u32, u32)> = Vec::new();
+    let mut out: Vec<(u32, Option<u32>)> = Vec::new();
     for (t, rate) in c.stats.trophies.clone() {
         if s.rng.chance(rate) {
-            out.push((t, 0));
+            out.push((t, None));
         }
     }
     let name = c.stats.loot_profile.and_then(|v| s.catalog.profile_name(v));
@@ -647,7 +690,7 @@ pub fn roll_loot<S: Store>(s: &mut Server<S>, creature: &Thing, killer: u64) -> 
     if let Some(p) = profile {
         for (t, rate) in &p.extras {
             if s.rng.chance(*rate) {
-                out.push((*t, 0));
+                out.push((*t, None));
             }
         }
         let count = s.rng.weighted(p.counts.iter().copied()).unwrap_or(0);
@@ -677,7 +720,7 @@ pub fn roll_loot<S: Store>(s: &mut Server<S>, creature: &Thing, killer: u64) -> 
                 race,
             );
             for t in items {
-                let value = treasure_value(s, level);
+                let value = treasure_value(s, level, t);
                 out.push((t, value));
             }
         }
@@ -686,14 +729,14 @@ pub fn roll_loot<S: Store>(s: &mut Server<S>, creature: &Thing, killer: u64) -> 
             let Some(i) = s.rng.weighted(p.items.iter().map(|(_, w)| *w as f32)) else {
                 break;
             };
-            let value = treasure_value(s, level);
+            let value = treasure_value(s, level, p.items[i].0);
             out.push((p.items[i].0, value));
         }
-        out.extend(crate::treasure_pools::rare(s, profile_name, base, race).map(|t| (t, 0)));
+        out.extend(crate::treasure_pools::rare(s, profile_name, base, race).map(|t| (t, None)));
     }
     let treasures = death_treasures(s, creature);
     out.truncate(MOST_ITEMS.saturating_sub(treasures.len()));
-    out.extend(treasures.into_iter().map(|t| (t, 0)));
+    out.extend(treasures.into_iter().map(|t| (t, None)));
     out
 }
 
@@ -775,9 +818,9 @@ pub fn corpse_appears<S: Store>(
     );
     let mut contents = Vec::new();
     for (template, value) in loot {
-        if let Some(item) = crate::inventory::make_item(s, template, 1, value) {
-            // A treasure item (one drawn from the profile, with a value) carries its own.
-            if value > 0 {
+        if let Some(item) = crate::inventory::make_item(s, template, 1, value.unwrap_or(0)) {
+            // A treasure item (one drawn from the profile) carries its own.
+            if value.is_some() {
                 crate::treasure::endow(s, item, level, quality);
             }
             if let Some(t) = s.things.get_mut(item) {

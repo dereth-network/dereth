@@ -61,6 +61,7 @@ pub fn item(l: &Located) -> Option<Item> {
         Row::Popup(r) => Item::Popup {
             on: r.on.word().to_string(),
         },
+        Row::TreasureValue(r) => Item::TreasureValue { level: r.level },
         Row::Scene(r) => Item::Scene { id: r.id },
         Row::Shard(r) => Item::Shard { object: r.object },
         Row::Weapon(r) => Item::Weapon {
@@ -116,6 +117,7 @@ fn value(row: &Row) -> String {
         Row::PointsBonus(x) => x.prov = crate::rows::Prov::default(),
         Row::Popup(x) => x.prov = crate::rows::Prov::default(),
         Row::EffectRule(x) => x.prov = crate::rows::Prov::default(),
+        Row::TreasureValue(x) => x.prov = crate::rows::Prov::default(),
         Row::Scene(x) => x.prov = crate::rows::Prov::default(),
         Row::Shard(x) => x.prov = crate::rows::Prov::default(),
         Row::Weapon(x) => x.prov = crate::rows::Prov::default(),

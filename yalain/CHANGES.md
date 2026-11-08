@@ -64,6 +64,7 @@ what they see, not how it was done.
 - A special's hooks now each roll to land and to crit.
 - Critical specials now crit as hard as retail.
 - Skills like Lumbering Might now toggle on and off as in retail.
+- Creatures' treasure is now worth what the world gives for each level, and trumps and rares sell for their full price.
 
 ## 0.2.2 (2026-11-07)
 - Resurrection skills work: the dead can accept and get up where they fell.

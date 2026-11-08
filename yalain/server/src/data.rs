@@ -996,6 +996,7 @@ pub fn treasure(p: &Portal, catalog: &Catalog) -> Result<yalain_world::treasure:
         shields: catalog_packages_from(p, catalog, &treasure::SHIELDS)?,
         jewelry: catalog_packages_from(p, catalog, &treasure::JEWELRY)?,
         potions: catalog_packages_from(p, catalog, &treasure::POTIONS)?,
+        trumps: catalog_packages_from(p, catalog, &treasure::TRUMPS)?,
         potion_looks,
         lore: lore_table(p, treasure::ARCANE_LORE_TABLE)?,
     })
@@ -2060,6 +2061,47 @@ mod tests {
                 "{named}: {problems:?}"
             );
         }
+    }
+
+    /// The tarot's trumps are read from the install by their packages, the greater and each suit's
+    /// lesser alike, and a rare by its own property; neither is any other treasure.
+    /// Behaviour: server.loot.treasure-value-trumps-and-rares-read-from-the-install
+    #[test]
+    fn the_trumps_and_rares_are_read_from_the_install() {
+        const LESSER: u32 = 0x4700_134C;
+        const GREATER: u32 = 0x4700_13C1;
+        const RARE: u32 = 0x4700_1919;
+        const SWORD: u32 = 0x4700_051C;
+        let (dat, _) = tallied(&DatName::Portal);
+        let p = Portal::over(dat, Vec::new(), None).expect("a context");
+        let mut loot = LootTable::default();
+        loot.pools.pools.insert(
+            "GP_Test".into(),
+            yalain_content::pools::Pool {
+                name: "GP_Test".into(),
+                entries: [LESSER, GREATER, RARE, SWORD]
+                    .into_iter()
+                    .map(|t| yalain_content::pools::Entry {
+                        to: yalain_content::pools::Target::Template(t),
+                        weight: 1.0,
+                        least: 0,
+                        most: yalain_content::pools::OPEN_ABOVE,
+                    })
+                    .collect(),
+                ..Default::default()
+            },
+        );
+        let (c, _) = catalog(&p, &SpawnTable::default(), &loot, &[]).expect("the catalog");
+        let kinds = treasure(&p, &c).expect("the treasure kinds");
+        let package = |t: u32| c.templates[&t].description.package;
+        let rare = |t: u32| c.templates[&t].props.flag(yalain_world::treasure::RARE);
+        assert!(kinds.trumps.contains(&package(LESSER)), "a lesser trump");
+        assert!(kinds.trumps.contains(&package(GREATER)), "a greater trump");
+        assert_ne!(package(LESSER), package(GREATER));
+        assert!(!kinds.trumps.contains(&package(RARE)));
+        assert!(!kinds.trumps.contains(&package(SWORD)));
+        assert!(rare(RARE), "a rare");
+        assert!(!rare(LESSER) && !rare(SWORD));
     }
 
     /// The catalog holds every template a treasure pool names, though no camp or profile names it, so

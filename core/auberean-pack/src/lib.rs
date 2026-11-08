@@ -104,7 +104,8 @@ impl Dialect for Ac2 {
     const ITEM_FORMS: &'static str = "object <key>@<XXYY>, camp <key>@<XXYY>, place <key>, \
          loot <value>, keeper <template>, sale <store> <ordinal>, quest <id>, \
          step <quest> <key>, talk <key>, weapon <name>, route <key>, area <XXYY>, \
-         clearing <key>@<XXYY>, death_treasure <key>, or landblock <XXYY>";
+         clearing <key>@<XXYY>, death_treasure <key>, treasure_pool <name>, \
+         treasure_value <level>, or landblock <XXYY>";
     const NAMES_BASE: bool = true;
     type Kind = Kind;
     type Era = Era;
@@ -187,6 +188,8 @@ pub enum Item {
     Popup { on: String },
     /// What the world says of an effect, by the effect's saved state.
     EffectRule { effect: u32 },
+    /// The values treasure is drawn worth, by the level of the creature that leaves it.
+    TreasureValue { level: u32 },
 }
 
 impl Item {
@@ -264,6 +267,9 @@ impl Item {
             ["effect_rule", effect] => Self::EffectRule {
                 effect: number(effect)?,
             },
+            ["treasure_value", level] => Self::TreasureValue {
+                level: number(level)?,
+            },
             ["area", lb] => Self::Area {
                 landblock: u16::from_str_radix(lb, 16).ok().filter(|_| lb.len() == 4)?,
             },
@@ -314,6 +320,7 @@ impl fmt::Display for Item {
             Self::PointsBonus { effect } => write!(f, "points_bonus {effect:#010x}"),
             Self::Popup { on } => write!(f, "popup {on}"),
             Self::EffectRule { effect } => write!(f, "effect_rule {effect:#010x}"),
+            Self::TreasureValue { level } => write!(f, "treasure_value {level}"),
         }
     }
 }

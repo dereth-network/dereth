@@ -257,6 +257,16 @@ pub struct TreasurePool {
     pub prov: Prov,
 }
 
+/// `[[treasure_value]]`: the own values a treasure item a creature of a level leaves is drawn from,
+/// each as often as it was given.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TreasureValue {
+    /// The creature's level.
+    pub level: u32,
+    pub values: Vec<u32>,
+    pub prov: Prov,
+}
+
 /// The races a treasure pool can be for, and their bits.
 pub const POOL_RACES: [(&str, u32); 5] = [
     ("human", 1),
@@ -517,6 +527,7 @@ pub enum Row {
     PointsBonus(PointsBonus),
     Popup(Popup),
     EffectRule(EffectRule),
+    TreasureValue(TreasureValue),
 }
 
 /// `[[event]]`: a named state of the world, on for its times: what it gates (camps, objects and
@@ -821,6 +832,7 @@ impl Row {
             Self::PointsBonus(_) => "points_bonus",
             Self::Popup(_) => "popup",
             Self::EffectRule(_) => "effect_rule",
+            Self::TreasureValue(_) => "treasure_value",
         }
     }
 
@@ -857,13 +869,14 @@ impl Row {
             Self::PointsBonus(r) => Some(&r.prov),
             Self::Popup(r) => Some(&r.prov),
             Self::EffectRule(r) => Some(&r.prov),
+            Self::TreasureValue(r) => Some(&r.prov),
             Self::Remove(_) => None,
         }
     }
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 30] = [
+pub const KINDS: [&str; 31] = [
     "object",
     "camp",
     "loot",
@@ -894,10 +907,11 @@ pub const KINDS: [&str; 30] = [
     "points_bonus",
     "popup",
     "effect_rule",
+    "treasure_value",
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 30] = [
+pub const FIELDS: [(&str, &[&str]); 31] = [
     (
         "object",
         &[
@@ -1176,6 +1190,7 @@ pub const FIELDS: [(&str, &[&str]); 30] = [
     ("points_bonus", &["effect", "add", "up_to", "prov"]),
     ("popup", &["on", "effect", "prov"]),
     ("effect_rule", &["effect", "ward", "prov"]),
+    ("treasure_value", &["level", "values", "prov"]),
 ];
 
 /// A shared-format error as a problem at its file and line.
@@ -1986,6 +2001,19 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 prov: f.req_prov()?,
             })
         }
+        "treasure_value" => {
+            let level = f.req_u32("level")?;
+            let values = f.values("values")?;
+            if values.is_empty() {
+                f.bad("values", "a list of at least one value");
+                return None;
+            }
+            Row::TreasureValue(TreasureValue {
+                level,
+                values,
+                prov: f.req_prov()?,
+            })
+        }
         "pet_limit" => {
             let limits = f.list_of(
                 "limits",
@@ -2362,6 +2390,15 @@ impl<'a> Fields<'a> {
             v.as_array()?.iter().map(as_u32).collect::<Option<Vec<_>>>()
         })
         .unwrap_or_default()
+    }
+
+    fn values(&mut self, name: &str) -> Option<Vec<u32>> {
+        match self.t.get(name) {
+            Some(_) => self.typed(name, "a list of values (whole numbers from 0)", |v| {
+                v.as_array()?.iter().map(as_u32).collect::<Option<Vec<_>>>()
+            }),
+            None => self.missing(name),
+        }
     }
 
     fn req_floats(&mut self, name: &str) -> Option<Vec<f32>> {

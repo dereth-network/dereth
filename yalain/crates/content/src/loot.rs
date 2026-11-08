@@ -4,11 +4,13 @@
 //! are not in this table. Every row says where it came from.
 //!
 //! Beside the profiles, the death treasures: a fixed item that every creature or chest of a
-//! template, or every creature a camp keeps, leaves at a chance of its own.
+//! template, or every creature a camp keeps, leaves at a chance of its own; and the values a
+//! treasure item a creature leaves draws its own value from, by the creature's level.
 //!
 //! The text form is tab-separated, one profile per line; the death treasures follow under a header
-//! of their own, one a line.
+//! of their own, one a line, then the pools and the values, each under a line of its own.
 
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
 /// One death-loot profile.
@@ -77,10 +79,16 @@ pub struct LootTable {
     pub profiles: Vec<LootProfile>,
     pub treasures: Vec<DeathTreasure>,
     pub pools: crate::pools::Pools,
+    /// The own values a treasure item a creature of a level leaves is drawn from, by the level:
+    /// each value as often as it was given.
+    pub values: BTreeMap<i32, Vec<u32>>,
 }
 
 /// The line that starts the pools' part of a table's text.
 const POOLS_PART: &str = "[pools]";
+
+/// The line that starts the values' part of a table's text, after the pools'.
+const VALUES_PART: &str = "[values]";
 
 /// The table's columns, in order.
 pub const COLUMNS: [&str; 7] = [
@@ -178,7 +186,58 @@ impl LootTable {
             out.push('\n');
             out.push_str(&self.pools.to_text());
         }
+        if !self.values.is_empty() {
+            out.push_str(VALUES_PART);
+            out.push_str("\nlevel\tvalues\n");
+            for (level, values) in &self.values {
+                let values: Vec<String> = values.iter().map(ToString::to_string).collect();
+                let _ = writeln!(out, "{level}\t{}", values.join(","));
+            }
+        }
         out
+    }
+
+    /// The values a treasure item a creature of a level leaves draws its own value from: its
+    /// level's, else the nearest level's that has some (the lower of two as near); none in a table
+    /// with no values.
+    #[must_use]
+    pub fn values_at(&self, level: i32) -> &[u32] {
+        let below = self.values.range(..=level).next_back();
+        let above = self.values.range(level..).next();
+        match (below, above) {
+            (Some((b, v)), Some((a, w))) => {
+                if i64::from(*a) - i64::from(level) < i64::from(level) - i64::from(*b) {
+                    w
+                } else {
+                    v
+                }
+            }
+            (Some((_, v)), None) | (None, Some((_, v))) => v,
+            (None, None) => &[],
+        }
+    }
+
+    /// The values' part of a table's text.
+    fn values_of(text: &str) -> Result<BTreeMap<i32, Vec<u32>>, String> {
+        let mut out = BTreeMap::new();
+        for (n, line) in text.lines().enumerate().skip(1) {
+            if line.trim().is_empty() {
+                continue;
+            }
+            let at = |e: String| format!("{VALUES_PART} line {}: {e}", n + 1);
+            let (level, values) = line
+                .split_once('\t')
+                .ok_or_else(|| at(format!("a line is LEVEL<tab>VALUES, not {line}")))?;
+            let level: i32 = level.parse().map_err(|e| at(format!("{level}: {e}")))?;
+            let values = values
+                .split(',')
+                .filter(|s| !s.is_empty())
+                .map(|s| s.parse::<u32>().map_err(|e| format!("{s}: {e}")))
+                .collect::<Result<Vec<_>, String>>()
+                .map_err(at)?;
+            out.insert(level, values);
+        }
+        Ok(out)
     }
 
     /// A death treasure's line.
@@ -214,6 +273,10 @@ impl LootTable {
     /// # Errors
     /// A line without its columns, or a value that does not read.
     pub fn from_text(text: &str) -> Result<Self, String> {
+        let (text, values) = match text.split_once(&format!("\n{VALUES_PART}\n")) {
+            Some((t, v)) => (t, Self::values_of(v)?),
+            None => (text, BTreeMap::new()),
+        };
         let (text, pools) = match text.split_once(&format!("\n{POOLS_PART}\n")) {
             Some((t, p)) => (t, crate::pools::Pools::from_text(p)?),
             None => (text, crate::pools::Pools::default()),
@@ -279,6 +342,7 @@ impl LootTable {
             profiles,
             treasures,
             pools,
+            values,
         })
     }
 }
