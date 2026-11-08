@@ -23,7 +23,6 @@ use dereth_transport::indicator::{CompletedBlob, Indicator};
 use dereth_transport::session::{lhs_newer, ReceiverData, RejectReason, MAX_NAK_IDS};
 use dereth_transport::wire::optional::seq_ids;
 use dereth_transport::wire::{OutPacket, PacketFlags, ParsedPacket, ProtoHeader};
-use dereth_transport::CryptoSystem;
 
 use crate::pace::Pace;
 
@@ -294,9 +293,9 @@ impl Endpoint {
     /// Send what is queued now, without the acknowledgement and clock sections a full
     /// [`Self::tick`] adds: a server switch goes alone in a world connection's first packet.
     pub fn flush_alone(&mut self, now: LocalTime) -> Vec<Vec<u8>> {
-        let mut crypto = std::mem::replace(&mut self.recv.crypto_outgoing, CryptoSystem::new(0));
-        let out = self.flow.transmit_new_packets(&mut crypto, now);
-        self.recv.crypto_outgoing = crypto;
+        let out = self
+            .flow
+            .transmit_new_packets(&mut self.recv.crypto_outgoing, now);
         self.stats.packets_out += out.len() as u64;
         out
     }
@@ -366,8 +365,11 @@ impl Endpoint {
         let mut out = self.flow.transmit_acks();
         out.truncate(MAX_RESENDS_PER_TICK);
         self.stats.retransmitted += out.len() as u64;
-        let mut crypto = std::mem::replace(&mut self.recv.crypto_outgoing, CryptoSystem::new(0));
-        let new = self.flow.transmit_new_packets(&mut crypto, now);
+        // The key stream is drawn where it lives: a connection is run on every pass of the
+        // server's loop, and a stand-in stream to swap it out with costs more than the rest of an
+        // idle connection's run.
+        let crypto = &mut self.recv.crypto_outgoing;
+        let new = self.flow.transmit_new_packets(crypto, now);
         self.unsent_blobs = 0;
         for dg in &new {
             if let Ok(h) = ProtoHeader::from_bytes(dg) {
@@ -379,15 +381,12 @@ impl Endpoint {
         out.extend(new);
         self.pace.spend(out.iter().map(Vec::len).sum());
         if !self.pace.is_empty() {
-            let paced = self
-                .pace
-                .send(&mut self.flow, &mut crypto, self.peer_acked, now);
+            let paced = self.pace.send(&mut self.flow, crypto, self.peer_acked, now);
             if let Some(last) = paced.last().and_then(|d| ProtoHeader::from_bytes(d).ok()) {
                 self.last_message_seq = last.seq_id;
             }
             out.extend(paced);
         }
-        self.recv.crypto_outgoing = crypto;
         if self.flush_num != 0 {
             self.flow.flush_sent_packets(self.flush_num);
             self.flush_num = 0;

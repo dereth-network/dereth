@@ -7314,6 +7314,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.net.fixed-session-sends-the-same-datagrams",
+        says: "In a fixed session on a virtual clock (six clients logging in, entering the world and \
+               trading small, large and ephemeral messages, two of them over a link that loses \
+               datagrams, one falling silent and one ended by the server), the server sends the \
+               datagrams recorded for it, byte for byte and each in the same pass of its loop.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-SAME-WIRE"),
+        station: "yalain-testkit::cpu::entry::transport::a_fixed_session_sends_the_same_datagrams_in_the_same_passes",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.net.game-clock-held",
         says: "A server set to hold its game clock reads one time from then on, and the clock \
                every connection sends says that time, so every client shows the same moment of \
