@@ -25,17 +25,27 @@ const CLIENT_POSITION: u32 = 0x1008E;
 /// visual, and the alternate form to the player.
 const CALLS: [u32; 4] = [0x10066, 0x10067, 0x100C4, 0x100CA];
 
-pub(crate) fn data() -> Option<ClientData> {
+/// The data the client reads, from the end-of-retail set; why not, when it can't be opened, so a
+/// failed test says which file and what went wrong.
+pub(crate) fn data() -> Result<ClientData, String> {
     let dir = require_target_install();
-    let found = install_dats(&dir).ok()?;
-    let (_, p) = found.iter().find(|(n, _)| *n == DatName::Portal)?;
-    let portal = Arc::new(DatFile::open(p).ok()?);
-    let (_, l) = found
-        .iter()
-        .find(|(n, _)| *n == DatName::Local("English".into()))?;
-    let english = Arc::new(DatFile::open(l).ok()?);
+    let found = install_dats(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let find = |want: &DatName| {
+        found
+            .iter()
+            .find(|(n, _)| n == want)
+            .map(|(_, p)| p.clone())
+            .ok_or_else(|| format!("{}: no {want:?} data file", dir.display()))
+    };
+    let open = |p: &std::path::Path| {
+        DatFile::open(p)
+            .map(Arc::new)
+            .map_err(|e| format!("{}: {e}", p.display()))
+    };
+    let portal = open(&find(&DatName::Portal)?)?;
+    let english = open(&find(&DatName::Local("English".into()))?)?;
     let program = link_scripts(&portal).expect("the library links");
-    Some(ClientData {
+    Ok(ClientData {
         files: DataFiles {
             files: vec![Arc::clone(&portal), english],
             language: ENGLISH,
