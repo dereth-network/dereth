@@ -6732,13 +6732,22 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "server.loot.treasure-enchantments",
         says: "A treasure weapon, shield or piece of armor may draw enchantments: how many by its \
-               sort and level, each family by how often 2017 showed it, a family of five at the tier \
-               of its level. One on the item itself changes its numbers; a weapon glows as its \
+               sort and level, as often as 2017's drops, each family by how often 2017 showed it, a \
+               family of five at the tier of its level. One on the item itself changes its numbers; a weapon glows as its \
                first says. Our choice, a fit to the recorded items.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-TREASURE-ENCHANT"),
         station: "yalain-testkit::cpu::play::fights::an_items_enchantments_follow_its_sort_and_level",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.loot.treasure-enchantments-as-dropped",
+        says: "Treasure weapons, shields and armor from level 10 are enchanted as often as 2017's \
+               drops were by sort and level band, each drop's count read from its own value.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TREASURE-ENCH-DROPS"),
+        station: "yalain-testkit::corpus::examine::treasure_equipment_is_enchanted_as_often_as_2017s_drops",
+        tier: Tier::Corpus,
     },
     behaviour! {
         id: "server.loot.treasure-jewelry-enchantments",

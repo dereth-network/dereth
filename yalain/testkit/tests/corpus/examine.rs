@@ -1593,11 +1593,13 @@ fn an_items_icon_takes_what_its_appearance_gives_as_2017() {
     assert!(seen - built <= 6, "icons built: {built} of {seen}");
 }
 
-/// An item a 2017 examination showed: its least level and how many enchantments.
+/// An item a 2017 examination showed: its least level, how many enchantments, and whether its
+/// rating is a shield's.
 #[derive(Clone, Copy)]
 struct Examined {
     least: Option<u32>,
     enchantments: usize,
+    shield: bool,
 }
 
 /// Every item not made by a player that the January 2017 recordings show examined, once, by its
@@ -1638,15 +1640,18 @@ fn examined_items(con: &Connection) -> HashMap<u64, Examined> {
                 .iter()
                 .filter(|x| **x == profile::item_line::EFFECT_NAME)
                 .count(),
+            shield: strings.contains(&profile::item_line::SHIELD_RATING),
         });
     }
     out
 }
 
-/// A weapon, shield or piece of armor a 2017 corpse held at its first opening: its template, its
-/// own value, its dropper's level and loot quality, and its examination if a player examined it.
+/// A weapon, shield or piece of armor a 2017 corpse held at its first opening: its template, whether
+/// its template has a weapon's damage, its own value, its dropper's level and loot quality, and its
+/// examination if a player examined it.
 struct Dropped {
     template: u32,
+    weapon: bool,
     value: u32,
     level: i32,
     quality: Option<i64>,
@@ -1676,15 +1681,19 @@ fn equipment_dropped() -> &'static [Dropped] {
                 continue;
             };
             for (&(template, value), id) in c.items.iter().zip(&c.ids) {
-                let is = *equipment.entry(template).or_insert_with(|| {
+                let (weapon, armor) = *equipment.entry(template).or_insert_with(|| {
                     let p = portal.template(template).props;
-                    p.int("Weapon_Damage").is_some() || p.int("Item_ArmorLevel").is_some()
+                    (
+                        p.int("Weapon_Damage").is_some(),
+                        p.int("Item_ArmorLevel").is_some(),
+                    )
                 });
-                if template == 0 || value == 0 || !is {
+                if template == 0 || value == 0 || !(weapon || armor) {
                     continue;
                 }
                 out.push(Dropped {
                     template,
+                    weapon,
                     value,
                     level: s.level,
                     quality: s.loot_quality,
@@ -1780,79 +1789,155 @@ fn equipment_whose_template_sets_its_least_level_drops_as_any_other_treasure() {
     );
 }
 
-/// Of the treasure weapons the 2017 servers showed, by level band: how many have an enchantment, as
-/// the counts this server draws from say.
-/// Behaviour: server.loot.treasure-enchantments
-#[test]
-fn treasure_weapons_enchantments_follow_the_counts_this_server_draws_from() {
-    use yalain_content::treasure_effects::WEAPON_COUNTS;
-    let path = auberean_testkit::data::require_capture_index();
-    let con = open(&path);
-    let mut st = con
-        .prepare(
-            "SELECT m.raw FROM message m JOIN session s USING (session_id) \
-             JOIN capture c USING (capture_id) WHERE c.file LIKE '2017-%' AND m.status = 'ac2' \
-             AND m.dir = 's2c' AND m.mtype = 65638",
-        )
-        .expect("prepares");
-    let mut rows = st.query([]).expect("runs");
-    let mut seen = std::collections::HashSet::new();
-    let mut bands = [[0usize; 2]; 6];
-    while let Some(r) = rows.next().expect("a row") {
-        let raw: Vec<u8> = r.get(0).expect("raw");
-        let Ok(ServerMessage::PlayerCall(c)) = ServerMessage::decode(&raw) else {
-            continue;
-        };
-        if c.function.0 != profile::EXAMINATION_PROFILE {
-            continue;
-        }
-        let v = calls::values(&c.args.map(|a| a.0).unwrap_or_default()).unwrap_or_default();
-        let Some(Node::Native { bytes, .. }) = v.first().and_then(Value::root) else {
-            continue;
-        };
-        let req = profile::read_request(bytes);
-        if req.kind != profile::request::OBJECT {
-            continue;
-        }
-        let strings = strings_in(bytes, 20);
-        let weapon = !strings.iter().any(|x| {
-            [
-                profile::item_line::CRAFTED_BY,
-                profile::item_line::SHIELD_RATING,
-                profile::item_line::ARMOR_RATING,
-            ]
-            .contains(x)
-        });
-        let (Some(_), Some(level), true) = (
-            damage_in(bytes, 20),
-            stat_in(bytes, 20, profile::line::MINIMUM_LEVEL),
-            weapon,
-        ) else {
-            continue;
-        };
-        if !seen.insert(req.object) {
-            continue;
-        }
-        let band = match level {
-            ..=9 => 0,
-            10..=19 => 1,
-            20..=29 => 2,
-            30..=39 => 3,
-            40..=49 => 4,
-            _ => 5,
-        };
-        bands[band][0] += 1;
-        bands[band][1] += usize::from(strings.contains(&profile::item_line::EFFECT_NAME));
+/// The step of a least level 2017's values go by: five levels each from 1, then 46 to 49, then 50.
+fn value_step(least: i32) -> usize {
+    match least {
+        50.. => 10,
+        46..=49 => 9,
+        _ => usize::try_from((least.max(1) - 1) / 5).unwrap_or(0),
     }
-    println!("weapons with an enchantment by band: {bands:?}");
-    for (band, [all, some]) in bands.iter().enumerate() {
-        assert!(*all > 50, "{bands:?}");
-        let c = WEAPON_COUNTS[band];
-        #[allow(clippy::cast_precision_loss)]
-        let theirs = *some as f32 / *all as f32;
-        let ours = (c[1] + c[2] + c[3]) / (c[0] + c[1] + c[2] + c[3]);
-        // Items with no value of their own count here and not in the counts, so a tenth either way.
-        assert!((theirs - ours).abs() < 0.1, "{band}: {theirs} {ours}");
+}
+
+/// The level band treasure's enchantment counts go by.
+fn count_band(level: i32) -> usize {
+    usize::try_from(level.clamp(0, 50) / 10).unwrap_or(0)
+}
+
+/// Treasure weapons, shields and armor are enchanted as often as 2017's drops were, by sort and level
+/// band from 10: each drop's count is read from its own value, a plain one's at its least level (the
+/// median of the examined drops' values over one more than their counts) times one more than its
+/// count, at the commonest least level, its dropper's base and one. The reading agrees with the
+/// examinations; the counts this server draws from give the same shares; and this server's drops,
+/// endowed again from the same droppers, are enchanted as often.
+/// Behaviour: server.loot.treasure-enchantments-as-dropped
+#[test]
+fn treasure_equipment_is_enchanted_as_often_as_2017s_drops() {
+    use std::collections::HashSet;
+    use yalain_content::treasure_effects::{ARMOR_COUNTS, SHIELD_COUNTS, WEAPON_COUNTS};
+    use yalain_world::treasure::{base_of, endow, MOST_LEVEL};
+    const SORTS: [&str; 3] = ["weapons", "armor", "shields"];
+    let drops = equipment_dropped();
+    let mut steps: Vec<Vec<f64>> = vec![Vec::new(); 11];
+    for d in drops {
+        if let Some(Examined {
+            least: Some(least),
+            enchantments,
+            ..
+        }) = d.examined
+        {
+            #[allow(clippy::cast_precision_loss)]
+            steps[value_step(i32::try_from(least).unwrap_or(0))]
+                .push(f64::from(d.value) / (1 + enchantments) as f64);
+        }
+    }
+    let unit: Vec<f64> = steps
+        .iter_mut()
+        .map(|v| {
+            v.sort_by(f64::total_cmp);
+            v.get(v.len() / 2).copied().unwrap_or(1.0)
+        })
+        .collect();
+    let read = |d: &Dropped| {
+        let level = (base_of(d.level, d.quality) + 1).min(MOST_LEVEL);
+        #[allow(clippy::cast_possible_truncation)]
+        let n = (f64::from(d.value) / unit[value_step(level)]).round() as i64 - 1;
+        (level, n.clamp(0, 3))
+    };
+    let (mut joined, mut agree) = (0usize, 0usize);
+    for d in drops {
+        if let Some(e) = d.examined.filter(|e| e.least.is_some()) {
+            joined += 1;
+            agree += usize::from((read(d).1 > 0) == (e.enchantments > 0));
+        }
+    }
+    println!("read from value, as examined: {agree} of {joined}");
+    assert!(joined > 1_500, "the recordings hold them: {joined}");
+    assert!(agree * 100 >= joined * 95, "{agree} of {joined}");
+    let shields: HashSet<u32> = drops
+        .iter()
+        .filter(|d| d.examined.is_some_and(|e| e.shield))
+        .map(|d| d.template)
+        .collect();
+    let sort = |d: &Dropped| {
+        if d.weapon {
+            0
+        } else if shields.contains(&d.template) {
+            2
+        } else {
+            1
+        }
+    };
+    // [sort][band]: drops, enchanted.
+    let mut theirs = [[[0usize; 2]; 6]; 3];
+    for d in drops {
+        let (level, n) = read(d);
+        let at = &mut theirs[sort(d)][count_band(level)];
+        at[0] += 1;
+        at[1] += usize::from(n > 0);
+    }
+    #[allow(clippy::cast_precision_loss)]
+    let share = |x: [usize; 2]| x[1] as f32 / x[0].max(1) as f32;
+    for (s, counts) in [WEAPON_COUNTS, ARMOR_COUNTS, SHIELD_COUNTS]
+        .iter()
+        .enumerate()
+    {
+        for band in 1..6 {
+            let c = counts[band];
+            let ours = (c[1] + c[2] + c[3]) / (c[0] + c[1] + c[2] + c[3]);
+            let t = theirs[s][band];
+            println!(
+                "{} {}0s: 2017 {:.3} of {}, the counts {ours:.3}",
+                SORTS[s],
+                band,
+                share(t),
+                t[0]
+            );
+            assert!(t[0] >= 50, "{} {band}: {t:?}", SORTS[s]);
+            assert!(
+                (share(t) - ours).abs() <= 0.04,
+                "{} {band}: {} {ours}",
+                SORTS[s],
+                share(t)
+            );
+        }
+    }
+    // This server's drops of the same templates from the same droppers, by the dropper's band; a
+    // shield draws as armor does, its template having no weapon's damage.
+    const AGAIN: usize = 5;
+    let portal = yalain_testkit::authored::Portal::open();
+    let mut h = yalain_testkit::Harness::new();
+    let mut known = HashSet::new();
+    // [weapons, armor and shields][dropper's band]: 2017's drops, enchanted; ours, enchanted.
+    let mut by = [[[0usize; 4]; 6]; 2];
+    for d in drops {
+        if known.insert(d.template) {
+            let t = portal.template(d.template);
+            h.server.treasure.equipment.insert(t.description.package);
+            h.server.catalog.insert(t);
+        }
+        let at = &mut by[usize::from(!d.weapon)][count_band(base_of(d.level, d.quality))];
+        at[0] += 1;
+        at[1] += usize::from(read(d).1 > 0);
+        for _ in 0..AGAIN {
+            let item = yalain_world::inventory::make_item(&mut h.server, d.template, 1, d.value)
+                .expect("made");
+            endow(&mut h.server, item, d.level, d.quality);
+            let thing = h.server.things.remove(item).expect("made");
+            at[2] += 1;
+            at[3] += usize::from(!thing.enchantments.is_empty() || !thing.bonuses.is_empty());
+        }
+    }
+    for (s, name) in ["weapons", "armor and shields"].iter().enumerate() {
+        for (band, at) in by[s].iter().enumerate() {
+            let (t, o) = (share([at[0], at[1]]), share([at[2], at[3]]));
+            println!(
+                "{name} from {band}0s droppers: 2017 {t:.3} of {}, ours {o:.3} of {}",
+                at[0], at[2]
+            );
+            if band > 0 {
+                assert!((t - o).abs() <= 0.05, "{name} {band}: 2017 {t} ours {o}");
+            }
+        }
     }
 }
 

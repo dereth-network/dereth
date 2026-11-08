@@ -632,13 +632,13 @@ fn an_items_enchantments_follow_its_sort_and_level() {
     assert!((0.12..0.21).contains(&low), "{low}");
     assert_eq!(most, Some(1), "none has two so low");
     let (high, most) = share(&mut rng, Sort::Weapon, 50);
-    assert!((0.27..0.37).contains(&high), "{high}");
+    assert!((0.11..0.21).contains(&high), "{high}");
     assert!(
         most >= Some(3) && most <= Some(5),
         "three draws, two of them perhaps pairs"
     );
     let (armor, _) = share(&mut rng, Sort::Armor, 50);
-    assert!((0.29..0.39).contains(&armor), "{armor}");
+    assert!((0.12..0.22).contains(&armor), "{armor}");
     let (shield, _) = share(&mut rng, Sort::Shield, 10);
     assert!((0.04..0.14).contains(&shield), "{shield}");
     let tiered: Vec<&t::Family> = t::WEAPON_FAMILIES.iter().filter(|f| f.by_level).collect();

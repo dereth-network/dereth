@@ -46,37 +46,40 @@ const fn tier(least: i32, state: u32, puts_on: u32, chance: f32, glow: f32) -> T
     }
 }
 
-/// How many of 2017's weapon items had none, one, two and three or more, by level: up to 9, 10 to 19,
-/// 20 to 29, 30 to 39, 40 to 49, 50 and up.
+/// How many of 2017's dropped weapons had none, one, two and three or more, by level: up to 9, 10 to
+/// 19, 20 to 29, 30 to 39, 40 to 49, 50 and up. From 10, every weapon a recorded corpse held, its
+/// count read from its own value (a plain one's at its level times one more than its count) and its
+/// level its dropper's base and one; up to 9, where a plain one's value is 1 or 2 and the reading
+/// can't tell, the weapons players examined.
 pub const WEAPON_COUNTS: [[f32; 4]; 6] = [
     [102.0, 20.0, 0.0, 0.0],
-    [150.0, 37.0, 0.0, 0.0],
-    [152.0, 29.0, 7.0, 1.0],
-    [135.0, 30.0, 12.0, 3.0],
-    [188.0, 24.0, 18.0, 11.0],
-    [246.0, 55.0, 39.0, 21.0],
+    [267.0, 34.0, 1.0, 1.0],
+    [462.0, 43.0, 7.0, 1.0],
+    [429.0, 36.0, 11.0, 0.0],
+    [473.0, 28.0, 19.0, 8.0],
+    [610.0, 64.0, 36.0, 12.0],
 ];
 
-/// How many of 2017's armor items had none, one, two and three or more, by level: up to 9, 10 to 19,
-/// 20 to 29, 30 to 39, 40 to 49, 50 and up.
+/// How many of 2017's dropped pieces of armor had none, one, two and three or more, by level, as
+/// [`WEAPON_COUNTS`].
 pub const ARMOR_COUNTS: [[f32; 4]; 6] = [
     [65.0, 12.0, 0.0, 0.0],
-    [103.0, 17.0, 0.0, 0.0],
-    [102.0, 20.0, 0.0, 0.0],
-    [93.0, 18.0, 2.0, 0.0],
-    [136.0, 60.0, 0.0, 0.0],
-    [173.0, 89.0, 1.0, 0.0],
+    [148.0, 20.0, 1.0, 0.0],
+    [294.0, 35.0, 0.0, 0.0],
+    [261.0, 18.0, 2.0, 0.0],
+    [281.0, 31.0, 0.0, 0.0],
+    [353.0, 73.0, 0.0, 0.0],
 ];
 
-/// How many of 2017's shield items had none, one, two and three or more, by level: up to 9, 10 to 19,
-/// 20 to 29, 30 to 39, 40 to 49, 50 and up.
+/// How many of 2017's dropped shields had none, one, two and three or more, by level, as
+/// [`WEAPON_COUNTS`]; a shield is told from armor by its examinations.
 pub const SHIELD_COUNTS: [[f32; 4]; 6] = [
     [15.0, 2.0, 0.0, 0.0],
-    [32.0, 3.0, 0.0, 0.0],
-    [29.0, 8.0, 0.0, 0.0],
-    [26.0, 4.0, 0.0, 0.0],
-    [43.0, 6.0, 0.0, 0.0],
-    [56.0, 14.0, 0.0, 0.0],
+    [56.0, 6.0, 0.0, 0.0],
+    [93.0, 9.0, 0.0, 0.0],
+    [88.0, 8.0, 0.0, 0.0],
+    [93.0, 9.0, 0.0, 0.0],
+    [126.0, 22.0, 0.0, 0.0],
 ];
 
 /// How many of 2017's jewelry items first seen in a corpse had none and one, by the level of what

@@ -395,12 +395,13 @@ pub enum Sort {
 }
 
 /// What a treasure item draws of enchantments at an item level. How many goes by its sort and level
-/// band (2017: a weapon had one 16 in a hundred up to level 9, 32 at 50; two or more only from 20; a
-/// piece of armor nearly always one, 16 to 34 in a hundred; a shield one, 9 to 22). Which: a family
-/// by how often 2017 showed it, none twice; in a family of five the tier of the level by the same
-/// bands as potions (2017: 256 of 268 of the weapons' effects), in any other one it reaches, evenly.
-/// Those 2017 showed in pairs come together as one draw. Fit to the recorded profiles, so our choice;
-/// those of a player's own skill are left out: 45 of the 740 lines.
+/// band, as often as 2017's drops had them (from level 10: a weapon one or more 10 to 16 in a
+/// hundred, two or more only from 20; a piece of armor nearly always one, 7 to 17 in a hundred; a
+/// shield one, 8 to 15). Which: a family by how often 2017 showed it, none twice; in a family of five
+/// the tier of the level by the same bands as potions (2017: 256 of 268 of the weapons' effects), in
+/// any other one it reaches, evenly. Those 2017 showed in pairs come together as one draw. Which is
+/// fit to the recorded profiles, so our choice; those of a player's own skill are left out: 45 of the
+/// 740 lines.
 pub fn enchantments(
     rng: &mut Rng,
     sort: Sort,
