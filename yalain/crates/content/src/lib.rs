@@ -27,6 +27,7 @@ use auberean_assets::property::PropertyValue;
 use auberean_assets::script::Qualities;
 
 pub mod events;
+pub mod kingdoms;
 pub mod locks;
 pub mod loot;
 pub mod movement;

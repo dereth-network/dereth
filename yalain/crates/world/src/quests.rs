@@ -544,6 +544,12 @@ fn may_run_at_any_level<S: Store>(s: &Server<S>, world: ConnId, st: &Step, now_u
     if !st.races.is_empty() && !st.races.contains(&p.race) {
         return false;
     }
+    if !s
+        .kingdom_rows
+        .step_for(st, crate::kingdoms::counted_of(&p.qualities))
+    {
+        return false;
+    }
     if st.needs == 0 {
         let Some(def) = s.quests.quest(st.quest) else {
             return false;
@@ -1300,7 +1306,9 @@ pub fn step_for_give<S: Store>(
 
 /// The give that moves no quest a person takes so many of an item by: its row for that item, else
 /// one for any item. A row for the item wanting another count refuses it; so does a row whose
-/// requirements the player does not meet, unless one for any item takes it.
+/// requirements the player does not meet, or one that would do nothing for the player (it gives
+/// nothing and its only effects are points bonuses at their caps already), unless one for any item
+/// takes it.
 #[must_use]
 pub fn give_for<S: Store>(
     s: &Server<S>,
@@ -1309,10 +1317,14 @@ pub fn give_for<S: Store>(
     to: u32,
     quantity: u32,
 ) -> Option<yalain_content::quests::Give> {
-    let held = &s.players.get(&world)?.play.quests;
+    let p = s.players.get(&world)?;
+    let held = &p.play.quests;
+    let kingdom = crate::kingdoms::counted_of(&p.qualities);
     let meets = |g: &&yalain_content::quests::Give| {
         // One whose gift can't be made takes nothing: the item goes back to its giver.
         g.gives.iter().all(|t| crate::makes::can_make(s, *t))
+            && s.kingdom_rows.give_for(g, kingdom)
+            && !crate::kingdom_skills::would_do_nothing(s, &p.qualities, g)
             && g.requires.iter().all(|(q, need)| match need {
                 Need::Phase(n) => phase_of(held, *q) == *n,
                 Need::Done => done(held, *q),

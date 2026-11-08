@@ -426,6 +426,9 @@ pub struct Server<S: Store> {
     pub shrine_kingdoms: HashMap<u32, u32>,
     /// The skills a use of one's own kingdom's shrine grants, by kingdom and points.
     pub kingdom_skills: kingdom_skills::KingdomSkills,
+    /// The world database's kingdom rows: the effects that raise kingdom points, and the steps and
+    /// gives for one kingdom's players alone.
+    pub kingdom_rows: yalain_content::kingdoms::KingdomTable,
     /// The packages of the world's objects that cannot be used (forges, road signs).
     pub cannot_use_packages: std::collections::HashSet<u32>,
     /// The packages of the items that take an inscription.
@@ -813,6 +816,7 @@ impl<S: Store> Server<S> {
             shrine_packages: std::collections::HashSet::new(),
             shrine_kingdoms: HashMap::new(),
             kingdom_skills: kingdom_skills::KingdomSkills::default(),
+            kingdom_rows: yalain_content::kingdoms::KingdomTable::default(),
             cannot_use_packages: std::collections::HashSet::new(),
             inscribable_packages: std::collections::HashSet::new(),
             held_answers: std::collections::HashMap::new(),

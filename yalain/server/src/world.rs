@@ -257,8 +257,9 @@ fn check_cmd(args: &[String]) -> Result<(), String> {
 }
 
 /// What a database's rows say of the install that it does not bear out: an `[[effect_name]]` row
-/// naming an effect the server already resolves to a saved state, and an `[[event]]` naming a game
-/// event the install does not have.
+/// naming an effect the server already resolves to a saved state, an `[[event]]` naming a game
+/// event the install does not have, and a `[[points_bonus]]` naming an effect the install holds no
+/// saved state of.
 ///
 /// # Errors
 /// The install's library does not read.
@@ -266,6 +267,18 @@ pub fn install_problems(p: &data::Portal, db: &rows::Database) -> Result<Vec<Pro
     let mut out = Vec::new();
     let mut game_events = None;
     for l in db.rows() {
+        if let rows::Row::PointsBonus(r) = &l.row {
+            if !data::saved_states(p)?.iter().any(|s| s.id == r.effect) {
+                out.push(Problem::new(
+                    &l.file,
+                    l.line,
+                    format!(
+                        "[[points_bonus]] effect {:#010x}: the install holds no such effect",
+                        r.effect
+                    ),
+                ));
+            }
+        }
         if let rows::Row::Event(r) = &l.row {
             if let Some(g) = r.game_event {
                 if game_events.is_none() {

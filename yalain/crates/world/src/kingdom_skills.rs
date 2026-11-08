@@ -12,8 +12,13 @@
 //! told each skill's information and then "The shrine updates your Kingdom Skills!". A use that
 //! grants nothing tells nothing more.
 //!
-//! **Kingdom points** are the player's rating (an integer quality, 500 while unset). Nothing moves
-//! them yet, so no one reaches the least of any table.
+//! **Kingdom points** are the player's rating (an integer quality, 500 while unset, kept with the
+//! character). An effect the world's rows name as a points bonus raises them when it is put on a
+//! player (a give's or a quest step's effect, say): by the row's amount, never above the row's cap,
+//! and never lowering points already above it. The skills its own kingdom's shrine would grant at
+//! the points it then holds are granted at once, as a use of the shrine grants them. A give that
+//! gives nothing and whose only effects are such bonuses, every one at its cap already, takes
+//! nothing: the item stays with the player.
 //!
 //! Granted skills are kept when the points fall or the player changes kingdom: nothing recorded
 //! says what took them away.
@@ -201,4 +206,54 @@ pub fn shrine_used<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: Conn
         &crate::chat::show_text(SHOWN_AS, progress::text(UPDATED)),
     );
     crate::world::keep_player(s, world);
+}
+
+/// An effect was put on a player: when the world's rows name it as a points bonus, the player's
+/// kingdom points are raised by it, kept, and the kingdom skills its own kingdom's table grants at
+/// them are granted as at its shrine. Returns whether the rows name the effect.
+pub fn points_bonus<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    state: u32,
+) -> bool {
+    let Some(bonus) = s.kingdom_rows.points.get(&state).copied() else {
+        return false;
+    };
+    let Some(p) = s.players.get_mut(&world) else {
+        return true;
+    };
+    let held = points(&p.qualities);
+    let raised = bonus.raised(held);
+    if raised != held {
+        quals::set_int(&mut p.qualities, POINTS, raised);
+        crate::world::keep_player(s, world);
+    }
+    let kingdom = s
+        .players
+        .get(&world)
+        .map(|p| crate::kingdoms::counted_of(&p.qualities));
+    if let Some(k) = kingdom {
+        shrine_used(s, net, world, k);
+    }
+    true
+}
+
+/// Would a give do nothing for a player of these qualities: it gives nothing, and it has effects, each
+/// a points bonus its kingdom points are already at or above the cap of. Such a give takes nothing.
+#[must_use]
+pub fn would_do_nothing<S: Store>(
+    s: &Server<S>,
+    qualities: &[u8],
+    give: &yalain_content::quests::Give,
+) -> bool {
+    let held = points(qualities);
+    give.gives.is_empty()
+        && !give.effects.is_empty()
+        && give.effects.iter().all(|e| {
+            s.kingdom_rows
+                .points
+                .get(e)
+                .is_some_and(|b| b.raised(held) == held)
+        })
 }

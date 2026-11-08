@@ -51,19 +51,8 @@ use yalain_store::Store;
 use crate::world::Player;
 use crate::{progress, quals, session, Clock, Server, Timer};
 
-/// The kingdoms, as a description's faction names them.
-pub mod kingdom {
-    /// The Shadow.
-    pub const SHADOW: u32 = 1;
-    /// The Order of Dereth.
-    pub const ORDER: u32 = 2;
-    /// The Dominion.
-    pub const DOMINION: u32 = 4;
-    /// The neutral kingdom.
-    pub const NEUTRAL: u32 = 0x8000_0000;
-    /// Every kingdom, the neutral one first.
-    pub const ALL: [u32; 4] = [NEUTRAL, SHADOW, ORDER, DOMINION];
-}
+/// The kingdoms, as a description's faction names them (and as a row writes them).
+pub use yalain_content::kingdoms::kingdom;
 
 /// The faction shrines' script kinds, and the kingdom each one's use joins.
 pub const SHRINES: [(&str, u32); 4] = [
@@ -108,7 +97,9 @@ pub const JOINED: (u32, u32) = (0xA213_1988, 0x2500_000F);
 pub const JOINED_KINGDOM: u32 = 0xF670_1F4D;
 pub const SHOWN_AS: u32 = 8;
 
-/// The kingdom a kingdom counts as: a player in none counts as neutral.
+/// The kingdom a kingdom counts as: a player in none counts as neutral. This is the one place that
+/// rule lives: a faction shrine's use ([`of_shrines_kingdom`]) and a step's or a give's kingdom
+/// requirement ([`counted_of`]) both go by it.
 #[must_use]
 pub const fn counted(kingdom: Option<u32>) -> u32 {
     match kingdom {
@@ -476,7 +467,13 @@ pub fn check<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
 /// Whether a player is of a shrine's kingdom already (a player in none is of the neutral one).
 #[must_use]
 pub fn of_shrines_kingdom(player: Option<u32>, shrine: u32) -> bool {
-    player == Some(shrine) || (player.is_none() && shrine == kingdom::NEUTRAL)
+    counted(player) == shrine
+}
+
+/// The kingdom a player counts as of, by its qualities ([`counted`]).
+#[must_use]
+pub fn counted_of(qualities: &[u8]) -> u32 {
+    counted(of(qualities))
 }
 
 /// A player arrived at a faction shrine of a kingdom it is not of: it joins it, a little later.

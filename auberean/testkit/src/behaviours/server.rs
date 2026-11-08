@@ -6265,6 +6265,20 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.kingdoms.points-bonus",
+        says: "An effect a world's `[[points_bonus]]` row names, put on a player by a give or a \
+               quest step, raises the player's kingdom points by the row's amount, never above its \
+               cap and never lowering points already above it; the kingdom skills the player's own \
+               kingdom's table gives at the new points are granted at once, told as at the shrine; \
+               the points are kept with the character. A give that gives nothing and whose only \
+               effects are such bonuses, each at or under the player's points already, is refused, \
+               the item kept and nothing said. An effect no row names leaves them be.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-KINGDOM-POINTS-BONUS"),
+        station: "yalain-testkit::cpu::play::kingdom_points::each_gem_raises_kingdom_points_by_its_amount_up_to_its_cap",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.kingdoms.profile",
         says: "A player's profile names its kingdom; a player in none is shown in the neutral \
                kingdom.",
@@ -6279,6 +6293,17 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-KINGDOM-ROOM"),
         station: "yalain-testkit::cpu::play::kingdoms::a_kingdoms_room_line_reaches_its_kingdoms_players_alone",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.kingdoms.rows-for-one-kingdom",
+        says: "A quest step or a give whose requirements name a kingdom runs only for players of \
+               that kingdom, a player in none counting as of the neutral kingdom, and only when its \
+               other requirements are met too; a give it refuses is refused as any other, the item \
+               handed back.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-KINGDOM-REQUIRES"),
+        station: "yalain-testkit::cpu::play::kingdom_points::another_kingdoms_player_keeps_the_gem_and_its_points",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -13418,6 +13443,15 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-WDB-EVENT-GAME-EVENTS"),
         station: "yalain::bin.yalain::data::tests::an_event_row_names_a_game_event_of_the_install",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.world-db.points-bonus-effects-from-the-install",
+        says: "A world's `[[points_bonus]]` row may name only an effect the install holds; one \
+               naming a saved state the install lacks is a problem that names it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WDB-POINTS-BONUS-INSTALL"),
+        station: "yalain::bin.yalain::data::tests::a_points_bonus_row_naming_an_effect_the_install_lacks_is_a_problem",
         tier: Tier::Cpu,
     },
     behaviour! {

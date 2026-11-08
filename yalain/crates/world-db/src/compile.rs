@@ -141,6 +141,9 @@ pub struct Tables {
     pub places_by_name: BTreeMap<String, TablePlace>,
     /// The saved states effects' names stand for where the install holds no effect by the name.
     pub effect_names: BTreeMap<String, u32>,
+    /// The kingdom rows: the effects that raise kingdom points, and the steps and gives for one
+    /// kingdom's players alone.
+    pub kingdoms: yalain_content::kingdoms::KingdomTable,
     /// What the compile left out or could not serve, and why.
     pub warnings: Vec<Problem>,
 }
@@ -504,6 +507,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
     let mut kills_in: Vec<(&Located, usize, &str)> = Vec::new();
     // The steps an event gates, by their row in the quest table, to copy once each is whole.
     let mut event_steps: Vec<(usize, String)> = Vec::new();
+    let mut kingdom_steps: Vec<(usize, u32)> = Vec::new();
     // The scenes a new character holds, by their order.
     let mut door_scenes: Vec<(&Located, u32)> = Vec::new();
     let mut starts: Vec<(u32, u32)> = Vec::new();
@@ -964,6 +968,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 for e in &s.events {
                     event_steps.push((t.quests.steps.len(), e.clone()));
                 }
+                if let Some(k) = s.kingdom {
+                    kingdom_steps.push((t.quests.steps.len(), k));
+                }
                 t.quests.steps.push(TableStep {
                     quest: s.quest,
                     needs: s.needs,
@@ -1041,6 +1048,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                         .collect(),
                     placed: prov_text(&g.prov),
                 });
+                if let (Some(k), Some(give)) = (g.kingdom, t.quests.gives.last()) {
+                    t.kingdoms.gives.push((give.clone(), k));
+                }
             }
             Row::Craft(c) => {
                 if let Some(k) = c.skill {
@@ -1106,6 +1116,15 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
             }
             Row::EffectName(r) => {
                 t.effect_names.insert(r.name.clone(), r.state);
+            }
+            Row::PointsBonus(r) => {
+                t.kingdoms.points.insert(
+                    r.effect,
+                    yalain_content::kingdoms::PointsBonus {
+                        add: r.add,
+                        up_to: r.up_to,
+                    },
+                );
             }
             Row::Event(r) => t.content.events.events.push(yalain_content::events::Event {
                 key: r.key.clone(),
@@ -1264,6 +1283,12 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
     for (i, e) in event_steps {
         if let Some(st) = t.quests.steps.get(i) {
             t.content.events.steps.push((st.clone(), e));
+        }
+    }
+    // The steps a kingdom gates, whole, once every camp's kill has its camp.
+    for (i, k) in kingdom_steps {
+        if let Some(st) = t.quests.steps.get(i) {
+            t.kingdoms.steps.push((st.clone(), k));
         }
     }
     let keys: std::collections::BTreeSet<&str> = t

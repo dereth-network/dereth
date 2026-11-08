@@ -1729,6 +1729,35 @@ mod tests {
         );
     }
 
+    /// A `[[points_bonus]]` row may name only an effect the install holds: the Sliver's bonus passes,
+    /// a state the install lacks is a problem that names it.
+    /// Behaviour: server.world-db.points-bonus-effects-from-the-install
+    #[test]
+    fn a_points_bonus_row_naming_an_effect_the_install_lacks_is_a_problem() {
+        let (dat, _) = tallied(&DatName::Portal);
+        let p = Portal::over(dat, Vec::new(), None).expect("a context");
+        let mut files = yalain_world_db::Files::new();
+        files.insert(
+            "world.toml".into(),
+            "format_version = 1\nkey = \"w\"\ngame = \"ac2\"\nera = \"eor\"\npacks = [\"p\"]\n"
+                .into(),
+        );
+        files.insert(
+            "p/pack.toml".into(),
+            "format_version = 1\nname = \"p\"\nversion = \"0.1.0\"\ngame = \"ac2\"\nauthors = [\"a\"]\nlicense = \"CC0-1.0\"\ndescription = \"d\"\n".into(),
+        );
+        files.insert(
+            "p/server/kingdoms.toml".into(),
+            "[[points_bonus]]\neffect = 0x6F00188E\nadd = 200\nup_to = 1500\nprov = { from = \"authored\" }\n\n\
+             [[points_bonus]]\neffect = 0x6FFFFFF0\nadd = 200\nup_to = 1500\nprov = { from = \"authored\" }\n"
+                .into(),
+        );
+        let db = yalain_world_db::rows::read(&files).expect("reads");
+        let problems = crate::world::install_problems(&p, &db).expect("checks");
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].message.contains("0x6ffffff0"), "{problems:?}");
+    }
+
     /// The catalog holds every template a treasure pool names, though no camp or profile names it, so
     /// a corpse can be given it.
     /// Behaviour: server.loot.pools-in-the-catalog

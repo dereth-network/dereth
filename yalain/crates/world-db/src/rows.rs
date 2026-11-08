@@ -396,6 +396,8 @@ pub struct Step {
     pub requires: Vec<(u32, Need)>,
     /// The `[[event]]`s it runs only while they run.
     pub events: Vec<String>,
+    /// The kingdom it runs for alone (a player in none counting as of the neutral one).
+    pub kingdom: Option<u32>,
     /// The items it takes from the player's pack, which the player must hold.
     pub takes: Vec<u32>,
     /// The place it takes the player to, its update made on arrival.
@@ -437,6 +439,8 @@ pub struct Give {
     pub fx: Option<u32>,
     /// The quests it requires.
     pub requires: Vec<(u32, Need)>,
+    /// The kingdom it takes the item from alone (a player in none counting as of the neutral one).
+    pub kingdom: Option<u32>,
     pub prov: Prov,
 }
 
@@ -510,6 +514,7 @@ pub enum Row {
     TreasurePool(TreasurePool),
     EffectName(EffectName),
     Event(Event),
+    PointsBonus(PointsBonus),
 }
 
 /// `[[event]]`: a named state of the world, on for its times: what it gates (camps, objects and
@@ -522,6 +527,18 @@ pub struct Event {
     pub game_event: Option<u32>,
     pub when: Vec<yalain_content::events::Window>,
     pub on_players: Vec<u32>,
+    pub prov: Prov,
+}
+
+/// `[[points_bonus]]`: what an effect does to the kingdom points of the player it is put on, where the
+/// install's record gives it no amount: raises them by `add`, never above `up_to`, and never lowers
+/// points already above it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PointsBonus {
+    /// The effect, by its saved state.
+    pub effect: u32,
+    pub add: i32,
+    pub up_to: i32,
     pub prov: Prov,
 }
 
@@ -778,6 +795,7 @@ impl Row {
             Self::TreasurePool(_) => "treasure_pool",
             Self::EffectName(_) => "effect_name",
             Self::Event(_) => "event",
+            Self::PointsBonus(_) => "points_bonus",
         }
     }
 
@@ -811,13 +829,14 @@ impl Row {
             Self::TreasurePool(r) => Some(&r.prov),
             Self::EffectName(r) => Some(&r.prov),
             Self::Event(r) => Some(&r.prov),
+            Self::PointsBonus(r) => Some(&r.prov),
             Self::Remove(_) => None,
         }
     }
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 27] = [
+pub const KINDS: [&str; 28] = [
     "object",
     "camp",
     "loot",
@@ -845,10 +864,11 @@ pub const KINDS: [&str; 27] = [
     "treasure_pool",
     "effect_name",
     "event",
+    "points_bonus",
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 27] = [
+pub const FIELDS: [(&str, &[&str]); 28] = [
     (
         "object",
         &[
@@ -1124,6 +1144,7 @@ pub const FIELDS: [(&str, &[&str]); 27] = [
         "event",
         &["key", "game_event", "when", "on_players", "prov"],
     ),
+    ("points_bonus", &["effect", "add", "up_to", "prov"]),
 ];
 
 /// A shared-format error as a problem at its file and line.
@@ -1557,7 +1578,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                     return None;
                 }
             };
-            let (requires, events) = f.requires_and_events("requires");
+            let (requires, events, kingdom) = f.requires_and_events("requires", true);
             Row::Step(Step {
                 key: f.req_symbol("key")?,
                 quest: f.req_id("quest")?,
@@ -1574,6 +1595,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 text: f.strref("text"),
                 requires,
                 events,
+                kingdom,
                 takes: f.ids("takes"),
                 to: f.symbol("to"),
                 races: f.ids("races"),
@@ -1586,19 +1608,23 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 prov: f.req_prov()?,
             })
         }
-        "give" => Row::Give(Give {
-            key: f.req_symbol("key")?,
-            to: f.req_id("to")?,
-            item: f.id("item"),
-            wants: f.u32("wants"),
-            gives: f.ids("gives"),
-            counts: f.ids("counts"),
-            effects: f.ids("effects"),
-            text: f.strref("text"),
-            fx: f.id("fx"),
-            requires: f.requires("requires"),
-            prov: f.req_prov()?,
-        }),
+        "give" => {
+            let (requires, _, kingdom) = f.requires_and_events("requires", false);
+            Row::Give(Give {
+                key: f.req_symbol("key")?,
+                to: f.req_id("to")?,
+                item: f.id("item"),
+                wants: f.u32("wants"),
+                gives: f.ids("gives"),
+                counts: f.ids("counts"),
+                effects: f.ids("effects"),
+                text: f.strref("text"),
+                fx: f.id("fx"),
+                requires,
+                kingdom,
+                prov: f.req_prov()?,
+            })
+        }
         "talk" => {
             let how = match f.word("how", How::from_word, "tell, say, emote or broadcast") {
                 Some(Some(h)) => h,
@@ -1736,6 +1762,24 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 game_event: f.id("game_event"),
                 when,
                 on_players: f.ids("on_players"),
+                prov: f.req_prov()?,
+            })
+        }
+        "points_bonus" => {
+            let effect = f.req_id("effect")?;
+            let (add, up_to) = (f.req_int("add")?, f.req_int("up_to")?);
+            let Some(add) = i32::try_from(add).ok().filter(|a| *a > 0) else {
+                f.bad("add", "an amount above 0, at most 2147483647");
+                return None;
+            };
+            let Ok(up_to) = i32::try_from(up_to) else {
+                f.bad("up_to", "kingdom points, from -2147483648 to 2147483647");
+                return None;
+            };
+            Row::PointsBonus(PointsBonus {
+                effect,
+                add,
+                up_to,
                 prov: f.req_prov()?,
             })
         }
@@ -2134,6 +2178,13 @@ impl<'a> Fields<'a> {
 
     fn int(&mut self, name: &str) -> Option<i64> {
         self.typed(name, "a whole number", toml::Value::as_integer)
+    }
+
+    fn req_int(&mut self, name: &str) -> Option<i64> {
+        match self.t.get(name) {
+            Some(_) => self.int(name),
+            None => self.missing(name),
+        }
     }
 
     fn float(&mut self, name: &str) -> Option<f64> {
@@ -2583,43 +2634,68 @@ impl<'a> Fields<'a> {
         )
     }
 
-    /// A step's `requires`: other quests, as [`Self::requires`] reads them, and `{ event = "key" }`,
-    /// an `[[event]]` that must be on.
-    fn requires_and_events(&mut self, name: &str) -> (Vec<(u32, Need)>, Vec<String>) {
+    /// A step's or a give's `requires`: other quests (`{ quest, phase }`, `{ quest, done = true }`
+    /// or `{ quest, free = true }`); `{ kingdom = "word" }`, the one kingdom it is for, a word of
+    /// [`yalain_content::kingdoms::kingdom::WORDS`]; and, where `events` allows them,
+    /// `{ event = "key" }`, an `[[event]]` that must be on.
+    fn requires_and_events(
+        &mut self,
+        name: &str,
+        events: bool,
+    ) -> (Vec<(u32, Need)>, Vec<String>, Option<u32>) {
+        use yalain_content::kingdoms::kingdom;
         enum Req {
             Quest(u32, Need),
             Event(String),
+            Kingdom(u32),
         }
-        let all = self.list_of(
-            name,
-            "a list of { quest, phase }, { quest, done = true }, { quest, free = true } or { event }",
-            &["quest", "phase", "done", "free", "event"],
-            |t| {
-                if let Some(e) = t.get("event") {
-                    return (t.len() == 1)
-                        .then(|| e.as_str().filter(|s| is_symbol(s)).map(str::to_string))
-                        .flatten()
-                        .map(Req::Event);
-                }
-                let quest = as_u32(t.get("quest")?)?;
-                let need = match (t.get("phase"), t.get("done"), t.get("free")) {
-                    (Some(p), None, None) => Need::Phase(as_u32(p)?),
-                    (None, Some(d), None) if d.as_bool() == Some(true) => Need::Done,
-                    (None, None, Some(f)) if f.as_bool() == Some(true) => Need::Free,
-                    _ => return None,
-                };
-                Some(Req::Quest(quest, need))
-            },
-        );
+        let (what, keys): (&str, &[&str]) = if events {
+            (
+                "a list of { quest, phase }, { quest, done = true }, { quest, free = true }, { event } or { kingdom } (neutral, shadow, order or dominion)",
+                &["quest", "phase", "done", "free", "event", "kingdom"],
+            )
+        } else {
+            (
+                "a list of { quest, phase }, { quest, done = true }, { quest, free = true } or { kingdom } (neutral, shadow, order or dominion)",
+                &["quest", "phase", "done", "free", "kingdom"],
+            )
+        };
+        let all = self.list_of(name, what, keys, |t| {
+            if let Some(e) = t.get("event") {
+                return (t.len() == 1)
+                    .then(|| e.as_str().filter(|s| is_symbol(s)).map(str::to_string))
+                    .flatten()
+                    .map(Req::Event);
+            }
+            if let Some(k) = t.get("kingdom") {
+                return (t.len() == 1)
+                    .then(|| k.as_str().and_then(kingdom::from_word))
+                    .flatten()
+                    .map(Req::Kingdom);
+            }
+            let quest = as_u32(t.get("quest")?)?;
+            let need = match (t.get("phase"), t.get("done"), t.get("free")) {
+                (Some(p), None, None) => Need::Phase(as_u32(p)?),
+                (None, Some(d), None) if d.as_bool() == Some(true) => Need::Done,
+                (None, None, Some(f)) if f.as_bool() == Some(true) => Need::Free,
+                _ => return None,
+            };
+            Some(Req::Quest(quest, need))
+        });
         let mut quests = Vec::new();
-        let mut events = Vec::new();
+        let mut named = Vec::new();
+        let mut kingdoms = Vec::new();
         for r in all {
             match r {
                 Req::Quest(q, n) => quests.push((q, n)),
-                Req::Event(e) => events.push(e),
+                Req::Event(e) => named.push(e),
+                Req::Kingdom(k) => kingdoms.push(k),
             }
         }
-        (quests, events)
+        if kingdoms.len() > 1 {
+            self.bad(name, "names at most one kingdom");
+        }
+        (quests, named, kingdoms.first().copied())
     }
 
     /// An `[[event]]`'s `when`: at least one window, each `{ from, until }` (UTC times,
@@ -2664,25 +2740,6 @@ impl<'a> Fields<'a> {
             return None;
         }
         Some(w)
-    }
-
-    /// `[{ quest = Q, phase = N }, { quest = Q, done = true }, ...]`.
-    fn requires(&mut self, name: &str) -> Vec<(u32, Need)> {
-        self.list_of(
-            name,
-            "a list of { quest, phase }, { quest, done = true } or { quest, free = true }",
-            &["quest", "phase", "done", "free"],
-            |t| {
-                let quest = as_u32(t.get("quest")?)?;
-                let need = match (t.get("phase"), t.get("done"), t.get("free")) {
-                    (Some(p), None, None) => Need::Phase(as_u32(p)?),
-                    (None, Some(d), None) if d.as_bool() == Some(true) => Need::Done,
-                    (None, None, Some(f)) if f.as_bool() == Some(true) => Need::Free,
-                    _ => return None,
-                };
-                Some((quest, need))
-            },
-        )
     }
 
     /// A word of a closed set: `None` when absent, `Some(None)` (and a problem) when it is not one

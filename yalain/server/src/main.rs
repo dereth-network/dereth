@@ -825,6 +825,7 @@ struct Play {
     shrines: std::collections::HashSet<u32>,
     shrine_kingdoms: std::collections::HashMap<u32, u32>,
     kingdom_skills: yalain_world::kingdom_skills::KingdomSkills,
+    kingdom_rows: yalain_content::kingdoms::KingdomTable,
     cannot_use: std::collections::HashSet<u32>,
     doors: std::collections::HashMap<u32, yalain_world::usable::doors::Kind>,
     doors_through_locks: std::collections::HashSet<u32>,
@@ -1029,6 +1030,7 @@ fn run<S: Store>(
     server.shrine_packages = play.shrines;
     server.shrine_kingdoms = play.shrine_kingdoms;
     server.kingdom_skills = play.kingdom_skills;
+    server.kingdom_rows = play.kingdom_rows;
     server.cannot_use_packages = play.cannot_use;
     server.doors.packages = play.doors;
     server.doors.creatures_through_locks = play.doors_through_locks;
@@ -1690,6 +1692,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         pet_kinds,
         pet_limits,
         effect_names,
+        kingdoms: kingdom_rows,
         ..
     } = compiled;
     let play = (|| {
@@ -1984,6 +1987,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             shrines,
             shrine_kingdoms,
             kingdom_skills,
+            kingdom_rows,
             cannot_use,
             doors,
             doors_through_locks,
@@ -2039,6 +2043,7 @@ fn reload_world(
         death_spawns: p.death_spawns,
         pet_kinds: p.pet_kinds,
         pet_limits: p.pet_limits,
+        kingdoms: p.kingdom_rows,
         names,
         kinds: Some(yalain_world::reload::PlacedKinds {
             brokers: p.brokers,

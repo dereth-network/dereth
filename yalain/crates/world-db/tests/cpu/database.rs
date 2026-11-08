@@ -2777,3 +2777,113 @@ fn an_event_row_reads_its_windows_and_gates_compile_to_the_event_table() {
         assert!(read(&f).is_err(), "{bad}");
     }
 }
+
+#[test]
+fn points_bonus_rows_and_kingdom_requirements_compile_and_bad_ones_are_problems() {
+    use yalain_content::kingdoms::{kingdom, PointsBonus};
+    let mut files = fixture();
+    files.insert(
+        "town/server/kingdoms.toml".into(),
+        "[[points_bonus]]\neffect = 0x6F00188E\nadd = 200\nup_to = 1500\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    edit(
+        &mut files,
+        "town/server/quests/40000088.toml",
+        "update = \"bestow\"\n",
+        "update = \"bestow\"\nrequires = [{ kingdom = \"order\" }]\n",
+    );
+    files.insert(
+        "town/server/gives/470033D0.toml".into(),
+        "[[give]]\nkey = \"gem\"\nto = 0x470033D0\nitem = 0x470020BB\neffects = [0x6F00188E]\n\
+         requires = [{ quest = 0x40000016, done = true }, { kingdom = \"dominion\" }]\n\
+         prov = { from = \"authored\" }\n"
+            .into(),
+    );
+    let db = read(&files).unwrap();
+    assert!(db.rows().any(|l| matches!(&l.row, Row::PointsBonus(r)
+        if r.effect == 0x6F00_188E && r.add == 200 && r.up_to == 1500)));
+    assert!(check(&files).is_empty(), "{:?}", check(&files));
+    let t = compile(&merge(&db).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(
+        t.kingdoms.points.get(&0x6F00_188E),
+        Some(&PointsBonus {
+            add: 200,
+            up_to: 1500
+        })
+    );
+    assert_eq!(t.kingdoms.steps.len(), 1);
+    assert_eq!(t.kingdoms.steps[0].1, kingdom::ORDER);
+    assert_eq!(t.kingdoms.steps[0].0.trigger, Trigger::Use(0x4700_33D0));
+    assert_eq!(t.kingdoms.gives.len(), 1);
+    let (give, k) = &t.kingdoms.gives[0];
+    assert_eq!(*k, kingdom::DOMINION);
+    assert_eq!(
+        give.requires,
+        [(0x4000_0016, Need::Done)],
+        "the quest it requires is kept beside the kingdom"
+    );
+    assert!(t.quests.gives.contains(give), "the give itself is served");
+
+    // One row an effect.
+    let mut twice = files.clone();
+    twice.insert(
+        "town/server/kingdoms.toml".into(),
+        "[[points_bonus]]\neffect = 0x6F00188E\nadd = 200\nup_to = 1500\nprov = { from = \"authored\" }\n\n\
+         [[points_bonus]]\neffect = 0x6F00188E\nadd = 250\nup_to = 1750\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    let problems = check(&twice);
+    assert!(
+        problems.iter().any(|p| p.message.contains("set twice")),
+        "{problems:?}"
+    );
+
+    // An amount above 0 and a cap the points can hold; nothing else.
+    for bad in [
+        "effect = 0x6F00188E\nadd = 0\nup_to = 1500",
+        "effect = 0x6F00188E\nadd = -200\nup_to = 1500",
+        "effect = 0x6F00188E\nadd = 2147483648\nup_to = 1500",
+        "effect = 0x6F00188E\nadd = 200\nup_to = 2147483648",
+        "effect = 0x6F00188E\nadd = 200",
+        "add = 200\nup_to = 1500",
+        "effect = 0x6F00188E\nadd = 200\nup_to = 1500\nlasts = 3",
+    ] {
+        let mut f = files.clone();
+        f.insert(
+            "town/server/kingdoms.toml".into(),
+            format!("[[points_bonus]]\n{bad}\nprov = {{ from = \"authored\" }}\n"),
+        );
+        assert!(read(&f).is_err(), "{bad}");
+    }
+
+    // A kingdom by its word, one at most, alone in its table; a give's requires names no event.
+    for bad in [
+        "requires = [{ kingdom = \"elves\" }]",
+        "requires = [{ kingdom = 2 }]",
+        "requires = [{ kingdom = \"order\" }, { kingdom = \"shadow\" }]",
+        "requires = [{ kingdom = \"order\", quest = 0x40000016 }]",
+        "requires = [{ event = \"fair\" }]",
+    ] {
+        let mut f = files.clone();
+        f.insert(
+            "town/server/gives/470033D0.toml".into(),
+            format!(
+                "[[give]]\nkey = \"gem\"\nto = 0x470033D0\nitem = 0x470020BB\n{bad}\nprov = {{ from = \"authored\" }}\n"
+            ),
+        );
+        let problems = check(&f);
+        assert!(
+            problems.iter().any(|p| p.message.contains("requires")),
+            "{bad}: {problems:?}"
+        );
+    }
+    let mut f = files.clone();
+    edit(
+        &mut f,
+        "town/server/quests/40000088.toml",
+        "requires = [{ kingdom = \"order\" }]",
+        "requires = [{ kingdom = \"elves\" }]",
+    );
+    assert!(read(&f).is_err(), "a step's unknown kingdom");
+}

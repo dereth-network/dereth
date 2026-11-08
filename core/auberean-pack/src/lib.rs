@@ -181,6 +181,8 @@ pub enum Item {
     EffectName { name: String },
     /// A scheduled event, by its key.
     Event { key: String },
+    /// What an effect does to kingdom points, by the effect's saved state.
+    PointsBonus { effect: u32 },
 }
 
 impl Item {
@@ -248,6 +250,9 @@ impl Item {
                 name: identifier(name)?,
             },
             ["event", key] => Self::Event { key: symbol(key)? },
+            ["points_bonus", effect] => Self::PointsBonus {
+                effect: number(effect)?,
+            },
             ["effect_name", name] => Self::EffectName {
                 name: identifier(name)?,
             },
@@ -298,6 +303,7 @@ impl fmt::Display for Item {
             Self::TreasurePool { name } => write!(f, "treasure_pool {name}"),
             Self::EffectName { name } => write!(f, "effect_name {name}"),
             Self::Event { key } => write!(f, "event {key}"),
+            Self::PointsBonus { effect } => write!(f, "points_bonus {effect:#010x}"),
         }
     }
 }

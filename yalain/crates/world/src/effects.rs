@@ -715,6 +715,15 @@ pub fn apply_on<S: Store>(
     cast: Cast,
     clock: Clock,
 ) -> bool {
+    if let On::Player(world) = on {
+        // The world's rows give a points bonus its amount: the install's record has none.
+        if crate::kingdom_skills::points_bonus(s, net, world, state) {
+            if let Some(fx) = s.effect_table.get(state).map(|d| d.fx).filter(|f| *f != 0) {
+                show_fx(s, net, world, fx);
+            }
+            return true;
+        }
+    }
     let Some(def) = s.effect_table.get(state).cloned() else {
         s.unhandled
             .note(format!("an effect {state:08X} the server does not know"));
