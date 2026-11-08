@@ -1408,7 +1408,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.combat.empty-hand-refused",
-        says: "A player with nothing in its hand has no basic attack: asked to attack, the server \n               answers that it is attacking, that its basic attacks failed (not wielding the right \n               item) and that it is not attacking, and nothing swings.",
+        says: "A player with nothing in its hand has no basic attack: asked to attack, the server \
+               answers that it is attacking, that its basic attacks failed (not wielding the \
+               right item) and that it is not attacking, and nothing swings.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-EMPTY-HAND"),
         station: "yalain-testkit::cpu::play::specials::an_attack_with_an_empty_hand_is_refused",
@@ -2180,7 +2182,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.craft.recipes-read-from-their-definitions",
-        says: "Recipes and craft skills read from their saved states with the library's names: a \n               recipe's craft skill, animation and cycles, its ingredient slots, its checks and \n               their outcomes' actions (items made, ingredients used up, effects, texts), its \n               wait; a craft skill's cap.",
+        says: "Recipes and craft skills read from their saved states with the library's names: a \
+               recipe's craft skill, animation and cycles, its ingredient slots, its checks and \
+               their outcomes' actions (items made, ingredients used up, effects, texts), its \
+               wait; a craft skill's cap.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-RECIPE-DEFS"),
         station: "yalain-testkit::dat::effects::the_recipes_read_as_the_data_defines_them",
@@ -3223,7 +3228,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.data.a-client-that-keeps-overlays-is-sent-what-it-lacks",
-        says: "A client that says it keeps overlays and lacks revisions of the world's overlay is                told them and sent their records after a pause, and sees its characters once it                has stored them; a client holding them is sent nothing.",
+        says: "A client that says it keeps overlays and lacks revisions of the world's overlay is \
+               told them and sent their records after a pause, and sees its characters once it \
+               has stored them; a client holding them is sent nothing.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-PATCH-SENT"),
         station: "yalain-testkit::dat::world_patch::a_client_that_keeps_overlays_is_sent_what_it_lacks_and_then_its_characters",
@@ -3231,7 +3238,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.data.a-client-the-overlay-doesnt-suit-is-refused-with-the-reason",
-        says: "A client holding other files than the overlay was made against is refused with the                reason, unless it checks them itself; so is one patched to another world, and one                that keeps overlays while the operator has patching off.",
+        says: "A client holding other files than the overlay was made against is refused with the \
+               reason, unless it checks them itself; so is one patched to another world, and one \
+               that keeps overlays while the operator has patching off.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-PATCH-REFUSED"),
         station: "yalain-testkit::dat::world_patch::a_client_holding_other_files_is_refused_unless_it_checks_them_itself",
@@ -3249,7 +3258,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.data.a-retail-client-lacking-a-worlds-overlay-is-refused-unless-patching-is-on",
-        says: "A client that says nothing of overlays and lacks the world's is refused with what                to play instead, unless the operator turned its patching on, when it is sent it.",
+        says: "A client that says nothing of overlays and lacks the world's is refused with what \
+               to play instead, unless the operator turned its patching on, when it is sent it.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-PATCH-RETAIL"),
         station: "yalain-testkit::dat::world_patch::a_retail_client_lacking_the_overlay_is_refused_unless_the_operator_patches_it",
@@ -3316,7 +3326,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.data.patch-records-go-at-the-operators-rate",
-        says: "A client that keeps overlays is sent the world's records at the operator's rate,                and retail clients at the original servers' thousand a minute between them.",
+        says: "A client that keeps overlays is sent the world's records at the operator's rate, \
+               and retail clients at the original servers' thousand a minute between them.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-PATCH-RATE"),
         station: "yalain-testkit::dat::world_patch::a_clients_records_go_at_its_rate_and_retail_clients_share_theirs",
@@ -3814,7 +3825,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.effects.read-from-their-definitions",
-        says: "Effects read from their saved states with the library's names, by the package each \n               derives from: an instant change to vitals and its amount by spellcraft, changes to \n               qualities (added or multiplying), chains of them, a quest moved on, a recipe given \n               or taken; each with its duration, class, appearance and whether a death ends it.",
+        says: "Effects read from their saved states with the library's names, by the package each \
+               derives from: an instant change to vitals and its amount by spellcraft, changes to \
+               qualities (added or multiplying), chains of them, a quest moved on, a recipe given \
+               or taken; each with its duration, class, appearance and whether a death ends it.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-EFFECT-DEFS"),
         station: "yalain-testkit::dat::effects::the_effects_read_as_the_data_defines_them",
@@ -4071,7 +4085,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.examination.a-rows-own-name",
-        says: "A placed row a world gave a name of its own is examined under that name, as it is                shown over its head; one with none under its template's.",
+        says: "A placed row a world gave a name of its own is examined under that name, as it is \
+               shown over its head; one with none under its template's.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-EXAMINE-OWN-NAME"),
         station: "yalain-testkit::cpu::entry::examine::a_row_with_a_name_of_its_own_is_examined_under_it",
@@ -6495,7 +6510,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.loot.corpse-closes-when-its-opener-walks-away",
-        says: "An open corpse whose opener goes more than six meters from it closes: its opener is                told, as when it asks to close it.",
+        says: "An open corpse whose opener goes more than six meters from it closes: its opener \
+               is told, as when it asks to close it.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-CORPSE-WALK-AWAY"),
         station: "yalain-testkit::cpu::play::fights::an_open_corpse_closes_when_its_opener_walks_away",
@@ -7061,7 +7077,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.market.a-consignment-says-how-many-are-left",
-        says: "A consignment tells its seller how many are left and how many have sold, as the                client reads them: it adds the two for how many went up, and shows a row in stock                while any are left.",
+        says: "A consignment tells its seller how many are left and how many have sold, as the \
+               client reads them: it adds the two for how many went up, and shows a row in stock \
+               while any are left.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-MARKET-LEFT"),
         station: "yalain-testkit::cpu::play::market::a_consignment_tells_its_seller_how_many_are_left_and_how_many_sold",
@@ -9854,7 +9872,7 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.places.a-chests-draw-is-treasure-of-its-level",
-        says: "What a chest draws is treasure of the level its profile's row names, each piece worth a \\
+        says: "What a chest draws is treasure of the level its profile's row names, each piece worth a \
                draw from the row's band; its extras aren't, and a profile with no such row stays plain.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-CHEST-TREASURE"),
@@ -9912,7 +9930,7 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.places.a-keys-answer-names-it",
-        says: "A key's answer names the key, glyphs among them, whose names only their qualities record \\
+        says: "A key's answer names the key, glyphs among them, whose names only their qualities record \
                holds; a key with no name opens with no text about the lock.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-KEY-ANSWER-NAME"),
@@ -10525,7 +10543,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.places.recall-interrupted",
-        says: "Moving while the lifestone recall powers up cuts it short: the use over, \n               interrupted, the player not attacking; no vigor is spent and no wait begins.",
+        says: "Moving while the lifestone recall powers up cuts it short: the use over, \
+               interrupted, the player not attacking; no vigor is spent and no wait begins.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-RECALL-INTERRUPTED"),
         station: "yalain-testkit::cpu::play::specials::moving_while_the_recall_powers_up_interrupts_it",
@@ -10533,7 +10552,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.places.recall-never-bound",
-        says: "A player never bound to a lifestone that recalls plays the whole recall (power-up, \n               story, all its vigor), is told it failed, and gets the skill's information and the \n               wait every skill shares; it goes nowhere.",
+        says: "A player never bound to a lifestone that recalls plays the whole recall (power-up, \
+               story, all its vigor), is told it failed, and gets the skill's information and the \
+               wait every skill shares; it goes nowhere.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-RECALL-FAILS"),
         station: "yalain-testkit::cpu::play::specials::a_recall_never_bound_plays_and_fails",
@@ -12648,7 +12669,12 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.specials.from-rest",
-        says: "A special used from rest raises the attack state, puts the player in its weapon's \n               combat mode and turns it to its target, pays its vigor (the skill's and the \n               weapon's), tells the special's story with the use's number, then at the animation's \n               end sends the skill's information, lowers the attack state, stops the player and \n               puts it at peace; a missile's outcome is told by its target as it arrives.",
+        says: "A special used from rest raises the attack state, puts the player in its weapon's \
+               combat mode and turns it to its target, pays its vigor (the skill's and the \
+               weapon's), tells the special's story with the use's number, then at the \
+               animation's end sends the skill's information, lowers the attack state, stops the \
+               player and puts it at peace; a missile's outcome is told by its target as it \
+               arrives.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-SPECIAL-REST"),
         station: "yalain-testkit::cpu::play::specials::deadeye_from_rest_shoots_and_ends_with_the_skills_information",
@@ -12684,7 +12710,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.specials.inside-a-run",
-        says: "Inside an attack run a special waits for the run's next swing and takes it; the \n               run's basic swings go on after it.",
+        says: "Inside an attack run a special waits for the run's next swing and takes it; the \
+               run's basic swings go on after it.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-SPECIAL-RUN"),
         station: "yalain-testkit::cpu::play::specials::riposte_inside_a_run_takes_one_swing_and_the_run_goes_on",
@@ -12692,7 +12719,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.specials.one-waits",
-        says: "While a special runs one request waits; a newer request replaces it and the replaced \n               one is told over with no reason.",
+        says: "While a special runs one request waits; a newer request replaces it and the \
+               replaced one is told over with no reason.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-SPECIAL-WAITS"),
         station: "yalain-testkit::cpu::play::specials::a_newer_request_replaces_the_one_waiting",
@@ -12700,7 +12728,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.specials.opening-exploited",
-        says: "A creature that attacks is open a moment later for seven and a half seconds (the \n               golden rays); a starting special that hits it then exploits the opening: the \n               player's private effect, the rays stopped, the creature's story of 20 more damage.",
+        says: "A creature that attacks is open a moment later for seven and a half seconds (the \
+               golden rays); a starting special that hits it then exploits the opening: the \
+               player's private effect, the rays stopped, the creature's story of 20 more damage.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-SPECIAL-OPENING"),
         station: "yalain-testkit::cpu::play::specials::a_starting_special_exploits_a_creatures_opening",
@@ -12717,7 +12747,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.specials.recovery",
-        says: "A special used again before its recovery has passed since its last use's end is \n               refused as not reset; after it, it is used.",
+        says: "A special used again before its recovery has passed since its last use's end is \
+               refused as not reset; after it, it is used.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-SPECIAL-RECOVERY"),
         station: "yalain-testkit::cpu::play::specials::a_special_waits_its_recovery_from_its_last_use",
@@ -12725,7 +12756,11 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.specials.refused",
-        says: "A refused skill's use is answered in one tick: the attack state raised (unless it \n               is), the use over, why, and the attack state lowered; the checks, first failure \n               first: dead, not wielding the right item, no vigor, not reset, vigor short of the \n               cost, no target or a dead one, out of range, moving. The recall needs something in \n               the right hand and all of the player's vigor.",
+        says: "A refused skill's use is answered in one tick: the attack state raised (unless it \
+               is), the use over, why, and the attack state lowered; the checks, first failure \
+               first: dead, not wielding the right item, no vigor, not reset, vigor short of the \
+               cost, no target or a dead one, out of range, moving. The recall needs something in \
+               the right hand and all of the player's vigor.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-SPECIAL-REFUSED"),
         station: "yalain-testkit::cpu::play::specials::a_special_or_the_recall_with_an_empty_hand_is_refused",
@@ -13140,7 +13175,7 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.update.archive-for-this-target",
-        says: "A release's archive is the one its release.json lists for the target this build  \
+        says: "A release's archive is the one its release.json lists for the target this build \
                was made for, whichever comes first; a release with none for it is refused.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-UPDATE-ARCHIVE"),
@@ -13149,8 +13184,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.update.backup-and-way-back",
-        says: "A release's install backs the database up first; when the new server fails its  \
-               health check, the old program and the database with its rows come back, and the  \
+        says: "A release's install backs the database up first; when the new server fails its \
+               health check, the old program and the database with its rows come back, and the \
                release is recorded as failed and not tried again.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-UPDATE-WAY-BACK"),
@@ -13159,7 +13194,7 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.update.bad-checksum-refused",
-        says: "A download whose SHA-256 is not the one SHA256SUMS lists is refused: nothing is  \
+        says: "A download whose SHA-256 is not the one SHA256SUMS lists is refused: nothing is \
                installed and the new program never runs.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-UPDATE-CHECKSUM"),
@@ -13168,8 +13203,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.update.cancelled-with-the-shutdown",
-        says: "An operator who cancels the shutdown cancels the update, and the next check  \
-               stages it again.",
+        says: "An operator who cancels the shutdown cancels the update, and the next check stages \
+               it again.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-UPDATE-CANCEL"),
         station: "yalain::bin.yalain::update::tests::a_cancelled_countdown_cancels_the_update_and_the_next_check_stages_it_again",
@@ -13177,8 +13212,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.update.check-by-hand",
-        says: "yalain update --check, needing no install, reads the source its configuration  \
-               names and says what it would do; without --check or --apply it prints its usage  \
+        says: "yalain update --check, needing no install, reads the source its configuration \
+               names and says what it would do; without --check or --apply it prints its usage \
                and exits with 2.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-UPDATE-CHECK-BY-HAND"),
@@ -13187,7 +13222,7 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.update.command-line",
-        says: "yalain update takes --check or --apply, --config and --policy, and refuses  \
+        says: "yalain update takes --check or --apply, --config and --policy, and refuses \
                anything else in Empyrean's words.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-UPDATE-COMMAND"),
@@ -13196,8 +13231,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.update.database-backup-and-restore",
-        says: "The backup before an update is a sibling of the database named for the update,  \
-               the newest three kept, and putting it back removes what the file became and its  \
+        says: "The backup before an update is a sibling of the database named for the update, the \
+               newest three kept, and putting it back removes what the file became and its \
                write-ahead log.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-UPDATE-BACKUP"),
@@ -13206,7 +13241,7 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.update.needs-a-step-or-a-hand-refused",
-        says: "A release that cannot be upgraded to straight from this version, or that needs a  \
+        says: "A release that cannot be upgraded to straight from this version, or that needs a \
                configuration key set by hand, is reported and not taken.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-UPDATE-REFUSED"),
@@ -13215,9 +13250,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.update.newer-release-installed",
-        says: "A newer release on the source is found, checked against SHA256SUMS and  \
-               release.json, staged, its program run once, and installed with the old files  \
-               moved aside and the database backed up first, then health-checked.",
+        says: "A newer release on the source is found, checked against SHA256SUMS and \
+               release.json, staged, its program run once, and installed with the old files moved \
+               aside and the database backed up first, then health-checked.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-UPDATE-INSTALL"),
         station: "yalain::bin.yalain::update::tests::a_newer_release_is_found_checked_installed_and_health_checked",
@@ -13225,8 +13260,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.update.not-what-it-declares-refused",
-        says: "A release whose own program reports another database schema or world database  \
-               than its release declares is refused.",
+        says: "A release whose own program reports another database schema or world database than \
+               its release declares is refused.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-UPDATE-DECLARES"),
         station: "yalain::bin.yalain::update::tests::a_release_that_is_not_what_it_declares_is_refused",
@@ -13234,10 +13269,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.update.off-patch-minor",
-        says: "server.update off installs nothing, patch takes patch releases that change  \
-               nothing but the program (a patch of the world database is fetched), minor also  \
-               takes minor releases with their migrations; by hand with neither set means  \
-               minor.",
+        says: "server.update off installs nothing, patch takes patch releases that change nothing \
+               but the program (a patch of the world database is fetched), minor also takes minor \
+               releases with their migrations; by hand with neither set means minor.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-UPDATE-POLICY"),
         station: "yalain::bin.yalain::update::tests::off_patch_and_minor_take_what_they_take_on_empyrean",
@@ -13255,9 +13289,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.update.players-warned-by-the-shutdown-countdown",
-        says: "The countdown an update warns players with shows every player in the world its  \
-               own length at once, then the shutdown's lines, and the server is done twenty  \
-               seconds after the last.",
+        says: "The countdown an update warns players with shows every player in the world its own \
+               length at once, then the shutdown's lines, and the server is done twenty seconds \
+               after the last.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-UPDATE-WARNING-LINES"),
         station: "yalain-testkit::cpu::operator::shutdown::an_updates_warning_counts_down_its_own_seconds_to_every_player",
@@ -13265,8 +13299,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.update.players-warned-first",
-        says: "The running server stages a release with the world running, then counts down  \
-               server.update_warning_seconds; nothing is installed until the world has ended by  \
+        says: "The running server stages a release with the world running, then counts down \
+               server.update_warning_seconds; nothing is installed until the world has ended by \
                itself, and a server stopped from outside installs nothing.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-UPDATE-WARNED"),
@@ -13275,7 +13309,7 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.update.reads-its-own-tags",
-        says: "Of a repository holding the releases of many programs, only the tags beginning  \
+        says: "Of a repository holding the releases of many programs, only the tags beginning \
                yalain-v are read.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-UPDATE-TAGS"),
@@ -13284,7 +13318,7 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.update.reads-what-packaging-writes",
-        says: "The release.json the packaging writes and the facts --release-facts prints are  \
+        says: "The release.json the packaging writes and the facts --release-facts prints are \
                what the updater reads.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-UPDATE-INDEX"),
@@ -13293,9 +13327,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.update.running-server-restarts-into-the-release",
-        says: "A running server taken for an older version counts down, stops, installs the  \
-               release, passes its health check on the real install and restarts into it in the  \
-               same process. Its status address is free for the health check and then for the new  \
+        says: "A running server taken for an older version counts down, stops, installs the \
+               release, passes its health check on the real install and restarts into it in the \
+               same process. Its status address is free for the health check and then for the new \
                server, which answers there.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-UPDATE-RESTART"),
@@ -13304,8 +13338,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.update.says-what-it-would-do",
-        says: "The check says, in Empyrean's words with Yalain's name, what it would install  \
-               and why it would not install each other release.",
+        says: "The check says, in Empyrean's words with Yalain's name, what it would install and \
+               why it would not install each other release.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-UPDATE-DESCRIBE"),
         station: "yalain::bin.yalain::update::tests::the_check_says_what_it_would_install_and_why_it_would_not",
@@ -13313,8 +13347,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.update.settings",
-        says: "server.update, server.update_check_hours, server.update_warning_seconds and  \
-               server.update_source are read with Empyrean's defaults (off, 6, 300, empty),  \
+        says: "server.update, server.update_check_hours, server.update_warning_seconds and \
+               server.update_source are read with Empyrean's defaults (off, 6, 300, empty), \
                without a warning.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-UPDATE-KEYS"),
@@ -13323,8 +13357,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.update.source",
-        says: "New releases are looked for in the repository the build came from, a GitHub  \
-               repository named instead, or a mirror of the releases API; anything else is  \
+        says: "New releases are looked for in the repository the build came from, a GitHub \
+               repository named instead, or a mirror of the releases API; anything else is \
                refused.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-UPDATE-SOURCE"),
@@ -13333,9 +13367,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.update.world-database-fetched-first",
-        says: "A release serving a newer world database has it fetched by its own program while  \
-               it is staged, before anything is installed and before the new program starts; a  \
-               fetch that fails refuses the release, and a release serving the same one fetches  \
+        says: "A release serving a newer world database has it fetched by its own program while \
+               it is staged, before anything is installed and before the new program starts; a \
+               fetch that fails refuses the release, and a release serving the same one fetches \
                nothing.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-UPDATE-FETCH"),
@@ -13372,7 +13406,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.weapons.basic-attacks-read-from-their-definitions",
-        says: "A player's basic attacks are the used skills with weights to be drawn by; each read \n               with its ranges and the implements it is used with.",
+        says: "A player's basic attacks are the used skills with weights to be drawn by; each \
+               read with its ranges and the implements it is used with.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-AUTO-ATTACK-DEFS"),
         station: "yalain-testkit::dat::effects::the_basic_attacks_read_as_the_data_defines_them",

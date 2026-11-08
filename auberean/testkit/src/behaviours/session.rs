@@ -156,7 +156,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "session.login.a-login-server-lost-before-its-first-packet-fails-the-login",
-        says: "A login server that answers the login and is then given up for dead before its                first ordinary packet fails the login, once, with the generic connection error.",
+        says: "A login server that answers the login and is then given up for dead before its \
+               first ordinary packet fails the login, once, with the generic connection error.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SESS-LOGIN-HANDSHAKE-LOST"),
         station: "auberean-client-net::cpu::server_lost::a_login_server_lost_before_its_first_packet_fails_the_login",
@@ -192,7 +193,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "session.login.each-attempt-is-told-out-of-twenty",
-        says: "Each login that goes out is told as its attempt of the twenty the client makes,                for the connecting screen to count.",
+        says: "Each login that goes out is told as its attempt of the twenty the client makes, \
+               for the connecting screen to count.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SESS-LOGIN-ATTEMPTS"),
         station: "auberean-client-net::cpu::server_lost::each_login_attempt_is_told_out_of_twenty",
@@ -200,7 +202,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "session.login.the-login-servers-acknowledgement-is-told",
-        says: "Each acknowledgement of the login server's connection request is told, as the                client starts waiting for that server's first packet.",
+        says: "Each acknowledgement of the login server's connection request is told, as the \
+               client starts waiting for that server's first packet.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SESS-LOGIN-ACKNOWLEDGED"),
         station: "auberean-client-net::cpu::server_lost::the_login_servers_acknowledgement_is_told_before_it_connects",
@@ -228,7 +231,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "session.message.bytes-after-a-messages-fields-are-not-read",
-        says: "A message from a server with bytes after its fields (an end padded with zeros) is                read for its fields and takes effect; the bytes after them are not read.",
+        says: "A message from a server with bytes after its fields (an end padded with zeros) is \
+               read for its fields and takes effect; the bytes after them are not read.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SESS-MESSAGE-TRAILING-BYTES"),
         station: "auberean-client-net::cpu::server_lost::a_message_with_bytes_after_its_fields_is_read_for_its_fields",
@@ -266,7 +270,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "session.position.a-turn-under-the-heading-tolerance-is-not-reported",
-        says: "A turn smaller than 0.0002 radians, the way round through north included, is no                reason to send a report.",
+        says: "A turn smaller than 0.0002 radians, the way round through north included, is no \
+               reason to send a report.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SESS-POSITION-TOLERANCE"),
         station: "auberean-client-runtime::cpu::world::reports::a_turn_under_the_heading_tolerance_is_not_reported",
@@ -340,7 +345,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "session.server.a-character-entering-again-gives-the-journal-its-quests",
-        says: "A character that logged off with a quest under way enters again: the whole-list                notice the scripts send the journal at the session's start carries the quest, as                the journal asks for it.",
+        says: "A character that logged off with a quest under way enters again: the whole-list \
+               notice the scripts send the journal at the session's start carries the quest, as \
+               the journal asks for it.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SESS-JOURNAL-AT-ENTRY"),
         station: "yalain-testkit::dat::session::a_character_entering_again_gives_the_journal_its_quests",
@@ -427,7 +434,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "session.server.our-client-takes-a-worlds-overlay-as-it-logs-in",
-        says: "Our client says it keeps overlays and which files it holds ahead of what it holds,                stores a world's records it lacks as it logs in, and reads them as its own.",
+        says: "Our client says it keeps overlays and which files it holds ahead of what it holds, \
+               stores a world's records it lacks as it logs in, and reads them as its own.",
         since: THIS_CLIENT,
         divergence: "CD2-world-overlay",
         evidence: Evidence::Private("AC2-EVID-SESSION-OVERLAY-TAKEN"),

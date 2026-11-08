@@ -174,7 +174,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "script.glue.a-creations-choices-are-set-and-read",
-        says: "A creation's race, sex, class and physique values read back what was set; a physique                type with no value reads as -1; setting a physique value, the class or the implement                answers 1, and setting the race, the sex or the starting area answers nothing; through                the null reference each crashes the script.",
+        says: "A creation's race, sex, class and physique values read back what was set; a \
+               physique type with no value reads as -1; setting a physique value, the class or \
+               the implement answers 1, and setting the race, the sex or the starting area \
+               answers nothing; through the null reference each crashes the script.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SCRIPT-CHARGEN-RESULT"),
         station: "auberean-glue::cpu::natives::a_creations_fields_read_back_what_was_set",
@@ -851,7 +854,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "script.interp.stops-counted",
-        says: "The machine counts every run that stops short by what stopped it (a native not                written yet, the null reference, another stop) and the code it stopped in, for a                host to report what the scripts still lack.",
+        says: "The machine counts every run that stops short by what stopped it (a native not \
+               written yet, the null reference, another stop) and the code it stopped in, for a \
+               host to report what the scripts still lack.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SCRIPT-STOPS-COUNTED"),
         station: "auberean-script::cpu::machine::the_machine_counts_every_stop_by_what_stopped_it_and_where",
@@ -925,7 +930,12 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "script.looks.a-held-description-answers-as-its-own-form",
-        says: "A visual description a script holds answers as the client's own form: its icon is                the one the inventory draws its object with (and whether it has a layer), the                icon's check says whether it can be drawn, its scale is its own, the appearance                values it gives a part group read back and add to another description as they                were; one value held on its own reads back, is given to an empty description and                taken off again; cleared, it adds nothing.",
+        says: "A visual description a script holds answers as the client's own form: its icon is \
+               the one the inventory draws its object with (and whether it has a layer), the \
+               icon's check says whether it can be drawn, its scale is its own, the appearance \
+               values it gives a part group read back and add to another description as they \
+               were; one value held on its own reads back, is given to an empty description and \
+               taken off again; cleared, it adds nothing.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-LOOKS-HELD"),
         station: "auberean-client-runtime::corpus::effects::a_held_description_answers_its_icon_scale_and_appearance_as_its_own_form",
@@ -945,7 +955,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "script.model.a-collision-ends-in-the-scripts-without-reading-the-profile",
-        says: "A collision handed to the scripts of an object in a recorded world runs to its                end: the library's answer to the interface's collision function only says it was                handled, and no function that reads a collision profile has a caller.",
+        says: "A collision handed to the scripts of an object in a recorded world runs to its \
+               end: the library's answer to the interface's collision function only says it was \
+               handled, and no function that reads a collision profile has a caller.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SCRIPT-COLLISION-ANSWER"),
         station: "auberean-client-runtime::corpus::calls::a_collision_handed_to_recorded_objects_scripts_runs_to_its_end",
@@ -1256,7 +1268,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "script.model.an-objects-position-is-where-its-body-has-moved",
-        says: "A script asking another object's position, or its distance from a place, gets where                the client has moved its body since the server last placed it, turned as the body                is; one out of the world has none.",
+        says: "A script asking another object's position, or its distance from a place, gets \
+               where the client has moved its body since the server last placed it, turned as the \
+               body is; one out of the world has none.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-OBJECT-MOVED-POSITION"),
         station: "auberean-client-runtime::cpu::scripts::physics_object::an_objects_position_is_where_its_body_has_moved",
@@ -1636,7 +1650,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "script.natives.options-file-names-in-the-english-code-page",
-        says: "An exported or imported options file's name is narrowed to the English code page, so                a letter that page holds, such as a curly apostrophe, stays in the name.",
+        says: "An exported or imported options file's name is narrowed to the English code page, \
+               so a letter that page holds, such as a curly apostrophe, stays in the name.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SCRIPT-OPTIONS-NAME-CODE-PAGE"),
         station: "auberean-glue::cpu::options::an_options_files_name_is_narrowed_to_the_english_code_page",
@@ -1747,7 +1762,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "script.options.aliases-in-the-english-code-page",
-        says: "The options file holds the aliases in the English code page: a curly apostrophe or a                euro sign is one byte and reads back as itself, and text with a letter the page                lacks is written with each letter past the first 128 as its number in angle                brackets.",
+        says: "The options file holds the aliases in the English code page: a curly apostrophe or \
+               a euro sign is one byte and reads back as itself, and text with a letter the page \
+               lacks is written with each letter past the first 128 as its number in angle \
+               brackets.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SCRIPT-OPTIONS-CODE-PAGE"),
         station: "auberean-script::cpu::options_file::an_alias_is_written_and_read_in_the_english_code_page",

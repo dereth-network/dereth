@@ -668,7 +668,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "data.font.a-character-finds-its-glyph-or-the-question-marks",
-        says: "A font read from the files finds a character's glyph through the map of its                characters, from its least code point to its greatest, a code point held twice                being its last glyph; a character the font lacks is drawn with its question                mark's glyph, or none when it lacks that too.",
+        says: "A font read from the files finds a character's glyph through the map of its \
+               characters, from its least code point to its greatest, a code point held twice \
+               being its last glyph; a character the font lacks is drawn with its question mark's \
+               glyph, or none when it lacks that too.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-FONT-CHARACTERS"),
         station: "auberean-assets::cpu::font::a_character_finds_its_glyph_or_the_question_marks",
@@ -676,7 +679,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "data.font.a-strings-width-is-its-widest-line",
-        says: "A string's width in a font is its widest line, its lines broken at new lines, each                character as wide as the glyph it is drawn with; a font holds a string when its                map has every character of it but new lines.",
+        says: "A string's width in a font is its widest line, its lines broken at new lines, each \
+               character as wide as the glyph it is drawn with; a font holds a string when its \
+               map has every character of it but new lines.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-FONT-WIDTH"),
         station: "auberean-assets::cpu::font::a_strings_width_is_its_widest_line",
@@ -1008,7 +1013,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "data.overlay.checks-its-files-against-what-it-is-told",
-        says: "Told the records a world's overlay was made over, the client holding them goes on                and one holding others stops, saying why.",
+        says: "Told the records a world's overlay was made over, the client holding them goes on \
+               and one holding others stops, saying why.",
         since: THIS_CLIENT,
         divergence: "CD2-world-overlay",
         evidence: Evidence::Private("AC2-EVID-OVERLAY-CHECKS-RECORDS"),
@@ -1017,7 +1023,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "data.overlay.none-reads-the-files",
-        says: "A file with no overlay over it is read as it always was, in a folder that holds one                over another file too.",
+        says: "A file with no overlay over it is read as it always was, in a folder that holds \
+               one over another file too.",
         since: THIS_CLIENT,
         divergence: "CD2-world-overlay",
         evidence: Evidence::Private("AC2-EVID-OVERLAY-NONE"),
@@ -1037,7 +1044,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "data.overlay.over-the-retail-files",
-        says: "Laid over the end-of-retail cell file, an overlay replaces, adds and deletes records                and leaves every other record and the file's data versions as they were.",
+        says: "Laid over the end-of-retail cell file, an overlay replaces, adds and deletes \
+               records and leaves every other record and the file's data versions as they were.",
         since: THIS_CLIENT,
         divergence: "CD2-world-overlay",
         evidence: Evidence::Private("AC2-EVID-OVERLAY-RETAIL-FILES"),
@@ -1046,7 +1054,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "data.overlay.reads-agree",
-        says: "A record a world's overlay replaces, adds or deletes reads the same by id and through                the stores the data cache reads, and the file underneath is unchanged.",
+        says: "A record a world's overlay replaces, adds or deletes reads the same by id and \
+               through the stores the data cache reads, and the file underneath is unchanged.",
         since: THIS_CLIENT,
         divergence: "CD2-world-overlay",
         evidence: Evidence::Private("AC2-EVID-OVERLAY-READS-AGREE"),
@@ -1055,7 +1064,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "data.overlay.refused-when-not-for-these-files",
-        says: "An overlay made against other files is refused, the same records in another order                being the same files; so is a folder with no overlay in it or one holding the                install's own files.",
+        says: "An overlay made against other files is refused, the same records in another order \
+               being the same files; so is a folder with no overlay in it or one holding the \
+               install's own files.",
         since: THIS_CLIENT,
         divergence: "CD2-world-overlay",
         evidence: Evidence::Private("AC2-EVID-OVERLAY-REFUSED"),
@@ -1064,7 +1075,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "data.overlay.revisions-are-data-versions",
-        says: "An overlay's revisions are among the data versions of the file it lies over, as read                by id and as the stores report them to a server.",
+        says: "An overlay's revisions are among the data versions of the file it lies over, as \
+               read by id and as the stores report them to a server.",
         since: THIS_CLIENT,
         divergence: "CD2-world-overlay",
         evidence: Evidence::Private("AC2-EVID-OVERLAY-REVISIONS"),

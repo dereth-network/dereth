@@ -23,7 +23,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "audio.ambient.a-session-hears-its-place",
-        says: "In a session in the hall, the ambient kind most of its cells name dominates and its place                music plays from an ambient sound's object, its piece started on the performance.",
+        says: "In a session in the hall, the ambient kind most of its cells name dominates and \
+               its place music plays from an ambient sound's object, its piece started on the \
+               performance.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-AUDIO-AMBIENT-SESSION"),
         station: "auberean-shell::dat::session::in_the_hall_the_interiors_place_music_plays",
@@ -79,7 +81,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "audio.ambient.place-music-plays-in-the-world",
-        says: "Standing outdoors in the end-of-retail world, the description of the place's                ambient kinds with the greatest share dominates, and its place music plays through                the sound manager on the primary track, its piece started on the performance.",
+        says: "Standing outdoors in the end-of-retail world, the description of the place's \
+               ambient kinds with the greatest share dominates, and its place music plays through \
+               the sound manager on the primary track, its piece started on the performance.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-AUDIO-AMBIENT-IN-THE-WORLD"),
         station: "auberean-audio::dat::ambient::standing_outdoors_the_dominant_places_music_plays_on_the_primary_track",

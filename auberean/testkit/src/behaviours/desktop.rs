@@ -35,7 +35,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "desktop.bodies.a-behavior-the-server-started-it-can-stop-or-let-go",
-        says: "A hold the server started loops until the server lets it go, stops those a move                cancels, ends its layer, or, while it is within the cycles it was asked for, stops                all behaviors; each of them ends it.",
+        says: "A hold the server started loops until the server lets it go, stops those a move \
+               cancels, ends its layer, or, while it is within the cycles it was asked for, stops \
+               all behaviors; each of them ends it.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DESKTOP-SERVER-STOPS"),
         station: "auberean-shell::dat::session::a_behavior_the_server_started_it_can_stop_or_let_go",
@@ -60,7 +62,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "desktop.bodies.a-body-does-the-rest-of-what-the-server-asks",
-        says: "A body keeps a global and a terrain modifier, clears the terrain modifiers, is moved \n               by a push toward an object, and flies when a missile is launched.",
+        says: "A body keeps a global and a terrain modifier, clears the terrain modifiers, is \
+               moved by a push toward an object, and flies when a missile is launched.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-SERVER-EVENTS-REST"),
         station: "auberean-shell::dat::session::a_body_does_the_rest_of_what_the_server_asks",
@@ -96,7 +99,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "desktop.bodies.a-body-is-drawn-in-the-color-its-sliders-hold",
-        says: "A body is drawn in the color and at the opacity its sliders hold: its red, green,                blue and alpha sliders multiply its draws, its fade slider their alpha too.",
+        says: "A body is drawn in the color and at the opacity its sliders hold: its red, green, \
+               blue and alpha sliders multiply its draws, its fade slider their alpha too.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-ANIM-COLOR"),
         station: "auberean-shell::dat::session::a_body_is_drawn_in_the_color_its_sliders_hold",
@@ -104,7 +108,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "desktop.bodies.a-body-takes-a-script-a-motion-description-and-private-effects",
-        says: "A body the server asks plays an effect script and takes a new motion description; a                private effect plays on the player whoever else is near.",
+        says: "A body the server asks plays an effect script and takes a new motion description; \
+               a private effect plays on the player whoever else is near.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DESKTOP-SERVER-ASKS"),
         station: "auberean-shell::dat::session::a_body_takes_a_script_a_motion_description_and_private_effects",
@@ -178,7 +183,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "desktop.bodies.an-aimed-effect-acts-on-its-target",
-        says: "An effect aimed at another object acts on it: an entry that hides its target hides \n               it until the effect is over.",
+        says: "An effect aimed at another object acts on it: an entry that hides its target hides \
+               it until the effect is over.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-FX-AIMED"),
         station: "auberean-shell::dat::session::an_aimed_effect_acts_on_its_target",
@@ -195,7 +201,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "desktop.bodies.an-object-an-effect-makes-goes-with-its-behavior",
-        says: "An object an effect makes hangs from the object playing it at the entry's holding                location or bone. An entry naming a behavior plays it on the object; as it ends the                object is hidden at once and goes three seconds later, whenever the effect ends.",
+        says: "An object an effect makes hangs from the object playing it at the entry's holding \
+               location or bone. An entry naming a behavior plays it on the object; as it ends \
+               the object is hidden at once and goes three seconds later, whenever the effect \
+               ends.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-FX-MADE-BEHAVIOR"),
         station: "auberean-shell::dat::session::an_object_an_effect_makes_goes_with_its_behavior",
@@ -203,7 +212,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "desktop.bodies.an-object-an-effect-makes-lasts-as-its-entry-says",
-        says: "An object an effect makes with no behavior lasts as long as its entry says: 15 seconds                if it says nothing, until the effect is stopped if it says less than none.",
+        says: "An object an effect makes with no behavior lasts as long as its entry says: 15 \
+               seconds if it says nothing, until the effect is stopped if it says less than none.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-FX-MADE-LIFETIME"),
         station: "auberean-shell::dat::session::an_object_an_effect_makes_lasts_as_its_entry_says",
@@ -230,7 +240,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "desktop.bodies.an-object-starts-the-behaviors-and-effects-its-description-gives",
-        says: "An object the server creates plays at once the behaviors its description lists, and                the effects it lists, those that make objects making them.",
+        says: "An object the server creates plays at once the behaviors its description lists, \
+               and the effects it lists, those that make objects making them.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DESKTOP-DESCRIPTION-PLAYS"),
         station: "auberean-shell::dat::session::an_object_starts_the_behaviors_and_effects_its_description_gives",
@@ -247,7 +258,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "desktop.bodies.an-object-takes-up-its-stamps-and-flight-from-its-description",
-        says: "An object takes up its four stamps from its description and, described as a missile, \n               its aim and that it flies.",
+        says: "An object takes up its four stamps from its description and, described as a \
+               missile, its aim and that it flies.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-DESC-MISSILE"),
         station: "auberean-shell::dat::session::an_object_takes_up_its_stamps_and_flight_from_its_description",
@@ -271,7 +283,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "desktop.bodies.every-look-that-makes-a-figure-makes-a-body",
-        says: "Every look of the data that puts a figure together makes a body to stand in the                world, those whose mode their motion description does not list among them: a                town's crafting workshop is drawn and named.",
+        says: "Every look of the data that puts a figure together makes a body to stand in the \
+               world, those whose mode their motion description does not list among them: a \
+               town's crafting workshop is drawn and named.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DESKTOP-BODY-MODE-UNLISTED"),
         station: "auberean-scene::corpus::looks::every_look_that_makes_a_figure_makes_a_body",
@@ -324,7 +338,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "desktop.bodies.the-players-body-does-what-the-server-asks",
-        says: "A push from the server takes the player's body off the ground; a slider the network                moves goes to its value, one the character template leaves to the client does not.",
+        says: "A push from the server takes the player's body off the ground; a slider the \
+               network moves goes to its value, one the character template leaves to the client \
+               does not.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYSICS-EVENTS"),
         station: "auberean-shell::dat::session::the_players_body_does_what_the_server_asks",
@@ -833,7 +849,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "desktop.controls.a-move-of-the-bodys-own-ends-the-latched-run",
-        says: "A latched run ends once the player's body is making a move on its own, walking up to                what it uses or a move the server ordered, so it does not run on when the move is done.",
+        says: "A latched run ends once the player's body is making a move on its own, walking up \
+               to what it uses or a move the server ordered, so it does not run on when the move \
+               is done.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-INPUT-MOVE-ENDS-RUN-LOCK"),
         station: "auberean-shell::dat::session::a_move_ordered_ends_the_latched_run",
@@ -924,7 +942,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "desktop.dev-login.makes-its-character-as-the-creation-screens-do",
-        says: "The developer's login makes the human it plays as the creation screens make one: the                player's entity, the race's start area, class and implement, and every physique value                the table lays out, its looks picked as a new avatar's are.",
+        says: "The developer's login makes the human it plays as the creation screens make one: \
+               the player's entity, the race's start area, class and implement, and every \
+               physique value the table lays out, its looks picked as a new avatar's are.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-DEV-LOGIN-CREATES-AS-SCREENS"),
         station: "auberean-shell::dat::session::the_developers_login_makes_its_human_as_the_creation_screens_do",
@@ -932,7 +952,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "desktop.input.a-click-that-brings-the-window-forward-is-not-heard",
-        says: "A window coming active has the devices from its next frame: a button pressed before                then is not heard, nor is that press's release.",
+        says: "A window coming active has the devices from its next frame: a button pressed \
+               before then is not heard, nor is that press's release.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-INPUT-FOCUS-CLICK"),
         station: "auberean-shell::cpu::input_manager::a_click_that_brings_the_window_forward_is_not_heard",
@@ -1159,7 +1180,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "desktop.interface.the-connecting-screen-counts-the-login-attempts",
-        says: "While nobody answers the login, the connecting screen counts each attempt out of                the twenty the client makes, two seconds apart.",
+        says: "While nobody answers the login, the connecting screen counts each attempt out of \
+               the twenty the client makes, two seconds apart.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-LOGIN-ATTEMPTS"),
         station: "auberean-interface::dat::screens::the_connecting_screen_counts_the_login_attempts",
@@ -1167,7 +1189,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "desktop.interface.the-connecting-screen-says-when-it-waits-for-the-server",
-        says: "Once the login server has answered and been acknowledged, the connecting screen                says it is logging in until the server's first packet.",
+        says: "Once the login server has answered and been acknowledged, the connecting screen \
+               says it is logging in until the server's first packet.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-LOGIN-WAITING"),
         station: "auberean-interface::dat::screens::the_connecting_screen_says_when_it_waits_for_the_server",
@@ -1411,7 +1434,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "desktop.looks.a-bodys-systems-draw-at-its-whole-scale",
-        says: "The particle systems an object's effects carry draw at the object's whole scale, its                look's times its own, not its look's alone: a gateway sign's haze stays a thin rim                at its foot.",
+        says: "The particle systems an object's effects carry draw at the object's whole scale, \
+               its look's times its own, not its look's alone: a gateway sign's haze stays a thin \
+               rim at its foot.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DESKTOP-SYSTEM-WHOLE-SCALE"),
         station: "auberean-scene::corpus::combat::a_bodys_systems_draw_at_its_whole_scale",
@@ -1453,7 +1478,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "desktop.others.a-body-created-again-comes-back-into-the-world",
-        says: "A body waiting out of the world in a cell not loaded, created again, stands where                its creation says at once, in the world when that cell is loaded and waiting in                that cell's list when it is not: a player already at the far end of a portal is                seen by one who follows without having to move.",
+        says: "A body waiting out of the world in a cell not loaded, created again, stands where \
+               its creation says at once, in the world when that cell is loaded and waiting in \
+               that cell's list when it is not: a player already at the far end of a portal is \
+               seen by one who follows without having to move.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-OTHERS-CREATED-AGAIN"),
         station: "auberean-interface::dat::screens::a_body_created_again_where_the_player_went_stands_there",
@@ -1509,7 +1537,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "desktop.others.a-jump-sent-for-another-body-lifts-it",
-        says: "A position carrying a jump lifts another body that has stood long enough, at the                jump impulse along the arc of a jump, keeping its heading; reports from the air                don't pull it off the arc.",
+        says: "A position carrying a jump lifts another body that has stood long enough, at the \
+               jump impulse along the arc of a jump, keeping its heading; reports from the air \
+               don't pull it off the arc.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-OTHERS-SENT-JUMP"),
         station: "auberean-scene::cpu::others::a_jump_sent_for_another_body_lifts_it",
@@ -1517,7 +1547,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "desktop.others.a-jump-too-soon-does-not-lift-another-body",
-        says: "A position carrying a jump leaves a body with under half a second on the ground,                counting only ticks its movement ran, on the ground; it follows what comes next,                and the time that takes counts for the next jump.",
+        says: "A position carrying a jump leaves a body with under half a second on the ground, \
+               counting only ticks its movement ran, on the ground; it follows what comes next, \
+               and the time that takes counts for the next jump.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-OTHERS-JUMP-TOO-SOON"),
         station: "auberean-scene::cpu::others::a_jump_too_soon_does_not_lift_another_body",
@@ -1535,7 +1567,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "desktop.others.a-place-in-the-world-takes-an-item-out-of-its-pack",
-        says: "An object given a place in the world stands there and is drawn, in no container,                with or without word that it left the pack it was in: the server tells the player                who put an item down only its place.",
+        says: "An object given a place in the world stands there and is drawn, in no container, \
+               with or without word that it left the pack it was in: the server tells the player \
+               who put an item down only its place.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-OTHERS-PUT-DOWN"),
         station: "auberean-interface::dat::screens::an_item_given_a_place_in_the_world_is_drawn",
@@ -1552,7 +1586,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "desktop.others.an-animations-jump-lifts-another-body",
-        says: "A jump another body's animation reaches wakes that body and lifts it, with no                position sent; its hooks are still heard.",
+        says: "A jump another body's animation reaches wakes that body and lifts it, with no \
+               position sent; its hooks are still heard.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-OTHERS-ANIM-JUMP"),
         station: "auberean-scene::cpu::others::an_animations_jump_lifts_another_body",
@@ -2033,7 +2068,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "desktop.sound.a-jump-and-its-landing-are-heard",
-        says: "The body leaving the ground plays the jump effect's sound, and coming down plays                the landing effect's.",
+        says: "The body leaving the ground plays the jump effect's sound, and coming down plays \
+               the landing effect's.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SOUND-JUMP-LAND"),
         station: "auberean-shell::dat::session::a_jump_and_its_landing_are_heard",
@@ -2117,7 +2153,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "desktop.world.a-moved-game-clock-relights-the-ground",
-        says: "A time of day moved by an admin lights the ground on the next frame, and the                light's tick is shortened by the rate the world's time runs at.",
+        says: "A time of day moved by an admin lights the ground on the next frame, and the \
+               light's tick is shortened by the rate the world's time runs at.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DESKTOP-MOVED-CLOCK-RELIGHTS"),
         station: "auberean-shell::dat::session::a_moved_game_clock_relights_the_ground_at_once_and_a_faster_one_more_often",
@@ -2125,7 +2162,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "desktop.world.a-player-in-deep-water-rises-and-swims",
-        says: "A player on the bottom of deep water is lifted until its water line is near the                surface, and the forward key moves it at its motion description's water speed.",
+        says: "A player on the bottom of deep water is lifted until its water line is near the \
+               surface, and the forward key moves it at its motion description's water speed.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-WATER-MOTION"),
         station: "auberean-shell::dat::session::a_player_in_deep_water_rises_and_swims",
@@ -2144,7 +2182,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "desktop.world.a-press-finds-a-box-with-a-corner-on-the-screen",
-        says: "A press finds a body by its box only when a corner of the box stands on the screen                and the box's square of clip space meets the pointer's: the pixel up and to the left                of it to that one.",
+        says: "A press finds a body by its box only when a corner of the box stands on the screen \
+               and the box's square of clip space meets the pointer's: the pixel up and to the \
+               left of it to that one.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-WORLD-PRESS-BOX"),
         station: "auberean-scene::cpu::seen::a_press_finds_a_box_only_with_a_corner_on_the_screen",
@@ -2186,7 +2226,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "desktop.world.rain-falls-on-a-rainy-day",
-        says: "On a rainy day the rain falls about the camera as its day says, and none on a \n               dry moment.",
+        says: "On a rainy day the rain falls about the camera as its day says, and none on a dry \
+               moment.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-RAIN-WORLD"),
         station: "auberean-shell::dat::session::rain_falls_on_a_rainy_day",
@@ -2237,7 +2278,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "desktop.world.the-days-wind-blows-in-the-world",
-        says: "The day's wind blows on the world's missiles: the day's own while it rains, and one that wanders                with the time of day on a dry moment.",
+        says: "The day's wind blows on the world's missiles: the day's own while it rains, and \
+               one that wanders with the time of day on a dry moment.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-WORLD-WIND"),
         station: "auberean-shell::dat::session::the_days_wind_blows_in_the_world",

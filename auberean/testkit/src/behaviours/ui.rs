@@ -147,7 +147,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "ui.chat.a-tell-asked-for-goes-in-the-entry",
-        says: "A tell the player's scripts ask for puts the tell command with the name in the                entry of the window keys are for, selected, and starts typing there.",
+        says: "A tell the player's scripts ask for puts the tell command with the name in the \
+               entry of the window keys are for, selected, and starts typing there.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-CHAT-ASSISTED-TELL"),
         station: "auberean-ui-game::dat::play::chat::a_tell_asked_for_goes_in_the_entry",
@@ -458,7 +459,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "ui.dialogs.an-offer-to-bring-the-player-back-asks-by-name",
-        says: "Someone offering to bring the player back asks the question, naming them, in place of \n               death's own dialog; an offer with no name reads as no offer.",
+        says: "Someone offering to bring the player back asks the question, naming them, in place \
+               of death's own dialog; an offer with no name reads as no offer.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-RESURRECT-OFFER"),
         station: "auberean-ui-game::dat::play::dialogs::an_offer_to_bring_the_player_back_asks_by_name",
@@ -537,7 +539,11 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "ui.draw.a-fill-reaching-off-its-element-paints-the-edge-it-passes",
-        says: "A rectangle painted over an element (the radar's blips) is a window onto the                element's own picture pressed onto it: its left and top edges held at 0 or more,                its right and bottom at the picture's at most and at its first column and row at                least, a window with no width or height kept one texel inside its far edge; so                one reaching past an edge paints along that edge and none lands outside.",
+        says: "A rectangle painted over an element (the radar's blips) is a window onto the \
+               element's own picture pressed onto it: its left and top edges held at 0 or more, \
+               its right and bottom at the picture's at most and at its first column and row at \
+               least, a window with no width or height kept one texel inside its far edge; so one \
+               reaching past an edge paints along that edge and none lands outside.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-FILL-WINDOW"),
         station: "auberean-ui::cpu::compositor::a_fill_reaching_off_its_element_paints_the_edge_it_passes",
@@ -553,7 +559,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "ui.draw.a-resize-line-outlines-the-new-size-until-release",
-        says: "A window with a resize line keeps its picture while it is resized: a white outline                one texel wide shows the new place and size, and the window takes them on release.",
+        says: "A window with a resize line keeps its picture while it is resized: a white outline \
+               one texel wide shows the new place and size, and the window takes them on release.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-RESIZE-OUTLINE"),
         station: "auberean-ui::cpu::compositor::a_resize_line_outlines_the_new_size_until_release",
@@ -589,7 +596,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "ui.draw.each-layer-starts-clear-of-the-one-before",
-        says: "Each top-level element starts from a clear layer, whatever the elements drawn before                it left on theirs.",
+        says: "Each top-level element starts from a clear layer, whatever the elements drawn \
+               before it left on theirs.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-UI-DRAW-LAYER-CLEAR"),
         station: "auberean-ui::cpu::compositor::each_layer_starts_clear_of_the_one_before",
@@ -1041,9 +1049,10 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "ui.inventory.the-pack-shows-its-items-in-their-slots",
         says: "The inventory window shows by its key; its main pack's first cells hold the items \
-               the scripts list for it, each with its icon (its look's layers laid together when it                has them) and its name as the tooltip, its icon \
-               carrying the item, the pack and the slot; the four packs start each after the one \
-               before; a tab shows its pack, the close button hides the window.",
+               the scripts list for it, each with its icon (its look's layers laid together when \
+               it has them) and its name as the tooltip, its icon carrying the item, the pack and \
+               the slot; the four packs start each after the one before; a tab shows its pack, \
+               the close button hides the window.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-INVENTORY"),
         station: "auberean-ui-game::dat::play::inventory::the_pack_shows_its_items_in_their_slots",
@@ -1152,7 +1161,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "ui.layout.a-screen-finds-its-layout-by-number",
-        says: "A screen finds its layout record by its layout number through the data's \n               layout mapping.",
+        says: "A screen finds its layout record by its layout number through the data's layout \
+               mapping.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-LAYOUT-BY-NUMBER"),
         station: "auberean-ui::dat::layouts::a_screen_finds_its_layout_by_number",
@@ -1187,7 +1197,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "ui.list.a-row-taken-out-stands-nowhere",
-        says: "A row taken out of a list has no parent until it is put somewhere: it is not drawn                or pressed where it stood, and the rows after it move up.",
+        says: "A row taken out of a list has no parent until it is put somewhere: it is not drawn \
+               or pressed where it stood, and the rows after it move up.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-LIST-ROW-OUT"),
         station: "auberean-ui::cpu::lists::a_row_taken_out_of_a_list_stands_nowhere",
@@ -1447,7 +1458,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "ui.names.an-item-selected-in-the-pack-is-marked-once-put-down",
-        says: "An item selected in the pack and then put down is named and marked as soon as it                lies in the world, with no new selection.",
+        says: "An item selected in the pack and then put down is named and marked as soon as it \
+               lies in the world, with no new selection.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-NAMES-FROM-PACK"),
         station: "auberean-ui-game::dat::play::names::an_item_selected_in_the_pack_is_marked_once_put_down",
@@ -1610,10 +1622,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "ui.options.apply-asks-first-then-sets-every-chat-option-and-the-filters-last",
-        says: "The chat page's Apply asks first, then sets every chat option section by section (the \n \
-               devoted channels, each kind's font size, color and popup flag), then each window's \n \
-               filter as its boxes say (the administrators' and the log's kept as they were); the \n \
-               options are read again and sent to the server to keep.",
+        says: "The chat page's Apply asks first, then sets every chat option section by section \
+               (the devoted channels, each kind's font size, color and popup flag), then each \
+               window's filter as its boxes say (the administrators' and the log's kept as they \
+               were); the options are read again and sent to the server to keep.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-OPTIONS-CHAT-APPLY"),
         station: "auberean-ui-game::dat::play::chat::apply_asks_first_then_sets_every_chat_option_and_the_filters_last",
@@ -1629,7 +1641,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "ui.options.assistance-other-asks-a-description",
-        says: "The assistance page's Other is a kind of call that asks for a description, so Send                doesn't pass it over.",
+        says: "The assistance page's Other is a kind of call that asks for a description, so Send \
+               doesn't pass it over.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-ASSISTANCE-OTHER"),
         station: "auberean-ui-game::dat::play::options::assistance_other_asks_a_description",
@@ -1674,9 +1687,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "ui.options.recall-and-default-ask-first-and-put-back-the-applied-or-the-defaults",
-        says: "The chat page's Recall and Default each ask first: Recall puts back what was applied, \n \
-               Default puts a new player's chat options in and applies them; the options window \n \
-               hidden with a chat option changed asks whether to apply it.",
+        says: "The chat page's Recall and Default each ask first: Recall puts back what was \
+               applied, Default puts a new player's chat options in and applies them; the options \
+               window hidden with a chat option changed asks whether to apply it.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-OPTIONS-CHAT-RECALL"),
         station: "auberean-ui-game::dat::play::chat::recall_and_default_ask_first_and_put_back_the_applied_or_the_defaults",
@@ -1711,12 +1724,12 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "ui.options.the-chat-page-lists-each-kind-with-a-new-players-options-as-defaults",
-        says: "The chat page has a section for every kind of text but the administrators': its font \n \
-               size, font color, the four windows' boxes and its popup box (the chat entry only \n \
-               size and color, with no large size); the devoted windows' channels are named from \n \
-               the kinds' list by place, so the general, trade and region channels show under the \n \
-               player-killer, general and trade channels' names. A new player's chat options are \n \
-               the defaults and the page shows the player's own.",
+        says: "The chat page has a section for every kind of text but the administrators': its \
+               font size, font color, the four windows' boxes and its popup box (the chat entry \
+               only size and color, with no large size); the devoted windows' channels are named \
+               from the kinds' list by place, so the general, trade and region channels show \
+               under the player-killer, general and trade channels' names. A new player's chat \
+               options are the defaults and the page shows the player's own.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-OPTIONS-CHAT-PAGE"),
         station: "auberean-ui-game::dat::play::chat::the_chat_page_lists_each_kind_with_a_new_players_options_as_defaults",
@@ -1764,7 +1777,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "ui.options.the-command-line-forces-the-top-gore-and-blood",
-        says: "The command line's maxgore and greenblood stand over the language's top gore level and                blood color: the effects start at them and nothing above them is offered.",
+        says: "The command line's maxgore and greenblood stand over the language's top gore level \
+               and blood color: the effects start at them and nothing above them is offered.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-FX-FORCED-GORE"),
         station: "auberean-interface::dat::preferences::the_command_line_forces_the_top_gore_and_blood",
@@ -1872,7 +1886,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "ui.pointer.a-press-taken-in-front-is-not-held-behind",
-        says: "A press taken by an element in front stops there: the top-level elements behind                it never hear it nor hold the button, so the next press on one of them alone is                its own, pressed on the topmost.",
+        says: "A press taken by an element in front stops there: the top-level elements behind it \
+               never hear it nor hold the button, so the next press on one of them alone is its \
+               own, pressed on the topmost.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-PRESS-STOPS"),
         station: "auberean-ui::cpu::pointer::a_press_taken_in_front_is_not_held_behind",
@@ -1880,7 +1896,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "ui.pointer.a-turned-element-is-found-by-its-unturned-rectangle",
-        says: "A turned top-level element is drawn turned but found by the pointer in its \n               unturned rectangle.",
+        says: "A turned top-level element is drawn turned but found by the pointer in its \
+               unturned rectangle.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-TURNED-POINTER"),
         station: "auberean-ui::cpu::pointer::a_turned_element_is_found_by_its_unturned_rectangle",
@@ -1905,7 +1922,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "ui.quests.a-quest-that-changed-is-marked-in-its-row",
-        says: "A quest that changes has its row's name and time marked in the changed look, the                others keeping theirs; the whole list read at the session's start marks nothing.",
+        says: "A quest that changes has its row's name and time marked in the changed look, the \
+               others keeping theirs; the whole list read at the session's start marks nothing.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-QUEST-CHANGED-MARK"),
         station: "auberean-ui-game::dat::play::examination::a_quest_that_changed_is_marked_in_its_row",
@@ -2050,7 +2068,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "ui.selection.a-press-on-the-world-after-a-button-still-selects",
-        says: "A press taken by a panel in front (a toolbar button clicked, opening its window)                leaves the field over the world untouched: the next press on the world selects                what lies under it.",
+        says: "A press taken by a panel in front (a toolbar button clicked, opening its window) \
+               leaves the field over the world untouched: the next press on the world selects \
+               what lies under it.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-SELECTION-AFTER-BUTTON"),
         station: "auberean-ui-game::dat::play::selection::a_press_on_the_world_after_a_button_still_selects",
@@ -2350,8 +2370,9 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "ui.story.a-doors-scene-ends-when-the-player-has-arrived",
         says: "A scene played on the way through a door stays over the screen until the player's \
-               body has been sent through and stands at the other side with its cells loaded; \
-               the door's scene ending does not end it. Then the story goes, the world shows and the                scripts hear the scenes are done. Portal space does not show on the way.",
+               body has been sent through and stands at the other side with its cells loaded; the \
+               door's scene ending does not end it. Then the story goes, the world shows and the \
+               scripts hear the scenes are done. Portal space does not show on the way.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-DOOR-ARRIVAL"),
         station: "auberean-interface::dat::screens::a_doors_scene_ends_when_the_player_has_arrived",
@@ -2605,7 +2626,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "ui.trade.an-offered-item-is-named-for-the-number-offered",
-        says: "An offered item's tooltip names it for the number offered, not the number its                owner holds.",
+        says: "An offered item's tooltip names it for the number offered, not the number its \
+               owner holds.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-TRADE-OFFERED-NAME"),
         station: "auberean-ui-game::dat::play::trade::an_offered_item_is_named_for_the_number_offered",

@@ -71,7 +71,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "world.chargen.a-new-avatars-defaults-are-what-the-scripts-set",
-        says: "The character generator's scripts, given a creation's race and sex, set its class,                implement and starting area to the race's, every type it has to one of its stops,                build and height to the middle stop, and a type it lacks to 0, as the client's own                creation does.",
+        says: "The character generator's scripts, given a creation's race and sex, set its class, \
+               implement and starting area to the race's, every type it has to one of its stops, \
+               build and height to the middle stop, and a type it lacks to 0, as the client's own \
+               creation does.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-WORLD-CHARGEN-DEFAULTS"),
         station: "auberean-world::dat::chargen::a_new_avatars_defaults_are_what_the_scripts_set",
@@ -188,7 +191,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "world.fog.the-days-light-is-scaled-only-past-its-range",
-        says: "The day's light as a fog kind takes it, sun and ambient added, stays as it is up to                two ten-thousandths past full; past that it is scaled so its brightest channel is                full.",
+        says: "The day's light as a fog kind takes it, sun and ambient added, stays as it is up \
+               to two ten-thousandths past full; past that it is scaled so its brightest channel \
+               is full.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-WORLD-LIGHT-RANGE"),
         station: "auberean-world::cpu::fog::the_days_light_is_scaled_only_past_its_range",
@@ -225,7 +230,11 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "world.inside.a-cells-record-lights-are-baked-as-they-stand-at-that-moment",
-        says: "The lights a cell's record lists for its vertices are baked once, as the cell is first                made ready, each at its intensity of that moment (a noise intensity rolled afresh for                each vertex): a flickering light's bake keeps the value it had then while the sun and                the kept lights are lit on top of it again with each change of the day.",
+        says: "The lights a cell's record lists for its vertices are baked once, as the cell is \
+               first made ready, each at its intensity of that moment (a noise intensity rolled \
+               afresh for each vertex): a flickering light's bake keeps the value it had then \
+               while the sun and the kept lights are lit on top of it again with each change of \
+               the day.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-WORLD-CELL-BAKE"),
         station: "auberean-world::cpu::inside::a_cells_record_lights_are_baked_as_they_stand_at_that_moment",
@@ -282,7 +291,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "world.inside.carried-lights-join-the-lights-a-draw-keeps-by-their-weight",
-        says: "The lights objects carry join the lights a draw keeps when they reach it, all sorted                by their weight where the draw stands, strongest first; a draw none reaches keeps                its own in their order. The device and lit particles take a carried light at its                place in the draw's block with its color times its intensity as it stands.",
+        says: "The lights objects carry join the lights a draw keeps when they reach it, all \
+               sorted by their weight where the draw stands, strongest first; a draw none reaches \
+               keeps its own in their order. The device and lit particles take a carried light at \
+               its place in the draw's block with its color times its intensity as it stands.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-WORLD-CARRIED-LIGHTS-KEPT"),
         station: "auberean-world::cpu::inside::carried_lights_join_the_lights_a_draw_keeps_by_their_weight",
@@ -290,7 +302,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "world.inside.no-cell-holds-a-light-of-its-own",
-        says: "No interior cell of the data holds a light of its own as an entity: every entity placed \n               in a cell is an object.",
+        says: "No interior cell of the data holds a light of its own as an entity: every entity \
+               placed in a cell is an object.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-WORLD-CELL-NO-LIGHT"),
         station: "auberean-world::dat::inside::no_cell_holds_a_light_entity",
@@ -699,7 +712,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "world.sound.a-blocks-points-fall-short-of-its-far-edges",
-        says: "A landblock's ambient sound points are its vertices that name a kind, in the                vertices' order, a seventeenth of the block's side apart (the side over the                vertices along it, not the squares), so the last row and column stand short of the                block's far edges, each at its vertex's height.",
+        says: "A landblock's ambient sound points are its vertices that name a kind, in the \
+               vertices' order, a seventeenth of the block's side apart (the side over the \
+               vertices along it, not the squares), so the last row and column stand short of the \
+               block's far edges, each at its vertex's height.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-AUDIO-AMBIENT-POINTS"),
         station: "auberean-world::cpu::scenery::a_blocks_points_stand_a_seventeenth_of_its_side_apart_at_their_heights",
@@ -707,7 +723,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "world.sound.a-vertex-names-its-scenery-kinds-sound",
-        says: "A landscape vertex names the ambient sound kind of the scenery kind its terrain kind                gives for its scene field (or the terrain's default scenery; an unlisted terrain kind                takes the default terrain); none for scenery kind 0, a scenery kind not described,                or a sound word of 0.",
+        says: "A landscape vertex names the ambient sound kind of the scenery kind its terrain \
+               kind gives for its scene field (or the terrain's default scenery; an unlisted \
+               terrain kind takes the default terrain); none for scenery kind 0, a scenery kind \
+               not described, or a sound word of 0.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-AUDIO-AMBIENT-KINDS"),
         station: "auberean-world::cpu::scenery::a_vertex_names_the_sound_of_its_scenery_kind_and_nothing_past_a_gap",
@@ -715,7 +734,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "world.sound.every-points-kind-is-described",
-        says: "Every vertex of every landblock of the end-of-retail world names an ambient kind                (twelve kinds in all), and the region's ambient sound table describes each.",
+        says: "Every vertex of every landblock of the end-of-retail world names an ambient kind \
+               (twelve kinds in all), and the region's ambient sound table describes each.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-AUDIO-AMBIENT-CENSUS"),
         station: "auberean-world::dat::sound::every_landblocks_points_name_kinds_the_regions_ambient_table_describes",
@@ -798,7 +818,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "world.wave.a-frame-loop-steps-through-its-frames",
-        says: "A frame-loop waveform shows its amplitude's frames at its frequency's rate, round                and round, each frame stepping its base on by its phase; with no frames it is its                base.",
+        says: "A frame-loop waveform shows its amplitude's frames at its frequency's rate, round \
+               and round, each frame stepping its base on by its phase; with no frames it is its \
+               base.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-WORLD-WAVE-FRAME-LOOP"),
         station: "auberean-world::cpu::clock::a_frame_loop_steps_through_its_frames",
@@ -806,7 +828,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "world.wave.a-waveform-takes-its-shape-at-the-moment",
-        says: "A waveform at a moment of the client's run is its base, its speed, or its sine,                square or bounce about its base, each of its base, amplitude, phase, frequency and                roughness moving on at its own rate; the phase is in half turns.",
+        says: "A waveform at a moment of the client's run is its base, its speed, or its sine, \
+               square or bounce about its base, each of its base, amplitude, phase, frequency and \
+               roughness moving on at its own rate; the phase is in half turns.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-WORLD-WAVE-SHAPES"),
         station: "auberean-world::cpu::clock::a_waveform_takes_its_shape_at_the_moment",
@@ -814,7 +838,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "world.wave.the-noise-shape-rolls-the-clients-generator-once",
-        says: "A noise waveform rolls the client's one random-number generator once each time it                is taken, between minus and plus its amplitude about its base; no other shape draws                on the generator.",
+        says: "A noise waveform rolls the client's one random-number generator once each time it \
+               is taken, between minus and plus its amplitude about its base; no other shape \
+               draws on the generator.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-WORLD-WAVE-NOISE"),
         station: "auberean-world::cpu::clock::the_noise_shape_rolls_the_clients_generator_once",

@@ -87,7 +87,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "collision.detect.a-bodys-detections-survive-packing",
-        says: "A body's detections pack their spheres by context, the time of the last check and \n               the detections made at once by context.",
+        says: "A body's detections pack their spheres by context, the time of the last check and \
+               the detections made at once by context.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DETECT-MANAGER-PACK"),
         station: "auberean-physics::cpu::contact::detections::a_bodys_detections_survive_packing",
@@ -106,7 +107,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "collision.detect.a-cone-reaches-what-lies-inside-its-angle",
-        says: "A detection cone reaches a sphere inside its angle and radius, or one at about its \n               radius whose own size reaches over its edge there; not one off its angle wholly \n               inside its radius, however wide; a direction is brought to unit length only when \n               longer than one.",
+        says: "A detection cone reaches a sphere inside its angle and radius, or one at about its \
+               radius whose own size reaches over its edge there; not one off its angle wholly \
+               inside its radius, however wide; a direction is brought to unit length only when \
+               longer than one.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DETECT-CONE"),
         station: "auberean-physics::cpu::contact::detect::a_cone_reaches_what_lies_inside_its_angle",
@@ -123,7 +127,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "collision.detect.a-detection-made-at-once-finds-its-origin",
-        says: "A detection made at once stands on the body (its base then kept as a place) or at \n               its target as far as a line of sight gets; a line that hits something blocks it \n               unless it is made where the line stops, and a missing or too distant target leaves \n               it not placed.",
+        says: "A detection made at once stands on the body (its base then kept as a place) or at \
+               its target as far as a line of sight gets; a line that hits something blocks it \
+               unless it is made where the line stops, and a missing or too distant target leaves \
+               it not placed.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DETECT-ORIGIN"),
         station: "auberean-physics::cpu::contact::detections::a_detection_made_at_once_finds_its_origin",
@@ -178,7 +185,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "collision.detect.a-shell-reaches-what-lies-in-its-cut",
-        says: "A detection shell cut to headings and elevations reaches a sphere in its cut between \n               its radii, or one the ray along the nearest heading and height the cut allows \n               meets; a heading range whose least bound is the greater wraps through north.",
+        says: "A detection shell cut to headings and elevations reaches a sphere in its cut \
+               between its radii, or one the ray along the nearest heading and height the cut \
+               allows meets; a heading range whose least bound is the greater wraps through \
+               north.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DETECT-SHELL"),
         station: "auberean-physics::cpu::contact::detect::a_shell_reaches_what_lies_in_its_cut",
@@ -186,7 +196,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "collision.detect.a-sphere-notices-its-object-enter-and-leave",
-        says: "A detection sphere around an object notices it entering once nearer than the two \n               radii together (exactly that far is outside) and leaving once not, or once gone from \n               the world; each change is reported once.",
+        says: "A detection sphere around an object notices it entering once nearer than the two \
+               radii together (exactly that far is outside) and leaving once not, or once gone \
+               from the world; each change is reported once.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DETECT-SPHERE"),
         station: "auberean-physics::cpu::contact::detections::a_sphere_notices_its_object_enter_and_leave",
@@ -194,7 +206,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "collision.detect.a-volume-takes-in-shapes-from-elsewhere",
-        says: "A detection volume tests a sphere, a cylinder or a box placed elsewhere after carrying \n               it into its own frame, a sphere scaled first only when its scale is even; its box is \n               the box around its shape where it stands; a point or a ray reaches nothing.",
+        says: "A detection volume tests a sphere, a cylinder or a box placed elsewhere after \
+               carrying it into its own frame, a sphere scaled first only when its scale is even; \
+               its box is the box around its shape where it stands; a point or a ray reaches \
+               nothing.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DETECT-WITHIN"),
         station: "auberean-physics::cpu::contact::detect::a_volume_takes_in_shapes_from_elsewhere",
@@ -237,7 +252,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "collision.detect.spheres-and-cylinders-meet-and-stop-rays",
-        says: "An upright cylinder reaches a sphere within their two radii of the nearest point of \n               its axis, and another cylinder whose height overlaps within their radii across the \n               ground; a ray meets a sphere or a cylinder at the fraction of its length where it \n               first touches, at once from inside, never heading away.",
+        says: "An upright cylinder reaches a sphere within their two radii of the nearest point \
+               of its axis, and another cylinder whose height overlaps within their radii across \
+               the ground; a ray meets a sphere or a cylinder at the fraction of its length where \
+               it first touches, at once from inside, never heading away.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DETECT-SHAPES"),
         station: "auberean-physics::cpu::contact::detect::spheres_and_cylinders_meet_and_stop_rays",
@@ -245,7 +263,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "collision.detect.spheres-are-checked-each-second-and-destroyed-at-a-check",
-        says: "A body's detection spheres are checked a second after the last check or when forced; \n               a sphere marked for destruction stops counting at once and goes at the next check.",
+        says: "A body's detection spheres are checked a second after the last check or when \
+               forced; a sphere marked for destruction stops counting at once and goes at the \
+               next check.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DETECT-CHECK"),
         station: "auberean-physics::cpu::contact::detections::spheres_are_checked_each_second_and_destroyed_at_a_check",
@@ -253,7 +273,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "collision.detect.the-global-detection-takes-the-cells-changes",
-        says: "The global detection takes the cells' changes: an object entering becomes known, a \n               leaving cancelled by an entry before it is reported leaves it as it was, an entry \n               undone before it is reported is forgotten, and each report forgets those that left.",
+        says: "The global detection takes the cells' changes: an object entering becomes known, a \
+               leaving cancelled by an entry before it is reported leaves it as it was, an entry \
+               undone before it is reported is forgotten, and each report forgets those that \
+               left.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DETECT-GLOBAL"),
         station: "auberean-physics::cpu::contact::detections::the_global_detection_takes_the_cells_changes",
@@ -261,7 +284,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "collision.detect.the-global-detection-watches-the-cells-around-the-body",
-        says: "The global detection watches the cells within its radius of the body, works them out \n               again once the body has moved 5 m (a cell still reached stays watched once), and \n               stops every watch when destroyed; a body keeps one global detection.",
+        says: "The global detection watches the cells within its radius of the body, works them \
+               out again once the body has moved 5 m (a cell still reached stays watched once), \
+               and stops every watch when destroyed; a body keeps one global detection.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DETECT-CELLS"),
         station: "auberean-physics::cpu::contact::detections::the_global_detection_watches_the_cells_around_the_body",
@@ -327,7 +352,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "collision.objects.a-body-stops-at-an-object-put-in-the-world",
-        says: "A body running at an object put in the world stops against it, its sphere outside the \n               object's cylinder; once the object is taken out of the world a body making the \n               same run goes on past where it stood.",
+        says: "A body running at an object put in the world stops against it, its sphere outside \
+               the object's cylinder; once the object is taken out of the world a body making the \
+               same run goes on past where it stood.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-OBJECT-STOPS"),
         station: "auberean-physics::cpu::contact::objects::a_body_stops_at_an_object_put_in_the_world",
@@ -335,7 +362,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "collision.objects.a-body-stops-at-the-movement-sign",
-        says: "The Movement sign the server puts in the human training hall collides through its \n               look's one upright cylinder (1.41 m in radius, scaled 0.7): a body running west from \n               where a new character starts stops against it and never comes inside it.",
+        says: "The Movement sign the server puts in the human training hall collides through its \
+               look's one upright cylinder (1.41 m in radius, scaled 0.7): a body running west \
+               from where a new character starts stops against it and never comes inside it.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-MOVEMENT-SIGN"),
         station: "auberean-physics::dat::objects::a_body_stops_at_the_movement_sign",
@@ -353,7 +382,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "collision.objects.a-polygon-clips-to-a-plane",
-        says: "A polygon clipped to a plane's positive side keeps its corners on that side and in \n               the plane and gains the crossing of each edge that leaves one side for the other; \n               one wholly behind is negative, one lying in the plane is in it only when corners \n               in the plane are kept.",
+        says: "A polygon clipped to a plane's positive side keeps its corners on that side and in \
+               the plane and gains the crossing of each edge that leaves one side for the other; \
+               one wholly behind is negative, one lying in the plane is in it only when corners \
+               in the plane are kept.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-CLIP"),
         station: "auberean-physics::cpu::contact::objects::a_polygon_clips_to_a_plane",
@@ -361,7 +393,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "collision.objects.a-solid-over-a-block-edge-is-in-the-next-blocks-cells",
-        says: "A solid reaching over a block's edge is met from the land cells it reaches in the \n               block next to it.",
+        says: "A solid reaching over a block's edge is met from the land cells it reaches in the \
+               block next to it.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-LAND-OVERHANG"),
         station: "auberean-physics::cpu::contact::objects::a_solid_over_a_block_edge_is_in_the_next_blocks_cells",
@@ -379,7 +412,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "collision.objects.an-object-outside-stands-in-every-land-cell-under-it",
-        says: "An object outside stands in the collision list of every land cell the box around \n               its shape reaches, across a landblock's edge too; inside, of its own cell and of \n               each cell through a doorway whose polygon the box reaches.",
+        says: "An object outside stands in the collision list of every land cell the box around \
+               its shape reaches, across a landblock's edge too; inside, of its own cell and of \
+               each cell through a doorway whose polygon the box reaches.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-FIND-CELLS"),
         station: "auberean-physics::cpu::contact::objects::an_object_outside_stands_in_every_land_cell_under_it",
@@ -397,7 +432,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "collision.objects.bodies-in-one-world-meet-each-other",
-        says: "Bodies, the objects put in the world and the world's scenery share one object table \n               and one collision list per cell: a passable object stops nothing, a solid body \n               stops another, and each body's entry moves with it.",
+        says: "Bodies, the objects put in the world and the world's scenery share one object \
+               table and one collision list per cell: a passable object stops nothing, a solid \
+               body stops another, and each body's entry moves with it.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-OBJECT-TABLE"),
         station: "auberean-physics::cpu::contact::objects::bodies_in_one_world_meet_each_other",
@@ -405,7 +442,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "collision.objects.boxes-turn-grow-and-meet-spheres-and-cylinders",
-        says: "A box carried into a turned frame is the box over its eight corners there; a box \n               grows to take in a point; a sphere or an upright cylinder reaches a box when the \n               box's nearest point is within its radius (for a cylinder, with their heights \n               overlapping).",
+        says: "A box carried into a turned frame is the box over its eight corners there; a box \
+               grows to take in a point; a sphere or an upright cylinder reaches a box when the \
+               box's nearest point is within its radius (for a cylinder, with their heights \
+               overlapping).",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-BBOX"),
         station: "auberean-physics::cpu::contact::objects::boxes_turn_grow_and_meet_spheres_and_cylinders",
@@ -421,7 +461,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "collision.objects.placed-scenery-with-cylinders-is-solid",
-        says: "What a cell's records place is a solid object of the world even when it collides only \n               through its setup's cylinders: in the human training hall a body running north from \n               beside the start stops short of one 2.68 m in reach.",
+        says: "What a cell's records place is a solid object of the world even when it collides \
+               only through its setup's cylinders: in the human training hall a body running \
+               north from beside the start stops short of one 2.68 m in reach.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-PLACED"),
         station: "auberean-physics::dat::objects::placed_scenery_with_cylinders_is_solid",
@@ -483,7 +525,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "collision.solid.a-bodys-collisions-take-its-slowest-impact",
-        says: "The slowest impact a body's collisions report is the one its speed and jump scales \n               set.",
+        says: "The slowest impact a body's collisions report is the one its speed and jump scales \
+               set.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-MIN-IMPACT"),
         station: "auberean-physics::cpu::contact::solid::a_bodys_collisions_take_its_slowest_impact",
@@ -567,7 +610,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "collision.solid.what-a-body-touches-pushes-it",
-        says: "An object whose description pushes moves what touches it, by the push for where the \n               body is, each tick it touches.",
+        says: "An object whose description pushes moves what touches it, by the push for where \
+               the body is, each tick it touches.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-TOUCH-PUSHERS"),
         station: "auberean-physics::cpu::contact::solid::what_a_body_touches_pushes_it",
@@ -575,7 +619,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "collision.solid.what-stands-still-is-met-before-what-moves",
-        says: "In a cell's collision list what stands still comes first, in the order it came, then \n               what moves.",
+        says: "In a cell's collision list what stands still comes first, in the order it came, \
+               then what moves.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-CELL-LIST-ORDER"),
         station: "auberean-physics::cpu::contact::solid::what_stands_still_is_met_before_what_moves",

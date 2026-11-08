@@ -471,7 +471,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "motion.interior.a-room-names-the-material-of-its-floor",
-        says: "A body on an interior floor touches the physics material the cell's own properties                name; a cell that names none gives none.",
+        says: "A body on an interior floor touches the physics material the cell's own properties \
+               name; a cell that names none gives none.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-CELL-FLOOR-MATERIAL"),
         station: "auberean-physics::dat::walk::a_room_names_the_material_of_its_floor",
@@ -555,7 +556,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "motion.jump.a-jump-stops-the-behaviors-a-move-cancels",
-        says: "A jump stops the behaviors a move cancels; a jump the body may not make stops                nothing.",
+        says: "A jump stops the behaviors a move cancels; a jump the body may not make stops \
+               nothing.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MOTION-JUMP-CANCELS"),
         station: "auberean-physics::cpu::motion::moving::a_jump_stops_the_behaviors_a_move_cancels",

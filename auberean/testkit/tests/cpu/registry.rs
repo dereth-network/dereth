@@ -66,6 +66,29 @@ fn public_text_names_no_address_or_symbol() {
     }
 }
 
+/// A row's or a divergence's `says` is one paragraph: a line break or a run of spaces (a line left
+/// without its continuation) is a slip, except inside backticks, where it is the text quoted.
+#[test]
+fn public_text_is_one_line_with_single_spaces() {
+    let texts = all()
+        .map(|b| (b.id, b.says))
+        .chain(DIVERGENCES.iter().map(|d| (d.id, d.says)));
+    for (id, says) in texts {
+        let mut quoted = false;
+        let mut last = '\0';
+        for (i, c) in says.char_indices() {
+            if c == '`' {
+                quoted = !quoted;
+            }
+            assert!(
+                quoted || !(c == '\n' || (c == ' ' && last == ' ')),
+                "{id}: says has a line break or a run of spaces at byte {i}"
+            );
+            last = c;
+        }
+    }
+}
+
 #[test]
 fn every_station_is_a_test_path_in_its_tier() {
     for b in all() {

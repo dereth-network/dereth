@@ -81,7 +81,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "animation.body.its-wind-slider-follows-the-wind-over-a-second",
-        says: "Each body's wind slider follows how hard the wind blows, reaching a new strength over a \n               second.",
+        says: "Each body's wind slider follows how hard the wind blows, reaching a new strength \
+               over a second.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-ANIM-WIND-SLIDER"),
         station: "auberean-animation::cpu::motion::its_wind_slider_follows_the_wind_over_a_second",

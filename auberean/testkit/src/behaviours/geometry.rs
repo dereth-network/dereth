@@ -152,7 +152,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "geometry.text.a-tie-at-the-third-place-rounds-up",
-        says: "A number exactly halfway at the third place reads rounded up, away from zero, as the                client's C library writes it.",
+        says: "A number exactly halfway at the third place reads rounded up, away from zero, as \
+               the client's C library writes it.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-GEOM-TEXT-TIES"),
         station: "auberean-physics::cpu::geometry::text::a_tie_at_the_third_place_rounds_up",

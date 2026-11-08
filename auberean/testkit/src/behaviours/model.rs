@@ -362,7 +362,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "model.state.a-creation-brings-back-an-object-that-left",
-        says: "A creation of an object the client still has puts it back in the world where the                creation says it stands, after it left the world: a player who went on ahead through                a door is there when the client arrives.",
+        says: "A creation of an object the client still has puts it back in the world where the \
+               creation says it stands, after it left the world: a player who went on ahead \
+               through a door is there when the client arrives.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MODEL-CREATION-BRINGS-BACK"),
         station: "auberean-client-model::cpu::model::a_creation_brings_back_an_object_that_left",
@@ -388,7 +390,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "model.state.a-stale-leaving-or-holding-changes-nothing",
-        says: "Leaving the world or being held counts only when its stamp is later than the newest \n               position stamp the object heard; an older or equal one changes nothing, half the \n               circle ahead counting as behind.",
+        says: "Leaving the world or being held counts only when its stamp is later than the \
+               newest position stamp the object heard; an older or equal one changes nothing, \
+               half the circle ahead counting as behind.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MODEL-STALE-POSITION-STAMP"),
         station: "auberean-client-model::cpu::model::a_stale_leaving_or_holding_changes_nothing",

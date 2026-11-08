@@ -416,7 +416,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "friends.login.none-unless-named",
-        says: "A session reaches a friends service only where the options name one: its host, and its                port or the original service's. With none named it connects to none and the player                plays without friends.",
+        says: "A session reaches a friends service only where the options name one: its host, and \
+               its port or the original service's. With none named it connects to none and the \
+               player plays without friends.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-GUN-NONE-UNLESS-NAMED"),
         station: "auberean-shell::cpu::friends::a_session_reaches_a_friends_service_only_where_the_options_name_one",

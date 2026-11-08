@@ -173,7 +173,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.effects.a-placed-light-stands-in-its-own-cells-block",
-        says: "A light an effect placed is taken by the frame's lights as a point light in its                object's cell at its place in that cell's own block, its range as it stands and its                intensity and specular color times how much of it shows; how far and how strongly it                may light anything come from its waveforms' bounds.",
+        says: "A light an effect placed is taken by the frame's lights as a point light in its \
+               object's cell at its place in that cell's own block, its range as it stands and \
+               its intensity and specular color times how much of it shows; how far and how \
+               strongly it may light anything come from its waveforms' bounds.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-CARRIED-LIGHT-STANDING"),
         station: "auberean-draw::cpu::objects::lights::a_placed_light_stands_in_its_own_cells_block",
@@ -281,7 +284,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.effects.an-object-going-stops-its-effects",
-        says: "An object going stops every effect it plays, startup or asked for, with the systems \n               they keep going and their sounds.",
+        says: "An object going stops every effect it plays, startup or asked for, with the \
+               systems they keep going and their sounds.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-FX-DESTROY"),
         station: "auberean-draw::dat::effects::an_object_going_stops_its_effects",
@@ -299,7 +303,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.effects.carried-lights-light-what-stands-near-them-outdoors",
-        says: "Outdoors the lights objects carry light the objects and bodies near them beside the                sun: the town's torches at night leave the frame brighter in more places than darker, a normal map they reach being lit from them in place of the sun, and a human standing by one takes it and throws its shadow from it.",
+        says: "Outdoors the lights objects carry light the objects and bodies near them beside \
+               the sun: the town's torches at night leave the frame brighter in more places than \
+               darker, a normal map they reach being lit from them in place of the sun, and a \
+               human standing by one takes it and throws its shadow from it.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-CARRIED-LIGHTS-OUTDOORS"),
         station: "auberean-gpu::gpu::shadows::carried_lights_light_what_stands_near_them_outdoors",
@@ -326,7 +333,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.effects.no-lights-while-the-light-source-effects-preference-is-off",
-        says: "With the light source effects preference off the effects place no lights at all, so                the objects made then light nothing and lay no pool; turned on, it gives lights only                to what is made after.",
+        says: "With the light source effects preference off the effects place no lights at all, \
+               so the objects made then light nothing and lay no pool; turned on, it gives lights \
+               only to what is made after.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-EFFECT-LIGHTS-PREFERENCE"),
         station: "auberean-draw::dat::effects::no_lights_while_the_light_source_effects_preference_is_off",
@@ -372,7 +381,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.inside.a-body-is-drawn-by-the-rooms-it-touches",
-        says: "Inside, a body is drawn by the rooms it touches: when one of them is reached and its \n               box, doubled, meets a view that room was entered by.",
+        says: "Inside, a body is drawn by the rooms it touches: when one of them is reached and \
+               its box, doubled, meets a view that room was entered by.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-CULL-BODY"),
         station: "auberean-draw::cpu::objects::cull::a_body_is_drawn_by_the_rooms_it_touches",
@@ -380,7 +390,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.inside.a-camera-inside-looks-into-rooms-by-the-doorways-between-them",
-        says: "Out through a doorway of its own, a camera inside looks into another building's rooms by \n               the doorways between them, not those out; a room never culled shows whenever its box \n               does.",
+        says: "Out through a doorway of its own, a camera inside looks into another building's \
+               rooms by the doorways between them, not those out; a room never culled shows \
+               whenever its box does.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-CULL-OUT-IN"),
         station: "auberean-draw::cpu::objects::cull::a_camera_inside_looks_into_rooms_by_the_doorways_between_them",
@@ -388,7 +400,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.inside.a-camera-on-the-land-looks-into-rooms-by-their-doorways-out",
-        says: "A camera on the land looks into a room touching the outside by its doorway out: the walk \n               from that room reaches the rooms past it, and it and the rooms it sees are drawn.",
+        says: "A camera on the land looks into a room touching the outside by its doorway out: \
+               the walk from that room reaches the rooms past it, and it and the rooms it sees \
+               are drawn.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-CULL-LOOK-IN"),
         station: "auberean-draw::cpu::objects::cull::a_camera_on_the_land_looks_into_rooms_by_their_doorways_out",
@@ -396,7 +410,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.inside.a-carried-light-lights-what-stands-near-it-and-throws-shadows-away",
-        says: "Inside, a light an object carries joins the lights the rooms and objects within its                reach keep (sorted by their weight where each stands), shining its color times its                intensity, and they go back to their own once it is gone; a body beside it takes it                too and throws its shadow away from it.",
+        says: "Inside, a light an object carries joins the lights the rooms and objects within \
+               its reach keep (sorted by their weight where each stands), shining its color times \
+               its intensity, and they go back to their own once it is gone; a body beside it \
+               takes it too and throws its shadow away from it.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-CARRIED-LIGHTS"),
         station: "auberean-draw::dat::inside::a_carried_light_lights_what_stands_near_it_and_throws_shadows_away",
@@ -404,7 +421,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.inside.a-caves-rooms-show-through-its-mouth",
-        says: "On the land before a cave, its rooms are drawn while its mouth is in view and not with \n               the camera's back to it; everything standing on the land stays drawn.",
+        says: "On the land before a cave, its rooms are drawn while its mouth is in view and not \
+               with the camera's back to it; everything standing on the land stays drawn.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-CULL-MOUTH"),
         station: "auberean-draw::dat::cull::the_rooms_of_a_cave_show_through_its_mouth",
@@ -412,7 +430,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.inside.a-cells-own-mesh-keeps-the-sky-lights-alone",
-        says: "A cell's own mesh takes only the sky lights of the lights it keeps, from inside and from \n               the land; what stands in its rooms takes the others too.",
+        says: "A cell's own mesh takes only the sky lights of the lights it keeps, from inside \
+               and from the land; what stands in its rooms takes the others too.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-CELL-SKY-LIGHTS"),
         station: "auberean-draw::dat::outdoors::a_cells_own_mesh_keeps_the_sky_lights_alone",
@@ -420,7 +439,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.inside.a-closed-room-shows-nothing-outdoors",
-        says: "From a room whose cells see neither the sky nor a doorway out, a frame draws nothing                outdoors: no sky, no land, and no light outdoors.",
+        says: "From a room whose cells see neither the sky nor a doorway out, a frame draws \
+               nothing outdoors: no sky, no land, and no light outdoors.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-INSIDE-CLOSED"),
         station: "auberean-draw::dat::outdoors::a_closed_room_shows_nothing_outdoors",
@@ -440,7 +460,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.inside.a-doorway-out-shows-the-land-under-the-light-outdoors",
-        says: "From a room whose cells have a doorway out, a frame draws the land outside as a                frame outdoors would (its ground, its objects, its water, the sky) under the light                and fog outdoors, and the rooms and what stands in them under the interior's light;                the walls hide the land but where the doorways open.",
+        says: "From a room whose cells have a doorway out, a frame draws the land outside as a \
+               frame outdoors would (its ground, its objects, its water, the sky) under the light \
+               and fog outdoors, and the rooms and what stands in them under the interior's \
+               light; the walls hide the land but where the doorways open.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-INSIDE-LAND"),
         station: "auberean-draw::dat::outdoors::a_doorway_out_shows_the_land_under_the_light_outdoors",
@@ -448,7 +471,11 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.inside.a-flickering-light-lights-its-draws-as-it-stands-at-the-moment",
-        says: "A light whose intensity moves (by noise, a sine, a bounce or the gradient noise)                lights the objects near it as its intensity stands at the moment, taken once a                frame for every draw it lights, the rooms it is kept by among them; lit particles take it                afresh for each particle; the rooms' own vertices keep the light their record lists as it                stood when they were baked.",
+        says: "A light whose intensity moves (by noise, a sine, a bounce or the gradient noise) \
+               lights the objects near it as its intensity stands at the moment, taken once a \
+               frame for every draw it lights, the rooms it is kept by among them; lit particles \
+               take it afresh for each particle; the rooms' own vertices keep the light their \
+               record lists as it stood when they were baked.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-LIGHT-FLICKER"),
         station: "auberean-draw::dat::inside::a_flickering_light_lights_its_draws_as_it_stands_at_the_moment",
@@ -474,7 +501,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.inside.a-room-open-to-the-sky-shows-the-sky",
-        says: "From a room whose cells include one open to the sky, a frame draws the sky under the                light outdoors, with no land, whether or not a doorway leads out.",
+        says: "From a room whose cells include one open to the sky, a frame draws the sky under \
+               the light outdoors, with no land, whether or not a doorway leads out.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-INSIDE-SKY"),
         station: "auberean-draw::dat::outdoors::a_room_open_to_the_sky_shows_the_sky_and_no_land",
@@ -529,8 +557,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.inside.rooms-seen-from-outside-are-lit-as-rooms",
-        says: "The rooms a block lists as seen from outside, drawn in a frame outdoors, are lit as \
-               rooms and not by the sun: each drawn once, its mesh by the light its vertices carry                and the lights it keeps where it stands; a light carried inside reaches them, one                carried on the land outside does not.",
+        says: "The rooms a block lists as seen from outside, drawn in a frame outdoors, are lit \
+               as rooms and not by the sun: each drawn once, its mesh by the light its vertices \
+               carry and the lights it keeps where it stands; a light carried inside reaches \
+               them, one carried on the land outside does not.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-ROOMS-SEEN-FROM-OUTSIDE"),
         station: "auberean-draw::dat::outdoors::rooms_seen_from_outside_are_lit_as_rooms",
@@ -548,7 +578,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.inside.the-fog-paints-the-background-where-rooms-are-left-out",
-        says: "When a room is left out of a frame seen from inside for the interior fog, the frame's                background is painted the fog's color, blended by its alpha over black, before anything                else is drawn: it shows where the rooms left out would have been.",
+        says: "When a room is left out of a frame seen from inside for the interior fog, the \
+               frame's background is painted the fog's color, blended by its alpha over black, \
+               before anything else is drawn: it shows where the rooms left out would have been.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-CULL-FOG-PAINT"),
         station: "auberean-gpu::gpu::inside::the_fog_paints_the_background_where_rooms_are_left_out",
@@ -666,7 +698,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.material.a-moving-material-is-drawn-as-it-stands-at-the-moment",
-        says: "A material whose pictures slide, turn or stretch, or whose specular power or alpha                reference moves, is drawn as its waveforms stand at the moment of the client's run,                each draw taking them afresh: the specular power, the alpha reference, then each                stage's animations in their order (v before u).",
+        says: "A material whose pictures slide, turn or stretch, or whose specular power or alpha \
+               reference moves, is drawn as its waveforms stand at the moment of the client's \
+               run, each draw taking them afresh: the specular power, the alpha reference, then \
+               each stage's animations in their order (v before u).",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-MATERIAL-MOTION"),
         station: "auberean-draw::dat::materials::a_moving_material_is_drawn_as_it_stands_at_the_moment",
@@ -847,7 +882,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.mesh.a-body-degrades-with-its-distance-from-the-camera",
-        says: "A body's detail, materials and opacity fall with its distance from the camera \n               as a placed object's do, its setup's distances scaled; in a scene of the \n               interface it never degrades.",
+        says: "A body's detail, materials and opacity fall with its distance from the camera as a \
+               placed object's do, its setup's distances scaled; in a scene of the interface it \
+               never degrades.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-BODY-DEGRADE"),
         station: "auberean-draw::dat::volumes::a_body_degrades_with_its_distance_from_the_camera",
@@ -865,7 +902,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.mesh.a-faded-draw-stops-marking-depth-and-testing-its-alpha",
-        says: "A draw not wholly opaque of a layer that tests or blends by alpha marks no \n               depth and passes every texel with some alpha: a blending layer under 0.8, any \n               such layer past 40 m.",
+        says: "A draw not wholly opaque of a layer that tests or blends by alpha marks no depth \
+               and passes every texel with some alpha: a blending layer under 0.8, any such layer \
+               past 40 m.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-FADED-STATE"),
         station: "auberean-draw::cpu::objects::degrade::a_faded_draw_stops_marking_depth_and_testing_its_alpha",
@@ -928,7 +967,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.mesh.an-objects-opacity-follows-the-camera-and-its-landblock",
-        says: "An object's opacity is worked out each frame from the camera, times the \n               opacity of the landblock it stands on while that fades in.",
+        says: "An object's opacity is worked out each frame from the camera, times the opacity of \
+               the landblock it stands on while that fades in.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-FADE-EACH-FRAME"),
         station: "auberean-draw::cpu::objects::degrade::an_objects_opacity_follows_the_camera_and_its_landblock",
@@ -955,7 +995,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.mesh.the-adaptive-degrade-draws-moving-bodies-in-as-frames-slow",
-        says: "With the adaptive degrade on, a body both mobile and dynamic has its distances \n               scaled by the frame rate, whole at 41 frames a second (bias 0), a tenth at \n               none.",
+        says: "With the adaptive degrade on, a body both mobile and dynamic has its distances \
+               scaled by the frame rate, whole at 41 frames a second (bias 0), a tenth at none.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-ADAPTIVE-DEGRADE"),
         station: "auberean-draw::cpu::objects::degrade::the_adaptive_degrade_draws_moving_bodies_in_as_frames_slow",
@@ -963,7 +1004,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.mesh.the-device-draws-a-faded-object-through",
-        says: "The device blends a faded object over what is behind it, marks no depth once \n               faded enough, draws an opaque layer whole, and draws nothing of an object \n               faded out.",
+        says: "The device blends a faded object over what is behind it, marks no depth once faded \
+               enough, draws an opaque layer whole, and draws nothing of an object faded out.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-FADED-DEVICE"),
         station: "auberean-gpu::gpu::fade::the_device_draws_a_faded_object_through",
@@ -979,7 +1021,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.mesh.the-players-body-turns-see-through-under-the-pointer",
-        says: "With the option on, the player's body under the pointer fades at ten times its \n               opacity a second down to 0.3, and comes back the same way.",
+        says: "With the option on, the player's body under the pointer fades at ten times its \
+               opacity a second down to 0.3, and comes back the same way.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-HOVER-FADE"),
         station: "auberean-draw::cpu::objects::degrade::the_players_body_turns_see_through_under_the_pointer",
@@ -1006,7 +1049,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.mesh.the-waters-reflection-fades-an-object-at-its-own-edge",
-        says: "The water's reflection fades an object over the last 7.5% of its own reach there, 40% of \n               its visible distance, whatever the frame shows of it.",
+        says: "The water's reflection fades an object over the last 7.5% of its own reach there, \
+               40% of its visible distance, whatever the frame shows of it.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-REFLECT-EDGE"),
         station: "auberean-draw::cpu::objects::degrade::the_waters_reflection_fades_an_object_at_its_own_edge",
@@ -1022,7 +1066,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.mesh.the-waters-reflection-sees-a-body-at-its-own-level-of-detail",
-        says: "With a water's reflection in the frame a body is drawn at the level of detail the \n               reflection's distances choose, 40% of the frame's, beside the frame's own.",
+        says: "With a water's reflection in the frame a body is drawn at the level of detail the \
+               reflection's distances choose, 40% of the frame's, beside the frame's own.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-REFLECT-BODY"),
         station: "auberean-draw::dat::volumes::the_waters_reflection_sees_a_body_at_its_own_level_of_detail",
@@ -1091,7 +1136,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.particles.a-system-goes-once-it-is-spent-and-its-particles-are-dead",
-        says: "A particle system goes once none of its emitters has anything more to discharge (or it \n               was stopped) and its last particles have died.",
+        says: "A particle system goes once none of its emitters has anything more to discharge \
+               (or it was stopped) and its last particles have died.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-PARTICLE-DEATH"),
         station: "auberean-draw::cpu::effects::particles::a_system_goes_once_it_is_spent_and_its_particles_are_dead",
@@ -1108,7 +1154,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.particles.a-system-without-limits-runs-until-stopped",
-        says: "A particle system with a physics duration, or with an emitter that has neither an \n               emission limit nor a time limit, runs until it is stopped; any other lasts about its \n               longest emitter's start, lifespan and emitting time less its fast-forward.",
+        says: "A particle system with a physics duration, or with an emitter that has neither an \
+               emission limit nor a time limit, runs until it is stopped; any other lasts about \
+               its longest emitter's start, lifespan and emitting time less its fast-forward.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-PARTICLE-LIFETIME"),
         station: "auberean-draw::cpu::effects::particles::a_system_without_limits_runs_until_stopped",
@@ -1162,7 +1210,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.particles.every-stored-system-runs-until-stopped-or-for-a-time",
-        says: "Every particle system in the data either runs until it is stopped or lasts a time its \n               emitters give; about two in three run until stopped.",
+        says: "Every particle system in the data either runs until it is stopped or lasts a time \
+               its emitters give; about two in three run until stopped.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-PARTICLE-LIFETIMES-DATA"),
         station: "auberean-draw::dat::effects::every_particle_system_has_a_lifetime",
@@ -1179,7 +1228,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.particles.placed-systems-stop-past-the-objects-visible-distance",
-        says: "A placed object's particle systems aren't queued past its visible distance from the                camera, whatever their own fade distances.",
+        says: "A placed object's particle systems aren't queued past its visible distance from \
+               the camera, whatever their own fade distances.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PARTICLES-OBJECT-DRAWN"),
         station: "auberean-draw::dat::effects::a_placed_object_past_its_visible_distance_has_its_systems_left_unqueued",
@@ -1187,7 +1237,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.particles.unforced-systems-queue-only-as-their-object-is-drawn",
-        says: "A particle system its record doesn't force to draw is queued only while its object                is drawn, so a player in first person at peace sees none of its own; one its record                forces is queued either way.",
+        says: "A particle system its record doesn't force to draw is queued only while its object \
+               is drawn, so a player in first person at peace sees none of its own; one its \
+               record forces is queued either way.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PARTICLES-OBJECT-NOT-DRAWN"),
         station: "auberean-draw::dat::effects::a_system_not_forced_to_draw_is_queued_only_while_its_object_is_drawn",
@@ -1205,7 +1257,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.picture.a-picture-made-for-one-language-is-in-its-file",
-        says: "A picture made for one language, a signpost's wood and words, is read from that                language's file.",
+        says: "A picture made for one language, a signpost's wood and words, is read from that \
+               language's file.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-LANGUAGE-PICTURES"),
         station: "auberean-draw::dat::pictures::a_picture_made_for_one_language_is_in_its_file",
@@ -1312,7 +1365,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.quality.the-reflection-ripples-only-at-the-highest-water-reflections",
-        says: "The water's reflection ripples only with the water reflections preference at its                highest choice; at the lower one it is laid as it stands.",
+        says: "The water's reflection ripples only with the water reflections preference at its \
+               highest choice; at the lower one it is laid as it stands.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-WATER-RIPPLES-HIGH"),
         station: "auberean-draw::cpu::options::quality::the_reflection_ripples_only_at_the_highest_water_reflections",
@@ -1337,7 +1391,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.rain.a-streak-is-a-thin-quad-fading-toward-its-top",
-        says: "A rain streak is a quad a tenth of a meter wide across the camera, 8 m long \n               along its slant, its top transparent and its foot pale at 0.45.",
+        says: "A rain streak is a quad a tenth of a meter wide across the camera, 8 m long along \
+               its slant, its top transparent and its foot pale at 0.45.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-RAIN-STREAK"),
         station: "auberean-draw::cpu::effects::rain::a_streak_is_a_thin_quad_fading_toward_its_top",
@@ -1345,7 +1400,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.rain.a-streak-left-behind-picks-a-new-spot",
-        says: "A rain streak more than five cells from the viewer picks a new spot within 130 \n               m of it.",
+        says: "A rain streak more than five cells from the viewer picks a new spot within 130 m \
+               of it.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-RAIN-LEFT-BEHIND"),
         station: "auberean-draw::cpu::effects::rain::a_streak_left_behind_picks_a_new_spot",
@@ -1353,7 +1409,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.rain.a-streak-touching-down-throws-up-vapor-and-ripples",
-        says: "A rain streak touching down throws up vapor; on the water of the viewer's cell \n               it lands on the water and, within 65 m, makes a ripple.",
+        says: "A rain streak touching down throws up vapor; on the water of the viewer's cell it \
+               lands on the water and, within 65 m, makes a ripple.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-RAIN-TOUCHDOWN"),
         station: "auberean-draw::cpu::effects::rain::a_streak_touching_down_throws_up_vapor_and_ripples",
@@ -1361,7 +1418,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.rain.as-many-streaks-fall-as-the-rain-asks",
-        says: "As many rain streaks fall as the rain amount asks, up to 2,500; they are drawn \n               over 0.4 of it.",
+        says: "As many rain streaks fall as the rain amount asks, up to 2,500; they are drawn \
+               over 0.4 of it.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-RAIN-COUNT"),
         station: "auberean-draw::cpu::effects::rain::as_many_streaks_fall_as_the_rain_asks",
@@ -1369,7 +1427,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.rain.over-land-not-loaded-a-spot-keeps-the-viewers-height",
-        says: "Over land not loaded a rain streak's spot keeps the viewer's height and makes \n               no ripple.",
+        says: "Over land not loaded a rain streak's spot keeps the viewer's height and makes no \
+               ripple.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-RAIN-UNLOADED"),
         station: "auberean-draw::cpu::effects::rain::over_land_not_loaded_a_spot_keeps_the_viewers_height",
@@ -1377,7 +1436,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.rain.rain-strikes-a-bodys-bones-across-it",
-        says: "Rain strikes the player's bones lying across it, throwing up vapor three times \n               in four.",
+        says: "Rain strikes the player's bones lying across it, throwing up vapor three times in \
+               four.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-RAIN-BODY"),
         station: "auberean-draw::cpu::effects::rain::rain_strikes_a_bodys_bones_across_it",
@@ -1385,7 +1445,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.rain.water-gives-a-body-bubbles-and-ripples",
-        says: "In water, a body's bones deep under give off bubbles and those crossing the \n               surface make ripples.",
+        says: "In water, a body's bones deep under give off bubbles and those crossing the \
+               surface make ripples.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-RAIN-WATER-BODY"),
         station: "auberean-draw::cpu::effects::rain::water_gives_a_body_bubbles_and_ripples",
@@ -1795,7 +1856,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.water.a-rooms-draws-are-not-in-the-reflection",
-        says: "A room's draws seen from the land are not in the water's reflection, which gathers only \n               what stands on the land; with the camera in a room there is no reflection at all.",
+        says: "A room's draws seen from the land are not in the water's reflection, which gathers \
+               only what stands on the land; with the camera in a room there is no reflection at \
+               all.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-REFLECT-LAND"),
         station: "auberean-gpu::gpu::shores::a_rooms_draws_are_not_in_the_reflection",
@@ -1803,7 +1866,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.water.an-object-under-the-water-reflects-only-past-it",
-        says: "An object standing under the water's plane shows in the reflection only past the water's \n               depth: the part above the water reflects, a wall wholly under it does not.",
+        says: "An object standing under the water's plane shows in the reflection only past the \
+               water's depth: the part above the water reflects, a wall wholly under it does not.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-REFLECT-BELOW"),
         station: "auberean-gpu::gpu::shores::an_object_under_the_water_reflects_only_past_it",
@@ -1830,7 +1894,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.water.the-reflection-is-drawn-512-texels-square",
-        says: "The water's reflection is drawn into a picture of its own 512 texels square, with                a depth of its own the same size, whatever the screen's size, and laid over the                screen as it stands.",
+        says: "The water's reflection is drawn into a picture of its own 512 texels square, with \
+               a depth of its own the same size, whatever the screen's size, and laid over the \
+               screen as it stands.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-WATER-REFLECTION-SIZE"),
         station: "auberean-gpu::gpu::water::the_reflection_is_drawn_512_texels_square",
@@ -1838,7 +1904,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.water.the-reflection-is-laid-over-by-half",
-        says: "The water's reflection is laid over the water by the alpha the frame holds, 127                of 255 (the device writes only color, and every clear leaves that alpha): half                the reflection and half the water as it was drawn.",
+        says: "The water's reflection is laid over the water by the alpha the frame holds, 127 of \
+               255 (the device writes only color, and every clear leaves that alpha): half the \
+               reflection and half the water as it was drawn.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-WATER-REFLECTION-HALF"),
         station: "auberean-gpu::gpu::water::the_reflection_is_laid_over_by_half",
@@ -1862,7 +1930,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.water.the-ripples-push-the-reflection-one-way",
-        says: "The ripples push the water's reflection one way only, never back: what the                reflection shows is drawn out downward and to the left in spikes, never up or to                the right; without ripples it lies as it stands.",
+        says: "The ripples push the water's reflection one way only, never back: what the \
+               reflection shows is drawn out downward and to the left in spikes, never up or to \
+               the right; without ripples it lies as it stands.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-WATER-RIPPLES"),
         station: "auberean-gpu::gpu::water::the_ripples_push_the_reflection_one_way",
@@ -1870,7 +1940,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.water.the-water-shows-half-the-ground-under-it",
-        says: "The water's own material blends by the destination's alpha, which is 127 of 255                wherever it is drawn (the device writes only color, and every clear leaves that                alpha): the water shows half its own color and half the ground under it.",
+        says: "The water's own material blends by the destination's alpha, which is 127 of 255 \
+               wherever it is drawn (the device writes only color, and every clear leaves that \
+               alpha): the water shows half its own color and half the ground under it.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-WATER-GROUND-HALF"),
         station: "auberean-gpu::gpu::water::the_water_shows_half_the_ground_under_it",
@@ -1888,7 +1960,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.world.a-blocks-water-lies-in-quarter-block-polygons",
-        says: "A detailed block's water surface is four polygons by four, each a quarter of the                block wide, its picture and its ripples' coordinates both running 0 to 1 across                each polygon, whatever the water's own tile and polygon widths say.",
+        says: "A detailed block's water surface is four polygons by four, each a quarter of the \
+               block wide, its picture and its ripples' coordinates both running 0 to 1 across \
+               each polygon, whatever the water's own tile and polygon widths say.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-WATER-GRID"),
         station: "auberean-draw::dat::landscape::a_detailed_blocks_water_lies_in_quarter_block_polygons",
@@ -1896,7 +1970,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.world.a-body-takes-the-sun-shadow-about-its-spot",
-        says: "A body standing on the land takes the sun's shadow map about its spot in its \n               light and specular.",
+        says: "A body standing on the land takes the sun's shadow map about its spot in its light \
+               and specular.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-BODY-SHADE"),
         station: "auberean-gpu::gpu::shadows::a_body_takes_the_sun_shadow_about_its_spot",
@@ -1904,7 +1979,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.world.a-far-blocks-water-repeats-every-four-tile-widths",
-        says: "A far block's water surface is one polygon, its picture and the reflection's ripples on one set of                coordinates that repeats every four of the water's tile widths.",
+        says: "A far block's water surface is one polygon, its picture and the reflection's \
+               ripples on one set of coordinates that repeats every four of the water's tile \
+               widths.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-FAR-WATER-COORDS"),
         station: "auberean-draw::dat::landscape::a_far_blocks_water_repeats_every_four_tile_widths",
@@ -1932,7 +2009,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.world.a-part-draws-its-own-copy-when-its-look-changes-materials",
-        says: "A part draws through its own frame carried by the object's the mesh its instance                holds: the one every part showing it shares, or, when the part's look changes its                materials, its own copy with them changed, the other parts keeping the mesh's own;                it is culled by its mesh's box carried through its frame.",
+        says: "A part draws through its own frame carried by the object's the mesh its instance \
+               holds: the one every part showing it shares, or, when the part's look changes its \
+               materials, its own copy with them changed, the other parts keeping the mesh's own; \
+               it is culled by its mesh's box carried through its frame.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PART-DRAW"),
         station: "auberean-draw::dat::parts::a_part_draws_its_own_copy_when_its_look_changes_its_materials",
@@ -2020,7 +2100,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.world.what-stands-on-the-land-takes-the-lands-shadow",
-        says: "What stands on the land and is not seen through is drawn dark by the share of \n               the sun the land lets through at its spot.",
+        says: "What stands on the land and is not seen through is drawn dark by the share of the \
+               sun the land lets through at its spot.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-LAND-SHADOW"),
         station: "auberean-draw::dat::landscape::what_stands_on_the_land_takes_the_lands_shadow",
