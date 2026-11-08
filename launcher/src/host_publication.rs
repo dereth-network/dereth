@@ -587,9 +587,13 @@ fn selected_athenaeum(dir: &Path) -> Option<(PathBuf, Publication)> {
     Some((folder, publication))
 }
 
+/// The folder of an Athenaeum world that holds its overlay, the data files its clearings change,
+/// which Yalain reads in the world's folder.
+const ATHENAEUM_OVERLAY: &str = "overlay";
+
 /// Copy the Athenaeum world whose world file is `world` into `to`: its world file, its ids
-/// (`world.lock`) and each of its packs' folders, which are what Yalain reads of a world. Its
-/// playtest, build and characters stay behind.
+/// (`world.lock`), each of its packs' folders and its overlay ([`ATHENAEUM_OVERLAY`]), which are
+/// what Yalain reads of a world. Its playtest, build and characters stay behind.
 pub(crate) fn copy_athenaeum_world(world: &Path, to: &Path) -> Result<(), String> {
     std::fs::create_dir_all(to).map_err(|e| e.to_string())?;
     let from = world.parent().ok_or("Missing world folder")?;
@@ -605,6 +609,10 @@ pub(crate) fn copy_athenaeum_world(world: &Path, to: &Path) -> Result<(), String
             return Err(format!("The world's pack {} is not there.", name.display()));
         }
         crate::hosts::copy_tree(&pack, &to.join(name))?;
+    }
+    let overlay = from.join(ATHENAEUM_OVERLAY);
+    if overlay.is_dir() {
+        crate::hosts::copy_tree(&overlay, &to.join(ATHENAEUM_OVERLAY))?;
     }
     Ok(())
 }
@@ -1118,6 +1126,49 @@ pub fn play_inputs(root: &Path, slug: &str) -> Result<Option<PlayInputs>, String
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A published Athenaeum world carries its overlay with its packs, so its clearings come too;
+    /// its playtest stays behind.
+    #[test]
+    fn an_athenaeum_world_is_copied_with_its_overlay() {
+        let root = tempfile::tempdir().unwrap();
+        let world = root.path().join("world");
+        for (rel, text) in [
+            (
+                "world.toml",
+                "key = \"w\"
+packs = [\"town\"]
+",
+            ),
+            (
+                "world.lock",
+                "ids
+",
+            ),
+            (
+                "town/pack.toml",
+                "name = \"town\"
+",
+            ),
+            ("overlay/cell.dat", "clearings"),
+            (".playtest/yalain.sqlite", "characters"),
+        ] {
+            let path = world.join(rel);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, text).unwrap();
+        }
+        let to = root.path().join("published");
+        copy_athenaeum_world(&world.join("world.toml"), &to).unwrap();
+        for rel in ["world.toml", "world.lock", "town/pack.toml"] {
+            assert!(to.join(rel).is_file(), "{rel}");
+        }
+        assert_eq!(
+            std::fs::read_to_string(to.join("overlay/cell.dat")).unwrap(),
+            "clearings"
+        );
+        assert!(!to.join(".playtest").exists());
+    }
+
     fn host() -> (tempfile::TempDir, PathBuf) {
         host_of("eor")
     }

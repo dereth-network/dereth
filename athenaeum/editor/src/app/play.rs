@@ -522,6 +522,15 @@ impl Editor<'_> {
             }
             Err(e) => self.status = e,
         }
+        // A file changed on disk by hand reaches Live as an edit in the editor does: looked for once
+        // a second while the world is played.
+        if self.live.up() && self.disk_looked.elapsed() >= std::time::Duration::from_secs(1) {
+            self.disk_looked = std::time::Instant::now();
+            let taken = self.session.take_disk_changes();
+            if !taken.is_empty() {
+                self.status = format!("took in {} changed on disk", taken.join(", "));
+            }
+        }
         let changed = self.session.revision() != self.published;
         if !changed || self.drag.is_some() || self.held.is_some() || !self.live.up() {
             return;

@@ -314,6 +314,8 @@ pub struct Editor<'w> {
     new_name: String,
     /// The world's revision last published to the editor's own Yalain.
     published: u64,
+    /// When the world's files were last looked at on disk, for a hand's change to reach Live.
+    disk_looked: std::time::Instant,
     /// The skills' names, by number, for the recipes' skills.
     pub skill_names: Vec<(u32, String)>,
     /// What the Characters window is adding to the chosen recipe, and importing.
@@ -665,6 +667,7 @@ impl<'w> Editor<'w> {
             characters_open: false,
             new_name: String::new(),
             published: 0,
+            disk_looked: std::time::Instant::now(),
             skill_names: Vec::new(),
             adding: play::Adding::default(),
             closing: false,

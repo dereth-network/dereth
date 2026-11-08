@@ -143,9 +143,25 @@ fn moving_a_base_row_writes_a_row_of_its_key_that_replaces_it() {
     assert!(t.contains("cell = 0x77B80001"), "{t}");
     assert!(t.contains("template = 0x4700334C"), "{t}");
     assert!(t.contains("rotation = [0.2499, 0.0, 0.0, 0.9683]"), "{t}");
-    assert!(t.contains("prov = { from = \"authored\" }"), "{t}");
     let e = s.entry(&item).unwrap();
     assert_eq!(e.layer, Layer::Target);
+    // Where it came from stays the base's, its evidence and how sure with it; the fields the move
+    // changed are a person's.
+    let prov = e.prov().expect("its provenance");
+    assert_eq!(
+        (prov.source, prov.evidence.as_deref()),
+        (Source::Capture, Some("TEST-OBJECTS"))
+    );
+    assert!(prov.confidence.is_some());
+    let marked: Vec<(&str, Source)> = prov
+        .fields
+        .iter()
+        .map(|(k, p)| (k.as_str(), p.source))
+        .collect();
+    assert_eq!(
+        marked,
+        [("at", Source::Authored), ("cell", Source::Authored)]
+    );
     let was = e.was.as_ref().expect("what it replaces");
     assert_eq!(was.row.prov().unwrap().source, Source::Capture);
     // The base's files are never written.
@@ -790,4 +806,164 @@ prov = { from = "authored" }
     assert!(s.set(item, "template", "\"a name\"").is_err());
     assert_eq!(s.files(), &files, "nothing changed");
     assert!(s.problems().is_empty(), "{:?}", s.problems());
+}
+
+/// The camp's spots as its row reads: each one's cell and point.
+fn spots(s: &Session, item: &str) -> Vec<(u32, [f32; 2])> {
+    match &s.entry(item).unwrap().row.row {
+        Row::Camp(c) => c
+            .spots
+            .iter()
+            .map(|(cell, at)| (*cell, [at.x, at.y]))
+            .collect(),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn a_camp_moved_takes_its_spots_along() {
+    let mut s = session();
+    let camp = "camp c-4586@77B8";
+    s.set(
+        camp,
+        "spots",
+        "[{ cell = 0x77B80001, at = [140.0, 140.0, 133.0] }, { cell = 0x77B80105, at = [20.0, 30.0, 10.0] }]",
+    )
+    .unwrap();
+    s.set(camp, "cell", "0x77B80105").unwrap();
+    clean(&s);
+    // On land, ten metres east: each spot goes as far, and a land spot's cell follows its point.
+    let moved = s.move_to(camp, LB, [154.8, 144.7, 133.0]).unwrap();
+    let land = yalain_world_db::compile::outdoor_cell(LB, 150.0, 140.0);
+    assert_ne!(land, 0x77B8_0001);
+    assert_eq!(
+        spots(&s, &moved),
+        [(land, [150.0, 140.0]), (0x77B8_0105, [30.0, 30.0])]
+    );
+    // Into another room: a spot in the camp's old room goes into its new one.
+    let moved = s
+        .move_into(&moved, LB, [154.8, 144.7, 133.0], Some(0x77B8_0106))
+        .unwrap();
+    assert_eq!(spots(&s, &moved)[1].0, 0x77B8_0106);
+    clean(&s);
+}
+
+#[test]
+fn a_place_renamed_takes_the_quest_steps_that_lead_to_it_along() {
+    let mut files = world_files();
+    files.insert(
+        "fill-test/server/places.toml".into(),
+        "[[place]]\nkey = \"inn\"\ncell = 0x77B80003\nat = [1.0, 2.0, 3.0]\nheading = 0.0\nprov = { from = \"authored\" }\n".into(),
+    );
+    files.insert(
+        "fill-test/server/quests/40000088.toml".into(),
+        "[[quest]]\nid = 0x40000088\nid_name = \"QuestTest\"\nprov = { from = \"authored\" }\n\n\
+         [[step]]\nkey = \"s1\"\nquest = 0x40000088\nneeds = 0\ntrigger = { use = 0x470020BB, on = 0x4700115B }\n\
+         update = \"bestow\"\nto = \"inn\"\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    let mut s = Session::new(dir(), Box::new(store(&files)), files, base(), None).unwrap();
+    clean(&s);
+    let quest = "fill-test/server/quests/40000088.toml";
+    s.rename_place("place inn", "the-inn").unwrap();
+    clean(&s);
+    assert!(
+        text(&s, quest).contains("to = \"the-inn\""),
+        "{}",
+        text(&s, quest)
+    );
+    s.undo();
+    assert!(
+        text(&s, quest).contains("to = \"inn\""),
+        "one undo takes it back"
+    );
+}
+
+#[test]
+fn a_camp_moved_into_another_landblock_takes_what_names_it_along() {
+    let camp = |cell: &str| {
+        format!(
+            "[[camp]]\nkey = \"beetles\"\ncell = {cell}\nat = [10.0, 10.0, 133.0]\nradius = 5.0\npopulation = 2\n\
+             regen = 192.0\nspawns = [{{ template = 0x47002224, weight = 1 }}]\nprov = {{ from = \"authored\" }}\n"
+        )
+    };
+    let mut files = world_files();
+    files.insert(
+        "fill-test/server/landblocks/77B8.toml".into(),
+        camp("0x77B80001"),
+    );
+    files.insert(
+        "fill-test/server/landblocks/77B9.toml".into(),
+        camp("0x77B90001"),
+    );
+    let quest = "fill-test/server/quests/40000088.toml";
+    files.insert(
+        quest.into(),
+        "[[quest]]\nid = 0x40000088\nid_name = \"QuestTest\"\nprov = { from = \"authored\" }\n\n\
+         [[step]]\nkey = \"s1\"\nquest = 0x40000088\nneeds = 0\ntrigger = { kill = 0x47002224, camp = \"beetles@77B8\" }\n\
+         update = \"bestow\"\nprov = { from = \"authored\" }\n\n\
+         [[death_treasure]]\nkey = \"shell\"\ncamp = \"beetles@77B8\"\nitem = 0x470020B9\nchance = 0.5\n\
+         prov = { from = \"authored\" }\n"
+            .into(),
+    );
+    let mut s = Session::new(dir(), Box::new(store(&files)), files, base(), None).unwrap();
+    clean(&s);
+    let moved = s
+        .move_to("camp beetles@77B8", 0x77B9, [30.0, 30.0, 133.0])
+        .unwrap();
+    clean(&s);
+    let (key, lb) = moved.trim_start_matches("camp ").split_once('@').unwrap();
+    assert_ne!(key, "beetles", "a key of its own there: {moved}");
+    assert_eq!(lb, "77B9");
+    let named = format!("camp = \"{key}@77B9\"");
+    assert_eq!(
+        text(&s, quest).matches(&named).count(),
+        2,
+        "{}",
+        text(&s, quest)
+    );
+    s.undo();
+    assert_eq!(
+        text(&s, quest).matches("camp = \"beetles@77B8\"").count(),
+        2
+    );
+}
+
+#[test]
+fn a_file_changed_on_disk_is_taken_in_unless_the_session_changed_it() {
+    let places = "fill-test/server/places.toml";
+    let place = |key: &str| {
+        format!(
+            "[[place]]\nkey = \"{key}\"\ncell = 0x77B80003\nat = [1.0, 2.0, 3.0]\nheading = 0.0\nprov = {{ from = \"authored\" }}\n"
+        )
+    };
+    let mut files = world_files();
+    files.insert(places.into(), place("inn"));
+    let disk = Arc::new(store(&files));
+    let mut s = Session::new(
+        dir(),
+        Box::new(Shared(Arc::clone(&disk))),
+        files,
+        base(),
+        None,
+    )
+    .unwrap();
+    assert!(s.take_disk_changes().is_empty(), "nothing changed yet");
+    // Written by hand while the world is open: taken in, and the world read again.
+    disk.write(&dir().join(places), place("tavern").as_bytes())
+        .unwrap();
+    let revision = s.revision();
+    assert_eq!(s.take_disk_changes(), [places]);
+    assert!(s.revision() > revision);
+    assert!(s.entry("place tavern").is_some() && s.entry("place inn").is_none());
+    assert!(
+        !s.unsaved(),
+        "what the store has is no edit of the session's"
+    );
+    // A file the session changed and has not saved keeps the session's text.
+    s.turn("place tavern", 90.0).unwrap();
+    disk.write(&dir().join(places), place("cellar").as_bytes())
+        .unwrap();
+    assert!(s.take_disk_changes().is_empty());
+    assert!(s.entry("place tavern").is_some());
 }

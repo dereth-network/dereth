@@ -20,18 +20,20 @@
 //! after each, the world is read, checked and merged over its base again, and its rows and
 //! problems are the session's view of it.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use auberean_pack::Item as ItemKey;
 use dereth_pack::session::{History, Sources, Step, Texts};
 use dereth_pack::store::{DiskStore, SourceStore};
-use toml_edit::{ArrayOfTables, DocumentMut, Item, Table, Value};
+use toml_edit::{ArrayOfTables, DocumentMut, InlineTable, Item, Table, Value};
 use yalain_world_db::compile::outdoor_cell;
 use yalain_world_db::layer::{self, Base};
 use yalain_world_db::merge::item_key;
-use yalain_world_db::rows::{At, Camp, Clearing, Located, Object, ObjectKind, Place, Prov, Row};
+use yalain_world_db::rows::{
+    At, Camp, Clearing, Located, Object, ObjectKind, Place, Prov, Row, Trigger,
+};
 use yalain_world_db::{Files, Problem};
 
 use crate::toml as rowtoml;
@@ -460,6 +462,31 @@ impl Session {
         }
     }
 
+    /// Take in what the store's files say now where the session has not changed them: a file
+    /// written by hand, or by another program, while the world is open. A file the session holds an
+    /// unsaved edit of keeps the session's text, as saving it would. Answers the files taken in.
+    pub fn take_disk_changes(&mut self) -> Vec<String> {
+        let mut taken = Vec::new();
+        for (rel, held) in self.files.clone() {
+            let path = self.dir.join(&rel);
+            if self.sources.differs(&path) {
+                continue;
+            }
+            let Ok(now) = self.store.read_to_string(&path) else {
+                continue;
+            };
+            if now != held {
+                self.sources.reread(&path, Some(now.clone()));
+                self.files.insert(rel.clone(), now);
+                taken.push(rel);
+            }
+        }
+        if !taken.is_empty() {
+            self.refresh();
+        }
+        taken
+    }
+
     /// Read, check and merge the world again.
     fn refresh(&mut self) {
         self.revision += 1;
@@ -828,7 +855,9 @@ impl Session {
                     .ok_or_else(|| format!("{item}: not found in {}", e.row.file))?
             }
             Layer::Base => {
-                let p = Prov::AUTHORED;
+                // The row as the base has it, where it came from and all: what an edit changes is
+                // marked field by field when it is written back.
+                let p = e.prov().cloned().unwrap_or(Prov::AUTHORED);
                 let pack = &e.row.pack;
                 match &e.row.row {
                     Row::Object(o) => rowtoml::object(
@@ -864,7 +893,9 @@ impl Session {
     /// Write `table` (the row of entry `e`, changed) where it belongs in the target: over its
     /// own table when it is the target's, else as a new table of its landblock's file (or the
     /// places' file).
-    fn write_back(&mut self, e: &Entry, table: Table) -> Result<(), String> {
+    fn write_back(&mut self, e: &Entry, mut table: Table) -> Result<(), String> {
+        let before = self.editable(&e.item)?.1;
+        mark_authored(&before, &mut table);
         let kind = e.row.row.kind();
         let file = match e.layer {
             Layer::Target => e.row.file.clone(),
@@ -933,11 +964,26 @@ impl Session {
             .filter(|l| l.layer == Layer::Target)
             .filter(|l| match &l.row.row {
                 Row::Object(o) => o.to.as_deref() == Some(&old),
-                Row::Step(s) => s.to.as_deref() == Some(&old),
                 _ => false,
             })
             .map(|l| l.item.clone())
             .collect();
+        // A quest's steps are no entries of the session's, so they are found among the world's
+        // own rows: each by its file and key.
+        let steps: Vec<(String, String)> = layer::read(&self.base, &self.files)
+            .0
+            .map(|db| {
+                db.rows()
+                    .filter(|l| l.pack == self.target_name)
+                    .filter_map(|l| match &l.row {
+                        Row::Step(s) if s.to.as_deref() == Some(&old) => {
+                            Some((l.file.clone(), s.key.clone()))
+                        }
+                        _ => None,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
         self.begin_step();
         let done = self
             .change(item, |t| {
@@ -949,6 +995,22 @@ impl Session {
                         t.insert("to", Item::Value(Value::from(new)));
                     })
                     .map(|_| ())
+                })
+            })
+            .and_then(|()| {
+                steps.iter().try_for_each(|(file, key)| {
+                    let mut doc = self.doc(file)?;
+                    let step = doc
+                        .get_mut("step")
+                        .and_then(Item::as_array_of_tables_mut)
+                        .and_then(|a| {
+                            a.iter_mut()
+                                .find(|t| t.get("key").and_then(Item::as_str) == Some(key))
+                        })
+                        .ok_or_else(|| format!("step {key}: not found in {file}"))?;
+                    step.insert("to", Item::Value(Value::from(new)));
+                    self.commit(vec![(file.clone(), Some(doc.to_string()))]);
+                    Ok(())
                 })
             });
         self.end_step();
@@ -1134,6 +1196,20 @@ impl Session {
         let (e, mut table) = self.editable(item)?;
         let point = placed_point(&e.row.row, at);
         table.insert("at", Item::Value(rowtoml::point(point)));
+        // A camp's spots move with it, as far and the same way.
+        if let Row::Camp(c) = &e.row.row {
+            let old_cell = c.cell;
+            move_spots(
+                &mut table,
+                [
+                    at[0] - c.at.x,
+                    at[1] - c.at.y,
+                    at[2] - c.at.z.unwrap_or(at[2]),
+                ],
+                landblock,
+                old_cell.zip(cell),
+            );
+        }
         // A land cell follows the point; an interior cell is kept.
         let outdoor = |t: &Table| {
             t.get("cell")
@@ -1185,10 +1261,50 @@ impl Session {
         if e.layer == Layer::Base || e.was.is_some() {
             push_remove(&mut old_doc, item);
         }
+        let before = self.editable(item)?.1;
+        mark_authored(&before, &mut table);
         let mut new_doc = self.doc(&new)?;
         push_row(&mut new_doc, kind, table);
-        self.commit(vec![(old, text_of(&old_doc)), (new, text_of(&new_doc))]);
+        // What names it by its key and landblock names it as it is now, in this world's own rows.
+        let mut docs = BTreeMap::from([(old, old_doc), (new, new_doc)]);
+        let renamed =
+            |r: &str| moved_reference(r, &e.row.pack, &key_of(&e.row.row), from, &key, landblock);
+        for (file, row_kind, row_key, field) in self.references(kind) {
+            if !docs.contains_key(&file) {
+                docs.insert(file.clone(), self.doc(&file)?);
+            }
+            if let Some(doc) = docs.get_mut(&file) {
+                rename_reference(doc, row_kind, &row_key, field, &renamed);
+            }
+        }
+        self.commit(docs.into_iter().map(|(f, d)| (f, text_of(&d))).collect());
         Ok(named(&key).to_string())
+    }
+
+    /// This world's own rows that may name a row of `kind` by its key: each one's file, kind, key,
+    /// and the field (in a step's trigger, `camp`) that does.
+    fn references(&self, kind: &str) -> Vec<(String, &'static str, String, &'static str)> {
+        let Some(db) = layer::read(&self.base, &self.files).0 else {
+            return Vec::new();
+        };
+        db.rows()
+            .filter(|l| l.pack == self.target_name)
+            .filter_map(|l| {
+                let file = l.file.clone();
+                match (&l.row, kind) {
+                    (Row::Step(s), "camp") if matches!(s.trigger, Trigger::KillIn(..)) => {
+                        Some((file, "step", s.key.clone(), "trigger.camp"))
+                    }
+                    (Row::DeathTreasure(d), "camp") if d.camp.is_some() => {
+                        Some((file, "death_treasure", d.key.clone(), "camp"))
+                    }
+                    (Row::Talk(t), "object") if t.object.is_some() => {
+                        Some((file, "talk", t.key.clone(), "object"))
+                    }
+                    _ => None,
+                }
+            })
+            .collect()
     }
 
     /// Copy a row to `at` in `landblock`, with a key of its own and all else as it is. Answers the
@@ -1380,6 +1496,153 @@ impl Session {
 }
 
 /// The key a placed row is written with.
+/// A reference to a row (`key`, `key@XXYY`, `pack:key[@XXYY]`) as it is to name the row of `pack`
+/// moved from `old` in landblock `from` to `new` in landblock `to`; `None` when it names another
+/// row, or still names this one as it is (no landblock, and the key kept).
+fn moved_reference(
+    r: &str,
+    pack: &str,
+    old: &str,
+    from: u16,
+    new: &str,
+    to: u16,
+) -> Option<String> {
+    let (prefix, rest) = match r.split_once(':') {
+        Some((p, rest)) => (Some(p), rest),
+        None => (None, r),
+    };
+    if prefix.is_some_and(|p| p != pack) {
+        return None;
+    }
+    let (key, lb) = match rest.split_once('@') {
+        Some((k, l)) => (k, Some(u16::from_str_radix(l, 16).ok()?)),
+        None => (rest, None),
+    };
+    if key != old || lb.is_some_and(|l| l != from) || (lb.is_none() && new == old) {
+        return None;
+    }
+    let prefix = prefix.map(|p| format!("{p}:")).unwrap_or_default();
+    Some(format!("{prefix}{new}@{to:04X}"))
+}
+
+/// Rewrite the reference in `field` (`trigger.camp` for a step's) of the `[[kind]]` row whose key is
+/// `key`, as `renamed` has it.
+fn rename_reference(
+    doc: &mut DocumentMut,
+    kind: &str,
+    key: &str,
+    field: &str,
+    renamed: &dyn Fn(&str) -> Option<String>,
+) {
+    let Some(row) = doc
+        .get_mut(kind)
+        .and_then(Item::as_array_of_tables_mut)
+        .and_then(|a| {
+            a.iter_mut()
+                .find(|t| t.get("key").and_then(Item::as_str) == Some(key))
+        })
+    else {
+        return;
+    };
+    match field.split_once('.') {
+        Some((table, inner)) => {
+            let Some(t) = row.get_mut(table).and_then(Item::as_inline_table_mut) else {
+                return;
+            };
+            if let Some(new) = t.get(inner).and_then(Value::as_str).and_then(renamed) {
+                t.insert(inner, Value::from(new));
+            }
+        }
+        None => {
+            if let Some(new) = row.get(field).and_then(Item::as_str).and_then(renamed) {
+                row.insert(field, Item::Value(Value::from(new)));
+            }
+        }
+    }
+}
+
+/// Mark each field `after` changes from `before` as a person's, in its `prov.fields`, when the row
+/// came from anywhere else: the rest of the row keeps where it came from, its evidence and how
+/// sure that is.
+fn mark_authored(before: &Table, after: &mut Table) {
+    let authored = |t: &Table| {
+        t.get("prov")
+            .and_then(Item::as_inline_table)
+            .and_then(|p| p.get("from"))
+            .and_then(Value::as_str)
+            .is_none_or(|f| f == "authored")
+    };
+    if authored(after) {
+        return;
+    }
+    let text = |t: &Table, k: &str| t.get(k).map(|v| v.to_string().trim().to_owned());
+    let changed: Vec<String> = after
+        .iter()
+        .map(|(k, _)| k.to_owned())
+        .filter(|k| k != "prov" && k != "key" && text(before, k) != text(after, k))
+        .collect();
+    if changed.is_empty() {
+        return;
+    }
+    let Some(prov) = after.get_mut("prov").and_then(Item::as_inline_table_mut) else {
+        return;
+    };
+    if !matches!(prov.get("fields"), Some(Value::InlineTable(_))) {
+        prov.insert("fields", Value::InlineTable(InlineTable::new()));
+    }
+    if let Some(Value::InlineTable(fields)) = prov.get_mut("fields") {
+        for k in changed {
+            let mut by = InlineTable::new();
+            by.insert("from", Value::from("authored"));
+            fields.insert(&k, Value::InlineTable(by));
+        }
+    }
+}
+
+/// Move a camp's spots by `by`, in `landblock`: a land cell follows its spot's point, and a room's
+/// cell follows the camp's when it moves from one room (`rooms.0`) to another (`rooms.1`).
+fn move_spots(table: &mut Table, by: [f32; 3], landblock: u16, rooms: Option<(u32, u32)>) {
+    let Some(spots) = table.get_mut("spots").and_then(Item::as_array_mut) else {
+        return;
+    };
+    // A spot's coordinate is a row's f32, written as a TOML number.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+    let number = |v: &Value| {
+        v.as_float()
+            .or_else(|| v.as_integer().map(|i| i as f64))
+            .map(|f| f as f32)
+    };
+    for spot in spots.iter_mut() {
+        let Some(spot) = spot.as_inline_table_mut() else {
+            continue;
+        };
+        let Some(at) = spot.get("at").and_then(Value::as_array) else {
+            continue;
+        };
+        let (Some(x), Some(y)) = (at.get(0).and_then(number), at.get(1).and_then(number)) else {
+            continue;
+        };
+        let moved = At {
+            x: x + by[0],
+            y: y + by[1],
+            z: at.get(2).and_then(number).map(|z| z + by[2]),
+        };
+        spot.insert("at", rowtoml::point(moved));
+        let cell = spot
+            .get("cell")
+            .and_then(Value::as_integer)
+            .and_then(|c| u32::try_from(c).ok());
+        let cell = match (cell, rooms) {
+            (Some(c), _) if c & 0xFFFF < 0x100 => Some(outdoor_cell(landblock, moved.x, moved.y)),
+            (Some(c), Some((from, to))) if c == from => Some(to),
+            _ => None,
+        };
+        if let Some(cell) = cell {
+            spot.insert("cell", rowtoml::hex(cell));
+        }
+    }
+}
+
 fn key_of(row: &Row) -> String {
     match row {
         Row::Object(o) => o.key.clone(),

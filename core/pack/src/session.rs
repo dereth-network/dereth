@@ -57,6 +57,15 @@ impl Sources {
         self.texts.insert(path.to_path_buf(), text);
     }
 
+    /// The store's text of `path` read again, for a file the session has not changed: what it holds
+    /// and what the store had become that text.
+    pub fn reread(&mut self, path: &Path, text: Option<String>) {
+        if self.holds(path) && !self.differs(path) {
+            self.texts.insert(path.to_path_buf(), text.clone());
+            self.stored.insert(path.to_path_buf(), text);
+        }
+    }
+
     /// Whether the session holds a text (or no file) for `path`: one it has read or changed.
     #[must_use]
     pub fn holds(&self, path: &Path) -> bool {

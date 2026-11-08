@@ -7,6 +7,10 @@ Add a line under **Unreleased** when a change lands that a world builder would n
 see, not how it was done.
 
 ## Unreleased
+- Moving a camp moves its spots too.
+- Renaming a place or moving a camp keeps the quests and rows that name it pointing at it.
+- Editing a captured row keeps where it came from, marking only the fields you changed.
+- Files you edit by hand reach Live without restarting the editor.
 
 ## 0.1.4 (2026-11-07)
 - New `pets` command: see and change a world's kinds of pet.
