@@ -2116,6 +2116,7 @@ fn over_the_land(
             atmosphere: true,
             fog,
             far_keep: 0.2,
+            air: 0.0,
             glow: 0.0,
         },
         &mut gpu,

@@ -175,12 +175,14 @@ fn scripted_preference(setting: &str) -> Option<(&'static str, dereth_client_con
             1
         } else if v.eq_ignore_ascii_case("false") {
             0
+        } else if let Some(n) = dereth_client_contract::options::remaster::god_rays_value(name, v) {
+            n
         } else {
             v.trim_end_matches('%').trim().parse::<i32>().ok()?
         };
         // A box is a boolean in the store, so the page and the saved profile follow it; the
-        // share is a number.
-        let value = if *name == dereth_client_contract::options::names::fidelity::REMASTER_SCALE {
+        // share and God Rays' strength are numbers.
+        let value = if dereth_client_contract::options::names::fidelity::is_menu(name) {
             dereth_client_contract::PrefValue::Int(n)
         } else {
             dereth_client_contract::PrefValue::Bool(n != 0)

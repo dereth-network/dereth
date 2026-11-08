@@ -24,7 +24,7 @@ pub fn left_out_of_save(
 ) -> bool {
     fidelity::NAMES
         .iter()
-        .any(|n| n.eq_ignore_ascii_case(name) && *n != fidelity::REMASTER_SCALE)
+        .any(|n| n.eq_ignore_ascii_case(name) && !fidelity::is_menu(n))
         && *value == PrefValue::Bool(super::remaster::ticked_at_first(name))
         && !ini
             .entries

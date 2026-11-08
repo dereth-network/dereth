@@ -43,6 +43,8 @@ pub struct RemasterRows {
     pub dlss: bool,
     /// The share of the pixels drawn each way while upscaling, in percent; 0 until one is chosen.
     pub scale: u32,
+    /// How strongly the sunlit air shows shafts of light: 0 none, 1 low, 2 high.
+    pub god_rays: u32,
     /// What of the art pack is drawn.
     pub packs: RemasterPacks,
 }
@@ -70,6 +72,7 @@ impl RemasterRows {
             upscale: f.remaster_feature(F::RemasterUpscale),
             dlss: f.remaster_feature(F::RemasterDlss),
             scale: f.effective(F::RemasterScale),
+            god_rays: f.effective(F::RemasterGodRays),
             packs: if f.remaster_feature(F::RemasterArtPack) {
                 RemasterPacks::all()
             } else {
@@ -147,13 +150,14 @@ impl SceneDraw {
             };
             self.set_remaster_shadows(s, gpu);
         }
-        if (now.sky, now.fog) != (was.sky, was.fog) {
+        if (now.sky, now.fog, now.god_rays) != (was.sky, was.fog, was.god_rays) {
             let s = SkySettings {
                 atmosphere: now.sky,
                 fog: now.fog,
                 far_keep: FAR_KEEP,
                 ..SkySettings::default()
-            };
+            }
+            .with_god_rays(now.god_rays);
             self.set_remaster_sky(s, gpu);
         }
         let occlusion = now.occlusion || now.traced_occlusion;

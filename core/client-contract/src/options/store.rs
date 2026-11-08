@@ -409,6 +409,12 @@ const CUSTOM_ENUMS: &[CustomEnum] = &[
         format: super::remaster::scale_words,
         choices: super::remaster::scale_rows,
     },
+    CustomEnum {
+        recognizes: |name| name.eq_ignore_ascii_case(super::names::fidelity::REMASTER_GOD_RAYS),
+        parse: super::remaster::god_rays_value,
+        format: super::remaster::god_rays_words,
+        choices: super::remaster::god_rays_rows,
+    },
 ];
 
 fn custom_enum(name: &str) -> Option<&'static CustomEnum> {
@@ -1211,7 +1217,7 @@ mod tests {
         #[cfg(not(feature = "fidelity"))]
         assert_eq!(len(), 48);
         #[cfg(feature = "fidelity")]
-        assert_eq!(len(), 48 + 2 + super::super::remaster::FEATURES.len());
+        assert_eq!(len(), 48 + 3 + super::super::remaster::FEATURES.len());
         // The registration defaults are in force before any file is read.
         assert_eq!(
             inq_value("Input.MouseLookSensitivity"),

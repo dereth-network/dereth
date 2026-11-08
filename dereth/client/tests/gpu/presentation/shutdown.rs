@@ -897,7 +897,7 @@ fn a_changed_preference_is_written_back_on_shutdown() {
             names::fidelity::NAMES
                 .iter()
                 .copied()
-                .filter(|n| *n != names::fidelity::REMASTER_SCALE),
+                .filter(|n| !names::fidelity::is_menu(n)),
         )
         .filter_map(|name| dereth_ui_screens::options::store::inq_value(name).map(|v| (name, v)))
         .collect();

@@ -56,6 +56,30 @@ pub struct SkySettings {
     /// How much of what lies at and past the fog's end comes through it, 0 none: the far ground
     /// drawn past where the game's fog ends keeps its shape and color.
     pub far_keep: f32,
+    /// How deep the clear air is that the sun shows shafts in, besides the fog, across the reach
+    /// of the sun's shadows: 0 none. Deeper as the sun sinks, and where the eye stands in shade.
+    pub air: f32,
+}
+
+/// God Rays' low and high: the fog's glow toward the sun, and the clear air's depth.
+const GOD_RAYS: [(f32, f32); 2] = [(0.04, 0.5), (0.08, 1.0)];
+/// How many times deeper the clear air is with the sun on the horizon than overhead, besides
+/// once, and where all round the eye stands in shade than in the open.
+const AIR_LOW_SUN: f32 = 1.5;
+const AIR_IN_SHADE: f32 = 1.0;
+
+impl SkySettings {
+    /// These settings with God Rays at `level`, 0 off, 1 low, 2 high: the glow and the clear air
+    /// its strength gives, none while off.
+    #[must_use]
+    pub fn with_god_rays(self, level: u32) -> Self {
+        let (glow, air) = match level {
+            0 => (0.0, 0.0),
+            1 => GOD_RAYS[0],
+            _ => GOD_RAYS[1],
+        };
+        Self { glow, air, ..self }
+    }
 }
 
 /// The fog volume's columns, rows and slices, its nearest distance, and the forward
@@ -712,7 +736,7 @@ impl SkyPass {
         let sun = frame.light.sun_color.map(|b| f32::from(b) / 255.0);
         let bright = frame.light.sun.length().min(1.0);
         let shadow = cascades.as_ref().map_or(NONE, |(i, _)| *i);
-        let mut rows = Vec::with_capacity(64);
+        let mut rows = Vec::with_capacity(80);
         for v in [
             [
                 FOG_NEAR,
@@ -728,6 +752,7 @@ impl SkyPass {
             [sun[0] * bright, sun[1] * bright, sun[2] * bright, FOG_G],
             [gw as f32, gh as f32, f32::from_bits(shadow), 1.0],
             [self.settings.far_keep.clamp(0.0, 1.0), f.end, 0.0, 0.0],
+            [self.settings.air.max(0.0), AIR_LOW_SUN, AIR_IN_SHADE, 0.0],
         ] {
             for x in v {
                 rows.extend_from_slice(&x.to_le_bytes());

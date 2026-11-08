@@ -34,6 +34,7 @@ fn every_pass() -> RemasterSettings {
         fog: true,
         glow: 0.0,
         far_keep: 0.0,
+        air: 0.0,
     };
     s.post.hdr = true;
     s.post.taa = true;

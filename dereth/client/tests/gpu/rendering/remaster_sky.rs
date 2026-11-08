@@ -2,7 +2,8 @@
 //! draws it. With it on, the physical sky is drawn over the authored dome: its mean color through
 //! the day stays within a measured band of Retail Look's, closer in the high sky than near the
 //! horizon, where the low sun's glow is its own, and dusk keeps its purple. The fog drawn from its
-//! volume is retail's range fog without its glow; with the glow it only brightens.
+//! volume is retail's range fog without its glow; with the glow it only brightens. God Rays only
+//! brighten it too, the air toward a low sun most, high more than low.
 //!
 //! The sky's pixels are those neither Retail Look nor the remaster drew the world on; the high
 //! sky is those in the top two fifths of the frame.
@@ -97,6 +98,7 @@ fn fogged(store: &Arc<RetailDatStore>, glow: f32) -> Frame {
             fog: true,
             glow,
             far_keep: 0.0,
+            air: 0.0,
         }),
     )
 }
@@ -138,6 +140,7 @@ fn the_physical_sky_stays_within_its_band_of_retail_look_through_the_day() {
         fog: true,
         glow: 0.0,
         far_keep: 0.0,
+        air: 0.0,
     };
     for (name, clock) in [
         ("night", Clock::Sunny(0.0)),
@@ -235,5 +238,73 @@ fn the_fogs_glow_only_brightens_it() {
         brighter * 20 >= world.len(),
         "the glow brightens the fog: {brighter} of {} pixels",
         world.len()
+    );
+}
+
+/// The forest looking into a low morning sun past trees and hills, per pixel with the sun's
+/// shadows, the fog drawn from its volume with God Rays at `level`; without their clear air when
+/// `clear` is false, the fog's glow alone.
+fn shafts(store: &Arc<RetailDatStore>, level: u32, clear: bool) -> Frame {
+    let station = remaster_frames::stations(store, &["grove-sun"])
+        .pop()
+        .expect("the grove");
+    let sky = RemasterSky {
+        atmosphere: false,
+        fog: true,
+        glow: 0.0,
+        far_keep: 0.0,
+        air: 0.0,
+    }
+    .with_god_rays(level);
+    let sky = RemasterSky {
+        air: if clear { sky.air } else { 0.0 },
+        ..sky
+    };
+    remaster_frames::run_with(store, &station, Draw::Shadowed, SIZE, Some(sky))
+}
+
+/// God Rays only brighten: low brightens the air toward a low sun and darkens nothing, most of it
+/// the clear air's shafts beyond the fog's glow, and high brightens it more than low does.
+#[test]
+fn god_rays_only_brighten_the_air_toward_the_sun_and_high_more_than_low() {
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    let [off, low, high] = [0, 1, 2].map(|level| shafts(&store, level, true));
+    let glow = shafts(&store, 1, false);
+    let level = |f: &Frame, i: usize| -> i32 { (0..3).map(|c| i32::from(f.rgba[i * 4 + c])).sum() };
+    let pixels = off.rgba.len() / 4;
+    let darker = |a: &Frame, b: &Frame| {
+        (0..pixels)
+            .filter(|&i| level(b, i) < level(a, i) - 3)
+            .count()
+    };
+    let added = |b: &Frame| -> i64 {
+        (0..pixels)
+            .map(|i| i64::from((level(b, i) - level(&off, i)).max(0)))
+            .sum()
+    };
+    let brighter = (0..pixels)
+        .filter(|&i| level(&low, i) > level(&off, i) + 6)
+        .count();
+    let (low_added, high_added, glow_added) = (added(&low), added(&high), added(&glow));
+    println!(
+        "{pixels} pixels: low brightens {brighter}, adding {low_added} levels ({glow_added} its \
+         glow alone), high {high_added}; {} and {} darker",
+        darker(&off, &low),
+        darker(&low, &high)
+    );
+    assert_eq!(darker(&off, &low), 0, "low darkens nothing");
+    assert_eq!(darker(&low, &high), 0, "high darkens nothing low drew");
+    assert!(
+        brighter * 50 >= pixels,
+        "low brightens the air toward the sun: {brighter} of {pixels} pixels"
+    );
+    assert!(
+        low_added > glow_added * 2,
+        "the clear air's shafts add more than the fog's glow: {low_added} against {glow_added}"
+    );
+    assert!(
+        high_added * 2 > low_added * 3,
+        "high brightens it more than low: {high_added} against {low_added}"
     );
 }

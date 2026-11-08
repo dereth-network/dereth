@@ -149,6 +149,7 @@ pub(crate) fn run(
         atmosphere: true,
         fog: true,
         far_keep: 0.0,
+        air: 0.0,
         glow: env("DERETH_REMASTER_GLOW")
             .and_then(|v| v.trim().parse().ok())
             .unwrap_or(0.0),

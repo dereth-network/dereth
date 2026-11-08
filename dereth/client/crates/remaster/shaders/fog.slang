@@ -18,10 +18,14 @@ import retail;
 //   2  xy the grid's columns and rows; z the shadow's cascades' buffer (~0 for no shadows);
 //      w how strong the shadows are
 //   3  x how much of what lies at and past the fog's end comes through it, y the fog's end
+//   4  x how deep the clear air the sun shows shafts in is across the shadows' reach (0 none);
+//      y how much deeper with the sun on the horizon; z how much deeper where the eye stands in
+//      shade
 public static const uint FOG_RANGE = 0;
 public static const uint FOG_SUN = 1;
 public static const uint FOG_GRID = 2;
 public static const uint FOG_FAR = 3;
+public static const uint FOG_AIR = 4;
 
 // The distance of slice `k` (0 the eye's nearest, `slices` the farthest).
 public float slice_distance(uint f, float k)

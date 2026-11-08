@@ -1186,7 +1186,7 @@ const CLIENT: [Heading; 6] = {
 
 /// The remaster's box, off by default and on the Horizon page alone.
 #[cfg(feature = "fidelity")]
-const REMASTER_ROWS: [Row; 20] = [
+const REMASTER_ROWS: [Row; 21] = [
     only(
         Shown::Only(Interface::Horizon),
         noted(
@@ -1224,6 +1224,17 @@ const REMASTER_ROWS: [Row; 20] = [
                 super::remaster::SCALE_CAPTION,
                 Value::Menu(super::names::fidelity::REMASTER_SCALE),
                 Int(super::remaster::SCALE_DEFAULT as i32),
+            ),
+        ),
+    ),
+    only(
+        Shown::Only(Interface::Horizon),
+        noted(
+            super::remaster::GOD_RAYS_NOTE,
+            pref(
+                super::remaster::GOD_RAYS_CAPTION,
+                Value::Menu(super::names::fidelity::REMASTER_GOD_RAYS),
+                Int(super::remaster::GOD_RAYS_DEFAULT as i32),
             ),
         ),
     ),
@@ -1616,7 +1627,12 @@ mod tests {
                 .iter()
                 .filter(|f| !crate::options::remaster::drawn_nothing_here(f.name))
                 .collect();
-            assert_eq!(remaster.len(), 2 + boxes.len());
+            // The box, its own boxes, the render scale and God Rays.
+            assert_eq!(remaster.len(), 3 + boxes.len());
+            assert_eq!(
+                remaster[remaster.len() - 1].value,
+                Value::Menu(crate::options::names::fidelity::REMASTER_GOD_RAYS)
+            );
             for (row, f) in remaster[1..].iter().zip(boxes) {
                 assert_eq!(row.value, Value::Check(f.name));
                 assert_eq!(row.caption, f.caption);

@@ -568,6 +568,8 @@ pub enum FidelityFeature {
     /// The share of the pixels the remaster draws each way while it upscales, in percent; 0 until
     /// the player chooses one.
     RemasterScale,
+    /// How strongly the remaster's sunlit air shows shafts of light: 0 none, 1 low, 2 high.
+    RemasterGodRays,
     /// The art pack in the remaster.
     RemasterArtPack,
 }
@@ -575,7 +577,7 @@ pub enum FidelityFeature {
 #[cfg(feature = "fidelity")]
 impl FidelityFeature {
     /// Every option, in the order the names list them.
-    pub const ALL: [Self; 20] = [
+    pub const ALL: [Self; 21] = [
         Self::Remaster,
         Self::RemasterShadows,
         Self::RemasterSky,
@@ -595,6 +597,7 @@ impl FidelityFeature {
         Self::RemasterUpscale,
         Self::RemasterDlss,
         Self::RemasterScale,
+        Self::RemasterGodRays,
         Self::RemasterArtPack,
     ];
 
@@ -621,15 +624,18 @@ impl FidelityFeature {
             Self::RemasterUpscale => fidelity::REMASTER_UPSCALE,
             Self::RemasterDlss => fidelity::REMASTER_DLSS,
             Self::RemasterScale => fidelity::REMASTER_SCALE,
+            Self::RemasterGodRays => fidelity::REMASTER_GOD_RAYS,
             Self::RemasterArtPack => fidelity::REMASTER_ART_PACK,
         }
     }
 
-    /// The highest value the option takes: 100 for the share of the pixels, 1 for a box.
+    /// The highest value the option takes: 100 for the share of the pixels, 2 for God Rays' high,
+    /// 1 for a box.
     #[must_use]
     pub const fn max(self) -> u32 {
         match self {
             Self::RemasterScale => 100,
+            Self::RemasterGodRays => 2,
             _ => 1,
         }
     }
@@ -684,6 +690,13 @@ impl FidelityPreferences {
                     .get(feature.name())
                     .and_then(|v| {
                         dereth_client_contract::options::remaster::scale_value(feature.name(), v)
+                    })
+                    .and_then(|v| u32::try_from(v).ok()),
+                // A strength, as the page writes it: "High".
+                FidelityFeature::RemasterGodRays => prefs
+                    .get(feature.name())
+                    .and_then(|v| {
+                        dereth_client_contract::options::remaster::god_rays_value(feature.name(), v)
                     })
                     .and_then(|v| u32::try_from(v).ok()),
                 // A box the page ticked; a number the file holds otherwise (from an older
@@ -945,6 +958,16 @@ mod tests {
         );
         assert!(q.set_named(fidelity::REMASTER_SCALE, &PrefValue::Int(250)));
         assert_eq!(q.effective(FidelityFeature::RemasterScale), 100);
+        assert!(q.set_named(fidelity::REMASTER_GOD_RAYS, &PrefValue::Int(9)));
+        assert_eq!(
+            q.effective(FidelityFeature::RemasterGodRays),
+            2,
+            "high is the most"
+        );
+        let read = FidelityPreferences::from_preferences(&Preferences::parse(
+            "[UI]\nInterface=Horizon\n[Fidelity]\nRemaster=True\nRemasterGodRays=Low\n",
+        ));
+        assert_eq!(read.effective(FidelityFeature::RemasterGodRays), 1);
         assert!(q.set_named(fidelity::INTERFACE, &PrefValue::Bool(false)));
         assert_eq!(q.effective(FidelityFeature::RemasterShadows), 0);
         assert_eq!(

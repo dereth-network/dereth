@@ -260,8 +260,72 @@ pub fn scale_rows(name: &str) -> Option<Vec<super::store::Choice>> {
     )
 }
 
+/// God Rays' caption.
+pub const GOD_RAYS_CAPTION: &str = "God rays";
+
+/// God Rays' tooltip.
+pub const GOD_RAYS_NOTE: &str = "Sunlight shows in the air in shafts, most at dawn and dusk.";
+
+/// God Rays' strengths, by their value.
+pub const GOD_RAYS_CHOICES: [&str; 3] = ["Off", "Low", "High"];
+
+/// God Rays' strength until the player chooses another: off.
+pub const GOD_RAYS_DEFAULT: u32 = 0;
+
+/// The value a word stands for: a strength by its name, or its number. `None` for another name or
+/// another word.
+#[must_use]
+pub fn god_rays_value(name: &str, raw: &str) -> Option<i32> {
+    if !name.eq_ignore_ascii_case(names::REMASTER_GOD_RAYS) {
+        return None;
+    }
+    let raw = raw.trim();
+    let at = GOD_RAYS_CHOICES
+        .iter()
+        .position(|c| c.eq_ignore_ascii_case(raw))
+        .or_else(|| {
+            raw.parse::<usize>()
+                .ok()
+                .filter(|&n| n < GOD_RAYS_CHOICES.len())
+        })?;
+    i32::try_from(at).ok()
+}
+
+/// The word for a strength of God Rays; `None` for any other name.
+#[must_use]
+pub fn god_rays_words(name: &str, v: &crate::PrefValue) -> Option<String> {
+    if !name.eq_ignore_ascii_case(names::REMASTER_GOD_RAYS) {
+        return None;
+    }
+    match v {
+        crate::PrefValue::Int(i) => usize::try_from(*i)
+            .ok()
+            .and_then(|i| GOD_RAYS_CHOICES.get(i))
+            .map(|w| (*w).to_owned()),
+        _ => None,
+    }
+}
+
+/// God Rays' strengths a page offers; `None` for any other name.
+#[must_use]
+pub fn god_rays_rows(name: &str) -> Option<Vec<super::store::Choice>> {
+    if !name.eq_ignore_ascii_case(names::REMASTER_GOD_RAYS) {
+        return None;
+    }
+    Some(
+        GOD_RAYS_CHOICES
+            .iter()
+            .enumerate()
+            .map(|(i, label)| super::store::Choice {
+                label: (*label).to_owned(),
+                value: i32::try_from(i).unwrap_or(0),
+            })
+            .collect(),
+    )
+}
+
 /// Register the box with the value store, off, its own boxes as they are at first, and the
-/// render scale at its default. The store's
+/// render scale and God Rays at their defaults. The store's
 /// load then reads the profile's `[Fidelity]` section into them, and the page reads and writes
 /// them.
 pub fn register() -> usize {
@@ -277,9 +341,15 @@ pub fn register() -> usize {
         crate::PrefValue::Int(i32::try_from(SCALE_DEFAULT).unwrap_or(100)),
         super::store::DataType::UInt,
     ));
+    let god_rays = usize::from(super::store::register_preference(
+        names::REMASTER_GOD_RAYS,
+        crate::PrefValue::Int(i32::try_from(GOD_RAYS_DEFAULT).unwrap_or(0)),
+        super::store::DataType::UInt,
+    ));
     off(super::names::fidelity::REMASTER)
         + FEATURES.iter().map(|f| off(f.name)).sum::<usize>()
         + scale
+        + god_rays
 }
 
 #[cfg(test)]
@@ -347,5 +417,32 @@ mod tests {
         assert!(SCALE_CHOICES.contains(&SCALE_DEFAULT));
         assert_eq!(rows[0].label, "100%");
         assert!(scale_rows(names::REMASTER).is_none());
+    }
+
+    /// God Rays reads its strengths by name or number and writes them by name, is off at first,
+    /// and answers for no other option.
+    #[test]
+    fn god_rays_is_off_low_or_high_and_answers_for_itself_alone() {
+        let name = names::REMASTER_GOD_RAYS;
+        assert_eq!(god_rays_value(name, " high "), Some(2));
+        assert_eq!(god_rays_value(name, "Low"), Some(1));
+        assert_eq!(god_rays_value(name, "0"), Some(0));
+        assert_eq!(god_rays_value(name, "3"), None);
+        assert_eq!(god_rays_value(name, "bright"), None);
+        assert_eq!(god_rays_value(names::REMASTER_SCALE, "1"), None);
+        assert_eq!(
+            god_rays_words(name, &crate::PrefValue::Int(1)).as_deref(),
+            Some("Low")
+        );
+        assert_eq!(god_rays_words(name, &crate::PrefValue::Int(5)), None);
+        let rows = god_rays_rows(name).expect("its strengths");
+        assert_eq!(
+            rows.iter()
+                .map(|r| (r.label.as_str(), r.value))
+                .collect::<Vec<_>>(),
+            [("Off", 0), ("Low", 1), ("High", 2)]
+        );
+        assert_eq!(GOD_RAYS_DEFAULT, 0);
+        assert!(god_rays_rows(names::REMASTER).is_none());
     }
 }

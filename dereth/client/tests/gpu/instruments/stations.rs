@@ -1006,6 +1006,22 @@ pub(crate) fn close_stations(store: &RetailDatStore) -> Vec<Station> {
             weather: false,
             land_radius: 3,
         },
+        Station {
+            name: "grove-sun",
+            why: "the forest block at a walker's eye height, looking into a low morning sun past \
+                  trees and hills: where the sun shows in the air in shafts",
+            place: Place::Free {
+                block: forest,
+                x: 96.0,
+                y: 96.0,
+                eye: 1.8,
+                yaw: std::f32::consts::FRAC_PI_2,
+                pitch: 0.05,
+            },
+            clock: Clock::SunUp(8.0),
+            weather: false,
+            land_radius: 3,
+        },
     ]);
     out.extend(walkers);
     out.push(Station {

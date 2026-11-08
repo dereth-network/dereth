@@ -1,6 +1,8 @@
 // The fog's volume, one column of slices a thread: down each direction from the eye, retail's
 // range fog at each slice's distance, and with glow the sun the fog in front of it scatters toward
-// the eye where the sun reaches it.
+// the eye where the sun reaches it. With clear air, that air scatters the sun too where it reaches
+// it, so the sun shows in shafts where something breaks it: thicker as the sun sinks, and where
+// the eye stands in shade.
 import bindless;
 import fog;
 import retail;
@@ -80,6 +82,25 @@ void cs_main(uint3 id : SV_DispatchThreadID)
     uint cascades = asuint(grid.z);
     float shadows = grid.w;
     float3 glow = float3(0.0, 0.0, 0.0);
+    // The clear air's depth across the reach of the shadows, which say where the sun reaches it:
+    // past them it would be a haze, not shafts.
+    float4 shafts = row(push.fog, FOG_AIR);
+    float clear = cascades != 0xFFFFFFFF ? shafts.x : 0.0;
+    float clear_reach = 1.0;
+    if (clear > 0.0)
+    {
+        clear_reach = max(row(cascades, CASCADE_FADE).y, 1.0);
+        float low = 1.0 - saturate(to_sun.z);
+        float shaded = 0.0;
+        for (uint i = 0; i < 6; i++)
+        {
+            float a = float(i) * 1.0471976;
+            shaded += 1.0 - sunlit(cascades, eye + float3(cos(a), sin(a), 0.0) * 4.0, 4.0);
+        }
+        clear *= (1.0 + shafts.y * low * low) * (1.0 + shafts.z * shaded / 6.0);
+    }
+    // How deep into the clear air the view is so far.
+    float depth = 0.0;
     float far_keep = row(push.fog, FOG_FAR).x;
     float fog_end = max(row(push.fog, FOG_FAR).y, 1.0);
     float before = lerp(far_keep, 1.0, fog_factor(push.frame, slice_distance(push.fog, 0.0)));
@@ -94,15 +115,25 @@ void cs_main(uint3 id : SV_DispatchThreadID)
         // Past the fog's end the air between takes the far ground's color toward its own blue.
         float past = far_keep > 0.0 ? saturate((d1 - fog_end) / fog_end) : 0.0;
         float3 air = lerp(fog_color, fog_color * FAR_AIR, past);
-        if (range.w > 0.0)
+        float ahead = 0.5 * (d0 + d1) * forward.z;
+        bool in_clear = clear > 0.0 && ahead < clear_reach;
+        if (range.w > 0.0 || in_clear)
         {
             float3 mid = eye + dir * (0.5 * (d0 + d1));
             float lit = 1.0;
             if (cascades != 0xFFFFFFFF)
             {
-                lit = lerp(1.0, sunlit(cascades, mid, 0.5 * (d0 + d1) * forward.z), shadows);
+                lit = lerp(1.0, sunlit(cascades, mid, ahead), shadows);
             }
             glow += sun.rgb * (max(before - kept, 0.0) * lobe * lit * range.w);
+            if (in_clear)
+            {
+                // What the clear air in the slice scatters toward the eye, by the lobe with its
+                // 1 / 4 pi, seen through the fog in front of it.
+                float next = depth + clear * (d1 - d0) / clear_reach;
+                glow += sun.rgb * ((exp(-depth) - exp(-next)) * lobe * 0.0795775 * lit * before);
+                depth = next;
+            }
         }
         before = kept;
         float4 v = float4(air * (1.0 - kept) + glow, kept);

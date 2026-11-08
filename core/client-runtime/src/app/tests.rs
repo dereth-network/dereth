@@ -1020,6 +1020,11 @@ fn set_at_reads_the_remasters_boxes_as_the_preferences_file_spells_them() {
             fidelity::REMASTER_SCALE,
             PrefValue::Int(75),
         ),
+        (
+            "Fidelity.RemasterGodRays=High",
+            fidelity::REMASTER_GOD_RAYS,
+            PrefValue::Int(2),
+        ),
     ] {
         assert_eq!(
             scripted_preference(raw),

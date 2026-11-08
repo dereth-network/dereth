@@ -156,6 +156,9 @@ pub mod fidelity {
     /// `Fidelity.RemasterScale`: the share of the pixels the remaster draws each way while it
     /// upscales, in percent.
     pub const REMASTER_SCALE: &str = "Fidelity.RemasterScale";
+    /// `Fidelity.RemasterGodRays`: how strongly the remaster's sunlit air shows shafts of light,
+    /// 0 none, 1 low, 2 high.
+    pub const REMASTER_GOD_RAYS: &str = "Fidelity.RemasterGodRays";
     /// `Fidelity.RemasterArtPack`: the art pack in the remaster, while its box is ticked. Naming a
     /// pack ticks it.
     pub const REMASTER_ART_PACK: &str = "Fidelity.RemasterArtPack";
@@ -189,6 +192,16 @@ pub mod fidelity {
         REMASTER_UPSCALE,
         REMASTER_DLSS,
         REMASTER_SCALE,
+        REMASTER_GOD_RAYS,
         REMASTER_ART_PACK,
     ];
+
+    /// The names among [`NAMES`] that are menus, each a number, rather than boxes.
+    pub const MENUS: &[&str] = &[REMASTER_SCALE, REMASTER_GOD_RAYS];
+
+    /// Whether `name` is one of the [`MENUS`].
+    #[must_use]
+    pub fn is_menu(name: &str) -> bool {
+        MENUS.iter().any(|m| m.eq_ignore_ascii_case(name))
+    }
 }
