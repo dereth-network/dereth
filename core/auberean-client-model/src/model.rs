@@ -188,6 +188,9 @@ pub struct Object {
     pub id: u64,
     pub instance_stamp: u16,
     pub visual: VisualDesc,
+    /// How many descriptions the server has sent it since its creation, changed or not: each is
+    /// applied, so its effects play again.
+    pub visual_updates: u32,
     pub physics: PhysicsDesc,
     pub weenie: WeenieDesc,
     /// Its place in the world, if it has one.
@@ -234,6 +237,7 @@ impl Object {
             id: c.id,
             instance_stamp: c.physics.instance_stamp,
             visual: c.visual.clone(),
+            visual_updates: 0,
             // The creation's physics description, copied whole.
             // D2-05721
             physics: c.physics.clone(),
@@ -744,6 +748,7 @@ impl Model {
             S::UpdateVisualDesc(e) => {
                 if let Some(obj) = self.objects.get_mut(&e.sender.id) {
                     obj.visual = e.action.clone();
+                    obj.visual_updates = obj.visual_updates.wrapping_add(1);
                 }
             }
             // An object's speed and jump scales, kept with its physics description: a body made

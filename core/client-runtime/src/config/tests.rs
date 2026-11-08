@@ -995,3 +995,39 @@ fn travel_switches_take_their_values_even_lines_that_begin_with_a_slash() {
         Some("http://127.0.0.1:19341/portals")
     );
 }
+
+/// Behaviour: presentation.window.the-window-opens-at-the-size-it-closed-at
+#[test]
+fn the_window_size_it_closed_at_is_read_and_one_below_the_login_size_is_not() {
+    let read = |text: &str| {
+        Config::from_args_and_prefs_with(&[], &Preferences::parse(text))
+            .unwrap()
+            .display
+            .window_size
+    };
+    assert_eq!(
+        read("[Display]\nResolution=1024x768\nWindowSize=1437x902\n"),
+        Some((1437, 902))
+    );
+    assert_eq!(read("[Display]\nWindowSize=640x480\n"), None);
+    assert_eq!(read("[Display]\nWindowSize=wide\n"), None);
+    assert_eq!(read("[Display]\nResolution=1024x768\n"), None);
+    // Nor one no window could be.
+    assert_eq!(
+        read("[Display]\nWindowSize=16384x16384\n"),
+        Some((16384, 16384))
+    );
+    assert_eq!(read("[Display]\nWindowSize=16385x900\n"), None);
+    assert_eq!(read("[Display]\nWindowSize=1200x99999\n"), None);
+}
+
+/// Behaviour: presentation.window.a-saved-size-is-cut-to-the-monitor-it-opens-on
+#[test]
+fn a_saved_size_is_cut_to_the_monitor_it_opens_on_and_never_under_the_login_size() {
+    let fit = crate::config::fit_window_size;
+    assert_eq!(fit((1437, 902), Some((1512, 950))), (1437, 902));
+    assert_eq!(fit((3000, 2000), Some((1512, 950))), (1512, 950));
+    assert_eq!(fit((3000, 800), Some((1512, 950))), (1512, 800));
+    assert_eq!(fit((1437, 902), None), (1437, 902));
+    assert_eq!(fit((1437, 902), Some((640, 480))), (800, 600));
+}

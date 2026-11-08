@@ -437,6 +437,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.camera.a-frame-that-isnt-one-is-not-taken",
+        says: "A place for the camera whose frame is not a frame is not taken; the camera stays where it stood.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CAMERA-FRAME-VALID"),
+        station: "auberean-scene::cpu::camera::a_frame_that_isnt_one_is_not_taken",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "desktop.camera.a-glide-turns-the-whole-view",
         says: "A glide between two views turns the camera's whole frame, not the way it looks: on the way it swings round and leans, where a turn of the look alone would dip through the ground.",
         since: RETAIL,
@@ -1365,6 +1373,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "desktop.looks.a-look-sent-again-plays-its-effects-again",
+        says: "A visual description the server sends again, unchanged, is applied as any other: \
+               the object's parts stay, and its effects, its look's startup effects with them, \
+               play again.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-LOOK-SENT-AGAIN"),
+        station: "auberean-scene::cpu::others::a_look_sent_again_plays_its_effects_again",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "desktop.looks.an-effects-appearance-dresses-the-body-it-plays-on",
         says: "The appearance an object's effects lay over it or take off it changes the object's \
                own descriptions (its own with the effects' appearance laid on, kept when the \
@@ -1407,6 +1425,22 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.others.a-body-put-in-the-air-falls",
+        says: "A body the server puts at once is placed: put in the air it touches nothing and falls, there or when it first stands in the world's table.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-OTHERS-PLACED"),
+        station: "auberean-scene::cpu::others::a_body_put_in_the_air_falls",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.others.a-body-put-on-another-takes-a-free-spot",
+        says: "A body the server puts at once where another stands takes a free spot nearby.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-OTHERS-PLACED-SLIDE"),
+        station: "auberean-scene::cpu::others::a_body_put_on_another_takes_a_free_spot",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "desktop.others.a-body-takes-the-profile-its-objects-qualities-give",
         says: "A body made for an object takes the profile the object's qualities give, asked as \
                the object answers them: its description's, then its own, then those of the \
@@ -1427,6 +1461,22 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-OBJECTS-INCARNATIONS"),
         station: "auberean-shell::dat::session::a_creation_again_puts_the_body_and_a_new_incarnation_replaces_it",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.others.a-jump-sent-for-another-body-lifts-it",
+        says: "A position carrying a jump lifts another body that has stood long enough, at the                jump impulse along the arc of a jump, keeping its heading; reports from the air                don't pull it off the arc.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-OTHERS-SENT-JUMP"),
+        station: "auberean-scene::cpu::others::a_jump_sent_for_another_body_lifts_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.others.a-jump-too-soon-does-not-lift-another-body",
+        says: "A position carrying a jump leaves a body with under half a second on the ground,                counting only ticks its movement ran, on the ground; it follows what comes next,                and the time that takes counts for the next jump.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-OTHERS-JUMP-TOO-SOON"),
+        station: "auberean-scene::cpu::others::a_jump_too_soon_does_not_lift_another_body",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "desktop.others.a-moving-body-past-the-range-stops-until-a-position-comes",

@@ -233,6 +233,8 @@ pub const EXAMINE_ACTION: u32 = 0x22;
 pub mod refusal {
     /// The player is below the item's least level.
     pub const LEVEL_TOO_LOW: u32 = 10_009;
+    /// The player is not of the kingdom the object needs.
+    pub const WRONG_KINGDOM: u32 = 10_011;
     /// The player has never had the quest the item needs.
     pub const LACKING_QUEST: u32 = 10_019;
     /// The player's quest is not where the item needs it.
@@ -247,6 +249,8 @@ pub mod refusal {
     pub const MYSTERIOUS_TAKE: u32 = 10_042;
     /// A use whose hidden quest is not where the item or object needs it.
     pub const MYSTERIOUS_USE: u32 = 10_043;
+    /// "Only a Hero of Dereth can use that item."
+    pub const HERO_ONLY: u32 = 10_049;
     /// A mount's item, with something in the player's hands.
     pub const HANDS_NOT_EMPTY: u32 = 10_045;
     /// A mount's item, with a mount already on.
@@ -407,6 +411,21 @@ pub fn begin<S: Store>(
     if refuse(s, net, world, u, &props, clock) {
         return true;
     }
+    if cannot_make(s, template, &props) {
+        s.unhandled.note(format!(
+            "a use of {template:08X}, which makes what can't be made"
+        ));
+        let me = s.players.get(&world).map_or(0, |p| p.character);
+        let flags = answer_flags(&props, use_behavior(&props).is_some()) & !flags::CARRIED_OUT;
+        progress::private(
+            net,
+            world,
+            &crate::chat::show_text(1, progress::text(crate::pets::text::SUMMONING_FAILS)),
+        );
+        let no = crate::places::use_refused(u, me, Some(flags), 0.0, crate::places::USE_STATUS_OK);
+        progress::private(net, world, &no);
+        return true;
+    }
     let Some(behavior) = item_behavior(s, u.item, template, &props) else {
         carry_out(s, net, world, u.clone(), false, clock);
         return true;
@@ -441,6 +460,34 @@ pub fn begin<S: Store>(
         },
     );
     true
+}
+
+/// The effects of items whose use makes something no rule here makes (a band, an explosion), though
+/// they read as changing nothing rather than as a pet.
+const NOT_MADE: [&str; 2] = ["Eff_Tsys_Item_Summon_", "Eff_DestrucfluxMassive_"];
+
+/// Would using an item of this template make what can't be made? A seed whose plant isn't described,
+/// a row's creature that isn't, or an effect that summons what no item's use makes. The item is then
+/// kept: nothing is used up for nothing.
+fn cannot_make<S: Store>(s: &Server<S>, template: u32, props: &Props) -> bool {
+    if let Some(species) = crate::plants::sown_by(template) {
+        return !crate::makes::can_make(s, species.plant);
+    }
+    if crate::death_spawn::names_one(s, props) {
+        return !crate::death_spawn::can_make_all(s, props);
+    }
+    let names_unmade = (1..=8)
+        .filter_map(|i| props.text(&format!("{}{i}", USED.0)))
+        .any(|e| NOT_MADE.iter().any(|n| e.starts_with(n)));
+    names_unmade
+        || s.item_uses.get(&template).is_some_and(|list| {
+            list.iter().any(|e| {
+                matches!(
+                    s.effect_table.get(e.state).map(|d| &d.kind),
+                    Some(Kind::Pet { .. })
+                )
+            })
+        })
 }
 
 /// A use refused, if the player may not use an item of these properties now: answered with its
@@ -542,8 +589,8 @@ fn mounted<S: Store>(s: &Server<S>, p: &crate::world::Player) -> bool {
 
 /// Why a quest is not where an item needs it, if it is not: needed under way (at a phase, when
 /// the status names one) or completed, the player never had it (10019) or has it otherwise
-/// (10020); needed able to be given, the player has it under way or completed and not yet to be
-/// taken again (10020).
+/// (10020); needed had in any way, the player never had it (10019) or cancelled it (10020); needed
+/// able to be given, the player has it under way or completed and not yet to be taken again (10020).
 #[must_use]
 pub fn quest_refusal(
     held: &[crate::state::QuestState],
@@ -567,6 +614,10 @@ pub fn quest_refusal(
     let Some(q) = had else {
         return Some(refusal::LACKING_QUEST);
     };
+    if needed == yalain_content::QuestGate::HAD {
+        let had = [status::UNDERWAY, status::FAILED, status::COMPLETED].contains(&q.status);
+        return (!had).then_some(refusal::WRONG_QUEST_STATUS);
+    }
     let phase = needed & 0x0FFF_FFFF;
     let fits = q.status == raw && (raw != status::UNDERWAY || phase == 0 || q.phase == phase);
     (!fits).then_some(refusal::WRONG_QUEST_STATUS)
@@ -755,7 +806,11 @@ fn carry_out<S: Store>(
     }
     // A Tessera's hero skill credit.
     let behavior = item_behavior(s, u.item, template, &t.props);
-    let tessera = behavior == Some(TESSERA_BEHAVIOR);
+    // By its kind: other items play this behavior too, and give no credit.
+    let tessera = s
+        .things
+        .get(u.item)
+        .is_some_and(|i| s.tesserae.contains(&i.description.package));
     if tessera {
         if let Some(p) = s.players.get_mut(&world) {
             p.play.hero_credits = p.play.hero_credits.saturating_add(1);
@@ -858,6 +913,7 @@ pub(crate) fn put_on<S: Store>(
     match def.kind {
         // What it does is the server's own (an antidote's cure, a portal): not made here.
         Kind::Other
+        | Kind::Immunity { .. }
         | Kind::Pet { .. }
         | Kind::Aura(_)
         | Kind::Recall(_)

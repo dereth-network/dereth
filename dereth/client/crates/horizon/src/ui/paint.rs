@@ -50,6 +50,39 @@ mod tests {
         );
     }
 
+    /// A text's edge is four lighter copies of it, a pixel away on each side, under the text itself,
+    /// so thin letters keep the gaps between them.
+    #[test]
+    fn a_text_edge_is_four_lighter_copies_a_pixel_away() {
+        let art = Art::new(std::sync::Arc::new(
+            crate::pieces::Pieces::built_in().expect("the pieces built in"),
+        ));
+        let mut list = DrawList::default();
+        let mut p = Painter {
+            list: &mut list,
+            art: &art,
+            scale: 1.0,
+            screen: (1920.0, 1080.0),
+            fade: 1.0,
+        };
+        let style = TextStyle::new(Family::Body, 13.0, 0xFFFF_FFFF).edge(0xFF00_0000);
+        p.text(&style, 10.0, 20.0, "I");
+        assert_eq!(list.quads.len(), 5, "four copies and the letter");
+        let letter = list.quads.last().unwrap().dst;
+        let mut around: Vec<(i32, i32)> = list.quads[..4]
+            .iter()
+            .map(|q| {
+                assert_eq!(q.colour, 0xCC00_0000, "lighter than the edge asked");
+                (
+                    dereth_primitives::num::to_i32(q.dst.x - letter.x),
+                    dereth_primitives::num::to_i32(q.dst.y - letter.y),
+                )
+            })
+            .collect();
+        around.sort_unstable();
+        assert_eq!(around, [(-1, 0), (0, -1), (0, 1), (1, 0)]);
+    }
+
     /// At 100%, 125% and 150%, and shrunk to fit a short window, text is drawn from the font's
     /// own glyphs unscaled, each texel on one pixel: every glyph as many pixels as it has texels,
     /// on whole pixels, wherever the line was asked to start. (The font holds every whole size

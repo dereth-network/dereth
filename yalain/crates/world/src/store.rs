@@ -388,7 +388,7 @@ pub fn purchase<S: Store>(
     // What the world can't make isn't sold: nothing is paid for it. Nor what is bought for what its
     // acquiring does, when the world can't do that, or not for this player now: a contract hires one
     // mercenary, so it goes one at a time.
-    let hires = crate::pets::is_contract(sale.product);
+    let hires = s.pets.is_contract(sale.product);
     let refused = if hires {
         quantity > 1 || !crate::pets::may_hire(s, world, sale.product)
     } else {

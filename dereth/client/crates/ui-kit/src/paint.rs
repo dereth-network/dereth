@@ -330,16 +330,9 @@ impl Painter<'_> {
         let tracking = self.tracking_px(style, k);
         if let Some(edge) = style.edge {
             let o = (k * 1.0).max(1.0);
-            for (dx, dy) in [
-                (-o, 0.0),
-                (o, 0.0),
-                (0.0, -o),
-                (0.0, o),
-                (-o, -o),
-                (o, -o),
-                (-o, o),
-                (o, o),
-            ] {
+            // Four lighter copies: more, or full strength, fill the gaps between thin letters.
+            let edge = (edge & 0x00FF_FFFF) | ((edge >> 24) * 4 / 5) << 24;
+            for (dx, dy) in [(-o, 0.0), (o, 0.0), (0.0, -o), (0.0, o)] {
                 self.glyphs(&face, k, tracking, x + dx, y + dy, text, edge);
             }
         }

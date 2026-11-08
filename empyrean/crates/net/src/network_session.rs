@@ -232,6 +232,11 @@ impl NetworkSession {
         self.resend_connect_request_if_due(core, io);
     }
 
+    /// The next TimeSync goes at the next chance, not when it falls due.
+    pub fn resync_soon(&mut self) {
+        self.next_resync = DotNetDateTime::MIN_VALUE;
+    }
+
     // ACE: NetworkSession.PruneCachedPackets
     fn prune_cached_packets(&mut self, io: &NetIo<'_>) {
         self.last_cached_packet_prune_time = io.now.utc;

@@ -469,7 +469,10 @@ fn the_summoning_skills_pets_read_as_the_data_defines_them() {
     assert_eq!(aid.icon, 0x4100_47E6);
     let u = aid.usage.clone().expect("Nature's Aid is used");
     assert_eq!(u.user_effects, vec![0x7000_0805]);
-    let mut states: Vec<u32> = yalain_world::pets::KINDS.iter().map(|k| k.effect).collect();
+    let mut states: Vec<u32> = yalain_world::pets::fallback_kinds()
+        .iter()
+        .map(|k| k.effect)
+        .collect();
     states.push(0x7000_0830);
     let t = p.effects(&states);
     let lasher = t.get(0x7000_0805).expect("the Lasher's");
@@ -478,9 +481,9 @@ fn the_summoning_skills_pets_read_as_the_data_defines_them() {
     };
     assert_eq!((*class, lifetime.is_empty()), (16, true));
     // A mercenary's kind is known by its contract: no effect of the data summons it.
-    for k in yalain_world::pets::KINDS
+    for k in yalain_world::pets::fallback_kinds()
         .into_iter()
-        .filter(|k| !yalain_world::pets::is_contract(k.effect))
+        .filter(|k| k.hire.is_none())
     {
         assert!(
             matches!(t.get(k.effect).map(|d| &d.kind), Some(Kind::Pet { .. })),
@@ -633,6 +636,46 @@ fn the_items_of_the_effects_named_for_a_class_name_their_states() {
     assert_eq!(states(used.get(&0x4700_1516)), [0x6F00_1C78]);
     let worn = p.worn_effects(&[0x4700_1668]);
     assert!(states(worn.get(&0x4700_1668)).is_empty());
+}
+
+/// A stun skill's target effects name the short immunity; it reads as hidden and leaving the long
+/// one, whose data gives its minute, which keeps off stuns and the immunity's own class; the slowing
+/// and holding kinds read the same with their classes, in both of the install's sets of states.
+/// Behaviour: server.effects.crowd-control-immunity-read
+#[test]
+fn the_crowd_control_immunities_read_as_the_data_defines_them() {
+    let p = Portal::open();
+    let paralyze = p.skills().skills.get(&yalain_testkit::PARALYZE).cloned();
+    let usage = paralyze.and_then(|d| d.usage).expect("Paralyze's use");
+    assert!(usage.target_effects.contains(&0x7000_0720), "{usage:?}");
+    let t = p.effects(&[
+        0x7000_0720,
+        0x7000_071C,
+        0x7000_071E,
+        0x6F00_210D,
+        0x7000_1EDF,
+    ]);
+    let read = |short: u32, long: u32, classes: &[u32], seconds: f32| {
+        let s = t.get(short).expect("the short one");
+        assert_eq!(s.kind, Kind::Immunity { then: long });
+        assert_eq!(s.duration.at(1.0), Some(5.0));
+        assert!(!s.client_visible(), "{short:08X} is hidden");
+        let l = t.get(long).expect("the long one comes with it");
+        assert_eq!(l.duration.at(1.0), Some(seconds));
+        assert!(l.client_visible(), "{long:08X} shows");
+        match &l.kind {
+            Kind::Ward { classes: c, chance } => {
+                assert_eq!(c.as_slice(), classes);
+                assert_eq!(chance.at(50.0), Some(1.0));
+            }
+            k => panic!("{long:08X}: {k:?}"),
+        }
+    };
+    read(0x7000_0720, 0x7000_0721, &[55, 100], 60.0);
+    read(0x7000_071C, 0x7000_071D, &[77, 101], 60.0);
+    read(0x7000_071E, 0x7000_071F, &[52, 5015, 51, 5017, 97], 60.0);
+    read(0x6F00_210D, 0x6F00_210E, &[55, 100], 60.0);
+    read(0x7000_1EDF, 0x7000_1EE0, &[1124], 120.0);
 }
 
 /// The counters read with the effect each answers with, and its chance; the wards with what they
@@ -1705,5 +1748,39 @@ fn a_corpses_armor_and_weapon_of_a_class_with_a_least_level_are_made_by_the_crea
             i64::from(view.min_level),
             template.props.int("Usage_MinLevel").expect("the class's")
         );
+    }
+}
+
+fn corpse_rot_of(p: &yalain_testkit::authored::Portal, template: u32) -> yalain_content::CorpseRot {
+    yalain_content::CorpseRot::from_props(&p.template(template).props)
+}
+
+/// A creature, a pet and a talking creature's corpses take their classes' times, written in the
+/// install's code; a template that sets its own takes those, and its class's for what it leaves out.
+/// Behaviour: server.corpse.rot-times-from-the-install
+#[test]
+fn a_corpses_times_are_its_templates_over_its_classes() {
+    let p = yalain_testkit::authored::Portal::open();
+    let times = |r: yalain_content::CorpseRot| (r.untouched, r.items_left, r.empty);
+    for ordinary in [0x4700_2AF6, 0x4700_083D, 0x4700_21BA] {
+        let props = p.template(ordinary).props;
+        assert_eq!(
+            (
+                props.float("NPC_BaseRotTime"),
+                props.float("NPC_MaxAcceleratedRotTime"),
+                props.float("NPC_MinAcceleratedRotTime"),
+            ),
+            (Some(180.0), Some(60.0), Some(15.0)),
+            "{ordinary:08X}"
+        );
+        assert_eq!(times(corpse_rot_of(&p, ordinary)), (180.0, 60.0, 15.0));
+    }
+    for (template, want) in [
+        (0x4700_3440, (180.0, 2.0, 1.0)),
+        (0x4700_26C2, (180.0, 180.0, 180.0)),
+        (0x4700_26C9, (180.0, 1790.0, 1790.0)),
+        (0x4700_26DA, (15.0, 60.0, 15.0)),
+    ] {
+        assert_eq!(times(corpse_rot_of(&p, template)), want, "{template:08X}");
     }
 }

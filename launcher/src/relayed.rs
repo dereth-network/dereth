@@ -115,8 +115,8 @@ pub fn start(program: &Path, world: &World, log: &Path) -> Result<Started, Strin
     ))
 }
 
-/// Starts the client a choice names on a world played through a relay: the relay first, from the
-/// download of Empyrean or this checkout's build.
+/// Starts the client a choice names on a world played through a relay: the relay first, the one
+/// that came with the client ([`components::relay_program`]).
 pub fn launch(b: &Shared, c: &components::Shared, choice: crate::backend::Choice) -> LaunchOutcome {
     let err = |message: String| LaunchOutcome::Error { message };
     let Some((world, log)) = ({
@@ -131,7 +131,7 @@ pub fn launch(b: &Shared, c: &components::Shared, choice: crate::backend::Choice
     };
     let Some(program) = components::relay_program(c) else {
         return err(format!(
-            "{} is played through a relay that comes with Empyrean. Get the newest Empyrean on its page, then press Play again.",
+            "{} needs the newest Dereth. Update Dereth, then press Play again.",
             world.name
         ));
     };

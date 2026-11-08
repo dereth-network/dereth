@@ -423,6 +423,13 @@ pub fn leave_turbine_chat_channel(
     send_turbine_chat_channels(w, this, break_allegiance);
 }
 
+/// Not ACE: the player description again, for a change the client can't otherwise learn of.
+pub fn send_player_description(w: &mut World, this: ObjectGuid) {
+    let session = session_of(w, this);
+    let player = game_event_player_description::game_event_player_description(w, session);
+    game_message::enqueue_send_many(w, session, [player]);
+}
+
 // ACE: Player.SendSelf
 /// The player description, title and friends list, then `PlayerCreate` and the player's own
 /// `CreateObject` (with no placement), the inventory and wielded items, and the contract table.

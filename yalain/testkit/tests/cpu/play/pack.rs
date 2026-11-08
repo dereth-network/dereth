@@ -650,6 +650,7 @@ fn opened_corpse(h: &mut Harness, world: ConnId, me: u64, n: usize) -> (u64, Vec
         butchered: false,
         killer_level: 1,
         expires: 1.0e12,
+        ..Default::default()
     });
     h.server.things.insert(corpse);
     inventory::open(&mut h.server, &mut h.net, world, id);
@@ -1132,4 +1133,189 @@ fn a_gift_past_a_full_pack_is_held_and_its_move_says_so() {
         h.server.players[&world].play.items.len(),
         inventory::PACK_ROOM as usize + 2
     );
+}
+
+/// A world where this skill is a transmutation perk of this value and priority.
+fn perk(h: &mut yalain_testkit::Harness, skill: u32, value: f64, priority: i32) {
+    h.server.skill_table.skills.insert(
+        skill,
+        yalain_world::skills::SkillDef {
+            id: skill,
+            perk: Some(yalain_world::skills::Perk {
+                kind: yalain_world::skills::perk_kind::TRANSMUTATION,
+                value,
+                priority,
+            }),
+            ..yalain_world::skills::SkillDef::default()
+        },
+    );
+}
+
+/// A player comes to hold a skill.
+fn holds(h: &mut yalain_testkit::Harness, world: yalain_net::ConnId, skill: u32) {
+    h.server
+        .players
+        .get_mut(&world)
+        .unwrap()
+        .play
+        .skills
+        .push(yalain_world::state::SkillState {
+            skill,
+            granted: 0,
+            mask: 0,
+            cost: 0,
+            children: 0,
+            dependents: 0,
+            spent: 0,
+        });
+}
+
+/// What dragging this many of the first thing in the pack to the money bag brings.
+fn bag_pays(
+    h: &mut yalain_testkit::Harness,
+    b: usize,
+    me: u64,
+    world: yalain_net::ConnId,
+    n: u32,
+) -> i32 {
+    yalain_world::quals::set_int(
+        &mut h.server.players.get_mut(&world).unwrap().qualities,
+        MONEY,
+        0,
+    );
+    let item = pack_order(h, world)[0];
+    h.ask(
+        b,
+        function::TO_MONEY_BAG,
+        &[
+            Arg::LongInt(me),
+            Arg::Int(0),
+            Arg::Int(n),
+            Arg::LongInt(item),
+        ],
+        4,
+    );
+    yalain_world::quals::int(&h.server.players[&world].qualities, MONEY).unwrap_or(0)
+}
+
+/// An item sold to the money bag pays each piece's worth times its seller's transmutation perk,
+/// rounded down: 25 at 1.03 is 25, 25 at 1.09 is 27, the higher perk held counting. Selling a stack
+/// whole pays as selling it piece by piece does.
+/// Behaviour: server.inventory.money-bag-pays-a-perk
+#[test]
+fn an_item_sold_to_the_money_bag_pays_its_sellers_transmutation_perk() {
+    let (mut h, b, me, world) = player();
+    perk(&mut h, 9001, 1.03, 1);
+    perk(&mut h, 9002, 1.09, 3);
+    inventory::give(&mut h.server, &mut h.net, world, VALUED, 1);
+    h.run(2);
+    assert_eq!(bag_pays(&mut h, b, me, world, 1), 25, "no perk: its worth");
+    holds(&mut h, world, 9001);
+    holds(&mut h, world, 9002);
+    inventory::give(&mut h.server, &mut h.net, world, VALUED, 1);
+    h.run(2);
+    assert_eq!(
+        bag_pays(&mut h, b, me, world, 1),
+        27,
+        "the higher, rounded down"
+    );
+    h.server
+        .players
+        .get_mut(&world)
+        .unwrap()
+        .play
+        .skills
+        .reverse();
+    inventory::give(&mut h.server, &mut h.net, world, VALUED, 1);
+    h.run(2);
+    assert_eq!(
+        bag_pays(&mut h, b, me, world, 1),
+        27,
+        "whichever came first"
+    );
+}
+
+/// Coins dragged to the money bag count one each whatever perk their owner holds: what comes out of the
+/// bag goes back in for no more.
+/// Behaviour: server.inventory.money-bag-pays-a-perk
+#[test]
+fn coins_dragged_to_the_money_bag_are_not_raised_by_a_perk() {
+    let (mut h, b, me, world) = player();
+    perk(&mut h, 9001, 1.18, 6);
+    holds(&mut h, world, 9001);
+    h.server.catalog.insert(yalain_testkit::test_template(
+        pack::COINS,
+        0x1067,
+        yalain_content::Props::default(),
+    ));
+    inventory::give(&mut h.server, &mut h.net, world, pack::COINS, 1000);
+    h.run(2);
+    assert_eq!(bag_pays(&mut h, b, me, world, 1000), 1000);
+}
+
+/// An item whose template the world no longer has is lost to nobody: its holder enters with it held
+/// and kept but unseen, and when the template is back it is there again, the same item in the same
+/// number.
+/// Behaviour: server.items.template-gone-stays-kept
+#[test]
+fn an_item_whose_template_left_stays_kept_unseen_and_comes_back_with_it() {
+    const SWORD: u32 = 0x4700_051C;
+    let mut h = Harness::new();
+    let (b, me) = h.player_in_world("one", "Elara");
+    h.run(5);
+    h.arm(b, me, SWORD);
+    let held = |h: &Harness| -> Vec<Held> {
+        h.server
+            .players
+            .values()
+            .find(|p| p.character == me)
+            .map(|p| p.play.items.clone())
+            .expect("in the world")
+    };
+    let items = held(&h);
+    let sword = items
+        .iter()
+        .find(|i| i.template == SWORD)
+        .copied()
+        .expect("the sword");
+    let log_off = |h: &mut Harness| {
+        h.bots[b].send(
+            false,
+            auberean_protocol::queue::LOGON,
+            &auberean_protocol::ClientMessage::LogOff(auberean_protocol::login::CharacterRef {
+                character: me,
+            }),
+        );
+        for _ in 0..4000 {
+            h.step();
+            if !h.server.players.values().any(|p| p.character == me) {
+                break;
+            }
+        }
+        h.run(20);
+    };
+    let sees_it = |h: &Harness, from: usize| {
+        h.world_messages(b, from)
+            .iter()
+            .any(|m| matches!(m, ServerMessage::CreateObject(o) if o.id == sword.id))
+    };
+    log_off(&mut h);
+    let template = h
+        .server
+        .catalog
+        .templates
+        .remove(&SWORD)
+        .expect("the template");
+    let from = h.bots[b].inbox.len();
+    h.enter_world(b, "one", me);
+    assert!(!sees_it(&h, from), "not shown");
+    assert!(h.server.things.get(sword.id).is_none(), "not in the world");
+    assert_eq!(held(&h), items, "held");
+    // Kept as it is while it is unseen, through another leaving.
+    log_off(&mut h);
+    h.server.catalog.insert(template);
+    let from = h.bots[b].inbox.len();
+    h.enter_world(b, "one", me);
+    assert!(sees_it(&h, from), "shown again");
+    assert_eq!(held(&h), items, "the same, in the same number");
 }

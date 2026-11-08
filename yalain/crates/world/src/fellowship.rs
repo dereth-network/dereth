@@ -16,6 +16,11 @@
 //! leaving leaves the fellowship to its oldest fellow (each client works this out itself).
 //! **Disbanding**: every fellow is cleared of it and told.
 //!
+//! **Loot**: how a fellowship was made says whose a kill's corpse is ([`crate::death::may_loot`]).
+//! Shared, it is the killer's and every fellow's; given in turns, the next fellow's by its id, for
+//! every creature or, the rest shared, for group creatures alone; at random, a fellow's; not shared,
+//! the killer's alone.
+//!
 //! **The fellows' updates**: each fellow is looked at every three and a half to seven and a half
 //! seconds; what changed of its health, vigor, their greatest, its level and its cell is sent to
 //! every fellow, itself included.
@@ -80,6 +85,10 @@ const LONG_REF_HASH: u16 = 0x40;
 /// The fellowship's flags: shares experience; how loot goes (by the looting method, 1 to 4).
 pub mod flag {
     pub const SHARES_XP: u32 = 0x1;
+    pub const SHARES_LOOT: u32 = 0x2;
+    pub const TURNS_LOOT: u32 = 0x4;
+    pub const TURNS_GROUP_LOOT: u32 = 0x8;
+    pub const DRAWS_LOOT: u32 = 0x10;
 }
 
 /// The most fellows.
@@ -155,12 +164,45 @@ pub struct Fellowship {
     pub room: u32,
     /// Its fellows, in the order they joined.
     pub fellows: Vec<Fellow>,
+    /// The fellow its last turn or draw of loot went to.
+    pub last_claimant: u64,
 }
 
 impl Fellowship {
     #[must_use]
     pub fn shares_xp(&self) -> bool {
         self.flags & flag::SHARES_XP != 0
+    }
+
+    /// Do its fellows share the loot of a kill no turn or draw gave to one of them?
+    #[must_use]
+    pub fn shares_loot(&self) -> bool {
+        self.flags & (flag::SHARES_LOOT | flag::TURNS_GROUP_LOOT) != 0
+    }
+
+    /// The fellow a kill's loot goes to, if its looting method gives it to one: at random, or to
+    /// the next by its id, round and round, for every creature or for group creatures alone.
+    pub fn next_claimant(&mut self, group: bool, rng: &mut crate::rng::Rng) -> u64 {
+        let turns = self.flags & flag::TURNS_LOOT != 0
+            || (group && self.flags & flag::TURNS_GROUP_LOOT != 0);
+        let next = if self.flags & flag::DRAWS_LOOT != 0 {
+            self.fellows
+                .get(rng.below(self.fellows.len()))
+                .map_or(0, |f| f.id)
+        } else if turns {
+            let ids = || self.fellows.iter().map(|f| f.id);
+            ids()
+                .filter(|id| *id > self.last_claimant)
+                .min()
+                .or_else(|| ids().min())
+                .unwrap_or(0)
+        } else {
+            0
+        };
+        if next != 0 {
+            self.last_claimant = next;
+        }
+        next
     }
 
     #[must_use]
@@ -223,8 +265,8 @@ pub fn share(eligible: usize) -> f64 {
 #[must_use]
 pub fn group_factor(size: usize) -> f64 {
     match size {
-        0..=2 => 1.0,
-        3 => 1.5,
+        0 | 1 => 1.0,
+        2 | 3 => 1.5,
         4 => 2.2,
         5 => 2.5,
         6 => 2.7,
@@ -365,7 +407,7 @@ fn fellowship_message<S: Store>(s: &Server<S>, i: usize) -> ServerMessage {
     b.fill(
         root,
         &[
-            Slot::Long(0),
+            Slot::Long(f.last_claimant),
             Slot::Int(f.flags),
             Slot::Int(f.room),
             Slot::Ref(Some(table)),
@@ -469,6 +511,7 @@ pub fn create<S: Store>(
             sent: Vitals::default(),
             next_check: clock.local.0 + CHECK_EVERY,
         }],
+        last_claimant: 0,
     });
     let i = s.fellowships.list.len() - 1;
     show(net, world, NOTICE, channel(text::CHANNEL_ENTERED));
@@ -916,13 +959,15 @@ pub fn focus_shares<S: Store>(
 /// near or not, and evenly: each gets the creature's experience by its own level times that share
 /// (and a group creature's factor), times the part's share of the health taken; only those within
 /// 160 m of the fellow whose part it is are paid. The part of a fellow not of a level to share is
-/// paid to it alone, whole (with a group creature's factor), and to no other.
+/// paid to it alone, whole (with a group creature's factor), and to no other. `hurt`: for a group
+/// creature, the players whose damage or pets' it took; two fellows take its factor only when both
+/// hurt it.
 pub fn shares<S: Store>(
     s: &Server<S>,
     killer: u64,
     death_xp: i64,
     creature_level: i32,
-    group: bool,
+    hurt: Option<&[u64]>,
     (taken, all): (i64, i64),
 ) -> Option<Vec<(ConnId, u64)>> {
     let i = s.fellowships.of(killer)?;
@@ -937,11 +982,14 @@ pub fn shares<S: Store>(
         .map(|x| (x.id, level_of(s, x.id)))
         .collect();
     let n = levels.iter().filter(|(_, l)| eligible(*l, leader)).count();
-    let factor = if group {
-        group_factor(f.fellows.len())
-    } else {
-        1.0
-    };
+    let factor = hurt.map_or(1.0, |hurt| {
+        let both = f.fellows.iter().all(|x| hurt.contains(&x.id));
+        if f.fellows.len() == 2 && !both {
+            1.0
+        } else {
+            group_factor(f.fellows.len())
+        }
+    });
     let kw = world_of(s, killer)?;
     let own = level_of(s, killer);
     if !eligible(own, leader) {

@@ -11,10 +11,31 @@ use std::collections::BTreeSet;
 
 use dereth_input::actionmap::ActionMap;
 use dereth_input::keymap::MasterInputMap;
-use dereth_input::spec::{ControlCode, DeviceType};
+use dereth_input::spec::{ControlCode, DeviceType, SubControlIndex};
 use dereth_input::InputMapId;
 
 use super::shipped::shipped;
+
+/// Behaviour: keymap.mac.the-shipped-maps-bind-no-chord-the-system-keeps
+#[test]
+fn the_shipped_maps_bind_no_chord_a_mac_keeps_for_command() {
+    let f = shipped();
+    for bytes in [&f.keymap_gm, &f.keymap_default] {
+        let map = MasterInputMap::read(bytes).expect("the map must decode");
+        let control = map.meta_mode_from_key(ControlCode::new(0, SubControlIndex::None, 0x1D));
+        assert_ne!(control, 0, "the map has a Control meta key");
+        for section in &map.sections {
+            for (chord, action) in section.bindings() {
+                assert!(
+                    chord.meta_mode & control == 0
+                        || !dereth_input::labels::KEPT_WITH_COMMAND
+                            .contains(&chord.control.offset()),
+                    "{chord:?} does {action:?}"
+                );
+            }
+        }
+    }
+}
 
 /// **Parse.** The action map and both master input maps decode with the cursor landing exactly on
 /// the payload end — 12303/12303, 2391/2391 and 1005/1005 bytes. Any shortfall or overrun fails,

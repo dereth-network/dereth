@@ -25,8 +25,7 @@ fn a_solo_kill_pays_the_death_experience_weighed_by_the_level_difference() {
 }
 
 /// From level 50 what is below a killer pays in full only to four levels below it, then 20% less
-/// a level (at least 1%); at level 49 it still pays in full to ten below. A creature above the
-/// killer pays as before.
+/// a level (at least 1%); at level 49 it still pays in full to ten below.
 /// Behaviour: server.experience.from-level-50-the-fall-comes-sooner
 #[test]
 fn from_level_50_a_kill_pays_in_full_only_to_four_levels_below_the_killer() {
@@ -41,8 +40,21 @@ fn from_level_50_a_kill_pays_in_full_only_to_four_levels_below_the_killer() {
     assert_eq!(at(41, 49), 100, "at level 49, eight below: in full");
     assert_eq!(at(39, 49), 100, "at level 49, ten below: in full");
     assert_eq!(at(38, 49), 85, "at level 49, eleven below: as before");
-    assert_eq!(at(59, 50), 100, "nine above: in full");
-    assert_eq!(at(60, 50), 80, "ten above: as before");
+}
+
+/// From level 50 what is above a killer falls a level sooner: in full to eight above it, then 20%
+/// less a level (at least 1%); at level 49 it still pays in full to nine above.
+/// Behaviour: server.experience.from-level-50-the-upper-side-falls-a-level-sooner
+#[test]
+fn from_level_50_what_is_above_a_killer_falls_a_level_sooner() {
+    let at = |creature: i32, killer: i32| kill_award(100, creature, killer);
+    assert_eq!(at(58, 50), 100, "eight above: in full");
+    assert_eq!(at(59, 50), 80, "nine above");
+    assert_eq!(at(60, 50), 60, "ten above");
+    assert_eq!(at(63, 50), 1, "thirteen above: never under 1%");
+    assert_eq!(at(67, 57), 60, "the same at a higher level");
+    assert_eq!(at(58, 49), 100, "at level 49, nine above: in full");
+    assert_eq!(at(59, 49), 80, "at level 49, ten above: 80");
 }
 
 /// Whether an attack lands follows the measured fits, by direction, kind, level difference and the

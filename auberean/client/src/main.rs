@@ -873,8 +873,9 @@ impl App<'_> {
         let out = self.shell.frame();
         let shell_took = began.elapsed();
         if out.screenshot {
-            self.shot_count += 1;
-            shot = Some(self.shots.join(format!("shot-{:03}.png", self.shot_count)));
+            let (n, path) = next_free_shot(&self.shots, self.shot_count);
+            self.shot_count = n;
+            shot = Some(path);
         }
         let quit = out.quit;
         let cursor = out.overlay.cursor.clone();
@@ -1012,6 +1013,9 @@ impl ApplicationHandler for App<'_> {
             }
             // What the input method wrote is typed as the keys' own text is.
             WindowEvent::Ime(winit::event::Ime::Commit(t)) => self.send(&Event::Text(t)),
+            WindowEvent::Ime(winit::event::Ime::Preedit(t, _)) => {
+                self.send(&Event::Composing(t));
+            }
             WindowEvent::RedrawRequested => self.redraw(el),
             _ => {}
         }
@@ -1258,6 +1262,40 @@ fn version_text() -> String {
         option_env!("AUBEREAN_BUILD_COMMIT").unwrap_or("unknown"),
         option_env!("AUBEREAN_BUILD_TARGET").unwrap_or("unknown"),
     )
+}
+
+/// Where the next screenshot goes: the first number after `after` that no file in `dir` has, so a
+/// new session leaves the old ones alone.
+// D2-08355
+fn next_free_shot(dir: &std::path::Path, after: u32) -> (u32, PathBuf) {
+    let mut n = after + 1;
+    loop {
+        let path = dir.join(format!("shot-{n:03}.png"));
+        if !path.exists() {
+            return (n, path);
+        }
+        n += 1;
+    }
+}
+
+#[cfg(test)]
+mod shot_tests {
+    //! Behaviour: none (the host's own file names: the numbering is retail's, the names are not)
+    use super::next_free_shot;
+
+    /// A screenshot takes the first number no file has, and one asked for before the last is
+    /// written takes the number after it.
+    #[test]
+    fn a_screenshot_keeps_the_ones_before_it() {
+        let dir = std::env::temp_dir().join(format!("auberean-shots-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for n in [1, 2, 4] {
+            std::fs::write(dir.join(format!("shot-{n:03}.png")), b"kept").unwrap();
+        }
+        assert_eq!(next_free_shot(&dir, 0), (3, dir.join("shot-003.png")));
+        assert_eq!(next_free_shot(&dir, 3), (5, dir.join("shot-005.png")));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }
 
 #[cfg(test)]

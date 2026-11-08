@@ -1491,8 +1491,11 @@ impl<'a> SceneBuilder<'a> {
                 for share in [1.0, REFLECTED_DISTANCE] {
                     let near_end = (distance - reach).max(0.0);
                     // just short of where it is gone
-                    let far_end =
-                        (distance + reach).min((scale * d.visible).max(20.0) * share * 0.999);
+                    let far_end = if crate::mesh::full_detail() {
+                        distance + reach
+                    } else {
+                        (distance + reach).min((scale * d.visible).max(20.0) * share * 0.999)
+                    };
                     if near_end > far_end {
                         continue;
                     }
@@ -1517,7 +1520,11 @@ impl<'a> SceneBuilder<'a> {
                         choices.push((at, materials));
                     }
                 }
-                visible = Some((scale * d.visible).max(20.0));
+                visible = Some(if crate::mesh::full_detail() {
+                    f32::MAX
+                } else {
+                    (scale * d.visible).max(20.0)
+                });
                 lod = Some(Lod {
                     distances: *d,
                     scale,

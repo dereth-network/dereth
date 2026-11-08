@@ -263,6 +263,12 @@ impl Collisions {
         self.current.min_impact_xy = v;
     }
 
+    /// What the body passes through moving, as it stands now.
+    #[must_use]
+    pub const fn movement_physics(&self) -> PhysicsTypes {
+        self.current.movement_physics
+    }
+
     /// What the body passes through being placed, and moving.
     // D2-06719
     pub fn collision_state(&self, out: &mut CollisionSettings) {

@@ -88,6 +88,8 @@ pub(super) fn tables_of(h: &Harness) -> WorldTables {
         weapons: s.creature_weapons.clone(),
         weapon_rules: s.creature_weapon_rules.clone(),
         death_spawns: s.death_spawns.clone(),
+        pet_kinds: s.pets.kinds.values().cloned().collect(),
+        pet_limits: s.pets.limits.iter().map(|(k, v)| (*k, v.clone())).collect(),
         names: None,
         kinds: None,
         ground: None,
@@ -202,6 +204,33 @@ fn a_reload_changes_what_people_say_at_once() {
 
 /// A reload whose database no longer names a template keeps the template known (a thing of it may
 /// be in the world), and takes a new one.
+/// A reload takes up the world's rows of pets and what its skills allow, and drops a row it no
+/// longer has.
+/// Behaviour: server.pets.a-reload-reads-the-rows
+#[test]
+fn a_reload_takes_up_the_worlds_pet_rows() {
+    const EFFECT: u32 = 0x7000_092A;
+    let (mut h, _, _) = world();
+    assert!(h.server.pets.kind_of(EFFECT).is_none());
+    let mut t = tables_of(&h);
+    t.pet_kinds.push(yalain_world::pets::PetKind::new(
+        EFFECT,
+        0x4700_0862,
+        1096,
+        &[],
+    ));
+    t.pet_limits.push((704, vec![(1, 0x1000)]));
+    reload(&mut h, t);
+    assert!(h.server.pets.kind_of(EFFECT).is_some());
+    assert_eq!(h.server.pets.limits.get(&704), Some(&vec![(1, 0x1000)]));
+    let mut t = tables_of(&h);
+    t.pet_kinds.retain(|k| k.effect != EFFECT);
+    t.pet_limits.clear();
+    reload(&mut h, t);
+    assert!(h.server.pets.kind_of(EFFECT).is_none());
+    assert!(h.server.pets.limits.is_empty());
+}
+
 /// Behaviour: server.operator.reload-keeps-what-the-world-holds
 #[test]
 fn a_reload_keeps_every_template_the_world_may_hold() {

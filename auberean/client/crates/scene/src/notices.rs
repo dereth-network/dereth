@@ -42,6 +42,10 @@ pub(crate) fn animate(figure: &mut Figure, anims: &CachedRecords<'_>, a: Animate
         Animate::Mode { context, mode } => {
             figure.do_mode(anims, context, mode);
         }
+        Animate::SnapMode => {
+            let mode = figure.desired_mode_state().mode;
+            figure.set_mode(anims, mode);
+        }
         Animate::Element(element) => {
             figure.do_element(anims, element);
         }

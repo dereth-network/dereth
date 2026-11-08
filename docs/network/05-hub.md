@@ -132,6 +132,7 @@ below only make it slower and costlier).
 | `GET /v1/status` | the network's totals over every game: `total`, `counts` (worlds by state), `playersOnline`, `reportingServers`, `demoServers`, `federatedServers`; and `games`, the same six for each game's worlds alone (`{"dereth": {...}, "auberean": {...}}`), which add up to the whole |
 | `GET /v1/network` | the federated worlds and which have a link up |
 | `POST /v1/servers/<slug>/heartbeat` | records a heartbeat (key required): `{"state", "playersOnline"?, "playersKind"?, "message"?, "emulatorVersion"?, "uptimeSeconds"?, "adapter"?, "game"?}`, where `adapter` is `{"kind", "version"}`, its kind one of `ace-mod`, `agent`, `manual`, `empyrean` and `yalain` |
+| `POST /v1/players` | a Dereth client's report of the count a world gave it at login: `{"host", "port", "players"}`; answered `200` `{}` whether or not it named a world (below, "How many players a world has") |
 | `POST /v1/servers/<slug>/web` | announces the world's WebSocket endpoint (key required): `{"websocketUrl"}`, a URL within the link's rule, or `null` to withdraw it; answers `{"websocketUrl", "expiresAt"}`. For a world whose link names none: a relay run beside a server that speaks only UDP (below) |
 | `GET /compat/thwarg/Servers.xml` | the registry's `dereth` worlds as a community list, for launchers that read that format |
 | `GET /compat/treestats/player_counts-latest.json` | population counts of the `dereth` worlds, in the shape character-statistics sites read |
@@ -267,6 +268,39 @@ cannot send a datagram, reads the world's era, systems and version here instead.
   listed with its hidden characters taken out.
 - **Nothing is written or logged:** the answers are kept in memory only, and a restarted hub has
   each again within a minute.
+
+**How many players a world has.** Each world in the public answers carries `population`: `null`, or
+`{"players", "source", "ageSeconds"}`, the count from the first of these sources still counting:
+
+| `source` | what it is | counts for |
+|---|---|---|
+| `ping` | what the world said when the hub asked it (above; Empyrean) | as long as the answer is listed, 180 seconds |
+| `heartbeat` | the world's own heartbeat or link (a linked world of any game, Yalain's among them) | as long as the heartbeat, 180 seconds |
+| `client` | the latest report from a Dereth client that logged in to the world | 2 hours |
+| `treestats` | [TreeStats](https://treestats.net)' public count for a world of that name (letters and digits, in any case) | 6 hours after TreeStats took it |
+
+`ageSeconds` is how old the count is, not a clock. A world whose heartbeat says it is `offline` has
+none, and a world of another game has neither of the last two. `status` and `statusPing` are as they
+always were, and nothing here reaches the order of the lists, the totals of `/v1/status` or the two
+compatibility feeds.
+
+- **A client's report** is made once each time a world gives a client its count at login
+  (`Login_WorldInfo`, `0xF7E1`), with the address and port the client connected to; a client never
+  reports a world on its own computer or a private network, and takes a count of zero with no maximum
+  for none. It goes to the listed `dereth` worlds at that address and port (any case); one naming
+  none leaves nothing. The latest report for a world replaces the last. A world reached through a
+  launcher's relay has no count: its wire carries none.
+- **A report cannot be verified.** A world signs nothing a client could pass on, and the client's
+  source is public, so anyone can send one with any count. It is bounded instead: it is never listed
+  over a world's own word; it is at most 5,000; each client address has five, then one every twelve
+  minutes (by its /64 for IPv6), and the hub 200, then five a second; past either it is answered `429`.
+  A launcher does not move a world up its list on a client's report alone, and says on hover where a
+  count came from.
+- **Nothing is kept but the count and its time**, for each world, in memory only: no address, account,
+  character or id, and a restarted hub starts with none. The limit's counters hold an address only as
+  long as its allowance takes to fill, at most 10,000 of them, and are never written or logged.
+- **TreeStats** is read every 15 minutes (`--treestats-url`, or `--no-treestats` for none), or an hour
+  after a read that failed; at most 256 KiB of it, and a read that fails leaves the last to run out.
 
 **The client address.** A request's client address is the address it came from, unless that is a
 **trusted proxy** the hub's configuration names (`--trusted-proxy`, an address or a CIDR range,
@@ -911,7 +945,9 @@ The hub's rules are [02-link-protocol.md](02-link-protocol.md)'s, and these:
   person's Discord, until it is said or held back (section 5.8); a line for Discord only until it is
   said there or held back (section 5.7); and a line said from Discord only until its world is asked
   to say it (section 5.9). The log names message types and worlds.
-- **No presence history**, no telemetry beyond the registry's heartbeat. While it runs, the
+- **No presence history**, no telemetry beyond the registry's heartbeat and a world's latest count
+  (section 1, "How many players a world has"), which every Dereth client reports at login with no
+  setting to turn it off, and which names nobody. While it runs, the
   routing remembers in memory alone when each character its worlds watched was last online (at most
   100,000 of them, none past 30 days), to choose which person friends a view holds when a person
   lists more than a view does (section 5.4); a hub that starts again remembers none.

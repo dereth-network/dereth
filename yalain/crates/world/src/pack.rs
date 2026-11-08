@@ -13,7 +13,8 @@
 //!
 //! **The money bag.** An item of the pack dragged to the money bag is sold for its value, for each
 //! piece sold: the player is told how much gold was added, its money goes up, and the item is
-//! destroyed (part of a stack: the stack goes down). Asked while busy, it is refused with a text.
+//! destroyed (part of a stack: the stack goes down). Asked while busy, it is refused with a text. A
+//! player's transmutation perk raises each piece's value, rounded down, so a coin stays one.
 //!
 //! **Out of the money bag.** Coins dragged out of the money bag come into the pack as a stack of
 //! that many, and the money goes down by as many.
@@ -431,6 +432,35 @@ fn worth<S: Store>(s: &Server<S>, template: u32, own_value: u32, n: u32) -> u32 
     }
 }
 
+/// What so many of an item bring a player who turns them into money: each piece its worth times the
+/// player's transmutation perk, in whole coins (2017: 349 of 349 drags by whether their character
+/// held the perk). A coin is worth one, which no perk raises to two.
+pub(crate) fn paid_for<S: Store>(
+    s: &Server<S>,
+    world: ConnId,
+    template: u32,
+    own_value: u32,
+    n: u32,
+) -> u32 {
+    let plain = worth(s, template, own_value, n);
+    let perk = s.players.get(&world).and_then(|p| {
+        let starting = s.start.skills.get(&p.race).cloned().unwrap_or_default();
+        let held = crate::skills::held(&starting, &p.play.skills);
+        crate::skills::perk_value(
+            &s.skill_table,
+            &held,
+            crate::skills::perk_kind::TRANSMUTATION,
+        )
+    });
+    let Some(perk) = perk.filter(|v| *v > 1.0) else {
+        return plain;
+    };
+    let each = worth(s, template, own_value, 1);
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let paid = (f64::from(each) * perk).floor() as u32;
+    paid.saturating_mul(n)
+}
+
 /// So many of an item of the pack go into the money bag: "Adding %1 pieces of Gold.", the money
 /// up by their worth, the stack down by as many or the item gone, then `done` answered (with the
 /// item when some is left, else none). An item worth nothing stays, refused.
@@ -447,7 +477,7 @@ fn into_money_bag<S: Store>(
         return;
     };
     let sold = quantity.clamp(1, have);
-    let gold = worth(s, h.template, own_value, sold);
+    let gold = paid_for(s, world, h.template, own_value, sold);
     // An item of no worth is refused and kept, as a client refuses it (2017: none of 753 sold for
     // nothing).
     if gold == 0 {

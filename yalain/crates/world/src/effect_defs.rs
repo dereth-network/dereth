@@ -15,7 +15,8 @@
 //! teleport, which sends its target to its place when its time is up; a recall, which is its
 //! skill's ([`crate::skill_use`]): to a place its user keeps (a link), to one of a list of named
 //! places, or to its allegiance's hall; a taunt, which changes a creature's mind about its caster
-//! once ([`crate::ai`]), by the low end of the range its data gives over spellcraft.
+//! once ([`crate::ai`]), by the low end of the range its data gives over spellcraft; a resurrection,
+//! which offers a dead player a return ([`crate::resurrections`]).
 //!
 //! **A combination** looks for the target's effects of its types (or classes): found, it adds its
 //! effect for that case at the cast's spellcraft adjusted by its own amount, gives its user the
@@ -158,6 +159,41 @@ fn ward_of(state: u32) -> Option<Kind> {
     })
 }
 
+/// A kind of crowd control's immunity: the short effect a use puts on along with it, the long one
+/// its end leaves, and the classes the long one keeps off. Their own data names neither the second
+/// nor the classes.
+const IMMUNITIES: [(u32, u32, &[u32]); 12] = [
+    (0x7000_0718, 0x7000_0719, &[52, 5015, 98]),
+    (0x7000_071A, 0x7000_071B, &[51, 5017, 99]),
+    (0x7000_071C, 0x7000_071D, &[77, 101]),
+    (0x7000_071E, 0x7000_071F, &[52, 5015, 51, 5017, 97]),
+    (0x7000_0720, 0x7000_0721, &[55, 100]),
+    (0x7000_1EDF, 0x7000_1EE0, &[1124]),
+    (0x6F00_2103, 0x6F00_2104, &[52, 5015, 98]),
+    (0x6F00_2105, 0x6F00_2106, &[51, 5017, 99]),
+    (0x6F00_2107, 0x6F00_2108, &[1124]),
+    (0x6F00_2109, 0x6F00_210A, &[77, 101]),
+    (0x6F00_210B, 0x6F00_210C, &[52, 5015, 51, 5017, 97]),
+    (0x6F00_210D, 0x6F00_210E, &[55, 100]),
+];
+
+/// The kind of an immunity's two effects: the short one's end leaves the long one, which keeps
+/// its classes off for certain.
+fn immunity_of(state: u32) -> Option<Kind> {
+    IMMUNITIES.iter().find_map(|(short, long, classes)| {
+        if state == *short {
+            Some(Kind::Immunity { then: *long })
+        } else if state == *long {
+            Some(Kind::Ward {
+                classes: classes.to_vec(),
+                chance: Scale(vec![(0.0, 1.0)]),
+            })
+        } else {
+            None
+        }
+    })
+}
+
 /// What a reflective effect's external flags say of keeping effects off: its chance the same at
 /// any spellcraft, or along a line.
 mod keeps_off_flag {
@@ -262,6 +298,9 @@ pub enum Kind {
     Combo(Box<Combo>),
     /// Held by its user while it is on, putting its pulsed effects on the players around it.
     Aura(Aura),
+    /// Offers the dead player whose corpse it is aimed at a return ([`crate::resurrections`]): the
+    /// share of its greatest focus kept at a spellcraft, and the look of its getting up.
+    Resurrect { focus: Scale, fx: u32 },
     /// Summons a pet of a class, which leaves the world after its lifetime at a spellcraft (none:
     /// it stays).
     Pet { class: u32, lifetime: Scale },
@@ -287,6 +326,9 @@ pub enum Kind {
     /// A creature's mind changed about its caster, once, by this share of the creature's whole
     /// health: more inclined to it, or less (below 0).
     Taunt(f32),
+    /// An immunity under way: hidden from its holder, it comes on with what it follows, and as it
+    /// ends leaves this effect, which keeps that kind off.
+    Immunity { then: u32 },
     /// Anything else (kept as a record only).
     Other,
 }
@@ -347,6 +389,7 @@ impl EffectDef {
             .collect(),
             Kind::Aura(a) => a.pulsed.clone(),
             Kind::Counter { effect, .. } | Kind::Reply { effect, .. } => vec![*effect],
+            Kind::Immunity { then } => vec![*then],
             _ => Vec::new(),
         }
     }
@@ -479,8 +522,13 @@ impl EffectDef {
         };
         let flags = word("m_uiExternalFlags")?;
         let number = |name: &str| nav.number(o, name).unwrap_or(0.0);
-        let kind = if let Some(ward) = ward_of(state) {
+        let kind = if let Some(ward) = ward_of(state).or_else(|| immunity_of(state)) {
             ward
+        } else if is("ResurrectEffect") {
+            Kind::Resurrect {
+                focus: scale("m_magData"),
+                fx: word("m_rezFX").unwrap_or(0),
+            }
         } else if is("AITauntDetauntEffect") {
             match word("m_flags").unwrap_or(0) & TAUNT_KIND {
                 taunt_kind::TAUNT => Kind::Taunt(number("m_fMinFractionalMod")),

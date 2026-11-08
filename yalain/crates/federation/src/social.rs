@@ -77,6 +77,12 @@ impl Federation {
         self.forget_presence(friends, |k| k.ends_with(&suffix));
     }
 
+    /// Every world is gone, the link with them: as [`Federation::world_gone`], at once.
+    pub(crate) fn forget_every_world(&mut self, friends: &mut impl Friends) {
+        self.watchers.clear();
+        self.forget_presence(friends, |_| true);
+    }
+
     /// Forgets what local characters were told of the friends whose identity keys `which`
     /// accepts, and shows those shown online offline.
     fn forget_presence(&mut self, friends: &mut impl Friends, which: impl Fn(&str) -> bool) {

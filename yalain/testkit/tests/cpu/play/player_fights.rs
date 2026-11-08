@@ -259,6 +259,41 @@ fn a_hit_on_another_player_takes_its_health_and_tells_it_as_pk_damage() {
     assert_eq!(health_of(&h, idb), (health + hits[0].numbers[3]).max(0));
 }
 
+/// A skill that would make a pet at the player it lands on tells its user the summoning fails: pets
+/// take on creatures alone, and none appears.
+/// Behaviour: server.pets.summoned-at-a-player-fails
+#[test]
+fn a_summoning_aimed_at_a_player_tells_its_user_it_fails() {
+    use yalain_world::effect_defs::{EffectDef, Kind, Scale};
+    use yalain_world::pets;
+    const EFFECT: u32 = 0x7000_0805;
+    let (mut h, (a, ida), (_, idb)) = two_players(Conflict::KingdomVsKingdom);
+    h.server.effect_table.effects.insert(
+        EFFECT,
+        EffectDef {
+            kind: Kind::Pet {
+                class: 0x10,
+                lifetime: Scale::default(),
+            },
+            ..yalain_testkit::plain_effect(EFFECT)
+        },
+    );
+    for d in h.server.skill_table.skills.values_mut() {
+        if d.auto_attack {
+            d.usage.as_mut().expect("used").target_effects = vec![EFFECT];
+        }
+    }
+    let from = h.bots[a].inbox.len();
+    attack(&mut h, a, idb);
+    assert!(
+        h.run_until(4000, |h| h
+            .texts(a, from)
+            .contains(&(1, pets::text::SUMMONING_FAILS.0))),
+        "its user is told"
+    );
+    assert!(h.server.pets.of(ida).is_empty());
+}
+
 /// A basic attack that names a target effect puts it on the player it lands on, too.
 /// Behaviour: server.combat.a-basic-attacks-target-effects-land
 #[test]
@@ -464,6 +499,7 @@ fn players_whom_kingdoms_may_fight_anywhere_fight_in_peace_unless_protected() {
 /// Ask to use a skill on a target, as the client packs it (the use's number, the skill, the
 /// target).
 fn use_skill(h: &mut Harness, b: usize, id: u32, skill: u32, target: u64) -> usize {
+    h.all_hold(skill);
     let from = h.bots[b].inbox.len();
     h.bots[b].send(
         true,
@@ -595,6 +631,120 @@ fn a_specials_effects_reach_the_other_player_it_lands_on() {
     assert!(calls_of(&h, b, from_b)
         .iter()
         .any(|(f, _)| *f == ADD_EFFECT));
+}
+
+/// A player's health, once a damage over time has brought it to nothing, whoever put it on: its
+/// death told by the killer's id, a creature's or none for its own.
+fn over_time_to_the_end(
+    caster: impl FnOnce(u64) -> u64,
+    pk: bool,
+) -> (Harness, usize, u64, u64, usize) {
+    let mut h = Harness::new();
+    let (b, me) = h.player_in_world("one", "Elara");
+    scene_drawn(&mut h, b);
+    with_player(&mut h, me, |p| {
+        quals::set_int(&mut p.qualities, quality::HEALTH, 3);
+    });
+    let world = yalain_world::social::world_of(&h.server, me).expect("in the world");
+    let from = h.bots[b].inbox.len();
+    let clock = h.clock();
+    let caster = caster(me);
+    let (s, net) = (&mut h.server, &mut h.net);
+    yalain_world::effects::apply(
+        s,
+        net,
+        world,
+        CHARGED_AIR_EFFECT,
+        yalain_world::effects::Cast {
+            caster,
+            spellcraft: 1.0,
+            pk,
+            ..yalain_world::effects::Cast::default()
+        },
+        clock,
+    );
+    (h, b, me, caster, from)
+}
+
+fn killers_told(
+    h: &Harness,
+    b: usize,
+    me: u64,
+    from: usize,
+) -> Vec<Vec<yalain_world::calls::Value>> {
+    h.world_messages(b, from)
+        .into_iter()
+        .filter_map(|m| match m {
+            ServerMessage::VisualObjectCall(c)
+                if c.object.id == me && c.call.function.0 == WHO_KILLED =>
+            {
+                c.call
+                    .args
+                    .as_ref()
+                    .and_then(|a| yalain_world::calls::values(&a.0).ok())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// A damage over time a creature put on a player kills it when its health is gone, the creature its
+/// killer, as a hit would; the player doesn't stand at no health with nothing to end it.
+/// Behaviour: server.effects.harm-over-time-kills
+#[test]
+fn a_creatures_damage_over_time_kills_the_player_it_takes_the_last_health_of() {
+    const A_CREATURE: u64 = 0x8130_0000_0000_0042;
+    let (mut h, b, me, _, from) = over_time_to_the_end(|_| A_CREATURE, false);
+    assert!(
+        h.run_until(4000, |h| health_of(h, me) == 0),
+        "the ticks take its health"
+    );
+    h.run(5);
+    let told = killers_told(&h, b, me, from);
+    assert_eq!(told.len(), 1, "its death told once: {told:?}");
+    assert!(
+        told[0]
+            .iter()
+            .any(|v| matches!(v, yalain_world::calls::Value::Long(k) if *k == A_CREATURE)),
+        "{told:?}"
+    );
+}
+
+/// A player's own harm kills it too, with no killer: health at none is death, whoever took the last
+/// of it.
+/// Behaviour: server.effects.own-harm-kills
+#[test]
+fn a_players_own_harm_kills_it_with_no_killer() {
+    let (mut h, b, me, _, from) = over_time_to_the_end(|me| me, true);
+    assert!(
+        h.run_until(4000, |h| health_of(h, me) == 0),
+        "the ticks take its health"
+    );
+    h.run(5);
+    let told = killers_told(&h, b, me, from);
+    assert_eq!(told.len(), 1, "its death told once: {told:?}");
+    assert!(
+        told[0]
+            .iter()
+            .any(|v| matches!(v, yalain_world::calls::Value::Long(0))),
+        "{told:?}"
+    );
+}
+
+/// Never say die holds against a change over time as against a blow.
+/// Behaviour: server.admin.never-say-die-keeps-an-admin-alive
+#[test]
+fn never_say_die_holds_against_a_damage_over_time() {
+    const A_CREATURE: u64 = 0x8130_0000_0000_0042;
+    let (mut h, b, me, _, from) = over_time_to_the_end(|_| A_CREATURE, false);
+    with_player(&mut h, me, |p| p.admin.never_say_die = true);
+    assert!(
+        h.run_until(4000, |h| health_of(h, me) == 1),
+        "the ticks take its health"
+    );
+    h.run_to(yalain_net::LocalTime(h.now.0 + 20.0));
+    assert!(health_of(&h, me) >= 1, "it stops at one");
+    assert!(killers_told(&h, b, me, from).is_empty(), "no death");
 }
 
 /// A damage over time another player put on a player: each tick, told by the player with the
@@ -745,4 +895,87 @@ fn a_skill_is_refused_in_portal_space() {
     );
     assert!(hooks_at(&h, b, from_b, ida, idb).is_empty());
     assert_eq!(health_of(&h, idb), health);
+}
+
+/// A special that walks to another player is told only if who may harm whom still allows it when it
+/// gets there, as each swing of a run: one protected on the way is not struck, and the use ends with
+/// the reason.
+/// Behaviour: server.player-fights.special-asks-again-as-it-is-told
+#[test]
+fn a_special_walking_to_another_player_ends_if_it_may_no_longer_harm_it() {
+    let (mut h, (a, ida), (b, idb)) = two_players(Conflict::KingdomVsKingdom);
+    rested(&mut h, ida);
+    let wb = yalain_world::social::world_of(&h.server, idb).expect("in the world");
+    let at = h.server.players[&wb].position;
+    with_player(&mut h, idb, |p| p.position.origin[0] += 20.0);
+    let from_b = h.bots[b].inbox.len();
+    let from = use_skill(&mut h, a, 1, RIPOSTE, idb);
+    h.run(10);
+    assert!(
+        hooks_at(&h, b, from_b, ida, idb).is_empty(),
+        "not there yet"
+    );
+    let clock = h.clock();
+    yalain_world::effects::protect(&mut h.server, &mut h.net, wb, clock);
+    with_player(&mut h, idb, |p| p.position = at);
+    h.run(60);
+    assert!(hooks_at(&h, b, from_b, ida, idb).is_empty(), "not struck");
+    assert!(
+        calls_of(&h, a, from)
+            .iter()
+            .any(|(f, v)| *f == yalain_world::skill_use::function::REFUSED
+                && v.contains(&Value::Int(refusal::PROTECTED))),
+        "told why"
+    );
+}
+
+/// A special's strike or missile does not hurt a player gone into portal space by the time it lands,
+/// as a basic attack's does not.
+/// Behaviour: server.player-fights.special-spares-one-gone-into-portal-space
+#[test]
+fn a_specials_strike_at_a_player_gone_into_portal_space_does_not_hurt_it() {
+    let (mut h, (a, ida), (_, idb)) = two_players(Conflict::KingdomVsKingdom);
+    rested(&mut h, ida);
+    let wb = yalain_world::social::world_of(&h.server, idb).expect("in the world");
+    let to = h.server.players[&wb].position;
+    let wa = yalain_world::social::world_of(&h.server, ida).expect("in the world");
+    let health = health_of(&h, idb);
+    let before = h.server.players[&wb].play.effects.len();
+    if let Some(u) = h
+        .server
+        .skill_table
+        .skills
+        .get_mut(&RIPOSTE)
+        .and_then(|d| d.usage.as_mut())
+    {
+        u.target_effects = vec![CHARGED_AIR_EFFECT];
+    }
+    let mut id = 1;
+    loop {
+        assert!(id < 80, "no use reached its landing");
+        use_skill(&mut h, a, id, RIPOSTE, idb);
+        id += 1;
+        let told = h.run_until(30, |h| {
+            h.server.players[&wa]
+                .using
+                .as_ref()
+                .is_some_and(|x| x.told && x.landings.iter().any(|l| l.damage > 0))
+        });
+        if told {
+            break;
+        }
+        h.run(60);
+    }
+    assert_eq!(health_of(&h, idb), health, "not yet");
+    let clock = h.clock();
+    yalain_world::places::resurrection_trip(&mut h.server, &mut h.net, wb, to, clock);
+    // Its landing comes while the other is away.
+    let landed = |h: &Harness| h.server.players[&wa].using.is_none();
+    while !landed(&h) {
+        assert!(h.server.players[&wb].trip.is_some(), "still away");
+        h.step();
+        assert_eq!(health_of(&h, idb), health);
+    }
+    // Nor do its effects reach it (coming back from the trip has its own say on its health).
+    assert_eq!(h.server.players[&wb].play.effects.len(), before);
 }

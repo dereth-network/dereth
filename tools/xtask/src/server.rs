@@ -496,27 +496,54 @@ pub fn launch_fixture() -> Option<PathBuf> {
 /// chain and a save, on the 1999 dats and an ac1999 pack. Neither ships, so without the fixture
 /// the row is an oracle nobody consulted, reported NO-ORACLE naming the variable.
 pub fn launch_content(profile: Profile) -> Report {
-    const NAME: &str = "server real content: empyrean-world (Launch world)";
+    launch_fixture_row(
+        "server real content: empyrean-world (Launch world)",
+        profile,
+        &[
+            "-p",
+            "empyrean-world",
+            "--features",
+            "launch-content",
+            "--test",
+            "all",
+            "world::launch_content::",
+            "--",
+            "--test-threads=1",
+        ],
+    )
+}
+
+/// The Classic interface's pictures against the Launch portal (tier 1): what it can draw on a Launch
+/// world is there, is made from what is there, or belongs to a system that world lacks, so a new
+/// picture the 1999 files don't have is noticed. Without the fixture the row is NO-ORACLE.
+pub fn launch_art(profile: Profile) -> Report {
+    launch_fixture_row(
+        "client real content: Classic's pictures (Launch world)",
+        profile,
+        &[
+            "-p",
+            "dereth-classic-ui",
+            "--lib",
+            "launch_art_tests::",
+            "--",
+            "--ignored",
+            "--test-threads=1",
+        ],
+    )
+}
+
+/// A row that runs `test_args` under the Launch fixture, or is NO-ORACLE naming the variable.
+fn launch_fixture_row(name: &str, profile: Profile, test_args: &[&str]) -> Report {
     let Some(fixture) = launch_fixture() else {
         return no_oracle(
-            NAME.to_owned(),
+            name.to_owned(),
             &["the Launch world fixture (set EMPYREAN_TEST_LAUNCH_FIXTURE)"],
         );
     };
     let mut argv: Vec<&str> = vec!["test", "-q"];
     argv.extend_from_slice(profile.cargo_args());
-    argv.extend_from_slice(&[
-        "-p",
-        "empyrean-world",
-        "--features",
-        "launch-content",
-        "--test",
-        "all",
-        "world::launch_content::",
-        "--",
-        "--test-threads=1",
-    ]);
-    println!("--- {NAME}: {LAUNCH_FIXTURE_VAR}={}", fixture.display());
+    argv.extend_from_slice(test_args);
+    println!("--- {name}: {LAUNCH_FIXTURE_VAR}={}", fixture.display());
     println!("$ cargo {}", argv.join(" "));
     let t0 = Instant::now();
     let ok = std::process::Command::new("cargo")
@@ -526,7 +553,7 @@ pub fn launch_content(profile: Profile) -> Report {
         .status()
         .is_ok_and(|s| s.success());
     Report::new(
-        NAME,
+        name,
         pass_fail(ok),
         format!("{:.1}s", t0.elapsed().as_secs_f64()),
     )
@@ -535,6 +562,18 @@ pub fn launch_content(profile: Profile) -> Report {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **The Launch art row's filter finds its tests.** A test run that matches nothing passes, so a
+    /// moved module would otherwise leave the row green and checking nothing.
+    #[test]
+    fn the_launch_art_row_names_a_module_that_holds_ignored_tests() {
+        let classic = workspace_root().join("dereth/client/crates/classic/src");
+        let lib = std::fs::read_to_string(classic.join("lib.rs")).expect("the crate root");
+        assert!(lib.contains("mod launch_art_tests;"));
+        let tests =
+            std::fs::read_to_string(classic.join("launch_art_tests.rs")).expect("the tests");
+        assert!(tests.matches("#[ignore = ").count() >= 3);
+    }
 
     /// **The real-dump row looks for the release the server pins.** The pin is read out of the
     /// constant's source, so a renamed or reshaped constant fails here instead of silently

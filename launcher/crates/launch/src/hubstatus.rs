@@ -35,6 +35,10 @@
 //! `expiresAt`. It stands in for the world's own answer while the launcher has none: a browser
 //! cannot send the ping, and the desktop has not sent it yet.
 //!
+//! And it brings each world's count of players (a row's `population`), from the best source the hub
+//! has, with that source's name and its age in seconds: for many worlds the only count there is.
+//! Its age goes on growing from the read; past [`COUNT_LASTS`] with no newer read it is dropped.
+//!
 //! [`slug_for`]: crate::serverlist::slug_for
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -51,6 +55,32 @@ use crate::world::WorldState;
 
 /// How long after one read of the hub's list for status the next is due, in seconds.
 pub const READ_EVERY_SECS: u64 = 60;
+
+/// How long a count of players is shown with nothing newer from the hub, in seconds: the longest
+/// the hub lists one.
+pub const COUNT_LASTS: u64 = 6 * 3600;
+
+/// A world's count of players as the hub lists it (a row's `population`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HubCount {
+    pub players: u32,
+    /// Where the hub has it from: `ping`, `heartbeat`, `client` or `treestats`.
+    pub source: String,
+    /// How old the count is, in seconds.
+    pub age: u64,
+}
+
+impl HubCount {
+    /// Reads a `population`. `None` when there is none, or it does not read as one.
+    #[must_use]
+    pub fn read(v: &Value) -> Option<Self> {
+        Some(Self {
+            players: u32::try_from(v.get("players")?.as_u64()?).ok()?,
+            source: v.get("source")?.as_str()?.to_owned(),
+            age: v.get("ageSeconds")?.as_u64()?,
+        })
+    }
+}
 
 /// A world's status as the hub has it from the world's own heartbeat, and where a browser reaches
 /// the world, as the hub names it while the world is linked.
@@ -227,6 +257,18 @@ fn read_word(pages: &[String]) -> Result<Word, MalformedList> {
     Ok((statuses, said))
 }
 
+/// Each world's count of players in the hub's list, its pages in order, by the key the launcher
+/// keeps the world under, by the rule of [`read_pages`].
+///
+/// # Errors
+/// [`MalformedList`] when a page is not a page of the list.
+pub fn read_counts(pages: &[String]) -> Result<BTreeMap<String, HubCount>, MalformedList> {
+    Ok(rows_by_key(pages)?
+        .iter()
+        .filter_map(|(key, row)| Some((key.clone(), HubCount::read(row.get("population")?)?)))
+        .collect())
+}
+
 /// The hub's status for the worlds shown, kept in memory, and when to read it again.
 ///
 /// Whoever shows the worlds tells it which list is on screen ([`Self::copy_shown`] for the day's
@@ -245,6 +287,10 @@ pub struct HubWatch {
     statuses: BTreeMap<String, HubStatus>,
     /// What each world said when the hub asked it.
     said: BTreeMap<String, HubSaid>,
+    /// Each world's count of players, as the latest read gave it.
+    counts: BTreeMap<String, HubCount>,
+    /// When that read ended, in seconds since the epoch: the counts' ages are from then.
+    counts_at: u64,
     /// When the latest read started, in seconds since the epoch.
     last_read: Option<u64>,
     /// Whether a read is under way.
@@ -292,6 +338,7 @@ impl HubWatch {
     fn forget(&mut self) {
         self.statuses.clear();
         self.said.clear();
+        self.counts.clear();
     }
 
     /// A list just fetched at `now` is on screen. The hub's carries each world's status as it is
@@ -302,6 +349,8 @@ impl HubWatch {
             if let Ok((statuses, said)) = read_word(&list.hub) {
                 self.statuses = statuses;
                 self.said = said;
+                self.counts = read_counts(&list.hub).unwrap_or_default();
+                self.counts_at = now;
                 self.last_read = Some(now);
                 self.word_taken = true;
             }
@@ -340,14 +389,17 @@ impl HubWatch {
         if !self.hubs_list_shown {
             return false;
         }
-        let Ok((statuses, said)) = read
-            .finish(now)
-            .and_then(|(list, _)| read_word(&list.hub).map_err(|e| e.to_string()))
-        else {
+        let Ok(((statuses, said), counts)) = read.finish(now).and_then(|(list, _)| {
+            let word = read_word(&list.hub).map_err(|e| e.to_string())?;
+            let counts = read_counts(&list.hub).map_err(|e| e.to_string())?;
+            Ok::<_, String>((word, counts))
+        }) else {
             return false;
         };
         self.statuses = statuses;
         self.said = said;
+        self.counts = counts;
+        self.counts_at = now;
         self.word_taken = true;
         true
     }
@@ -363,6 +415,15 @@ impl HubWatch {
     #[must_use]
     pub fn current(&self, key: &str, now: u64) -> Option<&HubStatus> {
         self.statuses.get(key).filter(|s| s.is_current(now))
+    }
+
+    /// The hub's count of players for the world kept under `key`, as old as it is at `now`, until
+    /// it is too old to show.
+    #[must_use]
+    pub fn count(&self, key: &str, now: u64) -> Option<HubCount> {
+        let mut count = self.counts.get(key)?.clone();
+        count.age += now.saturating_sub(self.counts_at);
+        (count.age < COUNT_LASTS).then_some(count)
     }
 
     /// What the world kept under `key` said when the hub asked it, while that counts at `now`.
@@ -977,5 +1038,48 @@ mod tests {
         ] {
             assert_eq!(parse_time(bad), None, "{bad:?}");
         }
+    }
+
+    /// Behaviour: none (how a launcher reads the hub's list of worlds).
+    #[test]
+    fn a_rows_population_reads_and_ages_from_the_read_and_a_list_without_one_has_none() {
+        let mut coldeve = row("coldeve", "Coldeve", &heartbeat("online", None, 180));
+        coldeve["population"] = json!({"players": 630, "source": "treestats", "ageSeconds": 100});
+        let mut old = row(
+            "old",
+            "Old",
+            &json!({"state": "unknown", "playersOnline": null}),
+        );
+        old["population"] = Value::Null;
+        let mut odd = row(
+            "odd",
+            "Odd",
+            &json!({"state": "unknown", "playersOnline": null}),
+        );
+        odd["population"] = json!({"players": -1, "source": "client", "ageSeconds": 1});
+        let bare = row(
+            "bare",
+            "Bare",
+            &json!({"state": "unknown", "playersOnline": null}),
+        );
+        let pages = [page(&[coldeve, old, odd, bare], None)];
+        let counts = read_counts(&pages).expect("a list");
+        assert_eq!(counts.keys().collect::<Vec<_>>(), ["coldeve"]);
+
+        let mut watch = HubWatch::new(&sources(None));
+        watch.list_read(&hub_copy(&pages), NOW);
+        let at = |now| watch.count("coldeve", now);
+        assert_eq!(
+            at(NOW),
+            Some(HubCount {
+                players: 630,
+                source: "treestats".into(),
+                age: 100
+            })
+        );
+        assert_eq!(at(NOW + 60).map(|c| c.age), Some(160), "it goes on aging");
+        assert_eq!(at(NOW + COUNT_LASTS - 101).map(|c| c.players), Some(630));
+        assert_eq!(at(NOW + COUNT_LASTS - 100), None, "too old to show");
+        assert_eq!(watch.count("bare", NOW), None);
     }
 }

@@ -697,6 +697,15 @@ mod tests {
     use super::*;
     use crate::keystore::{ClassicBinding, CTRL, SHIFT};
 
+    /// What the Control key is called: a Mac presses Command for it.
+    fn control_name() -> &'static str {
+        if cfg!(target_os = "macos") {
+            "Cmd"
+        } else {
+            "Ctrl"
+        }
+    }
+
     const W: u16 = 0x11;
     const X: u16 = 0x2D;
     const Q: u16 = 0x10;
@@ -790,7 +799,7 @@ mod tests {
                 .find(|b| b.action == BACK)
                 .unwrap()
                 .keys,
-            ["X", "Ctrl+W"]
+            ["X".to_owned(), format!("{}+W", control_name())]
         );
         // Left Shift alone, as the run key is bound.
         k.handle(&HostAction::CaptureBinding {
@@ -1011,7 +1020,10 @@ mod tests {
         ] {
             assert_eq!(key_name(key), expected);
         }
-        assert_eq!(chord_name(0x52, CTRL), "Ctrl+R");
-        assert_eq!(chord_name(0x31, SHIFT | CTRL), "Shift+Ctrl+1");
+        assert_eq!(chord_name(0x52, CTRL), format!("{}+R", control_name()));
+        assert_eq!(
+            chord_name(0x31, SHIFT | CTRL),
+            format!("Shift+{}+1", control_name())
+        );
     }
 }

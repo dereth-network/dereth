@@ -9,7 +9,7 @@
 /// An era, in the order of retail history, so "at or before" compares as the ordinal does.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum EraId {
-    /// November 1999: the experimental launch profile.
+    /// November 1999: the launch profile.
     Launch,
     /// February 2005: the Infiltration patch, before Throne of Destiny.
     Infiltration,

@@ -18,6 +18,7 @@ dereth-network-hub -- the Dereth Network's hub and world registry
                            [--trusted-proxy <ip or cidr>]... [--trusted-proxies-file <file>]...
                            [--client-address-header <name>] [--proxy-hops <n>]
                            [--deny-fetch <ip or cidr>]... [--deny-fetch-file <file>]...
+                           [--treestats-url <url> | --no-treestats]
                            [--public-url <url>] [--site-origin <origin>]... [--admin <discord id>]...
                            [--discord-client-id <id>] [--discord-client-secret-file <path>]
                            [--discord-bot-token-file <path>] [--discord-poll-secs <n>]
@@ -83,7 +84,9 @@ Behind proxies, name each (Cloudflare's ranges too) with --trusted-proxy, or lis
 line in a --trusted-proxies-file (# starts a comment); --proxy-hops is how many proxies a request
 crosses (1, the default, for the hub's own reverse proxy; 2 for Cloudflare and then it), and the
 client is read that many entries from the right of X-Forwarded-For; --client-address-header
-is x-forwarded-for (the default) or cf-connecting-ip. --deny-fetch (and --deny-fetch-file, one
+is x-forwarded-for (the default) or cf-connecting-ip. --treestats-url is where a world with
+nothing better has its player count read from, TreeStats' public counts unless named, and
+--no-treestats reads none. --deny-fetch (and --deny-fetch-file, one
 range to a line) names ranges a verification page is never read from, whatever else allows them:
 list the hub's own public address, its IPv6 prefix and its local network. The operator API (world operators signing in
 with Discord) is on when --public-url (the hub's own address, DERETH_HUB_PUBLIC_URL), a
@@ -428,6 +431,14 @@ fn run(mut args: Vec<String>) -> Result<ExitCode, String> {
             if let Some(h) = take(&mut args, "--client-address-header")? {
                 config.client_header = h.parse()?;
             }
+            config.treestats_url =
+                if take_flag(&mut args, "--no-treestats") {
+                    None
+                } else {
+                    Some(take(&mut args, "--treestats-url")?.unwrap_or_else(|| {
+                        dereth_network_hub::population::TREESTATS_URL.to_owned()
+                    }))
+                };
             while let Some(p) = take(&mut args, "--deny-fetch")? {
                 config.deny_fetch.push(p.parse()?);
             }

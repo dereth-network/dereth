@@ -16,6 +16,7 @@ use dereth_primitives::{DataId, Vec3};
 use empyrean_common::clock::{ClockSnapshot, VirtualClock};
 use empyrean_common::dotnet::datetime::TimeSpan;
 use empyrean_common::dotnet::{DotNetDict, Vector3};
+use empyrean_common::era::{EraExt, EraId};
 use empyrean_common::not_ported::take_local;
 use empyrean_common::random::DotNetRandom;
 use empyrean_common::thread_safe_random::ThreadSafeRandom;
@@ -35,6 +36,7 @@ use empyrean_entity::{LandblockId, ObjectGuid, Position};
 use empyrean_testkit::land;
 use empyrean_world::dispatch::Class;
 use empyrean_world::entity::actions::delay_manager;
+use empyrean_world::entity::damage_event::DamageEvent;
 use empyrean_world::entity::damage_history::DamageHistory;
 use empyrean_world::entity::timers::{self, TimersState};
 use empyrean_world::managers::guid_manager as gm;
@@ -50,7 +52,8 @@ use empyrean_world::world_objects::monster_combat as combat;
 use empyrean_world::world_objects::monster_navigation as nav;
 use empyrean_world::world_objects::world_object::WorldObject;
 use empyrean_world::world_objects::{
-    creature_equipment, monster_melee, monster_missile, monster_tick,
+    creature_equipment, creature_missile, monster_melee, monster_missile, monster_tick,
+    player_missile,
 };
 use empyrean_world::World;
 
@@ -269,6 +272,8 @@ const VECTOR_SPELLS: [u32; 4] = [64001, 64002, 64003, 64004];
 const CLOSE_SPELL: u32 = 64010;
 /// A War Magic spell of range 90, beyond ACE's cap of 75 (V336).
 const FAR_SPELL: u32 = 64011;
+/// A War Magic spell of range 40 that costs 50 mana.
+const COSTLY_SPELL: u32 = 64012;
 
 fn spell_base(id: u32) -> SpellBase {
     SpellBase {
@@ -365,6 +370,15 @@ fn dats() -> Arc<empyrean_dat::DatManager> {
                         base_range_constant: 90.0,
                         school: 1,
                         ..spell_base(FAR_SPELL)
+                    },
+                ),
+                (
+                    COSTLY_SPELL,
+                    SpellBase {
+                        base_range_constant: 40.0,
+                        base_mana: 50,
+                        school: 1,
+                        ..spell_base(COSTLY_SPELL)
                     },
                 ),
             ])
@@ -975,10 +989,16 @@ fn it_goes_to_sleep_when_no_players_are_around() {
 impl H {
     /// A bow (max velocity 20: 40.8 m of range) and arrows, wielded by the monster.
     pub(crate) fn arm_with_bow(&mut self) {
+        self.arm_with_bow_as(MONSTER);
+    }
+
+    /// `shooter` wields the bow and the arrows, reach 40.8 m.
+    fn arm_with_bow_as(&mut self, shooter: ObjectGuid) {
         let mut bow = WorldObject::allocate(Class::MissileLauncher);
         bow.guid = BOW;
         bow.biota.id = BOW.full();
         bow.biota.weenie_type = WeenieType::MissileLauncher;
+        bow.biota.properties_enchantment_registry = Some(Vec::new());
         bow.set_property(PropertyString::Name, "Bow".to_owned());
         bow.set_property(
             PropertyInt::DefaultCombatStyle,
@@ -1016,13 +1036,13 @@ impl H {
         });
         assert!(creature_equipment::try_equip_object(
             &mut self.w,
-            MONSTER,
+            shooter,
             BOW,
             EquipMask::MissileWeapon
         ));
         assert!(creature_equipment::try_equip_object(
             &mut self.w,
-            MONSTER,
+            shooter,
             ARROWS,
             EquipMask::MissileAmmo
         ));
@@ -2098,6 +2118,619 @@ fn with_the_option_on_a_melee_monster_still_chases_stickily() {
     assert!(
         h.run_until(20.0, |h| h.distance() <= nav::MAX_MELEE_RANGE),
         "closed to melee range"
+    );
+}
+
+/// A caster 15 m from the player, well inside its spell's range, with `probability` in its
+/// spellbook and no mana to pay for the spell, and no mana coming back.
+fn drained_caster(probability: f32) -> H {
+    let mut h = H::new();
+    lm::get_landblock(&mut h.w, lb_id(), false, false);
+    h.player(100.0, 115.0);
+    h.monster(100.0, 100.0);
+    caster(&mut h, COSTLY_SPELL);
+    let o = h.w.objects.get_mut(MONSTER).unwrap();
+    o.biota
+        .properties_spell_book
+        .as_mut()
+        .unwrap()
+        .insert(i32::try_from(COSTLY_SPELL).unwrap(), probability);
+    let mana = o
+        .biota
+        .properties_attribute_2nd
+        .as_mut()
+        .unwrap()
+        .get_mut(&PropertyAttribute2nd::MaxMana)
+        .unwrap();
+    mana.init_level = 0;
+    mana.current_level = 0;
+    wake(&mut h);
+    let _ = take_local();
+    h
+}
+
+/// The reach of a bow of velocity 20.
+const BOW_REACH: f32 = 20.0 * 20.0 * 0.102_040_82;
+
+/// `shooter` looses an arrow at `target`, `share` of its reach away, on `era`: the skill behind a
+/// shot from no distance, the skill behind this arrow, and what the arrow carries.
+fn shot(
+    era: EraId,
+    shooter: ObjectGuid,
+    target: ObjectGuid,
+    share: f32,
+) -> (u32, u32, Option<f64>) {
+    let mut h = H::new();
+    h.w.era = era.rules();
+    lm::get_landblock(&mut h.w, lb_id(), false, false);
+    let far = 100.0 + BOW_REACH * share;
+    if shooter == MONSTER {
+        h.player(100.0, far);
+        h.monster(100.0, 100.0);
+    } else {
+        h.player(100.0, 100.0);
+        h.monster(100.0, far);
+    }
+    h.arm_with_bow_as(shooter);
+    let o = h.w.objects.get_mut(shooter).unwrap();
+    let skills = o.biota.properties_skill.get_or_insert_with(DotNetDict::new);
+    for skill in [Skill::Bow, Skill::MissileWeapons] {
+        skills.insert(
+            skill,
+            PropertiesSkill {
+                init_level: 300,
+                sac: SkillAdvancementClass::Trained,
+                ..PropertiesSkill::default()
+            },
+        );
+    }
+    h.w.objects
+        .get_mut(BOW)
+        .unwrap()
+        .set_property(PropertyInt::WeaponSkill, Skill::MissileWeapons.0);
+    if shooter == PLAYER {
+        // the middle of the accuracy bar: a modifier of its own the range multiplies
+        player_missile::set_accuracy_level(&mut h.w, PLAYER, 0.4);
+    }
+    combat::set_attack_target(&mut h.w, shooter, Some(target));
+    let origin = h.pos(shooter).pos();
+    let arrow = creature_missile::launch_projectile(
+        &mut h.w,
+        shooter,
+        Some(BOW),
+        ARROWS,
+        target,
+        origin + Vector3::new(0.0, 1.0, 1.0),
+        empyrean_common::dotnet::numerics::Quaternion::IDENTITY,
+        Vector3::new(0.0, 10.0, 5.0),
+    )
+    .expect("an arrow");
+    let carried = h.o(arrow).projectile.unwrap().launch_range_ratio;
+    let skill = |h: &mut H, source| {
+        DamageEvent::calculate_damage(&mut h.w, shooter, target, source, None, None)
+    };
+    let base = skill(&mut h, None).effective_attack_skill;
+    let event = skill(&mut h, Some(arrow));
+    (base, event.effective_attack_skill, carried)
+}
+
+/// Divergence: V511
+/// What a missile keeps of its skill: next to all of it at half its reach, 86% at 85% of reach,
+/// half at the limit, and no less beyond it.
+#[test]
+fn a_shot_loses_14_percent_of_its_skill_at_85_percent_of_reach_and_half_at_the_limit() {
+    use creature_missile::long_range_attack_mod as keeps;
+    assert_eq!(keeps(0.0), 1.0);
+    assert!((keeps(0.5) - 0.998_046_875).abs() < 1e-12, "{}", keeps(0.5));
+    assert!((keeps(0.85) - 0.863_755).abs() < 1e-6, "{}", keeps(0.85));
+    assert_eq!(keeps(1.0), 0.5);
+    assert_eq!(keeps(1.5), 0.5);
+    assert_eq!(keeps(-1.0), 1.0);
+}
+
+/// Divergence: V511
+/// A Launch monster's arrow carries the share of its reach it had to fly when it left the bow, and
+/// has that much less skill behind it when it arrives.
+#[test]
+fn a_launch_monsters_long_shot_has_less_attack_skill() {
+    let (base, skill, carried) = shot(EraId::Launch, MONSTER, PLAYER, 0.85);
+    assert!(base >= 300, "{base}");
+    let ratio = carried.expect("a Launch arrow carries its ratio");
+    assert!((ratio - 0.85).abs() < 1e-3, "{ratio}");
+    let want = f64::from(base) * creature_missile::long_range_attack_mod(ratio);
+    assert_eq!(f64::from(skill), want.round(), "{skill} of {base}");
+    assert!(
+        f64::from(skill) < f64::from(base) * 0.87,
+        "{skill} of {base}"
+    );
+}
+
+/// Divergence: V511
+/// A Launch player's shot pays the same, on top of what the accuracy bar gives it.
+#[test]
+fn a_launch_players_long_shot_has_less_attack_skill() {
+    let (base, skill, carried) = shot(EraId::Launch, PLAYER, MONSTER, 0.85);
+    assert!(base > 0);
+    let ratio = carried.expect("a Launch arrow carries its ratio");
+    let want = f64::from(base) * creature_missile::long_range_attack_mod(ratio);
+    assert_eq!(f64::from(skill), want.round(), "{skill} of {base}");
+    assert!(
+        f64::from(skill) < f64::from(base) * 0.87,
+        "{skill} of {base}"
+    );
+}
+
+/// Divergence: V511
+/// A close Launch shot is all but untouched.
+#[test]
+fn a_launch_shot_at_half_its_reach_keeps_nearly_all_its_skill() {
+    let (base, skill, _) = shot(EraId::Launch, MONSTER, PLAYER, 0.5);
+    assert!(base - skill <= 1, "{skill} of {base}");
+}
+
+/// Divergence: V511
+/// The same arrow at the end of retail and in February 2005 carries nothing and loses nothing: the
+/// numbers are ACE's.
+#[test]
+fn a_long_shot_outside_launch_keeps_all_its_attack_skill() {
+    for era in [EraId::Eor, EraId::Infiltration] {
+        for (shooter, target) in [(MONSTER, PLAYER), (PLAYER, MONSTER)] {
+            let (base, skill, carried) = shot(era, shooter, target, 0.95);
+            assert_eq!(carried, None, "{era:?}");
+            assert_eq!(skill, base, "{era:?}");
+        }
+    }
+}
+
+/// Divergence: V511
+/// A Launch monster that really shoots records the range at release: 15 m of a 40.8 m reach.
+#[test]
+fn a_launch_monsters_arrow_records_the_range_it_left_the_bow_at() {
+    let mut h = bow_monster_ready();
+    h.w.era = EraId::Launch.rules();
+    let arrow = |h: &H| {
+        let l =
+            h.w.landblock_manager
+                .landblocks
+                .get(lb_id())
+                .expect("the landblock");
+        l.get_all_world_objects_for_diagnostics()
+            .into_iter()
+            .find_map(|g| {
+                h.w.objects
+                    .get(g)
+                    .and_then(|o| o.projectile)
+                    .filter(|p| p.source == Some(MONSTER))
+            })
+    };
+    combat::set_attack_target(&mut h.w, MONSTER, Some(PLAYER));
+    monster_missile::launch_missile(&mut h.w, MONSTER);
+    assert!(h.run_until(5.0, |h| arrow(h).is_some()), "shot");
+    let ratio = arrow(&h).unwrap().launch_range_ratio.expect("a ratio");
+    let want = f64::from(15.0 / BOW_REACH);
+    assert!((ratio - want).abs() < 0.03, "{ratio} against {want}");
+}
+
+/// `thrower` holds a thrown weapon of this burden, one with no flight speed of its own as Launch's
+/// have, and its target stands `distance` away.
+fn thrower_ready(era: EraId, thrower: ObjectGuid, strength: u32, burden: i32, distance: f32) -> H {
+    let mut h = H::new();
+    h.w.era = era.rules();
+    lm::get_landblock(&mut h.w, lb_id(), false, false);
+    let far = 100.0 + distance;
+    if thrower == MONSTER {
+        h.player(100.0, far);
+        h.monster(100.0, 100.0);
+    } else {
+        h.player(100.0, 100.0);
+        h.monster(100.0, far);
+    }
+    h.arm_with_bow_as(thrower);
+    make_it_thrown(&mut h, burden);
+    set_strength(&mut h, thrower, strength);
+    h
+}
+
+fn make_it_thrown(h: &mut H, burden: i32) {
+    let weapon = h.w.objects.get_mut(BOW).unwrap();
+    weapon.set_property(
+        PropertyInt::DefaultCombatStyle,
+        empyrean_entity::enums::CombatStyle::ThrownWeapon.0,
+    );
+    weapon.set_maximum_velocity(None);
+    weapon.set_stack_unit_encumbrance(Some(burden));
+    weapon.biota.weenie_class_id = ARROW_WCID;
+}
+
+fn set_strength(h: &mut H, creature: ObjectGuid, strength: u32) {
+    h.w.objects
+        .get_mut(creature)
+        .unwrap()
+        .biota
+        .properties_attribute
+        .as_mut()
+        .unwrap()
+        .get_mut(&PropertyAttribute::Strength)
+        .unwrap()
+        .init_level = strength;
+}
+
+fn reach(strength: u32, burden: i32, player: bool) -> f32 {
+    creature_missile::thrown_reach(creature_missile::thrown_velocity(strength, burden, player))
+}
+
+fn near(got: f32, want: f32) -> bool {
+    (got - want).abs() < 0.05
+}
+
+/// Divergence: V515
+/// A character throws a light weapon about 27 m at Strength 55 and 40 m at Strength 100, and every
+/// point of Strength throws it farther.
+#[test]
+fn a_stronger_character_throws_a_light_weapon_farther() {
+    assert!(near(reach(55, 15, true), 26.7), "{}", reach(55, 15, true));
+    assert!(near(reach(100, 15, true), 39.8), "{}", reach(100, 15, true));
+    for strength in 10..285 {
+        assert!(reach(strength + 1, 15, true) > reach(strength, 15, true));
+    }
+}
+
+/// Divergence: V515
+/// Weight lowers a throw past burden 15: a dart flies as far as a javelin, burden 50 at Strength 55
+/// reaches 15 m and a boulder of 500 reaches 5 m.
+#[test]
+fn a_heavier_weapon_falls_shorter_and_nothing_under_burden_15_flies_farther() {
+    assert_eq!(reach(55, 5, true), reach(55, 15, true));
+    assert_eq!(reach(55, 0, true), reach(55, 15, true));
+    assert!(reach(55, 16, true) < reach(55, 15, true));
+    assert!(near(reach(55, 50, true), 15.0), "{}", reach(55, 50, true));
+    assert!(near(reach(55, 500, true), 5.0), "{}", reach(55, 500, true));
+    assert!(
+        near(reach(100, 500, true), 7.4),
+        "{}",
+        reach(100, 500, true)
+    );
+}
+
+/// Divergence: V515
+/// Nothing travels under 3 m and nothing thrown past 80 m, the strongest thrower and the lightest
+/// weapon included.
+#[test]
+fn a_throw_reaches_at_least_3_meters_and_at_most_80() {
+    assert!(near(reach(1, 500, true), 3.0), "{}", reach(1, 500, true));
+    assert!(near(reach(0, 5000, true), 3.0), "{}", reach(0, 5000, true));
+    assert!(near(reach(285, 15, true), 79.9), "{}", reach(285, 15, true));
+    assert!(near(reach(5000, 1, true), 80.0), "{}", reach(5000, 1, true));
+    assert!(
+        near(reach(5000, 1, false), 80.0),
+        "{}",
+        reach(5000, 1, false)
+    );
+}
+
+/// Divergence: V515
+/// The four Lugians throw their boulder past the gear a player brings, the Gigas to the 80 m limit,
+/// and a player who picks up the same boulder gets the player's number.
+#[test]
+fn a_lugian_throws_its_boulder_far_past_what_a_player_can() {
+    for (strength, want) in [(150, 56.9), (200, 68.9), (225, 74.6), (250, 80.0)] {
+        let got = reach(strength, 500, false);
+        assert!(near(got, want), "{strength}: {got}");
+    }
+    assert!(
+        near(reach(250, 500, true), 13.7),
+        "{}",
+        reach(250, 500, true)
+    );
+}
+
+/// Divergence: V515
+/// On Launch the player's and the monster's speed and reach with a thrown weapon are the formula's.
+#[test]
+fn a_launch_throwers_speed_and_reach_come_from_its_strength_and_the_weapons_burden() {
+    for (thrower, player) in [(PLAYER, true), (MONSTER, false)] {
+        for (strength, burden) in [(55, 15), (100, 50), (150, 500)] {
+            let mut h = thrower_ready(EraId::Launch, thrower, strength, burden, 2.0);
+            #[allow(clippy::cast_possible_truncation)] // the speed is the formula's, narrowed
+            let want = creature_missile::thrown_velocity(strength, burden, player) as f32;
+            let speed = creature_missile::get_projectile_speed(&mut h.w, thrower);
+            assert_eq!(speed, want, "{strength} {burden}");
+            let got = creature_missile::get_max_missile_range(&mut h.w, thrower);
+            assert_eq!(got, reach(strength, burden, player), "{strength} {burden}");
+        }
+    }
+}
+
+/// Divergence: V515
+/// A thrown stack weighs what one of it weighs: a pile of darts flies as far as a dart. An item with
+/// no unit burden uses its burden.
+#[test]
+fn a_stack_of_thrown_weapons_flies_as_far_as_one_of_them() {
+    let mut h = thrower_ready(EraId::Launch, PLAYER, 55, 5, 2.0);
+    let weapon = h.w.objects.get_mut(BOW).unwrap();
+    weapon.set_encumbrance_val(Some(500));
+    let got = creature_missile::get_max_missile_range(&mut h.w, PLAYER);
+    assert_eq!(got, reach(55, 5, true));
+
+    let weapon = h.w.objects.get_mut(BOW).unwrap();
+    weapon.set_stack_unit_encumbrance(None);
+    let got = creature_missile::get_max_missile_range(&mut h.w, PLAYER);
+    assert_eq!(got, reach(55, 500, true));
+}
+
+/// Divergence: V515
+/// An enchantment on the thrower's Strength moves its throw, as its Strength as it stands now.
+#[test]
+fn a_strength_enchantment_throws_farther() {
+    use empyrean_entity::enums::{EnchantmentTypeFlags, SpellCategory};
+    use empyrean_entity::models::PropertiesEnchantmentRegistry;
+    let mut h = H::new();
+    h.w.era = EraId::Launch.rules();
+    lm::get_landblock(&mut h.w, lb_id(), false, false);
+    h.player(100.0, 100.0);
+    h.monster(100.0, 102.0);
+    set_strength(&mut h, PLAYER, 55);
+    h.w.objects
+        .get_mut(PLAYER)
+        .unwrap()
+        .biota
+        .properties_enchantment_registry
+        .get_or_insert_with(Vec::new)
+        .push(PropertiesEnchantmentRegistry {
+            spell_id: 1,
+            layer_id: 1,
+            spell_category: SpellCategory(1),
+            stat_mod_type: EnchantmentTypeFlags::SingleStat
+                | EnchantmentTypeFlags::Attribute
+                | EnchantmentTypeFlags::Additive,
+            stat_mod_key: u32::from(PropertyAttribute::Strength.0),
+            stat_mod_value: 45.0,
+            ..PropertiesEnchantmentRegistry::default()
+        });
+    // what the player's arrival had read and kept is out of date
+    h.w.objects
+        .get_mut(PLAYER)
+        .unwrap()
+        .wo
+        .world_object
+        .enchantment_manager = Default::default();
+    h.arm_with_bow_as(PLAYER);
+    make_it_thrown(&mut h, 15);
+    let got = creature_missile::get_max_missile_range(&mut h.w, PLAYER);
+    assert_eq!(got, reach(100, 15, true));
+}
+
+/// Divergence: V515
+/// A Launch throw is refused by the thrower's own reach: 20 m is in reach at Strength 55 and 30 m is
+/// not, where the end of retail's flat 40.8 m still takes it.
+#[test]
+fn a_launch_player_is_refused_past_its_own_reach() {
+    let mut h = thrower_ready(EraId::Launch, PLAYER, 55, 15, 20.0);
+    assert!(player_missile::target_in_range(&mut h.w, PLAYER, MONSTER));
+    let mut h = thrower_ready(EraId::Launch, PLAYER, 55, 15, 30.0);
+    assert!(!player_missile::target_in_range(&mut h.w, PLAYER, MONSTER));
+    set_strength(&mut h, PLAYER, 100);
+    assert!(player_missile::target_in_range(&mut h.w, PLAYER, MONSTER));
+    let mut h = thrower_ready(EraId::Eor, PLAYER, 55, 15, 30.0);
+    assert!(player_missile::target_in_range(&mut h.w, PLAYER, MONSTER));
+}
+
+/// Divergence: V515
+/// A Launch monster keeps its range by what it can throw.
+#[test]
+fn a_launch_monster_measures_its_range_by_its_throw() {
+    let mut h = thrower_ready(EraId::Launch, MONSTER, 60, 500, 2.0);
+    combat::fields_mut(&mut h.w, MONSTER).current_attack = Some(CombatType::Missile);
+    let got = combat::get_max_range(&mut h.w, MONSTER);
+    assert_eq!(got, reach(60, 500, false));
+    assert!(near(got, 30.9), "{got}");
+}
+
+/// Divergence: V515, V511
+/// The long-range penalty reads the same reach: a Launch player's dart 20 m out has flown three
+/// quarters of what Strength 55 reaches, not half of a flat 40.8 m.
+#[test]
+fn the_long_range_penalty_measures_a_throw_by_the_throwers_reach() {
+    let mut h = thrower_ready(EraId::Launch, PLAYER, 55, 15, 20.0);
+    let origin = h.pos(PLAYER).pos();
+    let dart = creature_missile::launch_projectile(
+        &mut h.w,
+        PLAYER,
+        Some(BOW),
+        ARROWS,
+        MONSTER,
+        origin + Vector3::new(0.0, 1.0, 1.0),
+        empyrean_common::dotnet::numerics::Quaternion::IDENTITY,
+        Vector3::new(0.0, 10.0, 5.0),
+    )
+    .expect("a dart");
+    let ratio = h.o(dart).projectile.unwrap().launch_range_ratio.unwrap();
+    let want = f64::from(20.0 / reach(55, 15, true));
+    assert!((ratio - want).abs() < 1e-3, "{ratio} against {want}");
+}
+
+/// Divergence: V515, V511
+/// A Launch monster that really throws carries the share of its own reach: 15 m of the 30.9 m that
+/// Strength 60 and burden 500 give it.
+#[test]
+fn a_launch_monsters_real_throw_carries_its_share_of_its_own_reach() {
+    let mut h = bow_monster_ready();
+    h.w.era = EraId::Launch.rules();
+    make_it_thrown(&mut h, 500);
+    set_strength(&mut h, MONSTER, 60);
+    let flying = |h: &H| {
+        let l =
+            h.w.landblock_manager
+                .landblocks
+                .get(lb_id())
+                .expect("the landblock");
+        l.get_all_world_objects_for_diagnostics()
+            .into_iter()
+            .find_map(|g| {
+                h.w.objects
+                    .get(g)
+                    .and_then(|o| o.projectile)
+                    .filter(|p| p.source == Some(MONSTER))
+            })
+    };
+    combat::set_attack_target(&mut h.w, MONSTER, Some(PLAYER));
+    monster_missile::launch_missile(&mut h.w, MONSTER);
+    assert!(h.run_until(5.0, |h| flying(h).is_some()), "thrown");
+    let ratio = flying(&h).unwrap().launch_range_ratio.expect("a ratio");
+    let want = f64::from(15.0 / reach(60, 500, false));
+    assert!((ratio - want).abs() < 0.03, "{ratio} against {want}");
+}
+
+/// Divergence: V515
+/// The arc is solved at the thrower's speed: at 90% of its reach a throw leaves at exactly that
+/// speed, and well past its reach no arc reaches the target.
+#[test]
+fn a_launch_throw_flies_at_the_throwers_speed_and_cannot_reach_past_its_limit() {
+    for (share, solved) in [(0.9, true), (1.2, false)] {
+        let distance = reach(60, 500, false) * share;
+        let mut h = thrower_ready(EraId::Launch, MONSTER, 60, 500, distance);
+        combat::fields_mut(&mut h.w, MONSTER).attack_height =
+            Some(empyrean_entity::enums::AttackHeight::Medium);
+        let speed = creature_missile::get_projectile_speed(&mut h.w, MONSTER);
+        let (velocity, _, _) = creature_missile::calculate_projectile_velocity(
+            &mut h.w,
+            MONSTER,
+            Vector3::ZERO,
+            PLAYER,
+            speed,
+        );
+        if solved {
+            assert!((velocity.length() - speed).abs() < 1e-3, "{velocity:?}");
+        } else {
+            assert!(velocity.equals(Vector3::ZERO), "{velocity:?}");
+        }
+    }
+}
+
+/// Divergence: V515
+/// The examine panel's range is the examiner's own throw, whoever else holds the weapon. At the end
+/// of retail it is the weapon's own number, as ACE sends it.
+#[test]
+fn a_launch_thrown_weapon_shows_the_examiners_own_range() {
+    let examine = |h: &mut H| {
+        empyrean_world::network::structure::appraise_info::appraise_info_new(
+            &mut h.w, BOW, PLAYER, true,
+        )
+        .weapon_profile
+        .expect("a weapon profile")
+        .max_velocity
+    };
+    let mut h = thrower_ready(EraId::Launch, MONSTER, 250, 15, 2.0);
+    set_strength(&mut h, PLAYER, 55);
+    assert_eq!(
+        examine(&mut h),
+        creature_missile::thrown_velocity(55, 15, true)
+    );
+    set_strength(&mut h, PLAYER, 100);
+    assert_eq!(
+        examine(&mut h),
+        creature_missile::thrown_velocity(100, 15, true)
+    );
+
+    let mut h = thrower_ready(EraId::Eor, MONSTER, 250, 15, 2.0);
+    set_strength(&mut h, PLAYER, 55);
+    assert_eq!(examine(&mut h), 1.0);
+    let weapon = h.w.objects.get_mut(BOW).unwrap();
+    weapon.set_maximum_velocity(Some(24.9));
+    assert_eq!(examine(&mut h), 24.9);
+}
+
+/// Divergence: V515
+/// At the end of retail and in February 2005 Strength moves nothing: a thrown weapon's speed and
+/// reach are ACE's, from its own flight speed or the default of 20.
+#[test]
+fn outside_launch_a_throw_keeps_aces_numbers_whatever_the_strength() {
+    for era in [EraId::Eor, EraId::Infiltration] {
+        for strength in [10, 55, 400] {
+            let mut h = thrower_ready(era, PLAYER, strength, 500, 2.0);
+            let speed = creature_missile::get_projectile_speed(&mut h.w, PLAYER);
+            let got = creature_missile::get_max_missile_range(&mut h.w, PLAYER);
+            assert_eq!(speed, 20.0, "{era:?}");
+            assert!(near(got, 40.8), "{era:?}: {got}");
+
+            let weapon = h.w.objects.get_mut(BOW).unwrap();
+            weapon.set_maximum_velocity(Some(24.9));
+            let speed = creature_missile::get_projectile_speed(&mut h.w, PLAYER);
+            let got = creature_missile::get_max_missile_range(&mut h.w, PLAYER);
+            assert_eq!(speed, 24.9, "{era:?}");
+            assert!(near(got, 63.3), "{era:?}: {got}");
+        }
+    }
+}
+
+/// Divergence: V515
+/// A Launch bow keeps its own flight speed and reach, whatever the archer's Strength.
+#[test]
+fn a_launch_bow_ignores_strength() {
+    for strength in [10, 400] {
+        let mut h = H::new();
+        h.w.era = EraId::Launch.rules();
+        lm::get_landblock(&mut h.w, lb_id(), false, false);
+        h.player(100.0, 110.0);
+        h.monster(100.0, 100.0);
+        h.arm_with_bow();
+        set_strength(&mut h, MONSTER, strength);
+        let speed = creature_missile::get_projectile_speed(&mut h.w, MONSTER);
+        let got = creature_missile::get_max_missile_range(&mut h.w, MONSTER);
+        assert_eq!(speed, 20.0);
+        assert_eq!(got, BOW_REACH);
+    }
+}
+
+/// A drained caster that can roll anything but its spell spends the refused cast and rolls again,
+/// so it soon draws melee, closes in and fights. Nothing roots it.
+#[test]
+fn a_drained_caster_whose_spell_is_not_certain_closes_in_and_fights() {
+    let mut h = drained_caster(2.5);
+    let start = h.distance();
+    assert!(start > 10.0, "starts well out of melee range: {start}");
+    assert!(
+        h.run_until(20.0, |h| h.distance() <= nav::MAX_MELEE_RANGE),
+        "closed to melee range, at {}",
+        h.distance()
+    );
+    assert!(
+        h.run_until(10.0, |h| combat::fields(&h.w, MONSTER).prev_attack_time
+            > 0.0),
+        "and attacked"
+    );
+}
+
+/// ACE's `MagicAttack` returns on an unpaid cast and `Attack` resets the attack, so a caster whose
+/// only spell always rolls chooses the spell again each tick: without mana it stands where it is and
+/// neither casts nor closes in.
+#[test]
+fn a_drained_caster_whose_only_spell_always_rolls_stands_where_it_is() {
+    let mut h = drained_caster(3.0);
+    let start = h.pos(MONSTER);
+    h.run(20.0);
+    let moved = h.pos(MONSTER).distance_to(&start);
+    assert!(moved < 0.5, "stood where it was, moved {moved} m");
+    assert!(
+        combat::fields(&h.w, MONSTER).prev_attack_time <= 0.0,
+        "and never cast"
+    );
+
+    // it was awake and choosing the spell all along: with mana it casts at once
+    let o = h.w.objects.get_mut(MONSTER).unwrap();
+    let mana = o
+        .biota
+        .properties_attribute_2nd
+        .as_mut()
+        .unwrap()
+        .get_mut(&PropertyAttribute2nd::MaxMana)
+        .unwrap();
+    mana.init_level = 100;
+    mana.current_level = 100;
+    assert!(
+        h.run_until(5.0, |h| combat::fields(&h.w, MONSTER).prev_attack_time
+            > 0.0),
+        "cast once it had the mana"
     );
 }
 

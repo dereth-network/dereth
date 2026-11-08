@@ -384,6 +384,59 @@ fn an_items_use_makes_what_its_effect_names_before_its_user() {
     assert!(h.server.things.get(gem).is_none(), "spent");
 }
 
+/// An item whose use names a world's row that makes what this world can't make is refused and
+/// kept: a practice gem whose dummy isn't described is not spent, and its quest doesn't move.
+/// Behaviour: server.makes.nothing-used-up-for-what-cannot-be-made
+#[test]
+fn a_gem_whose_row_makes_what_cannot_be_made_is_refused_and_kept() {
+    use yalain_content::{Prop, Props};
+    const GEM: u32 = 0x4700_1853;
+    const SUMMON: &str = "Eff_Summons";
+    const MISSING: u32 = 0x4700_2DAE;
+    let (mut h, _) = world();
+    let me = h.server.players.values().next().expect("in").character;
+    h.server.death_spawns.insert(
+        SUMMON.into(),
+        DeathSpawn {
+            template: MISSING,
+            count: 1,
+            chance: 1.0,
+            offset: [0.0, 2.0],
+            lasts: None,
+        },
+    );
+    let mut props = Props::default();
+    props
+        .set("Usage_Effect2", Prop::Text(SUMMON.into()))
+        .set("Item_IsDestroyOnUse", Prop::Bool(true));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(GEM, 0x777, props));
+    let world = *h.server.players.keys().next().expect("in");
+    let gem =
+        yalain_world::inventory::give(&mut h.server, &mut h.net, world, GEM, 1).expect("given");
+    h.run(2);
+    let before = living(&h);
+    let from = h.bots[0].inbox.len();
+    uses(&mut h, 0, me, gem);
+    h.run(20);
+    assert_eq!(living(&h), before, "nothing made");
+    assert!(
+        h.server.players[&world]
+            .play
+            .items
+            .iter()
+            .any(|i| i.id == gem),
+        "kept"
+    );
+    assert!(
+        h.texts(0, from)
+            .iter()
+            .any(|(_, t)| *t == yalain_world::pets::text::SUMMONING_FAILS.0),
+        "told"
+    );
+}
+
 /// Sends a use of an item the player holds.
 fn uses(h: &mut Harness, b: usize, me: u64, item: u64) {
     use yalain_world::graph::{Builder, Slot};

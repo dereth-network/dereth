@@ -24,8 +24,8 @@
 //! 3. **Minimise.** `winit` reports `WM_SIZE` as `Resized`, with a zero extent when the window is
 //!    minimised. That zero extent is the only `SIZE_MINIMIZED` signal available, so it is what maps
 //!    to it. A non-zero resize maps to `WM_SIZE` with `SIZE_RESTORED`, which the client's table
-//!    handles by doing nothing at all — **the window is not resizable and the client's window
-//!    procedure has no geometry handling**.
+//!    handles by doing nothing at all — **the client's window procedure has no geometry
+//!    handling**; `App` follows a resize itself.
 
 use winit::keyboard::KeyCode;
 
@@ -172,8 +172,8 @@ mod tests {
         assert!(!p.state.is_active_app);
         assert_eq!(r[0].effects, vec![Effect::Deactivate]);
 
-        // A real resize is handled and changes nothing: the window is not resizable and WndProc has
-        // no geometry handling at all.
+        // A real resize is handled and changes nothing here: WndProc has no geometry handling at
+        // all.
         let before = p.state;
         let r = p.on_window_event(
             &HostEvent::Resized {

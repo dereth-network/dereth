@@ -1001,6 +1001,7 @@ fn a_kills_trip_ends_a_walk_and_leaves_no_use_refused_after_it() {
         creature: yalain_testkit::TEST_CREATURE,
         butchered: false,
         killer_level: 0,
+        ..Default::default()
     });
     h.server.things.insert(corpse);
     h.bots[b].send(

@@ -7,8 +7,8 @@
 //!
 //! With it go two records no install holds, each an enumeration the client's master map names. One
 //! holds the names of the `/ethereality` command's words: without it the client finds no value for
-//! a word and never sends the command. Its values are this server's own
-//! ([`crate::admin_calls::ethereal_value`]): what the original numbered them isn't held. The other
+//! a word and never sends the command. Its names and values are those of the administrators' own
+//! data ([`crate::admin_calls::ethereal_value`]). The other
 //! names the log type of an admin's answers: without it the client shows each answer under an
 //! empty `[]`. Its one name is this server's choice, the channel the client's help calls `Admin`;
 //! what else the original listed isn't held.
@@ -48,10 +48,10 @@ pub const LOG_TYPE_RECORD: u32 = 0x2300_0037;
 
 /// The iteration it goes out as: above any the original data files had, and above the ones before
 /// it, so a client that holds only one of those is sent what it lacks.
-pub const ITERATION: u32 = 9_002;
+pub const ITERATION: u32 = 9_003;
 
-/// The iteration before it, which carried all of it but the log type's names.
-pub const PREVIOUS_ITERATION: u32 = 9_001;
+/// The iteration before it, which carried all of it with other values for the `/ethereality` words.
+pub const PREVIOUS_ITERATION: u32 = 9_002;
 
 /// How many sends the library this server serves changes, at the least: fewer means it is not the
 /// library this was made for.
@@ -75,9 +75,9 @@ pub fn ethereality_record() -> Vec<u8> {
         id: ETHEREALITY_RECORD,
         base: 0,
         names: vec![
-            (ethereal_value::NORMAL, "normal".to_owned()),
-            (ethereal_value::ADMIN, "admin".to_owned()),
-            (ethereal_value::SUPER, "super".to_owned()),
+            (ethereal_value::SUPER, "Super".to_owned()),
+            (ethereal_value::NORMAL, "Normal".to_owned()),
+            (ethereal_value::ADMIN, "Admin".to_owned()),
         ],
     }
     .write(&mut w);
@@ -165,8 +165,8 @@ impl AdminLibrary {
                 &[&packed, &words, &log_type],
                 vec![RECORD, ETHEREALITY_RECORD, LOG_TYPE_RECORD],
             ),
-            newer_begins: begins(&[&log_type], vec![LOG_TYPE_RECORD]),
-            newer_records: vec![ServerMessage::DataRecord(log_type.clone())],
+            newer_begins: begins(&[&words], vec![ETHEREALITY_RECORD]),
+            newer_records: vec![ServerMessage::DataRecord(words.clone())],
             records: vec![
                 ServerMessage::DataRecord(packed),
                 ServerMessage::DataRecord(words),

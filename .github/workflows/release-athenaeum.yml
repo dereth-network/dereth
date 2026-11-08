@@ -25,7 +25,8 @@ permissions:
 
 concurrency:
   group: release-athenaeum-${{ github.ref }}
-  cancel-in-progress: false
+  # A tag can reach this repository twice at once: the newer run takes over, for one build.
+  cancel-in-progress: ${{ github.event_name == 'push' }}
 
 env:
   # The build tools, pinned.
@@ -303,6 +304,12 @@ jobs:
           case "$VERSION" in *-*) PRE="--prerelease" ;; esac
           # Never the repository's "Latest" release: that stays the launcher's and the server's,
           # which players download by hand.
+          # A second draft of one tag can't be told from the first, and GitHub allows it.
+          tags=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq '.[].tag_name')
+          if grep -qxF "$TAG" <<< "$tags"; then
+            echo "::notice::$TAG already has a release"
+            exit 0
+          fi
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --latest=false $PRE \
             --title "Athenaeum $VERSION" --notes-file ../notes.md \
             "${assets[@]}"

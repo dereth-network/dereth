@@ -53,6 +53,7 @@ use empyrean_world::managers::guid_manager;
 use empyrean_world::managers::server_manager;
 use empyrean_world::managers::server_performance_monitor;
 use empyrean_world::managers::world_manager::{self, NetDriver, WorldHost};
+use empyrean_world::managers::world_watch;
 use empyrean_world::managers::{player_manager, property_manager};
 use empyrean_world::network::managers::inbound_message_manager;
 use empyrean_world::World;
@@ -176,7 +177,7 @@ pub fn main(options: &Options) -> ExitCode {
     apply_log_level(&config.server.log_level);
     log_paths(&config, &paths);
     if config.era.profile == empyrean_common::era::EraId::Launch {
-        log::warn!("Launch is experimental: its rules and world are still being checked against 1999, and characters do not move between eras");
+        log::warn!("A Launch world's rules and content are still being checked against 1999, and characters do not move between eras");
     }
 
     // Not ACE (V451): `[federation]` is read before anything starts. A world told to join the
@@ -481,6 +482,7 @@ pub fn main(options: &Options) -> ExitCode {
     log::info!("Initializing EventManager...");
     on_world(&startup, event_manager::initialize);
 
+    let passes = on_world_value(&startup, |w| w.world_manager.passes.clone());
     let (commands, command_rx) = mpsc::channel::<WorldCommand>();
     if startup
         .send(Startup::Go(driver, command_rx, federation))
@@ -488,6 +490,9 @@ pub fn main(options: &Options) -> ExitCode {
     {
         log::error!("The world thread ended during start-up");
         return ExitCode::FAILURE;
+    }
+    if let Some(passes) = passes {
+        watch_the_world(passes, config.server.watchdog_seconds);
     }
 
     // This should be last
@@ -1052,6 +1057,36 @@ fn on_world_value<R: Send + 'static>(
         let _ = tx.send(f(w));
     });
     rx.try_recv().ok()
+}
+
+/// Not ACE (V508): a thread outside the world's that stops the server when the world runs no pass for
+/// `seconds`: the failure's exit, so a service manager starts it again and no staged update goes in.
+/// It can reach nothing the world holds, so each character goes back to its last save.
+fn watch_the_world(passes: world_watch::Passes, seconds: u32) {
+    if seconds == 0 {
+        return;
+    }
+    let spawned = std::thread::Builder::new()
+        .name("World Watch".to_owned())
+        .spawn(move || {
+            world_watch::watch(
+                &passes,
+                seconds,
+                || std::thread::sleep(Duration::from_secs(1)),
+                |stage| {
+                    log::error!(
+                        "THE WORLD HAS RUN NO PASS FOR {seconds} SECONDS, last in {stage}. It is \
+                         stopping: nothing since the last saves can be written, and characters go \
+                         back to them. This is a bug."
+                    );
+                    empyrean_command::console::stop();
+                    std::process::exit(1);
+                },
+            );
+        });
+    if let Err(e) = spawned {
+        log::warn!("The world's watch did not start: {e}");
+    }
 }
 
 /// The world thread's start-up: the steps the main thread hands it, then the loop. Answers

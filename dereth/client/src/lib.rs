@@ -30,6 +30,7 @@ pub mod app;
 // The HUD, with the desktop's platform answers.
 pub mod hud;
 /// Plugins on the desktop: the plugins folder, the stores, and the host in the frame.
+pub mod player_count;
 pub mod plugins;
 
 /// The Dereth client, as a product on the desktop host.
@@ -48,6 +49,12 @@ impl dereth_desktop::Product for Dereth {
     const ICON_PNG: &'static [u8] = include_bytes!("../assets/dereth-256.png");
     /// `dereth_launch::desktop::CLIENT_APP_ID`, which the launcher writes the entry under too.
     const APP_ID: &'static str = "network.dereth.dereth-client";
+    /// Dragged on macOS (client divergence CD-resizable-window); elsewhere the window keeps the
+    /// size its resolution names, as the original's does.
+    const RESIZABLE: bool = cfg!(target_os = "macos");
+    const LOGIN_SIZE: Option<(u32, u32)> = Some(dereth_client_runtime::config::FORCED_LOGIN_SIZE);
+    /// As a Mac's windows go (client divergence CD-mac-window-goes-by-points).
+    const SIZE_IN_POINTS: bool = cfg!(target_os = "macos");
 
     /// The client window's hidden `.desktop` entry and the icon it names, under the user's data
     /// folder, each written only when it is missing or its content differs. A client the launcher

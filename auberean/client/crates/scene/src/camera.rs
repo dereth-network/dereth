@@ -331,6 +331,37 @@ impl Viewer {
     }
 }
 
+/// The camera takes place `placed`, or stays where it stood with none: where it stood becomes where
+/// it stood before, and with `at_once` it was never anywhere else. Placed the first time with no
+/// line to keep it off the world, it takes `unlined`. A frame that isn't one (a number not a number,
+/// or a rotation not of unit length) is no place. The place taken, if any.
+// D2-10647
+pub fn take_place(
+    stands: &mut Option<Stands>,
+    placed: Option<Position>,
+    unlined: Position,
+    at_once: bool,
+) -> Option<Position> {
+    let placed = placed.filter(|at| auberean_physics::geom::frame_is_valid(&at.frame));
+    match (stands.as_mut(), placed) {
+        (Some(s), Some(at)) => {
+            s.set_previous(s.current);
+            s.set_current(at);
+            if at_once {
+                s.set_previous(at);
+            }
+        }
+        (Some(s), None) => s.set_previous(s.current),
+        (None, Some(at)) => *stands = Some(Stands::at(at)),
+        (None, None) => {
+            if auberean_physics::geom::frame_is_valid(&unlined.frame) {
+                *stands = Some(Stands::at(unlined));
+            }
+        }
+    }
+    placed
+}
+
 /// The id no object has.
 pub const NO_OBJECT: u64 = 0;
 

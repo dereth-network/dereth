@@ -74,6 +74,14 @@ Script: one command per line, `#` starts a comment.
   walk <direction> <secs>         hold forward/back/left/right/strafe-left/strafe-right
   use <object-id>                 the Use request for an object
   say <text>                      a chat line, and the lines the chat took
+  request <what> ...              what a panel's button asks: select <target>, swear <target>,
+                                  break <target>, train-skill <skill> <credits>, book-add <target>,
+                                  book-write <target> <page> <text>, book-delete <target> <page>,
+                                  research <class>..., forget-spell <spell>, shortcut-add <target>,
+                                  shortcut-remove <target>, abuse <name> <complaint>,
+                                  map-teleport <x> <y>; a <target> is an id, me, pack:<word> or near:<word>
+  delete <character>              the character screen's Delete (for --connect)
+  formula <spell>                 a spell's components for this account, as request research takes them
   dump events | dump steps        the last frame's event log, or only its steps
   snapshot                        a summary of the game view
   world <landblock>               load a world offline with a body (needs --world)
@@ -89,7 +97,7 @@ Script: one command per line, `#` starts a comment.
   answer yes | answer no          the player's answer to the oldest question on screen
   run <secs>                      frames at the wall clock's pace (for --connect)
   run forever                     the same until stopped (Ctrl+C) or the connection is lost
-  enter <character> [mage]        enter the world as it (for --connect), created if missing
+  enter <character> [mage|archer] enter the world as it (for --connect), created if missing
                                   (a soldier, or with mage a caster; with --era launch,
                                   the 1999 table's own template)
 An <action> is a retail action name (MovementForward, CameraRotateLeft) or an id.";

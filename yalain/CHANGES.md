@@ -7,6 +7,42 @@ what they see, not how it was done.
 
 ## Unreleased
 
+## 0.2.2 (2026-11-07)
+- Resurrection skills work: the dead can accept and get up where they fell.
+- Two more lifestones bind you.
+- New Empyreans and Drudges start with their weapons.
+- Consignments can be restocked.
+- A deleted character's sales leave the broker when it's gone.
+- Corpses last as long as their creature's data says; those with no loot go quickly.
+- A summoning that can't make its pet says so.
+- Items put down now disappear after ten minutes.
+- Fixed a player getting stuck walking to an item that had gone.
+- Mine recipes now have to be made at the mine.
+- Perks can be untrained once a week, and skills on a timer can't be untrained until it ends.
+- Fixed clients using skills they don't have.
+- Fixed asking to attack again changing how fast you swing.
+- A creature's lingering damage, or your own harm, now kills you at no health.
+- A stop now cancels a skill you're still walking to use.
+- Tells to other worlds no longer wait long behind other players' requests.
+- Fixed players being able to keep others out of the world.
+- Sellers at the broker now see their sale when it's bought.
+- Unsold consignments now expire after 11 days and wait at the broker to be collected.
+- Transmutation Master now pays its extra gold.
+- Corpses are locked to the killer and their fellows until first opened or for two minutes.
+- Fellowships' looting methods now work.
+- Examining a corpse says who may loot it and who first did.
+- Characters who aren't heroes stop at level 50.
+- Stuns, slows and roots leave their target immune for a minute.
+- Patrons no longer earn from their vassals' quests.
+- A vassal's new level now pays its patron what it has earned.
+- Two fellows who both hit a group creature earn more from it.
+- Portals now refuse players below their level.
+- From level 50, creatures far above you pay less a level sooner.
+- Expert butchery cuts now come with skill, not the creature's level.
+- Fixed summoning skills and contracts making no pet, and dye plants, practice gems and gifts giving nothing.
+- Only a Tessera gives a hero skill credit now.
+- What can't be made no longer uses up your item.
+
 ## 0.2.1 (2026-11-05)
 - Fixed sold consignments still showing as in stock.
 - Sellers in the world now get a reminder when their sale is bought.

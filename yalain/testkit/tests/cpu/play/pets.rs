@@ -1596,3 +1596,50 @@ fn another_players_pet_takes_no_harm_while_its_owner_may_not_be_harmed() {
         "peace ends the fight"
     );
 }
+
+/// A creature a pet kills is its owner's kill, and so is its corpse: the owner may open it and
+/// another may not.
+/// Behaviour: server.loot.a-pets-kill-is-its-owners
+#[test]
+fn a_corpse_a_pet_made_opens_to_its_owner_and_not_to_another() {
+    let mut h = Harness::new();
+    let (b, me, pet) = with_lasher(&mut h);
+    let beetle = beetle(&mut h);
+    if let Some(t) = h.server.things.get_mut(beetle) {
+        t.health = 1;
+        t.max_health = 1;
+    }
+    let (_, oid) = h.player_in_world("two", "Bystander");
+    pet_strike_seen(&mut h, b, pet, beetle);
+    let there = |h: &Harness| {
+        h.server
+            .things
+            .by_id
+            .values()
+            .find(|t| t.corpse.as_ref().is_some_and(|c| c.originator == beetle))
+            .map(|t| t.id)
+    };
+    assert!(h.run_until(2000, |h| there(h).is_some()), "a corpse");
+    let corpse = there(&h).expect("a corpse");
+    assert_eq!(
+        h.server
+            .things
+            .get(corpse)
+            .and_then(|t| t.corpse.as_ref())
+            .map(|c| c.killer),
+        Some(me),
+        "the owner's kill"
+    );
+    let at = h
+        .server
+        .things
+        .get(corpse)
+        .and_then(|t| t.at)
+        .expect("placed");
+    for p in h.server.players.values_mut() {
+        p.position = at;
+    }
+    let now = h.now.0;
+    assert!(!yalain_world::death::may_loot(&h.server, oid, corpse, now));
+    assert!(yalain_world::death::may_loot(&h.server, me, corpse, now));
+}

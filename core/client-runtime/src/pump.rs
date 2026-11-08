@@ -119,7 +119,7 @@ impl Pump {
                 ),
             ],
 
-            // The window is not resizable; a zero extent is the minimise signal.
+            // The window procedure has no geometry handling; a zero extent is the minimise signal.
             HostEvent::Resized { width, height } => {
                 let minimized = *width == 0 || *height == 0;
                 one(
@@ -127,8 +127,8 @@ impl Pump {
                     if minimized { msg::SIZE_MINIMIZED } else { 0 },
                 )
             }
-            // `WM_DPICHANGED` reaches no arm of the window message table: the client's window is
-            // not resizable and the negotiation happens inside the host. `App` reads it directly.
+            // `WM_DPICHANGED` reaches no arm of the window message table: the negotiation happens
+            // inside the host. `App` reads it directly.
             HostEvent::ScaleFactorChanged => Vec::new(),
         }
     }

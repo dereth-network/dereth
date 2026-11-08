@@ -47,11 +47,13 @@ pub fn all() -> Vec<(Slot, Box<dyn HifiPass>)> {
         // Over the lit world, the bed under it lit and occluded, before the anti-aliasing keeps
         // the picture the translucent draws are laid over.
         (Slot::Opaque, Box::new(water::pass())),
+        // Over the lit world and its water, under the translucent draws, which keep their own
+        // fog: smoke before far trees is not faded by the trees' distance.
+        (Slot::Opaque, Box::new(air)),
         // Once the opaque world is lit.
         (Slot::Opaque, Box::new(taa_keep)),
         (Slot::AlphaReplay, Box::new(taa_translucent)),
         (Slot::Atmosphere, Box::new(gtao::Gtao::late())),
-        (Slot::Atmosphere, Box::new(air)),
         // Once the air is drawn over the world: the weather falls over the blended picture,
         // where the streaks of rain and the flakes of snow move too fast to follow.
         (Slot::Atmosphere, Box::new(taa_resolve)),

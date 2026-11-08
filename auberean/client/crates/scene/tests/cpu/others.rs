@@ -117,10 +117,22 @@ fn run(stop_at: f64, until: f64) -> (Vec<(f64, Vec3, f32)>, OtherBody) {
             let y = 20.0 + 6.5 * s as f32;
             stamp += 1;
             if next >= stop_at {
-                b.receive(&place(70.0, y, 90.0, 0.0, s, stamp), None, true);
+                b.receive(
+                    &place(70.0, y, 90.0, 0.0, s, stamp),
+                    None,
+                    true,
+                    &land,
+                    &mut w,
+                );
                 stopped = true;
             } else {
-                b.receive(&place(70.0, y, 0.0, 1.0, s, stamp), None, true);
+                b.receive(
+                    &place(70.0, y, 0.0, 1.0, s, stamp),
+                    None,
+                    true,
+                    &land,
+                    &mut w,
+                );
             }
             next += EVERY;
         }
@@ -203,7 +215,7 @@ fn far_reports_and_stuck_bodies_are_put_in_place() {
     let mut b = OtherBody::new(7, config(), position_of(&start), 0.0, (1, 0));
     let far = place(70.0, 40.0, 180.0, 1.0, 0.05, 2);
     assert_eq!(
-        b.receive(&far, None, true),
+        b.receive(&far, None, true, &land, &mut w),
         Received::Taken,
         "a newer position is taken"
     );
@@ -212,13 +224,19 @@ fn far_reports_and_stuck_bodies_are_put_in_place() {
     assert!((h - 180.0).abs() < 1.0, "facing south: {h}");
     assert!(!b.body.minterp.is_interpolating(), "nothing to follow");
     assert!(
-        b.receive(&place(70.0, 39.0, 0.0, 0.0, 0.1, 2), None, true) == Received::Ignored,
+        b.receive(
+            &place(70.0, 39.0, 0.0, 0.0, 0.1, 2),
+            None,
+            true,
+            &land,
+            &mut w
+        ) == Received::Ignored,
         "the same stamp again is ignored"
     );
     // Sent running south, then silent: it runs on past the position, and 2 s on is put back.
     let mut g = OtherBody::new(8, config(), position_of(&start), 180.0, (1, 0));
     let last = place(70.0, 19.0, 180.0, 1.0, 0.1, 2);
-    g.receive(&last, None, true);
+    g.receive(&last, None, true, &land, &mut w);
     let mut ticker = Ticker::new(0.1);
     let mut t = 0.1;
     let mut farthest = 0.0f32;
@@ -265,14 +283,15 @@ fn objects_in_cells_not_loaded_wait_out_of_the_world() {
     );
     let start = place(70.0, 20.0, 0.0, 0.0, 0.0, 1);
     let mut b = OtherBody::new(7, config(), position_of(&start), 0.0, (1, 0));
+    let mut w = World::new();
     let mut far = place(70.0, 60.0, 90.0, 1.0, 0.3, 2);
     far.cell = 0x4240_0003;
     assert!(matches!(
-        b.receive(&far, None, loaded(far.cell, Some(here))),
+        b.receive(&far, None, loaded(far.cell, Some(here)), &land, &mut w),
         Received::Lost(_)
     ));
     assert!(!b.in_world(), "out of the world");
-    b.re_enter_visibility();
+    b.re_enter_visibility(&land, &mut w);
     assert!(b.in_world());
     assert_eq!(b.body.position.cell.0, 0x4240_0003, "where it was sent");
     let (_, h) = b.drawn(0.5);
@@ -316,6 +335,7 @@ fn made(entity: u32) -> auberean_client_sdk::model::Object {
         id: 0x5000_0001,
         instance_stamp: 0,
         visual: VisualDesc::default(),
+        visual_updates: 0,
         physics: PhysicsDesc::default(),
         weenie: WeenieDesc {
             entity_did: entity,
@@ -333,6 +353,25 @@ fn made(entity: u32) -> auberean_client_sdk::model::Object {
         qualities: auberean_client_sdk::model::Qualities::default(),
         reports: Vec::new(),
     }
+}
+
+/// A description the server sends again counts as sent again, though nothing in it changed: retail
+/// applies it, so the object's effects play again. A changed one goes the way of a new look, and
+/// one already taken is not sent again.
+///
+/// Behaviour: desktop.looks.a-look-sent-again-plays-its-effects-again
+#[test]
+fn a_look_sent_again_plays_its_effects_again() {
+    use auberean_scene::others::sent_again;
+    let mut o = made(1);
+    let taken = o.visual.clone();
+    assert!(!sent_again(Some(&taken), 0, &o), "nothing sent since");
+    o.visual_updates = 1;
+    assert!(sent_again(Some(&taken), 0, &o), "the same one again");
+    assert!(!sent_again(Some(&taken), 1, &o), "already taken");
+    assert!(!sent_again(None, 0, &o), "no look taken yet");
+    o.visual.bits ^= 1;
+    assert!(!sent_again(Some(&taken), 0, &o), "a changed one");
 }
 
 /// An object's body takes the profile its qualities give, asked as the object answers them: its
@@ -507,7 +546,10 @@ fn an_object_moves_as_its_qualities_record_says() {
     for mobile in [true, false] {
         let mut b = OtherBody::new(7, config(), position_of(&at), 0.0, (1, 0));
         b.body.set_mobile(mobile);
-        assert_eq!(b.receive(&to, None, true), Received::Taken);
+        assert_eq!(
+            b.receive(&to, None, true, &land, &mut table),
+            Received::Taken
+        );
         for i in 1..=30 {
             b.tick(&land, &mut table, &mut NoObjects, 0.1 * f64::from(i));
         }
@@ -543,7 +585,7 @@ fn a_moving_body_past_the_range_stops_until_a_position_comes() {
     assert!(!ob.in_range);
     let again = place(70.0, 70.0, 0.0, 0.0, 2.0, 2);
     assert!(matches!(
-        ob.receive(&again, Some(&near), true),
+        ob.receive(&again, Some(&near), true, &world(), &mut World::new()),
         Received::Taken
     ));
     assert!(ob.in_range);
@@ -675,4 +717,226 @@ fn an_animations_jump_lifts_another_body() {
     assert!(b.body.is_movement_active(), "awake");
     assert!(b.body.velocity.z > 6.0, "up at the jump impulse");
     assert!(f.triggers.impulses.is_empty(), "it fires once");
+}
+
+/// A body standing on the ground and put in the air falls: its placement touches only what is
+/// there.
+///
+/// Behaviour: desktop.others.a-body-put-in-the-air-falls
+#[test]
+fn a_body_put_in_the_air_falls() {
+    let land = world();
+    let mut w = World::new();
+    let start = place(70.0, 20.0, 0.0, 0.0, 0.0, 1);
+    let mut b = OtherBody::new(7, config(), position_of(&start), 0.0, (1, 0));
+    let mut t = 0.0;
+    for _ in 0..5 {
+        t += 0.1;
+        b.tick(&land, &mut w, &mut NoObjects, t);
+    }
+    assert!(b.body.contact, "it stands on the ground");
+    let mut up = place(70.0, 25.0, 0.0, 0.0, t, 2);
+    up.origin.z = GROUND_Z + 3.0;
+    up.teleport_stamp = 1;
+    let player = position_of(&start);
+    assert_eq!(
+        b.receive(&up, Some(&player), true, &land, &mut w),
+        Received::Taken,
+        "a teleport is taken"
+    );
+    assert!((b.body.position.frame.origin.z - (GROUND_Z + 3.0)).abs() < 1e-3);
+    assert!(!b.body.contact, "put in the air, it touches nothing");
+    for _ in 0..30 {
+        t += 0.1;
+        b.tick(&land, &mut w, &mut NoObjects, t);
+    }
+    assert!(b.body.contact, "it landed");
+    assert!((b.body.position.frame.origin.z - GROUND_Z).abs() < 1e-3);
+}
+
+/// A body new in the world's table and made in the air falls.
+///
+/// Behaviour: desktop.others.a-body-put-in-the-air-falls
+#[test]
+fn a_body_made_in_the_air_falls_once_it_stands_in_the_table() {
+    let land = world();
+    let mut w = World::new();
+    let mut at = position_of(&place(70.0, 20.0, 0.0, 0.0, 0.0, 1));
+    at.frame.origin.z = GROUND_Z + 3.0;
+    let mut b = OtherBody::new(7, config(), at, 0.0, (1, 0));
+    w.insert_body(&land, 7, &mut b.body);
+    b.settle(&land, &mut w);
+    assert!(!b.body.contact, "it touches nothing");
+}
+
+/// A body put where another stands takes a free spot nearby.
+///
+/// Behaviour: desktop.others.a-body-put-on-another-takes-a-free-spot
+#[test]
+fn a_body_put_on_another_takes_a_free_spot() {
+    let land = world();
+    let mut w = World::new();
+    let spot = place(90.0, 90.0, 0.0, 0.0, 0.0, 1);
+    let mut d = OtherBody::new(9, config(), position_of(&spot), 0.0, (1, 0));
+    let mut e = OtherBody::new(
+        10,
+        config(),
+        position_of(&place(110.0, 90.0, 0.0, 0.0, 0.0, 1)),
+        0.0,
+        (1, 0),
+    );
+    w.insert_body(&land, 9, &mut d.body);
+    w.insert_body(&land, 10, &mut e.body);
+    let mut on = place(90.0, 90.0, 0.0, 0.0, 0.1, 2);
+    on.teleport_stamp = 1;
+    e.receive(&on, None, true, &land, &mut w);
+    let (a, b) = (e.body.position.frame.origin, d.body.position.frame.origin);
+    let apart = ((a.x - b.x).powi(2) + (a.y - b.y).powi(2)).sqrt();
+    assert!(apart > 0.5, "{apart} m apart");
+}
+
+/// A position more than 15 m away, with no teleport, is placed too.
+///
+/// Behaviour: desktop.others.a-body-put-in-the-air-falls
+#[test]
+fn a_far_position_is_placed_like_a_teleport() {
+    let land = world();
+    let mut w = World::new();
+    let start = place(70.0, 20.0, 0.0, 0.0, 0.0, 1);
+    let mut b = OtherBody::new(7, config(), position_of(&start), 0.0, (1, 0));
+    b.tick(&land, &mut w, &mut NoObjects, 0.1);
+    let mut far = place(70.0, 60.0, 0.0, 0.0, 0.2, 2);
+    far.origin.z = GROUND_Z + 3.0;
+    b.receive(&far, None, true, &land, &mut w);
+    assert!(!b.body.contact, "put in the air, it touches nothing");
+}
+
+/// A body following a position it can't reach is put there when it gives up, and if that is in the
+/// air it falls.
+///
+/// Behaviour: desktop.others.a-body-put-in-the-air-falls
+#[test]
+fn a_body_put_where_it_could_not_follow_falls() {
+    let land = world();
+    let mut w = World::new();
+    let start = place(70.0, 20.0, 0.0, 0.0, 0.0, 1);
+    let mut b = OtherBody::new(7, config(), position_of(&start), 0.0, (1, 0));
+    let mut up = place(70.0, 20.0, 0.0, 0.0, 0.1, 2);
+    up.origin.z = GROUND_Z + 5.0;
+    let player = position_of(&start);
+    b.receive(&up, Some(&player), true, &land, &mut w);
+    let mut t = 0.1;
+    let mut highest = GROUND_Z;
+    for _ in 0..200 {
+        t += 0.1;
+        b.tick(&land, &mut w, &mut NoObjects, t);
+        highest = highest.max(b.body.position.frame.origin.z);
+    }
+    assert!(highest > GROUND_Z + 4.0, "it was put up there: {highest}");
+    assert!(b.body.contact, "it landed");
+    let z = b.body.position.frame.origin.z;
+    assert!((z - GROUND_Z).abs() < 1e-3, "on the ground: {z}");
+}
+
+/// A position at (70, 70) facing north that carries a jump, up at the player races' impulse.
+fn jump_at(time: f64, stamp: u16) -> Place {
+    let mut j = place(70.0, 70.0, 0.0, 0.0, time, stamp);
+    j.flags |= auberean_client_sdk::protocol::physics::position_flags::JUMP;
+    j.velocity = Vec3::new(0.0, 0.0, 6.26);
+    j
+}
+
+/// A jump sent for another body that has stood long enough lifts it at once, along the arc a body
+/// jumping in place follows: heights over the ground each 0.1 s tick, the same as the final client
+/// draws for such a body. It keeps its heading, and the reports of the jumper in the air don't
+/// pull it off the arc. It lands where it rose.
+///
+/// Behaviour: desktop.others.a-jump-sent-for-another-body-lifts-it
+#[test]
+fn a_jump_sent_for_another_body_lifts_it() {
+    const ARC: [f32; 12] = [
+        0.577, 1.056, 1.437, 1.720, 1.905, 1.991, 1.980, 1.871, 1.663, 1.358, 0.955, 0.453,
+    ];
+    let land = world();
+    let mut w = World::new();
+    let start = place(70.0, 70.0, 0.0, 0.0, 0.0, 1);
+    let mut b = OtherBody::new(7, config(), position_of(&start), 0.0, (1, 0));
+    // Time on the ground runs only while the body's movement does.
+    b.body.time_on_ground = 2.0;
+    let mut now = 1.0;
+    b.tick(&land, &mut w, &mut NoObjects, now);
+    assert!(b.body.contact, "it stands on the ground");
+
+    assert_eq!(
+        b.receive(&jump_at(now, 2), None, true, &land, &mut w),
+        Received::Taken
+    );
+    let mut stamp = 3;
+    for (i, want) in ARC.iter().enumerate() {
+        now += 0.1;
+        b.tick(&land, &mut w, &mut NoObjects, now);
+        let up = b.body.position.frame.origin.z - GROUND_Z;
+        assert!((up - want).abs() < 0.005, "tick {i}: {up}, not {want}");
+        assert!(!b.body.contact, "tick {i}: off the ground");
+        assert!(
+            b.body.heading.abs() < 0.5,
+            "tick {i}: turned to {}",
+            b.body.heading
+        );
+        if i % 2 == 1 {
+            let mut air = place(70.0, 70.0, 0.0, 0.0, now, stamp);
+            air.origin.z = GROUND_Z + want;
+            b.receive(&air, None, true, &land, &mut w);
+            stamp += 1;
+        }
+    }
+    now += 0.1;
+    b.tick(&land, &mut w, &mut NoObjects, now);
+    assert!(b.body.contact, "down again");
+    assert!((b.body.position.frame.origin.z - GROUND_Z).abs() < 0.001);
+    assert!((b.body.position.frame.origin.x - 70.0).abs() < 0.01);
+    assert!((b.body.position.frame.origin.y - 70.0).abs() < 0.01);
+}
+
+/// A jump sent for a body with under half a second on the ground, counting only the ticks its
+/// movement ran, does not lift it. It stays on the ground, as it does in the final client. Those
+/// ticks then count, so the next jump sent lifts it.
+///
+/// Behaviour: desktop.others.a-jump-too-soon-does-not-lift-another-body
+#[test]
+fn a_jump_too_soon_does_not_lift_another_body() {
+    let land = world();
+    let mut w = World::new();
+    let start = place(70.0, 70.0, 0.0, 0.0, 0.0, 1);
+    let mut b = OtherBody::new(7, config(), position_of(&start), 0.0, (1, 0));
+    let mut now = 1.0;
+    b.tick(&land, &mut w, &mut NoObjects, now);
+
+    b.receive(&jump_at(now, 2), None, true, &land, &mut w);
+    let mut stamp = 3;
+    for i in 0..20 {
+        now += 0.1;
+        b.tick(&land, &mut w, &mut NoObjects, now);
+        assert!(b.body.contact, "tick {i}: on the ground");
+        assert!((b.body.position.frame.origin.z - GROUND_Z).abs() < 0.001);
+        if i % 2 == 1 && i < 14 {
+            // The jumper rises and falls in its reports; this body only turns to follow.
+            let mut air = place(70.0, 70.0, 0.0, 0.0, now, stamp);
+            air.origin.z = GROUND_Z + 1.5;
+            b.receive(&air, None, true, &land, &mut w);
+            stamp += 1;
+        }
+    }
+    assert!(
+        b.body.time_on_ground >= 0.5,
+        "following counted as standing"
+    );
+
+    b.receive(&jump_at(now, stamp), None, true, &land, &mut w);
+    for _ in 0..5 {
+        now += 0.1;
+        b.tick(&land, &mut w, &mut NoObjects, now);
+    }
+    assert!(!b.body.contact, "the next one lifts it");
+    assert!(b.body.position.frame.origin.z - GROUND_Z > 1.5);
 }
