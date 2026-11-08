@@ -827,7 +827,8 @@ impl WorldState {
         self.environment_override.snapshot().transition
     }
 
-    /// The current in-game time, for the log line and the tests: `(year, day, time of day)`.
+    /// The current in-game time, for the log line, the moons' phases and the tests: `(year, day,
+    /// time of day)`.
     #[must_use]
     pub fn game_time(&self) -> (u32, u32, f32) {
         (
