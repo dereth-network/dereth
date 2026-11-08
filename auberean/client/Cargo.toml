@@ -49,6 +49,9 @@ dereth-console.workspace = true
 dereth-clipboard.workspace = true
 # The local time for the scripts' chat log.
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+# Passing a world's count of players on to the Dereth Network's list of worlds.
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+serde_json.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 winit = { workspace = true, features = ["rwh_06", "x11", "wayland", "wayland-dlopen", "wayland-csd-adwaita"] }

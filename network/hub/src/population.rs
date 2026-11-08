@@ -2,14 +2,15 @@
 //! (`docs/network/05-hub.md` section 1, "How many players a world has").
 //!
 //! A world's own word comes first: what it said when the hub asked it ([`crate::ping`]), then its
-//! heartbeat. A world with neither has what the Dereth clients that logged in to it were told at
-//! login, then TreeStats' public count. Each source counts for its own lifetime, and the first in
-//! that order still counting is the one listed, with its name and its age in seconds.
+//! heartbeat. A world with neither has what the clients that logged in to it were told there (a
+//! Dereth client at login; an Auberean client when the world says so in a line of text), then, for
+//! a world of Asheron's Call, TreeStats' public count. Each source counts for its own lifetime, and
+//! the first in that order still counting is the one listed, with its name and its age in seconds.
 //!
 //! **What a client's report proves.** Nothing a liar could not forge: a world signs nothing a client
 //! could pass on, and the client's source is public. So a report is held to a plain rule instead:
-//! it names the address and port of a listed world, it can never be listed over the world's own
-//! word, it does not reach the totals, the order of the lists or the compatibility feeds, and each
+//! it names the address and port of a listed world of the client's game, it can never be listed
+//! over the world's own word, it does not reach the totals, the order of the lists or the compatibility feeds, and each
 //! address has only a few. What is kept is the latest count and its time, for each world, in memory
 //! only; the address is kept only as the limit's counter, for as long as that limit lasts, and is
 //! never written or logged.
@@ -21,6 +22,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime};
 
 use dereth_network_protocol::limits::Rate;
+use dereth_network_protocol::Game;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -40,6 +42,9 @@ pub const TREESTATS_COUNTS_FOR: Duration = Duration::from_secs(6 * 3600);
 
 /// The most players a report or a TreeStats row may say a world has; past it, the row is no count.
 pub const MOST_PLAYERS: u32 = 5_000;
+
+/// The most host names one report that names an address has looked up, to find its world.
+pub const MOST_NAMES_LOOKED_UP: usize = 16;
 
 /// Reports for the whole hub together: two hundred at once, then five a second.
 pub const OVERALL: Rate = Rate {
@@ -90,21 +95,26 @@ fn name_key(name: &str) -> String {
         .collect()
 }
 
-/// Whether `world` (a public listing) plays the game Dereth clients report on.
-fn is_dereth(world: &Value) -> bool {
+/// The game `world` (a public listing) plays: one that names none plays Asheron's Call.
+fn game_of(world: &Value) -> Option<Game> {
     world["game"]
         .as_str()
-        .is_none_or(|g| g == dereth_network_protocol::Game::Dereth.word())
+        .map_or(Some(Game::Dereth), |g| g.parse().ok())
 }
 
-/// Whether `world` (a public listing) is the Dereth world at `host` and `port`.
-fn is_at(world: &Value, host: &str, port: u16) -> bool {
-    is_dereth(world)
-        && world.pointer("/endpoint/port").and_then(Value::as_u64) == Some(u64::from(port))
-        && world
-            .pointer("/endpoint/address")
-            .and_then(Value::as_str)
-            .is_some_and(|a| a.trim().eq_ignore_ascii_case(host))
+/// The address and port `world` (a public listing) is played at, when it is a world of `game`.
+fn endpoint_of(world: &Value, game: Game) -> Option<(&str, u16)> {
+    if game_of(world) != Some(game) {
+        return None;
+    }
+    let port = world.pointer("/endpoint/port").and_then(Value::as_u64)?;
+    let address = world.pointer("/endpoint/address").and_then(Value::as_str)?;
+    Some((address.trim(), u16::try_from(port).ok()?))
+}
+
+/// Whether `world` (a public listing) is the world of `game` at `host` and `port`.
+fn is_at(world: &Value, game: Game, host: &str, port: u16) -> bool {
+    endpoint_of(world, game).is_some_and(|(a, p)| p == port && a.eq_ignore_ascii_case(host))
 }
 
 /// The world's own word: what it said when the hub asked it, then its heartbeat.
@@ -129,8 +139,9 @@ fn own_word(world: &Value, now: SystemTime) -> Option<Value> {
 /// What is known of each world's count beside its own word, in memory only.
 #[derive(Debug)]
 pub struct Counts {
-    /// The latest report for each world, by its slug.
-    reports: Mutex<HashMap<String, Count>>,
+    /// The latest report for each world, by its game and slug, so a report for a world of one
+    /// game is never another game's, even under a slug that changed hands.
+    reports: Mutex<HashMap<(Game, String), Count>>,
     /// TreeStats' latest count for each name ([`name_key`]).
     treestats: Mutex<HashMap<String, Count>>,
     limits: Limits,
@@ -147,23 +158,24 @@ impl Counts {
         }
     }
 
-    fn report(&self, slug: &str) -> Option<Count> {
+    fn report(&self, game: Game, slug: &str) -> Option<Count> {
         self.reports
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .get(slug)
+            .get(&(game, slug.to_owned()))
             .copied()
     }
 
-    /// A report that `slug` has `players` at `at`, in place of the last. Reports past their
-    /// lifetime are forgotten, so a world no longer listed leaves nothing behind.
-    pub fn record_report(&self, slug: &str, players: u32, at: SystemTime) {
+    /// A report that `slug`, a world of `game`, has `players` at `at`, in place of the last.
+    /// Reports past their lifetime are forgotten, so a world no longer listed leaves nothing
+    /// behind.
+    pub fn record_report(&self, game: Game, slug: &str, players: u32, at: SystemTime) {
         let mut reports = self
             .reports
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         reports.retain(|_, c| c.at + CLIENT_COUNTS_FOR > at);
-        reports.insert(slug.to_owned(), Count { players, at });
+        reports.insert((game, slug.to_owned()), Count { players, at });
     }
 
     /// TreeStats' answer just read, in place of the last.
@@ -177,13 +189,15 @@ impl Counts {
             .collect();
     }
 
-    /// A count from what is known beside the world's own word, for a world of Dereth.
+    /// A count from what is known beside the world's own word: its clients' reports, then, for a
+    /// world of Asheron's Call, TreeStats'.
     fn borrowed(&self, world: &Value, now: SystemTime) -> Option<Value> {
-        if !is_dereth(world) {
-            return None;
-        }
-        let report = self.report(world["slug"].as_str()?);
+        let game = game_of(world)?;
+        let report = self.report(game, world["slug"].as_str()?);
         listed(report, "client", CLIENT_COUNTS_FOR, now).or_else(|| {
+            if !game.is_dereth() {
+                return None;
+            }
             let name = name_key(world["name"].as_str()?);
             let treestats = self
                 .treestats
@@ -214,12 +228,15 @@ struct Report {
     host: String,
     port: u16,
     players: u32,
+    /// The game the client plays: a report that names none is a Dereth client's.
+    #[serde(default)]
+    game: Game,
 }
 
 /// Reads a report, held to what a report may say.
 fn read_report(body: &[u8]) -> Result<Report, String> {
-    let mut r: Report =
-        serde_json::from_slice(body).map_err(|_| "Expected {host, port, players}".to_owned())?;
+    let mut r: Report = serde_json::from_slice(body)
+        .map_err(|_| "Expected {host, port, players} and an optional game".to_owned())?;
     r.host = r.host.trim().to_owned();
     if r.host.is_empty() || r.host.len() > 253 {
         return Err("host: an address of at most 253 characters".to_owned());
@@ -233,14 +250,55 @@ fn read_report(body: &[u8]) -> Result<Report, String> {
     Ok(r)
 }
 
-/// The slugs of the worlds at `host` and `port`, among `worlds` (the public listings). A world is
-/// named by where the client connected, so two listings of one address each take the report.
-fn slugs_at(worlds: &[Value], host: &str, port: u16) -> Vec<String> {
+/// The slugs of the worlds of `game` at `host` and `port`, among `worlds` (the public listings). A
+/// world is named by where the client connected, so two listings of one address each take the
+/// report.
+fn slugs_at(worlds: &[Value], game: Game, host: &str, port: u16) -> Vec<String> {
     worlds
         .iter()
-        .filter(|w| is_at(w, host, port))
+        .filter(|w| is_at(w, game, host, port))
         .filter_map(|w| Some(w["slug"].as_str()?.to_owned()))
         .collect()
+}
+
+/// The slugs of the worlds of `game` listed by a host name at `port` whose name `look_up` finds at
+/// `ip`: a client given the address its world's name stands for reports that address. At most
+/// [`MOST_NAMES_LOOKED_UP`] names are looked up; `look_up` answers none for a name it cannot find,
+/// or not in time.
+fn slugs_resolving_to(
+    worlds: &[Value],
+    game: Game,
+    ip: IpAddr,
+    port: u16,
+    mut look_up: impl FnMut(&str) -> Vec<IpAddr>,
+) -> Vec<String> {
+    let ip = crate::forwarded::canonical(ip);
+    let mut looked_up: HashMap<String, bool> = HashMap::new();
+    let mut slugs = Vec::new();
+    for w in worlds {
+        let Some((name, p)) = endpoint_of(w, game) else {
+            continue;
+        };
+        if p != port || name.trim_matches(['[', ']']).parse::<IpAddr>().is_ok() {
+            continue;
+        }
+        let name = name.to_ascii_lowercase();
+        let there = match looked_up.get(&name) {
+            Some(&there) => there,
+            None if looked_up.len() < MOST_NAMES_LOOKED_UP => {
+                let there = look_up(&name)
+                    .into_iter()
+                    .any(|a| crate::forwarded::canonical(a) == ip);
+                looked_up.insert(name, there);
+                there
+            }
+            None => false,
+        };
+        if there {
+            slugs.extend(w["slug"].as_str().map(str::to_owned));
+        }
+    }
+    slugs
 }
 
 /// A client's report: anything well-formed is answered alike, whether or not it named a world.
@@ -273,8 +331,25 @@ pub(crate) fn handle(shared: &Shared, method: &str, body: &[u8], ip: IpAddr) -> 
         Ok(underway) => drop(underway),
         Err(refused) => return crate::server::too_many(refused.wait, crate::api::Cors::Any),
     }
-    for slug in slugs_at(&shared.public_worlds(), &report.host, report.port) {
-        shared.counts.record_report(&slug, report.players, at);
+    let worlds = shared.public_worlds();
+    let mut slugs = slugs_at(&worlds, report.game, &report.host, report.port);
+    if slugs.is_empty() {
+        if let Ok(ip) = report.host.trim_matches(['[', ']']).parse::<IpAddr>() {
+            // The names looked up share one deadline, so a report never waits longer than one.
+            let until = Instant::now() + shared.config.resolve_deadline;
+            slugs = slugs_resolving_to(&worlds, report.game, ip, report.port, |name| {
+                let left = until.saturating_duration_since(Instant::now());
+                match shared.resolver.resolve_within(name, left) {
+                    crate::resolver::Resolved::Found(found) => found,
+                    crate::resolver::Resolved::Unknown => Vec::new(),
+                }
+            });
+        }
+    }
+    for slug in slugs {
+        shared
+            .counts
+            .record_report(report.game, &slug, report.players, at);
     }
     reply(200, json!({}))
 }
@@ -422,7 +497,7 @@ mod tests {
             json!({"players": 630, "source": "treestats", "ageSeconds": 2000})
         );
 
-        counts.record_report("coldeve", 12, at(NOW - 40));
+        counts.record_report(Game::Dereth, "coldeve", 12, at(NOW - 40));
         assert_eq!(
             population(&counts, &mut w, NOW),
             json!({"players": 12, "source": "client", "ageSeconds": 40})
@@ -449,7 +524,7 @@ mod tests {
     fn a_stale_count_gives_way_and_then_leaves_the_list() {
         let counts = counts();
         let mut w = world("coldeve", "Coldeve");
-        counts.record_report("coldeve", 12, at(NOW));
+        counts.record_report(Game::Dereth, "coldeve", 12, at(NOW));
         treestats(&counts, "Coldeve", 630, NOW);
 
         let lasts = CLIENT_COUNTS_FOR.as_secs();
@@ -468,8 +543,8 @@ mod tests {
     fn the_latest_report_is_the_count() {
         let counts = counts();
         let mut w = world("coldeve", "Coldeve");
-        counts.record_report("coldeve", 12, at(NOW));
-        counts.record_report("coldeve", 3, at(NOW + 1));
+        counts.record_report(Game::Dereth, "coldeve", 12, at(NOW));
+        counts.record_report(Game::Dereth, "coldeve", 3, at(NOW + 1));
         assert_eq!(population(&counts, &mut w, NOW + 1)["players"], 3);
     }
 
@@ -478,60 +553,184 @@ mod tests {
     #[test]
     fn an_old_report_leaves_nothing_behind() {
         let counts = counts();
-        counts.record_report("gone", 12, at(NOW));
-        counts.record_report("coldeve", 3, at(NOW + CLIENT_COUNTS_FOR.as_secs()));
-        assert!(counts.report("gone").is_none());
+        counts.record_report(Game::Dereth, "gone", 12, at(NOW));
+        counts.record_report(
+            Game::Dereth,
+            "coldeve",
+            3,
+            at(NOW + CLIENT_COUNTS_FOR.as_secs()),
+        );
+        assert!(counts.report(Game::Dereth, "gone").is_none());
     }
 
-    /// Spec: hub: a world that says it is offline has no count, and a world of another game takes
-    /// neither a client's nor TreeStats'.
+    fn ac2_world(slug: &str, name: &str) -> Value {
+        let mut w = world(slug, name);
+        w["game"] = "auberean".into();
+        w
+    }
+
+    /// Spec: hub: a world that says it is offline has no count.
     #[test]
-    fn an_offline_world_and_another_games_world_have_no_borrowed_count() {
+    fn an_offline_world_has_no_borrowed_count() {
         let counts = counts();
-        counts.record_report("coldeve", 12, at(NOW));
+        counts.record_report(Game::Dereth, "coldeve", 12, at(NOW));
         let mut off = world("coldeve", "Coldeve");
         off["status"]["state"] = "offline".into();
         assert_eq!(population(&counts, &mut off, NOW), Value::Null);
+    }
 
+    /// Spec: hub: a world of Asheron's Call 2 takes its own clients' reports and never TreeStats',
+    /// a report for one game never lands on a world of the other, and a linked world's own word
+    /// goes first in either game.
+    #[test]
+    fn a_world_of_asherons_call_2_takes_its_clients_reports_and_never_treestats() {
+        let counts = counts();
+        let mut ironwood = ac2_world("ironwood", "Ironwood");
         treestats(&counts, "Ironwood", 5, NOW);
-        counts.record_report("ironwood", 12, at(NOW));
-        let mut other = world("ironwood", "Ironwood");
-        other["game"] = "auberean".into();
-        assert_eq!(population(&counts, &mut other, NOW), Value::Null);
-        other["status"] = json!({"state": "online", "playersOnline": 2,
+        counts.record_report(Game::Dereth, "ironwood", 12, at(NOW));
+        assert_eq!(
+            population(&counts, &mut ironwood, NOW),
+            Value::Null,
+            "neither TreeStats' count nor a Dereth client's"
+        );
+
+        counts.record_report(Game::Auberean, "ironwood", 3, at(NOW - 60));
+        assert_eq!(
+            population(&counts, &mut ironwood, NOW),
+            json!({"players": 3, "source": "client", "ageSeconds": 60})
+        );
+        let mut coldeve = world("coldeve", "Coldeve");
+        counts.record_report(Game::Auberean, "coldeve", 9, at(NOW));
+        assert_eq!(
+            population(&counts, &mut coldeve, NOW),
+            Value::Null,
+            "an Auberean client's report is no Asheron's Call world's"
+        );
+
+        let lasts = CLIENT_COUNTS_FOR.as_secs();
+        assert_eq!(
+            population(&counts, &mut ironwood, NOW + lasts - 61)["players"],
+            3
+        );
+        assert_eq!(
+            population(&counts, &mut ironwood, NOW + lasts - 60),
+            Value::Null,
+            "two hours, as a Dereth client's"
+        );
+
+        ironwood["status"] = json!({"state": "online", "playersOnline": 2,
             "lastSeenAt": crate::registry::iso(at(NOW))});
         assert_eq!(
-            population(&counts, &mut other, NOW)["source"],
+            population(&counts, &mut ironwood, NOW)["source"],
             "heartbeat",
             "a linked world of any game reports for itself"
         );
     }
 
-    /// Spec: hub: a report goes to the listed world at the address and port the client connected
-    /// to, in any case, and never to another game's.
+    /// Spec: hub: a report goes to the listed world of the client's game at the address and port
+    /// the client connected to, in any case, and never to another game's.
     #[test]
-    fn a_report_goes_to_the_world_at_its_address_and_port() {
-        let mut other = world("other", "Other");
-        other["game"] = "auberean".into();
-        let worlds = [world("coldeve", "Coldeve"), other];
+    fn a_report_goes_to_the_world_of_its_game_at_its_address_and_port() {
+        let mut same_place = ac2_world("other", "Other");
+        same_place["endpoint"]["address"] = "coldeve.example.org".into();
+        let worlds = [
+            world("coldeve", "Coldeve"),
+            ac2_world("ironwood", "Ironwood"),
+            same_place,
+        ];
+        let at = |game, host, port| slugs_at(&worlds, game, host, port);
         assert_eq!(
-            slugs_at(&worlds, "COLDEVE.example.org", 9000),
+            at(Game::Dereth, "COLDEVE.example.org", 9000),
             ["coldeve"],
             "by its address"
         );
-        assert!(slugs_at(&worlds, "coldeve.example.org", 9001).is_empty());
-        assert!(slugs_at(&worlds, "other.example.org", 9000).is_empty());
+        assert_eq!(
+            at(Game::Auberean, "coldeve.example.org", 9000),
+            ["other"],
+            "a world of the other game at the same address and port"
+        );
+        assert!(at(Game::Dereth, "coldeve.example.org", 9001).is_empty());
+        assert!(at(Game::Dereth, "ironwood.example.org", 9000).is_empty());
+        assert_eq!(
+            at(Game::Auberean, "ironwood.example.org", 9000),
+            ["ironwood"]
+        );
     }
 
-    /// Spec: hub: a report is an address, a port from 1 and a count of at most 5,000.
+    /// Spec: hub: a report naming an address goes to the worlds of its game listed by a name that
+    /// stands for that address at that port; a world listed by its address takes it only by that
+    /// address, and only so many names are looked up.
+    #[test]
+    fn a_report_naming_an_address_finds_the_world_whose_name_stands_for_it() {
+        let mut by_address = ac2_world("by-address", "By Address");
+        by_address["endpoint"]["address"] = "203.0.113.9".into();
+        let worlds = [
+            ac2_world("icefire", "Icefire"),
+            world("coldeve", "Coldeve"),
+            by_address,
+        ];
+        let asked = std::cell::RefCell::new(Vec::new());
+        let mut look_up = |name: &str| {
+            asked.borrow_mut().push(name.to_owned());
+            match name {
+                "icefire.example.org" | "coldeve.example.org" => {
+                    vec!["203.0.113.9".parse().unwrap()]
+                }
+                _ => Vec::new(),
+            }
+        };
+        let ip: IpAddr = "203.0.113.9".parse().unwrap();
+        assert_eq!(
+            slugs_resolving_to(&worlds, Game::Auberean, ip, 9000, &mut look_up),
+            ["icefire"]
+        );
+        assert_eq!(
+            *asked.borrow(),
+            ["icefire.example.org"],
+            "only names of the game's worlds at that port"
+        );
+        let mapped: IpAddr = "::ffff:203.0.113.9".parse().unwrap();
+        assert_eq!(
+            slugs_resolving_to(&worlds, Game::Auberean, mapped, 9000, &mut look_up),
+            ["icefire"],
+            "the same address written for IPv6"
+        );
+        assert!(slugs_resolving_to(&worlds, Game::Auberean, ip, 9001, &mut look_up).is_empty());
+        assert!(slugs_resolving_to(
+            &worlds,
+            Game::Auberean,
+            "198.51.100.1".parse().unwrap(),
+            9000,
+            &mut look_up
+        )
+        .is_empty());
+
+        let many: Vec<Value> = (0..MOST_NAMES_LOOKED_UP + 4)
+            .map(|i| ac2_world(&format!("w{i}"), "W"))
+            .collect();
+        let mut asked = 0;
+        let found = slugs_resolving_to(&many, Game::Auberean, ip, 9000, |_| {
+            asked += 1;
+            vec![ip]
+        });
+        assert_eq!(asked, MOST_NAMES_LOOKED_UP);
+        assert_eq!(found.len(), MOST_NAMES_LOOKED_UP);
+    }
+
+    /// Spec: hub: a report is an address, a port from 1, a count of at most 5,000 and the game
+    /// the client plays, Asheron's Call when it names none.
     #[test]
     fn a_report_says_what_a_report_may_say() {
         let read = |v: Value| read_report(v.to_string().as_bytes());
         let ok = read(json!({"host": " a.example.org ", "port": 9000, "players": 5000})).unwrap();
         assert_eq!(
-            (ok.host.as_str(), ok.port, ok.players),
-            ("a.example.org", 9000, 5000)
+            (ok.host.as_str(), ok.port, ok.players, ok.game),
+            ("a.example.org", 9000, 5000, Game::Dereth)
         );
+        let ac2 = json!({"host": "a", "port": 8610, "players": 3, "game": "auberean"});
+        assert_eq!(read(ac2).unwrap().game, Game::Auberean);
+        assert!(read(json!({"host": "a", "port": 9000, "players": 1, "game": "Dereth"})).is_err());
+        assert!(read(json!({"host": "a", "port": 9000, "players": 1, "game": "ac2"})).is_err());
         for bad in [
             json!({"host": "a", "port": 9000, "players": 5001}),
             json!({"host": "a", "port": 9000, "players": -1}),

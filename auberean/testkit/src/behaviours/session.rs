@@ -239,6 +239,47 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "session.players.a-count-tells-the-hub-the-worlds-address-and-nothing-else",
+        says: "A count of a world's players tells the Dereth Network's hub the world's address and \
+               port, the count and the game, and nothing else: no account, no character and no id \
+               of this client.",
+        since: THIS_CLIENT,
+        divergence: "CD2-reports-player-count",
+        evidence: Evidence::Private("AC2-EVID-PLAYER-COUNT-WHAT-IT-SAYS"),
+        station: "auberean-client::bin.auberean::player_count::tests::a_report_says_the_worlds_address_the_count_and_the_game_and_nothing_else",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.players.a-report-that-fails-is-forgotten",
+        says: "A hub that is gone or refuses a report is nobody's concern: the report ends, with \
+               nothing shown and nothing retried.",
+        since: THIS_CLIENT,
+        divergence: "CD2-reports-player-count",
+        evidence: Evidence::Private("AC2-EVID-PLAYER-COUNT-FAILS"),
+        station: "auberean-client::bin.auberean::player_count::tests::a_hub_that_is_gone_or_refuses_is_nobodys_concern",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.players.a-world-on-a-private-network-is-never-reported",
+        says: "A world on this computer or a private network is never reported under its own address.",
+        since: THIS_CLIENT,
+        divergence: "CD2-reports-player-count",
+        evidence: Evidence::Private("AC2-EVID-PLAYER-COUNT-PRIVATE"),
+        station: "auberean-client::bin.auberean::player_count::tests::only_a_world_on_the_internet_is_reported_under_its_own_address",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.players.a-worlds-line-of-how-many-others-are-on-counts-its-players",
+        says: "A line the server writes out itself saying, and saying only, how many other players \
+               are logged in counts the world's players, the player with them, once; a line of the \
+               game's own strings, or one saying anything else, counts nothing.",
+        since: THIS_CLIENT,
+        divergence: "CD2-reports-player-count",
+        evidence: Evidence::Private("AC2-EVID-PLAYER-COUNT-WELCOME-LINE"),
+        station: "auberean-client-runtime::cpu::world::players::a_worlds_welcome_line_of_how_many_others_are_on_is_taken_once",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "session.position.a-report-carries-the-stamp-of-the-last-move-ordered",
         says: "A move the server orders the player's body, walking it up to what it uses, keeps \
                its stamp, and every position report after it carries that stamp, so a report that \

@@ -200,6 +200,15 @@ pub static DIVERGENCES: &[Divergence] = &[
                changes.",
     },
     Divergence {
+        id: "CD2-reports-player-count",
+        says: "When a world says in a line of its own text how many other players are logged in, \
+               this client tells the Dereth Network's hub the world's address and port and that \
+               count with the player's own, and nothing else, for the launcher's list of worlds. \
+               There is no setting to turn it off, and a world on the player's own computer or \
+               network is not reported. The original client sent nothing anywhere but the game's \
+               own servers.",
+    },
+    Divergence {
         id: "CD2-restore-sent-in-the-clear",
         says: "Bringing back a deleted character goes to the server as a plain message on the \
                login queue; the original client sealed it on a queue of its own under keys only \

@@ -59,6 +59,9 @@
 //! player without friends when the login has its secret; a service named for a login without one
 //! ends the login, as the September 2013 client does.
 //!
+//! A count of players a world says it has goes to the Dereth Network's hub under the world's address
+//! as the command line gave it (`player_count.rs`).
+//!
 //! `auberean --version` prints the version, and the commit and target a release build was made
 //! from. A release build is a windowed program on Windows, with no console of its own.
 //!
@@ -79,6 +82,7 @@ mod icon;
 mod keys;
 mod local;
 mod perf;
+mod player_count;
 mod script;
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
@@ -116,6 +120,9 @@ struct Options {
     dats: PathBuf,
     world_overlay: Option<PathBuf>,
     server: Option<SocketAddr>,
+    /// The world's address as the command line gave it (its name, when it named one), and its
+    /// port: what a count of its players is reported as.
+    world_address: Option<(String, u16)>,
     size: Option<(u32, u32)>,
     login: Option<(String, String)>,
     account: Option<(String, String)>,
@@ -351,6 +358,9 @@ fn options() -> Result<Options, String> {
             .to_socket_addrs()
             .map_err(|e| format!("--host {}: {e}", c.host))?
             .next();
+        o.world_address = Some((c.host.clone(), port));
+    } else if let Some(server) = o.server {
+        o.world_address = Some((server.ip().to_string(), server.port()));
     }
     let named = |n: &str| line.given.iter().any(|g| g == n);
     if named("width") || named("height") {
@@ -443,9 +453,18 @@ struct Desktop {
     friends: friends::FriendsSocket,
     /// The sound device (none with `--no-sound`).
     sound: Option<dereth_audio_out::CpalOutput>,
+    /// Where a count of the world's players goes ([`player_count`]); none for a world that is not
+    /// reported.
+    players: Option<Box<dyn FnMut(u32)>>,
 }
 
 impl Host for Desktop {
+    fn world_players(&mut self, players: u32) {
+        if let Some(report) = &mut self.players {
+            report(players);
+        }
+    }
+
     fn now(&self) -> f64 {
         self.start.elapsed().as_secs_f64()
     }
@@ -1207,6 +1226,10 @@ fn run() -> Result<(), String> {
         buf: vec![0; 65536],
         friends: friends::FriendsSocket::default(),
         sound: (!o.no_sound).then(dereth_audio_out::CpalOutput::default),
+        players: o
+            .world_address
+            .as_ref()
+            .and_then(|(host, port)| player_count::reporter(host, *port)),
     };
     let mut shell = Shell::new(host, &world, data, interface);
     shell.apply_line(&o.line);

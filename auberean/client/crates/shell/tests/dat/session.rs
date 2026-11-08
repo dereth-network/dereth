@@ -290,6 +290,8 @@ struct DoubleHost {
     kept: Option<String>,
     /// The sound device, when the test gives it one.
     sound: Option<auberean_shell::host::TestSound>,
+    /// Each count of players the world said it has, as the host was given it.
+    players: Vec<u32>,
 }
 
 fn me() -> SocketAddr {
@@ -327,6 +329,9 @@ impl Host for DoubleHost {
             .as_mut()
             .map(|s| s as &mut dyn dereth_audio::output::AudioOutput)
     }
+    fn world_players(&mut self, players: u32) {
+        self.players.push(players);
+    }
 }
 
 /// Run the shell a frame of 1/60 s: the clock on, the double's datagrams in, the frame.
@@ -351,6 +356,7 @@ fn shell_with_sound(
         double,
         inbox: VecDeque::new(),
         kept: None,
+        players: Vec::new(),
         sound: Some(auberean_shell::host::TestSound::default()),
     };
     Shell::new(host, world, data.clone(), interface)
@@ -371,6 +377,7 @@ fn shell_with(
         double,
         inbox: VecDeque::new(),
         kept: None,
+        players: Vec::new(),
         sound: None,
     };
     Shell::new(host, world, data.clone(), interface)
@@ -390,6 +397,7 @@ fn the_window_title_names_the_account_the_player_logged_in_with() {
         double,
         inbox: VecDeque::new(),
         kept: None,
+        players: Vec::new(),
         sound: None,
     };
     let mut s = Shell::new(host, world, data.clone(), Box::new(login));
@@ -398,6 +406,49 @@ fn the_window_title_names_the_account_the_player_logged_in_with() {
         step(&mut s);
     }
     assert_eq!(s.title(), "Auberean | Tester");
+}
+
+/// A world that says in its welcome how many other players are logged in has its count given to the
+/// host once, the player counted with them; its other lines give none.
+///
+/// Behaviour: session.players.a-worlds-line-of-how-many-others-are-on-counts-its-players
+#[test]
+fn a_worlds_welcome_count_reaches_the_host_once() {
+    use auberean_client_sdk::protocol::login::Notice;
+    use auberean_client_sdk::protocol::text::StringInfo;
+    let line = |text: &str| {
+        ServerMessage::Notice(Notice {
+            kind: 8,
+            text: StringInfo::literal(text),
+        })
+    };
+    let later = [
+        (3.20, line("-- Welcome --\n")),
+        (
+            3.21,
+            line("There are currently 4 other players logged in.\n"),
+        ),
+    ];
+    let script = script_then(HALL_CELL, HALL_AT, Quat::IDENTITY, &[], &later);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    while s.host.players.is_empty() {
+        assert!(s.host.time < 30.0, "the count never reached the host");
+        step(&mut s);
+    }
+    for _ in 0..60 {
+        step(&mut s);
+    }
+    assert_eq!(s.host.players, [5]);
 }
 
 /// The graphics preferences the player kept draw the world from the shell's first frame, as the
@@ -417,6 +468,7 @@ fn the_world_is_drawn_by_the_kept_preferences_from_the_first_frame() {
             double,
             inbox: VecDeque::new(),
             kept: kept.map(str::to_owned),
+            players: Vec::new(),
             sound: None,
         };
         Shell::new(host, world, data.clone(), Box::new(login))

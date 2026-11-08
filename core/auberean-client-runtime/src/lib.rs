@@ -60,6 +60,7 @@ pub mod looks;
 pub mod motion;
 pub mod notices;
 pub mod physics_object;
+pub mod players;
 pub mod quality_dump;
 pub mod repository;
 pub mod rooms;
@@ -298,6 +299,8 @@ pub struct Client {
     download: download::DataDownload,
     account: Vec<u8>,
     script_sends: bool,
+    /// How many players the world last said it has ([`players`]), for the host to take.
+    world_players: Option<u32>,
     /// The scene waits to be reported drawn.
     scene_wanted: bool,
     /// Whether the host's last frame drew the world; none for a host that draws nothing. The server
@@ -498,6 +501,7 @@ impl Client {
             data: data.files,
             account: settings.account,
             script_sends: settings.script_sends,
+            world_players: None,
             scene_wanted: false,
             world_frame_drawn: None,
             portal_space: false,
@@ -1753,6 +1757,12 @@ impl Client {
         }
     }
 
+    /// How many players the world said it has since this was last asked, if it said so
+    /// ([`players`]). The runtime names nothing that listens.
+    pub fn take_world_players(&mut self) -> Option<u32> {
+        self.world_players.take()
+    }
+
     /// A message that did not read came under `blob_id`: nothing of it takes effect, but what its
     /// stamp was holding back does.
     fn take_unread(&mut self, blob_id: u64, raw: &[u8]) {
@@ -1817,6 +1827,9 @@ impl Client {
             }
         }
         if let ServerMessage::Notice(n) = &item.message {
+            if let Some(players) = players::said(&n.text) {
+                self.world_players = Some(players);
+            }
             self.server_text(n);
         }
         if PHYSICS_EVENTS.contains(&item.message.message_type()) {

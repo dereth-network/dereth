@@ -49,6 +49,13 @@ client reaches a friends service only where it is named: for Yalain's, add `--gu
 own options work too (`-h` and `-p` for the server, `-a` for the account, `-z` for the ticket,
 `--prefs` for the preferences file); `auberean -?` lists them all.
 
+**What the client tells the hub.** When a world says in its welcome how many other players are
+logged in, the client tells the Dereth Network's hub that world's address and the count, so the
+launcher can show how many are playing. There's no setting to turn this off. It carries no account,
+character or id, and the hub keeps only the latest count and when it came, never your address
+([the hub's rules](../docs/network/05-hub.md)). A world on your own computer or network is never
+reported.
+
 | Folder | Package | What it is |
 |---|---|---|
 | [`client/`](client/) | `auberean-client` | the desktop client (the `auberean` program): the window, the device, the network, the settings folder |

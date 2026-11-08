@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that a player would notice. 
 not how it was done.
 
 ## Unreleased
+- A world's player count from its welcome message now goes to the launcher's world list.
 - Servers other than Yalain no longer get Yalain-only messages or a friends service lookup.
 - Fixed falling through some large dungeon floors.
 - Fixed buildings just outside a cave being lit as if they stood inside it.

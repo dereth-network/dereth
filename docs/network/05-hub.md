@@ -132,7 +132,7 @@ below only make it slower and costlier).
 | `GET /v1/status` | the network's totals over every game: `total`, `counts` (worlds by state), `playersOnline`, `reportingServers`, `demoServers`, `federatedServers`; and `games`, the same six for each game's worlds alone (`{"dereth": {...}, "auberean": {...}}`), which add up to the whole |
 | `GET /v1/network` | the federated worlds and which have a link up |
 | `POST /v1/servers/<slug>/heartbeat` | records a heartbeat (key required): `{"state", "playersOnline"?, "playersKind"?, "message"?, "emulatorVersion"?, "uptimeSeconds"?, "adapter"?, "game"?}`, where `adapter` is `{"kind", "version"}`, its kind one of `ace-mod`, `agent`, `manual`, `empyrean` and `yalain` |
-| `POST /v1/players` | a Dereth client's report of the count a world gave it at login: `{"host", "port", "players"}`; answered `200` `{}` whether or not it named a world (below, "How many players a world has") |
+| `POST /v1/players` | a client's report of the count a world gave it: `{"host", "port", "players", "game"?}`; answered `200` `{}` whether or not it named a world (below, "How many players a world has") |
 | `POST /v1/servers/<slug>/web` | announces the world's WebSocket endpoint (key required): `{"websocketUrl"}`, a URL within the link's rule, or `null` to withdraw it; answers `{"websocketUrl", "expiresAt"}`. For a world whose link names none: a relay run beside a server that speaks only UDP (below) |
 | `GET /compat/thwarg/Servers.xml` | the registry's `dereth` worlds as a community list, for launchers that read that format |
 | `GET /compat/treestats/player_counts-latest.json` | population counts of the `dereth` worlds, in the shape character-statistics sites read |
@@ -276,20 +276,25 @@ cannot send a datagram, reads the world's era, systems and version here instead.
 |---|---|---|
 | `ping` | what the world said when the hub asked it (above; Empyrean) | as long as the answer is listed, 180 seconds |
 | `heartbeat` | the world's own heartbeat or link (a linked world of any game, Yalain's among them) | as long as the heartbeat, 180 seconds |
-| `client` | the latest report from a Dereth client that logged in to the world | 2 hours |
-| `treestats` | [TreeStats](https://treestats.net)' public count for a world of that name (letters and digits, in any case) | 6 hours after TreeStats took it |
+| `client` | the latest report from a client of the world's game that logged in to the world | 2 hours |
+| `treestats` | [TreeStats](https://treestats.net)' public count for a `dereth` world of that name (letters and digits, in any case) | 6 hours after TreeStats took it |
 
 `ageSeconds` is how old the count is, not a clock. A world whose heartbeat says it is `offline` has
-none, and a world of another game has neither of the last two. `status` and `statusPing` are as they
-always were, and nothing here reaches the order of the lists, the totals of `/v1/status` or the two
-compatibility feeds.
+none. `status` and `statusPing` are as they always were, and nothing here reaches the order of the
+lists, the totals of `/v1/status` or the two compatibility feeds.
 
-- **A client's report** is made once each time a world gives a client its count at login
-  (`Login_WorldInfo`, `0xF7E1`), with the address and port the client connected to; a client never
-  reports a world on its own computer or a private network, and takes a count of zero with no maximum
-  for none. It goes to the listed `dereth` worlds at that address and port (any case); one naming
-  none leaves nothing. The latest report for a world replaces the last. A world reached through a
-  launcher's relay has no count: its wire carries none.
+- **A client's report** names the game its client plays (`"game"`; a report that names none is a
+  Dereth client's, `dereth`), with the address and port the client connected to; a client never
+  reports a world on its own computer or a private network. A Dereth client reports once each time
+  a world gives it its count at login (`Login_WorldInfo`, `0xF7E1`), and takes a count of zero with
+  no maximum for none. An Auberean client reports once each time a world says, in a line of its own
+  text, how many other players are logged in (Asheron's Call 2 has no message for it): that count
+  and the player. A report goes to the listed worlds of its game at that address and port (any
+  case), never to another game's; when it names an address and no world is listed there, to the
+  worlds of its game at that port whose host name stands for that address (a launcher gives
+  Auberean the address it looked up), at most 16 names looked up for one report, all within one
+  lookup's deadline. One naming none leaves nothing. The latest report for a world replaces the
+  last. A world reached through a launcher's relay has no count: its wire carries none.
 - **A report cannot be verified.** A world signs nothing a client could pass on, and the client's
   source is public, so anyone can send one with any count. It is bounded instead: it is never listed
   over a world's own word; it is at most 5,000; each client address has five, then one every twelve

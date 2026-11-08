@@ -666,6 +666,77 @@ fn a_clients_report_is_listed_until_the_worlds_own_word_takes_over() {
     panic!("one address has only a few reports");
 }
 
+/// Spec: hub: an Auberean client's report goes to the Asheron's Call 2 world listed at its address
+/// and port, by the world's name or the address that name stands for, and never to the Asheron's
+/// Call world at the same place; a Dereth client's report never reaches the Asheron's Call 2 world.
+#[test]
+fn an_auberean_clients_report_reaches_only_its_games_world() {
+    use dereth_network_hub::registry::Registration;
+    let config = dereth_network_hub::server::HubConfig {
+        lookup: dereth_network_hub::resolver::Lookup(std::sync::Arc::new(|host| {
+            Ok(match host {
+                "ac2.example.org" => vec!["203.0.113.5".parse().expect("an address")],
+                _ => Vec::new(),
+            })
+        })),
+        ..dereth_network_hub::server::HubConfig::default()
+    };
+    let (running, _, _) = super::conformance::hub_with(config);
+    let addr = running.local_addr();
+    for (slug, game) in [("frostfell", "auberean"), ("samehost", "dereth")] {
+        running
+            .registry()
+            .register(
+                &Registration::from_json(&serde_json::json!({
+                    "slug": slug, "name": slug, "ruleset": "PvE", "game": game,
+                    "endpoint": { "mode": "manual", "address": "ac2.example.org", "port": 8610 },
+                    "emulator": { "family": "Test" },
+                }))
+                .expect("a registration"),
+            )
+            .expect("registered");
+    }
+    let post = |body: serde_json::Value| {
+        let (status, body) = http(addr, "POST", "/v1/players", None, &body.to_string());
+        assert_eq!(status, 200, "{body}");
+    };
+    // The list's snapshot may be a moment behind; the wait only guards against a hang.
+    let population = |slug: &str, wanted: &dyn Fn(&serde_json::Value) -> bool| {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        loop {
+            let p = public_world(addr, slug)["population"].clone();
+            if wanted(&p) {
+                return p;
+            }
+            assert!(std::time::Instant::now() < deadline, "{slug}: {p}");
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    };
+
+    post(
+        serde_json::json!({"host": "203.0.113.5", "port": 8610, "players": 3, "game": "auberean"}),
+    );
+    let shown = population("frostfell", &|p| p["source"] == "client");
+    assert_eq!(shown["players"], 3, "by the address its name stands for");
+    assert_eq!(
+        public_world(addr, "samehost")["population"],
+        serde_json::Value::Null,
+        "not the Asheron's Call world at the same place"
+    );
+
+    post(
+        serde_json::json!({"host": "AC2.example.org", "port": 8610, "players": 4, "game": "auberean"}),
+    );
+    let shown = population("frostfell", &|p| p["players"] == 4);
+    assert_eq!(shown["source"], "client", "by its name");
+
+    // A Dereth client's report at the same place goes to the Asheron's Call world there alone.
+    post(serde_json::json!({"host": "ac2.example.org", "port": 8610, "players": 11}));
+    let shown = population("samehost", &|p| p["source"] == "client");
+    assert_eq!(shown["players"], 11);
+    assert_eq!(public_world(addr, "frostfell")["population"]["players"], 4);
+}
+
 /// Spec: hub: a hub told where TreeStats' counts are reads them by itself and lists a count for a
 /// world nothing better speaks for, under the world's name.
 #[test]

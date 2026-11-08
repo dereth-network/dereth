@@ -100,6 +100,11 @@ pub trait Host {
     fn set_clipboard_text(&mut self, text: &str) {
         let _ = text;
     }
+    /// The world said how many players it has: the host may pass it on (the desktop tells the
+    /// Dereth Network's list of worlds).
+    fn world_players(&mut self, players: u32) {
+        let _ = players;
+    }
 }
 
 /// The part of the window the input method writes over: its top left corner and its size, in
