@@ -1,5 +1,6 @@
 //! What the remaster adds to the landscape past retail's own pictures, each on its own switch:
-//! the color grade by kind of day.
+//! the color grade by kind of day; the air over the land, the sky's light in the shade and a low
+//! fog lit by the sun, on every frame outdoors.
 
 /// Which of the landscape's additions are drawn. All off is the frame as it was drawn before any
 /// of them.
@@ -7,6 +8,10 @@
 pub struct LandscapeSettings {
     /// The frame graded by a look-up table for its kind of day and hour, after the tone curve.
     pub grade: bool,
+    /// The air over the land and the sky's light in the shade, as an art pack's look draws them,
+    /// with or without a pack; and a fog lying low over the lowest ground round the eye, lit by the
+    /// sun.
+    pub air: bool,
 }
 
 impl super::Renderer {

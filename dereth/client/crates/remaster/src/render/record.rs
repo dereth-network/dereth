@@ -214,7 +214,7 @@ impl Renderer {
         // With an art pack the air takes the fog's place on the opaque world, outdoors: the sky and
         // the air belong to the outdoors alone.
         let sky_on = self.atmosphere.settings;
-        let air = self.pack_look
+        let air = (self.pack_look || self.landscape.air)
             && self.post.linear()
             && mode == super::light::LightMode::Pixel
             && sky_on.atmosphere
@@ -225,7 +225,7 @@ impl Renderer {
         let rows = air_drawn(
             pack_lit(
                 drawn_linear(frame_rows(&frame, gamma, mode, render), self.post.linear()),
-                self.pack_look,
+                self.pack_look || self.landscape.air,
             ),
             air,
         )
@@ -378,7 +378,12 @@ impl Renderer {
         )?;
         // The sky's atmosphere and the fog's volume, when the light is worked out per pixel.
         let (atmosphere, fog) = if mode == super::light::LightMode::Pixel {
+            let low_fog = self
+                .landscape
+                .air
+                .then(|| super::sky::lowest_ground(&self.scene, &frame));
             let ask = air.then(|| super::sky::AirAsk {
+                low_fog,
                 size: (targets.width, targets.height),
                 clouds: super::sky::cloud_map(&frame)
                     .and_then(|m| Some((m, self.scene.sky_picture(m.gfx)?, self.sampler(0)))),

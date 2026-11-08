@@ -90,7 +90,7 @@ pub fn drawn_nothing_here(name: &str) -> bool {
 }
 
 /// The remaster's own boxes, in the order the page shows them.
-pub const FEATURES: [Feature; 19] = [
+pub const FEATURES: [Feature; 20] = [
     Feature {
         name: names::REMASTER_SHADOWS,
         caption: "Shadows",
@@ -173,6 +173,13 @@ pub const FEATURES: [Feature; 19] = [
         name: names::REMASTER_GRADE,
         caption: "Color grade",
         note: "Colors graded for the weather and the hour.",
+        at_first: true,
+    },
+    Feature {
+        name: names::REMASTER_AIR,
+        caption: "Air and haze",
+        note:
+            "Distance fades into the air, shade takes the sky's light and low ground holds a haze.",
         at_first: true,
     },
     Feature {
@@ -384,7 +391,7 @@ mod tests {
         ] {
             assert!(!ticked_at_first(later), "{later}");
         }
-        assert_eq!(FEATURES.iter().filter(|f| f.at_first).count(), 14);
+        assert_eq!(FEATURES.iter().filter(|f| f.at_first).count(), 15);
     }
 
     /// Every line the player reads names the remaster by the one name, and the stored option

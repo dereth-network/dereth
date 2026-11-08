@@ -418,6 +418,47 @@ pub fn cloud_map(frame: &FrameDelta) -> Option<CloudMap> {
     })
 }
 
+/// How far round the eye the low fog looks for the lowest ground, metres.
+const LOW_FOG_REACH: f32 = 400.0;
+
+/// The lowest ground of the blocks within [`LOW_FOG_REACH`] of `frame`'s eye, the eye's own height
+/// when there is none: what the low fog lies over.
+#[must_use]
+pub fn lowest_ground(scene: &super::scene::GpuScene, frame: &FrameDelta) -> f32 {
+    let eye = frame.camera.eye;
+    scene
+        .ground
+        .iter()
+        .filter(|(id, _)| {
+            #[allow(clippy::cast_precision_loss)] // a few hundred blocks
+            let (x, y) = (
+                (i32::from(*id >> 8) - frame.origin[0]) as f32 * 192.0 + 96.0,
+                (i32::from(*id & 0xFF) - frame.origin[1]) as f32 * 192.0 + 96.0,
+            );
+            (x - eye.x).abs() < LOW_FOG_REACH + 96.0 && (y - eye.y).abs() < LOW_FOG_REACH + 96.0
+        })
+        .map(|(_, g)| g.z[0])
+        .reduce(f32::min)
+        .unwrap_or(eye.z)
+}
+
+/// The low fog's row of the sky's constants: x its extinction per metre where it lies, y how many
+/// metres up it thins by e, z the height it lies over, w 1 while it is drawn. A dry day's lies
+/// thin and shallow; a wet one's thick and deep; dawn and dusk gather it in the low ground, and the
+/// night keeps some.
+#[must_use]
+pub fn low_fog_row(frame: &FrameDelta, base: f32) -> Vec4 {
+    let (extinction, height) = match Weather::of(&frame.day_group) {
+        Weather::Clear => (0.0005, 14.0),
+        Weather::Sunny => (0.0007, 18.0),
+        Weather::Cloudy => (0.0009, 22.0),
+        Weather::Rainy => (0.0011, 26.0),
+    };
+    let day = day_weight(frame);
+    let gathered = 1.0 + 1.6 * twilight(frame) * day + 0.4 * (1.0 - day);
+    Vec4::new(extinction * gathered, height, base, 1.0)
+}
+
 /// The rows the air and the clouds' shadows add to the sky's constants, for `frame`: the clouds'
 /// shadow map at `map`, by its index in the table, when they shade the land.
 #[must_use]
@@ -546,6 +587,8 @@ struct AirPlan {
 /// What a frame draws the air with.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct AirAsk {
+    /// The height the low fog lies over, when it is drawn: the lowest ground round the eye.
+    pub low_fog: Option<f32>,
     /// The scene's colors' size.
     pub size: (u32, u32),
     /// Retail's cloud picture, with the clouds' shadow map's place for it, and the sampler that
@@ -889,7 +932,12 @@ impl SkyPass {
             }
             None => None,
         };
-        for v in air_rows(frame, clouds.as_ref().map(|(m, t, _)| (m, t.1))) {
+        let mut air = air_rows(frame, clouds.as_ref().map(|(m, t, _)| (m, t.1))).to_vec();
+        air.push(
+            ask.low_fog
+                .map_or(Vec4::ZERO, |base| low_fog_row(frame, base)),
+        );
+        for v in air {
             for f in v.to_array() {
                 rows.extend_from_slice(&f.to_le_bytes());
             }
@@ -1267,6 +1315,25 @@ mod tests {
             (far[0].w * far[6].z - near[0].w * near[6].z).abs() < 1e-4,
             "the same depth, over its own length"
         );
+    }
+
+    /// The low fog lies thicker and deeper on a wet day than a dry one, gathers in the low sun of
+    /// dawn and dusk, and lies over the height it is given.
+    #[test]
+    fn the_low_fog_is_thicker_on_wet_days_and_at_dawn_and_dusk() {
+        let mut f = FrameDelta::default();
+        f.light.sun = Vec3::new(0.3, 0.0, 0.9);
+        f.day_group = "Sunny".to_owned();
+        let dry = low_fog_row(&f, 12.0);
+        f.day_group = "Rainy".to_owned();
+        let wet = low_fog_row(&f, 12.0);
+        assert!(wet.x > dry.x && wet.y > dry.y, "{dry} {wet}");
+        assert_eq!(dry.z, 12.0);
+        assert_eq!(dry.w, 1.0);
+        f.day_group = "Sunny".to_owned();
+        f.light.sun = Vec3::new(1.0, 0.0, 0.1);
+        let dawn = low_fog_row(&f, 12.0);
+        assert!(dawn.x > dry.x, "{dry} {dawn}");
     }
 
     /// A sun under the horizon is night, and a dome whose authored brightness is low is night

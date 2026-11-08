@@ -4,6 +4,8 @@
 // at the horizon in that direction. The low haze fades the land into its own light, the light the
 // veil over the horizon is drawn in, and lies thickest over low ground. Near where the land ends it
 // fades a little further, so the end of the world is softened the same way wherever the eye stands.
+// A low fog may lie over the lowest ground round the eye, thinning with height, lit by the sun and the
+// sky as the haze is.
 import atmosphere;
 import bindless;
 import intent;
@@ -49,6 +51,18 @@ float3 through_haze(float dist, float rise)
     float3 weights = lean / luma(lean);
     float depth = row(a, ATM_HAZE).w * tint.z * pow(into_air(dist) / tint.z, tint.y);
     return exp(-depth * density * weights);
+}
+
+// How far into the low fog the eye sees a point `dist` metres away at height `z`, from the eye at
+// `eye_z`: its extinction integrated along the line, the fog thinning by e every `height` metres
+// over `base`. Nothing within the first 25 metres from the eye.
+float low_fog_depth(float4 fog, float dist, float eye_z, float z)
+{
+    float he = clamp((eye_z - fog.z) / fog.y, -3.0, 40.0);
+    float hp = clamp((z - fog.z) / fog.y, -3.0, 40.0);
+    float dz = hp - he;
+    float shape = abs(dz) > 1e-3 ? (exp(-he) - exp(-hp)) / dz : exp(-he);
+    return fog.x * max(dist - 25.0, 0.0) * shape;
 }
 
 // 1 well inside where the land ends, falling toward it to leave a share, by how far along the way
@@ -107,5 +121,14 @@ float4 fs_air(float4 position : SV_Position) : SV_Target0
                              1.0 - exp(-dist / row(a, ATM_HAZE_SHAPE).w));
     float3 kept = through_haze(dist, world.z - eye.z);
     float3 seen = aerial * kept + haze * (float3(1.0, 1.0, 1.0) - kept);
+    float4 low = row(a, ATM_LOW_FOG);
+    if (low.w > 0.5)
+    {
+        // The low fog: the haze's own light toward the eye, all of its glow toward the sun built up,
+        // a little brighter for the sun lighting it from above.
+        float through_fog = exp(-low_fog_depth(low, dist, eye.z, world.z));
+        float3 fog_light = haze_light(a, push.sky_view, push.sampler, dir, 1.0) * 1.15;
+        seen = seen * through_fog + fog_light * (1.0 - through_fog);
+    }
     return float4(lerp(max(haze, 0.0), max(seen, 0.0), land_fade(world)), c.a);
 }
