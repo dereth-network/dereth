@@ -1056,7 +1056,8 @@ fn a_slowed_creature_runs_at_its_speed_times_the_slow() {
 }
 
 /// The damage of a player's hits on a creature with its armor rating lowered (Vacuum at a
-/// spellcraft of 50 takes 100) is that much more.
+/// spellcraft of 50 takes 100) is that much more: each hit of the weapon's own range (doubled for a
+/// critical), and 100 over it with the debuff.
 /// Behaviour: server.creatures.armor-debuffs
 #[test]
 fn a_players_hits_gain_what_an_armor_debuff_took_from_the_creature() {
@@ -1066,13 +1067,16 @@ fn a_players_hits_gain_what_an_armor_debuff_took_from_the_creature() {
         t.max_health = 1_000_000;
         t.health = 1_000_000;
     }
-    h.arm(b, me, 0x4700_051C);
+    let sword = h.arm(b, me, 0x4700_051C);
+    let w = combat::weapon_damage(&h.server, sword).expect("the sword's damage");
     h.bots[b].send(
         true,
         queue::WEENIE,
         &server_call(0x8204_0008, &[auberean_script::args::Arg::LongInt(id)]),
     );
-    let hits = |h: &Harness, from: usize| -> Vec<i32> {
+    let critical = yalain_world::rules::Outcome::Critical.code().cast_signed();
+    // Each landed hit on the creature: whether critical, and its damage.
+    let hits = |h: &Harness, from: usize| -> Vec<(bool, i32)> {
         h.world_messages(b, from)
             .iter()
             .filter_map(|m| match m {
@@ -1081,10 +1085,17 @@ fn a_players_hits_gain_what_an_armor_debuff_took_from_the_creature() {
                     .hooks
                     .iter()
                     .find(|k| k.target == id && k.numbers[3] < 0)
-                    .map(|k| -k.numbers[3]),
+                    .map(|k| (k.numbers[0] == critical, -k.numbers[3])),
                 _ => None,
             })
             .collect()
+    };
+    // The creature has no armor of its own: a hit is the weapon's roll, a critical twice it.
+    let within = |hits: &[(bool, i32)], over: i32| {
+        hits.iter().all(|(crit, d)| {
+            let times = if *crit { 2 } else { 1 };
+            (times * w.least() + over..=times * w.most + over).contains(d)
+        })
     };
     h.run(120);
     let plain = hits(&h, 0);
@@ -1095,11 +1106,8 @@ fn a_players_hits_gain_what_an_armor_debuff_took_from_the_creature() {
     h.run(120);
     let debuffed = hits(&h, from);
     assert!(!plain.is_empty() && !debuffed.is_empty());
-    assert!(plain.iter().all(|d| *d <= 16), "{plain:?}");
-    assert!(
-        debuffed.iter().all(|d| (104..=116).contains(d)),
-        "{debuffed:?}"
-    );
+    assert!(within(&plain, 0), "{plain:?}");
+    assert!(within(&debuffed, 100), "{debuffed:?}");
 }
 
 /// A camp of two creatures of these properties side by side, both gone after a player; the
@@ -1260,12 +1268,18 @@ fn a_healer_heals_its_badly_hurt_kin() {
         helps_on(&h, b, one, two, CREATURE_HEAL).is_empty(),
         "half its health: not yet"
     );
-    set(&mut h, two, 120);
-    assert!(
-        h.run_until(4000, |h| !helps_on(h, b, one, two, CREATURE_HEAL)
-            .is_empty()),
-        "it heals its kin"
-    );
+    // Held at a quarter until it is healed: what it regains by itself would otherwise lift it out
+    // of reach of a heal before the healer's turn comes.
+    let mut healed = false;
+    for _ in 0..200 {
+        set(&mut h, two, 120);
+        h.run(20);
+        if !helps_on(&h, b, one, two, CREATURE_HEAL).is_empty() {
+            healed = true;
+            break;
+        }
+    }
+    assert!(healed, "it heals its kin");
     h.run(30);
     let health = h.server.things.get(two).map_or(0, |t| t.health);
     assert!(health > 300, "healed: {health}");

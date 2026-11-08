@@ -37,6 +37,7 @@ use auberean_script::args::Arg;
 use auberean_script::graph::{Graph, PackedObject};
 use auberean_script::library::{Elem, Library};
 use auberean_script::native_object::{Item, NativeObject, TextInfo};
+use auberean_script::value::FunctionId;
 use yalain_net::{ConnId, ServerNet};
 use yalain_store::Store;
 
@@ -329,6 +330,27 @@ pub struct SkillDef {
     /// How much more its class says a critical does than its plain hit ([`critical_modifier`]); none
     /// when no class of it sets it.
     pub critical_modifier: Option<f32>,
+    /// What its user's accuracy and its target's evasion are made of when it attacks
+    /// ([`rating_parts`]); empty for a skill whose class names none.
+    pub accuracy: Vec<RatingPart>,
+    pub evasion: Vec<RatingPart>,
+}
+
+/// One part of an attack's accuracy or its target's evasion: what is rated, and how many points
+/// each point of it is worth.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RatingPart {
+    pub of: Rated,
+    pub weight: f32,
+}
+
+/// What a part of a rating counts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Rated {
+    /// The holder's level part ([`crate::ratings`]).
+    Level,
+    /// The holder's rating in a skill.
+    Skill(u32),
 }
 
 /// What a perk gives: its kind, its value, and its priority among the perks of its kind.
@@ -411,6 +433,20 @@ impl SkillTable {
                 d.critical_modifier = critical_modifier(lib, pkg);
                 t.skills.insert(*skill, d);
                 t.by_package.insert(pkg, *skill);
+            }
+        }
+        let parts: Vec<(u32, Vec<RatingPart>, Vec<RatingPart>)> = t
+            .by_package
+            .iter()
+            .map(|(pkg, skill)| {
+                let (accuracy, evasion) = rating_parts(lib, *pkg, &t.by_package);
+                (*skill, accuracy, evasion)
+            })
+            .collect();
+        for (skill, accuracy, evasion) in parts {
+            if let Some(d) = t.skills.get_mut(&skill) {
+                d.accuracy = accuracy;
+                d.evasion = evasion;
             }
         }
         let tables: std::collections::BTreeSet<u32> = t.skills.values().map(|d| d.table).collect();
@@ -507,6 +543,97 @@ fn float_passed(lib: &Library, offset: u32, size: u32, setter: u32) -> Option<f3
     found
 }
 
+/// The functions of a used skill's class that add a part to its user's accuracy and to its
+/// target's evasion, and the package whose part is the level part.
+const ADD_ACCURACY: &str = "AddALCalculator";
+const ADD_EVASION: &str = "AddRLCalculator";
+const LEVEL_PART: &str = "AbilityCalculatorLevel";
+
+/// What a skill's attacks rate: the parts its class's constructors (its own and its bases') add to
+/// its user's accuracy and to its target's evasion, each the instance passed (a skill, or the level
+/// part) with the literal weight passed beside it. A part of anything else is left out.
+#[must_use]
+pub fn rating_parts(
+    lib: &Library,
+    package: u32,
+    skills: &HashMap<u32, u32>,
+) -> (Vec<RatingPart>, Vec<RatingPart>) {
+    let id_of = |name: &str| {
+        lib.package_id(ACTIVE_SKILL)
+            .and_then(|p| lib.package(p))
+            .and_then(|p| p.functions.iter().find(|f| f.name == name))
+            .map(|f| f.id.0 & !FunctionId::DIRECT)
+    };
+    let (Some(al), Some(rl)) = (id_of(ADD_ACCURACY), id_of(ADD_EVASION)) else {
+        return (Vec::new(), Vec::new());
+    };
+    let level = lib.package_id(LEVEL_PART);
+    let mut out = (Vec::new(), Vec::new());
+    let mut at = lib.export_of(package);
+    let mut guard = 0;
+    while let Some(i) = at {
+        let Some(p) = lib.packages.get(i) else { break };
+        for f in p.functions.iter().filter(|f| f.name == "constructor") {
+            let Some(offset) = f.offset else { continue };
+            for (adder, of, weight) in parts_added(lib, offset, f.size, (al, rl)) {
+                let of = if Some(of) == level {
+                    Rated::Level
+                } else if let Some(skill) = skills.get(&of) {
+                    Rated::Skill(*skill)
+                } else {
+                    continue;
+                };
+                let part = RatingPart { of, weight };
+                if adder == al {
+                    out.0.push(part);
+                } else {
+                    out.1.push(part);
+                }
+            }
+        }
+        at = p.parent;
+        guard += 1;
+        if guard > lib.packages.len() {
+            break;
+        }
+    }
+    out
+}
+
+/// The calls of either adder in the code at a byte offset and size: the adder, the package of the
+/// instance passed (the last call before it), and the float literal passed (the last pushed).
+fn parts_added(lib: &Library, offset: u32, size: u32, adders: (u32, u32)) -> Vec<(u32, u32, f32)> {
+    use auberean_script::opcode::{length, low_byte, op, tag_of};
+    use auberean_script::value::tag;
+    let start = (offset / 4) as usize;
+    let end = (start + (size / 4) as usize).min(lib.code.len());
+    let (mut float, mut instance) = (None, None);
+    let mut out = Vec::new();
+    let mut at = start;
+    while at < end {
+        let word = lib.code[at];
+        match low_byte(word) {
+            op::PUSH if tag_of(word) == tag::FLOAT => {
+                float = lib.code.get(at + 1).map(|v| f32::from_bits(*v));
+            }
+            op::CALL | op::THIS_CALL | op::LOAD_CALL | op::FIELD_LOAD_CALL => {
+                let id = lib.code.get(at + 1).copied().unwrap_or(0) & !FunctionId::DIRECT;
+                if id == adders.0 || id == adders.1 {
+                    if let (Some(w), Some(p)) = (float, instance) {
+                        out.push((id, p, w));
+                    }
+                    (float, instance) = (None, None);
+                } else {
+                    instance = Some(FunctionId(id).package());
+                }
+            }
+            _ => {}
+        }
+        at += length(&lib.code, at).unwrap_or(1);
+    }
+    out
+}
+
 /// The skills' names (an enumeration: a skill's value and its definition's package name).
 pub const SKILL_NAMES: u32 = 0x2300_000F;
 /// A reference to nothing.
@@ -599,6 +726,8 @@ impl SkillDef {
                 .flatten(),
             critical_threshold: None,
             critical_modifier: None,
+            accuracy: Vec::new(),
+            evasion: Vec::new(),
         })
     }
 }

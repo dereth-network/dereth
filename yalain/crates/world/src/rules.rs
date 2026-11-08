@@ -1,24 +1,23 @@
 //! The rolls of a fight: whether an attack lands, how well, and for how much.
 //!
-//! **Whether it lands** follows logistic fits to the 119,902 attacks by or on the capturing
-//! players in January 2017, by direction and kind (melee, missile, magic): the chance is
-//! `1 / (1 + e^-(a + b × d / 10 + c × (L - 1) / 10))`, `d` the attacker's level minus the
-//! defender's and `L` the player's own level. A player's attacks land more often as it rises
-//! (about half of them at level 1, four in five at level 40, at equal levels), which the level
-//! difference alone does not say; a creature's land on a player of any level alike (`c` is 0).
-//! Below the lowest level 2017 shows for a kind, the player's term holds at that level. An attack
-//! that does not land is evaded, or for a ranged attack missed in the measured share; nothing is
-//! blocked (2017's results are hits, criticals, misses and evades). A player's landed attack is
-//! critical in the measured share of landed attacks, a basic attack with what its weapon adds, a
-//! special by that alone; a creature's at the chance its skill sets, with what its weapon adds.
+//! **Whether it lands** goes by its two ratings, its user's accuracy against its target's evasion
+//! ([`crate::ratings`]): the chance is `1 / (1 + e^-(k × (accuracy - evasion)))`, kept within
+//! [`LANDING`]'s least and most (2017: the chance to hit the server showed players on 56,166
+//! examined creatures was the roll, 49,173 of a player's basic attacks landing at the chance shown;
+//! `k` 0.0429, 0.0423 and 0.0437 per 10 points of a template's rating within a character for magic,
+//! melee and missile, and 0.0434, 0.0437 and 0.0421 for what effects add to the attack attribute;
+//! none at equal ratings at level 1; the shown chance never past 95% nor under 5%). An attack that
+//! does not land is evaded, or for a ranged attack missed in the measured share; nothing is blocked
+//! (2017's results are hits, criticals, misses and evades). A player's landed attack is critical in
+//! the measured share of landed attacks, a basic attack with what its weapon adds, a special by
+//! that alone; a creature's at the chance its skill sets, with what its weapon adds.
 //!
 //! **How much** a creature's hit does: its natural damage times a uniform roll across its natural
 //! variance, times what the player's armor lets through (the measured share for the band of the
 //! player's level: all of it at levels 1 and 2, before players wore armor); a critical adds half.
 //! A player's hit: its skill's damage (authored until the skills' attack hooks are applied: a base
 //! by level with the same kind of roll, less a point for each of the creature's armor levels, as
-//! 2017's hits lost about one); a critical doubles it. The ratings, armor and buffs 2017 used are
-//! not in the captures; these are the measured outcomes standing in for them.
+//! 2017's hits lost about one); a critical doubles it.
 
 use crate::rng::Rng;
 use dereth_primitives::num::math;
@@ -85,119 +84,95 @@ impl Outcome {
     }
 }
 
-/// The fit for one direction and kind: `a`, `b`, `c`, the lowest player level its `c` term is
-/// measured from, the critical share of landed attacks, the miss share of attacks that did not
-/// land.
+/// An attack's two ratings: its user's accuracy and its target's evasion ([`crate::ratings`]).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Ratings {
+    pub accuracy: f64,
+    pub evasion: f64,
+}
+
+/// The rule from an attack's ratings to its chance to land: the slope of the chance's logit a
+/// point of accuracy over evasion, and the least and most the chance is kept within.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Landing {
+    pub slope: f64,
+    pub least: f64,
+    pub most: f64,
+}
+
+/// The measured rule (2017; see the module's notes): 0.0043 a point, kept within 5% and 95% (5,295
+/// creatures shown at 95%, one above; basic attacks shown at 95% landing 0.951, 0.939 and 0.943 by
+/// kind).
+pub const LANDING: Landing = Landing {
+    slope: 0.0043,
+    least: 0.05,
+    most: 0.95,
+};
+
+impl Landing {
+    /// The chance an attack at these ratings lands.
+    #[must_use]
+    pub fn chance(self, r: Ratings) -> f64 {
+        let p = 1.0 / (1.0 + math::exp(-self.slope * (r.accuracy - r.evasion)));
+        p.clamp(self.least, self.most)
+    }
+}
+
+/// The measured shares for one direction and kind: the critical share of landed attacks, the miss
+/// share of attacks that did not land.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Fit {
-    pub a: f64,
-    pub b: f64,
-    pub c: f64,
-    pub floor: i32,
     pub critical: f64,
     pub miss: f64,
 }
 
-const fn two(a: f64, b: f64, critical: f64, miss: f64) -> Fit {
-    Fit {
-        a,
-        b,
-        c: 0.0,
-        floor: 1,
-        critical,
-        miss,
-    }
+const fn two(critical: f64, miss: f64) -> Fit {
+    Fit { critical, miss }
 }
 
-/// The measured fits, by direction and kind (attacks: a player's melee 26,005 from level 11 up,
-/// missile 26,742 and magic 20,891 from level 1; a creature's melee 20,342, missile 16,029, magic
-/// 9,893). A player's critical is its basic attacks' with a weapon that adds nothing (melee 1,389
-/// hits, missile 5,665, magic 2,080); a creature's, of all its skills at once, stands for a skill
-/// whose definition the server lacks ([`skill_critical`] otherwise).
+/// The measured shares, by direction and kind (attacks: a player's melee 26,005, missile 26,742
+/// and magic 20,891; a creature's melee 20,342, missile 16,029, magic 9,893). A player's critical
+/// is its basic attacks' with a weapon that adds nothing (melee 1,389 hits, missile 5,665, magic
+/// 2,080); a creature's, of all its skills at once, stands for a skill whose definition the server
+/// lacks ([`skill_critical`] otherwise).
 #[must_use]
 pub const fn fit(dir: Direction, kind: Kind) -> Fit {
     match (dir, kind) {
-        (Direction::PlayerOnCreature, Kind::Melee) => Fit {
-            a: -0.396,
-            b: 0.739,
-            c: 0.504,
-            floor: 11,
-            critical: 0.051,
-            miss: 0.0,
-        },
-        (Direction::PlayerOnCreature, Kind::Missile) => Fit {
-            a: -0.107,
-            b: 0.291,
-            c: 0.298,
-            floor: 1,
-            critical: 0.055,
-            miss: 0.248,
-        },
-        (Direction::PlayerOnCreature, Kind::Magic) => Fit {
-            a: 0.131,
-            b: 0.628,
-            c: 0.230,
-            floor: 1,
-            critical: 0.043,
-            miss: 0.028,
-        },
-        (Direction::CreatureOnPlayer, Kind::Melee) => two(0.180, 0.274, 0.023, 0.0),
-        (Direction::CreatureOnPlayer, Kind::Missile) => two(0.052, 0.441, 0.029, 0.346),
-        (Direction::CreatureOnPlayer, Kind::Magic) => two(0.191, 0.796, 0.012, 0.208),
+        (Direction::PlayerOnCreature, Kind::Melee) => two(0.051, 0.0),
+        (Direction::PlayerOnCreature, Kind::Missile) => two(0.055, 0.248),
+        (Direction::PlayerOnCreature, Kind::Magic) => two(0.043, 0.028),
+        (Direction::CreatureOnPlayer, Kind::Melee) => two(0.023, 0.0),
+        (Direction::CreatureOnPlayer, Kind::Missile) => two(0.029, 0.346),
+        (Direction::CreatureOnPlayer, Kind::Magic) => two(0.012, 0.208),
     }
 }
 
-/// The chance an attack lands.
+/// The chance an attack at these ratings lands, by the measured rule ([`LANDING`]).
 #[must_use]
-pub fn landing_chance(dir: Direction, kind: Kind, attacker_level: i32, defender_level: i32) -> f64 {
-    let f = fit(dir, kind);
-    let d = f64::from(attacker_level - defender_level) / 10.0;
-    let player = match dir {
-        Direction::PlayerOnCreature => attacker_level,
-        Direction::CreatureOnPlayer => defender_level,
-    };
-    let l = f64::from(player.max(f.floor) - 1) / 10.0;
-    1.0 / (1.0 + math::exp(-(f.a + f.b * d + f.c * l)))
+pub fn landing_chance(r: Ratings) -> f64 {
+    LANDING.chance(r)
 }
 
 /// Roll an attack's outcome.
-pub fn roll_outcome(
-    rng: &mut Rng,
-    dir: Direction,
-    kind: Kind,
-    attacker_level: i32,
-    defender_level: i32,
-) -> Outcome {
+pub fn roll_outcome(rng: &mut Rng, dir: Direction, kind: Kind, ratings: Ratings) -> Outcome {
     let critical = fit(dir, kind).critical;
-    roll_with_critical(rng, dir, kind, (attacker_level, defender_level), critical)
+    roll_with_critical(rng, dir, kind, ratings, critical)
 }
 
 /// A player's basic attack: its outcome, its chance of a critical the measured one with what its
 /// weapon adds ([`crate::combat::critical_bonus`]).
-pub fn roll_basic(
-    rng: &mut Rng,
-    kind: Kind,
-    attacker_level: i32,
-    defender_level: i32,
-    bonus: f64,
-) -> Outcome {
+pub fn roll_basic(rng: &mut Rng, kind: Kind, ratings: Ratings, bonus: f64) -> Outcome {
     let dir = Direction::PlayerOnCreature;
     let critical = fit(dir, kind).critical + bonus;
-    roll_with_critical(rng, dir, kind, (attacker_level, defender_level), critical)
+    roll_with_critical(rng, dir, kind, ratings, critical)
 }
 
 /// A player's special: its outcome, its chance of a critical what its skill's class sets
 /// ([`skill_critical`]) with what its weapon adds (2017, players' landed specials counted once: at
 /// 2, 434 of 92,997, all by weapons; at 1.8, 469 of 2,258, 0.208).
-pub fn roll_special(
-    rng: &mut Rng,
-    kind: Kind,
-    attacker_level: i32,
-    defender_level: i32,
-    critical: f64,
-) -> Outcome {
+pub fn roll_special(rng: &mut Rng, kind: Kind, ratings: Ratings, critical: f64) -> Outcome {
     let dir = Direction::PlayerOnCreature;
-    roll_with_critical(rng, dir, kind, (attacker_level, defender_level), critical)
+    roll_with_critical(rng, dir, kind, ratings, critical)
 }
 
 /// The chance a landed attack is critical by the threshold its skill's class sets: what the
@@ -213,11 +188,11 @@ pub fn roll_with_critical(
     rng: &mut Rng,
     dir: Direction,
     kind: Kind,
-    (attacker_level, defender_level): (i32, i32),
+    ratings: Ratings,
     critical: f64,
 ) -> Outcome {
     let f = fit(dir, kind);
-    let p = landing_chance(dir, kind, attacker_level, defender_level);
+    let p = landing_chance(ratings);
     if f64::from(rng.unit()) < p {
         if f64::from(rng.unit()) < critical {
             Outcome::Critical
@@ -237,15 +212,9 @@ pub const MISSILE_MISSES_STILL: f64 = 6.0 / 420.0;
 pub const MISSILE_MISSES_MOVED: f64 = 52.0 / 108.0;
 
 /// Roll a creature's missile (or bolt of magic) as it arrives: missed outright by the share for a
-/// target that stood or moved, else landed by the measured chance for its kind (critical at the
-/// chance given), else evaded.
-pub fn roll_missile(
-    rng: &mut Rng,
-    kind: Kind,
-    (attacker_level, defender_level): (i32, i32),
-    target_moved: bool,
-    critical: f64,
-) -> Outcome {
+/// target that stood or moved, else landed by its ratings (critical at the chance given), else
+/// evaded.
+pub fn roll_missile(rng: &mut Rng, ratings: Ratings, target_moved: bool, critical: f64) -> Outcome {
     let miss = if target_moved {
         MISSILE_MISSES_MOVED
     } else {
@@ -254,18 +223,7 @@ pub fn roll_missile(
     if f64::from(rng.unit()) < miss {
         return Outcome::Miss;
     }
-    let kind = if kind == Kind::Melee {
-        Kind::Missile
-    } else {
-        kind
-    };
-    let p = landing_chance(
-        Direction::CreatureOnPlayer,
-        kind,
-        attacker_level,
-        defender_level,
-    );
-    if f64::from(rng.unit()) < p {
+    if f64::from(rng.unit()) < landing_chance(ratings) {
         if f64::from(rng.unit()) < critical {
             Outcome::Critical
         } else {

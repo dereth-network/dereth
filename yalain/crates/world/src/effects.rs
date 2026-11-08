@@ -630,17 +630,30 @@ fn added_by_skills<S: Store>(s: &Server<S>, p: &crate::world::Player, max_qualit
     };
     let starting = s.start.skills.get(&p.race).cloned().unwrap_or_default();
     let skills = crate::skills::held(&starting, &p.play.skills);
-    let attribute = skills.iter().find_map(|h| {
-        let d = s.skill_table.skills.get(&h.skill)?;
-        (d.category == category).then(|| {
-            #[allow(clippy::cast_precision_loss)]
-            let rating = crate::skill_use::effective_rating(s, p, &skills, h.skill) as f32;
-            dereth_primitives::num::to_i32(rating * d.attribute_mod)
-        })
-    });
     let perk = crate::skills::perk_value(&s.skill_table, &skills, kind)
         .map_or(0, dereth_primitives::num::to_i32_f64);
-    attribute.unwrap_or(0) + perk
+    attribute(s, p, &skills, category) + perk
+}
+
+/// A player's attribute of a category: the first skill it holds that rates it, its rating times
+/// the skill's measure of it, a whole number; none without such a skill.
+pub(crate) fn attribute<S: Store>(
+    s: &Server<S>,
+    p: &crate::world::Player,
+    skills: &[crate::skills::Held],
+    category: u32,
+) -> i32 {
+    skills
+        .iter()
+        .find_map(|h| {
+            let d = s.skill_table.skills.get(&h.skill)?;
+            (d.category == category).then(|| {
+                #[allow(clippy::cast_precision_loss)]
+                let rating = crate::skill_use::effective_rating(s, p, skills, h.skill) as f32;
+                dereth_primitives::num::to_i32(rating * d.attribute_mod)
+            })
+        })
+        .unwrap_or(0)
 }
 
 /// A player's greatest of a vital before its effects: what its qualities hold and what its skills

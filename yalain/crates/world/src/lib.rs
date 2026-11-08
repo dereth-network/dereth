@@ -124,6 +124,7 @@ pub mod profile;
 pub mod progress;
 pub mod quals;
 pub mod quests;
+pub mod ratings;
 pub mod reach;
 pub mod regen;
 pub mod reload;

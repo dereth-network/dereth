@@ -1427,13 +1427,13 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.combat.landing-chance",
-        says: "Whether an attack lands follows the fits to the 2017 attacks, by kind, level \
-               difference and the player's own level: a level 1 player's bow lands about half \
-               the time at equal levels, a level 40 player's three times in four; a creature's \
-               melee attack a little more than half on players of any level.",
+        says: "Whether an attack lands goes by its user's accuracy against its target's evasion: \
+               the chance's log-odds are 0.0043 a point of accuracy over evasion, so half at equal \
+               ratings, and the chance is kept within 5% and 95%. Players' swings and specials and \
+               creatures' strikes and missiles all land by it.",
         since: RETAIL,
-        evidence: Evidence::Private("AC2-EVID-SRV-HIT-CHANCE-LEVEL"),
-        station: "yalain-testkit::cpu::play::rules::attacks_land_with_the_measured_chance_for_their_direction_level_difference_and_player_level",
+        evidence: Evidence::Private("AC2-EVID-SRV-LANDING-BY-RATINGS"),
+        station: "yalain-testkit::cpu::play::rules::ten_points_of_accuracy_over_evasion_move_the_log_odds_by_0_043",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -1462,6 +1462,17 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-PRACTICE-TARGET"),
         station: "yalain-testkit::cpu::play::fights::a_practice_target_is_struck_and_never_strikes_back",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.combat.ratings-from-skills",
+        says: "An attack's accuracy and its target's evasion are the parts its skill names, each a \
+               weight times a rating: a player's ratings count its effects, and its level part is \
+               8 a level up to level 50 with its Heroic Mastery attribute; a creature's ratings \
+               are its template's with its effects, and its level part is nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-RATINGS-FROM-SKILLS"),
+        station: "yalain-testkit::cpu::play::ratings::an_attacks_accuracy_and_evasion_are_the_parts_its_skill_names",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -12542,6 +12553,18 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-SKILL-NO-VIGOR"),
         station: "yalain-testkit::cpu::play::skills::at_no_vigor_a_skill_that_says_so_rates_nothing_and_others_keep_their_rating",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.skills.rating-parts-read",
+        says: "What an attack's accuracy and its target's evasion are made of is read from its \
+               skill's class: a melee attack rates the melee masteries at 2.4, 4.4 and 6.4 a point, \
+               the attack attribute and the level part for accuracy, and the masteries at 2, 4 and \
+               6, the defense attribute and the level part for evasion; missile and magic attacks \
+               rate their own, and a class's own skills add its adept skill.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-RATING-PARTS-READ"),
+        station: "yalain-testkit::dat::skills::an_attacks_rating_parts_are_read_from_its_skills_class",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "server.skills.rating-with-effects",

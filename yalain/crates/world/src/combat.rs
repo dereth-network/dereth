@@ -48,6 +48,7 @@ use yalain_store::Store;
 use crate::calls::Value;
 use crate::effects::On;
 use crate::player::quality;
+use crate::ratings::Rater;
 use crate::rules::{self, Direction, Kind, Outcome};
 use crate::world::Player;
 use crate::{progress, quals, session, Clock, Server};
@@ -470,6 +471,13 @@ fn body<S: Store>(s: &Server<S>, world: ConnId, target: u64) -> crate::reach::Bo
     } else {
         crate::reach::body_of(s, target)
     }
+}
+
+/// The ratings of a player's attack with a skill on what it is aimed at: another player, else the
+/// thing.
+fn ratings_on<S: Store>(s: &Server<S>, world: ConnId, skill: u32, target: u64) -> rules::Ratings {
+    let defender = player_target(s, world, target).map_or(Rater::Thing(target), Rater::Player);
+    crate::ratings::of(s, skill, Rater::Player(world), defender)
 }
 
 /// The client of another player a player's attack is aimed at (none: a thing, the player itself,
@@ -921,10 +929,9 @@ fn swing<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock:
             return;
         }
     }
-    let Some(p) = s.players.get(&world) else {
+    if !s.players.contains_key(&world) {
         return;
-    };
-    let my_level = crate::examine::level_of(&p.qualities);
+    }
     let (skill, behavior, usage) = if autos.is_empty() {
         let (skill, behavior) = MELEE_SKILLS[s.rng.below(MELEE_SKILLS.len())];
         (skill, behavior, None)
@@ -951,7 +958,8 @@ fn swing<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock:
                 .is_some_and(|h| h.flags & crate::skill_use::hook_flag::LEFT_HAND != 0);
         let weapon = if left { hands.left } else { hands.right };
         let bonus = critical_bonus(s, weapon.map(|(w, _)| w));
-        let outcome = rules::roll_basic(&mut s.rng, kind, my_level, level, bonus);
+        let ratings = ratings_on(s, world, skill, run.target);
+        let outcome = rules::roll_basic(&mut s.rng, kind, ratings, bonus);
         let Some(p) = s.players.get(&world) else {
             return;
         };
@@ -1120,7 +1128,8 @@ fn stand_and_swing<S: Store>(
     let thrown = crate::skill_use::missile_hook(&u).cloned();
     let kind = kind_of(s, skill, thrown.is_some());
     let critical = critical_bonus(s, Some(weapon));
-    let outcome = rules::roll_basic(&mut s.rng, kind, my_level, level, critical);
+    let ratings = ratings_on(s, world, skill, run.target);
+    let outcome = rules::roll_basic(&mut s.rng, kind, ratings, critical);
     let damage = if outcome.landed() {
         let me = rules::Hitter {
             level: my_level,
@@ -1221,13 +1230,13 @@ fn throw_twice<S: Store>(
     world: ConnId,
     run: Run,
     (skill, u): (u32, &crate::skills::Usage),
-    (at, level, armor): (yalain_store::StoredPosition, i32, i32),
+    (at, _, armor): (yalain_store::StoredPosition, i32, i32),
     clock: Clock,
 ) {
     let Some(p) = s.players.get(&world) else {
         return;
     };
-    let (id, my_level) = (p.character, crate::examine::level_of(&p.qualities));
+    let id = p.character;
     let hands = crate::skill_use::hands(s, id);
     let kind = kind_of(s, skill, true);
     let rating = crate::skill_use::rating_of(s, world, skill);
@@ -1245,7 +1254,8 @@ fn throw_twice<S: Store>(
         let weapon = if left { hands.left } else { hands.right }.map(|(w, _)| w);
         // Each throw is critical with what its own hand's weapon adds, as a swing is.
         let bonus = critical_bonus(s, weapon);
-        let outcome = rules::roll_basic(&mut s.rng, kind, my_level, level, bonus);
+        let ratings = ratings_on(s, world, skill, run.target);
+        let outcome = rules::roll_basic(&mut s.rng, kind, ratings, bonus);
         let Some(p) = s.players.get(&world) else {
             return;
         };
@@ -1978,21 +1988,18 @@ pub fn creature_strike_with<S: Store>(
     let Some(c) = s.things.get(id).and_then(|t| t.creature.as_ref()) else {
         return;
     };
-    let (level, natural, variance) = (
-        c.stats.level,
-        c.stats.natural_damage,
-        c.stats.natural_variance,
-    );
+    let (natural, variance) = (c.stats.natural_damage, c.stats.natural_variance);
     let Some(p) = s.players.get(&target) else {
         return;
     };
     let (pid, my_level) = (p.character, crate::examine::level_of(&p.qualities));
     let critical = skill.critical + creature_critical_bonus(s, id);
+    let ratings = crate::ratings::of(s, skill.skill, Rater::Thing(id), Rater::Player(target));
     let outcome = rules::roll_with_critical(
         &mut s.rng,
         Direction::CreatureOnPlayer,
         skill.kind,
-        (level, my_level),
+        ratings,
         critical,
     );
     // Strikes are evaded, never missed.
@@ -2207,11 +2214,12 @@ pub fn thing_strikes_thing<S: Store>(
     };
     let their_level = s.things.get(target).map_or(1, crate::things::Thing::level);
     let critical = skill.critical + creature_critical_bonus(s, id);
+    let ratings = crate::ratings::of(s, skill.skill, Rater::Thing(id), Rater::Thing(target));
     let outcome = rules::roll_with_critical(
         &mut s.rng,
         Direction::CreatureOnPlayer,
         skill.kind,
-        (stats.level, their_level),
+        ratings,
         critical,
     );
     let outcome = if outcome == Outcome::Miss {

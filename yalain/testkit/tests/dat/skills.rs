@@ -1966,3 +1966,129 @@ fn a_classs_own_server_start_up_stands_over_its_shared_one() {
         Some(yalain_content::Prop::Bool(false))
     );
 }
+
+/// What an attack's accuracy and its target's evasion are made of is read from its skill's class:
+/// a creature's plain melee strike and a player's melee basic attack rate the melee masteries at
+/// 2.4, 4.4 and 6.4 a point, the attack attribute and the level part for accuracy, and the masteries
+/// at 2, 4 and 6, the defense attribute and the level part for evasion; missile and magic attacks
+/// rate their own; a class's own skills add its adept skill at 2 a point on both sides; a class that
+/// adds none takes its base class's.
+/// Behaviour: server.skills.rating-parts-read
+#[test]
+fn an_attacks_rating_parts_are_read_from_its_skills_class() {
+    use yalain_world::skills::{Rated, RatingPart};
+    let t = Portal::open().skills();
+    let sorted = |parts: &[RatingPart]| {
+        let mut v: Vec<(Rated, f32)> = parts.iter().map(|p| (p.of, p.weight)).collect();
+        v.sort_by_key(|(of, _)| match of {
+            Rated::Level => 0,
+            Rated::Skill(k) => *k,
+        });
+        v
+    };
+    let kinds = [
+        // Magic: attack 1, defense 2, grandmastery 3, mastery 4, paragon 5.
+        (1840, (1, 2, 3, 4, 5)),
+        // Melee: attack 7, defense 8, grandmastery 9, mastery 10, paragon 11.
+        (1845, (7, 8, 9, 10, 11)),
+        (122, (7, 8, 9, 10, 11)),
+        // A class that adds none of its own takes its base's.
+        (493, (7, 8, 9, 10, 11)),
+        // Missile: attack 12, defense 13, grandmastery 14, mastery 15, paragon 16.
+        (1861, (12, 13, 14, 15, 16)),
+        (207, (12, 13, 14, 15, 16)),
+    ];
+    for (skill, (attack, defense, grand, master, paragon)) in kinds {
+        let d = &t.skills[&skill];
+        assert_eq!(
+            sorted(&d.accuracy),
+            vec![
+                (Rated::Level, 1.0),
+                (Rated::Skill(attack), 1.0),
+                (Rated::Skill(grand), 4.4),
+                (Rated::Skill(master), 2.4),
+                (Rated::Skill(paragon), 6.4),
+            ],
+            "{skill}"
+        );
+        assert_eq!(
+            sorted(&d.evasion),
+            vec![
+                (Rated::Level, 1.0),
+                (Rated::Skill(defense), 1.0),
+                (Rated::Skill(grand), 4.0),
+                (Rated::Skill(master), 2.0),
+                (Rated::Skill(paragon), 6.0),
+            ],
+            "{skill}"
+        );
+    }
+    // A class's own attack: the adept skill on both sides.
+    let adept = t
+        .skills
+        .values()
+        .filter(|d| d.usage.is_some())
+        .filter(|d| {
+            d.accuracy
+                .iter()
+                .any(|p| matches!(p.of, Rated::Skill(k) if k > 16) && p.weight == 2.0)
+        })
+        .count();
+    assert!(adept > 400, "class attacks with an adept part: {adept}");
+    let rated = t
+        .skills
+        .values()
+        .filter(|d| d.usage.is_some() && !d.accuracy.is_empty())
+        .count();
+    assert!(rated > 1_400, "used skills with accuracy parts: {rated}");
+}
+
+/// A hero's Heroic Mastery adds its rating, a point a point, to the level part of its accuracy and
+/// evasion, on top of 8 a level up to level 50; raised by experience, its rating is what its
+/// advancement table gives.
+/// Behaviour: server.combat.ratings-from-skills
+#[test]
+fn heroic_mastery_adds_its_rating_to_the_level_part() {
+    use yalain_world::ratings::{self, Rater};
+    use yalain_world::skills::{Rated, RatingPart};
+    let mut h = yalain_testkit::Harness::new();
+    h.server.skill_table = Portal::open().skills();
+    let (_, _) = h.player_in_world("one", "Elara");
+    let world = *h.server.players.keys().next().expect("in the world");
+    let level = [RatingPart {
+        of: Rated::Level,
+        weight: 1.0,
+    }];
+    let p = h.server.players.get_mut(&world).expect("the player");
+    yalain_world::quals::set_int(&mut p.qualities, yalain_world::examine::LEVEL, 60);
+    let without = ratings::sum(&h.server, Rater::Player(world), &level);
+    let p = h.server.players.get_mut(&world).expect("the player");
+    p.play.skills.push(yalain_world::state::SkillState {
+        skill: 2128,
+        granted: 9,
+        mask: yalain_world::skills::mask::TRAINED,
+        cost: 0,
+        children: 0,
+        dependents: 0,
+        spent: 0,
+    });
+    let with = ratings::sum(&h.server, Rater::Player(world), &level);
+    assert!((without - 400.0).abs() < 1e-9, "{without}");
+    assert!((with - 409.0).abs() < 1e-9, "{with}");
+    // Raised by experience, its rating is the level its advancement table gives: a level 85 hero of
+    // 2017 held 135,535,620,313 in it, and its accuracy read 400 points over the level part's 400.
+    let p = h.server.players.get_mut(&world).expect("the player");
+    p.play.skills.retain(|k| k.skill != 2128);
+    p.play.skills.push(yalain_world::state::SkillState {
+        skill: 2123,
+        granted: 0,
+        mask: yalain_world::skills::mask::TRAINED,
+        cost: 0,
+        children: 0,
+        dependents: 0,
+        spent: 135_535_620_313,
+    });
+    yalain_world::quals::set_int(&mut p.qualities, yalain_world::examine::LEVEL, 85);
+    let raised = ratings::sum(&h.server, Rater::Player(world), &level);
+    assert!((raised - 800.0).abs() < 1e-9, "{raised}");
+}

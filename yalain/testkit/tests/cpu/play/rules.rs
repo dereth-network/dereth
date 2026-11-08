@@ -1,7 +1,7 @@
 //! The rules of a fight and of experience, as numbers.
 
 use yalain_testkit::invariants::newer;
-use yalain_world::rules::{self, Direction, Kind};
+use yalain_world::rules::{self, Kind, Ratings};
 use yalain_world::xp::kill_award;
 
 /// A solo kill by a killer under level 50 pays the creature's death experience in full from ten
@@ -57,40 +57,64 @@ fn from_level_50_what_is_above_a_killer_falls_a_level_sooner() {
     assert_eq!(at(59, 49), 80, "at level 49, ten above: 80");
 }
 
-/// Whether an attack lands follows the measured fits, by direction, kind, level difference and the
-/// player's own level: at equal levels a level 1 player's bow lands about half the time and a level
-/// 40 player's three times in four; a creature's melee attack lands on a player of any level
-/// alike, a little more than half the time at equal levels; a higher attacker lands more often.
+/// An attack lands half the time when its accuracy and its target's evasion are equal, whatever
+/// they are.
 /// Behaviour: server.combat.landing-chance
 #[test]
-fn attacks_land_with_the_measured_chance_for_their_direction_level_difference_and_player_level() {
-    let pc =
-        |kind, me: i32, it: i32| rules::landing_chance(Direction::PlayerOnCreature, kind, me, it);
-    let cp =
-        |kind, it: i32, me: i32| rules::landing_chance(Direction::CreatureOnPlayer, kind, it, me);
-    let low = pc(Kind::Missile, 1, 1);
-    assert!((low - 0.473).abs() < 0.001, "a level 1 bow: {low}");
-    let high = pc(Kind::Missile, 40, 40);
-    assert!((high - 0.742).abs() < 0.001, "a level 40 bow: {high}");
-    assert!(
-        (pc(Kind::Magic, 1, 1) - 0.533).abs() < 0.001,
-        "a level 1 stave"
-    );
-    // Below the lowest level 2017 shows for a kind, the player's own term holds there.
-    let sword = pc(Kind::Melee, 1, 1);
-    assert!((sword - 0.527).abs() < 0.001, "a level 1 sword: {sword}");
-    assert!(
-        (pc(Kind::Melee, 5, 5) - sword).abs() < 1e-9,
-        "melee measured from level 11 up"
-    );
-    let c = cp(Kind::Melee, 5, 5);
-    assert!((c - 0.545).abs() < 0.001, "a creature's melee: {c}");
-    assert!(
-        (cp(Kind::Melee, 40, 40) - c).abs() < 1e-9,
-        "the same on a level 40 player"
-    );
-    assert!(pc(Kind::Missile, 15, 5) > pc(Kind::Missile, 15, 15));
-    assert!(cp(Kind::Melee, 15, 5) > c);
+fn an_attack_lands_half_the_time_at_equal_accuracy_and_evasion() {
+    for r in [0.0, 8.0, 400.0, 1_234.5] {
+        let p = rules::landing_chance(Ratings {
+            accuracy: r,
+            evasion: r,
+        });
+        assert!((p - 0.5).abs() < 1e-12, "at {r}: {p}");
+    }
+}
+
+/// Near the middle, ten points of accuracy over evasion move the chance's log-odds by 0.043 (a
+/// little over a point of chance), and the same ten points of evasion take as much away.
+/// Behaviour: server.combat.landing-chance
+#[test]
+fn ten_points_of_accuracy_over_evasion_move_the_log_odds_by_0_043() {
+    let logit = |p: f64| dereth_primitives::num::math::log(p / (1.0 - p));
+    for base in [-60.0, 0.0, 60.0] {
+        let at = |d: f64| {
+            rules::landing_chance(Ratings {
+                accuracy: 500.0 + base + d,
+                evasion: 500.0,
+            })
+        };
+        let step = logit(at(10.0)) - logit(at(0.0));
+        assert!((0.042..=0.044).contains(&step), "from {base}: {step}");
+        let less = logit(at(0.0))
+            - logit(rules::landing_chance(Ratings {
+                accuracy: 500.0 + base,
+                evasion: 510.0,
+            }));
+        assert!((less - step).abs() < 1e-9, "evasion mirrors accuracy");
+    }
+    let middle = rules::landing_chance(Ratings {
+        accuracy: 10.0,
+        evasion: 0.0,
+    }) - 0.5;
+    assert!((0.0105..0.011).contains(&middle), "{middle}");
+}
+
+/// However far apart the ratings are, an attack lands at least one time in twenty and at most
+/// nineteen in twenty.
+/// Behaviour: server.combat.landing-chance
+#[test]
+fn an_attacks_chance_to_land_is_kept_within_5_and_95_percent() {
+    let at = |accuracy: f64, evasion: f64| rules::landing_chance(Ratings { accuracy, evasion });
+    assert!((at(2_000.0, 0.0) - 0.95).abs() < 1e-12);
+    assert!((at(0.0, 2_000.0) - 0.05).abs() < 1e-12);
+    // Inside the limits the curve is its own: 600 points over is 0.93, 700 is held at 0.95.
+    assert!((at(600.0, 0.0) - 0.9296).abs() < 1e-3, "{}", at(600.0, 0.0));
+    assert!((at(700.0, 0.0) - 0.95).abs() < 1e-12);
+    assert!((at(0.0, 600.0) - 0.0704).abs() < 1e-3);
+    assert!((at(0.0, 700.0) - 0.05).abs() < 1e-12);
+    let rule = rules::LANDING;
+    assert!((rule.slope, rule.least, rule.most) == (0.0043, 0.05, 0.95));
 }
 
 /// A creature's hit on a player at level 1 or 2 does its natural damage in full (2017's had no
@@ -156,7 +180,7 @@ fn a_weapons_critical_bonus_adds_to_the_chance_among_hits_that_land() {
     let mut share = |bonus: f64| {
         let (mut landed, mut critical) = (0.0, 0.0);
         for _ in 0..80_000 {
-            let o = rules::roll_basic(&mut rng, rules::Kind::Melee, 20, 20, bonus);
+            let o = rules::roll_basic(&mut rng, rules::Kind::Melee, Ratings::default(), bonus);
             landed += f64::from(u8::from(o.landed()));
             critical += f64::from(u8::from(o == rules::Outcome::Critical));
         }
@@ -191,7 +215,7 @@ fn a_creatures_critical_chance_is_what_its_skills_threshold_falls_short_of_two()
     let mut share = |critical: f64| {
         let (mut landed, mut crits) = (0, 0);
         for _ in 0..4_000 {
-            let o = rules::roll_missile(&mut rng, Kind::Missile, (20, 20), false, critical);
+            let o = rules::roll_missile(&mut rng, Ratings::default(), false, critical);
             landed += u32::from(o.landed());
             crits += u32::from(o == rules::Outcome::Critical);
         }
@@ -212,7 +236,7 @@ fn a_special_is_critical_at_the_chance_its_skill_and_weapon_give() {
     let mut share = |bonus: f64| {
         let (mut landed, mut critical) = (0.0, 0.0);
         for _ in 0..80_000 {
-            let o = rules::roll_special(&mut rng, Kind::Missile, 20, 20, bonus);
+            let o = rules::roll_special(&mut rng, Kind::Missile, Ratings::default(), bonus);
             landed += f64::from(u8::from(o.landed()));
             critical += f64::from(u8::from(o == rules::Outcome::Critical));
         }

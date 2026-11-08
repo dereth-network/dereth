@@ -64,6 +64,7 @@ mod player_fights;
 mod popups;
 mod quest_uses;
 mod quests;
+mod ratings;
 mod recalls;
 mod regeneration;
 mod reported_places;

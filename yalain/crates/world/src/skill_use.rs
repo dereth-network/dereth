@@ -84,6 +84,7 @@ use crate::calls::Value;
 use crate::combat::{self, player_event, to_all_seeing};
 use crate::effect_defs::{EffectDef, Kind as EffectKind, Recall};
 use crate::player::quality;
+use crate::ratings::Rater;
 use crate::rules::{self, Kind, Outcome};
 use crate::skills::{Hook, Usage};
 use crate::{progress, quals, session, Clock, Server, Timer};
@@ -889,16 +890,24 @@ pub(crate) fn rating_of<S: Store>(s: &Server<S>, world: ConnId, skill: u32) -> f
     let Some(p) = s.players.get(&world) else {
         return 1.0;
     };
-    let starting = s.start.skills.get(&p.race).cloned().unwrap_or_default();
-    let held = crate::skills::held(&starting, &p.play.skills);
-    let held = if quals::int(&p.qualities, quality::VIGOR) == Some(0) {
-        s.skill_table.at_no_vigor(held)
-    } else {
-        held
-    };
+    let held = rated_skills(s, p);
     #[allow(clippy::cast_precision_loss)]
     let r = effective_rating(s, p, &held, skill) as f32;
     r.max(1.0)
+}
+
+/// The skills a player rates in: those it holds, less those it rates nothing in at no vigor.
+pub(crate) fn rated_skills<S: Store>(
+    s: &Server<S>,
+    p: &crate::world::Player,
+) -> Vec<crate::skills::Held> {
+    let starting = s.start.skills.get(&p.race).cloned().unwrap_or_default();
+    let held = crate::skills::held(&starting, &p.play.skills);
+    if quals::int(&p.qualities, quality::VIGOR) == Some(0) {
+        s.skill_table.at_no_vigor(held)
+    } else {
+        held
+    }
 }
 
 /// A player's rating in a skill it holds, with what its effects make of it.
@@ -1844,33 +1853,27 @@ fn hook_hit<S: Store>(
 /// weapon adds, and the damage when it lands and hurts.
 fn roll_hook<S: Store>(
     s: &mut Server<S>,
-    u: &Usage,
-    h: &Hook,
+    (world, skill): (ConnId, u32),
+    (u, h): (&Usage, &Hook),
     (me, critical): (rules::Hitter, Critical),
     target: u64,
 ) -> Option<(Outcome, i32)> {
-    let (level, armor) = match crate::social::world_of(s, target) {
-        Some(c) => s
-            .players
-            .get(&c)
-            .map(|q| (crate::examine::level_of(&q.qualities), 0))?,
-        None => s
-            .things
-            .get(target)
-            .map(|t| (t.level(), t.creature.as_ref().map_or(0, |c| c.stats.armor)))?,
+    let (defender, armor) = match crate::social::world_of(s, target) {
+        Some(c) => s.players.get(&c).map(|_| (Rater::Player(c), 0))?,
+        None => s.things.get(target).map(|t| {
+            (
+                Rater::Thing(target),
+                t.creature.as_ref().map_or(0, |c| c.stats.armor),
+            )
+        })?,
     };
+    let ratings = crate::ratings::of(s, skill, Rater::Player(world), defender);
     let kind = if h.flags & hook_flag::PROJECTILE != 0 {
         Kind::Missile
     } else {
         Kind::Melee
     };
-    let o = rules::roll_special(
-        &mut s.rng,
-        kind,
-        me.level,
-        level,
-        critical.chance + me.critical,
-    );
+    let o = rules::roll_special(&mut s.rng, kind, ratings, critical.chance + me.critical);
     let o = if kind == Kind::Melee && o == Outcome::Miss {
         Outcome::Evade
     } else {
@@ -1931,7 +1934,6 @@ fn story<S: Store>(
         return;
     };
     let me = p.character;
-    let my_level = crate::examine::level_of(&p.qualities);
     let me_hits = combat::hitter(s, p);
     let critical = skill_critical(s, r.skill);
     let rating = rating_of(s, world, r.skill);
@@ -2023,29 +2025,28 @@ fn story<S: Store>(
     // The outcome of its damaging hook (a strike's at once; a missile's as it arrives).
     let target_thing = match aim {
         Aim::Item(_) | Aim::Pet(_) | Aim::Corpse(_) => None,
-        // Another player: its level, no armor.
-        Aim::Player(c, _) if !helpful(&u) => s
-            .players
-            .get(&c)
-            .map(|q| (crate::examine::level_of(&q.qualities), 0)),
-        _ => s
-            .things
-            .get(target)
-            .map(|t| (t.level(), t.creature.as_ref().map_or(0, |c| c.stats.armor))),
+        // Another player: no armor.
+        Aim::Player(c, _) if !helpful(&u) => s.players.get(&c).map(|_| (Rater::Player(c), 0)),
+        _ => s.things.get(target).map(|t| {
+            (
+                Rater::Thing(target),
+                t.creature.as_ref().map_or(0, |c| c.stats.armor),
+            )
+        }),
     };
     let mut outcome = None;
-    if let (Some((_, h)), Some((level, armor))) = (damaging_hook(&u), target_thing) {
+    if let (Some((_, h)), Some((defender, armor))) = (damaging_hook(&u), target_thing) {
         let kind = if h.flags & hook_flag::PROJECTILE != 0 {
             Kind::Missile
         } else {
             Kind::Melee
         };
         let me_hits = by_its_hand(s, world, me_hits, h);
+        let ratings = crate::ratings::of(s, r.skill, Rater::Player(world), defender);
         let o = rules::roll_special(
             &mut s.rng,
             kind,
-            my_level,
-            level,
+            ratings,
             critical.chance + me_hits.critical,
         );
         // Strikes of specials are evaded, never missed.
@@ -2081,7 +2082,7 @@ fn story<S: Store>(
     } else {
         landings_of(
             s,
-            world,
+            (world, r.skill),
             &u,
             aim,
             target,
@@ -2252,7 +2253,7 @@ fn story<S: Store>(
 /// had only one or two of the three land).
 fn landings_of<S: Store>(
     s: &mut Server<S>,
-    world: ConnId,
+    (world, skill): (ConnId, u32),
     u: &Usage,
     aim: Aim,
     target: u64,
@@ -2309,7 +2310,13 @@ fn landings_of<S: Store>(
                 Some(r) if t == target && first_damaging == Some(i) => Some(r),
                 _ => {
                     let me = by_its_hand(s, world, me, h);
-                    roll_hook(s, u, h, (hitting_with(me, h, rating), critical), t)
+                    roll_hook(
+                        s,
+                        (world, skill),
+                        (u, h),
+                        (hitting_with(me, h, rating), critical),
+                        t,
+                    )
                 }
             };
             if let Some((outcome, damage)) = o {

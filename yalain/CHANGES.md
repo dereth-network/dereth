@@ -37,6 +37,7 @@ what they see, not how it was done.
 - Turrets now spend vigor on their shots, and Self-Destruct blows the turret up where it stands.
 - Lashers close in to bite after a throw that doesn't land.
 - Kingdom shrines now grant the kingdom skills a player's points have earned.
+- Accuracy and evasion now change how often attacks land.
 - Creatures made above the floor now drop to it and can move.
 - Holding portal gems, amplification stones and warder stones now do what they say, and an item that can't do anything is kept.
 - Worn armor now softens creatures' hits.

@@ -554,7 +554,13 @@ pub fn arrives<S: Store>(s: &mut Server<S>, net: &mut ServerNet, f: Flight, cloc
     let my_level = crate::examine::level_of(&p.qualities);
     let moved = presence::distance(&f.from, &p.position).is_none_or(|d| d > MOVED);
     let critical = f.skill.critical + combat::creature_critical_bonus(s, f.creature);
-    let outcome = rules::roll_missile(&mut s.rng, f.skill.kind, (level, my_level), moved, critical);
+    let ratings = crate::ratings::of(
+        s,
+        f.skill.skill,
+        crate::ratings::Rater::Thing(f.creature),
+        crate::ratings::Rater::Player(world),
+    );
+    let outcome = rules::roll_missile(&mut s.rng, ratings, moved, critical);
     let more = effects_add(s, f.creature);
     let damage = if outcome.landed() {
         let armor = combat::armor_on(s, world);
