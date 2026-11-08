@@ -28,3 +28,8 @@ notes = "The first release: its database schema is version 2."
 version = "0.2.0"
 upgrades_from = "0.1.1"
 notes = "Worlds can now update themselves: server.update is off until you set it. They can take WebSocket connections, off until you turn on [server.websocket]. A world on the Dereth Network now carries the Global room, in General unless federation.global_room says otherwise; set it empty to carry none. Admins are now a flag on an account, with admin characters: the first start backs the database up and moves it to schema 4, an account at level 5 or higher with a ticket becomes an admin, and level 5 with no ticket and levels 1 to 4 become players, each named in a warning with set-accountadmin as the way back. The admins list now raises a name only on the start that makes its account; use set-accountadmin for accounts that already exist."
+
+[[release]]
+version = "0.3.0"
+upgrades_from = "0.2.0"
+notes = "Serves world database v0.32.0: fetch it with yalain world fetch before the new program starts. A world with no pet, ward or tool rows now warns at start and has none of them, where the server used to supply its own."

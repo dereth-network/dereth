@@ -30,6 +30,9 @@ what they see, not how it was done.
 - @dn admin and @dn verify now need an admin character, as other admin commands do.
 - Admins can make persistent chat rooms, which stay through restarts until deleted.
 - Creatures' trophies no longer take the place of their other loot.
+- World: Knorr can be reached by its portal, with its people, hunts and bounties.
+- World: treasure is worth what 2017's corpses held, by the creature's level.
+- World: the arena quests, practice gems, incursions and dozens more quests now run.
 - Loot profiles can draw treasure of the creature's level from shared treasure pools.
 - World rows can now give a creature or chest a fixed item at a chance of its own.
 - Named bounty targets: a camp can name its creature, and a quest can ask for that kill alone.
