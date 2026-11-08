@@ -1477,6 +1477,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "desktop.net.the-game-socket-binds-as-the-preferences-say",
+        says: "The game socket takes the first free port of a series worked out from its interface \
+               unless the preferences' ComputeUniquePort is off; then the port the line's --outport \
+               names, else UserSpecifiedPort. BindInterface, a network and mask, picks the interface; \
+               one it does not match means any.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-NET-BINDING"),
+        station: "auberean-shell::cpu::net_binding::the_game_socket_binds_as_the_preferences_say",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "desktop.others.a-body-created-again-comes-back-into-the-world",
         says: "A body waiting out of the world in a cell not loaded, created again, stands where \
                its creation says at once, in the world when that cell is loaded and waiting in \
@@ -1728,6 +1739,16 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-DESKTOP-PREFERENCES-WRITE"),
         station: "auberean-shell::cpu::profile::a_value_written_lands_where_the_clients_system_puts_it",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.preferences.graphics-at-startup-are-the-settings",
+        says: "The graphics preferences the client asks at startup are named in the data as the \
+               settings name them (Graphics, OverallGraphicsQuality and LandscapeTerrainBlending), so \
+               both read one value from the file, with the line's -lb and -nolb over it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-PREFERENCES-STARTUP"),
+        station: "auberean-shell::dat::preferences::graphics_at_startup_are_the_settings",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "desktop.preferences.named-by-the-datas-two-enumerations",

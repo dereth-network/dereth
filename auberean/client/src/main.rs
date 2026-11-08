@@ -95,6 +95,9 @@ use auberean_scene::WorldData;
 use auberean_shell::command_line::{parse_args, set_error_text, Arg, ArgList, ClientLine, Reader};
 use auberean_shell::input::{Event, Key};
 use auberean_shell::interface::Interface;
+use auberean_shell::net_binding::NetBinding;
+use auberean_shell::preferences::Names;
+use auberean_shell::profile::Profile;
 use auberean_shell::settings::{held_to_picture, in_picture_pixels, on_picture, on_window};
 use auberean_shell::{Host, Presentation, Shell};
 use winit::application::ApplicationHandler;
@@ -397,10 +400,31 @@ fn settings_dir() -> PathBuf {
     )
 }
 
+/// The interface a packet to `server` leaves by: asking sends nothing.
+fn toward(server: SocketAddr) -> Ipv4Addr {
+    // No socket on any address for a server on this machine, which a firewall would ask about.
+    if server.ip().is_loopback() {
+        return Ipv4Addr::LOCALHOST;
+    }
+    UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0))
+        .and_then(|s| {
+            s.connect(server)?;
+            s.local_addr()
+        })
+        .ok()
+        .and_then(|a| match a.ip() {
+            IpAddr::V4(v) => Some(v),
+            IpAddr::V6(_) => None,
+        })
+        .unwrap_or(Ipv4Addr::UNSPECIFIED)
+}
+
 /// The desktop as the shell's host.
 struct Desktop {
     start: Instant,
     socket: Option<UdpSocket>,
+    /// How the game socket is bound.
+    net: NetBinding,
     window: Option<Arc<Window>>,
     /// How the game is to be shown, asked for and not yet carried out.
     presentation: Option<Presentation>,
@@ -454,12 +478,15 @@ impl Host for Desktop {
     fn connect(&mut self, server: SocketAddr) -> Result<(), String> {
         // A server on this machine is reached from a loopback address, which no firewall asks
         // about.
+        let here = toward(server);
         let local = if server.ip().is_loopback() {
-            IpAddr::V4(Ipv4Addr::LOCALHOST)
+            Ipv4Addr::LOCALHOST
         } else {
-            IpAddr::V4(Ipv4Addr::UNSPECIFIED)
+            self.net.address(here)
         };
-        let s = UdpSocket::bind(SocketAddr::new(local, 0)).map_err(|e| e.to_string())?;
+        let s = self.net.bind(here, "no port to bind".to_owned(), |port| {
+            UdpSocket::bind((local, port)).map_err(|e| e.to_string())
+        })?;
         s.set_nonblocking(true).map_err(|e| e.to_string())?;
         self.socket = Some(s);
         Ok(())
@@ -1123,6 +1150,11 @@ fn run() -> Result<(), String> {
         },
     };
     let (world, data, language) = open_data(&install, o.language.as_deref(), &preferences)?;
+    let net = NetBinding::read(
+        &o.line
+            .preferences(Profile::new(&preferences), Names::read(&world.records)),
+        o.line.out_port,
+    );
     tracing::info!(settings = %settings.display(), "settings");
     let shots = o
         .shots
@@ -1158,6 +1190,7 @@ fn run() -> Result<(), String> {
     let host = Desktop {
         start: Instant::now(),
         socket: None,
+        net,
         window: None,
         presentation: None,
         picture_in_window: ([0.0, 0.0, 1.0, 1.0], (1, 1)),

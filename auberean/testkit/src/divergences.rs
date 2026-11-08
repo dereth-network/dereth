@@ -55,6 +55,14 @@ pub static DIVERGENCES: &[Divergence] = &[
         says: "A record the data files hold that fails to read is read again before it counts as missing, so one bad read on a busy machine does not lose it for the rest of the session.",
     },
     Divergence {
+        id: "CD2-device-options-do-nothing",
+        says: "The command line's -ff, -sb and -sw asked the original's graphics device for \
+               fixed-function drawing, a stencil buffer and software vertices, and the \
+               preferences UseNPatches and TextureTargets for curved surfaces and drawing into \
+               textures. This client's device has no such choices, so they are read and do \
+               nothing.",
+    },
+    Divergence {
         id: "CD2-files-stay-in-settings-folder",
         says: "The chat log and exported options are kept in the settings folder, by a bare name \
                only; the original client wrote them beside itself, or wherever a path named.",
@@ -64,6 +72,12 @@ pub static DIVERGENCES: &[Divergence] = &[
         says: "Records the server sends while the game runs are stored in the data files as the \
                client stores them, but in memory over files only read, for the session: the files \
                on disk are never changed.",
+    },
+    Divergence {
+        id: "CD2-friends-local-port-from-the-system",
+        says: "The original could name the friends service connection's own port in the \
+               preferences (GunLocalPort). The system picks it here: the service answers on \
+               the connection, so nobody needs a fixed one.",
     },
     Divergence {
         id: "CD2-friends-stream",
@@ -205,6 +219,13 @@ pub static DIVERGENCES: &[Divergence] = &[
                holds its size; the original client's window had no resizing frame. A first start \
                is a window with antialiasing on, where the original's configuration program \
                chose full screen and, below the top quality, no antialiasing.",
+    },
+    Divergence {
+        id: "CD2-unique-port-from-the-way-to-the-server",
+        says: "The series of ports the game socket tries is worked out from the interface a \
+               packet to the server leaves by, and a filter in the preferences is checked \
+               against that one interface. The original listed the machine's interfaces and \
+               used the first, or the first the filter took.",
     },
     Divergence {
         id: "CD2-wheel-scrolls-the-window",

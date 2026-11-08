@@ -22,6 +22,7 @@ const ENUM_MAPS: u32 = 0x4000_0001;
 
 /// The preferences' sections the client itself asks for.
 pub mod section {
+    pub const GRAPHICS: u32 = 0x4000_0004;
     pub const KEY_MAP: u32 = 0x4000_0006;
     pub const NET: u32 = 0x4000_000F;
     pub const INTERNATIONAL: u32 = 0x4000_0010;
@@ -30,9 +31,20 @@ pub mod section {
 /// Keys the client itself asks for.
 pub mod key {
     pub const LANGUAGE: u32 = 0x4000_003C;
+    pub const BIND_INTERFACE: u32 = 0x4000_006F;
     pub const COMPUTE_UNIQUE_PORT: u32 = 0x4000_0070;
     pub const USER_SPECIFIED_PORT: u32 = 0x4000_0071;
     pub const USE_INPUT_METHOD_EDITOR: u32 = 0x4000_0077;
+    /// The friends service connection's own port.
+    pub const GUN_LOCAL_PORT: u32 = 0x4100_0001;
+    /// The graphics keys asked at startup: the overall quality (1 to 5), the land's blending,
+    /// curved surfaces, drawing into textures, and a screenshot's tiles across and down.
+    pub const OVERALL_GRAPHICS_QUALITY: u32 = 0x4000_0073;
+    pub const TERRAIN_BLENDING: u32 = 0x4000_0014;
+    pub const USE_N_PATCHES: u32 = 0x4000_001E;
+    pub const USE_TEXTURE_TARGETS: u32 = 0x4000_001D;
+    pub const SCREENSHOT_WIDTH: u32 = 0x4000_003E;
+    pub const SCREENSHOT_HEIGHT: u32 = 0x4000_003F;
 }
 
 /// The size of the buffer a value is read into, its terminating zero included.

@@ -39,6 +39,7 @@ pub mod input;
 pub mod input_manager;
 pub mod interface;
 pub mod keys;
+pub mod net_binding;
 pub mod preferences;
 pub mod profile;
 pub mod settings;

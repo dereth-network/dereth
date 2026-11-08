@@ -5,6 +5,7 @@ mod command_line;
 mod friends;
 mod input_manager;
 mod keys;
+mod net_binding;
 mod preferences;
 mod profile;
 mod settings;
