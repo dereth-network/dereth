@@ -2473,3 +2473,104 @@ fn a_step_on_a_quest_given_compiles_and_reads_back_as_written() {
         "it reads back as written"
     );
 }
+
+/// A death treasure row names a template or a camp (in another pack by `pack:key@XXYY`), an item and
+/// a chance above 0 and at most 1; it compiles into the loot table, which reads back as written.
+/// Behaviour: server.content.death-treasure-row
+#[test]
+fn a_death_treasure_row_names_a_template_or_a_camp_and_compiles_into_the_loot_table() {
+    use yalain_content::{DeathTreasure, Dropper, LootTable};
+    let row = |key: &str, dropper: &str, item: u32, chance: f32| {
+        format!(
+            "[[death_treasure]]\nkey = \"{key}\"\n{dropper}\nitem = {item:#010x}\nchance = {chance}\n\
+             prov = {{ from = \"authored\", note = \"a test\" }}\n"
+        )
+    };
+    let with = |text: String| {
+        let mut files = fixture();
+        files.insert("town-fixes/server/death_treasures.toml".into(), text);
+        files
+    };
+    let files = with(format!(
+        "{}\n{}",
+        row("by-kind", "template = 0x47002224", 0x4700_0001, 0.05),
+        row("by-camp", "camp = \"town:beetles@77B7\"", 0x4700_115B, 1.0)
+    ));
+    assert_eq!(check(&files), Vec::new());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let got: Vec<(Dropper, u32, f32)> = t
+        .loot
+        .treasures
+        .iter()
+        .map(|d: &DeathTreasure| (d.from.clone(), d.item, d.chance))
+        .collect();
+    assert_eq!(
+        got,
+        [
+            (Dropper::Template(0x4700_2224), 0x4700_0001, 0.05),
+            (Dropper::Camp("beetles".into()), 0x4700_115B, 1.0),
+        ]
+    );
+    assert_eq!(
+        LootTable::from_text(&t.loot.to_text()).unwrap(),
+        t.loot,
+        "it reads back as written"
+    );
+    // Rows that do not read, or name what is not there.
+    for (bad, says) in [
+        (
+            row(
+                "k",
+                "template = 0x47002224\ncamp = \"town:beetles@77B7\"",
+                0x4700_0001,
+                0.5,
+            ),
+            "one of them",
+        ),
+        (row("k", "", 0x4700_0001, 0.5), "one of them"),
+        (
+            row("k", "template = 0x47002224", 0x4700_0001, 0.0),
+            "above 0",
+        ),
+        (
+            row("k", "template = 0x47002224", 0x4700_0001, 1.5),
+            "above 0",
+        ),
+        (
+            row("k", "camp = \"town:wasps@77B7\"", 0x4700_0001, 0.5),
+            "no camp wasps@77B7",
+        ),
+        (
+            row("k", "camp = \"town:beetles\"", 0x4700_0001, 0.5),
+            "key@XXYY",
+        ),
+    ] {
+        let problems = check(&with(bad.clone()));
+        assert!(
+            problems.iter().any(|p| p.to_string().contains(says)),
+            "{bad}: {problems:?}"
+        );
+    }
+    for (bad, says) in [
+        (
+            row("k", "template = 0x47002224", 0x4700_9999, 0.5),
+            "item: template 47009999",
+        ),
+        (
+            format!(
+                "{}\n{}",
+                row("by-kind", "template = 0x47002224", 0x4700_0001, 0.5),
+                row("by-camp", "camp = \"town:beetles@77B7\"", 0x4700_0001, 0.5)
+            ),
+            "item: 47000001 is given by another row",
+        ),
+    ] {
+        let files = with(bad.clone());
+        assert_eq!(check(&files), Vec::new(), "{bad}");
+        let problems = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap_err();
+        assert!(
+            problems.iter().any(|p| p.to_string().contains(says)),
+            "{bad}: {problems:?}"
+        );
+    }
+}

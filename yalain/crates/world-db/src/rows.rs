@@ -457,6 +457,7 @@ pub enum Row {
     Shard(Shard),
     Weapon(Weapon),
     DeathSpawn(DeathSpawn),
+    DeathTreasure(DeathTreasure),
     Pet(Pet),
     PetLimit(PetLimit),
     Route(Route),
@@ -497,6 +498,20 @@ pub struct DeathSpawn {
     pub offset: At,
     /// How long each stands, in seconds; it stays until killed when left out.
     pub lasts: Option<f32>,
+    pub prov: Prov,
+}
+
+/// `[[death_treasure]]`: a fixed item every creature or chest of a template, or every creature a
+/// camp keeps, leaves at a chance of its own, rolled once at each death or opening.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DeathTreasure {
+    pub key: String,
+    /// The creature's or chest's template; or
+    pub template: Option<u32>,
+    /// the camp whose creatures leave it (`key@XXYY`, or `pack:key@XXYY` in another pack).
+    pub camp: Option<String>,
+    pub item: u32,
+    pub chance: f32,
     pub prov: Prov,
 }
 
@@ -683,6 +698,7 @@ impl Row {
             Self::Shard(_) => "shard",
             Self::Weapon(_) => "weapon",
             Self::DeathSpawn(_) => "death_spawn",
+            Self::DeathTreasure(_) => "death_treasure",
             Self::Pet(_) => "pet",
             Self::PetLimit(_) => "pet_limit",
             Self::Route(_) => "route",
@@ -712,6 +728,7 @@ impl Row {
             Self::Shard(r) => Some(&r.prov),
             Self::Weapon(r) => Some(&r.prov),
             Self::DeathSpawn(r) => Some(&r.prov),
+            Self::DeathTreasure(r) => Some(&r.prov),
             Self::Pet(r) => Some(&r.prov),
             Self::PetLimit(r) => Some(&r.prov),
             Self::Route(r) => Some(&r.prov),
@@ -723,7 +740,7 @@ impl Row {
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 23] = [
+pub const KINDS: [&str; 24] = [
     "object",
     "camp",
     "loot",
@@ -747,10 +764,11 @@ pub const KINDS: [&str; 23] = [
     "death_spawn",
     "pet",
     "pet_limit",
+    "death_treasure",
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 23] = [
+pub const FIELDS: [(&str, &[&str]); 24] = [
     (
         "object",
         &[
@@ -1009,6 +1027,10 @@ pub const FIELDS: [(&str, &[&str]); 23] = [
         ],
     ),
     ("pet_limit", &["skill", "limits", "prov"]),
+    (
+        "death_treasure",
+        &["key", "template", "camp", "item", "chance", "prov"],
+    ),
 ];
 
 /// A shared-format error as a problem at its file and line.
@@ -1605,6 +1627,30 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 template: f.req_id("template")?,
                 two_share,
                 stance: f.id("stance"),
+                prov: f.req_prov()?,
+            })
+        }
+        "death_treasure" => {
+            let key = f.req_symbol("key")?;
+            let (template, camp) = (f.id("template"), f.symbol("camp"));
+            if template.is_some() == camp.is_some() {
+                f.bad(
+                    "template, camp",
+                    "a death treasure is left by the creatures or chests of a template, or by a camp's creatures: one of them",
+                );
+                return None;
+            }
+            let chance = to_f32(f.req_float("chance")?);
+            if chance.is_nan() || chance <= 0.0 || chance > 1.0 {
+                f.bad("chance", "a chance is a number above 0, at most 1");
+                return None;
+            }
+            Row::DeathTreasure(DeathTreasure {
+                key,
+                template,
+                camp,
+                item: f.req_id("item")?,
+                chance,
                 prov: f.req_prov()?,
             })
         }

@@ -104,7 +104,7 @@ impl Dialect for Ac2 {
     const ITEM_FORMS: &'static str = "object <key>@<XXYY>, camp <key>@<XXYY>, place <key>, \
          loot <value>, keeper <template>, sale <store> <ordinal>, quest <id>, \
          step <quest> <key>, talk <key>, weapon <name>, route <key>, area <XXYY>, \
-         clearing <key>@<XXYY>, or landblock <XXYY>";
+         clearing <key>@<XXYY>, death_treasure <key>, or landblock <XXYY>";
     const NAMES_BASE: bool = true;
     type Kind = Kind;
     type Era = Era;
@@ -163,6 +163,8 @@ pub enum Item {
     Weapon { name: String },
     /// What a creature's death effect makes around its killer, by the effect's name.
     DeathSpawn { effect: String },
+    /// A fixed item a creature or a chest leaves at a chance of its own, by its key.
+    DeathTreasure { key: String },
     /// A kind of pet, by the effect or contract that names it.
     Pet { effect: u32 },
     /// What a summoning skill allows its user, by the skill.
@@ -228,6 +230,7 @@ impl Item {
             ["death_spawn", effect] => Self::DeathSpawn {
                 effect: identifier(effect)?,
             },
+            ["death_treasure", key] => Self::DeathTreasure { key: symbol(key)? },
             ["pet", effect] => Self::Pet {
                 effect: number(effect)?,
             },
@@ -273,6 +276,7 @@ impl fmt::Display for Item {
             Self::Shard { object } => write!(f, "shard {object:#018x}"),
             Self::Weapon { name } => write!(f, "weapon {name}"),
             Self::DeathSpawn { effect } => write!(f, "death_spawn {effect}"),
+            Self::DeathTreasure { key } => write!(f, "death_treasure {key}"),
             Self::Pet { effect } => write!(f, "pet {effect:#010x}"),
             Self::PetLimit { skill } => write!(f, "pet_limit {skill:#010x}"),
             Self::Route { key } => write!(f, "route {key}"),

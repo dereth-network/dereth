@@ -42,7 +42,7 @@ pub mod treasure_words;
 pub mod worn_table;
 
 pub use locks::{Lock, LockTable};
-pub use loot::{ChestTreasure, LootProfile, LootTable};
+pub use loot::{ChestTreasure, DeathTreasure, Dropper, LootProfile, LootTable};
 pub use movement::{CampMoves, Movement, MovementOverrides, MovementType, Route};
 pub use props::{CorpseRot, CreatureStats, Prop, Props};
 pub use quests::QuestTable;

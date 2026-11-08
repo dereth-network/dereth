@@ -1160,7 +1160,11 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     t.content.conflict.insert(r.landblock, r.conflict);
                 }
             }
-            Row::Talk(_) | Row::Route(_) | Row::Remove(_) | Row::Clearing(_) => {}
+            Row::Talk(_)
+            | Row::Route(_)
+            | Row::Remove(_)
+            | Row::Clearing(_)
+            | Row::DeathTreasure(_) => {}
         }
     }
     for (l, scene) in door_scenes {
@@ -1239,6 +1243,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
             placed: prov_text(&r.prov),
         });
     }
+    death_treasures(merged, &camp_keys, &mut t, &mut cx);
     subquest_definitions(&mut t.quests, install);
     t.quests.rooms = rooms.into_values().collect();
     if cx.problems.is_empty() {
@@ -1248,6 +1253,103 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
         cx.problems.sort();
         Err(cx.problems)
     }
+}
+
+/// The death treasures, once every camp has its id in the spawn table: each names what is in the
+/// install and a camp that is served, and no creature or chest is given one item by two rows (a
+/// camp's row and its creatures' template's among them).
+fn death_treasures(
+    merged: &Merged,
+    camp_keys: &BTreeMap<&str, usize>,
+    t: &mut Tables,
+    cx: &mut Ctx<'_>,
+) {
+    use yalain_content::{DeathTreasure, Dropper};
+    let mut rows: Vec<(&Located, DeathTreasure)> = Vec::new();
+    for l in &merged.rows {
+        let Row::DeathTreasure(r) = &l.row else {
+            continue;
+        };
+        let mut ok = cx.template(l, "item", r.item);
+        let from = match (r.template, &r.camp) {
+            (Some(template), _) => {
+                ok &= cx.template(l, "template", template);
+                Dropper::Template(template)
+            }
+            (None, Some(camp)) => {
+                let key = camp.split_once(':').map_or(camp.as_str(), |(_, k)| k);
+                let (key, lb) = key
+                    .split_once('@')
+                    .map_or((key, None), |(k, b)| (k, u16::from_str_radix(b, 16).ok()));
+                let Some(lb) = lb.or(l.landblock) else {
+                    cx.problem(l, "camp: a camp is named key@XXYY");
+                    continue;
+                };
+                let id = if camp_keys.get(key).copied().unwrap_or(0) > 1 {
+                    format!("{key}@{lb:04X}")
+                } else {
+                    key.to_string()
+                };
+                let served = merged.rows.iter().any(|c| {
+                    matches!(&c.row, Row::Camp(c2) if c2.key == key) && c.landblock == Some(lb)
+                }) && t.spawns.camps.iter().any(|c| c.id == id);
+                if !served {
+                    cx.problem(l, format!("camp: no camp {key}@{lb:04X} is served"));
+                    continue;
+                }
+                Dropper::Camp(id)
+            }
+            (None, None) => continue,
+        };
+        if ok {
+            rows.push((
+                l,
+                DeathTreasure {
+                    from,
+                    item: r.item,
+                    chance: r.chance,
+                    placed: prov_text(&r.prov),
+                    confidence: confidence_word(&r.prov),
+                },
+            ));
+        }
+    }
+    // The templates a camp makes, by its id.
+    let makes = |id: &str| -> Vec<u32> {
+        t.spawns
+            .camps
+            .iter()
+            .find(|c| c.id == id)
+            .map(|c| c.templates.iter().map(|(t, _)| *t).collect())
+            .unwrap_or_default()
+    };
+    let mut twice = Vec::new();
+    for (i, (l, a)) in rows.iter().enumerate() {
+        for (_, b) in &rows[..i] {
+            if a.item != b.item {
+                continue;
+            }
+            let both = match (&a.from, &b.from) {
+                (x, y) if x == y => true,
+                (Dropper::Camp(c), Dropper::Template(x))
+                | (Dropper::Template(x), Dropper::Camp(c)) => makes(c).contains(x),
+                _ => false,
+            };
+            if both {
+                twice.push((
+                    *l,
+                    format!(
+                        "item: {:08X} is given by another row to the same creatures or chests",
+                        a.item
+                    ),
+                ));
+            }
+        }
+    }
+    for (l, m) in twice {
+        cx.problem(l, m);
+    }
+    t.loot.treasures = rows.into_iter().map(|(_, d)| d).collect();
 }
 
 /// The kind of pet a `[[pet]]` makes: what it leaves out, the server's general numbers.

@@ -57,6 +57,7 @@ pub fn item(l: &Located) -> Option<Item> {
         Row::DeathSpawn(r) => Item::DeathSpawn {
             effect: r.effect.clone(),
         },
+        Row::DeathTreasure(r) => Item::DeathTreasure { key: r.key.clone() },
         Row::Pet(r) => Item::Pet { effect: r.effect },
         Row::PetLimit(r) => Item::PetLimit { skill: r.skill },
         Row::Route(r) => Item::Route { key: r.key.clone() },
@@ -101,6 +102,7 @@ fn value(row: &Row) -> String {
         Row::Shard(x) => x.prov = crate::rows::Prov::default(),
         Row::Weapon(x) => x.prov = crate::rows::Prov::default(),
         Row::DeathSpawn(x) => x.prov = crate::rows::Prov::default(),
+        Row::DeathTreasure(x) => x.prov = crate::rows::Prov::default(),
         Row::Pet(x) => x.prov = crate::rows::Prov::default(),
         Row::PetLimit(x) => x.prov = crate::rows::Prov::default(),
         Row::Route(x) => x.prov = crate::rows::Prov::default(),

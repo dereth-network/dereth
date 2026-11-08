@@ -32,6 +32,13 @@
 //! profile's count says (counting the drops and extras already in). Each item drawn carries what
 //! the creature's level gives it of its own ([`crate::treasure`]).
 //!
+//! **Death treasures** ([`yalain_content::DeathTreasure`]): a world's fixed item for a creature's
+//! template or its camp, each rolled once at its chance as the corpse is made, on top of all the
+//! above and never pushed out of a full corpse. Only a creature a camp keeps leaves one, so they
+//! come no faster than the camps make the creatures again; a creature made by a death or an item's
+//! use, a pet, or one its camp let go leaves none. A corpse is given an item once, however many
+//! rows name it.
+//!
 //! **A corpse leaves the world** by its creature's template's times, for most creatures these: three
 //! minutes after it appeared, or fifteen seconds if it can hold nothing (the creature has no loot
 //! profile and left nothing); fifteen seconds after it was closed empty, a minute after it was
@@ -562,7 +569,8 @@ fn treasure_value<S: Store>(s: &mut Server<S>, level: i32) -> u32 {
     lo + u32::try_from(s.rng.below((hi - lo + 1) as usize)).unwrap_or(0)
 }
 
-/// What a dead creature leaves: its fixed drops, its profile's extras, and the profile's draw.
+/// What a dead creature leaves: its fixed drops, its profile's extras, the profile's draw, and its
+/// death treasures.
 fn roll_loot<S: Store>(s: &mut Server<S>, creature: &Thing) -> Vec<(u32, u32)> {
     let Some(c) = creature.creature.as_ref() else {
         return Vec::new();
@@ -607,7 +615,36 @@ fn roll_loot<S: Store>(s: &mut Server<S>, creature: &Thing) -> Vec<(u32, u32)> {
             out.push((p.items[i].0, value));
         }
     }
-    out.truncate(MOST_ITEMS);
+    let treasures = death_treasures(s, creature);
+    out.truncate(MOST_ITEMS.saturating_sub(treasures.len()));
+    out.extend(treasures.into_iter().map(|t| (t, 0)));
+    out
+}
+
+/// The death treasures a creature leaves: each of its template's and its camp's rolled once at its
+/// chance, each item once; none for a creature no camp keeps. Nothing is drawn for a creature with
+/// no row.
+fn death_treasures<S: Store>(s: &mut Server<S>, creature: &Thing) -> Vec<u32> {
+    let Some(camp) = creature
+        .creature
+        .as_ref()
+        .and_then(|c| c.camp)
+        .and_then(|i| s.spawns.camps.get(i))
+        .map(|c| c.id.clone())
+    else {
+        return Vec::new();
+    };
+    let rows: Vec<(u32, f32)> = s
+        .loot
+        .treasures_of(creature.template, Some(&camp))
+        .map(|t| (t.item, t.chance))
+        .collect();
+    let mut out: Vec<u32> = Vec::new();
+    for (item, chance) in rows {
+        if !out.contains(&item) && s.rng.chance(chance) {
+            out.push(item);
+        }
+    }
     out
 }
 

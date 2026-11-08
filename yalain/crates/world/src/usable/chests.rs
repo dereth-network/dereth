@@ -19,6 +19,11 @@
 //! middle half, 15 to 20 worth 20 to 30, 41 to 50 worth 50 to 72 or 130 to 189). A profile's extras
 //! aren't.
 //!
+//! **Death treasures.** A world's fixed item for a chest's template is rolled once at its chance at
+//! an opening its key paid for: a key used up on the chest pays for its next opening alone. A chest
+//! is filled anew at every opening, with no wait, so this is what holds its treasure to its chance;
+//! a chest no key opens never holds one.
+//!
 //! **Quests.** A chest a quest keeps refuses at once a player whose quest is not at the phase it
 //! names, and again at the chest. What its kind names for its use comes on its opener as it begins
 //! to open, so a kind that completes its own quest opens once for each giving.
@@ -116,6 +121,8 @@ pub struct Chest {
     pub opener: Option<ConnId>,
     /// Its key has unlocked it.
     pub unlocked: bool,
+    /// A key has been used up on it since it last rolled its death treasures.
+    pub paid: bool,
     pub waiting: Option<Waiting>,
 }
 
@@ -497,8 +504,31 @@ pub fn key_at_chest<S: Store>(
 }
 
 /// What a chest holds at an opening: its profile's extras and its draw, at most its size; each with
-/// the worth and level it holds of its own, if its profile's row says.
-fn fill<S: Store>(s: &mut Server<S>, kind: &Kind) -> Vec<(u32, Option<(u32, i32)>)> {
+/// the worth and level it holds of its own, if its profile's row says; and, at an opening its key
+/// paid for, its death treasures, which its size never pushes out.
+fn fill<S: Store>(s: &mut Server<S>, kind: &Kind, paid: bool) -> Vec<(u32, Option<(u32, i32)>)> {
+    let mut out = profile_fill(s, kind);
+    if paid {
+        let rows: Vec<(u32, f32)> = s
+            .loot
+            .treasures_of(kind.template, None)
+            .map(|t| (t.item, t.chance))
+            .collect();
+        let mut treasures: Vec<u32> = Vec::new();
+        for (item, chance) in rows {
+            if !treasures.contains(&item) && s.rng.chance(chance) {
+                treasures.push(item);
+            }
+        }
+        let most = kind.most.unwrap_or(usize::MAX);
+        out.truncate(most.saturating_sub(treasures.len()));
+        out.extend(treasures.into_iter().map(|t| (t, None)));
+    }
+    out
+}
+
+/// What a chest's profile puts in it at an opening.
+fn profile_fill<S: Store>(s: &mut Server<S>, kind: &Kind) -> Vec<(u32, Option<(u32, i32)>)> {
     let Some(p) = kind
         .profile
         .and_then(|v| s.catalog.profile_name(v))
@@ -571,8 +601,13 @@ fn open<S: Store>(
         }
         s.things.remove(item);
     }
+    let paid = s
+        .chests
+        .by_id
+        .get_mut(&id)
+        .is_some_and(|c| std::mem::take(&mut c.paid));
     let mut contents = Vec::new();
-    for (slot, (template, own)) in fill(s, kind).into_iter().enumerate() {
+    for (slot, (template, own)) in fill(s, kind, paid).into_iter().enumerate() {
         let value = own.map_or(0, |(value, _)| value);
         if let Some(item) = crate::inventory::make_item(s, template, 1, value) {
             if let Some((_, level)) = own {
@@ -725,6 +760,7 @@ pub fn step<S: Store>(
             }
             if let Some(c) = s.chests.by_id.get_mut(&id) {
                 c.unlocked = true;
+                c.paid = true;
             }
             if kind.opens_on_unlock {
                 open(s, net, id, &kind, w, clock);

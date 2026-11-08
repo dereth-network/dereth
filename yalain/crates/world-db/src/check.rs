@@ -339,6 +339,19 @@ pub fn check_database(db: &Database) -> Vec<Problem> {
                 }
             }
             Row::Talk(r) => check_talk(r, l, &objects, &mut |m| problems.push(at(m))),
+            Row::DeathTreasure(r) => {
+                if let Some(camp) = &r.camp {
+                    let (pack, key) = split_ref(camp, &l.pack);
+                    if key.contains('@') || l.landblock.is_some() {
+                        let (key, lb) = placed(&key, l.landblock.unwrap_or(0));
+                        if !camps.contains(&(pack, key.clone(), lb)) {
+                            problems.push(at(format!("camp: no camp {key}@{lb:04X}")));
+                        }
+                    } else {
+                        problems.push(at("camp: a camp is named key@XXYY".into()));
+                    }
+                }
+            }
             Row::Loot(r) if r.counts.iter().any(|c| !(0.0..=1.0).contains(c)) => {
                 problems.push(at("counts: shares between 0 and 1".into()));
             }

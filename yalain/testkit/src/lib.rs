@@ -1588,6 +1588,7 @@ pub fn test_loot() -> yalain_content::LootTable {
             confidence: "authored".into(),
             chest: None,
         }],
+        treasures: Vec::new(),
     }
 }
 

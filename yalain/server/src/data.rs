@@ -362,7 +362,8 @@ pub fn kingdom_skills(
 pub const PROFILE_NAMES: u32 = 0x2300_0100;
 
 /// The templates the world makes things of: every template a camp spawns, every item a loot
-/// profile names, the fixed drops of those creatures, and `more` (corpses, store products); each
+/// profile or a death treasure names, the fixed drops of those creatures, and `more` (corpses,
+/// store products); each
 /// described as the content pack's objects are, with its facts and its properties by name.
 ///
 /// # Errors
@@ -399,6 +400,7 @@ pub fn catalog(
                 .map(|(t, _)| *t)
                 .chain(lp.extras.iter().map(|(t, _)| *t))
         }))
+        .chain(loot.treasures.iter().map(|d| d.item))
         .chain(more.iter().copied())
         .collect();
     let mut skipped = Vec::new();
@@ -1611,6 +1613,31 @@ mod tests {
         assert!(c
             .icon_tables
             .contains_key(&yalain_world::inventory::POTION_COLOR.0));
+    }
+
+    /// The catalog holds every item a death treasure names, though no camp or profile names it, so
+    /// a corpse can be given it.
+    /// Behaviour: server.loot.death-treasure-in-the-catalog
+    #[test]
+    fn the_catalog_holds_every_item_a_death_treasure_names() {
+        const ITEM: u32 = 0x4700_1919;
+        let (dat, _) = tallied(&DatName::Portal);
+        let p = Portal::over(dat, Vec::new(), None).expect("a context");
+        let loot = LootTable {
+            treasures: vec![yalain_content::DeathTreasure {
+                from: yalain_content::Dropper::Template(0x4700_2C30),
+                item: ITEM,
+                chance: 0.5,
+                placed: "authored for a test".into(),
+                confidence: "authored".into(),
+            }],
+            ..LootTable::default()
+        };
+        let (c, _) = catalog(&p, &SpawnTable::default(), &loot, &[]).expect("the catalog");
+        assert!(c.templates.contains_key(&ITEM));
+        let (c, _) =
+            catalog(&p, &SpawnTable::default(), &LootTable::default(), &[]).expect("the catalog");
+        assert!(!c.templates.contains_key(&ITEM), "named by nothing else");
     }
 
     /// Every enchantment treasure may carry, and what it puts on what it hits, reads from the data

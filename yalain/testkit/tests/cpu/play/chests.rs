@@ -1156,3 +1156,75 @@ fn a_chests_quest_effect_held_as_a_state_moves_its_quest_once() {
         "one move, not two"
     );
 }
+
+/// A chest's death treasure, at a chance of 1, comes only with an opening its key paid for: a sigil
+/// cache holds it at each opening its key makes, a chest its key only unlocks at the one opening
+/// after, and never again while it stays unlocked; a chest no key opens never holds it, opened
+/// again and again.
+/// Behaviour: server.places.chest-death-treasure-paid-by-its-key
+#[test]
+fn a_chests_death_treasure_comes_only_with_an_opening_its_key_paid_for() {
+    const TREASURE: u32 = 0x4700_0F22;
+    let opening = |template: u32, lockable: bool, opens_on_unlock: bool, plan: &[bool]| {
+        let mut h = hall(template, lockable, opens_on_unlock);
+        h.server.catalog.insert(yalain_testkit::test_template(
+            TREASURE,
+            0x3A1,
+            Props::default(),
+        ));
+        h.server.loot.treasures = vec![yalain_content::DeathTreasure {
+            from: yalain_content::Dropper::Template(template),
+            item: TREASURE,
+            chance: 1.0,
+            placed: "authored for a test".into(),
+            confidence: "authored".into(),
+        }];
+        if lockable && !opens_on_unlock {
+            let props = &mut h
+                .server
+                .catalog
+                .templates
+                .get_mut(&template)
+                .expect("made")
+                .props;
+            props.set("Lock_LockOnClose", Prop::Bool(false));
+        }
+        let (a, me) = h.player_in_world("one", "Elara");
+        h.run(10);
+        let mut held = Vec::new();
+        for by_key in plan {
+            if *by_key {
+                let key = give_key(&mut h, me);
+                send_use(&mut h, a, me, key, CHEST, 1.6);
+            }
+            if !(*by_key && opens_on_unlock) {
+                send_use(&mut h, a, me, CHEST, 0, 1.6);
+            }
+            run_for(&mut h, 4.0);
+            let c = h.server.chests.by_id[&CHEST].contents.clone();
+            held.push(
+                c.iter()
+                    .filter(|i| {
+                        h.server
+                            .things
+                            .get(**i)
+                            .is_some_and(|t| t.template == TREASURE)
+                    })
+                    .count(),
+            );
+            close(&mut h, a, 3.0);
+        }
+        held
+    };
+    assert_eq!(opening(CACHE, true, true, &[true, true]), [1, 1], "a cache");
+    assert_eq!(
+        opening(SMALL, true, false, &[true, false, false]),
+        [1, 0, 0],
+        "unlocked once"
+    );
+    assert_eq!(
+        opening(SMALL, false, false, &[false; 3]),
+        [0, 0, 0],
+        "no key"
+    );
+}
