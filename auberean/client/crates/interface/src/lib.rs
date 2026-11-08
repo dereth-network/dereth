@@ -556,6 +556,8 @@ pub struct Retail {
     /// connecting screen was last told.
     answers: u32,
     net: pregame::Net,
+    /// The login's progress the connecting screen was last told.
+    login_told: Option<auberean_client_sdk::runtime::LoginProgress>,
     /// The connecting screen was told the session's connection failure.
     failure_told: bool,
     /// How many of the session's data download events the connecting screen was told.
@@ -688,6 +690,7 @@ impl Retail {
             auto: None,
             answers: 0,
             net: pregame::Net::Idle,
+            login_told: None,
             failure_told: false,
             ddd_told: 0,
             pointer: (0, 0),

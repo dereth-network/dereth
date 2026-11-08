@@ -1147,6 +1147,105 @@ fn a_world_server_gone_ends_the_session_on_the_disconnected_screen() {
     );
 }
 
+/// A shell and its interface logging in to `server`, with the double behind it.
+fn shell_logging_in_to(
+    script: Script,
+    server: impl FnOnce(SocketAddr) -> SocketAddr,
+) -> (Shell<'static, DoubleHost>, Rc<RefCell<Retail>>) {
+    let (world, client_data, assets) = data();
+    let double = ServerDouble::new(script, std::net::Ipv4Addr::LOCALHOST, 1.0, 7);
+    let server = server(double.login_addr());
+    let records: Arc<dyn auberean_ui::Assets + Send + Sync> = Arc::clone(assets) as _;
+    let retail = Rc::new(RefCell::new(Retail::new(
+        records,
+        (1024, 768),
+        Some(Login {
+            server,
+            account: "tester".into(),
+            password: "t".into(),
+        }),
+    )));
+    let host = DoubleHost {
+        time: 0.0,
+        double,
+        inbox: VecDeque::new(),
+        input_method: None,
+        pages: Vec::new(),
+        page_error: None,
+        boxes: Vec::new(),
+        files: std::collections::HashMap::new(),
+    };
+    let mut s = Shell::new(
+        host,
+        world,
+        client_data.clone(),
+        Box::new(Shared(Rc::clone(&retail))),
+    );
+    s.size = (1024, 768);
+    (s, retail)
+}
+
+/// The connecting screen's line, each time it changes, for `seconds` of frames.
+fn connecting_lines(
+    shell: &mut Shell<'_, DoubleHost>,
+    retail: &Rc<RefCell<Retail>>,
+    seconds: f64,
+) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    until(shell, seconds, |_| {
+        if let Some(t) = text_of(retail, "ErrorText") {
+            if lines.last() != Some(&t) {
+                lines.push(t);
+            }
+        }
+        false
+    });
+    lines
+}
+
+/// A login nobody answers is counted on the connecting screen: each attempt out of the twenty
+/// the client makes, two seconds apart.
+///
+/// Behaviour: desktop.interface.the-connecting-screen-counts-the-login-attempts
+#[test]
+fn the_connecting_screen_counts_the_login_attempts() {
+    // A port the server does not listen on.
+    let (mut s, retail) = shell_logging_in_to(script(), |a| SocketAddr::new(a.ip(), a.port() + 10));
+    past_the_intro(&mut s, &retail);
+    let lines = connecting_lines(&mut s, &retail, 5.0);
+    assert_eq!(
+        lines,
+        [
+            "Connecting to Authentication Server ...",
+            "Searching for logon server ... (Attempt 1 of 20)",
+            "Searching for logon server ... (Attempt 2 of 20)",
+            "Searching for logon server ... (Attempt 3 of 20)",
+        ],
+    );
+}
+
+/// A login the server answers: the first attempt counted, then, its answer acknowledged, the
+/// wait for the server's first packet.
+///
+/// Behaviour: desktop.interface.the-connecting-screen-says-when-it-waits-for-the-server
+#[test]
+fn the_connecting_screen_says_when_it_waits_for_the_server() {
+    let (mut s, retail) = shell_logging_in_to(script(), |a| a);
+    past_the_intro(&mut s, &retail);
+    let lines = connecting_lines(&mut s, &retail, 1.0);
+    assert_eq!(
+        lines.get(..3),
+        Some(
+            &[
+                "Connecting to Authentication Server ...".to_owned(),
+                "Searching for logon server ... (Attempt 1 of 20)".to_owned(),
+                "Logging in, please wait ...".to_owned(),
+            ][..]
+        ),
+        "{lines:?}"
+    );
+}
+
 /// An account the server refuses with a boot as it logs in (its line that the account is banned,
 /// before the character list) is taken from connecting to the disconnected screen showing that
 /// line.

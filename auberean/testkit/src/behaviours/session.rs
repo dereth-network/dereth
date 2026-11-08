@@ -165,6 +165,30 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "session.login.each-attempt-is-told-out-of-twenty",
+        says: "Each login that goes out is told as its attempt of the twenty the client makes,                for the connecting screen to count.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-LOGIN-ATTEMPTS"),
+        station: "auberean-client-net::cpu::server_lost::each_login_attempt_is_told_out_of_twenty",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.login.a-login-server-lost-before-its-first-packet-fails-the-login",
+        says: "A login server that answers the login and is then given up for dead before its                first ordinary packet fails the login, once, with the generic connection error.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-LOGIN-HANDSHAKE-LOST"),
+        station: "auberean-client-net::cpu::server_lost::a_login_server_lost_before_its_first_packet_fails_the_login",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "session.login.the-login-servers-acknowledgement-is-told",
+        says: "Each acknowledgement of the login server's connection request is told, as the                client starts waiting for that server's first packet.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-LOGIN-ACKNOWLEDGED"),
+        station: "auberean-client-net::cpu::server_lost::the_login_servers_acknowledgement_is_told_before_it_connects",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "session.login.an-unanswered-login-fails-once",
         says: "A login no server answers is sent twenty times, two seconds apart, and then fails \
                once, the server timed out; it is never told connected.",

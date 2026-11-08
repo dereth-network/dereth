@@ -2,10 +2,13 @@
 //! manager.
 //!
 //! **The login.** The client sends the game login to the login server's even port, again every two
-//! seconds until the server answers with its connection request, at most twenty times. The
+//! seconds until the server answers with its connection request, at most twenty times, and tells
+//! each attempt ([`Event::LoginAttempt`]). The
 //! answer carries the cookie, the id the client puts in its headers and the two key-stream seeds;
 //! the client registers the connection and acknowledges it to the server's odd port, again every
-//! third of a second until the server's first ordinary packet arrives. The login connection is
+//! third of a second until the server's first ordinary packet arrives; a login server that goes
+//! away before then (its goodbye, or 140 seconds of silence) fails the login with the generic
+//! connection error. The login connection is
 //! then up, and stays up for the whole session: the character list, entering and leaving the
 //! world, the data download and chat travel on it.
 //!
@@ -44,7 +47,7 @@ use dereth_transport::conn::{
     handshake_port, iteration_verdict, ConnectRequest, ConnectionState, IterationVerdict,
     LoginState, NetErrorCode,
 };
-use dereth_transport::flow::HANDSHAKE_RESEND;
+use dereth_transport::flow::{HANDSHAKE_RESEND, LOGIN_RESEND_TRIES};
 use dereth_transport::wire::{OutPacket, PacketFlags, ParsedPacket, ProtoHeader};
 
 use crate::logon::Logon;
@@ -85,6 +88,17 @@ pub enum Incoming {
 /// What happened.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Event {
+    /// A login went out: the attempt, of the most the client makes before it gives up.
+    LoginAttempt {
+        attempt: u32,
+        of: u32,
+    },
+    /// A server's connection request was acknowledged (again, on each resend): the client waits
+    /// for that server's first packet. `login` for the login server.
+    ConnectAcknowledged {
+        server: u16,
+        login: bool,
+    },
     /// The login connection is up.
     LoginConnected,
     /// The login server refused the login, or never answered it.
@@ -270,6 +284,19 @@ impl Session {
         !self.login_up && !self.login_failed && !self.logged_off
     }
 
+    /// Whether the login server's connection went away before it came up: it said goodbye, or
+    /// fell silent, while the client waited for its first packet.
+    fn login_handshake_lost(&self) -> bool {
+        self.links.iter().any(|(id, l)| {
+            l.login
+                && !l.up
+                && !matches!(
+                    self.net.connection_state(RecipientId(*id)),
+                    ConnectionState::ConnectionRequestAcked | ConnectionState::Connected
+                )
+        })
+    }
+
     /// The login is over: connected (`None`), or failed and why. Told once.
     // D2-05243, D2-05258
     fn end_login(&mut self, failure: Option<NetErrorCode>) {
@@ -386,7 +413,8 @@ impl Session {
         self.send_connect_ack(rec, now);
     }
 
-    /// The acknowledgement of a connection request: the cookie, to the server's odd port.
+    /// The acknowledgement of a connection request: the cookie, to the server's odd port. Each
+    /// one sent is told.
     // D2-05262
     fn send_connect_ack(&mut self, rec: u16, now: LocalTime) {
         let Some(link) = self.links.get_mut(&rec) else {
@@ -409,6 +437,9 @@ impl Session {
             let to = SocketAddr::new(link.server.ip(), handshake_port(link.server.port()));
             self.out.push_back((to, bytes));
             link.acked_at = now;
+            let login = link.login;
+            self.events
+                .push_back(Event::ConnectAcknowledged { server: rec, login });
         }
     }
 
@@ -503,15 +534,28 @@ impl Session {
     pub fn tick(&mut self, now: LocalTime) {
         if self.logging_in() && self.links.is_empty() {
             match self.login.should_send(now) {
-                Ok(true) => self.send_login(),
+                Ok(true) => {
+                    self.send_login();
+                    self.events.push_back(Event::LoginAttempt {
+                        attempt: self.login.requests_sent,
+                        of: LOGIN_RESEND_TRIES,
+                    });
+                }
                 Ok(false) => {}
                 Err(code) => self.end_login(Some(code)),
             }
+        } else if self.logging_in() && self.login_handshake_lost() {
+            self.end_login(Some(NetErrorCode::Generic));
         }
         let due: Vec<u16> = self
             .links
             .iter()
-            .filter(|(_, l)| !l.up && now.seconds_since(l.acked_at) >= HANDSHAKE_RESEND)
+            .filter(|(id, l)| {
+                !l.up
+                    && now.seconds_since(l.acked_at) >= HANDSHAKE_RESEND
+                    && self.net.connection_state(RecipientId(**id))
+                        == ConnectionState::ConnectionRequestAcked
+            })
             .map(|(id, _)| *id)
             .collect();
         for id in due {

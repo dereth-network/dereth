@@ -308,6 +308,7 @@ pub struct Client {
     ended: bool,
     /// How the session ended under the player, as far as it has.
     session_end: SessionEnd,
+    login_progress: Option<LoginProgress>,
     /// The game clock.
     clock: clock::Clock,
     /// The world's clock over the region's calendar, from the first region on.
@@ -420,6 +421,15 @@ pub struct Heartbeat {
     pub rate_in: f64,
 }
 
+/// How the login stands, for the connecting screen.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LoginProgress {
+    /// A login went out: the attempt, of the most the client makes before it gives up.
+    Asking { attempt: u32, of: u32 },
+    /// The login server answered and was acknowledged: the client waits for its first packet.
+    Waiting,
+}
+
 /// How the session ended under the player, as far as it has: the login failed (`login_failed`),
 /// or the login server let its connection go, with an error (`None` inside: one this client has no
 /// name for); and whether the server is gone (the client has logged off).
@@ -493,6 +503,7 @@ impl Client {
             portal_space: false,
             ended: false,
             session_end: SessionEnd::default(),
+            login_progress: None,
             clock: clock::Clock::default(),
             game_clock: None,
             now: 0.0,
@@ -1669,6 +1680,12 @@ impl Client {
                 Incoming::Message(m) => self.take_message(r.blob_id, *m),
                 Incoming::Undecodable { bytes, .. } => self.take_unread(r.blob_id, &bytes),
             },
+            Event::LoginAttempt { attempt, of } => {
+                self.login_progress = Some(LoginProgress::Asking { attempt, of });
+            }
+            Event::ConnectAcknowledged { login: true, .. } => {
+                self.login_progress = Some(LoginProgress::Waiting);
+            }
             Event::LoginFailed(error) => {
                 self.session_end.login_failed = true;
                 self.connect_failed(Some(error));
@@ -1695,6 +1712,12 @@ impl Client {
     // D2-03995
     fn server_died(&mut self) {
         self.session_end.server_died = true;
+    }
+
+    /// How the login stands: nothing before the first login goes out.
+    #[must_use]
+    pub const fn login_progress(&self) -> Option<LoginProgress> {
+        self.login_progress
     }
 
     /// How the session has ended under the player so far (nothing yet, while it goes on).

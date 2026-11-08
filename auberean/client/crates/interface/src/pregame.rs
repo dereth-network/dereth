@@ -8,6 +8,7 @@
 
 use std::any::Any;
 
+use auberean_client_sdk::runtime::LoginProgress;
 use auberean_client_sdk::Action;
 use auberean_shell::interface::{Game, Overlay, Phase, Request};
 use auberean_ui::framework::flow::Screen as FlowScreen;
@@ -286,12 +287,29 @@ impl Retail {
             Phase::Characters | Phase::Entering | Phase::World => Net::Connected,
             Phase::Disconnected => Net::Idle,
         };
+        // Each login that goes out, counted; then the wait for the server's first packet.
+        let progress = game
+            .client
+            .and_then(auberean_client_sdk::Client::login_progress);
+        if net != Net::Connecting {
+            self.login_told = None;
+        } else if progress != self.login_told {
+            self.login_told = progress;
+            match progress {
+                Some(LoginProgress::Asking { attempt, of }) => {
+                    d.pre_notices.push(Notice::Net(Connection::Connecting {
+                        so_far: attempt,
+                        total: of,
+                    }));
+                }
+                Some(LoginProgress::Waiting) => {
+                    d.pre_notices.push(Notice::Net(Connection::Waiting))
+                }
+                None => {}
+            }
+        }
         if net != self.net {
             match net {
-                Net::Connecting => d.pre_notices.push(Notice::Net(Connection::Connecting {
-                    so_far: 1,
-                    total: 1,
-                })),
                 Net::Connected if self.net == Net::Connecting || self.net == Net::Idle => {
                     d.pre_notices.push(Notice::Net(Connection::Connected));
                 }
@@ -307,7 +325,7 @@ impl Retail {
                         }));
                     }
                 }
-                Net::Idle | Net::Connected => {}
+                Net::Idle | Net::Connected | Net::Connecting => {}
             }
             self.net = net;
         }

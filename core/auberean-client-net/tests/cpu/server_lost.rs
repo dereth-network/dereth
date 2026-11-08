@@ -303,7 +303,9 @@ fn a_net_error_ends_a_login_still_going_and_once_logged_in_logs_off() {
         NetErrorCode::ServerFull.pack().to_vec(),
     );
     s.handle_datagram(server, &error, LocalTime(1.1));
-    let events: Vec<Event> = std::iter::from_fn(|| s.poll_event()).collect();
+    let events: Vec<Event> = std::iter::from_fn(|| s.poll_event())
+        .filter(|e| !matches!(e, Event::LoginAttempt { .. }))
+        .collect();
     assert_eq!(events, vec![Event::LoginFailed(NetErrorCode::ServerFull)]);
     for i in 0..10 {
         s.tick(LocalTime(1.5 + f64::from(i)));
@@ -433,8 +435,91 @@ fn an_unanswered_login_is_sent_twenty_times_and_fails_once() {
         events.extend(std::iter::from_fn(|| s.poll_event()));
     }
     assert_eq!(sent, 20);
+    events.retain(|e| !matches!(e, Event::LoginAttempt { .. }));
     assert_eq!(
         events,
         vec![Event::LoginFailed(NetErrorCode::ClientTimedOutServer)]
     );
+}
+
+/// Each login that goes out is told as its attempt of the twenty the client makes, the first at
+/// once and the next two seconds on, for the connecting screen to count.
+///
+/// Behaviour: session.login.each-attempt-is-told-out-of-twenty
+#[test]
+fn each_login_attempt_is_told_out_of_twenty() {
+    let server: SocketAddr = "127.0.0.1:9000".parse().expect("an address");
+    let mut s = Session::new(Settings {
+        login_server: server,
+        logon: logon(),
+    });
+    let mut told = Vec::new();
+    for i in 0..9 {
+        let now = 1.0 + f64::from(i) * 0.5;
+        s.tick(LocalTime(now));
+        while s.poll_transmit().is_some() {}
+        for e in std::iter::from_fn(|| s.poll_event()) {
+            if let Event::LoginAttempt { attempt, of } = e {
+                told.push((now, attempt, of));
+            }
+        }
+    }
+    assert_eq!(told, vec![(1.0, 1, 20), (3.0, 2, 20), (5.0, 3, 20)]);
+}
+
+/// The acknowledgement of the login server's connection request is told, with each resend, as
+/// the client starts waiting for that server's first packet; the login is told connected after.
+///
+/// Behaviour: session.login.the-login-servers-acknowledgement-is-told
+#[test]
+fn the_login_servers_acknowledgement_is_told_before_it_connects() {
+    let mut run = Run::new(None);
+    run.run_until(3.0);
+    let at = |want: &Event| run.events.iter().position(|(_, e)| e == want);
+    let acked = at(&Event::ConnectAcknowledged {
+        server: LOGIN_ID,
+        login: true,
+    })
+    .expect("the acknowledgement is told");
+    let connected = at(&Event::LoginConnected).expect("the login connects");
+    assert!(acked < connected, "{:?}", run.events);
+}
+
+/// A login server that answers the login and then falls silent before its first ordinary packet
+/// fails the login with the generic connection error, once, when its connection is given up for
+/// dead; the client does not go on acknowledging it.
+///
+/// Behaviour: session.login.a-login-server-lost-before-its-first-packet-fails-the-login
+#[test]
+fn a_login_server_lost_before_its_first_packet_fails_the_login() {
+    let server: SocketAddr = "127.0.0.1:9000".parse().expect("an address");
+    let mut s = Session::new(Settings {
+        login_server: server,
+        logon: logon(),
+    });
+    s.tick(LocalTime(1.0));
+    s.handle_datagram(server, &connect_request(0x1234_5678), LocalTime(1.1));
+    let mut events = Vec::new();
+    let mut last_sent = 0.0;
+    for i in 0..3200 {
+        let now = 1.2 + f64::from(i) * 0.05;
+        s.tick(LocalTime(now));
+        while s.poll_transmit().is_some() {
+            last_sent = now;
+        }
+        events.extend(std::iter::from_fn(|| s.poll_event()).map(|e| (now, e)));
+    }
+    let failed: Vec<f64> = events
+        .iter()
+        .filter(|(_, e)| *e == Event::LoginFailed(NetErrorCode::Generic))
+        .map(|(t, _)| *t)
+        .collect();
+    assert_eq!(failed.len(), 1, "the login fails once: {events:?}");
+    assert!(
+        (141.0..142.0).contains(&failed[0]),
+        "when 140 seconds have passed: {}",
+        failed[0]
+    );
+    assert!(events.iter().all(|(_, e)| *e != Event::LoginConnected));
+    assert!(last_sent < 142.0, "the acknowledgements stop: {last_sent}");
 }
