@@ -412,7 +412,7 @@ pub fn show<S: yalain_store::Store>(
     };
     let on_hit = |(state, _): &(u32, f32)| {
         matches!(
-            yalain_content::treasure_effects::tier_of(*state),
+            s.treasure_tables.tier_of(*state),
             Some((yalain_content::treasure_effects::When::Hit, _))
         )
     };

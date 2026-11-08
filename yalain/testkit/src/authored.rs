@@ -257,6 +257,12 @@ impl Portal {
     /// The template does not describe.
     #[must_use]
     pub fn template(&self, id: u32) -> Template {
+        self.described(id).expect("the template is described")
+    }
+
+    /// A template of the install, described: none when it does not describe.
+    #[must_use]
+    pub fn described(&self, id: u32) -> Option<Template> {
         let name = |p: u32| {
             self.ctx
                 .properties()
@@ -274,13 +280,12 @@ impl Portal {
             .with_worn_of(id)
             .with_class(&class)
             .with_quest_named(&|n| self.quest_ids().get(n).copied());
-        Template {
+        Some(Template {
             id,
-            description: describe(id, &|e| self.entity(e), &|q| self.qualities(q))
-                .expect("the template is described"),
+            description: describe(id, &|e| self.entity(e), &|q| self.qualities(q)).ok()?,
             facts: facts(id, &|e| self.entity(e), &self.fact_ids()).named_by(&props),
             props,
-        }
+        })
     }
 
     /// The properties of every template of the install, by template, as a template's own and its
@@ -712,6 +717,8 @@ impl Portal {
                     pets: &t.pet_kinds,
                 },
             ));
+        // The looks treasure draws: 2017's, as a world without its own plays by.
+        let treasure = yalain_content::treasure_tables::TreasureTables::retail_2017();
         let mut seen = std::collections::HashSet::new();
         for id in spawned
             .chain(dropped)
@@ -727,7 +734,7 @@ impl Portal {
             }
             let tables = yalain_world::equip::dye_table(&t.props)
                 .into_iter()
-                .chain(yalain_content::treasure_looks::table_of(id));
+                .chain(treasure.look_table(id));
             for table in tables {
                 catalog.icon_tables.entry(table).or_insert_with(|| {
                     yalain_content::icon_tables(table, &|did| {

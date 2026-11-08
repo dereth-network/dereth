@@ -1,6 +1,7 @@
 //! The word before a treasure item's name: for each sort of item, each word with the combat delays
 //! the January 2017 servers' items showed it with and how many of them did, by the item's level. Our
-//! fit to those items: up to 9, 10 to 19, 20 to 29, 30 to 39, 40 to 49, 50 and up.
+//! fit to those items: up to 9, 10 to 19, 20 to 29, 30 to 39, 40 to 49, 50 and up. They are the
+//! defaults of [`crate::treasure_tables`], which holds what a world draws by.
 
 /// A word: its string, the combat delays it goes with, and how many items showed it by level band.
 #[derive(Debug, Clone, Copy, PartialEq)]

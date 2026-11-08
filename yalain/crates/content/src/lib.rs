@@ -42,6 +42,7 @@ pub mod story;
 pub mod talk;
 pub mod treasure_effects;
 pub mod treasure_looks;
+pub mod treasure_tables;
 pub mod treasure_words;
 pub mod worn_table;
 

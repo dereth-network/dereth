@@ -1,7 +1,7 @@
 //! What the server's operator does while it runs: reloading the world database, the periodic
 //! save, shutting the world down, moderation, the operator's characters, the logins the world
-//! holds and the message of the day, the fixed form of the console's answers, and the world's step
-//! times.
+//! holds and the message of the day, the fixed form of the console's answers, the world's step
+//! times, and the treasure numbers written out as data.
 
 mod admin_calls;
 mod admins;
@@ -19,3 +19,4 @@ mod sessions;
 mod shutdown;
 mod step_timer;
 mod store_faults;
+mod treasure_export;

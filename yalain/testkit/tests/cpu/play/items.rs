@@ -1218,8 +1218,9 @@ fn a_training_hall_potion_is_drunk_for_its_one_effect() {
 /// Behaviour: server.items.treasure-potions-drunk-for-their-own-effect
 #[test]
 fn a_treasure_potion_is_named_colored_and_drunk_for_its_own_effect() {
+    use yalain_content::treasure_tables::POTION_EFFECTS;
     use yalain_world::inventory::{item_create, potion_name, POTION_COLOR};
-    use yalain_world::treasure::{self, POTION_EFFECTS};
+    use yalain_world::treasure;
     const MAGIC: u32 = 0x4700_11B4;
     const MAGIC_PACKAGE: u32 = 0xF15;
     let mut h = world();

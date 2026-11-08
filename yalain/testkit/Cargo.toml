@@ -66,6 +66,8 @@ rusqlite.workspace = true
 dereth-protocol.workspace = true
 flate2.workspace = true
 yalain-world-db.workspace = true
+# The treasure numbers written out as data, and read back.
+serde_json.workspace = true
 
 [lints]
 workspace = true

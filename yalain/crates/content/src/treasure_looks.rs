@@ -1,7 +1,8 @@
 //! The look values a treasure item draws as it drops, for each template whose items were seen so:
 //! the appearance table they go in, kept nowhere in the data files, and each appearance key with
 //! the highest value it draws. Each row comes from the items of that template the January 2017
-//! servers made.
+//! servers made. They are the defaults of [`crate::treasure_tables`], which holds what a world
+//! draws by.
 
 /// The key of a weapon's glow, which its enchantments raise.
 pub const GLOW: u32 = 0x4100_0021;
@@ -304,12 +305,3 @@ pub const TREASURE_LOOKS: &[Row] = &[
     (0x470021AB, 0x20000130, &[(0x41000021, 1.00)]),
     (0x470021AC, 0x200001A6, &[(0x41000021, 1.00)]),
 ];
-
-/// The table a template's items draw their look in.
-#[must_use]
-pub fn table_of(template: u32) -> Option<u32> {
-    TREASURE_LOOKS
-        .iter()
-        .find(|(t, ..)| *t == template)
-        .map(|(_, table, _)| *table)
-}

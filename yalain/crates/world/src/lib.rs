@@ -461,6 +461,8 @@ pub struct Server<S: Store> {
     pub death_effects: item_use::ItemUses,
     /// The packages of the treasure items that carry properties of their own (equipment, potions).
     pub treasure: treasure::Kinds,
+    /// The numbers treasure draws by: the world's, else 2017's.
+    pub treasure_tables: treasure::TreasureTables,
     /// The packages of the Tesserae (each use a hero skill credit more).
     pub tesserae: std::collections::HashSet<u32>,
     /// The object each player's body touches that it walked into.
@@ -840,6 +842,7 @@ impl<S: Store> Server<S> {
             death_spawned: HashMap::new(),
             death_effects: HashMap::new(),
             treasure: treasure::Kinds::default(),
+            treasure_tables: treasure::TreasureTables::retail_2017(),
             tesserae: std::collections::HashSet::new(),
             touching: HashMap::new(),
             allegiances: allegiance::Allegiances::default(),

@@ -833,6 +833,7 @@ struct Play {
     doors_through_locks: std::collections::HashSet<u32>,
     chests: std::collections::HashSet<u32>,
     treasure: yalain_world::treasure::Kinds,
+    treasure_tables: yalain_world::treasure::TreasureTables,
     tesserae: std::collections::HashSet<u32>,
     inscribable: std::collections::HashSet<u32>,
     held_answers: std::collections::HashMap<u32, (u32, u32)>,
@@ -1044,6 +1045,7 @@ fn run<S: Store>(
     server.doors.creatures_through_locks = play.doors_through_locks;
     server.chests.packages = play.chests;
     server.treasure = play.treasure;
+    server.treasure_tables = play.treasure_tables;
     server.tesserae = play.tesserae;
     server.inscribable_packages = play.inscribable;
     server.held_answers = play.held_answers;
@@ -1715,6 +1717,8 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         effect_rules,
         ..
     } = compiled;
+    // The numbers treasure draws by: 2017's, until the world gives its own.
+    let treasure_tables = yalain_content::treasure_tables::TreasureTables::retail_2017();
     let play = (|| {
         if effect_rules.wards.is_empty() {
             tracing::warn!(
@@ -1830,7 +1834,8 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
                 ))
                 .chain(craft.templates())
                 .collect();
-        let (mut catalog, mut skipped) = data::catalog(portal, &spawns, &loot, &more)?;
+        let (mut catalog, mut skipped) =
+            data::catalog(portal, &spawns, &loot, &more, &treasure_tables)?;
         // The weapons the creatures wield, described with the rest.
         let weapons = data::creature_weapons(portal, &catalog, &listed_weapons)?;
         let wanted: Vec<u32> = weapons.values().copied().collect();
@@ -1839,6 +1844,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             &SpawnTable::default(),
             &LootTable::default(),
             &wanted,
+            &treasure_tables,
         )?;
         skipped.extend(also);
         for (id, t) in held.templates {
@@ -1889,7 +1895,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         states.extend(worn_effects.values().flatten().map(|e| e.state));
         states.extend(death_effects.values().flatten().map(|e| e.state));
         // The treasure potions' effects, put on when they are drunk.
-        states.extend(yalain_world::treasure::POTION_EFFECTS.iter().flatten());
+        states.extend(treasure_tables.potion_states());
         // What the practice dummies hold.
         states.push(yalain_world::spawn::PRACTICE_DUMMY_EFFECT);
         // What the world's scheduled events put on its players.
@@ -1908,7 +1914,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             yalain_world::effects::recall_protection::STATE,
         ]);
         // What treasure weapons, armor and shields carry and put on what they hit.
-        states.extend(yalain_content::treasure_effects::states());
+        states.extend(treasure_tables.states());
         mounts.note_items(&item_uses);
         let effects = data::effect_table(portal, &states, &wards)?;
         tracing::info!(
@@ -1952,7 +1958,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             chests = chests.len(),
             "the doors' and chests' kinds read"
         );
-        let treasure = data::treasure(portal, &catalog)?;
+        let treasure = data::treasure(portal, &catalog, &treasure_tables)?;
         let tesserae =
             data::catalog_packages_from(portal, &catalog, &[yalain_world::treasure::TESSERAE])?;
         tracing::info!(
@@ -2032,6 +2038,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             doors_through_locks,
             chests,
             treasure,
+            treasure_tables,
             tesserae,
             inscribable,
             held_answers,

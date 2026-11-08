@@ -1,7 +1,8 @@
 //! The enchantments treasure items draw as they drop: for each sort of item, how many by the item's
 //! level, and the families of effects, each with how often the January 2017 servers' items showed
 //! it. The numbers are counts of those items; which tier a level takes in a family of five is
-//! given by the five level bands.
+//! given by the five level bands. They are the defaults of [`crate::treasure_tables`], which holds
+//! what a world draws by.
 
 /// When an enchantment applies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -720,37 +721,3 @@ pub const PAIRS: &[(u32, u32)] = &[
 
 /// Enchantments no item was named for.
 pub const UNNAMING: &[u32] = &[0x6F0024C8, 0x6F0024CB, 0x6F0024CE, 0x6F00266E, 0x6F002500];
-
-/// Every state a treasure item may carry or put on what it hits.
-pub fn states() -> impl Iterator<Item = u32> {
-    [
-        WEAPON_FAMILIES,
-        ARMOR_FAMILIES,
-        SHIELD_FAMILIES,
-        JEWELRY_FAMILIES,
-    ]
-    .into_iter()
-    .flatten()
-    .flat_map(|f| f.tiers)
-    .flat_map(|t| [t.state, t.puts_on])
-    .filter(|s| *s != 0)
-}
-
-/// The tier an item carrying this state has, among every family.
-#[must_use]
-pub fn tier_of(state: u32) -> Option<(When, Tier)> {
-    [
-        WEAPON_FAMILIES,
-        ARMOR_FAMILIES,
-        SHIELD_FAMILIES,
-        JEWELRY_FAMILIES,
-    ]
-    .into_iter()
-    .flatten()
-    .find_map(|f| {
-        f.tiers
-            .iter()
-            .find(|t| t.state == state)
-            .map(|t| (f.when, *t))
-    })
-}

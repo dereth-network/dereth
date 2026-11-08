@@ -2758,7 +2758,7 @@ fn enchant_from_totem<S: Store>(s: &mut Server<S>, from: u64, on: u64) -> bool {
         item.bonuses.push((state, spellcraft));
     }
     let permanent = !matches!(
-        yalain_content::treasure_effects::tier_of(state),
+        s.treasure_tables.tier_of(state),
         Some((yalain_content::treasure_effects::When::Hit, _))
     );
     if let (true, Some(d)) = (permanent && on_itself, def) {

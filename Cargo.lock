@@ -7275,6 +7275,7 @@ dependencies = [
  "dereth-transport",
  "flate2",
  "rusqlite",
+ "serde_json",
  "yalain-content",
  "yalain-net",
  "yalain-store",

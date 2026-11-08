@@ -37,6 +37,8 @@
 //! 21; 126 of 126 potions made so named and colored.)
 
 use crate::rng::Rng;
+use yalain_content::treasure_tables::Rules;
+pub use yalain_content::treasure_tables::{Sort, TreasureTables};
 
 /// What an item carries of its own beyond its template.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -159,149 +161,6 @@ pub fn potion_color(
     nav.number(root, "m_tsysAprValue").ok()
 }
 
-/// The treasure potions' effects: nine kinds, each with its five tiers from the lowest.
-pub const POTION_EFFECTS: [[u32; 5]; 9] = [
-    // Attack speed: haste, coordination, dexterity, nimbleness, exactitude.
-    [
-        0x7000_09F7,
-        0x7000_09F4,
-        0x7000_09F5,
-        0x7000_09F8,
-        0x7000_09F6,
-    ],
-    // Damage reflected: thorns, spines, feedback, reflecting, refraction.
-    [
-        0x7000_09FD,
-        0x7000_09FC,
-        0x7000_09F9,
-        0x7000_09FA,
-        0x7000_09FB,
-    ],
-    // Health over time: recovery, convalescence, reconstitution, regeneration, revival.
-    [
-        0x7000_0A00,
-        0x7000_09FE,
-        0x7000_09FF,
-        0x7000_0A01,
-        0x7000_0A02,
-    ],
-    // Health regained: rejuvenation, fortitude, constitution, mending, stability.
-    [
-        0x7000_0A06,
-        0x7000_0A04,
-        0x7000_0A03,
-        0x7000_0A05,
-        0x7000_0A07,
-    ],
-    // Greatest health: toughness, immovability, tenacity, obstinance, perseverance.
-    [
-        0x7000_0A0C,
-        0x7000_0A08,
-        0x7000_0A0B,
-        0x7000_0A09,
-        0x7000_0A0A,
-    ],
-    // Greatest vigor: resolve, contemplation, clarity, animus, unconquerable will.
-    [
-        0x7000_0A10,
-        0x7000_0A0F,
-        0x7000_0A0E,
-        0x7000_0A0D,
-        0x7000_0A11,
-    ],
-    // Run speed: rapidity, speed, swiftness, velocity, acceleration.
-    [
-        0x7000_0A13,
-        0x7000_0A14,
-        0x7000_0A15,
-        0x7000_0A16,
-        0x7000_0A12,
-    ],
-    // Vigor over time: devotion, ardor, zeal, diligence, vigilance.
-    [
-        0x7000_0A18,
-        0x7000_0A17,
-        0x7000_0A1B,
-        0x7000_0A19,
-        0x7000_0A1A,
-    ],
-    // Vigor regained: inner calm, focus, renewal, restoration, invigoration.
-    [
-        0x7000_0A1C,
-        0x7000_0A20,
-        0x7000_0A1E,
-        0x7000_0A1F,
-        0x7000_0A1D,
-    ],
-];
-
-/// A treasure weapon's damage, of a made weapon's at its level, at least and at most (2017: 689 of
-/// 727 weapons below level 50 with no effects at 0.84 to 0.97, the median 0.90).
-pub const WEAPON_DAMAGE_SHARE: (f32, f32) = (0.84, 0.97);
-
-/// How many of the 2017 treasure weapons had each combat delay, from 4; armor's, from 4; shields',
-/// from 5.
-const WEAPON_DELAYS: [f32; 16] = [
-    2.0, 17.0, 29.0, 41.0, 60.0, 58.0, 107.0, 113.0, 116.0, 108.0, 100.0, 86.0, 40.0, 44.0, 33.0,
-    19.0,
-];
-const ARMOR_DELAYS: [f32; 18] = [
-    1.0, 3.0, 5.0, 7.0, 5.0, 10.0, 13.0, 16.0, 13.0, 10.0, 8.0, 11.0, 4.0, 7.0, 5.0, 7.0, 2.0, 1.0,
-];
-const SHIELD_DELAYS: [f32; 7] = [14.0, 33.0, 40.0, 42.0, 31.0, 29.0, 12.0];
-
-/// A treasure weapon's vigor cost at a level: at least and at most (2017, of 973 weapons: 1 to level
-/// 7, 3 at 8 and 9, 4 or 5 to 20, 6 or 7 to 29, 10 to 12 to 39, 14 to 17 to 49, 16 to 19 at 50); above
-/// that it follows a made weapon's.
-#[must_use]
-pub const fn vigor_band(level: i32) -> (i32, i32) {
-    match level {
-        ..=7 => (1, 1),
-        8..=9 => (3, 3),
-        10..=20 => (4, 5),
-        21..=29 => (6, 7),
-        30..=39 => (10, 12),
-        40..=49 => (14, 17),
-        _ => {
-            let above = (level - 50) / 5;
-            (16 + above, 19 + above)
-        }
-    }
-}
-
-/// A treasure shield's vigor cost at a level: at least and at most (2017, of 177 dropped shields
-/// examined with no effects, 170 within: 1 to level 7, 2 or 3 to 16, 4 or 5 to 27, 5 to 7 to 39, 6
-/// to 9 from 40, none above 9 to level 60).
-#[must_use]
-pub const fn shield_vigor_band(level: i32) -> (i32, i32) {
-    match level {
-        ..=7 => (1, 1),
-        8..=16 => (2, 3),
-        17..=27 => (4, 5),
-        28..=39 => (5, 7),
-        _ => (6, 9),
-    }
-}
-
-/// A treasure piece of armor's rating, of a made piece's at its level: it comes nearer with the level
-/// (2017: 0.8 at 10 to 1.0 at 49, of 130 pieces with no effects), give or take a tenth.
-#[must_use]
-pub fn armor_share(level: i32) -> f32 {
-    #[allow(clippy::cast_precision_loss)]
-    let l = level.clamp(0, MOST_LEVEL) as f32;
-    0.75 + 0.25 * l / 50.0
-}
-
-/// How often a treasure piece of armor or a shield has an enchantment slot; a robe has three, a
-/// weapon one (2017: 46 of 109 armor pieces but robes, 114 of 201 shields; 21 of 21 robes; 1,264 of
-/// 1,334 weapons).
-const ARMOR_SLOT_CHANCE: f32 = 0.5;
-
-/// A treasure shield's span of damage when its template names none, at least and at most, drawn
-/// evenly (2017: 207 of 207 examined dropped shields' damage lines, none of whose templates names
-/// one, at 0.25 to 0.29 below their greatest).
-pub const SHIELD_SPAN: (f32, f32) = (0.25, 0.29);
-
 /// The sort of a treasure item of a template: a shield by its class, which a caller knows; else a
 /// weapon when it has a weapon's damage, armor when it has a rating. None for anything else.
 #[must_use]
@@ -323,6 +182,7 @@ pub fn sort_of(props: &yalain_content::Props, shield: bool) -> Option<Sort> {
 /// and vigor cost). None for jewelry. Worth what its drop drew; it carries no name word.
 pub fn numbers(
     rng: &mut Rng,
+    tables: &TreasureTables,
     props: &yalain_content::Props,
     sort: Sort,
     level: i32,
@@ -336,12 +196,17 @@ pub fn numbers(
         Sort::Jewelry => return None,
     };
     let quality = level.max(1).cast_unsigned();
-    let drawn = |rng: &mut Rng, delays: &[f32], first: i32| {
-        first + i32::try_from(rng.weighted(delays.iter().copied()).unwrap_or(0)).unwrap_or(0)
+    let of = tables.sort(sort);
+    let drawn = |rng: &mut Rng| {
+        let Some(d) = of.delays.as_ref() else {
+            return 0;
+        };
+        d.from + i32::try_from(rng.weighted(d.weights.iter().copied()).unwrap_or(0)).unwrap_or(0)
     };
     #[allow(clippy::cast_precision_loss)]
     let rated = |rng: &mut Rng, exactly: f32| {
-        let draw = armor_share(level) + rng.between(-0.1, 0.1);
+        let spread = of.rating_spread;
+        let draw = of.rating_share_at(level) + rng.between(-spread, spread);
         dereth_primitives::num::to_i32((exactly * draw).round()).max(1)
     };
     let mut own = Made {
@@ -349,30 +214,27 @@ pub fn numbers(
         ..Made::default()
     };
     if is_weapon {
-        let (least, most) = WEAPON_DAMAGE_SHARE;
+        let (least, most) = of.damage_share.unwrap_or_default();
         let share = rng.between(least, most);
-        let (low, high) = if is_armor {
-            shield_vigor_band(level)
-        } else {
-            vigor_band(level)
-        };
+        let (low, high) = of.vigor_at(level);
         let vigor =
             low + i32::try_from(rng.below((high - low + 1).cast_unsigned() as usize)).unwrap_or(0);
         let variance = props.float("Weapon_Variance");
         #[allow(clippy::cast_precision_loss)]
         if is_armor {
-            let variance = variance.unwrap_or_else(|| rng.between(SHIELD_SPAN.0, SHIELD_SPAN.1));
+            let (lo, hi) = of.span.unwrap_or_default();
+            let variance = variance.unwrap_or_else(|| rng.between(lo, hi));
             let most = made::shield_damage(quality) as f32 * share;
             own.damage = Some((dereth_primitives::num::to_i32(most.round()), variance));
             own.armor = Some(rated(rng, made::shield_rating(quality) as f32));
-            own.delay = Some(drawn(rng, &SHIELD_DELAYS, 5));
+            own.delay = Some(drawn(rng));
             own.vigor = Some(vigor);
-            own.slots = u32::from(rng.chance(ARMOR_SLOT_CHANCE));
+            own.slots = u32::from(rng.chance(of.slot_chance));
         } else {
             let most = made::damage(quality) as f32 * share;
             let variance = variance.unwrap_or(0.0);
             own.damage = Some((dereth_primitives::num::to_i32(most.round()), variance));
-            own.delay = Some(drawn(rng, &WEAPON_DELAYS, 4));
+            own.delay = Some(drawn(rng));
             own.vigor = Some(vigor);
             own.slots = 1;
         }
@@ -382,38 +244,31 @@ pub fn numbers(
     let precluded = props.word("Item_PrecludedInventoryLocations").unwrap_or(0);
     let piece = Piece::of(places, precluded);
     own.armor = Some(rated(rng, made::armor_rating_exactly(piece, quality)));
-    own.delay = Some(drawn(rng, &ARMOR_DELAYS, 4));
+    own.delay = Some(drawn(rng));
     if piece == Piece::Robe {
         own.slots = 3;
         own.covers = precluded;
     } else {
-        own.slots = u32::from(rng.chance(ARMOR_SLOT_CHANCE));
+        own.slots = u32::from(rng.chance(of.slot_chance));
     }
     Some(own)
 }
 
-/// The most a weapon's glow draws (2017: 920 weapons with no effects at 0.03 to 0.61 from the 5th to
-/// the 95th in a hundred, the median 0.31, none above 0.65; it follows no level, Spearman 0.03).
-pub const GLOW_DRAW: f32 = 0.65;
-
-/// How often a color is drawn from the round tenths, which 2017's colors show about twice as often
-/// as the rest (1,585 of key 2).
-const ROUND_COLOR_CHANCE: f32 = 0.1;
-
 /// What a treasure item of a template draws of its look, if its template is one known to: a weapon's
-/// glow evenly up to [`GLOW_DRAW`]; a color in hundredths, up to its key's highest. Fit to the items
-/// the 2017 servers made (4,952 of 4,998 values within their rows), so our choice; the highest
-/// values on enchanted weapons need their enchantments.
-pub fn draw_look(rng: &mut Rng, template: u32) -> Option<Look> {
-    use yalain_content::treasure_looks::{GLOW, TREASURE_LOOKS};
-    let (_, table, keys) = TREASURE_LOOKS.iter().find(|(t, ..)| *t == template)?;
+/// glow evenly up to its rule's most; a color in hundredths, up to its key's highest, or now and then
+/// a round tenth. Fit to the items the 2017 servers made (4,952 of 4,998 values within their rows),
+/// so our choice; the highest values on enchanted weapons need their enchantments.
+pub fn draw_look(rng: &mut Rng, tables: &TreasureTables, template: u32) -> Option<Look> {
+    use yalain_content::treasure_looks::GLOW;
+    let row = tables.look_of(template)?;
+    let rule = &tables.rules.look;
     let mut values = [(0, 0.0); 3];
-    for (slot, (key, top)) in values.iter_mut().zip(keys.iter()) {
+    for (slot, (key, top)) in values.iter_mut().zip(row.keys.iter()) {
         let value = if *key == GLOW {
-            rng.between(0.0, GLOW_DRAW)
-        } else if *top >= 0.1 && rng.chance(ROUND_COLOR_CHANCE) {
+            rng.between(0.0, rule.glow_most)
+        } else if *top >= rule.round_from && rng.chance(rule.round_chance) {
             #[allow(clippy::cast_precision_loss)]
-            let tenth = rng.below(4) as f32;
+            let tenth = rng.below(rule.round_tenths as usize) as f32;
             tenth / 10.0
         } else {
             let steps = dereth_primitives::num::to_i32(top * 100.0)
@@ -426,30 +281,9 @@ pub fn draw_look(rng: &mut Rng, template: u32) -> Option<Look> {
         *slot = (*key, value);
     }
     Some(Look {
-        table: *table,
+        table: row.table,
         values,
     })
-}
-
-/// The band of level the counts of an item's enchantments go by.
-const fn count_band(level: i32) -> usize {
-    match level {
-        ..=9 => 0,
-        10..=19 => 1,
-        20..=29 => 2,
-        30..=39 => 3,
-        40..=49 => 4,
-        _ => 5,
-    }
-}
-
-/// The sorts of item that draw enchantments.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Sort {
-    Weapon,
-    Armor,
-    Shield,
-    Jewelry,
 }
 
 /// What a treasure item draws of enchantments at an item level. How many goes by its sort and level
@@ -462,6 +296,7 @@ pub enum Sort {
 /// 740 lines.
 pub fn enchantments(
     rng: &mut Rng,
+    tables: &TreasureTables,
     sort: Sort,
     level: i32,
 ) -> Vec<(
@@ -469,16 +304,14 @@ pub fn enchantments(
     yalain_content::treasure_effects::Tier,
 )> {
     use yalain_content::treasure_effects as t;
-    let (counts, families) = match sort {
-        Sort::Weapon => (&t::WEAPON_COUNTS, t::WEAPON_FAMILIES),
-        Sort::Armor => (&t::ARMOR_COUNTS, t::ARMOR_FAMILIES),
-        Sort::Shield => (&t::SHIELD_COUNTS, t::SHIELD_FAMILIES),
-        Sort::Jewelry => (&t::JEWELRY_COUNTS, t::JEWELRY_FAMILIES),
-    };
-    let how_many = rng
-        .weighted(counts[count_band(level)].iter().copied())
-        .unwrap_or(0);
-    let mut open: Vec<&t::Family> = families
+    use yalain_content::treasure_tables::Family;
+    let of = tables.sort(sort);
+    let how_many = of
+        .counts
+        .get(of.band(level))
+        .map_or(0, |b| rng.weighted(b.weights.iter().copied()).unwrap_or(0));
+    let mut open: Vec<&Family> = of
+        .families
         .iter()
         .filter(|f| f.tiers.iter().any(|x| x.least <= level))
         .collect();
@@ -496,8 +329,8 @@ pub fn enchantments(
         };
         if let Some(tier) = tier {
             out.push((f.when, *tier));
-            let other = t::PAIRS.iter().find(|(a, _)| *a == tier.state);
-            if let Some(paired) = other.and_then(|(_, b)| t::tier_of(*b)) {
+            let other = tables.pairs.iter().find(|(a, _)| *a == tier.state);
+            if let Some(paired) = other.and_then(|(_, b)| tables.tier_of(*b)) {
                 out.push(paired);
             }
         }
@@ -515,22 +348,21 @@ pub fn enchantments(
 /// With none for its delay, among those of its level. Our fit: of 2,371 recorded items, it gives the
 /// word each showed a chance of 0.49 for a weapon, 0.42 for armor, 0.34 for a shield.
 #[must_use]
-pub fn word_of(rng: &mut Rng, sort: Sort, level: i32, delay: i32) -> u32 {
-    use yalain_content::treasure_words as w;
-    let words = match sort {
-        Sort::Weapon => w::WEAPON_WORDS,
-        Sort::Armor => w::ARMOR_WORDS,
-        Sort::Shield => w::SHIELD_WORDS,
-        Sort::Jewelry => return 0,
-    };
-    let band = count_band(level);
-    let of_level = || words.iter().filter(|x| x.by_level[band] > 0.0);
-    let goes = |x: &&w::Word| (x.delays.0..=x.delays.1).contains(&delay);
-    let mut open: Vec<&w::Word> = of_level().filter(goes).collect();
+pub fn word_of(rng: &mut Rng, tables: &TreasureTables, sort: Sort, level: i32, delay: i32) -> u32 {
+    use yalain_content::treasure_tables::Word;
+    if sort == Sort::Jewelry {
+        return 0;
+    }
+    let of = tables.sort(sort);
+    let band = of.band(level);
+    let weight = |x: &Word| x.weights.get(band).copied().unwrap_or(0.0);
+    let of_level = || of.words.iter().filter(|x| weight(x) > 0.0);
+    let goes = |x: &&Word| (x.delays.0..=x.delays.1).contains(&delay);
+    let mut open: Vec<&Word> = of_level().filter(goes).collect();
     if open.is_empty() {
         open = of_level().collect();
     }
-    rng.weighted(open.iter().map(|x| x.by_level[band]))
+    rng.weighted(open.iter().map(|x| weight(x)))
         .map_or(crate::inventory::treasure_name::PREFIX_TEXT.0, |i| {
             open[i].word
         })
@@ -628,7 +460,7 @@ pub fn on_hit<S: yalain_store::Store>(
                 crate::effects::creature_health(s, net, target, -harm, me, clock);
             }
         }
-        let Some((t::When::Hit, tier)) = t::tier_of(state) else {
+        let Some((t::When::Hit, tier)) = s.treasure_tables.tier_of(state) else {
             continue;
         };
         if tier.puts_on != 0 && s.rng.chance(tier.chance) {
@@ -649,12 +481,6 @@ pub fn on_hit<S: yalain_store::Store>(
         }
     }
 }
-
-/// The highest least level an item's own may be.
-pub const MOST_LEVEL: i32 = 50;
-
-/// How many of the 2017 items' least levels stood 0, 1, 2 and 3 above the base.
-const ABOVE_BASE: [f32; 4] = [436.0, 519.0, 220.0, 39.0];
 
 /// The saved state of the game's Arcane Lore table: the lore of each item level from 50 to 150.
 pub const ARCANE_LORE_TABLE: u32 = 0x7000_1BE5;
@@ -708,43 +534,40 @@ pub fn base_of(level: i32, quality: Option<i64>) -> i32 {
         .unwrap_or(level)
 }
 
-/// The tier (0 the lowest) of a treasure potion dropped by a creature of this level.
-#[must_use]
-pub const fn potion_tier(level: i32) -> usize {
-    match level {
-        ..=15 => 0,
-        16..=29 => 1,
-        30..=39 => 2,
-        40..=44 => 3,
-        _ => 4,
-    }
-}
-
 /// A treasure item's own least level, from its dropper's base.
-pub fn min_level(rng: &mut Rng, base: i32) -> i32 {
-    let above = rng.weighted(ABOVE_BASE).unwrap_or(0);
-    (base + i32::try_from(above).unwrap_or(0)).clamp(1, MOST_LEVEL)
+pub fn min_level(rng: &mut Rng, rules: &Rules, base: i32) -> i32 {
+    let above = rng.weighted(rules.above_base.iter().copied()).unwrap_or(0);
+    (base + i32::try_from(above).unwrap_or(0)).clamp(1, rules.most_level.max(1))
 }
 
-/// A treasure item's own Arcane Lore, from its dropper's base, by the game's table: none when the
-/// item level drawn is 50 or below.
-pub fn arcane_lore(rng: &mut Rng, table: &crate::craft::LevelMap, base: i32) -> Option<i32> {
-    if base <= 51 {
+/// A treasure item's own Arcane Lore, from its dropper's base, by the game's table: none when its
+/// base is not above its rule's, or the item level drawn is the table's first or below.
+pub fn arcane_lore(
+    rng: &mut Rng,
+    rules: &Rules,
+    table: &crate::craft::LevelMap,
+    base: i32,
+) -> Option<i32> {
+    let lore = rules.lore;
+    if base <= lore.above {
         return None;
     }
     #[allow(clippy::cast_precision_loss)]
-    let top = (base - 1) as f32;
-    lore_at(table, rng.between(top - 5.0, top))
+    let (from, to) = ((base + lore.from) as f32, (base + lore.to) as f32);
+    lore_at(table, rng.between(from, to))
 }
 
 /// A treasure potion's effect, from its dropper's level: its kind drawn evenly, at the level's
-/// tier, at a spellcraft drawn evenly from 0 to 100.
-pub fn potion_effect(rng: &mut Rng, level: i32) -> (u32, f32) {
-    let kind = rng.below(POTION_EFFECTS.len());
-    (
-        POTION_EFFECTS[kind][potion_tier(level)],
-        rng.between(0.0, 100.0),
-    )
+/// tier, at a spellcraft drawn evenly from 0 to 100. None when its kind has no effect at that tier.
+pub fn potion_effect(rng: &mut Rng, tables: &TreasureTables, level: i32) -> Option<(u32, f32)> {
+    let kind = rng.below(tables.potions.len());
+    let state = tables
+        .potions
+        .get(kind)
+        .and_then(|k| k.get(tables.rules.potion_tier(level)).copied());
+    let (lo, hi) = tables.rules.potion_spellcraft;
+    let spellcraft = rng.between(lo, hi);
+    state.map(|s| (s, spellcraft))
 }
 
 /// Give a treasure item dropped by a creature of this level and loot quality what it carries of its
@@ -767,35 +590,48 @@ pub fn endow<S: yalain_store::Store>(
     };
     let base = base_of(level, quality);
     let mut own = Own::default();
+    let rules = &s.treasure_tables.rules;
     if s.treasure.equipment.contains(&package) {
-        own.look = draw_look(&mut s.rng, template);
-        let least = min_level(&mut s.rng, base);
+        own.look = draw_look(&mut s.rng, &s.treasure_tables, template);
+        let least = min_level(&mut s.rng, rules, base);
         own.min_level = Some(least);
-        own.arcane_lore = arcane_lore(&mut s.rng, &s.treasure.lore, base);
+        own.arcane_lore = arcane_lore(&mut s.rng, rules, &s.treasure.lore, base);
         let value = s.things.get(item).map_or(0, |t| t.value);
         let shield = s.treasure.shields.contains(&package);
         if let Some(t) = s.catalog.get(template) {
             let props = t.props.clone();
             let item_level = least.max(base);
             if let Some(sort) = sort_of(&props, shield) {
-                own.made = numbers(&mut s.rng, &props, sort, item_level, value);
+                own.made = numbers(
+                    &mut s.rng,
+                    &s.treasure_tables,
+                    &props,
+                    sort,
+                    item_level,
+                    value,
+                );
                 put_enchantments(s, item, &mut own, sort, item_level);
                 if let Some(m) = own.made.as_mut() {
-                    m.prefix = word_of(&mut s.rng, sort, item_level, m.delay.unwrap_or(0));
+                    let delay = m.delay.unwrap_or(0);
+                    m.prefix = word_of(&mut s.rng, &s.treasure_tables, sort, item_level, delay);
                 }
             }
         }
     } else if s.treasure.jewelry.contains(&package) {
         // Enchanted or plain by its dropper, with a least level only if enchanted (2017: 73 of 73
         // with a least level had one effect, 120 of 120 with none had none).
-        let least = min_level(&mut s.rng, base);
+        let least = min_level(&mut s.rng, rules, base);
         if put_enchantments(s, item, &mut own, Sort::Jewelry, least.max(base)) {
             own.min_level = Some(least);
-            own.arcane_lore = arcane_lore(&mut s.rng, &s.treasure.lore, base);
+            own.arcane_lore =
+                arcane_lore(&mut s.rng, &s.treasure_tables.rules, &s.treasure.lore, base);
         }
     } else if s.treasure.potions.contains(&package) {
-        let (state, spellcraft) = potion_effect(&mut s.rng, level);
-        if let Some(&(table, color)) = s.treasure.potion_looks.get(&state) {
+        let drawn = potion_effect(&mut s.rng, &s.treasure_tables, level);
+        if let Some((state, spellcraft, &(table, color))) = drawn.and_then(|(state, spellcraft)| {
+            let look = s.treasure.potion_looks.get(&state)?;
+            Some((state, spellcraft, look))
+        }) {
             own.effect = Some(OwnEffect {
                 state,
                 spellcraft,
@@ -822,13 +658,13 @@ fn put_enchantments<S: yalain_store::Store>(
     use yalain_content::treasure_effects::When;
     #[allow(clippy::cast_precision_loss)]
     let spellcraft = (level - 1).max(1) as f32;
-    let drawn = enchantments(&mut s.rng, sort, level);
+    let drawn = enchantments(&mut s.rng, &s.treasure_tables, sort, level);
     // Named for one of them (2017: of 109 weapons named for one of two or more, 74 for an effect on
     // a hit, 30 on itself, 5 on the wielder; no order or value of the effects says which).
     let namers: Vec<u32> = drawn
         .iter()
         .map(|(_, tier)| tier.state)
-        .filter(|state| !yalain_content::treasure_effects::UNNAMING.contains(state))
+        .filter(|state| !s.treasure_tables.unnaming.contains(state))
         .collect();
     if !namers.is_empty() {
         let named = namers[s.rng.below(namers.len())];

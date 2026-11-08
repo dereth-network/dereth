@@ -15,6 +15,7 @@ use auberean_dat::overlay::WorldOverlay;
 use auberean_dat::DatFile;
 use auberean_script::graph::Graph;
 use auberean_script::library::{Library, RECORD};
+use yalain_content::treasure_tables::TreasureTables;
 use yalain_content::{describe, Catalog, LootTable, Props, SpawnTable, Template};
 use yalain_world::{CharGenRules, StartRules};
 
@@ -364,7 +365,8 @@ pub const PROFILE_NAMES: u32 = 0x2300_0100;
 /// The templates the world makes things of: every template a camp spawns, every item a loot
 /// profile or a death treasure names, the fixed drops of those creatures, and `more` (corpses,
 /// store products); each
-/// described as the content pack's objects are, with its facts and its properties by name.
+/// described as the content pack's objects are, with its facts and its properties by name, and the
+/// appearance tables its icon goes by (a dye's, a potion's, the look its treasure draws).
 ///
 /// # Errors
 /// The profile names do not read.
@@ -373,6 +375,7 @@ pub fn catalog(
     spawns: &SpawnTable,
     loot: &LootTable,
     more: &[u32],
+    treasure: &TreasureTables,
 ) -> Result<(Catalog, Vec<String>), String> {
     let mut c = Catalog::default();
     let bytes = p
@@ -442,7 +445,7 @@ pub fn catalog(
         let tables = yalain_world::equip::dye_table(&props)
             .into_iter()
             .chain([yalain_world::inventory::POTION_COLOR.0])
-            .chain(yalain_content::treasure_looks::table_of(t));
+            .chain(treasure.look_table(t));
         for table in tables {
             c.icon_tables
                 .entry(table)
@@ -972,7 +975,11 @@ pub fn catalog_packages_from(
 ///
 /// # Errors
 /// The library or the Arcane Lore table does not read.
-pub fn treasure(p: &Portal, catalog: &Catalog) -> Result<yalain_world::treasure::Kinds, String> {
+pub fn treasure(
+    p: &Portal,
+    catalog: &Catalog,
+    tables: &TreasureTables,
+) -> Result<yalain_world::treasure::Kinds, String> {
     use yalain_world::treasure;
     let lib = library(p)?;
     let instruments = catalog_packages_from(p, catalog, &treasure::INSTRUMENTS)?;
@@ -980,10 +987,9 @@ pub fn treasure(p: &Portal, catalog: &Catalog) -> Result<yalain_world::treasure:
         .into_iter()
         .filter(|pkg| !instruments.contains(pkg))
         .collect();
-    let potion_looks = treasure::POTION_EFFECTS
-        .iter()
-        .flatten()
-        .filter_map(|&state| {
+    let potion_looks = tables
+        .potion_states()
+        .filter_map(|state| {
             let g = state_graph(p, lib, state)?;
             let (_, table) = yalain_world::effect_defs::EffectDef::from_state(state, lib, &g)
                 .ok()?
@@ -1638,8 +1644,14 @@ mod tests {
         let p = Portal::open(&dir, None).expect("opens");
         let start = start_rules(&p).expect("the start");
         let more = yalain_world::makes::by_the_server(&start, &[]);
-        let (mut c, _) =
-            catalog(&p, &SpawnTable::default(), &LootTable::default(), &more).expect("the catalog");
+        let (mut c, _) = catalog(
+            &p,
+            &SpawnTable::default(),
+            &LootTable::default(),
+            &more,
+            &TreasureTables::default(),
+        )
+        .expect("the catalog");
         c.implements = implements(&p, &c).expect("the implements");
         let held: Vec<u32> = start.items.values().flatten().map(|i| i.template).collect();
         for (t, implement) in [
@@ -1693,7 +1705,7 @@ mod tests {
 
         let dir = auberean_dat::testing::require_target_install();
         let p = Portal::open(&dir, None).expect("opens");
-        let lore = treasure(&p, &Catalog::default())
+        let lore = treasure(&p, &Catalog::default(), &TreasureTables::default())
             .expect("the treasure")
             .lore;
         assert_eq!((lore.first, lore.values.len()), (50, 101));
@@ -1717,7 +1729,7 @@ mod tests {
             .expect("reads")
             .expect("a world's overlay");
         let p = Portal::open(&dir, Some(overlay)).expect("opens");
-        let Err(why) = treasure(&p, &Catalog::default()) else {
+        let Err(why) = treasure(&p, &Catalog::default(), &TreasureTables::default()) else {
             panic!("a start without the Arcane Lore table read its treasure");
         };
         assert!(why.starts_with("the Arcane Lore table 70001BE5"), "{why}");
@@ -1737,6 +1749,7 @@ mod tests {
             &SpawnTable::default(),
             &LootTable::default(),
             &[0x4700_0609, 0x4700_11C7, 0x4700_080B],
+            &TreasureTables::default(),
         )
         .expect("the catalog");
         let gate = |t: u32| {
@@ -1763,6 +1776,7 @@ mod tests {
             &SpawnTable::default(),
             &LootTable::default(),
             &[0x4700_11C8, 0x4700_1AED, 0x4700_051C],
+            &TreasureTables::default(),
         )
         .expect("the catalog");
         assert!(yalain_world::inventory::attunable(&c, 0x4700_11C8));
@@ -1781,6 +1795,7 @@ mod tests {
             &SpawnTable::default(),
             &LootTable::default(),
             &[0x4700_10B1, 0x4700_10AC],
+            &TreasureTables::default(),
         )
         .expect("the catalog");
         let key = |t: u32| c.get(t).expect("described").props.word("Lock_KeyID");
@@ -1800,6 +1815,7 @@ mod tests {
             &SpawnTable::default(),
             &LootTable::default(),
             &[0x4700_1127, 0x4700_1128],
+            &TreasureTables::default(),
         )
         .expect("the catalog");
         let key = |t: u32| c.get(t).expect("described").props.word("Lock_KeyID");
@@ -1836,6 +1852,7 @@ mod tests {
             &SpawnTable::default(),
             &LootTable::default(),
             &[0x4700_11B4, 0x4700_1106, FOOD],
+            &TreasureTables::default(),
         )
         .expect("the catalog");
         let spent = |t: u32| spends(t, &c.get(t).expect("described").props);
@@ -1864,6 +1881,7 @@ mod tests {
             &SpawnTable::default(),
             &LootTable::default(),
             &[ARMOR, weapon],
+            &TreasureTables::default(),
         )
         .expect("the catalog");
         assert!(
@@ -2091,8 +2109,15 @@ mod tests {
                 ..Default::default()
             },
         );
-        let (c, _) = catalog(&p, &SpawnTable::default(), &loot, &[]).expect("the catalog");
-        let kinds = treasure(&p, &c).expect("the treasure kinds");
+        let (c, _) = catalog(
+            &p,
+            &SpawnTable::default(),
+            &loot,
+            &[],
+            &TreasureTables::default(),
+        )
+        .expect("the catalog");
+        let kinds = treasure(&p, &c, &TreasureTables::default()).expect("the treasure kinds");
         let package = |t: u32| c.templates[&t].description.package;
         let rare = |t: u32| c.templates[&t].props.flag(yalain_world::treasure::RARE);
         assert!(kinds.trumps.contains(&package(LESSER)), "a lesser trump");
@@ -2126,7 +2151,14 @@ mod tests {
                 ..Default::default()
             },
         );
-        let (c, _) = catalog(&p, &SpawnTable::default(), &loot, &[]).expect("the catalog");
+        let (c, _) = catalog(
+            &p,
+            &SpawnTable::default(),
+            &loot,
+            &[],
+            &TreasureTables::default(),
+        )
+        .expect("the catalog");
         assert!(c.templates.contains_key(&ITEM));
     }
 
@@ -2148,10 +2180,23 @@ mod tests {
             }],
             ..LootTable::default()
         };
-        let (c, _) = catalog(&p, &SpawnTable::default(), &loot, &[]).expect("the catalog");
+        let (c, _) = catalog(
+            &p,
+            &SpawnTable::default(),
+            &loot,
+            &[],
+            &TreasureTables::default(),
+        )
+        .expect("the catalog");
         assert!(c.templates.contains_key(&ITEM));
-        let (c, _) =
-            catalog(&p, &SpawnTable::default(), &LootTable::default(), &[]).expect("the catalog");
+        let (c, _) = catalog(
+            &p,
+            &SpawnTable::default(),
+            &LootTable::default(),
+            &[],
+            &TreasureTables::default(),
+        )
+        .expect("the catalog");
         assert!(!c.templates.contains_key(&ITEM), "named by nothing else");
     }
 
@@ -2160,16 +2205,16 @@ mod tests {
     /// Behaviour: server.loot.treasure-enchantments
     #[test]
     fn the_enchantments_treasure_draws_read_from_the_data_files() {
-        use yalain_content::treasure_effects::{states, tier_of};
+        let tables = TreasureTables::retail_2017();
         let (dat, _) = tallied(&DatName::Portal);
         let p = Portal::over(dat, Vec::new(), None).expect("a context");
-        let wanted: Vec<u32> = states().collect();
+        let wanted: Vec<u32> = tables.states().collect();
         let table = effect_table(&p, &wanted, &yalain_world::effect_defs::fallback_wards())
             .expect("the table");
         for s in &wanted {
             let d = table.get(*s);
             assert!(d.is_some(), "{s:08x} reads");
-            if tier_of(*s).is_some() {
+            if tables.tier_of(*s).is_some() {
                 assert!(d.is_some_and(|d| d.name.is_some()), "{s:08x} has a name");
             }
         }
@@ -2179,20 +2224,22 @@ mod tests {
     /// Behaviour: server.loot.treasure-slayer
     #[test]
     fn the_slayers_treasure_draws_read_as_slayers() {
-        use yalain_content::treasure_effects::{states, WEAPON_FAMILIES};
         use yalain_world::effect_defs::Kind;
         const MUCOR: u32 = 0x6F00_03C0;
+        let tables = TreasureTables::retail_2017();
         let (dat, _) = tallied(&DatName::Portal);
         let p = Portal::over(dat, Vec::new(), None).expect("a context");
-        let wanted: Vec<u32> = states().collect();
+        let wanted: Vec<u32> = tables.states().collect();
         let table = effect_table(&p, &wanted, &yalain_world::effect_defs::fallback_wards())
             .expect("the table");
-        let family = WEAPON_FAMILIES
+        let family = tables
+            .weapon
+            .families
             .iter()
             .find(|f| f.tiers.iter().any(|t| t.state == MUCOR))
             .expect("the slayers' family");
         assert_eq!(family.tiers.len(), 31);
-        for t in family.tiers {
+        for t in &family.tiers {
             let d = table.get(t.state).expect("it reads");
             assert!(
                 matches!(&d.kind, Kind::Slayer(c) if !c.is_empty()),
@@ -2212,7 +2259,6 @@ mod tests {
     /// Behaviour: server.loot.treasure-rarer-enchantments
     #[test]
     fn stasis_reads_with_the_changes_of_its_chain() {
-        use yalain_content::treasure_effects::tier_of;
         const STASIS: u32 = 0x6F00_0574;
         const CHAINED: u32 = 0x6F00_2607;
         let (dat, _) = tallied(&DatName::Portal);
@@ -2223,7 +2269,9 @@ mod tests {
             &yalain_world::effect_defs::fallback_wards(),
         )
         .expect("the table");
-        let (when, tier) = tier_of(STASIS).expect("a tier");
+        let (when, tier) = TreasureTables::retail_2017()
+            .tier_of(STASIS)
+            .expect("a tier");
         assert_eq!(when, yalain_content::treasure_effects::When::Hit);
         assert_eq!(tier.puts_on, CHAINED);
         assert!((tier.chance - 0.1).abs() < 1e-3, "{}", tier.chance);
@@ -2243,14 +2291,14 @@ mod tests {
     /// Behaviour: server.loot.treasure-named-for-an-enchantment
     #[test]
     fn water_and_wounding_tiers_carry_the_names_2017_showed() {
-        use yalain_content::treasure_effects::{states, tier_of};
+        let tables = TreasureTables::retail_2017();
         let (dat, _) = tallied(&DatName::Portal);
         let p = Portal::over(dat, Vec::new(), None).expect("a context");
-        let wanted: Vec<u32> = states().collect();
+        let wanted: Vec<u32> = tables.states().collect();
         let table = effect_table(&p, &wanted, &yalain_world::effect_defs::fallback_wards())
             .expect("the table");
         for (state, name) in [(0x6F00_03DB, 0x2500_08C9), (0x6F00_03E0, 0x2500_08CE)] {
-            let (_, tier) = tier_of(state).expect("a tier");
+            let (_, tier) = tables.tier_of(state).expect("a tier");
             assert_eq!(tier.puts_on, state, "it puts itself on what it hits");
             assert_eq!(
                 table.get(state).and_then(|d| d.name).map(|n| n.1),

@@ -7061,6 +7061,36 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.loot.treasure-tables-draw-as-recorded",
+        says: "A fixed, seeded set of treasure drops of the install's own templates, every sort at \
+               twenty dropper levels, draws exactly what it drew when its digest was recorded: \
+               least levels, Arcane Lore, looks, numbers, words, names, enchantments and potion \
+               effects.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-TREASURE-TABLES-DIGEST"),
+        station: "yalain-testkit::dat::effects::a_seeded_set_of_drops_draws_what_it_drew_when_its_digest_was_recorded",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.loot.treasure-tables-drawn-by",
+        says: "Treasure draws by the world's own numbers: an item's least level, look, combat \
+               delay, word and enchantments, a potion's effect, and what an enchantment shows as, \
+               all come from the tables the server holds, 2017's when the world gives none.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-TREASURE-TABLES"),
+        station: "yalain-testkit::cpu::play::fights::a_worlds_own_treasure_tables_are_what_its_drops_draw_by",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.loot.treasure-tables-written-as-data",
+        says: "The 2017 treasure numbers write out as data and read back exactly, every weighted \
+               list in the order it is drawn in.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-TREASURE-TABLES-EXPORT"),
+        station: "yalain-testkit::cpu::operator::treasure_export::the_2017_treasure_numbers_written_as_data_read_back_the_same",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.loot.treasure-value-bands-without-rows",
         says: "In a world that gives treasure no values, a creature's treasure is worth one of the \
                server's own values for its level's band, each drawn evenly.",

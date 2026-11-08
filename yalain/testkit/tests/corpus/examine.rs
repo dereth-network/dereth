@@ -699,7 +699,7 @@ fn damage_in(bytes: &[u8], request_len: usize) -> Option<u32> {
 /// Behaviour: server.loot.treasure-numbers-by-level
 #[test]
 fn treasure_weapons_damage_falls_in_the_band_this_server_draws_from() {
-    use yalain_world::treasure::WEAPON_DAMAGE_SHARE;
+    use yalain_content::treasure_tables::WEAPON_DAMAGE_SHARE;
     let path = auberean_testkit::data::require_capture_index();
     let con = open(&path);
     let mut st = con
@@ -1795,7 +1795,8 @@ fn equipment_dropped() -> &'static [Dropped] {
 #[test]
 fn equipment_whose_template_sets_its_least_level_drops_as_any_other_treasure() {
     use std::collections::{BTreeSet, HashSet};
-    use yalain_world::treasure::{base_of, endow, MOST_LEVEL};
+    use yalain_content::treasure_tables::MOST_LEVEL;
+    use yalain_world::treasure::{base_of, endow};
     let portal = yalain_testkit::authored::Portal::open();
     let mut set = HashMap::new();
     let drops: Vec<&Dropped> = equipment_dropped()
@@ -1895,7 +1896,8 @@ fn count_band(level: i32) -> usize {
 fn treasure_equipment_is_enchanted_as_often_as_2017s_drops() {
     use std::collections::HashSet;
     use yalain_content::treasure_effects::{ARMOR_COUNTS, SHIELD_COUNTS, WEAPON_COUNTS};
-    use yalain_world::treasure::{base_of, endow, MOST_LEVEL};
+    use yalain_content::treasure_tables::MOST_LEVEL;
+    use yalain_world::treasure::{base_of, endow};
     const SORTS: [&str; 3] = ["weapons", "armor", "shields"];
     let drops = equipment_dropped();
     let mut steps: Vec<Vec<f64>> = vec![Vec::new(); 11];
@@ -2031,7 +2033,7 @@ fn dropped_shields_carry_a_shields_numbers_as_2017s_did() {
     use std::collections::HashSet;
     use yalain_content::treasure_effects as t;
     use yalain_content::treasure_words as w;
-    use yalain_world::treasure::{base_of, endow, numbers, Sort};
+    use yalain_world::treasure::{base_of, endow, numbers, Sort, TreasureTables};
     const DRAWS: usize = 200;
     const NUMBERS: [&str; 5] = [
         "rating",
@@ -2071,6 +2073,7 @@ fn dropped_shields_carry_a_shields_numbers_as_2017s_did() {
     let portal = yalain_testkit::authored::Portal::open();
     let lib = portal.library();
     let mut rng = yalain_world::rng::Rng::new(753);
+    let tables = TreasureTables::retail_2017();
     let (mut plain, mut within) = (0usize, [0usize; 5]);
     for (d, e) in examined.iter().filter(|(_, e)| e.enchantments == 0) {
         let least = i32::try_from(e.least.unwrap_or(0)).unwrap_or(0);
@@ -2078,7 +2081,8 @@ fn dropped_shields_carry_a_shields_numbers_as_2017s_did() {
         let props = portal.template(d.template).props;
         let (mut low, mut high) = ([i32::MAX; 5], [i32::MIN; 5]);
         for _ in 0..DRAWS {
-            let m = numbers(&mut rng, &props, Sort::Shield, level, d.value).expect("a shield's");
+            let m = numbers(&mut rng, &tables, &props, Sort::Shield, level, d.value)
+                .expect("a shield's");
             let (most, span) = m.damage.expect("its damage");
             #[allow(clippy::cast_precision_loss)]
             let fewest = dereth_primitives::num::floor_to_i32(most as f32 * (1.0 - span));
@@ -2211,7 +2215,8 @@ fn treasure_items_look_values_fall_within_their_rows() {
                 within += usize::from(
                     t == table && keys.iter().any(|(key, top)| key == k && *v <= *top + 1e-4),
                 );
-                plain_glow += usize::from(*k == GLOW && *v <= yalain_world::treasure::GLOW_DRAW);
+                plain_glow +=
+                    usize::from(*k == GLOW && *v <= yalain_content::treasure_tables::GLOW_DRAW);
             }
         }
     }
