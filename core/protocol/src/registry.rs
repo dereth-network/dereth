@@ -41,6 +41,8 @@ macro_rules! for_each_message {
                 admin::DddEndDdd, $crate::admin::DddEndDdd, auto, 0, both;
                 admin::DddPatchtimePending, $crate::admin::DddPatchtimePending, auto, 0, skip;
                 admin::DddOverlayManifest, $crate::admin::DddOverlayManifest, auto, 0, skip;
+                admin::DddBulkOffer, $crate::admin::DddBulkOffer, auto, 0, skip;
+                admin::DddBulkDecline, $crate::admin::DddBulkDecline, auto, skip, skip;
                 admin::CharacterRemoveFromPlayerConsentList, $crate::admin::CharacterRemoveFromPlayerConsentList, auto, skip, skip;
                 admin::CharacterAddPlayerPermission, $crate::admin::CharacterAddPlayerPermission, auto, skip, skip;
                 admin::CharacterRemovePlayerPermission, $crate::admin::CharacterRemovePlayerPermission, auto, skip, skip;

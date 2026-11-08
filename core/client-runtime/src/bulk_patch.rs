@@ -195,7 +195,7 @@ mod tests {
         ids
     }
 
-    /// Behaviour: ddd.bulk-patch.a-stream-brings-every-record-and-tells-its-end-from-a-break
+    /// Behaviour: net.dat-patch.a-bulk-stream-brings-every-record-and-tells-its-end-from-a-break
     #[test]
     fn a_stream_brings_every_record_then_ends_and_a_cut_one_fails() {
         let (addr, token) = serve((1..=600).collect(), true);
@@ -210,7 +210,7 @@ mod tests {
         assert!(matches!(d.ended(), Some(Err(_))), "closed without its 0");
     }
 
-    /// Behaviour: ddd.bulk-patch.a-stream-nobody-answers-fails-so-the-patch-falls-back
+    /// Behaviour: net.dat-patch.a-bulk-stream-nobody-answers-fails-so-the-patch-falls-back
     #[test]
     fn a_stream_nobody_answers_fails() {
         let addr = TcpListener::bind("127.0.0.1:0")
