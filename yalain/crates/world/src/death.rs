@@ -12,6 +12,14 @@
 //! named "Corpse of ..." the creature, its killer recorded, holding what the creature left), and
 //! **three seconds after that** the creature leaves the world.
 //!
+//! **Boosts** ([`kill_pays`]). What a creature is worth is first what its own effects make of its
+//! death experience as it dies; each share a player is paid is then that times the player's
+//! factor: what its own effects make of 1, times its Fast Learner, floored. Each effect changes the
+//! value by its own flags (added, or multiplying), the top one of each class in turn, highest
+//! class first (2017: every one of the 115 kills paid exactly twice the rule fell within an hour
+//! its player held an effect that doubles experience; the kills just outside those hours paid the
+//! rule).
+//!
 //! **A creature whose template says it never leaves a corpse** (training dummies among them) falls
 //! as any does, is made ethereal and hidden in the same
 //! tick, and leaves the world three seconds later: no corpse, so nothing to loot. Its experience,
@@ -222,6 +230,7 @@ pub fn creature_dies<S: Store>(
         t.facts.name,
         t.facts.group,
     );
+    let death_xp = worth_with_effects(s, id, death_xp);
     paid_in_parts(
         s,
         net,
@@ -298,6 +307,54 @@ fn world_of<S: Store>(s: &Server<S>, character: u64) -> Option<ConnId> {
         .map(|(w, _)| *w)
 }
 
+/// A creature's death experience with what its effects make of it as it dies (a product cut to a
+/// whole number); a creature worth nothing stays so.
+fn worth_with_effects<S: Store>(s: &Server<S>, id: u64, death_xp: i64) -> i64 {
+    if death_xp <= 0 {
+        return death_xp;
+    }
+    crate::effects::chained_long(
+        &s.effect_table,
+        crate::effects::records_of(s, crate::effects::On::Creature(id)),
+        crate::effects::DEATH_EXPERIENCE,
+        death_xp,
+    )
+}
+
+/// What a kill pays a player, from its share: times the player's factor, floored. The factor is
+/// what the player's own effects make of 1 ([`crate::effects::chained_float`]) times its Fast
+/// Learner, when it holds one; none of either, the share itself.
+#[must_use]
+pub fn kill_pays<S: Store>(s: &Server<S>, world: ConnId, xp: u64) -> u64 {
+    let Some(p) = s.players.get(&world) else {
+        return xp;
+    };
+    let own = crate::effects::chained_float(
+        &s.effect_table,
+        &p.play.effects,
+        crate::effects::KILL_EXPERIENCE,
+        1.0,
+    );
+    let starting = s.start.skills.get(&p.race).cloned().unwrap_or_default();
+    let skills = crate::skills::held(&starting, &p.play.skills);
+    let perk = crate::skills::perk_value(
+        &s.skill_table,
+        &skills,
+        crate::skills::perk_kind::FAST_LEARNER,
+    );
+    if (own - 1.0).abs() < f32::EPSILON && perk.is_none() {
+        return xp;
+    }
+    let factor = (f64::from(own) * perk.unwrap_or(1.0)).max(0.0);
+    #[allow(
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss
+    )]
+    let paid = (xp as f64 * factor).floor() as u64;
+    paid
+}
+
 /// What a creature's death is worth: its experience and focus, its level, and whether it is a
 /// group creature.
 #[derive(Debug, Clone, Copy)]
@@ -347,7 +404,7 @@ fn paid_in_parts<S: Store>(
             let focus = crate::fellowship::focus_shares(s, owner, worth.focus, (taken, all));
             for (w, amount) in shares {
                 let f = focus.iter().find(|(x, _)| *x == w).map_or(0, |(_, f)| *f);
-                let amount = crate::skills::with_fast_learner(s, w, amount);
+                let amount = kill_pays(s, w, amount);
                 if amount > 0 || f > 0 {
                     progress::award_with_focus(s, net, w, amount, f, Award::Share);
                 }
@@ -361,7 +418,7 @@ fn paid_in_parts<S: Store>(
             let part = crate::xp::part(award, taken, all);
             let focus = crate::xp::part(i64::from(worth.focus), taken, all);
             let focus = i32::try_from(focus).unwrap_or(i32::MAX);
-            let part = crate::skills::with_fast_learner(s, world, part.cast_unsigned());
+            let part = kill_pays(s, world, part.cast_unsigned());
             if part > 0 || focus > 0 {
                 progress::award_with_focus(s, net, world, part, focus, Award::Part);
             }

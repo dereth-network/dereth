@@ -711,13 +711,14 @@ pub fn interactions(
 /// The effects each item template's use puts on its user, and those it puts on whoever wears or
 /// wields it: each name the template gives resolved to the saved state of its effect enumeration
 /// value, else of its package (the package's one saved state among the effects', else its
-/// singleton).
+/// singleton), else to the saved state the world's database gives the name.
 ///
 /// # Errors
 /// The library does not read.
 pub fn item_uses(
     p: &Portal,
     catalog: &Catalog,
+    named: &BTreeMap<String, u32>,
 ) -> Result<
     (
         yalain_world::item_use::ItemUses,
@@ -726,17 +727,51 @@ pub fn item_uses(
     ),
     String,
 > {
-    use yalain_world::item_use::{read_named, DIED, USED, WORN};
+    use yalain_world::item_use::{read_named_or, DIED, USED, WORN};
     let lib = library(p)?;
+    let named: HashMap<String, u32> = named.iter().map(|(n, s)| (n.clone(), *s)).collect();
     let states: Vec<(u32, u32, Option<u32>)> = saved_states(p)?
         .iter()
         .map(|s| (s.id, s.package, s.value))
         .collect();
     let templates = || catalog.templates.iter().map(|(id, t)| (*id, &t.props));
     Ok((
-        read_named(lib, states.iter().copied(), templates(), USED),
-        read_named(lib, states.iter().copied(), templates(), WORN),
-        read_named(lib, states.iter().copied(), templates(), DIED),
+        read_named_or(lib, states.iter().copied(), templates(), USED, &named),
+        read_named_or(lib, states.iter().copied(), templates(), WORN, &named),
+        read_named_or(lib, states.iter().copied(), templates(), DIED, &named),
+    ))
+}
+
+/// The saved state the server resolves an effect's name to with no world row, as an item's use
+/// resolves it (its effect enumeration value's one saved state of the install, else its
+/// package's), when it resolves one.
+///
+/// # Errors
+/// The library does not read.
+pub fn effect_of_name(p: &Portal, name: &str) -> Result<Option<u32>, String> {
+    let lib = library(p)?;
+    let states = saved_states(p)?;
+    let one = |hits: Vec<u32>| match hits.as_slice() {
+        [one] => Some(*one),
+        _ => None,
+    };
+    Ok(yalain_world::item_use::resolve(
+        name,
+        |v| {
+            one(states
+                .iter()
+                .filter(|s| s.value == Some(v))
+                .map(|s| s.id)
+                .collect())
+        },
+        |x| lib.package_id(x),
+        |pk| {
+            one(states
+                .iter()
+                .filter(|s| s.package == pk)
+                .map(|s| s.id)
+                .collect())
+        },
     ))
 }
 
@@ -1479,7 +1514,7 @@ mod tests {
         mounts(&p, &[]).expect("mounts");
         let first = at(&reads) - before;
         let before = at(&reads);
-        item_uses(&p, &Catalog::default()).expect("item uses");
+        item_uses(&p, &Catalog::default(), &BTreeMap::new()).expect("item uses");
         let second = at(&reads) - before;
         assert!(first > 10_000, "the first reads them all: {first}");
         assert!(second < first / 10, "{second} after {first}");
@@ -1599,6 +1634,48 @@ mod tests {
         assert!(c
             .icon_tables
             .contains_key(&yalain_world::inventory::POTION_COLOR.0));
+    }
+
+    /// An `[[effect_name]]` row may name only an effect the server cannot resolve: one naming the
+    /// hour-long charge, which it resolves, is refused with the state it resolves to, and one
+    /// naming an effect it resolves to nothing is not.
+    /// Behaviour: server.world-db.effect-names-only-where-the-install-lacks-them
+    #[test]
+    fn an_effect_name_row_is_refused_where_the_install_names_the_effect_itself() {
+        let (dat, _) = tallied(&DatName::Portal);
+        let p = Portal::over(dat, Vec::new(), None).expect("a context");
+        assert_eq!(
+            effect_of_name(&p, "Eff_Initiation_ManaInfusion").expect("reads"),
+            Some(0x6F00_1C71)
+        );
+        assert_eq!(
+            effect_of_name(&p, "Eff_Unheld_ByTheInstall").expect("reads"),
+            None
+        );
+        let mut files = yalain_world_db::Files::new();
+        files.insert(
+            "world.toml".into(),
+            "format_version = 1\nkey = \"w\"\ngame = \"ac2\"\nera = \"eor\"\npacks = [\"p\"]\n"
+                .into(),
+        );
+        files.insert(
+            "p/pack.toml".into(),
+            "format_version = 1\nname = \"p\"\nversion = \"0.1.0\"\ngame = \"ac2\"\nauthors = [\"a\"]\nlicense = \"CC0-1.0\"\ndescription = \"d\"\n".into(),
+        );
+        files.insert(
+            "p/server/effects.toml".into(),
+            "[[effect_name]]\nname = \"Eff_Initiation_ManaInfusion\"\nstate = 0x6F001C71\nprov = { from = \"authored\" }\n\n\
+             [[effect_name]]\nname = \"Eff_Unheld_ByTheInstall\"\nstate = 0x6F001C71\nprov = { from = \"authored\" }\n"
+                .into(),
+        );
+        let db = yalain_world_db::rows::read(&files).expect("reads");
+        let problems = crate::world::install_problems(&p, &db).expect("checks");
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(
+            problems[0].message.contains("Eff_Initiation_ManaInfusion")
+                && problems[0].message.contains("0x6f001c71"),
+            "{problems:?}"
+        );
     }
 
     /// The catalog holds every template a treasure pool names, though no camp or profile names it, so

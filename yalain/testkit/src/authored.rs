@@ -6,6 +6,7 @@
 //! seconds. Beside it, the install's own data files, which a server serves clients' requests for
 //! records from ([`install_files`]). (Feature `retail-dats`: it reads the install.)
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use auberean_assets::entity::Entity;
@@ -462,7 +463,21 @@ impl Portal {
     /// The library does not read.
     #[must_use]
     pub fn item_uses(&self, templates: &[u32]) -> yalain_world::item_use::ItemUses {
-        self.named_effects(templates, yalain_world::item_use::USED)
+        self.named_effects(templates, yalain_world::item_use::USED, &HashMap::new())
+    }
+
+    /// The effects these templates' uses put on, as the server reads them at start with a world
+    /// that gives these effects' names their saved states.
+    ///
+    /// # Panics
+    /// The library does not read.
+    #[must_use]
+    pub fn item_uses_named(
+        &self,
+        templates: &[u32],
+        named: &HashMap<String, u32>,
+    ) -> yalain_world::item_use::ItemUses {
+        self.named_effects(templates, yalain_world::item_use::USED, named)
     }
 
     /// The effects these templates put on whoever wears or wields them, as the server reads them
@@ -472,7 +487,7 @@ impl Portal {
     /// The library does not read.
     #[must_use]
     pub fn worn_effects(&self, templates: &[u32]) -> yalain_world::item_use::ItemUses {
-        self.named_effects(templates, yalain_world::item_use::WORN)
+        self.named_effects(templates, yalain_world::item_use::WORN, &HashMap::new())
     }
 
     /// The effects these templates' deaths name, as the server reads them at start.
@@ -481,13 +496,14 @@ impl Portal {
     /// The library does not read.
     #[must_use]
     pub fn death_effects(&self, templates: &[u32]) -> yalain_world::item_use::ItemUses {
-        self.named_effects(templates, yalain_world::item_use::DIED)
+        self.named_effects(templates, yalain_world::item_use::DIED, &HashMap::new())
     }
 
     fn named_effects(
         &self,
         templates: &[u32],
         props: (&str, &str),
+        named: &HashMap<String, u32>,
     ) -> yalain_world::item_use::ItemUses {
         let lib = self.library();
         let ids: Vec<u32> = self
@@ -507,11 +523,12 @@ impl Portal {
             .iter()
             .map(|id| (*id, self.template(*id)))
             .collect();
-        yalain_world::item_use::read_named(
+        yalain_world::item_use::read_named_or(
             &lib,
             states,
             described.iter().map(|(id, t)| (*id, &t.props)),
             props,
+            named,
         )
     }
 

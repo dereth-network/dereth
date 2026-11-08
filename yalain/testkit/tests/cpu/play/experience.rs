@@ -366,3 +366,230 @@ fn a_character_that_is_no_hero_stops_at_level_fifty_until_it_is_one() {
     award(&mut h.server, &mut h.net, world, 1, Award::Step);
     assert_eq!(read(&h).0, 53, "a hero has what it earned");
 }
+
+/// An hour-long effect that doubles what kills pay at full spellcraft: the install's own (a
+/// factor on the hunter's kill experience, 1 at spellcraft 0 to 2 at 100, for 3,601 seconds, of
+/// its class).
+fn doubling_hour() -> yalain_world::effect_defs::EffectDef {
+    use yalain_world::effect_defs::{EffectDef, Kind, Scale};
+    EffectDef {
+        state: DOUBLING,
+        kind: Kind::Numeric {
+            flags: 0xA,
+            stats: vec![yalain_world::effects::KILL_EXPERIENCE],
+            magnitude: Scale(vec![(0.0, 1.0), (100.0, 2.0)]),
+        },
+        duration: Scale(vec![(0.0, 3601.0)]),
+        priority: Scale(vec![(0.0, 2.0)]),
+        fx: 0,
+        external_flags: 0xA,
+        internal_flags: 0x0100_0713,
+        enum_value: 6191,
+        eq_class: 4049,
+        name: None,
+    }
+}
+
+const DOUBLING: u32 = 0x6F00_1C71;
+
+/// A change of one quality, by these flags, of a class.
+fn change(
+    state: u32,
+    stat: u32,
+    flags: u32,
+    by: f32,
+    class: u32,
+) -> yalain_world::effect_defs::EffectDef {
+    use yalain_world::effect_defs::{EffectDef, Kind, Scale};
+    EffectDef {
+        state,
+        kind: Kind::Numeric {
+            flags,
+            stats: vec![stat],
+            magnitude: Scale(vec![(0.0, by)]),
+        },
+        duration: Scale(vec![(0.0, 300.0)]),
+        priority: Scale(vec![(0.0, 1.0)]),
+        fx: 0,
+        external_flags: flags,
+        internal_flags: 0x0100_0713,
+        enum_value: 0,
+        eq_class: class,
+        name: None,
+    }
+}
+
+fn world_conn(h: &Harness, me: u64) -> yalain_net::ConnId {
+    *h.server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .expect("in the world")
+        .0
+}
+
+/// Make a beetle worth `death_xp` at the player's level, with the prey's health.
+fn worth(h: &mut Harness, id: u64, like: u64, death_xp: i64) {
+    let level = h
+        .server
+        .things
+        .get(like)
+        .and_then(|t| t.creature.as_ref())
+        .map(|c| c.stats.level)
+        .expect("the prey");
+    if let Some(t) = h.server.things.get_mut(id) {
+        t.health = HEALTH;
+        t.max_health = HEALTH;
+        if let Some(c) = t.creature.as_mut() {
+            c.stats.death_xp = death_xp;
+            c.stats.level = level;
+        }
+    }
+}
+
+/// A player holding the hour-long effect that doubles kills, cast at full spellcraft, is paid
+/// exactly twice a kill's experience while it runs, and the kill's own experience once it has run
+/// out.
+/// Behaviour: server.death.experience-doubled-for-the-hour
+#[test]
+fn a_kill_pays_twice_during_the_doubling_hour_and_once_after_it() {
+    use yalain_world::effects::{self, Cast};
+    let (mut h, b, me, [prey, _, other]) = world(1000);
+    worth(&mut h, other, prey, 1000);
+    h.server
+        .effect_table
+        .effects
+        .insert(DOUBLING, doubling_hour());
+    let world = world_conn(&h, me);
+    let clock = h.clock();
+    let start = clock.local;
+    assert!(effects::apply(
+        &mut h.server,
+        &mut h.net,
+        world,
+        DOUBLING,
+        Cast {
+            caster: me,
+            spellcraft: 100.0,
+            ..Cast::default()
+        },
+        clock,
+    ));
+    h.run(5);
+    let was = total_of(&h, me);
+    let from = h.bots[b].inbox.len();
+    let clock = h.clock();
+    combat::hurt_creature(&mut h.server, &mut h.net, prey, me, 10_000, clock);
+    h.run(10);
+    assert_eq!(
+        told(&h, b, from),
+        vec![
+            Told::Text(text::GAINED.0, Some(2000)),
+            Told::Total(was + 2000),
+            Told::Text(text::KILLED.0, None),
+        ]
+    );
+    // The hour runs out, and with it the doubling.
+    h.run_to(yalain_net::LocalTime(start.0 + 3605.0));
+    let holds = |h: &Harness| {
+        h.server.players[&world]
+            .play
+            .effects
+            .iter()
+            .any(|e| e.state == DOUBLING)
+    };
+    assert!(!holds(&h), "the record has run out");
+    let was = total_of(&h, me);
+    let from = h.bots[b].inbox.len();
+    let clock = h.clock();
+    combat::hurt_creature(&mut h.server, &mut h.net, other, me, 10_000, clock);
+    h.run(10);
+    assert_eq!(
+        told(&h, b, from),
+        vec![
+            Told::Text(text::GAINED.0, Some(1000)),
+            Told::Total(was + 1000),
+            Told::Text(text::KILLED.0, None),
+        ]
+    );
+}
+
+/// What a player's effects make of its kills goes by each effect's own flags, the top effect of
+/// each class in turn, the highest class first: a doubling of a higher class and an addition of a
+/// tenth of a lower one make a factor of 2.1 (not 2.2), held as a single-precision number a hair
+/// under it, so a kill of 1000 pays 2099; a second doubling of the first one's class changes
+/// nothing; and what a creature's own effects make of its worth comes first, its product cut to a
+/// whole number (1000 times 1.03 is worth 1029).
+/// Behaviour: server.death.experience-boosts-by-their-flags
+#[test]
+fn boosts_change_a_kill_by_their_flags_the_highest_class_first() {
+    use yalain_world::effects::{self, Cast, On, DEATH_EXPERIENCE, KILL_EXPERIENCE};
+    const TENTH: u32 = 0x6F00_20F5;
+    const SECOND: u32 = 0x6F00_24B6;
+    const INFLATE: u32 = 0x6F00_263A;
+    let (mut h, b, me, [prey, _, other]) = world(1000);
+    worth(&mut h, other, prey, 1000);
+    for d in [
+        doubling_hour(),
+        change(TENTH, KILL_EXPERIENCE, 0x6, 0.1, 1127),
+        change(SECOND, KILL_EXPERIENCE, 0xA, 2.0, 4049),
+        change(INFLATE, DEATH_EXPERIENCE, 0x9, 1.03, 5064),
+    ] {
+        h.server.effect_table.effects.insert(d.state, d);
+    }
+    let world = world_conn(&h, me);
+    let at = |spellcraft| Cast {
+        caster: me,
+        spellcraft,
+        ..Cast::default()
+    };
+    let clock = h.clock();
+    for state in [DOUBLING, TENTH, SECOND] {
+        assert!(effects::apply(
+            &mut h.server,
+            &mut h.net,
+            world,
+            state,
+            at(100.0),
+            clock
+        ));
+    }
+    h.run(5);
+    let was = total_of(&h, me);
+    let from = h.bots[b].inbox.len();
+    let clock = h.clock();
+    combat::hurt_creature(&mut h.server, &mut h.net, prey, me, 10_000, clock);
+    h.run(10);
+    assert_eq!(
+        told(&h, b, from),
+        vec![
+            Told::Text(text::GAINED.0, Some(2099)),
+            Told::Total(was + 2099),
+            Told::Text(text::KILLED.0, None),
+        ]
+    );
+    // The creature's worth: 1000 x 1.03 = 1029.99..., cut to 1029, then 2.1 times it, floored.
+    let clock = h.clock();
+    assert!(effects::apply_on(
+        &mut h.server,
+        &mut h.net,
+        On::Creature(other),
+        INFLATE,
+        at(1.0),
+        clock
+    ));
+    h.run(2);
+    let was = total_of(&h, me);
+    let from = h.bots[b].inbox.len();
+    let clock = h.clock();
+    combat::hurt_creature(&mut h.server, &mut h.net, other, me, 10_000, clock);
+    h.run(10);
+    assert_eq!(
+        told(&h, b, from),
+        vec![
+            Told::Text(text::GAINED.0, Some(2160)),
+            Told::Total(was + 2160),
+            Told::Text(text::KILLED.0, None),
+        ]
+    );
+}

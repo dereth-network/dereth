@@ -2654,3 +2654,29 @@ fn treasure_pools_and_a_profiles_draws_compile_and_bad_ones_are_problems() {
         );
     }
 }
+
+#[test]
+fn an_effect_name_row_compiles_to_the_state_its_name_stands_for() {
+    let mut files = fixture();
+    files.insert(
+        "town/server/effects.toml".into(),
+        "[[effect_name]]\nname = \"Eff_Test_Unheld\"\nstate = 0x6F001234\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    let db = read(&files).unwrap();
+    assert!(db
+        .rows()
+        .any(|l| matches!(&l.row, Row::EffectName(r) if r.name == "Eff_Test_Unheld" && r.state == 0x6F00_1234)));
+    assert!(check(&files).is_empty(), "{:?}", check(&files));
+    let t = compile(&merge(&db).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(t.effect_names.get("Eff_Test_Unheld"), Some(&0x6F00_1234));
+    // A row names its state and nothing else.
+    for bad in [
+        "[[effect_name]]\nname = \"Eff_Test_Unheld\"\nprov = { from = \"authored\" }\n",
+        "[[effect_name]]\nname = \"Eff_Test_Unheld\"\nstate = 0x6F001234\nlasts = 3\nprov = { from = \"authored\" }\n",
+        "[[effect_name]]\nname = \"not an identifier\"\nstate = 0x6F001234\nprov = { from = \"authored\" }\n",
+    ] {
+        files.insert("town/server/effects.toml".into(), bad.into());
+        assert!(read(&files).is_err(), "{bad}");
+    }
+}

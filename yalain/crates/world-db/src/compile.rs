@@ -139,6 +139,8 @@ pub struct Tables {
     /// The places by their names (lowercase): where an effect that sends a player to a named place
     /// (a city's recall) sends it.
     pub places_by_name: BTreeMap<String, TablePlace>,
+    /// The saved states effects' names stand for where the install holds no effect by the name.
+    pub effect_names: BTreeMap<String, u32>,
     /// What the compile left out or could not serve, and why.
     pub warnings: Vec<Problem>,
 }
@@ -1081,6 +1083,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 if let Some(quest) = r.quest {
                     t.story.shard_quests.insert(r.object, quest);
                 }
+            }
+            Row::EffectName(r) => {
+                t.effect_names.insert(r.name.clone(), r.state);
             }
             Row::Weapon(r) => {
                 if cx.template(l, "template", r.template) {

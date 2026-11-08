@@ -219,11 +219,25 @@ fn cache_dir() -> Result<PathBuf, String> {
 }
 
 fn check_cmd(args: &[String]) -> Result<(), String> {
-    let [dir] = args else {
-        return Err("world check takes the database's folder".into());
+    let (dir, dats) = match args {
+        [dir] => (dir, None),
+        [dir, flag, dats] if flag == "--dats" => (dir, Some(PathBuf::from(dats))),
+        _ => {
+            return Err(
+                "world check takes the database's folder [--dats <install>] (with an install, the rows that name its data are held to it too)"
+                    .into(),
+            )
+        }
     };
     let files = load(Path::new(dir))?;
-    let problems = check::check(&files);
+    let mut problems = check::check(&files);
+    if problems.is_empty() {
+        if let Some(dats) = dats {
+            let db = rows::read(&files).map_err(|p| report(&p))?;
+            let portal = data::Portal::open(&dats, None)?;
+            problems.extend(install_problems(&portal, &db)?);
+        }
+    }
     if !problems.is_empty() {
         return Err(format!(
             "{}\n{} problems",
@@ -240,6 +254,30 @@ fn check_cmd(args: &[String]) -> Result<(), String> {
         files.len()
     );
     Ok(())
+}
+
+/// What a database's rows say of the install that it does not bear out: an `[[effect_name]]` row
+/// naming an effect the server already resolves to a saved state.
+///
+/// # Errors
+/// The install's library does not read.
+pub fn install_problems(p: &data::Portal, db: &rows::Database) -> Result<Vec<Problem>, String> {
+    let mut out = Vec::new();
+    for l in db.rows() {
+        if let rows::Row::EffectName(r) = &l.row {
+            if let Some(state) = data::effect_of_name(p, &r.name)? {
+                out.push(Problem::new(
+                    &l.file,
+                    l.line,
+                    format!(
+                        "[[effect_name]] {}: the server already resolves this name, to state {state:#010x}; a row names only effects it cannot resolve",
+                        r.name
+                    ),
+                ));
+            }
+        }
+    }
+    Ok(out)
 }
 
 fn release_cmd(args: &[String]) -> Result<(), String> {
@@ -626,6 +664,17 @@ pub fn compile_dir(
 ) -> Result<Tables, String> {
     let files = load(db_dir)?;
     let (read, read_problems) = rows::read_partly(&files);
+    if let Some(db) = &read {
+        let problems = install_problems(p, db)?;
+        if !problems.is_empty() {
+            return Err(format!(
+                "{}\n{} problems in {}",
+                report(&problems),
+                problems.len(),
+                db_dir.display()
+            ));
+        }
+    }
     let named = read.as_ref().and_then(|db| db.world.base.clone());
     let (problems, base, checked) = match &named {
         None => match (&read, read_problems.is_empty()) {

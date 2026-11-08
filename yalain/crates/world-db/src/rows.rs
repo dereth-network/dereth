@@ -502,6 +502,18 @@ pub enum Row {
     Area(Area),
     Clearing(Clearing),
     TreasurePool(TreasurePool),
+    EffectName(EffectName),
+}
+
+/// `[[effect_name]]`: the saved state an effect's name stands for, where the install names the
+/// effect (an item's use, say) and the server's own resolution of the name (its effect
+/// enumeration's value, then the install's one effect of that value, then a package of that name)
+/// finds none.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EffectName {
+    pub name: String,
+    pub state: u32,
+    pub prov: Prov,
 }
 
 /// `[[clearing]]`: ground in a landblock kept free of what the land grows: a circle of `radius`
@@ -744,6 +756,7 @@ impl Row {
             Self::Area(_) => "area",
             Self::Clearing(_) => "clearing",
             Self::TreasurePool(_) => "treasure_pool",
+            Self::EffectName(_) => "effect_name",
         }
     }
 
@@ -775,13 +788,14 @@ impl Row {
             Self::Area(r) => Some(&r.prov),
             Self::Clearing(r) => Some(&r.prov),
             Self::TreasurePool(r) => Some(&r.prov),
+            Self::EffectName(r) => Some(&r.prov),
             Self::Remove(_) => None,
         }
     }
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 25] = [
+pub const KINDS: [&str; 26] = [
     "object",
     "camp",
     "loot",
@@ -807,10 +821,11 @@ pub const KINDS: [&str; 25] = [
     "pet_limit",
     "death_treasure",
     "treasure_pool",
+    "effect_name",
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 25] = [
+pub const FIELDS: [(&str, &[&str]); 26] = [
     (
         "object",
         &[
@@ -1079,6 +1094,7 @@ pub const FIELDS: [(&str, &[&str]); 25] = [
         "treasure_pool",
         &["name", "race", "own", "pools", "items", "prov"],
     ),
+    ("effect_name", &["name", "state", "prov"]),
 ];
 
 /// A shared-format error as a problem at its file and line.
@@ -1680,6 +1696,11 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 prov: f.req_prov()?,
             })
         }
+        "effect_name" => Row::EffectName(EffectName {
+            name: f.req_ident("name")?,
+            state: f.req_id("state")?,
+            prov: f.req_prov()?,
+        }),
         "death_treasure" => {
             let key = f.req_symbol("key")?;
             let (template, camp) = (f.id("template"), f.symbol("camp"));

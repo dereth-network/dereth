@@ -3415,6 +3415,40 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.death.experience-boosts-by-their-flags",
+        says: "What a creature's own effects make of its death experience as it dies is what it \
+               is worth (a product cut to a whole number), and each share a player is paid is \
+               that times the player's factor, floored: what the player's own effects make of 1 \
+               times its Fast Learner. Each effect changes the value by its own flags, added or \
+               multiplying, the top effect of each class in turn, highest class first.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-KILL-XP-BOOST-FLAGS"),
+        station: "yalain-testkit::cpu::play::experience::boosts_change_a_kill_by_their_flags_the_highest_class_first",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.death.experience-boosts-read",
+        says: "The effects that raise or lower what kills pay read as the install defines them, \
+               each change by its own flags: the hour-long charge is a factor of 1 at spellcraft \
+               0 to 2 at 100 for 3,601 seconds, which the install's mana items name for their \
+               use; the mine boons multiply, the luck of fate adds, the bonus day's chain adds 2, \
+               and a weapon's inflation multiplies what a creature is worth.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-KILL-XP-BOOSTS-READ"),
+        station: "yalain-testkit::dat::effects::the_effects_that_change_what_kills_pay_read_as_the_data_defines_them",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.death.experience-doubled-for-the-hour",
+        says: "A player holding the hour-long charge cast at full spellcraft, an effect whose \
+               name the server resolves without any world row, is paid exactly twice a kill's \
+               experience while it runs, and the kill's own once it has run out.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-KILL-XP-MANA-CHARGE"),
+        station: "yalain-testkit::cpu::play::experience::a_kill_pays_twice_during_the_doubling_hour_and_once_after_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.death.experience-in-parts",
         says: "A kill's experience is paid in parts in the order its damagers first hurt it, each \
                the creature's experience times the health that damager took over all the health \
@@ -13312,6 +13346,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-WORN-NOT-WIELDED"),
         station: "yalain-testkit::cpu::play::two_blows::what_is_worn_does_not_take_the_place_of_what_is_wielded",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.world-db.effect-names-only-where-the-install-lacks-them",
+        says: "A world's `[[effect_name]]` row gives a saved state to an effect's name only where \
+               the server's own resolution of the name finds none: a row naming an effect the \
+               server already resolves is a problem that names the state it resolves to.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WDB-EFFECT-NAMES"),
+        station: "yalain::bin.yalain::data::tests::an_effect_name_row_is_refused_where_the_install_names_the_effect_itself",
         tier: Tier::Cpu,
     },
     behaviour! {

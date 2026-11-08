@@ -144,6 +144,18 @@ pub fn read_named<'a>(
     templates: impl IntoIterator<Item = (u32, &'a Props)>,
     props: (&str, &str),
 ) -> ItemUses {
+    read_named_or(lib, states, templates, props, &HashMap::new())
+}
+
+/// The effects these templates name, as [`read_named`] resolves them, and a name the install
+/// resolves to nothing to the saved state the world gives it (`named`), if it gives one.
+pub fn read_named_or<'a>(
+    lib: &auberean_script::library::Library,
+    states: impl IntoIterator<Item = (u32, u32, Option<u32>)>,
+    templates: impl IntoIterator<Item = (u32, &'a Props)>,
+    props: (&str, &str),
+    named: &HashMap<String, u32>,
+) -> ItemUses {
     let mut of_package: HashMap<u32, Vec<u32>> = HashMap::new();
     let mut of_value: HashMap<u32, Vec<u32>> = HashMap::new();
     for (state, package, value) in states {
@@ -166,6 +178,7 @@ pub fn read_named<'a>(
                     |x| lib.package_id(x),
                     |p| one(&of_package, p),
                 )
+                .or_else(|| named.get(n).copied())
             });
             (!list.is_empty()).then_some((id, list))
         })

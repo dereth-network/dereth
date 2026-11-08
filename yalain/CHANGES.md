@@ -7,6 +7,7 @@ what they see, not how it was done.
 
 ## Unreleased
 - Allegiances: message of the day, officers, titles, kingdom restrictions and messages to patron and vassals.
+- Experience boosts such as mana charges now raise kill experience.
 - @dn admin and @dn verify now need an admin character, as other admin commands do.
 - Admins can make persistent chat rooms, which stay through restarts until deleted.
 - Loot profiles can draw treasure of the creature's level from shared treasure pools.

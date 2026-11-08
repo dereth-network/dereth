@@ -89,7 +89,17 @@ pub mod transfer {
 pub mod numeric {
     pub const ADD: u32 = 0x4;
     pub const MULTIPLY: u32 = 0x8;
+    /// Its magnitude replaces the value.
+    pub const OVERRIDE: u32 = 0x10;
+    /// What it leaves is never below nothing (with [`NON_ZERO`], never nothing either).
+    pub const POSITIVE_ONLY: u32 = 0x20;
+    /// What it leaves is never above nothing (with [`NON_ZERO`], never nothing either).
+    pub const NEGATIVE_ONLY: u32 = 0x40;
+    pub const NON_ZERO: u32 = 0x80;
 }
+
+/// An effect's internal flags: the effects of lower classes change nothing after it.
+pub const CHAIN_BREAKER: u32 = 0x8000_0000;
 
 /// An effect's internal flags: taken off at a resurrection.
 pub const REMOVED_ON_DEATH: u32 = 0x40_0000;
@@ -451,6 +461,28 @@ impl EffectDef {
                 stats.iter().map(|s| (*s, mult, m)).collect()
             }
             Kind::Chained(list) => list.iter().flat_map(|d| d.changes(spellcraft)).collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// Each change it makes to a quality (`type << 16 | quality`) with that change's own flags
+    /// ([`numeric`]) and its magnitude at a spellcraft, in the order it makes them: a chain's in its
+    /// order, each held change by its own flags.
+    #[must_use]
+    pub fn numeric_changes(&self, spellcraft: f32) -> Vec<(u32, u32, f32)> {
+        match &self.kind {
+            Kind::Numeric {
+                flags,
+                stats,
+                magnitude,
+            } => {
+                let m = magnitude.at(spellcraft).unwrap_or(0.0);
+                stats.iter().map(|s| (*s, *flags, m)).collect()
+            }
+            Kind::Chained(list) => list
+                .iter()
+                .flat_map(|d| d.numeric_changes(spellcraft))
+                .collect(),
             _ => Vec::new(),
         }
     }

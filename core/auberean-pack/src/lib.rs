@@ -177,6 +177,8 @@ pub enum Item {
     Clearing { key: String, landblock: u16 },
     /// A treasure pool, by its name.
     TreasurePool { name: String },
+    /// The saved state an effect's name stands for, by the name.
+    EffectName { name: String },
 }
 
 impl Item {
@@ -243,6 +245,9 @@ impl Item {
             ["treasure_pool", name] => Self::TreasurePool {
                 name: identifier(name)?,
             },
+            ["effect_name", name] => Self::EffectName {
+                name: identifier(name)?,
+            },
             ["area", lb] => Self::Area {
                 landblock: u16::from_str_radix(lb, 16).ok().filter(|_| lb.len() == 4)?,
             },
@@ -288,6 +293,7 @@ impl fmt::Display for Item {
             Self::Area { landblock } => write!(f, "area {landblock:04X}"),
             Self::Clearing { key, landblock } => write!(f, "clearing {key}@{landblock:04X}"),
             Self::TreasurePool { name } => write!(f, "treasure_pool {name}"),
+            Self::EffectName { name } => write!(f, "effect_name {name}"),
         }
     }
 }

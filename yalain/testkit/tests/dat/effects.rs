@@ -1972,3 +1972,76 @@ fn the_practice_dummies_are_the_nine_on_their_npc_table() {
         &p.template(0x4700_2DB0).props
     ));
 }
+
+/// The effects that raise or lower what kills pay read as the data defines them, each change by its
+/// own flags: the hour-long charge multiplies the hunter's kill experience by 1 at spellcraft 0 up
+/// to 2 at 100 for 3,601 s, and the install's mana items name it for their use at spellcraft 25,
+/// 50 and 100; the strongest mine boon multiplies by 1.1, in the charge's class; the luck of fate
+/// adds a tenth to a half or takes a quarter; the bonus day's chain adds 2 and finds better items;
+/// a weapon's inflation multiplies what a creature is worth by 1.03; and a player holding the
+/// charge at 100 has a factor of exactly 2.
+/// Behaviour: server.death.experience-boosts-read
+#[test]
+fn the_effects_that_change_what_kills_pay_read_as_the_data_defines_them() {
+    use yalain_world::effects::{chained_float, DEATH_EXPERIENCE, KILL_EXPERIENCE};
+    const CHARGE: u32 = 0x6F00_1C71;
+    const BOON: u32 = 0x6F00_1B67;
+    const FATE_UP: u32 = 0x6F00_20F5;
+    const FATE_DOWN: u32 = 0x6F00_20F4;
+    const BONUS_DAY: u32 = 0x7000_2015;
+    const INFLATE: u32 = 0x6F00_263A;
+    let p = Portal::open();
+    let t = p.effects(&[CHARGE, BOON, FATE_UP, FATE_DOWN, BONUS_DAY, INFLATE]);
+    let changes = |s: u32, sc: f32| t.get(s).expect("read").numeric_changes(sc);
+    assert_eq!(changes(CHARGE, 0.0), [(KILL_EXPERIENCE, 0xA, 1.0)]);
+    assert_eq!(changes(CHARGE, 100.0), [(KILL_EXPERIENCE, 0xA, 2.0)]);
+    let charge = t.get(CHARGE).expect("the charge");
+    assert_eq!(
+        (charge.duration.at(100.0), charge.eq_class),
+        (Some(3601.0), 4049)
+    );
+    let boon = changes(BOON, 1.0);
+    assert_eq!((boon[0].0, boon[0].1 & 0x1C), (KILL_EXPERIENCE, 0x8));
+    assert!((boon[0].2 - 1.1).abs() < 1e-6, "{boon:?}");
+    assert_eq!(t.get(BOON).map(|d| d.eq_class), Some(4049));
+    assert_eq!(changes(FATE_UP, 1.0)[0].1 & 0x1C, 0x4);
+    assert_eq!(changes(FATE_DOWN, 1.0), [(KILL_EXPERIENCE, 0x5, -0.25)]);
+    let day = changes(BONUS_DAY, 1.0);
+    assert_eq!((day[0].0, day[0].1, day[0].2), (KILL_EXPERIENCE, 0x5, 2.0));
+    assert_eq!((day[1].0, day[1].1 & 0x1C), (0x3_1B58, 0x4));
+    let inflate = changes(INFLATE, 1.0);
+    assert_eq!((inflate[0].0, inflate[0].1 & 0x1C), (DEATH_EXPERIENCE, 0x8));
+    // The mana items' uses put the charge on, from the install alone.
+    let uses = p.item_uses(&[0x4700_150D, 0x4700_150F, 0x4700_150B]);
+    for (item, spellcraft) in [
+        (0x4700_150D, 25.0),
+        (0x4700_150F, 50.0),
+        (0x4700_150B, 100.0),
+    ] {
+        assert!(
+            uses[&item]
+                .iter()
+                .any(|u| u.state == CHARGE && (u.spellcraft - spellcraft).abs() < f32::EPSILON),
+            "{item:08X}: {:?}",
+            uses[&item]
+        );
+    }
+    let held = yalain_world::state::EffectState {
+        eid: 1,
+        state: CHARGE,
+        cast: 0.0,
+        timeout: 3601.0,
+        caster: 1,
+        spellcraft: 100.0,
+        pk: false,
+        acting: 0,
+        skill: 0,
+        item: 0,
+        flags: 0x42,
+        categories: 1,
+    };
+    assert_eq!(
+        chained_float(&t, &[held], KILL_EXPERIENCE, 1.0).to_bits(),
+        2.0f32.to_bits()
+    );
+}

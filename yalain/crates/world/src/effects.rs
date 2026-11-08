@@ -455,6 +455,128 @@ pub fn modifier(
     (add, mult)
 }
 
+/// The quality a player's own effects change to raise or lower what its kills pay it: a factor,
+/// 1 when no effect changes it.
+pub const KILL_EXPERIENCE: u32 = 0x3_157C;
+
+/// The quality a creature's effects change to raise what its death is worth: its death
+/// experience.
+pub const DEATH_EXPERIENCE: u32 = 0xC_0138;
+
+/// The records that change `stat`, each with its definition, as they change it in turn: the top
+/// record of each class, the highest class first, up to and with one that breaks the chain. A
+/// record of no class is in no chain.
+fn chain<'a>(
+    table: &'a crate::effect_defs::EffectTable,
+    records: &'a [EffectState],
+    stat: u32,
+) -> Vec<(&'a EffectDef, f32)> {
+    let mut top = tops(table, records);
+    top.sort_by_key(|t| std::cmp::Reverse(t.0));
+    let mut out = Vec::new();
+    for (_, eid) in top {
+        let Some(e) = records.iter().find(|e| e.eid == eid) else {
+            continue;
+        };
+        let Some(d) = table.get(e.state) else {
+            continue;
+        };
+        if !d
+            .numeric_changes(e.spellcraft)
+            .iter()
+            .any(|(s, _, _)| *s == stat)
+        {
+            continue;
+        }
+        out.push((d, e.spellcraft));
+        if d.internal_flags & crate::effect_defs::CHAIN_BREAKER != 0 {
+            break;
+        }
+    }
+    out
+}
+
+/// What a holder's effects make of a float quality from `value`: each change of each record of
+/// the chain ([`chain`]) in turn, by its own flags: its magnitude added, multiplying, or in its
+/// place; one that keeps to a sign leaves nothing (or, kept from nothing, a thousandth) where the
+/// value would cross it.
+#[must_use]
+pub fn chained_float(
+    table: &crate::effect_defs::EffectTable,
+    records: &[EffectState],
+    stat: u32,
+    value: f32,
+) -> f32 {
+    use crate::effect_defs::numeric;
+    let mut v = value;
+    for (d, spellcraft) in chain(table, records, stat) {
+        for (s, flags, m) in d.numeric_changes(spellcraft) {
+            if s != stat {
+                continue;
+            }
+            v = if flags & numeric::ADD != 0 {
+                v + m
+            } else if flags & numeric::MULTIPLY != 0 {
+                v * m
+            } else if flags & numeric::OVERRIDE != 0 {
+                m
+            } else {
+                v
+            };
+            let least = if flags & numeric::NON_ZERO != 0 {
+                0.001
+            } else {
+                0.0
+            };
+            if flags & numeric::POSITIVE_ONLY != 0 && v <= 0.0 {
+                v = least;
+            } else if flags & numeric::NEGATIVE_ONLY != 0 && v >= 0.0 {
+                v = -least;
+            }
+        }
+    }
+    v
+}
+
+/// What a holder's effects make of a whole-number quality from `value`, as [`chained_float`] does
+/// with whole numbers: a magnitude added is cut to a whole number first, a product is cut to one
+/// after, and a value kept from nothing is one.
+#[must_use]
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+pub fn chained_long(
+    table: &crate::effect_defs::EffectTable,
+    records: &[EffectState],
+    stat: u32,
+    value: i64,
+) -> i64 {
+    use crate::effect_defs::numeric;
+    let mut v = value;
+    for (d, spellcraft) in chain(table, records, stat) {
+        for (s, flags, m) in d.numeric_changes(spellcraft) {
+            if s != stat {
+                continue;
+            }
+            let m = f64::from(m);
+            v = if flags & numeric::ADD != 0 {
+                v.saturating_add(m as i64)
+            } else if flags & numeric::MULTIPLY != 0 {
+                (v as f64 * m) as i64
+            } else if flags & numeric::OVERRIDE != 0 {
+                m as i64
+            } else {
+                v
+            };
+            let least = i64::from(flags & numeric::NON_ZERO != 0);
+            if flags & numeric::POSITIVE_ONLY != 0 && v <= 0 {
+                v = least;
+            } else if flags & numeric::NEGATIVE_ONLY != 0 && v >= 0 {
+                v = -least;
+            }
+        }
+    }
+    v
+}
+
 /// What a holder's effects make of its rating in a skill: each change in turn, a whole number of
 /// points added or the rating multiplied, what is left never below nothing (2017: a change of 6.82
 /// raised a rating of 40 to 46).

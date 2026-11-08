@@ -1689,6 +1689,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         death_spawns,
         pet_kinds,
         pet_limits,
+        effect_names,
         ..
     } = compiled;
     let play = (|| {
@@ -1846,7 +1847,8 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         let vitae_costs = data::vitae_costs(portal)?;
         let item_effects = data::item_effects(portal, &catalog)?;
         // The effects the items' uses put on, read with the rest.
-        let (item_uses, worn_effects, death_effects) = data::item_uses(portal, &catalog)?;
+        let (item_uses, worn_effects, death_effects) =
+            data::item_uses(portal, &catalog, &effect_names)?;
         states.extend(item_uses.values().flatten().map(|e| e.state));
         states.extend(yalain_world::item_use::FOOD_EFFECTS);
         states.extend(worn_effects.values().flatten().map(|e| e.state));

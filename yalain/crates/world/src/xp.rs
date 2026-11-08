@@ -14,8 +14,8 @@
 //! of 3; at levels 46 to 49, heroes among them, 80%, 12 of 12).
 //!
 //! The 2017 servers paid exactly this for 1,323 of 1,667 solo kills by the capturing players (70
-//! more paid twice it, on the two days of a double-experience event); kills under vitae were not
-//! reduced.
+//! more paid twice it, each within an hour its player held an effect that doubles experience:
+//! [`crate::death::kill_pays`]); kills under vitae were not reduced.
 //!
 //! **Paid in parts**: a kill's experience is paid in parts, one for each damager, each the
 //! experience times the health that damager took over all the health its damagers took, rounded
