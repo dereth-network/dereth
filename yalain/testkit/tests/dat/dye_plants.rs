@@ -1,10 +1,59 @@
 //! The dye plants' species as the September 2013 data defines them: each seed's planting and its
 //! plant, the plant item a harvest gives, the pollen's table, and the ripe look read from the plant
-//! item's look.
+//! item's look. Fixture: the test world's plant rows.
+
+use std::collections::BTreeMap;
 
 use yalain_testkit::authored::Portal;
-use yalain_world::plants::{self, SPECIES};
+use yalain_world::plants;
 use yalain_world::usable::interactions;
+
+/// The install's dye plants, each with the seed whose planting summons it (its effect and the
+/// plant's table name the same color) and the plant item of its name.
+/// Behaviour: server.plants.plant-and-seed-read-from-the-install
+#[test]
+fn every_dye_plant_of_the_install_pairs_with_the_rows_seed_and_plant_item() {
+    let p = Portal::open();
+    let color = |t: u32, prop: &str, prefix: &str| {
+        p.template(t)
+            .props
+            .text(prop)
+            .and_then(|v| v.strip_prefix(prefix).map(str::to_string))
+    };
+    let seeds: BTreeMap<String, u32> = p
+        .templates_of_class("MapTemplate")
+        .into_iter()
+        .filter_map(|t| Some((color(t, "Usage_Effect1", "Eff_SummonPetDyePlant")?, t)))
+        .collect();
+    let items: Vec<u32> = p.templates_of_class("DyePlantTemplate");
+    let read: BTreeMap<u32, (u32, u32)> = p
+        .templates_of_class("PetDyePlantTemplate")
+        .into_iter()
+        .map(|plant| {
+            let c = color(plant, "AI_NPCTable", "NPCTable_PetDyePlant").expect("a plant's color");
+            let seed = seeds
+                .get(&c)
+                .copied()
+                .unwrap_or_else(|| panic!("{c}'s seed"));
+            let name = p.template(plant).facts.name;
+            assert!(name.is_some(), "{plant:08X} named");
+            let named: Vec<u32> = items
+                .iter()
+                .copied()
+                .filter(|i| p.template(*i).facts.name == name)
+                .collect();
+            assert_eq!(named.len(), 1, "{plant:08X}'s plant item");
+            (plant, (seed, named[0]))
+        })
+        .collect();
+    let rows: BTreeMap<u32, (u32, u32)> = yalain_testkit::test_plants()
+        .species
+        .values()
+        .map(|s| (s.plant, (s.seed, s.harvest)))
+        .collect();
+    assert_eq!(read.len(), 13);
+    assert_eq!(read, rows);
+}
 
 /// Each species' seed plays the planting and summons the dye plant of its color (its effect and
 /// the plant's table name the same color); the plant plays the plants' behavior when used; the
@@ -15,7 +64,7 @@ use yalain_world::usable::interactions;
 #[test]
 fn each_species_seed_plant_plant_item_pollen_and_ripe_look_agree_with_the_install() {
     let p = Portal::open();
-    for sp in SPECIES {
+    for sp in yalain_testkit::test_plants().species.into_values() {
         let seed = p.template(sp.seed);
         let plant = p.template(sp.plant);
         let color = seed
@@ -39,7 +88,12 @@ fn each_species_seed_plant_plant_item_pollen_and_ripe_look_agree_with_the_instal
             Some(interactions::PLANT_BEHAVIOR)
         );
         let item = p.template(sp.harvest);
-        assert_eq!(item.description.name, plant.description.name);
+        assert!(plant.facts.name.is_some(), "{:08X} named", sp.plant);
+        assert_eq!(
+            item.facts.name, plant.facts.name,
+            "{:08X}'s harvest",
+            sp.plant
+        );
         if let Some(pollen) = sp.pollen {
             let t = p.interactions(&[pollen], &[(sp.plant, plant.description.package)]);
             let on = t

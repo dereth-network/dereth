@@ -821,9 +821,14 @@ pub fn quest_ids(p: &Portal) -> Result<std::collections::HashMap<String, u32>, S
 
 /// The dye plants' ripe looks: each species' plant item's look, by the item.
 #[must_use]
-pub fn plant_looks(p: &Portal, catalog: &Catalog) -> yalain_world::plants::Looks {
-    yalain_world::plants::SPECIES
-        .iter()
+pub fn plant_looks(
+    p: &Portal,
+    catalog: &Catalog,
+    plants: &yalain_world::plants::DyePlants,
+) -> yalain_world::plants::Looks {
+    plants
+        .species
+        .values()
         .filter_map(|sp| {
             let look = catalog.get(sp.harvest)?.description.look;
             let v: auberean_assets::visual::VisualDesc =
@@ -2022,6 +2027,7 @@ mod tests {
                     death_spawns: &BTreeMap::new(),
                     pets: &BTreeMap::new(),
                     items: &rows,
+                    plants: &yalain_world::plants::DyePlants::default(),
                 },
             ))
             .collect();
@@ -2050,6 +2056,61 @@ mod tests {
         .expect("the catalog");
         for t in rows.uses.keys().chain(rows.books.keys()) {
             assert!(wanted.get(*t).is_some(), "{t:08X} described");
+        }
+    }
+
+    /// A start describes every template of the server's own dye plants, as it asks for them with
+    /// the rows' makers: each species' plant, seed, plant item and pollen (twelve of thirteen have
+    /// one) and each cross's seeds; and it reads each species' ripe look from its plant item.
+    /// Behaviour: server.plants.plants-in-the-real-start
+    #[test]
+    fn a_start_describes_every_template_and_ripe_look_of_the_servers_own_dye_plants() {
+        let dir = auberean_dat::testing::require_target_install();
+        let p = Portal::open(&dir, None).expect("opens");
+        let (plants, fell_back) =
+            yalain_world::plants::world_plants(&yalain_world::plants::DyePlants::default());
+        assert_eq!(fell_back, ["plant", "plant_cross"]);
+        let start = start_rules(&p).expect("the start");
+        let more: Vec<u32> = yalain_world::makes::by_the_server(&start, &[])
+            .into_iter()
+            .chain(yalain_world::makes::by_the_rows(
+                yalain_world::makes::Rows {
+                    objects: &[],
+                    stores: &yalain_content::StoreTable::default(),
+                    quests: &yalain_content::QuestTable::default(),
+                    crafting: &yalain_content::CraftStart::default(),
+                    death_spawns: &BTreeMap::new(),
+                    pets: &BTreeMap::new(),
+                    items: &yalain_content::item_rows::ItemRows::default(),
+                    plants: &plants,
+                },
+            ))
+            .collect();
+        let (c, _) = catalog(
+            &p,
+            &SpawnTable::default(),
+            &LootTable::default(),
+            &more,
+            &TreasureTables::default(),
+        )
+        .expect("the catalog");
+        let described = |t: u32| assert!(c.get(t).is_some(), "{t:08X} described");
+        assert_eq!(plants.species.len(), 13);
+        assert_eq!(plants.species.values().filter_map(|s| s.pollen).count(), 12);
+        for s in plants.species.values() {
+            for t in [s.plant, s.seed, s.harvest].into_iter().chain(s.pollen) {
+                described(t);
+            }
+        }
+        assert_eq!(plants.crosses.len(), 2);
+        for x in plants.crosses.values() {
+            described(x.seeds);
+            assert!(plants.sown_by(x.seeds).is_some(), "{:08X} a seed", x.seeds);
+        }
+        let looks = plant_looks(&p, &c, &plants);
+        assert_eq!(looks.len(), 13);
+        for s in plants.species.values() {
+            assert!(looks.contains_key(&s.harvest), "{:08X} looks", s.harvest);
         }
     }
 

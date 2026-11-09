@@ -3,7 +3,6 @@
 
 use yalain_testkit::authored::Portal;
 use yalain_world::makes::by_the_server;
-use yalain_world::plants;
 
 /// Every kind of pet is a creature in the install, at the level its summoning gives it.
 /// Behaviour: server.makes.the-install-holds-what-the-server-makes
@@ -24,14 +23,13 @@ fn every_kind_of_pet_is_a_creature_the_install_describes() {
     }
 }
 
-/// Every plant's seed sows it, every map node gives a material, and everything the server names
+/// Every plant row's seed stacks, every map node gives a material, and everything the server names
 /// reads from the install.
 /// Behaviour: server.makes.the-install-holds-what-the-server-makes
 #[test]
 fn every_seed_and_node_the_server_names_reads_from_the_install() {
     let p = Portal::open();
-    for s in plants::SPECIES {
-        assert!(plants::is_seed(s.seed));
+    for s in yalain_testkit::test_plants().species.into_values() {
         assert!(
             p.template(s.seed).props.flag("Item_IsStackable"),
             "{:08X}",

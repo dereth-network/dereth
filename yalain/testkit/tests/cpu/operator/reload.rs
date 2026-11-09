@@ -94,6 +94,8 @@ pub(super) fn tables_of(h: &Harness) -> WorldTables {
         popups: s.popups.clone(),
         items: s.item_rows.clone(),
         creatures: s.creature_rows.clone(),
+        plants: s.plants.kinds.clone(),
+        plant_looks: s.plants.looks.clone(),
         names: None,
         kinds: None,
         ground: None,
@@ -237,6 +239,28 @@ fn a_reload_takes_up_the_worlds_pet_rows() {
     assert!(h.server.pets.kind_of(EFFECT).is_none());
     assert!(h.server.pets.kinds.is_empty(), "no rows, no kinds");
     assert!(h.server.pets.limits.is_empty());
+}
+
+/// A reload takes up the world's dye plant rows at once: a seed a new row names plants its plant,
+/// and one no row names any longer plants nothing.
+/// Behaviour: server.plants.a-reload-reads-the-rows
+#[test]
+fn a_reload_takes_up_the_worlds_plant_rows() {
+    const SEED: u32 = 0x4700_1454;
+    const NEW_SEED: u32 = 0x4700_7778;
+    let (mut h, _, _) = world();
+    assert!(h.server.plants.kinds.sown_by(SEED).is_some());
+    let mut t = tables_of(&h);
+    let mut sp = t.plants.species[&0x4700_3420];
+    sp.seed = NEW_SEED;
+    t.plants.species.insert(sp.plant, sp);
+    let r = reload(&mut h, t);
+    assert_eq!(r.applied, [table::PLANTS]);
+    assert_eq!(
+        h.server.plants.kinds.sown_by(NEW_SEED).map(|s| s.plant),
+        Some(0x4700_3420)
+    );
+    assert!(h.server.plants.kinds.sown_by(SEED).is_none(), "rows alone");
 }
 
 /// Behaviour: server.operator.reload-keeps-what-the-world-holds

@@ -638,6 +638,8 @@ pub enum Row {
     NpcTable(NpcTable),
     FriendTable(FriendTable),
     Creature(Creature),
+    Plant(Plant),
+    PlantCross(PlantCross),
 }
 
 /// `[[concealing]]`: what creatures of a class (none: every creature) make of the holder of a
@@ -765,6 +767,22 @@ pub struct Spellbinding {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Refining {
     pub refining: yalain_content::crafts::Refining,
+    pub prov: Prov,
+}
+
+/// `[[plant]]`: a species of dye plant: the plant its seed plants, the seed, its pollen and the
+/// pollen's name among the plants' texts, and the plant item a harvest gives.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Plant {
+    pub species: yalain_content::plants::Species,
+    pub prov: Prov,
+}
+
+/// `[[plant_cross]]`: a plant of one species pollinated with another's pollen gives so many seeds
+/// of a third.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PlantCross {
+    pub cross: yalain_content::plants::Cross,
     pub prov: Prov,
 }
 
@@ -1075,6 +1093,8 @@ impl Row {
             Self::NpcTable(_) => "npc_table",
             Self::FriendTable(_) => "friend_table",
             Self::Creature(_) => "creature",
+            Self::Plant(_) => "plant",
+            Self::PlantCross(_) => "plant_cross",
         }
     }
 
@@ -1130,13 +1150,15 @@ impl Row {
             Self::NpcTable(r) => Some(&r.prov),
             Self::FriendTable(r) => Some(&r.prov),
             Self::Creature(r) => Some(&r.prov),
+            Self::Plant(r) => Some(&r.prov),
+            Self::PlantCross(r) => Some(&r.prov),
             Self::Remove(_) => None,
         }
     }
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 49] = [
+pub const KINDS: [&str; 51] = [
     "object",
     "camp",
     "loot",
@@ -1186,10 +1208,12 @@ pub const KINDS: [&str; 49] = [
     "npc_table",
     "friend_table",
     "creature",
+    "plant",
+    "plant_cross",
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 49] = [
+pub const FIELDS: [(&str, &[&str]); 51] = [
     (
         "object",
         &[
@@ -1543,6 +1567,14 @@ pub const FIELDS: [(&str, &[&str]); 49] = [
     ("npc_table", &["name", "heals_kin", "prov"]),
     ("friend_table", &["table", "attacks_first", "prov"]),
     ("creature", &["template", "shot_gap", "windup", "prov"]),
+    (
+        "plant",
+        &["plant", "seed", "pollen", "name", "harvest", "prov"],
+    ),
+    (
+        "plant_cross",
+        &["plant", "pollen", "seeds", "count", "prov"],
+    ),
 ];
 
 /// The fields of a `[[treasure_family]]` row's tier.
@@ -2452,6 +2484,40 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
             Row::Creature(Creature {
                 template,
                 rhythm,
+                prov: f.req_prov()?,
+            })
+        }
+        "plant" => {
+            let plant = f.req_id("plant")?;
+            let seed = f.req_id("seed")?;
+            let pollen = f.id("pollen");
+            let name = f.id("name");
+            let both = pollen.is_some() == name.is_some();
+            let name = f.held("name", name, both, "a pollen and its name, or neither")?;
+            Row::Plant(Plant {
+                species: yalain_content::plants::Species {
+                    plant,
+                    seed,
+                    pollen,
+                    harvest: f.req_id("harvest")?,
+                    name: name.unwrap_or(0),
+                },
+                prov: f.req_prov()?,
+            })
+        }
+        "plant_cross" => {
+            let plant = f.req_id("plant")?;
+            let pollen = f.req_id("pollen")?;
+            let seeds = f.req_id("seeds")?;
+            let count = f.req_u32("count")?;
+            let count = f.held("count", count, (1..=3).contains(&count), "1, 2 or 3")?;
+            Row::PlantCross(PlantCross {
+                cross: yalain_content::plants::Cross {
+                    plant,
+                    pollen,
+                    seeds,
+                    count,
+                },
                 prov: f.req_prov()?,
             })
         }

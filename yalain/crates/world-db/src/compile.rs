@@ -153,6 +153,8 @@ pub struct Tables {
     /// Crafting's own work: map recipes' waits, spellbinding's totems, refining's products, each
     /// kind only when it has rows.
     pub crafts: yalain_content::crafts::Crafts,
+    /// The dye plants: species and crosses, each kind only when it has rows.
+    pub plants: yalain_content::plants::DyePlants,
     /// The treasure numbers the world gives: its rules and its sorts' numbers, each kind only
     /// when it has rows of it.
     pub treasure: yalain_content::treasure_tables::TreasureRows,
@@ -1264,6 +1266,30 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     t.crafts
                         .refining
                         .insert(r.refining.recipe.clone(), r.refining.clone());
+                }
+            }
+            Row::Plant(r) => {
+                let sp = r.species;
+                let held = [
+                    ("plant", Some(sp.plant)),
+                    ("seed", Some(sp.seed)),
+                    ("pollen", sp.pollen),
+                    ("harvest", Some(sp.harvest)),
+                ]
+                .into_iter()
+                .filter_map(|(field, t)| t.map(|t| (field, t)))
+                .fold(true, |ok, (field, t)| cx.template(l, field, t) && ok);
+                if held {
+                    t.plants.species.insert(sp.plant, sp);
+                }
+            }
+            Row::PlantCross(r) => {
+                let c = r.cross;
+                let held = [("plant", c.plant), ("pollen", c.pollen), ("seeds", c.seeds)]
+                    .into_iter()
+                    .fold(true, |ok, (field, t)| cx.template(l, field, t) && ok);
+                if held {
+                    t.plants.crosses.insert((c.plant, c.pollen), c);
                 }
             }
             Row::PointsBonus(r) => {

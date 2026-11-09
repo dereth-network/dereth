@@ -1368,6 +1368,7 @@ fn by_the_rows(kinds: &std::collections::BTreeMap<u32, pets::PetKind>) -> Vec<u3
         death_spawns: &std::collections::BTreeMap::new(),
         pets: kinds,
         items: &yalain_content::item_rows::ItemRows::default(),
+        plants: &yalain_world::plants::DyePlants::default(),
     })
 }
 

@@ -231,6 +231,10 @@ pub enum Item {
     FriendTable { table: u32 },
     /// What the world says of a template's creatures, by the template.
     Creature { template: u32 },
+    /// A species of dye plant, by its plant's template.
+    Plant { template: u32 },
+    /// What a dye plant pollinated with a pollen gives, by the plant's template and the pollen's.
+    PlantCross { plant: u32, pollen: u32 },
 }
 
 impl Item {
@@ -369,6 +373,13 @@ impl Item {
             ["creature", template] => Self::Creature {
                 template: number(template)?,
             },
+            ["plant", template] => Self::Plant {
+                template: number(template)?,
+            },
+            ["plant_cross", plant, pollen] => Self::PlantCross {
+                plant: number(plant)?,
+                pollen: number(pollen)?,
+            },
             ["area", lb] => Self::Area {
                 landblock: u16::from_str_radix(lb, 16).ok().filter(|_| lb.len() == 4)?,
             },
@@ -445,6 +456,10 @@ impl fmt::Display for Item {
             Self::NpcTable { name } => write!(f, "npc_table {name}"),
             Self::FriendTable { table } => write!(f, "friend_table {table:#x}"),
             Self::Creature { template } => write!(f, "creature {template:#010x}"),
+            Self::Plant { template } => write!(f, "plant {template:#010x}"),
+            Self::PlantCross { plant, pollen } => {
+                write!(f, "plant_cross {plant:#010x} {pollen:#010x}")
+            }
         }
     }
 }

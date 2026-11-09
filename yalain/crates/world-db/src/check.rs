@@ -28,7 +28,7 @@ pub const SAMPLES: [&str; 7] = [
 
 /// The rules a derived row or field may name; each is stated in the database's format
 /// description.
-pub const RULES: [&str; 23] = [
+pub const RULES: [&str; 25] = [
     "pet-from-its-effect",
     "camp-regen-generator",
     "camp-regen-median",
@@ -52,6 +52,8 @@ pub const RULES: [&str; 23] = [
     "item-spot-regen",
     "treasure-pool-fit",
     "refining-product-name",
+    "dye-plant-color",
+    "dye-plant-name",
 ];
 
 /// An evidence handle: capital letters, digits and hyphens, in parts joined by hyphens (the

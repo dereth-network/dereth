@@ -1327,6 +1327,7 @@ fn plant_lines(bytes: &[u8], request_len: usize) -> Option<(Vec<u32>, Option<f64
 #[test]
 fn dye_plant_profiles_are_built_as_2017_built_them() {
     use yalain_world::plants::{self, text, Growing, Shown};
+    let species = yalain_testkit::test_plants().species;
     let path = auberean_testkit::data::require_capture_index();
     let Some(inst) = installed() else {
         println!("no September 2013 install here");
@@ -1334,8 +1335,8 @@ fn dye_plant_profiles_are_built_as_2017_built_them() {
     };
     let con = open(&path);
     // The sessions that saw a dye plant made.
-    let made: Vec<String> = plants::SPECIES
-        .iter()
+    let made: Vec<String> = species
+        .values()
         .map(|s| {
             let b = s.plant.to_le_bytes();
             format!(
@@ -1394,7 +1395,7 @@ fn dye_plant_profiles_are_built_as_2017_built_them() {
             let Some(&template) = templates.get(&req.object) else {
                 continue;
             };
-            if !plants::SPECIES.iter().any(|s| s.plant == template) {
+            if !species.contains_key(&template) {
                 continue;
             }
             let len = if req.kind == profile::request::OBJECT {

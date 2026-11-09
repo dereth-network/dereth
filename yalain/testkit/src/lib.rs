@@ -2471,6 +2471,120 @@ pub fn test_crafts() -> yalain_content::crafts::Crafts {
     }
 }
 
+/// The dye plants the test world's rows would name: the thirteen species, each plant with its
+/// seed, pollen (the clear Acromitan has none), plant item and pollen's name; and the two crosses,
+/// Berimphur with Hennacin pollen three Siennan seeds, Aurim with Siennan pollen two Colban seeds.
+#[must_use]
+pub fn test_plants() -> yalain_content::plants::DyePlants {
+    use yalain_content::plants::{Cross, DyePlants, Species};
+    let species = Species::new;
+    let cross = |plant, pollen, seeds, count| Cross {
+        plant,
+        pollen,
+        seeds,
+        count,
+    };
+    DyePlants {
+        species: [
+            species(
+                0x4700_341D,
+                0x4700_1452,
+                Some(0x4700_1446),
+                0x4700_0FF5,
+                0x8129_71D6,
+            ),
+            species(
+                0x4700_341F,
+                0x4700_1453,
+                Some(0x4700_1447),
+                0x4700_0FF7,
+                0x839B_71D6,
+            ),
+            species(
+                0x4700_3420,
+                0x4700_1454,
+                Some(0x4700_1448),
+                0x4700_0FF9,
+                0x811B_71D6,
+            ),
+            species(0x4700_3421, 0x4700_1455, None, 0x4700_0FFB, 0),
+            species(
+                0x4700_3422,
+                0x4700_1456,
+                Some(0x4700_1449),
+                0x4700_0FFD,
+                0x821B_71D6,
+            ),
+            species(
+                0x4700_3423,
+                0x4700_1457,
+                Some(0x4700_144A),
+                0x4700_0FFF,
+                0x801B_71D6,
+            ),
+            species(
+                0x4700_3424,
+                0x4700_1458,
+                Some(0x4700_144B),
+                0x4700_1001,
+                0x831B_71D6,
+            ),
+            species(
+                0x4700_3425,
+                0x4700_1459,
+                Some(0x4700_144C),
+                0x4700_1003,
+                0x859B_71D6,
+            ),
+            species(
+                0x4700_3426,
+                0x4700_145A,
+                Some(0x4700_144D),
+                0x4700_1005,
+                0x829B_71D6,
+            ),
+            species(
+                0x4700_3427,
+                0x4700_145B,
+                Some(0x4700_144E),
+                0x4700_1006,
+                0x812B_71D6,
+            ),
+            species(
+                0x4700_3428,
+                0x4700_145C,
+                Some(0x4700_144F),
+                0x4700_1007,
+                0x812A_71D6,
+            ),
+            species(
+                0x4700_3429,
+                0x4700_145D,
+                Some(0x4700_1450),
+                0x4700_1009,
+                0x851B_71D6,
+            ),
+            species(
+                0x4700_342A,
+                0x4700_145E,
+                Some(0x4700_1451),
+                0x4700_100A,
+                0x809B_71D6,
+            ),
+        ]
+        .into_iter()
+        .map(|s| (s.plant, s))
+        .collect(),
+        crosses: [
+            cross(0x4700_3420, 0x4700_1451, 0x4700_1453, 3),
+            cross(0x4700_3424, 0x4700_1447, 0x4700_1456, 2),
+        ]
+        .into_iter()
+        .map(|c| ((c.plant, c.pollen), c))
+        .collect(),
+    }
+}
+
 /// What the test world's rows say its mining tools yield when they were not made: a hand-made one
 /// 6, a crude one 1.
 #[must_use]
@@ -2539,6 +2653,7 @@ impl<S: Store> Harness<S> {
         server.skill_table = test_skills();
         server.effect_table = test_effects();
         server.crafting = test_crafting();
+        server.plants.kinds = test_plants();
         Self {
             net: ServerNet::new(
                 NetConfig::retail_ids(world),

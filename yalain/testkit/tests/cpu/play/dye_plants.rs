@@ -812,3 +812,95 @@ fn a_seed_whose_plant_cannot_be_made_is_refused_and_kept() {
         "told"
     );
 }
+
+/// A `[[plant]]` row sets what its seed plants and what a harvest gives: the Berimphur row written
+/// with no pollen gives its plant item alone ("You harvest the plant."); with no row for it, the
+/// seed plants nothing.
+/// Behaviour: server.plants.plant-by-world-rows
+#[test]
+fn a_plant_row_sets_what_its_seed_plants_and_what_its_harvest_gives() {
+    let mut h = garden();
+    h.server
+        .plants
+        .kinds
+        .species
+        .insert(PLANT, plants::Species::new(PLANT, SEED, None, ITEM, 0));
+    let (a, me, world) = gardener(&mut h, "one", &[(SEED, 2)]);
+    let plant = planted(&mut h, a, me, world);
+    ripen(&mut h, plant);
+    let from = h.bots[a].inbox.len();
+    send_use(&mut h, a, me, plant, 0);
+    run_for(&mut h, 2.0);
+    assert_eq!(plant_texts(&h, a, from), [text::RIPE]);
+    assert_eq!(held(&h, world, ITEM).map(|x| x.1), Some(1), "its plant");
+    assert_eq!(held(&h, world, POLLEN), None, "no pollen");
+    h.server.plants.kinds.species.remove(&PLANT);
+    let (seed, _) = held(&h, world, SEED).expect("a seed held");
+    send_use(&mut h, a, me, seed, 0);
+    run_for(&mut h, 2.1);
+    assert_eq!(the_plant(&h), None, "no row, nothing planted");
+}
+
+/// A `[[plant_cross]]` row sets the seeds a pollinated plant gives and how many: Berimphur with
+/// Hennacin pollen written as two Berimphur seeds gives those ("You pluck 2 seeds from the
+/// plant."); with no row for the pair, the plant gives its plant item and pollen.
+/// Behaviour: server.plants.cross-by-world-rows
+#[test]
+fn a_plant_cross_row_sets_the_seeds_a_pollinated_plant_gives_and_how_many() {
+    let crossed = |h: &mut Harness, name: &str| {
+        let (a, me, world) = gardener(h, name, &[(SEED, 1), (HENNACIN_POLLEN, 1)]);
+        let plant = planted(h, a, me, world);
+        let (hennacin, _) = held(h, world, HENNACIN_POLLEN).expect("pollen");
+        send_use(h, a, me, hennacin, plant);
+        run_for(h, 2.0);
+        ripen(h, plant);
+        let from = h.bots[a].inbox.len();
+        send_use(h, a, me, plant, 0);
+        run_for(h, 2.0);
+        (plant_texts(h, a, from), world)
+    };
+    let mut h = garden();
+    h.server.plants.kinds.crosses.insert(
+        (PLANT, HENNACIN_POLLEN),
+        plants::Cross {
+            plant: PLANT,
+            pollen: HENNACIN_POLLEN,
+            seeds: SEED,
+            count: 2,
+        },
+    );
+    let (said, world) = crossed(&mut h, "one");
+    assert_eq!(said, [text::SEEDS[1]]);
+    assert_eq!(held(&h, world, SEED).map(|x| x.1), Some(2));
+    assert_eq!(held(&h, world, SIENNAN_SEED), None);
+    let mut h = garden();
+    h.server.plants.kinds.crosses.clear();
+    let (said, world) = crossed(&mut h, "two");
+    assert_eq!(said, [text::RIPE_WITH_POLLEN]);
+    assert_eq!(held(&h, world, ITEM).map(|x| x.1), Some(1));
+    assert_eq!(held(&h, world, POLLEN).map(|x| x.1), Some(1));
+    assert_eq!(held(&h, world, SIENNAN_SEED), None);
+}
+
+/// A world with no `[[plant]]` or `[[plant_cross]]` rows has the server's own, the test world's
+/// thirteen species and two crosses; with rows of a kind it has those alone, never merged with
+/// the server's, and the other kind still the server's own.
+/// Behaviour: server.plants.plants-without-rows
+#[test]
+fn a_world_without_plant_or_plant_cross_rows_has_the_servers_own_and_with_some_its_rows_alone() {
+    let own = yalain_testkit::test_plants();
+    let (none, fell_back) = plants::world_plants(&plants::DyePlants::default());
+    assert_eq!(fell_back, ["plant", "plant_cross"]);
+    assert_eq!(none, own);
+    let one = plants::Species::new(PLANT, SEED, None, ITEM, 0);
+    let rows = plants::DyePlants {
+        species: [(PLANT, one)].into(),
+        ..plants::DyePlants::default()
+    };
+    let (some, fell_back) = plants::world_plants(&rows);
+    assert_eq!(fell_back, ["plant_cross"]);
+    assert_eq!(some.species.len(), 1);
+    assert_eq!(some.sown_by(SEED), Some(one));
+    assert_eq!(some.sown_by(SIENNAN_SEED), None, "not merged");
+    assert_eq!(some.crosses, own.crosses);
+}

@@ -805,6 +805,7 @@ struct Play {
     mounts: yalain_world::mounts::Mounts,
     interactions: yalain_world::usable::interactions::Interactions,
     plant_looks: yalain_world::plants::Looks,
+    plants: yalain_world::plants::DyePlants,
     item_uses: yalain_world::item_use::ItemUses,
     worn_effects: yalain_world::item_use::ItemUses,
     quest_ids: std::collections::HashMap<String, u32>,
@@ -1018,6 +1019,7 @@ fn run<S: Store>(
     server.mounts = play.mounts;
     server.interactions = play.interactions;
     server.plants.looks = play.plant_looks;
+    server.plants.kinds = play.plants;
     server.item_uses = play.item_uses;
     server.worn_effects = play.worn_effects;
     server.quest_ids = play.quest_ids;
@@ -1732,6 +1734,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         items,
         crafts,
         creatures,
+        plants,
         ..
     } = compiled;
     // Fields of kinds a world has that it may leave out everywhere: the server's own then.
@@ -1744,6 +1747,8 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
     // What creatures do: the world's rows, the server's own of a kind it has none of.
     let (creature_rows, creatures_fell_back) =
         yalain_world::creature_rows::world_creature_rows(creatures);
+    // The dye plants: the world's rows, the server's own of a kind it has none of.
+    let (plants, plants_fell_back) = yalain_world::plants::world_plants(&plants);
     // The numbers treasure draws by: the world's rows, 2017's for each kind it gives none of.
     let (treasure_tables, mut fell_back) =
         yalain_content::treasure_tables::TreasureTables::with_rows(&treasure);
@@ -1792,6 +1797,16 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
                 .collect();
             tracing::warn!(
                 "this world has no {} rows: its creatures go by the server's own there",
+                kinds.join(", ")
+            );
+        }
+        if !plants_fell_back.is_empty() {
+            let kinds: Vec<String> = plants_fell_back
+                .iter()
+                .map(|k| format!("[[{k}]]"))
+                .collect();
+            tracing::warn!(
+                "this world has no {} rows: its dye plants go by the server's own there",
                 kinds.join(", ")
             );
         }
@@ -1925,6 +1940,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
                         death_spawns: &death_spawns,
                         pets: &pet_kinds,
                         items: &item_rows,
+                        plants: &plants,
                     },
                 ))
                 .chain(craft.templates())
@@ -2071,7 +2087,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             tables = interactions.tables.len(),
             "the items' interaction tables read"
         );
-        let plant_looks = data::plant_looks(portal, &catalog);
+        let plant_looks = data::plant_looks(portal, &catalog, &plants);
         tracing::info!(looks = plant_looks.len(), "the dye plants' ripe looks read");
         let inscribable =
             data::catalog_packages_from(portal, &catalog, &yalain_world::personal::INSCRIBABLE)?;
@@ -2106,6 +2122,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             mounts,
             interactions,
             plant_looks,
+            plants,
             item_uses,
             worn_effects,
             quest_ids: data::quest_ids(portal)?,
@@ -2190,6 +2207,8 @@ fn reload_world(
         popups: p.popups,
         items: p.item_rows,
         creatures: p.creature_rows,
+        plants: p.plants,
+        plant_looks: p.plant_looks,
         names,
         kinds: Some(yalain_world::reload::PlacedKinds {
             brokers: p.brokers,

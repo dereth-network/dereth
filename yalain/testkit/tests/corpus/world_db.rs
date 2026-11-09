@@ -263,6 +263,18 @@ fn the_worlds_map_recipes_spellbinding_and_refining_rows_hold_the_servers_own_en
     }
 }
 
+/// A world's plant and plant cross rows hold the server's own, entry for entry: each species'
+/// plant, seed, pollen, plant item and pollen's name, and each cross's seeds and how many.
+/// Behaviour: server.plants.plant-rows-hold-the-servers-own
+#[test]
+fn the_worlds_plant_and_plant_cross_rows_hold_the_servers_own_entry_for_entry() {
+    let t = &compiled().tables;
+    let (plants, _) = yalain_world::plants::world_plants(&t.plants);
+    let own = yalain_testkit::test_plants();
+    assert_eq!(plants.species, own.species);
+    assert_eq!(plants.crosses, own.crosses);
+}
+
 /// What the rows leave out comes from the install: the training hall quest's definition (its
 /// eight journal entries), the Human Weapon Vendor's store and its listings' products and prices,
 /// every loot profile's name, and the people's names for reading.
@@ -4382,6 +4394,7 @@ fn everything_the_worlds_rows_make_reads_from_the_install() {
     let t = &compiled().tables;
     let portal = yalain_testkit::authored::Portal::open();
     let items = item_rows();
+    let (plants, _) = yalain_world::plants::world_plants(&t.plants);
     let named = yalain_world::makes::by_the_rows(yalain_world::makes::Rows {
         objects: &t.content.objects,
         stores: &t.stores,
@@ -4390,6 +4403,7 @@ fn everything_the_worlds_rows_make_reads_from_the_install() {
         death_spawns: &t.death_spawns,
         pets: &t.pet_kinds,
         items: &items,
+        plants: &plants,
     });
     for template in named {
         assert_eq!(portal.template(template).id, template);

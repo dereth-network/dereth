@@ -4175,3 +4175,86 @@ fn a_worlds_creature_rows_read_compile_and_are_held_to_their_shape() {
         "a template the install lacks"
     );
 }
+
+#[test]
+fn plant_rows_compile_to_species_and_crosses() {
+    let mut files = fixture();
+    let rows = "[[plant]]\nplant = 0x47002224\nseed = 0x4700115B\npollen = 0x47000846\n\
+                name = 0x811B71D6\nharvest = 0x470020BB\nprov = { from = \"authored\" }\n\n\
+                [[plant]]\nplant = 0x470020B9\nseed = 0x470033D0\nharvest = 0x47000001\n\
+                prov = { from = \"authored\" }\n\n\
+                [[plant_cross]]\nplant = 0x47002224\npollen = 0x47000846\nseeds = 0x470033D0\n\
+                count = 2\nprov = { from = \"authored\" }\n";
+    files.insert("town/server/plants.toml".into(), rows.to_string());
+    let merged = merge(&read(&files).unwrap()).unwrap();
+    let t = compile(&merged, &Fake::new()).unwrap();
+    let p = &t.plants;
+    assert_eq!(p.species.len(), 2);
+    let one = p.sown_by(0x4700_115B).expect("a seed");
+    assert_eq!(
+        (one.plant, one.pollen, one.name, one.harvest),
+        (0x4700_2224, Some(0x4700_0846), 0x811B_71D6, 0x4700_20BB)
+    );
+    let two = p.sown_by(0x4700_33D0).expect("a seed");
+    assert_eq!((two.plant, two.pollen, two.name), (0x4700_20B9, None, 0));
+    assert_eq!(p.pollen_of(0x4700_0846).map(|s| s.plant), Some(0x4700_2224));
+    let x = p.cross(0x4700_2224, 0x4700_0846).expect("a cross");
+    assert_eq!((x.seeds, x.count), (0x4700_33D0, 2));
+    // Templates the install lacks.
+    for (from, said) in [
+        (
+            "seed = 0x4700115B",
+            "seed: template 47009999 is not in the install",
+        ),
+        (
+            "pollen = 0x47000846\nname",
+            "pollen: template 47009999 is not in the install",
+        ),
+        (
+            "harvest = 0x470020BB",
+            "harvest: template 47009999 is not in the install",
+        ),
+        (
+            "seeds = 0x470033D0",
+            "seeds: template 47009999 is not in the install",
+        ),
+    ] {
+        let to = from.replace(
+            from.split(" = ").nth(1).and_then(|v| v.get(..10)).unwrap(),
+            "0x47009999",
+        );
+        files.insert(
+            "town/server/plants.toml".into(),
+            rows.replacen(from, &to, 1),
+        );
+        let merged = merge(&read(&files).unwrap()).unwrap();
+        let problems = compile(&merged, &Fake::new()).unwrap_err();
+        let messages: Vec<String> = problems.iter().map(ToString::to_string).collect();
+        assert_eq!(messages.len(), 1, "{messages:?}");
+        assert!(messages[0].contains(said), "{messages:?}");
+    }
+    // A pollen with its name or neither; a count of 1 to 3; a plant, its seed and its plant item.
+    for (from, to) in [
+        ("name = 0x811B71D6\n", ""),
+        ("pollen = 0x47000846\n", ""),
+        ("count = 2", "count = 4"),
+        ("count = 2", "count = 0"),
+        ("harvest = 0x47000001\n", ""),
+        ("seed = 0x470033D0\n", ""),
+    ] {
+        assert!(rows.contains(from), "{from}");
+        files.insert("town/server/plants.toml".into(), rows.replacen(from, to, 1));
+        assert!(read(&files).is_err(), "{from} to {to}");
+    }
+    // One row a plant, a plant and pollen.
+    for twice in [
+        "[[plant]]\nplant = 0x47002224\nseed = 0x47000001\nharvest = 0x47000001\nprov = { from = \"authored\" }\n",
+        "[[plant_cross]]\nplant = 0x47002224\npollen = 0x47000846\nseeds = 0x4700115B\ncount = 1\nprov = { from = \"authored\" }\n",
+    ] {
+        files.insert(
+            "town/server/plants.toml".into(),
+            format!("{rows}\n{twice}"),
+        );
+        assert!(merge(&read(&files).unwrap()).is_err(), "{twice}");
+    }
+}

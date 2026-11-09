@@ -46,150 +46,145 @@ use crate::places::Use;
 use crate::things::{Kind, Thing};
 use crate::{progress, Clock, Server, Timer};
 
-/// One species of dye plant: the planted plant's template, its seed, its pollen (the clear plant
-/// has none), the plant item a harvest gives, and its name among the plants' texts.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Species {
-    pub plant: u32,
-    pub seed: u32,
-    pub pollen: Option<u32>,
-    pub harvest: u32,
-    pub name: u32,
+pub use yalain_content::plants::{Cross, DyePlants, Species};
+
+/// The server's own dye plants, which a world with no `[[plant]]` rows has: the thirteen species,
+/// Thananim (black), Siennan (bronze), Berimphur (brown), Acromitan (the clear one, that takes dye
+/// away), Colban (dark blue), Verdalim (dark green), Aurim (gold), Lapyan (light blue), Minalim
+/// (light green), Bergaphur (orange), Rosim (pink), Relanim (purple) and Hennacin (red).
+#[must_use]
+pub fn fallback_species() -> BTreeMap<u32, Species> {
+    [
+        Species::new(
+            0x4700_341D,
+            0x4700_1452,
+            Some(0x4700_1446),
+            0x4700_0FF5,
+            0x8129_71D6,
+        ),
+        Species::new(
+            0x4700_341F,
+            0x4700_1453,
+            Some(0x4700_1447),
+            0x4700_0FF7,
+            0x839B_71D6,
+        ),
+        Species::new(
+            0x4700_3420,
+            0x4700_1454,
+            Some(0x4700_1448),
+            0x4700_0FF9,
+            0x811B_71D6,
+        ),
+        Species::new(0x4700_3421, 0x4700_1455, None, 0x4700_0FFB, 0),
+        Species::new(
+            0x4700_3422,
+            0x4700_1456,
+            Some(0x4700_1449),
+            0x4700_0FFD,
+            0x821B_71D6,
+        ),
+        Species::new(
+            0x4700_3423,
+            0x4700_1457,
+            Some(0x4700_144A),
+            0x4700_0FFF,
+            0x801B_71D6,
+        ),
+        Species::new(
+            0x4700_3424,
+            0x4700_1458,
+            Some(0x4700_144B),
+            0x4700_1001,
+            0x831B_71D6,
+        ),
+        Species::new(
+            0x4700_3425,
+            0x4700_1459,
+            Some(0x4700_144C),
+            0x4700_1003,
+            0x859B_71D6,
+        ),
+        Species::new(
+            0x4700_3426,
+            0x4700_145A,
+            Some(0x4700_144D),
+            0x4700_1005,
+            0x829B_71D6,
+        ),
+        Species::new(
+            0x4700_3427,
+            0x4700_145B,
+            Some(0x4700_144E),
+            0x4700_1006,
+            0x812B_71D6,
+        ),
+        Species::new(
+            0x4700_3428,
+            0x4700_145C,
+            Some(0x4700_144F),
+            0x4700_1007,
+            0x812A_71D6,
+        ),
+        Species::new(
+            0x4700_3429,
+            0x4700_145D,
+            Some(0x4700_1450),
+            0x4700_1009,
+            0x851B_71D6,
+        ),
+        Species::new(
+            0x4700_342A,
+            0x4700_145E,
+            Some(0x4700_1451),
+            0x4700_100A,
+            0x809B_71D6,
+        ),
+    ]
+    .into_iter()
+    .map(|s| (s.plant, s))
+    .collect()
 }
 
-impl Species {
-    #[must_use]
-    pub const fn new(plant: u32, seed: u32, pollen: Option<u32>, harvest: u32, name: u32) -> Self {
-        Self {
-            plant,
-            seed,
-            pollen,
-            harvest,
-            name,
-        }
+/// The server's own crosses, which a world with no `[[plant_cross]]` rows has: Berimphur with
+/// Hennacin pollen gives three Siennan seeds, Aurim with Siennan pollen two Colban seeds.
+#[must_use]
+pub fn fallback_crosses() -> BTreeMap<(u32, u32), Cross> {
+    [
+        Cross {
+            plant: 0x4700_3420,
+            pollen: 0x4700_1451,
+            seeds: 0x4700_1453,
+            count: 3,
+        },
+        Cross {
+            plant: 0x4700_3424,
+            pollen: 0x4700_1447,
+            seeds: 0x4700_1456,
+            count: 2,
+        },
+    ]
+    .into_iter()
+    .map(|c| ((c.plant, c.pollen), c))
+    .collect()
+}
+
+/// A world's dye plants: its rows of each kind, or the server's own of a kind it has none of
+/// ([`fallback_species`], [`fallback_crosses`]), never the two merged; and the kinds it had none of.
+#[must_use]
+pub fn world_plants(rows: &DyePlants) -> (DyePlants, Vec<&'static str>) {
+    let mut p = rows.clone();
+    let mut fell_back = Vec::new();
+    if p.species.is_empty() {
+        p.species = fallback_species();
+        fell_back.push("plant");
     }
+    if p.crosses.is_empty() {
+        p.crosses = fallback_crosses();
+        fell_back.push("plant_cross");
+    }
+    (p, fell_back)
 }
-
-/// The thirteen species: Thananim (black), Siennan (bronze), Berimphur (brown), Acromitan (the
-/// clear one, that takes dye away), Colban (dark blue), Verdalim (dark green), Aurim (gold), Lapyan
-/// (light blue), Minalim (light green), Bergaphur (orange), Rosim (pink), Relanim (purple) and
-/// Hennacin (red).
-pub const SPECIES: [Species; 13] = [
-    Species::new(
-        0x4700_341D,
-        0x4700_1452,
-        Some(0x4700_1446),
-        0x4700_0FF5,
-        0x8129_71D6,
-    ),
-    Species::new(
-        0x4700_341F,
-        0x4700_1453,
-        Some(0x4700_1447),
-        0x4700_0FF7,
-        0x839B_71D6,
-    ),
-    Species::new(
-        0x4700_3420,
-        0x4700_1454,
-        Some(0x4700_1448),
-        0x4700_0FF9,
-        0x811B_71D6,
-    ),
-    Species::new(0x4700_3421, 0x4700_1455, None, 0x4700_0FFB, 0),
-    Species::new(
-        0x4700_3422,
-        0x4700_1456,
-        Some(0x4700_1449),
-        0x4700_0FFD,
-        0x821B_71D6,
-    ),
-    Species::new(
-        0x4700_3423,
-        0x4700_1457,
-        Some(0x4700_144A),
-        0x4700_0FFF,
-        0x801B_71D6,
-    ),
-    Species::new(
-        0x4700_3424,
-        0x4700_1458,
-        Some(0x4700_144B),
-        0x4700_1001,
-        0x831B_71D6,
-    ),
-    Species::new(
-        0x4700_3425,
-        0x4700_1459,
-        Some(0x4700_144C),
-        0x4700_1003,
-        0x859B_71D6,
-    ),
-    Species::new(
-        0x4700_3426,
-        0x4700_145A,
-        Some(0x4700_144D),
-        0x4700_1005,
-        0x829B_71D6,
-    ),
-    Species::new(
-        0x4700_3427,
-        0x4700_145B,
-        Some(0x4700_144E),
-        0x4700_1006,
-        0x812B_71D6,
-    ),
-    Species::new(
-        0x4700_3428,
-        0x4700_145C,
-        Some(0x4700_144F),
-        0x4700_1007,
-        0x812A_71D6,
-    ),
-    Species::new(
-        0x4700_3429,
-        0x4700_145D,
-        Some(0x4700_1450),
-        0x4700_1009,
-        0x851B_71D6,
-    ),
-    Species::new(
-        0x4700_342A,
-        0x4700_145E,
-        Some(0x4700_1451),
-        0x4700_100A,
-        0x809B_71D6,
-    ),
-];
-
-/// A cross: a plant of one species pollinated with another's pollen gives so many seeds of a
-/// third.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Cross {
-    /// The plant's template, and the pollen's.
-    pub plant: u32,
-    pub pollen: u32,
-    /// The seeds' template, and how many.
-    pub seeds: u32,
-    pub count: u32,
-}
-
-/// The crosses known: Berimphur with Hennacin pollen gives three Siennan seeds, Aurim with
-/// Siennan pollen two Colban seeds.
-pub const CROSSES: [Cross; 2] = [
-    Cross {
-        plant: 0x4700_3420,
-        pollen: 0x4700_1451,
-        seeds: 0x4700_1453,
-        count: 3,
-    },
-    Cross {
-        plant: 0x4700_3424,
-        pollen: 0x4700_1447,
-        seeds: 0x4700_1456,
-        count: 2,
-    },
-];
 
 /// The watering can and the bag of fertilizer.
 pub const WATERING_CAN: u32 = 0x4700_145F;
@@ -301,32 +296,13 @@ pub struct Plant {
 /// Each species' ripe look, by its plant item.
 pub type Looks = HashMap<u32, VisualDesc>;
 
-/// The plants of the world, and each species' ripe look.
+/// The plants of the world, its species and crosses ([`world_plants`]), and each species' ripe
+/// look.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Plants {
     pub by_id: BTreeMap<u64, Plant>,
+    pub kinds: DyePlants,
     pub looks: Looks,
-}
-
-/// The species a seed plants.
-#[must_use]
-pub fn sown_by(seed: u32) -> Option<Species> {
-    SPECIES.iter().copied().find(|s| s.seed == seed)
-}
-
-/// The species whose pollen this is.
-#[must_use]
-pub fn pollen_of(pollen: u32) -> Option<Species> {
-    SPECIES.iter().copied().find(|s| s.pollen == Some(pollen))
-}
-
-/// The cross of a plant and a pollen, when known.
-#[must_use]
-pub fn cross(plant: u32, pollen: u32) -> Option<Cross> {
-    CROSSES
-        .iter()
-        .copied()
-        .find(|c| c.plant == plant && c.pollen == pollen)
 }
 
 /// A look as an object's visual description in a message carries it, from the install's
@@ -438,10 +414,10 @@ fn ahead<S: Store>(s: &Server<S>, at: &StoredPosition) -> StoredPosition {
     }
 }
 
-/// Is an item template a seed of a dye plant?
+/// Is an item template a seed of one of the world's dye plants?
 #[must_use]
-pub fn is_seed(template: u32) -> bool {
-    sown_by(template).is_some()
+pub fn is_seed<S: Store>(s: &Server<S>, template: u32) -> bool {
+    s.plants.kinds.sown_by(template).is_some()
 }
 
 /// A seed's planting has played out: the planter is told of its new plant, which stands ahead of
@@ -453,7 +429,7 @@ pub fn sow<S: Store>(
     seed: u32,
     clock: Clock,
 ) -> Option<u64> {
-    let species = sown_by(seed)?;
+    let species = s.plants.kinds.sown_by(seed)?;
     let template = s.catalog.get(species.plant)?.clone();
     let (owner, at) = s.players.get(&world).map(|p| (p.character, p.position))?;
     let id = s.things.new_id();
@@ -602,6 +578,7 @@ pub fn cared<S: Store>(
     (item, target): (u32, u64),
     clock: Clock,
 ) {
+    let is_pollen = s.plants.kinds.pollen_of(item).is_some();
     let Some(p) = s.plants.by_id.get_mut(&target) else {
         return;
     };
@@ -622,7 +599,7 @@ pub fn cared<S: Store>(
         }
         return;
     }
-    if pollen_of(item).is_none() {
+    if !is_pollen {
         return;
     }
     let took = p.pollen.is_none();
@@ -741,7 +718,9 @@ pub fn harvested<S: Store>(
         progress::private(net, world, &told(text::NOT_MATURE, &name));
         return;
     }
-    let crossed = p.pollen.and_then(|pollen| cross(p.species.plant, pollen));
+    let crossed = p
+        .pollen
+        .and_then(|pollen| s.plants.kinds.cross(p.species.plant, pollen));
     let said = match crossed {
         Some(c) => text::SEEDS[usize::try_from(c.count.clamp(1, 3)).unwrap_or(1) - 1],
         None if p.species.pollen.is_some() => text::RIPE_WITH_POLLEN,
@@ -861,7 +840,7 @@ pub fn profile<S: Store>(
             fertilizer: p.fertilizer,
             pollen: p
                 .pollen
-                .and_then(pollen_of)
+                .and_then(|x| s.plants.kinds.pollen_of(x))
                 .map_or(text::NO_POLLEN, |x| x.name),
             ripe_game: p.ripe_game,
         });

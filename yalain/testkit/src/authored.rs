@@ -709,6 +709,7 @@ impl Portal {
             .flat_map(|p| p.items.iter().map(|(t, _)| *t));
         // Everything the server's rules and the world's rows make, as a real start asks for it.
         let (items, _) = yalain_world::item_use::world_item_rows(t.items.clone());
+        let (plants, _) = yalain_world::plants::world_plants(&t.plants);
         let made = yalain_world::makes::by_the_server(&self.start_rules(), &self.mount_items())
             .into_iter()
             .chain(yalain_world::makes::by_the_rows(
@@ -720,6 +721,7 @@ impl Portal {
                     death_spawns: &t.death_spawns,
                     pets: &t.pet_kinds,
                     items: &items,
+                    plants: &plants,
                 },
             ));
         // The looks treasure draws: the world's, else the server's own.

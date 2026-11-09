@@ -36,6 +36,7 @@ pub mod kingdoms;
 pub mod locks;
 pub mod loot;
 pub mod movement;
+pub mod plants;
 pub mod pools;
 pub mod popups;
 pub mod props;

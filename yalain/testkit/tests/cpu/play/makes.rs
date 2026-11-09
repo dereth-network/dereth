@@ -6,17 +6,32 @@ use std::collections::BTreeMap;
 use yalain_content::quests::{Give, QuestTable};
 use yalain_content::{CraftStart, DeathSpawn, StoreTable};
 use yalain_world::makes::{by_a_template, by_the_rows, by_the_server, Rows};
-use yalain_world::plants;
 
-/// The server's own list names every dye plant with its seed, pollen and harvest.
+/// The rows name every dye plant with its seed, pollen and harvest, and every cross's seeds; the
+/// server's own list names none of them.
 /// Behaviour: server.makes.the-server-names-what-it-makes
 #[test]
-fn the_server_names_every_plant_it_makes() {
-    let named = by_the_server(&yalain_testkit::test_start(), &[]);
-    for p in plants::SPECIES {
-        for t in [p.plant, p.seed, p.harvest].into_iter().chain(p.pollen) {
-            assert!(named.contains(&t), "{t:08X}");
-        }
+fn the_rows_name_every_plant_and_crosss_seeds_they_make() {
+    let plants = yalain_testkit::test_plants();
+    let named = by_the_rows(Rows {
+        objects: &[],
+        stores: &StoreTable::default(),
+        quests: &QuestTable::default(),
+        crafting: &CraftStart::default(),
+        death_spawns: &BTreeMap::new(),
+        pets: &BTreeMap::new(),
+        items: &yalain_content::item_rows::ItemRows::default(),
+        plants: &plants,
+    });
+    let server = by_the_server(&yalain_testkit::test_start(), &[]);
+    let wanted = plants
+        .species
+        .values()
+        .flat_map(|p| [p.plant, p.seed, p.harvest].into_iter().chain(p.pollen))
+        .chain(plants.crosses.values().map(|c| c.seeds));
+    for t in wanted {
+        assert!(named.contains(&t), "{t:08X}");
+        assert!(!server.contains(&t), "{t:08X}");
     }
 }
 
@@ -89,6 +104,7 @@ fn a_give_rows_gift_and_a_death_spawn_are_named_with_the_other_rows() {
             yalain_world::pets::PetKind::new(0x7000_092A, PET, 1096, &[]),
         )]),
         items: &items,
+        plants: &yalain_world::plants::DyePlants::default(),
     });
     for t in [GIFT, TAKEN, DUMMY, PET, FIRST_GIFT] {
         assert!(named.contains(&t), "{t:08X}");

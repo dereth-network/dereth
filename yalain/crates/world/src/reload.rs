@@ -12,11 +12,12 @@
 //!   the new ones start at the next step as their times say), the kingdom rows (what raises
 //!   kingdom points, and the steps and gives for one kingdom alone), the tips (what each
 //!   moment shows; who has been shown one stays so), the item rows (what items' uses do,
-//!   what books and people show, what new characters are given), and the creature rows (whom
+//!   what books and people show, what new characters are given), the creature rows (whom
 //!   concealing effects spare or make hated, who heals its kin, who never attacks first, shooters'
-//!   rhythms: a creature already in a fight goes on by the new ones at its next turn). A template
-//!   or an effect the new database no longer has stays known, so a thing or an effect already in
-//!   the world still resolves.
+//!   rhythms: a creature already in a fight goes on by the new ones at its next turn), and the dye
+//!   plants (their species, crosses and ripe looks; a plant already growing grows on as its species
+//!   was). A template or an effect the new database no longer has stays known, so a thing or an
+//!   effect already in the world still resolves.
 //! - **Held until a restart:** nothing the world database holds.
 //!
 //! **Placed objects.** The database's objects before and after pair up: by the database's own
@@ -101,6 +102,9 @@ pub struct WorldTables {
     pub items: yalain_content::item_rows::ItemRows,
     /// The creature rows.
     pub creatures: yalain_content::creature_rows::CreatureRows,
+    /// The dye plants' species and crosses, and each species' ripe look.
+    pub plants: crate::plants::DyePlants,
+    pub plant_looks: crate::plants::Looks,
     /// The operator's banned names read again, when the server was given a list.
     pub names: Option<NameRules>,
     /// What the install says of the placed objects' packages and templates, read again with
@@ -153,6 +157,7 @@ pub mod table {
     pub const POPUPS: &str = "tips";
     pub const ITEMS: &str = "item rows";
     pub const CREATURES: &str = "creature rows";
+    pub const PLANTS: &str = "dye plants";
 }
 
 /// What a reload did, table by table.
@@ -329,6 +334,11 @@ impl<S: Store> Server<S> {
         let changed = t.creatures != self.creature_rows;
         r.note(table::CREATURES, changed, true);
         self.creature_rows = t.creatures;
+
+        let changed = t.plants != self.plants.kinds || t.plant_looks != self.plants.looks;
+        r.note(table::PLANTS, changed, true);
+        self.plants.kinds = t.plants;
+        self.plants.looks = t.plant_looks;
 
         if let Some(names) = t.names {
             r.note(table::BANNED_NAMES, names != self.names, true);

@@ -7479,11 +7479,12 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.makes.the-server-names-what-it-makes",
-        says: "A start asks for what the server's own rules make: every dye plant with its seed, \
-               pollen and harvest.",
+        says: "The server's own list of what it makes holds no dye plant: a start asks for every \
+               `[[plant]]` row's plant, seed, pollen and plant item, and every `[[plant_cross]]` \
+               row's seeds, with the rows' other makers.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-MAKES-LIST"),
-        station: "yalain-testkit::cpu::play::makes::the_server_names_every_plant_it_makes",
+        station: "yalain-testkit::cpu::play::makes::the_rows_name_every_plant_and_crosss_seeds_they_make",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -11192,6 +11193,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.plants.a-reload-reads-the-rows",
+        says: "A reload takes up the world's `[[plant]]` and `[[plant_cross]]` rows at once: a seed a \
+               new row names plants its plant, one no row names any longer plants nothing.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-DYE-PLANT-RELOAD"),
+        station: "yalain-testkit::cpu::operator::reload::a_reload_takes_up_the_worlds_plant_rows",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.plants.cross",
         says: "A ripe dye plant pollinated with a pollen of a known cross gives so many seeds of \
                the cross's species and nothing else (Berimphur with Hennacin pollen: three Siennan \
@@ -11199,6 +11209,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-DYE-PLANT-CROSS"),
         station: "yalain-testkit::cpu::play::dye_plants::a_plant_pollinated_for_a_known_cross_gives_the_seeds_of_the_cross",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.plants.cross-by-world-rows",
+        says: "The seeds a pollinated plant gives, and how many, are the world's `[[plant_cross]]` \
+               row's for its plant and pollen; a pair no row names gives the plain harvest.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-DYE-PLANT-CROSS-BY-ROWS"),
+        station: "yalain-testkit::cpu::play::dye_plants::a_plant_cross_row_sets_the_seeds_a_pollinated_plant_gives_and_how_many",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -11253,6 +11272,32 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.plants.plant-and-seed-read-from-the-install",
+        says: "Each of the install's thirteen dye plants pairs with the seed whose planting names its \
+               color and the plant item of its name, as the world's `[[plant]]` rows give them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-DYE-PLANT-SEED-READ"),
+        station: "yalain-testkit::dat::dye_plants::every_dye_plant_of_the_install_pairs_with_the_rows_seed_and_plant_item",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.plants.plant-by-world-rows",
+        says: "What a seed plants and what its ripe plant gives are the world's `[[plant]]` row's: a \
+               row with no pollen gives its plant item alone, and a seed no row names plants nothing.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-DYE-PLANT-BY-ROWS"),
+        station: "yalain-testkit::cpu::play::dye_plants::a_plant_row_sets_what_its_seed_plants_and_what_its_harvest_gives",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.plants.plant-rows-hold-the-servers-own",
+        says: "A world's `[[plant]]` and `[[plant_cross]]` rows hold the server's own, entry for entry.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-DYE-PLANT-ROWS"),
+        station: "yalain-testkit::corpus::world_db::the_worlds_plant_and_plant_cross_rows_hold_the_servers_own_entry_for_entry",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.plants.planted-from-a-seed",
         says: "A seed used in its garden plays the planting with the seed in hand; when that has \
                played out (2.0 s) the planter is told of a new pet (the plants' class and flags, no \
@@ -11262,6 +11307,24 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-DYE-PLANTING"),
         station: "yalain-testkit::cpu::play::dye_plants::a_seed_used_in_its_garden_stands_its_plant_two_meters_ahead_once_its_planting_has_played",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.plants.plants-in-the-real-start",
+        says: "A start describes every template of the server's own dye plants (each species' plant, \
+               seed, plant item and pollen, each cross's seeds) and reads each species' ripe look.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-DYE-PLANT-REAL-START"),
+        station: "yalain::bin.yalain::data::tests::a_start_describes_every_template_and_ripe_look_of_the_servers_own_dye_plants",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.plants.plants-without-rows",
+        says: "A world with no `[[plant]]` or `[[plant_cross]]` rows grows the server's own of that \
+               kind, and warns; a world with rows of a kind has those alone.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-DYE-PLANT-NO-ROWS"),
+        station: "yalain-testkit::cpu::play::dye_plants::a_world_without_plant_or_plant_cross_rows_has_the_servers_own_and_with_some_its_rows_alone",
         tier: Tier::Cpu,
     },
     behaviour! {

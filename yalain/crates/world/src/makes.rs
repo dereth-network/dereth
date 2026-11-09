@@ -27,20 +27,16 @@ pub fn can_make<S: Store>(s: &Server<S>, template: u32) -> bool {
 
 /// What the server's own rules make, whatever the world holds: the corpse, the races' starting
 /// packs, the mount items (`mounts`, as
-/// [`crate::mounts::Mounts::catalog_items`] gives them), a summoned portal, and the dye plants and
-/// what they give. The nodes delving stones and maps conjure are crafting's
-/// ([`crate::craft::Crafting::templates`]).
+/// [`crate::mounts::Mounts::catalog_items`] gives them) and a summoned portal. The nodes delving
+/// stones and maps conjure are crafting's ([`crate::craft::Crafting::templates`]); the dye plants
+/// are the world's rows ([`Rows::plants`]).
 #[must_use]
 pub fn by_the_server(start: &crate::StartRules, mounts: &[u32]) -> Vec<u32> {
     let starting = start.items.values().flatten().map(|i| i.template);
-    let plants = plants::SPECIES
-        .iter()
-        .flat_map(|p| [p.plant, p.seed, p.harvest].into_iter().chain(p.pollen));
     starting
         .chain([death::CORPSE_TEMPLATE])
         .chain(mounts.iter().copied())
         .chain([usable::portals::TEMPLATE])
-        .chain(plants)
         .collect()
 }
 
@@ -57,11 +53,14 @@ pub struct Rows<'a> {
     pub death_spawns: &'a BTreeMap<String, DeathSpawn>,
     pub pets: &'a BTreeMap<u32, yalain_content::PetKind>,
     pub items: &'a yalain_content::item_rows::ItemRows,
+    /// The dye plants, as [`crate::plants::world_plants`] gives them.
+    pub plants: &'a plants::DyePlants,
 }
 
 /// What a world's rows make or hand on: placed objects (a chest's lock and contents, a door's), its
 /// kinds of pet, what every new character is given, what stores sell, what quest steps and people give, what is taken up for a step and what's
-/// handed in for a gift, what butchery yields and what a death makes. Camps and loot are the
+/// handed in for a gift, what butchery yields, what a death makes, and the dye plants and what
+/// they give. Camps and loot are the
 /// catalog's own, and the recipes' products and materials [`crate::craft::Crafting::templates`].
 #[must_use]
 pub fn by_the_rows(rows: Rows<'_>) -> Vec<u32> {
@@ -86,6 +85,7 @@ pub fn by_the_rows(rows: Rows<'_>) -> Vec<u32> {
                 .flat_map(|b| b.items.iter().copied()),
         )
         .chain(rows.death_spawns.values().map(|d| d.template))
+        .chain(rows.plants.templates())
         .collect()
 }
 

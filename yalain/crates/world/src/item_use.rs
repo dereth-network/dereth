@@ -431,7 +431,7 @@ pub fn begin<S: Store>(
         return false;
     };
     let examined = t.props.word("Item_UsageAction") == Some(EXAMINE_ACTION);
-    let seed = crate::plants::is_seed(template);
+    let seed = crate::plants::is_seed(s, template);
     let own = s
         .things
         .get(u.item)
@@ -557,7 +557,7 @@ const NOT_MADE: [&str; 2] = ["Eff_Tsys_Item_Summon_", "Eff_DestrucfluxMassive_"]
 /// a row's creature that isn't, or an effect that summons what no item's use makes. The item is then
 /// kept: nothing is used up for nothing.
 fn cannot_make<S: Store>(s: &Server<S>, template: u32, props: &Props) -> bool {
-    if let Some(species) = crate::plants::sown_by(template) {
+    if let Some(species) = s.plants.kinds.sown_by(template) {
         return !crate::makes::can_make(s, species.plant);
     }
     if crate::death_spawn::names_one(s, props) {
