@@ -529,6 +529,90 @@ fn the_water_covers_a_body_standing_in_it_below_its_surface() {
     assert!(changed * 50 <= above, "left above: {changed} of {above}");
 }
 
+/// The lake's bank by a tree, the body standing in the water beside it.
+const TREE_BANK: &str = "dereth report 1; loc 0xA9B5001C [83.963875 82.829918 27.904999] \
+                         -0.645227 0.000000 0.000000 -0.763991";
+
+/// The lake's bank by the tree, the camera behind the body once it has stood a second in the
+/// water, the ground as the player draws it, the waves still and no rings, the water drawn or not
+/// as `on` says.
+fn bank_seen(store: &Arc<RetailDatStore>, on: bool) -> RemasterCapture {
+    let report = VisualReport::parse(TREE_BANK).expect("the report reads");
+    let st = report_station(&report, Some(3));
+    let mut gpu = device();
+    let mut shot = Shot::open(store, &mut gpu, &st);
+    shot.apply_report(&report);
+    shot.poll(&mut gpu);
+    shot.scene.draw.set_remaster_water(
+        RemasterWater {
+            on,
+            rings: false,
+            waves: 0.0,
+            ..RemasterWater::default()
+        },
+        &mut gpu,
+    );
+    shot.scene
+        .draw
+        .set_remaster_terrain(RemasterTerrain::player(), &mut gpu);
+    shot.scene
+        .draw
+        .set_remaster(true, store, &mut gpu)
+        .expect("the remaster starts");
+    shot.scene
+        .draw
+        .set_remaster_light(RemasterLight::Pixel, &mut gpu);
+    shot.step_held(&mut gpu);
+    shot.scene.wait_for_remaster_ground();
+    // The body stands in the water once the world has moved on a second.
+    for _ in 0..30 {
+        shot.step_by(&mut gpu, 1.0 / 30.0);
+    }
+    for _ in 0..4 {
+        shot.step_held(&mut gpu);
+    }
+    let capture = shot
+        .scene
+        .draw
+        .remaster_capture(&mut gpu)
+        .expect("the remaster drew");
+    shot.scene
+        .draw
+        .set_remaster(false, store, &mut gpu)
+        .expect("the remaster stops");
+    drop(shot);
+    drop(gpu);
+    let errors = dereth_render::vulkan::take_validation_errors();
+    assert!(errors.is_empty(), "the validation layer: {errors:#?}");
+    capture
+}
+
+/// **The water is drawn over what stands below its level only where the water is drawn**: on the
+/// lake's bank, where a tree stands on dry ground lower than the lake's level, the body standing in
+/// the water beside it, every pixel of the tree and of everything else but the body is drawn the
+/// same with the water as without it: no disc of water round the tree's foot.
+#[test]
+fn what_stands_on_dry_ground_below_the_waters_level_is_not_covered_by_it() {
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    let with = bank_seen(&store, true);
+    let without = bank_seen(&store, false);
+    let (mut objects, mut covered) = (0usize, 0usize);
+    for i in 0..with.kind.len() {
+        let (class, kind) = (without.class[i], without.kind[i]);
+        // The things standing: neither the ground, the sky nor the body.
+        if class == 0 || class == GROUND || class == 5 || kind == WATER || kind == CHARACTER {
+            continue;
+        }
+        objects += 1;
+        let differs = (0..3).any(|k| with.color[i * 4 + k].abs_diff(without.color[i * 4 + k]) > 2);
+        covered += usize::from(differs);
+    }
+    eprintln!("the bank: {covered} of {objects} pixels of what stands there drawn otherwise with the water");
+    assert!(objects > 2_000, "the tree is in the picture: {objects}");
+    assert!(covered * 200 <= objects, "covered: {covered} of {objects}");
+}
+
 /// The shore's frame at `size`, with the camera carried `back` metres back along its view and
 /// `up` metres up, the ground drawn as `ground` says, the waves still and no rings, and the water
 /// as `check` says (its check view or its own colors).
