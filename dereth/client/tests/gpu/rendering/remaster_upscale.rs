@@ -27,13 +27,26 @@ const W: u32 = 640;
 const H: u32 = 480;
 
 fn device(width: u32, height: u32) -> Gpu {
-    let cfg = DeviceConfig {
+    device_checked(width, height, true)
+}
+
+/// [`device`], under the validation layer or not: NVIDIA's library leaves its own objects to the
+/// end of the process, which the layer reports.
+fn device_checked(width: u32, height: u32, debug: bool) -> Gpu {
+    #[allow(unused_mut)]
+    let mut cfg = DeviceConfig {
         width,
         height,
         remaster: true,
-        debug: true,
+        debug,
         ..DeviceConfig::default()
     };
+    // What DLSS asks of the device, as the client asks for it: nothing unless its library stands
+    // beside the test binary.
+    #[cfg(all(feature = "dlss", windows))]
+    {
+        cfg.remaster_extensions = dereth_scene::world_scene::remaster_device_extensions();
+    }
     let gpu = Gpu::new_on(crate::common::remaster_backend(), None, &cfg).expect("a device");
     assert_eq!(
         gpu.adapter_kind(),
@@ -86,6 +99,8 @@ struct Run<'a> {
     post: RemasterPost,
     upscale: Option<RemasterUpscale>,
     before: Before<'a>,
+    /// Under the validation layer.
+    checked: bool,
 }
 
 impl Default for Run<'_> {
@@ -94,6 +109,7 @@ impl Default for Run<'_> {
             post: RemasterPost::default(),
             upscale: None,
             before: &|_, _, _, _| {},
+            checked: true,
         }
     }
 }
@@ -108,7 +124,7 @@ fn run(
     frames: usize,
     keep: usize,
 ) -> Vec<Frame> {
-    let mut gpu = device(W, H);
+    let mut gpu = device_checked(W, H, run.checked);
     let mut shot = Shot::open(store, &mut gpu, station);
     shot.poll(&mut gpu);
     shot.scene.draw.set_remaster_post(run.post, &mut gpu);
@@ -619,4 +635,161 @@ fn off_the_frame_is_the_one_drawn_without_the_upscaler() {
     let back = frames.last().expect("a frame");
     assert_eq!(back.capture.render_size, (W, H), "off again");
     assert_eq!(back.capture.color, never.capture.color, "on and off again");
+}
+
+/// Not a claim: draws a moving view over water and steep ground with DLSS, with FSR and without an
+/// upscaler, a frame a step, into `DERETH_REMASTER_CAPTURE_DIR` (`<run>-<step>.png`), and prints how
+/// much each upscaled run's difference from the frame drawn without one changes from one frame to
+/// the next, over the water and over the rest of the world: what a person sees as flicker. DLSS
+/// draws only where its library stands beside the test binary; elsewhere FSR stands in for it.
+#[test]
+#[ignore = "an instrument: set DERETH_REMASTER_CAPTURE_DIR and run with --ignored"]
+fn draw_a_moving_view_over_water_with_each_upscaler() {
+    let Some(dir) = std::env::var_os("DERETH_REMASTER_CAPTURE_DIR") else {
+        return;
+    };
+    let dir = std::path::PathBuf::from(dir);
+    std::fs::create_dir_all(&dir).expect("the capture folder");
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    let named = std::env::var("DERETH_REMASTER_STATION").ok();
+    let lake = Station {
+        name: "lake",
+        why: "the lake north of Holtburg and the steep hills across it",
+        place: stations::Place::Free {
+            block: stations::HOLTBURG,
+            x: 96.0,
+            y: 150.0,
+            eye: 6.0,
+            yaw: 0.0,
+            pitch: -0.12,
+        },
+        clock: stations::Clock::Sunny(0.4),
+        weather: false,
+        land_radius: 3,
+    };
+    // Another station of the light study's, by its name, in place of the lake.
+    let st = named.as_deref().map_or(lake, |n| station(&store, n));
+    let steps = std::env::var("DERETH_REMASTER_STEPS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(24usize);
+    let moving: Before<'_> = &|k, shot, gpu, start| {
+        if k == 0 {
+            // The water, the sun's shadows and the sky as the client draws them.
+            shot.scene.draw.set_remaster_water(
+                dereth_scene::world_scene::RemasterWater {
+                    on: true,
+                    ..dereth_scene::world_scene::RemasterWater::default()
+                },
+                gpu,
+            );
+            if std::env::var_os("DERETH_REMASTER_ALL").is_some() {
+                shot.scene
+                    .draw
+                    .set_remaster_gi(dereth_scene::world_scene::RemasterGi::on(), gpu);
+                shot.scene.draw.set_remaster_ao(
+                    dereth_scene::world_scene::RemasterAo {
+                        on: true,
+                        ..dereth_scene::world_scene::RemasterAo::default()
+                    },
+                    gpu,
+                );
+            }
+            shot.scene.draw.set_remaster_shadows(
+                dereth_scene::world_scene::RemasterShadows {
+                    on: true,
+                    ..dereth_scene::world_scene::RemasterShadows::default()
+                },
+                gpu,
+            );
+        }
+        #[allow(clippy::cast_precision_loss)] // a few steps
+        let step = k as f32;
+        let yaw = start.yaw + (0.4 * step).to_radians();
+        let p = start.position;
+        let at = Vec3::new(p.x + 0.15 * step, p.y + 0.1 * step, p.z);
+        shot.hold_camera(at, yaw, start.pitch);
+    };
+    let post = RemasterPost {
+        hdr: true,
+        taa: std::env::var_os("DERETH_REMASTER_TAA").is_some(),
+        ..RemasterPost::default()
+    };
+    let upscale = |mode| RemasterUpscale {
+        mode,
+        scale: 0.67,
+        sharpness: 0.0,
+        ..RemasterUpscale::default()
+    };
+    let runs = [
+        ("native", None),
+        ("dlss", Some(upscale(RemasterUpscaleMode::DlssSr))),
+        ("fsr", Some(upscale(RemasterUpscaleMode::Fsr))),
+    ];
+    let mut drawn = Vec::new();
+    for (name, up) in runs {
+        let r = Run {
+            post,
+            upscale: up,
+            before: moving,
+            checked: false,
+        };
+        let frames = run(&store, &st, &r, steps, steps);
+        for (k, f) in frames.iter().enumerate() {
+            let c = &f.capture;
+            stations::write_png(
+                &dir.join(format!("{name}-{k:02}.png")),
+                c.width,
+                c.height,
+                &c.color,
+            );
+        }
+        eprintln!(
+            "{name}: the upscaler drawn {:?}",
+            dereth_scene::world_scene::remaster_upscaler_drawn()
+        );
+        drawn.push((name, frames));
+    }
+    let (_, native) = &drawn[0];
+    for (name, frames) in &drawn[1..] {
+        let (mut water, mut land) = ((0.0f64, 0usize), (0.0f64, 0usize));
+        for k in 1..frames.len() {
+            let (a, b) = (&frames[k - 1].capture, &frames[k].capture);
+            let (na, nb) = (&native[k - 1].capture, &native[k].capture);
+            let (w, h) = (b.width as usize, b.height as usize);
+            let (rw, rh) = (nb.render_size.0 as usize, nb.render_size.1 as usize);
+            for y in 0..h {
+                for x in 0..w {
+                    let r = (y * rh / h) * rw + x * rw / w;
+                    let class = nb.class[r];
+                    if class == 0 || class == 5 {
+                        continue;
+                    }
+                    let at = (y * w + x) * 4;
+                    let e = |c: &RemasterCapture, n: &RemasterCapture, i: usize| {
+                        f64::from(c.color[at + i]) - f64::from(n.color[at + i])
+                    };
+                    let change: f64 = (0..3)
+                        .map(|i| (e(b, nb, i) - e(a, na, i)).abs())
+                        .sum::<f64>()
+                        / 3.0;
+                    let slot = if nb.kind[r] == 7 {
+                        &mut water
+                    } else {
+                        &mut land
+                    };
+                    slot.0 += change;
+                    slot.1 += 1;
+                }
+            }
+        }
+        #[allow(clippy::cast_precision_loss)] // pixel counts
+        let mean = |(s, n): (f64, usize)| s / n.max(1) as f64;
+        eprintln!(
+            "{name}: the frame's difference from the native one changes by {:.2} levels a frame over the water, {:.2} over the rest",
+            mean(water),
+            mean(land)
+        );
+    }
 }
