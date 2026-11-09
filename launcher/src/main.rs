@@ -567,6 +567,12 @@ fn set_update_components(b: State<'_, Shared>, c: State<'_, components::Shared>,
     }
 }
 
+/// Whether one of the Library's sections is open, kept so it opens as it was left.
+#[tauri::command]
+fn set_library_open(b: State<'_, Shared>, key: String, open: bool) {
+    lock(&b).set_library_open(&key, open);
+}
+
 /// The game the page shows, kept so the launcher opens in it again.
 #[tauri::command]
 fn set_realm(b: State<'_, Shared>, realm: Realm) {
@@ -1017,6 +1023,7 @@ fn main() {
             set_interface,
             set_discord_presence,
             set_update_components,
+            set_library_open,
             components::dismiss_component_update,
             set_realm,
             dismiss_message,
@@ -1273,7 +1280,10 @@ mod tests {
         assert!(!page.contains("probe_auberean_friends"));
         assert!(!page.contains("Friends and tells"));
         // The Library's Discord setting is the same one in both realms.
-        assert_eq!(page.matches("${discordRow()}").count(), 1);
+        assert_eq!(
+            page.matches(r#"offered("discord") ? discordRow()"#).count(),
+            1
+        );
     }
 
     /// An Athenaeum world's row has Export For, as a Lyceum world's, for Yalain, above Publish To.
@@ -1323,14 +1333,92 @@ mod tests {
     #[test]
     fn the_component_update_setting_is_one_checkbox_whose_tooltip_says_what_it_does() {
         let page = include_str!("../ui/app.js");
-        let row = &page[page.find("function updatesRow()").expect("the setting's row")..];
+        let row = &page[page
+            .find("function updatesRow()")
+            .expect("the setting's row")..];
         let row = &row[..row.find("\n}\n").unwrap()];
-        assert!(row.contains(">Automatically update components</label>"), "{row}");
+        assert!(
+            row.contains(">Automatically update components</label>"),
+            "{row}"
+        );
         assert!(row.contains(
             r#"title="When checked components you've downloaded (Empyrean, Lyceum, etc.) will automatically update.""#
         ));
         assert!(!row.contains("class=\"sub\""), "no explainer under it");
         assert!(!page.contains("added optional components"));
+    }
+
+    /// The Library's settings say what they do in their tooltips, with nothing under the checkbox,
+    /// and the art packs' Refresh is inside their section, on its explainer's line, not in its
+    /// heading.
+    #[test]
+    fn the_librarys_settings_explain_in_tooltips_and_refresh_sits_by_the_explainer() {
+        let at = |name: &str| page_function(name);
+        for row in ["discordRow", "updatesRow"] {
+            let body = at(row);
+            assert!(
+                body.contains("<label class=\"check\" title=\""),
+                "{row}: {body}"
+            );
+            assert!(
+                !body.contains("class=\"sub\""),
+                "{row}: nothing under the checkbox"
+            );
+        }
+        assert!(at("discordRow").contains(
+            r#"title="While a game the launcher started is running, Discord on this computer shows its world, its client and its era.""#
+        ));
+        let art = at("artPacks");
+        assert!(!art.contains("extra:"), "nothing in the heading");
+        let explain = &art[art
+            .find(r#"<div class="lib-explain">"#)
+            .expect("the explainer's line")..];
+        let line = &explain[..explain.find("</div>").unwrap()];
+        assert!(line.contains("${refresh}"), "{line}");
+        assert!(art.contains(r#"data-act="art-refresh""#));
+    }
+
+    /// Every heading of the Library folds, its groups and the sections in them alike, each by a key
+    /// of its own: Clients (Retail, the game's own), Data Sets (Modern, Classic, 1999), Art Packs
+    /// (Installed, Available, Sources) and Settings.
+    #[test]
+    fn every_library_heading_folds_by_a_key_of_its_own() {
+        let page = include_str!("../ui/app.js");
+        let at = |name: &str| {
+            let from = page.find(name).expect(name);
+            let body = &page[from..];
+            &body[..body.find("\n}\n").unwrap()]
+        };
+        for f in ["function library()", "function artPacks()"] {
+            assert!(
+                !at(f).contains("<h2>"),
+                "{f} has a heading that does not fold"
+            );
+        }
+        let both = format!("{}{}", at("function library()"), at("function artPacks()"));
+        for key in [
+            "\"clients\"",
+            "\"clients.retail\"",
+            "\"clients.dereth\"",
+            "\"clients.auberean\"",
+            "\"sets\"",
+            "\"sets.modern\"",
+            "\"sets.classic\"",
+            "\"sets.original\"",
+            "\"art\"",
+            "\"art.installed\"",
+            "\"art.available\"",
+            "\"art.sources\"",
+            "\"settings\"",
+        ] {
+            assert!(
+                both.contains(&format!("libFold({key}"))
+                    || both.contains(&format!("? {key}"))
+                    || both.contains(&format!(": {key}")),
+                "{key}"
+            );
+        }
+        assert!(page.contains(r#"await act("set_library_open", { key, open })"#));
     }
 
     /// Every command the page calls is one the app registers, and one the demo backend answers, so
@@ -1343,7 +1431,7 @@ mod tests {
         let handler = &main[main.find("generate_handler![").expect("the handler list")..];
         let handler = &handler[..handler.find(']').unwrap()];
         let mut called = std::collections::BTreeSet::new();
-        for opener in ["api(\"", "act(\"", "pluginFetch(\""] {
+        for opener in ["api(\"", "act(\"", "pluginFetch(\"", "artFetch(\""] {
             for (at, _) in page.match_indices(opener) {
                 let rest = &page[at + opener.len()..];
                 called.insert(&rest[..rest.find('"').unwrap()]);

@@ -1025,6 +1025,13 @@ impl Backend {
         self.save();
     }
 
+    /// Whether the Library's section `key` is open, kept so it opens as it was left.
+    pub fn set_library_open(&mut self, key: &str, open: bool) {
+        if self.state.settings.set_library_open(key, open) {
+            self.save();
+        }
+    }
+
     /// The game the page shows ([`Realm`]), kept so the launcher opens in it again.
     pub fn set_realm(&mut self, realm: Realm) {
         self.state.settings.realm = realm;
@@ -5446,6 +5453,29 @@ mod tests {
         b.set_update_components(true);
         let (saved, _) = LauncherState::load(&dir.join("state"));
         assert!(saved.settings.update_components);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A Library section the player folds stays folded across a restart, and the page is told.
+    #[test]
+    fn a_folded_library_section_stays_folded_across_a_restart() {
+        let (mut b, dir) = backend("library-folds");
+        b.set_library_open("dereth.sets.classic", false);
+        b.set_library_open("auberean.settings", true);
+        let (saved, _) = LauncherState::load(&dir.join("state"));
+        assert_eq!(
+            saved.settings.library_open.get("dereth.sets.classic"),
+            Some(&false)
+        );
+        assert_eq!(
+            saved.settings.library_open.get("auberean.settings"),
+            Some(&true)
+        );
+        let json = serde_json::to_value(b.snapshot()).unwrap();
+        assert_eq!(
+            json["state"]["settings"]["library_open"]["dereth.sets.classic"],
+            false
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 

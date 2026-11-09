@@ -343,6 +343,34 @@ pub struct Settings {
     /// The game the page last showed, which it opens in again ([`Realm`]).
     #[serde(default, skip_serializing_if = "Realm::is_dereth")]
     pub realm: Realm,
+    /// The Library's sections the player opened or closed, by key (`dereth.clients`,
+    /// `auberean.sets`): whether each is open. A section not named is as it is at first.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub library_open: BTreeMap<String, bool>,
+}
+
+/// The most Library sections whose folding is kept.
+pub const LIBRARY_SECTIONS_KEPT: usize = 64;
+
+impl Settings {
+    /// Keep whether the Library's section `key` is open. A key is a few dotted words of lowercase
+    /// letters, digits and `-`; anything else, or a key past [`LIBRARY_SECTIONS_KEPT`], is not kept.
+    /// Answers whether it was.
+    pub fn set_library_open(&mut self, key: &str, open: bool) -> bool {
+        let fits = !key.is_empty()
+            && key.len() <= 48
+            && key
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'.');
+        if !fits
+            || (!self.library_open.contains_key(key)
+                && self.library_open.len() >= LIBRARY_SECTIONS_KEPT)
+        {
+            return false;
+        }
+        self.library_open.insert(key.to_owned(), open);
+        true
+    }
 }
 
 fn yes() -> bool {
@@ -404,6 +432,7 @@ impl Default for Settings {
             auto_update: true,
             discord_presence: true,
             update_components: true,
+            library_open: BTreeMap::new(),
             realm: Realm::Dereth,
         }
     }
@@ -1916,5 +1945,36 @@ mod tests {
         assert!(Realm::Auberean.shows(&world(&auberean)));
         assert!(!Realm::Dereth.shows(&world(&auberean)));
         assert_eq!(json.matches("\"game\"").count(), 1, "{json}");
+    }
+    /// Whether each of the Library's sections is open is kept with the settings, by its key, and
+    /// only for keys of the Library's own shape, at most so many of them.
+    #[test]
+    fn the_librarys_folded_sections_are_kept_by_key() {
+        let mut s = Settings::default();
+        assert!(s.library_open.is_empty());
+        assert!(s.set_library_open("dereth.art.sources", true));
+        assert!(s.set_library_open("auberean.clients", false));
+        assert!(s.set_library_open("auberean.clients", true), "set again");
+        assert!(!s.set_library_open("Dereth Clients", false));
+        assert!(!s.set_library_open("", false));
+        let json = serde_json::to_string(&s).unwrap();
+        let back: Settings = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.library_open.get("dereth.art.sources"), Some(&true));
+        assert_eq!(back.library_open.get("auberean.clients"), Some(&true));
+        assert_eq!(back.library_open.len(), 2);
+        let plain = serde_json::to_value(Settings::default()).unwrap();
+        assert!(
+            plain.get("library_open").is_none(),
+            "written only once something is folded"
+        );
+        for i in 0..LIBRARY_SECTIONS_KEPT {
+            s.set_library_open(&format!("k{i}"), false);
+        }
+        assert_eq!(s.library_open.len(), LIBRARY_SECTIONS_KEPT);
+        assert!(!s.set_library_open("one-more", false));
+        assert!(
+            s.set_library_open("dereth.art.sources", false),
+            "a kept key still changes"
+        );
     }
 }

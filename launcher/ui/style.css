@@ -785,6 +785,11 @@ h2.fold-head { display: flex; align-items: center; cursor: pointer; }
 h2.fold-head .fold { display: inline-block; width: 16px; color: var(--gold); }
 h2.fold-head .muted { margin-left: 10px; font: 14px var(--body); letter-spacing: 0; }
 h2.fold-head:hover { color: #fff; }
+/* The Library's folding: a group's heading, and a section within it, smaller and set in. */
+.library-page h2.lib-sub { margin: 10px 0 6px 16px; font-size: 12px; }
+.library-page .lib-sub-body { margin-left: 16px; }
+.library-page .lib-explain { display: flex; align-items: center; gap: 12px; }
+.library-page .lib-explain > p { margin-right: auto; }
 .plugin.open { background: rgba(181, 138, 60, 0.12); border-radius: var(--radius-small); }
 .plugin.open > .plugin-row { border-bottom-color: transparent; }
 .plugin.open > .plugin-row:hover { background: none; }

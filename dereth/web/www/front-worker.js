@@ -268,6 +268,7 @@ const calls = {
   version: () => dereth.version(),
   serverProblem: (url) => dereth.serverUrlProblem(url),
   setRealm: (realm) => dereth.frontSetRealm(realm),
+  setLibraryOpen: (key, open) => dereth.frontSetLibraryOpen(key, open),
   scanSets: (known, again) => scanSets(dereth, known, again),
   storeSet: (name, files) => storeSet(dereth, name, files),
   removeSet: (path) => removeSet(dereth, path),

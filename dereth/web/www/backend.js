@@ -248,6 +248,10 @@ export function webBackend({ call, start, params, log, scale }) {
       await call('setRealm', realm);
       await save();
     },
+    set_library_open: async ({ key, open }) => {
+      await call('setLibraryOpen', key, open);
+      await save();
+    },
     launch: ({ choice }) => launch(choice),
     save_favourite: async ({ favourite }) => {
       await call('saveFavourite', favourite);

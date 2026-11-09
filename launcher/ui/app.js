@@ -2085,8 +2085,7 @@ async function play(choice) {
 function discordRow() {
   const s = ui.snap.state;
   return `<div class="row static"><div class="grow">
-      <label class="check"><input type="checkbox" id="discord-presence" ${s.settings.discord_presence !== false ? "checked" : ""}>Show what I'm playing on Discord</label>
-      <div class="sub">While a game the launcher started is running, Discord on this computer shows its world, its client and its era.</div></div></div>`;
+      <label class="check" title="While a game the launcher started is running, Discord on this computer shows its world, its client and its era."><input type="checkbox" id="discord-presence" ${s.settings.discord_presence !== false ? "checked" : ""}>Show what I'm playing on Discord</label></div></div>`;
 }
 
 // Whether the programs the player added are kept up to date on their own, on unless the player turns
@@ -2095,6 +2094,18 @@ function updatesRow() {
   const s = ui.snap.state;
   return `<div class="row static"><div class="grow">
       <label class="check" title="When checked components you've downloaded (Empyrean, Lyceum, etc.) will automatically update."><input type="checkbox" id="update-components" ${s.settings.update_components !== false ? "checked" : ""}>Automatically update components</label></div></div>`;
+}
+
+// A section of the Library that folds: its heading, with ▾ or ▸, opens and closes it, and the
+// launcher keeps which way it was left, by `key` within the realm. `sub` is a section within a group,
+// its heading smaller. Each is open at first unless `closed`.
+function libOpen(key, closed = false) {
+  return ui.snap.state.settings.library_open?.[`${realmGame()}.${key}`] ?? !closed;
+}
+function libFold(key, label, body, { sub = false, closed = false, extra = "" } = {}) {
+  const open = libOpen(key, closed);
+  return `<h2 class="fold-head ${sub ? "lib-sub" : "lib-group"}" data-lib-fold="${esc(key)}" data-lib-closed="${closed ? 1 : 0}"><span class="fold">${open ? "▾" : "▸"}</span>${label}${extra}</h2>`
+    + (open ? `<div class="${sub ? "lib-sub-body" : "lib-group-body"}">${body}</div>` : "");
 }
 
 // The Library of the realm's game, Dereth's and Auberean's alike: the retail client (on Windows),
@@ -2123,15 +2134,18 @@ function library() {
         <div class="btns"><button class="btn" data-act="choose-retail">Choose folder</button></div></div>`;
   }
   const d = ui.snap.dereth;
-  const client = ac2Realm
-    ? `<h2>AUBEREAN CLIENT</h2><div class="list">${ac2().here
+  const own = ac2Realm
+    ? (ac2().here
       ? `<div class="row static"><div class="grow"><div class="name">${esc(ac2().here.shown_name)}</div><div class="sub">${esc(ac2().here.path)}</div></div></div>${host.libraryClientRows?.(ui.snap) ?? ""}`
-      : programRow("auberean")}</div>`
-    : `<h2>DERETH CLIENT</h2><div class="list">${(d
+      : programRow("auberean"))
+    : (d
       ? `<div class="row static"><div class="grow"><div class="name">${esc(installName(d))}</div><div class="sub">${esc(d.path)}</div></div></div>`
       : comp("dereth") ? programRow("dereth")
       : `<div class="row static"><div class="grow"><div class="sub warn">The Dereth client was not found beside the launcher.</div></div></div>`)
-      + interfaceRow() + (host.libraryClientRows?.(ui.snap) ?? "")}</div>`;
+      + interfaceRow() + (host.libraryClientRows?.(ui.snap) ?? "");
+  const clients = libFold("clients", "CLIENTS",
+    (retailHere() ? libFold("clients.retail", "RETAIL", `<div class="list">${retail}</div>`, { sub: true }) : "")
+    + libFold(ac2Realm ? "clients.auberean" : "clients.dereth", ac2Realm ? "AUBEREAN" : "DERETH", `<div class="list">${own}</div>`, { sub: true }));
   const setRow = (d) => {
     const size = d.files.reduce((n, f) => n + (f.size ?? 0), 0);
     const pairBroken = (d.kind === "classic" || d.kind === "original") && !(d.files.some((f) => f.role === "portal") && d.files.some((f) => f.role === "cell"));
@@ -2147,7 +2161,7 @@ function library() {
   if (ac2Realm) {
     const all = (s.auberean?.dat_sets ?? []).map(setRow).join("")
       || `<p class="muted">${say("library.no-auberean", "No data sets yet. Add a folder that holds portal.dat, cell_1.dat and local_English.dat.")}</p>`;
-    sets = `<h2>DATA SETS</h2><p class="muted small">The *.dat files from an install.</p><div class="list">${all}</div>`;
+    sets = libFold("sets", "DATA SETS", `<p class="muted small">The *.dat files from an install.</p><div class="list">${all}</div>`);
   } else {
     const isPair = (d) => d.kind === "classic" || d.kind === "original";
     const modern = s.dat_sets.filter((d) => !isPair(d)).map(setRow).join("")
@@ -2156,10 +2170,15 @@ function library() {
       || `<p class="muted">${say("library.no-classic", "No Classic data files yet. Add a folder that holds portal.dat and cell.dat.")}</p>`;
     const original = s.dat_sets.filter((d) => d.kind === "original").map(setRow).join("")
       || `<p class="muted">${say("library.no-original", "No 1999 data files yet. Add a folder that holds the 1999 portal.dat and cell.dat.")}</p>`;
-    sets = `<h2>MODERN DATA SETS</h2><p class="muted small">The files from a modern install: client_*.dat.</p><div class="list">${modern}</div>
-          <h2>CLASSIC DATA SETS</h2><p class="muted small">The files from older installs: portal.dat and cell.dat.</p><div class="list">${classic}</div>
-          <h2>1999 DATA SETS</h2><p class="muted small">The files the game launched with in 1999, for the Launch era.</p><div class="list">${original}</div>`;
+    sets = libFold("sets", "DATA SETS",
+      libFold("sets.modern", "MODERN", `<p class="muted small">The files from a modern install: client_*.dat.</p><div class="list">${modern}</div>`, { sub: true })
+      + libFold("sets.classic", "CLASSIC", `<p class="muted small">The files from older installs: portal.dat and cell.dat.</p><div class="list">${classic}</div>`, { sub: true })
+      + libFold("sets.original", "1999", `<p class="muted small">The files the game launched with in 1999, for the Launch era.</p><div class="list">${original}</div>`, { sub: true }));
   }
+
+  // The launcher's own settings: its updates and Discord.
+  const settingRows = (offered("downloads") ? updatesRow() : "") + (offered("discord") ? discordRow() : "");
+  const settings = settingRows ? libFold("settings", "SETTINGS", `<div class="list">${settingRows}</div>`) : "";
 
   let pending = "";
   // A folder read for the other realm's Library waits for that one.
@@ -2175,13 +2194,11 @@ function library() {
   return `<div class="column wide" style="height:100%">
       ${pending}
       <section class="panel grow"><header><h1>LIBRARY</h1><button class="btn" data-act="add-dats">+ Add data files</button></header>
-        <div class="scroll">${retailHere() ? `<h2>RETAIL CLIENT</h2><div class="list">${retail}</div>` : ""}
-          ${client}
+        <div class="scroll library-page">${clients}
           ${sets}
           ${!ac2Realm && ui.snap.art ? artPacks() : ""}
           ${host.librarySections?.(ui.snap) ?? ""}
-          ${offered("downloads") ? `<h2>UPDATES</h2><div class="list">${updatesRow()}</div>` : ""}
-          ${offered("discord") ? `<h2>DISCORD</h2><div class="list">${discordRow()}</div>` : ""}</div>
+          ${settings}</div>
       </section>
     </div>`;
 }
@@ -2246,11 +2263,13 @@ function artPacks() {
       <button class="btn" data-act="art-source-add" ${busy || !st.add.trim() ? "disabled" : ""}>Add source</button></div>
     ${st.confirm ? `<div class="plugin-confirm"><span>Dereth does not review art packs from other sources.</span>
       <button class="btn mini-btn" data-act="art-source-confirm" ${busy ? "disabled" : ""}>Add</button><button class="btn mini-btn" data-act="art-source-cancel">Cancel</button></div>` : ""}`;
-  return `<h2>ART PACKS <button class="btn mini-btn" data-act="art-refresh" ${busy ? "disabled" : ""}>Refresh</button></h2>
-    <p class="muted small">New models and textures for the Remaster. Where two packs change the same thing, the higher one wins.</p>
-    <div class="list">${installed}</div>
-    <h2>AVAILABLE ART PACKS</h2><div class="list">${available}</div>
-    <h2>ART PACK SOURCES</h2><div class="list">${sources}</div>${add}`;
+  const refresh = `<button class="btn mini-btn" data-act="art-refresh" ${busy ? "disabled" : ""}>Refresh</button>`;
+  return libFold("art", "ART PACKS",
+    `<div class="lib-explain"><p class="muted small">Art packs replace Dereth's visuals (only while Remaster is enabled). You can layer and combine packs as you see fit to dial in your perfect vision of Dereth.</p>${refresh}</div>`
+    + libFold("art.installed", `INSTALLED<span class="muted small">${a.installed.length}</span>`, `<div class="list">${installed}</div>`, { sub: true })
+    + libFold("art.available", `AVAILABLE<span class="muted small">${a.available.length}</span>`, `<div class="list">${available}</div>`, { sub: true, closed: true })
+    + libFold("art.sources", `SOURCES<span class="muted small">${a.sources.length}</span>`, `<div class="list">${sources}</div>${add}`, { sub: true, closed: true }),
+  );
 }
 
 // One of the art packs' slow calls (it fetches), with the section busy, and how it went said.
@@ -2736,7 +2755,7 @@ async function saveInterface() {
 // ----- events -------------------------------------------------------------------------------------
 
 document.addEventListener("click", async (ev) => {
-  const t = ev.target.closest("[data-ath-open],[data-ath-export],[data-ath-publish],[data-ath-row],[data-ath-confirm-delete],[data-ath-delete],[data-srv-start],[data-srv-stop],[data-srv-prepare],[data-srv-play],[data-srv-open],[data-srv-publish],[data-srv-republish],[data-srv-unpublish],[data-srv-service],[data-srv-config],[data-srv-folder],[data-srv-delete],[data-confirm-delete],[data-srv-export],[data-local-open],[data-local-start],[data-local-stop],[data-local-play],[data-local-forget],[data-reveal-local],[data-reveal-host],[data-copy],[data-copy-link],[data-check-outside],[data-allow-service],[data-send],[data-shutdown-cancel],[data-ly-row],[data-ly-export],[data-ly-publish],[data-ly-confirm-delete],[data-ly-delete],[data-srv-check],[data-srv-approve],[data-srv-cancel-update],[data-srv-rollback],[data-lyceum-world],[data-lyceum-upgrade],[data-get],[data-remove],[data-dismiss-update],[data-go],[data-act],[data-url],[data-home],[data-world],[data-filter],[data-unfav],[data-fav],[data-client],[data-default-set],[data-reset-set],[data-delete-set],[data-remember],[data-forget-account],[data-show-password],[data-section],[data-open-world],[data-trash],[data-iface],[data-stop],[data-art-row],[data-art-move],[data-art-update],[data-art-remove],[data-art-install],[data-art-source-remove],[data-plugin-install],[data-plugin-update],[data-plugin-remove],[data-plugin-source-remove],[data-plugin-open],[data-plugin-folder-remove],[data-plugin-row],[data-plugin-fold],[data-realm-pick],[data-world-fav]");
+  const t = ev.target.closest("[data-ath-open],[data-ath-export],[data-ath-publish],[data-ath-row],[data-ath-confirm-delete],[data-ath-delete],[data-srv-start],[data-srv-stop],[data-srv-prepare],[data-srv-play],[data-srv-open],[data-srv-publish],[data-srv-republish],[data-srv-unpublish],[data-srv-service],[data-srv-config],[data-srv-folder],[data-srv-delete],[data-confirm-delete],[data-srv-export],[data-local-open],[data-local-start],[data-local-stop],[data-local-play],[data-local-forget],[data-reveal-local],[data-reveal-host],[data-copy],[data-copy-link],[data-check-outside],[data-allow-service],[data-send],[data-shutdown-cancel],[data-ly-row],[data-ly-export],[data-ly-publish],[data-ly-confirm-delete],[data-ly-delete],[data-srv-check],[data-srv-approve],[data-srv-cancel-update],[data-srv-rollback],[data-lyceum-world],[data-lyceum-upgrade],[data-get],[data-remove],[data-dismiss-update],[data-go],[data-act],[data-url],[data-home],[data-world],[data-filter],[data-unfav],[data-fav],[data-client],[data-default-set],[data-reset-set],[data-delete-set],[data-remember],[data-forget-account],[data-show-password],[data-section],[data-open-world],[data-trash],[data-iface],[data-stop],[data-lib-fold],[data-art-row],[data-art-move],[data-art-update],[data-art-remove],[data-art-install],[data-art-source-remove],[data-plugin-install],[data-plugin-update],[data-plugin-remove],[data-plugin-source-remove],[data-plugin-open],[data-plugin-folder-remove],[data-plugin-row],[data-plugin-fold],[data-realm-pick],[data-world-fav]");
   if (!t) return;
   if (t.dataset.stop !== undefined && !ev.target.closest("[data-act]")) return;
   // A form's own submit button submits it (below).
@@ -2852,6 +2871,15 @@ document.addEventListener("click", async (ev) => {
   if (d.get) { await act("get_component", { product: d.get }); return; }
   if (d.remove) { await act("remove_component", { product: d.remove }); return; }
   if (d.dismissUpdate) { await act("dismiss_component_update", { product: d.dismissUpdate }); return; }
+  if (d.libFold) {
+    // Drawn the new way at once; the launcher keeps it.
+    const key = `${realmGame()}.${d.libFold}`;
+    const open = !libOpen(d.libFold, d.libClosed === "1");
+    ui.snap.state.settings.library_open = { ...(ui.snap.state.settings.library_open ?? {}), [key]: open };
+    render();
+    await act("set_library_open", { key, open });
+    return;
+  }
   if (d.artRow !== undefined) { ui.art.open = ui.art.open === d.artRow ? null : d.artRow; render(); return; }
   if (d.artMove) { await act("move_art_pack", { id: d.artMove, up: d.artUp === "1" }); return; }
   if (d.artUpdate) { await artFetch("update_art_pack", { id: d.artUpdate }); return; }

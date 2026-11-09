@@ -243,6 +243,7 @@
   });
   const artDemo = () => ({
     refresh_art: () => "",
+    set_library_open: ({ key, open }) => { state.settings.library_open = { ...(state.settings.library_open ?? {}), [key]: open }; },
     add_art_source: ({ url }) => {
       url = url.trim();
       if (!/^https:\/\/[^/\s]+/i.test(url)) throw `${url} is not an https:// address`;

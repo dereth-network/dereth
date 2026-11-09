@@ -589,6 +589,12 @@ pub fn front_set_realm(realm: &str) {
     FRONT.with(|f| f.borrow_mut().set_realm(realm));
 }
 
+/// Keep whether the Library's section `key` is open.
+#[wasm_bindgen(js_name = frontSetLibraryOpen)]
+pub fn front_set_library_open(key: &str, open: bool) {
+    FRONT.with(|f| f.borrow_mut().set_library_open(key, open));
+}
+
 /// Forget the sets kept in the browser's folder `folder`.
 #[wasm_bindgen(js_name = frontRemoveSets)]
 pub fn front_remove_sets(folder: &str) {

@@ -639,6 +639,11 @@ impl Front {
         };
     }
 
+    /// Whether the Library's section `key` is open, kept so it opens as it was left.
+    pub fn set_library_open(&mut self, key: &str, open: bool) {
+        self.state.settings.set_library_open(key, open);
+    }
+
     /// Forget every set kept in the browser's folder `folder`.
     pub fn remove_sets(&mut self, folder: &str) {
         let path = PathBuf::from(folder);
