@@ -828,6 +828,7 @@ struct Play {
     kingdom_rows: yalain_content::kingdoms::KingdomTable,
     popups: yalain_content::popups::PopupTable,
     item_rows: yalain_content::item_rows::ItemRows,
+    creature_rows: yalain_content::creature_rows::CreatureRows,
     glyphs: std::collections::HashSet<u32>,
     cannot_use: std::collections::HashSet<u32>,
     doors: std::collections::HashMap<u32, yalain_world::usable::doors::Kind>,
@@ -1041,6 +1042,7 @@ fn run<S: Store>(
     server.kingdom_rows = play.kingdom_rows;
     server.popups = play.popups;
     server.item_rows = play.item_rows;
+    server.creature_rows = play.creature_rows;
     server.glyph_packages = play.glyphs;
     server.cannot_use_packages = play.cannot_use;
     server.doors.packages = play.doors;
@@ -1729,6 +1731,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         gathering,
         items,
         crafts,
+        creatures,
         ..
     } = compiled;
     // Fields of kinds a world has that it may leave out everywhere: the server's own then.
@@ -1738,6 +1741,9 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
     // What items' uses do, books show and new characters are given: the world's rows, the
     // server's own of a kind it has none of.
     let (item_rows, items_fell_back) = yalain_world::item_use::world_item_rows(items);
+    // What creatures do: the world's rows, the server's own of a kind it has none of.
+    let (creature_rows, creatures_fell_back) =
+        yalain_world::creature_rows::world_creature_rows(creatures);
     // The numbers treasure draws by: the world's rows, 2017's for each kind it gives none of.
     let (treasure_tables, mut fell_back) =
         yalain_content::treasure_tables::TreasureTables::with_rows(&treasure);
@@ -1776,6 +1782,16 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             let kinds: Vec<String> = items_fell_back.iter().map(|k| format!("[[{k}]]")).collect();
             tracing::warn!(
                 "this world has no {} rows: its items go by the server's own there",
+                kinds.join(", ")
+            );
+        }
+        if !creatures_fell_back.is_empty() {
+            let kinds: Vec<String> = creatures_fell_back
+                .iter()
+                .map(|k| format!("[[{k}]]"))
+                .collect();
+            tracing::warn!(
+                "this world has no {} rows: its creatures go by the server's own there",
                 kinds.join(", ")
             );
         }
@@ -2113,6 +2129,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             kingdom_rows,
             popups,
             item_rows,
+            creature_rows,
             glyphs,
             cannot_use,
             doors,
@@ -2172,6 +2189,7 @@ fn reload_world(
         kingdoms: p.kingdom_rows,
         popups: p.popups,
         items: p.item_rows,
+        creatures: p.creature_rows,
         names,
         kinds: Some(yalain_world::reload::PlacedKinds {
             brokers: p.brokers,

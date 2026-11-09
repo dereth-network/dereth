@@ -93,6 +93,7 @@ pub(super) fn tables_of(h: &Harness) -> WorldTables {
         kingdoms: s.kingdom_rows.clone(),
         popups: s.popups.clone(),
         items: s.item_rows.clone(),
+        creatures: s.creature_rows.clone(),
         names: None,
         kinds: None,
         ground: None,

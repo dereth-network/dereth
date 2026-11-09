@@ -149,7 +149,7 @@ fn a_turrets_shot_comes_when_it_is_due_not_at_the_worlds_next_step() {
     }
     assert!(h.run_until(200, |h| mode_of(h, guard_id) == Some(Mode::Chasing)));
     let from = h.bots[b].inbox.len();
-    let gap = yalain_world::missiles::rhythm(TURRET).gap;
+    let gap = yalain_world::missiles::rhythm(&h.server.creature_rows, TURRET).gap;
     let mut at: Vec<(f64, f32)> = Vec::new();
     let mut told = 0;
     for _ in 0..1000 {

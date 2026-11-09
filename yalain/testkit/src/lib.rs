@@ -2139,6 +2139,78 @@ pub fn test_item_rows() -> yalain_content::item_rows::ItemRows {
     }
 }
 
+/// The test world's creature rows, as the world's rows give them: the 27 concealing rows (23
+/// effects, four of them for two classes each), the five healers' behavior tables, the five friend
+/// tables that never attack a player first, and the start area's six shooters' rhythms.
+#[must_use]
+pub fn test_creature_rows() -> yalain_content::creature_rows::CreatureRows {
+    use yalain_content::creature_rows::{CreatureRows, Regard, Rhythm};
+    const SPARES: [(u32, Option<u32>); 12] = [
+        (0x6F00_1C46, Some(0x17)),
+        (0x6F00_1D4A, Some(0x1D)),
+        (0x7000_0701, Some(0x1D)),
+        (0x6F00_1EEB, Some(0x0E)),
+        (0x7000_0713, Some(0x0E)),
+        (0x6F00_0DC9, Some(0x3C)),
+        (0x7000_1D76, Some(0x3C)),
+        (0x6F00_19F1, Some(0x59)),
+        (0x6F00_2049, Some(0x46)),
+        (0x6F00_2049, Some(0x43)),
+        (0x6F00_204B, Some(0x45)),
+        (0x6F00_204B, Some(0x44)),
+    ];
+    const HATES: [(u32, Option<u32>); 15] = [
+        (0x6F00_1D4C, Some(0x16)),
+        (0x7000_0703, Some(0x16)),
+        (0x6F00_1EE8, Some(0x0E)),
+        (0x7000_0710, Some(0x0E)),
+        (0x6F00_1D2E, Some(0x6F)),
+        (0x7000_1DAE, Some(0x6F)),
+        (0x6F00_20BC, Some(0x06)),
+        (0x7000_1EB8, Some(0x06)),
+        (0x6F00_0D8C, None),
+        (0x7000_1CB3, None),
+        (0x6F00_1C48, Some(0x78)),
+        (0x6F00_1C77, Some(0x46)),
+        (0x6F00_1C77, Some(0x43)),
+        (0x6F00_1C78, Some(0x45)),
+        (0x6F00_1C78, Some(0x44)),
+    ];
+    let rhythm = |gap, windup| Rhythm { gap, windup };
+    let concealing = SPARES
+        .iter()
+        .map(|k| (*k, Regard::Spares))
+        .chain(HATES.iter().map(|k| (*k, Regard::Hates)))
+        .collect();
+    CreatureRows {
+        concealing,
+        heals_kin: [
+            "NPCTable_DrudgeGloom",
+            "NPCTable_BurunLeader",
+            "NPCTable_MoarsmanHealer",
+            "NPCTable_MimbuHealer",
+            "NPCTable_Crone",
+        ]
+        .into_iter()
+        .map(|n| (n.to_string(), true))
+        .collect(),
+        attacks_first: [0x18, 0x0E, 0x23, 0x38, 0x35]
+            .into_iter()
+            .map(|t| (t, false))
+            .collect(),
+        rhythms: [
+            (0x4700_2398, rhythm(2.37, 0.79)),
+            (0x4700_23A0, rhythm(2.37, 0.79)),
+            (0x4700_2963, rhythm(1.33, 0.45)),
+            (0x4700_296C, rhythm(1.33, 0.45)),
+            (0x4700_29EE, rhythm(1.63, 0.98)),
+            (0x4700_21BE, rhythm(3.58, 1.14)),
+        ]
+        .into_iter()
+        .collect(),
+    }
+}
+
 /// What the test world's summoning skills allow: a test's own skill as a Lasher's, a turret's two.
 #[must_use]
 pub fn test_pet_limits() -> Vec<(u32, Vec<(usize, u32)>)> {
@@ -2463,6 +2535,7 @@ impl<S: Store> Harness<S> {
             .with_world(test_start(), yalain_content::ContentPack::default());
         server.pets.read_rows(test_pet_kinds(), test_pet_limits());
         server.item_rows = test_item_rows();
+        server.creature_rows = test_creature_rows();
         server.skill_table = test_skills();
         server.effect_table = test_effects();
         server.crafting = test_crafting();

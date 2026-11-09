@@ -228,13 +228,35 @@ fn a_shot_on_a_holder_tells_what_goes_back_and_the_shooter_loses_it() {
 /// Behaviour: server.creatures.attacks-when-due
 #[test]
 fn a_shot_comes_when_it_is_due_not_at_the_worlds_next_step() {
+    shots_come_when_due(None);
+}
+
+/// The world's creature rows give a shooter its rhythm: its shots come its row's gap apart.
+/// Behaviour: server.creatures.behavior-as-rows-say
+#[test]
+fn a_shooters_row_gives_the_gap_between_its_shots() {
+    shots_come_when_due(Some(2.9));
+}
+
+/// A shooter's gaps between shots, each its rhythm's over the shot's time scale within the
+/// harness's step, its row giving it `gap` where asked.
+fn shots_come_when_due(gap_asked: Option<f32>) {
     let mut h = Harness::new();
+    if let Some(gap) = gap_asked {
+        h.server.creature_rows.rhythms.insert(
+            SHOOTER,
+            yalain_content::creature_rows::Rhythm { gap, windup: 0.55 },
+        );
+    }
     shooter_at(&mut h, 22.0, false);
     let (b, _me) = h.player_in_world("one", "Elara");
     scene_drawn(&mut h, b);
     let id = shooter_id(&h, b);
     let from = h.bots[b].inbox.len();
-    let gap = yalain_world::missiles::rhythm(SHOOTER).gap;
+    let gap = yalain_world::missiles::rhythm(&h.server.creature_rows, SHOOTER).gap;
+    if let Some(asked) = gap_asked {
+        assert!((gap - asked).abs() < f32::EPSILON, "its row's gap: {gap}");
+    }
     let mut at: Vec<(f64, f32)> = Vec::new();
     let mut told = 0;
     for _ in 0..1000 {

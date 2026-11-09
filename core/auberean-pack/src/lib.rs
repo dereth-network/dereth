@@ -108,7 +108,8 @@ impl Dialect for Ac2 {
          treasure_value <level>, treasure_rules, treasure_sort <sort>, treasure_word <sort> <word>, \
          treasure_look <template>, treasure_potion <kind>, \
          treasure_family <sort> <order>, item_use <template>, book <template>, \
-         start_item <template>, or landblock <XXYY>";
+         start_item <template>, concealing <effect> <class|any>, npc_table <name>, \
+         friend_table <table>, creature <template>, or landblock <XXYY>";
     const NAMES_BASE: bool = true;
     type Kind = Kind;
     type Era = Era;
@@ -221,6 +222,15 @@ pub enum Item {
     Spellbinding { sort: String },
     /// What a refining recipe yields, by its script package's name.
     Refining { recipe: String },
+    /// What creatures of a class (none: every creature) make of a concealing effect's holder, by
+    /// the effect and the class.
+    Concealing { effect: u32, class: Option<u32> },
+    /// What the world says of a behavior table's creatures, by the table's name.
+    NpcTable { name: String },
+    /// What the world says of a friend table's creatures, by the table.
+    FriendTable { table: u32 },
+    /// What the world says of a template's creatures, by the template.
+    Creature { template: u32 },
 }
 
 impl Item {
@@ -343,6 +353,22 @@ impl Item {
             ["refining", recipe] => Self::Refining {
                 recipe: identifier(recipe)?,
             },
+            ["concealing", effect, class] => Self::Concealing {
+                effect: number(effect)?,
+                class: match *class {
+                    "any" => None,
+                    c => Some(number(c)?),
+                },
+            },
+            ["npc_table", name] => Self::NpcTable {
+                name: (*name).to_string(),
+            },
+            ["friend_table", table] => Self::FriendTable {
+                table: number(table)?,
+            },
+            ["creature", template] => Self::Creature {
+                template: number(template)?,
+            },
             ["area", lb] => Self::Area {
                 landblock: u16::from_str_radix(lb, 16).ok().filter(|_| lb.len() == 4)?,
             },
@@ -408,6 +434,17 @@ impl fmt::Display for Item {
             Self::MapRecipes { region } => write!(f, "map_recipes {region}"),
             Self::Spellbinding { sort } => write!(f, "spellbinding {sort}"),
             Self::Refining { recipe } => write!(f, "refining {recipe}"),
+            Self::Concealing {
+                effect,
+                class: Some(c),
+            } => write!(f, "concealing {effect:#010x} {c:#x}"),
+            Self::Concealing {
+                effect,
+                class: None,
+            } => write!(f, "concealing {effect:#010x} any"),
+            Self::NpcTable { name } => write!(f, "npc_table {name}"),
+            Self::FriendTable { table } => write!(f, "friend_table {table:#x}"),
+            Self::Creature { template } => write!(f, "creature {template:#010x}"),
         }
     }
 }

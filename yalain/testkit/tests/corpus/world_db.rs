@@ -5059,3 +5059,31 @@ fn the_heros_transformation_and_the_vitae_tap_read_as_the_server_starts_them() {
     assert_eq!(heroize.kind, Kind::Other);
     assert!(!heroize.lasts() && heroize.fx == 0, "nothing more");
 }
+
+/// **Creatures' behavior as 2017's**: what the server reads of creatures' behavior, the world's rows
+/// or its own for a kind the world has none of, is 2017's entry for entry: 27 concealing rows of 23
+/// effects, the five healers' behavior tables, the five friend tables that never attack a player
+/// first, and the six shooters' rhythms of the start area. A world's rows are read as they are.
+/// Behaviour: server.creatures.behavior-rows-as-2017
+#[test]
+fn the_worlds_creature_rows_are_2017s_entry_for_entry() {
+    let world = compiled().tables.creatures.clone();
+    let (rows, fell_back) = yalain_world::creature_rows::world_creature_rows(world.clone());
+    if fell_back.is_empty() {
+        assert_eq!(rows, world);
+    }
+    assert_eq!(rows.concealing.len(), 27);
+    let effects: std::collections::BTreeSet<u32> =
+        rows.concealing.keys().map(|(e, _)| *e).collect();
+    assert_eq!(effects.len(), 23);
+    assert_eq!(
+        (
+            rows.heals_kin.len(),
+            rows.attacks_first.len(),
+            rows.rhythms.len()
+        ),
+        (5, 5, 6)
+    );
+    assert_eq!(rows, yalain_world::creature_rows::fallback());
+    assert_eq!(rows, yalain_testkit::test_creature_rows());
+}

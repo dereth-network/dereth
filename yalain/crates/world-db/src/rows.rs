@@ -634,6 +634,51 @@ pub enum Row {
     MapRecipes(MapRecipes),
     Spellbinding(Spellbinding),
     Refining(Refining),
+    Concealing(Concealing),
+    NpcTable(NpcTable),
+    FriendTable(FriendTable),
+    Creature(Creature),
+}
+
+/// `[[concealing]]`: what creatures of a class (none: every creature) make of the holder of a
+/// concealing effect: they spare it unless it hurts them, or they hate it, coming at it even if they
+/// never attack first.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Concealing {
+    /// The effect, by its saved state.
+    pub effect: u32,
+    /// The creatures' class of behavior.
+    pub class: Option<u32>,
+    pub regard: yalain_content::creature_rows::Regard,
+    pub prov: Prov,
+}
+
+/// `[[npc_table]]`: what the world says of the creatures of a behavior table, by its name: whether
+/// they heal their kin.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NpcTable {
+    pub name: String,
+    pub heals_kin: bool,
+    pub prov: Prov,
+}
+
+/// `[[friend_table]]`: what the world says of the creatures of a friend table: whether they may
+/// attack a player first.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FriendTable {
+    pub table: u32,
+    pub attacks_first: bool,
+    pub prov: Prov,
+}
+
+/// `[[creature]]`: what the world says of the creatures of a template: its shooting rhythm, the
+/// gap between its shots times its shot's time scale and its windup before a missile leaves at the
+/// creatures' median time scale, in seconds.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Creature {
+    pub template: u32,
+    pub rhythm: Option<yalain_content::creature_rows::Rhythm>,
+    pub prov: Prov,
 }
 
 /// `[[event]]`: a named state of the world, on for its times: what it gates (camps, objects and
@@ -1026,6 +1071,10 @@ impl Row {
             Self::MapRecipes(_) => "map_recipes",
             Self::Spellbinding(_) => "spellbinding",
             Self::Refining(_) => "refining",
+            Self::Concealing(_) => "concealing",
+            Self::NpcTable(_) => "npc_table",
+            Self::FriendTable(_) => "friend_table",
+            Self::Creature(_) => "creature",
         }
     }
 
@@ -1077,13 +1126,17 @@ impl Row {
             Self::MapRecipes(r) => Some(&r.prov),
             Self::Spellbinding(r) => Some(&r.prov),
             Self::Refining(r) => Some(&r.prov),
+            Self::Concealing(r) => Some(&r.prov),
+            Self::NpcTable(r) => Some(&r.prov),
+            Self::FriendTable(r) => Some(&r.prov),
+            Self::Creature(r) => Some(&r.prov),
             Self::Remove(_) => None,
         }
     }
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 45] = [
+pub const KINDS: [&str; 49] = [
     "object",
     "camp",
     "loot",
@@ -1129,10 +1182,14 @@ pub const KINDS: [&str; 45] = [
     "map_recipes",
     "spellbinding",
     "refining",
+    "concealing",
+    "npc_table",
+    "friend_table",
+    "creature",
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 45] = [
+pub const FIELDS: [(&str, &[&str]); 49] = [
     (
         "object",
         &[
@@ -1482,6 +1539,10 @@ pub const FIELDS: [(&str, &[&str]); 45] = [
     ),
     ("spellbinding", &["sort", "template", "word", "prov"]),
     ("refining", &["recipe", "product", "full_at", "prov"]),
+    ("concealing", &["effect", "class", "regard", "prov"]),
+    ("npc_table", &["name", "heals_kin", "prov"]),
+    ("friend_table", &["table", "attacks_first", "prov"]),
+    ("creature", &["template", "shot_gap", "windup", "prov"]),
 ];
 
 /// The fields of a `[[treasure_family]]` row's tier.
@@ -2323,6 +2384,74 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                     product,
                     full_at,
                 },
+                prov: f.req_prov()?,
+            })
+        }
+        "concealing" => {
+            use yalain_content::creature_rows::Regard;
+            let effect = f.req_id("effect")?;
+            let class = f.id("class");
+            let regard = match f.word("regard", Regard::from_word, "spares or hates") {
+                Some(Some(r)) => r,
+                Some(None) => return None,
+                None => return f.missing("regard"),
+            };
+            Row::Concealing(Concealing {
+                effect,
+                class,
+                regard,
+                prov: f.req_prov()?,
+            })
+        }
+        "npc_table" => {
+            let name = f.req_ident("name")?;
+            let heals_kin = match f.t.get("heals_kin") {
+                Some(_) => f.bool("heals_kin")?,
+                None => return f.missing("heals_kin"),
+            };
+            Row::NpcTable(NpcTable {
+                name,
+                heals_kin,
+                prov: f.req_prov()?,
+            })
+        }
+        "friend_table" => {
+            let table = f.req_id("table")?;
+            let attacks_first = match f.t.get("attacks_first") {
+                Some(_) => f.bool("attacks_first")?,
+                None => return f.missing("attacks_first"),
+            };
+            Row::FriendTable(FriendTable {
+                table,
+                attacks_first,
+                prov: f.req_prov()?,
+            })
+        }
+        "creature" => {
+            use yalain_content::creature_rows::Rhythm;
+            let template = f.req_id("template")?;
+            let (gap, windup) = (f.float("shot_gap"), f.float("windup"));
+            let seconds = |n: f64| n.is_finite() && n > 0.0;
+            let rhythm = match (gap, windup) {
+                (Some(g), Some(w)) if seconds(g) && seconds(w) => Some(Rhythm {
+                    gap: to_f32(g),
+                    windup: to_f32(w),
+                }),
+                (Some(_), Some(_)) => {
+                    f.bad("shot_gap, windup", "a time is a number of seconds above 0");
+                    return None;
+                }
+                _ => {
+                    f.bad(
+                        "shot_gap, windup",
+                        "a shooter's rhythm gives both its shot_gap and its windup",
+                    );
+                    return None;
+                }
+            };
+            Row::Creature(Creature {
+                template,
+                rhythm,
                 prov: f.req_prov()?,
             })
         }

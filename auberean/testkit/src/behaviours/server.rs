@@ -2821,6 +2821,27 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.behavior-as-rows-say",
+        says: "Whom a concealing effect spares or makes hated, which behavior tables' healers heal \
+               their kin, which friend tables never attack a player first and a shooter's rhythm are \
+               the world's rows; a world with no rows of one of these kinds has the server's own of \
+               it, never mixed with rows.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-ROWS"),
+        station: "yalain-testkit::cpu::play::concealing::a_concealing_row_decides_whom_its_effect_spares",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.behavior-rows-as-2017",
+        says: "The world's creature rows are 2017's entry for entry: 27 concealing rows of 23 effects, \
+               the five healers' tables, the five friend tables that never attack first, and the six \
+               shooters' rhythms of the start area.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-CREATURE-BEHAVIOR-2017"),
+        station: "yalain-testkit::corpus::world_db::the_worlds_creature_rows_are_2017s_entry_for_entry",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.creatures.buff-themselves",
         says: "A creature with a buff uses it on itself in its fight now and then, most often at its \
                first turn, and the buff's appearance shows on it while it lasts.",

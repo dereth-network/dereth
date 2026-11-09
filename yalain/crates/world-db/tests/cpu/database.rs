@@ -4096,3 +4096,82 @@ fn crafting_work_rows_compile_to_map_recipes_totems_and_refinings() {
         assert!(merge(&read(&files).unwrap()).is_err(), "{twice}");
     }
 }
+
+/// A world's creature rows: what a class makes of a concealing effect's holder, a behavior table's
+/// healers, a friend table's first attacks and a template's shooting rhythm, each named for an
+/// override by its kind and key; a row of no such shape is refused, and a rhythm's template is
+/// held to the install.
+#[test]
+fn a_worlds_creature_rows_read_compile_and_are_held_to_their_shape() {
+    use yalain_content::creature_rows::{Regard, Rhythm};
+    const ROWS: &str = "[[concealing]]\neffect = 0x6F001C46\nclass = 0x17\nregard = \"spares\"\nprov = { from = \"authored\" }\n\n\
+        [[concealing]]\neffect = 0x6F000D8C\nregard = \"hates\"\nprov = { from = \"authored\" }\n\n\
+        [[npc_table]]\nname = \"NPCTable_Crone\"\nheals_kin = true\nprov = { from = \"authored\" }\n\n\
+        [[friend_table]]\ntable = 0x0E\nattacks_first = false\nprov = { from = \"authored\" }\n\n\
+        [[creature]]\ntemplate = 0x47002224\nshot_gap = 2.37\nwindup = 0.79\nprov = { from = \"authored\" }\n";
+    let mut files = fixture();
+    files.insert("town/server/creatures.toml".into(), ROWS.into());
+    assert_eq!(check(&files), Vec::new());
+    let db = read(&files).unwrap();
+    let keys: Vec<String> = db
+        .rows()
+        .filter(|l| l.file.ends_with("creatures.toml"))
+        .filter_map(yalain_world_db::merge::item_key)
+        .collect();
+    assert_eq!(
+        keys,
+        [
+            "concealing 0x6f001c46 0x17",
+            "concealing 0x6f000d8c any",
+            "creature 0x47002224",
+            "friend_table 0xe",
+            "npc_table NPCTable_Crone",
+        ]
+    );
+    for k in &keys {
+        let words: Vec<&str> = k.split(' ').collect();
+        let item = auberean_pack::Item::parse(&words).unwrap_or_else(|| panic!("{k} parses"));
+        assert_eq!(&item.to_string(), k, "{k} reads back");
+    }
+    let t = compile(&merge(&db).unwrap(), &Fake::new()).unwrap();
+    let c = &t.creatures;
+    assert_eq!(
+        c.concealing.get(&(0x6F00_1C46, Some(0x17))),
+        Some(&Regard::Spares)
+    );
+    assert_eq!(c.concealing.get(&(0x6F00_0D8C, None)), Some(&Regard::Hates));
+    assert!(c.heals_kin(Some("NPCTable_Crone")));
+    assert!(!c.may_attack_first(Some(0x0E)) && c.may_attack_first(Some(0x42)));
+    assert_eq!(
+        c.rhythms.get(&0x4700_2224),
+        Some(&Rhythm {
+            gap: 2.37,
+            windup: 0.79
+        })
+    );
+    for (from, to) in [
+        ("regard = \"spares\"", "regard = \"ignores\""),
+        ("regard = \"hates\"\n", ""),
+        ("heals_kin = true", "heals_kin = 1"),
+        ("attacks_first = false\n", ""),
+        ("shot_gap = 2.37\n", ""),
+        ("windup = 0.79", "windup = 0"),
+        ("windup = 0.79", "windup = 0.79\nspeed = 2"),
+    ] {
+        let mut files = fixture();
+        files.insert(
+            "town/server/creatures.toml".into(),
+            ROWS.replacen(from, to, 1),
+        );
+        assert!(read(&files).is_err(), "{to:?} for {from:?}");
+    }
+    let mut files = fixture();
+    files.insert(
+        "town/server/creatures.toml".into(),
+        ROWS.replace("0x47002224", "0x47009999"),
+    );
+    assert!(
+        compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).is_err(),
+        "a template the install lacks"
+    );
+}

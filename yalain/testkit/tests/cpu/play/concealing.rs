@@ -280,14 +280,22 @@ fn an_effect_is_for_the_classes_its_words_name() {
         holding(&mut h, state);
         let p = h.server.players.values().next().expect("the player");
         for class in classes {
-            assert_eq!(regard(p, Some(*class)), Some(how), "{state:#x} {class:#x}");
+            assert_eq!(
+                regard(&h.server.creature_rows, p, Some(*class)),
+                Some(how),
+                "{state:#x} {class:#x}"
+            );
         }
         assert_eq!(
-            regard(p, Some(0x06)),
+            regard(&h.server.creature_rows, p, Some(0x06)),
             None,
             "{state:#x}, a class it doesn't name"
         );
-        assert_eq!(regard(p, None), None, "{state:#x}, no class");
+        assert_eq!(
+            regard(&h.server.creature_rows, p, None),
+            None,
+            "{state:#x}, no class"
+        );
     }
 }
 
@@ -315,7 +323,75 @@ fn an_effect_that_names_no_class_does_nothing() {
         holding(&mut h, state);
         let p = h.server.players.values().next().expect("the player");
         for class in [0x08, 0x1C, 0x40, 0x4C, 0x4D, 0x55, 0x75, 0x1E, 0x48, 0x6F] {
-            assert_eq!(regard(p, Some(class)), None, "{state:#x} {class:#x}");
+            assert_eq!(
+                regard(&h.server.creature_rows, p, Some(class)),
+                None,
+                "{state:#x} {class:#x}"
+            );
         }
     }
+}
+
+/// The world's concealing rows decide: without the row of the amulet of peace for the moarsmen,
+/// they come at its holder; with a row sparing the drudges, the drudges leave it alone.
+/// Behaviour: server.creatures.behavior-as-rows-say
+#[test]
+fn a_concealing_row_decides_whom_its_effect_spares() {
+    use yalain_world::ai::Regard;
+    let (mut h, _, _, ids) = beside(MOARSMEN, FIRST, Some(PEACE));
+    h.server
+        .creature_rows
+        .concealing
+        .remove(&(PEACE, Some(MOARSMEN)));
+    assert!(h.run_until(100, |h| chasing(h, ids[0])), "no row: it comes");
+    let (mut h, _, _, ids) = beside(DRUDGES, FIRST, Some(PEACE));
+    h.server
+        .creature_rows
+        .concealing
+        .insert((PEACE, Some(DRUDGES)), Regard::Spares);
+    h.run(400);
+    assert!(!chasing(&h, ids[0]), "a row for its class: it spares");
+}
+
+/// The world's friend table rows decide who never attacks first: a table its row says never does
+/// leaves a player alone, and one its row lets attack first comes at once.
+/// Behaviour: server.creatures.behavior-as-rows-say
+#[test]
+fn a_friend_table_row_decides_who_never_attacks_first() {
+    let (mut h, _, _, ids) = beside(DRUDGES, FIRST, None);
+    h.server.creature_rows.attacks_first.insert(FIRST, false);
+    h.run(400);
+    assert!(!chasing(&h, ids[0]), "its row: never first");
+    let (mut h, _, _, ids) = beside(DRUDGES, NEVER_FIRST, None);
+    h.server
+        .creature_rows
+        .attacks_first
+        .insert(NEVER_FIRST, true);
+    assert!(h.run_until(100, |h| chasing(h, ids[0])), "its row: first");
+}
+
+/// A world with no rows of a creature kind has the server's own of that kind and names it; one
+/// with rows of a kind has its rows alone, never the server's beside them.
+/// Behaviour: server.creatures.behavior-as-rows-say
+#[test]
+fn a_world_with_no_creature_rows_of_a_kind_has_the_servers_own_of_it() {
+    use yalain_content::creature_rows::{CreatureRows, Regard};
+    use yalain_world::creature_rows::{fallback, world_creature_rows};
+    let (rows, fell_back) = world_creature_rows(CreatureRows::default());
+    assert_eq!(rows, fallback());
+    assert_eq!(
+        fell_back,
+        ["concealing", "npc_table", "friend_table", "creature"]
+    );
+    assert_eq!(rows, yalain_testkit::test_creature_rows());
+    let mine = CreatureRows {
+        concealing: [((PEACE, Some(DRUDGES)), Regard::Hates)]
+            .into_iter()
+            .collect(),
+        ..CreatureRows::default()
+    };
+    let (rows, fell_back) = world_creature_rows(mine.clone());
+    assert_eq!(rows.concealing, mine.concealing, "its rows alone");
+    assert_eq!(fell_back, ["npc_table", "friend_table", "creature"]);
+    assert_eq!(rows.heals_kin, fallback().heals_kin);
 }

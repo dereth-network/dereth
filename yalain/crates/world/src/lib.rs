@@ -82,6 +82,7 @@ pub mod chargen;
 pub mod chat;
 pub mod combat;
 pub mod craft;
+pub mod creature_rows;
 pub mod death;
 pub mod death_spawn;
 pub mod download;
@@ -442,6 +443,9 @@ pub struct Server<S: Store> {
     /// The world database's tips, shown once each: the effect whose description is shown, by
     /// moment.
     pub popups: yalain_content::popups::PopupTable,
+    /// The world database's creature rows: whom concealing effects spare or make hated, which
+    /// healers heal their kin, which friend tables never attack first, shooters' rhythms.
+    pub creature_rows: yalain_content::creature_rows::CreatureRows,
     /// The packages of the items that are glyphs.
     pub glyph_packages: std::collections::HashSet<u32>,
     /// The packages of the world's objects that cannot be used (forges, road signs).
@@ -835,6 +839,7 @@ impl<S: Store> Server<S> {
             kingdom_skills: kingdom_skills::KingdomSkills::default(),
             kingdom_rows: yalain_content::kingdoms::KingdomTable::default(),
             popups: yalain_content::popups::PopupTable::default(),
+            creature_rows: yalain_content::creature_rows::CreatureRows::default(),
             glyph_packages: std::collections::HashSet::new(),
             cannot_use_packages: std::collections::HashSet::new(),
             inscribable_packages: std::collections::HashSet::new(),

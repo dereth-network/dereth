@@ -338,22 +338,18 @@ pub struct Rhythm {
     pub windup: f32,
 }
 
-/// The start area's shooters' rhythms by template: the beetles' (Edge, Cutter and Sharp Cutter
-/// Beetles: gap 1.63, windup 0.55 x 1.296) for any other; the drudges' (Outcast, Downtrodden: 2.37,
-/// 0.79 x 1.296); the wasps' (Green Phyntos, Red Soldier: 1.33, 0.45 x 1.296); the Reedshark
-/// Runt's windup 0.98 x 1.296; the Sandy Armoredillo's (3.58, 1.14 x 1.296).
+/// A creature's shooting rhythm by its template, the world's rows', with the beetles' (Edge, Cutter
+/// and Sharp Cutter Beetles: gap 1.63, windup 0.55 x 1.296) for one they give none of.
 #[must_use]
-pub fn rhythm(template: u32) -> Rhythm {
-    let r = |gap: f32, windup: f32| Rhythm {
-        gap,
-        windup: windup * CREATURE_TIME_SCALE,
-    };
-    match template {
-        0x4700_2398 | 0x4700_23A0 => r(2.37, 0.79),
-        0x4700_2963 | 0x4700_296C => r(1.33, 0.45),
-        0x4700_29EE => r(1.63, 0.98),
-        0x4700_21BE => r(3.58, 1.14),
-        _ => r(1.63, 0.55),
+pub fn rhythm(rows: &yalain_content::creature_rows::CreatureRows, template: u32) -> Rhythm {
+    let r = rows
+        .rhythms
+        .get(&template)
+        .copied()
+        .unwrap_or(crate::creature_rows::OTHER_SHOOTERS);
+    Rhythm {
+        gap: r.gap,
+        windup: r.windup * CREATURE_TIME_SCALE,
     }
 }
 
@@ -424,7 +420,8 @@ pub fn shoot<S: Store>(
         let pace = combat::attack_pace(s, id);
         // A special that throws nothing strikes where the creature stands.
         if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
-            c.next_attack = now + f64::from(rhythm(template).gap / (CREATURE_TIME_SCALE * pace));
+            c.next_attack = now
+                + f64::from(rhythm(&s.creature_rows, template).gap / (CREATURE_TIME_SCALE * pace));
         }
         combat::creature_strike_with(s, net, id, target, skill, true, clock);
         return;
@@ -454,7 +451,7 @@ pub fn launch<S: Store>(
     let (pid, from) = (p.character, p.position);
     let pace = combat::attack_pace(s, id);
     let ts = CREATURE_TIME_SCALE * s.rng.between(0.9, 1.1) * pace;
-    let rh = rhythm(template);
+    let rh = rhythm(&s.creature_rows, template);
     // A missile's gap goes with its time scale; a bolt of magic keeps its own (2017: the gaps of
     // magic under an effect slowing attacks 1.33 s against 1.28 s).
     let paced = if skill.kind == Kind::Magic {
@@ -765,15 +762,8 @@ pub const KIN_BUFF_LATER: f32 = 0.02;
 pub const KIN_WOUNDED_AT: f32 = 0.4;
 pub const KIN_HEAL_CHANCE: f32 = 0.08;
 /// The generic monsters' sub class of protectors, which buff their kin (2017: 432 of 433 buffs on
-/// kin), and the behavior tables of the healers, which heal theirs.
+/// kin); the world's rows say which behavior tables' healers heal theirs.
 pub const PROTECTOR: u32 = 7;
-pub const HEALERS: [&str; 5] = [
-    "NPCTable_DrudgeGloom",
-    "NPCTable_BurunLeader",
-    "NPCTable_MoarsmanHealer",
-    "NPCTable_MimbuHealer",
-    "NPCTable_Crone",
-];
 /// The chance a heal's or buff's hook takes a point of its target's health (2017: 1,771 of 3,603
 /// self helps without an armor debuff named a loss of 1, the rest none, alike wounded or whole).
 pub const HELP_TAKES_A_POINT: f32 = 0.5;
@@ -826,11 +816,7 @@ pub fn helps<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: C
     let first = c.actions == 0;
     let warning = c.stats.warning_level;
     let protector = c.stats.sub_class == Some(PROTECTOR);
-    let healer = c
-        .stats
-        .npc_table
-        .as_deref()
-        .is_some_and(|n| HEALERS.contains(&n));
+    let healer = s.creature_rows.heals_kin(c.stats.npc_table.as_deref());
     let barred = c.barred.clone();
     let last = c.kin_helped;
     let all = helps_of(&s.skill_table, &s.effect_table, &c.stats);

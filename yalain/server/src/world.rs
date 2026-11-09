@@ -268,8 +268,9 @@ fn check_cmd(args: &[String]) -> Result<(), String> {
 /// saved state of, a `[[popup]]` naming an effect the install holds no saved state of or one
 /// whose effect has no description to show, an `[[effect_rule]]` naming an effect, or a ward
 /// keeping off an effect, the install holds no saved state of, a `[[treasure_look]]` naming a
-/// table the install has not, and a `[[treasure_potion]]`, a `[[treasure_family]]` or an
-/// `[[item_use]]` naming an effect the install has not.
+/// table the install has not, a `[[treasure_potion]]`, a `[[treasure_family]]` or an
+/// `[[item_use]]` naming an effect the install has not, and a `[[concealing]]` naming an effect
+/// the install has not.
 ///
 /// # Errors
 /// The install's library does not read.
@@ -375,6 +376,19 @@ pub fn install_problems(p: &data::Portal, db: &rows::Database) -> Result<Vec<Pro
                     format!(
                         "[[item_use]] {:#010x}: effect {state:#010x}: the install holds no such effect",
                         r.template
+                    ),
+                ));
+            }
+        }
+        if let rows::Row::Concealing(r) = &l.row {
+            let read = data::effect_table(p, &[r.effect], &Default::default())?;
+            if !read.effects.contains_key(&r.effect) {
+                out.push(Problem::new(
+                    &l.file,
+                    l.line,
+                    format!(
+                        "[[concealing]] effect {:#010x}: the install holds no such effect",
+                        r.effect
                     ),
                 ));
             }

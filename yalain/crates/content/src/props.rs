@@ -356,7 +356,8 @@ pub struct CreatureStats {
     /// Health and vigor regained a second at rest.
     pub health_regen: f32,
     pub vigor_regen: f32,
-    /// Whether it attacks a player it notices (else only one that attacks it).
+    /// Whether its template lets it attack a player it notices (else only one that attacks it);
+    /// the world's friend table rows may still say its kind never does.
     pub attacks_first: bool,
     /// Its friend table (who it thinks of as its own): creatures of one table come to each other's
     /// fights.
@@ -507,9 +508,6 @@ pub const DEFAULT_WARNING_LEVEL: f32 = 0.65;
 pub mod friend_table {
     /// Friendly to players: never fights them.
     pub const PLAYER_FRIENDLY: u32 = 0x18;
-    /// Tables whose creatures never attack a player first (2017: rabbits 1 of 386 players in
-    /// reach, the peaceful 8 of 291, peaceful drudges 1 of 64, one side of a war 0 of 17).
-    pub const NEVER_FIRST: [u32; 5] = [PLAYER_FRIENDLY, 0x0E, 0x23, 0x38, 0x35];
 }
 
 pub use crate::movement::SETTLED_HOMESICK;
@@ -582,9 +580,7 @@ impl CreatureStats {
             attacks_first: match p.get(k::FREE_ATTACKING) {
                 Some(Prop::Bool(b)) => *b,
                 _ => true,
-            } && !p
-                .word(k::LOVE_TABLE)
-                .is_some_and(|t| friend_table::NEVER_FIRST.contains(&t)),
+            },
             friend_table: p.word(k::LOVE_TABLE),
             fights: true,
             scale: p.float(k::SCALE).filter(|s| *s > 0.0).unwrap_or(1.0),

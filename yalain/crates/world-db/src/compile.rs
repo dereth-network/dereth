@@ -159,6 +159,9 @@ pub struct Tables {
     /// What items' uses do where their templates name nothing, what books, cards and people show,
     /// and what every new character is given.
     pub items: yalain_content::item_rows::ItemRows,
+    /// What the world says of creatures' behavior: whom concealing effects spare or make hated,
+    /// who heals its kin, who never attacks first, shooters' rhythms.
+    pub creatures: yalain_content::creature_rows::CreatureRows,
     /// What the compile left out or could not serve, and why.
     pub warnings: Vec<Problem>,
 }
@@ -1190,6 +1193,22 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
             Row::StartItem(r) => {
                 if cx.template(l, "template", r.template) {
                     t.items.start_items.insert(r.template, r.count);
+                }
+            }
+            Row::Concealing(r) => {
+                t.creatures.concealing.insert((r.effect, r.class), r.regard);
+            }
+            Row::NpcTable(r) => {
+                t.creatures.heals_kin.insert(r.name.clone(), r.heals_kin);
+            }
+            Row::FriendTable(r) => {
+                t.creatures.attacks_first.insert(r.table, r.attacks_first);
+            }
+            Row::Creature(r) => {
+                if cx.template(l, "template", r.template) {
+                    if let Some(rhythm) = r.rhythm {
+                        t.creatures.rhythms.insert(r.template, rhythm);
+                    }
                 }
             }
             Row::EffectRule(r) => {

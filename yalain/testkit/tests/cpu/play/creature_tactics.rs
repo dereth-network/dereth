@@ -1285,6 +1285,54 @@ fn a_healer_heals_its_badly_hurt_kin() {
     assert!(health > 300, "healed: {health}");
 }
 
+/// Whether a healer of a behavior table heals its kin held at a quarter of its health, within 200
+/// turns of 20 steps, the world's rows saying whether the table heals kin.
+fn heals_hurt_kin(table: &str, heals_kin: bool) -> bool {
+    let extra = [
+        ("NPC_StartingSkill1", Prop::Word(CREATURE_HEAL)),
+        ("NPC_StartingSkill1Level", Prop::Int(50)),
+        ("AI_NPCTable", Prop::Text(table.into())),
+    ];
+    let (mut h, b, _, one, two) = pair(&extra);
+    h.server
+        .creature_rows
+        .heals_kin
+        .insert(table.to_string(), heals_kin);
+    if let Some(c) = h
+        .server
+        .things
+        .get_mut(two)
+        .and_then(|t| t.creature.as_mut())
+    {
+        c.barred.push((CREATURE_HEAL, f64::MAX));
+    }
+    for _ in 0..200 {
+        if let Some(t) = h.server.things.get_mut(two) {
+            t.health = 120;
+        }
+        h.run(20);
+        if !helps_on(&h, b, one, two, CREATURE_HEAL).is_empty() {
+            return true;
+        }
+    }
+    false
+}
+
+/// The world's behavior table rows decide which healers heal their kin: a table its row names a
+/// healer's does, and a healer's table its row says doesn't, doesn't.
+/// Behaviour: server.creatures.behavior-as-rows-say
+#[test]
+fn a_behavior_table_row_decides_whose_healers_heal_their_kin() {
+    assert!(
+        heals_hurt_kin("NPCTable_RiverHealers", true),
+        "its row: heals"
+    );
+    assert!(
+        !heals_hurt_kin("NPCTable_MimbuHealer", false),
+        "its row: doesn't"
+    );
+}
+
 /// A player's worn record of a made-up counter or ward, its definition in the table.
 fn holds(h: &mut Harness, me: u64, state: u32, kind: yalain_world::effect_defs::Kind) {
     let world = conn(h, me);

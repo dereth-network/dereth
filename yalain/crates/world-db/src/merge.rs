@@ -123,6 +123,17 @@ pub fn item(l: &Located) -> Option<Item> {
         Row::StartItem(r) => Item::StartItem {
             template: r.template,
         },
+        Row::Concealing(r) => Item::Concealing {
+            effect: r.effect,
+            class: r.class,
+        },
+        Row::NpcTable(r) => Item::NpcTable {
+            name: r.name.clone(),
+        },
+        Row::FriendTable(r) => Item::FriendTable { table: r.table },
+        Row::Creature(r) => Item::Creature {
+            template: r.template,
+        },
         Row::Remove(_) => return None,
     })
 }
@@ -184,6 +195,10 @@ fn value(row: &Row) -> String {
         Row::ItemUse(x) => x.prov = crate::rows::Prov::default(),
         Row::Book(x) => x.prov = crate::rows::Prov::default(),
         Row::StartItem(x) => x.prov = crate::rows::Prov::default(),
+        Row::Concealing(x) => x.prov = crate::rows::Prov::default(),
+        Row::NpcTable(x) => x.prov = crate::rows::Prov::default(),
+        Row::FriendTable(x) => x.prov = crate::rows::Prov::default(),
+        Row::Creature(x) => x.prov = crate::rows::Prov::default(),
         Row::Remove(_) => {}
     }
     format!("{r:?}")

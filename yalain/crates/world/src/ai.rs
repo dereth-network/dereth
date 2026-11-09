@@ -107,74 +107,17 @@ pub const WALK_SPEED: f32 = 3.1;
 pub const PATROL_WALK_SPEED: f32 = 1.62;
 pub const PATROL_WALKING: u32 = crate::world::motion(0x80, 0xBF, 0x7F);
 
-/// What a concealing effect makes creatures of a class make of its holder.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Regard {
-    /// They don't take it on unless it hurts them.
-    Spares,
-    /// They take it on, even those that never attack first.
-    Hates,
-}
+pub use yalain_content::creature_rows::Regard;
 
-/// The concealing effects whose reach is known: each one's saved states, the class of creature it
-/// is for (none: every creature; an effect for two classes has a row for each) and what they make of
-/// its holder. The install says so of those with a state and its copy. The amulet of peace's
-/// description names its moarsmen (2017: under it, 0 of 8 moarsmen within 20 m came at the player;
-/// without it, 24 of 140 came at it first).
-///
-/// The last rows are read from words alone: the fanatics, the slave spawn, the Archon forces and
-/// those loyal to Aerfalle and Geraine, whose classes hold those names and hardly any other. No
-/// recording shows any of them held. The other effects of the kind do nothing: one names
-/// no one, one names people who share their class with others, one is a guard's mark too seldom
-/// recorded to read, and under the rabbits' disguise those that attack first went on doing so (5 of
-/// 5).
-const CONCEALING: [(u32, Option<u32>, Regard); 27] = [
-    (0x6F00_1C46, Some(0x17), Regard::Spares),
-    (0x6F00_1D4A, Some(0x1D), Regard::Spares),
-    (0x7000_0701, Some(0x1D), Regard::Spares),
-    (0x6F00_1EEB, Some(0x0E), Regard::Spares),
-    (0x7000_0713, Some(0x0E), Regard::Spares),
-    (0x6F00_0DC9, Some(0x3C), Regard::Spares),
-    (0x7000_1D76, Some(0x3C), Regard::Spares),
-    (0x6F00_1D4C, Some(0x16), Regard::Hates),
-    (0x7000_0703, Some(0x16), Regard::Hates),
-    (0x6F00_1EE8, Some(0x0E), Regard::Hates),
-    (0x7000_0710, Some(0x0E), Regard::Hates),
-    (0x6F00_1D2E, Some(0x6F), Regard::Hates),
-    (0x7000_1DAE, Some(0x6F), Regard::Hates),
-    (0x6F00_20BC, Some(0x06), Regard::Hates),
-    (0x7000_1EB8, Some(0x06), Regard::Hates),
-    (0x6F00_0D8C, None, Regard::Hates),
-    (0x7000_1CB3, None, Regard::Hates),
-    (0x6F00_19F1, Some(0x59), Regard::Spares),
-    (0x6F00_1C48, Some(0x78), Regard::Hates),
-    (0x6F00_1C77, Some(0x46), Regard::Hates),
-    (0x6F00_1C77, Some(0x43), Regard::Hates),
-    (0x6F00_1C78, Some(0x45), Regard::Hates),
-    (0x6F00_1C78, Some(0x44), Regard::Hates),
-    (0x6F00_2049, Some(0x46), Regard::Spares),
-    (0x6F00_2049, Some(0x43), Regard::Spares),
-    (0x6F00_204B, Some(0x45), Regard::Spares),
-    (0x6F00_204B, Some(0x44), Regard::Spares),
-];
-
-/// What a creature of a class makes of a player, by the concealing effects it holds; hate over
-/// sparing, where it holds both.
+/// What a creature of a class makes of a player, by the concealing effects it holds and the
+/// world's rows; hate over sparing, where it holds both.
 #[must_use]
-pub fn regard(p: &crate::world::Player, class: Option<u32>) -> Option<Regard> {
-    let mut found = None;
-    for e in &p.play.effects {
-        let rows = CONCEALING.iter().filter(|(state, ..)| *state == e.state);
-        for (_, of, how) in rows {
-            if of.is_none() || *of == class {
-                if *how == Regard::Hates {
-                    return Some(Regard::Hates);
-                }
-                found = Some(*how);
-            }
-        }
-    }
-    found
+pub fn regard(
+    rows: &yalain_content::creature_rows::CreatureRows,
+    p: &crate::world::Player,
+    class: Option<u32>,
+) -> Option<Regard> {
+    rows.regard(p.play.effects.iter().map(|e| e.state), class)
 }
 
 /// A creature's class of behavior.
@@ -387,7 +330,7 @@ fn notice<S: Store>(
     notices_among(s, at, radius, |p| {
         fightable(p)
             && p.admin.attackable == Attackable::Normal
-            && match regard(p, class) {
+            && match regard(&s.creature_rows, p, class) {
                 Some(Regard::Spares) => false,
                 Some(Regard::Hates) => true,
                 None => attacks_first,
@@ -513,7 +456,9 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock, 
         return;
     }
     let run = RUN_SPEED * c.stats.scale * speed_scale(s, id);
-    let (mode, home, attacks_first) = (c.mode, c.home, c.stats.attacks_first);
+    let attacks_first =
+        c.stats.attacks_first && s.creature_rows.may_attack_first(c.stats.friend_table);
+    let (mode, home) = (c.mode, c.home);
     let leash = leash(c);
     let (joining, next_look) = (c.joining, c.next_look);
     let turns_only = c.stats.turns_only();
@@ -541,7 +486,7 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock, 
                         q.character == p
                             && !crate::combat::is_dead(q)
                             && q.trip.is_none()
-                            && regard(q, class) != Some(Regard::Spares)
+                            && regard(&s.creature_rows, q, class) != Some(Regard::Spares)
                     });
                     if here {
                         engage(s, net, id, p, clock);
@@ -856,7 +801,7 @@ fn reconsider<S: Store>(
         .filter_map(|p| presence::distance(at, &p.position).map(|d| (p, d)))
         .filter(|(p, d)| *d <= perception && fightable(p))
         .filter(|(p, _)| {
-            regard(p, class) != Some(Regard::Spares)
+            regard(&s.creature_rows, p, class) != Some(Regard::Spares)
                 || harm.iter().any(|(q, h)| *q == p.character && *h > 0)
         })
         .map(|(p, d)| (p.character, d))
