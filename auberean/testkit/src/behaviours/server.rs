@@ -9700,6 +9700,25 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.pets.armor-by-level",
+        says: "A creature's hit on a pet whose kind gives its armor takes that armor off, a point a \
+               point, as a player's does: the kind's armor at the pet's level, on the line between \
+               two levels given. A pet whose kind gives none takes its level's share of the hit.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PET-ARMOR"),
+        station: "yalain-testkit::cpu::play::pets::a_creatures_hit_on_a_pet_takes_off_the_armor_its_kind_has_at_its_level",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.pets.armor-rows-as-2017",
+        says: "The world's armor for the kinds of pet 2017 recorded struck puts a creature's plain hit \
+               on each, by kind and level, within a fifth of 2017's mean.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-PET-ARMOR-2017"),
+        station: "yalain-testkit::corpus::world_db::creatures_hits_on_pets_take_what_2017_recorded_by_kind_and_level",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.pets.attack-drawn-among-those-in-reach",
         says: "At each attack a pet draws one of its attacks that reach its target, all alike: within \
                a blow's reach its blows and its missiles, beyond it its missiles alone.",

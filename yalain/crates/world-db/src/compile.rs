@@ -1700,6 +1700,7 @@ fn death_treasures(
 fn pet_kind(r: &crate::rows::Pet) -> yalain_content::PetKind {
     use yalain_content::{PetHire, PetKind, PetTends, PetWhom};
     let mut k = PetKind::new(r.effect, r.template, r.flags, &r.health);
+    k.armor.clone_from(&r.armor);
     k.per_level_squared = r.per_level_squared.unwrap_or(k.per_level_squared);
     k.variance = r.variance.unwrap_or(k.variance);
     k.lands = r.lands.unwrap_or(k.lands);

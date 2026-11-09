@@ -815,6 +815,79 @@ fn a_creatures_strike_hurts_a_pet_when_its_blow_lands() {
     assert!((0.45..0.65).contains(&after), "{after}");
 }
 
+/// A creature's hit on a pet whose kind gives its armor takes that armor off, a point a point, as a
+/// player's does: its kind's armor at the pet's level, on the line between two levels given. A pet
+/// whose kind gives none takes its level's share of the hit.
+/// Behaviour: server.pets.armor-by-level
+#[test]
+fn a_creatures_hit_on_a_pet_takes_off_the_armor_its_kind_has_at_its_level() {
+    let mut h = Harness::new();
+    let (_, _, pet) = with_lasher(&mut h);
+    let beetle = beetle(&mut h);
+    if let Some(c) = h
+        .server
+        .things
+        .get_mut(beetle)
+        .and_then(|t| t.creature.as_mut())
+    {
+        c.stats.natural_damage = 400.0;
+        c.stats.natural_variance = 0.0;
+    }
+    if let Some(t) = h.server.things.get_mut(pet) {
+        t.max_health = 1_000_000;
+        t.health = t.max_health;
+        if let Some(c) = t.creature.as_mut() {
+            c.stats.level = 41;
+        }
+    }
+    let set_armor = |h: &mut Harness, armor: Vec<(i32, i32)>| {
+        if let Some(k) = h.server.pets.kinds.get_mut(&PET_EFFECT) {
+            k.armor = armor;
+        }
+    };
+    // What each of its landed plain strikes takes.
+    let hits = |h: &mut Harness| {
+        let mut got = Vec::new();
+        for _ in 0..400 {
+            let before = h.server.things.get(pet).map_or(0, |t| t.health);
+            let clock = h.clock();
+            yalain_world::combat::thing_strikes_thing(
+                &mut h.server,
+                &mut h.net,
+                beetle,
+                pet,
+                Some(yalain_world::missiles::CREATURE_ATTACKS[0]),
+                clock,
+            );
+            h.run(20);
+            let after = h.server.things.get(pet).map_or(0, |t| t.health);
+            if after < before {
+                got.push(before - after);
+            }
+            if got.len() == 12 {
+                break;
+            }
+        }
+        got
+    };
+    // At 41, halfway from 21 at 29 to 251 at 53: 136.
+    set_armor(&mut h, vec![(29, 21), (53, 251)]);
+    let got = hits(&mut h);
+    assert_eq!(got.len(), 12, "{got:?}");
+    assert!(
+        got.iter().all(|d| [264, 344].contains(d)),
+        "400 less 136, or 480 less 136: {got:?}"
+    );
+    assert!(got.contains(&264), "{got:?}");
+    set_armor(&mut h, Vec::new());
+    let got = hits(&mut h);
+    assert_eq!(got.len(), 12, "{got:?}");
+    assert!(
+        got.iter().all(|d| [44, 66].contains(d)),
+        "a tenth or so of 400 at 41: {got:?}"
+    );
+}
+
 /// The pet is ordered at a beetle: steps until its first story there is seen, and returns when.
 fn pet_strike_seen(h: &mut Harness, b: usize, pet: u64, beetle: u64) -> f64 {
     let from = h.bots[b].inbox.len();

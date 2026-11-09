@@ -2213,6 +2213,8 @@ pub(crate) fn hurt_player<S: Store>(
 /// A creature or a pet strikes another thing in its reach (a pet its target, a creature a pet that
 /// fights it): with the attack given (a pet's), else when its next attack is due with one of its
 /// basic melee attacks drawn by its weights; the story with its result, the target hurt by a hit.
+/// A pet whose kind gives its armor takes the hit less that armor, as a player does; any other
+/// target takes its level's share.
 pub fn thing_strikes_thing<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -2257,21 +2259,17 @@ pub fn thing_strikes_thing<S: Store>(
     } else {
         outcome
     };
-    let damage = if outcome.landed() {
-        rules::creature_hit(
-            &mut s.rng,
-            skill.kind,
-            rules::Natural {
-                damage: stats.natural_damage,
-                variance: stats.natural_variance,
-                added: skill.added,
-                factor: skill.factor,
-            },
-            their_level,
-            outcome == Outcome::Critical,
-        )
-    } else {
-        0
+    let natural = rules::Natural {
+        damage: stats.natural_damage,
+        variance: stats.natural_variance,
+        added: skill.added,
+        factor: skill.factor,
+    };
+    let critical = outcome == Outcome::Critical;
+    let damage = match (outcome.landed(), crate::pets::armor_of(s, target)) {
+        (false, _) => 0,
+        (true, Some(armor)) => rules::creature_hit_on_armor(&mut s.rng, natural, armor, critical),
+        (true, None) => rules::creature_hit(&mut s.rng, skill.kind, natural, their_level, critical),
     };
     let harm = if outcome.landed() {
         crate::effects::answer_harm(s, On::Creature(target), damage, false)

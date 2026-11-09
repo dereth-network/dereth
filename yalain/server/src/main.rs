@@ -1057,6 +1057,11 @@ fn run<S: Store>(
     server.death_effects = play.death_effects;
     if play.pet_kinds.is_empty() {
         tracing::warn!("this world has no [[pet]] rows: it makes no pets");
+    } else if play.pet_kinds.iter().all(|k| k.armor.is_empty()) {
+        tracing::warn!(
+            "no [[pet]] row of this world gives armor: a creature's hit on a pet takes the share \
+             of the pet's level"
+        );
     }
     server.pets.take_world_rows(play.pet_kinds, play.pet_limits);
     let unmade = yalain_world::pets::skills_with_no_kind(&server);

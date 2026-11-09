@@ -313,6 +313,14 @@ pub fn creature_hit_on_player(
     if player_level <= LEVEL_BEFORE_ARMOR {
         return creature_hit(rng, kind, n, player_level, critical);
     }
+    creature_hit_on_armor(rng, n, armor, critical)
+}
+
+/// A creature's hit on what has this much armor: a player past the lowest levels, or a pet of a
+/// kind whose armor is known (2017: the hits on pets that armor leaves clear of the floor read
+/// `natural x (1 - variance / 2) - armor` for every kind measured, the armor rising with the pet's
+/// level).
+pub fn creature_hit_on_armor(rng: &mut Rng, n: Natural, armor: f32, critical: bool) -> i32 {
     let v = n.variance.clamp(0.0, 1.0);
     let mut d = (n.damage * rng.between(1.0 - v, 1.0) + n.added) * n.factor;
     if critical {
@@ -322,10 +330,10 @@ pub fn creature_hit_on_player(
     dereth_primitives::num::to_i32((d - armor).max(floor).round()).max(1)
 }
 
-/// A creature's hit on a player of the lowest levels, or on another creature: its natural damage
-/// times a uniform roll across its variance, with what its skill adds, times what armor lets
-/// through of an attack of its kind by the level hit (and the factor); a critical adds half. At
-/// least 1.
+/// A creature's hit on a player of the lowest levels, or on a pet whose armor is not known: its
+/// natural damage times a uniform roll across its variance, with what its skill adds, times what
+/// armor lets through of an attack of its kind by the level hit (and the factor); a critical adds
+/// half. At least 1.
 pub fn creature_hit(
     rng: &mut Rng,
     kind: Kind,

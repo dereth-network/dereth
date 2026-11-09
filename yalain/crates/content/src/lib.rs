@@ -149,6 +149,9 @@ pub struct PetKind {
     pub flags: u32,
     /// Its greatest health at levels, where known (between them the line, beyond them held).
     pub health: Vec<(i32, i32)>,
+    /// Its armor against a creature's hit at levels, where known (between them the line, beyond
+    /// them held). None known: a creature's hit on it goes by its level's share.
+    pub armor: Vec<(i32, i32)>,
     /// What a hit of it takes: `per_level_squared` times its level squared, varied by `variance`
     /// either side, less the target's armor; the share of its strikes that land.
     pub per_level_squared: f32,
@@ -201,6 +204,7 @@ impl PetKind {
             template,
             flags,
             health: health.to_vec(),
+            armor: Vec::new(),
             per_level_squared: 0.05,
             variance: 0.35,
             lands: 0.8,
@@ -286,18 +290,30 @@ impl PetKind {
     /// Its greatest health at a level, when known.
     #[must_use]
     pub fn health_at(&self, level: i32) -> Option<i32> {
-        let (first, last) = (self.health.first()?, self.health.last()?);
-        if level <= first.0 {
-            return Some(first.1);
-        }
-        if level >= last.0 {
-            return Some(last.1);
-        }
-        self.health.windows(2).find_map(|w| {
-            let ((l0, h0), (l1, h1)) = (w[0], w[1]);
-            (level >= l0 && level <= l1).then(|| h0 + (h1 - h0) * (level - l0) / (l1 - l0).max(1))
-        })
+        at_level(&self.health, level)
     }
+
+    /// Its armor at a level, when known.
+    #[must_use]
+    pub fn armor_at(&self, level: i32) -> Option<i32> {
+        at_level(&self.armor, level)
+    }
+}
+
+/// A number given at levels, lowest first, at a level: between two the line, beyond the first and
+/// last held; none when no level is given.
+fn at_level(points: &[(i32, i32)], level: i32) -> Option<i32> {
+    let (first, last) = (points.first()?, points.last()?);
+    if level <= first.0 {
+        return Some(first.1);
+    }
+    if level >= last.0 {
+        return Some(last.1);
+    }
+    points.windows(2).find_map(|w| {
+        let ((l0, h0), (l1, h1)) = (w[0], w[1]);
+        (level >= l0 && level <= l1).then(|| h0 + (h1 - h0) * (level - l0) / (l1 - l0).max(1))
+    })
 }
 
 /// The templates the world makes objects of, by id, and the names of the generator profiles

@@ -398,6 +398,16 @@ pub fn pet(r: &yalain_world_db::rows::Pet, p: &Prov) -> Table {
         }
         put(&mut t, "health", Value::Array(a));
     }
+    if !r.armor.is_empty() {
+        let mut a = Array::new();
+        for (level, armor) in &r.armor {
+            let mut i = toml_edit::InlineTable::new();
+            i.insert("level", Value::from(i64::from(*level)));
+            i.insert("armor", Value::from(i64::from(*armor)));
+            a.push(Value::InlineTable(i));
+        }
+        put(&mut t, "armor", Value::Array(a));
+    }
     for (name, v) in [
         ("per_level_squared", r.per_level_squared),
         ("variance", r.variance),

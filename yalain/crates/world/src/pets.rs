@@ -2179,6 +2179,19 @@ pub fn pet_hit(rng: &mut crate::rng::Rng, kind: &PetKind, level: i32, armor: i32
     dereth_primitives::num::to_i32(hit.round()).max(1)
 }
 
+/// A pet's armor against a creature's hit: its kind's at its level, when its kind gives one.
+#[must_use]
+pub fn armor_of<S: Store>(s: &Server<S>, id: u64) -> Option<f32> {
+    let kind = s
+        .pets
+        .by_id
+        .get(&id)
+        .and_then(|p| s.pets.kind_of(p.effect))?;
+    let level = s.things.get(id).map_or(1, Thing::level);
+    #[allow(clippy::cast_precision_loss)]
+    kind.armor_at(level).map(|a| a as f32)
+}
+
 /// Is a pet's strike told as a basic attack? By the skill, each always one way or the other, and
 /// nothing in its definition tells which (2017, pets on creatures, with the flag: 490 13,839, 491
 /// 13,413, 1098 376, 1023 288, 1845 18, 1846 15, 492 7, 1818 3; without it: 848 14,149, 865 13,271,

@@ -768,6 +768,7 @@ effect = 0x7000092A
 template = 0x47000862
 flags = 1096
 health = [{ level = 10, health = 200 }]
+armor = [{ level = 10, armor = 20 }, { level = 50, armor = 240 }]
 prov = { from = "authored" }
 
 [[pet_limit]]
@@ -794,6 +795,7 @@ prov = { from = "authored" }
         .expect("the row");
     assert_eq!(written.flags, 3128);
     assert_eq!(written.health, vec![(10, 200)], "the rest kept");
+    assert_eq!(written.armor, vec![(10, 20), (50, 240)], "the rest kept");
     s.set(
         "pet_limit 0x000002c0",
         "limits",

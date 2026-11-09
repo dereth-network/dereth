@@ -772,6 +772,9 @@ pub struct Pet {
     pub count: u32,
     /// Its greatest health at levels, lowest first; its template's when left out.
     pub health: Vec<(i32, i32)>,
+    /// Its armor against a creature's hit at levels, lowest first; left out, a creature's hit on
+    /// it goes by its level's share.
+    pub armor: Vec<(i32, i32)>,
     /// What a hit takes: this times its level squared. The server's general number when left out.
     pub per_level_squared: Option<f32>,
     pub variance: Option<f32>,
@@ -1338,6 +1341,7 @@ pub const FIELDS: [(&str, &[&str]); 42] = [
             "stays",
             "count",
             "health",
+            "armor",
             "per_level_squared",
             "variance",
             "lands",
@@ -2317,6 +2321,25 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 f.bad("health", "levels go up");
                 return None;
             }
+            let armor = f.list_of(
+                "armor",
+                "a list of { level, armor }, lowest level first",
+                &["level", "armor"],
+                |t| {
+                    Some((
+                        i32::try_from(t.get("level")?.as_integer()?).ok()?,
+                        i32::try_from(t.get("armor")?.as_integer()?).ok()?,
+                    ))
+                },
+            );
+            if armor.windows(2).any(|w| w[0].0 >= w[1].0) {
+                f.bad("armor", "levels go up");
+                return None;
+            }
+            if armor.iter().any(|a| a.1 < 0) {
+                f.bad("armor", "armor is 0 or more");
+                return None;
+            }
             let attacks = f.list_of(
                 "attacks",
                 "a list of { skill, weight }",
@@ -2340,6 +2363,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 stays: f.bool("stays").unwrap_or(false),
                 count,
                 health,
+                armor,
                 per_level_squared: share(f.float("per_level_squared")),
                 variance: share(f.float("variance")),
                 lands,

@@ -4054,6 +4054,156 @@ fn every_summoning_skill_names_a_pet_the_worlds_rows_make() {
     }
 }
 
+/// The world's armor for the kinds of pet 2017 recorded struck puts a creature's plain hit on each
+/// where 2017's were: by kind and level, 2017's mean over ours within a fifth either way, our hits
+/// drawn by the rule for the creatures' natural damage 2017 recorded. A world whose pets have no
+/// armor rows keeps the share by level and is held to nothing here. Each entry: the pet's template,
+/// its level, and (natural, variance, 2017's mean hit, hits) by band of natural damage.
+/// Behaviour: server.pets.armor-rows-as-2017
+#[test]
+fn creatures_hits_on_pets_take_what_2017_recorded_by_kind_and_level() {
+    type Band = (f32, f32, f32, u32);
+    const RECORDED: &[(u32, i32, &[Band])] = &[
+        (
+            0x4700_0846,
+            29,
+            &[(83.0, 0.31, 51.0, 37), (113.0, 0.30, 74.0, 48)],
+        ),
+        (
+            0x4700_0846,
+            52,
+            &[
+                (264.0, 0.12, 50.0, 232),
+                (386.0, 0.17, 106.0, 245),
+                (455.0, 0.19, 160.0, 172),
+                (521.0, 0.26, 204.0, 54),
+            ],
+        ),
+        (
+            0x4700_0846,
+            53,
+            &[
+                (260.0, 0.12, 27.0, 127),
+                (381.0, 0.16, 93.0, 483),
+                (443.0, 0.16, 150.0, 251),
+                (508.0, 0.25, 191.0, 156),
+            ],
+        ),
+        (
+            0x4700_0846,
+            54,
+            &[
+                (156.0, 0.24, 46.0, 30),
+                (224.0, 0.19, 52.0, 174),
+                (359.0, 0.15, 89.0, 174),
+                (442.0, 0.14, 163.0, 110),
+                (530.0, 0.17, 224.0, 75),
+            ],
+        ),
+        (
+            0x4700_084A,
+            56,
+            &[(253.0, 0.21, 31.0, 177), (335.0, 0.12, 92.0, 34)],
+        ),
+        (
+            0x4700_084A,
+            59,
+            &[(270.0, 0.12, 29.0, 34), (370.0, 0.10, 114.0, 25)],
+        ),
+        (
+            0x4700_084A,
+            72,
+            &[
+                (284.0, 0.17, 28.0, 93),
+                (321.0, 0.12, 37.0, 77),
+                (445.0, 0.12, 113.0, 27),
+                (540.0, 0.10, 209.0, 26),
+            ],
+        ),
+        (0x4700_084B, 55, &[(256.0, 0.20, 128.0, 74)]),
+        (
+            0x4700_084B,
+            72,
+            &[(290.0, 0.17, 90.0, 20), (361.0, 0.12, 160.0, 21)],
+        ),
+        (
+            0x4700_0851,
+            58,
+            &[
+                (291.0, 0.10, 30.0, 23),
+                (384.0, 0.11, 106.0, 37),
+                (414.0, 0.17, 120.0, 53),
+            ],
+        ),
+        (
+            0x4700_0863,
+            58,
+            &[
+                (75.0, 0.35, 8.0, 41),
+                (159.0, 0.21, 58.0, 96),
+                (249.0, 0.20, 131.0, 186),
+                (335.0, 0.19, 218.0, 53),
+            ],
+        ),
+        (
+            0x4700_0863,
+            60,
+            &[(178.0, 0.25, 55.0, 45), (240.0, 0.22, 118.0, 62)],
+        ),
+        (
+            0x4700_0863,
+            76,
+            &[(362.0, 0.18, 171.0, 50), (477.0, 0.21, 271.0, 24)],
+        ),
+    ];
+    const DRAWS: u32 = 400;
+    let t = &compiled().tables;
+    if t.pet_kinds.values().all(|k| k.armor.is_empty()) {
+        return;
+    }
+    let mut rng = yalain_world::rng::Rng::new(7);
+    for (template, level, bands) in RECORDED {
+        let kinds: Vec<_> = t
+            .pet_kinds
+            .values()
+            .filter(|k| k.template == *template)
+            .collect();
+        assert!(!kinds.is_empty(), "{template:08X}");
+        for k in kinds {
+            let armor = k.armor_at(*level);
+            assert!(armor.is_some(), "{:08X} at {level}: no armor", k.effect);
+            #[allow(clippy::cast_precision_loss)]
+            let armor = armor.unwrap_or(0) as f32;
+            let (mut recorded, mut ours) = (0.0_f64, 0.0_f64);
+            for &(natural, variance, mean, hits) in *bands {
+                let n = yalain_world::rules::Natural {
+                    damage: natural,
+                    variance,
+                    added: 0.0,
+                    factor: 1.0,
+                };
+                let sum: i64 = (0..DRAWS)
+                    .map(|_| {
+                        i64::from(yalain_world::rules::creature_hit_on_armor(
+                            &mut rng, n, armor, false,
+                        ))
+                    })
+                    .sum();
+                #[allow(clippy::cast_precision_loss)]
+                let our_mean = sum as f64 / f64::from(DRAWS);
+                recorded += f64::from(mean) * f64::from(hits);
+                ours += our_mean * f64::from(hits);
+            }
+            let r = recorded / ours;
+            assert!(
+                (0.8..1.25).contains(&r),
+                "{:08X} at {level}, armor {armor}: 2017 over ours {r:.2}",
+                k.effect
+            );
+        }
+    }
+}
+
 /// The Ultra Chest, the one chest standing whose kind names a use effect, names the completion of the
 /// quest that keeps it, by a name the server reads; no row of the world gives that quest.
 /// Behaviour: server.places.a-chests-use-comes-on-its-opener
