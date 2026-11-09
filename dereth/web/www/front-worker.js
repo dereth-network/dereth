@@ -255,6 +255,8 @@ const calls = {
   },
   addWorld: (game, name, host, port, ruleset, emulator) => dereth.frontAddWorld(game, name, host, port, ruleset, emulator),
   addedBy: (slug, url) => dereth.frontAddedBy(slug, url),
+  listedFor: (link, status, game) => dereth.frontListedFor(link, status ?? undefined, game ?? undefined),
+  openLinked: (slug) => dereth.frontOpenLinked(slug),
   removeWorld: (slug) => dereth.frontRemoveWorld(slug),
   recordLaunch: (slug, prefs) => dereth.frontRecordLaunch(slug, JSON.stringify(prefs)),
   saveFavourite: (favourite) => dereth.frontSaveFavourite(JSON.stringify(favourite)),

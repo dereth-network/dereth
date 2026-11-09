@@ -341,6 +341,88 @@ impl Front {
         )
     }
 
+    /// The world of the list a link to the page names by `link` (a status address, a WebSocket
+    /// endpoint, or `host:port`), as shown at `now`, so the link opens it rather than adding it
+    /// again: the world whose status address or WebSocket endpoint `link` is; else the one whose
+    /// WebSocket endpoint the world's status document (`status`, as fetched) names; else the one
+    /// on the link's host that has the name the document gives; else the only one on that host (at
+    /// that port, where the link names one). Only a world of the game the document names, or else
+    /// `game` (the link's own word), is taken. `None` when the list has no such world.
+    #[must_use]
+    pub fn listed_for(
+        &self,
+        link: &str,
+        status: Option<&[u8]>,
+        game: Option<&str>,
+        now: u64,
+    ) -> Option<String> {
+        use dereth_launch::direct::{same_status, same_websocket};
+        let doc: Option<Value> = status.and_then(|b| serde_json::from_slice(b).ok());
+        let live = status.and_then(status::parse_world_document);
+        let game = doc
+            .as_ref()
+            .and_then(|d| d.get("game"))
+            .and_then(Value::as_str)
+            .or(game)
+            .and_then(Game::parse);
+        let listed: Vec<World> = self
+            .shown(now)
+            .filter(|w| !self.state.custom_worlds.iter().any(|c| c.slug == w.slug))
+            .filter(|w| game.is_none_or(|g| w.game == g))
+            .collect();
+        let named_by = |url: &str, w: &World| {
+            w.status_url.as_deref().is_some_and(|s| same_status(s, url))
+                || w.websocket_url
+                    .as_deref()
+                    .is_some_and(|s| same_websocket(s, url))
+        };
+        let (host, port) = host_and_port(link)?;
+        let on_host = |w: &World| {
+            w.endpoint
+                .as_ref()
+                .is_some_and(|e| e.address.eq_ignore_ascii_case(&host))
+                || w.websocket_url
+                    .as_deref()
+                    .and_then(host_and_port)
+                    .is_some_and(|(h, _)| h == host)
+        };
+        let world_name = live.as_ref().and_then(|l| l.world_name.as_deref());
+        let websocket = live.as_ref().and_then(|l| l.websocket_url.as_deref());
+        let hosted: Vec<&World> = listed
+            .iter()
+            .filter(|w| on_host(w))
+            .filter(|w| port.is_none_or(|p| w.endpoint.as_ref().is_some_and(|e| e.port == p)))
+            .collect();
+        listed
+            .iter()
+            .find(|w| named_by(link, w))
+            .or_else(|| websocket.and_then(|ws| listed.iter().find(|w| named_by(ws, w))))
+            .or_else(|| {
+                world_name.and_then(|name| {
+                    listed
+                        .iter()
+                        .find(|w| on_host(w) && w.name.trim().eq_ignore_ascii_case(name.trim()))
+                })
+            })
+            .or(match hosted.as_slice() {
+                [only] => Some(*only),
+                _ => None,
+            })
+            .map(|w| w.slug.clone())
+    }
+
+    /// A link to the page opens world `slug` (the page's own name for it, or the hub's): the page
+    /// goes to its game's realm, and answers the world it shows for it (the list's, for a server
+    /// the player added that the list names too). `None` for a world not shown at `now`.
+    pub fn open_linked(&mut self, slug: &str, now: u64) -> Option<String> {
+        let w = self.world_of(slug, now).or_else(|| {
+            self.shown(now)
+                .find(|w| w.hub_slug.as_deref() == Some(slug))
+        })?;
+        self.set_realm(w.game.word());
+        Some(w.slug)
+    }
+
     /// Add a server of Asheron's Call's by its host and port.
     ///
     /// # Errors
@@ -650,6 +732,26 @@ impl Front {
         self.state.dat_sets.retain(|s| s.path != path);
         self.state.auberean.dat_sets.retain(|s| s.path != path);
     }
+}
+
+/// The host of a link's address, in lower case, and the port when it is a game address
+/// (`host:port`); a URL's port is its web server's, not the game's. `None` for no host.
+fn host_and_port(link: &str) -> Option<(String, Option<u16>)> {
+    let link = link.trim();
+    if let Some((_, rest)) = link.split_once("://") {
+        let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+        let host = if authority.starts_with('[') {
+            authority.split_once(']').map(|(h, _)| format!("{h}]"))?
+        } else {
+            authority.split(':').next().unwrap_or("").to_owned()
+        };
+        return (!host.is_empty()).then(|| (host.to_ascii_lowercase(), None));
+    }
+    let (host, port) = match link.rsplit_once(':') {
+        Some((h, p)) if !h.contains(':') => (h, p.parse().ok()),
+        _ => (link, None),
+    };
+    (!host.is_empty()).then(|| (host.to_ascii_lowercase(), port))
 }
 
 /// A world's game address, `host:port`, when it names one.
@@ -989,6 +1091,173 @@ mod tests {
         f.set_realm("dereth");
         let state: Value = serde_json::from_str(&f.state_json()).unwrap();
         assert!(state["settings"]["realm"].is_null());
+    }
+
+    /// Yalain's status document, as its world answers: its state named, no `world_open`.
+    const YALAIN_STATUS: &str = r#"{"connections":0,"game":"auberean","logins":0,
+        "max_logins":128,"players_online":2,"saves_failing":false,"server":"yalain",
+        "state":"online","uptime_seconds":12,"version":"0.3.0",
+        "websocket_url":"wss://shard.example.org/ws","world_name":"Shardfall Test"}"#;
+
+    /// A hub row of world `name` of `game`, at the game address `host:port`, with the WebSocket
+    /// endpoint `websocket` when it has one.
+    fn hub_world(name: &str, game: &str, host: &str, port: u16, websocket: Option<&str>) -> Value {
+        let mut row = hub_row(name, "unknown", None, None);
+        row["game"] = json!(game);
+        row["endpoint"] = json!({"mode": "manual", "address": host, "port": port});
+        row["websocketUrl"] = json!(websocket);
+        // The hub's own name for it, which is not the page's.
+        row["slug"] = json!(format!("hub-{}", serverlist::slug_for(name)));
+        row
+    }
+
+    /// The hub's list as the page reads it: an Asheron's Call 2 world and two of Asheron's Call's
+    /// on one host, one of them with a WebSocket endpoint.
+    fn hub_with_shardfall() -> Front {
+        let mut f = Front::default();
+        f.list_start(None, None).unwrap();
+        f.list_next(hub_page(
+            &[
+                hub_world(
+                    "Shardfall Test",
+                    "auberean",
+                    "shard.example.org",
+                    39000,
+                    Some("wss://shard.example.org/ws"),
+                ),
+                hub_world("Other AC2", "auberean", "ac2.example.org", 8610, None),
+                hub_world(
+                    "Retail Test",
+                    "dereth",
+                    "retail.example.org",
+                    19000,
+                    Some("wss://retail.example.org/ws"),
+                ),
+                hub_world("ACE Test", "dereth", "retail.example.org", 29000, None),
+            ],
+            None,
+        ));
+        f.list_done(NOW).unwrap();
+        f
+    }
+
+    /// A link to a world by its status address opens the hub's own row for it, matched by the
+    /// WebSocket endpoint or the name its status names, or by its address and the link's game;
+    /// a world the hub does not list is no match, and is added.
+    #[test]
+    fn a_link_to_a_world_the_hub_lists_opens_the_hubs_row_for_it() {
+        let f = hub_with_shardfall();
+        let status = "https://shard.example.org/status";
+        let doc = Some(YALAIN_STATUS.as_bytes());
+        assert_eq!(
+            f.listed_for(status, doc, None, NOW).as_deref(),
+            Some("shardfall-test")
+        );
+        assert_eq!(
+            f.listed_for(status, doc, Some("dereth"), NOW).as_deref(),
+            Some("shardfall-test"),
+            "the status's own game goes before the link's"
+        );
+        // By name alone, where the status names a WebSocket the hub does not.
+        let other_ws = YALAIN_STATUS.replace(
+            "wss://shard.example.org/ws",
+            "wss://elsewhere.example.org/ws",
+        );
+        assert_eq!(
+            f.listed_for(status, Some(other_ws.as_bytes()), None, NOW)
+                .as_deref(),
+            Some("shardfall-test")
+        );
+        // A status that does not answer: the link's address and game say it.
+        assert_eq!(
+            f.listed_for(status, None, Some("auberean"), NOW).as_deref(),
+            Some("shardfall-test")
+        );
+        assert_eq!(
+            f.listed_for(status, None, Some("dereth"), NOW),
+            None,
+            "no world of Dereth's there"
+        );
+        assert_eq!(
+            f.listed_for("wss://shard.example.org/ws", None, None, NOW)
+                .as_deref(),
+            Some("shardfall-test")
+        );
+        // Two worlds on one host: only the endpoint or the port tells them apart.
+        let retail = "https://retail.example.org/status";
+        assert_eq!(f.listed_for(retail, None, Some("dereth"), NOW), None);
+        let empyrean = br#"{"world_name":"derenet retail","world_open":true,"websocket_url":"wss://retail.example.org/ws"}"#;
+        assert_eq!(
+            f.listed_for(retail, Some(empyrean), None, NOW).as_deref(),
+            Some("retail-test")
+        );
+        assert_eq!(
+            f.listed_for("retail.example.org:29000", None, None, NOW)
+                .as_deref(),
+            Some("ace-test")
+        );
+        // A world the hub does not list.
+        let new = YALAIN_STATUS
+            .replace("shard.example.org", "new.example.org")
+            .replace("Shardfall Test", "New World");
+        assert_eq!(
+            f.listed_for(
+                "https://new.example.org/status",
+                Some(new.as_bytes()),
+                None,
+                NOW
+            ),
+            None
+        );
+    }
+
+    /// A link opens its world, named the page's way or the hub's, in that world's game's realm: an
+    /// Asheron's Call 2 world in Auberean's, which the page then opens in, and one of Asheron's
+    /// Call's in Dereth's.
+    #[test]
+    fn a_linked_world_opens_in_its_games_realm() {
+        let mut f = hub_with_shardfall();
+        let realm = |f: &Front| -> Value {
+            serde_json::from_str::<Value>(&f.state_json()).unwrap()["settings"]["realm"].clone()
+        };
+        assert_eq!(
+            f.open_linked("hub-shardfall-test", NOW).as_deref(),
+            Some("shardfall-test")
+        );
+        assert_eq!(realm(&f), "auberean");
+        assert_eq!(
+            f.open_linked("retail-test", NOW).as_deref(),
+            Some("retail-test")
+        );
+        assert!(realm(&f).is_null(), "Dereth's, the first realm");
+        assert_eq!(f.open_linked("nowhere", NOW), None);
+        // A server the player added that the hub lists too opens as the hub's world, in its realm.
+        let added = f
+            .add_world_for("auberean", "", "shard.example.org", "443", "", "yalain")
+            .unwrap();
+        f.added_by(&added, "https://shard.example.org/status");
+        f.set_status(&added, YALAIN_STATUS.as_bytes());
+        assert_eq!(
+            f.open_linked(&added, NOW).as_deref(),
+            Some("shardfall-test")
+        );
+        assert_eq!(realm(&f), "auberean");
+    }
+
+    /// A Yalain world's status reads as it says: online, with its players, the server named.
+    #[test]
+    fn a_yalain_world_s_status_shows_it_online_with_its_players() {
+        let mut f = Front::default();
+        let slug = f
+            .add_world_for("auberean", "", "shard.example.org", "443", "", "yalain")
+            .unwrap();
+        f.added_by(&slug, "https://shard.example.org/status");
+        assert!(f.set_status(&slug, YALAIN_STATUS.as_bytes()));
+        assert_eq!(seen(&f, &slug, NOW), ("online".into(), json!(2)));
+        let w = &f.world(&slug, NOW).unwrap()["world"];
+        assert_eq!(w["name"], "Shardfall Test", "called what it calls itself");
+        assert_eq!(w["emulator"], "yalain");
+        assert_eq!(w["websocket_url"], "wss://shard.example.org/ws");
     }
 
     /// A world starred in the page's world list is a favorite, which the list shows first; a Play

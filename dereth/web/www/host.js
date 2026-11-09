@@ -169,10 +169,12 @@ export function startHost({ call, start, params, log, scale }) {
     // The ways to data files a world's page has besides the sets kept here.
     moreSets(world) {
       const web = page.ui.snap.web;
+      // A world of Asheron's Call 2's takes that game's files.
+      const files = world.game === 'auberean' ? 'Asheron\'s Call 2 files' : world.dats?.custom ? `${world.name}'s files` : 'data files';
       return [
         ...(web.dev_dats ? [{ id: '__http', label: 'The dev runner\'s files', both_kinds: true, fallback: true }] : []),
-        { id: '__visit', label: web.picked ? `Picked for this visit (${web.picked.length} files)` : 'Pick files for this visit only...' },
-        { id: '__add', label: `Add ${world.dats?.custom ? `${world.name}'s` : 'data'} files to this browser...` },
+        { id: '__visit', label: web.picked ? `Picked for this visit (${web.picked.length} files)` : `Pick ${world.game === 'auberean' ? files : 'files'} for this visit only...` },
+        { id: '__add', label: `Add ${files} to this browser...` },
       ];
     },
 
@@ -343,9 +345,12 @@ export function startHost({ call, start, params, log, scale }) {
     });
     if (linked) page.ui.firstRun.dismissed = true;
     const direct = location.hash ? jump() : null;
+    // A linked world opens in its own game's realm, from the page's first look.
+    const world = linked ?? direct;
+    const shown = world ? await backend.openLinked(world).catch(() => world) : null;
     begun();
     await page.pull();
-    if (linked || direct) await page.openWorld(linked ?? direct);
+    if (shown) await page.openWorld(shown);
     // Read every plugin source as the page opens.
     backend.api('refresh_plugins').then((said) => {
       if (said) page.toast(String(said).replace(/\n/g, ' '));

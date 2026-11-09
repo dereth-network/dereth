@@ -90,19 +90,30 @@ fn era_features(v: &Value) -> Option<String> {
     (!list.is_empty()).then(|| list.join(","))
 }
 
-/// Read the document. `None` if it is not one.
+/// Read the document: Empyrean's, which says whether the world is open, or Yalain's, which names
+/// its state as the hub's heartbeats do (`online`, or `maintenance` while it lets nobody in).
+/// `None` if it is not one.
 pub fn parse_world_document(body: &[u8]) -> Option<LiveStatus> {
     let v: Value = serde_json::from_slice(body).ok()?;
-    let open = v.get("world_open")?.as_bool()?;
-    let shutting = v
-        .get("shutting_down")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-    // Neither open nor going down: still starting.
-    let state = match (open, shutting) {
-        (_, true) => WorldState::Offline,
-        (true, false) => WorldState::Online,
-        (false, false) => WorldState::Starting,
+    let state = match v.get("world_open").and_then(Value::as_bool) {
+        Some(open) => {
+            let shutting = v
+                .get("shutting_down")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            // Neither open nor going down: still starting.
+            match (open, shutting) {
+                (_, true) => WorldState::Offline,
+                (true, false) => WorldState::Online,
+                (false, false) => WorldState::Starting,
+            }
+        }
+        None => match v.get("state")?.as_str()? {
+            "online" | "degraded" => WorldState::Online,
+            "maintenance" => WorldState::Starting,
+            "offline" => WorldState::Offline,
+            _ => return None,
+        },
     };
     let dats = v.get("dats");
     Some(LiveStatus {
@@ -135,7 +146,12 @@ pub fn parse_world_document(body: &[u8]) -> Option<LiveStatus> {
             .filter(|e| !e.is_empty())
             .map(str::to_owned),
         era_features: v.get("features").and_then(era_features),
-        software: None,
+        // Yalain names itself; Empyrean's document names no server.
+        software: v
+            .get("server")
+            .and_then(Value::as_str)
+            .filter(|s| !s.trim().is_empty())
+            .map(str::to_owned),
         world_name: v
             .get("world_name")
             .and_then(Value::as_str)
@@ -185,6 +201,28 @@ mod tests {
         let s = parse_world_document(br#"{"world_open":true}"#).unwrap();
         assert_eq!(s.era, None, "a document without an era says nothing");
         assert_eq!(s.era_features, None);
+    }
+
+    #[test]
+    fn yalain_s_document_names_its_state_and_itself() {
+        let s = parse_world_document(
+            br#"{"connections":0,"game":"auberean","logins":0,"max_logins":128,
+            "players_online":3,"saves_failing":false,"server":"yalain","state":"online",
+            "uptime_seconds":12,"version":"0.3.0","websocket_url":"wss://play.example.org/ws",
+            "world_name":"Shardfall"}"#,
+        )
+        .unwrap();
+        assert_eq!((s.state, s.players), (WorldState::Online, Some(3)));
+        assert_eq!(s.software.as_deref(), Some("yalain"));
+        assert_eq!(s.world_name.as_deref(), Some("Shardfall"));
+        assert_eq!(
+            s.websocket_url.as_deref(),
+            Some("wss://play.example.org/ws")
+        );
+        let s = parse_world_document(br#"{"server":"yalain","state":"maintenance"}"#).unwrap();
+        assert_eq!(s.state, WorldState::Starting);
+        assert!(parse_world_document(br#"{"state":"sideways"}"#).is_none());
+        assert!(parse_world_document(br#"{"server":"yalain"}"#).is_none());
     }
 
     #[test]

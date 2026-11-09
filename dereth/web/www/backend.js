@@ -455,18 +455,31 @@ export function webBackend({ call, start, params, log, scale }) {
     }
   }
 
-  // The game a status address says its world plays, `dereth` or `auberean`; null when it does not
-  // answer or names neither.
-  async function statusGame(url) {
+  // A status address's document as it answers, or null when it does not.
+  async function statusText(url) {
     try {
       const target = new URL(url);
       if (target.pathname === '/' || target.pathname === '') target.pathname = '/status';
-      const said = (await (await fetch(target, { cache: 'no-store' })).json())?.game;
+      const res = await fetch(target, { cache: 'no-store' });
+      return res.ok ? await res.text() : null;
+    } catch {
+      return null;
+    }
+  }
+
+  // The game a status document says its world plays, `dereth` or `auberean`; null when it names
+  // neither.
+  function gameOf(text) {
+    try {
+      const said = JSON.parse(text)?.game;
       return said === 'auberean' || said === 'dereth' ? said : null;
     } catch {
       return null;
     }
   }
+
+  // The game a status address says its world plays; null when it does not answer or names neither.
+  const statusGame = async (url) => gameOf(await statusText(url));
 
   // Add a server from what the player typed: `{ name, host, port, emulator, ruleset, game }`, `host`
   // being a bare host, `host:port`, a `wss://` URL or a status address. With no `game`, a status
@@ -595,8 +608,13 @@ export function webBackend({ call, start, params, log, scale }) {
     if (named) {
       const found = Object.entries(web.connect).find(([k, v]) => !k.includes('#') && v === named);
       try {
-        const game = ['dereth', 'auberean'].includes(params.get('game')) ? params.get('game') : null;
-        linked = found ? found[0] : await addServer({ host: named, game });
+        const asked = ['dereth', 'auberean'].includes(params.get('game')) ? params.get('game') : null;
+        // A world the hub lists is opened as the hub lists it, found by what its status names;
+        // only another is added.
+        const status = /^https?:\/\//i.test(named) ? await statusText(named) : null;
+        const game = asked ?? gameOf(status);
+        linked = (await call('listedFor', named, status, asked))
+          ?? (found ? found[0] : await addServer({ host: named, game }));
       } catch (e) {
         say(`?server=${named}: ${e?.message ?? e}`, true);
       }
@@ -625,6 +643,12 @@ export function webBackend({ call, start, params, log, scale }) {
       }
     },
     begin,
+    // A link opens world `slug`: the page goes to its game's realm. Answers the world shown for it.
+    async openLinked(slug) {
+      const shown = await call('openLinked', slug);
+      await save();
+      return shown ?? slug;
+    },
     playing: () => web.playing,
     // The client ended: the launcher in the worker is the page's again.
     ended() {

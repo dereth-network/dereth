@@ -425,6 +425,33 @@ pub fn front_added_by(slug: &str, url: &str) {
     FRONT.with(|f| f.borrow_mut().added_by(slug, url));
 }
 
+/// The world of the list a link names by `link`, its status document (`status`, as fetched) and
+/// its game (`game`), as shown now: [`Front::listed_for`].
+#[wasm_bindgen(js_name = frontListedFor)]
+#[must_use]
+pub fn front_listed_for(
+    link: &str,
+    status: Option<String>,
+    game: Option<String>,
+) -> Option<String> {
+    FRONT.with(|f| {
+        f.borrow().listed_for(
+            link,
+            status.as_deref().map(str::as_bytes),
+            game.as_deref(),
+            now_secs(),
+        )
+    })
+}
+
+/// A link opens world `slug` in its game's realm; answers the world shown for it:
+/// [`Front::open_linked`].
+#[wasm_bindgen(js_name = frontOpenLinked)]
+#[must_use]
+pub fn front_open_linked(slug: &str) -> Option<String> {
+    FRONT.with(|f| f.borrow_mut().open_linked(slug, now_secs()))
+}
+
 /// Take a server the player added off the list.
 #[wasm_bindgen(js_name = frontRemoveWorld)]
 pub fn front_remove_world(slug: &str) {
