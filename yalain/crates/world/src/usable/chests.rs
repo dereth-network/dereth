@@ -73,22 +73,15 @@ pub const WALK_AWAY: f32 = 6.0;
 /// The call that clears an item from a container the client knows.
 pub const DESTROY_CONTAINED: u32 = 0x820E_005C;
 
-/// How long a chest's opening and closing play, in seconds, by its template (2017: the sigil
-/// caches and troves 3.95 and 3.94 s, Isin Dule's Hoard 3.25 and 1.71 s, the High Shaman's Cache
-/// 2.99 and 0.94 s, the Ultra Chest 0.96 and 0.28 s, the medallion chest 0.93 and 0.32 s; the small
-/// chests about 1.27 and 0.75 s).
-#[must_use]
-pub fn animation(template: u32) -> (f64, f64) {
-    match template {
-        0x4700_0F51 | 0x4700_0F58..=0x4700_0F5E | 0x4700_0F61..=0x4700_0F64 | 0x4700_0F6A => {
-            (3.95, 3.94)
-        }
-        0x4700_0F6F => (3.25, 1.71),
-        0x4700_0F4C => (2.99, 0.94),
-        0x4700_0F39 => (0.96, 0.28),
-        0x4700_1867 => (0.93, 0.32),
-        _ => (1.27, 0.75),
-    }
+/// How long a chest's opening and closing play, in seconds, when the install's animations are not
+/// at hand: a small chest's.
+pub const UNKNOWN_MOVES: (f64, f64) = (1.2, 0.8);
+
+/// How long a chest takes to go from one mode to another: what its look plays on the way (2017: the
+/// sigil caches and troves 3.95 and 3.94 s, their clips 3.967 and 3.967; Isin Dule's Hoard 3.25 and
+/// 1.71, 3.3 and 1.633; the Ultra Chest's closing 0.28, its step's ramp 0.25).
+fn moving<S: Store>(s: &Server<S>, id: u64, from: u32, to: u32, unknown: f64) -> f64 {
+    crate::timings::thing_mode_change(s, id, from, to).unwrap_or(unknown)
 }
 
 /// Where a chest is in its moving.
@@ -626,9 +619,10 @@ fn open<S: Store>(
     c.contents = contents;
     c.waiting = Some(waiting);
     let generation = c.generation;
+    let opens = moving(s, id, look::CLOSED_MODE, look::OPEN_MODE, UNKNOWN_MOVES.0);
     s.after(
         clock,
-        animation(kind.template).0,
+        opens,
         Timer::Chest {
             chest: id,
             generation,
@@ -650,7 +644,7 @@ fn refuse_gone_key(net: &mut ServerNet, w: &Waiting) {
 }
 
 /// A chest plays its closing, whoever has it open or nobody.
-fn shut<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, kind: &Kind, clock: Clock) {
+fn shut<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock) {
     let Some(c) = s.chests.by_id.get_mut(&id) else {
         return;
     };
@@ -658,9 +652,10 @@ fn shut<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, kind: &Kind, 
     c.generation = c.generation.wrapping_add(1);
     let generation = c.generation;
     mode(s, net, id, look::CLOSED_MODE);
+    let closes = moving(s, id, look::OPEN_MODE, look::CLOSED_MODE, UNKNOWN_MOVES.1);
     s.after(
         clock,
-        animation(kind.template).1,
+        closes,
         Timer::Chest {
             chest: id,
             generation,
@@ -677,16 +672,16 @@ pub fn close<S: Store>(
     id: u64,
     clock: Clock,
 ) {
-    let Some((kind, _)) = chest(s, id) else {
+    if chest(s, id).is_none() {
         return;
-    };
+    }
     let Some(c) = s.chests.by_id.get_mut(&id) else {
         return;
     };
     if c.phase != Phase::Open || c.opener != Some(world) {
         return;
     }
-    shut(s, net, id, &kind, clock);
+    shut(s, net, id, clock);
 }
 
 /// The key that turned: used up, and the use answered that it fits.
@@ -778,12 +773,12 @@ pub fn step<S: Store>(
             };
             if !crate::usable::doors::key_kept(s, w.world, w.key) {
                 refuse_gone_key(net, &w);
-                shut(s, net, id, &kind, clock);
+                shut(s, net, id, clock);
                 return;
             }
             // Who opened it has left the world: it shuts for the next to open.
             if !s.players.contains_key(&w.world) {
-                shut(s, net, id, &kind, clock);
+                shut(s, net, id, clock);
                 return;
             }
             let Some(c) = s.chests.by_id.get_mut(&id) else {

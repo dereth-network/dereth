@@ -34,6 +34,7 @@ pub mod skeleton;
 pub mod skin;
 pub mod sliders;
 pub mod table;
+pub mod timeline;
 pub mod track;
 pub mod tracker;
 pub mod triggers;

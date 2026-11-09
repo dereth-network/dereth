@@ -7,12 +7,12 @@ use auberean_protocol::{queue, ServerMessage};
 use auberean_script::args::Arg;
 use yalain_testkit::play::{server_call, use_of};
 use yalain_testkit::{Harness, TEST_CREATURE};
-use yalain_world::combat::{self, hit_seconds, next_swing_after, swing_seconds};
+use yalain_world::combat::{self, next_story_after};
 use yalain_world::effect_defs::{numeric, EffectDef, Kind, Scale};
 use yalain_world::effects::{self, Cast, On, ATTACK_SPEED};
 use yalain_world::player::quality;
 use yalain_world::quals;
-use yalain_world::skill_use::implement as im;
+use yalain_world::timings::{lands as lands_at, unknown};
 
 const START_ATTACK: u32 = 0x8204_0008;
 /// The human starting sword.
@@ -173,9 +173,10 @@ fn assert_paced(at: &[(f64, f32)], pace: f32) {
     for (t, ts) in at {
         assert!(band(pace).contains(ts), "{ts} at {t} for a pace of {pace}");
     }
-    for w in at.windows(2) {
+    // The first may be the last run's, its swing still due as this one is asked for.
+    for w in at[1..].windows(2) {
         let gap = w[1].0 - w[0].0;
-        let due = next_swing_after(swing_seconds(Some(im::SWORD), false), w[0].1);
+        let due = next_story_after(&unknown(), w[0].1);
         assert!(
             (gap - due).abs() <= 0.052,
             "{gap:.3} where {due:.3} was due"
@@ -205,12 +206,16 @@ fn a_players_attack_speed_effects_quicken_its_swings() {
 /// Behaviour: server.weapons.attack-speed-effects
 #[test]
 fn the_pause_after_a_swing_does_not_shorten_with_its_pace() {
-    let at = |ts: f32| next_swing_after(1.64, ts);
-    assert!((at(1.05) - 1.64 / 1.05).abs() < 1e-3);
-    // 2017's gaps at these time scales were 1.17 s, 0.95 s and 0.74 s.
-    assert!((at(1.43) - 1.179).abs() < 1e-3);
-    assert!((at(1.80) - 0.962).abs() < 1e-3);
-    assert!((at(2.39) - 0.755).abs() < 1e-3);
+    let swing = unknown();
+    let period = f64::from(swing.period);
+    let at = |ts: f32| next_story_after(&swing, ts);
+    for ts in [1.0_f32, 1.43, 1.8, 2.39] {
+        assert!(
+            (at(ts) - (period / f64::from(ts) + 0.15)).abs() < 1e-6,
+            "{ts}"
+        );
+    }
+    assert!(at(1.3) > at(1.0) / 1.3, "the pause stays whole");
 }
 
 /// A strike lands that much sooner too, by its time scale.
@@ -239,7 +244,7 @@ fn a_faster_swing_lands_sooner() {
     let full = 10_000_000;
     assert_eq!(health(&h), full, "not hurt as it is told");
     assert!(h.run_until(400, |h| health(h) < full), "it lands");
-    let lands = hit_seconds(s.skill, Some(im::SWORD)) / f64::from(s.attacker_behavior.time_scale);
+    let lands = lands_at(&unknown(), 1, s.attacker_behavior.time_scale);
     let took = h.now.0 - told;
     assert!((took - lands).abs() < 0.12, "{took:.3}, not {lands:.3}");
     assert!(lands < 0.5, "{lands:.3}");
@@ -333,7 +338,7 @@ fn a_players_swings_slow_with_the_combat_delay_it_wears_and_wields() {
     piece(&mut h, COAT, 2, 500);
     piece(&mut h, HOOD, 1, 62);
     piece(&mut h, SPARE, 4, 500);
-    let plain = swings(&mut h, b, me, beetle, 600);
+    let plain = swings(&mut h, b, me, beetle, 1500);
     let bare = asserted_base(&plain, 1.13);
     assert_eq!(combat::delay_worn(&h.server, world), 0);
 
@@ -344,14 +349,14 @@ fn a_players_swings_slow_with_the_combat_delay_it_wears_and_wields() {
     let spare = h.arm(b, me, SPARE);
     use_it_off(&mut h, b, me, spare);
     assert_eq!(combat::delay_worn(&h.server, world), 70, "in the pack");
-    let dressed = swings(&mut h, b, me, beetle, 600);
+    let dressed = swings(&mut h, b, me, beetle, 1500);
     let at = 1.23 - 0.0024 * 70.0;
     let mean = asserted_base(&dressed, at);
     assert!(mean < bare - 0.03, "{mean} against {bare}");
     let gaps: Vec<f64> = dressed.windows(2).map(|w| w[1].0 - w[0].0).collect();
     #[allow(clippy::cast_precision_loss)]
     let gap = gaps.iter().sum::<f64>() / gaps.len() as f64;
-    let due = next_swing_after(swing_seconds(Some(im::SWORD), false), mean);
+    let due = next_story_after(&unknown(), mean);
     assert!((gap - due).abs() < 0.03, "{gap:.3} where {due:.3} was due");
 
     use_it_off(&mut h, b, me, hood);

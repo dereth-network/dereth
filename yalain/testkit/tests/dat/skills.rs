@@ -2197,3 +2197,251 @@ fn a_heros_damage_attribute_is_its_damage_pool() {
     hold(&mut h, 1516);
     assert_eq!(damage_pool(&h.server, world, basic).points, 2);
 }
+
+/// How long what bodies play takes, as the server reads it: the cycles and story hooks of a swing by
+/// race and stance, two blows, a helpful hook, a chest's opening and closing; and what the skills'
+/// classes and definitions say beside them.
+mod timings {
+    use auberean_primitives::DataId;
+    use yalain_testkit::authored::Portal;
+    use yalain_world::timings::{self, Timeline, Timings};
+
+    /// The six player looks.
+    const HUMAN_MALE: u32 = 0x1F00_0023;
+    const HUMAN_FEMALE: u32 = 0x1F00_0024;
+    const LUGIAN_MALE: u32 = 0x1F00_0025;
+    const TUMEROK_MALE: u32 = 0x1F00_0026;
+
+    /// Stances.
+    const ONE_HANDED: u32 = 0x4100_000A;
+    const HANDBLADE: u32 = 0x4100_000F;
+    const POLEARM: u32 = 0x4100_000C;
+    const STAVE: u32 = 0x4100_0011;
+
+    /// Behaviors.
+    const SWING: u32 = 0x4100_0089;
+    const TWO_BLADES: u32 = 0x4100_0077;
+    const HEAL: u32 = 0x4100_00C2;
+    const ON_ITEM: u32 = 0x4100_009D;
+
+    fn timings() -> Timings {
+        let p = Portal::open();
+        Timings::new(p.dat, p.ctx)
+    }
+
+    fn close(a: f32, b: f32) -> bool {
+        (a - b).abs() < 0.001
+    }
+
+    fn played(t: &Timings, look: u32, mode: u32, behavior: u32) -> timings::Timeline {
+        let plays = t.plays_of_record(look).expect("the look plays");
+        t.timeline(&plays, mode, behavior)
+            .expect("the behavior plays there")
+    }
+
+    /// A one-handed swing lands at its clip's first story hook, which differs by race: a human's
+    /// 0.520 s into its 1.417 s cycle (it has three), a Lugian's 0.670, a Tumerok's 0.704. Its blow is
+    /// told 0.041 s after the hook over the time scale (2017: the medians of 6,583 basic swings were
+    /// the hook's own plus 0.039 to 0.044 s for each race).
+    /// Behaviour: server.timings.blows-land-at-their-clips-hooks
+    #[test]
+    fn a_swing_lands_at_its_clips_first_hook_by_race() {
+        let t = timings();
+        let human = played(&t, HUMAN_MALE, ONE_HANDED, SWING);
+        assert!(close(human.period, 1.416_67), "{human:?}");
+        assert_eq!(human.hooks.len(), 3, "{human:?}");
+        assert!(close(human.hook(1), 0.5202), "{human:?}");
+        assert_eq!(played(&t, HUMAN_FEMALE, ONE_HANDED, SWING), human);
+        let lugian = played(&t, LUGIAN_MALE, ONE_HANDED, SWING);
+        assert!(close(lugian.hook(1), 0.6696), "{lugian:?}");
+        let tumerok = played(&t, TUMEROK_MALE, ONE_HANDED, SWING);
+        assert!(close(tumerok.hook(1), 0.7043), "{tumerok:?}");
+        let at = timings::lands(&human, 1, 1.05);
+        assert!((at - (0.5202 / 1.05 + 0.041)).abs() < 1e-3, "{at}");
+    }
+
+    /// Two blades swing twice in a Tumerok's hands: two hooks, 0.749 and 1.194 s into a 1.875 s
+    /// cycle, each blow at its own. A human's clip of the same behavior has one hook, so its second
+    /// blow lands at the cycle's end, 2.042 s.
+    /// Behaviour: server.timings.blows-land-at-their-clips-hooks
+    #[test]
+    fn two_blows_land_at_their_own_hooks_or_the_cycles_end() {
+        let t = timings();
+        let tumerok = played(&t, TUMEROK_MALE, HANDBLADE, TWO_BLADES);
+        assert!(close(tumerok.period, 1.875), "{tumerok:?}");
+        assert!(close(tumerok.hook(1), 0.7486), "{tumerok:?}");
+        assert!(close(tumerok.hook(2), 1.1935), "{tumerok:?}");
+        let human = played(&t, HUMAN_MALE, HANDBLADE, TWO_BLADES);
+        assert_eq!(human.hooks.len(), 1, "{human:?}");
+        assert!(close(human.hook(2), human.period), "{human:?}");
+        assert!(close(human.period, 2.041_67), "{human:?}");
+    }
+
+    /// A heal's effects come at its hook (a human's 0.651 s into its staff's cycle); an effect on an
+    /// item with a polearm in a Lugian's hands waits for 2.261 s of its 3.292 s stance, a human's with
+    /// one 0.520 s (2017: 0.667 and 0.722 s for the heal, 2.21 to 2.34 s on polearms, 0.46 to 0.69 s
+    /// on shields).
+    /// Behaviour: server.timings.blows-land-at-their-clips-hooks
+    #[test]
+    fn a_helpful_hook_comes_at_its_clips_hook_and_a_polearms_later() {
+        let t = timings();
+        assert!(close(played(&t, HUMAN_MALE, STAVE, HEAL).hook(1), 0.651));
+        let lugian = played(&t, LUGIAN_MALE, POLEARM, ON_ITEM);
+        assert!(close(lugian.hook(1), 2.2614), "{lugian:?}");
+        assert!(close(lugian.period, 3.291_67), "{lugian:?}");
+        assert!(close(
+            played(&t, HUMAN_MALE, POLEARM, ON_ITEM).hook(1),
+            0.5202
+        ));
+    }
+
+    /// A player's look as it is sent plays as its parent does; a look that sets its own part groups
+    /// and table plays those.
+    /// Behaviour: server.timings.blows-land-at-their-clips-hooks
+    #[test]
+    fn a_sent_look_plays_as_its_parent_or_its_own_groups() {
+        use auberean_protocol::types::VisualDesc;
+        let t = timings();
+        let sent = VisualDesc {
+            bits: VisualDesc::PARENT,
+            parent: TUMEROK_MALE,
+            ..VisualDesc::default()
+        };
+        let plays = t.plays_of(&sent).expect("it plays");
+        assert_eq!(Some(plays.clone()), t.plays_of_record(TUMEROK_MALE));
+        assert_eq!(plays.table, DataId(0x4400_0001));
+        let swing = t.timeline(&plays, ONE_HANDED, SWING).expect("a swing");
+        assert!(close(swing.hook(1), 0.7043));
+    }
+
+    /// A behavior a body's table has no combination for plays nothing: the server takes a cycle it
+    /// knows in its place.
+    /// Behaviour: server.timings.blows-land-at-their-clips-hooks
+    #[test]
+    fn a_behavior_with_no_combination_plays_nothing() {
+        let t = timings();
+        let plays = t.plays_of_record(HUMAN_MALE).expect("it plays");
+        assert!(t.timeline(&plays, ONE_HANDED, 0x4100_00B0).is_none());
+        let unknown: Timeline = timings::unknown();
+        assert!(unknown.period > 0.0 && !unknown.hooks.is_empty());
+    }
+
+    /// A chest opens and closes as its look's mode change plays: a sigil cache's clips 3.967 s each
+    /// way, Isin Dule's Hoard 3.3 and 1.633, the High Shaman's Cache 3.0 and 0.867, the Ultra Chest's
+    /// opening 1.0 and its closing the step's ramp, 0.25 s, a small chest 1.2 and 0.8 (2017: 3.95 and
+    /// 3.94 s; 3.25 and 1.71; 2.99 and 0.94; 0.96 and 0.28; about 1.27 and 0.75).
+    /// Behaviour: server.timings.chests-move-as-their-looks-play
+    #[test]
+    fn a_chest_opens_and_closes_as_its_looks_mode_change_plays() {
+        const OPEN: u32 = 0x4100_0002;
+        const CLOSED: u32 = 0x4100_0004;
+        let t = timings();
+        let p = Portal::open();
+        let moves = |template: u32| {
+            let look = p.template(template).description.look;
+            let plays = t.plays_of_record(look).expect("its look plays");
+            (
+                t.mode_change(&plays, CLOSED, OPEN).expect("it opens"),
+                t.mode_change(&plays, OPEN, CLOSED).expect("it closes"),
+            )
+        };
+        let near =
+            |(a, b): (f64, f64), (x, y): (f64, f64)| (a - x).abs() < 0.002 && (b - y).abs() < 0.002;
+        for cache in [0x4700_0F51, 0x4700_0F58, 0x4700_0F61] {
+            assert!(
+                near(moves(cache), (3.967, 3.967)),
+                "{cache:x} {:?}",
+                moves(cache)
+            );
+        }
+        assert!(
+            near(moves(0x4700_0F6F), (3.3, 1.633)),
+            "{:?}",
+            moves(0x4700_0F6F)
+        );
+        assert!(
+            near(moves(0x4700_0F4C), (3.0, 0.867)),
+            "{:?}",
+            moves(0x4700_0F4C)
+        );
+        assert!(
+            near(moves(0x4700_0F39), (1.0, 0.25)),
+            "{:?}",
+            moves(0x4700_0F39)
+        );
+        assert!(
+            near(moves(0x4700_0F4B), (1.2, 0.8)),
+            "{:?}",
+            moves(0x4700_0F4B)
+        );
+    }
+
+    /// The chest `0x47000F6A` is drawn as Isin Dule's Hoard is, and so moves as the Hoard does, not as
+    /// the sigil caches (2017: its look 0x1F00085E, the Hoard's).
+    /// Behaviour: server.timings.chests-move-as-their-looks-play
+    #[test]
+    fn the_chest_drawn_as_the_hoard_moves_as_the_hoard() {
+        let p = Portal::open();
+        let look = |t: u32| p.template(t).description.look;
+        assert_eq!(look(0x4700_0F6A), look(0x4700_0F6F));
+        assert_eq!(look(0x4700_0F6A), 0x1F00_085E);
+    }
+
+    /// Moving cancels a use exactly when its skill's definition lacks the flag that keeps it: Deadeye,
+    /// the staves' basic attacks and the heals are cancelled; a sword's swing and Riposte are not
+    /// (2017: 455 of 455 players' skills and 210 of 210 creatures' and pets' told so).
+    /// Behaviour: server.skills.moving-cancels-by-its-definition
+    #[test]
+    fn moving_cancels_a_use_as_its_skills_definition_says() {
+        use yalain_world::skill_use::moving_cancels;
+        let t = Portal::open().skills();
+        let cancels = |skill: u32| moving_cancels(t.skills[&skill].usage.as_ref().expect("used"));
+        for skill in [207, 62, 63, 64, 85, 93] {
+            assert!(cancels(skill), "{skill}");
+        }
+        for skill in [122, 123, 176, 816, 1845] {
+            assert!(!cancels(skill), "{skill}");
+        }
+    }
+
+    /// A skill's taunt bonus and the share of its damage creatures notice are what its class sets: the
+    /// Lashers' 2, Courage in Arms' 5, an Avenger's -0.5; the Pain skills' 0.5 noticed, the players'
+    /// and the monsters' alike.
+    /// Behaviour: server.creatures.harm-points-from-the-classes
+    #[test]
+    fn a_skills_harm_points_are_what_its_class_sets() {
+        let t = Portal::open().skills();
+        let taunts: [(u32, f32); 20] = [
+            (326, -1.0),
+            (701, 1.0),
+            (706, 1.0),
+            (838, 2.0),
+            (840, 2.0),
+            (852, 1.0),
+            (854, 1.0),
+            (856, 1.0),
+            (857, 1.5),
+            (867, 2.0),
+            (1076, 3.5),
+            (1221, 1.0),
+            (1377, 1.0),
+            (1433, -0.5),
+            (1434, -0.5),
+            (2189, 5.0),
+            (2190, 5.0),
+            (2191, 5.0),
+            (2192, 5.0),
+            (2193, 5.0),
+        ];
+        for (skill, points) in taunts {
+            assert_eq!(t.skills[&skill].taunt_bonus, Some(points), "{skill}");
+        }
+        for skill in [
+            322, 331, 333, 334, 860, 861, 1237, 1243, 1244, 1245, 1266, 1272, 1273, 1274,
+        ] {
+            assert_eq!(t.skills[&skill].notices_damage, Some(0.5), "{skill}");
+        }
+        assert_eq!(yalain_world::ai::harm_noticed(&t, 1076, 10_000), 10_350);
+        assert_eq!(yalain_world::ai::harm_noticed(&t, 122, 10_000), 10_000);
+    }
+}

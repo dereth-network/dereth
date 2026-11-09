@@ -1505,8 +1505,8 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "server.combat.strike-lands",
         says: "A player's swing at a creature is told by its story first; the creature loses the \
-               health as the strike lands, a time its skill sets over the story's time scale, and \
-               falls only then.",
+               health as the strike lands, at what the player plays over the story's time scale, \
+               and falls only then.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-SWING-LANDS"),
         station: "yalain-testkit::cpu::play::fights::a_players_swing_hurts_a_creature_as_it_lands_by_its_skill",
@@ -2701,9 +2701,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.creatures.a-skills-harm-counts-by-its-points",
-        says: "A skill's taunt bonus or damage-notice figure counts its harm for that many percent more \
-               at a creature's draw. This server's own stand-in: nothing recorded says what the \
-               figures do, and one point to one percent is a first guess to be revised.",
+        says: "A skill's taunt bonus and damage-notice figure count its harm for that many percent \
+               more at a creature's draw. This server's own stand-in: nothing recorded says what \
+               the figures do, and one point to one percent is a first guess to be revised.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-HARM-POINTS"),
         station: "yalain-testkit::cpu::play::specials::a_skills_harm_counts_at_a_draw_by_its_points_and_takes_only_its_damage",
@@ -3037,6 +3037,15 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-GIVE-UP"),
         station: "yalain-testkit::cpu::play::creatures::a_creature_gives_up_a_second_after_the_player_leaves_its_perception",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.harm-points-from-the-classes",
+        says: "A skill's taunt bonus and the share of its damage creatures notice are the numbers \
+               its class's constructor sets.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-HARM-POINTS-READ"),
+        station: "yalain-testkit::dat::skills::timings::a_skills_harm_points_are_what_its_class_sets",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "server.creatures.heal-themselves",
@@ -12865,7 +12874,7 @@ pub static ROWS: &[Behaviour] = &[
                the look with it.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-ITEM-EFFECT-POLEARM"),
-        station: "yalain-testkit::cpu::play::item_effects::a_skills_effect_reaches_a_polearm_later_than_a_sword",
+        station: "yalain-testkit::cpu::play::item_effects::a_skills_effect_reaches_a_polearm_after_the_use_while_in_hand",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -13024,6 +13033,15 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-SKILL-LIST"),
         station: "yalain-testkit::cpu::play::own_requests::the_trained_skills_list_has_a_line_for_each_trained_skill_only",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.skills.moving-cancels-by-its-definition",
+        says: "A use's story says moving cancels it exactly when its skill's definition lacks the \
+               interface flag that keeps it going.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MOVING-CANCELS"),
+        station: "yalain-testkit::dat::skills::timings::moving_cancels_a_use_as_its_skills_definition_says",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "server.skills.perk-given-up-lowers-a-vital",
@@ -13795,6 +13813,26 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-TALK-STEP"),
         station: "yalain-testkit::cpu::play::talk::a_step_says_its_line_then_the_lines_heard_with_its_update_in_order",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.timings.blows-land-at-their-clips-hooks",
+        says: "What a body plays for a behavior, in its stance, is its clip's cycle: a story's hook \
+               numbered n lands at the clip's n-th story hook over the time scale, or at the \
+               cycle's end when it has fewer, and its blow is told 0.041 s after; the next story \
+               of a player's comes 0.15 s after the cycle ends, a creature's or a pet's 0.25 s.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ANIM-TIMINGS"),
+        station: "yalain-testkit::dat::skills::timings::a_swing_lands_at_its_clips_first_hook_by_race",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.timings.chests-move-as-their-looks-play",
+        says: "A chest opens and closes in the time its look's mode change plays: each step's \
+               clip, or the step's ramp when it plays none.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CHEST-TIMINGS"),
+        station: "yalain-testkit::dat::skills::timings::a_chest_opens_and_closes_as_its_looks_mode_change_plays",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "server.tips.first-entry-once",

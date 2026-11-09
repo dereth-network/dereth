@@ -268,6 +268,16 @@ fn a_part_worth_nothing_sends_no_text_and_no_totals() {
 #[test]
 fn a_pets_skill_and_a_basic_attack_count_at_a_draw_by_their_points() {
     let (mut h, _, me, [prey, pet, _]) = world(1000);
+    // The taunt bonuses their classes set.
+    for (skill, taunt) in [(1076, 3.5), (2189, 5.0)] {
+        let d = h.server.skill_table.skills.entry(skill).or_insert_with(|| {
+            yalain_world::skills::SkillDef {
+                id: skill,
+                ..yalain_world::skills::SkillDef::default()
+            }
+        });
+        d.taunt_bonus = Some(taunt);
+    }
     let harm = |h: &Harness| -> Vec<i64> {
         h.server
             .things

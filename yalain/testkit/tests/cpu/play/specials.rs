@@ -583,7 +583,8 @@ fn a_skill_that_says_it_goes_faster_is_told_at_the_square_of_it() {
     // The next story comes the animation over the time scale and the pause on.
     for (run, name) in [(&plain, "plain"), (&fast, "fast")] {
         let gap = run[1].1 - run[0].1;
-        let due = 3.25 / f64::from(run[0].0) + yalain_world::skill_use::NEXT_SWING_AFTER;
+        let due = yalain_world::timings::ends(&yalain_world::timings::unknown(), run[0].0)
+            + yalain_world::timings::PLAYER_PAUSE;
         assert!(
             (gap - due).abs() < 0.11,
             "{name}: {gap:.3} where {due:.3} was due"
@@ -1739,19 +1740,44 @@ fn a_skills_range_is_measured_between_the_bodies() {
 }
 
 /// The harm a skill counts for at a creature's draw is its points' share more or less, one point to
-/// one percent; what the creature loses is the damage itself.
+/// one percent, its taunt bonus and the share of its damage noticed both; what the creature loses
+/// is the damage itself.
 /// Behaviour: server.creatures.a-skills-harm-counts-by-its-points
 #[test]
 fn a_skills_harm_counts_at_a_draw_by_its_points_and_takes_only_its_damage() {
     use yalain_world::ai::harm_noticed;
+    use yalain_world::skills::{SkillDef, SkillTable};
+    let mut points = SkillTable::default();
+    for (skill, taunt, noticed) in [
+        (701, Some(1.0), None),
+        (326, Some(-1.0), None),
+        (2189, Some(5.0), None),
+        (322, None, Some(0.5)),
+        (96, None, None),
+    ] {
+        points.skills.insert(
+            skill,
+            SkillDef {
+                id: skill,
+                taunt_bonus: taunt,
+                notices_damage: noticed,
+                ..SkillDef::default()
+            },
+        );
+    }
     for (skill, counted) in [
         (701, 10_100),
         (326, 9_900),
         (2189, 10_500),
         (322, 10_050),
         (96, 10_000),
+        (7, 10_000),
     ] {
-        assert_eq!(harm_noticed(skill, 10_000), counted, "skill {skill}");
+        assert_eq!(
+            harm_noticed(&points, skill, 10_000),
+            counted,
+            "skill {skill}"
+        );
     }
     // A missile's and a strike's, each by a skill that counts for more.
     for (skill, like, weapon) in [(2189, DEADEYE, BOW), (2190, 176, SWORD)] {
@@ -1760,6 +1786,7 @@ fn a_skills_harm_counts_at_a_draw_by_its_points_and_takes_only_its_damage() {
         h.arm(b, me, weapon);
         let mut def = h.server.skill_table.skills[&like].clone();
         def.id = skill;
+        def.taunt_bonus = Some(5.0);
         let usage = def.usage.as_mut().expect("used");
         usage.max_range = 1000.0;
         usage.min_range = -1.0;
@@ -1786,7 +1813,11 @@ fn a_skills_harm_counts_at_a_draw_by_its_points_and_takes_only_its_damage() {
             .map(|e| e.2)
             .sum();
         assert!(lost > 100, "skill {skill} hit for {lost}");
-        assert_eq!(harm, harm_noticed(skill, lost), "skill {skill}");
+        assert_eq!(
+            harm,
+            harm_noticed(&h.server.skill_table, skill, lost),
+            "skill {skill}"
+        );
         assert!(harm > i64::from(lost));
     }
 }

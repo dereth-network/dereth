@@ -7303,6 +7303,7 @@ dependencies = [
 name = "yalain-world"
 version = "0.3.0"
 dependencies = [
+ "auberean-animation",
  "auberean-assets",
  "auberean-dat",
  "auberean-physics",

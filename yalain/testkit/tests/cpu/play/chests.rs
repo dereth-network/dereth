@@ -301,7 +301,7 @@ fn a_chests_key_opens_it_its_contents_shown_to_the_opener_alone_and_it_locks_as_
         "no contents for others"
     );
     let fa = h.bots[a].inbox.len();
-    close(&mut h, a, 3.0);
+    close(&mut h, a, 0.5);
     assert_eq!(seen(&h, a, fa), ["mode 41000004"]);
     run_for(&mut h, 1.2);
     assert_eq!(seen(&h, a, fa), ["mode 41000004", "closed", "shut"]);

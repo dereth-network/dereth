@@ -586,12 +586,12 @@ fn a_creatures_strike_at_a_pet_comes_when_it_is_due_not_at_the_worlds_next_step(
         c.stats.movement.perception = 1.0;
     }
     let from = h.bots[b].inbox.len();
-    let mut seen: Vec<(f64, u32)> = Vec::new();
+    let mut seen: Vec<(f64, f32)> = Vec::new();
     let mut told = 0;
     for _ in 0..1500 {
         h.step();
         assert_eq!(target_of(&h, beetle), Some(pet), "it stays on the pet");
-        let strikes: Vec<u32> = h
+        let strikes: Vec<f32> = h
             .world_messages(b, from)
             .iter()
             .filter_map(|m| match m {
@@ -599,7 +599,7 @@ fn a_creatures_strike_at_a_pet_comes_when_it_is_due_not_at_the_worlds_next_step(
                     if e.action.attacker == beetle
                         && e.action.hooks.iter().any(|k| k.target == pet) =>
                 {
-                    Some(e.action.skill)
+                    Some(e.action.attacker_behavior.time_scale)
                 }
                 _ => None,
             })
@@ -612,7 +612,8 @@ fn a_creatures_strike_at_a_pet_comes_when_it_is_due_not_at_the_worlds_next_step(
     assert!(seen.len() > 10, "{} strikes", seen.len());
     for pair in seen.windows(2) {
         let gap = pair[1].0 - pair[0].0;
-        let due = yalain_world::combat::strike_gap(pair[0].1);
+        let due = yalain_world::timings::ends(&yalain_world::timings::unknown(), pair[0].1)
+            + yalain_world::timings::THING_PAUSE;
         assert!(
             (gap - due).abs() <= 0.051 + 0.001,
             "a gap of {gap:.3} where {due:.3} was due"
@@ -810,9 +811,14 @@ fn a_creatures_strike_hurts_a_pet_when_its_blow_lands() {
             break;
         }
     }
-    // 0.696 s over a time scale of 1.296 give or take a tenth.
+    // Its hook over a time scale of 1.296 give or take a tenth, within a step.
     let after = landed_after.expect("a strike landed");
-    assert!((0.45..0.65).contains(&after), "{after}");
+    let played = yalain_world::timings::unknown();
+    let (soonest, latest) = (
+        yalain_world::timings::lands(&played, 1, 1.296 * 1.1),
+        yalain_world::timings::lands(&played, 1, 1.296 * 0.9),
+    );
+    assert!((soonest - 0.01..latest + 0.1).contains(&after), "{after}");
 }
 
 /// A creature's hit on a pet whose kind gives its armor takes that armor off, a point a point, as a

@@ -248,7 +248,15 @@ fn a_strike_on_a_holder_tells_what_goes_back_and_the_creature_loses_it() {
             >= 6
     });
     assert!(done, "it strikes");
-    // Let the last strike land.
+    // Let the last strike land, with no other after it.
+    if let Some(c) = h
+        .server
+        .things
+        .get_mut(id)
+        .and_then(|t| t.creature.as_mut())
+    {
+        c.next_attack = f64::INFINITY;
+    }
     h.run(40);
     let told = hooks(&h, b, from, id, me);
     let mut sent = 0;
@@ -690,6 +698,11 @@ fn a_specials_strike_and_a_specials_missile_are_answered() {
             assert!(h.run_until(400, swung), "in reach");
         }
         let told = (1..40).any(|n| {
+            // Fresh each time: a use that does not land still costs.
+            with_player(&mut h, me, |p| {
+                quals::set_int(&mut p.qualities, quality::VIGOR_MAX, 10_000);
+                quals::set_int(&mut p.qualities, quality::VIGOR, 10_000);
+            });
             h.bots[b].send(
                 true,
                 queue::WEENIE,

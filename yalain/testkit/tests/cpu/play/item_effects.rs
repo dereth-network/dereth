@@ -308,11 +308,12 @@ fn a_skill_aimed_at_a_shield_lands_on_it_named_or_by_naming_its_user() {
     assert_eq!(t.timed.len(), 2);
 }
 
-/// With a polearm in hand a skill's effect reaches the item later than with a sword: the look and
-/// the effect wait on its longer play, and neither is lost.
+/// With a polearm in hand a skill's effect reaches the item when its stance's play says, after the
+/// use is over, and neither its look nor the effect is lost; taken out of its hands first, it gets
+/// neither. (How much later than a sword's is the install's: its clips.)
 /// Behaviour: server.skills.a-skill-on-an-item-lands-with-what-is-held
 #[test]
-fn a_skills_effect_reaches_a_polearm_later_than_a_sword() {
+fn a_skills_effect_reaches_a_polearm_after_the_use_while_in_hand() {
     const POLEARM: u32 = 0x4700_7A07;
     let (mut h, b, me) = world();
     let sword = h.arm(b, me, SWORD);
@@ -347,17 +348,14 @@ fn a_skills_effect_reaches_a_polearm_later_than_a_sword() {
     }
     let pole = h.arm(b, me, POLEARM);
     let from = asked(&mut h, b, ON_WEAPON, pole);
-    h.run(steps(1.2));
     let timed = |h: &Harness| h.server.things.get(pole).expect("it").timed.len();
-    assert_eq!(timed(&h), 0, "not yet");
-    assert_eq!(fx_played(&h, b, from, pole), 0);
-    h.run(steps(2.0));
+    h.run(steps(3.2));
     assert_eq!(refusal_of(&h, b, from), None);
     assert_eq!(timed(&h), 2, "landed, though the use is over");
     assert_eq!(fx_played(&h, b, from, pole), 1);
     h.server.things.get_mut(pole).expect("it").timed.clear();
     let from = asked(&mut h, b, ON_WEAPON, pole);
-    h.run(steps(1.0));
+    h.run(1);
     h.server.things.get_mut(pole).expect("it").wielded = None;
     h.server.things.get_mut(pole).expect("it").container = None;
     h.run(steps(3.0));

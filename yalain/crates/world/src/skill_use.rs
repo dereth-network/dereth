@@ -184,80 +184,41 @@ pub const RECALL_IN_PORTAL: f64 = 1.52;
 pub const RECALL_ENDS_AFTER: f64 = 0.18;
 pub const RECALL_FAILS_AFTER: f64 = 0.70;
 pub const FAILED_ENDS_AFTER: f64 = 0.60;
-/// A special's animation from its story to its end, at time scale 1, by behavior (2017: Deadeye's
-/// 1.878, Riposte's 1.444, Mind Lash's behavior 2.080, the heals' 1.43-1.51, Blinding Arrow's and
-/// Sinew Snap's 3.25: 3.124 s to what came next at time scale 1.053, 46, and 1.373 s at 2.64, 147);
-/// others 1.6.
-#[must_use]
-pub fn animation_seconds(behavior: u32) -> f64 {
-    match behavior {
-        0x4100_007A => 1.878,
-        0x4100_007B => 3.25,
-        0x4100_0077 => 1.444,
-        0x4100_00B9 => 2.080,
-        0x4100_00C2 | 0x4100_00C9 => 1.47,
-        _ => 1.6,
-    }
-}
-
-/// When a helpful skill's effects reach their target after its story, at time scale 1, by
-/// behavior and whether it is used on its user (2017: Ease Suffering's 0.667 on its user, 0.722 on
-/// another; Inner Calm's 0.477; a timed buff's about 0.97).
-#[must_use]
-pub fn hook_seconds(behavior: u32, on_self: bool) -> f64 {
-    match behavior {
-        0x4100_00C2 if on_self => 0.667,
-        0x4100_00C2 => 0.722,
-        0x4100_00C9 => 0.477,
-        // An effect on an item: 20 stories 0.46 to 0.69 s, a median 0.56.
-        0x4100_009D => ON_ITEM_SECONDS,
-        _ => 0.97,
-    }
-}
-
-/// When a skill's effects reach an item after its story, at time scale 1.
-pub const ON_ITEM_SECONDS: f64 = 0.56;
-
-/// The same with a polearm in hand, whose stance plays that behavior longer (2017: all 4 of
-/// Galvanize's looks on its polearms 2.21 to 2.34 s, against 22 of Emblem's on shields, 0.46 to 0.69 s).
-pub const ON_ITEM_POLEARM_SECONDS: f64 = 2.27;
-/// A strike lands at this share of its animation, over the time scale (2017: Riposte's hits
-/// 0.70-0.72 s x time scale after the story).
-pub const STRIKE_LANDS: f64 = 0.71;
 /// How long a skill that walks and throws waits for its user to come within its range, in seconds.
 /// Ours: 2017's longest walk in was 2.31 s.
 pub const MOST_WAITED_FOR_RANGE: f64 = 10.0;
 /// How long a strike that walks its user to its target waits for it to come in reach (2017: of 6,394
 /// told, 28 past 5 s, 2 past 10 s, the longest 13.33 s).
 pub const MOST_WAITED_FOR_REACH: f64 = 20.0;
-/// A missile's windup before it flies, in seconds (2017: Deadeye's about 0.98 s).
-pub const MISSILE_WINDUP: f64 = 0.98;
-/// After a special inside a run, the run's next swing, in seconds (2017: a median 0.123 s).
-pub const NEXT_SWING_AFTER: f64 = 0.123;
 /// A recall's wait every skill shares, in seconds, unless the definition says otherwise.
 pub const RESET_SECONDS: f32 = 30.0;
 
 /// The behavior bits of a special's story: the behavior, the time scale, and the words of flags
-/// 0x400 (1) and 0x200 (0); with flag 0x20's word (1) for behaviors that carry it (Deadeye's, Mind
-/// Lash's, the recall's: 2017 sent it for those always).
+/// 0x400 (1) and 0x200 (0); with flag 0x20's word (1), moving cancels it, for the skills that say
+/// so ([`moving_cancels`]).
 pub const STORY_BEHAVIOR_BITS: u32 = 0x605;
-/// The behaviors whose stories carry flag 0x20's word: the specials', the heals', and the basic
-/// attacks of bows from afar and of staves.
-pub const WITH_WORD_20: [u32; 13] = [
-    0x4100_007A,
-    0x4100_00B9,
-    0x4100_00D5,
-    0x4100_00C9,
-    0x4100_00C2,
-    0x4100_00E2,
-    0x4100_00E3,
-    0x4100_00E4,
-    0x4100_00E5,
-    0x4100_00E6,
-    0x4100_00B0,
-    0x4100_00B1,
-    0x4100_00B2,
-];
+
+/// A skill's interface flag that keeps its use going when its user moves.
+pub const MOVING_KEEPS: u32 = 0x1;
+
+/// Does moving cancel a skill's use: its definition lacks [`MOVING_KEEPS`] (2017: flag 0x20's word
+/// set on every story of the 455 players' skills and 210 creatures' and pets' without it, and on
+/// none with it).
+#[must_use]
+pub fn moving_cancels(u: &Usage) -> bool {
+    u.ui_flags & MOVING_KEEPS == 0
+}
+
+/// The story hook a helpful skill's effects wait for: its first hook told after the story's
+/// start, else the first.
+#[must_use]
+pub fn helping_hook(u: &Usage) -> u32 {
+    u.hooks
+        .iter()
+        .map(|h| h.anim_hook)
+        .find(|n| *n > 0)
+        .unwrap_or(1)
+}
 
 /// A special's story bits: the attacker, its behavior, the use's number, the skill.
 pub const SPECIAL_STORY: u32 =
@@ -1902,14 +1863,14 @@ pub(crate) fn use_time_scale<S: Store>(s: &mut Server<S>, world: ConnId, u: &Usa
 }
 
 /// The behavior params of a special's story.
-pub(crate) fn story_params(behavior: u32, ts: f32) -> BehaviorParams {
+pub(crate) fn story_params(behavior: u32, ts: f32, cancels: bool) -> BehaviorParams {
     let mut b = BehaviorParams {
         bits: STORY_BEHAVIOR_BITS,
         behavior,
         time_scale: ts,
         ..BehaviorParams::default()
     };
-    if WITH_WORD_20.contains(&behavior) {
+    if cancels {
         b.bits |= 0x20;
         b.words[1] = 1;
     }
@@ -2111,7 +2072,7 @@ fn story<S: Store>(
         PhysicsStory {
             bits: SPECIAL_STORY,
             attacker: me,
-            attacker_behavior: story_params(behavior, ts),
+            attacker_behavior: story_params(behavior, ts, moving_cancels(&u)),
             attack_context: r.id,
             skill: r.skill,
             hooks,
@@ -2134,7 +2095,7 @@ fn story<S: Store>(
         });
         to_all_seeing(s, net, me, &plays);
     }
-    let after = |x: f64| x / f64::from(ts);
+    let played = crate::timings::of_player(s, world, behavior);
     if crate::usable::portals::summons(r.skill).is_some() {
         s.after(
             clock,
@@ -2179,7 +2140,7 @@ fn story<S: Store>(
                 .map_or(1.0, |x| x.spellcraft);
             s.after(
                 clock,
-                after(ON_ITEM_POLEARM_SECONDS),
+                crate::timings::lands(&played, helping_hook(&u), ts),
                 Timer::SkillOnItemLands {
                     world,
                     skill: r.skill,
@@ -2190,7 +2151,7 @@ fn story<S: Store>(
         } else {
             s.after(
                 clock,
-                after(hook_seconds(behavior, on_self)),
+                crate::timings::lands(&played, helping_hook(&u), ts),
                 Timer::Skill {
                     world,
                     serial,
@@ -2221,7 +2182,7 @@ fn story<S: Store>(
         };
         s.after(
             clock,
-            MISSILE_WINDUP + f64::from(d / speed),
+            f64::from(played.hook(h.anim_hook)) / f64::from(ts) + f64::from(d / speed),
             Timer::Skill {
                 world,
                 serial,
@@ -2231,7 +2192,14 @@ fn story<S: Store>(
     } else if !landings.is_empty() {
         s.after(
             clock,
-            after(STRIKE_LANDS),
+            crate::timings::lands(
+                &played,
+                landings
+                    .first()
+                    .and_then(|l| u.hooks.get(l.hook))
+                    .map_or(1, |h| h.anim_hook),
+                ts,
+            ),
             Timer::Skill {
                 world,
                 serial,
@@ -2241,7 +2209,7 @@ fn story<S: Store>(
     }
     s.after(
         clock,
-        after(animation_seconds(behavior)),
+        crate::timings::ends(&played, ts),
         Timer::Skill {
             world,
             serial,
@@ -2952,7 +2920,7 @@ fn end<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: C
         combat::set_player_mode(s, net, world, combat::mode::PEACE);
         run_waits_no_more(s, world, clock);
     } else if let Some(run) = s.players.get_mut(&world).and_then(|p| p.attacking.as_mut()) {
-        run.next_swing = clock.local.0 + NEXT_SWING_AFTER;
+        run.next_swing = clock.local.0 + crate::timings::PLAYER_PAUSE;
     }
     for pet in summons {
         crate::pets::appear(s, net, pet);
@@ -3057,7 +3025,7 @@ fn turns_on<S: Store>(
         combat::set_player_mode(s, net, world, combat::mode::PEACE);
         run_waits_no_more(s, world, clock);
     } else if let Some(run) = s.players.get_mut(&world).and_then(|p| p.attacking.as_mut()) {
-        run.next_swing = clock.local.0 + NEXT_SWING_AFTER;
+        run.next_swing = clock.local.0 + crate::timings::PLAYER_PAUSE;
     }
 }
 
@@ -3065,7 +3033,7 @@ fn turns_on<S: Store>(
 fn run_waits_no_more<S: Store>(s: &mut Server<S>, world: ConnId, clock: Clock) {
     if let Some(run) = s.players.get_mut(&world).and_then(|p| p.attacking.as_mut()) {
         if run.next_swing.is_infinite() {
-            run.next_swing = clock.local.0 + NEXT_SWING_AFTER;
+            run.next_swing = clock.local.0 + crate::timings::PLAYER_PAUSE;
         }
     }
 }

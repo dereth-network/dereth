@@ -17,6 +17,8 @@ auberean-dat.workspace = true
 dereth-dat.workspace = true
 # The walls, floors and solid things creatures meet, and the transition that moves them.
 auberean-physics.workspace = true
+# How long what a body plays takes: the clips' cycles and hooks.
+auberean-animation.workspace = true
 auberean-world.workspace = true
 auberean-text.workspace = true
 auberean-primitives.workspace = true

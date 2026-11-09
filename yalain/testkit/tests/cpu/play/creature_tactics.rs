@@ -861,16 +861,16 @@ fn a_creatures_strike_comes_when_it_is_due_not_at_the_worlds_next_step() {
     let (mut h, b, me, id) = noticed(&[], [61.0, 240.2, -44.6]);
     hardy(&mut h, me);
     let from = h.bots[b].inbox.len();
-    let mut at: Vec<(f64, u32)> = Vec::new();
+    let mut at: Vec<(f64, f32)> = Vec::new();
     let mut told = 0;
     for _ in 0..1500 {
         h.step();
-        let now: Vec<u32> = h
+        let now: Vec<f32> = h
             .world_messages(b, from)
             .iter()
             .filter_map(|m| match m {
                 ServerMessage::DoStory(e) if e.sender.id == id && e.action.attacker == id => {
-                    Some(e.action.skill)
+                    Some(e.action.attacker_behavior.time_scale)
                 }
                 _ => None,
             })
@@ -883,7 +883,8 @@ fn a_creatures_strike_comes_when_it_is_due_not_at_the_worlds_next_step() {
     assert!(at.len() > 10, "{} strikes", at.len());
     for pair in at.windows(2) {
         let gap = pair[1].0 - pair[0].0;
-        let due = combat::strike_gap(pair[0].1);
+        let due = yalain_world::timings::ends(&yalain_world::timings::unknown(), pair[0].1)
+            + yalain_world::timings::THING_PAUSE;
         assert!(
             (gap - due).abs() <= 0.051 + 0.001,
             "a gap of {gap:.3} where {due:.3} was due"
@@ -1097,13 +1098,16 @@ fn a_players_hits_gain_what_an_armor_debuff_took_from_the_creature() {
             (times * w.least() + over..=times * w.most + over).contains(d)
         })
     };
+    // Its first swings may come before the sword is in its hand.
     h.run(120);
-    let plain = hits(&h, 0);
+    let from = h.bots[b].inbox.len();
+    h.run(240);
+    let plain = hits(&h, from);
     assert_eq!(combat::armor_taken(&h.server, id), 0);
     put_on(&mut h, id, me, VACUUM_EFFECT, 50.0);
     assert_eq!(combat::armor_taken(&h.server, id), 100);
     let from = h.bots[b].inbox.len();
-    h.run(120);
+    h.run(240);
     let debuffed = hits(&h, from);
     assert!(!plain.is_empty() && !debuffed.is_empty());
     assert!(within(&plain, 0), "{plain:?}");

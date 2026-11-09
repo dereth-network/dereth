@@ -5,7 +5,8 @@
 //! (`auberean-script`), the client's written form of names and its word patterns
 //! (`auberean-text`, `auberean-assets`), the client's table of record kinds and its data files
 //! (`auberean-dat`), the overlay folder a world's own records are sent from (`dereth-dat`),
-//! `auberean-primitives`, the server's connections (`yalain-net`), the store's
+//! `auberean-primitives`, the bodies' animation timelines (`auberean-animation`), the server's
+//! connections (`yalain-net`), the store's
 //! trait (`yalain-store`), the content (`yalain-content`), the shared physics its creatures move through
 //! (`auberean-physics`, `auberean-world`, `dereth-physics`), the chat service's packet
 //! (`dereth-protocol`), the original's float-to-integer conversion (`dereth-primitives`), the
@@ -149,6 +150,7 @@ pub mod store;
 pub mod storms;
 pub mod talk;
 pub mod things;
+pub mod timings;
 pub mod trade;
 pub mod treasure;
 pub mod treasure_pools;
@@ -378,6 +380,8 @@ pub struct Server<S: Store> {
     pub ground: Option<Box<dyn Ground>>,
     /// The walls, floors and solid things creatures meet, when the host knows the world.
     pub walls: Option<walls::Walls>,
+    /// How long what bodies play takes, when the host has the install's animations.
+    pub timings: Option<timings::Timings>,
     /// The data files a client's requests for records are served from, when the host has them.
     pub data: Option<Box<dyn download::DataFiles>>,
     /// What answering requests for records has cost, and the answers made ahead of time.
@@ -807,6 +811,7 @@ impl<S: Store> Server<S> {
             fighting: Vec::new(),
             ground: None,
             walls: None,
+            timings: None,
             data: None,
             downloads: download::Downloads::default(),
             rng: rng::Rng::new(cfg_seed),

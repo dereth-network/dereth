@@ -339,6 +339,11 @@ pub struct SkillDef {
     /// ([`rating_parts`]); empty for a skill whose class names none.
     pub accuracy: Vec<RatingPart>,
     pub evasion: Vec<RatingPart>,
+    /// How much more, in percent, its harm counts when a creature thinks again about whom it fights:
+    /// the taunt bonus its class sets ([`taunt_bonus`]) and the share of its damage creatures notice
+    /// ([`notices_damage`]); none when no class of it sets them.
+    pub taunt_bonus: Option<f32>,
+    pub notices_damage: Option<f32>,
 }
 
 /// One part of an attack's accuracy or its target's evasion: what is rated, and how many points
@@ -438,6 +443,8 @@ impl SkillTable {
                 d.critical_modifier = critical_modifier(lib, pkg);
                 d.damage_pool_chance = damage_pool_chance(lib, pkg);
                 d.damage_pool_modifier = damage_pool_modifier(lib, pkg);
+                d.taunt_bonus = taunt_bonus(lib, pkg);
+                d.notices_damage = notices_damage(lib, pkg);
                 t.skills.insert(*skill, d);
                 t.by_package.insert(pkg, *skill);
             }
@@ -464,6 +471,25 @@ impl SkillTable {
         }
         t
     }
+}
+
+/// The functions of a used skill's class that set how much more its harm counts when a creature
+/// draws whom it fights.
+const SET_TAUNT_BONUS: &str = "SetTauntBonus";
+const SET_NOTICES_DAMAGE: &str = "SetMonsterNoticesDamageMod";
+
+/// The taunt bonus a skill's class sets ([`set_by_class`]): Courage in Arms 5, the Lashers' 2, an
+/// Avenger's strikes -0.5.
+#[must_use]
+pub fn taunt_bonus(lib: &Library, package: u32) -> Option<f32> {
+    set_by_class(lib, package, SET_TAUNT_BONUS)
+}
+
+/// The share of its damage, in percent over the whole, a skill's class says creatures notice
+/// ([`set_by_class`]): the Pain skills' 0.5.
+#[must_use]
+pub fn notices_damage(lib: &Library, package: u32) -> Option<f32> {
+    set_by_class(lib, package, SET_NOTICES_DAMAGE)
 }
 
 /// The function of a used skill's class that sets the threshold for its attacks' criticals.
@@ -760,6 +786,8 @@ impl SkillDef {
             damage_pool_modifier: None,
             accuracy: Vec::new(),
             evasion: Vec::new(),
+            taunt_bonus: None,
+            notices_damage: None,
         })
     }
 }

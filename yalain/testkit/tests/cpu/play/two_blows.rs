@@ -10,10 +10,11 @@ use auberean_script::args::Arg;
 use yalain_content::{Prop, Props};
 use yalain_testkit::play::server_call;
 use yalain_testkit::{Harness, TEST_CREATURE};
-use yalain_world::combat::{function, next_swing_after, second_blow_seconds, two_blow_seconds};
+use yalain_world::combat::{function, next_story_after};
 use yalain_world::skill_use::implement as im;
 use yalain_world::skills::{Hook, SkillDef, Usage};
 use yalain_world::state::SkillState;
+use yalain_world::timings::{lands as lands_at, unknown};
 
 const RIGHT: u32 = 0x4700_7A01;
 const LEFT: u32 = 0x4700_7A02;
@@ -448,13 +449,13 @@ fn each_blow_hurts_the_target_as_it_lands() {
     );
     let told = h.now.0;
     let s = stories(&h, b, from, me).pop().expect("its story");
-    let scale = f64::from(s.attacker_behavior.time_scale);
+    let scale = s.attacker_behavior.time_scale;
     let health = |h: &Harness| h.server.things.get(beetle).map_or(0, |t| t.health);
     let at = health(&h);
     assert!(at <= full);
     assert!(h.run_until(400, |h| health(h) < at), "the first lands");
     let first = h.now.0 - told;
-    let lands = yalain_world::combat::hit_seconds(816, Some(im::HANDBLADE)) / scale;
+    let lands = lands_at(&unknown(), 1, scale);
     assert!(
         (first - lands).abs() < 0.12,
         "first {first:.3}, not {lands:.3}"
@@ -463,7 +464,7 @@ fn each_blow_hurts_the_target_as_it_lands() {
     let after = health(&h);
     assert!(h.run_until(400, |h| health(h) < after), "the second lands");
     let second = h.now.0 - told;
-    let lands = second_blow_seconds(816) / scale;
+    let lands = lands_at(&unknown(), 2, scale);
     assert!(
         (second - lands).abs() < 0.12,
         "second {second:.3}, not {lands:.3}"
@@ -495,7 +496,7 @@ fn a_skill_that_strikes_twice_swings_at_its_own_pace() {
         .collect();
     assert!(told.len() >= 3);
     for (i, w) in told.windows(2).enumerate() {
-        let due = next_swing_after(two_blow_seconds(816), scales[i]);
+        let due = next_story_after(&unknown(), scales[i]);
         let gap = w[1] - w[0];
         assert!(gap > due - 0.12 && gap < due + 0.12, "{gap} not {due}");
     }
@@ -505,11 +506,8 @@ fn a_skill_that_strikes_twice_swings_at_its_own_pace() {
 /// Behaviour: server.weapons.attack-speed-effects
 #[test]
 fn skills_that_strike_or_throw_twice_go_at_their_players_pace() {
-    let fixtures = [
-        (two_blows(0x2002, 0x1002), two_blow_seconds(816)),
-        (two_throws(), yalain_world::combat::two_throws(1884).1),
-    ];
-    for ((mut h, b, me, beetle), period) in fixtures {
+    let fixtures = [two_blows(0x2002, 0x1002), two_throws()];
+    for (mut h, b, me, beetle) in fixtures {
         super::attack_speed::speeded(&mut h, 27, 1.7, true);
         let from = attack(&mut h, b, beetle);
         let mut told = Vec::new();
@@ -526,7 +524,7 @@ fn skills_that_strike_or_throw_twice_go_at_their_players_pace() {
             assert!((1.72..=2.12).contains(ts), "{ts}");
         }
         for w in told.windows(2) {
-            let (gap, due) = (w[1].0 - w[0].0, next_swing_after(period, w[0].1));
+            let (gap, due) = (w[1].0 - w[0].0, next_story_after(&unknown(), w[0].1));
             assert!(
                 (gap - due).abs() <= 0.052,
                 "{gap:.3} where {due:.3} was due"
@@ -916,7 +914,7 @@ fn each_throw_is_critical_with_what_its_own_hands_weapon_adds() {
 /// Behaviour: server.combat.damage-pool
 #[test]
 fn thrown_attacks_take_the_damage_pool_once_a_swing() {
-    let count = |throws: usize| -> (usize, usize, usize) {
+    let count = |throws: usize| -> (usize, usize, usize, usize) {
         let (mut h, b, me, beetle) = two_throws();
         if throws == 1 {
             let d = h
@@ -932,21 +930,25 @@ fn thrown_attacks_take_the_damage_pool_once_a_swing() {
         let from = attack(&mut h, b, beetle);
         h.run(6000);
         let swings = stories(&h, b, from, me).len();
-        let landed: Vec<i32> = stories(&h, b, from, beetle)
+        let arrived: Vec<auberean_protocol::types::StoryHook> = stories(&h, b, from, beetle)
             .iter()
             .filter(|s| s.attacker == me)
             .flat_map(|s| s.hooks.clone())
+            .collect();
+        let landed: Vec<i32> = arrived
+            .iter()
             .filter(|k| [HIT, CRITICAL].contains(&k.numbers[0].cast_unsigned()))
             .map(|k| -k.numbers[3])
             .collect();
         let pooled = landed.iter().filter(|d| **d > 1_000).count();
-        (swings, landed.len(), pooled)
+        (swings, arrived.len(), landed.len(), pooled)
     };
-    let (swings, landed, pooled) = count(1);
+    let (swings, _, landed, pooled) = count(1);
     assert!(landed >= 10, "{swings} {landed}");
     assert_eq!(pooled, landed, "each throw its own swing");
-    let (swings, landed, pooled) = count(2);
-    assert!(landed > swings && pooled >= 5, "{swings} {landed} {pooled}");
+    let (swings, arrived, landed, pooled) = count(2);
+    assert!(arrived + 2 >= 2 * swings, "{swings} {arrived}");
+    assert!(landed > pooled && pooled >= 5, "{swings} {landed} {pooled}");
     assert!(pooled <= swings, "{swings} {landed} {pooled}");
 }
 
@@ -955,7 +957,6 @@ fn thrown_attacks_take_the_damage_pool_once_a_swing() {
 /// Behaviour: server.weapons.two-throws
 #[test]
 fn the_second_throw_arrives_after_the_first_and_swings_come_at_their_own_pace() {
-    use yalain_world::combat::two_throws as measured;
     let (mut h, b, me, beetle) = two_throws();
     let from = attack(&mut h, b, beetle);
     let arrival = |h: &Harness, index: i32| {
@@ -969,14 +970,11 @@ fn the_second_throw_arrives_after_the_first_and_swings_come_at_their_own_pace() 
     let told = stories(&h, b, from, me);
     let scale = f64::from(told[0].attacker_behavior.time_scale);
     assert!(h.run_until(400, |h| arrival(h, 1)), "the second arrives");
-    let ([w0, w1], period) = measured(1884);
+    // The second hook is past what is played's last: it is loosed at the cycle's end.
+    let played = unknown();
+    let between = f64::from(played.hook(2) - played.hook(1)) / scale;
     let gap = h.now.0 - first;
-    assert!(
-        (gap - (w1 - w0) / scale).abs() < 0.12,
-        "{gap:.3}, not {:.3}",
-        (w1 - w0) / scale
-    );
-    assert!((period - 1.951).abs() < 1e-9);
+    assert!((gap - between).abs() < 0.12, "{gap:.3}, not {between:.3}");
 }
 
 /// A swing comes as soon as it is due, not at the world's next step: each gap is what its period
@@ -998,7 +996,7 @@ fn a_swing_comes_when_it_is_due_not_at_the_worlds_next_step() {
     assert!(at.len() > 10, "{} swings", at.len());
     for pair in at.windows(2) {
         let gap = pair[1].0 - pair[0].0;
-        let due = next_swing_after(two_blow_seconds(816), pair[0].1);
+        let due = next_story_after(&unknown(), pair[0].1);
         assert!(
             (gap - due).abs() <= 0.051 + 0.001,
             "a gap of {gap:.3} where {due:.3} was due"

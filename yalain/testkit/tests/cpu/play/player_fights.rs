@@ -338,19 +338,16 @@ fn a_strike_at_another_player_hurts_it_as_it_lands_and_the_kill_text_comes_after
         "a hit is told"
     );
     let told = h.now.0;
-    let (skill, scale) = h
+    let scale = h
         .world_messages(b, from_b)
         .iter()
         .find_map(|m| match m {
-            ServerMessage::DoStory(e) if hit(m) => {
-                Some((e.action.skill, e.action.attacker_behavior.time_scale))
-            }
+            ServerMessage::DoStory(e) if hit(m) => Some(e.action.attacker_behavior.time_scale),
             _ => None,
         })
         .expect("its story");
     assert_eq!(health_of(&h, idb), 1, "not hurt as it is told");
-    let sword = Some(yalain_world::skill_use::implement::SWORD);
-    let lands = yalain_world::combat::hit_seconds(skill, sword) / f64::from(scale);
+    let lands = yalain_world::timings::lands(&yalain_world::timings::unknown(), 1, scale);
     let at_none = |m: &ServerMessage| matches!(m, ServerMessage::UpdateInt(q) if q.quality == quality::HEALTH && q.value == 0);
     assert!(
         h.run_until(100, |h| h.world_messages(b, from_b).iter().any(at_none)),
@@ -969,9 +966,9 @@ fn a_specials_strike_at_a_player_gone_into_portal_space_does_not_hurt_it() {
     assert_eq!(health_of(&h, idb), health, "not yet");
     let clock = h.clock();
     yalain_world::places::resurrection_trip(&mut h.server, &mut h.net, wb, to, clock);
-    // Its landing comes while the other is away.
-    let landed = |h: &Harness| h.server.players[&wa].using.is_none();
-    while !landed(&h) {
+    // Its landing comes while the other is away: what it plays lands it within a second.
+    let start = h.now.0;
+    while h.now.0 - start < 1.2 {
         assert!(h.server.players[&wb].trip.is_some(), "still away");
         h.step();
         assert_eq!(health_of(&h, idb), health);

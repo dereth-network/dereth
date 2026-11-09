@@ -9,8 +9,8 @@ use auberean_script::args::Arg;
 use yalain_testkit::play::{report, server_call};
 use yalain_testkit::{Harness, TEST_CREATURE};
 use yalain_world::calls::{self, Value};
-use yalain_world::combat::{function, next_swing_after, swing_seconds};
-use yalain_world::skill_use::implement as im;
+use yalain_world::combat::{function, next_story_after};
+use yalain_world::timings::unknown;
 
 const BOW: u32 = 0x4700_051B;
 const STAVE: u32 = 0x4700_051D;
@@ -174,7 +174,7 @@ fn a_bows_shots_go_at_its_players_pace() {
     }
     for w in told.windows(2) {
         let gap = w[1].0 - w[0].0;
-        let due = next_swing_after(swing_seconds(Some(im::BOW), true), w[0].1);
+        let due = next_story_after(&unknown(), w[0].1);
         assert!(
             (gap - due).abs() <= 0.052,
             "{gap:.3} where {due:.3} was due"

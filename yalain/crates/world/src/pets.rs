@@ -2247,7 +2247,8 @@ fn strike<S: Store>(
         }
     }
     crate::combat::to_all_seeing(s, net, id, &st);
-    let lands = crate::combat::pet_strike_seconds(skill.skill) / f64::from(clock_free);
+    let played = crate::timings::of_thing(s, id, skill.behavior);
+    let lands = crate::timings::lands(&played, 1, clock_free);
     for (target, outcome, harm) in rolls {
         if outcome.landed() {
             s.after(
@@ -2309,11 +2310,9 @@ fn also_reached<S: Store>(s: &Server<S>, pet: u64, target: u64, skill: u32) -> V
         .collect()
 }
 
-/// A pet's missile flies at this many meters a second, after a windup of this many seconds at the
-/// ordinary time scale (2017: the Lasher's impact 1.018 s / time scale + distance / 59 m/s after its
-/// throw, 2,110 throws).
+/// A pet's missile flies at this many meters a second, loosed at its throw's hook (2017: the Lasher's
+/// impact a windup over the time scale + distance / 59 m/s after its throw, 2,110 throws).
 pub const MISSILE_SPEED: f32 = 59.0;
-pub const MISSILE_WINDUP: f32 = 1.018;
 /// How far above where the pet and its target stand the line a missile's landing is read along runs,
 /// in meters.
 pub const MISSILE_RISE: f32 = 1.0;
@@ -2355,7 +2354,8 @@ fn launch<S: Store>(
         e.action.hooks.push(missile);
     }
     crate::combat::to_all_seeing(s, net, id, &st);
-    let flight = MISSILE_WINDUP / ts + distance / MISSILE_SPEED;
+    let played = crate::timings::of_thing(s, id, skill.behavior);
+    let flight = played.hook(1) / ts + distance / MISSILE_SPEED;
     s.after(
         clock,
         f64::from(flight),
@@ -2722,7 +2722,8 @@ fn blast<S: Store>(
         }
     }
     crate::combat::to_all_seeing(s, net, id, &st);
-    let lands = crate::combat::pet_strike_seconds(skill.skill) / f64::from(clock_free);
+    let played = crate::timings::of_thing(s, id, skill.behavior);
+    let lands = crate::timings::lands(&played, 1, clock_free);
     for (target, outcome, harm) in rolls {
         if outcome.landed() {
             s.after(

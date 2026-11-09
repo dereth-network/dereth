@@ -214,18 +214,15 @@ fn a_players_swing_hurts_a_creature_as_it_lands_by_its_skill() {
         "a hit is told"
     );
     let told = h.now.0;
-    let (skill, scale) = h
+    let scale = h
         .world_messages(b, from)
         .iter()
         .find_map(|m| match m {
-            ServerMessage::DoStory(e) if hit(m) => {
-                Some((e.action.skill, e.action.attacker_behavior.time_scale))
-            }
+            ServerMessage::DoStory(e) if hit(m) => Some(e.action.attacker_behavior.time_scale),
             _ => None,
         })
         .expect("its story");
-    let sword = Some(yalain_world::skill_use::implement::SWORD);
-    let lands = yalain_world::combat::hit_seconds(skill, sword) / f64::from(scale);
+    let lands = yalain_world::timings::lands(&yalain_world::timings::unknown(), 1, scale);
     let alive = |h: &Harness| h.server.things.get(beetle).is_some_and(|t| t.health > 0);
     assert!(alive(&h), "not hurt as it is told");
     let dead = |m: &ServerMessage| {
@@ -241,24 +238,6 @@ fn a_players_swing_hurts_a_creature_as_it_lands_by_its_skill() {
         (gap - lands).abs() < 0.12,
         "it landed {gap:.3} s after its story, not {lands:.3} s"
     );
-}
-
-/// A strike lands at its own skill's time; a skill seen too little by what is held.
-/// Behaviour: server.combat.strike-lands
-#[test]
-fn a_strike_lands_at_its_skills_own_time() {
-    use yalain_world::combat::hit_seconds;
-    use yalain_world::skill_use::implement::{BOW, STAVE, SWORD};
-    assert_eq!(hit_seconds(690, Some(SWORD)), 0.552);
-    assert_eq!(hit_seconds(691, Some(SWORD)), 0.785);
-    assert_eq!(hit_seconds(617, Some(STAVE)), 1.056);
-    assert_eq!(hit_seconds(816, Some(SWORD)), 0.777);
-    assert_eq!(hit_seconds(817, Some(SWORD)), 0.844);
-    assert_eq!(hit_seconds(818, Some(SWORD)), 0.780);
-    assert_eq!(hit_seconds(955, Some(SWORD)), 0.732);
-    assert_eq!(hit_seconds(1, Some(BOW)), 0.572);
-    assert_eq!(hit_seconds(1, Some(STAVE)), 0.817);
-    assert_eq!(hit_seconds(1, Some(SWORD)), 0.713);
 }
 
 /// A practice target (a creature that never fights back, as the halls' Straw Drudges) is attacked

@@ -1178,6 +1178,12 @@ impl yalain_world::Ground for LandGround {
     }
 }
 
+/// The install's animation timelines, read as fights ask for them.
+#[must_use]
+pub fn timings(p: &Portal) -> yalain_world::timings::Timings {
+    yalain_world::timings::Timings::new(p.dat.clone(), p.ctx.clone())
+}
+
 /// The land under the outdoor camps: every landblock a camp stands in, and those around it; and
 /// the walls the creatures meet on that land, read further a block at a time as they move, with
 /// the body of every template whose look gives one.

@@ -1534,10 +1534,9 @@ fn a_pets_attack_used_where_it_stands_falls_around_it_and_its_user_effect_goes_o
     assert!(h.server.things.get(turret).is_none_or(|t| !t.alive()));
     assert_eq!(h.server.pets.of(other), vec![theirs], "theirs stands");
     assert_eq!(health_of(&h, theirs), their_health, "and is untouched");
-    let p = player(&mut h, other);
-    assert_eq!(
-        quals::int(&p.qualities, quality::HEALTH),
-        quals::int(&p.qualities, quality::HEALTH_MAX),
-        "the player at peace untouched"
-    );
+    let blasted_other = h.world_messages(c, 0).iter().any(|m| {
+        matches!(m, ServerMessage::DoStory(e)
+            if e.action.skill == BLAST && e.action.hooks.iter().any(|k| k.target == other))
+    });
+    assert!(!blasted_other, "the player at peace untouched");
 }

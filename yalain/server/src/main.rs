@@ -791,6 +791,8 @@ fn seed<S: Store>(o: &Options, store: &mut S, rules: &CharGenRules) {
 /// What the world plays: its templates, camps and loot.
 struct Play {
     catalog: Catalog,
+    /// How long what bodies play takes, read from the install's animations as they are asked.
+    timings: yalain_world::timings::Timings,
     spawns: SpawnTable,
     loot: LootTable,
     ground: data::LandGround,
@@ -989,6 +991,7 @@ fn run<S: Store>(
         .set_clock(Box::new(move || since.elapsed().as_secs_f64()));
     server.ground = Some(Box::new(play.ground));
     server.walls = Some(play.walls);
+    server.timings = Some(play.timings);
     server.stand_placed();
     let files = play.files;
     if o.serve_admin_library {
@@ -2125,6 +2128,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             "the effects item profiles list read"
         );
         Ok(Play {
+            timings: data::timings(portal),
             files: data::install_files(portal),
             catalog,
             spawns,

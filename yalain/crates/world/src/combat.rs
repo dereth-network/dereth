@@ -176,14 +176,8 @@ pub mod hook {
 /// 0x200 (0).
 pub const SWING_BEHAVIOR_BITS: u32 = 0x605;
 
-/// The time scale of the players periods were measured at (see [`time_scale_at_delay`] for one
-/// player's), and a creature's.
-pub const PLAYER_TIME_SCALE: f32 = 1.05;
+/// A creature's time scale.
 pub const CREATURE_TIME_SCALE: f32 = 1.296;
-
-/// A melee swing's length at time scale 1, in seconds (the sword's and the bow's up close
-/// measured 1.64 and 1.32).
-pub const SWING_SECONDS: f32 = 1.5;
 
 /// How far a player's melee attack reaches, in meters (2017's bow-up-close swings 1.3-2.4 m, at
 /// most 3.2).
@@ -204,24 +198,8 @@ pub const EARLY_SWINGS_PER_SECOND: f64 = 0.2;
 /// How often a run walking to its target looks whether it has arrived, in seconds (a world step).
 pub const WALKING_CHECK: f64 = 0.2;
 
-/// Seconds between a creature's melee attacks (the start area's measured gaps: 1.24-1.42 s, 2.0
-/// for the dagger wielders).
-pub const CREATURE_ATTACK_SECONDS: f64 = 1.35;
-
 /// The stat of a weapon that adds to its chance of a critical.
 pub const CRITICAL_BONUS: u32 = 0x3_03E9;
-
-/// Seconds from a creature's basic strike to its next attack, by the strike's skill (2017's medians:
-/// the plain strike 1.39 s, `Strong` 1.52, `Stronger` 1.63); others as [`CREATURE_ATTACK_SECONDS`].
-#[must_use]
-pub fn strike_gap(skill: u32) -> f64 {
-    match skill {
-        1845 => 1.39,
-        1846 => 1.52,
-        1847 => 1.63,
-        _ => CREATURE_ATTACK_SECONDS,
-    }
-}
 
 /// A player's attack run.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -241,131 +219,11 @@ pub const MOVING: u32 = 30_027;
 /// When a run told it is too far, or moving, tries again (2017: 1.01 and 1.02 s).
 pub const STANDING_RETRY: f64 = 1.01;
 
-/// A swing's period over its time scale, by what is swung (2017: a bow shooting 1.789, a bow
-/// striking 1.339, a stave 1.65, a sword 1.64).
+/// Seconds from a story of a player's to its next one: what it plays, over its time scale, and the
+/// pause after.
 #[must_use]
-pub fn swing_seconds(implement: Option<u32>, thrown: bool) -> f64 {
-    use crate::skill_use::implement as im;
-    match implement {
-        Some(im::BOW) if thrown => 1.789,
-        Some(im::BOW) => 1.339,
-        Some(im::STAVE) => 1.65,
-        _ => 1.64,
-    }
-}
-
-/// The period of a skill that strikes twice, over its time scale, by the behavior it plays (2017:
-/// handblades 2.032 over 8,909 swings and 2.198 over 4,391, two one-handed weapons 2.221 over
-/// 3,179, a polearm 1.607 over 314).
-#[must_use]
-pub fn two_blow_seconds(skill: u32) -> f64 {
-    match skill {
-        816 | 818 | 1402 | 1404 => 2.032,
-        817 | 1403 => 2.198,
-        335..=339 => 1.607,
-        _ => 2.221,
-    }
-}
-
-/// Seconds from a swing's story to the player's next one, given its period and time scale: the
-/// animation runs over the time scale and the pause after it does not, the period being measured
-/// at the plain time scale. 2017 fits gaps of one skill as a pause of 0.10 to 0.17 s (the 0.123 s
-/// after a special inside a run) plus a part over the time scale, inside one state of effects as
-/// across them; and the same weapon's gaps were 1.50 s at time scale 1.06, 1.20 s at 1.37, 0.97 s
-/// at 1.74.
-#[must_use]
-pub fn next_swing_after(period: f64, ts: f32) -> f64 {
-    use crate::skill_use::NEXT_SWING_AFTER as PAUSE;
-    PAUSE + (period - PAUSE * f64::from(PLAYER_TIME_SCALE)) / f64::from(ts)
-}
-
-/// When a thrown basic attack leaves (over the time scale), and its speed, by the weapon: a bow's
-/// arrow 0.831 s and its hook's speed (2017: 0.839 s at 35.1 m/s fitted over 67 shots at still
-/// targets); a stave's 0.817 s (161).
-#[must_use]
-pub fn windup_seconds(implement: Option<u32>) -> f64 {
-    if implement == Some(crate::skill_use::implement::BOW) {
-        0.831
-    } else {
-        0.817
-    }
-}
-
-/// A skill that throws twice: when each throw leaves over the time scale, and its period (2017, each
-/// hook's arrivals fitted on the time scale: 39 swings of orbs; periods over 34 gaps).
-#[must_use]
-pub const fn two_throws(skill: u32) -> ([f64; 2], f64) {
-    match skill {
-        1884 => ([1.733, 2.083], 1.951),
-        1885 => ([1.637, 1.637], 3.317),
-        _ => ([1.406, 2.085], 3.995),
-    }
-}
-
-/// When a player's basic strike lands after its story, over the time scale: the median its skill
-/// showed from the story to its target's wound or death (2017: 6,161 strikes at creatures, 69 at
-/// once); of a skill that strikes twice its first blow (816, 817 and 818: 196, 180 and 206
-/// strikes; a polearm's together, 59); by what is held for a skill seen too little: a bow's 0.572,
-/// a stave's 0.817; else the median of all strikes that walk, 0.713 (3,054).
-#[must_use]
-pub fn hit_seconds(skill: u32, implement: Option<u32>) -> f64 {
-    use crate::skill_use::implement as im;
-    match skill {
-        62 => 0.857,
-        63 => 0.811,
-        64 => 0.803,
-        122 => 0.568,
-        123 => 0.680,
-        124 => 0.688,
-        125 => 0.677,
-        126 => 0.686,
-        194 | 195 => 0.568,
-        197 => 0.591,
-        198 => 0.582,
-        250 => 0.704,
-        251 => 0.767,
-        252 => 0.746,
-        308 => 0.704,
-        309 => 0.806,
-        310 => 0.823,
-        311 => 0.768,
-        312 => 0.661,
-        335..=339 => 0.696,
-        616 => 0.747,
-        617 => 1.056,
-        618 => 0.675,
-        688 => 0.742,
-        689 => 0.570,
-        690 => 0.552,
-        691 => 0.785,
-        692 => 0.810,
-        816 => 0.777,
-        817 => 0.844,
-        818 => 0.780,
-        953 => 0.688,
-        954 => 0.794,
-        955 => 0.732,
-        _ => match implement {
-            Some(im::BOW) => 0.572,
-            Some(im::STAVE) => 0.817,
-            _ => 0.713,
-        },
-    }
-}
-
-/// When a skill's second blow lands after its story, over the time scale: as a first blow's,
-/// where its skill or its weapon's skills were seen enough (2017: 163, 200 and 152 strikes of 816,
-/// 817 and 818; a polearm's together, 60; 1402 to 1404 play the behaviors of 816 to 818), else the
-/// median of the rest, two one-handed weapons', 0.987 (88).
-#[must_use]
-pub fn second_blow_seconds(skill: u32) -> f64 {
-    match skill {
-        816 | 1402 => 1.225,
-        817 | 1403 => 1.345,
-        818 | 1404 => 1.237,
-        335..=339 => 1.464,
-        _ => 0.987,
-    }
+pub fn next_story_after(played: &auberean_animation::timeline::Timeline, ts: f32) -> f64 {
+    crate::timings::ends(played, ts) + crate::timings::PLAYER_PAUSE
 }
 
 /// A basic attack on its way to its target.
@@ -961,9 +819,6 @@ fn swing<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock:
         .map(crate::skill_use::strikes)
         .filter(|strikes| strikes.len() > 1);
     let hands = crate::skill_use::hands(s, id);
-    let implement = hands
-        .right
-        .and_then(|(_, t)| crate::skill_use::implement_of(&s.catalog, t));
     let kind = kind_of(s, skill, false);
     let rating = crate::skill_use::rating_of(s, world, skill);
     let mut pool = damage_pool(s, world, skill);
@@ -1038,22 +893,21 @@ fn swing<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock:
         with_pk_damage(&mut st, run.target);
     }
     to_all_seeing(s, net, id, &st);
-    let period = if two_blows.is_some() {
-        two_blow_seconds(skill)
-    } else {
-        swing_seconds(None, false)
-    };
-    swung(s, world, now + next_swing_after(period, ts));
-    for (nth, blow) in blows.iter().enumerate() {
+    let played = crate::timings::of_player(s, world, behavior);
+    swung(s, world, now + next_story_after(&played, ts));
+    for blow in &blows {
         if blow.outcome.landed() {
-            let seconds = if nth == 0 {
-                hit_seconds(skill, implement)
+            // The hook its story names: a single blow's is the first.
+            let n = if two_blows.is_some() {
+                usage
+                    .and_then(|u| u.hooks.get(blow.hook))
+                    .map_or(1, |h| h.anim_hook)
             } else {
-                second_blow_seconds(skill)
+                1
             };
             s.after(
                 clock,
-                seconds / f64::from(ts),
+                crate::timings::lands(&played, n, ts),
                 crate::Timer::Landing(Landing {
                     world,
                     target: run.target,
@@ -1134,9 +988,7 @@ fn stand_and_swing<S: Store>(
     let my_level = crate::examine::level_of(&p.qualities);
     let added = crate::effects::damage_added(s, p);
     let held = crate::skill_use::wielded(s, id);
-    let (weapon, implement) = held.first().map_or((0, None), |(i, t)| {
-        (*i, crate::skill_use::implement_of(&s.catalog, *t))
-    });
+    let weapon = held.first().map_or(0, |(i, _)| *i);
     if !run.mode_sent {
         let mode = crate::skill_use::player_mode(s, id);
         set_player_mode(s, net, world, mode);
@@ -1194,7 +1046,11 @@ fn stand_and_swing<S: Store>(
         PhysicsStory {
             bits: BASIC_SWING,
             attacker: id,
-            attacker_behavior: crate::skill_use::story_params(behavior, ts),
+            attacker_behavior: crate::skill_use::story_params(
+                behavior,
+                ts,
+                crate::skill_use::moving_cancels(&u),
+            ),
             attack_context: 0,
             skill,
             hooks,
@@ -1204,13 +1060,14 @@ fn stand_and_swing<S: Store>(
         with_pk_damage(&mut told, run.target);
     }
     to_all_seeing(s, net, id, &told);
-    if crate::skill_use::WITH_WORD_20.contains(&behavior) && weapon != 0 {
+    if crate::skill_use::moving_cancels(&u) && weapon != 0 {
         let plays = ServerMessage::PlayBehavior(ObjectEvent {
             sender: crate::inventory::visual(s, weapon),
             action: BehaviorParams::behavior(behavior),
         });
         to_all_seeing(s, net, id, &plays);
     }
+    let played = crate::timings::of_player(s, world, behavior);
     let landing = Landing {
         world,
         target: run.target,
@@ -1234,16 +1091,12 @@ fn stand_and_swing<S: Store>(
             } else {
                 35.0
             };
-            windup_seconds(implement) / f64::from(ts) + f64::from(centre / speed)
+            f64::from(played.hook(h.anim_hook)) / f64::from(ts) + f64::from(centre / speed)
         }
-        None => hit_seconds(skill, implement) / f64::from(ts),
+        None => crate::timings::lands(&played, 1, ts),
     };
     s.after(clock, after, crate::Timer::Landing(landing));
-    swung(
-        s,
-        world,
-        now + next_swing_after(swing_seconds(implement, thrown.is_some()), ts),
-    );
+    swung(s, world, now + next_story_after(&played, ts));
 }
 
 /// A swing of a skill with two thrown hooks: its story names each hand's weapon, each throw's
@@ -1267,7 +1120,7 @@ fn throw_twice<S: Store>(
     let rating = crate::skill_use::rating_of(s, world, skill);
     let mut pool = damage_pool(s, world, skill);
     let ts = player_time_scale(s, world);
-    let (windups, period) = two_throws(skill);
+    let played = crate::timings::of_player(s, world, u.behavior_other[0]);
     let centre = s
         .players
         .get(&world)
@@ -1275,7 +1128,7 @@ fn throw_twice<S: Store>(
         .unwrap_or(0.0);
     let mut hooks = crate::skill_use::story_hooks(u, run.target, 0, None);
     let mut told_of = Vec::new();
-    for (n, (i, h)) in crate::skill_use::throws_of(u).into_iter().enumerate() {
+    for (i, h) in crate::skill_use::throws_of(u) {
         let left = h.flags & crate::skill_use::hook_flag::LEFT_HAND != 0;
         let weapon = if left { hands.left } else { hands.right }.map(|(w, _)| w);
         // Each throw is critical with what its own hand's weapon adds, as a swing is.
@@ -1316,7 +1169,7 @@ fn throw_twice<S: Store>(
                 thrown: true,
                 anim_hook: h.anim_hook,
             },
-            windups[n.min(1)] / f64::from(ts) + f64::from(centre / speed),
+            f64::from(played.hook(h.anim_hook)) / f64::from(ts) + f64::from(centre / speed),
         ));
     }
     let behavior = u.behavior_other[0];
@@ -1328,7 +1181,11 @@ fn throw_twice<S: Store>(
         PhysicsStory {
             bits: BASIC_SWING,
             attacker: id,
-            attacker_behavior: crate::skill_use::story_params(behavior, ts),
+            attacker_behavior: crate::skill_use::story_params(
+                behavior,
+                ts,
+                crate::skill_use::moving_cancels(u),
+            ),
             attack_context: 0,
             skill,
             hooks,
@@ -1341,7 +1198,7 @@ fn throw_twice<S: Store>(
     for (landing, after) in told_of {
         s.after(clock, after, crate::Timer::Landing(landing));
     }
-    swung(s, world, clock.local.0 + next_swing_after(period, ts));
+    swung(s, world, clock.local.0 + next_story_after(&played, ts));
 }
 
 /// The kind of a player's swing, for its landing chance: its skill's (a bow's strikes up close are
@@ -1647,7 +1504,7 @@ pub(crate) fn hurt_creature_by_skill<S: Store>(
     damage: i32,
     clock: Clock,
 ) {
-    let noticed = crate::ai::harm_noticed(skill, damage);
+    let noticed = crate::ai::harm_noticed(&s.skill_table, skill, damage);
     hurt_creature_noticed(s, net, id, (by, damager), (damage, noticed), clock);
 }
 
@@ -1979,14 +1836,20 @@ pub fn creature_strikes<S: Store>(
         return;
     }
     let pace = attack_pace(s, id);
+    // Until what it plays says otherwise: a cycle it does not know.
+    let unknown = crate::timings::ends(&crate::timings::unknown(), CREATURE_TIME_SCALE * pace)
+        + crate::timings::THING_PAUSE;
     if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
-        c.next_attack = now + CREATURE_ATTACK_SECONDS / f64::from(pace);
+        c.next_attack = now + unknown;
     }
     if let Some(sp) = crate::missiles::pick_special(s, id, &specials, distance, now) {
         if sp.missile {
             crate::missiles::launch(s, net, id, target, sp, true, clock);
         } else {
-            creature_strike_with(s, net, id, target, sp, true, clock);
+            let next = creature_strike_with(s, net, id, target, sp, true, clock);
+            if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
+                c.next_attack = now + next;
+            }
         }
         return;
     }
@@ -1998,14 +1861,15 @@ pub fn creature_strikes<S: Store>(
         .unwrap_or_default();
     let skill = crate::missiles::pick_basic(s, &stats, &melee)
         .unwrap_or(crate::missiles::CREATURE_ATTACKS[0]);
+    let next = creature_strike_with(s, net, id, target, skill, false, clock);
     if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
-        c.next_attack = now + strike_gap(skill.skill) / f64::from(pace);
+        c.next_attack = now + next;
     }
-    creature_strike_with(s, net, id, target, skill, false, clock);
 }
 
 /// A creature strikes its target where it stands with a skill (a special told without the
-/// basic-attack flag): the story with its result, the player hurt as a hit reaches it.
+/// basic-attack flag): the story with its result, the player hurt as a hit reaches it. Returns how
+/// long until its next attack may come: its cycle over its time scale and the pause after.
 pub fn creature_strike_with<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -2014,13 +1878,15 @@ pub fn creature_strike_with<S: Store>(
     skill: crate::missiles::AttackSkill,
     special: bool,
     clock: Clock,
-) {
+) -> f64 {
+    let unknown = crate::timings::ends(&crate::timings::unknown(), CREATURE_TIME_SCALE)
+        + crate::timings::THING_PAUSE;
     let Some(c) = s.things.get(id).and_then(|t| t.creature.as_ref()) else {
-        return;
+        return unknown;
     };
     let (natural, variance) = (c.stats.natural_damage, c.stats.natural_variance);
     let Some(p) = s.players.get(&target) else {
-        return;
+        return unknown;
     };
     let (pid, my_level) = (p.character, crate::examine::level_of(&p.qualities));
     let critical = skill.critical + creature_critical_bonus(s, id);
@@ -2085,10 +1951,11 @@ pub fn creature_strike_with<S: Store>(
     if OPENS_AFTER_ATTACK.contains(&skill.skill) {
         crate::skill_use::creature_attacked(s, id, clock);
     }
+    let played = crate::timings::of_thing(s, id, skill.behavior);
     if outcome.landed() {
         s.after(
             clock,
-            creature_hit_seconds(skill.skill, skill.behavior, special) / f64::from(ts),
+            crate::timings::lands(&played, 1, ts),
             crate::Timer::CreatureStrikeLands {
                 creature: id,
                 target,
@@ -2096,24 +1963,7 @@ pub fn creature_strike_with<S: Store>(
             },
         );
     }
-}
-
-/// When a creature's strike reaches its target after its story, over the time scale, as its client
-/// plays the blow and writes the hit (2017: its basic melee attacks a median 0.778 s, 1,098 strikes,
-/// 1 at once; the specials measured by their own; another special at the share of an animation a
-/// player's strike lands at).
-#[must_use]
-pub fn creature_hit_seconds(skill: u32, behavior: u32, special: bool) -> f64 {
-    match skill {
-        1035 => 0.524,
-        462 => 1.198,
-        981 => 1.207,
-        1801 => 2.066,
-        _ if special => {
-            crate::skill_use::STRIKE_LANDS * crate::skill_use::animation_seconds(behavior)
-        }
-        _ => 0.778,
-    }
+    crate::timings::ends(&played, ts) + crate::timings::THING_PAUSE
 }
 
 /// A creature's strike reaches its target: the player hurt, and dead if that was the last of its
@@ -2237,12 +2087,8 @@ pub fn thing_strikes_thing<S: Store>(
         let (basic, _) = crate::missiles::attacks_of(&s.skill_table, &stats);
         let melee: Vec<crate::missiles::AttackSkill> =
             basic.into_iter().filter(|a| !a.missile).collect();
-        let skill = crate::missiles::pick_basic(s, &stats, &melee)
-            .unwrap_or(crate::missiles::CREATURE_ATTACKS[0]);
-        if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
-            c.next_attack = now + strike_gap(skill.skill);
-        }
-        skill
+        crate::missiles::pick_basic(s, &stats, &melee)
+            .unwrap_or(crate::missiles::CREATURE_ATTACKS[0])
     };
     let their_level = s.things.get(target).map_or(1, crate::things::Thing::level);
     let critical = skill.critical + creature_critical_bonus(s, id);
@@ -2291,10 +2137,16 @@ pub fn thing_strikes_thing<S: Store>(
         },
     );
     to_all_seeing(s, net, id, &st);
+    let played = crate::timings::of_thing(s, id, skill.behavior);
+    if with.is_none() {
+        if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
+            c.next_attack = now + crate::timings::ends(&played, ts) + crate::timings::THING_PAUSE;
+        }
+    }
     if outcome.landed() {
         s.after(
             clock,
-            on_pet_seconds(skill.skill) / f64::from(ts),
+            crate::timings::lands(&played, 1, ts),
             crate::Timer::ThingStrikeLands {
                 by: id,
                 target,
@@ -2302,33 +2154,6 @@ pub fn thing_strikes_thing<S: Store>(
                 harm,
             },
         );
-    }
-}
-
-/// When a creature's basic strike reaches a pet after its story, over the time scale (2017, to the
-/// pet's wound or death: its plain attack 0.697 s, 455 strikes, its strong one 0.686 s, 289; all of
-/// its basic strikes 0.696 s, 835, none at once).
-#[must_use]
-pub fn on_pet_seconds(skill: u32) -> f64 {
-    match skill {
-        1845 => 0.697,
-        1846 => 0.686,
-        _ => 0.696,
-    }
-}
-
-/// When a pet's strike reaches a creature after its story, over the time scale (2017, to the
-/// creature's wound or death: by skill, 305 to 3,747 strikes each; else the median of all that
-/// came without the basic-attack flag, 0.717 s, 5,596).
-#[must_use]
-pub fn pet_strike_seconds(skill: u32) -> f64 {
-    match skill {
-        490 => 0.544,
-        491 => 0.559,
-        838 => 0.743,
-        848 => 0.564,
-        865 => 0.739,
-        _ => 0.717,
     }
 }
 
