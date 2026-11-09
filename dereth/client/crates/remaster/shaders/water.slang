@@ -662,6 +662,78 @@ bool land_toward(float3 from, float3 dir, float t0, out float3 color)
     return true;
 }
 
+// Retail's height at world `p`, across its triangles: the water's level where it is water.
+float level_at(uint heights, float2 p)
+{
+    float2 q = p / CELL;
+    int2 c = int2(floor(q));
+    float2 f = saturate(q - float2(c));
+    float h00 = vertex_height(heights, c);
+    float h10 = vertex_height(heights, c + int2(1, 0));
+    float h01 = vertex_height(heights, c + int2(0, 1));
+    float h11 = vertex_height(heights, c + int2(1, 1));
+    uint x = asuint(c.x);
+    uint y = asuint(c.y);
+    uint v = (x * 0x0CCAC033u + 0x6C1AC587u) * y + x * 0xBDE41C43u + 0xAE6470DBu;
+    if ((v >> 31) != 0)
+    {
+        return f.x >= f.y ? h00 + f.x * (h10 - h00) + f.y * (h11 - h10)
+                          : h00 + f.y * (h01 - h00) + f.x * (h11 - h01);
+    }
+    return f.x + f.y <= 1.0 ? h00 + f.x * (h10 - h00) + f.y * (h01 - h00)
+                            : h11 + (1.0 - f.x) * (h01 - h11) + (1.0 - f.y) * (h10 - h11);
+}
+
+// How much of world `p` is water: its cell's water corners, blended across the cell.
+float water_share(float2 p)
+{
+    float2 q = p / CELL;
+    int2 g = int2(floor(q));
+    float2 f = saturate(q - float2(g));
+    float share = 0.0;
+    for (int k = 0; k < 4; k++)
+    {
+        int2 o = int2(k & 1, k >> 1);
+        uint t = (vertex_word(g + o) >> 2) & 0x1F;
+        if (t >= WATER_FIRST && t <= WATER_LAST)
+        {
+            share += lerp(1.0 - f.x, f.x, float(o.x)) * lerp(1.0 - f.y, f.y, float(o.y));
+        }
+    }
+    return share;
+}
+
+// Where the line of sight to `world`, a point of something standing in the water, crosses the
+// water's surface above it: false where it does not stand below the water, or the eye is under
+// the water, or the surface there is not water.
+bool under_water(float3 world, out float3 surface)
+{
+    surface = world;
+    uint heights = row_u(push.water, WATER_LAND).x;
+    if (heights == NONE || push.words == NONE)
+    {
+        return false;
+    }
+    float2 g = row(push.water, WATER_GLOBAL).xy;
+    float3 eye = row(push.frame, FRAME_EYE).xyz;
+    float level = level_at(heights, world.xy + g);
+    for (int k = 0; k < 2; k++)
+    {
+        if (world.z >= level - 0.005 || eye.z <= level)
+        {
+            return false;
+        }
+        surface = eye + (world - eye) * ((eye.z - level) / (eye.z - world.z));
+        level = level_at(heights, surface.xy + g);
+    }
+    if (world.z >= level - 0.005 || eye.z <= level)
+    {
+        return false;
+    }
+    surface = eye + (world - eye) * ((eye.z - level) / (eye.z - world.z));
+    return water_share(surface.xy + g) > 0.5;
+}
+
 // What lies far off the way `dir` goes from `from`, past `t0` meters: the land, then the sky.
 float3 far_off(float3 from, float3 dir, float t0)
 {
@@ -1070,17 +1142,29 @@ float4 shade<R : IReflection>(float4 position, R reflection)
     uint cls = uint(m.x * 255.0 + 0.5);
     uint kind = uint(m.y * 255.0 + 0.5);
     float4 state = row(push.water, WATER_STATE);
-    bool water = row(push.water, WATER_DRAWN).y > 0.5 && kind == KIND_WATER;
-    if (!water && !(state.w > 0.5 && cls == CLASS_GROUND))
+    bool drawn = row(push.water, WATER_DRAWN).y > 0.5;
+    bool water = drawn && kind == KIND_WATER;
+    float d = at(depth_of(cls), p).x;
+    float3 world = world_at(float2(p) + 0.5, d);
+    // Something standing in the water, below its surface: the water is drawn over it there, the
+    // surface where the line of sight crosses the water's level and what stands under it seen
+    // through the water as the bed is.
+    float3 crossing = world;
+    bool wading = drawn && !water && cls != CLASS_GROUND && cls != CLASS_NONE && d < 1.0
+                  && under_water(world, crossing);
+    if (!water && !wading && !(state.w > 0.5 && cls == CLASS_GROUND))
     {
         discard;
     }
-    float d = at(depth_of(cls), p).x;
-    float3 world = world_at(float2(p) + 0.5, d);
     // How much of the pixel is water, where the ground says (its third byte); all of it where it
     // does not.
     float share = water && m.z > 0.0 ? m.z : 1.0;
-    if (!water)
+    if (wading)
+    {
+        water = true;
+        share = 1.0;
+    }
+    else if (!water)
     {
         // A puddle where the ground gathers one: its share, which the weather lays in the
         // ground's material (its fourth byte, where the ground is not water) on flat dry ground,
@@ -1096,7 +1180,12 @@ float4 shade<R : IReflection>(float4 position, R reflection)
     // water's level above it: what stands in the water meets its reflection there.
     float under = water ? float(uint(m.w * 255.0 + 0.5)) * BED_STEP : 0.0;
     float3 bed = world;
-    if (under > 0.0 && eye.z > world.z + under)
+    if (wading)
+    {
+        under = crossing.z - world.z;
+        world = crossing;
+    }
+    else if (under > 0.0 && eye.z > world.z + under)
     {
         world = eye + (world - eye) * ((eye.z - world.z - under) / (eye.z - world.z));
     }
@@ -1140,7 +1229,7 @@ float4 shade<R : IReflection>(float4 position, R reflection)
     float fresnel = 0.02 + 0.98 * pow(1.0 - cosine, 5.0);
     // The water's own color, bent by its slope as the surface bends what is seen through it.
     int2 bent = clamp(p + int2(round(slope * extent().y * 0.04)), int2(0, 0), int2(extent()) - 1);
-    int2 through_at = water && kind_at(bent) == KIND_WATER ? bent : p;
+    int2 through_at = water && !wading && kind_at(bent) == KIND_WATER ? bent : p;
     float3 own = at(push.copy, through_at).rgb;
     float absorption = row(push.water, WATER_DRAWN).w;
     float reflects = 1.0;

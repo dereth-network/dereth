@@ -42,7 +42,7 @@ const POND: &str = "dereth report 1; loc 0xA8B60012 [55.615215 30.300829 27.5549
                     306486600.0; weather auto";
 
 /// Every view: its name, then how it is drawn.
-const SCENES: [&str; 10] = [
+const SCENES: [&str; 12] = [
     "lake-up",
     "lake-level",
     "lake-down",
@@ -53,6 +53,8 @@ const SCENES: [&str; 10] = [
     "wade-beside",
     "wade-up",
     "wade-walk",
+    "wade-deep",
+    "wade-deep-walk",
 ];
 
 /// Where a view is drawn from.
@@ -64,6 +66,13 @@ enum View {
         back: f32,
         up: f32,
         pitch: f32,
+    },
+    /// A report's place with the body and its camera carried `ahead` metres along the camera's
+    /// heading, the body dropped from `drop` metres over where it stood.
+    Walked {
+        line: &'static str,
+        ahead: f32,
+        drop: f32,
     },
     /// A station by name, its free camera carried `ahead` metres along its heading and pitched
     /// `pitch` radians more.
@@ -98,6 +107,11 @@ fn view(name: &str) -> View {
         },
         "wade-beside" => report(POND, -1.5, -3.6, 0.45),
         "wade-up" => report(POND, 0.0, -3.0, 0.75),
+        "wade-deep" | "wade-deep-walk" => View::Walked {
+            line: LAKE,
+            ahead: 30.0,
+            drop: 0.5,
+        },
         _ => report(POND, 0.0, 0.0, 0.0),
     }
 }
@@ -128,6 +142,28 @@ fn place(store: &Arc<RetailDatStore>, v: &View) -> (Station, Option<VisualReport
                 if *back != 0.0 || *up != 0.0 {
                     c.cell = None;
                 }
+            }
+            (report_station(&report, Some(8)), Some(report))
+        }
+        View::Walked { line, ahead, drop } => {
+            let mut report = VisualReport::parse(line).expect("the view's report reads");
+            if let (Some(c), Some(loc)) = (report.camera.as_mut(), report.loc.as_mut()) {
+                let (dx, dy) = (
+                    -dereth_primitives::num::math::sinf(c.yaw) * ahead,
+                    dereth_primitives::num::math::cosf(c.yaw) * ahead,
+                );
+                c.origin.x += dx;
+                c.origin.y += dy;
+                c.origin.z -= 1.5;
+                c.pitch += 0.2;
+                c.cell = None;
+                let o = &mut loc.frame.origin;
+                o.x += dx;
+                o.y += dy;
+                o.z += drop;
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                let cell = 1 + (o.y / 24.0) as u32 + (o.x / 24.0) as u32 * 8;
+                loc.cell = dereth_primitives::CellId((loc.cell.0 & 0xFFFF_0000) | cell);
             }
             (report_station(&report, Some(8)), Some(report))
         }
@@ -232,7 +268,7 @@ fn capture_the_remasters_water() {
                 stations::write_png(&file, size.0, height, rgba);
             }
         };
-        if name == "wade-walk" {
+        if name.ends_with("walk") {
             // A strip down the page: a frame every tenth of a second as the body walks.
             let mut strip = Vec::new();
             let mut frames = 0;

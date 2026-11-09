@@ -1,5 +1,6 @@
 //! The remaster's water: drawn only where the ground is water, and off the frame drawn without it;
-//! what it reflects the same however the camera turns; the trees and pillars
+//! what it reflects the same however the camera turns; drawn over a body standing in it, below
+//! its surface; the trees and pillars
 //! standing in it meeting it, near and far; rings round a body walking in it from the first step;
 //! its ripples and its color over a lowered bed; and the puddles of a rainy day as a switch of
 //! their own.
@@ -377,6 +378,112 @@ fn rings_spread_round_a_body_walking_in_the_water_from_its_first_step() {
         "rings from the first step: {walking:?}"
     );
     assert!(walking[frames - 1] > still, "more walking than standing");
+}
+
+/// The pond's frames seen from beside the body standing in it, low over the water, the ground as
+/// the player draws it (its bed lowered under the water), the waves still and no rings, the water
+/// drawn or not as `on` says, each step a thirtieth of a second.
+fn wading_seen(store: &Arc<RetailDatStore>, on: bool, frames: usize) -> Vec<RemasterCapture> {
+    let mut report = VisualReport::parse(POND).expect("the report reads");
+    if let Some(c) = report.camera.as_mut() {
+        c.origin.z -= 3.0;
+        c.pitch += 0.75;
+    }
+    let st = report_station(&report, Some(3));
+    let mut gpu = device();
+    let mut shot = Shot::open(store, &mut gpu, &st);
+    shot.apply_report(&report);
+    shot.poll(&mut gpu);
+    shot.scene.draw.set_remaster_water(
+        RemasterWater {
+            on,
+            rings: false,
+            waves: 0.0,
+            ..RemasterWater::default()
+        },
+        &mut gpu,
+    );
+    shot.scene
+        .draw
+        .set_remaster_terrain(RemasterTerrain::player(), &mut gpu);
+    shot.scene
+        .draw
+        .set_remaster(true, store, &mut gpu)
+        .expect("the remaster starts");
+    shot.scene
+        .draw
+        .set_remaster_light(RemasterLight::Pixel, &mut gpu);
+    shot.step_held(&mut gpu);
+    shot.scene.wait_for_remaster_ground();
+    let mut out = Vec::new();
+    for _ in 0..frames {
+        shot.step_by(&mut gpu, 1.0 / 30.0);
+        out.push(
+            shot.scene
+                .draw
+                .remaster_capture(&mut gpu)
+                .expect("the remaster drew"),
+        );
+    }
+    shot.scene
+        .draw
+        .set_remaster(false, store, &mut gpu)
+        .expect("the remaster stops");
+    drop(shot);
+    drop(gpu);
+    let errors = dereth_render::vulkan::take_validation_errors();
+    assert!(errors.is_empty(), "the validation layer: {errors:#?}");
+    out
+}
+/// The characters' kind among the material's kinds.
+const CHARACTER: u8 = 2;
+
+/// **The water covers a body standing in it below its surface, and leaves it above**: in the
+/// pond, a body standing in the water (retail sinks it most of a metre), seen from beside it,
+/// has its pixels below the water's surface drawn as water over it, and its pixels well above
+/// the surface as they are drawn with no water at all.
+#[test]
+fn the_water_covers_a_body_standing_in_it_below_its_surface() {
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    let frames = 6;
+    let with = wading_seen(&store, true, frames);
+    let without = wading_seen(&store, false, frames);
+    let (a, b) = (&with[frames - 1], &without[frames - 1]);
+    let inv = glam::Mat4::from_cols_array(&b.view_projection).inverse();
+    // The water's level: where the water pixels' surface lies, round the body.
+    let mut levels: Vec<f32> = (0..b.kind.len())
+        .filter(|i| b.kind[*i] == WATER)
+        .map(|i| surface_of(b, &inv, i).z)
+        .collect();
+    levels.sort_by(f32::total_cmp);
+    let level = levels[levels.len() / 2];
+    let (mut below, mut covered, mut above, mut changed) = (0usize, 0usize, 0usize, 0usize);
+    for i in 0..b.kind.len() {
+        if b.kind[i] != CHARACTER {
+            continue;
+        }
+        let z = place_of(b, &inv, i).z;
+        let differs = (0..3).any(|k| a.color[i * 4 + k].abs_diff(b.color[i * 4 + k]) > 2);
+        if z < level - 0.05 {
+            below += 1;
+            covered += usize::from(differs);
+        } else if z > level + 0.1 {
+            above += 1;
+            changed += usize::from(differs);
+        }
+    }
+    eprintln!(
+        "pond: water at {level:.2}; {covered} of {below} body pixels below it covered, \
+         {changed} of {above} above it changed"
+    );
+    assert!(below > 300, "the body stands in the water: {below}");
+    assert!(
+        covered * 10 >= below * 9,
+        "covered below: {covered} of {below}"
+    );
+    assert!(above > 300, "the body stands out of the water: {above}");
+    assert!(changed * 50 <= above, "left above: {changed} of {above}");
 }
 
 /// The shore's frame at `size`, with the camera carried `back` metres back along its view and
