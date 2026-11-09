@@ -4017,6 +4017,27 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.effects.immunities-as-rows-say",
+        says: "An effect a world's rule says leaves another as it ends is an immunity under way: \
+               hidden from its holder, it comes on with what it follows and leaves that effect, whose \
+               ward keeps its kind off. A world whose rules name none has the server's own twelve, \
+               each with its long effect's ward, never mixed with rows.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CC-IMMUNITY-ROWS"),
+        station: "yalain-testkit::dat::effects::an_immunity_reads_as_its_worlds_rules_say_and_without_rows_as_the_servers_own",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.effects.immunity-rows-as-2017",
+        says: "The world's immunity rows are the server's own entry for entry: the twelve short \
+               effects of crowd control, each leaving its long one, and each long one's ward of its \
+               classes for certain.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CC-IMMUNITY-ROWS-2017"),
+        station: "yalain-testkit::corpus::world_db::the_worlds_immunity_rows_are_the_servers_own_entry_for_entry",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.effects.jump-scale-told",
         says: "A record that changes a player's jump tells its jump scale to all who see the \
                player as it comes and again as it goes.",

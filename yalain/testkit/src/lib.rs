@@ -2619,14 +2619,18 @@ pub fn test_wards() -> std::collections::BTreeMap<u32, yalain_world::effect_defs
     ])
 }
 
-/// The effect rules the test world's rows would name: its wards ([`test_wards`]) and Aun Aulatah's
-/// tap of a tenth of vitae.
+/// The effect rules the test world's rows would name: its wards ([`test_wards`]), Aun Aulatah's
+/// tap of a tenth of vitae, and the server's own twelve crowd control immunities with their long
+/// effects' wards.
 #[must_use]
 pub fn test_effect_rules() -> yalain_world::effect_defs::EffectRules {
-    yalain_world::effect_defs::EffectRules {
+    let mut rules = yalain_world::effect_defs::EffectRules {
         wards: test_wards(),
         vitae_taps: std::collections::BTreeMap::from([(VITAE_TAP, 0.1)]),
-    }
+        immunities: std::collections::BTreeMap::new(),
+    };
+    yalain_world::effect_defs::immunities_or_2017(&mut rules);
+    rules
 }
 
 /// Aun Aulatah's tap of vitae, by its saved state, and the appearance its state names.

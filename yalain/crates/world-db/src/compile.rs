@@ -1220,6 +1220,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 if let Some(share) = r.vitae_share {
                     t.effect_rules.vitae_taps.insert(r.effect, share);
                 }
+                if let Some(then) = r.then {
+                    t.effect_rules.immunities.insert(r.effect, then);
+                }
             }
             Row::Mine(r) => {
                 let m = &r.mine;

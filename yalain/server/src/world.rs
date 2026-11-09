@@ -266,8 +266,8 @@ fn check_cmd(args: &[String]) -> Result<(), String> {
 /// naming an effect the server already resolves to a saved state, an `[[event]]` naming a game
 /// event the install does not have, a `[[points_bonus]]` naming an effect the install holds no
 /// saved state of, a `[[popup]]` naming an effect the install holds no saved state of or one
-/// whose effect has no description to show, an `[[effect_rule]]` naming an effect, or a ward
-/// keeping off an effect, the install holds no saved state of, a `[[treasure_look]]` naming a
+/// whose effect has no description to show, an `[[effect_rule]]` naming an effect, a ward
+/// keeping off an effect or an effect an immunity leaves, the install holds no saved state of, a `[[treasure_look]]` naming a
 /// table the install has not, a `[[treasure_potion]]`, a `[[treasure_family]]` or an
 /// `[[item_use]]` naming an effect the install has not, and a `[[concealing]]` naming an effect
 /// the install has not.
@@ -299,11 +299,13 @@ pub fn install_problems(p: &data::Portal, db: &rows::Database) -> Result<Vec<Pro
         }
         if let rows::Row::EffectRule(r) = &l.row {
             let warded = r.ward.iter().flat_map(|w| w.effects.iter().copied());
-            let named: Vec<u32> = std::iter::once(r.effect).chain(warded.clone()).collect();
-            let read = data::effect_table(p, &named, &EffectRules::default())?;
-            for (what, effect) in
-                std::iter::once(("effect", r.effect)).chain(warded.map(|e| ("ward effect", e)))
-            {
+            let named: Vec<(&str, u32)> = std::iter::once(("effect", r.effect))
+                .chain(warded.map(|e| ("ward effect", e)))
+                .chain(r.then.map(|e| ("then", e)))
+                .collect();
+            let states: Vec<u32> = named.iter().map(|(_, e)| *e).collect();
+            let read = data::effect_table(p, &states, &EffectRules::default())?;
+            for &(what, effect) in &named {
                 if !read.effects.contains_key(&effect) {
                     out.push(Problem::new(
                         &l.file,

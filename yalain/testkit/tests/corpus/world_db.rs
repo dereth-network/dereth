@@ -200,6 +200,27 @@ fn the_worlds_ward_rows_hold_the_six_wards_entry_for_entry() {
         .all(|w| !(w.classes.is_empty() && w.effects.is_empty())));
 }
 
+/// The immunities the database's world plays by are the server's own, entry for entry: the twelve
+/// short effects of crowd control, each leaving its long one, and each long one's ward of its
+/// classes for certain; a world's rows are read as they are, one with none has the server's own.
+/// Behaviour: server.effects.immunity-rows-as-2017
+#[test]
+fn the_worlds_immunity_rows_are_the_servers_own_entry_for_entry() {
+    use yalain_world::effect_defs::{immunities_or_2017, EffectRules};
+    let world = &compiled().tables.effect_rules;
+    let mut rules = world.clone();
+    if !immunities_or_2017(&mut rules) {
+        assert_eq!(&rules, world, "its rows as they are");
+    }
+    let mut own = EffectRules::default();
+    immunities_or_2017(&mut own);
+    assert_eq!(rules.immunities.len(), 12);
+    assert_eq!(rules.immunities, own.immunities);
+    for long in own.immunities.values() {
+        assert_eq!(rules.wards.get(long), own.wards.get(long), "{long:08X}");
+    }
+}
+
 /// A world's mine and map region rows hold the server's own, entry for entry: each mining skill's
 /// behavior, tools, answers, delving node, lodestones and finds, each region's nodes by their
 /// effects, and what each mining tool yields unmade; so a world with them mines as one without.

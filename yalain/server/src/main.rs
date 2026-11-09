@@ -1741,6 +1741,9 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
     let cancel_waits_2017 = yalain_world::quests::cancel_waits_or_2017(&mut quests);
     let transformations_2017 = yalain_world::gives::transformations_or_2017(&mut quests);
     let vitae_taps_2017 = yalain_world::effect_defs::vitae_taps_or_2017(&mut effect_rules);
+    // Whether the world wards anything is told before the server's own immunities add theirs.
+    let no_wards = effect_rules.wards.is_empty();
+    let immunities_2017 = yalain_world::effect_defs::immunities_or_2017(&mut effect_rules);
     // What items' uses do, books show and new characters are given: the world's rows, the
     // server's own of a kind it has none of.
     let (item_rows, items_fell_back) = yalain_world::item_use::world_item_rows(items);
@@ -1756,7 +1759,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         fell_back.push("treasure_value");
     }
     let play = (|| {
-        if effect_rules.wards.is_empty() {
+        if no_wards {
             tracing::warn!(
                 "this world has no [[effect_rule]] rows: its wards keep off only what their own data names"
             );
@@ -1781,6 +1784,11 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         if vitae_taps_2017 {
             tracing::warn!(
                 "this world's [[effect_rule]] rows name no vitae_share: Aun Aulatah's tap takes the server's own tenth of vitae"
+            );
+        }
+        if immunities_2017 {
+            tracing::warn!(
+                "this world's [[effect_rule]] rows name no then: its crowd control immunities are the server's own twelve"
             );
         }
         if !items_fell_back.is_empty() {

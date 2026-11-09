@@ -182,10 +182,10 @@ pub fn ward_kind(w: &Ward) -> Kind {
     }
 }
 
-/// A kind of crowd control's immunity: the short effect a use puts on along with it, the long one
-/// its end leaves, and the classes the long one keeps off. Their own data names neither the second
-/// nor the classes.
-const IMMUNITIES: [(u32, u32, &[u32]); 12] = [
+/// The crowd control immunities, for a world whose rules name none: each the short effect a use
+/// puts on along with it, the long one its end leaves, and the classes the long one keeps off for
+/// certain. Their own data names neither the second nor the classes.
+const IMMUNITIES_2017: [(u32, u32, &[u32]); 12] = [
     (0x7000_0718, 0x7000_0719, &[52, 5015, 98]),
     (0x7000_071A, 0x7000_071B, &[51, 5017, 99]),
     (0x7000_071C, 0x7000_071D, &[77, 101]),
@@ -200,22 +200,22 @@ const IMMUNITIES: [(u32, u32, &[u32]); 12] = [
     (0x6F00_210D, 0x6F00_210E, &[55, 100]),
 ];
 
-/// The kind of an immunity's two effects: the short one's end leaves the long one, which keeps
-/// its classes off for certain.
-fn immunity_of(state: u32) -> Option<Kind> {
-    IMMUNITIES.iter().find_map(|(short, long, classes)| {
-        if state == *short {
-            Some(Kind::Immunity { then: *long })
-        } else if state == *long {
-            Some(Kind::Ward {
-                classes: classes.to_vec(),
-                effects: Vec::new(),
-                chance: Scale(vec![(0.0, 1.0)]),
-            })
-        } else {
-            None
-        }
-    })
+/// A world whose rules name no immunity has the server's own twelve, each the short one leaving
+/// the long one and the long one's ward; one that names any has its rows' alone. Returns whether
+/// the world named none.
+pub fn immunities_or_2017(rules: &mut EffectRules) -> bool {
+    if !rules.immunities.is_empty() {
+        return false;
+    }
+    for (short, long, classes) in IMMUNITIES_2017 {
+        rules.immunities.insert(short, long);
+        rules.wards.entry(long).or_insert_with(|| Ward {
+            classes: classes.to_vec(),
+            effects: Vec::new(),
+            chance: 1.0,
+        });
+    }
+    true
 }
 
 /// What a reflective effect's external flags say of keeping effects off: its chance the same at
@@ -605,9 +605,7 @@ impl EffectDef {
         };
         let flags = word("m_uiExternalFlags")?;
         let number = |name: &str| nav.number(o, name).unwrap_or(0.0);
-        let kind = if let Some(immunity) = immunity_of(state) {
-            immunity
-        } else if is("ResurrectEffect") {
+        let kind = if is("ResurrectEffect") {
             Kind::Resurrect {
                 focus: scale("m_magData"),
                 fx: word("m_rezFX").unwrap_or(0),
@@ -886,8 +884,9 @@ pub struct EffectTable {
 
 impl EffectTable {
     /// The definitions of these saved states and of the effects they add in turn (a state that
-    /// does not read is left out), each the world's `rules` name (by saved state) a ward keeping off
-    /// what it names, or a tap of its share of vitae.
+    /// does not read is left out), each the world's `rules` name (by saved state) an immunity
+    /// leaving the effect they name, a ward keeping off what it names, or a tap of its share of
+    /// vitae.
     #[must_use]
     pub fn read(
         lib: &Library,
@@ -903,6 +902,9 @@ impl EffectTable {
             }
             let Some(g) = graph(s) else { continue };
             if let Ok(mut d) = EffectDef::from_state(s, lib, &g) {
+                if let Some(then) = rules.immunities.get(&s) {
+                    d.kind = Kind::Immunity { then: *then };
+                }
                 if let Some(w) = rules.wards.get(&s) {
                     d.kind = ward_kind(w);
                 }

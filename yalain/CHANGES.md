@@ -10,6 +10,7 @@ what they see, not how it was done.
 - Worlds can now set mining and what surveyor's maps find as rows.
 - Worlds can now set item uses, books and new characters' first gift as rows.
 - Worlds can now set what concealing effects do, kin healers, who attacks first and shooters' rhythms.
+- Worlds can now set crowd control immunities as rows.
 - Monsters' hits on pets now take off the pet's armor, as on players.
 - Items that summon several pets now make them all.
 - Worlds can now give a summoning item its own pet.

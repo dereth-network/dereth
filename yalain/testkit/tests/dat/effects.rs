@@ -793,6 +793,100 @@ fn the_crowd_control_immunities_read_as_the_data_defines_them() {
     read(0x7000_1EDF, 0x7000_1EE0, &[1124], 120.0);
 }
 
+/// The effects the install's skills put on, take and need, as a server's start reads them.
+fn skills_effect_states(p: &Portal) -> Vec<u32> {
+    p.skills()
+        .skills
+        .values()
+        .filter_map(|d| d.usage.as_ref())
+        .flat_map(|u| {
+            u.target_effects
+                .iter()
+                .chain(&u.user_effects)
+                .chain(&u.required_effects)
+                .copied()
+        })
+        .collect()
+}
+
+/// As a start reads the skills' effects, an immunity is what its world's rules say: with no rule
+/// the short effects read as no immunity and the long ones as no ward (their data names neither
+/// the long one nor its classes); a world whose rules name none has the server's own twelve (three of them the
+/// install's skills put on), each leaving its long one, which keeps its classes off for certain;
+/// and a world's rows are its immunities alone.
+/// Behaviour: server.effects.immunities-as-rows-say
+#[test]
+fn an_immunity_reads_as_its_worlds_rules_say_and_without_rows_as_the_servers_own() {
+    use yalain_world::effect_defs::{immunities_or_2017, EffectRules};
+    let p = Portal::open();
+    let mut states = skills_effect_states(&p);
+    let mut own = EffectRules::default();
+    assert!(immunities_or_2017(&mut own), "named none");
+    assert_eq!(own.immunities.len(), 12);
+    let by_skills = p.effects_ruled(&states, &own);
+    let skills_put_on: Vec<u32> = own
+        .immunities
+        .keys()
+        .copied()
+        .filter(|s| {
+            matches!(
+                by_skills.get(*s).map(|d| &d.kind),
+                Some(Kind::Immunity { .. })
+            )
+        })
+        .collect();
+    assert_eq!(skills_put_on, [0x7000_071C, 0x7000_071E, 0x7000_0720]);
+    states.extend(own.immunities.keys());
+    let none = p.effects_ruled(&states, &EffectRules::default());
+    assert!(
+        !none
+            .effects
+            .values()
+            .any(|d| matches!(d.kind, Kind::Immunity { .. })),
+        "no immunity without a rule"
+    );
+    let read = p.effects_ruled(&states, &own);
+    for (short, long) in &own.immunities {
+        let s = read.get(*short).expect("the short one");
+        assert_eq!(s.kind, Kind::Immunity { then: *long }, "{short:08X}");
+        assert!(none.get(*short).is_some(), "{short:08X} reads either way");
+        assert!(
+            !matches!(none.get(*long).map(|d| &d.kind), Some(Kind::Ward { .. })),
+            "{long:08X} keeps nothing off by its own data"
+        );
+        match &read.get(*long).expect("the long one comes with it").kind {
+            Kind::Ward {
+                classes, chance, ..
+            } => {
+                assert_eq!(classes, &own.wards[long].classes, "{long:08X}");
+                assert_eq!(chance.at(50.0), Some(1.0));
+            }
+            k => panic!("{long:08X}: {k:?}"),
+        }
+    }
+    // A world's one row: the stun's short one leaves the root's long one; the others are no
+    // immunity at all.
+    let mut files = tyrant_world();
+    files.insert(
+        "p/server/effects.toml".into(),
+        "[[effect_rule]]\neffect = 0x70000720\nthen = 0x7000071D\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    let mut rows = p.compile(&files).effect_rules;
+    assert!(!immunities_or_2017(&mut rows), "its rows alone");
+    let ruled = p.effects_ruled(&states, &rows);
+    let immunities: Vec<(u32, &Kind)> = ruled
+        .effects
+        .iter()
+        .filter(|(_, d)| matches!(d.kind, Kind::Immunity { .. }))
+        .map(|(s, d)| (*s, &d.kind))
+        .collect();
+    assert_eq!(
+        immunities,
+        [(0x7000_0720, &Kind::Immunity { then: 0x7000_071D })]
+    );
+}
+
 /// The counters read with the effect each answers with, and its chance; the wards with what they
 /// keep off.
 /// Behaviour: server.effects.counters-and-wards-read

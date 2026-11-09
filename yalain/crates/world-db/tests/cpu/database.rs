@@ -2687,6 +2687,41 @@ fn an_effect_rule_row_may_take_a_share_of_vitae_with_or_without_a_ward() {
     assert!(read(&files).is_ok(), "the whole of it");
 }
 
+/// Behaviour: server.effects.immunities-as-rows-say
+#[test]
+fn an_effect_rule_row_may_name_what_an_immunity_leaves_as_it_ends() {
+    let mut files = fixture();
+    files.insert(
+        "town/server/effects.toml".into(),
+        "[[effect_rule]]\neffect = 0x70000720\nthen = 0x70000721\nprov = { from = \"authored\" }\n\n\
+         [[effect_rule]]\neffect = 0x70000721\nward = { classes = [55, 100], chance = 1.0 }\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    assert_eq!(check(&files), Vec::new());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let rules = &t.effect_rules;
+    assert_eq!(
+        rules.immunities,
+        std::collections::BTreeMap::from([(0x7000_0720, 0x7000_0721)])
+    );
+    assert_eq!(rules.wards[&0x7000_0721].classes, [55, 100]);
+    assert!(
+        !rules.wards.contains_key(&0x7000_0720),
+        "the short one is no ward"
+    );
+    assert!(rules.vitae_taps.is_empty());
+    // An immunity leaves another effect, one named by its saved state.
+    for then in ["0x70000720", "\"the long one\"", "-1"] {
+        files.insert(
+            "town/server/effects.toml".into(),
+            format!(
+                "[[effect_rule]]\neffect = 0x70000720\nthen = {then}\nprov = {{ from = \"authored\" }}\n"
+            ),
+        );
+        assert!(read(&files).is_err(), "{then}");
+    }
+}
+
 const GIVE_ROW: &str = r#"[[give]]
 key = "bucket"
 item = 0x470020B9

@@ -720,13 +720,15 @@ pub struct Popup {
 }
 
 /// `[[effect_rule]]`: what the world says of an effect where its own data says nothing: what a ward
-/// keeps off, the share of its player's vitae it takes.
+/// keeps off, the share of its player's vitae it takes, the effect an immunity leaves as it ends.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EffectRule {
     /// The effect, by its saved state.
     pub effect: u32,
     pub ward: Option<yalain_content::effect_rules::Ward>,
     pub vitae_share: Option<f32>,
+    /// The effect is an immunity under way, which leaves this one (by its saved state) as it ends.
+    pub then: Option<u32>,
     pub prov: Prov,
 }
 
@@ -1494,7 +1496,10 @@ pub const FIELDS: [(&str, &[&str]); 51] = [
     ),
     ("points_bonus", &["effect", "add", "up_to", "prov"]),
     ("popup", &["on", "effect", "prov"]),
-    ("effect_rule", &["effect", "ward", "vitae_share", "prov"]),
+    (
+        "effect_rule",
+        &["effect", "ward", "vitae_share", "then", "prov"],
+    ),
     ("treasure_value", &["level", "values", "prov"]),
     (
         "treasure_rules",
@@ -2305,10 +2310,15 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 None => None,
             };
             let vitae_share = f.share("vitae_share").map(to_f32);
-            if ward.is_none() && vitae_share.is_none() {
+            let then = f.id("then");
+            if then == Some(effect) {
+                f.bad("then", "an immunity leaves another effect than itself");
+                return None;
+            }
+            if ward.is_none() && vitae_share.is_none() && then.is_none() {
                 f.bad(
-                    "ward, vitae_share",
-                    "a rule names a ward or a share of vitae",
+                    "ward, vitae_share, then",
+                    "a rule names a ward, a share of vitae or what an immunity leaves",
                 );
                 return None;
             }
@@ -2316,6 +2326,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 effect,
                 ward,
                 vitae_share,
+                then,
                 prov: f.req_prov()?,
             })
         }
