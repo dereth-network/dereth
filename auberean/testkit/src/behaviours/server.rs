@@ -9747,6 +9747,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.pets.destrucflux",
+        says: "The Massive Destrucflux's use, with a world's row for the effect it names, makes its flame \
+               where its user stands; the flame's Inferno, aimed at itself with a hook of 20 m, falls \
+               on every creature within that of it and on no one beyond nor on its user, and the flame \
+               is gone as it lands. The item is used up. No recording holds its use; the row's terms \
+               and its ending on its strike are ours.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-DESTRUCFLUX"),
+        station: "yalain-testkit::dat::effects::the_massive_destrucflux_burns_creatures_within_its_reach_and_is_gone",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.pets.die-with-their-owner",
         says: "An owner's death takes its pets in its death tick, each taken off its list after the \
                owner's death is told.",
@@ -9922,6 +9934,16 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-PETS-ITEM-USE"),
         station: "yalain-testkit::cpu::play::pet_skills::a_kits_use_makes_its_pet_at_the_kits_spellcraft_and_is_used_up_within_the_kinds_limit",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.pets.made-on-a-rows-terms-by-an-items-use",
+        says: "An item naming an effect no install holds that a world's row lists, the row's effect being \
+               no pet effect of the install, makes the row's pet on the row's terms (class, level and \
+               lifetime) and is used up; such a row is no contract.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ITEM-PET-TERMS"),
+        station: "yalain-testkit::cpu::play::pet_skills::an_items_pet_no_install_effect_makes_is_made_on_its_rows_terms",
         tier: Tier::Cpu,
     },
     behaviour! {

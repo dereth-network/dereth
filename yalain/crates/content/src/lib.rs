@@ -129,7 +129,8 @@ pub struct PetTends {
     pub below: f32,
 }
 
-/// A contract's terms: the mercenary's class of pet, how long it stays in seconds, its level.
+/// A contract's terms, or those of a pet only items make: its class of pet, how long it stays in
+/// seconds, its level.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PetHire {
     pub class: u32,
@@ -179,7 +180,8 @@ pub struct PetKind {
     pub corpse_after: Option<f64>,
     /// How many of it its effect makes at once.
     pub made: u32,
-    /// A contract's terms, when a contract hires it.
+    /// A contract's terms, when a contract hires it; or, for a kind only items make whose effect is
+    /// no pet effect of the install, what it is made on.
     pub hire: Option<PetHire>,
     /// The effects an item's use may name, held by no install, that make this pet as its own
     /// effect does.

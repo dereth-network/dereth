@@ -1025,6 +1025,75 @@ fn an_items_use_makes_every_pet_its_install_effects_make_then_puts_on_the_rest()
     );
 }
 
+const FLUX: u32 = 0x4700_1C75;
+const FLUX_EFFECT: &str = "Eff_Test_Item_Summon_Flux";
+
+/// An item naming an effect no install holds that a world's row lists, the row's effect being no pet
+/// effect of the install, makes the row's pet on the row's terms (its class, level and lifetime), and
+/// is used up; such a row is no contract. The pet goes at its lifetime's end.
+/// Behaviour: server.pets.made-on-a-rows-terms-by-an-items-use
+#[test]
+fn an_items_pet_no_install_effect_makes_is_made_on_its_rows_terms() {
+    let mut h = Harness::new();
+    with_pet(&mut h, 0, 32, None);
+    let mut kind = PetKind::new(FLUX, PET_TEMPLATE, 32, &[]);
+    kind.item_effects = vec![FLUX_EFFECT.to_string()];
+    kind.stays = true;
+    kind.hire = Some(yalain_content::PetHire {
+        class: 0x2000,
+        seconds: 30.0,
+        level: 55.0,
+    });
+    h.server.pets.read_rows([kind], std::iter::empty());
+    assert!(!h.server.pets.is_contract(FLUX), "no contract");
+    let mut props = Props::default();
+    props
+        .set("Usage_Effect1", Prop::Text(FLUX_EFFECT.to_string()))
+        .set("Usage_Effect1_Spellcraft", Prop::Float(50.0))
+        .set("Item_IsDestroyOnUse", Prop::Bool(true))
+        .set("Item_IsStackable", Prop::Bool(false));
+    h.server.catalog.insert(test_template(FLUX, 0x1C7A, props));
+    let (b, me) = summoner(&mut h);
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .map(|(c, _)| c)
+        .expect("in the world");
+    let item =
+        yalain_world::inventory::give(&mut h.server, &mut h.net, world, FLUX, 1).expect("given");
+    h.run(2);
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(ITEM_USE, &[use_of(item, me)]),
+    );
+    h.run(20);
+    let pets = h.server.pets.of(me);
+    assert_eq!(pets.len(), 1, "made");
+    let class = h.server.pets.by_id.get(&pets[0]).map(|p| p.class);
+    assert_eq!(class, Some(0x2000), "of the row's class");
+    let level = h
+        .server
+        .things
+        .get(pets[0])
+        .and_then(|t| t.creature.as_ref())
+        .map(|c| c.stats.level);
+    assert_eq!(level, Some(55), "at the row's level");
+    assert!(
+        !player(&mut h, me).play.items.iter().any(|i| i.id == item),
+        "used up"
+    );
+    for _ in 0..40 {
+        h.step_by(1.0);
+    }
+    assert!(
+        h.server.pets.of(me).is_empty(),
+        "gone at its lifetime's end"
+    );
+}
+
 const DRAIN: u32 = 0x7000_08C5;
 
 /// A pet's strike that leaves a vital transfer takes its number at the pet's level from the

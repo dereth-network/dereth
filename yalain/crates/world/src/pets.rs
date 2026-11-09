@@ -287,10 +287,13 @@ impl Pets {
         self.kinds.get(&effect)
     }
 
-    /// Is an item of this template a contract that hires a mercenary?
+    /// Is an item of this template a contract that hires a mercenary? (A kind only items' uses make
+    /// has terms too, and is none.)
     #[must_use]
     pub fn is_contract(&self, template: u32) -> bool {
-        self.kinds.get(&template).is_some_and(|k| k.hire.is_some())
+        self.kinds
+            .get(&template)
+            .is_some_and(|k| k.hire.is_some() && k.item_effects.is_empty())
     }
 
     /// The pets of an owner, in the order they were summoned.
@@ -827,7 +830,8 @@ fn summoned_by<S: Store>(s: &Server<S>, effect: u32) -> u32 {
 
 /// An item's use makes its pet for its user, at the item's spellcraft, as the pet's own effect
 /// does: of its class, for its lifetime, within the limits of a skill that makes it (else its
-/// kind's) and where it may stand. Returns
+/// kind's) and where it may stand. A kind only items make, whose row's effect is no pet effect of
+/// the install, is made on its row's terms: their class, lifetime and level. Returns
 /// the pet, or `None` (told "The summoning fails.") when none could be made.
 pub fn made_by_item<S: Store>(
     s: &mut Server<S>,
@@ -854,6 +858,24 @@ pub fn made_by_item<S: Store>(
                 )
             })
         }
+        // A kind only items make, its row's effect no pet effect of the install: on its row's terms.
+        None if s.pets.of(owner).len() < MOST_PETS => s
+            .pets
+            .kind_of(effect)
+            .filter(|k| !k.item_effects.is_empty())
+            .cloned()
+            .and_then(|kind| {
+                let terms = kind.hire?;
+                summon_kind(
+                    s,
+                    net,
+                    world,
+                    &kind,
+                    (terms.class, icon, Some(terms.seconds)),
+                    (terms.level, None),
+                    clock,
+                )
+            }),
         _ => None,
     };
     let Some(pet) = made else {
@@ -2653,6 +2675,7 @@ fn blast<S: Store>(
         }
         _ => Vec::new(),
     };
+
     let clock_free = crate::combat::CREATURE_TIME_SCALE * s.rng.between(0.9, 1.1);
     let harms = harms(s, skill.skill);
     let mut rolls = Vec::new();

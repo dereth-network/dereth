@@ -9,6 +9,7 @@ what they see, not how it was done.
 - Worlds can now set quests' cancel waits, hero transformations and vitae taps as rows.
 - Worlds can now set mining and what surveyor's maps find as rows.
 - Items that summon several pets now make them all.
+- Worlds can now give a summoning item its own pet.
 - Heroes' damage pool now adds to their hits.
 - Pets have the health they had, not a handful.
 - Every class's summoning skills make their pets, and turrets take their barrels.

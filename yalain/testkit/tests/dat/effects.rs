@@ -2569,3 +2569,142 @@ fn a_seeded_set_of_drops_draws_what_it_drew_when_its_digest_was_recorded() {
     let p = Portal::open();
     seeded_drops(&p, yalain_world::treasure::TreasureTables::retail_2017()).hold_recorded();
 }
+/// The Massive Destrucflux and the creature its use makes: an effect no install holds, a world's
+/// row for it on the terms of the install's other rare summons.
+const MASSIVE_DESTRUCFLUX: u32 = 0x4700_1C75;
+const DESTRUCFLUX_FLAME: u32 = 0x4700_3466;
+
+/// A world of one pack: the Massive Destrucflux's flame, made where it is used, using its Inferno
+/// alone, gone at its first strike and leaving nothing.
+fn destrucflux_world() -> yalain_world_db::Files {
+    let mut files = yalain_world_db::Files::new();
+    files.insert(
+        "world.toml".into(),
+        "format_version = 1\nkey = \"w\"\ngame = \"ac2\"\nera = \"eor\"\npacks = [\"p\"]\n".into(),
+    );
+    files.insert(
+        "p/pack.toml".into(),
+        "format_version = 1\nname = \"p\"\nversion = \"0.1.0\"\ngame = \"ac2\"\nauthors = [\"a\"]\nlicense = \"CC0-1.0\"\ndescription = \"d\"\n".into(),
+    );
+    files.insert(
+        "p/server/pets.toml".into(),
+        "[[pet]]\neffect = 0x47001C75\ntemplate = 0x47003466\nflags = 32\nstays = true\nends_on_strike = true\nno_corpse = true\nlands = 1.0\nattacks = [{ skill = 0x4EC, weight = 1 }]\nhire = { class = 0x4000000, seconds = 10.0, level = 50.0 }\nitem_effects = [\"Eff_DestrucfluxMassive_SummonFire\"]\nprov = { from = \"authored\" }\n".into(),
+    );
+    files
+}
+
+/// The Massive Destrucflux used among three creatures, two within its flame's reach on either side
+/// and one beyond: its flame is made where its user stands, its skill falls on both within its
+/// hook's 20 m and not on the one beyond, nor on its user, and it is gone at its strike; the item is
+/// used up.
+/// Behaviour: server.pets.destrucflux
+#[test]
+fn the_massive_destrucflux_burns_creatures_within_its_reach_and_is_gone() {
+    use auberean_protocol::{queue, ClientMessage};
+    use yalain_testkit::{Harness, TEST_CREATURE};
+    use yalain_world::player::quality;
+    let p = Portal::open();
+    let t = p.compile(&destrucflux_world());
+    let skills = p.skills();
+    let states: Vec<u32> = skills
+        .skills
+        .values()
+        .filter_map(|d| d.usage.as_ref())
+        .flat_map(|u| u.user_effects.iter().chain(&u.target_effects).copied())
+        .collect();
+    let mut h = Harness::new();
+    h.add_creatures(3);
+    for id in [MASSIVE_DESTRUCFLUX, DESTRUCFLUX_FLAME] {
+        h.server.catalog.insert(p.template(id));
+    }
+    h.server.skill_table = skills;
+    h.server.effect_table = p.effects(&states);
+    h.server
+        .pets
+        .read_rows(t.pet_kinds.values().cloned(), std::iter::empty());
+    let (b, me) = h.player_in_world("one", "Elara");
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &ClientMessage::SceneRenderingComplete(auberean_protocol::login::Empty),
+    );
+    h.run(5);
+    let world = *h.server.players.keys().next().expect("in the world");
+    {
+        let pl = h.server.players.get_mut(&world).expect("the player");
+        yalain_world::quals::set_int(&mut pl.qualities, yalain_world::examine::LEVEL, 60);
+    }
+    let at = h.server.players[&world].position;
+    let beetles: Vec<u64> = h
+        .server
+        .things
+        .by_id
+        .values()
+        .filter(|t| t.template == TEST_CREATURE && t.alive())
+        .map(|t| t.id)
+        .collect();
+    let [near, also, far] = beetles[..] else {
+        panic!("three creatures: {beetles:?}")
+    };
+    for (id, east) in [(near, 8.0), (also, -15.0), (far, 40.0)] {
+        if let Some(t) = h.server.things.get_mut(id) {
+            if let Some(c) = t.creature.as_mut() {
+                c.stats.movement.perception = 0.0;
+                c.stats.movement.wander_chance = 0.0;
+                c.wander_to = None;
+            }
+            let mut place = at;
+            place.origin[0] += east;
+            t.at = Some(place);
+            if let Some(c) = t.creature.as_mut() {
+                c.home = place;
+            }
+            t.max_health = 1_000_000;
+            t.health = 1_000_000;
+        }
+    }
+    let item =
+        yalain_world::inventory::give(&mut h.server, &mut h.net, world, MASSIVE_DESTRUCFLUX, 1)
+            .expect("given");
+    h.run(3);
+    let vital = |h: &Harness| {
+        yalain_world::quals::int(&h.server.players[&world].qualities, quality::HEALTH)
+    };
+    let health_before = vital(&h);
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &yalain_testkit::play::server_call(0x8216_0016, &[yalain_testkit::play::use_of(item, me)]),
+    );
+    h.run(3);
+    let flame = h.server.pets.of(me);
+    assert_eq!(flame.len(), 1, "made: {:?}", h.server.unhandled.counts());
+    assert_eq!(
+        h.server.things.get(flame[0]).map(|t| t.template),
+        Some(DESTRUCFLUX_FLAME)
+    );
+    assert!(
+        !h.server.players[&world]
+            .play
+            .items
+            .iter()
+            .any(|i| i.id == item),
+        "used up"
+    );
+    // Looked at as its strike lands, before the creatures it reached can go home and mend.
+    for _ in 0..100 {
+        if h.server.pets.of(me).is_empty() {
+            break;
+        }
+        h.step_by(0.05);
+    }
+    let health = |h: &Harness, id: u64| h.server.things.get(id).map_or(0, |t| t.health);
+    assert!(health(&h, near) < 1_000_000, "the near one burned");
+    assert!(
+        health(&h, also) < 1_000_000,
+        "and the other within its reach"
+    );
+    assert_eq!(health(&h, far), 1_000_000, "the far one not");
+    assert_eq!(vital(&h), health_before, "its user not");
+    assert!(h.server.pets.of(me).is_empty(), "gone at its strike");
+}

@@ -811,7 +811,7 @@ pub struct PetTendsRow {
     pub below: f32,
 }
 
-/// A `[[pet]]`'s `hire`: a contract's terms.
+/// A `[[pet]]`'s `hire`: a contract's terms, or those of a pet only items make.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PetHireRow {
     pub class: u32,
