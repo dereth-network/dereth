@@ -936,6 +936,8 @@ pub fn stream(
             break;
         }
         if done + n as u64 > size {
+            // Closed before it is removed; a browser's file has no handle to close.
+            #[cfg_attr(target_arch = "wasm32", allow(clippy::drop_non_drop))]
             drop(out);
             let _ = std::fs::remove_file(partial);
             return Err("The download was larger than its source lists, so it was stopped.".into());
