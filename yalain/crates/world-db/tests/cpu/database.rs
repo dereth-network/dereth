@@ -3992,3 +3992,107 @@ fn treasure_families_that_break_their_rules_are_problems_and_a_dropped_state_is_
         t.warnings
     );
 }
+
+#[test]
+fn crafting_work_rows_compile_to_map_recipes_totems_and_refinings() {
+    use yalain_content::treasure_tables::Sort;
+    let mut files = fixture();
+    let rows = "[[map_recipes]]\nregion = \"linvak\"\ndrawn = 0x6F00170C\n\
+                found = \"Eff_ResetLinvakResetTimers\"\nrecipes = [0x6F00109B, 0x6F001099]\n\
+                wait = 300.0\nprov = { from = \"authored\" }\n\n\
+                [[map_recipes]]\nregion = \"osteth\"\ndrawn = 0x6F00170E\n\
+                found = \"Eff_ResetOstethResetTimers\"\nrecipes = [0x6F001091]\n\
+                prov = { from = \"authored\" }\n\n\
+                [[spellbinding]]\nsort = \"shield\"\ntemplate = 0x4700115B\nword = 0x3B284FFE\n\
+                prov = { from = \"authored\" }\n\n\
+                [[refining]]\nrecipe = \"SteelRefiningRecipe\"\nproduct = 0x47002224\nfull_at = 150\n\
+                prov = { from = \"authored\" }\n\n\
+                [[refining]]\nrecipe = \"BrickRefiningRecipe\"\nproduct = 0x47002224\n\
+                prov = { from = \"authored\" }\n";
+    files.insert("town/server/crafting2.toml".into(), rows.to_string());
+    let merged = merge(&read(&files).unwrap()).unwrap();
+    let t = compile(&merged, &Fake::new()).unwrap();
+    let c = &t.crafts;
+    let linvak = &c.map_recipes["linvak"];
+    assert_eq!(
+        (
+            linvak.drawn,
+            linvak.found.as_str(),
+            linvak.recipes.as_slice(),
+            linvak.wait
+        ),
+        (
+            0x6F00_170C,
+            "Eff_ResetLinvakResetTimers",
+            [0x6F00_109B, 0x6F00_1099].as_slice(),
+            Some(300.0)
+        )
+    );
+    assert_eq!(c.map_recipes["osteth"].wait, None, "the server's rule");
+    assert_eq!(
+        c.map_recipes_drawn(0x6F00_170E).map(|m| m.region.as_str()),
+        Some("osteth")
+    );
+    assert_eq!(c.totem(Sort::Shield).map(|t| t.template), Some(0x4700_115B));
+    assert_eq!(c.totem_word(0x4700_115B), Some(0x3B28_4FFE));
+    assert_eq!(c.refining["SteelRefiningRecipe"].full_at, Some(150));
+    assert_eq!(c.refining["BrickRefiningRecipe"].full_at, None);
+    assert_eq!(c.refining["BrickRefiningRecipe"].product, 0x4700_2224);
+    // Templates the install lacks.
+    for (from, said) in [
+        (
+            "template = 0x4700115B",
+            "template: template 47009999 is not in the install",
+        ),
+        (
+            "product = 0x47002224\nfull_at",
+            "product: template 47009999 is not in the install",
+        ),
+    ] {
+        let to = from.replace(
+            from.split(" = ").nth(1).and_then(|v| v.get(..10)).unwrap(),
+            "0x47009999",
+        );
+        files.insert(
+            "town/server/crafting2.toml".into(),
+            rows.replacen(from, &to, 1),
+        );
+        let merged = merge(&read(&files).unwrap()).unwrap();
+        let problems = compile(&merged, &Fake::new()).unwrap_err();
+        let messages: Vec<String> = problems.iter().map(ToString::to_string).collect();
+        assert_eq!(messages.len(), 1, "{messages:?}");
+        assert!(messages[0].contains(said), "{messages:?}");
+    }
+    // A sort of weapon, armor or shield; a level from 2; a wait from 0; recipes, a found effect.
+    for (from, to) in [
+        ("sort = \"shield\"", "sort = \"jewelry\""),
+        ("full_at = 150", "full_at = 1"),
+        ("wait = 300.0", "wait = -1.0"),
+        ("recipes = [0x6F001091]", "recipes = []"),
+        ("found = \"Eff_ResetOstethResetTimers\"\n", ""),
+        (
+            "found = \"Eff_ResetOstethResetTimers\"",
+            "found = \"not an id!\"",
+        ),
+        ("word = 0x3B284FFE\n", ""),
+    ] {
+        assert!(rows.contains(from), "{from}");
+        files.insert(
+            "town/server/crafting2.toml".into(),
+            rows.replacen(from, to, 1),
+        );
+        assert!(read(&files).is_err(), "{to}");
+    }
+    // One row a region, a sort, a recipe.
+    for twice in [
+        "[[spellbinding]]\nsort = \"shield\"\ntemplate = 0x47002224\nword = 1\nprov = { from = \"authored\" }\n",
+        "[[refining]]\nrecipe = \"SteelRefiningRecipe\"\nproduct = 0x4700115B\nprov = { from = \"authored\" }\n",
+        "[[map_recipes]]\nregion = \"linvak\"\ndrawn = 1\nfound = \"Eff_X\"\nrecipes = [1]\nprov = { from = \"authored\" }\n",
+    ] {
+        files.insert(
+            "town/server/crafting2.toml".into(),
+            format!("{rows}\n{twice}"),
+        );
+        assert!(merge(&read(&files).unwrap()).is_err(), "{twice}");
+    }
+}

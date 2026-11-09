@@ -1044,7 +1044,7 @@ fn use_held<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, u: 
     // A totem used on an item in the pack.
     if s.things
         .get(u.item)
-        .is_some_and(|t| crate::craft::totem::noun(t.template).is_some())
+        .is_some_and(|t| s.crafting.crafts.totem_word(t.template).is_some())
     {
         crate::craft::use_totem(s, net, world, &u);
         return;

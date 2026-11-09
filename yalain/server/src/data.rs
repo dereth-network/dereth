@@ -1710,6 +1710,75 @@ mod tests {
         assert_eq!(g.map_nodes().count(), 15);
     }
 
+    /// A start describes everything the server's own crafting work makes, as it asks for them with
+    /// crafting's templates: the three totems and the ten refined products, each a stack; each of
+    /// the ten refinings is of a script package the install holds; and each region's five map
+    /// recipes read from the install, each drawing putting on the region's own effect.
+    /// Behaviour: server.craft.crafting-in-the-real-start
+    #[test]
+    fn a_start_describes_every_totem_and_refined_product_of_the_servers_own_crafting() {
+        use yalain_world::craft::Action;
+        let dir = auberean_dat::testing::require_target_install();
+        let p = Portal::open(&dir, None).expect("opens");
+        let start = start_rules(&p).expect("the start");
+        let own = yalain_world::craft::world_crafts(&yalain_content::crafts::Crafts::default()).0;
+        let map_recipes: Vec<u32> = own
+            .map_recipes
+            .values()
+            .flat_map(|m| m.recipes.iter().copied())
+            .collect();
+        let mut craft = crafting(&p, &yalain_content::CraftStart::default(), &map_recipes)
+            .expect("the crafting");
+        let fell_back = craft.take_world_crafts(&yalain_content::crafts::Crafts::default());
+        assert_eq!(fell_back, ["map_recipes", "spellbinding", "refining"]);
+        let more: Vec<u32> = yalain_world::makes::by_the_server(&start, &[])
+            .into_iter()
+            .chain(craft.templates())
+            .collect();
+        let (c, _) = catalog(
+            &p,
+            &SpawnTable::default(),
+            &LootTable::default(),
+            &more,
+            &TreasureTables::default(),
+        )
+        .expect("the catalog");
+        let described = |t: u32| c.get(t).unwrap_or_else(|| panic!("{t:08X} described"));
+        for t in &craft.crafts.totems {
+            described(t.template);
+        }
+        assert_eq!(craft.crafts.totems.len(), 3);
+        let lib = library(&p).expect("the library");
+        for r in craft.crafts.refining.values() {
+            assert!(
+                described(r.product)
+                    .props
+                    .int("Item_MaxStackSize")
+                    .is_some(),
+                "{:08X} a stack",
+                r.product
+            );
+            assert!(lib.package_id(&r.recipe).is_some(), "{}", r.recipe);
+        }
+        assert_eq!(craft.crafts.refining.len(), 10);
+        for m in craft.crafts.map_recipes.values() {
+            assert_eq!(m.recipes.len(), 5, "{}", m.region);
+            for r in &m.recipes {
+                let def = craft
+                    .recipes
+                    .get(r)
+                    .unwrap_or_else(|| panic!("{r:08X} reads"));
+                let puts_on = def
+                    .checks
+                    .iter()
+                    .flat_map(|c| &c.outcomes)
+                    .flat_map(|o| &o.actions)
+                    .any(|a| matches!(a, Action::Effect { state, .. } if *state == m.drawn));
+                assert!(puts_on, "{r:08X} puts on {:08X}", m.drawn);
+            }
+        }
+    }
+
     /// A start holds every race's starting weapons as it reads them from the install: each known by
     /// its implement, costing 4 vigor, held as its places say (the human bow and staff in both
     /// hands, the swords in one), and examined with its name, worth 1 and its weapon's numbers.

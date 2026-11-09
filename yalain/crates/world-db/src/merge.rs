@@ -83,6 +83,15 @@ pub fn item(l: &Located) -> Option<Item> {
         Row::MapRegion(r) => Item::MapRegion {
             region: r.region.region.clone(),
         },
+        Row::MapRecipes(r) => Item::MapRecipes {
+            region: r.recipes.region.clone(),
+        },
+        Row::Spellbinding(r) => Item::Spellbinding {
+            sort: r.totem.sort.name().to_string(),
+        },
+        Row::Refining(r) => Item::Refining {
+            recipe: r.refining.recipe.clone(),
+        },
         Row::TreasureSort(r) => Item::TreasureSort {
             sort: r.sort.name().to_string(),
         },
@@ -159,6 +168,9 @@ fn value(row: &Row) -> String {
         Row::TreasureSort(x) => x.prov = crate::rows::Prov::default(),
         Row::Mine(x) => x.prov = crate::rows::Prov::default(),
         Row::MapRegion(x) => x.prov = crate::rows::Prov::default(),
+        Row::MapRecipes(x) => x.prov = crate::rows::Prov::default(),
+        Row::Spellbinding(x) => x.prov = crate::rows::Prov::default(),
+        Row::Refining(x) => x.prov = crate::rows::Prov::default(),
         Row::Scene(x) => x.prov = crate::rows::Prov::default(),
         Row::Shard(x) => x.prov = crate::rows::Prov::default(),
         Row::Weapon(x) => x.prov = crate::rows::Prov::default(),

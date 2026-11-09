@@ -1587,6 +1587,7 @@ pub fn test_crafting() -> yalain_world::craft::Crafting {
         starting_recipes: vec![KNIFE_RECIPE],
         tool_yields: test_mining_tool_yields().into_iter().collect(),
         gathering: test_gathering(),
+        crafts: test_crafts(),
         ..Crafting::default()
     };
     c.recipes.insert(MINES_RECIPE, mines);
@@ -2298,6 +2299,101 @@ pub fn test_gathering() -> yalain_content::gathering::Gathering {
                     0x4700_0CAA,
                 ],
             ),
+        ]
+        .into(),
+    }
+}
+
+/// The totems the test world's spellbinding makes: of a weapon, a shield, armor.
+pub mod totems {
+    pub const WEAPON: u32 = 0x4700_0CCB;
+    pub const SHIELD: u32 = 0x4700_0CC9;
+    pub const ARMOR: u32 = 0x4700_0CC7;
+}
+
+/// The crafting work the test world's rows would name: Linvak's, Omishan's and Osteth's five map
+/// recipes each (crystal, iron, stone, wood, silver), set waiting five minutes by the effect a
+/// drawing puts on and drawn again by their maps' finds; the three totems, each with its word; the
+/// ten refining recipes' products, each all it takes at level 150.
+#[must_use]
+pub fn test_crafts() -> yalain_content::crafts::Crafts {
+    use yalain_content::crafts::{Crafts, MapRecipes, Refining, Totem};
+    use yalain_content::treasure_tables::Sort;
+    let map = |region: &str, drawn: u32, found: &str, first: u32, order: [u32; 5]| {
+        (
+            region.to_string(),
+            MapRecipes {
+                region: region.to_string(),
+                drawn,
+                found: found.to_string(),
+                recipes: order.iter().map(|o| first + o).collect(),
+                wait: Some(300.0),
+            },
+        )
+    };
+    let refine = |recipe: &str, product: u32| {
+        (
+            recipe.to_string(),
+            Refining {
+                recipe: recipe.to_string(),
+                product,
+                full_at: Some(150),
+            },
+        )
+    };
+    Crafts {
+        map_recipes: [
+            map(
+                "linvak",
+                0x6F00_170C,
+                "Eff_ResetLinvakResetTimers",
+                0x6F00_1099,
+                [2, 0, 3, 4, 1],
+            ),
+            map(
+                "omishan",
+                0x6F00_170D,
+                "Eff_ResetOmishanResetTimers",
+                0x6F00_1094,
+                [2, 0, 3, 4, 1],
+            ),
+            map(
+                "osteth",
+                0x6F00_170E,
+                "Eff_ResetOstethResetTimers",
+                0x6F00_108F,
+                [2, 0, 3, 4, 1],
+            ),
+        ]
+        .into(),
+        totems: vec![
+            Totem {
+                sort: Sort::Weapon,
+                template: totems::WEAPON,
+                word: 0xEE40_CD5E,
+            },
+            Totem {
+                sort: Sort::Shield,
+                template: totems::SHIELD,
+                word: 0x3B28_4FFE,
+            },
+            Totem {
+                sort: Sort::Armor,
+                template: totems::ARMOR,
+                word: 0xCED7_169A,
+            },
+        ],
+        refining: [
+            refine("SteelRefiningRecipe", 0x4700_0B40),
+            refine("DramasticRefiningRecipe", 0x4700_0B46),
+            refine("MoonglassRefiningRecipe", 0x4700_08FC),
+            refine("RunewoodRefiningRecipe", 0x4700_08DA),
+            refine("TukaliteRefiningRecipe", 0x4700_08D3),
+            refine("TileRefiningRecipe", 0x4700_0657),
+            refine("BlockRefiningRecipe", 0x4700_0658),
+            refine("BoardRefiningRecipe", 0x4700_0659),
+            refine("BrickRefiningRecipe", 0x4700_0655),
+            refine("PlasterRefiningRecipe", 0x4700_0656),
         ]
         .into(),
     }

@@ -1326,7 +1326,10 @@ fn every_refining_recipe_reads_with_its_product() {
         for r in recipes {
             assert_eq!(
                 c.recipes.get(r).map(|d| d.custom),
-                Some(Custom::Refine { product }),
+                Some(Custom::Refine {
+                    product,
+                    full_at: 150
+                }),
                 "{r:08X}"
             );
         }

@@ -215,6 +215,12 @@ pub enum Item {
     Book { template: u32 },
     /// What every new character is given as it first enters, by the template.
     StartItem { template: u32 },
+    /// A region's surveyor's map recipes, by the region's key.
+    MapRecipes { region: String },
+    /// The totem spellbinding makes of a sort of item, by the sort's name.
+    Spellbinding { sort: String },
+    /// What a refining recipe yields, by its script package's name.
+    Refining { recipe: String },
 }
 
 impl Item {
@@ -328,6 +334,15 @@ impl Item {
             ["start_item", template] => Self::StartItem {
                 template: number(template)?,
             },
+            ["map_recipes", region] => Self::MapRecipes {
+                region: symbol(region)?,
+            },
+            ["spellbinding", sort] => Self::Spellbinding {
+                sort: (*sort).to_string(),
+            },
+            ["refining", recipe] => Self::Refining {
+                recipe: identifier(recipe)?,
+            },
             ["area", lb] => Self::Area {
                 landblock: u16::from_str_radix(lb, 16).ok().filter(|_| lb.len() == 4)?,
             },
@@ -390,6 +405,9 @@ impl fmt::Display for Item {
             Self::ItemUse { template } => write!(f, "item_use {template:#010x}"),
             Self::Book { template } => write!(f, "book {template:#010x}"),
             Self::StartItem { template } => write!(f, "start_item {template:#010x}"),
+            Self::MapRecipes { region } => write!(f, "map_recipes {region}"),
+            Self::Spellbinding { sort } => write!(f, "spellbinding {sort}"),
+            Self::Refining { recipe } => write!(f, "refining {recipe}"),
         }
     }
 }

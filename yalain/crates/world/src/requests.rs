@@ -353,7 +353,7 @@ pub fn item_view<S: Store>(s: &Server<S>, t: &crate::things::Thing) -> profile::
     v.jewelry = s.treasure.jewelry.contains(&t.description.package);
     // A treasure item's own least level and Arcane Lore, and a treasure potion's own effect and
     // name.
-    if let Some(kind) = crate::craft::totem::noun(t.template) {
+    if let Some(kind) = s.crafting.crafts.totem_word(t.template) {
         // A totem's own least level and Arcane Lore are its target's.
         v.totem = Some(profile::TotemView {
             kind,

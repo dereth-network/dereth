@@ -1728,6 +1728,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         treasure,
         gathering,
         items,
+        crafts,
         ..
     } = compiled;
     // Fields of kinds a world has that it may leave out everywhere: the server's own then.
@@ -1823,6 +1824,23 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             tracing::warn!(
                 "this world has no {} rows: its mining and maps go by the server's own there",
                 kinds.join(", ")
+            );
+        }
+        // Map recipes, totems and refining: the world's rows, the server's own of a kind it has
+        // none of.
+        let fell_back = craft.take_world_crafts(&crafts);
+        if !fell_back.is_empty() {
+            let kinds: Vec<String> = fell_back.iter().map(|k| format!("[[{k}]]")).collect();
+            tracing::warn!(
+                "this world has no {} rows: its crafting goes by the server's own there",
+                kinds.join(", ")
+            );
+        }
+        let unread = craft.refining_unread();
+        if !unread.is_empty() {
+            tracing::info!(
+                "[[refining]] rows no recipe a player can learn here is of: {}",
+                unread.join(", ")
             );
         }
         craft.butchery = crafting

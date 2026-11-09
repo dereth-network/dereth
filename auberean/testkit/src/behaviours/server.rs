@@ -1863,6 +1863,34 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.craft.crafting-in-the-real-start",
+        says: "A start describes everything crafting's own work makes: the three totems and the ten \
+               refined products, each a stack, each refining of a script package the install holds; and \
+               each region's five map recipes read, each drawing putting on its region's effect.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-CRAFTS-REAL-START"),
+        station: "yalain::bin.yalain::data::tests::a_start_describes_every_totem_and_refined_product_of_the_servers_own_crafting",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.craft.crafting-rows-hold-the-servers-own",
+        says: "A world's `[[map_recipes]]`, `[[spellbinding]]` and `[[refining]]` rows hold the \
+               server's own, entry for entry.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-CRAFTS-ROWS"),
+        station: "yalain-testkit::corpus::world_db::the_worlds_map_recipes_spellbinding_and_refining_rows_hold_the_servers_own_entry_for_entry",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.craft.crafting-without-rows",
+        says: "A world with no `[[map_recipes]]`, `[[spellbinding]]` or `[[refining]]` rows crafts by \
+               the server's own of that kind, and warns; a world with rows of a kind has those alone.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-CRAFTS-NO-ROWS"),
+        station: "yalain-testkit::cpu::play::crafting::a_world_without_map_recipes_spellbinding_or_refining_rows_has_the_servers_own_and_with_some_its_rows_alone",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.day-starts-over",
         says: "When a player's day of craft experience is over, every craft skill earns nothing today \
                again, the client is told all its craft skills, and the next day ends 22 hours later.",
@@ -2103,6 +2131,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.craft.map-recipes-by-world-rows",
+        says: "The recipes a surveyor's map drawing has wait, and how long, are the world's \
+               `[[map_recipes]]` row's whose effect the drawing puts on.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-MAP-RECIPES-BY-ROWS"),
+        station: "yalain-testkit::cpu::play::crafting::a_map_recipes_row_sets_which_recipes_a_drawing_has_wait_and_for_how_long",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.map-recipes-wait-together",
         says: "Drawing a surveyor's map has all five of its region's map recipes wait five minutes, told in \
                one call after the recipe's text and before the drawn recipe's own record.",
@@ -2340,6 +2377,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "server.craft.refining-by-world-rows",
+        says: "A refining recipe's product and the level it yields all at are the world's \
+               `[[refining]]` row's for its script package; one no row names makes nothing of its own.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-REFINING-BY-ROWS"),
+        station: "yalain-testkit::cpu::play::crafting::a_refining_row_sets_its_recipes_product_and_the_level_it_yields_all_at",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.refining-grows-with-skill",
         says: "What a refining yields grows with the craft skill to all it takes at the skill's cap, and what the player's effects add to the skill counts.",
         since: TOOLING,
@@ -2398,6 +2444,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-CRAFT-SPINNER-SLOTS"),
         station: "yalain-testkit::cpu::play::crafting::the_slots_filled_must_be_the_ones_the_spinner_asks_for",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.craft.spellbinding-by-world-rows",
+        says: "The totem spellbinding makes of a sort of item, and the word it says it goes on, are \
+               the world's `[[spellbinding]]` row's.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-SPELLBINDING-BY-ROWS"),
+        station: "yalain-testkit::cpu::play::crafting::a_spellbinding_row_sets_the_totem_its_sort_of_item_makes",
         tier: Tier::Cpu,
     },
     behaviour! {

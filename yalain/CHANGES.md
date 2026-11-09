@@ -12,6 +12,7 @@ what they see, not how it was done.
 - Monsters' hits on pets now take off the pet's armor, as on players.
 - Items that summon several pets now make them all.
 - Worlds can now give a summoning item its own pet.
+- Worlds can now set map recipes' waits, spellbinding's totems and refining's products as rows.
 - Heroes' damage pool now adds to their hits.
 - Pets have the health they had, not a handful.
 - Every class's summoning skills make their pets, and turrets take their barrels.

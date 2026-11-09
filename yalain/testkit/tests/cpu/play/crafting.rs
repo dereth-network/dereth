@@ -683,48 +683,109 @@ fn a_step_with_its_effects_last_tells_the_update_before_the_recipe() {
     }
 }
 
+/// A surveyor's map recipe: drawing it puts on the effect that sets its region's wait.
+fn map_drawing(did: u32, set: u32) -> yalain_world::craft::RecipeDef {
+    use yalain_world::craft::{Action, Check, Outcome, RecipeDef};
+    RecipeDef {
+        did,
+        skill: QUEST_RECIPES,
+        charges: -1,
+        recovery: 300.0,
+        animation: 0x4100_00A4,
+        cycles: 1,
+        checks: vec![Check {
+            upto: 2.0,
+            outcomes: vec![Outcome {
+                upto: 1000.0,
+                xp_mod: 1.0,
+                actions: vec![
+                    Action::Text {
+                        text: (0x53FE_2D25, 0x2500_1758),
+                        kind: 8,
+                    },
+                    Action::Effect {
+                        state: set,
+                        spellcraft: 1.0,
+                    },
+                ],
+            }],
+        }],
+        ..RecipeDef::default()
+    }
+}
+
+/// A world's `[[map_recipes]]` row says which recipes a drawing's effect sets waiting and for how
+/// long: its own two for its own minute, and no other region's.
+/// Behaviour: server.craft.map-recipes-by-world-rows
+#[test]
+fn a_map_recipes_row_sets_which_recipes_a_drawing_has_wait_and_for_how_long() {
+    use yalain_content::crafts::MapRecipes;
+    use yalain_world::craft::RecipeDef;
+    const SET: u32 = 0x6F00_7770;
+    const DRAWN: u32 = 0x6F00_7771;
+    const OTHER: u32 = 0x6F00_7772;
+    let (mut h, b, _me, world) = in_world();
+    let linvak = h.server.crafting.crafts.map_recipes["linvak"]
+        .recipes
+        .clone();
+    h.server.crafting.crafts.map_recipes.insert(
+        "sawtooth".into(),
+        MapRecipes {
+            region: "sawtooth".into(),
+            drawn: SET,
+            found: "Eff_ResetSawtoothTimers".into(),
+            recipes: vec![DRAWN, OTHER],
+            wait: Some(60.0),
+        },
+    );
+    // Its own wait, as the install's map recipes' equal their region's.
+    let drawing = RecipeDef {
+        recovery: 60.0,
+        ..map_drawing(DRAWN, SET)
+    };
+    h.server.crafting.recipes.insert(DRAWN, drawing);
+    h.server
+        .players
+        .get_mut(&world)
+        .expect("in the world")
+        .play
+        .recipes
+        .push(yalain_world::craft::new_recipe(DRAWN));
+    execute(&mut h, b, DRAWN, &[]);
+    wait(&mut h, 8.0);
+    let now = h.net.game_time(h.now);
+    let p = &h.server.players[&world];
+    for r in [DRAWN, OTHER] {
+        let rec = p.play.recipes.iter().find(|x| x.recipe == r).expect("held");
+        assert!(
+            (rec.use_again - (now + 60.0)).abs() < 10.0,
+            "{r:08X} waits its row's minute"
+        );
+    }
+    assert!(
+        linvak
+            .iter()
+            .all(|r| p.play.recipes.iter().all(|x| x.recipe != *r)),
+        "Linvak's recipes are not told"
+    );
+}
+
 /// Drawing a surveyor's map (a recipe whose outcome sets its region's wait) has all five of the
 /// region's map recipes wait five minutes, told in one call after the recipe's text and before the
 /// drawn recipe's own record and the answer.
 /// Behaviour: server.craft.map-recipes-wait-together
 #[test]
 fn drawing_a_map_has_its_regions_five_map_recipes_wait_five_minutes_together() {
-    use yalain_world::craft::{
-        map_region_set_by, Action, Check, Outcome, RecipeDef, MAP_RECIPES, MAP_RECIPES_WAIT,
-    };
+    use yalain_world::craft::MAP_RECIPES_WAIT;
     let (mut h, b, _me, world) = in_world();
-    let (set, _, five) = MAP_RECIPES[0];
-    assert_eq!(map_region_set_by(set), Some(0));
+    let linvak = h.server.crafting.crafts.map_recipes["linvak"].clone();
+    let (set, five) = (linvak.drawn, linvak.recipes);
+    assert_eq!(linvak.wait, Some(MAP_RECIPES_WAIT));
     let drawn = five[2];
-    h.server.crafting.recipes.insert(
-        drawn,
-        RecipeDef {
-            did: drawn,
-            skill: QUEST_RECIPES,
-            charges: -1,
-            recovery: 300.0,
-            animation: 0x4100_00A4,
-            cycles: 1,
-            checks: vec![Check {
-                upto: 2.0,
-                outcomes: vec![Outcome {
-                    upto: 1000.0,
-                    xp_mod: 1.0,
-                    actions: vec![
-                        Action::Text {
-                            text: (0x53FE_2D25, 0x2500_1758),
-                            kind: 8,
-                        },
-                        Action::Effect {
-                            state: set,
-                            spellcraft: 1.0,
-                        },
-                    ],
-                }],
-            }],
-            ..RecipeDef::default()
-        },
-    );
+    h.server
+        .crafting
+        .recipes
+        .insert(drawn, map_drawing(drawn, set));
     // The player knows two of the five; the list carries all five all the same.
     {
         let p = h.server.players.get_mut(&world).expect("in the world");
@@ -1762,7 +1823,10 @@ fn steel_recipe() -> yalain_world::craft::RecipeDef {
         animation: 0x4100_014B,
         cycles: 3,
         ingredients: vec![slot(1, IRON), slot(2, WOOD)],
-        custom: Custom::Refine { product: STEEL },
+        custom: Custom::Refine {
+            product: STEEL,
+            full_at: 150,
+        },
         checks: vec![Check {
             upto: 2.0,
             outcomes: vec![Outcome {
@@ -1858,6 +1922,112 @@ fn refining_adds_a_third_of_what_it_takes_to_the_players_stack_and_says_how_many
     assert_eq!(c.today, 2, "what the skill pays a use at its level");
 }
 
+/// A world's `[[refining]]` row gives a refining recipe, by its script package, its product and
+/// the level it yields all it takes at (the server's rule where it names none); a refining recipe
+/// no row names makes nothing of its own; a row no recipe is of is told.
+/// Behaviour: server.craft.refining-by-world-rows
+#[test]
+fn a_refining_row_sets_its_recipes_product_and_the_level_it_yields_all_at() {
+    use yalain_content::crafts::{Crafts, Refining};
+    use yalain_world::craft::{refining_yield, Crafting, Custom, RecipeDef, REFINING_CAP};
+    const OWN: u32 = 0x4700_7002;
+    let recipe = |did: u32, package: &str| RecipeDef {
+        did,
+        package: package.into(),
+        custom: Custom::Refine {
+            product: STEEL,
+            full_at: REFINING_CAP,
+        },
+        ..RecipeDef::default()
+    };
+    let mut c = Crafting::default();
+    c.recipes.insert(1, recipe(1, "SteelRefiningRecipe"));
+    c.recipes.insert(2, recipe(2, "PlasterRefiningRecipe"));
+    c.recipes.insert(3, recipe(3, "BrickRefiningRecipe"));
+    let row = |recipe: &str, full_at| {
+        (
+            recipe.to_string(),
+            Refining {
+                recipe: recipe.into(),
+                product: OWN,
+                full_at,
+            },
+        )
+    };
+    let rows = Crafts {
+        refining: [
+            row("SteelRefiningRecipe", Some(75)),
+            row("BrickRefiningRecipe", None),
+            row("GlassRefiningRecipe", Some(10)),
+        ]
+        .into(),
+        ..Crafts::default()
+    };
+    let fell_back = c.take_world_crafts(&rows);
+    assert_eq!(fell_back, ["map_recipes", "spellbinding"]);
+    assert_eq!(
+        c.recipes[&1].custom,
+        Custom::Refine {
+            product: OWN,
+            full_at: 75
+        }
+    );
+    assert_eq!(c.recipes[&2].custom, Custom::None, "no row names it");
+    assert_eq!(
+        c.recipes[&3].custom,
+        Custom::Refine {
+            product: OWN,
+            full_at: REFINING_CAP
+        }
+    );
+    assert_eq!(c.refining_unread(), ["GlassRefiningRecipe"]);
+    assert!(c.templates().contains(&OWN), "its product is made");
+    assert_eq!(refining_yield(100, 75, 75), 100);
+    assert!(refining_yield(100, 75, REFINING_CAP) < 100);
+
+    // In play: a row's level is where it yields all.
+    let (mut h, b, _me, world) = in_world();
+    let def = RecipeDef {
+        custom: Custom::Refine {
+            product: STEEL,
+            full_at: 2,
+        },
+        ..steel_recipe()
+    };
+    with_own_recipe(&mut h, world, def, 2, &[IRON, WOOD, STEEL]);
+    let (steel, _) = refine(&mut h, b, world);
+    assert_eq!(steel, 100, "all it takes at its row's level");
+}
+
+/// A world with no `[[map_recipes]]`, `[[spellbinding]]` or `[[refining]]` rows has the server's
+/// own of each, as the test world's rows give them; with rows of a kind it has those alone, never
+/// merged with the server's.
+/// Behaviour: server.craft.crafting-without-rows
+#[test]
+fn a_world_without_map_recipes_spellbinding_or_refining_rows_has_the_servers_own_and_with_some_its_rows_alone(
+) {
+    use yalain_content::crafts::{Crafts, Totem};
+    use yalain_content::treasure_tables::Sort;
+    use yalain_world::craft::world_crafts;
+    let (own, fell_back) = world_crafts(&Crafts::default());
+    assert_eq!(fell_back, ["map_recipes", "spellbinding", "refining"]);
+    assert_eq!(own, yalain_testkit::test_crafts());
+    let one = Crafts {
+        totems: vec![Totem {
+            sort: Sort::Weapon,
+            template: 0x4700_7003,
+            word: 1,
+        }],
+        ..Crafts::default()
+    };
+    let (c, fell_back) = world_crafts(&one);
+    assert_eq!(fell_back, ["map_recipes", "refining"]);
+    assert_eq!(c.totems, one.totems, "the row alone");
+    assert!(c.totem(Sort::Shield).is_none(), "no shield totem merged in");
+    assert_eq!(c.map_recipes, own.map_recipes);
+    assert_eq!(c.refining, own.refining);
+}
+
 /// What a refining yields grows with the craft skill to all it takes at the skill's cap, and what
 /// the player's effects add to the skill counts.
 /// Behaviour: server.craft.refining-grows-with-skill
@@ -1865,12 +2035,12 @@ fn refining_adds_a_third_of_what_it_takes_to_the_players_stack_and_says_how_many
 fn a_refining_yields_more_at_a_higher_craft_skill_and_with_what_effects_add_to_it() {
     use yalain_world::craft::refining_yield;
     use yalain_world::effect_defs::{EffectDef, Kind, Scale};
-    assert_eq!(refining_yield(100, 2), 34);
-    assert_eq!(refining_yield(100, 1), 33);
-    assert_eq!(refining_yield(100, 150), 100);
-    assert_eq!(refining_yield(100, 500), 100, "no more past the cap");
-    assert!(refining_yield(100, 75) > 34 && refining_yield(100, 75) < 100);
-    assert_eq!(refining_yield(2500, 2), 845);
+    assert_eq!(refining_yield(100, 2, 150), 34);
+    assert_eq!(refining_yield(100, 1, 150), 33);
+    assert_eq!(refining_yield(100, 150, 150), 100);
+    assert_eq!(refining_yield(100, 500, 150), 100, "no more past the cap");
+    assert!(refining_yield(100, 75, 150) > 34 && refining_yield(100, 75, 150) < 100);
+    assert_eq!(refining_yield(2500, 2, 150), 845);
 
     const BONUS_STAT: u32 = 129 << 16 | 22;
     const CRUCIBLE: u32 = 0x6F00_17F3;
@@ -1907,7 +2077,7 @@ fn a_refining_yields_more_at_a_higher_craft_skill_and_with_what_effects_add_to_i
     );
     let (steel, _) = refine(&mut h, b, world);
     assert!(
-        steel > refining_yield(100, 40),
+        steel > refining_yield(100, 40, 150),
         "skill 1 and 50 from the effect yield more: {steel}"
     );
 }
@@ -1970,7 +2140,8 @@ fn a_recipe_working_out_its_own_product_fails_and_uses_up_nothing() {
 /// Behaviour: server.craft.spellbinding-makes-a-totem
 #[test]
 fn spellbinding_makes_a_totem_of_the_kind_of_the_item_it_takes_apart() {
-    use yalain_world::craft::{totem, Action, Custom};
+    use yalain_testkit::totems as totem;
+    use yalain_world::craft::{Action, Custom};
     let cases = [
         (0x4700_207F_u32, true, false, false, totem::WEAPON),
         (0x4700_0DC0, false, true, false, totem::ARMOR),
@@ -2056,7 +2227,8 @@ const ENCHANTMENT: u32 = 0x6F00_0394;
 
 /// A recipe taking an item apart into a totem, known to the player; returns the item.
 fn spellbinding_ready(h: &mut Harness, world: yalain_net::ConnId, source: u32) -> u64 {
-    use yalain_world::craft::{totem, Action, Custom};
+    use yalain_testkit::totems as totem;
+    use yalain_world::craft::{Action, Custom};
     let mut props = yalain_content::Props::default();
     props.set("Weapon_Damage", yalain_content::Prop::Int(10));
     h.server
@@ -2116,8 +2288,53 @@ fn spellbinding_refuses_an_item_with_no_enchantment() {
         !p.play
             .items
             .iter()
-            .any(|i| yalain_world::craft::totem::noun(i.template).is_some()),
+            .any(|i| h.server.crafting.crafts.totem_word(i.template).is_some()),
         "no totem"
+    );
+}
+
+/// A world's `[[spellbinding]]` row says which totem its sort of item makes and the word it says it
+/// goes on.
+/// Behaviour: server.craft.spellbinding-by-world-rows
+#[test]
+fn a_spellbinding_row_sets_the_totem_its_sort_of_item_makes() {
+    use yalain_content::treasure_tables::Sort;
+    const OWN: u32 = 0x4700_7001;
+    const WORD: u32 = 0x1234_5678;
+    let (mut h, b, _me, world) = in_world();
+    for t in &mut h.server.crafting.crafts.totems {
+        if t.sort == Sort::Weapon {
+            t.template = OWN;
+            t.word = WORD;
+        }
+    }
+    h.server.catalog.insert(yalain_testkit::test_template(
+        OWN,
+        0x200,
+        yalain_content::Props::default(),
+    ));
+    let item = spellbinding_ready(&mut h, world, 0x4700_207F);
+    h.server.things.get_mut(item).expect("made").enchantments = vec![(ENCHANTMENT, 12.0)];
+    execute(&mut h, b, STEEL_RECIPE, &[(1, item)]);
+    h.run(4);
+    wait(&mut h, 9.0);
+    let p = &h.server.players[&world];
+    let made: Vec<u32> = p
+        .play
+        .items
+        .iter()
+        .filter(|i| h.server.crafting.crafts.totem_word(i.template).is_some())
+        .map(|i| i.template)
+        .collect();
+    assert_eq!(made, [OWN], "the row's totem");
+    assert_eq!(h.server.crafting.crafts.totem_word(OWN), Some(WORD));
+    assert_eq!(
+        h.server
+            .crafting
+            .crafts
+            .totem_word(yalain_testkit::totems::WEAPON),
+        None,
+        "the old one is no totem"
     );
 }
 
@@ -2126,7 +2343,7 @@ fn spellbinding_refuses_an_item_with_no_enchantment() {
 /// Behaviour: server.craft.totem-enchants-an-item
 #[test]
 fn a_totem_used_on_an_item_of_its_kind_enchants_it_and_is_gone() {
-    use yalain_world::craft::totem;
+    use yalain_testkit::totems as totem;
     use yalain_world::made::Made;
     const SWORD_TEMPLATE: u32 = 0x4700_207F;
     const ROBE_TEMPLATE: u32 = 0x4700_0DC0;
@@ -2238,7 +2455,8 @@ fn use_on(h: &mut Harness, b: usize, me: u64, item: u64, target: u64) {
 /// Behaviour: server.craft.totem-shield-by-class
 #[test]
 fn a_dropped_shield_is_taken_apart_into_a_shield_totem_and_takes_one() {
-    use yalain_world::craft::{totem, Action, Custom};
+    use yalain_testkit::totems as totem;
+    use yalain_world::craft::{Action, Custom};
     use yalain_world::made::Made;
     const BUCKLER: u32 = 0x4700_7006;
     const PLATE: u32 = 0x4700_7007;
@@ -2300,7 +2518,7 @@ fn a_dropped_shield_is_taken_apart_into_a_shield_totem_and_takes_one() {
             .play
             .items
             .iter()
-            .filter(|i| totem::noun(i.template).is_some())
+            .filter(|i| h.server.crafting.crafts.totem_word(i.template).is_some())
             .map(|i| i.template)
             .collect()
     };
@@ -2354,11 +2572,13 @@ fn a_dropped_shield_is_taken_apart_into_a_shield_totem_and_takes_one() {
 /// Behaviour: server.craft.totem-enchants-an-item
 #[test]
 fn a_totems_profile_says_what_it_goes_on() {
-    use yalain_world::craft::totem;
+    use yalain_testkit::totems as totem;
     use yalain_world::profile::{item, item_line, TotemView};
     let view = yalain_world::profile::ItemView {
         totem: Some(TotemView {
-            kind: totem::noun(totem::WEAPON).expect("a word"),
+            kind: yalain_testkit::test_crafts()
+                .totem_word(totem::WEAPON)
+                .expect("a word"),
             least_level: Some(45),
             least_lore: None,
         }),

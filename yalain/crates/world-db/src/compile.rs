@@ -150,6 +150,9 @@ pub struct Tables {
     pub effect_rules: yalain_content::effect_rules::EffectRules,
     /// What mining's nodes do and where surveyor's maps lead, each kind only when it has rows.
     pub gathering: yalain_content::gathering::Gathering,
+    /// Crafting's own work: map recipes' waits, spellbinding's totems, refining's products, each
+    /// kind only when it has rows.
+    pub crafts: yalain_content::crafts::Crafts,
     /// The treasure numbers the world gives: its rules and its sorts' numbers, each kind only
     /// when it has rows of it.
     pub treasure: yalain_content::treasure_tables::TreasureRows,
@@ -1225,6 +1228,23 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     t.gathering
                         .map_regions
                         .insert(r.region.region.clone(), r.region.clone());
+                }
+            }
+            Row::MapRecipes(r) => {
+                t.crafts
+                    .map_recipes
+                    .insert(r.recipes.region.clone(), r.recipes.clone());
+            }
+            Row::Spellbinding(r) => {
+                if cx.template(l, "template", r.totem.template) {
+                    t.crafts.totems.push(r.totem);
+                }
+            }
+            Row::Refining(r) => {
+                if cx.template(l, "product", r.refining.product) {
+                    t.crafts
+                        .refining
+                        .insert(r.refining.recipe.clone(), r.refining.clone());
                 }
             }
             Row::PointsBonus(r) => {

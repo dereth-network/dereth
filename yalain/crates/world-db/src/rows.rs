@@ -631,6 +631,9 @@ pub enum Row {
     ItemUse(ItemUse),
     Book(Book),
     StartItem(StartItem),
+    MapRecipes(MapRecipes),
+    Spellbinding(Spellbinding),
+    Refining(Refining),
 }
 
 /// `[[event]]`: a named state of the world, on for its times: what it gates (camps, objects and
@@ -693,6 +696,30 @@ pub struct Mine {
 #[derive(Debug, Clone, PartialEq)]
 pub struct MapRegion {
     pub region: yalain_content::gathering::MapRegion,
+    pub prov: Prov,
+}
+
+/// `[[map_recipes]]`: a region's surveyor's map recipes, the effect a drawing of one puts on to have
+/// them all wait, the effect a find of the region's maps puts on to end it, and how long they wait.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MapRecipes {
+    pub recipes: yalain_content::crafts::MapRecipes,
+    pub prov: Prov,
+}
+
+/// `[[spellbinding]]`: the totem spellbinding makes of a sort of item, and the word it says it goes
+/// on.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Spellbinding {
+    pub totem: yalain_content::crafts::Totem,
+    pub prov: Prov,
+}
+
+/// `[[refining]]`: what a refining recipe yields, by its script package, and the craft skill level
+/// at which it yields all it takes.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Refining {
+    pub refining: yalain_content::crafts::Refining,
     pub prov: Prov,
 }
 
@@ -996,6 +1023,9 @@ impl Row {
             Self::ItemUse(_) => "item_use",
             Self::Book(_) => "book",
             Self::StartItem(_) => "start_item",
+            Self::MapRecipes(_) => "map_recipes",
+            Self::Spellbinding(_) => "spellbinding",
+            Self::Refining(_) => "refining",
         }
     }
 
@@ -1044,13 +1074,16 @@ impl Row {
             Self::ItemUse(r) => Some(&r.prov),
             Self::Book(r) => Some(&r.prov),
             Self::StartItem(r) => Some(&r.prov),
+            Self::MapRecipes(r) => Some(&r.prov),
+            Self::Spellbinding(r) => Some(&r.prov),
+            Self::Refining(r) => Some(&r.prov),
             Self::Remove(_) => None,
         }
     }
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 42] = [
+pub const KINDS: [&str; 45] = [
     "object",
     "camp",
     "loot",
@@ -1093,10 +1126,13 @@ pub const KINDS: [&str; 42] = [
     "item_use",
     "book",
     "start_item",
+    "map_recipes",
+    "spellbinding",
+    "refining",
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 42] = [
+pub const FIELDS: [(&str, &[&str]); 45] = [
     (
         "object",
         &[
@@ -1440,6 +1476,12 @@ pub const FIELDS: [(&str, &[&str]); 42] = [
     ),
     ("book", &["template", "table", "picture", "prov"]),
     ("start_item", &["template", "count", "prov"]),
+    (
+        "map_recipes",
+        &["region", "drawn", "found", "recipes", "wait", "prov"],
+    ),
+    ("spellbinding", &["sort", "template", "word", "prov"]),
+    ("refining", &["recipe", "product", "full_at", "prov"]),
 ];
 
 /// The fields of a `[[treasure_family]]` row's tier.
@@ -2231,6 +2273,56 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
             let nodes = f.held("nodes", nodes, ok, "at least one { effect, node }")?;
             Row::MapRegion(MapRegion {
                 region: yalain_content::gathering::MapRegion { region, nodes },
+                prov: f.req_prov()?,
+            })
+        }
+        "map_recipes" => {
+            let region = f.req_symbol("region")?;
+            let drawn = f.req_id("drawn")?;
+            let found = f.req_ident("found")?;
+            let recipes = f.ids("recipes");
+            let ok = !recipes.is_empty();
+            let recipes = f.held("recipes", recipes, ok, "at least one recipe")?;
+            let wait = f.float("wait");
+            let ok = wait.is_none_or(|w| w >= 0.0);
+            let wait = f.held("wait", wait, ok, "seconds from 0")?;
+            Row::MapRecipes(MapRecipes {
+                recipes: yalain_content::crafts::MapRecipes {
+                    region,
+                    drawn,
+                    found,
+                    recipes,
+                    wait,
+                },
+                prov: f.req_prov()?,
+            })
+        }
+        "spellbinding" => {
+            use yalain_content::treasure_tables::Sort;
+            let name = f.req_str("sort")?;
+            let sort = Sort::of_name(&name).filter(|s| *s != Sort::Jewelry);
+            let sort = f.held("sort", sort, sort.is_some(), "weapon, armor or shield")??;
+            Row::Spellbinding(Spellbinding {
+                totem: yalain_content::crafts::Totem {
+                    sort,
+                    template: f.req_id("template")?,
+                    word: f.req_id("word")?,
+                },
+                prov: f.req_prov()?,
+            })
+        }
+        "refining" => {
+            let recipe = f.req_ident("recipe")?;
+            let product = f.req_id("product")?;
+            let full_at = f.u32("full_at");
+            let ok = full_at.is_none_or(|l| l >= 2);
+            let full_at = f.held("full_at", full_at, ok, "a craft skill level from 2")?;
+            Row::Refining(Refining {
+                refining: yalain_content::crafts::Refining {
+                    recipe,
+                    product,
+                    full_at,
+                },
                 prov: f.req_prov()?,
             })
         }

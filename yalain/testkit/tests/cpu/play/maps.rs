@@ -306,7 +306,7 @@ fn a_map_region_row_sets_the_node_a_maps_effect_conjures() {
     let props = &h.server.catalog.get(MAP).expect("the map").props;
     let mut none = yalain_testkit::test_gathering();
     none.map_regions.clear();
-    assert!(maps::map_def(props, &none).is_none());
+    assert!(maps::map_def(props, &none, &yalain_testkit::test_crafts()).is_none());
 }
 
 /// A map at its place whose node this world can't make is kept: it isn't spent, and the summoning
@@ -629,13 +629,15 @@ fn a_found_lodestones_quality_follows_the_finders_level() {
 /// Behaviour: server.craft.map-find-ends-the-recipes-wait
 #[test]
 fn a_maps_find_lets_its_regions_map_recipes_be_drawn_again() {
-    use yalain_world::craft::{function as craft, new_recipe, MAP_RECIPES};
+    use yalain_world::craft::{function as craft, new_recipe};
     let mut h = world();
     let (b, me, world, map) = with_map(&mut h);
-    let five = MAP_RECIPES[0].2;
+    let five = h.server.crafting.crafts.map_recipes["linvak"]
+        .recipes
+        .clone();
     {
         let p = h.server.players.get_mut(&world).expect("in");
-        for r in five {
+        for &r in &five {
             let mut rec = new_recipe(r);
             rec.use_again = 1.0e12;
             p.play.recipes.push(rec);

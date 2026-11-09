@@ -423,7 +423,7 @@ pub fn begin<S: Store>(
     let Some(template) = s.things.get(u.item).map(|t| t.template) else {
         return false;
     };
-    if crate::craft::totem::noun(template).is_some() {
+    if s.crafting.crafts.totem_word(template).is_some() {
         crate::craft::use_totem(s, net, world, u);
         return true;
     }

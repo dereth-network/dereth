@@ -26,6 +26,7 @@ use auberean_assets::entity::Entity;
 use auberean_assets::property::PropertyValue;
 use auberean_assets::script::Qualities;
 
+pub mod crafts;
 pub mod effect_rules;
 pub mod events;
 pub mod gathering;

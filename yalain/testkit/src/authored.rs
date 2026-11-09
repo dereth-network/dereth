@@ -586,7 +586,8 @@ impl Portal {
         )
     }
 
-    /// The craft skills and recipes of these saved states, as the server reads them at start.
+    /// The craft skills and recipes of these saved states, as the server reads them at start with
+    /// the test world's crafting rows ([`crate::test_crafts`]).
     ///
     /// # Panics
     /// The library does not read.
@@ -598,7 +599,9 @@ impl Portal {
                 auberean_assets::decode(id, &self.dat.read(id).ok()?, &self.ctx).ok()?;
             Graph::decode(&st.graph, &lib).ok()
         };
-        yalain_world::craft::Crafting::read(&lib, skills, recipes, &[], &graph)
+        let mut c = yalain_world::craft::Crafting::read(&lib, skills, recipes, &[], &graph);
+        c.take_world_crafts(&crate::test_crafts());
+        c
     }
 
     /// The body a template's look gives (its radius and height), as the server reads it at start.

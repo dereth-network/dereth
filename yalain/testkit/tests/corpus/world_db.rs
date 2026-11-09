@@ -246,6 +246,23 @@ fn the_worlds_item_use_book_and_start_item_rows_hold_the_servers_own_entry_for_e
     assert_eq!(world.start_items, own.start_items);
 }
 
+/// A world's map recipes, spellbinding and refining rows hold the server's own, entry for entry: each
+/// region's five recipes, the effects that set and end their wait and how long; each sort's totem
+/// and its word; each refining recipe's product and the level it yields all at.
+/// Behaviour: server.craft.crafting-rows-hold-the-servers-own
+#[test]
+fn the_worlds_map_recipes_spellbinding_and_refining_rows_hold_the_servers_own_entry_for_entry() {
+    let t = &compiled().tables;
+    let (c, _) = yalain_world::craft::world_crafts(&t.crafts);
+    let own = yalain_testkit::test_crafts();
+    assert_eq!(c.map_recipes, own.map_recipes);
+    assert_eq!(c.refining, own.refining);
+    assert_eq!(c.totems.len(), own.totems.len());
+    for totem in &own.totems {
+        assert_eq!(c.totem(totem.sort), Some(totem), "{:?}", totem.sort);
+    }
+}
+
 /// What the rows leave out comes from the install: the training hall quest's definition (its
 /// eight journal entries), the Human Weapon Vendor's store and its listings' products and prices,
 /// every loot profile's name, and the people's names for reading.

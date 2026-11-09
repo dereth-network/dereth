@@ -186,13 +186,17 @@ pub struct MapDef {
     pub animation: u32,
     pub node: u32,
     /// The region whose map recipes the map's find lets be drawn again, when its usage says so.
-    pub resets: Option<usize>,
+    pub resets: Option<String>,
 }
 
 /// A template's map, if it is a surveyor's map whose effect conjures a node of the world's map
-/// regions.
+/// regions; it lets the map recipes be drawn again whose row names its other effect.
 #[must_use]
-pub fn map_def(props: &yalain_content::Props, gathering: &Gathering) -> Option<MapDef> {
+pub fn map_def(
+    props: &yalain_content::Props,
+    gathering: &Gathering,
+    crafts: &yalain_content::crafts::Crafts,
+) -> Option<MapDef> {
     let node = ["Usage_Effect1", "Usage_Effect2"]
         .iter()
         .find_map(|k| props.text(k).and_then(|e| gathering.map_node(e)))?;
@@ -228,7 +232,8 @@ pub fn map_def(props: &yalain_content::Props, gathering: &Gathering) -> Option<M
         node,
         resets: ["Usage_Effect1", "Usage_Effect2"]
             .iter()
-            .find_map(|k| props.text(k).and_then(crate::craft::map_region_reset_by)),
+            .find_map(|k| props.text(k).and_then(|e| crafts.map_recipes_found(e)))
+            .map(|m| m.region.clone()),
     })
 }
 
@@ -301,7 +306,7 @@ pub fn used<S: Store>(
         .things
         .get(u.item)
         .and_then(|t| s.catalog.get(t.template))
-        .and_then(|t| map_def(&t.props, &s.crafting.gathering))
+        .and_then(|t| map_def(&t.props, &s.crafting.gathering, &s.crafting.crafts))
     else {
         return false;
     };
@@ -395,7 +400,7 @@ fn found<S: Store>(
         crate::combat::to_all_seeing(s, net, me, &plays);
     }
     crate::mining::surveying_xp(s, net, world);
-    if let Some(region) = def.resets {
+    if let Some(region) = &def.resets {
         let now = net.game_time(clock.local);
         crate::craft::map_recipes_wait(s, net, world, region, now, now);
     }
