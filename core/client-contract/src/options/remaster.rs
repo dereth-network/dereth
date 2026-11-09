@@ -149,7 +149,7 @@ pub const FEATURES: [Feature; 22] = [
         name: names::REMASTER_PUDDLES,
         caption: "Puddles",
         note: "Puddles gather on the ground.",
-        at_first: true,
+        at_first: false,
     },
     Feature {
         name: names::REMASTER_RAIN,
@@ -382,8 +382,8 @@ mod tests {
     //! Behaviour: none (experimental)
     use super::*;
 
-    /// The remaster's box is off at first, and so are tracing, the upscalers and the art pack;
-    /// what it draws on any card is ticked, so its box alone draws the whole of it.
+    /// The remaster's box is off at first, and so are puddles, tracing, the upscalers and the art
+    /// pack; what it draws on any card is ticked, so its box alone draws the rest of it.
     #[test]
     fn its_box_is_off_at_first_and_its_ordinary_boxes_are_ticked() {
         assert!(!ticked_at_first(names::REMASTER));
@@ -395,6 +395,7 @@ mod tests {
             assert!(ticked_at_first(on), "{on}");
         }
         for later in [
+            names::REMASTER_PUDDLES,
             names::REMASTER_TRACED_SHADOWS,
             names::REMASTER_TRACED_OCCLUSION,
             names::REMASTER_UPSCALE,
@@ -403,7 +404,7 @@ mod tests {
         ] {
             assert!(!ticked_at_first(later), "{later}");
         }
-        assert_eq!(FEATURES.iter().filter(|f| f.at_first).count(), 17);
+        assert_eq!(FEATURES.iter().filter(|f| f.at_first).count(), 16);
     }
 
     /// Every line the player reads names the remaster by the one name, and the stored option
