@@ -231,6 +231,10 @@ impl SceneDraw {
             remaster_ground: remaster_ground::RemasterGround::default(),
             #[cfg(feature = "remaster")]
             remaster_far: far_trees::FarTrees::default(),
+            #[cfg(feature = "remaster")]
+            remaster_retail_far: None,
+            #[cfg(feature = "remaster")]
+            remaster_far_ids: None,
             // Region installation applies the detail-texturing preference to
             // both enabled detail classes; this scene's equivalent is the
             // `apply_detail_texturing` below, once `gpu` is reachable.

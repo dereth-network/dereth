@@ -104,34 +104,28 @@ float skyline(uint heights, float3 eye, float3 foot, float top, float2 origin, f
     return lerp(1.0, least, smoothstep(SKYLINE.x, SKYLINE.y, h));
 }
 
-[shader("compute")]
-[numthreads(64, 1, 1)]
-void cs_cull(uint3 id : SV_DispatchThreadID, uniform CullPush push)
+// How much of its size tree `i` keeps this frame: nought where it is not drawn.
+float cull_keep(CullPush push, uint i)
 {
-    uint i = id.x;
     float4 eye = row(push.constants, C_EYE);
-    if (i >= uint(eye.w))
-    {
-        return;
-    }
     float4 r0 = row(push.trees, i * 3);
     uint4 w = row_u(push.trees, i * 3 + 2);
     uint bits = buffers[NonUniformResourceIndex(push.excluded)].Load((w.z >> 5) * 4);
     if ((bits & (1u << (w.z & 31u))) != 0)
     {
-        return;
+        return 0.0;
     }
     float4 reach = row(push.constants, C_REACH);
     float3 foot = r0.xyz - float3(reach.xy, 0.0);
     float d = length(foot - eye.xyz);
     if (d > reach.z)
     {
-        return;
+        return 0.0;
     }
     uint4 words = row_u(push.models, w.x * 4 + 3);
     if (words.x == NO_PICTURES)
     {
-        return;
+        return 0.0;
     }
     float4 look = row(push.constants, C_LOOK);
     // The thinning: a tree goes once the share left standing falls below its own number, over a
@@ -146,7 +140,7 @@ void cs_cull(uint3 id : SV_DispatchThreadID, uniform CullPush push)
     keep *= smoothstep(look.w * 0.5, look.w, pixels);
     if (keep <= 0.0)
     {
-        return;
+        return 0.0;
     }
     // Its bounds, turned with it only about the upright: a tree is upright.
     float3 centre = foot + float3(0.0, 0.0, bounds.z * r0.w);
@@ -155,18 +149,39 @@ void cs_cull(uint3 id : SV_DispatchThreadID, uniform CullPush push)
         float4 plane = row(push.constants, C_PLANES + p);
         if (dot(plane.xyz, centre) + plane.w < -radius)
         {
-            return;
+            return 0.0;
         }
     }
-    float wider = min(1.0 + look.x * (1.0 / max(left, 0.05) - 1.0), 1.5);
-    keep *= skyline(push.heights, eye.xyz, foot, row(push.models, w.x * 4 + 1).z * r0.w, reach.xy,
-                    row(push.constants, C_FAR).z);
-    uint slot;
-    rw_buffers[NonUniformResourceIndex(push.args)].InterlockedAdd(push.count_at, 1, slot);
+    return keep * skyline(push.heights, eye.xyz, foot, row(push.models, w.x * 4 + 1).z * r0.w,
+                          reach.xy, row(push.constants, C_FAR).z);
+}
+
+[shader("compute")]
+[numthreads(64, 1, 1)]
+void cs_cull(uint3 id : SV_DispatchThreadID, uniform CullPush push)
+{
+    uint i = id.x;
+    float4 eye = row(push.constants, C_EYE);
+    if (i >= uint(eye.w))
+    {
+        return;
+    }
+    float keep = cull_keep(push, i);
+    float4 r = row(push.trees, i * 3);
+    float wider = 1.0;
+    // Each tree keeps its own place in the list, whether it is drawn or not (nought: not), so the
+    // trees are drawn in the same order every frame.
     RWByteAddressBuffer kept = rw_buffers[NonUniformResourceIndex(push.kept)];
-    kept.Store(slot * 12, i);
-    kept.Store(slot * 12 + 4, asuint(keep));
-    kept.Store(slot * 12 + 8, asuint(wider));
+    if (keep > 0.0)
+    {
+        float4 reach = row(push.constants, C_REACH);
+        float d = length(r.xyz - float3(reach.xy, 0.0) - row(push.constants, C_EYE).xyz);
+        float left = saturate(1.0 - (d - reach.w) / max(reach.z - reach.w, 1.0));
+        wider = min(1.0 + row(push.constants, C_LOOK).x * (1.0 / max(left, 0.05) - 1.0), 1.5);
+    }
+    kept.Store(i * 12, i);
+    kept.Store(i * 12 + 4, asuint(keep));
+    kept.Store(i * 12 + 8, asuint(wider));
 }
 
 struct DrawPush
@@ -210,6 +225,13 @@ Far vs_far(uint vertex : SV_VertexID, uint instance : SV_InstanceID, uniform Dra
     uint3 entry = buffers[NonUniformResourceIndex(push.kept)].Load3(instance * 12);
     float keep = asfloat(entry.y);
     float wider = asfloat(entry.z);
+    if (keep <= 0.0)
+    {
+        // A tree the culling left out: its quad falls to one point, and nothing is drawn.
+        Far none = (Far)0;
+        none.position = float4(0.0, 0.0, -1.0, 1.0);
+        return none;
+    }
     float4 t = row(push.trees, entry.x * 3);
     float4 q = normalize(row(push.trees, entry.x * 3 + 1));
     uint model = row_u(push.trees, entry.x * 3 + 2).x;

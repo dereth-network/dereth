@@ -1858,6 +1858,10 @@ impl Shot {
         self.scene.stream(&self.store, gpu).expect("stream");
         self.last.stream = ms(t);
         self.draw(gpu);
+        // What the remaster's far trees asked for this frame is worked out before the next, so a
+        // frame is the same however fast the threads that work them out run.
+        #[cfg(feature = "remaster")]
+        self.scene.wait_for_remaster_far_trees();
     }
 
     /// Create an object of `setup` standing on the ground `ahead` metres in front of the camera,

@@ -1,6 +1,6 @@
-//! The far trees, the scene's half: retail's scenery of the trees an art pack has far pictures
-//! for, worked out off the frame for every block out to the reach, so the remaster draws them to
-//! the horizon.
+//! The far trees, the scene's half: retail's scenery of the trees that have far pictures (an art
+//! pack's, and retail's own drawn from their meshes), worked out off the frame for every block out
+//! to the reach, so the remaster draws them to the horizon.
 //!
 //! Retail's scenery is placed from the land alone: each block's terrain words and heights, the
 //! region's scenes and the cells its buildings own. So a block far off grows its trees where it
@@ -67,7 +67,7 @@ struct Sources {
     table: [f32; 256],
     world: Land,
     knobs: Knobs,
-    /// The retail objects the art pack has far pictures for.
+    /// The retail objects with far pictures.
     ids: Arc<HashSet<u32>>,
 }
 
@@ -244,7 +244,7 @@ impl<T> Drop for Worker<T> {
 /// What the far trees were worked out for: a change of any throws them away.
 #[derive(Debug, Clone, PartialEq)]
 struct Key {
-    /// The art pack's serial.
+    /// The serial of the far pictures' set.
     pack: u64,
     /// The world's vertices' serial.
     world: u64,
@@ -319,14 +319,16 @@ pub(crate) fn blocks_within(eye: (f32, f32), reach: f32) -> Vec<(i32, i32)> {
 }
 
 impl<T: Tree> FarTrees<T> {
-    /// One frame's upkeep. `wanted` when the far trees are drawn at all; the art pack `pack` (its
-    /// serial and the retail objects it has far pictures for), the world's vertices and their
-    /// serial, the knobs, and the eye in world meters.
+    /// One frame's upkeep. `wanted` when the far trees are drawn at all; `trees` the retail
+    /// objects with far pictures and the serial of their set; the art pack `cover` whose trees
+    /// the forest cover is worked out from; the world's vertices and their serial, the knobs, and
+    /// the eye in world meters.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn step(
         &mut self,
         wanted: bool,
-        pack: Option<&Arc<crate::art_pack::ArtPack>>,
+        trees: Option<(u64, Arc<HashSet<u32>>)>,
+        cover: Option<&Arc<crate::art_pack::ArtPack>>,
         world: Option<(Land, u64)>,
         knobs: &Knobs,
         store: &Arc<RetailDatStore>,
@@ -334,7 +336,8 @@ impl<T: Tree> FarTrees<T> {
         table: &[f32; 256],
         eye: (f32, f32),
     ) {
-        let (Some(pack), Some((world, world_serial)), true) = (pack, world, wanted) else {
+        let (Some((serial, ids)), Some((world, world_serial)), true) = (trees, world, wanted)
+        else {
             if self.active || self.worker.is_some() || self.cover.is_some() {
                 *self = Self {
                     serial: self.serial + 1,
@@ -344,7 +347,14 @@ impl<T: Tree> FarTrees<T> {
             }
             return;
         };
-        self.step_cover(pack, &world, world_serial, store, region);
+        match cover {
+            Some(pack) => self.step_cover(pack, &world, world_serial, store, region),
+            None => {
+                self.cover = None;
+                self.cover_for = None;
+                self.cover_loading = None;
+            }
+        }
         if !knobs.on(Knob::FarTrees) {
             if self.active || self.worker.is_some() {
                 self.worker = None;
@@ -359,18 +369,12 @@ impl<T: Tree> FarTrees<T> {
         }
         self.active = true;
         let key = Key {
-            pack: pack.serial,
+            pack: serial,
             world: world_serial,
             surface: [Knob::FarRound, Knob::FarDetail, Knob::FarDetailScale]
                 .map(|k| knobs.get(k).to_bits()),
         };
         if self.key.as_ref() != Some(&key) || self.worker.is_none() {
-            let ids: HashSet<u32> = pack
-                .models
-                .iter()
-                .filter(|m| m.lods.iter().any(|l| l.views.is_some()))
-                .map(|m| m.id.0)
-                .collect();
             self.made.clear();
             self.asked.clear();
             self.wanted_for = None;
@@ -384,7 +388,7 @@ impl<T: Tree> FarTrees<T> {
                     table: *table,
                     world,
                     knobs: knobs.clone(),
-                    ids: Arc::new(ids),
+                    ids,
                 })
             };
             self.key = Some(key);
@@ -488,6 +492,7 @@ impl<T: Tree> FarTrees<T> {
             return;
         };
         let started = web_time::Instant::now();
+        let mut took = false;
         while !self.asked.is_empty() || worker.busy() {
             match worker.done.recv_timeout(std::time::Duration::from_secs(30)) {
                 Ok((block, trees, ms)) => {
@@ -495,6 +500,7 @@ impl<T: Tree> FarTrees<T> {
                     self.made.insert(block, Arc::new(trees));
                     self.taken.0 += 1;
                     self.taken.1 += ms;
+                    took = true;
                 }
                 Err(_) => break,
             }
@@ -502,7 +508,10 @@ impl<T: Tree> FarTrees<T> {
                 break;
             }
         }
-        self.serial += 1;
+        // The trees within reach change only when a block came in.
+        if took {
+            self.serial += 1;
+        }
     }
 }
 

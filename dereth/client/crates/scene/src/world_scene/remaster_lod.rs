@@ -25,7 +25,7 @@ impl SceneDraw {
         Some(r.renderer().lod().stats())
     }
 
-    /// What the art pack's far forest did in the remaster; `None` while it is off.
+    /// What the far forest did in the remaster; `None` while it is off.
     #[must_use]
     pub fn remaster_forest_stats(
         &self,

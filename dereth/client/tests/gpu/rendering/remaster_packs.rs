@@ -1711,14 +1711,15 @@ fn over_forest(
     RemasterCapture,
     dereth_scene::world_scene::RemasterForestStats,
 ) {
-    far_forest_at(store, pack, &over_the_forest(), None)
+    far_forest_at(store, Some(pack), &over_the_forest(), None)
 }
 
-/// The remaster at `station` with `pack` drawn and the ground's knobs `knobs` (each at its
-/// default where none are given), its far trees and cover worked out and settled.
+/// The remaster at `station` with `pack` drawn (none where none is given) and the ground's knobs
+/// `knobs` (each at its default where none are given), its far trees and cover worked out and
+/// settled, and every far tree's pictures on the device.
 fn far_forest_at(
     store: &Arc<RetailDatStore>,
-    pack: Arc<ArtPack>,
+    pack: Option<Arc<ArtPack>>,
     station: &Station,
     knobs: Option<dereth_terrain::land::drawn::Knobs>,
 ) -> (
@@ -1731,8 +1732,10 @@ fn far_forest_at(
     if let Some(k) = knobs {
         shot.scene.set_remaster_ground_knobs(k);
     }
-    shot.scene.draw.set_remaster_pack(Some(pack), None);
-    shot.scene.draw.set_remaster_packs(trees(), &mut gpu);
+    if let Some(pack) = pack {
+        shot.scene.draw.set_remaster_pack(Some(pack), None);
+        shot.scene.draw.set_remaster_packs(trees(), &mut gpu);
+    }
     shot.scene
         .draw
         .set_remaster(true, store, &mut gpu)
@@ -1753,6 +1756,16 @@ fn far_forest_at(
     shot.scene.wait_for_remaster_ground();
     shot.step_held(&mut gpu);
     shot.scene.wait_for_remaster_far_trees();
+    // The models' pictures come a few a frame, those still being drawn when the frame asks for
+    // them on a later one.
+    for _ in 0..400 {
+        shot.step_held(&mut gpu);
+        shot.scene.wait_for_remaster_far_trees();
+        let s = shot.scene.draw.remaster_forest_stats(&mut gpu);
+        if s.is_none_or(|s| s.wanted > 0 && s.pictures >= s.wanted) {
+            break;
+        }
+    }
     for _ in 0..4 {
         shot.step_held(&mut gpu);
     }
@@ -1779,8 +1792,9 @@ fn far_forest_at(
 
 /// **A pack's far pictures stand its trees out past the blocks round the viewer, and its forest
 /// cover lies on the far ground**: over the forest, a pack that has the most common tree's far
-/// pictures draws thousands of trees the same pack without them does not. Its near cards are in
-/// both frames, and the frame with the pictures shows far more leaf.
+/// pictures draws its pictures for that tree among thousands of far trees, and lays its forest
+/// cover; the same pack without them leaves that tree to retail's own far pictures, so the far
+/// forest stands as many trees, from as many models.
 ///
 /// Behaviour: remaster.art-pack.remaster-draws-far-trees-and-forest-cover
 #[test]
@@ -1791,13 +1805,55 @@ fn a_packs_far_pictures_stand_its_trees_past_the_blocks_round_the_viewer() {
     let (near, without) = over_forest(&store, in_memory(&far_files(false)));
     let (with_far, without_far) = (leafy(&far), leafy(&near));
     eprintln!("forest: {stats:?}; leaf-green {with_far}, {without_far} with no far pictures");
-    assert_eq!((stats.models, stats.pictures), (1, 1), "{stats:?}");
+    assert!(
+        stats.pictures >= stats.wanted && stats.wanted >= 1,
+        "{stats:?}"
+    );
     assert!(stats.standing > 1000, "{stats:?}");
     assert!(stats.cover, "the forest cover is worked out: {stats:?}");
-    assert_eq!((without.models, without.standing), (0, 0), "{without:?}");
+    assert_eq!(without.models, stats.models, "{without:?}");
+    assert_eq!(without.standing, stats.standing, "{without:?}");
     assert!(
-        with_far > without_far + 2000,
-        "the far trees are drawn: {with_far} leaf-green pixels, against {without_far}"
+        with_far > 2000 && without_far > 2000,
+        "the far trees are drawn: {with_far} leaf-green pixels, and {without_far}"
+    );
+}
+
+/// **Retail's own trees stand in the far forest with no art pack**: over the forest with no pack
+/// at all, the far forest stands thousands of retail's trees, from far pictures drawn from their
+/// own meshes, every standing model's pictures on the device; with the far trees switched off it
+/// stands none, and the frame shows far fewer plants' pixels.
+///
+/// Behaviour: remaster.art-pack.remaster-draws-far-trees-and-forest-cover
+#[test]
+fn retails_own_trees_stand_in_the_far_forest_with_no_art_pack() {
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    let (with, stats) = far_forest_at(&store, None, &over_the_forest(), None);
+    let (off, notes) = dereth_terrain::land::drawn::Knobs::parse("far_trees = off");
+    assert!(notes.is_empty(), "{notes:?}");
+    let (without, none) = far_forest_at(&store, None, &over_the_forest(), Some(off));
+    // The plants' pixels lit outdoors.
+    let leaves = |c: &RemasterCapture| {
+        (0..c.kind.len())
+            .filter(|i| c.class[*i] == 2 && c.kind[*i] == 1)
+            .count()
+    };
+    let (with_leaf, without_leaf) = (leaves(&with), leaves(&without));
+    eprintln!("forest, no pack: {stats:?}; plants {with_leaf}, {without_leaf} with no far trees");
+    assert!(
+        stats.models > 0,
+        "retail's trees have far pictures: {stats:?}"
+    );
+    assert_eq!(
+        stats.pictures, stats.wanted,
+        "every far tree's pictures: {stats:?}"
+    );
+    assert!(stats.standing > 1000, "{stats:?}");
+    assert_eq!(none.standing, 0, "{none:?}");
+    assert!(
+        with_leaf > without_leaf + 2000,
+        "the far trees are drawn: {with_leaf} plants' pixels, against {without_leaf}"
     );
 }
 
@@ -1840,8 +1896,8 @@ fn a_far_tree_on_the_skyline_keeps_a_small_part_of_its_size() {
         k
     };
     let pack = || in_memory(&far_files(true));
-    let (shrunk, stats) = far_forest_at(&store, pack(), &vista, None);
-    let (kept, _) = far_forest_at(&store, pack(), &vista, Some(whole));
+    let (shrunk, stats) = far_forest_at(&store, Some(pack()), &vista, None);
+    let (kept, _) = far_forest_at(&store, Some(pack()), &vista, Some(whole));
     let (over, under) = over_and_under_the_outline(&shrunk);
     let (over_whole, under_whole) = over_and_under_the_outline(&kept);
     eprintln!(

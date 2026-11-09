@@ -522,7 +522,7 @@ impl ImpostorPass {
 }
 
 impl super::Renderer {
-    /// What the art pack's far forest did.
+    /// What the far forest did.
     #[must_use]
     pub fn forest_stats(&self) -> super::forest::ForestStats {
         self.forest.stats()

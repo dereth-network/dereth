@@ -334,7 +334,7 @@ pub const KNOBS: [KnobSpec; KNOB_COUNT] = [
     num(Knob::FarDetailScale, "far_detail_scale", 96.0, (8.0, 1000.0), "m", "far", "the size of that relief"),
     num(Knob::Horizon, "horizon", 30000.0, (3000.0, 60000.0), "m", "far", "how far the ground is drawn"),
     num(Knob::Haze, "haze", 1.0, (0.0, 4.0), "", "far", "how thick the air over the far ground is: 1 takes the haze's full depth near the horizon, 2 twice it"),
-    switch(Knob::FarTrees, "far_trees", true, "far", "the art pack's trees drawn far off, past the blocks round the viewer, as their far pictures, where retail's scenery places them"),
+    switch(Knob::FarTrees, "far_trees", true, "far", "the trees drawn far off, past the blocks round the viewer, as far pictures (an art pack's, or drawn from retail's own trees), where retail's scenery places them"),
     num(Knob::TreeReach, "tree_reach", 6000.0, (0.0, 8000.0), "m", "far", "how far from the eye the far trees are drawn"),
     num(Knob::TreeThinFrom, "tree_thin_from", 3000.0, (0.0, 8000.0), "m", "far", "how far every far tree is drawn: past it they thin out, fewer and fewer to the reach"),
     num(Knob::TreeWiden, "tree_widen", 0.5, (0.0, 1.0), "", "far", "how much of a thinned forest's coverage the trees left standing make up by standing wider: 1 all of it, up to half as wide again"),

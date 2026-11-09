@@ -452,7 +452,8 @@ pub struct FarPackModel {
 /// Where a pack's far pictures are read from: a model's color (coverage in alpha) and its normals
 /// (depth along the view in alpha), each made when the renderer wants it.
 pub trait FarPictures: std::fmt::Debug + Send + Sync {
-    /// The pictures of the `model`th of [`FarPack::models`].
+    /// The pictures of the `model`th of [`FarPack::models`]; `None` while they are still being
+    /// made, and they are asked for again.
     fn pictures(&self, model: usize) -> Option<[crate::assets::Texture; 2]>;
 }
 

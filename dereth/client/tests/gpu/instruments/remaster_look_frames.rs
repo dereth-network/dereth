@@ -126,6 +126,17 @@ fn draw(
     shot.poll(&mut gpu);
     shot.step_held(&mut gpu);
     shot.scene.wait_for_remaster_ground();
+    // The far trees worked out, and every far tree's pictures on the device, a few a frame.
+    shot.step_held(&mut gpu);
+    shot.scene.wait_for_remaster_far_trees();
+    for _ in 0..400 {
+        shot.step_held(&mut gpu);
+        shot.scene.wait_for_remaster_far_trees();
+        let s = shot.scene.draw.remaster_forest_stats(&mut gpu);
+        if s.is_none_or(|s| s.wanted > 0 && s.pictures >= s.wanted) {
+            break;
+        }
+    }
     for _ in 0..24 {
         shot.step_held(&mut gpu);
     }

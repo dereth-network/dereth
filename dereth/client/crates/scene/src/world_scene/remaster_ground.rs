@@ -717,8 +717,22 @@ impl super::SceneDraw {
     }
 
     /// The far trees' and the forest cover's upkeep for this frame: while the ground is drawn as
-    /// a grid, with an art pack whose trees are drawn.
+    /// a grid, the trees with far pictures, retail's own and an art pack's whose trees are drawn;
+    /// the forest cover with such a pack.
     fn remaster_far_step(&mut self, grid: bool, store: &Arc<RetailDatStore>) {
+        use dereth_terrain::land::drawn::Knob;
+        if grid
+            && self.remaster_retail_far.is_none()
+            && self.remaster_ground.knobs().on(Knob::FarTrees)
+        {
+            self.remaster_retail_far = Some(super::far_retail::RetailFar::start(
+                Arc::clone(store),
+                Arc::new((*self.land.region).clone()),
+            ));
+        }
+        if let Some(r) = self.remaster_retail_far.as_deref() {
+            r.observe();
+        }
         let view = self.remaster_view.get_mut();
         let pack = view
             .pack
@@ -728,6 +742,11 @@ impl super::SceneDraw {
                     .models(dereth_remaster::assets::pack::Category::Tree)
             })
             .map(|p| Arc::clone(p.pack()));
+        let trees = super::far_retail::tree_set(
+            &mut self.remaster_far_ids,
+            pack.as_deref(),
+            self.remaster_retail_far.as_deref(),
+        );
         let ground = &self.remaster_ground;
         let land = ground.world().map(|(w, serial)| {
             (
@@ -745,6 +764,7 @@ impl super::SceneDraw {
         let region = || Arc::new((*self.land.region).clone());
         self.remaster_far.step(
             grid,
+            trees,
             pack.as_ref(),
             land,
             ground.knobs(),
@@ -757,11 +777,15 @@ impl super::SceneDraw {
 }
 
 impl super::WorldScene {
-    /// Wait for the art pack's far trees and forest cover the remaster draws to be worked out,
-    /// where they are being worked out: for a capture that has to draw them from its first
-    /// frames. The frame after this draws them.
+    /// Wait for the far trees and forest cover the remaster draws to be worked out where they are
+    /// being worked out, and for the far pictures of retail's trees asked for so far to be drawn:
+    /// for a capture that has to draw them from its first frames. The frame after this draws
+    /// them.
     pub fn wait_for_remaster_far_trees(&mut self) {
         self.draw.remaster_ground.wait_for_world();
+        if let Some(r) = self.draw.remaster_retail_far.as_ref() {
+            r.wait();
+        }
         self.draw.remaster_far.wait();
     }
 

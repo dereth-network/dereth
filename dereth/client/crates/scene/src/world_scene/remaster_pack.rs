@@ -49,7 +49,7 @@ use super::SceneDraw;
 pub use dereth_remaster::assets::pack::PackCounts as RemasterPackCounts;
 /// What of the art pack the remaster draws.
 pub use dereth_remaster::assets::pack::PackSettings as RemasterPacks;
-/// What the art pack's far forest did in the remaster.
+/// What the far forest did in the remaster.
 pub use dereth_remaster::render::forest::ForestStats as RemasterForestStats;
 
 /// Where the pictures of the pack's materials for retail pictures are named from, after its

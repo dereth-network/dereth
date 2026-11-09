@@ -1225,27 +1225,27 @@ fn far_knobs(k: &dereth_terrain::land::drawn::Knobs) -> rm::FarKnobs {
     }
 }
 
-/// The art pack's far forest as the remaster draws it, while the scene works it out; what is
-/// handed over is made again only when it changes.
+/// The far forest as the remaster draws it, while the scene works it out: retail's own trees and
+/// an art pack's whose trees are drawn; what is handed over is made again only when it changes.
 fn forest(draw: &SceneDraw, sh: &mut Shadow) -> Option<rm::Forest> {
     let far = &draw.remaster_far;
     let view = draw.remaster_view.borrow();
-    let pack = view
-        .pack
-        .as_ref()
-        .filter(|_| far.active || far.cover.is_some());
-    let Some(pack) = pack else {
+    let pack = view.pack.as_ref().filter(|_| {
+        view.packs
+            .models(dereth_remaster::assets::pack::Category::Tree)
+    });
+    let retail = draw.remaster_retail_far.as_ref();
+    let retail_models = retail.and_then(|r| r.models()).map(|m| m.len());
+    if !(far.active || far.cover.is_some()) || (pack.is_none() && retail_models.is_none()) {
         sh.far_pack = None;
         sh.far_trees = None;
         sh.far_cover = None;
         return None;
-    };
-    if sh
-        .far_pack
-        .as_ref()
-        .is_none_or(|p| p.serial != pack.pack().serial)
-    {
-        sh.far_pack = Some(std::sync::Arc::new(pack.far_pack()));
+    }
+    let serial = super::far_retail::set_serial(pack.map(|p| p.pack().serial), retail_models);
+    if sh.far_pack.as_ref().is_none_or(|p| p.serial != serial) {
+        sh.far_pack = super::far_retail::far_pack(pack.map(|p| p.far_pack()), retail)
+            .map(std::sync::Arc::new);
     }
     if sh.far_trees.as_ref().is_none_or(|t| t.serial != far.serial) {
         let blocks = far

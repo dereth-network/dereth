@@ -36,6 +36,9 @@ mod bake_worker;
 #[path = "cells.rs"]
 mod cells;
 #[cfg(feature = "remaster")]
+#[path = "remaster_far_retail.rs"]
+mod far_retail;
+#[cfg(feature = "remaster")]
 #[path = "far_trees.rs"]
 mod far_trees;
 #[cfg(feature = "remaster")]
@@ -1207,6 +1210,13 @@ pub struct SceneDraw {
     /// The art pack's far trees and forest cover the remaster draws.
     #[cfg(feature = "remaster")]
     remaster_far: far_trees::FarTrees<remaster_bridge::FarTree>,
+    /// Retail's own trees with far pictures, once the far trees are first drawn.
+    #[cfg(feature = "remaster")]
+    remaster_retail_far: Option<std::sync::Arc<far_retail::RetailFar>>,
+    /// The retail objects with far pictures, with the serial of their set, made again only when
+    /// it changes.
+    #[cfg(feature = "remaster")]
+    remaster_far_ids: Option<(u64, std::sync::Arc<std::collections::HashSet<u32>>)>,
     /// The four generated detail surfaces and their tiling values.
     detail: dereth_world_render::detail::DetailTexturing,
     /// The device texture each generated detail surface wraps, loaded from database type

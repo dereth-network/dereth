@@ -1,6 +1,6 @@
-//! The far forest of an art pack: every tree it has far pictures for, out to the reach, culled on
-//! the device each frame and drawn into the G-buffer after the impostors (`shaders/forest.slang`);
-//! and the forest cover the far ground takes past them.
+//! The far forest: every tree with far pictures, retail's own and an art pack's, out to the
+//! reach, culled on the device each frame and drawn into the G-buffer after the impostors
+//! (`shaders/forest.slang`); and the forest cover the far ground takes past them.
 //!
 //! The trees are written block by block as [`Slots`] says, so walking on writes a ring of blocks,
 //! not every tree within reach. A model's pictures come to the device a few a frame, and its trees
@@ -47,8 +47,9 @@ const FADE: f32 = 0.1;
 const LEAST_PIXELS: f32 = 2.0;
 /// A model whose pictures are not on the device yet.
 const NO_PICTURES: u32 = u32::MAX;
-/// The models whose pictures a frame sends to the device.
-const PICTURES_A_FRAME: usize = 2;
+/// The bytes of pictures a frame sends to the device, at most: a frame sends one model's at
+/// least, and goes on to the next while it has room.
+const PICTURE_BYTES_A_FRAME: u64 = 8 << 20;
 /// The forest cover's canopy height a step of its texture holds, meters.
 const CANOPY_STEP: f32 = 0.25;
 /// Where the forest cover comes in while the far trees are not drawn, meters from the eye.
@@ -396,8 +397,10 @@ fn cover_band(k: &FarKnobs) -> (f32, f32) {
 /// What the far forest did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ForestStats {
-    /// Models with far pictures, and those whose pictures are on the device.
+    /// Models with far pictures, those whose trees stand within reach (whose pictures are
+    /// wanted), and those whose pictures are on the device.
     pub models: u32,
+    pub wanted: u32,
     pub pictures: u32,
     /// Trees standing: written, and in no block whose own objects stand in the world.
     pub standing: u32,
@@ -665,9 +668,16 @@ impl ForestPass {
             return Ok(());
         };
         let mut sent = 0;
-        let take = self.queue.len().min(PICTURES_A_FRAME);
-        for m in self.queue.drain(..take).collect::<Vec<u32>>() {
+        let mut bytes = 0u64;
+        let mut later = Vec::new();
+        for m in std::mem::take(&mut self.queue) {
+            if bytes >= PICTURE_BYTES_A_FRAME {
+                later.push(m);
+                continue;
+            }
+            // Pictures still being made are asked for again on a later frame.
             let Some([base, normal]) = pack.pictures.pictures(m as usize) else {
+                later.push(m);
                 continue;
             };
             let mut picture =
@@ -690,7 +700,9 @@ impl ForestPass {
                 normal: picture(&normal)?,
             };
             for t in [&base, &normal] {
-                self.stats.picture_bytes += t.levels.iter().map(|l| l.len() as u64).sum::<u64>();
+                let size = t.levels.iter().map(|l| l.len() as u64).sum::<u64>();
+                self.stats.picture_bytes += size;
+                bytes += size;
             }
             let row = model_row(&pack.models[m as usize], Some(&on));
             gfx.write_buffer(models.buffer, u64::from(m) * MODEL_BYTES as u64, &row)?;
@@ -698,6 +710,7 @@ impl ForestPass {
             sent += 1;
         }
         self.stats.pictures += sent;
+        self.queue = later;
         Ok(())
     }
 
@@ -728,6 +741,7 @@ impl ForestPass {
             self.hold_pack(gfx, &forest.pack)?;
         }
         self.stats.models = u32::try_from(forest.pack.models.len()).unwrap_or(u32::MAX);
+        self.stats.wanted = u32::try_from(self.asked.iter().filter(|a| **a).count()).unwrap_or(0);
         self.send_pictures(gfx)?;
         let set = &forest.trees;
         if self.trees.as_ref().is_none_or(|t| t.serial != set.serial) {
@@ -790,9 +804,10 @@ impl ForestPass {
             0,
             &constants(i.clip, i.eye, ground.global, k, i.pixels, trees.held.count),
         )?;
-        // The draw's command, its instance count counted by the culling.
+        // The draw's command: every tree, in its own place; the culling leaves those it does not
+        // draw at nought.
         let words = gfx.backend().command_words();
-        let command = gfx.backend().command(6, 0, 0, 0);
+        let command = gfx.backend().command(6, trees.held.count, 0, 0);
         gfx.write_buffer(self.args.buffer, 0, &push_words(&command))?;
         Ok(Some(ForestPlan {
             cull: self.cull,
