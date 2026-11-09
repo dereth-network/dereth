@@ -6,6 +6,8 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+
+## 0.3.0 (2026-11-09)
 - Worlds can now set quests' cancel waits, hero transformations and vitae taps as rows.
 - Worlds can now set mining and what surveyor's maps find as rows.
 - Worlds can now set item uses, books and new characters' first gift as rows.
