@@ -1030,7 +1030,13 @@ fn killed_as(h: &mut Harness, me: u64, template: u32, install: &DatInstall<'_>) 
         p.position.cell = 0x0299_0109;
         p.position.origin = [59.06, 240.2, -44.6];
     }
+    // The creatures' test catalog keeps the world's templates beside it: what a step gives after
+    // the kill is made from them.
+    let kept = std::mem::take(&mut h.server.catalog.templates);
     h.add_creatures(1);
+    for (id, t) in kept {
+        h.server.catalog.templates.entry(id).or_insert(t);
+    }
     h.run(20);
     let id = h
         .server
@@ -1423,6 +1429,18 @@ fn a_person_gives_a_kill_quest_and_takes_it_back_as_the_recordings_show() {
                         use_person(&mut h, b, me, t, o);
                         tries += 1;
                     }
+                    // A use that sends the player on (Kahuawa's duel) lands, and the client draws
+                    // the scene there, before the next.
+                    let until = h.now.0 + 12.0;
+                    h.run_to(yalain_net::LocalTime(until));
+                    h.bots[b].send(
+                        true,
+                        queue::WEENIE,
+                        &auberean_protocol::ClientMessage::SceneRenderingComplete(
+                            auberean_protocol::login::Empty,
+                        ),
+                    );
+                    h.run(5);
                 }
                 Do::Kill(creature) => killed_as(&mut h, me, creature, &install),
             }

@@ -11750,6 +11750,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.quests.a-give-teaches-its-recipe-on-a-real-start",
+        says: "A start reads the effects only a give names and the recipes they teach: Pumping Iron \
+               finishes, its anthracite from the garland the shrine teaches for a blossom.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-GIVE-RECIPE-REAL-START"),
+        station: "yalain::bin.yalain::real_start_tests::pumping_iron_finishes_through_the_garland_a_give_teaches_on_a_real_start",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.a-giving-says-its-numbered-line",
         says: "A person whose table numbers its quests says, as it gives one, the line \
                numbered for that quest.",

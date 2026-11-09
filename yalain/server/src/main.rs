@@ -2556,3 +2556,234 @@ mod version_text_tests {
         assert_eq!(lines[3], format!("source: {SOURCE_URL}"));
     }
 }
+
+#[cfg(all(test, feature = "live"))]
+mod real_start_tests {
+    //! A world database read as a start reads it (the install's effects, recipes and templates
+    //! with it) and handed to a running world, then played through by a client's requests. The
+    //! database is `YALAIN_TEST_WORLD_DB` (a checkout), else the release this build pins in the
+    //! per-user cache.
+    use auberean_protocol::{queue, ClientMessage};
+    use yalain_net::ConnId;
+    use yalain_testkit::play::{server_call, use_of};
+    use yalain_testkit::Harness;
+    use yalain_world::quests::status;
+
+    const PUMPING_IRON: u32 = 0x4000_0330;
+    /// The quest's giver, and the one who sends the player on.
+    const GIVER: u32 = 0x4700_3010;
+    const SENDER: u32 = 0x4700_301B;
+    /// The smith the iron, the gems and the letter go to.
+    const SMITH: u32 = 0x4700_2FBC;
+    const LETTER: u32 = 0x4700_14EA;
+    const IRON: u32 = 0x4700_0AFF;
+    const ANTHRACITE: u32 = 0x4700_1758;
+    const RECEIPT: u32 = 0x4700_14FE;
+    /// The offerings' chain: a shrine teaches the garland for a blossom and takes the garland
+    /// for a scented blossom, which goes to a wasp, its eggs to a dillo, its truffle to a grutt.
+    const SHRINE: u32 = 0x4700_31D9;
+    const WASP: u32 = 0x4700_31E5;
+    const DILLO: u32 = 0x4700_31CC;
+    const GRUTT: u32 = 0x4700_31D4;
+    const BLOSSOM: u32 = 0x4700_1779;
+    const GARLAND_RECIPE: u32 = 0x6F00_0531;
+    const GARLAND: u32 = 0x4700_1765;
+    const SCENTED: u32 = 0x4700_176F;
+    const EGGS: u32 = 0x4700_1777;
+    const TRUFFLE: u32 = 0x4700_1775;
+
+    /// A world started on the database, its camps left out (no creature plays a part), and a
+    /// player in it with its scene drawn: the harness, the client, the character, its connection.
+    fn started() -> (Harness, usize, u64, ConnId) {
+        let install = auberean_dat::testing::require_target_install();
+        let world_db = std::env::var("YALAIN_TEST_WORLD_DB")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| "pinned".to_owned());
+        let (_, mut t) = super::reload_world(&install, &world_db, None, None, None)
+            .unwrap_or_else(|e| panic!("the world database {world_db}: {e}"));
+        t.spawns = yalain_content::SpawnTable::default();
+        let mut h = Harness::new();
+        let clock = h.clock();
+        h.server.reload(&mut h.net, clock, t);
+        let (b, me) = h.player_in_world("one", "Rowan");
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &ClientMessage::SceneRenderingComplete(auberean_protocol::login::Empty),
+        );
+        h.run(5);
+        let world = *h.server.players.keys().next().expect("in the world");
+        (h, b, me, world)
+    }
+
+    /// Step up to the placed object of a template: its id.
+    fn beside(h: &mut Harness, world: ConnId, template: u32) -> u64 {
+        let objects = &h.server.content.objects;
+        let i = objects
+            .iter()
+            .position(|o| o.template == template)
+            .unwrap_or_else(|| panic!("{template:08X} placed"));
+        let (cell, at) = (objects[i].cell, objects[i].origin);
+        let id = yalain_world::presence::content_id(objects, i);
+        let p = h.server.players.get_mut(&world).expect("in the world");
+        p.position.cell = cell;
+        p.position.origin = [at[0] + 1.0, at[1], at[2]];
+        id
+    }
+
+    fn held(h: &Harness, world: ConnId, template: u32) -> Option<(u64, u32)> {
+        h.server.players[&world]
+            .play
+            .items
+            .iter()
+            .find(|i| i.template == template)
+            .map(|i| (i.id, i.quantity))
+    }
+
+    fn state(h: &Harness, world: ConnId) -> Option<(u32, u32)> {
+        h.server.players[&world]
+            .play
+            .quests
+            .iter()
+            .find(|q| q.quest == PUMPING_IRON)
+            .map(|q| (q.status, q.phase))
+    }
+
+    fn use_person(h: &mut Harness, b: usize, me: u64, world: ConnId, who: u32) {
+        let id = beside(h, world, who);
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &server_call(0x8216_0016, &[use_of(id, me)]),
+        );
+        h.run(20);
+    }
+
+    /// Give one of an item held to a person, as a client drags it onto them.
+    fn give(h: &mut Harness, b: usize, me: u64, world: ConnId, item: u32, who: u32) {
+        use yalain_world::inventory::{move_graph, Move};
+        let target = beside(h, world, who);
+        let (id, _) = held(h, world, item).unwrap_or_else(|| panic!("{item:08X} held"));
+        let m = Move {
+            move_type: yalain_world::gives::GIVE,
+            merge: true,
+            unlock: true,
+            check_take: true,
+            all_taken: true,
+            grab: true,
+            contain: true,
+            auto_merge: true,
+            target,
+            actual_target: target,
+            merge_container: target,
+            from: me,
+            actual_from: me,
+            item: id,
+            split_item: id,
+            quantity: 1,
+            quantity_left: 1,
+            ..Move::default()
+        };
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &server_call(yalain_world::drops::function::MOVE_ITEM, &[move_graph(&m)]),
+        );
+        h.run(150);
+    }
+
+    /// Make a recipe with one stack in every slot, and wait for the result.
+    fn make(h: &mut Harness, b: usize, recipe: u32, slots: u32, stack: u64) {
+        use auberean_script::args::Arg;
+        use auberean_script::library::Elem;
+        use auberean_script::native_object::Item;
+        let mut g = yalain_world::graph::Builder::new();
+        let entries: Vec<(Item, Item)> = (1..=slots)
+            .map(|s| (Item::Word(s), Item::Long(stack)))
+            .collect();
+        g.native(
+            8,
+            yalain_world::graph::hash(Elem::Word, Elem::Long, 0, &entries),
+        );
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &server_call(
+                yalain_world::craft::function::EXECUTE,
+                &[
+                    Arg::LongInt(0),
+                    Arg::Object(g.graph()),
+                    Arg::Int(0),
+                    Arg::Int(recipe),
+                ],
+            ),
+        );
+        let until = h.now.0 + 15.0;
+        while h.now.0 < until {
+            h.step();
+        }
+    }
+
+    /// **Pumping Iron finishes**: its anthracite comes only through the offerings' chain, whose
+    /// garland recipe is taught by the effect a give alone names; on a real start the shrine
+    /// teaches it, the garland is made, and the chain, the smith and the giver end the quest.
+    /// Behaviour: server.quests.a-give-teaches-its-recipe-on-a-real-start
+    #[test]
+    fn pumping_iron_finishes_through_the_garland_a_give_teaches_on_a_real_start() {
+        let (mut h, b, me, world) = started();
+        // At the quest's level, with the garland's cost.
+        for p in h.server.players.values_mut() {
+            yalain_world::quals::set_int(&mut p.qualities, yalain_world::examine::LEVEL, 45);
+            yalain_world::quals::set_int(&mut p.qualities, yalain_world::store::MONEY, 1000);
+        }
+        for (item, n) in [(IRON, 1), (BLOSSOM, 8)] {
+            yalain_world::inventory::give(&mut h.server, &mut h.net, world, item, n)
+                .unwrap_or_else(|| panic!("{item:08X} in the catalog"));
+        }
+        h.run(3);
+
+        use_person(&mut h, b, me, world, GIVER);
+        assert_eq!(state(&h, world), Some((status::UNDERWAY, 1)), "given");
+        use_person(&mut h, b, me, world, SENDER);
+        assert_eq!(state(&h, world).map(|s| s.1), Some(2));
+        give(&mut h, b, me, world, LETTER, SMITH);
+        give(&mut h, b, me, world, IRON, SMITH);
+        assert_eq!(state(&h, world).map(|s| s.1), Some(4), "the iron taken");
+
+        let knows = |h: &Harness| {
+            h.server.players[&world]
+                .play
+                .recipes
+                .iter()
+                .any(|r| r.recipe == GARLAND_RECIPE)
+        };
+        assert!(!knows(&h));
+        give(&mut h, b, me, world, BLOSSOM, SHRINE);
+        assert!(knows(&h), "the shrine teaches the garland");
+        let (blossoms, left) = held(&h, world, BLOSSOM).expect("blossoms");
+        assert_eq!(left, 7);
+        make(&mut h, b, GARLAND_RECIPE, 7, blossoms);
+        assert!(held(&h, world, GARLAND).is_some(), "the garland made");
+
+        for (item, who, got) in [
+            (GARLAND, SHRINE, SCENTED),
+            (SCENTED, WASP, EGGS),
+            (EGGS, DILLO, TRUFFLE),
+            (TRUFFLE, GRUTT, ANTHRACITE),
+        ] {
+            give(&mut h, b, me, world, item, who);
+            assert!(held(&h, world, got).is_some(), "{who:08X} gives {got:08X}");
+        }
+        give(&mut h, b, me, world, ANTHRACITE, SMITH);
+        assert_eq!(
+            state(&h, world).map(|s| s.1),
+            Some(5),
+            "the anthracite taken"
+        );
+        give(&mut h, b, me, world, RECEIPT, SENDER);
+        assert_eq!(state(&h, world).map(|s| s.1), Some(6));
+        use_person(&mut h, b, me, world, GIVER);
+        assert_eq!(state(&h, world).map(|s| s.0), Some(status::COMPLETED));
+    }
+}
