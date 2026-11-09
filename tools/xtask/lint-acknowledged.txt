@@ -14,3 +14,7 @@
 #
 # Rule keywords: "as i32", "HashMap"
 
+lyceum/crates/foundry/src/edit.rs|as i32|Lyceum -- a drop point's key, rounded to the centimeter; not retail arithmetic. Clears with a LINT-OK note on each cast.
+lyceum/editor/src/building_drop.rs|as i32|Lyceum -- the ghost's and its edges' keys, rounded to the centimeter and tenth of a degree; not retail arithmetic. Clears with a LINT-OK note on each cast.
+lyceum/editor/src/dungeon.rs|as i32|Lyceum -- a cache key of the floor shown, in centimeters; not retail arithmetic. Clears with a LINT-OK note on the cast.
+lyceum/editor/src/layout.rs|as i32|Lyceum -- cache keys, grid squares and screen points of the layout view; not retail arithmetic. Clears with a LINT-OK note on each cast.

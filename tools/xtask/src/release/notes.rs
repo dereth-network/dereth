@@ -5,18 +5,19 @@
 //! does, so the subjects are the changelog. A commit counts when it changes something the release
 //! ships, and is neither a test nor a document:
 //!
-//! - **Dereth** (the client): a file under `dereth/` or `core/`, the web client's relay, or the
-//!   relay that comes beside the client.
+//! - **Dereth** (the client): a file under `dereth/` or `core/` (but the game servers' own shared
+//!   crates), the web client's relay, or the relay that comes beside the client.
 //! - **Empyrean** (the server): a file under `empyrean/`, or under one of the shared `core/`
 //!   crates the server is built from when the commit changes nothing that only the client ships
-//!   (a client change that touches a shared crate on the way is the client's).
+//!   (a client change that touches a shared crate on the way is the client's). The updater and
+//!   the WebSocket endpoint both game servers run count for Empyrean and Yalain alike.
 //! - **Lyceum** (the world builder): a file under `lyceum/` other than the sample world. The
 //!   client's drawing it is built on is the client's, and is not listed again.
 //! - **Auberean** (Asheron's Call 2's client): a file under `auberean/` other than its test kit
 //!   and its world viewer, or under `core/auberean-*`. Dereth's do not count the latter.
 //! - **Yalain** (Asheron's Call 2's server): a file under `yalain/` other than its test kit, or
 //!   under one of the `core/auberean-*` crates the server is built from when the commit changes
-//!   nothing that only the client ships.
+//!   nothing that only the client ships, or under the game servers' own shared crates.
 //! - **Athenaeum** (Asheron's Call 2's world builder): a file under `athenaeum/`. The client and
 //!   the server it carries are theirs, and are not listed again.
 //!
@@ -146,6 +147,10 @@ const SHIPPED: &[&str] = &["dereth/", "core/", "tools/web-relay/", "empyrean/rel
 /// The core crates that are Asheron's Call 2's, not Dereth's, though they are under `core/`.
 const AUBEREAN_CORE: &str = "core/auberean-";
 
+/// The shared crates both game servers run, and no client: the updater and the WebSocket
+/// endpoint. They count for Empyrean's notes and Yalain's, never Dereth's.
+const SERVERS_CORE: &[&str] = &["core/server-updater/", "core/server-websocket/"];
+
 /// The Asheron's Call 2 core crates Yalain is built from (its program's dependency tree); the rest
 /// of `core/auberean-*` is the client's alone.
 const YALAIN_CORE: &[&str] = &[
@@ -194,13 +199,16 @@ fn test_or_document(path: &str) -> bool {
 pub fn ships(path: &str) -> bool {
     SHIPPED.iter().any(|p| path.starts_with(p))
         && !path.starts_with(AUBEREAN_CORE)
+        && !SERVERS_CORE.iter().any(|p| path.starts_with(p))
         && !test_or_document(path)
 }
 
 /// Whether `path` is part of the shipped server: under `empyrean/` or a shared crate it is built
 /// from, and neither a test, a fixture, the test kit nor a document.
 pub fn server_ships(path: &str) -> bool {
-    (path.starts_with("empyrean/") || SERVER_CORE.iter().any(|p| path.starts_with(p)))
+    (path.starts_with("empyrean/")
+        || SERVER_CORE.iter().any(|p| path.starts_with(p))
+        || SERVERS_CORE.iter().any(|p| path.starts_with(p)))
         && !test_or_document(path)
 }
 
@@ -222,7 +230,9 @@ pub fn auberean_ships(path: &str) -> bool {
 /// Whether `path` is part of the shipped Asheron's Call 2 server: under `yalain/` or a core crate
 /// it is built from, and neither a test, a fixture, the test kit nor a document.
 pub fn yalain_ships(path: &str) -> bool {
-    (path.starts_with("yalain/") || YALAIN_CORE.iter().any(|p| path.starts_with(p)))
+    (path.starts_with("yalain/")
+        || YALAIN_CORE.iter().any(|p| path.starts_with(p))
+        || SERVERS_CORE.iter().any(|p| path.starts_with(p)))
         && !test_or_document(path)
 }
 
@@ -398,7 +408,7 @@ fn client_path_group(path: &str) -> Option<Group> {
         Some(Group::Launcher)
     } else if under(&[
         "dereth/client/crates/render/",
-        "dereth/client/crates/render-cpu/",
+        "core/render-cpu/",
         "dereth/client/crates/world-render/",
         "core/audio/",
         "core/terrain/",

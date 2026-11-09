@@ -10,11 +10,11 @@
 
 use serde::{Deserialize, Serialize};
 
-use dereth_server_update::release::{BuildFacts, UpgradeDeclaration};
+use dereth_server_updater::release::{BuildFacts, UpgradeDeclaration};
 
 use super::version::Version;
 
-pub use dereth_server_update::release::{ConfigChange, IndexAsset, Kind, Migration};
+pub use dereth_server_updater::release::{ConfigChange, IndexAsset, Kind, Migration};
 
 /// The schema versions a build brings its databases to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -77,7 +77,7 @@ impl Facts {
 /// architecture.
 #[must_use]
 pub fn target_triple() -> String {
-    dereth_server_update::release::target_triple(option_env!("EMPYREAN_BUILD_TARGET"))
+    dereth_server_updater::release::target_triple(option_env!("EMPYREAN_BUILD_TARGET"))
 }
 
 impl BuildFacts for Facts {
@@ -179,4 +179,4 @@ impl UpgradeDeclaration<Facts> for Declaration {
 }
 
 /// A release's `release.json`: what the updater reads of it.
-pub type ReleaseIndex = dereth_server_update::release::ReleaseIndex<Declaration>;
+pub type ReleaseIndex = dereth_server_updater::release::ReleaseIndex<Declaration>;

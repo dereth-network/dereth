@@ -9,13 +9,13 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use dereth_server_update::install::{Layout, State};
-use dereth_server_update::policy::Policy;
-use dereth_server_update::release::{target_triple, ReleaseIndex};
-use dereth_server_update::running::{self, AutoUpdate, Cycle, World};
-use dereth_server_update::source::{self, Source};
-use dereth_server_update::testing::{Release, Repository};
-use dereth_server_update::Check;
+use dereth_server_updater::install::{Layout, State};
+use dereth_server_updater::policy::Policy;
+use dereth_server_updater::release::{target_triple, ReleaseIndex};
+use dereth_server_updater::running::{self, AutoUpdate, Cycle, World};
+use dereth_server_updater::source::{self, Source};
+use dereth_server_updater::testing::{Release, Repository};
+use dereth_server_updater::Check;
 use serde_json::json;
 
 use super::{Databases, Declaration, Facts, Programs, Settings, Updater, Yalain, SOURCE_URL};
@@ -601,7 +601,7 @@ fn off_patch_and_minor_take_what_they_take_on_empyrean() {
     assert_eq!(taken(&minor).as_deref(), Some("0.2.0"));
     assert_eq!(why(&minor, "0.1.1"), "0.2.0 is newer and is taken instead");
 
-    let request = dereth_server_update::command::Request {
+    let request = dereth_server_updater::command::Request {
         apply: false,
         config: None,
         policy: None,
@@ -667,7 +667,7 @@ fn the_check_says_what_it_would_install_and_why_it_would_not() {
     let check = updater.check(Policy::Patch).expect("the check");
     let target = target_triple(None);
     assert_eq!(
-        dereth_server_update::describe::<Yalain>(&updater.mine, &check),
+        dereth_server_updater::describe::<Yalain>(&updater.mine, &check),
         [
             format!("This server: Yalain 0.1.0 for {target}; server.update = \"patch\""),
             "0.2.0: not installed: a minor release: server.update = \"patch\" takes only 0.1.x"
@@ -679,7 +679,7 @@ fn the_check_says_what_it_would_install_and_why_it_would_not() {
     let none = Installation::new("describe-none");
     let check = none.updater().check(Policy::Patch).expect("the check");
     assert_eq!(
-        dereth_server_update::describe::<Yalain>(&none.updater().mine, &check)[1..],
+        dereth_server_updater::describe::<Yalain>(&none.updater().mine, &check)[1..],
         [
             "No newer release is published.",
             "Nothing would be installed."
@@ -837,7 +837,7 @@ fn the_update_keys_are_read_with_empyreans_defaults() {
 /// Behaviour: server.update.command-line
 #[test]
 fn the_update_command_takes_check_or_apply_and_a_config_and_a_policy() {
-    use dereth_server_update::command::Request;
+    use dereth_server_updater::command::Request;
     let parse = |args: &[&str]| Request::parse(args.iter().map(|a| (*a).to_owned()));
     assert_eq!(parse(&[]).unwrap_err(), "give --check or --apply");
     assert_eq!(
@@ -898,7 +898,7 @@ fn the_release_json_the_packaging_writes_and_the_facts_the_program_prints_are_re
     assert_eq!(upgrade.world_database, "v0.24.0");
     let mine = Facts::this_build();
     let back: Facts =
-        dereth_server_update::install::facts_from_json(&mine.to_json()).expect("it reads back");
+        dereth_server_updater::install::facts_from_json(&mine.to_json()).expect("it reads back");
     assert_eq!(back, mine);
     assert_eq!(
         serde_json::from_str::<serde_json::Value>(&mine.to_json()).expect("JSON")["databases"]

@@ -40,7 +40,7 @@ serde_json.workspace = true
 dereth-network-link.workspace = true
 yalain-federation.workspace = true
 # `yalain update` and `server.update`: the servers' updater.
-dereth-server-update.workspace = true
+dereth-server-updater.workspace = true
 # The players' friends service, served on TCP beside the login.
 yalain-friends.workspace = true
 # The settings of its WebSocket endpoint, the game servers' shared one.
@@ -72,7 +72,7 @@ dereth-dat.workspace = true
 auberean-protocol.workspace = true
 dereth-protocol.workspace = true
 # The updater's tests: a stand-in for a repository's releases on loopback.
-dereth-server-update = { workspace = true, features = ["testing"] }
+dereth-server-updater = { workspace = true, features = ["testing"] }
 # The updater's tests read a database back.
 rusqlite.workspace = true
 # The live test's friends streams speak the stream's client half.

@@ -6,7 +6,8 @@ exclude = ["vendor"]
 members = [
     # core/: the shared crates (MIT), for the client, the server and any other AC client or tool,
     # among them the client SDK: `client-net`, `client-model`, `client-runtime`, `client-contract`
-    # and `audio`, with `dereth-client-sdk` (core/client-sdk) the facade over them.
+    # and `audio`, with `dereth-client-sdk` (core/client-sdk) the facade over them. Every one builds
+    # for wasm32-unknown-unknown, except the few `cargo xtask seams` names with their reasons.
     "core/primitives",
     "core/dat",
     "core/assets",
@@ -26,6 +27,8 @@ members = [
     "core/client-model",
     "core/client-contract",
     "core/presentation",
+    # The device-free half of rendering, which both games' clients draw with.
+    "core/render-cpu",
     "core/client-runtime",
     "core/audio",
     "core/client-sdk",
@@ -43,6 +46,14 @@ members = [
     "core/plugin-wasm",
     "core/plugin-host",
     "core/plugin-lua",
+    # The template of a plugin repository, which the author's tool and the launcher write.
+    "core/plugin-template",
+    # The updater both game servers (Empyrean and Yalain) run, which each gives its own name,
+    # releases, databases and world data; the network hub updates itself with it too.
+    "core/server-updater",
+    # The WebSocket endpoint both game servers run: its settings, and the listener each gives its
+    # own ports.
+    "core/server-websocket",
     # core/auberean-*: the Asheron's Call 2 half of the engine (MIT), shared by its client
     # (auberean/), its server (yalain/) and its world builder (athenaeum/). Named `auberean-*` and
     # kept in folders of the same name beside the shared crates, several of which they build on
@@ -78,7 +89,6 @@ members = [
     "dereth/client",
     "dereth/desktop",
     "dereth/client/crates/render",
-    "dereth/client/crates/render-cpu",
     # The remaster's backend layer, over Vulkan. Only `dereth-remaster` depends on it.
     "dereth/client/crates/gfx",
     # The remaster, which draws the world from retained data. Only `dereth-scene` depends on it,
@@ -123,7 +133,6 @@ members = [
     "tools/pcap",
     "tools/web-relay",
     "tools/plugin",
-    "tools/plugin-template",
     "tools/web-dev",
     "tools/corpus",
     "tools/art",
@@ -165,12 +174,6 @@ members = [
     "network/link",
     "network/hub",
     "network/conformance",
-    # server-update/: the updater both game servers (Empyrean and Yalain) run (MIT), which each
-    # gives its own name, releases, databases and world data.
-    "server-update",
-    # server-websocket/: the WebSocket endpoint both game servers (Empyrean and Yalain) run (MIT):
-    # its settings, and the listener each gives its own ports.
-    "server-websocket",
     # auberean/: Auberean, the Asheron's Call 2 client (MIT): what a frame draws with no device
     # and the wgpu device (auberean/client/crates/), the offline world viewer, the headless client
     # on the SDK alone, and the test kit with the behaviour registry. Its core is under core/.
@@ -258,7 +261,7 @@ dereth-plugin-api = { path = "core/plugin-api" }
 dereth-plugin-host = { path = "core/plugin-host" }
 dereth-plugin-lua = { path = "core/plugin-lua" }
 dereth-plugin-package = { path = "core/plugin-package" }
-dereth-plugin-template = { path = "tools/plugin-template" }
+dereth-plugin-template = { path = "core/plugin-template" }
 dereth-plugin-ui = { path = "dereth/client/crates/plugin-ui" }
 dereth-plugin-wasm = { path = "core/plugin-wasm", default-features = false }
 dereth-presentation = { path = "core/presentation" }
@@ -266,11 +269,13 @@ dereth-progression = { path = "core/progression" }
 dereth-primitives = { path = "core/primitives" }
 dereth-protocol = { path = "core/protocol" }
 dereth-render = { path = "dereth/client/crates/render", default-features = false }
-dereth-render-cpu = { path = "dereth/client/crates/render-cpu", default-features = false }
+dereth-render-cpu = { path = "core/render-cpu", default-features = false }
 dereth-gfx = { path = "dereth/client/crates/gfx" }
 dereth-remaster = { path = "dereth/client/crates/remaster" }
 dereth-rules = { path = "core/rules", default-features = false }
 dereth-scene = { path = "dereth/client/crates/scene", default-features = false }
+dereth-server-updater = { path = "core/server-updater" }
+dereth-server-websocket = { path = "core/server-websocket" }
 dereth-terrain = { path = "core/terrain" }
 dereth-testkit = { path = "dereth/testkit" }
 dereth-text = { path = "core/text" }
@@ -302,8 +307,6 @@ dereth-network-protocol = { path = "network/protocol" }
 dereth-network-link = { path = "network/link" }
 dereth-network-hub = { path = "network/hub" }
 dereth-network-conformance = { path = "network/conformance" }
-dereth-server-update = { path = "server-update" }
-dereth-server-websocket = { path = "server-websocket" }
 xtask = { path = "tools/xtask" }
 # Auberean (the Asheron's Call 2 client and its core), Yalain (its server), Athenaeum (its world
 # builder).

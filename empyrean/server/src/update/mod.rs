@@ -2,7 +2,7 @@
 //!
 //! ACE only looked for a newer ACE release and logged it. Empyrean installs its own releases,
 //! within what the operator allows. The steps are the shared updater's
-//! ([`dereth_server_update`]); this is what is Empyrean's: its two databases and its world pack
+//! ([`dereth_server_updater`]); this is what is Empyrean's: its two databases and its world pack
 //! ([`release::Facts`], [`release::Declaration`]), the programs of a release
 //! ([`install::Build`]), the pack rebuild, and where the configuration says everything is.
 
@@ -13,12 +13,12 @@ pub mod release;
 pub mod source;
 pub mod version;
 
-pub use dereth_server_update::{archive, handover, verify};
-pub use dereth_server_update::{describe, HEALTH_CHECK_TIMEOUT};
+pub use dereth_server_updater::{archive, handover, verify};
+pub use dereth_server_updater::{describe, HEALTH_CHECK_TIMEOUT};
 
 use std::path::{Path, PathBuf};
 
-use dereth_server_update::Product;
+use dereth_server_updater::Product;
 use empyrean_common::config_paths::PathBase;
 use empyrean_common::master_configuration::MasterConfiguration;
 use empyrean_store::upgrade::{self, UpgradePolicy};
@@ -96,13 +96,13 @@ impl Product for Empyrean {
 }
 
 /// A newer release, and what its `release.json` said.
-pub type Found = dereth_server_update::Found<Declaration>;
+pub type Found = dereth_server_updater::Found<Declaration>;
 
 /// What [`Updater::check`] found and decided.
-pub type Check = dereth_server_update::Check<Declaration>;
+pub type Check = dereth_server_updater::Check<Declaration>;
 
 /// The updater of one installation.
-pub type Updater = dereth_server_update::Updater<Empyrean>;
+pub type Updater = dereth_server_updater::Updater<Empyrean>;
 
 /// The policy `server.update` names.
 ///

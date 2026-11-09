@@ -1,5 +1,5 @@
 [package]
-name = "dereth-server-update"
+name = "dereth-server-updater"
 description = "A game server's updater: finding, checking and installing its own releases within what its operator allows, and undoing one that does not come up."
 version.workspace = true
 edition.workspace = true

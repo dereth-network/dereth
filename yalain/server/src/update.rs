@@ -1,5 +1,5 @@
 //! `yalain update`, and the running server's own updates (`server.update`), as Empyrean's: the same
-//! command, keys, defaults and steps, from the same updater (`dereth_server_update`). What is
+//! command, keys, defaults and steps, from the same updater (`dereth_server_updater`). What is
 //! Yalain's is here: its database and world database ([`Facts`], [`Declaration`]), how its programs
 //! are run ([`Programs`]), and the world's loop answering the updater ([`Ask`]).
 //!
@@ -26,17 +26,17 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
 use std::time::Duration;
 
-use dereth_server_update::command::{self, Request};
-use dereth_server_update::handover::{self, ForwardConsole};
-use dereth_server_update::install::{process, release_facts, run_trial, Layout};
-use dereth_server_update::policy::Needs;
-use dereth_server_update::release::{
+use dereth_server_updater::command::{self, Request};
+use dereth_server_updater::handover::{self, ForwardConsole};
+use dereth_server_updater::install::{process, release_facts, run_trial, Layout};
+use dereth_server_updater::policy::Needs;
+use dereth_server_updater::release::{
     target_triple, BuildFacts, ConfigChange, Kind, Migration, UpgradeDeclaration,
 };
-use dereth_server_update::running::{self, Schedule, World};
-use dereth_server_update::source::{self, Source};
-use dereth_server_update::version::Version;
-use dereth_server_update::{Product, HEALTH_CHECK_TIMEOUT};
+use dereth_server_updater::running::{self, Schedule, World};
+use dereth_server_updater::source::{self, Source};
+use dereth_server_updater::version::Version;
+use dereth_server_updater::{Product, HEALTH_CHECK_TIMEOUT};
 use serde::{Deserialize, Serialize};
 use yalain_net::ServerNet;
 use yalain_store::Store;
@@ -296,7 +296,7 @@ impl Product for Yalain {
 }
 
 /// The updater of one installation.
-pub type Updater = dereth_server_update::Updater<Yalain>;
+pub type Updater = dereth_server_updater::Updater<Yalain>;
 
 /// The running server's updater.
 pub type AutoUpdate = running::AutoUpdate<Yalain>;

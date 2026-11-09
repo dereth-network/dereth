@@ -13,7 +13,7 @@
 //! directory's allegiance keys, and the players' friends
 //! service (`yalain-friends`), and `ctrlc` for the system's stop signals, with `serde` and
 //! `toml` for the operator's character recipes and the configuration file (and `serde_json` for character files), and the
-//! servers' updater (`dereth-server-update`) and WebSocket endpoint (`dereth-server-websocket`).
+//! servers' updater (`dereth-server-updater`) and WebSocket endpoint (`dereth-server-websocket`).
 //! **Used by** nothing: it is the `yalain` program.
 //!
 //! ```text
@@ -646,7 +646,7 @@ fn parse_from(args: impl IntoIterator<Item = String>) -> Result<Options, String>
             }
             "--update-source" => o.update.source = value()?,
             "--update-trial" => o.update_trial = Some(PathBuf::from(value()?)),
-            dereth_server_update::running::TEST_VERSION_FLAG => {
+            dereth_server_updater::running::TEST_VERSION_FLAG => {
                 o.update_test_version = Some(value()?);
             }
             "--help" | "-h" => return Err(String::new()),

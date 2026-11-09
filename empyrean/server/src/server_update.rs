@@ -4,7 +4,7 @@
 //!
 //! **While the server runs**, with `server.update` set to `patch` or `minor`, a thread checks for
 //! a new release a minute after start-up and then every `server.update_check_hours`
-//! ([`dereth_server_update::running`]). When the policy takes one it is staged (downloaded, checked,
+//! ([`dereth_server_updater::running`]). When the policy takes one it is staged (downloaded, checked,
 //! unpacked, its world pack rebuilt) with the world still running, then players get ACE's shutdown
 //! countdown of `server.update_warning_seconds`. An operator's `@cancelshutdown` cancels the update
 //! too (the next check stages it again). When the countdown ends and the world has saved and
@@ -26,8 +26,8 @@ use std::sync::mpsc::{self, Sender};
 use std::sync::Arc;
 use std::time::Duration;
 
-use dereth_server_update::command::{self, Request};
-use dereth_server_update::running::{self, Schedule, World as UpdaterWorld};
+use dereth_server_updater::command::{self, Request};
+use dereth_server_updater::running::{self, Schedule, World as UpdaterWorld};
 use empyrean_common::config_paths::PathBase;
 use empyrean_common::master_configuration::MasterConfiguration;
 use empyrean_server::update::{self, handover, Empyrean};
@@ -36,7 +36,7 @@ use empyrean_world::World;
 
 use crate::program::{StopCause, WorldCommand};
 
-pub use dereth_server_update::running::TEST_VERSION_FLAG;
+pub use dereth_server_updater::running::TEST_VERSION_FLAG;
 
 /// Set once the process has handed over to another server process (Windows): Ctrl-C is then
 /// that server's to handle.

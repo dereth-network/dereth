@@ -10,14 +10,14 @@
 //!    environment or clock facility ([`NO_IO`]) outside the files a feature gates for native hosts
 //!    and tests ([`IO_FILES`], each declared behind its feature).
 //! 3. **The core builds for a browser**: every core crate, for `wasm32-unknown-unknown`, with its
-//!    default features. A host without that target cannot ask, and says so.
+//!    default features. The row that builds every crate under `core/` for the browser
+//!    ([`super::browser`]) holds it, and names no crate of this core as an exception.
 //! 4. **One place finds the data.** No source of the four folders outside [`LOCATORS`] spells a
 //!    data file's name or a test-data variable ([`DATA_NAMES`]).
 //! 5. **The action seam.** The contract, the runtime, the SDK and the headless client name no key,
 //!    mouse button or window message ([`DEVICE_NAMES`]): a front end turns its device into actions.
 //! 6. **Four parts.** The client's crates use the core, their own and [`CLIENT_MAY_USE`]; the
-//!    server's the core, their own and [`SERVER_MAY_USE`] (the network's protocol and its link, and
-//!    the game servers' WebSocket endpoint);
+//!    server's the core, their own and [`SERVER_MAY_USE`] (the network's protocol and its link);
 //!    the world builder's the core, its own and
 //!    [`ATHENAEUM_MAY_USE`] (the world's drawing and the world database, never the server's game,
 //!    network, store or program: it runs Yalain as a program); a core crate's
@@ -37,11 +37,10 @@
 //! The scans are textual, with comments blanked: the crates' docs may talk about the other side of
 //! a seam, their code may not reach across it.
 
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::path::Path;
 
 use super::{blank_comments, workspace_packages, WorkspacePackage};
-use crate::util::{NotRun, Outcome, Report};
+use crate::util::{Outcome, Report};
 
 /// The folder prefix of the core crates.
 const CORE_PREFIX: &str = "core/auberean-";
@@ -131,25 +130,16 @@ pub const DEVICE_NAMES: &[&str] = &[
     "dereth_input",
 ];
 
-/// The first game's client crates the second's client may use: the picture codecs, the sound
-/// device, the operating system's error box and its clipboard.
-pub const CLIENT_MAY_USE: &[&str] = &[
-    "dereth-render-cpu",
-    "dereth-audio-out",
-    "dereth-console",
-    "dereth-clipboard",
-];
+/// The first game's client crates the second's client may use: the sound device, the operating
+/// system's error box and its clipboard. (The picture codecs, `dereth-render-cpu`, are a core
+/// crate.)
+pub const CLIENT_MAY_USE: &[&str] = &["dereth-audio-out", "dereth-console", "dereth-clipboard"];
 
-/// The crates outside the four parts the server may use: the Dereth Network's protocol and a
-/// world's end of its link, which name no game (the network is self-contained), so that the server
-/// speaks the network with the code every world shares rather than a copy of its own; and the
-/// WebSocket endpoint and the updater both game servers run, which name no game either.
-pub const SERVER_MAY_USE: &[&str] = &[
-    "dereth-network-protocol",
-    "dereth-network-link",
-    "dereth-server-update",
-    "dereth-server-websocket",
-];
+/// The crates outside the four parts and the core the server may use: the Dereth Network's
+/// protocol and a world's end of its link, which name no game (the network is self-contained), so
+/// that the server speaks the network with the code every world shares rather than a copy of its
+/// own. (The WebSocket endpoint and the updater both game servers run are core crates.)
+pub const SERVER_MAY_USE: &[&str] = &["dereth-network-protocol", "dereth-network-link"];
 
 /// The client's and the server's crates the world builder may use: the world's frame and its
 /// device, which it draws the world with, and the world database and the server's tables, which
@@ -474,62 +464,6 @@ pub fn halves_violations(
     out
 }
 
-/// Whether this host's toolchain has the browser target's standard library.
-fn has_browser_target() -> bool {
-    Command::new("rustc")
-        .args(["--print", "sysroot"])
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| {
-            PathBuf::from(String::from_utf8_lossy(&o.stdout).trim())
-                .join("lib/rustlib/wasm32-unknown-unknown")
-        })
-        .is_some_and(|p| p.is_dir())
-}
-
-/// Rule 3: the core, built for the browser.
-fn browser_build(ws: &Path, core: &[String]) -> Report {
-    const NAME: &str = "seam: Auberean core in a browser";
-    if !has_browser_target() {
-        return Report::new(
-            NAME,
-            Outcome::NotRun(NotRun::Unhostable),
-            "the toolchain has no wasm32-unknown-unknown target (rustup target add it)",
-        );
-    }
-    let mut cmd = Command::new("cargo");
-    cmd.current_dir(ws).args([
-        "build",
-        "--profile",
-        "test-release",
-        "--target",
-        "wasm32-unknown-unknown",
-    ]);
-    for p in core {
-        cmd.args(["-p", p]);
-    }
-    match cmd.output() {
-        Ok(o) if o.status.success() => Report::new(
-            NAME,
-            Outcome::Pass,
-            format!(
-                "{} core crates build for wasm32-unknown-unknown",
-                core.len()
-            ),
-        ),
-        Ok(o) => {
-            println!("seam: {}", String::from_utf8_lossy(&o.stderr));
-            Report::new(
-                NAME,
-                Outcome::Fail,
-                "the core does not build for the browser; see above",
-            )
-        }
-        Err(e) => Report::new(NAME, Outcome::Fail, format!("cargo build: {e}")),
-    }
-}
-
 /// Every Asheron's Call 2 seam, as rows for the seams table.
 pub fn reports(ws: &Path) -> Vec<Report> {
     let row = |name: &str, result: Result<Vec<String>, String>, ok: String| match result {
@@ -653,7 +587,6 @@ pub fn reports(ws: &Path) -> Vec<Report> {
             no_io,
             "no file, network, thread, process, environment or clock outside the gated files".to_owned(),
         ),
-        browser_build(ws, &core_names),
         row(
             "seam: Auberean data locators",
             data,
@@ -737,12 +670,7 @@ mod tests {
                 false,
             ),
             pkg("dereth-dat", "core/dat", &[], false),
-            pkg(
-                "dereth-render-cpu",
-                "dereth/client/crates/render-cpu",
-                &[],
-                false,
-            ),
+            pkg("dereth-render-cpu", "core/render-cpu", &[], false),
             pkg(
                 "auberean-draw",
                 "auberean/client/crates/draw",

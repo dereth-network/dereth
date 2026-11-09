@@ -20,10 +20,11 @@
 //! 4. **`dereth-headless`** is the client with no UI, no device and no window, built on the client
 //!    SDK alone: its only `dereth-*` dependency, of any kind, is `dereth-client-sdk`
 //!    ([`HEADLESS_DERE`]), and nothing under `dereth/client/` is anywhere in its tree.
-//! 5. **The client's own crates** (`dereth/client/crates/*`) are presentation. Those that draw or
-//!    lay out the game ([`PRESENTATION_ON_CONTRACT`]) depend directly on `dereth-client-contract`,
-//!    and none of them has `dereth-client-runtime` anywhere in any dependency table: rendering
-//!    sees the game only through the contract.
+//! 5. **The client's own crates** (`dereth/client/crates/*`, and [`PRESENTATION_IN_CORE`], which
+//!    both games' clients draw with) are presentation; the rules that name the client's crates
+//!    name these too. Those that draw or lay out the game ([`PRESENTATION_ON_CONTRACT`]) depend
+//!    directly on `dereth-client-contract`, and none of them has `dereth-client-runtime` anywhere
+//!    in any dependency table: rendering sees the game only through the contract.
 //! 6. **The SDK's input seam is actions.** `dereth-client-sdk` reaches no crate under
 //!    `dereth/client/` (the device input, `dereth-input`, is one of them), and the code of the
 //!    three crates the SDK side is built from ([`ACTION_SEAM_CRATES`]) names no key, key map,
@@ -75,6 +76,9 @@
 //!     or the scene, the scene alone depends on the remaster and only its bridge and asset decoder
 //!     name it, the Vulkan device's seam writes none of the device's state but its own, and the
 //!     browser and headless clients hold none of it ([`remaster`]).
+//! 15. **The shared crates build for a browser**: every crate under `core/`, for
+//!     `wasm32-unknown-unknown` with its default features, but for the few [`browser`] names
+//!     with their reasons.
 //!
 //! The dependency half reads `cargo tree`, so a rule broken two crates down is still caught. The
 //! code half is a text scan with comments stripped: the crates' docs are allowed to talk about the
@@ -86,6 +90,7 @@ use std::process::Command;
 use crate::util::{print_table, workspace_root, Outcome, Report};
 
 mod auberean;
+pub mod browser;
 pub mod remaster;
 
 /// `dereth-primitives`' allowed direct production dependencies, with its default features: the
@@ -606,7 +611,13 @@ fn cargo_tree(ws: &Path, krate: &str, edges: &str) -> Result<Vec<TreeEntry>, Str
     Ok(parse_tree(&String::from_utf8_lossy(&out.stdout)))
 }
 
-/// The packages under `dereth/client/crates/`, by their manifests' names, sorted.
+/// The client's presentation crates that live in `core/` because both games' clients draw with
+/// them. The rules over "the client's own crates" hold them as if they were under
+/// `dereth/client/crates/`.
+pub const PRESENTATION_IN_CORE: &[&str] = &["dereth-render-cpu"];
+
+/// The client's own crates: the packages under `dereth/client/crates/` and
+/// [`PRESENTATION_IN_CORE`], by their manifests' names, sorted.
 fn client_crates(ws: &Path) -> Vec<String> {
     let mut out: Vec<String> = std::fs::read_dir(ws.join("dereth/client/crates"))
         .into_iter()
@@ -618,6 +629,7 @@ fn client_crates(ws: &Path) -> Vec<String> {
                 .find_map(|l| l.trim().strip_prefix("name = \"")?.strip_suffix('"'))
                 .map(str::to_owned)
         })
+        .chain(PRESENTATION_IN_CORE.iter().map(|k| (*k).to_owned()))
         .collect();
     out.sort();
     out
@@ -1607,6 +1619,7 @@ pub fn reports() -> Vec<Report> {
             Ok::<_, String>(all)
         });
     let relay = workspace_packages(&ws).map(|p| relay_violations(&p));
+    let in_browser = browser::report(&ws, &workspace_packages(&ws));
     // Rule 14: the remaster changes only pixels.
     let remaster_rows = remaster::reports(&ws, &workspace_rs, &row);
     vec![
@@ -1804,6 +1817,7 @@ pub fn reports() -> Vec<Report> {
             relay,
             "nothing in core/ or dereth/ depends on empyrean/relay".to_owned(),
         ),
+        in_browser,
     ]
     .into_iter()
     .chain(auberean::reports(&ws))

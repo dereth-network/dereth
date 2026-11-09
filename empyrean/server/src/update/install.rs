@@ -1,26 +1,26 @@
 //! Installing a staged release over a stopped server, and taking it back out when it fails: the
-//! shared transaction ([`dereth_server_update::install`]), with what is Empyrean's: its programs'
+//! shared transaction ([`dereth_server_updater::install`]), with what is Empyrean's: its programs'
 //! file names, how a release's programs are run, and the pack rebuild.
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 
-use dereth_server_update::install::{process, release_facts, run_trial};
+use dereth_server_updater::install::{process, release_facts, run_trial};
 
 use super::release::Facts;
 use super::Empyrean;
 
-pub use dereth_server_update::install::{aside_name, Failure, State};
+pub use dereth_server_updater::install::{aside_name, Failure, State};
 
 /// Where the server is installed and what an update touches.
-pub type Layout = dereth_server_update::install::Layout<Empyrean>;
+pub type Layout = dereth_server_updater::install::Layout<Empyrean>;
 
 /// A release downloaded, checked and unpacked, ready to install.
-pub type Staged = dereth_server_update::install::Staged<Facts>;
+pub type Staged = dereth_server_updater::install::Staged<Facts>;
 
 /// What a successful install did.
-pub type Installed = dereth_server_update::install::Installed<Facts>;
+pub type Installed = dereth_server_updater::install::Installed<Facts>;
 
 /// The server binary's file name on this platform.
 #[must_use]
@@ -38,7 +38,7 @@ pub fn import_file_name() -> String {
 pub const WORK_DIR: &str = ".empyrean-update";
 
 /// Installs `staged` over the stopped server at `layout`, which runs `from`, as
-/// [`dereth_server_update::install`] describes.
+/// [`dereth_server_updater::install`] describes.
 ///
 /// # Errors
 /// Why it failed; everything was rolled back (the message says what could not be).
@@ -48,7 +48,7 @@ pub fn apply(
     from: &super::version::Version,
     build: &(dyn Build + 'static),
 ) -> Result<Installed, String> {
-    dereth_server_update::install::apply::<Empyrean>(layout, staged, from, build)
+    dereth_server_updater::install::apply::<Empyrean>(layout, staged, from, build)
 }
 
 /// The dump `world.pack` was built from and the patches over it (`server.world_base_sql`,

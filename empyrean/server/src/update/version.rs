@@ -1,6 +1,6 @@
 //! Release versions, read from Empyrean's release tags.
 
-pub use dereth_server_update::version::Version;
+pub use dereth_server_updater::version::Version;
 
 /// The prefix of every Empyrean release tag (`empyrean-v0.1.0`).
 pub const TAG_PREFIX: &str = "empyrean-v";

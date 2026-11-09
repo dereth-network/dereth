@@ -2,7 +2,7 @@
 //! for a plugin's name, id and GitHub repository and for the Dereth release whose author's tool
 //! its workflows install.
 //!
-//! The template has its one source here: the files under `tools/plugin-template/template/`. The
+//! The template has its one source here: the files under `core/plugin-template/template/`. The
 //! author's tool writes it (`dereth-plugin new`), the launcher writes it from its Plugins page, and
 //! the template repository on GitHub is a copy made with it.
 //!

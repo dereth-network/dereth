@@ -2,7 +2,8 @@
 //! atlas, the UI quad path and the camera.
 //!
 //! **Depends on** `dereth-primitives` and the contract (`dereth-client-contract`). **Used by** the
-//! device half (`dereth-render`), which re-exports all of it.
+//! device half (`dereth-render`), which re-exports all of it, Asheron's Call 2's drawing
+//! (`auberean-draw`, `auberean-ui`) and the art tool (`dereth-art`).
 //!
 //! **Must never** touch a graphics API or use `unsafe`: it takes the workspace's
 //! `forbid(unsafe_code)`, which is the point of the split, and it never reaches the client runtime

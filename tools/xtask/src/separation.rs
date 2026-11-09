@@ -26,10 +26,6 @@
 //!    the Unicode licence of the data it embeds), and the copy of Windows' best-fit table it
 //!    carries is the client's ([`BEST_FIT_TABLES`]).
 //!
-//! 7. Both game servers share their updater and their WebSocket endpoint ([`SERVER_SHARED`], MIT, at
-//!    [`SERVER_SHARED_DIRS`]): a server crate names them by path, as it does the shared crates; they
-//!    depend on no server crate.
-//!
 //! `--client-only` enforces the client boundary without the server-side checks: 1, 3 and 5, plus
 //! the licence of every crate, for a checkout that has no server crates at all.
 
@@ -45,8 +41,8 @@ use crate::util::workspace_root;
 const SERVER_PREFIX: &str = "empyrean-";
 const CLIENT_PREFIX: &str = "dereth-";
 
-/// The shared crates (`core/`): what a server crate may name. Every other `dereth-*` crate is
-/// client-only.
+/// The shared crates (`core/`): what a server crate may name, among them the updater and the
+/// WebSocket endpoint both game servers run. Every other `dereth-*` crate is client-only.
 pub const SHARED: &[&str] = &[
     "dereth-animation",
     "dereth-assets",
@@ -64,15 +60,11 @@ pub const SHARED: &[&str] = &[
     "dereth-progression",
     "dereth-protocol",
     "dereth-rules",
+    "dereth-server-updater",
+    "dereth-server-websocket",
     "dereth-transport",
     "dereth-world-data",
 ];
-
-/// The crates the game servers share that are not `core/`'s (`core/` does no I/O of its own).
-pub const SERVER_SHARED: &[&str] = &["dereth-server-update", "dereth-server-websocket"];
-
-/// Where [`SERVER_SHARED`] live.
-const SERVER_SHARED_DIRS: &[&str] = &["server-update", "server-websocket"];
 
 /// `(server crate, client-only crate)` pairs allowed as dev-dependencies only. Empty: the one pair
 /// it held became a shared crate when its client-side half moved into `core/`.
@@ -108,16 +100,7 @@ static SERVER_LICENSE: LazyLock<String> = LazyLock::new(|| format!("{}-3.0-only"
 const CLIENT_LICENSE: &str = "MIT";
 /// The MIT folders the licence-leak scan covers: the shared crates (Asheron's Call 2's core
 /// among them), the client and the tools, and Asheron's Call 2's client, server and world builder.
-const MIT_DIRS: &[&str] = &[
-    "core",
-    "dereth",
-    "tools",
-    "auberean",
-    "yalain",
-    "athenaeum",
-    "server-update",
-    "server-websocket",
-];
+const MIT_DIRS: &[&str] = &["core", "dereth", "tools", "auberean", "yalain", "athenaeum"];
 
 fn copyleft() -> String {
     ["A", "GPL"].concat()
@@ -174,7 +157,6 @@ pub fn check_metadata(meta: &Value, ws: &Path, client_only: bool, f: &mut Findin
     let server_dir = ws.join("empyrean");
     let core_dir = ws.join("core");
     let network_dir = ws.join(NETWORK_DIR);
-    let server_shared_dirs: Vec<_> = SERVER_SHARED_DIRS.iter().map(|d| ws.join(d)).collect();
     let packages = meta["packages"].as_array().map_or(&[][..], Vec::as_slice);
     let is_network = |p: &Value| under(p["manifest_path"].as_str().unwrap_or(""), &network_dir);
     let (server, others): (Vec<&Value>, Vec<&Value>) = packages
@@ -248,8 +230,6 @@ pub fn check_metadata(meta: &Value, ws: &Path, client_only: bool, f: &mut Findin
                 ));
             } else if !under(path, &core_dir)
                 && !(under(path, &network_dir) && is_network_crate(name(d)))
-                && !(server_shared_dirs.iter().any(|d| under(path, d))
-                    && SERVER_SHARED.contains(&name(d)))
                 && !DEV_EXCEPTIONS.contains(&(name(p), name(d)))
             {
                 f.failures.push(format!(
@@ -273,7 +253,6 @@ pub fn check_metadata(meta: &Value, ws: &Path, client_only: bool, f: &mut Findin
                 if !n.starts_with(CLIENT_PREFIX)
                     || SHARED.contains(&n)
                     || NETWORK_SHARED.contains(&n)
-                    || SERVER_SHARED.contains(&n)
                 {
                     continue;
                 }

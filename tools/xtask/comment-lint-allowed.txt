@@ -14,8 +14,8 @@ core/primitives/src/text/cp1252.rs|work-item label|C1|the C1 control-code range 
 dereth/client/crates/input/src/objname.rs|work-item label|C1|the ABNT C1 key's name on a Brazilian keyboard
 dereth/client/crates/input/src/objname.rs|work-item label|C2|the ABNT C2 key's name on a Brazilian keyboard
 dereth/client/crates/render/examples/smoke.rs|work-item label|P6|the binary PPM file magic
-dereth/client/crates/render-cpu/src/pixel_format.rs|work-item label|P8|the 8-bit palettised pixel format
-dereth/client/crates/render-cpu/src/texture.rs|work-item label|P8|the 8-bit palettised pixel format
+core/render-cpu/src/pixel_format.rs|work-item label|P8|the 8-bit palettised pixel format
+core/render-cpu/src/texture.rs|work-item label|P8|the 8-bit palettised pixel format
 dereth/client/crates/scene/src/textures.rs|work-item label|P8|the 8-bit palettised pixel format
 dereth/client/crates/ui-screens/src/screens/chargen/summary_screen.rs|work-item label|B0b|a sample character name the name rules refuse
 empyrean/crates/common/src/extensions/double_extensions.rs|work-item label|F99|the .NET F99 numeric format specifier

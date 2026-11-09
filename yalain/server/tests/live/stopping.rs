@@ -16,8 +16,8 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 use std::time::{Duration, Instant};
 
 use dereth_primitives::num::math;
-use dereth_server_update::release::target_triple;
-use dereth_server_update::testing::{Release, Repository};
+use dereth_server_updater::release::target_triple;
+use dereth_server_updater::testing::{Release, Repository};
 use serde_json::json;
 use yalain_store::{SqliteStore, Store as _};
 use yalain_testkit::authored;

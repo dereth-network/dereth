@@ -2198,7 +2198,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "dereth-server-update"
+name = "dereth-server-updater"
 version = "0.0.0"
 dependencies = [
  "flate2",
@@ -2769,7 +2769,7 @@ dependencies = [
  "dereth-network-hub",
  "dereth-network-link",
  "dereth-network-protocol",
- "dereth-server-update",
+ "dereth-server-updater",
  "dereth-server-websocket",
  "dereth-transport",
  "embed-resource",
@@ -7191,7 +7191,7 @@ dependencies = [
  "dereth-network-protocol",
  "dereth-primitives",
  "dereth-protocol",
- "dereth-server-update",
+ "dereth-server-updater",
  "dereth-server-websocket",
  "dereth-transport",
  "embed-resource",

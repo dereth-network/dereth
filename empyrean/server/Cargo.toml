@@ -48,7 +48,7 @@ serde_json.workspace = true
 dereth-network-protocol.workspace = true
 dereth-network-link.workspace = true
 # The updater's machinery, shared with Yalain (`src/update/` is what is Empyrean's).
-dereth-server-update.workspace = true
+dereth-server-updater.workspace = true
 
 [dev-dependencies]
 dereth-dat = { workspace = true, features = ["test-support"] }

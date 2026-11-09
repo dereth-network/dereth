@@ -102,7 +102,7 @@ One Cargo workspace. A crate's folder is usually its package name without the `d
 
 | Folder | What it holds | License |
 |---|---|---|
-| `core/` | The shared crates: the data files, the engines, the wire protocol, the game rules and the client SDK (`dereth-client-sdk` is its front door). | MIT |
+| `core/` | The shared crates: the data files, the engines, the wire protocol, the game rules, the client SDK (`dereth-client-sdk` is its front door), the plugin host, and the updater and WebSocket endpoint both game servers run. Every one builds for the browser, but for the few `cargo xtask seams` names. | MIT |
 | `dereth/` | The client (`dereth/client`, with its crates under `dereth/client/crates/`), the web client (`dereth/web`), the headless client and the client's test kit. | MIT |
 | `empyrean/` | The server: the ACE port under `empyrean/crates/`, the `empyrean-server` and `empyrean-import` programs and the server's test kit. | AGPL-3.0-only |
 | `launcher/` | The launcher, a Tauri app with a workspace of its own, and its logic crate. | MIT |
@@ -110,6 +110,7 @@ One Cargo workspace. A crate's folder is usually its package name without the `d
 | `auberean/`, `yalain/`, `athenaeum/` | Asheron's Call 2's client (the `auberean` program), server (`yalain`) and world builder (`athenaeum-editor` and the `athenaeum` command), over its core under `core/auberean-*`. | MIT |
 | `network/` | The Dereth Network: its protocol, hub, conformance suite and ACE mod. | MIT; the hub and the mod AGPL-3.0-only |
 | `tools/` | Developer tools: the `xtask` task runner, the capture and corpus tools, and the web client's relay and dev server. [`tools/README.md`](tools/README.md) describes each. | MIT |
+| `vendor/` | Third-party crates carried with a change of ours; each one's `Cargo.toml` says what. | their own |
 | `docs/` | The behavior specification (below). | |
 | `fixtures/` | Recorded sessions and other shared test data. | |
 

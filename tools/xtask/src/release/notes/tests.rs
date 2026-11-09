@@ -223,6 +223,22 @@ fn only_commits_that_change_what_the_server_ships_are_kept() {
     assert_eq!(group(Product::Dereth, &kept[0]), None);
 }
 
+/// A commit to the updater or the WebSocket endpoint both game servers run reaches both servers'
+/// notes, and no client's.
+#[test]
+fn the_game_servers_shared_crates_count_for_both_servers() {
+    for path in [
+        "core/server-updater/src/running.rs",
+        "core/server-websocket/src/endpoint.rs",
+    ] {
+        let c = commit("The update check retries after a failed download", &[path]);
+        assert!(group(Product::Empyrean, &c).is_some(), "{path}");
+        assert!(group(Product::Yalain, &c).is_some(), "{path}");
+        assert_eq!(group(Product::Dereth, &c), None, "{path}");
+        assert_eq!(group(Product::Auberean, &c), None, "{path}");
+    }
+}
+
 /// A server commit goes under Gameplay, World and content, Operations, Fixes or Other changes:
 /// a fix by its words first, then the one heading its words name, then its folders.
 #[test]
