@@ -19,7 +19,7 @@ use dereth_gfx::{
 };
 use dereth_primitives::num::math;
 use dereth_primitives::num::to_i32;
-use glam::{Mat4, Vec3, Vec4};
+use glam::{Mat4, Vec2, Vec3, Vec4};
 
 use super::scene::NONE;
 use super::PerFrame;
@@ -584,11 +584,23 @@ struct AirPlan {
     clouds: Option<((Texture, u32), [u32; 3])>,
 }
 
+/// The low fog: what it lies over and what lights it.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct LowFog {
+    /// The lowest ground round the eye: the fog is thicker over ground near it.
+    pub base: f32,
+    /// The frame's origin, world meters; the landscape heights' index in the table; and the sun's
+    /// shadow cascades' constants (`NONE`: the sun reaches all of it).
+    pub global: Vec2,
+    pub heights: u32,
+    pub cascades: u32,
+}
+
 /// What a frame draws the air with.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct AirAsk {
-    /// The height the low fog lies over, when it is drawn: the lowest ground round the eye.
-    pub low_fog: Option<f32>,
+    /// The low fog, when it is drawn: what it lies over and what lights it.
+    pub low_fog: Option<LowFog>,
     /// The scene's colors' size.
     pub size: (u32, u32),
     /// Retail's cloud picture, with the clouds' shadow map's place for it, and the sampler that
@@ -935,8 +947,16 @@ impl SkyPass {
         let mut air = air_rows(frame, clouds.as_ref().map(|(m, t, _)| (m, t.1))).to_vec();
         air.push(
             ask.low_fog
-                .map_or(Vec4::ZERO, |base| low_fog_row(frame, base)),
+                .map_or(Vec4::ZERO, |f| low_fog_row(frame, f.base)),
         );
+        air.push(ask.low_fog.map_or(Vec4::ZERO, |f| {
+            Vec4::new(
+                f.global.x,
+                f.global.y,
+                f32::from_bits(f.heights),
+                f32::from_bits(f.cascades),
+            )
+        }));
         for v in air {
             for f in v.to_array() {
                 rows.extend_from_slice(&f.to_le_bytes());
@@ -1093,10 +1113,18 @@ impl SkyPlan {
         t: &super::Targets,
         frame: u32,
         depth: (Texture, u32),
+        reads: &[dereth_gfx::Touch],
     ) -> Result<(), dereth_gfx::Error> {
         let Some(air) = self.air else {
             return Ok(());
         };
+        let mut touches = vec![
+            dereth_gfx::Touch::Texture(air.copy.0, dereth_gfx::Use::Sampled),
+            dereth_gfx::Touch::Texture(depth.0, dereth_gfx::Use::Sampled),
+            dereth_gfx::Touch::Texture(t.material, dereth_gfx::Use::Sampled),
+            dereth_gfx::Touch::Texture(self.tables[2].0, dereth_gfx::Use::Sampled),
+        ];
+        touches.extend_from_slice(reads);
         r.timestamp("air");
         r.copy_texture(t.color, air.copy.0)?;
         r.raster(
@@ -1107,12 +1135,7 @@ impl SkyPlan {
                     load: Load::Discard,
                 }],
                 depth: None,
-                touches: &[
-                    dereth_gfx::Touch::Texture(air.copy.0, dereth_gfx::Use::Sampled),
-                    dereth_gfx::Touch::Texture(depth.0, dereth_gfx::Use::Sampled),
-                    dereth_gfx::Touch::Texture(t.material, dereth_gfx::Use::Sampled),
-                    dereth_gfx::Touch::Texture(self.tables[2].0, dereth_gfx::Use::Sampled),
-                ],
+                touches: &touches,
                 area: Some(Rect {
                     x: 0,
                     y: 0,

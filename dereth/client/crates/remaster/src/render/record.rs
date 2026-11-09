@@ -378,10 +378,15 @@ impl Renderer {
         )?;
         // The sky's atmosphere and the fog's volume, when the light is worked out per pixel.
         let (atmosphere, fog) = if mode == super::light::LightMode::Pixel {
-            let low_fog = self
-                .landscape
-                .air
-                .then(|| super::sky::lowest_ground(&self.scene, &frame));
+            let low_fog = match (&drawn_ground, frame.drawn.as_ref()) {
+                (Some(g), Some(d)) if self.landscape.air => Some(super::sky::LowFog {
+                    base: super::sky::lowest_ground(&self.scene, &frame),
+                    global: d.global,
+                    heights: g.heights().0,
+                    cascades: shadow.as_ref().map_or(NONE, |s| s.cascades().0),
+                }),
+                _ => None,
+            };
             let ask = air.then(|| super::sky::AirAsk {
                 low_fog,
                 size: (targets.width, targets.height),
@@ -1228,7 +1233,26 @@ impl Plan {
         let mask = if self.inside { t.index[3] } else { NONE };
         if let Some(a) = self.atmosphere.as_ref().filter(|a| a.air()) {
             self.blend_passes(r, full, outdoor_depth, mask, &self.edge_runs, &[])?;
-            a.record_air(r, &t, self.frame, (outdoor_depth, outdoor_depth_index))?;
+            // The low fog reads the landscape's heights and the sun's cascades.
+            let mut reads = Vec::new();
+            if let Some(g) = &self.drawn_ground {
+                reads.push(Touch::Buffer(g.heights().1, Use::StorageRead));
+            }
+            if let Some(s) = &self.shadow {
+                reads.extend(
+                    s.cascades()
+                        .1
+                        .into_iter()
+                        .map(|m| Touch::Texture(m, Use::Sampled)),
+                );
+            }
+            a.record_air(
+                r,
+                &t,
+                self.frame,
+                (outdoor_depth, outdoor_depth_index),
+                &reads,
+            )?;
             if let Some(u) = &self.upscale {
                 u.keep_opaque(r, &t)?;
             }

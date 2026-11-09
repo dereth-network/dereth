@@ -509,6 +509,11 @@ pub struct DrawnPlan {
 }
 
 impl DrawnPlan {
+    /// The world's landscape heights: their index in the table and their buffer.
+    pub(crate) fn heights(&self) -> (u32, Buffer) {
+        (self.words[2], self.buffers[0])
+    }
+
     /// The frame's constants' index, the terrain words' index, and the two buffers they are in:
     /// what another pass reads for the terrain's colors.
     pub(crate) fn terrain_inputs(&self) -> (u32, u32, [Buffer; 2]) {

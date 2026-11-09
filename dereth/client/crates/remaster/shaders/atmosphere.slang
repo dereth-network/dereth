@@ -317,7 +317,9 @@ public float dither(float2 pixel)
 //   23    the clouds' shadow map: xy its center, z how far it reaches each way, w the clouds' base
 //   24    x how much of the sun the clouds' shadows take (0 for none), y the map's picture, z its texels
 //   25    the low fog: x its extinction per metre where it lies, y how many metres up it thins by e,
-//         z the height it lies over, w 1 while it is drawn
+//         z the lowest ground round the eye, w 1 while it is drawn
+//   26    xy the frame's origin, world meters; z (as a uint) the landscape heights; w (as a uint)
+//         the sun's shadow cascades' constants, ~0 for none
 public static const uint ATM_HAZE = 16;
 public static const uint ATM_HAZE_AT = 17;
 public static const uint ATM_LAND = 18;
@@ -328,6 +330,7 @@ public static const uint ATM_HAZE_TINT = 22;
 public static const uint ATM_CLOUD_MAP = 23;
 public static const uint ATM_CLOUD_SHADE = 24;
 public static const uint ATM_LOW_FOG = 25;
+public static const uint ATM_LOW_FOG_GROUND = 26;
 
 // Whether the air is drawn over the land by these constants.
 public bool air_drawn(uint a)
