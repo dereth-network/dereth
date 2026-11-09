@@ -148,6 +148,30 @@ impl GameClock {
         self.use_time(cur_time);
     }
 
+    /// The absolute Dereth second, for [`Self::set_game_time`], that is `fraction` of the way
+    /// through the first clear day of the calendar's first year: a fair day at a chosen hour.
+    /// `None` where the region's sky names no clear day.
+    #[must_use]
+    pub fn clear_day_at(&self, fraction: f32) -> Option<f64> {
+        use dereth_assets::region::{calc_present_day_group, DayKind};
+        let day_length = f64::from(self.day_length);
+        let into_day = f64::from(fraction.rem_euclid(1.0));
+        (0..self.days_per_year).find_map(|day| {
+            let group = calc_present_day_group(
+                self.zero_year,
+                self.days_per_year,
+                day,
+                self.day_names.len(),
+            );
+            let clear = self
+                .day_names
+                .get(group)
+                .is_some_and(|name| DayKind::Clear.names(name));
+            let t = (f64::from(day) + into_day).mul_add(day_length, -self.zero_time_of_year);
+            (clear && t >= 0.0).then_some(t)
+        })
+    }
+
     /// Drop any local adjustment, so the clock is the server's again: the inverse of
     /// [`Self::set_time_of_day`], by the same mechanism (`TimeZeroDelta` back to zero, the next
     /// event zeroed, the time used again).
@@ -397,6 +421,40 @@ mod tests {
         for (fraction, index) in [(0.0f32, 0usize), (0.3, 4), (0.5, 8), (0.99, 15)] {
             c.set_time_of_day(0.0, fraction);
             assert_eq!(c.current_time_of_day, index, "at {fraction}");
+        }
+    }
+
+    /// A fair day at a chosen hour: the time [`GameClock::clear_day_at`] gives is that hour of a
+    /// day the calendar makes clear, and the calendar's own start is not one.
+    ///
+    /// Behaviour: none (choosing a fair day is this client's own, for the world behind its
+    /// screens before the world)
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn a_clear_day_at_an_hour_is_that_hour_of_a_clear_day() {
+        use dereth_assets::region::DayKind;
+        let mut c = retail_clock();
+        c.use_time(0.0);
+        let first = c.present_day_name().map(str::to_owned);
+        assert!(
+            !first.as_deref().is_some_and(|n| DayKind::Clear.names(n)),
+            "the calendar starts on a clear day ({first:?}), so this proves nothing"
+        );
+        for want in [0.25f32, 0.4, 0.6] {
+            let t = c
+                .clear_day_at(want)
+                .expect("the retail calendar has clear days");
+            c.set_game_time(0.0, t);
+            let day = c.present_day_name().expect("the retail sky names its days");
+            assert!(DayKind::Clear.names(day), "{day} at {want}");
+            assert!(
+                (c.present_time_of_day - want).abs() < 1e-3,
+                "asked for {want}, got {}",
+                c.present_time_of_day
+            );
         }
     }
 }

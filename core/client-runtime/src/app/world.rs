@@ -2,6 +2,10 @@
 
 use super::*;
 
+/// Where in the day the world behind the screens before the world stands when it is built, on a
+/// clear day: mid-morning, the sun well up and the shadows still long.
+const BACKDROP_HOUR: f32 = 0.4;
+
 impl<S: Shell> App<S> {
     pub(super) fn step_incoming_world_objects(&mut self, shell: &mut S) {
         let now = dereth_primitives::LocalTime(self.timer.cur_time);
@@ -364,6 +368,15 @@ impl<S: Shell> App<S> {
             #[cfg(feature = "fidelity")]
             {
                 cfg.render.fidelity.interface = self.horizon_interface;
+            }
+            // A fair day at a pleasant hour, unless the run asked for a time of its own: the
+            // calendar's own start is a rainy day.
+            if cfg.game_time.is_none() && cfg.time_of_day.is_none() {
+                cfg.game_time = dereth_world_data::landblock::load_region(&self.store)
+                    .ok()
+                    .and_then(|region| {
+                        crate::game_clock::GameClock::new(&region).clear_day_at(BACKDROP_HOUR)
+                    });
             }
             if let Err(e) = self.present.load_world(&self.store, cfg, &mut self.world) {
                 tracing::warn!("the backdrop at landblock 0x{landblock:04X} would not load: {e}");

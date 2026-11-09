@@ -1076,6 +1076,59 @@ fn the_world_behind_character_select_moves_on_its_own_clock_and_stays_put() {
     assert_eq!(stepped.4, first.4, "the backdrop's camera moved");
 }
 
+/// The world drawn behind the screens before the player is in it is a fair day at a pleasant hour,
+/// whatever day the calendar starts on: no rain, no cloud, the sun up.
+///
+/// Behaviour: none (the backdrop is a screen of this client's own interface)
+#[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads the retail dats: --features retail-dats"
+)]
+fn the_world_behind_character_select_is_a_clear_day_at_mid_morning() {
+    let store = std::sync::Arc::new(dereth_dat::testing::open_store().unwrap_or_else(|| {
+        panic!(
+            "the retail dats are this test's oracle and they are not under {}",
+            dereth_dat::testing::dat_dir().display()
+        )
+    }));
+    let cfg = Config {
+        headless: true,
+        connect: false,
+        sound: false,
+        ..Config::default()
+    };
+    let mut app = App::<NullShell>::bring_up_with_store(
+        cfg,
+        Some(store),
+        |_| Ok(Platform::headless(64, 64)),
+        |_, _, _, _| Ok(Box::new(crate::sim_present::SimPresentation::new(64, 64))),
+    )
+    .expect("bring-up");
+    app.defer_static_scene(crate::scene::SceneConfig {
+        landblock: 0xA9B4,
+        character: false,
+        ..crate::scene::SceneConfig::default()
+    });
+    let mut shell = NullShell;
+    assert!(app.show_backdrop(0xA9B4, 0.0, 0.0), "the backdrop is up");
+    for _ in 0..30 {
+        assert!(app.frame(&mut shell));
+    }
+    let ws = app.world.as_ref().expect("the backdrop's world");
+    assert_eq!(
+        crate::weather::days_own(ws),
+        "clear",
+        "the backdrop's day is {:?}",
+        ws.clock.present_day_name()
+    );
+    let hour = ws.clock.present_time_of_day;
+    assert!(
+        (0.35..0.45).contains(&hour),
+        "the backdrop's hour is {hour}"
+    );
+}
+
 /// `--set-at` takes the remaster's boxes as the preferences file spells them (`True`, `False`, a
 /// share as `75%`), and as the numbers `--fidelity` takes, and hands the store a box as the
 /// boolean it holds, so the page and the saved profile follow it.
