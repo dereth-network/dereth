@@ -32,4 +32,4 @@ notes = "Worlds can now update themselves: server.update is off until you set it
 [[release]]
 version = "0.3.0"
 upgrades_from = "0.2.0"
-notes = "Serves world database v0.32.0: fetch it with yalain world fetch before the new program starts. A world with no pet, ward or tool rows now warns at start and has none of them, where the server used to supply its own."
+notes = "Serves world database v0.33.0: fetch it with yalain world fetch before the new program starts. A world with no pet, ward or tool rows now warns at start and has none of them, where the server used to supply its own."
