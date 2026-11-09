@@ -285,7 +285,8 @@ fn the_worlds_map_recipes_spellbinding_and_refining_rows_hold_the_servers_own_en
 }
 
 /// A world's plant and plant cross rows hold the server's own, entry for entry: each species'
-/// plant, seed, pollen, plant item and pollen's name, and each cross's seeds and how many.
+/// plant, seed, pollen, plant item and pollen's name, and each of its crosses' seeds and how many;
+/// and every other cross is of a species' plant and pollen and gives a species' seeds, one to three.
 /// Behaviour: server.plants.plant-rows-hold-the-servers-own
 #[test]
 fn the_worlds_plant_and_plant_cross_rows_hold_the_servers_own_entry_for_entry() {
@@ -293,7 +294,15 @@ fn the_worlds_plant_and_plant_cross_rows_hold_the_servers_own_entry_for_entry() 
     let (plants, _) = yalain_world::plants::world_plants(&t.plants);
     let own = yalain_testkit::test_plants();
     assert_eq!(plants.species, own.species);
-    assert_eq!(plants.crosses, own.crosses);
+    for (pair, cross) in &own.crosses {
+        assert_eq!(plants.crosses.get(pair), Some(cross), "{pair:08X?}");
+    }
+    for c in plants.crosses.values() {
+        assert!(plants.species.contains_key(&c.plant), "{:08X}", c.plant);
+        assert!(plants.pollen_of(c.pollen).is_some(), "{:08X}", c.pollen);
+        assert!(plants.sown_by(c.seeds).is_some(), "{:08X}", c.seeds);
+        assert!((1..=3).contains(&c.count), "{c:?}");
+    }
 }
 
 /// What the rows leave out comes from the install: the training hall quest's definition (its

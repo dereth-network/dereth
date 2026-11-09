@@ -11312,7 +11312,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.plants.plant-rows-hold-the-servers-own",
-        says: "A world's `[[plant]]` and `[[plant_cross]]` rows hold the server's own, entry for entry.",
+        says: "A world's `[[plant]]` and `[[plant_cross]]` rows hold the server's own, entry for entry; \
+               every other cross is of the world's own species and gives one to three seeds.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-DYE-PLANT-ROWS"),
         station: "yalain-testkit::corpus::world_db::the_worlds_plant_and_plant_cross_rows_hold_the_servers_own_entry_for_entry",
