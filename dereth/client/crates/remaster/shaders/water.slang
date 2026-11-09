@@ -10,8 +10,10 @@
 //   different sizes and turns, each drifting with the scene's clock alone, so a held clock draws a
 //   still frame; they calm with distance, so far water lies smooth, and a ripple finer than a pixel
 //   is left out, so it never shimmers. Puddles keep a few small waves of their own.
-// - **Rings** spread from where each body stands now, stronger as it moves, so they show from the
-//   first step and follow it.
+// - **Rings**: the water swells round the legs of each body standing in it, and each sends out
+//   rings as it goes, every so often walking and now and then standing, each a short train of
+//   crests spreading from where it was sent and fading as it ages, so a walking body leaves a wake
+//   behind it.
 // - **The reflection**, where the device traces rays (`fs_traced`), is the scene itself: the ray
 //   is traced through the scene's acceleration structures, and what it meets is lit as the resolve
 //   lights it, whether it is on screen or not. Elsewhere (`fs_main`) it is found on screen: the ray
@@ -53,6 +55,9 @@ import rt;
 //   24 the viewer's own body: where its feet are (the frame's space), w 1 where there is one
 //   25, 26 (words) the sky all round the eye: its pictures east, west, north, south, up and down,
 //      and the sampler they are read with (~0 where it is not drawn)
+//   27 (words) x how many rings the bodies have sent out over the water
+//   28.. the rings, two rows each: where the body stood (the frame's space) and how long ago,
+//      seconds; then x how strongly
 static const uint WATER_STATE = 0;
 static const uint WATER_DRAWN = 1;
 // The drawn ground's constants' row whose x is 1 while the bed is lowered under the water.
@@ -67,6 +72,9 @@ static const uint WATER_SKY = 22;
 static const uint WATER_LAND = 23;
 static const uint WATER_VIEWER = 24;
 static const uint WATER_PROBE = 25;
+static const uint WATER_RING_COUNT = 27;
+static const uint WATER_RINGS = 28;
+static const uint RINGS = 32;
 static const uint NONE = 0xFFFFFFFF;
 
 // The water's kind, as the material target's second byte holds it.
@@ -291,11 +299,24 @@ float3 hue_at(float2 p)
     return n > 0.0 ? sum / n : row(push.drawn, D_COLORS + WATER_FIRST).rgb;
 }
 
-// How the surface leans at `p` from the rings round the bodies standing in the water: each body's
-// rings spread from where it stands now, a few metres out, their height as it moves.
+// How fast a ring spreads over the water, metres a second; how long it lasts, seconds for most
+// of it; and the length of its crests, metres.
+static const float RING_SPEED = 0.8;
+static const float RING_LIFE = 1.1;
+static const float RING_CREST = 0.3;
+
+// How the surface leans at `p` from the bodies standing in the water: the water heaped a little
+// round where each stands, more as it moves; and the rings each sends out as it goes, each a short
+// train of crests spreading from where the body stood when it sent it, wider and fainter as it
+// ages, so a body walking draws a wake of rings behind it and a body standing still now and then
+// a faint one.
 float2 rings(float3 p, float t, float strength)
 {
     float2 slope = float2(0.0, 0.0);
+    if (strength <= 0.0)
+    {
+        return slope;
+    }
     uint n = min(uint(row(push.water, WATER_DRAWN).x + 0.5), WADERS);
     for (uint i = 0; i < n; i++)
     {
@@ -306,16 +327,42 @@ float2 rings(float3 p, float t, float strength)
         }
         float2 d = p.xy - w.xy;
         float r = length(d);
-        if (r > 6.0 || r < 1e-3)
+        if (r > 2.0 || r < 1e-3)
         {
             continue;
         }
-        // A standing body barely stirs the water; a walking one rings it from where it stands.
-        float a = strength * (0.15 + saturate(w.w / 3.0)) * exp(-r / 1.6);
-        float k = 2.0 * PI / 0.55;
-        slope += (d / r) * cos(r * k - t * 9.0) * a * 0.35;
+        // A swell round the legs: highest at them, gone a metre or so out.
+        float a = 0.012 + 0.03 * saturate(w.w / 2.0);
+        float x = r - 0.25;
+        slope += (d / r) * (-2.0 * x / 0.16) * exp(-x * x / 0.16) * a;
     }
-    return slope;
+    uint count = min(row_u(push.water, WATER_RING_COUNT).x, RINGS);
+    float k = 2.0 * PI / RING_CREST;
+    for (uint j = 0; j < count; j++)
+    {
+        float4 o = row(push.water, WATER_RINGS + j * 2);
+        float4 e = row(push.water, WATER_RINGS + j * 2 + 1);
+        if (abs(p.z - o.z) > 1.5)
+        {
+            continue;
+        }
+        float age = o.w;
+        float2 d = p.xy - o.xy;
+        float r = length(d);
+        float front = 0.25 + RING_SPEED * age;
+        float width = 0.18 + 0.12 * age;
+        float x = r - front;
+        if (abs(x) > 2.5 * width || r < 1e-3)
+        {
+            continue;
+        }
+        // A couple of centimetres high, fainter as it ages and as it spreads over a wider ring.
+        float a = e.x * 0.02 * exp(-age / RING_LIFE) * saturate(age * 12.0 + 0.25) * rsqrt(max(front, 0.3));
+        float envelope = exp(-x * x / (width * width));
+        float rise = a * envelope * (k * cos(k * x) - 2.0 * x / (width * width) * sin(k * x));
+        slope += (d / r) * rise;
+    }
+    return slope * strength;
 }
 
 // The sky that shows above pixel `px`, the first pixel of sky up its column, a few steps at most;
@@ -1193,6 +1240,7 @@ float4 shade<R : IReflection>(float4 position, R reflection)
     float3 v = (eye - world) / max(dist, 1e-4);
     float t = state.x;
     float2 slope;
+    float2 ringed = float2(0.0, 0.0);
     float3 n;
     if (water)
     {
@@ -1204,10 +1252,12 @@ float4 shade<R : IReflection>(float4 position, R reflection)
         float cap = dist * 0.01 + 0.01;
         dx *= min(1.0, cap / max(length(dx), 1e-6));
         dy *= min(1.0, cap / max(length(dy), 1e-6));
-        slope = ripples(world.xy, dist, dx, dy, foot, state.y) + rings(world, t, state.z);
+        float2 rippled = ripples(world.xy, dist, dx, dy, foot, state.y);
+        ringed = rings(world, t, state.z);
+        slope = rippled + ringed;
         // Reflected off a surface bent half as much as the ripples bend the light through it, so
-        // the reflections waver rather than break up.
-        n = normalize(float3(-slope * 0.5, 1.0));
+        // the reflections waver rather than break up; the rings' crests whole, so they stand out.
+        n = normalize(float3(-(rippled * 0.5 + ringed), 1.0));
     }
     else
     {
@@ -1261,6 +1311,10 @@ float4 shade<R : IReflection>(float4 position, R reflection)
     if (water)
     {
         c = lerp(own, seen.color * REFLECTED_TINT, saturate(fresnel * REFLECTED * share * reflects));
+        // A ring's steep faces catch what the water reflects at a low angle, seen from above as
+        // well: the rings show as light lines on the water.
+        float sheen = saturate(length(ringed) * 1.5) * 0.3 * reflects;
+        c = lerp(c, seen.color * REFLECTED_TINT, sheen);
     }
     else
     {

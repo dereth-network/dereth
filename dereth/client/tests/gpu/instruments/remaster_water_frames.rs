@@ -13,6 +13,8 @@
 //! - `DERETH_REMASTER_LOOK_TAG`: a word in the pictures' names, to keep runs apart.
 //! - `DERETH_REMASTER_SIZE`: `WIDTHxHEIGHT` (default 960x540).
 //! - `DERETH_ART_PACK`: the art pack the remaster's pack boxes draw (default none).
+//! - `DERETH_WATER_CHECK`: set, each water pixel shows what its reflection found instead: red a
+//!   surface, green the land, blue the sky.
 
 #![cfg(gpu)]
 #![cfg(feature = "remaster")]
@@ -251,14 +253,23 @@ fn capture_the_remasters_water() {
         shot.scene.draw.cfg.render.fidelity =
             FidelityPreferences::parse_switch(&boxes).expect("the boxes read");
         shot.poll(&mut gpu);
+        if env("DERETH_WATER_CHECK").is_some() {
+            // What each water pixel's reflection found: red a surface, green the land, blue
+            // the sky.
+            let w = shot.scene.draw.remaster_water();
+            shot.scene.draw.set_remaster_water(
+                dereth_scene::world_scene::RemasterWater { check: true, ..w },
+                &mut gpu,
+            );
+        }
         shot.step_held(&mut gpu);
         shot.scene.wait_for_remaster_ground();
         for _ in 0..24 {
             shot.step_held(&mut gpu);
         }
         if name.starts_with("wade") {
-            // The body stands in the water once the world has moved on a little.
-            for _ in 0..8 {
+            // The body stands in the water once the world has moved on a second.
+            for _ in 0..30 {
                 shot.step_by(&mut gpu, 1.0 / 30.0);
             }
         }

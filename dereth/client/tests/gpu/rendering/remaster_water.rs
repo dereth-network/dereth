@@ -348,8 +348,8 @@ fn wading(
 
 /// **Rings spread round a body walking in the water from its first step**: in the pond, a body
 /// walking forward rings the water in every frame from the first step on (the frames with the
-/// rings differ from the same frames without them by thousands of pixels each), and it rings it
-/// more walking than standing.
+/// rings differ from the same frames without them by thousands of pixels each), the rings it sends
+/// out spread over more of the water as it walks, and it rings it more walking than standing.
 #[test]
 fn rings_spread_round_a_body_walking_in_the_water_from_its_first_step() {
     let _gpu = crate::common::gpu_lock();
@@ -374,8 +374,12 @@ fn rings_spread_round_a_body_walking_in_the_water_from_its_first_step() {
     let still = ringing(&standing_calm[frames - 1], &standing[frames - 1]);
     eprintln!("pond: ringing pixels walking {walking:?}; standing, the last frame {still}");
     assert!(
-        walking.iter().all(|n| *n > 5_000),
+        walking.iter().all(|n| *n > 3_000),
         "rings from the first step: {walking:?}"
+    );
+    assert!(
+        walking[frames - 1] > walking[0] + 500,
+        "the rings spread as it walks: {walking:?}"
     );
     assert!(walking[frames - 1] > still, "more walking than standing");
 }
