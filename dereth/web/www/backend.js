@@ -455,9 +455,23 @@ export function webBackend({ call, start, params, log, scale }) {
     }
   }
 
-  // Add a server from what the player typed: `{ name, host, port, emulator, ruleset }`, `host` being
-  // a bare host, `host:port`, a `wss://` URL or a status address.
-  async function addServer({ name = '', host: address, port: typed, emulator = 'unknown', ruleset = '', game = 'dereth' }) {
+  // The game a status address says its world plays, `dereth` or `auberean`; null when it does not
+  // answer or names neither.
+  async function statusGame(url) {
+    try {
+      const target = new URL(url);
+      if (target.pathname === '/' || target.pathname === '') target.pathname = '/status';
+      const said = (await (await fetch(target, { cache: 'no-store' })).json())?.game;
+      return said === 'auberean' || said === 'dereth' ? said : null;
+    } catch {
+      return null;
+    }
+  }
+
+  // Add a server from what the player typed: `{ name, host, port, emulator, ruleset, game }`, `host`
+  // being a bare host, `host:port`, a `wss://` URL or a status address. With no `game`, a status
+  // address is asked which game its world plays; anything else is Dereth's.
+  async function addServer({ name = '', host: address, port: typed, emulator = 'unknown', ruleset = '', game: named = null }) {
     let host = String(address ?? '').trim();
     let port = typed || '9000';
     let url = null;
@@ -469,6 +483,7 @@ export function webBackend({ call, start, params, log, scale }) {
     } else if (/^[^:\s/]+:\d+$/.test(host)) {
       [host, port] = host.split(':');
     }
+    const game = named ?? (url && /^https?:/i.test(url) ? await statusGame(url) : null) ?? 'dereth';
     const server = game === 'auberean' ? 'yalain' : 'empyrean';
     const slug = await call('addWorld', game, name, host, port, ruleset ?? '', url && !/^ws/i.test(url) ? server : emulator || 'unknown');
     if (url) {
@@ -580,7 +595,8 @@ export function webBackend({ call, start, params, log, scale }) {
     if (named) {
       const found = Object.entries(web.connect).find(([k, v]) => !k.includes('#') && v === named);
       try {
-        linked = found ? found[0] : await addServer({ host: named });
+        const game = ['dereth', 'auberean'].includes(params.get('game')) ? params.get('game') : null;
+        linked = found ? found[0] : await addServer({ host: named, game });
       } catch (e) {
         say(`?server=${named}: ${e?.message ?? e}`, true);
       }

@@ -551,7 +551,8 @@ chosen. The page takes only these:
 
 | Parameter | What it does |
 |---|---|
-| `server=<url>` | adds that server (a `wss://` URL or a status address) and chooses it |
+| `server=<url>` | adds that server (a `wss://` URL or a status address) and chooses it; a status address says which game its world plays |
+| `game=dereth`, `game=auberean` | the game of the `server` added, where its address cannot say (a `wss://` URL) |
 | `account=<name>` | fills the Account field |
 | `list=<url>` | reads the world list from another address, a `Servers.xml` read alone |
 | `hub=<url>` | reads the world list from another hub, its `/v1/servers` address, in place of the Dereth Network hub's (a hub run to try a release on) |

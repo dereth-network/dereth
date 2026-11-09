@@ -15,7 +15,8 @@
 //
 // The query string may choose the world, so a server's operator can link to the page with it
 // chosen: `?server=<url>&account=<name>` adds that server and chooses it; a server linked by its
-// status address says its own era and systems. `?dats=http` offers the dev runner's data files
+// status address says its own era, systems and game (`&game=auberean` names the game where a
+// `wss://` address cannot). `?dats=http` offers the dev runner's data files
 // (`cargo xtask web --dat-dir`), and `?list=<url>` reads the world list from another address (a
 // `Servers.xml`, read alone).
 // `?log` (or `?log=debug`, ...) shows the client's log and its frame rate over the canvas, for
