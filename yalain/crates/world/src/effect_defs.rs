@@ -156,7 +156,7 @@ mod watcher_flag {
 }
 
 /// What a ward keeps off, where its own data names nothing: the world's `[[effect_rule]]` rows.
-pub use yalain_content::effect_rules::{EffectRules, Ward};
+pub use yalain_content::effect_rules::{EffectRules, VitaeRestore, Ward};
 
 /// The effects that take a share of their player's vitae, for a world whose rules name none: Aun
 /// Aulatah's tap of a tenth (2017: 81 to 72.9, 1 of 1).
@@ -367,6 +367,9 @@ pub enum Kind {
     Immunity { then: u32 },
     /// Takes this share of its player's vitae, once.
     VitaeTap(f32),
+    /// Gives back these points of vitae, once, never above full: to its player and, where it
+    /// reaches them, the player's fellows in the world.
+    VitaeRestore(VitaeRestore),
     /// Anything else (kept as a record only).
     Other,
 }
@@ -414,7 +417,10 @@ impl EffectDef {
         !self.duration.is_empty()
             && !matches!(
                 self.kind,
-                Kind::InstantVital { .. } | Kind::VitalTransfer { .. } | Kind::VitaeTap(_)
+                Kind::InstantVital { .. }
+                    | Kind::VitalTransfer { .. }
+                    | Kind::VitaeTap(_)
+                    | Kind::VitaeRestore(_)
             )
     }
 
@@ -885,8 +891,8 @@ pub struct EffectTable {
 impl EffectTable {
     /// The definitions of these saved states and of the effects they add in turn (a state that
     /// does not read is left out), each the world's `rules` name (by saved state) an immunity
-    /// leaving the effect they name, a ward keeping off what it names, or a tap of its share of
-    /// vitae.
+    /// leaving the effect they name, a ward keeping off what it names, a tap of its share of vitae,
+    /// or vitae given back.
     #[must_use]
     pub fn read(
         lib: &Library,
@@ -910,6 +916,9 @@ impl EffectTable {
                 }
                 if let Some(share) = rules.vitae_taps.get(&s) {
                     d.kind = Kind::VitaeTap(*share);
+                }
+                if let Some(restore) = rules.vitae_restores.get(&s) {
+                    d.kind = Kind::VitaeRestore(*restore);
                 }
                 if let Some(text) = EffectDef::description_of(lib, &g) {
                     t.descriptions.insert(s, text);

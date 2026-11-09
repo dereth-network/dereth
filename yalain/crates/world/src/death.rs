@@ -1625,6 +1625,38 @@ pub fn tap_vitae<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId
     crate::world::keep_player(s, world);
 }
 
+/// Points of vitae are given back to a player, never above full: its vitae and the experience still
+/// to earn to raise it worked out again, both told (none to earn at full, as a rise earned to full
+/// leaves it). Returns whether its vitae rose: a player at full has nothing from it.
+pub fn restore_vitae<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    points: f32,
+) -> bool {
+    let costs = s.vitae_costs.clone();
+    let Some(p) = s.players.get_mut(&world) else {
+        return false;
+    };
+    let was = quals::float(&p.qualities, vitae_q::VITAE).unwrap_or(100.0);
+    if was >= 100.0 {
+        return false;
+    }
+    let level = crate::examine::level_of(&p.qualities);
+    let vitae = (was + points).min(100.0);
+    quals::set_float(&mut p.qualities, vitae_q::VITAE, vitae);
+    progress::send_float(net, world, vitae_q::VITAE, vitae);
+    match xp_to_raise(&costs, level, vitae) {
+        Some(x) => {
+            quals::set_long(&mut p.qualities, vitae_q::XP_TO_RAISE, x);
+            progress::send_long(net, world, vitae_q::XP_TO_RAISE, x);
+        }
+        None => quals::set_long(&mut p.qualities, vitae_q::XP_TO_RAISE, 0),
+    }
+    crate::world::keep_player(s, world);
+    true
+}
+
 /// Out of portal space after a resurrection, before the player is placed: its vitae, health and
 /// vigor, and alive as far as its client knows.
 pub fn returns<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {

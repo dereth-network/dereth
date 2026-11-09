@@ -1222,6 +1222,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 if let Some(share) = r.vitae_share {
                     t.effect_rules.vitae_taps.insert(r.effect, share);
                 }
+                if let Some(restore) = r.vitae_restore {
+                    t.effect_rules.vitae_restores.insert(r.effect, restore);
+                }
                 if let Some(then) = r.then {
                     t.effect_rules.immunities.insert(r.effect, then);
                 }

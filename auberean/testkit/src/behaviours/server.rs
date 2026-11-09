@@ -4252,6 +4252,35 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "server.effects.vitae-restore",
+        says: "An effect a world's rule says gives vitae back raises its player's vitae by its \
+               points, never above full, what is still to earn worked out again; with the fellows, \
+               each fellow in the world gains the same, one at full nothing; each who gains plays the \
+               effect's appearance. A world with no such rule gives none back.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-VITAE-RESTORE"),
+        station: "yalain-testkit::cpu::play::gives::a_vitae_restore_gives_its_points_back_to_its_player_and_fellows_never_above_full",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.effects.vitae-restore-crystalabra",
+        says: "The Crystalabra used gives its quest, whose giving gives two points of vitae back to \
+               its user and the user's fellows, and is used up; its quest over, another may be used.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-VITAE-RESTORE-CRYSTALABRA"),
+        station: "yalain-testkit::dat::effects::the_crystalabra_gives_its_user_and_fellows_two_points_of_vitae",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.effects.vitae-restore-rows",
+        says: "A world that gives vitae back gives the Crystalabra's cure two points to its user and \
+               fellows, and has its quest as a row whose giving puts the cure on.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-VITAE-RESTORE-ROWS"),
+        station: "yalain-testkit::corpus::world_db::the_worlds_crystalabra_rows_give_its_cure_through_its_quest",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.effects.ward-from-a-row",
         says: "A world's `[[effect_rule]]` ward keeps off the effects of its classes and the effects it \
                names, by its chance, and nothing else of theirs; a world's ward rows are its wards alone.",

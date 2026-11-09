@@ -1043,7 +1043,7 @@ pub fn killed<S: Store>(
     for e in named.iter().filter(|e| !moved.contains(&e.quest)) {
         moves(s, net, killer, *e, true, clock);
     }
-    let fellows = fellows_of(s, killer);
+    let fellows = crate::fellowship::fellows_in_world(s, killer);
     for w in fellows {
         for e in &named {
             if reaches(s, *e, killer, w) {
@@ -1059,22 +1059,6 @@ pub fn named_for_use<S: Store>(s: &Server<S>, props: &yalain_content::Props) -> 
     (1..=8)
         .filter_map(|i| props.text(&format!("{}{i}", crate::item_use::USED.0)))
         .filter_map(|n| effect_named(n, |q| s.quest_ids.get(q).copied()))
-        .collect()
-}
-
-/// The world connections of a player's fellows in the world.
-fn fellows_of<S: Store>(s: &Server<S>, world: ConnId) -> Vec<ConnId> {
-    let Some(me) = s.players.get(&world).map(|p| p.character) else {
-        return Vec::new();
-    };
-    let Some(f) = s.fellowships.of(me) else {
-        return Vec::new();
-    };
-    s.fellowships.list[f]
-        .fellows
-        .iter()
-        .filter(|x| x.id != me)
-        .filter_map(|x| crate::social::world_of(s, x.id))
         .collect()
 }
 

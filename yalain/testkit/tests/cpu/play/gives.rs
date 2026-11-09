@@ -1173,6 +1173,125 @@ fn a_vitae_tap_takes_what_its_rule_says_and_without_rules_2017s() {
     assert!((vitae.expect("vitae") - 40.0).abs() < 1e-3, "{vitae:?}");
 }
 
+/// An effect a world's rule makes give vitae back raises its player's vitae by its points, never
+/// above full, the experience still to earn worked out again; with the fellows, each of the
+/// player's fellows in the world gains the same, one at full nothing, and each who gains plays the
+/// effect's appearance.
+///
+/// Behaviour: server.effects.vitae-restore
+#[test]
+fn a_vitae_restore_gives_its_points_back_to_its_player_and_fellows_never_above_full() {
+    use yalain_world::death::vitae_q::{VITAE, XP_TO_RAISE};
+    use yalain_world::effect_defs::{Kind, VitaeRestore};
+    use yalain_world::fellowship::{Fellow, Fellowship, Vitals};
+    const FX: u32 = 0x4100_00C0;
+    const ALONE: u32 = 0x6F00_7777;
+    const SHARED: u32 = 0x6F00_7778;
+    let mut h = world();
+    let tap = h
+        .server
+        .effect_table
+        .effects
+        .get(&yalain_testkit::VITAE_TAP)
+        .cloned()
+        .expect("the test world's tap");
+    for (state, fellows) in [(ALONE, false), (SHARED, true)] {
+        h.server.effect_table.effects.insert(
+            state,
+            yalain_world::effect_defs::EffectDef {
+                state,
+                kind: Kind::VitaeRestore(VitaeRestore {
+                    points: 2.0,
+                    fellows,
+                }),
+                fx: FX,
+                ..tap.clone()
+            },
+        );
+    }
+    let (a, me) = player(&mut h, "one", "Elara");
+    let (b, you) = player(&mut h, "two", "Bran");
+    let (c, them) = player(&mut h, "three", "Cade");
+    let (_, other) = player(&mut h, "four", "Dorn");
+    h.server.fellowships.list.push(Fellowship {
+        name: "Seekers".into(),
+        leader: me,
+        flags: 0,
+        room: 1,
+        fellows: [me, you, them]
+            .iter()
+            .map(|&id| Fellow {
+                id,
+                joined: 0.0,
+                sent: Vitals::default(),
+                next_check: f64::INFINITY,
+            })
+            .collect(),
+        last_claimant: 0,
+    });
+    let set = |h: &mut Harness, who: u64, v: f32| {
+        let w = world_of(h, who);
+        let p = h.server.players.get_mut(&w).expect("in");
+        yalain_world::quals::set_float(&mut p.qualities, VITAE, v);
+    };
+    let vitae = |h: &Harness, who: u64| {
+        yalain_world::quals::float(&h.server.players[&world_of(h, who)].qualities, VITAE)
+            .expect("vitae")
+    };
+    for (who, v) in [(me, 80.0), (you, 99.0), (them, 100.0), (other, 90.0)] {
+        set(&mut h, who, v);
+    }
+    let shown = |h: &Harness, bot: usize, from: usize, id: u64| {
+        h.world_messages(bot, from)
+            .iter()
+            .any(|m| matches!(m, ServerMessage::DoFx(e) if e.sender.id == id && e.action.fx == FX))
+    };
+    let from = [a, b, c].map(|bot| h.bots[bot].inbox.len());
+    let world = world_of(&h, me);
+    let cast = yalain_world::effects::Cast {
+        caster: me,
+        spellcraft: 50.0,
+        ..yalain_world::effects::Cast::default()
+    };
+    let clock = h.clock();
+    // Its player alone.
+    assert!(yalain_world::effects::apply(
+        &mut h.server,
+        &mut h.net,
+        world,
+        ALONE,
+        cast,
+        clock
+    ));
+    assert!((vitae(&h, me) - 82.0).abs() < 1e-3);
+    assert!((vitae(&h, you) - 99.0).abs() < 1e-3, "no fellow");
+    // With the fellows: never above full, one at full nothing, one outside the fellowship nothing.
+    assert!(yalain_world::effects::apply(
+        &mut h.server,
+        &mut h.net,
+        world,
+        SHARED,
+        cast,
+        clock
+    ));
+    h.run(3);
+    for (who, want) in [(me, 84.0), (you, 100.0), (them, 100.0), (other, 90.0)] {
+        assert!(
+            (vitae(&h, who) - want).abs() < 1e-3,
+            "{who:X}: {}",
+            vitae(&h, who)
+        );
+    }
+    let to_earn = |h: &Harness, who: u64| {
+        yalain_world::quals::long(&h.server.players[&world_of(h, who)].qualities, XP_TO_RAISE)
+    };
+    assert!(to_earn(&h, me).is_some_and(|x| x > 0), "worked out again");
+    assert_eq!(to_earn(&h, you), Some(0), "none to earn at full");
+    assert!(shown(&h, a, from[0], me));
+    assert!(shown(&h, b, from[1], you), "the fellow who gained");
+    assert!(!shown(&h, c, from[2], them), "the one at full: nothing");
+}
+
 const ELYSA: u32 = 0x4000_024A;
 const BOJU_GEM: u32 = 0x4700_1505;
 

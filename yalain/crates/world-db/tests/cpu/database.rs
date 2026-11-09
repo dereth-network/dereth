@@ -2734,6 +2734,55 @@ fn an_effect_rule_row_may_name_what_an_immunity_leaves_as_it_ends() {
     }
 }
 
+/// Behaviour: server.effects.vitae-restore
+#[test]
+fn an_effect_rule_row_may_give_vitae_back_to_its_player_and_fellows() {
+    let mut files = fixture();
+    files.insert(
+        "town/server/effects.toml".into(),
+        "[[effect_rule]]\neffect = 0x6F000DCC\nvitae_restore = { points = 2.0, fellows = true }\nprov = { from = \"authored\" }\n\n\
+         [[effect_rule]]\neffect = 0x6F000DCD\nvitae_restore = { points = 100 }\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    assert_eq!(check(&files), Vec::new());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let r = &t.effect_rules.vitae_restores;
+    assert_eq!(
+        r.get(&0x6F00_0DCC),
+        Some(&yalain_content::effect_rules::VitaeRestore {
+            points: 2.0,
+            fellows: true
+        })
+    );
+    assert_eq!(
+        r.get(&0x6F00_0DCD),
+        Some(&yalain_content::effect_rules::VitaeRestore {
+            points: 100.0,
+            fellows: false
+        }),
+        "the whole of it, its player alone"
+    );
+    assert!(t.effect_rules.vitae_taps.is_empty());
+    // Points above nothing and at most full, and nothing else.
+    for restore in [
+        "{ points = 0 }",
+        "{ points = 100.5 }",
+        "{ points = -2 }",
+        "{ fellows = true }",
+        "{ points = 2, fellows = 1 }",
+        "{ points = 2, share = 0.1 }",
+        "2.0",
+    ] {
+        files.insert(
+            "town/server/effects.toml".into(),
+            format!(
+                "[[effect_rule]]\neffect = 0x6F000DCC\nvitae_restore = {restore}\nprov = {{ from = \"authored\" }}\n"
+            ),
+        );
+        assert!(read(&files).is_err(), "{restore}");
+    }
+}
+
 const GIVE_ROW: &str = r#"[[give]]
 key = "bucket"
 item = 0x470020B9

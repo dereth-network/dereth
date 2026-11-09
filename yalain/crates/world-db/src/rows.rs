@@ -728,6 +728,8 @@ pub struct EffectRule {
     pub effect: u32,
     pub ward: Option<yalain_content::effect_rules::Ward>,
     pub vitae_share: Option<f32>,
+    /// The vitae it gives back, and to whom.
+    pub vitae_restore: Option<yalain_content::effect_rules::VitaeRestore>,
     /// The effect is an immunity under way, which leaves this one (by its saved state) as it ends.
     pub then: Option<u32>,
     pub prov: Prov,
@@ -1510,7 +1512,14 @@ pub const FIELDS: [(&str, &[&str]); 52] = [
     ("popup", &["on", "effect", "prov"]),
     (
         "effect_rule",
-        &["effect", "ward", "vitae_share", "then", "prov"],
+        &[
+            "effect",
+            "ward",
+            "vitae_share",
+            "vitae_restore",
+            "then",
+            "prov",
+        ],
     ),
     ("treasure_value", &["level", "values", "prov"]),
     (
@@ -2326,15 +2335,20 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 None => None,
             };
             let vitae_share = f.share("vitae_share").map(to_f32);
+            let vitae_restore = match f.get("vitae_restore") {
+                Some(_) => Some(f.vitae_restore()?),
+                None => None,
+            };
             let then = f.id("then");
             if then == Some(effect) {
                 f.bad("then", "an immunity leaves another effect than itself");
                 return None;
             }
-            if ward.is_none() && vitae_share.is_none() && then.is_none() {
+            if ward.is_none() && vitae_share.is_none() && vitae_restore.is_none() && then.is_none()
+            {
                 f.bad(
-                    "ward, vitae_share, then",
-                    "a rule names a ward, a share of vitae or what an immunity leaves",
+                    "ward, vitae_share, vitae_restore, then",
+                    "a rule names a ward, a share of vitae, vitae given back or what an immunity leaves",
                 );
                 return None;
             }
@@ -2342,6 +2356,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 effect,
                 ward,
                 vitae_share,
+                vitae_restore,
                 then,
                 prov: f.req_prov()?,
             })
@@ -4149,6 +4164,33 @@ impl<'a> Fields<'a> {
             self.bad(
                 "ward",
                 "{ classes, effects, chance }: the classes and the effects it keeps off, at least one, and a chance above 0, at most 1",
+            );
+        }
+        read
+    }
+
+    fn vitae_restore(&mut self) -> Option<yalain_content::effect_rules::VitaeRestore> {
+        let Some(v) = self.get("vitae_restore") else {
+            return self.missing("vitae_restore");
+        };
+        let read = v.as_table().and_then(|t| {
+            if t.keys()
+                .any(|k| !["points", "fellows"].contains(&k.as_str()))
+            {
+                return None;
+            }
+            let points = to_f32(as_number(t.get("points")?)?);
+            let fellows = match t.get("fellows") {
+                Some(b) => b.as_bool()?,
+                None => false,
+            };
+            (points > 0.0 && points <= 100.0)
+                .then_some(yalain_content::effect_rules::VitaeRestore { points, fellows })
+        });
+        if read.is_none() {
+            self.bad(
+                "vitae_restore",
+                "{ points, fellows }: the points of vitae it gives back, above 0, at most 100, and whether its player's fellows have them too",
             );
         }
         read

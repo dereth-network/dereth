@@ -838,6 +838,19 @@ pub fn apply_on<S: Store>(
             }
             true
         }
+        // The appearance plays on each player whose vitae it raises.
+        (Kind::VitaeRestore(r), On::Player(world)) => {
+            let mut to = vec![world];
+            if r.fellows {
+                to.extend(crate::fellowship::fellows_in_world(s, world));
+            }
+            for w in to {
+                if crate::death::restore_vitae(s, net, w, r.points) && def.fx != 0 {
+                    show_fx(s, net, w, def.fx);
+                }
+            }
+            true
+        }
         (Kind::Taunt(share), On::Creature(id)) => {
             crate::ai::taunted(s, id, cast.caster, *share, clock.local.0);
             true
@@ -847,7 +860,7 @@ pub fn apply_on<S: Store>(
             On::Creature(_),
         )
         | (Kind::Taunt(_), On::Player(_))
-        | (Kind::VitaeTap(_), On::Creature(_))
+        | (Kind::VitaeTap(_) | Kind::VitaeRestore(_), On::Creature(_))
         | (Kind::Aura(_), _) => false,
         // A pet is summoned as its skill's use ends ([`crate::pets`]), never as an effect; a
         // recall is its skill's trip ([`crate::skill_use`]).
@@ -2442,6 +2455,7 @@ pub fn toggled_on<S: Store>(
             | Kind::RemoveRecipe(_)
             | Kind::Taunt(_)
             | Kind::VitaeTap(_)
+            | Kind::VitaeRestore(_)
             | Kind::Aura(_)
             | Kind::Pet { .. }
             | Kind::Recall(_)

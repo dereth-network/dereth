@@ -228,6 +228,43 @@ fn the_worlds_immunity_rows_are_the_servers_own_entry_for_entry() {
     }
 }
 
+/// A world that gives vitae back gives the Crystalabra's cure its two points to its user and
+/// fellows, and has its quest as a row whose giving puts the cure on, over in time for another
+/// item. A world with no such rows gives none back.
+/// Behaviour: server.effects.vitae-restore-rows
+#[test]
+fn the_worlds_crystalabra_rows_give_its_cure_through_its_quest() {
+    use yalain_world::effect_defs::VitaeRestore;
+    let t = &compiled().tables;
+    if t.effect_rules.vitae_restores.is_empty() {
+        return;
+    }
+    assert_eq!(
+        t.effect_rules.vitae_restores,
+        std::collections::BTreeMap::from([(
+            yalain_testkit::CRYSTALABRA_CURE,
+            VitaeRestore {
+                points: 2.0,
+                fellows: true
+            }
+        )])
+    );
+    let quest = t
+        .quests
+        .quest(0x4000_0312)
+        .expect("the Crystalabra's quest");
+    assert!(
+        quest
+            .effects
+            .iter()
+            .any(|(_, e)| *e == yalain_testkit::CRYSTALABRA_CURE),
+        "{:?}",
+        quest.effects
+    );
+    assert!(quest.duration > 0.0, "over in time");
+    assert!(quest.hidden);
+}
+
 /// A world's mine and map region rows hold the server's own, entry for entry: each mining skill's
 /// behavior, tools, answers, delving node, lodestones and finds, each region's nodes by their
 /// effects, and what each mining tool yields unmade; so a world with them mines as one without.

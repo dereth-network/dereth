@@ -2812,3 +2812,171 @@ fn the_massive_destrucflux_burns_creatures_within_its_reach_and_is_gone() {
     assert_eq!(vital(&h), health_before, "its user not");
     assert!(h.server.pets.of(me).is_empty(), "gone at its strike");
 }
+
+const CRYSTALABRA: u32 = 0x4700_1C6D;
+const CRYSTALABRA_QUEST: u32 = 0x4000_0312;
+
+/// A world of one pack: the Crystalabra's quest, ending a second after its giving, and its cure's
+/// rule.
+fn crystalabra_world() -> yalain_world_db::Files {
+    let mut files = tyrant_world();
+    files.remove("p/server/quests/400002DF.toml");
+    files.insert(
+        "p/server/quests/40000312.toml".into(),
+        "[[quest]]\nid = 0x40000312\nstate = 0x6F000786\nduration = 1.0\nvisible = false\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    files.insert(
+        "p/server/effects.toml".into(),
+        "[[effect_rule]]\neffect = 0x6F000DCC\nvitae_restore = { points = 2.0, fellows = true }\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    files
+}
+
+/// The Crystalabra used gives its quest, whose giving gives two points of vitae back to its user
+/// and its user's fellow, with the cure's own appearance, and the item is used up; its quest over a
+/// second later, another Crystalabra gives them again. Without a world's rule its cure is nothing
+/// but a record (its own data says nothing of vitae).
+/// Behaviour: server.effects.vitae-restore-crystalabra
+#[test]
+fn the_crystalabra_gives_its_user_and_fellows_two_points_of_vitae() {
+    use yalain_world::death::vitae_q::VITAE;
+    use yalain_world::fellowship::{Fellow, Fellowship, Vitals};
+    let p = Portal::open();
+    let bare = p.effects_ruled(
+        &[yalain_testkit::CRYSTALABRA_CURE],
+        &yalain_world::effect_defs::EffectRules::default(),
+    );
+    assert_eq!(
+        bare.get(yalain_testkit::CRYSTALABRA_CURE).map(|d| &d.kind),
+        Some(&Kind::Other),
+        "nothing without a rule"
+    );
+    let t = p.compile(&crystalabra_world());
+    let uses = p.item_uses(&[CRYSTALABRA]);
+    let mut states: Vec<u32> = uses.values().flatten().map(|e| e.state).collect();
+    states.extend(t.quests.effect_states());
+    let mut h = yalain_testkit::Harness::new();
+    h.server.catalog.insert(p.template(CRYSTALABRA));
+    h.server.item_uses = uses;
+    h.server.effect_table = p.effects_ruled(&states, &t.effect_rules);
+    h.server.quests = t.quests.clone();
+    let cure = h
+        .server
+        .effect_table
+        .get(yalain_testkit::CRYSTALABRA_CURE)
+        .expect("the quest's giving puts on the cure");
+    assert!(
+        matches!(cure.kind, Kind::VitaeRestore(_)),
+        "{:?}",
+        cure.kind
+    );
+    let fx = cure.fx;
+    let (b, me) = h.player_in_world("one", "Elara");
+    let (_, you) = h.player_in_world("two", "Bran");
+    for b in [0, 1] {
+        h.bots[b].send(
+            true,
+            auberean_protocol::queue::WEENIE,
+            &auberean_protocol::ClientMessage::SceneRenderingComplete(
+                auberean_protocol::login::Empty,
+            ),
+        );
+    }
+    h.run(5);
+    h.server.fellowships.list.push(Fellowship {
+        name: "Seekers".into(),
+        leader: me,
+        flags: 0,
+        room: 1,
+        fellows: [me, you]
+            .iter()
+            .map(|&id| Fellow {
+                id,
+                joined: 0.0,
+                sent: Vitals::default(),
+                next_check: f64::INFINITY,
+            })
+            .collect(),
+        last_claimant: 0,
+    });
+    let world_of = |h: &yalain_testkit::Harness, who: u64| {
+        *h.server
+            .players
+            .iter()
+            .find(|(_, p)| p.character == who)
+            .expect("in the world")
+            .0
+    };
+    let (world, fellow) = (world_of(&h, me), world_of(&h, you));
+    // Of the level the item asks of its user, 45.
+    for (w, v) in [(world, 80.0), (fellow, 90.0)] {
+        let pl = h.server.players.get_mut(&w).expect("the player");
+        yalain_world::quals::set_int(&mut pl.qualities, yalain_world::examine::LEVEL, 50);
+        yalain_world::quals::set_float(&mut pl.qualities, VITAE, v);
+    }
+    let vitae = |h: &yalain_testkit::Harness, w| {
+        yalain_world::quals::float(&h.server.players[&w].qualities, VITAE).expect("vitae")
+    };
+    let use_one = |h: &mut yalain_testkit::Harness| {
+        let item = yalain_world::inventory::give(&mut h.server, &mut h.net, world, CRYSTALABRA, 1)
+            .expect("given");
+        h.run(3);
+        let from = h.bots[b].inbox.len();
+        h.bots[b].send(
+            true,
+            auberean_protocol::queue::WEENIE,
+            &yalain_testkit::play::server_call(
+                0x8216_0016,
+                &[yalain_testkit::play::use_of(item, me)],
+            ),
+        );
+        let end = h.now.0 + 5.0;
+        while h.now.0 < end {
+            h.step();
+        }
+        let shown = h.world_messages(b, from).iter().any(|m| {
+            matches!(m, auberean_protocol::ServerMessage::DoFx(e) if e.sender.id == me && e.action.fx == fx)
+        });
+        let kept = h.server.players[&world]
+            .play
+            .items
+            .iter()
+            .any(|i| i.id == item);
+        (shown, kept)
+    };
+    let (shown, kept) = use_one(&mut h);
+    assert!(
+        h.server.players[&world]
+            .play
+            .quests
+            .iter()
+            .any(|q| q.quest == CRYSTALABRA_QUEST),
+        "the quest given: {:?}",
+        h.server.unhandled.counts()
+    );
+    assert!(
+        (vitae(&h, world) - 82.0).abs() < 1e-3,
+        "{}",
+        vitae(&h, world)
+    );
+    assert!(
+        (vitae(&h, fellow) - 92.0).abs() < 1e-3,
+        "{}",
+        vitae(&h, fellow)
+    );
+    assert!(shown, "the cure's appearance");
+    assert!(!kept, "used up");
+    let _ = use_one(&mut h);
+    assert!(
+        (vitae(&h, world) - 84.0).abs() < 1e-3,
+        "again: {}",
+        vitae(&h, world)
+    );
+    assert!(
+        (vitae(&h, fellow) - 94.0).abs() < 1e-3,
+        "{}",
+        vitae(&h, fellow)
+    );
+}

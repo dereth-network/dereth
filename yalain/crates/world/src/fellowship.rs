@@ -244,6 +244,22 @@ impl Fellowships {
     }
 }
 
+/// The world connections of a player's fellows in the world (none outside a fellowship).
+pub fn fellows_in_world<S: Store>(s: &Server<S>, world: ConnId) -> Vec<ConnId> {
+    let Some(me) = s.players.get(&world).map(|p| p.character) else {
+        return Vec::new();
+    };
+    let Some(f) = s.fellowships.of(me) else {
+        return Vec::new();
+    };
+    s.fellowships.list[f]
+        .fellows
+        .iter()
+        .filter(|x| x.id != me)
+        .filter_map(|x| crate::social::world_of(s, x.id))
+        .collect()
+}
+
 /// The share of a kill's experience each fellow gets, by how many fellows are of a level to share.
 #[must_use]
 pub fn share(eligible: usize) -> f64 {
