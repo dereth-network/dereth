@@ -363,7 +363,27 @@ pub struct Tally {
     /// For each environment piece, the lowest-numbered cell built from it and that cell's surface
     /// list, which is what the piece's textures and picture are read through.
     pub piece_surfaces: BTreeMap<ModelId, (u32, Vec<DataId>)>,
+    /// Every surface list each environment piece's cells are drawn with.
+    pub cell_lists: BTreeMap<(ModelId, Vec<DataId>), CellList>,
     pub world: WorldCounts,
+}
+
+/// The cells of one piece that share one surface list.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CellList {
+    /// How many, by use.
+    pub uses: BTreeMap<Use, u64>,
+    /// The lowest-numbered of them.
+    pub lowest: u32,
+}
+
+impl CellList {
+    fn merge(&mut self, other: &Self) {
+        for (u, n) in &other.uses {
+            *self.uses.entry(*u).or_default() += n;
+        }
+        self.lowest = self.lowest.min(other.lowest);
+    }
 }
 
 impl Tally {
@@ -399,6 +419,19 @@ impl Tally {
         }
     }
 
+    /// Counts one cell of `id` in `use_` drawn with `surfaces`.
+    pub fn cell_list(&mut self, id: ModelId, use_: Use, cell: u32, surfaces: &[DataId]) {
+        let e = self
+            .cell_lists
+            .entry((id, surfaces.to_vec()))
+            .or_insert_with(|| CellList {
+                uses: BTreeMap::new(),
+                lowest: cell,
+            });
+        *e.uses.entry(use_).or_default() += 1;
+        e.lowest = e.lowest.min(cell);
+    }
+
     /// The stats of `id` in `use_`, made empty when it has none yet.
     pub fn stats_mut(&mut self, id: ModelId, use_: Use) -> &mut UseStats {
         self.uses.entry(id).or_default().entry(use_).or_default()
@@ -413,6 +446,14 @@ impl Tally {
         }
         for (id, (cell, surfaces)) in other.piece_surfaces {
             self.piece_cell(id, cell, &surfaces);
+        }
+        for (key, list) in other.cell_lists {
+            match self.cell_lists.get_mut(&key) {
+                Some(e) => e.merge(&list),
+                None => {
+                    self.cell_lists.insert(key, list);
+                }
+            }
         }
         self.world.merge(&other.world);
     }

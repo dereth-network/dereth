@@ -2,24 +2,29 @@
 //!
 //! ```text
 //! dereth-art survey [--dat-dir <dir>] [--out <dir>] [--spawns <spawns.tsv>] [--tags <tags.tsv>]
-//!                   [--landblocks <XXYY,XXYY,...>] [--threads <n>] [--no-thumbnails]
+//!                   [--landblocks <XXYY,XXYY,...>] [--threads <n>] [--no-thumbnails] [--pixels]
 //! dereth-art pack <folder> [--out <file>] [--check]
+//! dereth-art mesh <id> [--dat-dir <dir>]
 //! ```
 //!
 //! `survey`: `--dat-dir` defaults to `DERETH_TEST_DAT_DIR`, `--out` to `target/art-survey`,
 //! `--tags` to `tags.tsv` in the output folder when it is there, and `--threads` to the
-//! machine's.
+//! machine's. `--pixels` also writes every retail picture the world draws to `pictures/` there.
 //!
 //! `pack`: the art pack in `<folder>` packed into one file, `--out` or `<folder>.dat` beside it;
 //! with `--check`, whether that file is what the folder packs into now, and which records are
 //! not.
+//!
+//! `mesh`: the triangles the model `<id>` draws, as JSON on the standard output, by group: its
+//! surface, and each corner's position, normal and picture coordinates.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 const USAGE: &str = "dereth-art survey [--dat-dir <dir>] [--out <dir>] [--spawns <spawns.tsv>] \
-[--tags <tags.tsv>] [--landblocks <XXYY,XXYY,...>] [--threads <n>] [--no-thumbnails]
-       dereth-art pack <folder> [--out <file>] [--check]";
+[--tags <tags.tsv>] [--landblocks <XXYY,XXYY,...>] [--threads <n>] [--no-thumbnails] [--pixels]
+       dereth-art pack <folder> [--out <file>] [--check]
+       dereth-art mesh <id> [--dat-dir <dir>]";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -38,6 +43,7 @@ fn main() -> ExitCode {
                 ExitCode::from(2)
             }
         },
+        Some("mesh") => mesh(&args[1..]),
         Some("-h" | "--help") => {
             println!("usage: {USAGE}");
             ExitCode::SUCCESS
@@ -57,6 +63,7 @@ fn options(args: &[String]) -> Result<dereth_art::survey::Options, String> {
     let mut landblocks = None;
     let mut threads = None;
     let mut thumbnails = true;
+    let mut pixels = false;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         let mut value = || {
@@ -90,6 +97,7 @@ fn options(args: &[String]) -> Result<dereth_art::survey::Options, String> {
                 );
             }
             "--no-thumbnails" => thumbnails = false,
+            "--pixels" => pixels = true,
             other => return Err(format!("unknown argument {other:?}")),
         }
     }
@@ -109,6 +117,7 @@ fn options(args: &[String]) -> Result<dereth_art::survey::Options, String> {
             std::thread::available_parallelism().map_or(4, std::num::NonZeroUsize::get)
         }),
         thumbnails,
+        pixels,
     })
 }
 
@@ -189,6 +198,53 @@ fn pack(dir: &std::path::Path, out: &std::path::Path, check: bool) -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+fn mesh(args: &[String]) -> ExitCode {
+    let id = args.first().and_then(|s| {
+        u32::from_str_radix(s.trim_start_matches("0x"), 16)
+            .ok()
+            .map(dereth_primitives::DataId)
+    });
+    let dat_dir = match args.get(1..) {
+        Some([flag, dir]) if flag == "--dat-dir" => Some(PathBuf::from(dir)),
+        _ => std::env::var_os("DERETH_TEST_DAT_DIR").map(PathBuf::from),
+    };
+    let (Some(id), Some(dat_dir)) = (id, dat_dir) else {
+        eprintln!("usage: {USAGE}");
+        return ExitCode::from(2);
+    };
+    let store = match dereth_art::survey::open_dats(&dat_dir) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("dereth-art mesh: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let mut models = dereth_art::model::Models::new(&store);
+    let Some(mesh) = models.mesh(dereth_art::tally::ModelId::Object(id), &[]) else {
+        eprintln!("dereth-art mesh: {id:?} does not read");
+        return ExitCode::FAILURE;
+    };
+    let groups: Vec<_> = mesh
+        .groups
+        .iter()
+        .map(|g| {
+            let corners: Vec<_> = g
+                .triangles
+                .iter()
+                .flatten()
+                .map(|v| (v.position, v.normal, v.uv))
+                .collect();
+            serde_json::json!({
+                "surface": g.surface.map(|s| s.0),
+                "two_sided": g.two_sided,
+                "corners": corners,
+            })
+        })
+        .collect();
+    println!("{}", serde_json::Value::Array(groups));
+    ExitCode::SUCCESS
 }
 
 fn survey(opts: &dereth_art::survey::Options) -> ExitCode {

@@ -142,6 +142,7 @@ pub fn survey_block(
             },
         );
         tally.piece_cell(piece, d.id.0, &d.cell.surfaces);
+        tally.cell_list(piece, piece_use, d.id.0, &d.cell.surfaces);
         for s in cell_statics(d) {
             block.see(
                 ModelId::Object(s.id),

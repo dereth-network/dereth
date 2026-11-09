@@ -16,8 +16,8 @@
 //!
 //! [`survey::run`] is the whole survey: [`world`] walks every landblock into a [`tally::Tally`],
 //! [`character`] adds the bodies and the clothing, [`spawns`] reads the server's table,
-//! [`model`] says what each model is made of, [`thumb`] draws its picture and [`output`] writes
-//! the tables, the summary and the report.
+//! [`model`] says what each model is made of, [`thumb`] draws its picture, [`pictures`] says what
+//! each retail picture is drawn on and [`output`] writes the tables, the summary and the report.
 
 #![doc(html_no_source)]
 
@@ -25,6 +25,7 @@ pub mod character;
 pub mod model;
 pub mod output;
 pub mod pack;
+pub mod pictures;
 pub mod spawns;
 pub mod survey;
 pub mod tally;

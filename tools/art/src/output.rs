@@ -1,13 +1,14 @@
 //! The survey's output: `models.tsv` (one row per model), `uses.tsv` (one row per model and
-//! use), `summary.md` (the headline numbers and the rankings) and `report.html` (a page with
-//! every model, its picture and where it is used, sortable and filterable, that needs nothing
-//! but the files beside it).
+//! use), `pictures.tsv` (one row per retail picture), `summary.md` (the headline numbers and the
+//! rankings) and `report.html` (a page with every model, its picture and where it is used,
+//! sortable and filterable, that needs nothing but the files beside it).
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::Path;
 
 use crate::model::Facts;
+use crate::pictures::{FACINGS, PLACES};
 use crate::survey::Survey;
 use crate::tally::{ids_covering, total, Example, ModelId, Ranked, Tally, Use, UseStats};
 
@@ -29,6 +30,7 @@ pub fn write(survey: &Survey, out: &Path) -> Result<(), String> {
     };
     put("models.tsv", models_tsv(survey))?;
     put("uses.tsv", uses_tsv(survey))?;
+    put("pictures.tsv", pictures_tsv(survey))?;
     put("summary.md", summary_md(survey))?;
     put("report.html", report_html(survey))?;
     Ok(())
@@ -110,6 +112,49 @@ pub fn models_tsv(s: &Survey) -> String {
             s.thumbnails.get(id).map_or("", String::as_str),
             tsv_clean(s.tags.get(id).map_or("", String::as_str)),
         );
+    }
+    out
+}
+
+/// `pictures.tsv`: where each picture is drawn, its square meters by place and facing, and the
+/// meters one repeat spans.
+#[must_use]
+pub fn pictures_tsv(s: &Survey) -> String {
+    let mut out = String::from("id\twidth\theight\tbuilt\tworn\tsurface_bits\tuses");
+    for place in PLACES {
+        for facing in FACINGS {
+            let _ = write!(out, "\t{place}_{facing}");
+        }
+    }
+    out.push_str("\trepeat_u\trepeat_v\tmodel\tseen\n");
+    for (id, p) in &s.pictures {
+        let uses = p
+            .instances
+            .iter()
+            .map(|(u, n)| format!("{}:{n}", u.name()))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let _ = write!(
+            out,
+            "0x{:08X}\t{}\t{}\t{}\t{}\t0x{:08X}\t{uses}",
+            id.0,
+            p.width,
+            p.height,
+            u8::from(p.built()),
+            u8::from(p.worn()),
+            p.surface_bits,
+        );
+        for area in p.area.iter().flatten() {
+            let _ = write!(out, "\t{area:.1}");
+        }
+        let (u, v) = p.repeat.map_or((String::new(), String::new()), |(u, v)| {
+            (format!("{u:.3}"), format!("{v:.3}"))
+        });
+        let (model, seen) = p
+            .seen
+            .as_ref()
+            .map_or((String::new(), ""), |(m, at)| (m.text(), at.as_str()));
+        let _ = writeln!(out, "\t{u}\t{v}\t{model}\t{seen}");
     }
     out
 }

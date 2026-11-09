@@ -15,9 +15,10 @@ use dereth_scene::textures::TextureStore;
 
 use crate::character::{self, CharacterCounts};
 use crate::model::{Facts, Models};
+use crate::pictures::PictureUse;
 use crate::tally::{ModelId, Tally};
 use crate::thumb::{self, Image, Material};
-use crate::{output, spawns, world};
+use crate::{output, pictures, spawns, world};
 
 /// The picture size, in pixels.
 pub const THUMBNAIL_SIZE: u32 = 128;
@@ -38,6 +39,8 @@ pub struct Options {
     pub threads: usize,
     /// Draw a picture of every model.
     pub thumbnails: bool,
+    /// Write every retail picture the world draws, as the client decodes it.
+    pub pixels: bool,
 }
 
 /// Everything the survey found.
@@ -47,6 +50,8 @@ pub struct Survey {
     pub facts: BTreeMap<ModelId, Facts>,
     /// The models whose picture was written, by file name inside `out`.
     pub thumbnails: BTreeMap<ModelId, String>,
+    /// What each picture is drawn on.
+    pub pictures: BTreeMap<DataId, PictureUse>,
     pub tags: BTreeMap<ModelId, String>,
     pub characters: CharacterCounts,
     /// Rows read from the spawn table.
@@ -155,10 +160,16 @@ pub fn collect(
             .map_err(|e| format!("{}: {e}", thumbs_dir.display()))?;
     }
     let (facts, thumbnails) = describe(store, &tally, &ids, opts, &thumbs_dir)?;
+    log("measuring what each picture is drawn on");
+    let pictures = pictures::collect(store, &tally);
+    if opts.pixels {
+        pictures::write_pixels(store, &pictures, &opts.out.join("pictures"))?;
+    }
     Ok(Survey {
         tally,
         facts,
         thumbnails,
+        pictures,
         tags,
         characters,
         spawn_rows,
