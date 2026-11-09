@@ -220,7 +220,12 @@ fn set_plugin_updates(b: State<'_, Shared>, setting: String) -> Cmd<()> {
 async fn refresh_art(b: State<'_, Shared>) -> Cmd<String> {
     let shared = b.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        Backend::refresh_art(&shared, &backend::fetch_plugin_file, &art::fetch_pack)
+        Backend::refresh_art(
+            &shared,
+            &backend::fetch_plugin_file,
+            &art::ask_github,
+            &art::fetch_pack,
+        )
     })
     .await
     .map_err(|e| e.to_string())
@@ -231,7 +236,7 @@ async fn refresh_art(b: State<'_, Shared>) -> Cmd<String> {
 async fn add_art_source(b: State<'_, Shared>, url: String) -> Cmd<String> {
     let shared = b.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        Backend::add_art_source(&shared, &backend::fetch_plugin_file, &url)
+        Backend::add_art_source(&shared, &backend::fetch_plugin_file, &art::ask_github, &url)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -903,7 +908,12 @@ fn main() {
             // Library's setting says so.
             let art = shared.clone();
             std::thread::spawn(move || {
-                Backend::refresh_art_at_start(&art, &backend::fetch_plugin_file, &art::fetch_pack);
+                Backend::refresh_art_at_start(
+                    &art,
+                    &backend::fetch_plugin_file,
+                    &art::ask_github,
+                    &art::fetch_pack,
+                );
             });
             // The author's tool's copy in each folder Make Your Own wrote in is this launcher's
             // tool again: after an update, the new release's.

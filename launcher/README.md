@@ -221,6 +221,16 @@ each an `art.json` at an `https://` address listing packs at their latest versio
 adds others by their address, once they confirm it, and removes them. A pack's row opens to what it
 is, who made it, its license and the data it was made for.
 
+A source can also be a **GitHub repository** (`https://github.com/<owner>/<repo>`), marked so on its
+row: its releases are one pack's versions. The newest release that is neither a draft nor a
+pre-release and is tagged with a version (`v0.1.1`) is the pack's latest; its one `*.dat` asset is
+the pack, `<file>.sha256` beside it gives the SHA-256 (which must agree with the digest GitHub gives
+the asset, where it gives one), and its body describes it. Until it is installed the pack is listed as
+`com.github.<owner>.<repo>`; installed, it takes the id and the name its manifest gives. The releases
+are asked of GitHub's API at start and on **Refresh** only, with the tag of the last answer
+(`If-None-Match`), so an unchanged answer costs nothing against GitHub's limit. Only the desktop
+launcher reads these: a web page cannot fetch a release's files.
+
 A pack runs to 2 GiB, so it is streamed to a file beside where it is kept, hashed as it comes, after
 the launcher checks the disk has room. A download that stops part way goes on from where it stopped
 the next time, when the host answers ranges. The file is kept only when its size and SHA-256 are

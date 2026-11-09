@@ -17,7 +17,7 @@ section, dated, and opens a new empty one in the same commit as the version.
 - Icefire, an Asheron's Call 2 server, is now in the world list.
 - AC2 worlds no longer show their era as assumed.
 - Components you've added now update themselves; there's a setting in the Library to turn it off.
-- The Library can now install art packs and use several at once.
+- The Library can now install art packs, also from GitHub releases, and use several at once.
 - The Library's sections now fold, and stay the way you left them.
 
 ## 0.5.2 (2026-11-07)

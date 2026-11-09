@@ -1,20 +1,16 @@
 # Art pack sources: `art.json`
 
-**Provenance: design.** Art pack sources are this client's own addition, not the original's; every statement here is what Dereth's launcher and its tools do, and what another reader of a source must do.
+An **art pack source** is a single file, `art.json`, hosted at a stable `https://` address. It lists a set of art packs, each at its latest version, along with where to download the packed file, how big it is, and its SHA-256 hash. Anyone can host one: an artist can publish their own packs, or a group can publish a shared collection.
 
-An **art pack source** is one file, `art.json`, at a stable `https://` address, listing many art
-packs, each at its latest version, with where its packed file is, the file's size and its SHA-256.
-It is shaped like a plugin source ([plugins/sources.md](../plugins/sources.md)), and anyone can run
-one: an artist for their own packs, a group for theirs.
+Out of the box, the launcher knows about Dereth's own source, `https://art.dereth.network/art.json`, and has no packs installed. From the Library, players can:
 
-The launcher starts with Dereth's own source, `https://art.dereth.network/art.json`, and nothing
-installed. In the Library the player adds other sources by their address, installs, updates and
-removes packs, and turns the installed ones on and puts them in an order: the higher one in the
-Library's list wins where two change the same thing ([README.md](README.md#several-packs-at-once)).
-A pack just installed goes to the top. Installed packs update on their own while the
-Library's setting to update added components is on, and wait for the player's Update otherwise.
+- add other sources by pasting their address;
+- install, update and remove packs;
+- turn installed packs on or off, and drag them into order.
 
-## An example
+When two packs change the same thing, the one higher in the Library's list wins. A newly installed pack goes to the top. If **Automatically update components** is turned on in the Library, installed packs update by themselves; otherwise they wait until the player clicks Update.
+
+## Example
 
 ```json
 {
@@ -41,77 +37,54 @@ Library's setting to update added components is on, and wait for the player's Up
 }
 ```
 
-## The list
+## Top-level fields
 
-| field | | what it is |
+| Field | Required? | Description |
 |---|---|---|
-| `format` | required | the format's version, the integer `1`. A reader refuses a list of a higher format whole ("update Dereth"), and one with none. |
-| `name` | optional | the source's name, as the launcher shows it; else the address's host. |
-| `packs` | required | the packs, one entry each. |
+| `format` | Yes | The version of this file format. Currently always the integer `1`. Readers reject a file with no `format`, or with a higher number than they understand (and tell the player to update Dereth). |
+| `name` | No | The source's display name in the launcher. If missing, the launcher shows the host name from the address. |
+| `packs` | Yes | A list of packs, one entry per pack. |
 
-A key a reader does not know is ignored, so fields can be added without a new format.
+Readers ignore any keys they don't recognise. That lets new fields be added later without bumping the format version.
 
-## An entry
+## Pack entries
 
-| field | | what it is |
+| Field | Required? | Description |
 |---|---|---|
-| `id` | required | the pack's id, as its manifest's `[pack] id`: lowercase words of letters, digits and `-`, joined by dots, at least two words, at most 128 bytes. Use your own domain reversed (`com.example.holtburg-houses`). |
-| `version` | required | `MAJOR.MINOR.PATCH`. |
-| `file` | required | where the packed file is: an `https://` URL, or a path relative to the list's own address (`/` at its start for the site's root). |
-| `sha256` | required | the file's SHA-256, 64 hexadecimal digits. |
-| `size` | required | the file's size in bytes, from 1 to 2,147,483,648 (2 GiB). |
-| `name` | optional | the pack's name; else its id. |
-| `description`, `authors`, `license`, `homepage` | optional | as the manifest's `[pack]` keys. |
-| `made_for` | optional | the data its ids are chosen from: `end-of-retail`, `1999`. Other values are dropped. |
-| `hash` | optional | the hash of the folder the pack was packed from, as the packed file names it. |
-| `notes` | optional | what changed in this version, for the player. |
-| `released` | optional | the day it was published, `YYYY-MM-DD`. |
+| `id` | Yes | The pack's unique ID, matching `[pack] id` in its manifest. It's made of two or more dot-separated words using lowercase letters, digits and hyphens, up to 128 bytes total. Use your own domain name, reversed, as a prefix (e.g. `com.example.holtburg-houses`). |
+| `version` | Yes | A version number in `MAJOR.MINOR.PATCH` form. |
+| `file` | Yes | Where to download the packed file. Either a full `https://` URL, or a path relative to the `art.json` file itself (start it with `/` to make it relative to the site root). |
+| `sha256` | Yes | The file's SHA-256 hash, as 64 hex digits. |
+| `size` | Yes | The file's size in bytes, between 1 and 2,147,483,648 (2 GiB). |
+| `name` | No | The pack's display name. Defaults to its `id`. |
+| `description`, `authors`, `license`, `homepage` | No | Same meaning as the matching keys in the manifest's `[pack]` section. |
+| `made_for` | No | Which game data the pack's IDs are based on: `end-of-retail` and/or `1999`. Any other values are ignored. |
+| `hash` | No | The hash of the folder the pack was built from, as it appears in the packed file's name. |
+| `notes` | No | Release notes for this version, shown to the player. |
+| `released` | No | The release date, as `YYYY-MM-DD`. |
 
-An entry that does not read is set aside with the reason, and the others are kept. An id listed
-twice keeps its first entry.
-
-## How a download is checked
-
-The launcher downloads a pack's file to a file beside where it is kept, hashing it as it comes,
-after checking the disk has room. A download that stops part way goes on from where it stopped the
-next time, when the host answers ranges (`Range: bytes=<n>-`). The file is taken only when:
-
-1. its size and SHA-256 are the entry's;
-2. it is a packed art pack, of a layout and manifest format this client reads;
-3. the pack in it says what the entry says: its manifest's id and version where it names them,
-   and the hash of what it was packed from where the entry names one. A pack whose manifest names
-   neither id nor version is taken only by that hash.
-
-Anything else is refused, and the version installed before, if any, stays. The client checks each
-record of the file against its own SHA-256 as it reads it, and refuses a damaged pack whole.
-
-A pack updates only from the source it was installed from, and only to a higher version. Ids under
-`network.dereth.` install only from Dereth's own source.
+If an entry can't be read, the launcher skips it, records why, and keeps the rest of the list. If the same `id` appears more than once, only the first entry counts.
 
 ## Publishing your own source
 
-1. **Make each pack** and give its manifest's `[pack]` an `id` under your own domain and a
-   `version` ([README.md](README.md#the-manifest)). Pack it with `dereth-art pack`.
-2. **Host the files over HTTPS**, each at a name of its own for each version and content: the
-   name Dereth's own source uses is `<id>/<id>-<version>-<the first 12 digits of its SHA-256>.dat`,
-   so a changed file never takes an old one's name, and a host can keep each a year as immutable.
-3. **Write `art.json`** beside them, each entry's `file` relative to it, with the size and SHA-256
-   of the file as hosted. Keep the list itself short-lived in caches (a few minutes), so players
-   see a new version soon. Serve every file readable from any page
-   (`Access-Control-Allow-Origin: *`), so a web client can read it too.
-4. **Tell players the address** of your `art.json`. They add it in the Library.
+1. **Build each pack.** In its manifest's `[pack]` section, set an `id` based on your own domain and a `version` ([README.md](README.md#the-manifest)). Then pack it with `dereth-art pack`.
+2. **Host the files over HTTPS.** Give each version its own unique filename. Dereth's own source uses `<id>/<id>-<version>-<first 12 hex digits of the SHA-256>.dat`. That way a changed file never reuses an old name, and your host can safely cache each file as immutable for a year.
+3. **Write `art.json`** in the same place. Make each entry's `file` path relative to it, and fill in the size and SHA-256 of each file exactly as hosted. Give `art.json` itself a short cache lifetime (a few minutes) so players see new versions quickly. Serve all files with `Access-Control-Allow-Origin: *` so the web client can read them too.
+4. **Share your `art.json` address** with players. They add it in the Library.
 
-To publish a new version, raise `version`, pack it again, put the new file beside the old and
-change its entry. A player who has the pack is offered the update.
+To release a new version: bump `version`, repack, upload the new file alongside the old one, and update the entry. Anyone who has the pack installed will be offered the update.
 
-Some hosts serve no file larger than a limit (Cloudflare Pages, 25 MiB). A larger pack's `file`
-can be an `https://` URL anywhere else: an object store, a release download.
+Some hosts cap file sizes (Cloudflare Pages, for example, has a 25 MiB limit). For larger packs, point `file` at a full `https://` URL somewhere else, such as an object storage bucket or a release download.
 
-## Dereth's own source
+## Using a GitHub repository as a source
 
-Dereth's packs are listed at `https://art.dereth.network/art.json`, its front page this guide. It
-is built with `cargo xtask package art`, from a folder of packed packs and an optional
-`art-source.toml` naming the source, the files published and, for a pack packed before its
-manifest named them, its listing keys; and put on its host with `cargo xtask deploy art`. A pack
-too large for that host is listed under the address `art-source.toml` names as `files_url`, and
-uploaded there first.
+If you publish a pack through a GitHub repository's releases, you don't need an `art.json` at all. Players add the repository's address (`https://github.com/<owner>/<repo>`) as a source, and the desktop launcher reads its releases through GitHub's API. Each release is one version of one pack:
+
+- **Latest version:** the newest release that isn't a draft or pre-release and is tagged with a version number (`v1.2.0` or `1.2.0`).
+- **Files:** the release must contain exactly one `*.dat` asset (the pack), plus a `<file>.sha256` file next to it containing a single line in `sha256sum` format (`<hex>  <file>`). If GitHub also reports a digest for the asset, the two must match.
+- **Description and name:** the release body is used as the pack's description. The release title, minus the version number at the end, is used as its name until the pack is installed.
+- **ID:** the pack's manifest should set its `id` (and may set `version`, which must match the tag). Until it's installed, the pack is listed as `com.github.<owner>.<repo>`; if the manifest doesn't set an `id`, it keeps that one permanently.
+
+Downloads are verified the same way as described above, except for the source-folder hash, since GitHub releases don't provide one.
+
+The launcher only checks a repository's releases at startup and when the player clicks Refresh. It sends the tag from the previous response (`If-None-Match`), so unchanged results don't count against GitHub's rate limit. Because web pages can't download GitHub release files, the web client only supports `art.json` sources.

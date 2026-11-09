@@ -313,3 +313,253 @@ fn a_download_that_stopped_goes_on_from_where_it_stopped_and_hashes_the_whole() 
     );
     let _ = std::fs::remove_dir_all(dir);
 }
+
+// ----- GitHub repositories ---------------------------------------------------------------------
+
+/// GitHub's releases API answer for a repository publishing one pack, as recorded, with the users
+/// it names left out; and the checksum file of its newest release.
+const RELEASES: &[u8] = include_bytes!("testdata/github-releases.json");
+const SUMS: &str = include_str!("testdata/enhanced-environment.dat.sha256");
+const NEWEST_SHA: &str = "67a13b64610f2562769c33060f9f216fe33c58d39beaf44c49baf2e8014fc9f8";
+const REPO: &str = "https://github.com/jacobjohnston/dereth-enhanced-environment";
+
+#[test]
+fn a_github_repositorys_address_names_its_owner_and_repository() {
+    use super::github::repository;
+    let want = Some((
+        "jacobjohnston".to_owned(),
+        "dereth-enhanced-environment".to_owned(),
+    ));
+    assert_eq!(repository(REPO), want);
+    assert_eq!(repository(&format!("{REPO}/")), want);
+    assert_eq!(repository(&format!("{REPO}.git")), want);
+    assert_eq!(repository(&format!("{REPO}/releases")), None);
+    assert_eq!(repository("https://github.com/jacobjohnston"), None);
+    assert_eq!(repository("https://example.org/a/b"), None);
+    assert_eq!(
+        super::github::fallback_id("Jacob_Johnston", "dereth.enhanced"),
+        "com.github.jacob-johnston.dereth-enhanced"
+    );
+}
+
+#[test]
+fn a_github_repositorys_newest_release_is_its_packs_latest_version() {
+    use super::github::{catalog, newest};
+    let n = newest(RELEASES).expect("reads");
+    assert_eq!(n.version, "0.1.1");
+    assert_eq!(n.title, "Enhanced Environment", "the version off its title");
+    assert_eq!(n.file, "enhanced-environment.dat");
+    assert_eq!(n.size, 252_625_920);
+    assert_eq!(n.released, "2026-11-04");
+    assert!(n
+        .url
+        .ends_with("/releases/download/v0.1.1/enhanced-environment.dat"));
+    assert!(n
+        .sums_url
+        .as_deref()
+        .unwrap()
+        .ends_with("/v0.1.1/enhanced-environment.dat.sha256"));
+    assert_eq!(n.digest.as_deref(), Some(NEWEST_SHA));
+    assert!(n.notes.starts_with("## 0.1.1"));
+
+    let c = catalog(
+        "jacobjohnston",
+        "dereth-enhanced-environment",
+        &n,
+        Some(SUMS),
+    )
+    .expect("lists");
+    assert_eq!(c.name, "jacobjohnston/dereth-enhanced-environment");
+    let e = &c.packs[0];
+    assert_eq!(e.id, "com.github.jacobjohnston.dereth-enhanced-environment");
+    assert_eq!(
+        (e.version.as_str(), e.sha256.as_str(), e.size),
+        ("0.1.1", NEWEST_SHA, 252_625_920)
+    );
+    assert_eq!(e.description, n.notes, "the release's body describes it");
+    // It is kept as any source's list is: as an art.json, read back whole.
+    let back = dereth_art_catalog::Catalog::parse(c.to_json().as_bytes()).expect("reads back");
+    assert!(back.skipped.is_empty(), "{:?}", back.skipped);
+    assert_eq!(back.catalog, c);
+
+    let other = SUMS.replace('6', "7");
+    assert!(catalog("o", "r", &n, Some(&other))
+        .unwrap_err()
+        .contains("GitHub says"));
+    assert!(catalog("o", "r", &n, None)
+        .unwrap_err()
+        .contains("has no enhanced-environment.dat.sha256"));
+    assert!(catalog("o", "r", &n, Some("nothing here")).is_err());
+}
+
+#[test]
+fn drafts_pre_releases_and_releases_with_no_single_pack_are_passed_over_or_refused() {
+    use super::github::newest;
+    let mut list: serde_json::Value = serde_json::from_slice(RELEASES).unwrap();
+    list[0]["prerelease"] = true.into();
+    let n = newest(&serde_json::to_vec(&list).unwrap()).unwrap();
+    assert_eq!(n.version, "0.1.0", "the pre-release is passed over");
+    list[1]["draft"] = true.into();
+    assert!(
+        newest(&serde_json::to_vec(&list).unwrap()).is_err(),
+        "nothing published"
+    );
+    let mut list: serde_json::Value = serde_json::from_slice(RELEASES).unwrap();
+    let pack = list[0]["assets"][1].clone();
+    list[0]["assets"].as_array_mut().unwrap().push(pack);
+    assert!(newest(&serde_json::to_vec(&list).unwrap())
+        .unwrap_err()
+        .contains("more than one"));
+    list[0]["assets"] = serde_json::json!([]);
+    assert!(newest(&serde_json::to_vec(&list).unwrap())
+        .unwrap_err()
+        .contains("no .dat"));
+    assert!(newest(br#"{"message": "API rate limit exceeded"}"#).is_err());
+}
+
+/// The list a GitHub repository's releases come to, for a pack of `bytes` at version `version`.
+fn github_list(bytes: &[u8], version: &str) -> Vec<u8> {
+    let n = super::github::Newest {
+        version: version.into(),
+        title: "Enhanced Environment".into(),
+        notes: "Brighter grass.".into(),
+        released: "2026-11-04".into(),
+        file: "enhanced-environment.dat".into(),
+        size: bytes.len() as u64,
+        url: format!("{REPO}/releases/download/v{version}/enhanced-environment.dat"),
+        digest: None,
+        sums_url: None,
+    };
+    let sums = format!("{}  enhanced-environment.dat\n", sha(bytes));
+    super::github::catalog(
+        "jacobjohnston",
+        "dereth-enhanced-environment",
+        &n,
+        Some(&sums),
+    )
+    .unwrap()
+    .to_json()
+    .into_bytes()
+}
+
+#[test]
+fn a_github_repositorys_pack_installs_under_its_manifests_id_and_updates_from_its_releases() {
+    let dir = temp("github");
+    let mut shelf = Shelf::open(&dir);
+    let url = shelf.add_source(&format!("{REPO}.git")).unwrap();
+    assert_eq!(url, REPO);
+    assert!(matches!(
+        shelf.add_source(&format!("{REPO}/")),
+        Err(ArtError::AlreadyAdded(_))
+    ));
+    let (api, etag) = shelf.github_ask(REPO).unwrap();
+    assert_eq!(api, "https://api.github.com/repos/jacobjohnston/dereth-enhanced-environment/releases?per_page=30");
+    assert_eq!(etag, None, "nothing kept yet, so nothing to match");
+
+    let v1 = pack("io.github.jacob.environment", "0.1.0");
+    shelf
+        .record_github(
+            REPO,
+            Ok(Some((github_list(&v1, "0.1.0"), Some("W/\"a\"".into())))),
+            1,
+        )
+        .unwrap();
+    assert_eq!(
+        shelf.github_ask(REPO).unwrap().1.as_deref(),
+        Some("W/\"a\"")
+    );
+    let view = shelf.view();
+    let source = view.sources.iter().find(|s| s.url == REPO).unwrap();
+    assert!(source.github && source.packs == 1);
+    assert_eq!(
+        view.available[0].id,
+        "com.github.jacobjohnston.dereth-enhanced-environment"
+    );
+
+    let d = shelf.plan_install(REPO, &view.available[0].id).unwrap();
+    std::fs::create_dir_all(d.partial.parent().unwrap()).unwrap();
+    std::fs::write(&d.partial, &v1).unwrap();
+    let done = shelf.finish(&d, v1.len() as u64, &sha(&v1)).unwrap();
+    assert_eq!(
+        done.said(),
+        "Installed io.github.jacob.environment 0.1.0.",
+        "the manifest's own name"
+    );
+    assert_eq!(
+        shelf.packs[0].id, "io.github.jacob.environment",
+        "the manifest's own id"
+    );
+    assert!(
+        shelf.view().available.is_empty(),
+        "installed, so no longer offered"
+    );
+
+    // Not modified: the list kept stays, and nothing is new.
+    shelf.record_github(REPO, Ok(None), 2).unwrap();
+    assert!(shelf.pending().is_empty());
+
+    // A new release; one whose pack names another version is refused.
+    let v2 = pack("io.github.jacob.environment", "0.2.0");
+    shelf
+        .record_github(
+            REPO,
+            Ok(Some((github_list(&v2, "0.2.0"), Some("W/\"b\"".into())))),
+            3,
+        )
+        .unwrap();
+    assert_eq!(shelf.pending()[0].to, "0.2.0");
+    let d = shelf.plan_update("io.github.jacob.environment").unwrap();
+    let wrong = pack("io.github.jacob.environment", "0.3.0");
+    shelf
+        .record_github(REPO, Ok(Some((github_list(&wrong, "0.2.0"), None))), 4)
+        .unwrap();
+    let d_wrong = shelf.plan_update("io.github.jacob.environment").unwrap();
+    std::fs::write(&d_wrong.partial, &wrong).unwrap();
+    assert!(matches!(
+        shelf.finish(&d_wrong, wrong.len() as u64, &sha(&wrong)),
+        Err(ArtError::Mismatch(Mismatch::Says {
+            field: "version",
+            ..
+        }))
+    ));
+    shelf
+        .record_github(REPO, Ok(Some((github_list(&v2, "0.2.0"), None))), 5)
+        .unwrap();
+    std::fs::write(&d.partial, &v2).unwrap();
+    let done = shelf.finish(&d, v2.len() as u64, &sha(&v2)).unwrap();
+    assert_eq!(done.said(), "Updated io.github.jacob.environment to 0.2.0.");
+    assert_eq!(shelf.packs.len(), 1);
+
+    // A failed ask keeps the list and forgets the tag, so the next ask is whole.
+    shelf
+        .record_github(REPO, Err("rate limited".into()), 6)
+        .unwrap();
+    assert_eq!(shelf.github_ask(REPO).unwrap().1, None);
+    assert_eq!(
+        Shelf::open(&dir).source(REPO).unwrap().catalog.packs.len(),
+        1,
+        "kept"
+    );
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn a_github_repository_cannot_install_one_of_dereths_own_packs() {
+    let dir = temp("github-first-party");
+    let mut shelf = Shelf::open(&dir);
+    shelf.add_source(REPO).unwrap();
+    let bytes = pack("network.dereth.remastered", "0.1.0");
+    shelf
+        .record_github(REPO, Ok(Some((github_list(&bytes, "0.1.0"), None))), 1)
+        .unwrap();
+    let id = shelf.view().available[0].id.clone();
+    let d = shelf.plan_install(REPO, &id).unwrap();
+    std::fs::create_dir_all(d.partial.parent().unwrap()).unwrap();
+    std::fs::write(&d.partial, &bytes).unwrap();
+    assert!(matches!(
+        shelf.finish(&d, bytes.len() as u64, &sha(&bytes)),
+        Err(ArtError::FirstPartyOnly(_))
+    ));
+    assert!(shelf.packs.is_empty());
+    let _ = std::fs::remove_dir_all(dir);
+}

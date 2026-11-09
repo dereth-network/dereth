@@ -9,6 +9,8 @@ use std::time::Duration;
 
 use dereth_launch::art::{self, Download};
 
+use crate::backend::Asked;
+
 /// The free room on the disk holding `dir` (or the nearest folder above it that is there), in
 /// bytes; `None` when the system will not say.
 #[must_use]
@@ -59,6 +61,41 @@ fn free_space_at(dir: &Path) -> Option<u64> {
 #[cfg(not(any(unix, windows)))]
 fn free_space_at(_dir: &Path) -> Option<u64> {
     None
+}
+
+/// Ask GitHub's API for `api`, sending `etag` (the tag of the answer kept) as `If-None-Match`, so
+/// an answer unchanged since comes back as not modified and does not count against GitHub's limit.
+///
+/// # Errors
+/// Not GitHub's API, or GitHub's error in words for a person (a rate limit among them).
+pub fn ask_github(api: &str, etag: Option<&str>) -> Result<Asked, String> {
+    if !api.starts_with("https://api.github.com/") {
+        return Err(format!("{api} is not GitHub's API"));
+    }
+    let mut request = agent()
+        .get(api)
+        .header("User-Agent", "Dereth-launcher")
+        .header("Accept", "application/vnd.github+json")
+        .header("X-GitHub-Api-Version", "2022-11-28");
+    if let Some(tag) = etag {
+        request = request.header("If-None-Match", tag);
+    }
+    let mut response = request.call().map_err(|e| crate::components::plain(&e))?;
+    if response.status().as_u16() == 304 {
+        return Ok(Asked::NotModified);
+    }
+    let etag = response
+        .headers()
+        .get("etag")
+        .and_then(|t| t.to_str().ok())
+        .map(str::to_owned);
+    let body = response
+        .body_mut()
+        .with_config()
+        .limit(4 << 20)
+        .read_to_vec()
+        .map_err(|e| crate::components::plain(&e))?;
+    Ok(Asked::Fresh { body, etag })
 }
 
 fn agent() -> ureq::Agent {

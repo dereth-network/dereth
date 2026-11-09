@@ -365,6 +365,18 @@ pub struct ArtProgress {
     pub update: bool,
 }
 
+/// What asking GitHub's API came to: nothing changed since the answer whose tag was sent, or a
+/// fresh answer and its tag.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Asked {
+    NotModified,
+    Fresh { body: Vec<u8>, etag: Option<String> },
+}
+
+/// How a GitHub repository's releases are asked for: the API's address and the tag of the answer
+/// kept, if any (sent as `If-None-Match`). The launcher's is [`crate::art::ask_github`].
+pub type FetchGithub<'a> = dyn Fn(&str, Option<&str>) -> Result<Asked, String> + Sync + 'a;
+
 /// How an art pack is fetched: streamed into its download's file, telling the progress, answering
 /// the file's length and SHA-256. The launcher's is [`crate::art::fetch_pack`]; a test's writes
 /// its own.
@@ -2241,7 +2253,12 @@ impl Backend {
     /// source (a thread's work: it fetches). Answers what is new, a line each: the packs a source
     /// lists now that it did not, the updates made or waiting, and the sources that could not be
     /// read. Empty when nothing is.
-    pub fn refresh_art(shared: &Shared, fetch: &Fetch<'_>, fetch_pack: &FetchPack<'_>) -> String {
+    pub fn refresh_art(
+        shared: &Shared,
+        fetch: &Fetch<'_>,
+        fetch_github: &FetchGithub<'_>,
+        fetch_pack: &FetchPack<'_>,
+    ) -> String {
         let urls: Vec<String> = lock(shared)
             .art
             .sources
@@ -2250,11 +2267,10 @@ impl Backend {
             .collect();
         let mut said = Vec::new();
         for url in urls {
-            let fetched = fetch(&url, dereth_launch::art::MAX_LIST);
-            let mut b = lock(shared);
-            let Ok(new) = b.art.record_read(&url, fetched, now()) else {
+            let Ok(new) = Self::read_art_source(shared, fetch, fetch_github, &url) else {
                 continue;
             };
+            let b = lock(shared);
             if let Some(s) = b.art.source(&url) {
                 if let Some(e) = &s.error {
                     said.push(format!("{}: {e}", s.label()));
@@ -2288,8 +2304,13 @@ impl Backend {
 
     /// At start: [`Backend::refresh_art`], and what it came to in the notice. A source that could
     /// not be read says so on its own row, not in the notice.
-    pub fn refresh_art_at_start(shared: &Shared, fetch: &Fetch<'_>, fetch_pack: &FetchPack<'_>) {
-        let said = Self::refresh_art(shared, fetch, fetch_pack);
+    pub fn refresh_art_at_start(
+        shared: &Shared,
+        fetch: &Fetch<'_>,
+        fetch_github: &FetchGithub<'_>,
+        fetch_pack: &FetchPack<'_>,
+    ) {
+        let said = Self::refresh_art(shared, fetch, fetch_github, fetch_pack);
         let lines: Vec<&str> = said
             .lines()
             .filter(|l| {
@@ -2309,17 +2330,22 @@ impl Backend {
     ///
     /// # Errors
     /// The address was refused, in words for the page.
-    pub fn add_art_source(shared: &Shared, fetch: &Fetch<'_>, url: &str) -> Result<String, String> {
+    pub fn add_art_source(
+        shared: &Shared,
+        fetch: &Fetch<'_>,
+        fetch_github: &FetchGithub<'_>,
+        url: &str,
+    ) -> Result<String, String> {
         let url = lock(shared)
             .art
             .add_source(url)
             .map_err(|e| e.to_string())?;
-        let fetched = fetch(&url, dereth_launch::art::MAX_LIST);
-        let mut b = lock(shared);
-        b.art
-            .record_read(&url, fetched, now())
-            .map_err(|e| e.to_string())?;
+        Self::read_art_source(shared, fetch, fetch_github, &url)?;
+        let b = lock(shared);
         let s = b.art.source(&url).ok_or("the source went away")?;
+        if s.github().is_some() && s.error.is_none() {
+            return Ok(format!("Added the GitHub repository {}.", s.label()));
+        }
         Ok(match &s.error {
             Some(e) => format!("Added {url}, but its list could not be read: {e}"),
             None => match s.catalog.packs.len() {
@@ -2327,6 +2353,48 @@ impl Backend {
                 n => format!("Added {}: {n} art packs.", s.label()),
             },
         })
+    }
+
+    /// Read the art pack source at `url` again (a thread's work: it fetches): its `art.json`, or for
+    /// a GitHub repository its releases, asked with the tag of the answer kept so an unchanged one
+    /// costs nothing, and its newest release's checksum file. Answers the packs it lists that it
+    /// did not.
+    fn read_art_source(
+        shared: &Shared,
+        fetch: &Fetch<'_>,
+        fetch_github: &FetchGithub<'_>,
+        url: &str,
+    ) -> Result<Vec<String>, String> {
+        use dereth_launch::art::github;
+        let ask = lock(shared).art.github_ask(url);
+        let Some((api, etag)) = ask else {
+            let fetched = fetch(url, dereth_launch::art::MAX_LIST);
+            return lock(shared)
+                .art
+                .record_read(url, fetched, now())
+                .map_err(|e| e.to_string());
+        };
+        let (owner, repo) = github::repository(url).ok_or("not a GitHub repository")?;
+        let answer = match fetch_github(&api, etag.as_deref()) {
+            Ok(Asked::NotModified) => Ok(None),
+            Ok(Asked::Fresh { body, etag }) => (|| {
+                let newest = github::newest(&body)?;
+                let sums = match &newest.sums_url {
+                    Some(at) => Some(
+                        String::from_utf8(fetch(at, github::MAX_SUMS)?)
+                            .map_err(|_| "its checksum file is not text".to_owned())?,
+                    ),
+                    None => None,
+                };
+                let list = github::catalog(&owner, &repo, &newest, sums.as_deref())?;
+                Ok(Some((list.to_json().into_bytes(), etag)))
+            })(),
+            Err(e) => Err(e),
+        };
+        lock(shared)
+            .art
+            .record_github(url, answer, now())
+            .map_err(|e| e.to_string())
     }
 
     /// Remove the art pack source at `url`; what was installed from it stays, with no updates.
@@ -3397,6 +3465,9 @@ mod tests {
                 ))
             }
         };
+        let no_github = |_: &str, _: Option<&str>| -> Result<super::Asked, String> {
+            Err("no GitHub repository here".into())
+        };
         let (trees1, rocks1) = (
             art_pack("network.dereth.trees", "1.0.0"),
             art_pack("network.dereth.rocks", "1.0.0"),
@@ -3410,7 +3481,10 @@ mod tests {
         );
         let fetch = |u: &str, l: usize| served.fetch(u, l);
         let packs = fetch_pack(&files);
-        assert_eq!(Backend::refresh_art(&shared, &fetch, &packs), "");
+        assert_eq!(
+            Backend::refresh_art(&shared, &fetch, &no_github, &packs),
+            ""
+        );
         assert_eq!(lock(&shared).snapshot().art.available.len(), 2);
         for id in ["network.dereth.trees", "network.dereth.rocks"] {
             let said = Backend::install_art_pack(&shared, &packs, ART, id);
@@ -3449,7 +3523,7 @@ mod tests {
         let fetch = |u: &str, l: usize| served.fetch(u, l);
         let packs = fetch_pack(&files);
         lock(&shared).set_update_components(false);
-        let said = Backend::refresh_art(&shared, &fetch, &packs);
+        let said = Backend::refresh_art(&shared, &fetch, &no_github, &packs);
         assert_eq!(said, "network.dereth.trees 1.1.0 is ready to update.");
         assert_eq!(
             lock(&shared)
@@ -3461,7 +3535,7 @@ mod tests {
             "1.0.0"
         );
         lock(&shared).set_update_components(true);
-        let said = Backend::refresh_art(&shared, &fetch, &packs);
+        let said = Backend::refresh_art(&shared, &fetch, &no_github, &packs);
         assert_eq!(said, "Updated network.dereth.trees to 1.1.0.");
         assert_eq!(
             lock(&shared)
@@ -3472,7 +3546,95 @@ mod tests {
                 .version,
             "1.1.0"
         );
-        assert_eq!(Backend::refresh_art(&shared, &fetch, &packs), "");
+        assert_eq!(
+            Backend::refresh_art(&shared, &fetch, &no_github, &packs),
+            ""
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A GitHub repository added as an art pack source is read from its releases: its newest
+    /// release's pack, with the SHA-256 its checksum file gives. Asked again, the tag of the last
+    /// answer goes with it, and an answer of "not modified" keeps the list.
+    #[test]
+    fn a_github_repository_is_an_art_pack_source_asked_again_with_its_last_answers_tag() {
+        let (b, dir) = backend("art-github");
+        let shared: Shared = Arc::new(Mutex::new(b));
+        let repo = "https://github.com/jacobjohnston/dereth-enhanced-environment";
+        let releases: &[u8] =
+            include_bytes!("../crates/launch/src/art/testdata/github-releases.json");
+        let sums =
+            include_bytes!("../crates/launch/src/art/testdata/enhanced-environment.dat.sha256");
+        let served = Served::new(&[(
+            &format!("{repo}/releases/download/v0.1.1/enhanced-environment.dat.sha256"),
+            sums.to_vec(),
+        )]);
+        let fetch = |u: &str, l: usize| served.fetch(u, l);
+        let sent = Mutex::new(Vec::new());
+        let github = |api: &str, etag: Option<&str>| -> Result<super::Asked, String> {
+            sent.lock()
+                .unwrap()
+                .push((api.to_owned(), etag.map(str::to_owned)));
+            Ok(match etag {
+                Some(_) => super::Asked::NotModified,
+                None => super::Asked::Fresh {
+                    body: releases.to_vec(),
+                    etag: Some("W/\"3fc7\"".into()),
+                },
+            })
+        };
+        let said = Backend::add_art_source(&shared, &fetch, &github, &format!("{repo}/"));
+        assert_eq!(
+            said.as_deref(),
+            Ok("Added the GitHub repository jacobjohnston/dereth-enhanced-environment.")
+        );
+        let view = lock(&shared).snapshot().art;
+        let source = view
+            .sources
+            .iter()
+            .find(|s| s.url == repo)
+            .expect("kept by its address");
+        assert!(source.github);
+        let pack = view
+            .available
+            .iter()
+            .find(|p| p.source == repo)
+            .expect("its pack");
+        assert_eq!(pack.release.name, "Enhanced Environment");
+        assert_eq!(pack.release.version, "0.1.1");
+        assert_eq!(pack.release.size, 252_625_920);
+        assert_eq!(
+            pack.release.sha256,
+            "67a13b64610f2562769c33060f9f216fe33c58d39beaf44c49baf2e8014fc9f8"
+        );
+
+        let no_packs = |_: &dereth_launch::art::Download, _: &dyn Fn(u64, u64)| {
+            Err::<(u64, String), String>("nothing to fetch".into())
+        };
+        let _ = Backend::refresh_art(&shared, &fetch, &github, &no_packs);
+        let sent = sent.lock().unwrap();
+        assert_eq!(sent.len(), 2);
+        assert_eq!(
+            sent[0],
+            (
+                "https://api.github.com/repos/jacobjohnston/dereth-enhanced-environment/releases?per_page=30".to_owned(),
+                None
+            )
+        );
+        assert_eq!(
+            sent[1].1.as_deref(),
+            Some("W/\"3fc7\""),
+            "asked with the last answer's tag"
+        );
+        let view = lock(&shared).snapshot().art;
+        assert!(
+            view.available.iter().any(|p| p.source == repo),
+            "not modified: the list stays"
+        );
+        assert!(view
+            .sources
+            .iter()
+            .all(|s| s.error.is_none() || s.url != repo));
         let _ = std::fs::remove_dir_all(dir);
     }
 

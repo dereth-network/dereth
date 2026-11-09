@@ -2255,11 +2255,11 @@ function artPacks() {
   const sources = a.sources.map((x) => {
     const skipped = x.skipped?.length ? ` · <span class="warn" title="${esc(x.skipped.join("\n"))}">${x.skipped.length} could not be read</span>` : "";
     return `<div class="row static source-row"><div class="grow">
-        <div class="line"><span class="name">${esc(x.name)}</span><span class="muted small">${x.packs} pack${x.packs === 1 ? "" : "s"}${skipped}</span><span class="muted small addr" title="${esc(x.url)}">${esc(x.url)}</span></div>
+        <div class="line"><span class="name">${esc(x.name)}</span>${x.github ? `<span class="tag" title="Its releases are one art pack's versions.">GITHUB REPOSITORY</span>` : ""}<span class="muted small">${x.packs} pack${x.packs === 1 ? "" : "s"}${skipped}</span><span class="muted small addr" title="${esc(x.url)}">${esc(x.url)}</span></div>
         ${x.error ? `<div class="sub warn" title="${esc(x.error)}">Could not be read: ${esc(x.error)}</div>` : ""}</div>
         ${x.first_party ? "" : `<div class="btns"><button class="btn" data-art-source-remove="${esc(x.url)}">Remove</button></div>`}</div>`;
   }).join("");
-  const add = `<div class="plugin-line add"><input id="art-source" class="field mini-field" type="text" placeholder="https://…/art.json" spellcheck="false" autocomplete="off" aria-label="An art pack source's address" value="${esc(st.add)}">
+  const add = `<div class="plugin-line add"><input id="art-source" class="field mini-field" type="text" placeholder="https://…/art.json or https://github.com/owner/repo" spellcheck="false" autocomplete="off" aria-label="An art pack source's address" value="${esc(st.add)}">
       <button class="btn" data-act="art-source-add" ${busy || !st.add.trim() ? "disabled" : ""}>Add source</button></div>
     ${st.confirm ? `<div class="plugin-confirm"><span>Dereth does not review art packs from other sources.</span>
       <button class="btn mini-btn" data-act="art-source-confirm" ${busy ? "disabled" : ""}>Add</button><button class="btn mini-btn" data-act="art-source-cancel">Cancel</button></div>` : ""}`;

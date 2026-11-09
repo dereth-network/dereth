@@ -7,6 +7,10 @@
 //! Dereth does not review them. The packs every source lists are offered together, each saying
 //! which source lists it.
 //!
+//! A source may also be a **GitHub repository**, `https://github.com/<owner>/<repo>`, whose
+//! releases are one pack's versions ([`github`]): what its releases come to is kept and checked as
+//! an `art.json` is, and the pack is installed under the id its manifest gives.
+//!
 //! What a source lists is checked before anything is kept: the file must be the one the entry
 //! names, its size and its SHA-256 ([`Entry::check_download`]), and the pack in it must be the one
 //! the entry lists ([`Entry::check_packed`]); an id under `network.dereth.` installs only from
@@ -33,6 +37,12 @@ use dereth_art_catalog::{self as art_catalog, Catalog, Entry, Mismatch};
 use serde::{Deserialize, Serialize};
 
 use crate::plugins::folder_name;
+
+pub mod github;
+
+/// What a GitHub repository's releases came to: the list, as an `art.json`'s bytes, and the tag of
+/// GitHub's answer it came from.
+pub type GithubList = (Vec<u8>, Option<String>);
 
 /// Dereth's own source, the one the launcher starts with.
 pub const FIRST_PARTY: &str = art_catalog::DERETH_SOURCE;
@@ -63,9 +73,14 @@ pub struct Source {
     /// Why the last read failed, until a read succeeds; the last list read stays in use.
     #[serde(default)]
     pub error: Option<String>,
-    /// The last list read whole, as its text.
+    /// The last list read whole, as its text: for a GitHub repository, the list its releases came
+    /// to ([`github::catalog`]).
     #[serde(default)]
     list: Option<String>,
+    /// For a GitHub repository, the tag GitHub gave the answer that list came from, which the next
+    /// ask sends so an unchanged answer costs nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    etag: Option<String>,
     #[serde(skip)]
     pub catalog: Catalog,
     /// The entries of that list that did not read, one line each.
@@ -85,6 +100,12 @@ impl Source {
     #[must_use]
     pub fn first_party(&self) -> bool {
         self.url == FIRST_PARTY
+    }
+
+    /// The owner and repository, when this source is a GitHub repository ([`github`]).
+    #[must_use]
+    pub fn github(&self) -> Option<(String, String)> {
+        github::repository(&self.url)
     }
 
     /// What the player calls it: the name its list gives, else its address's host.
@@ -224,6 +245,11 @@ pub enum ArtError {
     },
     FirstPartyOnly(String),
     NotInstalled(String),
+    /// A pack of that id is installed from another source.
+    InstalledFrom {
+        id: String,
+        source: String,
+    },
     NothingNewer(String),
     /// Its file is not where the source says: an address that does not resolve to `https://`.
     BadAddress(String),
@@ -246,6 +272,12 @@ impl std::fmt::Display for ArtError {
                 )
             }
             Self::NotInstalled(id) => write!(f, "{id} is not installed"),
+            Self::InstalledFrom { id, source } => {
+                write!(
+                    f,
+                    "{id} is installed from {source} already; remove it first"
+                )
+            }
             Self::NothingNewer(name) => write!(f, "{name} is up to date"),
             Self::BadAddress(u) => write!(f, "{u} is not an https:// address"),
             Self::Mismatch(m) => write!(f, "{m}"),
@@ -379,7 +411,15 @@ impl Shelf {
             return Err(ArtError::NotHttps(url.to_owned()));
         }
         let url = format!("https://{}", &url[8..]);
-        if self.source(&url).is_some() {
+        let url = match github::repository(&url) {
+            Some((owner, repo)) => github::source_url(&owner, &repo),
+            None => url,
+        };
+        if self
+            .sources
+            .iter()
+            .any(|s| s.url.eq_ignore_ascii_case(&url))
+        {
             return Err(ArtError::AlreadyAdded(url));
         }
         self.sources.push(Source::new(&url));
@@ -449,6 +489,60 @@ impl Shelf {
         Ok(new)
     }
 
+    /// What to ask GitHub for the source at `url`, when it is a GitHub repository: the releases
+    /// API's address, and the tag of the answer its kept list came from, sent so an unchanged answer
+    /// costs nothing. No tag when no list is kept.
+    #[must_use]
+    pub fn github_ask(&self, url: &str) -> Option<(String, Option<String>)> {
+        let s = self.source(url)?;
+        let (owner, repo) = s.github()?;
+        let etag = s.etag.clone().filter(|_| s.list.is_some());
+        Some((github::api_url(&owner, &repo), etag))
+    }
+
+    /// What asking GitHub for the source at `url` came to, at `now`: not modified since the list
+    /// kept (`Ok(None)`), a list its releases came to with the answer's tag, or why not. A failure
+    /// keeps the last list in use, says why, and forgets the tag, so the next ask is whole.
+    ///
+    /// # Errors
+    /// Not a source, or the folder could not be written.
+    pub fn record_github(
+        &mut self,
+        url: &str,
+        answer: Result<Option<GithubList>, String>,
+        now: u64,
+    ) -> Result<Vec<String>, ArtError> {
+        match answer {
+            Ok(None) => {
+                let s = self
+                    .sources
+                    .iter_mut()
+                    .find(|s| s.url == url)
+                    .ok_or_else(|| ArtError::NoSource(url.to_owned()))?;
+                s.read_at = Some(now);
+                s.error = None;
+                self.save_sources()?;
+                Ok(Vec::new())
+            }
+            Ok(Some((list, etag))) => {
+                let new = self.record_read(url, Ok(list), now)?;
+                if let Some(s) = self.sources.iter_mut().find(|s| s.url == url) {
+                    s.etag = if s.error.is_none() { etag } else { None };
+                }
+                self.save_sources()?;
+                Ok(new)
+            }
+            Err(e) => {
+                let new = self.record_read(url, Err(e), now)?;
+                if let Some(s) = self.sources.iter_mut().find(|s| s.url == url) {
+                    s.etag = None;
+                }
+                self.save_sources()?;
+                Ok(new)
+            }
+        }
+    }
+
     // ----- installing ----------------------------------------------------------------------------
 
     fn entry(&self, source: &str, id: &str) -> Result<&Entry, ArtError> {
@@ -457,6 +551,12 @@ impl Shelf {
             .ok_or_else(|| ArtError::NoSource(source.to_owned()))?;
         if art_catalog::first_party_only(id) && !s.first_party() {
             return Err(ArtError::FirstPartyOnly(id.to_owned()));
+        }
+        // A GitHub repository's releases are one pack, whatever id its manifest gave it.
+        if s.github().is_some() {
+            if let Some(only) = s.catalog.packs.first() {
+                return Ok(only);
+            }
         }
         s.catalog.get(id).ok_or_else(|| ArtError::NotListed {
             source: s.label(),
@@ -525,12 +625,33 @@ impl Shelf {
             .map_err(|m| refuse(ArtError::Mismatch(m)))?;
         let packed = dereth_assets::packed_art::read_manifest(&download.partial)
             .map_err(|why| refuse(ArtError::Mismatch(Mismatch::NotAPack(why))))?;
-        e.check_packed(&packed)
-            .map_err(|m| refuse(ArtError::Mismatch(m)))?;
-        let to = self.pack_dir(&e.id).join(PACK_FILE);
+        let github = self
+            .source(&download.source)
+            .is_some_and(|s| s.github().is_some());
+        let (id, release) = if github {
+            self.github_pack(download, &e, &packed).map_err(refuse)?
+        } else {
+            e.check_packed(&packed)
+                .map_err(|m| refuse(ArtError::Mismatch(m)))?;
+            (e.id.clone(), Release::of(&e))
+        };
+        let dir = self.pack_dir(&id);
+        std::fs::create_dir_all(&dir).map_err(|err| io("making", &dir, &err))?;
+        let to = dir.join(PACK_FILE);
         std::fs::rename(&download.partial, &to).map_err(|err| io("keeping", &to, &err))?;
-        let release = Release::of(&e);
-        let updated = match self.packs.iter_mut().find(|p| p.id == e.id) {
+        // A GitHub repository's pack kept under another id before (its manifest's id changed, or it
+        // named none) is this one now.
+        let earlier = self
+            .packs
+            .iter()
+            .position(|p| p.id == id || (github && p.source == download.source));
+        if let Some(i) = earlier.filter(|i| self.packs[*i].id != id) {
+            let old = self.pack_dir(&self.packs[i].id);
+            let _ = std::fs::remove_dir_all(old);
+            self.packs[i].id.clone_from(&id);
+        }
+        let name = release.name.clone();
+        let updated = match earlier.map(|i| &mut self.packs[i]) {
             Some(p) => {
                 p.source.clone_from(&download.source);
                 p.release = release;
@@ -538,7 +659,7 @@ impl Shelf {
             }
             None => {
                 self.packs.push(Installed {
-                    id: e.id.clone(),
+                    id: id.clone(),
                     source: download.source.clone(),
                     release,
                     on: true,
@@ -548,10 +669,66 @@ impl Shelf {
         };
         self.save_installed()?;
         Ok(Done {
-            name: e.name,
+            name,
             version: e.version,
             updated,
         })
+    }
+
+    /// The id and the release a GitHub repository's download `download` of `e` keeps, from the
+    /// pack in it, `packed`: the manifest's id where it names one (else the list's), the manifest's
+    /// name where it names one (else the release's title). A version the manifest names must be the
+    /// release's.
+    fn github_pack(
+        &self,
+        download: &Download,
+        e: &Entry,
+        packed: &dereth_assets::packed_art::Packed,
+    ) -> Result<(String, Release), ArtError> {
+        let m =
+            dereth_assets::art_pack::ArtPackManifest::parse(&packed.manifest).map_err(|err| {
+                ArtError::Mismatch(Mismatch::NotAPack(format!(
+                    "its manifest will not read: {}",
+                    err.0
+                )))
+            })?;
+        if !m.about.version.is_empty() && m.about.version != e.version {
+            return Err(ArtError::Mismatch(Mismatch::Says {
+                field: "version",
+                listed: e.version.clone(),
+                pack: m.about.version,
+            }));
+        }
+        let id = if m.about.id.is_empty() {
+            e.id.clone()
+        } else {
+            m.about.id.clone()
+        };
+        if art_catalog::first_party_only(&id) {
+            return Err(ArtError::FirstPartyOnly(id));
+        }
+        if let Some(p) = self.get(&id).filter(|p| p.source != download.source) {
+            return Err(ArtError::InstalledFrom {
+                id,
+                source: p.source.clone(),
+            });
+        }
+        let mut release = Release::of(e);
+        release.hash.clone_from(&packed.contents.hash);
+        if !m.name.trim().is_empty() {
+            release.name = m.name.trim().to_owned();
+        }
+        let about = m.about;
+        if !about.authors.is_empty() {
+            release.authors = about.authors;
+        }
+        if !about.license.is_empty() {
+            release.license = about.license;
+        }
+        if !about.made_for.is_empty() {
+            release.made_for = about.made_for;
+        }
+        Ok((id, release))
     }
 
     /// Remove pack `id` and its file.
@@ -653,8 +830,10 @@ impl Shelf {
             .collect();
         let mut available = Vec::new();
         for s in &self.sources {
+            // A GitHub repository's pack is installed under its manifest's id.
+            let from_here = s.github().is_some() && self.packs.iter().any(|p| p.source == s.url);
             for e in &s.catalog.packs {
-                if self.get(&e.id).is_some() {
+                if from_here || self.get(&e.id).is_some() {
                     continue;
                 }
                 available.push(AvailableView {
@@ -673,6 +852,7 @@ impl Shelf {
                 url: s.url.clone(),
                 name: s.label(),
                 first_party: s.first_party(),
+                github: s.github().is_some(),
                 packs: s.catalog.packs.len(),
                 error: s.error.clone(),
                 skipped: s.skipped.clone(),
@@ -803,6 +983,8 @@ pub struct SourceView {
     pub url: String,
     pub name: String,
     pub first_party: bool,
+    /// It is a GitHub repository, whose releases are one pack's versions.
+    pub github: bool,
     pub packs: usize,
     pub error: Option<String>,
     pub skipped: Vec<String>,

@@ -231,12 +231,12 @@
   // stack's order, the last winning.
   const ART_FIRST_PARTY = "https://art.dereth.network/art.json";
   const artRelease = (name, version, size, description) => ({ name, version, sha256: "0".repeat(64), size, hash: "", description, authors: ["Dereth"], license: "CC-BY-4.0", homepage: "", made_for: ["end-of-retail", "1999"], released: "2026-11-08", notes: "" });
-  const artSources = [{ url: ART_FIRST_PARTY, name: "Dereth", first_party: true, error: null, skipped: [],
+  const artSources = [{ url: ART_FIRST_PARTY, name: "Dereth", first_party: true, github: false, error: null, skipped: [],
     packs: { "network.dereth.remastered": artRelease("Remastered", "1.0.0", 1176519680, "Trees, plants and rocks made again."),
       "network.dereth.holtburg": artRelease("Holtburg Houses", "0.2.0", 48234496, "Holtburg's houses with new roofs and walls.") } }];
   const artInstalled = [];
   const artView = () => ({
-    sources: artSources.map((x) => ({ url: x.url, name: x.name, first_party: x.first_party, packs: Object.keys(x.packs).length, error: x.error, skipped: x.skipped })),
+    sources: artSources.map((x) => ({ url: x.url, name: x.name, first_party: x.first_party, github: x.github, packs: Object.keys(x.packs).length, error: x.error, skipped: x.skipped })),
     installed: [...artInstalled].reverse().map((p) => ({ ...p, source_name: artSources.find((x) => x.url === p.source)?.name ?? "removed", source_removed: !artSources.some((x) => x.url === p.source), update: null })),
     available: artSources.flatMap((x) => Object.entries(x.packs).filter(([id]) => !artInstalled.some((p) => p.id === id))
       .map(([id, release]) => ({ id, source: x.url, source_name: x.name, installable: !id.startsWith("network.dereth.") || x.first_party, release }))),
@@ -248,8 +248,9 @@
       url = url.trim();
       if (!/^https:\/\/[^/\s]+/i.test(url)) throw `${url} is not an https:// address`;
       if (artSources.some((x) => x.url === url)) throw `${url} is a source already`;
-      artSources.push({ url, name: new URL(url).host, first_party: false, error: null, skipped: [], packs: { "org.example.bushes": artRelease("Bushes", "1.0.0", 9437184, "Just the bushes.") } });
-      return `Added ${new URL(url).host}: 1 art pack.`;
+      const gh = url.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?\/?$/i);
+      artSources.push({ url, name: gh ? `${gh[1]}/${gh[2]}` : new URL(url).host, first_party: false, github: !!gh, error: null, skipped: [], packs: { "org.example.bushes": artRelease("Bushes", "1.0.0", 9437184, "Just the bushes.") } });
+      return gh ? `Added the GitHub repository ${gh[1]}/${gh[2]}.` : `Added ${new URL(url).host}: 1 art pack.`;
     },
     remove_art_source: ({ url }) => {
       if (url === ART_FIRST_PARTY) throw "Dereth's own source can't be removed";
