@@ -938,7 +938,7 @@ dependencies = [
 
 [[package]]
 name = "dereth-launcher"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "auberean-friends",
  "ctrlc",
