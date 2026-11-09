@@ -31,6 +31,10 @@
 //! **An effect that lasts until taken off** (an egg's mount, which has no duration) is a record
 //! that never runs out and goes at logout.
 //!
+//! **Pets.** An item whose use makes pets (an effect a world's pet row lists among its items',
+//! or the install's pet effect of a world's pet row) makes each at once, then puts on what else it
+//! names; it is spent only when one was made, and each that could not be says the summoning fails.
+//!
 //! **An item that is only looked at** (its usage action the examination's, no effects) is shown
 //! to the player as an examination, then the use answered at once.
 
@@ -416,7 +420,7 @@ pub fn begin<S: Store>(
         && !seed
         && !own
         && !crate::death_spawn::names_one(s, &t.props)
-        && crate::pets::made_by_use(s, &t.props).is_none()
+        && crate::pets::made_by_use(s, template, &t.props).is_empty()
     {
         return false;
     }
@@ -425,13 +429,29 @@ pub fn begin<S: Store>(
     if refuse(s, net, world, u, &props, clock) {
         return true;
     }
-    // An item whose use makes a pet: made now, and the item spent only when it was.
-    if let Some((effect, spellcraft)) = crate::pets::made_by_use(s, &props) {
+    // An item whose use makes pets: each made now, then what else it names put on its user, and the
+    // item spent only when one was made.
+    let pets = crate::pets::made_by_use(s, template, &props);
+    if !pets.is_empty() {
         let icon = props.word("Icon").unwrap_or(0);
-        let made =
-            crate::pets::made_by_item(s, net, world, (effect, spellcraft, icon), clock).is_some();
+        let mut made = false;
+        for (effect, spellcraft) in &pets {
+            made |= crate::pets::made_by_item(s, net, world, (*effect, *spellcraft, icon), clock)
+                .is_some();
+        }
         let me = s.players.get(&world).map_or(0, |p| p.character);
         let told = if made {
+            let rest: Vec<UsageEffect> = s
+                .item_uses
+                .get(&template)
+                .into_iter()
+                .flatten()
+                .filter(|e| !pets.iter().any(|(pet, _)| *pet == e.state))
+                .copied()
+                .collect();
+            for e in rest {
+                put_on(s, net, world, me, u.item, e, clock);
+            }
             let spent = s
                 .catalog
                 .get(template)

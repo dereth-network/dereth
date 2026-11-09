@@ -915,6 +915,116 @@ fn a_kits_use_makes_its_pet_at_the_kits_spellcraft_and_is_used_up_within_the_kin
     assert_eq!(kits_held(&mut h, me), vec![kits[1]], "kept");
 }
 
+const PAIR: u32 = 0x4700_1C81;
+const SISTER: u32 = 0x7000_1FD5;
+const SISTER_TEMPLATE: u32 = 0x4700_0858;
+const AFTER: u32 = 0x7000_1FB7;
+
+/// An item naming two of the install's pet effects that a world's rows describe, then an effect
+/// that lasts: both pets made for its user at the item's spellcraft, the other effect put on it,
+/// the item used up.
+/// Behaviour: server.pets.install-pets-made-by-an-items-use
+#[test]
+fn an_items_use_makes_every_pet_its_install_effects_make_then_puts_on_the_rest() {
+    use yalain_world::item_use::UsageEffect;
+    let mut h = Harness::new();
+    with_pet(&mut h, 0, 1096, None);
+    let sister = EffectDef {
+        external_flags: 177,
+        internal_flags: 0x4140_8513,
+        ..def(
+            SISTER,
+            Kind::Pet {
+                class: 0x400,
+                lifetime: Scale::default(),
+            },
+        )
+    };
+    h.server.effect_table.effects.insert(SISTER, sister);
+    let after = EffectDef {
+        duration: Scale(vec![(0.0, 60.0)]),
+        ..def(
+            AFTER,
+            Kind::Numeric {
+                flags: 4,
+                stats: vec![0x4_0000 | quality::VIGOR_MAX],
+                magnitude: Scale(vec![(0.0, 10.0)]),
+            },
+        )
+    };
+    h.server.effect_table.effects.insert(AFTER, after);
+    h.server.pets.read_rows(
+        [
+            PetKind::new(PET_EFFECT, PET_TEMPLATE, 1096, &[]),
+            PetKind::new(SISTER, SISTER_TEMPLATE, 1096, &[]),
+        ],
+        std::iter::empty(),
+    );
+    let template = h.server.catalog.get(PET_TEMPLATE).cloned().expect("pet");
+    h.server.catalog.insert(test_template(
+        SISTER_TEMPLATE,
+        0x1169,
+        template.props.clone(),
+    ));
+    let mut props = Props::default();
+    props
+        .set("Item_IsDestroyOnUse", Prop::Bool(true))
+        .set("Item_IsStackable", Prop::Bool(false));
+    h.server.catalog.insert(test_template(PAIR, 0x1C7A, props));
+    let at = |state: u32, spellcraft: f32| UsageEffect { state, spellcraft };
+    h.server.item_uses.insert(
+        PAIR,
+        vec![at(PET_EFFECT, 50.0), at(SISTER, 50.0), at(AFTER, 1.0)],
+    );
+    let (b, me) = summoner(&mut h);
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .map(|(c, _)| c)
+        .expect("in the world");
+    let item =
+        yalain_world::inventory::give(&mut h.server, &mut h.net, world, PAIR, 1).expect("given");
+    h.run(2);
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(ITEM_USE, &[use_of(item, me)]),
+    );
+    h.run(20);
+    let made: Vec<(u32, Option<i32>)> = h
+        .server
+        .pets
+        .of(me)
+        .iter()
+        .filter_map(|id| h.server.things.get(*id))
+        .map(|t| (t.template, t.creature.as_ref().map(|c| c.stats.level)))
+        .collect();
+    assert_eq!(
+        made,
+        vec![(PET_TEMPLATE, Some(50)), (SISTER_TEMPLATE, Some(50))],
+        "both, at the item's spellcraft"
+    );
+    assert!(
+        player(&mut h, me)
+            .play
+            .effects
+            .iter()
+            .any(|e| e.state == AFTER),
+        "the rest put on"
+    );
+    let spent = yalain_world::item_use::flags::SPENT;
+    let answered = super::items::answers(&h, b, from);
+    assert_eq!(answered.len(), 1, "one answer");
+    assert_eq!(answered[0].flags & spent, spent, "told spent");
+    assert!(
+        !player(&mut h, me).play.items.iter().any(|i| i.id == item),
+        "used up"
+    );
+}
+
 const DRAIN: u32 = 0x7000_08C5;
 
 /// A pet's strike that leaves a vital transfer takes its number at the pet's level from the

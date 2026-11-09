@@ -2395,6 +2395,116 @@ fn the_tyrant_warder_stone_puts_on_a_ward_that_keeps_off_what_bars_skills() {
     assert!(held(&h, TYRANT_MAUL));
 }
 
+const TESARA_SISTERS: u32 = 0x4700_1C81;
+const SANGOG_BROTHERS: u32 = 0x4700_1C7F;
+
+/// A world of one pack: what each of the four pet effects the sisters' and brothers' items name
+/// makes.
+fn summons_world() -> yalain_world_db::Files {
+    let mut files = yalain_world_db::Files::new();
+    files.insert(
+        "world.toml".into(),
+        "format_version = 1\nkey = \"w\"\ngame = \"ac2\"\nera = \"eor\"\npacks = [\"p\"]\n".into(),
+    );
+    files.insert(
+        "p/pack.toml".into(),
+        "format_version = 1\nname = \"p\"\nversion = \"0.1.0\"\ngame = \"ac2\"\nauthors = [\"a\"]\nlicense = \"CC0-1.0\"\ndescription = \"d\"\n".into(),
+    );
+    let pets: String = [
+        (0x6F00_25F8u32, 0x4700_3471u32),
+        (0x6F00_25FB, 0x4700_3473),
+        (0x6F00_25FC, 0x4700_346D),
+        (0x6F00_25FD, 0x4700_346F),
+    ]
+    .iter()
+    .map(|(e, t)| {
+        format!("[[pet]]\neffect = 0x{e:08X}\ntemplate = 0x{t:08X}\nflags = 1096\nprov = {{ from = \"authored\" }}\n\n")
+    })
+    .collect();
+    files.insert("p/server/pets.toml".into(), pets);
+    files
+}
+
+/// The Tesara Sisters' and the Sangog Brothers' items each name two of the install's pet effects,
+/// and with a world's rows for them a use makes both, its own two creatures, at the item's
+/// spellcraft, and is used up.
+/// Behaviour: server.pets.every-pet-an-items-use-makes
+#[test]
+fn the_sisters_and_the_brothers_each_make_their_two_and_are_used_up() {
+    let p = Portal::open();
+    let t = p.compile(&summons_world());
+    let items = [TESARA_SISTERS, SANGOG_BROTHERS];
+    let uses = p.item_uses(&items);
+    let states: Vec<u32> = uses.values().flatten().map(|e| e.state).collect();
+    let mut h = yalain_testkit::Harness::new();
+    let mut templates = vec![TESARA_SISTERS, SANGOG_BROTHERS];
+    templates.extend(t.pet_kinds.values().map(|k| k.template));
+    for id in templates {
+        h.server.catalog.insert(p.template(id));
+    }
+    h.server.item_uses = uses;
+    h.server.effect_table = p.effects(&states);
+    h.server
+        .pets
+        .read_rows(t.pet_kinds.values().cloned(), std::iter::empty());
+    let (b, me) = h.player_in_world("one", "Elara");
+    h.bots[b].send(
+        true,
+        auberean_protocol::queue::WEENIE,
+        &auberean_protocol::ClientMessage::SceneRenderingComplete(auberean_protocol::login::Empty),
+    );
+    h.run(5);
+    let world = *h.server.players.keys().next().expect("in the world");
+    {
+        let pl = h.server.players.get_mut(&world).expect("the player");
+        yalain_world::quals::set_int(&mut pl.qualities, yalain_world::examine::LEVEL, 60);
+    }
+    let mut made = Vec::new();
+    for (item, two) in [
+        (TESARA_SISTERS, [0x4700_3473, 0x4700_3471]),
+        (SANGOG_BROTHERS, [0x4700_346F, 0x4700_346D]),
+    ] {
+        let id = yalain_world::inventory::give(&mut h.server, &mut h.net, world, item, 1)
+            .expect("given");
+        h.run(3);
+        let before = h.server.pets.of(me);
+        h.bots[b].send(
+            true,
+            auberean_protocol::queue::WEENIE,
+            &yalain_testkit::play::server_call(
+                0x8216_0016,
+                &[yalain_testkit::play::use_of(id, me)],
+            ),
+        );
+        h.run(20);
+        let new: Vec<(u32, Option<i32>)> = h
+            .server
+            .pets
+            .of(me)
+            .into_iter()
+            .filter(|p| !before.contains(p))
+            .filter_map(|p| h.server.things.get(p))
+            .map(|t| (t.template, t.creature.as_ref().map(|c| c.stats.level)))
+            .collect();
+        assert_eq!(
+            new,
+            vec![(two[0], Some(50)), (two[1], Some(50))],
+            "{item:08X}: {:?}",
+            h.server.unhandled.counts()
+        );
+        assert!(
+            !h.server.players[&world]
+                .play
+                .items
+                .iter()
+                .any(|i| i.id == id),
+            "{item:08X} used up"
+        );
+        made.extend(new);
+    }
+    assert_eq!(made.len(), 4);
+}
+
 /// The Arcane Lore a treasure item takes reads from the game's own table: item levels 50 to 150,
 /// none at 50, 17 at 51, 412 at 100, 887 at 150, rising at every level, 42,920 in all; between its
 /// levels in proportion, cut to a whole number.

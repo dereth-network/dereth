@@ -771,12 +771,17 @@ pub fn aura_pulses<S: Store>(
     s.after(clock, next, pulse);
 }
 
-/// The pet an item's use makes: the first effect its properties name that a kind of pet lists among
-/// its items' effects, with the item's spellcraft for it.
+/// The pets an item's use makes, in the order it names them, each with the item's spellcraft for it:
+/// an effect a kind of pet lists among its items' effects, and the install's pet effect a name of
+/// the item's stands for when a kind of pet is that effect's.
 #[must_use]
-pub fn made_by_use<S: Store>(s: &Server<S>, props: &yalain_content::Props) -> Option<(u32, f32)> {
+pub fn made_by_use<S: Store>(
+    s: &Server<S>,
+    template: u32,
+    props: &yalain_content::Props,
+) -> Vec<(u32, f32)> {
     let (name, after) = crate::item_use::USED;
-    (1..=8).find_map(|i| {
+    let listed = (1..=8).filter_map(|i| {
         let named = props.text(&format!("{name}{i}"))?;
         let kind = s
             .pets
@@ -785,7 +790,20 @@ pub fn made_by_use<S: Store>(s: &Server<S>, props: &yalain_content::Props) -> Op
             .find(|k| k.item_effects.iter().any(|e| e == named))?;
         let spellcraft = props.float(&format!("{name}{i}{after}")).unwrap_or(1.0);
         Some((kind.effect, spellcraft))
-    })
+    });
+    let own = s
+        .item_uses
+        .get(&template)
+        .into_iter()
+        .flatten()
+        .filter(|e| {
+            matches!(
+                s.effect_table.get(e.state).map(|d| &d.kind),
+                Some(crate::effect_defs::Kind::Pet { .. })
+            ) && s.pets.kind_of(e.state).is_some()
+        })
+        .map(|e| (e.state, e.spellcraft));
+    listed.chain(own).collect()
 }
 
 /// The summoning skill whose limits a pet made by other means keeps to: one whose use makes the same

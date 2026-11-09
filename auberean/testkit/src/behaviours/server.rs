@@ -9792,6 +9792,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.pets.every-pet-an-items-use-makes",
+        says: "The Tesara Sisters' and the Sangog Brothers' items each name two of the install's pet \
+               effects; with a world's row for each, a use makes both of the item's own creatures at the \
+               item's spellcraft, puts on what else the item names, and is used up. No recording holds \
+               their use.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-RARE-SUMMONS"),
+        station: "yalain-testkit::dat::effects::the_sisters_and_the_brothers_each_make_their_two_and_are_used_up",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.pets.every-summoning-skill-makes-its-pet",
         says: "Every summoning skill a player can train names a pet the world's rows make, each a \
                creature in the install; every limit is of a skill that summons.",
@@ -9836,6 +9847,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-PETS-DAMAGE"),
         station: "yalain-testkit::cpu::play::pet_kinds::a_pets_hit_is_its_kinds_number_times_its_level_squared_less_the_creatures_armor",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.pets.install-pets-made-by-an-items-use",
+        says: "An item naming the install's pet effects that a world's rows describe makes every one of \
+               them for its user at the item's spellcraft, then puts on what else it names, and is used \
+               up.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ITEM-PETS-ALL"),
+        station: "yalain-testkit::cpu::play::pet_skills::an_items_use_makes_every_pet_its_install_effects_make_then_puts_on_the_rest",
         tier: Tier::Cpu,
     },
     behaviour! {
