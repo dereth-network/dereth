@@ -107,7 +107,8 @@ impl Dialect for Ac2 {
          clearing <key>@<XXYY>, death_treasure <key>, treasure_pool <name>, \
          treasure_value <level>, treasure_rules, treasure_sort <sort>, treasure_word <sort> <word>, \
          treasure_look <template>, treasure_potion <kind>, \
-         treasure_family <sort> <order>, or landblock <XXYY>";
+         treasure_family <sort> <order>, item_use <template>, book <template>, \
+         start_item <template>, or landblock <XXYY>";
     const NAMES_BASE: bool = true;
     type Kind = Kind;
     type Era = Era;
@@ -208,6 +209,12 @@ pub enum Item {
     Mine { skill: u32 },
     /// The nodes a region's surveyor's maps lead to, by the region's key.
     MapRegion { region: String },
+    /// What an item's use does where its template names nothing, by the template.
+    ItemUse { template: u32 },
+    /// What a book, card or person shows when used, by the template.
+    Book { template: u32 },
+    /// What every new character is given as it first enters, by the template.
+    StartItem { template: u32 },
 }
 
 impl Item {
@@ -312,6 +319,15 @@ impl Item {
             ["map_region", region] => Self::MapRegion {
                 region: symbol(region)?,
             },
+            ["item_use", template] => Self::ItemUse {
+                template: number(template)?,
+            },
+            ["book", template] => Self::Book {
+                template: number(template)?,
+            },
+            ["start_item", template] => Self::StartItem {
+                template: number(template)?,
+            },
             ["area", lb] => Self::Area {
                 landblock: u16::from_str_radix(lb, 16).ok().filter(|_| lb.len() == 4)?,
             },
@@ -371,6 +387,9 @@ impl fmt::Display for Item {
             Self::TreasureFamily { sort, order } => write!(f, "treasure_family {sort} {order}"),
             Self::Mine { skill } => write!(f, "mine {skill:#010x}"),
             Self::MapRegion { region } => write!(f, "map_region {region}"),
+            Self::ItemUse { template } => write!(f, "item_use {template:#010x}"),
+            Self::Book { template } => write!(f, "book {template:#010x}"),
+            Self::StartItem { template } => write!(f, "start_item {template:#010x}"),
         }
     }
 }

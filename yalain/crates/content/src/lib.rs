@@ -29,6 +29,7 @@ use auberean_assets::script::Qualities;
 pub mod effect_rules;
 pub mod events;
 pub mod gathering;
+pub mod item_rows;
 pub mod kingdoms;
 pub mod locks;
 pub mod loot;

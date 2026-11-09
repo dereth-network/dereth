@@ -827,6 +827,7 @@ struct Play {
     kingdom_skills: yalain_world::kingdom_skills::KingdomSkills,
     kingdom_rows: yalain_content::kingdoms::KingdomTable,
     popups: yalain_content::popups::PopupTable,
+    item_rows: yalain_content::item_rows::ItemRows,
     glyphs: std::collections::HashSet<u32>,
     cannot_use: std::collections::HashSet<u32>,
     doors: std::collections::HashMap<u32, yalain_world::usable::doors::Kind>,
@@ -1039,6 +1040,7 @@ fn run<S: Store>(
     server.kingdom_skills = play.kingdom_skills;
     server.kingdom_rows = play.kingdom_rows;
     server.popups = play.popups;
+    server.item_rows = play.item_rows;
     server.glyph_packages = play.glyphs;
     server.cannot_use_packages = play.cannot_use;
     server.doors.packages = play.doors;
@@ -1720,12 +1722,16 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         mut effect_rules,
         treasure,
         gathering,
+        items,
         ..
     } = compiled;
     // Fields of kinds a world has that it may leave out everywhere: the server's own then.
     let cancel_waits_2017 = yalain_world::quests::cancel_waits_or_2017(&mut quests);
     let transformations_2017 = yalain_world::gives::transformations_or_2017(&mut quests);
     let vitae_taps_2017 = yalain_world::effect_defs::vitae_taps_or_2017(&mut effect_rules);
+    // What items' uses do, books show and new characters are given: the world's rows, the
+    // server's own of a kind it has none of.
+    let (item_rows, items_fell_back) = yalain_world::item_use::world_item_rows(items);
     // The numbers treasure draws by: the world's rows, 2017's for each kind it gives none of.
     let (treasure_tables, mut fell_back) =
         yalain_content::treasure_tables::TreasureTables::with_rows(&treasure);
@@ -1758,6 +1764,13 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         if vitae_taps_2017 {
             tracing::warn!(
                 "this world's [[effect_rule]] rows name no vitae_share: Aun Aulatah's tap takes the server's own tenth of vitae"
+            );
+        }
+        if !items_fell_back.is_empty() {
+            let kinds: Vec<String> = items_fell_back.iter().map(|k| format!("[[{k}]]")).collect();
+            tracing::warn!(
+                "this world has no {} rows: its items go by the server's own there",
+                kinds.join(", ")
             );
         }
         let skills = data::skill_table(portal)?;
@@ -1872,6 +1885,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
                         crafting: &crafting,
                         death_spawns: &death_spawns,
                         pets: &pet_kinds,
+                        items: &item_rows,
                     },
                 ))
                 .chain(craft.templates())
@@ -1933,7 +1947,8 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         let (item_uses, worn_effects, death_effects) =
             data::item_uses(portal, &catalog, &effect_names)?;
         states.extend(item_uses.values().flatten().map(|e| e.state));
-        states.extend(yalain_world::item_use::FOOD_EFFECTS);
+        // And those the world's rows give items' uses.
+        states.extend(item_rows.states());
         states.extend(worn_effects.values().flatten().map(|e| e.state));
         states.extend(death_effects.values().flatten().map(|e| e.state));
         // The treasure potions' effects, put on when they are drunk.
@@ -2074,6 +2089,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             kingdom_skills,
             kingdom_rows,
             popups,
+            item_rows,
             glyphs,
             cannot_use,
             doors,
@@ -2132,6 +2148,7 @@ fn reload_world(
         pet_limits: p.pet_limits,
         kingdoms: p.kingdom_rows,
         popups: p.popups,
+        items: p.item_rows,
         names,
         kinds: Some(yalain_world::reload::PlacedKinds {
             brokers: p.brokers,

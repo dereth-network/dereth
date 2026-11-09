@@ -5,7 +5,9 @@
 //! the spellcraft it is cast at (`Usage_EffectN_Spellcraft`, else 1). A name is a value of the
 //! game's effect enumeration ([`enum_of`]), and the effect put on is the saved state of that value
 //! among the effects'; a name the enumeration lacks that is a package of the script library puts
-//! on the package's one saved state, else its singleton.
+//! on the package's one saved state, else its singleton. A world's `[[item_use]]` row adds what a
+//! template names nothing of: the effects put on after its own, the behavior played where it
+//! names none, and the uses it wears out after.
 //!
 //! **Who may use it.** Before anything is done a use is refused, its answer alone, when its item
 //! may not be used moving and the player moves; when it mounts its user and the player's hands
@@ -38,7 +40,7 @@
 //! **An item that is only looked at** (its usage action the examination's, no effects) is shown
 //! to the player as an examination, then the use answered at once.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use auberean_protocol::types::BehaviorParams;
 use auberean_protocol::ServerMessage;
@@ -189,51 +191,68 @@ pub fn read_named_or<'a>(
         .collect()
 }
 
-/// A forager's food (a Piece of Food): its template names no effect for its use, but its use heals
+/// The item uses a world with no `[[item_use]]` row has, until the world's release holds them. A
+/// forager's food (a Piece of Food): its template names no effect for its use, but its use heals
 /// health and vigor at the food's spellcraft, the forage's (2017: 40 for 10 of the 15 foods used,
 /// their heals 244 each, 50 of 66 vital updates; 45 and 19 for the others), and wears it by one;
-/// at its last durability it is destroyed through overuse (12 of 12, at the fifth use).
-pub const FOOD: u32 = 0x4700_0845;
-pub const FOOD_EFFECTS: [u32; 2] = [0x6F00_2255, 0x6F00_2251];
-pub const FOOD_SPELLCRAFT: f32 = 40.0;
-pub const FOOD_DURABILITY: u32 = 5;
-
-/// The training hall's potions (haste, healing, thorns): their templates name no effect, but each
-/// is drunk for its one effect, at the spellcraft of 1 (2017: 5 of 5 drinks, 2 haste, 2 healing,
-/// 1 thorns).
-pub const TRAINING_POTIONS: [(u32, u32); 3] = [
-    (0x4700_1AEE, 0x7000_0A13),
-    (0x4700_1AEF, 0x7000_0A00),
-    (0x4700_1AF0, 0x7000_09FD),
-];
-
-/// The effect a training hall's potion is drunk for, if the template is one.
-fn training_potion(template: u32) -> Option<u32> {
-    TRAINING_POTIONS
-        .iter()
-        .find(|(t, _)| *t == template)
-        .map(|(_, state)| *state)
+/// at its last durability it is destroyed through overuse (12 of 12, at the fifth use). The
+/// training hall's potions (haste, healing, thorns): their templates name no effect, but each is
+/// drunk for its one effect, at the spellcraft of 1 (2017: 5 of 5 drinks, 2 haste, 2 healing,
+/// 1 thorns). Both play the drink (65 of 65 uses; 5 of 5).
+#[must_use]
+pub fn fallback_uses() -> BTreeMap<u32, yalain_content::item_rows::ItemUse> {
+    let food = yalain_content::item_rows::ItemUse {
+        template: 0x4700_0845,
+        effects: vec![(0x6F00_2255, 40.0), (0x6F00_2251, 40.0)],
+        behavior: Some(DRINK),
+        wears: Some(5),
+    };
+    let potion = |template, state| yalain_content::item_rows::ItemUse {
+        template,
+        effects: vec![(state, 1.0)],
+        behavior: Some(DRINK),
+        wears: None,
+    };
+    [
+        food,
+        potion(0x4700_1AEE, 0x7000_0A13),
+        potion(0x4700_1AEF, 0x7000_0A00),
+        potion(0x4700_1AF0, 0x7000_09FD),
+    ]
+    .into_iter()
+    .map(|u| (u.template, u))
+    .collect()
 }
 
-/// The effects an item's use puts on that the server's own code names, not its template.
+/// A world's item rows, each kind its rows or, with none, the server's own (never the two
+/// merged), and the kinds that fell back.
 #[must_use]
-pub fn own_effects(template: u32) -> Vec<UsageEffect> {
-    if template == FOOD {
-        FOOD_EFFECTS
-            .iter()
-            .map(|&state| UsageEffect {
-                state,
-                spellcraft: FOOD_SPELLCRAFT,
-            })
-            .collect()
-    } else if let Some(state) = training_potion(template) {
-        vec![UsageEffect {
-            state,
-            spellcraft: 1.0,
-        }]
-    } else {
-        Vec::new()
+pub fn world_item_rows(
+    rows: yalain_content::item_rows::ItemRows,
+) -> (yalain_content::item_rows::ItemRows, Vec<&'static str>) {
+    let mut out = rows;
+    let mut fell_back = Vec::new();
+    if out.uses.is_empty() {
+        out.uses = fallback_uses();
+        fell_back.push("item_use");
     }
+    if out.books.is_empty() {
+        out.books = crate::books::fallback_books();
+        fell_back.push("book");
+    }
+    if out.start_items.is_empty() {
+        out.start_items = crate::inventory::fallback_start_items();
+        fell_back.push("start_item");
+    }
+    (out, fell_back)
+}
+
+/// The effects an item's use puts on that the world's rows name, not its template.
+#[must_use]
+pub fn own_effects(rows: &yalain_content::item_rows::ItemRows, template: u32) -> Vec<UsageEffect> {
+    rows.effects(template)
+        .map(|(state, spellcraft)| UsageEffect { state, spellcraft })
+        .collect()
 }
 
 /// The drink a potion is used with, and the potions' usage action.
@@ -356,12 +375,15 @@ pub fn use_behavior(props: &Props) -> Option<u32> {
         .or_else(|| (props.word("Item_UsageAction") == Some(POTION_ACTION)).then_some(DRINK))
 }
 
-/// The use behavior of an item of a template: its template's, else the drink for a forager's food
-/// and a training hall's potion (2017: the drink played, 65 of 65 uses; 5 of 5).
+/// The use behavior of an item of a template: its template's, else the one the world's row gives
+/// its use.
 #[must_use]
-pub fn behavior_of(template: u32, props: &Props) -> Option<u32> {
-    use_behavior(props)
-        .or((template == FOOD || training_potion(template).is_some()).then_some(DRINK))
+pub fn behavior_of(
+    rows: &yalain_content::item_rows::ItemRows,
+    template: u32,
+    props: &Props,
+) -> Option<u32> {
+    use_behavior(props).or_else(|| rows.behavior(template))
 }
 
 /// A Tessera's use behavior. Its use plays it, and at its end gives its user a hero skill credit
@@ -385,7 +407,7 @@ pub fn item_behavior<S: Store>(
     } else if t.is_some_and(|t| s.tesserae.contains(&t.description.package)) {
         Some(TESSERA_BEHAVIOR)
     } else {
-        behavior_of(template, props)
+        behavior_of(&s.item_rows, template, props)
     }
 }
 
@@ -415,7 +437,7 @@ pub fn begin<S: Store>(
         .get(u.item)
         .is_some_and(|i| i.own.effect.is_some() || s.tesserae.contains(&i.description.package));
     if s.item_uses.get(&template).is_none_or(Vec::is_empty)
-        && own_effects(template).is_empty()
+        && own_effects(&s.item_rows, template).is_empty()
         && !examined
         && !seed
         && !own
@@ -455,7 +477,7 @@ pub fn begin<S: Store>(
             let spent = s
                 .catalog
                 .get(template)
-                .is_some_and(|t| spends(t.id, &t.props));
+                .is_some_and(|t| spends(&s.item_rows, t.id, &t.props));
             if spent {
                 crate::craft::use_up(s, net, world, u.item, 1);
             }
@@ -589,7 +611,7 @@ fn quest_effects<S: Store>(s: &Server<S>, template: u32) -> Vec<crate::quests::Q
             _ => None,
         })
         .collect();
-    if quests.len() == list.len() && own_effects(template).is_empty() {
+    if quests.len() == list.len() && own_effects(&s.item_rows, template).is_empty() {
         quests
     } else {
         Vec::new()
@@ -928,7 +950,7 @@ fn carry_out<S: Store>(
         progress::private(net, world, &examine);
     }
     let mut list = s.item_uses.get(&template).cloned().unwrap_or_default();
-    list.extend(own_effects(template));
+    list.extend(own_effects(&s.item_rows, template));
     // A treasure potion's own effect, at its own spellcraft.
     let drunk = s.things.get(u.item).and_then(|i| i.own.effect);
     list.extend(drunk.map(|e| UsageEffect {
@@ -988,7 +1010,7 @@ fn carry_out<S: Store>(
     }
     // A seed's plant stands.
     crate::plants::sow(s, net, world, template, clock);
-    let spent = spends(t.id, &t.props);
+    let spent = spends(&s.item_rows, t.id, &t.props);
     if spent {
         crate::craft::use_up(s, net, world, u.item, 1);
     }
@@ -1020,9 +1042,9 @@ fn carry_out<S: Store>(
     let done = crate::places::use_done(&u, me, f, false, 0.0);
     progress::private(net, world, &done);
     crate::death_spawn::used(s, net, world, &t.props, clock);
-    // Food wears with each use, and goes at its last.
-    if template == FOOD {
-        crate::butchery::wear_tool_by(s, net, world, u.item, 1.0, FOOD_DURABILITY);
+    // An item a row says wears (a forager's food) wears with each use, and goes at its last.
+    if let Some(uses) = s.item_rows.wears(template) {
+        crate::butchery::wear_tool_by(s, net, world, u.item, 1.0, uses);
     }
     crate::world::keep_player(s, world);
 }
@@ -1042,7 +1064,7 @@ pub fn arrived<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, 
     else {
         return;
     };
-    let spent = spends(t.id, &t.props);
+    let spent = spends(&s.item_rows, t.id, &t.props);
     if spent {
         crate::craft::use_up(s, net, world, u.item, 1);
     }
@@ -1074,13 +1096,13 @@ fn answer_flags(props: &Props, played: bool) -> u32 {
 }
 
 /// Does an item of this template wear by its uses rather than go at its first: its template gives
-/// it durability, or it is a forager's food, whose forage would. The script library holds an item
-/// that has durability and is destroyed on use to be in error; such an item is spent by its wear
-/// (2017: the food, destroyed on use by its class, 65 of 65 uses not spent, 12 of 12 gone at the
-/// fifth).
+/// it durability, or the world's row says it wears (a forager's food, whose forage would). The
+/// script library holds an item that has durability and is destroyed on use to be in error; such
+/// an item is spent by its wear (2017: the food, destroyed on use by its class, 65 of 65 uses not
+/// spent, 12 of 12 gone at the fifth).
 #[must_use]
-pub fn wears(template: u32, props: &Props) -> bool {
-    template == FOOD
+pub fn wears(rows: &yalain_content::item_rows::ItemRows, template: u32, props: &Props) -> bool {
+    rows.wears(template).is_some()
         || props
             .int("Item_Durability_MaxLevel")
             .is_some_and(|most| most > 0)
@@ -1089,8 +1111,8 @@ pub fn wears(template: u32, props: &Props) -> bool {
 /// Is an item of this template spent by its use: destroyed on use, as its template or its class
 /// says, and not one that wears?
 #[must_use]
-pub fn spends(template: u32, props: &Props) -> bool {
-    props.flag("Item_IsDestroyOnUse") && !wears(template, props)
+pub fn spends(rows: &yalain_content::item_rows::ItemRows, template: u32, props: &Props) -> bool {
+    props.flag("Item_IsDestroyOnUse") && !wears(rows, template, props)
 }
 
 /// Put one of an item's effects on its user, cast by it from the item: one with no duration that

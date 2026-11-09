@@ -13,7 +13,6 @@ use yalain_store::{Store as _, StoredPosition};
 use yalain_testkit::play::server_call;
 use yalain_testkit::{test_catalog, test_template, Harness, TEST_ITEM};
 use yalain_world::characters::{self, Destination, QuestAt, Recipe};
-use yalain_world::inventory::GUIDE_BOOK;
 use yalain_world::levels::{Level, LevelTable};
 use yalain_world::player::quality;
 use yalain_world::progress::{self, q, Award};
@@ -21,6 +20,9 @@ use yalain_world::quests::status;
 use yalain_world::skills::{SkillDef, SkillTable};
 use yalain_world::state::PlayState;
 use yalain_world::{admin, places, quals};
+
+/// The book the test world's rows give every new character.
+const GUIDE_BOOK: u32 = 0x4700_06CD;
 
 /// A made-up skill to train from level 2 for one credit, raised along a table like the masters'.
 const SKILL: u32 = 15;
@@ -113,6 +115,32 @@ fn world() -> Harness {
     ));
     h.server.quests.quests.push(quest());
     h
+}
+
+/// A new character is given, as it first enters, what the world's first gift rows give, as many of
+/// each as they say: here three of the test item, and so no guide book, which they don't name.
+/// Behaviour: server.items.start-item-rows
+#[test]
+fn a_new_character_is_given_what_the_worlds_start_item_rows_give() {
+    let mut h = world();
+    h.server.item_rows.start_items = std::collections::BTreeMap::from([(TEST_ITEM, 3)]);
+    let (_, id) = h.player_in_world("one", "Newcomer");
+    h.run(5);
+    let count = |h: &Harness, t: u32| -> u32 {
+        h.server
+            .players
+            .values()
+            .find(|p| p.character == id)
+            .expect("in the world")
+            .play
+            .items
+            .iter()
+            .filter(|i| i.template == t)
+            .map(|i| i.quantity)
+            .sum()
+    };
+    assert_eq!(count(&h, TEST_ITEM), 3);
+    assert_eq!(count(&h, GUIDE_BOOK), 0, "no row names it");
 }
 
 /// A human man's recipe on account `one`.

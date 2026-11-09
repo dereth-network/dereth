@@ -2094,6 +2094,50 @@ pub mod mercenary {
 /// The Lasher's greatest health at its summoner's ratings (2017's: 29, 52, 53 and 54).
 pub const LASHER_HEALTH: [(i32, i32); 4] = [(29, 663), (52, 1762), (53, 1813), (54, 1863)];
 
+/// The template of a forager's food, which the test world's item rows have wear by its uses.
+pub const FOOD: u32 = 0x4700_0845;
+
+/// The test world's item rows, as the world's rows give them: a forager's food (two heals at the
+/// spellcraft of 40, the drink, five uses) and the training hall's three potions (one effect each
+/// at the spellcraft of 1, the drink); the four greater trumps whose pictures are known and the two
+/// Shi who show the Shaper Architect's book; and the Shaper's Guide for every new character.
+#[must_use]
+pub fn test_item_rows() -> yalain_content::item_rows::ItemRows {
+    use yalain_content::item_rows::{ItemRows, ItemUse, Shows};
+    const DRINK: u32 = 0x4100_0023;
+    let potion = |template, state| ItemUse {
+        template,
+        effects: vec![(state, 1.0)],
+        behavior: Some(DRINK),
+        wears: None,
+    };
+    let uses = [
+        ItemUse {
+            template: FOOD,
+            effects: vec![(0x6F00_2255, 40.0), (0x6F00_2251, 40.0)],
+            behavior: Some(DRINK),
+            wears: Some(5),
+        },
+        potion(0x4700_1AEE, 0x7000_0A13),
+        potion(0x4700_1AEF, 0x7000_0A00),
+        potion(0x4700_1AF0, 0x7000_09FD),
+    ];
+    ItemRows {
+        uses: uses.into_iter().map(|u| (u.template, u)).collect(),
+        books: [
+            (0x4700_13C1, Shows::Picture(0x4100_91EC)),
+            (0x4700_13CE, Shows::Picture(0x4100_91F0)),
+            (0x4700_13D2, Shows::Picture(0x4100_91F2)),
+            (0x4700_13DC, Shows::Picture(0x4100_91F7)),
+            (0x4700_3367, Shows::Book(0x2500_2C90)),
+            (0x4700_3375, Shows::Book(0x2500_2C90)),
+        ]
+        .into_iter()
+        .collect(),
+        start_items: [(0x4700_06CD, 1)].into_iter().collect(),
+    }
+}
+
 /// What the test world's summoning skills allow: a test's own skill as a Lasher's, a turret's two.
 #[must_use]
 pub fn test_pet_limits() -> Vec<(u32, Vec<(usize, u32)>)> {
@@ -2322,6 +2366,7 @@ impl<S: Store> Harness<S> {
             .expect("the store sets ids aside")
             .with_world(test_start(), yalain_content::ContentPack::default());
         server.pets.read_rows(test_pet_kinds(), test_pet_limits());
+        server.item_rows = test_item_rows();
         server.skill_table = test_skills();
         server.effect_table = test_effects();
         server.crafting = test_crafting();

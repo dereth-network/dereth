@@ -3190,6 +3190,132 @@ fn popup_rows_compile_by_moment_and_bad_ones_are_problems() {
 }
 
 #[test]
+fn item_use_book_and_start_item_rows_compile_and_bad_ones_are_problems() {
+    use yalain_content::item_rows::{ItemUse, Shows};
+    let mut files = fixture();
+    files.insert(
+        "town/server/items.toml".into(),
+        "[[item_use]]\ntemplate = 0x4700115B\neffects = [{ effect = 0x6F002255, spellcraft = 40 }, { effect = 0x70000A13 }]\n\
+         behavior = 0x41000023\nwears = 5\nprov = { from = \"authored\" }\n\n\
+         [[item_use]]\ntemplate = 0x47002224\neffects = [{ effect = 0x70000A00 }]\nprov = { from = \"authored\" }\n\n\
+         [[book]]\ntemplate = 0x4700115B\npicture = 0x410091EC\nprov = { from = \"authored\" }\n\n\
+         [[book]]\ntemplate = 0x47002224\ntable = 0x25002C90\nprov = { from = \"authored\" }\n\n\
+         [[start_item]]\ntemplate = 0x4700115B\nprov = { from = \"authored\" }\n\n\
+         [[start_item]]\ntemplate = 0x47002224\ncount = 3\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    let db = read(&files).unwrap();
+    assert!(check(&files).is_empty(), "{:?}", check(&files));
+    let t = compile(&merge(&db).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(
+        t.items.uses.get(&0x4700_115B),
+        Some(&ItemUse {
+            template: 0x4700_115B,
+            effects: vec![(0x6F00_2255, 40.0), (0x7000_0A13, 1.0)],
+            behavior: Some(0x4100_0023),
+            wears: Some(5),
+        })
+    );
+    assert_eq!(
+        t.items.uses.get(&0x4700_2224),
+        Some(&ItemUse {
+            template: 0x4700_2224,
+            effects: vec![(0x7000_0A00, 1.0)],
+            behavior: None,
+            wears: None,
+        })
+    );
+    assert_eq!(
+        t.items.books.get(&0x4700_115B),
+        Some(&Shows::Picture(0x4100_91EC))
+    );
+    assert_eq!(
+        t.items.books.get(&0x4700_2224),
+        Some(&Shows::Book(0x2500_2C90))
+    );
+    assert_eq!(
+        t.items
+            .start_items
+            .iter()
+            .map(|(t, n)| (*t, *n))
+            .collect::<Vec<_>>(),
+        [(0x4700_115B, 1), (0x4700_2224, 3)],
+        "one when the count is left out"
+    );
+    let none = compile(&merge(&read(&fixture()).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(
+        none.items,
+        yalain_content::item_rows::ItemRows::default(),
+        "a world with no rows has none"
+    );
+
+    // A template the install lacks is a problem.
+    let mut lost = fixture();
+    lost.insert(
+        "town/server/items.toml".into(),
+        "[[start_item]]\ntemplate = 0x47009999\nprov = { from = \"authored\" }\n".into(),
+    );
+    let problems = compile(&merge(&read(&lost).unwrap()).unwrap(), &Fake::new()).unwrap_err();
+    assert!(
+        problems.iter().any(|p| p
+            .to_string()
+            .contains("template 47009999 is not in the install")),
+        "{problems:?}"
+    );
+
+    // One row a template, of each kind.
+    let mut twice = files.clone();
+    twice.insert(
+        "town/server/more.toml".into(),
+        "[[book]]\ntemplate = 0x4700115B\ntable = 0x25002C90\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    assert!(
+        check(&twice)
+            .iter()
+            .any(|p| p.message.contains("set twice")),
+        "{:?}",
+        check(&twice)
+    );
+
+    // Their shapes.
+    for (kind, bad) in [
+        ("item_use", "template = 0x4700115B"),
+        ("item_use", "template = 0x4700115B\neffects = []"),
+        ("item_use", "template = 0x4700115B\neffects = [0x70000A13]"),
+        (
+            "item_use",
+            "template = 0x4700115B\neffects = [{ state = 0x70000A13 }]",
+        ),
+        (
+            "item_use",
+            "template = 0x4700115B\neffects = [{ effect = 0x70000A13, spellcraft = -1 }]",
+        ),
+        (
+            "item_use",
+            "template = 0x4700115B\neffects = [{ effect = 0x70000A13 }]\nwears = 0",
+        ),
+        ("item_use", "effects = [{ effect = 0x70000A13 }]"),
+        ("book", "template = 0x4700115B"),
+        (
+            "book",
+            "template = 0x4700115B\ntable = 0x25002C90\npicture = 0x410091EC",
+        ),
+        ("book", "picture = 0x410091EC"),
+        ("start_item", "template = 0x4700115B\ncount = 0"),
+        ("start_item", "count = 2"),
+        ("start_item", "template = 0x4700115B\nquantity = 2"),
+    ] {
+        let mut f = fixture();
+        f.insert(
+            "town/server/items.toml".into(),
+            format!("[[{kind}]]\n{bad}\nprov = {{ from = \"authored\" }}\n"),
+        );
+        assert!(read(&f).is_err(), "{kind}: {bad}");
+    }
+}
+
+#[test]
 fn points_bonus_rows_and_kingdom_requirements_compile_and_bad_ones_are_problems() {
     use yalain_content::kingdoms::{kingdom, PointsBonus};
     let mut files = fixture();

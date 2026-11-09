@@ -105,6 +105,15 @@ pub fn item(l: &Located) -> Option<Item> {
             key: r.key.clone(),
             landblock,
         },
+        Row::ItemUse(r) => Item::ItemUse {
+            template: r.template,
+        },
+        Row::Book(r) => Item::Book {
+            template: r.template,
+        },
+        Row::StartItem(r) => Item::StartItem {
+            template: r.template,
+        },
         Row::Remove(_) => return None,
     })
 }
@@ -160,6 +169,9 @@ fn value(row: &Row) -> String {
         Row::Route(x) => x.prov = crate::rows::Prov::default(),
         Row::Area(x) => x.prov = crate::rows::Prov::default(),
         Row::Clearing(x) => x.prov = crate::rows::Prov::default(),
+        Row::ItemUse(x) => x.prov = crate::rows::Prov::default(),
+        Row::Book(x) => x.prov = crate::rows::Prov::default(),
+        Row::StartItem(x) => x.prov = crate::rows::Prov::default(),
         Row::Remove(_) => {}
     }
     format!("{r:?}")

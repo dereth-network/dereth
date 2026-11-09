@@ -349,7 +349,7 @@ pub fn item_view<S: Store>(s: &Server<S>, t: &crate::things::Thing) -> profile::
     v.destroyed_on_use = s
         .catalog
         .get(t.template)
-        .is_some_and(|tp| crate::item_use::spends(tp.id, &tp.props));
+        .is_some_and(|tp| crate::item_use::spends(&s.item_rows, tp.id, &tp.props));
     v.jewelry = s.treasure.jewelry.contains(&t.description.package);
     // A treasure item's own least level and Arcane Lore, and a treasure potion's own effect and
     // name.

@@ -74,6 +74,12 @@ fn compiled() -> &'static Compiled {
     C.get_or_init(|| compile_at(&database()))
 }
 
+/// The item rows the database's world plays by: its rows', the server's own for each kind it
+/// gives none of.
+pub(crate) fn item_rows() -> yalain_content::item_rows::ItemRows {
+    yalain_world::item_use::world_item_rows(compiled().tables.items.clone()).0
+}
+
 /// The treasure numbers the database's world plays by: its rows', the server's own for each kind
 /// it gives none of.
 pub(crate) fn treasure_tables() -> yalain_world::treasure::TreasureTables {
@@ -220,6 +226,24 @@ fn the_worlds_mine_and_map_region_rows_hold_the_servers_own_entry_for_entry() {
     for (tool, unmade) in yalain_testkit::test_mining_tool_yields() {
         assert_eq!(craft.tool_yields.get(&tool), Some(&unmade), "{tool:08X}");
     }
+}
+
+/// A world's item use, book and first gift rows hold the server's own, entry for entry: the
+/// forager's food's and the training hall's potions' effects, behavior and wear, what the cards and
+/// the Shi show, and the guide every new character is given; so a world with them plays as one
+/// without.
+/// Behaviour: server.items.item-rows-hold-the-servers-own
+#[test]
+fn the_worlds_item_use_book_and_start_item_rows_hold_the_servers_own_entry_for_entry() {
+    let world = item_rows();
+    let own = yalain_testkit::test_item_rows();
+    for (t, u) in &own.uses {
+        assert_eq!(world.uses.get(t), Some(u), "{t:08X}");
+    }
+    for (t, b) in &own.books {
+        assert_eq!(world.books.get(t), Some(b), "{t:08X}");
+    }
+    assert_eq!(world.start_items, own.start_items);
 }
 
 /// What the rows leave out comes from the install: the training hall quest's definition (its
@@ -4091,7 +4115,7 @@ fn a_practice_gem_makes_its_dummy_at_its_place_for_its_ninety_seconds() {
     h.server.quest_ids = ids;
     let gem_template = h.server.catalog.get(GEM).expect("the gem");
     assert!(
-        yalain_world::item_use::spends(GEM, &gem_template.props),
+        yalain_world::item_use::spends(&h.server.item_rows, GEM, &gem_template.props),
         "its kind is used up"
     );
     h.run(4);
@@ -4190,6 +4214,7 @@ fn no_store_sale_pays_back_more_than_it_cost_at_the_best_transmutation_perk() {
 fn everything_the_worlds_rows_make_reads_from_the_install() {
     let t = &compiled().tables;
     let portal = yalain_testkit::authored::Portal::open();
+    let items = item_rows();
     let named = yalain_world::makes::by_the_rows(yalain_world::makes::Rows {
         objects: &t.content.objects,
         stores: &t.stores,
@@ -4197,6 +4222,7 @@ fn everything_the_worlds_rows_make_reads_from_the_install() {
         crafting: &t.crafting,
         death_spawns: &t.death_spawns,
         pets: &t.pet_kinds,
+        items: &items,
     });
     for template in named {
         assert_eq!(portal.template(template).id, template);

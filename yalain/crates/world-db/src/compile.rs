@@ -153,6 +153,9 @@ pub struct Tables {
     /// The treasure numbers the world gives: its rules and its sorts' numbers, each kind only
     /// when it has rows of it.
     pub treasure: yalain_content::treasure_tables::TreasureRows,
+    /// What items' uses do where their templates name nothing, what books, cards and people show,
+    /// and what every new character is given.
+    pub items: yalain_content::item_rows::ItemRows,
     /// What the compile left out or could not serve, and why.
     pub warnings: Vec<Problem>,
 }
@@ -1162,6 +1165,29 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
             }
             Row::Popup(r) => {
                 t.popups.by_moment.insert(r.on, r.effect);
+            }
+            Row::ItemUse(r) => {
+                if cx.template(l, "template", r.template) {
+                    t.items.uses.insert(
+                        r.template,
+                        yalain_content::item_rows::ItemUse {
+                            template: r.template,
+                            effects: r.effects.clone(),
+                            behavior: r.behavior,
+                            wears: r.wears,
+                        },
+                    );
+                }
+            }
+            Row::Book(r) => {
+                if cx.template(l, "template", r.template) {
+                    t.items.books.insert(r.template, r.shows);
+                }
+            }
+            Row::StartItem(r) => {
+                if cx.template(l, "template", r.template) {
+                    t.items.start_items.insert(r.template, r.count);
+                }
             }
             Row::EffectRule(r) => {
                 if let Some(ward) = &r.ward {

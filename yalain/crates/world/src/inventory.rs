@@ -195,8 +195,12 @@ pub fn insert_at(held: &mut [Held], slot: u32) {
     }
 }
 
-/// The book every new character is given as it first enters.
-pub const GUIDE_BOOK: u32 = 0x4700_06CD;
+/// What a world with no `[[start_item]]` row gives every new character as it first enters, until
+/// the world's release holds it: the Shaper's Guide, one (template, count).
+#[must_use]
+pub fn fallback_start_items() -> std::collections::BTreeMap<u32, u32> {
+    std::collections::BTreeMap::from([(0x4700_06CD, 1)])
+}
 
 /// Kinds of moves.
 pub mod move_type {

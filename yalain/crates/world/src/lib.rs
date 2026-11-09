@@ -411,6 +411,9 @@ pub struct Server<S: Store> {
     pub item_uses: item_use::ItemUses,
     /// The effects each item template puts on whoever wears or wields it.
     pub worn_effects: item_use::ItemUses,
+    /// The world database's item rows: what items' uses do where their templates name nothing,
+    /// what books, cards and people show, and what every new character is given.
+    pub item_rows: yalain_content::item_rows::ItemRows,
     /// The enumeration of quests: each quest's id by its name, for the effects that name quests.
     pub quest_ids: HashMap<String, u32>,
     /// What each player is examining.
@@ -818,6 +821,7 @@ impl<S: Store> Server<S> {
             item_effects: HashMap::new(),
             item_uses: HashMap::new(),
             worn_effects: HashMap::new(),
+            item_rows: yalain_content::item_rows::ItemRows::default(),
             quest_ids: HashMap::new(),
             examining: HashMap::new(),
             examine_waits: HashSet::new(),

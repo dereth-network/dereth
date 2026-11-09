@@ -17,7 +17,7 @@ use yalain_content::{ContentObject, CraftStart, DeathSpawn, Props, QuestTable, S
 
 use yalain_store::Store;
 
-use crate::{death, inventory, plants, usable, Server};
+use crate::{death, plants, usable, Server};
 
 /// Can this world make a thing of this template?
 #[must_use]
@@ -26,7 +26,7 @@ pub fn can_make<S: Store>(s: &Server<S>, template: u32) -> bool {
 }
 
 /// What the server's own rules make, whatever the world holds: the corpse, the races' starting
-/// packs and the book a new character is given, the mount items (`mounts`, as
+/// packs, the mount items (`mounts`, as
 /// [`crate::mounts::Mounts::catalog_items`] gives them), a summoned portal, and the dye plants and
 /// what they give. The nodes delving stones and maps conjure are crafting's
 /// ([`crate::craft::Crafting::templates`]).
@@ -37,7 +37,7 @@ pub fn by_the_server(start: &crate::StartRules, mounts: &[u32]) -> Vec<u32> {
         .iter()
         .flat_map(|p| [p.plant, p.seed, p.harvest].into_iter().chain(p.pollen));
     starting
-        .chain([death::CORPSE_TEMPLATE, inventory::GUIDE_BOOK])
+        .chain([death::CORPSE_TEMPLATE])
         .chain(mounts.iter().copied())
         .chain([usable::portals::TEMPLATE])
         .chain(plants)
@@ -56,11 +56,11 @@ pub struct Rows<'a> {
     pub crafting: &'a CraftStart,
     pub death_spawns: &'a BTreeMap<String, DeathSpawn>,
     pub pets: &'a BTreeMap<u32, yalain_content::PetKind>,
+    pub items: &'a yalain_content::item_rows::ItemRows,
 }
 
 /// What a world's rows make or hand on: placed objects (a chest's lock and contents, a door's), its
-/// kinds of pet, what
-/// stores sell, what quest steps and people give, what is taken up for a step and what's
+/// kinds of pet, what every new character is given, what stores sell, what quest steps and people give, what is taken up for a step and what's
 /// handed in for a gift, what butchery yields and what a death makes. Camps and loot are the
 /// catalog's own, and the recipes' products and materials [`crate::craft::Crafting::templates`].
 #[must_use]
@@ -71,6 +71,7 @@ pub fn by_the_rows(rows: Rows<'_>) -> Vec<u32> {
         .iter()
         .map(|o| o.template)
         .chain(rows.pets.values().map(|k| k.template))
+        .chain(rows.items.given())
         .chain(rows.stores.sales.iter().map(|s| s.product))
         .chain(steps.clone().flat_map(|s| s.gives.iter().copied()))
         .chain(steps.filter_map(|s| match s.trigger {

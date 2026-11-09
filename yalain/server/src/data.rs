@@ -1916,12 +1916,82 @@ mod tests {
         assert_eq!(rules.bodies.len(), 10);
     }
 
+    /// A start with the server's own item rows reads every effect their uses put on (the forager's
+    /// food's two heals, the training hall's haste, healing and thorns), describes every template they name (the food, the potions, the cards, the Shi) and,
+    /// asking for what the rows give with the server's own, the Shaper's Guide every new character
+    /// is given.
+    /// Behaviour: server.items.item-rows-in-the-real-start
+    #[test]
+    fn a_start_reads_the_effects_and_describes_the_templates_of_the_servers_own_item_rows() {
+        use yalain_world::effect_defs::Kind;
+        let dir = auberean_dat::testing::require_target_install();
+        let p = Portal::open(&dir, None).expect("opens");
+        let (rows, fell_back) =
+            yalain_world::item_use::world_item_rows(yalain_content::item_rows::ItemRows::default());
+        assert_eq!(fell_back, ["item_use", "book", "start_item"]);
+        let states: Vec<u32> = rows.states().collect();
+        assert_eq!(states.len(), 5);
+        let t = effect_table(
+            &p,
+            &states,
+            &yalain_world::effect_defs::EffectRules::default(),
+        )
+        .expect("the effects");
+        for s in &states {
+            let d = t.get(*s).unwrap_or_else(|| panic!("{s:08X} read"));
+            assert!(!matches!(d.kind, Kind::Other), "{s:08X}: {:?}", d.kind);
+        }
+        let start = start_rules(&p).expect("the start");
+        let more: Vec<u32> = yalain_world::makes::by_the_server(&start, &[])
+            .into_iter()
+            .chain(yalain_world::makes::by_the_rows(
+                yalain_world::makes::Rows {
+                    objects: &[],
+                    stores: &yalain_content::StoreTable::default(),
+                    quests: &yalain_content::QuestTable::default(),
+                    crafting: &yalain_content::CraftStart::default(),
+                    death_spawns: &BTreeMap::new(),
+                    pets: &BTreeMap::new(),
+                    items: &rows,
+                },
+            ))
+            .collect();
+        let (c, _) = catalog(
+            &p,
+            &SpawnTable::default(),
+            &LootTable::default(),
+            &more,
+            &TreasureTables::default(),
+        )
+        .expect("the catalog");
+        assert_eq!(rows.start_items, BTreeMap::from([(0x4700_06CD, 1)]));
+        assert!(c.get(0x4700_06CD).is_some(), "the guide described");
+        let (wanted, _) = catalog(
+            &p,
+            &SpawnTable::default(),
+            &LootTable::default(),
+            &rows
+                .uses
+                .keys()
+                .chain(rows.books.keys())
+                .copied()
+                .collect::<Vec<_>>(),
+            &TreasureTables::default(),
+        )
+        .expect("the catalog");
+        for t in rows.uses.keys().chain(rows.books.keys()) {
+            assert!(wanted.get(*t).is_some(), "{t:08X} described");
+        }
+    }
+
     /// A start reads which items their use destroys from their classes: a potion's; not a key's
     /// whose own data keeps it, nor the forager's food, which wears instead.
     /// Behaviour: server.content.destroyed-on-use-of-classes
     #[test]
     fn a_start_reads_which_items_their_use_destroys_from_their_classes() {
-        use yalain_world::item_use::{spends, FOOD};
+        use yalain_world::item_use::{spends, world_item_rows};
+        const FOOD: u32 = 0x4700_0845;
+        let (rows, _) = world_item_rows(yalain_content::item_rows::ItemRows::default());
         let dir = auberean_dat::testing::require_target_install();
         let p = Portal::open(&dir, None).expect("opens");
         let (c, _) = catalog(
@@ -1932,7 +2002,7 @@ mod tests {
             &TreasureTables::default(),
         )
         .expect("the catalog");
-        let spent = |t: u32| spends(t, &c.get(t).expect("described").props);
+        let spent = |t: u32| spends(&rows, t, &c.get(t).expect("described").props);
         assert!(spent(0x4700_11B4));
         assert!(!spent(0x4700_1106));
         assert!(!spent(FOOD));
@@ -2076,6 +2146,39 @@ mod tests {
         let problems = crate::world::install_problems(&p, &db).expect("checks");
         assert_eq!(problems.len(), 1, "{problems:?}");
         assert!(problems[0].message.contains("0x6ffffff0"), "{problems:?}");
+    }
+
+    /// An `[[item_use]]` row may name only effects the install holds: a training hall potion's
+    /// haste passes; an effect the install lacks is a problem that names it.
+    /// Behaviour: server.items.item-rows-in-the-real-start
+    #[test]
+    fn an_item_use_row_naming_an_effect_the_install_lacks_is_a_problem() {
+        let (dat, _) = tallied(&DatName::Portal);
+        let p = Portal::over(dat, Vec::new(), None).expect("a context");
+        let mut files = yalain_world_db::Files::new();
+        files.insert(
+            "world.toml".into(),
+            "format_version = 1\nkey = \"w\"\ngame = \"ac2\"\nera = \"eor\"\npacks = [\"p\"]\n"
+                .into(),
+        );
+        files.insert(
+            "p/pack.toml".into(),
+            "format_version = 1\nname = \"p\"\nversion = \"0.1.0\"\ngame = \"ac2\"\nauthors = [\"a\"]\nlicense = \"CC0-1.0\"\ndescription = \"d\"\n".into(),
+        );
+        files.insert(
+            "p/server/items.toml".into(),
+            "[[item_use]]\ntemplate = 0x47001AEE\neffects = [{ effect = 0x70000A13 }]\nprov = { from = \"authored\" }\n\n\
+             [[item_use]]\ntemplate = 0x47001AEF\neffects = [{ effect = 0x6FFFFFF0, spellcraft = 5 }]\nprov = { from = \"authored\" }\n"
+                .into(),
+        );
+        let db = yalain_world_db::rows::read(&files).expect("reads");
+        let problems = crate::world::install_problems(&p, &db).expect("checks");
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(
+            problems[0].message.contains("0x6ffffff0")
+                && problems[0].message.contains("no such effect"),
+            "{problems:?}"
+        );
     }
 
     /// A `[[popup]]` row may name only an effect the install holds that says something: the welcome

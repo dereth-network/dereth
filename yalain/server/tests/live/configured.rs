@@ -353,12 +353,13 @@ fn a_real_start_describes_everything_the_servers_rules_make() {
     assert!(log.contains("among the world's templates"), "{log}");
 }
 
-/// A start describes what the hall's rows make, the server's own kinds of pet among them (the hall
-/// has no pet rows).
+/// A start describes what the hall's rows make, the server's own kinds of pet and gifts to new
+/// characters among them (the hall has no rows of either).
 /// Behaviour: server.makes.a-real-start-describes-what-the-rows-make
 #[test]
 fn a_real_start_describes_everything_a_worlds_rows_make() {
     let t = authored::world(&Portal::open());
+    let (items, _) = yalain_world::item_use::world_item_rows(t.items.clone());
     let named = by_the_rows(Rows {
         objects: &t.content.objects,
         stores: &t.stores,
@@ -366,6 +367,7 @@ fn a_real_start_describes_everything_a_worlds_rows_make() {
         crafting: &t.crafting,
         death_spawns: &t.death_spawns,
         pets: &t.pet_kinds,
+        items: &items,
     });
     assert!(!named.is_empty());
     let log = answered(&named, "yalain-live-catalog-rows");

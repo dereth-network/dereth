@@ -770,8 +770,17 @@ pub fn enter<S: Store>(
             );
         }
     }
+    // What the world's rows give every new character.
     if new_character {
-        crate::inventory::give(s, net, world, crate::inventory::GUIDE_BOOK, 1);
+        let given: Vec<(u32, u32)> = s
+            .item_rows
+            .start_items
+            .iter()
+            .map(|(t, n)| (*t, *n))
+            .collect();
+        for (template, count) in given {
+            crate::inventory::give(s, net, world, template, count);
+        }
     }
     if clashed {
         keep_player(s, world);

@@ -1080,10 +1080,11 @@ fn a_jump_or_a_death_cuts_a_drink_short() {
 /// Behaviour: server.items.food-heals-and-wears
 #[test]
 fn a_forager_s_food_heals_health_and_vigor_and_wears_out_at_its_fifth_use() {
-    use yalain_world::item_use::{FOOD, FOOD_EFFECTS};
+    use yalain_testkit::FOOD;
     const HEALTH: u32 = 258;
     const VIGOR: u32 = 259;
     let mut h = world();
+    let food_effects: Vec<u32> = h.server.item_rows.effects(FOOD).map(|(s, _)| s).collect();
     let mut food_props = Props::default();
     food_props.set("Item_IsDestroyOnUse", yalain_content::Prop::Bool(true));
     template(&mut h, FOOD, food_props);
@@ -1100,8 +1101,8 @@ fn a_forager_s_food_heals_health_and_vigor_and_wears_out_at_its_fifth_use() {
         d
     };
     for d in [
-        heals(FOOD_EFFECTS[0], 0x21, 600.0),
-        heals(FOOD_EFFECTS[1], 0x22, 450.0),
+        heals(food_effects[0], 0x21, 600.0),
+        heals(food_effects[1], 0x22, 450.0),
     ] {
         h.server.effect_table.effects.insert(d.state, d);
     }
@@ -1174,7 +1175,13 @@ fn a_forager_s_food_heals_health_and_vigor_and_wears_out_at_its_fifth_use() {
 #[test]
 fn a_training_hall_potion_is_drunk_for_its_one_effect() {
     let mut h = world();
-    let (potion_template, state) = item_use::TRAINING_POTIONS[0];
+    let potion_template = 0x4700_1AEE;
+    let (state, _) = h
+        .server
+        .item_rows
+        .effects(potion_template)
+        .next()
+        .expect("its row");
     let mut p = Props::default();
     p.set("Item_IsDestroyOnUse", Prop::Bool(true));
     template(&mut h, potion_template, p);
@@ -1213,6 +1220,98 @@ fn a_training_hall_potion_is_drunk_for_its_one_effect() {
         .collect();
     assert_eq!(states, vec![(state, 1.0)]);
     assert!(held(&h, world, potion_template).is_none(), "spent");
+}
+
+/// A world's item use row gives a template whose own data names nothing its use: the behavior it
+/// names played, at its end the row's effect at the row's spellcraft, the item kept and worn by one
+/// (it wears by its uses), and at its last use destroyed through overuse.
+/// Behaviour: server.items.item-use-rows
+#[test]
+fn an_item_use_row_gives_a_template_naming_nothing_its_effect_behavior_and_wear() {
+    const SALVE: u32 = 0x4700_7A10;
+    const BEHAVIOR: u32 = 0x4100_00FC;
+    let mut h = world();
+    template(&mut h, SALVE, Props::default());
+    let d = def(
+        TENACITY,
+        Kind::Numeric {
+            flags: 0x4,
+            stats: vec![speed::VELOCITY],
+            magnitude: Scale(vec![(0.0, 1.2)]),
+        },
+        Some(300.0),
+    );
+    h.server.effect_table.effects.insert(d.state, d);
+    h.server.item_rows.uses.insert(
+        SALVE,
+        yalain_content::item_rows::ItemUse {
+            template: SALVE,
+            effects: vec![(TENACITY, 7.0)],
+            behavior: Some(BEHAVIOR),
+            wears: Some(2),
+        },
+    );
+    let (b, me, world) = in_world(&mut h);
+    let salve = give(&mut h, world, SALVE, 1);
+    let from = send_use(&mut h, b, me, salve, 3.5);
+    assert!(
+        h.world_messages(b, from)
+            .iter()
+            .any(|m| matches!(m, ServerMessage::PlayBehavior(p) if p.action.behavior == BEHAVIOR)),
+        "its row's behavior played"
+    );
+    run_for(&mut h, 1.0);
+    let states: Vec<(u32, f32)> = records_from(&h, world, salve)
+        .iter()
+        .map(|e| (e.state, e.spellcraft))
+        .collect();
+    assert_eq!(states, vec![(TENACITY, 7.0)]);
+    assert_eq!(
+        answers(&h, b, from),
+        vec![Answer {
+            status: 0,
+            flags: flags::PLAYED,
+            text: item_use::text::USE.0,
+        }],
+        "not spent"
+    );
+    assert_eq!(
+        h.server.things.get(salve).and_then(|t| t.durability),
+        Some(1)
+    );
+    send_use(&mut h, b, me, salve, 5.0);
+    assert!(
+        held(&h, world, SALVE).is_none(),
+        "destroyed through overuse"
+    );
+}
+
+/// A world with no item use, book or first gift rows has the server's own of each (the test world's
+/// rows, entry for entry); one with rows of a kind has its rows alone of that kind, never the two
+/// merged, and the server's own of the others.
+/// Behaviour: server.items.item-rows-without-rows
+#[test]
+fn a_world_without_item_rows_has_the_servers_own_and_with_some_its_rows_alone() {
+    use yalain_content::item_rows::{ItemRows, ItemUse};
+    let (own, fell_back) = item_use::world_item_rows(ItemRows::default());
+    assert_eq!(fell_back, ["item_use", "book", "start_item"]);
+    assert_eq!(own, yalain_testkit::test_item_rows());
+    let one = ItemUse {
+        template: 0x4700_7A10,
+        effects: vec![(TENACITY, 1.0)],
+        behavior: None,
+        wears: None,
+    };
+    let rows = ItemRows {
+        uses: [(one.template, one.clone())].into_iter().collect(),
+        ..ItemRows::default()
+    };
+    let (got, fell_back) = item_use::world_item_rows(rows);
+    assert_eq!(fell_back, ["book", "start_item"]);
+    assert_eq!(got.uses.len(), 1, "its row alone");
+    assert_eq!(got.uses.get(&one.template), Some(&one));
+    assert_eq!(got.books, own.books);
+    assert_eq!(got.start_items, own.start_items);
 }
 
 /// A treasure potion's own effect: dropped by a level 46 creature it is given one of the nine kinds

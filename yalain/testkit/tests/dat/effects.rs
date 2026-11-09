@@ -1185,24 +1185,31 @@ fn a_recipe_that_binds_its_product_reads_the_bind_on_its_ordinal() {
 /// Behaviour: server.items.food-read
 #[test]
 fn a_forager_s_food_reads_as_a_drink_that_heals_health_and_vigor() {
+    use yalain_testkit::FOOD;
     use yalain_world::effect_defs::Kind;
-    use yalain_world::item_use::{self, FOOD, FOOD_EFFECTS, FOOD_SPELLCRAFT};
+    use yalain_world::item_use;
+    let rows = yalain_testkit::test_item_rows();
     let p = Portal::open();
     let food = p.template(FOOD);
     assert_eq!(
-        item_use::behavior_of(FOOD, &food.props),
+        item_use::behavior_of(&rows, FOOD, &food.props),
         Some(item_use::DRINK)
     );
     assert!(food.props.flag("Item_IsDestroyOnUse"), "its class says so");
-    assert!(!item_use::spends(FOOD, &food.props), "it wears instead");
-    let t = p.effects(&FOOD_EFFECTS);
+    assert!(
+        !item_use::spends(&rows, FOOD, &food.props),
+        "it wears instead"
+    );
+    let uses: Vec<(u32, f32)> = rows.effects(FOOD).collect();
+    let states: Vec<u32> = uses.iter().map(|(s, _)| *s).collect();
+    let t = p.effects(&states);
     let mut flags = Vec::new();
-    for state in FOOD_EFFECTS {
+    for (state, spellcraft) in uses {
         let Some(Kind::InstantVital { flags: f, change }) = t.get(state).map(|d| d.kind.clone())
         else {
             panic!("{state:08X} heals at once");
         };
-        let at = change.at(FOOD_SPELLCRAFT).expect("a change");
+        let at = change.at(spellcraft).expect("a change");
         assert_eq!(at.floor(), 244.0, "{state:08X}: {at}");
         flags.push(f & 0x3);
     }

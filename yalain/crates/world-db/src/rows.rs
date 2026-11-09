@@ -628,6 +628,9 @@ pub enum Row {
     TreasureFamily(TreasureFamily),
     Mine(Mine),
     MapRegion(MapRegion),
+    ItemUse(ItemUse),
+    Book(Book),
+    StartItem(StartItem),
 }
 
 /// `[[event]]`: a named state of the world, on for its times: what it gates (camps, objects and
@@ -853,6 +856,35 @@ pub struct Butchery {
     pub prov: Prov,
 }
 
+/// `[[item_use]]`: what an item's use does where its template names no effect for it: the effects
+/// it puts on its user (saved state, spellcraft), the behavior it plays where its template names
+/// none, and the uses it wears out after where it wasn't made with its own durability.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ItemUse {
+    pub template: u32,
+    pub effects: Vec<(u32, f32)>,
+    pub behavior: Option<u32>,
+    pub wears: Option<u32>,
+    pub prov: Prov,
+}
+
+/// `[[book]]`: what an item or a person of a template shows when used: a book's pages (`table`)
+/// or a picture.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Book {
+    pub template: u32,
+    pub shows: yalain_content::item_rows::Shows,
+    pub prov: Prov,
+}
+
+/// `[[start_item]]`: an item every new character is given as it first enters, and how many.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StartItem {
+    pub template: u32,
+    pub count: u32,
+    pub prov: Prov,
+}
+
 /// `[[tool]]`: what a gathering tool yields when it was not made (a made one's yield is its own).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Tool {
@@ -958,6 +990,9 @@ impl Row {
             Self::TreasureFamily(_) => "treasure_family",
             Self::Mine(_) => "mine",
             Self::MapRegion(_) => "map_region",
+            Self::ItemUse(_) => "item_use",
+            Self::Book(_) => "book",
+            Self::StartItem(_) => "start_item",
         }
     }
 
@@ -1003,13 +1038,16 @@ impl Row {
             Self::TreasureFamily(r) => Some(&r.prov),
             Self::Mine(r) => Some(&r.prov),
             Self::MapRegion(r) => Some(&r.prov),
+            Self::ItemUse(r) => Some(&r.prov),
+            Self::Book(r) => Some(&r.prov),
+            Self::StartItem(r) => Some(&r.prov),
             Self::Remove(_) => None,
         }
     }
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 39] = [
+pub const KINDS: [&str; 42] = [
     "object",
     "camp",
     "loot",
@@ -1049,10 +1087,13 @@ pub const KINDS: [&str; 39] = [
     "treasure_family",
     "mine",
     "map_region",
+    "item_use",
+    "book",
+    "start_item",
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 39] = [
+pub const FIELDS: [(&str, &[&str]); 42] = [
     (
         "object",
         &[
@@ -1389,6 +1430,12 @@ pub const FIELDS: [(&str, &[&str]); 39] = [
         ],
     ),
     ("map_region", &["region", "nodes", "prov"]),
+    (
+        "item_use",
+        &["template", "effects", "behavior", "wears", "prov"],
+    ),
+    ("book", &["template", "table", "picture", "prov"]),
+    ("start_item", &["template", "count", "prov"]),
 ];
 
 /// The fields of a `[[treasure_family]]` row's tier.
@@ -1966,6 +2013,68 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 items,
                 weights,
                 empty: f.u32("empty").unwrap_or(0),
+                prov: f.req_prov()?,
+            })
+        }
+        "item_use" => {
+            let template = f.req_id("template")?;
+            let effects = f.req(
+                "effects",
+                "a list of { effect, spellcraft } (spellcraft may be left out: 1)",
+                |v| {
+                    v.as_array()?
+                        .iter()
+                        .map(|x| {
+                            let t = exactly(x, &["effect", "spellcraft"])
+                                .or_else(|| exactly(x, &["effect"]))?;
+                            let spellcraft = match t.get("spellcraft") {
+                                Some(s) => number_of(s).filter(|s| *s >= 0.0)?,
+                                None => 1.0,
+                            };
+                            Some((as_u32(t.get("effect")?)?, spellcraft))
+                        })
+                        .collect::<Option<Vec<_>>>()
+                },
+            )?;
+            let ok = !effects.is_empty();
+            let effects = f.held("effects", effects, ok, "at least one")?;
+            let behavior = f.id("behavior");
+            let wears = f.u32("wears");
+            if wears == Some(0) {
+                f.bad("wears", "above 0");
+            }
+            Row::ItemUse(ItemUse {
+                template,
+                effects,
+                behavior,
+                wears,
+                prov: f.req_prov()?,
+            })
+        }
+        "book" => {
+            use yalain_content::item_rows::Shows;
+            let template = f.req_id("template")?;
+            let shows = match (f.id("table"), f.id("picture")) {
+                (Some(t), None) => Shows::Book(t),
+                (None, Some(p)) => Shows::Picture(p),
+                _ => {
+                    f.bad("table", "one of table or picture");
+                    return None;
+                }
+            };
+            Row::Book(Book {
+                template,
+                shows,
+                prov: f.req_prov()?,
+            })
+        }
+        "start_item" => {
+            let template = f.req_id("template")?;
+            let count = f.u32("count").unwrap_or(1);
+            let count = f.held("count", count, count > 0, "above 0")?;
+            Row::StartItem(StartItem {
+                template,
+                count,
                 prov: f.req_prov()?,
             })
         }

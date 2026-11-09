@@ -6336,6 +6336,43 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.items.item-rows-hold-the-servers-own",
+        says: "A world's `[[item_use]]`, `[[book]]` and `[[start_item]]` rows hold the server's own, entry \
+               for entry.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ITEM-ROWS"),
+        station: "yalain-testkit::corpus::world_db::the_worlds_item_use_book_and_start_item_rows_hold_the_servers_own_entry_for_entry",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.items.item-rows-in-the-real-start",
+        says: "A start reads every effect the server's own item use rows put on and describes every \
+               template its item rows name, the guide new characters are given among them; a row naming \
+               an effect the install lacks is a problem.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ITEM-ROWS-REAL-START"),
+        station: "yalain::bin.yalain::data::tests::a_start_reads_the_effects_and_describes_the_templates_of_the_servers_own_item_rows",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.items.item-rows-without-rows",
+        says: "A world with no `[[item_use]]`, `[[book]]` or `[[start_item]]` rows has the server's own of \
+               that kind, and warns; a world with rows of a kind has those alone.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ITEM-ROWS-NO-ROWS"),
+        station: "yalain-testkit::cpu::play::items::a_world_without_item_rows_has_the_servers_own_and_with_some_its_rows_alone",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.items.item-use-rows",
+        says: "A world's `[[item_use]]` row gives a template whose own data names nothing its use: the \
+               effects put on at their spellcraft, the behavior played, and the uses it wears out after.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ITEM-USE-ROWS"),
+        station: "yalain-testkit::cpu::play::items::an_item_use_row_gives_a_template_naming_nothing_its_effect_behavior_and_wear",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.items.kept-when-its-quest-stands-still",
         says: "An item whose use only moves quests, none of which would move for its user now (a \
                quest the world doesn't hold, or one under way), is refused and kept.",
@@ -6411,6 +6448,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-ITEM-PLACE-BEFORE-QUEST"),
         station: "yalain-testkit::cpu::play::items::a_rod_whose_use_moves_a_quest_is_refused_away_from_its_place_and_moves_it_there",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.items.start-item-rows",
+        says: "A new character is given, as it first enters, what the world's `[[start_item]]` rows give, \
+               as many of each as they say.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-START-ITEM-ROWS"),
+        station: "yalain-testkit::cpu::operator::characters::a_new_character_is_given_what_the_worlds_start_item_rows_give",
         tier: Tier::Cpu,
     },
     behaviour! {

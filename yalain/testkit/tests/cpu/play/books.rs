@@ -1,6 +1,7 @@
 //! Books: one used from the pack is opened, then the use answered; a card shows its picture; a
 //! person shows its book.
 
+use yalain_content::item_rows::Shows;
 use yalain_content::{Prop, Props};
 use yalain_testkit::play::use_of;
 use yalain_testkit::{test_template, Harness};
@@ -96,7 +97,12 @@ fn held(h: &mut Harness, id: u64, template: u32) -> u64 {
 fn a_greater_trump_used_shows_its_picture_and_is_kept() {
     let mut h = Harness::new();
     let (b, id) = h.player_in_world("one", "Reader");
-    let (template, picture) = yalain_world::books::CARDS[0];
+    let (template, picture) = (0x4700_13C1, 0x4100_91EC);
+    assert_eq!(
+        h.server.item_rows.books.get(&template),
+        Some(&Shows::Picture(picture)),
+        "the test world's row"
+    );
     let card = held(&mut h, id, template);
     let from = h.bots[b].inbox.len();
     h.ask(
@@ -151,7 +157,12 @@ fn a_shi_used_answers_the_use_then_shows_the_architects_book() {
         .find(|p| p.character == id)
         .expect("in the world")
         .position;
-    let (template, table) = yalain_world::books::NPC_BOOKS[1];
+    let (template, table) = (0x4700_3375, 0x2500_2C90);
+    assert_eq!(
+        h.server.item_rows.books.get(&template),
+        Some(&Shows::Book(table)),
+        "the test world's row"
+    );
     let shi = 0x40DF_8A00_0000_001E;
     h.server.content = ContentPack {
         objects: vec![ContentObject {

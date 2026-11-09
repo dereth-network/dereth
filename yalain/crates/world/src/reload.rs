@@ -10,8 +10,9 @@
 //!   objects, the camps and the veins, and the areas of player conflict (a player whose
 //!   landblock's status changed is told it at once), the scheduled events (those on end, and
 //!   the new ones start at the next step as their times say), the kingdom rows (what raises
-//!   kingdom points, and the steps and gives for one kingdom alone), and the tips (what each
-//!   moment shows; who has been shown one stays so). A template or an effect the new database no
+//!   kingdom points, and the steps and gives for one kingdom alone), the tips (what each
+//!   moment shows; who has been shown one stays so), and the item rows (what items' uses do,
+//!   what books and people show, what new characters are given). A template or an effect the new database no
 //!   longer has stays known, so a thing or an effect already in the world still resolves.
 //! - **Held until a restart:** nothing the world database holds.
 //!
@@ -92,6 +93,9 @@ pub struct WorldTables {
     pub kingdoms: yalain_content::kingdoms::KingdomTable,
     /// The tips, by moment.
     pub popups: yalain_content::popups::PopupTable,
+    /// What items' uses do where their templates name nothing, what books, cards and people show,
+    /// and what every new character is given.
+    pub items: yalain_content::item_rows::ItemRows,
     /// The operator's banned names read again, when the server was given a list.
     pub names: Option<NameRules>,
     /// What the install says of the placed objects' packages and templates, read again with
@@ -142,6 +146,7 @@ pub mod table {
     pub const EVENTS: &str = "scheduled events";
     pub const KINGDOMS: &str = "kingdom rows";
     pub const POPUPS: &str = "tips";
+    pub const ITEMS: &str = "item rows";
 }
 
 /// What a reload did, table by table.
@@ -310,6 +315,10 @@ impl<S: Store> Server<S> {
         let changed = t.popups != self.popups;
         r.note(table::POPUPS, changed, true);
         self.popups = t.popups;
+
+        let changed = t.items != self.item_rows;
+        r.note(table::ITEMS, changed, true);
+        self.item_rows = t.items;
 
         if let Some(names) = t.names {
             r.note(table::BANNED_NAMES, names != self.names, true);

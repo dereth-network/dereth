@@ -1134,17 +1134,16 @@ fn a_made_items_maker_is_named_again_after_a_logout() {
 fn a_potions_profile_says_it_is_destroyed_on_use_and_a_worn_items_does_not() {
     use profile::{item_line as l, Node};
     use yalain_content::Prop;
+    let rows = yalain_testkit::test_item_rows();
+    let spends = |t: u32, p: &yalain_content::Props| yalain_world::item_use::spends(&rows, t, p);
     let mut destroyed = yalain_content::Props::default();
     destroyed.set("Item_IsDestroyOnUse", Prop::Bool(true));
-    assert!(yalain_world::item_use::spends(0x4700_7001, &destroyed));
+    assert!(spends(0x4700_7001, &destroyed));
     let mut worn = destroyed.clone();
     worn.set("Item_Durability_MaxLevel", Prop::Int(5));
+    assert!(!spends(0x4700_7001, &worn), "it wears");
     assert!(
-        !yalain_world::item_use::spends(0x4700_7001, &worn),
-        "it wears"
-    );
-    assert!(
-        !yalain_world::item_use::spends(yalain_world::item_use::FOOD, &destroyed),
+        !spends(yalain_testkit::FOOD, &destroyed),
         "the forager's food wears"
     );
 

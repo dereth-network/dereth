@@ -8,6 +8,7 @@ what they see, not how it was done.
 ## Unreleased
 - Worlds can now set quests' cancel waits, hero transformations and vitae taps as rows.
 - Worlds can now set mining and what surveyor's maps find as rows.
+- Worlds can now set item uses, books and new characters' first gift as rows.
 - Items that summon several pets now make them all.
 - Worlds can now give a summoning item its own pet.
 - Heroes' damage pool now adds to their hits.

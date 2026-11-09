@@ -38,8 +38,8 @@ fn every_node_a_maps_effect_names_is_among_the_nodes() {
     }
 }
 
-/// A give row's gift and the item it takes, and what a death or a use makes by a row, are asked for
-/// with the rows' other makers.
+/// A give row's gift and the item it takes, what a death or a use makes by a row, and what a new
+/// character is given by a row, are asked for with the rows' other makers.
 /// Behaviour: server.makes.the-rows-name-what-they-make
 #[test]
 fn a_give_rows_gift_and_a_death_spawn_are_named_with_the_other_rows() {
@@ -47,6 +47,11 @@ fn a_give_rows_gift_and_a_death_spawn_are_named_with_the_other_rows() {
     const GIFT: u32 = 0x4700_10DA;
     const TAKEN: u32 = 0x4700_1775;
     const DUMMY: u32 = 0x4700_2DAE;
+    const FIRST_GIFT: u32 = 0x4700_06CD;
+    let items = yalain_content::item_rows::ItemRows {
+        start_items: BTreeMap::from([(FIRST_GIFT, 1)]),
+        ..Default::default()
+    };
     let quests = QuestTable {
         gives: vec![Give {
             to: 0x4700_3009,
@@ -83,8 +88,9 @@ fn a_give_rows_gift_and_a_death_spawn_are_named_with_the_other_rows() {
             0x7000_092A,
             yalain_world::pets::PetKind::new(0x7000_092A, PET, 1096, &[]),
         )]),
+        items: &items,
     });
-    for t in [GIFT, TAKEN, DUMMY, PET] {
+    for t in [GIFT, TAKEN, DUMMY, PET, FIRST_GIFT] {
         assert!(named.contains(&t), "{t:08X}");
     }
 }

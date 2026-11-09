@@ -372,6 +372,7 @@ fn item_profiles_are_built_from_their_templates_as_2017_built_them() {
     use auberean_protocol::types::WeenieDesc;
     use yalain_world::profile::ItemView;
     let path = auberean_testkit::data::require_capture_index();
+    let item_rows = crate::world_db::item_rows();
     let Some(inst) = installed() else {
         println!("no September 2013 install here");
         return;
@@ -474,8 +475,11 @@ fn item_profiles_are_built_from_their_templates_as_2017_built_them() {
             view.durability = i.durability;
         }
         view.crafter = crafter_in(bytes, 20);
-        view.destroyed_on_use =
-            yalain_world::item_use::spends(i.template, &with_class(inst, i.template, p.clone()));
+        view.destroyed_on_use = yalain_world::item_use::spends(
+            &item_rows,
+            i.template,
+            &with_class(inst, i.template, p.clone()),
+        );
         view.icon = icons
             .entry(i.look)
             .or_insert_with(|| {
@@ -843,6 +847,7 @@ fn made_items_profiles_are_built_from_their_recipes_item_level_as_2017_built_the
     use yalain_world::made;
     use yalain_world::profile::{ItemView, When};
     let path = auberean_testkit::data::require_capture_index();
+    let item_rows = crate::world_db::item_rows();
     let Some(inst) = installed() else {
         println!("no September 2013 install here");
         return;
@@ -1053,7 +1058,7 @@ fn made_items_profiles_are_built_from_their_recipes_item_level_as_2017_built_the
                 matches!(a, Action::Bind { ordinal: o, spinners }
                     if *o == ordinal && (spinners.0..=spinners.1).contains(&spinner))
             });
-            view.destroyed_on_use = yalain_world::item_use::spends(template, &props);
+            view.destroyed_on_use = yalain_world::item_use::spends(&item_rows, template, &props);
             view.icon = icons
                 .entry(look)
                 .or_insert_with(|| {

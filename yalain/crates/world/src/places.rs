@@ -543,7 +543,7 @@ fn keeps_players_out(o: &yalain_content::ContentObject) -> bool {
 /// step is triggered by, or one that says something when used)?
 fn is_person<S: Store>(s: &Server<S>, template: u32) -> bool {
     s.stores.keeper(template).is_some()
-        || crate::books::npc_book(template).is_some()
+        || crate::books::npc_book(s, template).is_some()
         || s.quests
             .steps
             .iter()
@@ -1651,7 +1651,7 @@ fn carry_out<S: Store>(
         let done = use_done(&u, p_id(s, world), USE_FLAGS_PERSON, false, distance);
         send(net, world, BlobKind::PRIVATE, &done);
         // A person who shows a book: the book, after the use's answer.
-        if let Some(table) = crate::books::npc_book(o.template) {
+        if let Some(table) = crate::books::npc_book(s, o.template) {
             send(
                 net,
                 world,

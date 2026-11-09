@@ -1891,7 +1891,9 @@ fn the_kept_destroyed_on_use_kinds_are_the_classes_but_for_three_keys() {
         ("HeroSkillCreditToken", false),
         ("FoodForaged", false),
     ];
-    use yalain_world::item_use::{spends, FOOD};
+    use yalain_testkit::FOOD;
+    let rows = yalain_testkit::test_item_rows();
+    let spends = |t: u32, p: &yalain_content::Props| yalain_world::item_use::spends(&rows, t, p);
     let p = Portal::open();
     let lib = p.library();
     let entity = |id: u32| auberean_assets::decode(id, &p.dat.read(id).ok()?, &p.ctx).ok();
@@ -1935,7 +1937,7 @@ fn the_kept_destroyed_on_use_kinds_are_the_classes_but_for_three_keys() {
     let worn: BTreeSet<u32> = items
         .iter()
         .filter(|(t, _, read)| {
-            read.flag("Item_IsDestroyOnUse") && yalain_world::item_use::wears(*t, read)
+            read.flag("Item_IsDestroyOnUse") && yalain_world::item_use::wears(&rows, *t, read)
         })
         .map(|(t, _, _)| *t)
         .collect();
@@ -1950,14 +1952,16 @@ fn the_kept_destroyed_on_use_kinds_are_the_classes_but_for_three_keys() {
 /// Behaviour: server.content.destroyed-on-use-of-classes
 #[test]
 fn keys_whose_own_data_keeps_them_are_not_destroyed_on_use() {
+    let rows = yalain_testkit::test_item_rows();
+    let spends = |t: u32, p: &yalain_content::Props| yalain_world::item_use::spends(&rows, t, p);
     let p = Portal::open();
     for t in [0x4700_1106, 0x4700_166B, 0x4700_166C] {
         let key = p.template(t);
         assert!(!key.props.flag("Item_IsDestroyOnUse"), "{t:#x}");
-        assert!(!yalain_world::item_use::spends(t, &key.props), "{t:#x}");
+        assert!(!spends(t, &key.props), "{t:#x}");
     }
     let potion = p.template(0x4700_11B4);
-    assert!(yalain_world::item_use::spends(0x4700_11B4, &potion.props));
+    assert!(spends(0x4700_11B4, &potion.props));
 }
 
 /// The Tesserae's class says its use destroys them on both sides and that it doesn't on the
