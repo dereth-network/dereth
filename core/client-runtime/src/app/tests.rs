@@ -1129,6 +1129,60 @@ fn the_world_behind_character_select_is_a_clear_day_at_mid_morning() {
     );
 }
 
+/// The camera behind character select holds its height: over two hundred frames, the interface
+/// turning it each one and the window re-centering on it once, its eye stays where the backdrop
+/// was built, to the bit.
+///
+/// Behaviour: none (the backdrop is a screen of this client's own interface)
+#[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads the retail dats: --features retail-dats"
+)]
+fn the_camera_behind_character_select_holds_its_height() {
+    let store = std::sync::Arc::new(dereth_dat::testing::open_store().unwrap_or_else(|| {
+        panic!(
+            "the retail dats are this test's oracle and they are not under {}",
+            dereth_dat::testing::dat_dir().display()
+        )
+    }));
+    let cfg = Config {
+        headless: true,
+        connect: false,
+        sound: false,
+        ..Config::default()
+    };
+    let mut app = App::<NullShell>::bring_up_with_store(
+        cfg,
+        Some(store),
+        |_| Ok(Platform::headless(64, 64)),
+        |_, _, _, _| Ok(Box::new(crate::sim_present::SimPresentation::new(64, 64))),
+    )
+    .expect("bring-up");
+    app.defer_static_scene(crate::scene::SceneConfig {
+        landblock: 0xA9B4,
+        character: false,
+        ..crate::scene::SceneConfig::default()
+    });
+    let mut shell = NullShell;
+    let eye = |app: &App<NullShell>| {
+        app.world
+            .as_ref()
+            .expect("the backdrop's world")
+            .camera
+            .position
+            .z
+    };
+    assert!(app.show_backdrop(0xA9B4, 0.0, 0.0), "the backdrop is up");
+    let built = eye(&app);
+    for i in 0..200u8 {
+        let turn = 0.45 * dereth_primitives::num::math::sinf(f32::from(i) * 0.05);
+        assert!(app.show_backdrop(0xA9B4, turn, 0.0), "the backdrop is up");
+        assert!(app.frame(&mut shell));
+        assert_eq!(eye(&app).to_bits(), built.to_bits(), "frame {i}");
+    }
+}
+
 /// `--set-at` takes the remaster's boxes as the preferences file spells them (`True`, `False`, a
 /// share as `75%`), and as the numbers `--fidelity` takes, and hands the store a box as the
 /// boolean it holds, so the page and the saved profile follow it.
