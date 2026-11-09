@@ -199,14 +199,17 @@ void cs_trace(uint3 group : SV_GroupID, uint3 thread : SV_GroupThreadID, uniform
             direct = row(push.frame, FRAME_SUN_COLOR).rgb * facing;
         }
     }
+    // Retail's lights as retail lights a surface: the sum at most 1 in each channel. A light's
+    // fall-off is over the distance, so a surface close to one, the walls by a portal, would
+    // otherwise send on many times the light it is drawn with.
     else if (cls == CLASS_CELL)
     {
-        direct = burn(push.lights, uint(row(push.frame, FRAME_SCREEN).w), x, n)
-                 + ff_lights(push.lights, push.sets, 0, x, n);
+        direct = saturate(burn(push.lights, uint(row(push.frame, FRAME_SCREEN).w), x, n)
+                          + ff_lights(push.lights, push.sets, 0, x, n));
     }
     else if (cls == CLASS_INDOOR)
     {
-        direct = ff_lights(push.lights, push.sets, set, x, n);
+        direct = saturate(ff_lights(push.lights, push.sets, set, x, n));
     }
     float share = row(push.gi, GI_BOUNCE).x;
     float3 again = bounced(push.gi, push.probes, cls, x, n, -dir) * share;

@@ -2001,6 +2001,55 @@ impl Shot {
         self.stream.world.update_visible_object_list();
     }
 
+    /// Create an object of `setup`, `id` its own, in `cell` at the block-local `origin`, turned
+    /// `heading` degrees, as the server would create it, from the next step on: for an object that
+    /// stands in a room, or anywhere off the ground.
+    pub(crate) fn create_object_in(
+        &mut self,
+        id: u32,
+        setup: u32,
+        cell: u32,
+        origin: Vec3,
+        heading: f32,
+    ) {
+        use dereth_protocol::types::{physicsdesc::flags, ObjDesc, PhysicsDesc, PublicWeenieDesc};
+        let r = heading.to_radians();
+        let payload = dereth_protocol::objects::ObjectCreatePayload {
+            id: dereth_primitives::ObjectId(id),
+            objdesc: ObjDesc::default(),
+            physicsdesc: PhysicsDesc {
+                bitfield: flags::POSITION | flags::SETUP,
+                setup_id: Some(setup),
+                state: 0,
+                position: Some(dereth_protocol::types::PositionWire {
+                    objcell_id: cell,
+                    frame: dereth_protocol::types::Frame {
+                        origin: origin.into(),
+                        orientation: Quat::new(math::cosf(r * 0.5), 0.0, 0.0, math::sinf(r * 0.5))
+                            .into(),
+                    },
+                }),
+                timestamps: dereth_protocol::types::PhysicsTimestamps {
+                    instance: 1,
+                    ..dereth_protocol::types::PhysicsTimestamps::default()
+                },
+                ..PhysicsDesc::default()
+            },
+            wdesc: PublicWeenieDesc::default(),
+        };
+        let body =
+            dereth_protocol::write_body(&dereth_protocol::objects::ItemCreateObject(payload))
+                .expect("encode");
+        self.stream.apply_event(
+            &dereth_client_net::client_session::SessionEvent::WorldObject {
+                opcode: dereth_protocol::Opcode::ITEM_CREATE_OBJECT,
+                body,
+            },
+            LocalTime(self.now),
+        );
+        self.stream.world.update_visible_object_list();
+    }
+
     /// Apply the scene's own preferences poll, as the application does once a frame.
     pub(crate) fn poll(&mut self, gpu: &mut Gpu) {
         self.scene
