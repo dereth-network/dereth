@@ -13,6 +13,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`RELEASING.md`](RELEASING.md)).
 
 ## Unreleased
+
+## 0.3.12 (2026-11-09)
 - Launch: missiles fly slower, or faster with Use Fast Missiles, and arc lower at long range.
 - Launch: bows cost 2 stamina a shot, crossbows and atlatls 3, and throws go by weight.
 - Launch: ac1999's data patches can now be served to Dereth players.
