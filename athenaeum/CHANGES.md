@@ -7,6 +7,8 @@ Add a line under **Unreleased** when a change lands that a world builder would n
 see, not how it was done.
 
 ## Unreleased
+
+## 0.1.5 (2026-11-09)
 - Moving a camp moves its spots too.
 - Renaming a place or moving a camp keeps the quests and rows that name it pointing at it.
 - Editing a captured row keeps where it came from, marking only the fields you changed.
