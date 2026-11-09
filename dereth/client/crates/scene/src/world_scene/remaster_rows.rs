@@ -45,6 +45,7 @@ pub struct RemasterRows {
     pub grade: bool,
     pub air: bool,
     pub grass: bool,
+    pub flowers: bool,
     /// The share of the pixels drawn each way while upscaling, in percent; 0 until one is chosen.
     pub scale: u32,
     /// How strongly the sunlit air shows shafts of light: 0 none, 1 low, 2 high.
@@ -78,6 +79,7 @@ impl RemasterRows {
             grade: f.remaster_feature(F::RemasterGrade),
             air: f.remaster_feature(F::RemasterAir),
             grass: f.remaster_feature(F::RemasterGrass),
+            flowers: f.remaster_feature(F::RemasterFlowers),
             scale: f.effective(F::RemasterScale),
             god_rays: f.effective(F::RemasterGodRays),
             packs: if f.remaster_feature(F::RemasterArtPack) {
@@ -234,9 +236,10 @@ impl SceneDraw {
             };
             self.set_remaster_upscale(s, gpu);
         }
-        let landscape = (now.grade, now.air, now.grass);
-        if landscape != (was.grade, was.air, was.grass) {
+        let landscape = (now.grade, now.air, now.grass, now.flowers);
+        if landscape != (was.grade, was.air, was.grass, was.flowers) {
             let mut s = self.remaster_landscape();
+            s.flowers = now.flowers;
             s.grade = now.grade;
             s.air = now.air;
             s.grass = now.grass;

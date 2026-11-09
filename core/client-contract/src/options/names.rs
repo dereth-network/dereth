@@ -168,6 +168,8 @@ pub mod fidelity {
     pub const REMASTER_AIR: &str = "Fidelity.RemasterAir";
     /// `Fidelity.RemasterGrass`: the remaster's grass field.
     pub const REMASTER_GRASS: &str = "Fidelity.RemasterGrass";
+    /// `Fidelity.RemasterFlowers`: the remaster's flowers and pebbles.
+    pub const REMASTER_FLOWERS: &str = "Fidelity.RemasterFlowers";
     /// `Fidelity.Interface`: whether the interface shown is Horizon, the only one the
     /// remaster draws under. The client sets it as the interface changes; it is never kept
     /// in the profile.
@@ -203,6 +205,7 @@ pub mod fidelity {
         REMASTER_GRADE,
         REMASTER_AIR,
         REMASTER_GRASS,
+        REMASTER_FLOWERS,
     ];
 
     /// The names among [`NAMES`] that are menus, each a number, rather than boxes.

@@ -72,6 +72,8 @@ static const uint D_COVER_PICTURES = 140; // (uint) x the cover's picture, y the
 static const uint D_BANK = 141;    // x 1 while a pack's banks are laid by the water, y how much grass grows in over a muddy bank, z how much darker the wet ground along the water is
 static const uint D_GRASS = 142;  // x 1 while the grass field is drawn, y how far its near clumps reach, z how far its far ones do
 static const uint D_GRASS_TYPES = 143; // 32 rows: each terrain type's x share of grass, y height, z dryness, w how patchy
+static const uint D_FLOWERS = 175; // x 1 while the flowers are drawn, y how far they reach
+static const uint D_PALETTE = 176; // 8 rows: the flowers' colors
 static const uint BODIES = 32;
 
 static const uint CELLS = 16;
@@ -798,6 +800,36 @@ float3 forest(float3 albedo, float2 p, float dist, float steep)
     return lerp(albedo * pow(1.0 - shade, 1.0 / 2.2), c.rgb, saturate(laid));
 }
 
+// The ground `c` at world `p`, `dist` meters from the eye, as the flowers' colors lie on it where
+// they are no longer drawn: from halfway out to the flowers' `reach` and past it, specks of each
+// cluster's colors where the flowers grow, or, finer than a pixel `foot` meters across, their mean.
+float3 flower_specks(float3 c, float2 p, float dist, float foot, float reach)
+{
+    float fade = smoothstep(reach * 0.5, reach, dist);
+    if (fade <= 0.0)
+    {
+        return c;
+    }
+    float3 unused;
+    float4 grows = grass_ground(p, unused);
+    float cluster = value_noise(p, 9.0) * 0.7 + value_noise(p + float2(41.0, 13.0), 3.0) * 0.3;
+    float share = grows.x * smoothstep(0.5, 0.64, cluster) * (1.0 - smoothstep(0.4, 0.6, length(retail_at(p).yz)));
+    if (share <= 0.0)
+    {
+        return c;
+    }
+    uint scene = vertex_word(int2(round(p / CELL))) >> 11;
+    uint k = grass_hash(uint(floor(p.x / 9.0)) * 7919u ^ uint(floor(p.y / 9.0)) * 104729u);
+    float3 a = row(push.drawn, D_PALETTE + (scene + (k & 3)) % 8).rgb;
+    float3 b = row(push.drawn, D_PALETTE + (scene + (k & 3) + 2) % 8).rgb;
+    float speck = smoothstep(0.78, 0.9, value_noise(p, 0.5));
+    float3 pick = value_noise(p + float2(5.0, 7.0), 0.5) > 0.5 ? a : b;
+    float seen = resolved(0.5, foot);
+    float3 specks = lerp(c, pick, speck * 0.85);
+    float3 mean = lerp(c, 0.5 * (a + b), 0.16);
+    return lerp(c, lerp(mean, specks, seen), share * fade);
+}
+
 [shader("fragment")]
 Targets fs_ground(Varyings in)
 {
@@ -865,6 +897,11 @@ Targets fs_ground(Varyings in)
         float past = share * smoothstep(field.y * 0.5, field.z, dist);
         t.rgb *= lerp(1.0, 0.8, under);
         t.rgb = lerp(t.rgb, t.rgb * float3(0.86, 0.97, 0.72), past);
+    }
+    float4 flowers = row(push.drawn, D_FLOWERS);
+    if (flowers.x > 0.5 && field.x > 0.5 && t.a < 0.5)
+    {
+        t.rgb = flower_specks(t.rgb, p, dist, foot, flowers.y);
     }
     t.rgb = forest(t.rgb, p, dist, abs(eye.z - at.z) / max(length(eye - at), 1e-3));
     bool per_pixel = row(push.frame, FRAME_SCREEN).y > 0.5;
@@ -1192,3 +1229,150 @@ void cs_grass(uint3 group : SV_GroupID, uint3 local : SV_GroupThreadID)
     }
 }
 
+// --- flowers and small scatter ----------------------------------------------------------------
+//
+// Over the same tiles near the eye, a sparser set of candidates: flowers on grassland, in
+// clusters a few meters across that wander with the world's noise, each cluster's few colors
+// chosen from its region's palette; and pebbles on bare ground, scree and along the road's edges.
+// The push's `first` is the bytes of one draw command, as for the grass; the scatter's command is
+// the third. Its constants: G_SCATTER (12 + 32 = 43) x candidates a square meter, y how far they
+// reach, z the room for them, w how big; G_PEBBLES (44..75) each terrain type's x share of
+// pebbles; G_PALETTE (76..83) the flowers' colors.
+
+static const uint G_SCATTER = 43;
+static const uint G_PEBBLES = 44;
+static const uint G_PALETTE = 76;
+static const uint PALETTE = 8;
+
+uint pack_color(float3 c, uint flags)
+{
+    float3 s = saturate(c);
+    return uint(s.r * 255.0 + 0.5) | (uint(s.g * 255.0 + 0.5) << 8) | (uint(s.b * 255.0 + 0.5) << 16) | (flags << 24);
+}
+
+[shader("compute")]
+[numthreads(64, 1, 1)]
+void cs_scatter(uint3 group : SV_GroupID, uint3 local : SV_GroupThreadID)
+{
+    uint g = push.patches;
+    uint4 tiles = row_u(g, G_TILES);
+    float4 sc = row(g, G_SCATTER);
+    int2 tile = int2(asint(tiles.y) + int(group.x), asint(tiles.z) + int(group.y));
+    float4 field = row(g, G_FIELD);
+    float3 eye = row(g, G_EYE).xyz;
+    float reach = sc.y;
+    float2 origin = float2(tile) * GRASS_TILE;
+    float2 centre = origin + 0.5 * GRASS_TILE - field.xy;
+    float tile_dist = length(centre - eye.xy);
+    if (tile_dist - GRASS_TILE > reach)
+    {
+        return;
+    }
+    float3 c3 = float3(centre, retail_at(origin + 0.5 * GRASS_TILE).x);
+    for (uint pl = 0; pl < 6; pl++)
+    {
+        float4 plane = row(g, G_PLANES + pl);
+        if (dot(plane.xyz, c3) + plane.w < -GRASS_TILE)
+        {
+            return;
+        }
+    }
+    uint count = uint(sc.x * GRASS_TILE * GRASS_TILE + 0.5);
+    uint tile_seed = grass_hash(uint(tile.x) * 83492791u ^ uint(tile.y) * 2971215073u);
+    float4 water = row(push.drawn, D_WATER);
+    for (uint k = local.x; k < count; k += 64)
+    {
+        uint h = grass_hash(tile_seed ^ (k * 0x9E3779B9u));
+        uint h2 = grass_hash(h);
+        uint h3 = grass_hash(h2);
+        float2 p = origin + float2(grass_unit(h), grass_unit(h2)) * GRASS_TILE;
+        float2 pf = p - field.xy;
+        float d = length(pf - eye.xy);
+        // Thinning out and shrinking over most of the reach, each going by growing smaller rather
+        // than at once, so no edge shows while walking; past the reach the ground carries their
+        // color.
+        float thin = 1.0 - smoothstep(reach * 0.25, reach, d);
+        float scale = (1.0 - smoothstep(reach * 0.45, reach, d))
+            * saturate((thin - grass_unit(grass_hash(h ^ 0x1B873593u))) / 0.2);
+        if (scale <= 0.02)
+        {
+            continue;
+        }
+        float3 ground_color;
+        float4 grows = grass_ground(p, ground_color);
+        float3 r = retail_at(p);
+        float slope = length(r.yz);
+        // Flowers: where grass grows, in clusters.
+        float cluster = value_noise(p, 9.0) * 0.7 + value_noise(p + float2(41.0, 13.0), 3.0) * 0.3;
+        float flowers = grows.x * smoothstep(0.5, 0.64, cluster) * (1.0 - smoothstep(0.4, 0.6, slope));
+        // Pebbles: on bare ground by its type, and along the road's edge.
+        float2 q = p / CELL;
+        int2 cc = int2(floor(q));
+        float2 f = q - float2(cc);
+        uint words[4] = { vertex_word(cc), vertex_word(cc + int2(1, 0)), vertex_word(cc + int2(0, 1)), vertex_word(cc + int2(1, 1)) };
+        float weights[4] = { (1.0 - f.x) * (1.0 - f.y), f.x * (1.0 - f.y), (1.0 - f.x) * f.y, f.x * f.y };
+        float pebbles = 0.0;
+        uint scene = 0;
+        float most = -1.0;
+        for (uint j = 0; j < 4; j++)
+        {
+            pebbles += weights[j] * row(g, G_PEBBLES + ((words[j] >> 2) & 31)).x;
+            if (weights[j] > most)
+            {
+                most = weights[j];
+                scene = words[j] >> 11;
+            }
+        }
+        float inside = road_inside((words[0] & 3) != 0, (words[2] & 3) != 0, (words[1] & 3) != 0,
+                                   (words[3] & 3) != 0, f.x * CELL, f.y * CELL);
+        pebbles = max(pebbles, 0.5 * (smoothstep(-3.0, -1.2, inside) - smoothstep(0.0, 1.5, inside)));
+        pebbles += 0.4 * smoothstep(0.5, 0.8, slope);
+        float u = grass_unit(h3);
+        bool flower = u < flowers * 0.85;
+        bool pebble = !flower && u < flowers * 0.85 + pebbles * 0.3;
+        if (!flower && !pebble)
+        {
+            continue;
+        }
+        if (water.x > 0.5 && shore_distance(p, 0.1) > -0.8)
+        {
+            continue;
+        }
+        float dist = length(float3(pf - eye.xy, r.x - eye.z));
+        float ground = drawn_at(p, dist, 1.0, 0.0).x;
+        if (push.weather != NO_WEATHER && sheltered(push.weather, float3(pf, ground), 0.25) > 0.5)
+        {
+            continue;
+        }
+        float3 color;
+        float size;
+        if (flower)
+        {
+            // A cluster's colors: two or three of its region's palette.
+            uint c = grass_hash(uint(floor(p.x / 9.0)) * 7919u ^ uint(floor(p.y / 9.0)) * 104729u);
+            uint pick = (scene + (c & 3) + (grass_hash(h3) % 3 == 0 ? 2u : 0u)) % PALETTE;
+            color = row(g, G_PALETTE + pick).rgb * lerp(0.9, 1.08, grass_unit(grass_hash(h)));
+            // A little under the grass round them, their heads among its tips.
+            size = grows.y * lerp(0.75, 0.95, grass_unit(c >> 7));
+        }
+        else
+        {
+            float gray = dot(ground_color, float3(0.299, 0.587, 0.114));
+            color = lerp(float3(gray, gray, gray), ground_color, 0.4) * lerp(0.75, 1.3, grass_unit(grass_hash(h2)));
+            size = lerp(0.04, 0.13, pow(grass_unit(grass_hash(h3 ^ 0x51ED27u)), 2.0));
+        }
+        uint slot;
+        uint stride = push.first;
+        rw_buffers[NonUniformResourceIndex(push.blocks)].InterlockedAdd(stride * 2 + stride - 12, 1, slot);
+        if (slot >= asuint(sc.z))
+        {
+            uint unused;
+            rw_buffers[NonUniformResourceIndex(push.blocks)].InterlockedAdd(stride * 2 + stride - 12, 0xFFFFFFFFu, unused);
+            continue;
+        }
+        uint index = tiles.w + asuint(row(g, G_LOOK).w) + slot;
+        RWByteAddressBuffer out_clumps = rw_buffers[NonUniformResourceIndex(push.cells)];
+        out_clumps.Store4(index * CLUMP_BYTES, asuint(float4(pf, ground - 0.01, size * sc.w * scale)));
+        out_clumps.Store4(index * CLUMP_BYTES + 16, uint4(h3, pack_color(color, flower ? 1u : 0u), asuint(1.0), asuint(scale)));
+    }
+}

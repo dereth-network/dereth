@@ -5,7 +5,7 @@
 // a tall one with straw-colored tips and a short dark one. A blade is dark at its root and lighter
 // and yellower at its tip; its color is the ground's own color there, varied clump by clump, so
 // the field and the ground under it agree. The blades are geometry, with no picture and nothing
-// cut out.
+// cut out. Flowers and pebbles are drawn the same way, below.
 //
 // `vs_blade_motion` and `fs_blade_motion` draw the blades again where the G-buffer holds them,
 // writing where each was last frame, as the wind then bent it, so the anti-aliasing follows them.
@@ -271,3 +271,126 @@ float4 fs_blade_motion(Moved in) : SV_Target0
     return float4(clamp(in.last.xy / in.last.w * 0.5, -0.9999, 1.0), 0.0, 0.0);
 }
 
+// --- flowers and pebbles ------------------------------------------------------------------------
+//
+// Each scattered thing is 24 corners. A flower: a stem, two leaves at its foot and five petals
+// round its head, the head facing up and a little to one side. A pebble: a squat eight-faced
+// stone, half sunk.
+
+struct Scatter
+{
+    float4 position : SV_Position;
+    float3 normal : NORMAL;
+    // The surface's color, and how far up a stem or leaf it is (petals and stones: 1).
+    float3 color : COLOR0;
+    float up : TEXCOORD0;
+    float fog : TEXCOORD1;
+};
+
+static const float3 STEM = float3(0.22, 0.34, 0.11);
+
+[shader("vertex")]
+Scatter vs_scatter(uint vertex : SV_VertexID, uint instance : SV_InstanceID)
+{
+    ByteAddressBuffer clumps = buffers[NonUniformResourceIndex(push.clumps)];
+    uint at = (push.base + instance) * CLUMP_BYTES;
+    float4 a = asfloat(clumps.Load4(at));
+    uint4 b = clumps.Load4(at + 16);
+    bool flower = (b.y >> 24) != 0;
+    float3 color = float3(float(b.y & 0xFF), float((b.y >> 8) & 0xFF), float((b.y >> 16) & 0xFF)) / 255.0;
+    uint h = blade_hash(b.x);
+    uint h1 = blade_hash(h);
+    float turn = TAU * blade_unit(h);
+    float3 fwd = float3(cos(turn), sin(turn), 0.0);
+    float3 across = float3(-fwd.y, fwd.x, 0.0);
+    float3 up3 = float3(0.0, 0.0, 1.0);
+    float3 p;
+    float3 n;
+    float3 c = color;
+    float rise = 1.0;
+    uint tri = vertex / 3;
+    uint corner = vertex % 3;
+    float3 eye = row(push.frame, FRAME_EYE).xyz;
+    if (flower)
+    {
+        float tall = a.w;
+        // The wind sways the head a little.
+        float4 wind = row(push.constants, G_WIND);
+        float sway = 0.5 + 0.5 * sin(dot(a.xy, float2(0.31, 0.27)) - wind.z * 2.4 + blade_unit(h1) * TAU);
+        float3 head = a.xyz + float3(wind.xy * tall * 0.25 * sway + fwd.xy * tall * 0.15, tall);
+        float petal = lerp(0.04, 0.065, blade_unit(h1)) * (1.0 + length(head - eye) / 60.0);
+        if (tri == 0)
+        {
+            // The stem: a thin triangle from the ground to the head.
+            p = corner == 2 ? head : a.xyz + across * (corner == 0 ? -0.006 : 0.006);
+            n = normalize(fwd + up3 * 0.3);
+            c = STEM;
+            rise = corner == 2 ? 1.0 : 0.0;
+        }
+        else if (tri < 3)
+        {
+            // A leaf at the foot, leaning out.
+            float3 out_dir = tri == 1 ? across : -across;
+            float3 tip = a.xyz + out_dir * tall * 0.35 + up3 * tall * 0.3;
+            p = corner == 0 ? a.xyz + fwd * 0.012 : (corner == 1 ? a.xyz - fwd * 0.012 : tip);
+            n = normalize(up3 + out_dir * 0.4);
+            c = STEM * 1.1;
+            rise = corner == 2 ? 0.8 : 0.0;
+        }
+        else
+        {
+            // A petal round the head: the disc tilted a little toward its side.
+            uint k = tri - 3;
+            float3 face = normalize(up3 + fwd * 0.35);
+            float3 e1 = normalize(cross(face, across));
+            float3 e2 = cross(face, e1);
+            float a0 = TAU * (float(k) - 0.35) / 5.0;
+            float a1 = TAU * (float(k) + 0.35) / 5.0;
+            float3 rim0 = head + (e1 * cos(a0) + e2 * sin(a0)) * petal;
+            float3 rim1 = head + (e1 * cos(a1) + e2 * sin(a1)) * petal;
+            p = corner == 0 ? head + face * 0.004 : (corner == 1 ? rim0 : rim1);
+            n = face;
+            c = corner == 0 ? color * 0.75 : color;
+        }
+    }
+    else
+    {
+        // A squat stone: eight faces round its middle, half sunk.
+        float size = a.w;
+        float3 axes[3] = { fwd * size, across * size * lerp(0.7, 1.0, blade_unit(h1)), up3 * size * 0.55 };
+        uint k = tri;
+        float3 sx = (k & 1) != 0 ? axes[0] : -axes[0];
+        float3 sy = (k & 2) != 0 ? axes[1] : -axes[1];
+        float3 sz = (k & 4) != 0 ? axes[2] : -axes[2];
+        float3 centre = a.xyz + up3 * size * 0.15;
+        p = centre + (corner == 0 ? sx : (corner == 1 ? sy : sz));
+        n = normalize(normalize(sx) + normalize(sy) + normalize(sz));
+        if (dot(n, up3) < -0.2)
+        {
+            n = up3;
+        }
+        c = color;
+    }
+    Scatter o;
+    o.position = transform(push.frame, FRAME_VIEW_PROJ, float4(p, 1.0));
+    o.normal = dot(n, eye - p) < 0.0 && flower ? -n : n;
+    o.color = c;
+    o.up = rise;
+    float4 view = transform(push.frame, FRAME_VIEW, float4(p, 1.0));
+    o.fog = fog_factor(push.frame, length(view.xyz));
+    return o;
+}
+
+[shader("fragment")]
+Targets fs_scatter(Scatter in)
+{
+    float3 n = normalize(in.normal);
+    float3 albedo = in.color * lerp(0.6, 1.0, in.up);
+    bool per_pixel = row(push.frame, FRAME_SCREEN).y > 0.5;
+    Targets o;
+    o.albedo = wetted(push.weather, push.frame, in.position, CLASS_GROUND, n, 0.0, float4(saturate(albedo), 0.8));
+    o.normal = oct_encode(n);
+    o.light = float4(per_pixel ? float3(0.0, 0.0, 0.0) : ground_light(push.frame, n), in.fog);
+    o.material = material_bytes(CLASS_GROUND, 0, 0);
+    return o;
+}

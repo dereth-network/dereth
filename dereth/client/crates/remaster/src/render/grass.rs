@@ -6,6 +6,10 @@
 //! the eye the clumps are dense, each a few curved blades; farther off fewer, wider clumps of
 //! single-triangle blades stand in for them; past the far reach the ground's own picture, whose
 //! color the blades take, carries on.
+//!
+//! Flowers and pebbles ride on the same placing: flowers in clusters on grassland, each cluster a
+//! few colors of its region's palette ([`PALETTE`]); pebbles on bare ground, scree and the road's
+//! edges ([`pebbles`]).
 
 use dereth_gfx::{
     BufferDesc, BufferUsage, ColorAttachment, ColorTarget, Compare, ComputeDesc, Cull,
@@ -37,15 +41,57 @@ const CLUMP_BYTES: u64 = 32;
 /// Blades a clump, segments a blade and the blade's width at its root, meters: near and far.
 const NEAR_BLADES: (u32, u32, f32) = (7, 4, 0.05);
 const FAR_BLADES: (u32, u32, f32) = (4, 1, 0.13);
+/// How far the flowers and pebbles reach, candidates a square meter, and the room for them.
+pub(crate) const SCATTER_REACH: f32 = 90.0;
+const SCATTER_CANDIDATES: f32 = 4.0;
+const SCATTER_ROOM: u32 = 160_000;
+/// The corners of one flower or pebble.
+const SCATTER_CORNERS: u32 = 24;
 
 /// What of the field a frame asks for.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FieldAsk {
     /// The grass's blades.
     pub blades: bool,
+    /// The flowers and pebbles.
+    pub scatter: bool,
 }
-/// The constants' rows: the field's and each type's grass.
-const ROWS: usize = 11 + 32;
+/// The constants' rows: the field's, each type's grass, the scatter's, each type's pebbles, the
+/// palette.
+const ROWS: usize = 11 + 32 + 1 + 32 + PALETTE.len();
+
+/// The flowers' colors, display values: white, yellow, pink, violet, blue, orange, cream and red. A
+/// region's clusters take a run of them from where its scene type starts.
+pub const PALETTE: [[f32; 3]; 8] = [
+    [0.93, 0.92, 0.86],
+    [0.96, 0.82, 0.22],
+    [0.92, 0.52, 0.68],
+    [0.62, 0.48, 0.86],
+    [0.42, 0.56, 0.92],
+    [0.94, 0.55, 0.2],
+    [0.95, 0.9, 0.62],
+    [0.84, 0.24, 0.22],
+];
+
+/// The share of the scatter's candidates that are pebbles on each terrain type, before the road's
+/// edges and the slopes add theirs.
+#[must_use]
+pub fn pebbles() -> [f32; 32] {
+    let mut p = [0.0; 32];
+    // Barren rock, mud, packed dirt, patchy dirt, the sands strewn with rock, semi-barren rock.
+    for (t, share) in [
+        (0, 0.6),
+        (5, 0.2),
+        (7, 0.45),
+        (8, 0.35),
+        (12, 0.7),
+        (13, 0.5),
+        (14, 0.5),
+    ] {
+        p[t] = share;
+    }
+    p
+}
 /// The field's clock wraps over this many seconds; every motion of the wind fits it closely
 /// enough that the wrap is not seen.
 const CLOCK_PERIOD: f64 = 1200.0;
@@ -120,6 +166,8 @@ pub fn kinds_with(looks: &crate::look::LookStack) -> [GrassKind; 32] {
 pub struct GrassPlan {
     place: Pipeline,
     draw: Pipeline,
+    scatter_place: Pipeline,
+    scatter_draw: Pipeline,
     constants: (dereth_gfx::Buffer, u32),
     clumps: (dereth_gfx::Buffer, u32),
     args: (dereth_gfx::Buffer, u32),
@@ -127,8 +175,9 @@ pub struct GrassPlan {
     tiles: u32,
     frame: u32,
     weather: (u32, Option<Texture>),
-    /// Whether the blades are drawn.
+    /// Whether the blades are drawn, and the flowers and pebbles.
     blades: bool,
+    scatter: bool,
     /// The blades drawn again for their motion.
     motion: Pipeline,
 }
@@ -138,6 +187,8 @@ pub struct GrassPlan {
 pub struct GrassPass {
     place: Pipeline,
     draw: Pipeline,
+    scatter_place: Pipeline,
+    scatter_draw: Pipeline,
     motion: Pipeline,
     constants: (dereth_gfx::Buffer, u32),
     clumps: (dereth_gfx::Buffer, u32),
@@ -188,6 +239,22 @@ impl GrassPass {
             label: "remaster grass placing",
             shader: shader(Entry::DrawnCsGrass),
         })?;
+        let scatter_draw = gfx.create_graphics_pipeline(&GraphicsDesc {
+            label: "remaster flowers and pebbles",
+            vertex: shader(Entry::GrassVsScatter),
+            fragment: Some(shader(Entry::GrassFsScatter)),
+            color: &targets,
+            depth: Some(DepthState {
+                format: DEPTH,
+                compare: Some(Compare::LessEqual),
+                write: true,
+            }),
+            cull: Cull::None,
+        })?;
+        let scatter_place = gfx.create_compute_pipeline(&ComputeDesc {
+            label: "remaster flowers and pebbles placing",
+            shader: shader(Entry::DrawnCsScatter),
+        })?;
         let motion = gfx.create_graphics_pipeline(&GraphicsDesc {
             label: "remaster grass motion",
             vertex: shader(Entry::GrassVsBladeMotion),
@@ -203,6 +270,8 @@ impl GrassPass {
         Ok(Self {
             place,
             draw,
+            scatter_place,
+            scatter_draw,
             motion,
             last_clock: None,
             constants: bound(
@@ -214,7 +283,7 @@ impl GrassPass {
             clumps: bound(
                 gfx,
                 "remaster grass clumps",
-                u64::from(NEAR_ROOM + FAR_ROOM) * CLUMP_BYTES,
+                u64::from(NEAR_ROOM + FAR_ROOM + SCATTER_ROOM) * CLUMP_BYTES,
                 BufferUsage::STORAGE,
             )?,
             args: bound(
@@ -228,8 +297,8 @@ impl GrassPass {
 
     /// The field for `frame`, seen through the pair `(clip, eye)` (the eye in the frame's space), lit by the
     /// frame's constants `constants`; wet and sheltered by the weather's constants and overhead
-    /// map; its blades as `ask` asks. `None` where nothing of the ground is drawn, or the blades
-    /// are not asked.
+    /// map; its blades, and its flowers and pebbles, as the pair `(blades, scatter)` asks. `None` where
+    /// nothing of the ground is drawn, or neither is asked.
     ///
     /// # Errors
     /// What the device refuses.
@@ -242,11 +311,13 @@ impl GrassPass {
         weather: (u32, Option<Texture>),
         ask: FieldAsk,
     ) -> Result<Option<GrassPlan>, dereth_gfx::Error> {
-        let FieldAsk { blades } = ask;
+        let FieldAsk {
+            blades, scatter, ..
+        } = ask;
         let Some(ground) = frame.drawn.as_ref() else {
             return Ok(None);
         };
-        if !frame.landscape || !blades {
+        if !frame.landscape || !(blades || scatter) {
             return Ok(None);
         }
         let global = ground.global;
@@ -280,6 +351,18 @@ impl GrassPass {
         for k in kinds() {
             rows.push([k.share, k.height, k.dryness, k.patchy].map(f32::to_bits));
         }
+        rows.push([
+            SCATTER_CANDIDATES.to_bits(),
+            SCATTER_REACH.to_bits(),
+            SCATTER_ROOM,
+            1.0f32.to_bits(),
+        ]);
+        for p in pebbles() {
+            rows.push([p, 0.0, 0.0, 0.0].map(f32::to_bits));
+        }
+        for c in PALETTE {
+            rows.push([c[0], c[1], c[2], 1.0].map(f32::to_bits));
+        }
         let bytes: Vec<u8> = rows
             .iter()
             .flat_map(|r| r.iter().flat_map(|w| w.to_le_bytes()))
@@ -291,12 +374,16 @@ impl GrassPass {
         let far = backend.command(FAR_BLADES.0 * ((FAR_BLADES.1 - 1) * 6 + 3), 0, 0, 0);
         let mut args = push_words(&near);
         args.extend(push_words(&far));
+        args.extend(push_words(&backend.command(SCATTER_CORNERS, 0, 0, 0)));
         gfx.write_buffer(self.args.0, 0, &args)?;
         Ok(Some(GrassPlan {
             place: self.place,
             draw: self.draw,
+            scatter_place: self.scatter_place,
+            scatter_draw: self.scatter_draw,
             motion: self.motion,
             blades,
+            scatter,
             constants: self.constants,
             clumps: self.clumps,
             args: self.args,
@@ -391,9 +478,16 @@ impl GrassPlan {
                 self.stride,
                 self.weather.0,
             );
-            c.set_pipeline(self.place)?;
-            c.push(0, &push)?;
-            c.dispatch(self.tiles, self.tiles, 1);
+            for (on, pipeline) in [
+                (self.blades, self.place),
+                (self.scatter, self.scatter_place),
+            ] {
+                if on {
+                    c.set_pipeline(pipeline)?;
+                    c.push(0, &push)?;
+                    c.dispatch(self.tiles, self.tiles, 1);
+                }
+            }
             Ok(())
         })
     }
@@ -433,6 +527,26 @@ impl GrassPlan {
                 }),
             },
             |d| {
+                if self.scatter {
+                    d.set_pipeline(self.scatter_draw)?;
+                    d.push(
+                        0,
+                        &push_words(&[
+                            self.frame,
+                            self.constants.1,
+                            self.clumps.1,
+                            NEAR_ROOM + FAR_ROOM,
+                            0,
+                            0,
+                            0,
+                            self.weather.0,
+                        ]),
+                    )?;
+                    d.draw_indirect(self.args.0, u64::from(self.stride) * 2, 1, self.stride)?;
+                }
+                if !self.blades {
+                    return Ok(());
+                }
                 d.set_pipeline(self.draw)?;
                 for (k, (base, blades)) in [(0, NEAR_BLADES), (NEAR_ROOM, FAR_BLADES)]
                     .into_iter()
@@ -468,6 +582,18 @@ impl GrassPlan {
 mod tests {
     //! Behaviour: none (experimental)
     use super::*;
+
+    /// Pebbles lie on bare and rocky ground and never on grass or water.
+    #[test]
+    fn pebbles_lie_on_bare_ground_and_not_on_grass_or_water() {
+        let p = pebbles();
+        for bare in [0, 7, 12] {
+            assert!(p[bare] > 0.3, "{bare}");
+        }
+        for not in [1, 3, 9, 16, 17, 18, 19, 20] {
+            assert_eq!(p[not], 0.0, "{not}");
+        }
+    }
 
     /// A look's grass table changes what that terrain type grows, number by number, and nothing else.
     #[test]

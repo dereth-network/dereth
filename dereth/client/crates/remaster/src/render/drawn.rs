@@ -59,7 +59,7 @@ const CASTER_REACH: f32 = 2500.0;
 /// depths a hair from the far plane's own.
 const FAR_SHARE: f32 = 0.97;
 /// The constants' rows, as the shader's `D_*` lay them out.
-const ROWS: usize = 142 + 1 + 32;
+const ROWS: usize = 142 + 1 + 32 + 1 + 8;
 /// The world's landscape vertices a side.
 pub const WORLD_SIDE: u32 = 2041;
 
@@ -497,6 +497,8 @@ pub struct DrawnPass {
     pub(crate) grass: bool,
     /// What each terrain type grows in the grass field.
     pub(crate) grass_kinds: [super::grass::GrassKind; 32],
+    /// Whether the flowers are drawn: past their reach the ground carries their colors.
+    pub(crate) flowers: bool,
     /// The patches the last frame drew, for the view and for the sun's shadows.
     pub last_patches: (u32, u32),
     /// The last frame's patches for the view, and its eye, world meters.
@@ -584,6 +586,7 @@ impl DrawnPass {
             colors: [[0.5, 0.5, 0.5, 1.0]; 32],
             grass: false,
             grass_kinds: super::grass::kinds(),
+            flowers: false,
             last_patches: (0, 0),
             view: (Vec::new(), Vec3::ZERO),
         })
@@ -901,6 +904,11 @@ impl DrawnPass {
         ]));
         for g in &self.grass_kinds {
             out.extend(floats(&[g.share, g.height, g.dryness, g.patchy]));
+        }
+        let flowers = if self.flowers { 1.0 } else { 0.0 };
+        out.extend(floats(&[flowers, super::grass::SCATTER_REACH, 0.0, 0.0]));
+        for c in super::grass::PALETTE {
+            out.extend(floats(&[c[0], c[1], c[2], 1.0]));
         }
         self.constants.write(d, &out)?;
 

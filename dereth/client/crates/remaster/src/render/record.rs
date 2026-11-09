@@ -514,7 +514,7 @@ impl Renderer {
             self.water.settings().puddles && rainy,
             post.is_some(),
             render.1,
-            self.landscape.grass,
+            self.landscape.grass || self.landscape.flowers,
         )?;
         // The scene's acceleration structures, kept while anything traces rays; and the passes
         // that trace them where they stand in for the cascades' look-up and the occlusion.
@@ -568,7 +568,7 @@ impl Renderer {
             },
         )?;
         let l = self.landscape;
-        let grass = if l.grass && drawn_ground.is_some() {
+        let grass = if (l.grass || l.flowers) && drawn_ground.is_some() {
             self.grass.prepare(
                 &mut self.gfx,
                 &frame,
@@ -577,7 +577,10 @@ impl Renderer {
                 weather
                     .as_ref()
                     .map_or((NONE, None), |w| (w.table, Some(w.cover()))),
-                super::grass::FieldAsk { blades: l.grass },
+                super::grass::FieldAsk {
+                    blades: l.grass,
+                    scatter: l.flowers,
+                },
             )?
         } else {
             None

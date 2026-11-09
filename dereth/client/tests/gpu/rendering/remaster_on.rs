@@ -706,6 +706,7 @@ fn each_landscape_addition_changes_the_frame_and_off_puts_it_back_to_the_pixel()
         ("ridge", "RemasterGrade"),
         ("vista", "RemasterAir"),
         ("ridge", "RemasterGrass"),
+        ("ridge", "RemasterFlowers"),
     ] {
         let station = box_station(&store, place, false);
         let on = format!("{every},{spec}=1");
