@@ -33,11 +33,15 @@ webpki-roots = "1"
 ring = { version = "0.17", default-features = false }
 # Ctrl-C stops `serve` cleanly.
 ctrlc = { version = "3.5", features = ["termination"] }
-# `self-update`: the release archives (.tar.gz, and .zip on Windows), unpacked with zlib-rs.
-flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
-zip = { version = "8", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+# `self-update`: the game servers' shared updater, whose product with one binary the hub is. The
+# one crate outside network/ the hub names (`cargo xtask separation`); a repository of the
+# network's own would take it from this one's.
+dereth-server-updater = { path = "../../core/server-updater" }
 
 [dev-dependencies]
+# The update tests' release archives (.tar.gz, and .zip on Windows).
+flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
+zip = { version = "8", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 # The hub runs the conformance suite's hub checks against itself.
 dereth-network-conformance = { path = "../conformance" }
 # The tests' stand-in servers end their connections with a reset, which leaves no end held.

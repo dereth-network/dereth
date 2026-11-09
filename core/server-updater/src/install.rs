@@ -220,6 +220,34 @@ impl State {
         std::fs::write(Self::path(work_dir), text).map_err(|e| format!("{e}"))
     }
 
+    /// The record in the file `path` (empty when there is none, or it does not read).
+    #[must_use]
+    pub fn load_file(path: &Path) -> Self {
+        std::fs::read(path)
+            .ok()
+            .and_then(|t| serde_json::from_slice(&t).ok())
+            .unwrap_or_default()
+    }
+
+    /// Writes the record to the file `path`.
+    ///
+    /// # Errors
+    /// When it cannot be written.
+    pub fn save_file(&self, path: &Path) -> Result<(), String> {
+        let text = serde_json::to_string_pretty(self).map_err(|e| e.to_string())? + "\n";
+        std::fs::write(path, text).map_err(|e| format!("{}: {e}", path.display()))
+    }
+
+    /// Records `version` as failed for `reason`, in place of any earlier record of it.
+    pub fn record(&mut self, version: &Version, reason: &str) {
+        let v = version.to_string();
+        self.failed.retain(|f| f.version != v);
+        self.failed.push(Failure {
+            version: v,
+            reason: reason.to_owned(),
+        });
+    }
+
     /// The versions that failed.
     #[must_use]
     pub fn failed_versions(&self) -> Vec<Version> {
@@ -266,7 +294,7 @@ pub fn aside_name(file: &Path, from: &Version) -> PathBuf {
 
 /// Removes the files earlier updates moved aside in `dir` whose names start with `prefix` (those
 /// that can be removed).
-fn remove_old_asides(dir: &Path, prefix: &str) {
+pub(crate) fn remove_old_asides(dir: &Path, prefix: &str) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };

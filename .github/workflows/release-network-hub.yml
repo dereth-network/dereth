@@ -76,7 +76,7 @@ jobs:
             echo "## Changes"
             echo
             git log --no-merges --format='- %s' ${prev:+"$prev.."}"$GITHUB_SHA" -- \
-              network/hub network/protocol docs/network/02-link-protocol.md docs/network/05-hub.md
+              network/hub network/protocol core/server-updater docs/network/02-link-protocol.md docs/network/05-hub.md
           } > target/release-notes.md
           cat target/release-notes.md >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -142,6 +142,7 @@ jobs:
           cp "target/$TARGET/release/dereth-network-hub$exe" "stage/$name/"
           cp network/hub/LICENSE "stage/$name/LICENSE"
           cp network/protocol/LICENSE "stage/$name/LICENSE-protocol"
+          cp LICENSE "stage/$name/LICENSE-updater"
           cp network/README.md "stage/$name/README.md"
           cp network/hub/DEPLOY.md "stage/$name/DEPLOY.md"
           cargo about generate --locked --fail -m network/hub/Cargo.toml -c network/hub/about.toml \

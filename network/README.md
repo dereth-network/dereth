@@ -6,7 +6,8 @@ included, through the player's own world's server. The specification is
 [`docs/network/`](../docs/network/README.md).
 
 This folder is self-contained so it can become a repository of its own: nothing in it depends on
-a crate outside it, and its crates name their own dependency versions.
+a crate outside it but the hub on the game servers' shared updater (`core/server-updater`, MIT),
+which it updates itself with, and its crates name their own dependency versions.
 
 | Folder | What | License |
 |---|---|---|

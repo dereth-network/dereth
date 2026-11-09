@@ -1,6 +1,7 @@
 //! Unpacking a release archive: a `.zip` (Windows) or a `.tar.gz` (elsewhere) holding one folder
 //! named after the archive, and in it only plain files. Anything else (a link, a nested folder, a
-//! path that leaves the folder) refuses the archive.
+//! path that leaves the folder) refuses the archive. A tar's pax headers and GNU long names, which
+//! some `tar` programs write, are read past.
 
 use std::io::Read;
 use std::path::Path;
@@ -156,9 +157,12 @@ fn octal(b: &[u8]) -> Result<u64, String> {
     u64::from_str_radix(text, 8).map_err(|_| format!("tar: bad number `{text}`"))
 }
 
+/// The entries of a tar (POSIX, GNU or pax headers). A pax header's own data is skipped, and a GNU
+/// long name is the next entry's.
 fn tar_entries(bytes: &[u8]) -> Result<Vec<Entry>, String> {
     let mut out = Vec::new();
     let mut at = 0usize;
+    let mut long_name: Option<String> = None;
     while at + 512 <= bytes.len() {
         let h = &bytes[at..at + 512];
         if h.iter().all(|&b| b == 0) {
@@ -169,20 +173,34 @@ fn tar_entries(bytes: &[u8]) -> Result<Vec<Entry>, String> {
             let end = s.iter().position(|&c| c == 0).unwrap_or(s.len());
             String::from_utf8_lossy(&s[..end]).into_owned()
         };
-        let name = field(0..100);
-        let prefix = field(345..500);
-        let path = if prefix.is_empty() {
-            name
-        } else {
-            format!("{prefix}/{name}")
-        };
         let mode = octal(&h[100..108])?;
         let size = octal(&h[124..136])?;
         let len = usize::try_from(size).map_err(|_| "tar: entry too large".to_owned())?;
         let start = at + 512;
         let data = bytes
-            .get(start..start + len)
+            .get(start..start.saturating_add(len))
             .ok_or("tar: entry runs past the end")?;
+        at = start + len.div_ceil(512) * 512;
+        match h[156] {
+            b'L' => {
+                long_name = Some(
+                    String::from_utf8_lossy(data)
+                        .trim_end_matches('\0')
+                        .to_owned(),
+                );
+                continue;
+            }
+            b'x' | b'g' | b'K' => continue,
+            _ => {}
+        }
+        let path = match long_name.take() {
+            Some(n) => n,
+            // Only a POSIX header has a prefix field; a GNU one keeps other things there.
+            None if &h[257..263] == b"ustar\0" && h[345] != 0 => {
+                format!("{}/{}", field(345..500), field(0..100))
+            }
+            None => field(0..100),
+        };
         let (dir, link) = match h[156] {
             b'0' | 0 => (false, false),
             b'5' => (true, false),
@@ -199,7 +217,6 @@ fn tar_entries(bytes: &[u8]) -> Result<Vec<Entry>, String> {
                 data.to_vec()
             },
         });
-        at = start + len.div_ceil(512) * 512;
     }
     Ok(out)
 }

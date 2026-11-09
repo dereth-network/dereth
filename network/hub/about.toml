@@ -23,6 +23,6 @@ accepted = [
 ignore-build-dependencies = true
 ignore-dev-dependencies = true
 
-# The network's own crates (the hub, AGPL-3.0-only, and the protocol, MIT) are not third-party:
-# their licences are LICENSE and LICENSE-protocol.
+# The network's own crates (the hub, AGPL-3.0-only, and the protocol, MIT) and the servers' updater
+# (MIT) are not third-party: their licences are LICENSE, LICENSE-protocol and LICENSE-updater.
 private = { ignore = true }

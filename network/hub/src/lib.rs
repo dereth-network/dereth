@@ -1,7 +1,8 @@
 //! The Dereth Network's hub: the world registry and the links between worlds, routing tells,
 //! presence, rooms and channels.
 //!
-//! **Depends on** `dereth-network-protocol`. **Used by** the `dereth-network-hub` binary, and in
+//! **Depends on** `dereth-network-protocol`, and the game servers' shared updater
+//! (`dereth-server-updater`) for its own updates. **Used by** the `dereth-network-hub` binary, and in
 //! tests by the conformance suite's hub checks.
 //!
 //! **Must never** keep or log a message body: a tell is held only while its target world is
@@ -28,7 +29,7 @@
 //! own character; [`probe`] tries a world from outside for its host, and [`ping`] asks the listed
 //! Empyrean worlds how they are; [`forwarded`] finds a client's address behind trusted proxies;
 //! [`resolver`] looks host names up, bounded; [`text`] is the rule for the text the hub keeps; [`self_update`] installs the hub's own releases over its
-//! binary.
+//! binary, through the shared updater.
 
 pub mod api;
 pub mod bridge;

@@ -767,7 +767,7 @@ fn run(mut args: Vec<String>) -> Result<ExitCode, String> {
 
 /// `self-update --check|--apply [--policy patch|minor] [--source <url>]`, for the registry `db`.
 fn self_update(args: &mut Vec<String>, db: &str) -> Result<ExitCode, String> {
-    use dereth_network_hub::self_update::{self as update, Policy, Source, Updater};
+    use dereth_network_hub::self_update::{self as update, Source};
     let usage = "self-update --check|--apply [--policy patch|minor] [--source <url>]";
     let apply = match (take_flag(args, "--check"), take_flag(args, "--apply")) {
         (true, false) => false,
@@ -775,8 +775,10 @@ fn self_update(args: &mut Vec<String>, db: &str) -> Result<ExitCode, String> {
         _ => return Err(format!("{usage}: give --check or --apply")),
     };
     let policy = match take(args, "--policy")? {
-        None => Policy::Minor,
-        Some(p) => Policy::parse(&p).ok_or_else(|| format!("--policy {p}: patch or minor"))?,
+        None => update::Policy::Minor,
+        Some(p) => {
+            update::parse_policy(&p).ok_or_else(|| format!("--policy {p}: patch or minor"))?
+        }
     };
     let source = Source::parse(
         take(args, "--source")?
@@ -786,7 +788,7 @@ fn self_update(args: &mut Vec<String>, db: &str) -> Result<ExitCode, String> {
     if !args.is_empty() {
         return Err(format!("{usage}: unexpected {args:?}"));
     }
-    let updater = Updater::for_this_binary(source, std::path::Path::new(db))?;
+    let updater = update::for_this_binary(source, std::path::Path::new(db))?;
     let check = updater.check(policy)?;
     for line in update::describe(&updater, &check) {
         println!("{line}");

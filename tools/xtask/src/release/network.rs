@@ -120,6 +120,7 @@ impl Part {
             Self::Hub => &[
                 "network/hub",
                 "network/protocol",
+                "core/server-updater",
                 "docs/network/02-link-protocol.md",
                 "docs/network/05-hub.md",
             ],

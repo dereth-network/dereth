@@ -3,7 +3,9 @@
 //!
 //! **Depends on** an HTTP client (`ureq`, over rustls), the archive readers (`zip`, `flate2`) and
 //! `sha2`, `serde`, `serde_json` and `tracing`. **Used by** the game servers: `empyrean-server` and
-//! `yalain`, each giving it what is its own as a [`Product`].
+//! `yalain`, each giving it what is its own as a [`Product`]; and the network's hub
+//! (`dereth-network-hub`), whose release is one binary installed on its operator's command, as a
+//! [`binary::Product`].
 //!
 //! **Must never** know one server's databases, world data or configuration file: those come through
 //! [`Product`] and the facts and declaration types it names. It holds no game, and it never decides
@@ -27,6 +29,7 @@
 //! `update --apply` runs all three by hand on a stopped server ([`command`]).
 
 pub mod archive;
+pub mod binary;
 pub mod command;
 pub mod handover;
 pub mod install;

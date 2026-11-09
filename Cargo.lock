@@ -1909,6 +1909,7 @@ dependencies = [
  "ctrlc",
  "dereth-network-conformance",
  "dereth-network-protocol",
+ "dereth-server-updater",
  "flate2",
  "getrandom 0.4.3",
  "httparse",

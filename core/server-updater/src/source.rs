@@ -58,20 +58,40 @@ impl Source {
         if url.starts_with("https://github.com/") {
             return Self::github(url);
         }
+        Self::mirror(url).ok_or_else(|| format!(
+            "server.update_source = \"{configured}\" is neither a GitHub repository (https://github.com/<owner>/<name>) nor a releases API address (https://<host>/repos/<owner>/<name>)"
+        ))
+    }
+
+    /// The source `url` names: a GitHub repository address, or the address of a mirror serving
+    /// GitHub's releases API for a repository (`http(s)://<host>/.../repos/<owner>/<name>`).
+    ///
+    /// # Errors
+    /// When `url` is neither.
+    pub fn parse(url: &str) -> Result<Self, String> {
+        let u = url.trim().trim_end_matches('/');
+        if u.starts_with("https://github.com/") {
+            return Self::github(u);
+        }
+        Self::mirror(u).ok_or_else(|| format!(
+            "{url} is neither a GitHub repository (https://github.com/<owner>/<name>) nor a releases API address (https://<host>/repos/<owner>/<name>)"
+        ))
+    }
+
+    /// The mirror of GitHub's releases API at `url` (trimmed), when it is one.
+    fn mirror(url: &str) -> Option<Self> {
         let mirror = url.starts_with("https://") || url.starts_with("http://");
         let mut tail = url.rsplit('/');
         match (tail.next(), tail.next(), tail.next()) {
             (Some(name), Some(owner), Some("repos"))
                 if mirror && !name.is_empty() && !owner.is_empty() =>
             {
-                Ok(Self {
+                Some(Self {
                     api: url.to_owned(),
                     repo: format!("{owner}/{name}"),
                 })
             }
-            _ => Err(format!(
-                "server.update_source = \"{configured}\" is neither a GitHub repository (https://github.com/<owner>/<name>) nor a releases API address (https://<host>/repos/<owner>/<name>)"
-            )),
+            _ => None,
         }
     }
 }
@@ -198,21 +218,28 @@ pub fn list(
     prefix: &str,
     current: &Version,
 ) -> Result<Vec<Published>, String> {
-    list_pages(source, prefix, current, &mut |url| {
-        agent
-            .get(url)
-            .header("Accept", "application/vnd.github+json")
-            .call()
-            .and_then(|mut r| {
-                let next = r
-                    .headers()
-                    .get("link")
-                    .and_then(|l| l.to_str().ok())
-                    .and_then(next_page);
-                Ok((r.body_mut().read_to_string()?, next))
-            })
-            .map_err(|e| http_error(url, &e))
-    })
+    list_pages(source, prefix, current, &mut |url| list_page(agent, url))
+}
+
+/// The page of the releases API's list at `url`: its text, and the next page's address when its
+/// `Link` header names one.
+///
+/// # Errors
+/// When the API cannot be reached or does not answer `200`.
+pub fn list_page(agent: &ureq::Agent, url: &str) -> Result<Page, String> {
+    agent
+        .get(url)
+        .header("Accept", "application/vnd.github+json")
+        .call()
+        .and_then(|mut r| {
+            let next = r
+                .headers()
+                .get("link")
+                .and_then(|l| l.to_str().ok())
+                .and_then(next_page);
+            Ok((r.body_mut().read_to_string()?, next))
+        })
+        .map_err(|e| http_error(url, &e))
 }
 
 /// A page of the releases API's list: its text, and the next page's address.

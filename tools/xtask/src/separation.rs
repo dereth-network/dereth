@@ -18,7 +18,8 @@
 //! 5. No copyleft provenance marker appears anywhere under `core/`, `dereth/` or `tools/` (the
 //!    licence-leak rule), nor in the network's MIT crates.
 //! 6. The network (`network/`) is a third part, self-contained so that it can become a repository
-//!    of its own: a crate under it depends on no workspace crate outside it. A server crate may
+//!    of its own: a crate under it depends on no workspace crate outside it, but for the pairs of
+//!    [`NETWORK_MAY_USE`] (the hub's updater). A server crate may
 //!    name its protocol and its link ([`NETWORK_SHARED`]) by path into `network/`, and its hub
 //!    and conformance suite ([`NETWORK_DEV`]) as dev-dependencies only; no client crate, and none
 //!    of the network's own MIT crates outside a dev-dependency, may name its hub, which carries
@@ -80,6 +81,10 @@ pub const NETWORK_SHARED: &[&str] = &["dereth-network-protocol", "dereth-network
 /// The network crates a server crate may name as dev-dependencies only (to run the network's own
 /// routing and checks in its tests).
 pub const NETWORK_DEV: &[&str] = &["dereth-network-hub", "dereth-network-conformance"];
+
+/// The workspace crates outside `network/` a network crate may name, as `(network crate, crate)`:
+/// the hub updates itself with the game servers' shared updater (MIT, under `core/`).
+pub const NETWORK_MAY_USE: &[(&str, &str)] = &[("dereth-network-hub", "dereth-server-updater")];
 
 /// The network crates under the server's licence; every other network crate is MIT.
 pub const NETWORK_COPYLEFT: &[&str] = &["dereth-network-hub"];
@@ -308,7 +313,10 @@ pub fn check_metadata(meta: &Value, ws: &Path, client_only: bool, f: &mut Findin
     for p in packages.iter().filter(|p| is_network(p)) {
         for d in deps(p) {
             let path = d["path"].as_str().unwrap_or("");
-            if !path.is_empty() && !under(path, &network_dir) {
+            if !path.is_empty()
+                && !under(path, &network_dir)
+                && !NETWORK_MAY_USE.contains(&(name(p), name(d)))
+            {
                 f.failures.push(format!(
                     "network crate {} depends on {} outside network/ ({path})",
                     name(p),
@@ -318,8 +326,14 @@ pub fn check_metadata(meta: &Value, ws: &Path, client_only: bool, f: &mut Findin
         }
     }
     if f.failures.len() == before {
-        f.notes
-            .push("network/ depends on nothing outside it".to_owned());
+        f.notes.push(format!(
+            "network/ depends on nothing outside it but {}",
+            NETWORK_MAY_USE
+                .iter()
+                .map(|(a, b)| format!("{a} on {b}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
     }
 }
 
@@ -756,6 +770,38 @@ mod tests {
             false,
         );
         assert!(reaches_out
+            .failures
+            .iter()
+            .any(|x| x.contains("outside network/")));
+
+        // The hub alone may name the shared updater; no other network crate may.
+        let updater = pkg(
+            "dereth-server-updater",
+            "core/server-updater",
+            "MIT",
+            json!([]),
+        );
+        let names_updater = |name: &str, dir: &str, license: &str| {
+            run(
+                vec![
+                    updater.clone(),
+                    pkg(
+                        name,
+                        dir,
+                        license,
+                        json!([{ "name": "dereth-server-updater", "path": "/w/core/server-updater" }]),
+                    ),
+                ],
+                false,
+            )
+        };
+        let hub_updates = names_updater("dereth-network-hub", "network/hub", &server_licence());
+        assert!(
+            hub_updates.failures.is_empty(),
+            "{:?}",
+            hub_updates.failures
+        );
+        assert!(names_updater("dereth-network-link", "network/link", "MIT")
             .failures
             .iter()
             .any(|x| x.contains("outside network/")));

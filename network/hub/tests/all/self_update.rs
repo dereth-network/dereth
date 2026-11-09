@@ -1,5 +1,5 @@
-//! `self-update` installs a release over a binary only when every check passes: the archive's
-//! SHA-256 is the one `SHA256SUMS` lists, the new binary names the release's version and reads the
+//! `self-update`, on the game servers' shared updater, installs a release over a binary only when
+//! every check passes: the archive's SHA-256 is the one `SHA256SUMS` lists, the new binary names the release's version and reads the
 //! registry, the binary's folder is writable, and the registry is copied first; the old binary is
 //! kept as `.previous-v<old>`. A release that fails here is recorded and not taken again.
 //! Fixture: temporary installations with a real registry; releases served by a stand-in fetcher
@@ -14,8 +14,8 @@ use std::rc::Rc;
 
 use dereth_network_hub::registry::{self, Registry, SCHEMA_VERSION};
 use dereth_network_hub::self_update::{
-    archive_name, binary_name, describe, sha256_hex, this_target, Fetcher, Fetching, Https,
-    Installed, Policy, Processes, Runner, Source, State, Updater, Version, STATE_FILE,
+    archive_name, binary_name, describe, sha256_hex, this_build, this_target, Fetcher, Fetching,
+    Https, Hub, Installed, Policy, Processes, Runner, Source, State, Updater, Version, STATE_FILE,
     WRITE_CHECK_FILE,
 };
 
@@ -202,9 +202,11 @@ impl Install {
             runner: Box::new(FakeRunner),
             current: v(current),
             target: Some(LINUX.to_owned()),
-            schema: SCHEMA_VERSION,
             binary: self.binary.clone(),
-            registry: self.registry.clone(),
+            product: Hub {
+                schema: SCHEMA_VERSION,
+                registry: self.registry.clone(),
+            },
         };
         (updater, asked)
     }
@@ -362,7 +364,9 @@ fn an_archive_that_does_not_match_its_checksum_installs_nothing() {
     assert_eq!(install.bin_files().len(), 1, "{:?}", install.bin_files());
     assert!(install.backups().is_empty());
     assert!(
-        State::load(&install.bin.join(STATE_FILE)).failed.is_empty(),
+        State::load_file(&install.bin.join(STATE_FILE))
+            .failed
+            .is_empty(),
         "a bad download is tried again"
     );
     let _ = std::fs::remove_dir_all(&install.dir);
@@ -496,7 +500,7 @@ fn a_folder_this_account_cannot_write_is_refused_by_name() {
     }
     // No registry where it is named: refused, naming it.
     let (mut updater, _) = install.updater("0.1.1", HashMap::new());
-    updater.registry = install.dir.join("elsewhere").join("hub.sqlite");
+    updater.product.registry = install.dir.join("elsewhere").join("hub.sqlite");
     std::fs::remove_dir(install.bin.join(WRITE_CHECK_FILE)).ok();
     assert!(updater
         .blocked()
@@ -540,7 +544,7 @@ fn serve(listener: std::net::TcpListener, routes: HashMap<String, (u16, String, 
 /// The release before this build's, which the updater is told it is, and the policy that takes
 /// this build from it.
 fn one_before_this_build() -> (Version, Policy) {
-    let this = Version::this_build();
+    let this = this_build();
     if this.patch > 0 {
         (
             Version {
@@ -569,9 +573,9 @@ fn one_before_this_build() -> (Version, Policy) {
 fn the_built_hub_installs_from_a_release_served_over_http() {
     let target = this_target().expect("this build's target");
     let built = std::fs::read(env!("CARGO_BIN_EXE_dereth-network-hub")).expect("the built hub");
-    let this = Version::this_build().to_string();
+    let this = this_build().to_string();
     let wrong = {
-        let t = Version::this_build();
+        let t = this_build();
         Version {
             patch: t.patch + 7,
             ..t
@@ -635,13 +639,15 @@ fn the_built_hub_installs_from_a_release_served_over_http() {
     let (from, policy) = one_before_this_build();
     let make = |current: Version| Updater {
         source: Source::parse(&format!("{base}/repos/someone/hub")).expect("a mirror"),
-        fetcher: Box::new(Https),
+        fetcher: Box::new(Https::new("dereth-network-hub-tests")),
         runner: Box::new(Processes),
         current,
         target: Some(target.to_owned()),
-        schema: SCHEMA_VERSION,
         binary: install.binary.clone(),
-        registry: install.registry.clone(),
+        product: Hub {
+            schema: SCHEMA_VERSION,
+            registry: install.registry.clone(),
+        },
     };
 
     // Taken for the release just before this one, it installs this one (the newest it takes is
