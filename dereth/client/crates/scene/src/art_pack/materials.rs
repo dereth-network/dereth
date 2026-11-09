@@ -1,5 +1,6 @@
 //! A pack's materials for retail pictures, their pictures packed for drawing: the base color in
-//! BC7, its normal in BC5 the same size, and its roughness and occlusion in BC5 at half that.
+//! BC7, its normal in BC5 the same size, and its roughness and occlusion in BC5 at half that. A
+//! material with only a base color has one block of each of the others, which samples the same.
 //!
 //! The base color is held as the retail picture is held: in the display's encoding and read as
 //! stored, so the stages a retail surface is drawn with compute with it exactly as they compute
@@ -19,9 +20,11 @@ pub struct TextureMaterial {
     /// The base color with the retail picture's alpha, read as stored (see the module).
     pub albedo: Image,
     /// The normal's parts along the picture's width and up it (-1..1 as 0..1), in red and green,
-    /// bent by the material's normal scale; the base color's size.
+    /// bent by the material's normal scale; the base color's size, or one block for a material
+    /// with only a base color.
     pub normal: Image,
-    /// The roughness and the ambient occlusion, in red and green, half the base color's size.
+    /// The roughness and the ambient occlusion, in red and green, half the base color's size, or
+    /// one block for a material with only a base color.
     pub surface: Image,
     /// Who made it, with what, and under which license.
     pub credit: Credit,
@@ -30,6 +33,9 @@ pub struct TextureMaterial {
 /// What a material takes where it names no picture: a flat normal, a rough surface and no
 /// occlusion.
 const DEFAULTS: [u8; 4] = [128, 128, 230, 255];
+
+/// The side of the bend and surface pictures of a material that has only a base color: one block.
+const FLAT: u32 = 4;
 
 /// The files of one material, as read.
 pub(super) struct MaterialFiles {
@@ -99,7 +105,11 @@ pub(super) fn material(
     let normal = channel(&files.normal, &entry.normal)?;
     let roughness = channel(&files.roughness, &entry.roughness)?;
     let occlusion = channel(&files.occlusion, &entry.occlusion)?;
-    let texels = (w as usize) * (h as usize);
+    // With no picture but its base color, the bend and the surface are the same at every texel:
+    // one block of each samples as pictures of the base color's size would.
+    let flat = normal.is_none() && roughness.is_none() && occlusion.is_none();
+    let (mw, mh) = if flat { (FLAT, FLAT) } else { (w, h) };
+    let texels = (mw as usize) * (mh as usize);
     let at = |p: &Option<Vec<u8>>, i: usize, c: usize, default: u8| {
         p.as_ref().map_or(default, |p| p[i * 4 + c])
     };
@@ -122,8 +132,12 @@ pub(super) fn material(
             255,
         ]);
     }
-    let (hw, hh) = ((w / 2).max(1), (h / 2).max(1));
-    let surface = images::stretched(w, h, &surface, hw, hh);
+    let (hw, hh) = if flat {
+        (mw, mh)
+    } else {
+        ((w / 2).max(1), (h / 2).max(1))
+    };
+    let surface = images::stretched(mw, mh, &surface, hw, hh);
     let albedo = Image {
         srgb: false,
         ..images::compressed(
@@ -136,7 +150,7 @@ pub(super) fn material(
         [
             albedo,
             images::compressed(
-                images::with_levels(w, h, bends, false, None),
+                images::with_levels(mw, mh, bends, false, None),
                 BlockFormat::Bc5,
             ),
             images::compressed(
