@@ -3036,9 +3036,7 @@ mod bridge {
         /// again.
         #[test]
         fn a_refused_dm_holds_the_persons_tells_back_for_a_while() {
-            let mut n = net(&["Ann@bb"], |b| {
-                b.refused_for = Duration::from_millis(1_500)
-            });
+            let mut n = net(&["Ann@bb"], |b| b.refused_for = Duration::from_secs(60));
             n.d.lock().expect("the stand-in").reachable.remove(PERSON);
             n.tell(
                 "t1",
@@ -3071,7 +3069,7 @@ mod bridge {
                 .expect("the stand-in")
                 .reachable
                 .insert(PERSON.into());
-            std::thread::sleep(Duration::from_millis(1_600));
+            n.f.advance(Duration::from_secs(60));
             n.tell("t3", "Bob@aa", "Ann@bb", "now?", Outcome::Offline);
             n.reach("bb", true);
             assert!(n.dms(1)[0]["content"]

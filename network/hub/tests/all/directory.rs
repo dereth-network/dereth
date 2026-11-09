@@ -17,6 +17,10 @@ use serde_json::{json, Value};
 
 use super::operators::{call, hub, op, sign_in, Answer, Fixture, SITE};
 
+/// How long a test waits for what the hub is to send or do: a guard against a hub that never does,
+/// not the time it is expected to take.
+const GUARD: Duration = Duration::from_secs(60);
+
 fn a(s: &str) -> Address {
     Address::parse(s).expect("an address")
 }
@@ -77,19 +81,15 @@ fn list(
     )
     .expect("sent");
     let id = id.to_owned();
-    link.expect_directory(
-        Duration::from_secs(5),
-        "the listing's answer",
-        |m| match m {
-            DirectoryMessage::ListingResult {
-                id: i,
-                outcome,
-                reason,
-                url,
-            } if *i == id => Some((*outcome, *reason, url.clone())),
-            _ => None,
-        },
-    )
+    link.expect_directory(GUARD, "the listing's answer", |m| match m {
+        DirectoryMessage::ListingResult {
+            id: i,
+            outcome,
+            reason,
+            url,
+        } if *i == id => Some((*outcome, *reason, url.clone())),
+        _ => None,
+    })
     .expect("an answer")
 }
 
@@ -120,7 +120,7 @@ fn link_to(f: &Fixture, link: &mut Link, session: &str, who: &str) {
     })
     .expect("sent");
     let code = link
-        .expect(Duration::from_secs(5), "a code", |m| match m {
+        .expect(GUARD, "a code", |m| match m {
             Message::PersonResult {
                 outcome: PersonOutcome::Ok,
                 code: Some(code),
@@ -283,11 +283,11 @@ fn forgetting_a_person_tells_each_world_to_take_its_character_off() {
     link_to(&f, &mut bb, &ann, "Ann@bb");
     // bb is away when the person forgets itself: its link goes with a key turned over.
     let bb_key = f.running.registry().rotate_key("bb").expect("a new key");
-    assert!(bb.closes_within(Duration::from_secs(10)));
+    assert!(bb.closes_within(GUARD));
     let forgot = op(&f, &ann, "DELETE", "/v1/person", &Value::Null);
     assert_eq!(forgot.status, 204, "{forgot:?}");
     assert_eq!(
-        next_off(&mut aa, Duration::from_secs(10)),
+        next_off(&mut aa, GUARD),
         ("Ann@aa".to_owned(), OffBy::Person)
     );
     let relink = || {
@@ -297,7 +297,7 @@ fn forgetting_a_person_tells_each_world_to_take_its_character_off() {
     };
     let mut bb = relink();
     assert_eq!(
-        next_off(&mut bb, Duration::from_secs(10)),
+        next_off(&mut bb, GUARD),
         ("Ann@bb".to_owned(), OffBy::Person),
         "at its next link"
     );
@@ -330,7 +330,7 @@ fn the_operators_takedown_tells_the_world_and_holds_the_character_out() {
     assert!(was);
     assert_eq!(get(&f, "/v1/directory/characters/Eve%40aa").status, 404);
     assert_eq!(
-        next_off(&mut aa, Duration::from_secs(10)),
+        next_off(&mut aa, GUARD),
         ("Eve@aa".to_owned(), OffBy::Operator)
     );
     list(&mut aa, "l2", "Eve@aa", None);
@@ -367,11 +367,17 @@ fn a_world_leaving_the_network_takes_its_listings_at_once() {
 /// when to try again; a character's page is not held to it.
 #[test]
 fn a_search_has_an_allowance_of_its_own() {
-    let f = hub();
+    let allowance = 30;
+    // An allowance that comes back too slowly to matter, so a slow machine is given none back on
+    // the way.
+    let f = super::operators::hub_with(|c| {
+        c.search_rate = dereth_network_protocol::limits::Rate {
+            burst: f64::from(allowance),
+            per_sec: 1.0 / 86_400.0,
+        };
+    });
     let mut aa = world(&f, "aa");
     list(&mut aa, "l1", "Bob@aa", Some(profile(20)));
-    let allowance = 30;
-    // Searched until the first refusal: a slow machine may be given a search back on the way.
     let mut answered = 0;
     let over = loop {
         let r = get(&f, "/v1/directory/characters?q=bob");
@@ -379,11 +385,11 @@ fn a_search_has_an_allowance_of_its_own() {
             break r;
         }
         answered += 1;
-        assert!(answered <= allowance * 2, "searches are never refused");
+        assert!(answered <= allowance, "searches are never refused");
     };
-    assert!(
-        answered >= allowance,
-        "{answered} searches answered before the first refusal"
+    assert_eq!(
+        answered, allowance,
+        "searches answered before the first refusal"
     );
     assert_eq!(over.status, 429);
     assert!(over.header("retry-after").is_some(), "{over:?}");

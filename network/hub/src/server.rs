@@ -171,6 +171,9 @@ pub struct HubConfig {
     pub limits: Limits,
     /// HTTP requests a minute from one address.
     pub http_per_minute: u32,
+    /// Directory searches from one address: as many at once as its burst, and its refill a second
+    /// after ([`SEARCHES_PER_MINUTE`]).
+    pub search_rate: Rate,
     /// A file to write one line per link frame to: the time, the direction, the world and the
     /// message's type. Never a body. `None` writes nothing.
     pub wire_log: Option<std::path::PathBuf>,
@@ -217,6 +220,10 @@ impl Default for HubConfig {
             status_ping_after_silence: crate::ping::AFTER_SILENCE,
             limits: Limits::DEFAULT,
             http_per_minute: 180,
+            search_rate: Rate {
+                burst: SEARCHES_PER_MINUTE,
+                per_sec: SEARCHES_PER_MINUTE / 60.0,
+            },
             wire_log: None,
             link_write_timeout: LINK_WRITE_TIMEOUT,
             link_queue_bytes: LINK_QUEUE_BYTES,
@@ -624,23 +631,27 @@ impl Shared {
     /// Takes one request from `ip`'s allowance (an IPv6 client's by its /64, as connections are
     /// counted); when it is spent, how many seconds until it is not.
     pub(crate) fn allowed(&self, ip: IpAddr) -> Result<(), u64> {
+        let per_min = f64::from(self.config.http_per_minute);
         self.take_from(
             &self.http_buckets,
-            f64::from(self.config.http_per_minute),
+            Rate {
+                burst: per_min,
+                per_sec: per_min / 60.0,
+            },
             ip,
         )
     }
 
     /// Takes one directory search from `ip`'s allowance of them.
     fn search_allowed(&self, ip: IpAddr) -> Result<(), u64> {
-        self.take_from(&self.search_buckets, SEARCHES_PER_MINUTE, ip)
+        self.take_from(&self.search_buckets, self.config.search_rate, ip)
     }
 
-    /// Takes one from `ip`'s bucket of `buckets`, `per_min` a minute.
+    /// Takes one from `ip`'s bucket of `buckets`, which fills at `rate`.
     fn take_from(
         &self,
         buckets: &Mutex<HashMap<IpAddr, Bucket>>,
-        per_min: f64,
+        rate: Rate,
         ip: IpAddr,
     ) -> Result<(), u64> {
         let now = self.started.elapsed().as_secs_f64();
@@ -650,15 +661,9 @@ impl Shared {
         if b.len() > 10_000 {
             b.retain(|_, x| !x.full_at(now));
         }
-        let bucket = b.entry(counted_as(ip)).or_insert_with(|| {
-            Bucket::new(
-                Rate {
-                    burst: per_min,
-                    per_sec: per_min / 60.0,
-                },
-                now,
-            )
-        });
+        let bucket = b
+            .entry(counted_as(ip))
+            .or_insert_with(|| Bucket::new(rate, now));
         if bucket.take(now) {
             Ok(())
         } else {

@@ -116,7 +116,7 @@ impl Link {
             .ok_or_else(|| Open::Failed(format!("{url}: the suite speaks ws:// only")))?;
         let authority = rest.split('/').next().unwrap_or("");
         let tcp = TcpStream::connect(authority).map_err(|e| Open::Failed(e.to_string()))?;
-        tcp.set_read_timeout(Some(Duration::from_secs(5)))
+        tcp.set_read_timeout(Some(HANDSHAKE_GUARD))
             .map_err(|e| Open::Failed(e.to_string()))?;
         let mut request = url
             .as_str()
@@ -433,7 +433,7 @@ impl Link {
             websocket_url: None,
             status_url: None,
         })?;
-        self.expect(Duration::from_secs(5), "welcome", |m| {
+        self.expect(HANDSHAKE_GUARD, "welcome", |m| {
             matches!(m, Message::Welcome { .. }).then(|| m.clone())
         })
     }
@@ -472,6 +472,11 @@ impl Drop for Link {
 }
 
 /// How long a link or a request waits for the hub to end its connection before ending it itself.
+/// How long a link waits for the hub to answer its upgrade, and its hello: a guard against a hub
+/// that never answers, not the time an answer is expected to take, so a loaded machine's slow
+/// answer still comes.
+pub const HANDSHAKE_GUARD: Duration = Duration::from_secs(60);
+
 pub(crate) const HANG_UP_WAIT: Duration = Duration::from_secs(2);
 
 /// A run's tag: letters only, so it fits in a character's and a channel's name.

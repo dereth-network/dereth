@@ -31,7 +31,7 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use dereth_network_protocol::limits::{Bucket, Rate};
 use dereth_network_protocol::text::sanitize_line;
@@ -205,8 +205,8 @@ pub(crate) struct State {
     waiting: Mutex<Option<Receiver<Job>>>,
     persons: Mutex<HashMap<String, Conversation>>,
     paces: Mutex<HashMap<String, Bucket>>,
-    /// The persons Discord refused a direct message to, and when.
-    refused: Mutex<HashMap<String, Instant>>,
+    /// The persons Discord refused a direct message to, and when, on the registry's clock.
+    refused: Mutex<HashMap<String, SystemTime>>,
     counts: Mutex<Counts>,
     logged: Mutex<HashMap<&'static str, Instant>>,
     started: Instant,
@@ -222,6 +222,11 @@ impl std::fmt::Debug for State {
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// How long after `at` `now` is; none when the clock was set back past it.
+fn since(now: SystemTime, at: SystemTime) -> Duration {
+    now.duration_since(at).unwrap_or_default()
 }
 
 impl State {
@@ -286,17 +291,17 @@ impl State {
     }
 
     /// Discord refused a direct message to `person` at `now`: none is tried for `wait`.
-    fn refuse(&self, person: &str, now: Instant, wait: Duration) {
+    fn refuse(&self, person: &str, now: SystemTime, wait: Duration) {
         let mut refused = lock(&self.refused);
-        refused.retain(|_, at| now.duration_since(*at) < wait);
+        refused.retain(|_, at| since(now, *at) < wait);
         refused.insert(person.to_owned(), now);
     }
 
     /// Whether Discord refused a direct message to `person` within `wait` of `now`.
-    fn refused_lately(&self, person: &str, now: Instant, wait: Duration) -> bool {
+    fn refused_lately(&self, person: &str, now: SystemTime, wait: Duration) -> bool {
         lock(&self.refused)
             .get(person)
-            .is_some_and(|at| now.duration_since(*at) < wait)
+            .is_some_and(|at| since(now, *at) < wait)
     }
 
     /// What was carried since the hub started.
@@ -515,7 +520,8 @@ fn say_tell(shared: &Shared, service: &Service, t: &DiscordTell) {
     let Some(user) = known else {
         return not_carried("the person's account is gone or disabled");
     };
-    if st.refused_lately(&t.person, Instant::now(), settings.refused_for) {
+    let now = shared.registry().now();
+    if st.refused_lately(&t.person, now, settings.refused_for) {
         return not_carried("Discord refused a direct message to the person lately");
     }
     if !st.pace_takes(&t.person, settings.dm_pace) {
@@ -542,7 +548,8 @@ fn say_tell(shared: &Shared, service: &Service, t: &DiscordTell) {
             held(&format!("Discord asks the hub to wait {secs} seconds"));
         }
         Err(BrokerError::NoAccess) => {
-            st.refuse(&t.person, Instant::now(), settings.refused_for);
+            let now = shared.registry().now();
+            st.refuse(&t.person, now, settings.refused_for);
             st.forget(&t.person);
             not_carried("Discord refused the direct message; none is tried for a while");
         }
@@ -553,8 +560,12 @@ fn say_tell(shared: &Shared, service: &Service, t: &DiscordTell) {
 /// Says a note about a reply's answer in the person's direct messages; nothing when it cannot.
 fn say_note(shared: &Shared, service: &Service, person: &str, text: &str) {
     let wait = service.rest.broker().refused_for;
-    let user = match shared.registry().tells_of(person) {
-        Ok(Some(user)) if !service.tells.refused_lately(person, Instant::now(), wait) => user,
+    let (known, now) = {
+        let reg = shared.registry();
+        (reg.tells_of(person), reg.now())
+    };
+    let user = match known {
+        Ok(Some(user)) if !service.tells.refused_lately(person, now, wait) => user,
         _ => return,
     };
     if let Err(e) = deliver(shared, service, person, &user, text) {
@@ -1016,7 +1027,7 @@ mod tests {
     #[test]
     fn a_refused_person_is_tried_again_after_an_hour() {
         let st = State::new();
-        let t0 = Instant::now();
+        let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_790_000_000);
         assert!(!st.refused_lately("p", t0, REFUSED_FOR));
         st.refuse("p", t0, REFUSED_FOR);
         assert!(st.refused_lately("p", t0 + Duration::from_secs(3_599), REFUSED_FOR));

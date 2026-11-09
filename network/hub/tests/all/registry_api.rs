@@ -1059,6 +1059,8 @@ mod status_ping {
                 every: Duration::from_millis(100),
                 wait: Duration::from_secs(60),
             },
+            // An ask a loaded machine let go unheard is made again at once, not ten minutes later.
+            status_ping_after_silence: Duration::from_millis(100),
             ..HubConfig::default()
         };
         let running = start_with(config, registry).expect("the hub starts");

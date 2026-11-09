@@ -16,6 +16,10 @@ use serde_json::{json, Value};
 
 use super::operators::{call, game_verify, hub, op, register, sign_in, Fixture, ADMIN, SITE};
 
+/// How long a helper waits for what the hub is to send: a guard against a hub that never does, not
+/// the time it is expected to take.
+const GUARD: Duration = Duration::from_secs(60);
+
 fn a(s: &str) -> Address {
     Address::parse(s).expect("an address")
 }
@@ -43,16 +47,10 @@ pub fn go_on(link: &mut Link, who: &str) {
     )
     .expect("sent");
     let outcome = link
-        .expect_directory(
-            Duration::from_secs(5),
-            "the listing's answer",
-            |m| match m {
-                DirectoryMessage::ListingResult { id: i, outcome, .. } if *i == id => {
-                    Some(*outcome)
-                }
-                _ => None,
-            },
-        )
+        .expect_directory(GUARD, "the listing's answer", |m| match m {
+            DirectoryMessage::ListingResult { id: i, outcome, .. } if *i == id => Some(*outcome),
+            _ => None,
+        })
         .expect("an answer");
     assert_eq!(outcome, ListingOutcome::Ok, "{who} on the network");
 }
@@ -70,14 +68,10 @@ pub fn go_off(link: &mut Link, who: &str) {
         .to_json(),
     )
     .expect("sent");
-    link.expect_directory(
-        Duration::from_secs(5),
-        "the listing's answer",
-        |m| match m {
-            DirectoryMessage::ListingResult { id: i, .. } if *i == id => Some(()),
-            _ => None,
-        },
-    )
+    link.expect_directory(GUARD, "the listing's answer", |m| match m {
+        DirectoryMessage::ListingResult { id: i, .. } if *i == id => Some(()),
+        _ => None,
+    })
     .expect("an answer");
 }
 
@@ -103,7 +97,7 @@ fn world(f: &Fixture, slug: &str) -> Link {
 /// The next view of `who` the link receives: whether it is linked, and its person friends.
 fn next_view(link: &mut Link, who: &str) -> (bool, Vec<(String, Vec<String>)>) {
     let who = a(who);
-    link.expect(Duration::from_secs(5), "a person view", |m| match m {
+    link.expect(GUARD, "a person view", |m| match m {
         Message::PersonFriends {
             to,
             linked,
@@ -144,7 +138,7 @@ fn ask(
     })
     .expect("sent");
     let id = id.to_owned();
-    link.expect(Duration::from_secs(5), "a person result", |m| {
+    link.expect(GUARD, "a person result", |m| {
         matches!(m, Message::PersonResult { id: i, .. } if *i == id).then(|| m.clone())
     })
     .expect("an answer")

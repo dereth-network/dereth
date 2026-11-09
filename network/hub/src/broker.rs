@@ -59,7 +59,7 @@ pub struct Broker {
     /// ([`crate::dms::REPLY_WINDOW`]).
     pub reply_window: Duration,
     /// How long no tell is tried in a person's direct messages after Discord refused one
-    /// ([`crate::dms::REFUSED_FOR`]).
+    /// ([`crate::dms::REFUSED_FOR`]), on the registry's clock.
     pub refused_for: Duration,
 }
 
