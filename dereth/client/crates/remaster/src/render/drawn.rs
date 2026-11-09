@@ -59,7 +59,7 @@ const CASTER_REACH: f32 = 2500.0;
 /// depths a hair from the far plane's own.
 const FAR_SHARE: f32 = 0.97;
 /// The constants' rows, as the shader's `D_*` lay them out.
-const ROWS: usize = 142;
+const ROWS: usize = 142 + 1 + 32;
 /// The world's landscape vertices a side.
 pub const WORLD_SIDE: u32 = 2041;
 
@@ -492,6 +492,11 @@ pub struct DrawnPass {
     blocks: PerFrame,
     /// Each terrain type's color far off, as linear-free display values, once worked out.
     pub(crate) colors: [[f32; 4]; 32],
+    /// Whether the grass field is drawn: the ground is then shaded under it and takes its color
+    /// past it.
+    pub(crate) grass: bool,
+    /// What each terrain type grows in the grass field.
+    pub(crate) grass_kinds: [super::grass::GrassKind; 32],
     /// The patches the last frame drew, for the view and for the sun's shadows.
     pub last_patches: (u32, u32),
     /// The last frame's patches for the view, and its eye, world meters.
@@ -577,6 +582,8 @@ impl DrawnPass {
                 BufferUsage::default(),
             )?,
             colors: [[0.5, 0.5, 0.5, 1.0]; 32],
+            grass: false,
+            grass_kinds: super::grass::kinds(),
             last_patches: (0, 0),
             view: (Vec::new(), Vec3::ZERO),
         })
@@ -885,6 +892,16 @@ impl DrawnPass {
             0.0
         };
         out.extend(floats(&[banks, k.bank.0, k.bank.1, 0.0]));
+        let grass = if self.grass { 1.0 } else { 0.0 };
+        out.extend(floats(&[
+            grass,
+            super::grass::NEAR_REACH,
+            super::grass::FAR_REACH,
+            0.0,
+        ]));
+        for g in &self.grass_kinds {
+            out.extend(floats(&[g.share, g.height, g.dryness, g.patchy]));
+        }
         self.constants.write(d, &out)?;
 
         // The held blocks round the frame's origin: each its first ground cell and its cells a
@@ -1034,6 +1051,26 @@ impl DrawnPlan {
             .iter()
             .map(|b| Touch::Buffer(*b, Use::StorageRead))
             .collect()
+    }
+
+    /// The push of the grass field's placing: the field's constants, the clumps it writes, the
+    /// draws' commands and the bytes of one, and the weather's constants (`NONE`: none).
+    pub(crate) fn grass_push(
+        &self,
+        constants: u32,
+        clumps: u32,
+        args: u32,
+        stride: u32,
+        weather: u32,
+    ) -> Vec<u8> {
+        let mut w = self.words;
+        w[6] = constants;
+        w[7] = clumps;
+        w[8] = args;
+        w[12] = stride;
+        let mut out = push_words(&w);
+        out.extend(weather.to_le_bytes());
+        out
     }
 
     fn push(&self, frame: u32, wrap: u32, clamp: u32, first: u32) -> Vec<u8> {

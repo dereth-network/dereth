@@ -235,6 +235,33 @@ source = "drawn.slang"
 entry = "cs_probe"
 stage = "compute"
 
+# The grass field: its clumps placed over the drawn ground, and its blades drawn.
+[[entry]]
+source = "drawn.slang"
+entry = "cs_grass"
+stage = "compute"
+
+[[entry]]
+source = "grass.slang"
+entry = "vs_blade"
+stage = "vertex"
+
+[[entry]]
+source = "grass.slang"
+entry = "fs_blade"
+stage = "fragment"
+
+[[entry]]
+source = "grass.slang"
+entry = "vs_blade_motion"
+stage = "vertex"
+
+[[entry]]
+source = "grass.slang"
+entry = "fs_blade_motion"
+stage = "fragment"
+
+
 # The water over the resolved world: its waves, the rings round the bodies in it, its reflection
 # and the sun's glint; and the puddles of a rainy day.
 [[entry]]

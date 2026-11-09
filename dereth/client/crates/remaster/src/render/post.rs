@@ -85,7 +85,7 @@ impl PostSettings {
 /// gathered, or where last frame's surface was found); the marks'; the motion's.
 pub(crate) const LINEAR: Format = Format::Rgba16Float;
 const MARKS: Format = Format::Rgba8Unorm;
-const MOTION: Format = Format::Rg16Snorm;
+pub(crate) const MOTION: Format = Format::Rg16Snorm;
 
 /// The scene's and the bloom's format on `gfx`: packed floats where it draws into them, as they
 /// need no alpha, else [`LINEAR`].
@@ -264,6 +264,9 @@ pub struct PostPass {
     /// with its index in the table, made the first time it is.
     grade: bool,
     grade_tables: Option<(Texture, u32)>,
+    /// The tables it holds, and a picture of older ones to let go of.
+    grade_set: [super::grade::Grade; 7],
+    grade_stale: Option<Texture>,
     /// The moving parts' items and last transforms, and their draw commands.
     moving: PerFrame,
     commands: PerFrame,
@@ -403,6 +406,8 @@ impl PostPass {
             pack_look: false,
             grade: false,
             grade_tables: None,
+            grade_set: super::grade::TABLES,
+            grade_stale: None,
             moving: PerFrame::new(
                 gfx,
                 "remaster moving parts",
@@ -434,12 +439,25 @@ impl PostPass {
         self.grade = on;
     }
 
+    /// The grade's tables, from the next frame on: made again when they change.
+    pub fn set_grade_tables(&mut self, tables: [super::grade::Grade; 7]) {
+        if tables != self.grade_set {
+            self.grade_set = tables;
+            if let Some((texture, _)) = self.grade_tables.take() {
+                self.grade_stale = Some(texture);
+            }
+        }
+    }
+
     /// The grade's tables, made the first time they are asked for.
     fn grade_tables(&mut self, gfx: &mut Device) -> Result<u32, dereth_gfx::Error> {
+        if let Some(old) = self.grade_stale.take() {
+            gfx.destroy_texture(old);
+        }
         if let Some((_, index)) = self.grade_tables {
             return Ok(index);
         }
-        let tables = &super::grade::TABLES;
+        let tables = &self.grade_set;
         let side = super::grade::SIDE;
         let texture = gfx.create_texture(&TextureDesc {
             label: "remaster grade tables",
@@ -815,8 +833,9 @@ impl PostPlan {
     /// ([`Self::scene_targets`]); `frame` the frame's constants' index; `outdoor_depth` the depth
     /// the outdoors are placed by, as the resolve has it; `draw` the scene's items', instances'
     /// and vertices' indices in the table, and its index buffer; `upscale` the upscaler, while one
-    /// stands in for the anti-aliasing. The passes up to the frames gathered: a scaler outside the
-    /// layer runs between them and [`Self::record_finish`].
+    /// stands in for the anti-aliasing, and the grass field, whose blades write their own motion.
+    /// The passes up to the frames gathered: a scaler outside the layer runs between them and
+    /// [`Self::record_finish`].
     ///
     /// # Errors
     /// What the device refuses.
@@ -827,7 +846,10 @@ impl PostPlan {
         frame: u32,
         outdoor_depth: (Texture, u32),
         draw: ([u32; 3], Buffer),
-        upscale: Option<&super::upscale::UpscalePlan>,
+        (upscale, grass): (
+            Option<&super::upscale::UpscalePlan>,
+            Option<&super::grass::GrassPlan>,
+        ),
     ) -> Result<Gathered, dereth_gfx::Error> {
         let p = self.targets;
         let full = Rect {
@@ -838,10 +860,20 @@ impl PostPlan {
         };
         let read = 1 - self.write;
 
-        // The moving parts' last places.
+        // The moving parts' last places, and the grass's, as the wind bent it.
+        let grass = grass.filter(|g| g.blades());
         let motion = match p.motion {
-            Some(motion) if self.moving_count > 0 => {
+            Some(motion) if self.moving_count > 0 || grass.is_some() => {
                 r.timestamp("motion");
+                let mut touches = vec![
+                    Touch::Buffer(self.commands, Use::Indirect),
+                    Touch::Buffer(draw.1, Use::Index),
+                    Touch::Texture(t.depth, Use::Sampled),
+                    Touch::Texture(outdoor_depth.0, Use::Sampled),
+                ];
+                if let Some(g) = grass {
+                    touches.extend(g.motion_touches());
+                }
                 r.raster(
                     &RasterPass {
                         name: "motion",
@@ -850,15 +882,16 @@ impl PostPlan {
                             load: Load::Clear([-1.0, -1.0, 0.0, 0.0]),
                         }],
                         depth: None,
-                        touches: &[
-                            Touch::Buffer(self.commands, Use::Indirect),
-                            Touch::Buffer(draw.1, Use::Index),
-                            Touch::Texture(t.depth, Use::Sampled),
-                            Touch::Texture(outdoor_depth.0, Use::Sampled),
-                        ],
+                        touches: &touches,
                         area: Some(full),
                     },
                     |d| {
+                        if let Some(g) = grass {
+                            g.draw_motion(d, frame, self.constants, (t.index[4], outdoor_depth.1))?;
+                        }
+                        if self.moving_count == 0 {
+                            return Ok(());
+                        }
                         d.set_pipeline(self.motion)?;
                         d.bind_index_buffer(draw.1, 0, IndexType::U32)?;
                         d.push(

@@ -95,6 +95,8 @@ pub struct Plan {
     pub impostors: Option<super::impostor::ImpostorPlan>,
     /// The art pack's far trees, when the frame draws any.
     forest: Option<super::forest::ForestPlan>,
+    /// The grass field, when it is drawn.
+    grass: Option<super::grass::GrassPlan>,
     /// Buffers outgrown, destroyed once the recording that copies them is begun.
     pub retired: Vec<Buffer>,
     /// The ambient occlusion pass's frame, when it runs.
@@ -512,6 +514,7 @@ impl Renderer {
             self.water.settings().puddles && rainy,
             post.is_some(),
             render.1,
+            self.landscape.grass,
         )?;
         // The scene's acceleration structures, kept while anything traces rays; and the passes
         // that trace them where they stand in for the cascades' look-up and the occlusion.
@@ -564,6 +567,21 @@ impl Renderer {
                 heights: self.drawn_ground.heights().unwrap_or(NONE),
             },
         )?;
+        let l = self.landscape;
+        let grass = if l.grass && drawn_ground.is_some() {
+            self.grass.prepare(
+                &mut self.gfx,
+                &frame,
+                (camera.projection * camera.view, camera.eye),
+                self.constants.index,
+                weather
+                    .as_ref()
+                    .map_or((NONE, None), |w| (w.table, Some(w.cover()))),
+                super::grass::FieldAsk { blades: l.grass },
+            )?
+        } else {
+            None
+        };
         let gi = self
             .gi
             .prepare(&mut self.gfx, &frame, &self.scene, &targets, rt)?;
@@ -626,6 +644,7 @@ impl Renderer {
             lamps,
             impostors,
             forest,
+            grass,
             rt,
             gi,
             index_pool: self.scene.indices.index,
@@ -908,6 +927,11 @@ impl Plan {
             w.record_cover(r, self.indices, &|f| self.gbuffer_push_seen(f, 1, NONE))?;
         }
 
+        // 2c. The grass field's clumps, placed over the drawn ground, sheltered by the map above.
+        if let (Some(g), Some(d)) = (&self.grass, &self.drawn_ground) {
+            g.record_place(r, d)?;
+        }
+
         // 2. The G-buffer: the ground, then the meshes.
         r.timestamp("g-buffer");
         let clear = Load::Clear([0.0; 4]);
@@ -975,6 +999,9 @@ impl Plan {
         }
         if let Some(f) = &self.forest {
             super::forest::ForestPass::record_draw(f, r, &t)?;
+        }
+        if let Some(g) = &self.grass {
+            g.record_draw(r, &t)?;
         }
         if self.inside {
             // The outdoors' depth kept for the resolve, then cleared, the openings stamped into
@@ -1299,7 +1326,7 @@ impl Plan {
                 self.frame,
                 (outdoor_depth, outdoor_depth_index),
                 ([self.items, self.instances, self.vertices], self.indices),
-                self.upscale.as_ref(),
+                (self.upscale.as_ref(), self.grass.as_ref()),
             )?),
             None => None,
         };

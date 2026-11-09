@@ -70,6 +70,8 @@ static const uint D_COVER = 138;  // the forest cover: x how strongly it tints t
 static const uint D_CANOPY = 139; // x how many meters its whole canopy raises the far ground (nought for none); y, z the distances it rises in over
 static const uint D_COVER_PICTURES = 140; // (uint) x the cover's picture, y the canopy's
 static const uint D_BANK = 141;    // x 1 while a pack's banks are laid by the water, y how much grass grows in over a muddy bank, z how much darker the wet ground along the water is
+static const uint D_GRASS = 142;  // x 1 while the grass field is drawn, y how far its near clumps reach, z how far its far ones do
+static const uint D_GRASS_TYPES = 143; // 32 rows: each terrain type's x share of grass, y height, z dryness, w how patchy
 static const uint BODIES = 32;
 
 static const uint CELLS = 16;
@@ -846,6 +848,24 @@ Targets fs_ground(Varyings in)
     float2 global = row(push.drawn, D_GLOBAL).xy;
     float3 at = float3(p - global, parts.x);
     float fog = fog_factor(push.frame, length(at - eye));
+    float4 field = row(push.drawn, D_GRASS);
+    if (field.x > 0.5 && t.a < 0.5)
+    {
+        // Under the grass field the ground between the blades is shaded by them; toward its reach
+        // and past it, the ground takes the blades' own mean color where grass grows, so the field
+        // never ends in a line.
+        float3 unused;
+        float4 g = grass_ground(p, unused);
+        float bare = value_noise(p, 6.0) * 0.65 + value_noise(p + float2(17.0, 5.0), 2.2) * 0.35;
+        float lo = lerp(0.15, 0.36, g.w);
+        // None on ground steep enough to be rock.
+        float share = g.x * lerp(0.4, 1.0, smoothstep(lo, lo + 0.12, bare)) * (1.0 - smoothstep(0.62, 0.7, length(retail_at(p).yz)))
+            * smoothstep(0.8, 0.84, smooth_normal(p, 2.0).z);
+        float under = share * (1.0 - smoothstep(field.z * 0.8, field.z, dist));
+        float past = share * smoothstep(field.y * 0.5, field.z, dist);
+        t.rgb *= lerp(1.0, 0.8, under);
+        t.rgb = lerp(t.rgb, t.rgb * float3(0.86, 0.97, 0.72), past);
+    }
     t.rgb = forest(t.rgb, p, dist, abs(eye.z - at.z) / max(length(eye - at), 1e-3));
     bool per_pixel = row(push.frame, FRAME_SCREEN).y > 0.5;
     // How far below the water's surface the bed is drawn here, in steps of 4 cm: the water stands
@@ -897,3 +917,278 @@ void cs_probe(uint3 id : SV_DispatchThreadID)
     float h = drawn_at(q.xy, q.z, 0.0, 0.0).x;
     rw_buffers[NonUniformResourceIndex(push.cells)].Store(id.x * 4, asuint(h));
 }
+// --- the grass field --------------------------------------------------------------------------
+//
+// Clumps of grass placed over the drawn ground round the eye, each frame, from the terrain grid
+// alone: candidate points on a fixed hash of the world, square tiles of it, each kept as often as
+// the ground there grows grass. How much grows comes from the terrain types of the cell's four
+// corners, less on slopes, none on the road, in the water or under what stands overhead, and
+// little in bare patches that wander with the world's noise. Near the eye the clumps are dense
+// and fine; farther off fewer, wider ones stand in for them, and both shrink away rather than pop.
+// The draw of the clumps is `grass.slang`.
+//
+// The push's fields carry, for this entry alone: `patches` the field's constants, `cells` the
+// clumps written, `blocks` the draws' commands, `first` the bytes of one command.
+
+static const uint G_PLANES = 0; // the view's six planes, each the inward normal and its offset
+static const uint G_EYE = 6;    // xyz the eye, the frame's space; w how far the near clumps reach
+static const uint G_FIELD = 7;  // xy the frame's origin, world meters; z how far the far clumps reach; w how
+                                // wide the near clumps hand over to the far
+static const uint G_TILES = 8;  // (uint) x tiles a side, y and z the first tile's world index (signed), w
+                                // the near clumps' room
+static const uint G_LOOK = 10;  // x near clumps a square meter, y far ones, z a height factor, w the far
+                                // clumps' room
+static const uint G_TYPES = 11; // 32 rows kept for the layout; what grows is read from the drawn
+                                // constants' D_GRASS_TYPES
+static const float GRASS_TILE = 8.0;
+static const uint CLUMP_BYTES = 32;
+
+uint grass_hash(uint x)
+{
+    x ^= x >> 16;
+    x *= 0x7FEB352Du;
+    x ^= x >> 15;
+    x *= 0x846CA68Bu;
+    x ^= x >> 16;
+    return x;
+}
+
+float grass_unit(uint h)
+{
+    return float(h & 0xFFFFFFu) / 16777216.0;
+}
+
+// How far inside a road point (`dx`, `dy`) of a cell lies, meters, negative outside: the cell's
+// four corners' road bits (south-west, north-west, south-east, north-east) shape it as the
+// game's own on-road test does, a road half-width of 5 meters.
+float road_inside(bool a, bool b, bool c, bool d, float dx, float dy)
+{
+    static const float W = 5.0;
+    static const float F = CELL - 5.0;
+    static const float R = 0.70710678;
+    uint n = uint(a) + uint(b) + uint(c) + uint(d);
+    if (n == 0)
+    {
+        return -100.0;
+    }
+    if (n == 4)
+    {
+        return 100.0;
+    }
+    if (n == 1)
+    {
+        if (a)
+        {
+            return (W - dx - dy) * R;
+        }
+        if (b)
+        {
+            return (dy - dx - F) * R;
+        }
+        if (c)
+        {
+            return (dx - dy - F) * R;
+        }
+        return (dx + dy - CELL - F) * R;
+    }
+    if (n == 2)
+    {
+        if (a && b)
+        {
+            return W - dx;
+        }
+        if (a && c)
+        {
+            return W - dy;
+        }
+        if (c && d)
+        {
+            return dx - F;
+        }
+        if (b && d)
+        {
+            return dy - F;
+        }
+        if (a && d)
+        {
+            return (W - abs(dx - dy)) * R;
+        }
+        return (W - abs(dx + dy - CELL)) * R;
+    }
+    if (!d)
+    {
+        return max(W - dx, W - dy);
+    }
+    if (!c)
+    {
+        return max(W - dx, dy - F);
+    }
+    if (!b)
+    {
+        return max(dx - F, W - dy);
+    }
+    return max(dx - F, dy - F);
+}
+
+// What grows at world `p` by the terrain grid alone: x the share of grass, y its height, z its
+// dryness, w how patchy; and the ground's own color there.
+float4 grass_ground(float2 p, out float3 color)
+{
+    float2 q = p / CELL;
+    int2 c = int2(floor(q));
+    float2 f = q - float2(c);
+    uint words[4] = { vertex_word(c), vertex_word(c + int2(1, 0)), vertex_word(c + int2(0, 1)), vertex_word(c + int2(1, 1)) };
+    float weights[4] = { (1.0 - f.x) * (1.0 - f.y), f.x * (1.0 - f.y), (1.0 - f.x) * f.y, f.x * f.y };
+    float4 sum = float4(0.0, 0.0, 0.0, 0.0);
+    float grows = 0.0;
+    color = float3(0.0, 0.0, 0.0);
+    for (uint k = 0; k < 4; k++)
+    {
+        uint t = (words[k] >> 2) & 31;
+        float4 kind = row(push.drawn, D_GRASS_TYPES + t);
+        float w = weights[k];
+        sum.x += w * kind.x;
+        sum.yzw += w * kind.x * kind.yzw;
+        grows += w * kind.x;
+        color += w * row(push.drawn, D_COLORS + t).rgb;
+    }
+    sum.yzw /= max(grows, 1e-4);
+    // No grass on the road, the edge wandering a little.
+    float inside = road_inside((words[0] & 3) != 0, (words[2] & 3) != 0, (words[1] & 3) != 0,
+                               (words[3] & 3) != 0, f.x * CELL, f.y * CELL)
+        + (value_noise(p, 1.7) - 0.5) * 0.9;
+    sum.x *= smoothstep(0.3, -1.2, inside);
+    return sum;
+}
+
+[shader("compute")]
+[numthreads(64, 1, 1)]
+void cs_grass(uint3 group : SV_GroupID, uint3 local : SV_GroupThreadID)
+{
+    uint g = push.patches;
+    uint4 tiles = row_u(g, G_TILES);
+    int2 tile = int2(asint(tiles.y) + int(group.x), asint(tiles.z) + int(group.y));
+    float4 field = row(g, G_FIELD);
+    float4 eye4 = row(g, G_EYE);
+    float3 eye = eye4.xyz;
+    float near_reach = eye4.w;
+    float far_reach = field.z;
+    float hand = max(field.w, 0.5);
+    float2 origin = float2(tile) * GRASS_TILE;
+    float2 centre = origin + 0.5 * GRASS_TILE - field.xy;
+    float tile_dist = length(centre - eye.xy);
+    if (tile_dist - GRASS_TILE > far_reach)
+    {
+        return;
+    }
+    float3 c3 = float3(centre, retail_at(origin + 0.5 * GRASS_TILE).x);
+    for (uint pl = 0; pl < 6; pl++)
+    {
+        float4 plane = row(g, G_PLANES + pl);
+        if (dot(plane.xyz, c3) + plane.w < -GRASS_TILE)
+        {
+            return;
+        }
+    }
+    float4 look = row(g, G_LOOK);
+    bool near_tile = tile_dist - GRASS_TILE < near_reach;
+    uint near_count = near_tile ? uint(look.x * GRASS_TILE * GRASS_TILE + 0.5) : 0;
+    uint far_count = tile_dist + GRASS_TILE > near_reach - hand ? uint(look.y * GRASS_TILE * GRASS_TILE + 0.5) : 0;
+    uint tile_seed = grass_hash(uint(tile.x) * 73856093u ^ uint(tile.y) * 19349663u);
+    float4 water = row(push.drawn, D_WATER);
+    for (uint k = local.x; k < near_count + far_count; k += 64)
+    {
+        bool far = k >= near_count;
+        uint h = grass_hash(tile_seed ^ ((k + (far ? 0x5bd1e995u : 0u)) * 0x9E3779B9u));
+        uint h2 = grass_hash(h);
+        uint h3 = grass_hash(h2);
+        float2 p = origin + float2(grass_unit(h), grass_unit(h2)) * GRASS_TILE;
+        float2 pf = p - field.xy;
+        float d = length(float3(pf - eye.xy, retail_at(p).x - eye.z));
+        // The near clumps thin a little with distance and shrink away into the far ones; the far
+        // ones grow in where the near go, and shrink away toward their reach.
+        float scale;
+        float keep;
+        if (!far)
+        {
+            scale = 1.0 - smoothstep(near_reach - hand, near_reach, d);
+            keep = lerp(1.0, 0.35, smoothstep(10.0, near_reach, d));
+        }
+        else
+        {
+            scale = smoothstep(near_reach - hand, near_reach, d) * (1.0 - smoothstep(far_reach * 0.8, far_reach, d));
+            keep = lerp(0.9, 0.2, smoothstep(near_reach, far_reach, d));
+        }
+        if (scale <= 0.02)
+        {
+            continue;
+        }
+        float3 ground_color;
+        float4 grows = grass_ground(p, ground_color);
+        float share = grows.x;
+        if (share <= 0.0)
+        {
+            continue;
+        }
+        // Bare patches, more of them where the ground grows patchily.
+        float n = value_noise(p, 6.0) * 0.65 + value_noise(p + float2(17.0, 5.0), 2.2) * 0.35;
+        float lo = lerp(0.15, 0.36, grows.w);
+        share *= smoothstep(lo, lo + 0.12, n);
+        // Less on slopes, none on what is steep enough to be scree.
+        float3 r = retail_at(p);
+        float slope = length(r.yz);
+        share *= 1.0 - smoothstep(0.45, 0.67, slope);
+        // A clump comes in by growing from nothing as the share kept passes its own number, never
+        // whole at once.
+        float grow = saturate((share * keep - grass_unit(h3)) / 0.12);
+        if (grow <= 0.0)
+        {
+            continue;
+        }
+        // None in the water or at its very edge.
+        if (water.x > 0.5)
+        {
+            float inside = shore_distance(p, 0.1);
+            if (inside > -1.0 - grass_unit(h3 >> 3) * 1.5)
+            {
+                continue;
+            }
+        }
+        float dist = length(float3(pf - eye.xy, r.x - eye.z));
+        float ground = drawn_at(p, dist, 1.0, 0.0).x;
+        // None under what stands overhead.
+        if (push.weather != NO_WEATHER && sheltered(push.weather, float3(pf, ground), 0.25) > 0.5)
+        {
+            continue;
+        }
+        // Taller in some patches than others, a few meters across.
+        float tall = grows.y * look.z * scale * grow * lerp(0.78, 1.18, grass_unit(grass_hash(h3)))
+            * lerp(0.62, 1.28, value_noise(p + float2(29.0, 61.0), 3.5));
+        // The field's color changes slowly over the land, a little drier here, a little lusher
+        // there.
+        float macro = value_noise(p, 23.0);
+        float dry = saturate(grows.z + (macro - 0.5) * 0.5);
+        float3 color = saturate(ground_color * lerp(0.9, 1.08, value_noise(p + float2(3.0, 9.0), 11.0)));
+        uint slot;
+        uint at = far ? 1 : 0;
+        uint stride = push.first;
+        rw_buffers[NonUniformResourceIndex(push.blocks)].InterlockedAdd(stride * at + stride - 12, 1, slot);
+        uint room = far ? asuint(look.w) : tiles.w;
+        if (slot >= room)
+        {
+            // No room: the count is taken back, so the draw never reads past the room.
+            uint unused;
+            rw_buffers[NonUniformResourceIndex(push.blocks)].InterlockedAdd(stride * at + stride - 12, 0xFFFFFFFFu, unused);
+            continue;
+        }
+        uint index = (far ? tiles.w : 0) + slot;
+        uint packed = uint(color.r * 255.0 + 0.5) | (uint(color.g * 255.0 + 0.5) << 8)
+            | (uint(color.b * 255.0 + 0.5) << 16) | (uint(dry * 255.0 + 0.5) << 24);
+        // Survivors of the thinning stand a little wider.
+        float wider = min(1.0 / sqrt(max(keep, 0.2)), 2.0);
+        RWByteAddressBuffer out_clumps = rw_buffers[NonUniformResourceIndex(push.cells)];
+        out_clumps.Store4(index * CLUMP_BYTES, asuint(float4(pf, ground - 0.03, tall)));
+        out_clumps.Store4(index * CLUMP_BYTES + 16, uint4(h3, packed, asuint(wider), asuint(scale)));
+    }
+}
+

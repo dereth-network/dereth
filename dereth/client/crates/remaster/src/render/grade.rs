@@ -141,6 +141,25 @@ impl Grade {
     }
 }
 
+/// The tables a look changes, as `looks` lay them over the remaster's own: in the picture's order,
+/// the identity first and never changed.
+#[must_use]
+pub fn tables_with(looks: &crate::look::LookStack) -> [Grade; 7] {
+    let mut out = TABLES;
+    for (k, name) in crate::look::GRADE_TABLES.iter().enumerate() {
+        let p = looks.grade(name);
+        let g = &mut out[k + 1];
+        g.lift = p.lift.unwrap_or(g.lift);
+        g.gamma = p.gamma.unwrap_or(g.gamma);
+        g.gain = p.gain.unwrap_or(g.gain);
+        g.saturation = p.saturation.unwrap_or(g.saturation);
+        g.greens = p.greens.unwrap_or(g.greens);
+        g.green_turn = p.green_turn.unwrap_or(g.green_turn);
+        g.contrast = p.contrast.unwrap_or(g.contrast);
+    }
+    out
+}
+
 /// The tables the picture holds, in its order.
 pub const TABLES: [Grade; 7] = [
     Grade::IDENTITY,
@@ -313,6 +332,32 @@ mod tests {
         assert!(black[2] > black[0] && black[0] > 0.0, "{black:?}");
         let white = Grade::NOON.apply([1.0; 3]);
         assert!(white.iter().all(|v| *v > 0.99), "{white:?}");
+    }
+
+    /// A look's grade table changes that table alone, the player's over the pack's, number by
+    /// number; the identity is never changed.
+    #[test]
+    fn a_looks_grade_table_changes_that_table_the_players_over_the_packs() {
+        use crate::look::{Layer, LookStack, LookToml};
+        let mut looks = LookStack::new();
+        looks.set(
+            Layer::ArtPack,
+            Some(
+                LookToml::parse("[grade.noon]\nsaturation = 1.3\ncontrast = 1.2\n")
+                    .expect("a look"),
+            ),
+        );
+        looks.set(
+            Layer::Player,
+            Some(LookToml::parse("[grade.noon]\nsaturation = 0.9\n").expect("a look")),
+        );
+        let t = tables_with(&looks);
+        assert_eq!(t[0], Grade::IDENTITY);
+        assert_eq!(t[1].saturation, 0.9);
+        assert_eq!(t[1].contrast, 1.2);
+        assert_eq!(t[1].gain, Grade::NOON.gain);
+        assert_eq!(t[2], Grade::MORNING);
+        assert_eq!(tables_with(&LookStack::new()), TABLES);
     }
 
     /// The weights of a frame's tables add to one.

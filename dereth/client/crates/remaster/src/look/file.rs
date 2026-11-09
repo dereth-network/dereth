@@ -11,13 +11,25 @@
 //! # On Rainy days, these in place of the values above.
 //! [rainy]
 //! fog_density = 1.5
+//!
+//! # The color grade's clear noon: a little more saturation and warmer sun than the remaster's.
+//! [grade.noon]
+//! saturation = 1.18
+//! gain = [1.06, 1.03, 0.94]
+//!
+//! # What terrain type 3 grows in the grass field: taller.
+//! [grass.3]
+//! height = 0.9
 //! ```
 //!
 //! The values: `sun`, `sky`, `tint`, `fog_density`, `fog_color`, `night_floor`, `exposure`,
 //! `foliage_hue` (degrees, 0 to 360) and `foliage_pull` (0 to 1). The tables: `sunny`, `rainy`,
-//! `clear` and `cloudy`. Anything else is an error, so a misspelt value is said, not ignored.
+//! `clear` and `cloudy`; `grade.<table>` (`noon`, `morning`, `evening`, `night`, `rain`, `overcast`),
+//! each of `lift`, `gamma`, `gain` (three numbers), `saturation`, `greens`, `green_turn` and
+//! `contrast`; and `grass.<terrain type, 0 to 31>`, each of `share`, `height`, `dryness` and
+//! `patchy`. Anything else is an error, so a misspelt value is said, not ignored.
 
-use super::{Curve, DayKind, LookToml, Values};
+use super::{Curve, DayKind, GradePatch, GrassPatch, LookToml, Values, GRADE_TABLES};
 
 /// Why a look file was not read.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -136,6 +148,7 @@ fn values(table: &toml::Table, at: &str, days: bool) -> Result<Values, LookError
                 continue;
             }
             other if days && DayKind::ALL.iter().any(|k| k.name() == other) => continue,
+            "grade" | "grass" if days => continue,
             other => {
                 return Err(err(format!(
                     "{at}{other} is not a value a look has (sun, sky, tint, fog_density, \
@@ -153,6 +166,99 @@ fn values(table: &toml::Table, at: &str, days: bool) -> Result<Values, LookError
     Ok(v)
 }
 
+/// A number of table `at`, from `lo` to `hi`.
+fn bounded(at: &str, v: &toml::Value, lo: f32, hi: f32) -> Result<f32, LookError> {
+    number(v)
+        .filter(|x| x.is_finite() && (lo..=hi).contains(x))
+        .ok_or_else(|| err(format!("{at} is a number from {lo} to {hi}")))
+}
+
+/// Three numbers of table `at`, each from `lo` to `hi`.
+fn three(at: &str, v: &toml::Value, lo: f32, hi: f32) -> Result<[f32; 3], LookError> {
+    let a = v
+        .as_array()
+        .filter(|a| a.len() == 3)
+        .ok_or_else(|| err(format!("{at} is three numbers, red, green and blue")))?;
+    Ok([
+        bounded(at, &a[0], lo, hi)?,
+        bounded(at, &a[1], lo, hi)?,
+        bounded(at, &a[2], lo, hi)?,
+    ])
+}
+
+/// The `[grade.<table>]` tables.
+fn grade(v: &toml::Value) -> Result<std::collections::BTreeMap<String, GradePatch>, LookError> {
+    let tables = v
+        .as_table()
+        .ok_or_else(|| err("grade is a table of grade tables"))?;
+    let mut out = std::collections::BTreeMap::new();
+    for (name, t) in tables {
+        if !GRADE_TABLES.contains(&name.as_str()) {
+            return Err(err(format!(
+                "grade.{name} is not a grade table (noon, morning, evening, night, rain, overcast)"
+            )));
+        }
+        let t = t
+            .as_table()
+            .ok_or_else(|| err(format!("grade.{name} is a table of numbers")))?;
+        let mut p = GradePatch::default();
+        for (k, v) in t {
+            let at = format!("grade.{name}.{k}");
+            match k.as_str() {
+                "lift" => p.lift = Some(three(&at, v, -0.5, 0.5)?),
+                "gamma" => p.gamma = Some(three(&at, v, 0.1, 4.0)?),
+                "gain" => p.gain = Some(three(&at, v, 0.0, 4.0)?),
+                "saturation" => p.saturation = Some(bounded(&at, v, 0.0, 4.0)?),
+                "greens" => p.greens = Some(bounded(&at, v, -1.0, 4.0)?),
+                "green_turn" => p.green_turn = Some(bounded(&at, v, -90.0, 90.0)?),
+                "contrast" => p.contrast = Some(bounded(&at, v, 0.0, 4.0)?),
+                _ => {
+                    return Err(err(format!(
+                        "{at} is not a grade's number (lift, gamma, gain, saturation, greens,                          green_turn, contrast)"
+                    )))
+                }
+            }
+        }
+        out.insert(name.clone(), p);
+    }
+    Ok(out)
+}
+
+/// The `[grass.<terrain type>]` tables.
+fn grass(v: &toml::Value) -> Result<std::collections::BTreeMap<u8, GrassPatch>, LookError> {
+    let tables = v
+        .as_table()
+        .ok_or_else(|| err("grass is a table of terrain types"))?;
+    let mut out = std::collections::BTreeMap::new();
+    for (name, t) in tables {
+        let ty = name
+            .parse::<u8>()
+            .ok()
+            .filter(|t| *t < 32)
+            .ok_or_else(|| err(format!("grass.{name} is not a terrain type (0 to 31)")))?;
+        let t = t
+            .as_table()
+            .ok_or_else(|| err(format!("grass.{name} is a table of numbers")))?;
+        let mut p = GrassPatch::default();
+        for (k, v) in t {
+            let at = format!("grass.{name}.{k}");
+            match k.as_str() {
+                "share" => p.share = Some(bounded(&at, v, 0.0, 1.0)?),
+                "height" => p.height = Some(bounded(&at, v, 0.0, 3.0)?),
+                "dryness" => p.dryness = Some(bounded(&at, v, 0.0, 1.0)?),
+                "patchy" => p.patchy = Some(bounded(&at, v, 0.0, 1.0)?),
+                _ => {
+                    return Err(err(format!(
+                        "{at} is not what grass grows by (share, height, dryness, patchy)"
+                    )))
+                }
+            }
+        }
+        out.insert(ty, p);
+    }
+    Ok(out)
+}
+
 /// A look file's text, read.
 pub(super) fn parse(text: &str) -> Result<LookToml, LookError> {
     let table: toml::Table = text
@@ -162,6 +268,12 @@ pub(super) fn parse(text: &str) -> Result<LookToml, LookError> {
         values: values(&table, "", true)?,
         ..LookToml::default()
     };
+    if let Some(v) = table.get("grade") {
+        file.grade = grade(v)?;
+    }
+    if let Some(v) = table.get("grass") {
+        file.grass = grass(v)?;
+    }
     for kind in DayKind::ALL {
         if let Some(t) = table.get(kind.name()) {
             let t = t

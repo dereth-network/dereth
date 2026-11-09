@@ -576,12 +576,14 @@ pub enum FidelityFeature {
     RemasterGrade,
     /// The remaster's air, sky light in the shade and low fog.
     RemasterAir,
+    /// The remaster's grass field.
+    RemasterGrass,
 }
 
 #[cfg(feature = "fidelity")]
 impl FidelityFeature {
     /// Every option, in the order the names list them.
-    pub const ALL: [Self; 23] = [
+    pub const ALL: [Self; 24] = [
         Self::Remaster,
         Self::RemasterShadows,
         Self::RemasterSky,
@@ -605,6 +607,7 @@ impl FidelityFeature {
         Self::RemasterArtPack,
         Self::RemasterGrade,
         Self::RemasterAir,
+        Self::RemasterGrass,
     ];
 
     /// The option's preference name.
@@ -634,6 +637,7 @@ impl FidelityFeature {
             Self::RemasterArtPack => fidelity::REMASTER_ART_PACK,
             Self::RemasterGrade => fidelity::REMASTER_GRADE,
             Self::RemasterAir => fidelity::REMASTER_AIR,
+            Self::RemasterGrass => fidelity::REMASTER_GRASS,
         }
     }
 

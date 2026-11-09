@@ -623,9 +623,12 @@ impl WeatherPass {
         puddles: bool,
         linear: bool,
         height: u32,
+        shelter: bool,
     ) -> Result<Option<WeatherPlan>, dereth_gfx::Error> {
         let puddles = puddles && frame.landscape;
-        if !self.drawing && !puddles {
+        // The overhead map is kept on a dry day too while something else asks what stands
+        // overhead.
+        if !self.drawing && !puddles && !(shelter && frame.landscape) {
             return Ok(None);
         }
         let cover = self.cover_map(d)?;

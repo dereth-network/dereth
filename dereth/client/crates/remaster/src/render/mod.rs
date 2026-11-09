@@ -18,6 +18,7 @@ pub mod drawn;
 pub mod forest;
 pub mod gi;
 pub mod grade;
+pub mod grass;
 pub mod impostor;
 pub mod intent;
 pub mod lamps;
@@ -299,6 +300,8 @@ pub struct Renderer {
     pub(crate) impostors: impostor::ImpostorPass,
     /// The art pack's far trees and forest cover.
     pub(crate) forest: forest::ForestPass,
+    /// The grass field.
+    pub(crate) grass: grass::GrassPass,
     /// The probe of where instances stand and how far they are lifted, as the G-buffer places
     /// them.
     lift_probe: dereth_gfx::Pipeline,
@@ -551,6 +554,7 @@ impl Renderer {
         let lamps = lamps::LampsPass::new(&mut gfx)?;
         let impostors = impostor::ImpostorPass::new(&mut gfx)?;
         let forest = forest::ForestPass::new(&mut gfx)?;
+        let grass = grass::GrassPass::new(&mut gfx)?;
         let lift_probe = gfx.create_compute_pipeline(&dereth_gfx::ComputeDesc {
             label: "remaster lift probe",
             shader: shader(Entry::LiftCsBases),
@@ -677,6 +681,7 @@ impl Renderer {
             lod: lod::Lod::default(),
             impostors,
             forest,
+            grass,
             lift_probe,
             mesh_trees: Vec::new(),
         })
@@ -729,12 +734,22 @@ impl Renderer {
         layer: crate::look::Layer,
         look: Option<crate::look::LookToml>,
     ) -> bool {
-        self.intents.set(layer, look)
+        let changed = self.intents.set(layer, look);
+        self.take_look_tables();
+        changed
     }
 
     /// Every layer's look at once, from the next frame on.
     pub fn set_looks(&mut self, looks: crate::look::LookStack) {
         self.intents.set_all(looks);
+        self.take_look_tables();
+    }
+
+    /// The grade's tables and what each terrain type grows, as the looks now say.
+    fn take_look_tables(&mut self) {
+        let looks = self.intents.looks();
+        self.post.set_grade_tables(grade::tables_with(looks));
+        self.drawn_ground.grass_kinds = grass::kinds_with(looks);
     }
 
     /// The looks laid over retail's light.

@@ -702,7 +702,11 @@ fn each_landscape_addition_changes_the_frame_and_off_puts_it_back_to_the_pixel()
         .replace("RemasterOcclusion=1,", "")
         .replace(",RemasterBounce=1", "");
     let every = every.as_str();
-    for (place, spec) in [("ridge", "RemasterGrade"), ("vista", "RemasterAir")] {
+    for (place, spec) in [
+        ("ridge", "RemasterGrade"),
+        ("vista", "RemasterAir"),
+        ("ridge", "RemasterGrass"),
+    ] {
         let station = box_station(&store, place, false);
         let on = format!("{every},{spec}=1");
         let never = boxes_run(&store, &station, false, [every, every, every]);

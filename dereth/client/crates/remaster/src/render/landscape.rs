@@ -1,6 +1,6 @@
 //! What the remaster adds to the landscape past retail's own pictures, each on its own switch:
 //! the color grade by kind of day; the air over the land, the sky's light in the shade and a low
-//! fog lit by the sun, on every frame outdoors.
+//! fog lit by the sun, on every frame outdoors; the grass field.
 
 /// Which of the landscape's additions are drawn. All off is the frame as it was drawn before any
 /// of them.
@@ -12,6 +12,8 @@ pub struct LandscapeSettings {
     /// with or without a pack; and a fog lying low over the lowest ground round the eye, lit by the
     /// sun.
     pub air: bool,
+    /// A field of grass blades over the ground round the eye, where the terrain grows grass.
+    pub grass: bool,
 }
 
 impl super::Renderer {
@@ -19,6 +21,7 @@ impl super::Renderer {
     pub fn set_landscape(&mut self, s: LandscapeSettings) {
         self.landscape = s;
         self.post.set_grade(s.grade);
+        self.drawn_ground.grass = s.grass;
     }
 
     /// Which of the landscape's additions are drawn.

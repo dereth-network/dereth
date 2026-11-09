@@ -23,6 +23,11 @@
 //! Each can be given again for one kind of day ([`DayKind`]: Sunny, Rainy, Clear or Cloudy), which
 //! then wins over the look's own value on those days.
 //!
+//! **Grade tables and grass** ([`GradePatch`], [`GrassPatch`]): a look may also change any of the
+//! color grade's tables (`[grade.noon]`, `morning`, `evening`, `night`, `rain`, `overcast`) and what
+//! each terrain type grows in the grass field (`[grass.<type number>]`), value by value; the
+//! remaster's own are the default.
+//!
 //! **Where looks come from** ([`Layer`]), the later winning value by value: the remaster's built-in
 //! look (the identity), an art pack's, a world pack's, and the player's `look.toml`. A layer that
 //! says nothing about a value leaves it to the layers below. [`LookStack`] holds them and
@@ -152,11 +157,63 @@ impl Values {
     }
 }
 
-/// One layer's look: its values, and the values it gives for each kind of day.
+/// One layer's look: its values, and the values it gives for each kind of day; and what it
+/// changes of the grade's tables, by name, and of what each terrain type grows, by its number.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct LookToml {
     pub values: Values,
     pub days: BTreeMap<DayKind, Values>,
+    pub grade: BTreeMap<String, GradePatch>,
+    pub grass: BTreeMap<u8, GrassPatch>,
+}
+
+/// The grade tables a look may change, by name.
+pub const GRADE_TABLES: [&str; 6] = ["noon", "morning", "evening", "night", "rain", "overcast"];
+
+/// What a look changes of one grade table: each number `None` where it leaves it to the layers
+/// below. The numbers are the grade's own (lift, gamma and gain per channel, saturation, extra
+/// saturation and a turn of hue for the yellows and greens, contrast).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct GradePatch {
+    pub lift: Option<[f32; 3]>,
+    pub gamma: Option<[f32; 3]>,
+    pub gain: Option<[f32; 3]>,
+    pub saturation: Option<f32>,
+    pub greens: Option<f32>,
+    pub green_turn: Option<f32>,
+    pub contrast: Option<f32>,
+}
+
+impl GradePatch {
+    /// `self`, with each number `over` gives in its place.
+    fn under(&mut self, over: &Self) {
+        self.lift = over.lift.or(self.lift);
+        self.gamma = over.gamma.or(self.gamma);
+        self.gain = over.gain.or(self.gain);
+        self.saturation = over.saturation.or(self.saturation);
+        self.greens = over.greens.or(self.greens);
+        self.green_turn = over.green_turn.or(self.green_turn);
+        self.contrast = over.contrast.or(self.contrast);
+    }
+}
+
+/// What a look changes of what one terrain type grows: the share of grass, how tall (meters), how
+/// dry its tips (0 to 1) and how patchy (0 to 1); `None` where it leaves it to the layers below.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct GrassPatch {
+    pub share: Option<f32>,
+    pub height: Option<f32>,
+    pub dryness: Option<f32>,
+    pub patchy: Option<f32>,
+}
+
+impl GrassPatch {
+    fn under(&mut self, over: &Self) {
+        self.share = over.share.or(self.share);
+        self.height = over.height.or(self.height);
+        self.dryness = over.dryness.or(self.dryness);
+        self.patchy = over.patchy.or(self.patchy);
+    }
 }
 
 impl LookToml {
@@ -220,8 +277,35 @@ impl LookStack {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.layers.values().all(|f| {
-            f.values == Values::default() && f.days.values().all(|v| *v == Values::default())
+            f.values == Values::default()
+                && f.days.values().all(|v| *v == Values::default())
+                && f.grade.is_empty()
+                && f.grass.is_empty()
         })
+    }
+
+    /// What the layers change of grade table `name`, laid in order.
+    #[must_use]
+    pub fn grade(&self, name: &str) -> GradePatch {
+        let mut p = GradePatch::default();
+        for f in self.layers.values() {
+            if let Some(over) = f.grade.get(name) {
+                p.under(over);
+            }
+        }
+        p
+    }
+
+    /// What the layers change of what terrain type `t` grows, laid in order.
+    #[must_use]
+    pub fn grass(&self, t: u8) -> GrassPatch {
+        let mut p = GrassPatch::default();
+        for f in self.layers.values() {
+            if let Some(over) = f.grass.get(&t) {
+                p.under(over);
+            }
+        }
+        p
     }
 
     /// The look at time of day `t` on a day of kind `day`: the layers laid in order, each layer's
