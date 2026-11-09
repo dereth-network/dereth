@@ -192,6 +192,7 @@ impl SceneDraw {
                 on: now.water,
                 puddles: now.puddles,
                 traced: traced(&now),
+                planar: true,
                 ..RemasterWater::default()
             };
             self.set_remaster_water(s, gpu);

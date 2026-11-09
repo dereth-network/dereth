@@ -3,7 +3,9 @@
 //! a rainy day, the puddles flat ground gathers, as their own switch.
 //!
 //! The reflection is traced through the scene's acceleration structures where the device traces
-//! rays and the reflections are asked to be traced; otherwise it is found on screen. Either way,
+//! rays and the reflections are asked to be traced; otherwise, on the water nearest the eye, it is
+//! the scene drawn mirrored in that water's level ([`super::planar`]), and elsewhere it is found on
+//! screen. Either way,
 //! what lies past what it finds is the land far off, from the world's heights, and the sky, from
 //! the sky's own tables.
 //!
@@ -51,6 +53,9 @@ pub struct WaterSettings {
     /// Whether the reflection is traced through the scene, where the device traces rays; found
     /// on screen otherwise.
     pub traced: bool,
+    /// Where it is not traced, whether the scene is drawn mirrored in the water nearest the eye
+    /// for the water to reflect, where its surface lies at that water's level.
+    pub planar: bool,
 }
 
 impl Default for WaterSettings {
@@ -63,6 +68,7 @@ impl Default for WaterSettings {
             check: false,
             absorption: 1.0,
             traced: false,
+            planar: false,
         }
     }
 }
@@ -195,6 +201,7 @@ pub struct WaterPlan {
     sky_view: Option<Texture>,
     heights: Option<dereth_gfx::Buffer>,
     probe: Option<[Texture; 6]>,
+    planar: Option<Texture>,
 }
 
 /// What the water reads besides the frame's targets, as the frame has it.
@@ -213,6 +220,11 @@ pub(crate) struct WaterInputs<'a> {
     /// The sky all round the eye, its six pictures, and the sampler they are read with, where it
     /// is drawn.
     pub probe: Option<([(Texture, u32); 6], u32)>,
+    /// The scene mirrored in the water, where it is drawn: its colors and their index, the
+    /// water's level it is mirrored in, and its view and projection; and the sampler it is read
+    /// with.
+    pub planar: Option<(Texture, u32, f32, glam::Mat4)>,
+    pub planar_sampler: u32,
 }
 
 impl WaterPass {
@@ -513,6 +525,21 @@ impl WaterPass {
             inputs.probe.map_or(NONE, |p| p.1),
             0,
         ]);
+        // The scene mirrored in the water: its colors, their sampler, and the level; then its
+        // view and projection.
+        match inputs.planar {
+            Some((_, index, level, view_projection)) => {
+                rows.0
+                    .push([index, inputs.planar_sampler, level.to_bits(), 1]);
+                for c in view_projection.to_cols_array_2d() {
+                    rows.0.push(c.map(f32::to_bits));
+                }
+            }
+            None => {
+                rows.0.push([NONE, NONE, 0, 0]);
+                rows.0.extend([[0; 4]; 4]);
+            }
+        }
         #[allow(clippy::cast_possible_truncation)] // a ring's age, seconds
         {
             rows.0
@@ -534,6 +561,7 @@ impl WaterPass {
             sky_view: inputs.sky.map(|s| s.1),
             heights: inputs.heights.map(|h| h.1),
             probe: inputs.probe.map(|(f, _)| f.map(|t| t.0)),
+            planar: inputs.planar.map(|p| p.0),
         }))
     }
 }
@@ -580,6 +608,9 @@ impl WaterPlan {
         }
         for face in self.probe.iter().flatten() {
             touches.push(Touch::Texture(*face, Use::Sampled));
+        }
+        if let Some(p) = self.planar {
+            touches.push(Touch::Texture(p, Use::Sampled));
         }
         let (drawn_constants, words) = drawn.map_or((NONE, NONE), |d| {
             let (constants, words, buffers) = d.terrain_inputs();

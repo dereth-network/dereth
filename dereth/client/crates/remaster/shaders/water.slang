@@ -16,7 +16,9 @@
 //   behind it.
 // - **The reflection**, where the device traces rays (`fs_traced`), is the scene itself: the ray
 //   is traced through the scene's acceleration structures, and what it meets is lit as the resolve
-//   lights it, whether it is on screen or not. Elsewhere (`fs_main`) it is found on screen: the ray
+//   lights it, whether it is on screen or not. Elsewhere (`fs_main`), on the water nearest the eye
+//   it is the scene drawn mirrored in that water's level (`planar.rs`); on other water and on the
+//   puddles it is found on screen: the ray
 //   marched through the depth, a surface it meets close behind taken, but never the viewer's own
 //   body or anything at the camera, and never the color of something it merely passes behind;
 //   where it finds nothing it can trust, it takes what lies far off that way. Either way, what lies
@@ -55,8 +57,12 @@ import rt;
 //   24 the viewer's own body: where its feet are (the frame's space), w 1 where there is one
 //   25, 26 (words) the sky all round the eye: its pictures east, west, north, south, up and down,
 //      and the sampler they are read with (~0 where it is not drawn)
-//   27 (words) x how many rings the bodies have sent out over the water
-//   28.. the rings, two rows each: where the body stood (the frame's space) and how long ago,
+//   27 the scene mirrored in the water nearest the eye: (words) x its colors, y the sampler
+//      they are read with (~0 where it is not drawn), z (a float's bits) the water's level it is
+//      mirrored in
+//   28..31 its view and projection together, as four columns
+//   32 (words) x how many rings the bodies have sent out over the water
+//   33.. the rings, two rows each: where the body stood (the frame's space) and how long ago,
 //      seconds; then x how strongly
 static const uint WATER_STATE = 0;
 static const uint WATER_DRAWN = 1;
@@ -72,8 +78,9 @@ static const uint WATER_SKY = 22;
 static const uint WATER_LAND = 23;
 static const uint WATER_VIEWER = 24;
 static const uint WATER_PROBE = 25;
-static const uint WATER_RING_COUNT = 27;
-static const uint WATER_RINGS = 28;
+static const uint WATER_PLANAR = 27;
+static const uint WATER_RING_COUNT = 32;
+static const uint WATER_RINGS = 33;
 static const uint RINGS = 32;
 static const uint NONE = 0xFFFFFFFF;
 
@@ -1166,10 +1173,45 @@ interface IReflection
     Found seen(float3 from, float3 dir, int2 start, float dist);
 };
 
+// What the scene mirrored in the water shows the way `dir` goes from `from`, a point of the
+// water's surface; false where it is not drawn, `from` does not lie at the level it is mirrored
+// in, or the way leaves its picture.
+bool mirrored(float3 from, float3 dir, out float3 color)
+{
+    color = float3(0.0, 0.0, 0.0);
+    uint4 w = row_u(push.water, WATER_PLANAR);
+    if (w.x == NONE || abs(from.z - asfloat(w.z)) > 0.3)
+    {
+        return false;
+    }
+    // The mirrored view sees the reflected ray's mirror image, which runs on down from `from`:
+    // where it stands some way along, so a surface bent by its ripples looks a little aside.
+    float3 q = from + float3(dir.xy, -dir.z) * 10.0;
+    float4 c = transform(push.water, WATER_PLANAR + 1, float4(q, 1.0));
+    if (c.w <= 0.0)
+    {
+        return false;
+    }
+    float2 uv = float2(c.x / c.w * 0.5 + 0.5, 0.5 - c.y / c.w * 0.5);
+    if (any(uv < 0.0) || any(uv > 1.0))
+    {
+        return false;
+    }
+    color = textures[NonUniformResourceIndex(w.x)]
+                .SampleLevel(samplers[NonUniformResourceIndex(w.y)], uv, 0.0)
+                .rgb;
+    return true;
+}
+
 struct OnScreen : IReflection
 {
     Found seen(float3 from, float3 dir, int2 start, float dist)
     {
+        float3 color;
+        if (mirrored(from, dir, color))
+        {
+            return found(color, FOUND_SURFACE);
+        }
         return traced(from, dir, start);
     }
 };

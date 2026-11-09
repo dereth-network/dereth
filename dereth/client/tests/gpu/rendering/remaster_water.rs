@@ -72,6 +72,16 @@ enum At<'a> {
 /// The remaster drawn `at` with the water as `water` says, its light per pixel, stepped a few
 /// frames held still; the last frame.
 fn run(store: &Arc<RetailDatStore>, at: &At<'_>, water: RemasterWater) -> RemasterCapture {
+    run_on(store, at, water, None)
+}
+
+/// [`run`] with the ground drawn as `ground` says, where it says.
+fn run_on(
+    store: &Arc<RetailDatStore>,
+    at: &At<'_>,
+    water: RemasterWater,
+    ground: Option<RemasterTerrain>,
+) -> RemasterCapture {
     let mut gpu = device();
     let mut shot = match at {
         At::Station(st) => {
@@ -92,6 +102,9 @@ fn run(store: &Arc<RetailDatStore>, at: &At<'_>, water: RemasterWater) -> Remast
         }
     };
     shot.scene.draw.set_remaster_water(water, &mut gpu);
+    if let Some(g) = ground {
+        shot.scene.draw.set_remaster_terrain(g, &mut gpu);
+    }
     shot.scene
         .draw
         .set_remaster(true, store, &mut gpu)
@@ -99,6 +112,8 @@ fn run(store: &Arc<RetailDatStore>, at: &At<'_>, water: RemasterWater) -> Remast
     shot.scene
         .draw
         .set_remaster_light(RemasterLight::Pixel, &mut gpu);
+    shot.step_held(&mut gpu);
+    shot.scene.wait_for_remaster_ground();
     for _ in 0..4 {
         shot.step_held(&mut gpu);
     }
@@ -207,40 +222,41 @@ fn same_water(a: &RemasterCapture, b: &RemasterCapture) -> (f64, usize) {
 }
 
 /// **What the water reflects does not change as the camera turns down**: across the lake from
-/// its bank, from the camera level and from it turned down until no sky is in the picture, the
-/// points of the water both pictures show reflect the same: within a level and a half traced
-/// through the scene, and within eight found on screen, where only what the camera sees of the
-/// trees and the hills can stand in for them. A reflection is of what stands along the reflected
-/// ray, and the sky is the sky all round the eye, not the part of it the camera happens to see.
+/// its bank, the ground drawn as the player draws it, from the camera level and from it turned
+/// down until no sky is in the picture, the points of the water both pictures show reflect the
+/// same: within two levels traced through the scene or drawn mirrored in the water, and within
+/// four found on screen alone, where only what the camera sees of the trees and the houses can
+/// stand in for them. A reflection is of what stands along the reflected ray, and the sky is
+/// the sky all round the eye, not the part of it the camera happens to see.
 #[test]
 fn turning_the_camera_down_leaves_what_the_water_reflects() {
     let _gpu = crate::common::gpu_lock();
     let store = crate::common::dats();
+    let ground = Some(RemasterTerrain::player());
     let mut out = Vec::new();
-    for traced in [false, true] {
+    for (how, traced, planar, most) in [
+        ("on screen", false, false, 4.0),
+        ("mirrored", false, true, 2.0),
+        ("traced", true, false, 2.0),
+    ] {
         let still = RemasterWater {
             waves: 0.0,
             rings: false,
             traced,
+            planar,
             ..water()
         };
-        let level = run(&store, &At::Report(LAKE, 0.0), still);
-        let down = run(&store, &At::Report(LAKE, 0.45), still);
+        let level = run_on(&store, &At::Report(LAKE, 0.0), still, ground);
+        let down = run_on(&store, &At::Report(LAKE, 0.45), still, ground);
         let sky = down.class.iter().filter(|c| **c == 0).count();
         let (mean, n) = same_water(&down, &level);
-        eprintln!("lake, traced {traced}: turned down ({sky} sky pixels), {n} points of the water, mean difference {mean:.2}");
-        out.push((traced, sky, n, mean));
+        eprintln!("lake, {how}: turned down ({sky} sky pixels), {n} points of the water, mean difference {mean:.2}");
+        out.push((how, sky, n, mean, most));
     }
-    for (traced, sky, n, mean) in out {
+    for (how, sky, n, mean, most) in out {
         assert_eq!(sky, 0, "no sky in the picture turned down");
         assert!(n > 1_000, "the pictures share the water: {n}");
-        // On screen, what the camera sees of the trees and the land stands in for them only while
-        // it sees them; traced, the scene is the same whichever way the camera turns.
-        let most = if traced { 1.5 } else { 8.0 };
-        assert!(
-            mean < most,
-            "traced {traced}: the water reflects the same: {mean:.2}"
-        );
+        assert!(mean < most, "{how}: the water reflects the same: {mean:.2}");
     }
 }
 

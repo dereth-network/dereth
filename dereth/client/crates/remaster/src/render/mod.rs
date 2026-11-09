@@ -27,6 +27,7 @@ pub mod light;
 pub mod lod;
 #[cfg(target_os = "macos")]
 pub mod metalfx;
+pub mod planar;
 pub mod pool;
 pub mod post;
 mod record;
@@ -247,6 +248,8 @@ pub struct Renderer {
     water: self::water::WaterPass,
     /// The sky all round the eye, which the water reflects.
     sky_probe: self::sky_probe::SkyProbe,
+    /// The scene mirrored in the water, which the water reflects where it is not traced.
+    planar: self::planar::PlanarReflection,
     /// The rain, the snow, the wet and the puddles' share.
     weather: self::weather::WeatherPass,
     /// The scene's acceleration structures, where the device traces rays, and whether they are
@@ -611,6 +614,7 @@ impl Renderer {
             landscape: self::landscape::LandscapeSettings::default(),
             water: self::water::WaterPass::new(&mut gfx)?,
             sky_probe: self::sky_probe::SkyProbe::new(),
+            planar: self::planar::PlanarReflection::default(),
             weather: self::weather::WeatherPass::new(&mut gfx)?,
             rt: self::rt::RtPass::new(&mut gfx)?,
             rt_kept: false,

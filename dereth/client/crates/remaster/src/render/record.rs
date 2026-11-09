@@ -109,6 +109,8 @@ pub struct Plan {
     water: Option<super::water::WaterPlan>,
     /// The sky all round the eye, drawn for the water.
     sky_probe: Option<super::sky_probe::SkyProbePlan>,
+    /// The scene mirrored in the water, drawn for the water.
+    planar: Option<super::planar::PlanarPlan>,
     /// The weather's frame, when any of it is drawn.
     weather: Option<super::weather::WeatherPlan>,
     /// The scene's acceleration structures, when the frame traces rays.
@@ -558,6 +560,34 @@ impl Renderer {
             }
             _ => None,
         };
+        // The scene mirrored in the water nearest the eye, where the reflections are not traced.
+        let water_traced = self.water.wants_rays() && rt.is_some();
+        let planar = match &sky_rows {
+            Some(sky)
+                if self.water.settings().on
+                    && self.water.settings().planar
+                    && !water_traced
+                    && frame.landscape
+                    && !drawn.inside =>
+            {
+                let format = if post.is_some() {
+                    super::post::scene_format(&self.gfx)
+                } else {
+                    super::COLOR
+                };
+                self.planar.prepare(
+                    &mut self.gfx,
+                    &frame,
+                    (targets.width, targets.height),
+                    format,
+                    &rows,
+                    sky,
+                    sky_projection(&frame.camera),
+                    atmosphere.as_ref().map(|_| self.atmosphere.rows()),
+                )?
+            }
+            _ => None,
+        };
         let water_sampler = self.sampler(0);
         let probe_sampler = self.sampler(1);
         let water = self.water.prepare(
@@ -578,6 +608,15 @@ impl Renderer {
                 ],
                 sky: atmosphere.as_ref().map(super::sky::SkyPlan::view_inputs),
                 probe: sky_probe.map(|p| (p.faces, probe_sampler)),
+                planar: planar.map(|p| {
+                    (
+                        p.targets.color,
+                        p.targets.index[5],
+                        p.level,
+                        p.view_projection,
+                    )
+                }),
+                planar_sampler: probe_sampler,
                 heights: drawn_ground.as_ref().map(super::drawn::DrawnPlan::heights),
             },
         )?;
@@ -702,6 +741,7 @@ impl Renderer {
             ao,
             water,
             sky_probe,
+            planar,
             post,
             upscale,
             weather,
@@ -717,10 +757,20 @@ impl Plan {
         d: &mut dereth_gfx::Draw<'_>,
         first: u32,
     ) -> Result<(), dereth_gfx::Error> {
+        self.draw_buckets_seen(d, first, self.frame)
+    }
+
+    /// [`Self::draw_buckets`] with the frame's constants from the buffer `frame`.
+    fn draw_buckets_seen(
+        &self,
+        d: &mut dereth_gfx::Draw<'_>,
+        first: u32,
+        frame: u32,
+    ) -> Result<(), dereth_gfx::Error> {
         d.bind_index_buffer(self.indices, 0, IndexType::U32)?;
         for b in first..(first + GROUP_BUCKETS).min(CULLED_BUCKETS) {
             d.set_pipeline(self.pipelines.gbuffer[(b - first) as usize])?;
-            d.push(0, &self.gbuffer_push(0))?;
+            d.push(0, &self.gbuffer_push_seen(frame, 0, NONE))?;
             let offset = u64::from(b * BUCKET_CAPACITY) * u64::from(self.command_bytes);
             if self.indirect_count {
                 d.draw_indexed_indirect_count(
@@ -739,6 +789,150 @@ impl Plan {
             }
         }
         Ok(())
+    }
+
+    /// The scene mirrored in the water: its G-buffer (the ground, then the meshes the frame
+    /// draws), its sky, and the two resolved by retail's light alone, into its own targets.
+    ///
+    /// # Errors
+    /// What the layer refuses.
+    fn record_planar(
+        &self,
+        r: &mut Recorder<'_>,
+        p: &super::planar::PlanarPlan,
+        gbuffer_touches: &[Touch],
+    ) -> Result<(), dereth_gfx::Error> {
+        let t = p.targets;
+        let full = Rect {
+            x: 0,
+            y: 0,
+            width: t.width,
+            height: t.height,
+        };
+        r.timestamp("water mirrored");
+        let gbuffer = [t.albedo, t.normal, t.light, t.material].map(|texture| ColorAttachment {
+            texture,
+            load: Load::Clear([0.0; 4]),
+        });
+        r.raster(
+            &RasterPass {
+                name: "water mirrored g-buffer",
+                color: &gbuffer,
+                depth: Some(DepthAttachment {
+                    texture: t.depth,
+                    clear: Some(1.0),
+                    write: true,
+                }),
+                touches: gbuffer_touches,
+                area: Some(full),
+            },
+            |d| {
+                if let Some(g) = &self.drawn_ground {
+                    let [wrap, clamp] = self.ground_samplers;
+                    g.draw_ground(d, p.frame, wrap, clamp, self.weather_table())?;
+                    return self.draw_buckets_seen(d, 0, p.frame);
+                }
+                d.set_pipeline(self.pipelines.ground)?;
+                for (side, first, count) in &self.ground_groups {
+                    d.push(
+                        0,
+                        &push_words(&[
+                            p.frame,
+                            self.ground_vertices,
+                            self.ground_cells,
+                            self.ground_drawn,
+                            self.offsets,
+                            self.clamp,
+                            *first,
+                            self.ground_splats,
+                            self.wrap,
+                            self.weather_table(),
+                        ]),
+                    )?;
+                    d.draw(side * side * 6, *count, 0, 0);
+                }
+                self.draw_buckets_seen(d, 0, p.frame)
+            },
+        )?;
+        let mut sky_touches = vec![
+            Touch::Buffer(self.forward, Use::Indirect),
+            Touch::Buffer(self.indices, Use::Index),
+        ];
+        if let Some(a) = &self.atmosphere {
+            sky_touches.push(Touch::Texture(a.view_table(), Use::Sampled));
+        }
+        r.raster(
+            &RasterPass {
+                name: "water mirrored sky",
+                color: &[ColorAttachment {
+                    texture: t.color,
+                    load: Load::Clear([0.0, 0.0, 0.0, 1.0]),
+                }],
+                depth: None,
+                touches: &sky_touches,
+                area: Some(full),
+            },
+            |d| {
+                self.draw_runs(d, &self.sky_runs, p.sky, NONE)?;
+                if let (Some(a), Some(seen)) = (&self.atmosphere, p.atmosphere) {
+                    a.draw_seen(d, seen, false)?;
+                }
+                self.draw_runs(d, &self.sky_runs_rest, p.sky, NONE)?;
+                if let (Some(a), Some(seen)) = (&self.atmosphere, p.atmosphere) {
+                    a.draw_seen(d, seen, true)?;
+                }
+                Ok(())
+            },
+        )?;
+        r.raster(
+            &RasterPass {
+                name: "water mirrored resolve",
+                color: &[ColorAttachment {
+                    texture: t.color,
+                    load: Load::Keep,
+                }],
+                depth: None,
+                touches: &[
+                    Touch::Texture(t.albedo, Use::Sampled),
+                    Touch::Texture(t.normal, Use::Sampled),
+                    Touch::Texture(t.light, Use::Sampled),
+                    Touch::Texture(t.material, Use::Sampled),
+                    Touch::Texture(t.depth, Use::Sampled),
+                ],
+                area: Some(full),
+            },
+            |d| {
+                d.set_pipeline(if self.pixel {
+                    self.pipelines.resolve_pixel
+                } else {
+                    self.pipelines.resolve_vertex
+                })?;
+                d.push(
+                    0,
+                    &push_words(&[
+                        p.frame,
+                        t.index[0],
+                        t.index[1],
+                        t.index[2],
+                        t.index[3],
+                        t.index[4],
+                        self.lights,
+                        self.sets,
+                        0,
+                        t.index[4],
+                        NONE,
+                        NONE,
+                        NONE,
+                        NONE,
+                        NONE,
+                        NONE,
+                        NONE,
+                    ]),
+                )?;
+                d.draw(3, 1, 0, 0);
+                Ok(())
+            },
+        )
     }
 
     /// The cut-outs' edges `edges`, then the forward pass's `forward`, over the world's colors,
@@ -795,11 +989,7 @@ impl Plan {
         self.weather.as_ref().map_or(NONE, |w| w.table)
     }
 
-    fn gbuffer_push(&self, lit_always: u32) -> Vec<u8> {
-        self.gbuffer_push_seen(self.frame, lit_always, NONE)
-    }
-
-    /// [`Self::gbuffer_push`] with the frame's constants from the buffer `frame`, and the
+    /// The G-buffer pass's push words, with the frame's constants from the buffer `frame`, and the
     /// pixels whose material in the target `mask` is the interior's left alone (`NONE`: none).
     fn gbuffer_push_seen(&self, frame: u32, lit_always: u32, mask: u32) -> Vec<u8> {
         push_words(&[
@@ -1321,6 +1511,11 @@ impl Plan {
                 Ok(())
             },
         )?;
+
+        // 10a. The scene mirrored in the water, for the water to reflect.
+        if let Some(p) = &self.planar {
+            self.record_planar(r, p, &gbuffer_touches)?;
+        }
 
         // 10b. The water, over the resolved world.
         if let Some(w) = &self.water {
