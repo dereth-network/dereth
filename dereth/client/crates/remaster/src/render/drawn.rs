@@ -522,6 +522,13 @@ impl DrawnPlan {
         (self.words[2], self.buffers[0])
     }
 
+    /// Where the water lies about each of the world's vertices (how far inside it, and how far
+    /// over its level): their index in the table and their buffer, what another pass reads for
+    /// the water's level.
+    pub(crate) fn shore(&self) -> (u32, Buffer) {
+        (self.words[4], self.buffers[2])
+    }
+
     /// The frame's constants' index, the terrain words' index, and the two buffers they are in:
     /// what another pass reads for the terrain's colors.
     pub(crate) fn terrain_inputs(&self) -> (u32, u32, [Buffer; 2]) {

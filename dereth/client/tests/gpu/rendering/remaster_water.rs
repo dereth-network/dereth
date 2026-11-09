@@ -927,3 +927,54 @@ fn a_film_of_water_over_the_bank_shows_the_wet_ground() {
         "the film shows the ground: {differs} of {film} differ"
     );
 }
+
+/// **A reflection traced off still water meets what stands over it, never the water's own
+/// level**: from low over the lake by the shore, looking along the water, the ground drawn as the
+/// player draws it (its bed lowered under the water) and the water still, the reflections traced
+/// through the scene find the land in whole bands under the far banks, not in rows broken along
+/// the bed's depth: down each column of the water, the reflection turns between the land and
+/// anything else at most once in every fifty of its pixels.
+#[test]
+fn a_reflection_traced_off_still_water_never_meets_its_own_level() {
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    let still = RemasterWater {
+        waves: 0.0,
+        rings: false,
+        traced: true,
+        check: true,
+        ..water()
+    };
+    let c = shore_with(
+        &store,
+        (1280, 720),
+        (0.0, -1.5),
+        RemasterTerrain::player(),
+        still,
+    );
+    let (w, h) = (c.width as usize, c.height as usize);
+    let land = |i: usize| c.color[i * 4..i * 4 + 3] == [0, 255, 0];
+    let (mut water, mut turns, mut lands) = (0usize, 0usize, 0usize);
+    for x in 0..w {
+        let mut was: Option<bool> = None;
+        for y in 0..h {
+            let i = y * w + x;
+            if c.kind[i] != WATER {
+                was = None;
+                continue;
+            }
+            water += 1;
+            lands += usize::from(land(i));
+            if was.is_some_and(|v| v != land(i)) {
+                turns += 1;
+            }
+            was = Some(land(i));
+        }
+    }
+    eprintln!("the shore, traced: {water} water pixels, {lands} found the land, {turns} turns");
+    assert!(water > 100_000, "the water is in view: {water}");
+    assert!(
+        turns * 50 <= water,
+        "the land is found in whole bands: {turns} turns over {water} pixels"
+    );
+}

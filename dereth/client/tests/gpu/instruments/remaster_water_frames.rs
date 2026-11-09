@@ -43,8 +43,11 @@ const POND: &str = "dereth report 1; loc 0xA8B60012 [55.615215 30.300829 27.5549
                     yaw -2.9129736 pitch -0.6300002 cell 0xA8B60012; time 0.5; clock \
                     306486600.0; weather auto";
 
+/// The pillar on the bank of the lake, the body standing in the water before it.
+const PILLAR: &str = "dereth report 1; loc 0xA9B50015 [65.766556 103.075867 27.554998] -0.561041                       0.000000 0.000000 -0.827788";
+
 /// Every view: its name, then how it is drawn.
-const SCENES: [&str; 12] = [
+const SCENES: [&str; 15] = [
     "lake-up",
     "lake-level",
     "lake-down",
@@ -57,6 +60,9 @@ const SCENES: [&str; 12] = [
     "wade-walk",
     "wade-deep",
     "wade-deep-walk",
+    "login-river",
+    "shore-night",
+    "pillar-night",
 ];
 
 /// Where a view is drawn from.
@@ -68,6 +74,23 @@ enum View {
         back: f32,
         up: f32,
         pitch: f32,
+    },
+    /// A report's place at night on a rainy day, its camera moved as [`View::Report`]'s is.
+    Night {
+        line: &'static str,
+        back: f32,
+        up: f32,
+        pitch: f32,
+    },
+    /// A free camera `eye` metres over block-local `(x, y)` of `block`, at `hour` of a fair day.
+    Free {
+        block: u16,
+        x: f32,
+        y: f32,
+        eye: f32,
+        yaw: f32,
+        pitch: f32,
+        hour: f32,
     },
     /// A report's place with the body and its camera carried `ahead` metres along the camera's
     /// heading, the body dropped from `drop` metres over where it stood.
@@ -108,6 +131,29 @@ fn view(name: &str) -> View {
             pitch: -0.12,
         },
         "wade-beside" => report(POND, -1.5, -3.6, 0.45),
+        // The select screen's view over Holtburg and its river, as it starts its swing.
+        "login-river" => View::Free {
+            block: 0xA9B3,
+            x: 96.0,
+            y: 124.8,
+            eye: 45.0,
+            yaw: 0.0,
+            pitch: -0.42,
+            hour: 0.4,
+        },
+        // The pond's lily pads and its shore at night, the camera low over the water.
+        "shore-night" => View::Night {
+            line: POND,
+            back: 3.0,
+            up: -3.4,
+            pitch: 0.45,
+        },
+        "pillar-night" => View::Night {
+            line: PILLAR,
+            back: 0.0,
+            up: 0.0,
+            pitch: 0.0,
+        },
         "wade-up" => report(POND, 0.0, -3.0, 0.75),
         "wade-deep" | "wade-deep-walk" => View::Walked {
             line: LAKE,
@@ -125,6 +171,50 @@ fn env(name: &str) -> Option<String> {
 /// The station and report a view is drawn from.
 fn place(store: &Arc<RetailDatStore>, v: &View) -> (Station, Option<VisualReport>) {
     match v {
+        View::Night {
+            line,
+            back,
+            up,
+            pitch,
+        } => {
+            let (mut st, report) = place(
+                store,
+                &View::Report {
+                    line,
+                    back: *back,
+                    up: *up,
+                    pitch: *pitch,
+                },
+            );
+            st.clock = stations::Clock::Rainy(0.126);
+            (st, report)
+        }
+        View::Free {
+            block,
+            x,
+            y,
+            eye,
+            yaw,
+            pitch,
+            hour,
+        } => (
+            Station {
+                name: "free",
+                why: "a free camera",
+                place: stations::Place::Free {
+                    block: *block,
+                    x: *x,
+                    y: *y,
+                    eye: *eye,
+                    yaw: *yaw,
+                    pitch: *pitch,
+                },
+                clock: stations::Clock::Sunny(*hour),
+                weather: false,
+                land_radius: 8,
+            },
+            None,
+        ),
         View::Report {
             line,
             back,
@@ -267,7 +357,7 @@ fn capture_the_remasters_water() {
         for _ in 0..24 {
             shot.step_held(&mut gpu);
         }
-        if name.starts_with("wade") {
+        if name.starts_with("wade") || name.ends_with("night") {
             // The body stands in the water once the world has moved on a second.
             for _ in 0..30 {
                 shot.step_by(&mut gpu, 1.0 / 30.0);

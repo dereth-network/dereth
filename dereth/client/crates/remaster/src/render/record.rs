@@ -618,6 +618,7 @@ impl Renderer {
                 }),
                 planar_sampler: probe_sampler,
                 heights: drawn_ground.as_ref().map(super::drawn::DrawnPlan::heights),
+                shore: drawn_ground.as_ref().map(super::drawn::DrawnPlan::shore),
             },
         )?;
         let samplers = [self.sampler(0), self.sampler(1)];

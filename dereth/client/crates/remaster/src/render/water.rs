@@ -200,6 +200,7 @@ pub struct WaterPlan {
     traced: bool,
     sky_view: Option<Texture>,
     heights: Option<dereth_gfx::Buffer>,
+    shore: Option<dereth_gfx::Buffer>,
     probe: Option<[Texture; 6]>,
     planar: Option<Texture>,
 }
@@ -217,6 +218,9 @@ pub(crate) struct WaterInputs<'a> {
     pub sky: Option<([u32; 3], Texture)>,
     /// The world's vertex heights and their buffer, where the drawn ground is drawn.
     pub heights: Option<(u32, dereth_gfx::Buffer)>,
+    /// Where the water lies about each of the world's vertices and their buffer, where the drawn
+    /// ground is drawn: what the water's level is found from.
+    pub shore: Option<(u32, dereth_gfx::Buffer)>,
     /// The sky all round the eye, its six pictures, and the sampler they are read with, where it
     /// is drawn.
     pub probe: Option<([(Texture, u32); 6], u32)>,
@@ -510,7 +514,12 @@ impl WaterPass {
         let [a, view, view_sampler] = inputs.sky.map_or([NONE; 3], |s| s.0);
         rows.0
             .push([rt.map_or(0, |r| r.statics), a, view, view_sampler]);
-        rows.0.push([inputs.heights.map_or(NONE, |h| h.0), 0, 0, 0]);
+        rows.0.push([
+            inputs.heights.map_or(NONE, |h| h.0),
+            inputs.shore.map_or(NONE, |h| h.0),
+            0,
+            0,
+        ]);
         rows.0.push(
             Self::viewer(frame)
                 .map_or([0.0; 4], |v| [v.x, v.y, v.z, 1.0])
@@ -560,6 +569,7 @@ impl WaterPass {
             traced: rt.is_some(),
             sky_view: inputs.sky.map(|s| s.1),
             heights: inputs.heights.map(|h| h.1),
+            shore: inputs.shore.map(|h| h.1),
             probe: inputs.probe.map(|(f, _)| f.map(|t| t.0)),
             planar: inputs.planar.map(|p| p.0),
         }))
@@ -605,6 +615,9 @@ impl WaterPlan {
         }
         if let Some(heights) = self.heights {
             touches.push(Touch::Buffer(heights, Use::StorageRead));
+        }
+        if let Some(shore) = self.shore {
+            touches.push(Touch::Buffer(shore, Use::StorageRead));
         }
         for face in self.probe.iter().flatten() {
             touches.push(Touch::Texture(*face, Use::Sampled));

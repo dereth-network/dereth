@@ -53,7 +53,9 @@ import rt;
 //      and cells, the statics' and the objects' entries (~0 where nothing is traced)
 //   22 (words) x how many statics come first among the instances; y the sky's constants, z its
 //      sky-view table and w the sampler it is read with (~0 without the sky's tables)
-//   23 (words) x the world's vertex heights (~0 where the drawn ground is not drawn)
+//   23 (words) x the world's vertex heights, y where the water lies about each vertex (how far
+//      inside it, and how far over its level; two floats each) (~0 where the drawn ground is not
+//      drawn)
 //   24 the viewer's own body: where its feet are (the frame's space), w 1 where there is one
 //   25, 26 (words) the sky all round the eye: its pictures east, west, north, south, up and down,
 //      and the sampler they are read with (~0 where it is not drawn)
@@ -738,6 +740,94 @@ float level_at(uint heights, float2 p)
                             : h11 + (1.0 - f.x) * (h01 - h11) + (1.0 - f.y) * (h10 - h11);
 }
 
+// How far over the water's level the landscape vertex `g` stands: nought in the water.
+float over_level(uint shore, int2 g)
+{
+    int2 c = clamp(g, int2(0, 0), int2(SIDE - 1, SIDE - 1));
+    return asfloat(buffers[NonUniformResourceIndex(shore)].Load(uint(c.y * SIDE + c.x) * 8 + 4));
+}
+
+// How far inside the water world `p` lies, meters, negative on land, between the vertices; far
+// outside it where the ground does not say where the water lies.
+float inside_water(float2 p)
+{
+    uint shore = row_u(push.water, WATER_LAND).y;
+    if (shore == NONE)
+    {
+        return -1000.0;
+    }
+    float2 q = p / CELL;
+    int2 g = int2(floor(q));
+    float2 f = saturate(q - float2(g));
+    float s[4];
+    for (int k = 0; k < 4; k++)
+    {
+        int2 c = clamp(g + int2(k & 1, k >> 1), int2(0, 0), int2(SIDE - 1, SIDE - 1));
+        s[k] = asfloat(buffers[NonUniformResourceIndex(shore)].Load(uint(c.y * SIDE + c.x) * 8));
+    }
+    return lerp(lerp(s[0], s[1], f.x), lerp(s[2], s[3], f.x), f.y);
+}
+
+// The water's level at world `p`, across retail's triangles: level everywhere the water reaches,
+// its banks' vertices taken down to the water beside them, as the ground draws its bed under it.
+// Retail's height there where the ground does not say where the water lies.
+float water_level(uint heights, float2 p)
+{
+    uint shore = row_u(push.water, WATER_LAND).y;
+    if (shore == NONE)
+    {
+        return level_at(heights, p);
+    }
+    float2 q = p / CELL;
+    int2 c = int2(floor(q));
+    float2 f = saturate(q - float2(c));
+    float h00 = vertex_height(heights, c) - over_level(shore, c);
+    float h10 = vertex_height(heights, c + int2(1, 0)) - over_level(shore, c + int2(1, 0));
+    float h01 = vertex_height(heights, c + int2(0, 1)) - over_level(shore, c + int2(0, 1));
+    float h11 = vertex_height(heights, c + int2(1, 1)) - over_level(shore, c + int2(1, 1));
+    uint x = asuint(c.x);
+    uint y = asuint(c.y);
+    uint v = (x * 0x0CCAC033u + 0x6C1AC587u) * y + x * 0xBDE41C43u + 0xAE6470DBu;
+    if ((v >> 31) != 0)
+    {
+        return f.x >= f.y ? h00 + f.x * (h10 - h00) + f.y * (h11 - h10)
+                          : h00 + f.y * (h01 - h00) + f.x * (h11 - h01);
+    }
+    return f.x + f.y <= 1.0 ? h00 + f.x * (h10 - h00) + f.y * (h01 - h00)
+                            : h11 + (1.0 - f.x) * (h01 - h11) + (1.0 - f.y) * (h10 - h11);
+}
+
+// Where the line of sight to the bed at `bed`, drawn about `under` meters under the water, meets
+// the water's surface: on the water's own level, which runs smooth where the bed's depth is
+// written in steps. False where the eye is not above it.
+bool on_surface(float3 bed, float under, out float3 surface)
+{
+    surface = bed;
+    float3 eye = row(push.frame, FRAME_EYE).xyz;
+    float level = bed.z + under;
+    uint heights = row_u(push.water, WATER_LAND).x;
+    float2 g = row(push.water, WATER_GLOBAL).xy;
+    for (int k = 0; k < 3; k++)
+    {
+        if (eye.z <= level || level <= bed.z)
+        {
+            return false;
+        }
+        surface = eye + (bed - eye) * ((eye.z - level) / (eye.z - bed.z));
+        if (heights == NONE)
+        {
+            return true;
+        }
+        level = water_level(heights, surface.xy + g);
+    }
+    if (eye.z <= level || level <= bed.z)
+    {
+        return false;
+    }
+    surface = eye + (bed - eye) * ((eye.z - level) / (eye.z - bed.z));
+    return true;
+}
+
 // How much of world `p` is water: its cell's water corners, blended across the cell.
 float water_share(float2 p)
 {
@@ -770,7 +860,7 @@ bool under_water(float3 world, out float3 surface)
     }
     float2 g = row(push.water, WATER_GLOBAL).xy;
     float3 eye = row(push.frame, FRAME_EYE).xyz;
-    float level = level_at(heights, world.xy + g);
+    float level = water_level(heights, world.xy + g);
     for (int k = 0; k < 2; k++)
     {
         if (world.z >= level - 0.005 || eye.z <= level)
@@ -778,7 +868,7 @@ bool under_water(float3 world, out float3 surface)
             return false;
         }
         surface = eye + (world - eye) * ((eye.z - level) / (eye.z - world.z));
-        level = level_at(heights, surface.xy + g);
+        level = water_level(heights, surface.xy + g);
     }
     if (world.z >= level - 0.005 || eye.z <= level)
     {
@@ -1009,10 +1099,77 @@ bool sun_blocked(uint accel, float3 x, float3 n, float3 sun)
     return q.CommittedStatus() != COMMITTED_NOTHING;
 }
 
+// What a ray traced through the scene met: how far along, and which triangle of what.
+struct Hit
+{
+    float t;
+    uint instance;
+    uint geometry;
+    uint index;
+    uint prim;
+    float2 bary;
+    float3x4 to_world;
+    bool front;
+};
+
+// The first surface along `ray` that its pictures keep; false where it meets none.
+bool first_hit(uint accel, uint statics, uint objects, uint indices, uint vertices, uint materials,
+               uint sampler, RayDesc ray, out Hit h)
+{
+    RayQuery<RAY_FLAG_NONE> q;
+    q.TraceRayInline(accels[NonUniformResourceIndex(accel)], RAY_FLAG_NONE, 0xFF, ray);
+    while (q.Proceed())
+    {
+        if (q.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE
+            && alpha_kept(statics, objects, indices, vertices, materials, sampler,
+                          q.CandidateInstanceID(), q.CandidateGeometryIndex(),
+                          q.CandidatePrimitiveIndex(), q.CandidateTriangleBarycentrics()))
+        {
+            q.CommitNonOpaqueTriangleHit();
+        }
+    }
+    h.t = 0.0;
+    h.instance = 0;
+    h.geometry = 0;
+    h.index = 0;
+    h.prim = 0;
+    h.bary = float2(0.0, 0.0);
+    h.to_world = float3x4(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+    h.front = true;
+    if (q.CommittedStatus() != COMMITTED_TRIANGLE_HIT)
+    {
+        return false;
+    }
+    h.t = q.CommittedRayT();
+    h.instance = q.CommittedInstanceID();
+    h.geometry = q.CommittedGeometryIndex();
+    h.index = q.CommittedInstanceIndex();
+    h.prim = q.CommittedPrimitiveIndex();
+    h.bary = q.CommittedTriangleBarycentrics();
+    h.to_world = q.CommittedObjectToWorld3x4();
+    h.front = q.CommittedTriangleFrontFace();
+    return true;
+}
+
+// Whether world `x` (the frame's space), a point of retail's ground, lies under the water as the
+// ground is drawn: inside the water, or at or under its level where there is water. The ground
+// the acceleration structures hold there is the water's own level, or a bank the drawn ground
+// lowers under it, which a reflection off the water passes over.
+bool on_the_water(float3 x)
+{
+    uint heights = row_u(push.water, WATER_LAND).x;
+    if (heights == NONE || push.words == NONE)
+    {
+        return false;
+    }
+    float2 p = x.xy + row(push.water, WATER_GLOBAL).xy;
+    return inside_water(p) > 0.0 || (water_share(p) > 0.0 && x.z <= water_level(heights, p) + 0.05);
+}
+
 // The scene along the ray from `from` the way `dir` goes, traced through its acceleration
 // structures: what it meets, its own color lit as the resolve lights it and fogged over the way
-// from the eye; what lies far off where it meets nothing. `dist` is how far `from` lies from the
-// eye.
+// from the eye; what lies far off where it meets nothing. The water's own level, which the
+// structures hold as ground, is passed over. `dist` is how far `from` lies from the eye.
 Found traced_scene(float3 from, float3 dir, float dist)
 {
     uint4 a = row_u(push.water, WATER_TRACE);
@@ -1034,36 +1191,36 @@ Found traced_scene(float3 from, float3 dir, float dist)
     ray.Direction = dir;
     ray.TMin = 0.05;
     ray.TMax = TRACE_REACH;
-    RayQuery<RAY_FLAG_NONE> q;
-    q.TraceRayInline(accels[NonUniformResourceIndex(accel)], RAY_FLAG_NONE, 0xFF, ray);
-    while (q.Proceed())
+    Hit h;
+    uint4 g = uint4(0, 0, 0, 0);
+    bool met = false;
+    for (int k = 0; k < 3 && !met; k++)
     {
-        if (q.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE
-            && alpha_kept(statics, objects, indices, vertices, materials, sampler,
-                          q.CandidateInstanceID(), q.CandidateGeometryIndex(),
-                          q.CandidatePrimitiveIndex(), q.CandidateTriangleBarycentrics()))
+        if (!first_hit(accel, statics, objects, indices, vertices, materials, sampler, ray, h))
         {
-            q.CommitNonOpaqueTriangleHit();
+            return found_far(from, dir, 20.0);
         }
+        g = geometry_row(statics, objects, h.instance, h.geometry);
+        met = (g.w & RT_IS_GROUND) == 0 || !on_the_water(ray.Origin + dir * h.t);
+        ray.TMin = h.t + 0.05;
     }
-    if (q.CommittedStatus() != COMMITTED_TRIANGLE_HIT)
+    if (!met)
     {
         return found_far(from, dir, 20.0);
     }
-    float t = q.CommittedRayT();
-    uint4 g = geometry_row(statics, objects, q.CommittedInstanceID(), q.CommittedGeometryIndex());
-    uint prim = q.CommittedPrimitiveIndex();
-    float2 bary = q.CommittedTriangleBarycentrics();
+    float t = h.t;
+    uint prim = h.prim;
+    float2 bary = h.bary;
     float w[3] = { 1.0 - bary.x - bary.y, bary.x, bary.y };
-    float3x4 to_world = q.CommittedObjectToWorld3x4();
-    float3 x = from + dir * t;
+    float3x4 to_world = h.to_world;
+    float3 x = ray.Origin + dir * t;
     // How sharply the hit's pictures are read: the farther the way from the eye, the coarser.
     float lod = clamp(log2(max((dist + t) * 0.15, 1.0)), 0.0, 6.0);
     float3 n;
     float3 albedo;
     uint cls;
     bool leaf = false;
-    bool front = q.CommittedTriangleFrontFace();
+    bool front = h.front;
     if ((g.w & RT_IS_GROUND) != 0)
     {
         // The ground: the cell's corners' normals, and its picture across the cell, or each
@@ -1143,7 +1300,7 @@ Found traced_scene(float3 from, float3 dir, float dist)
         {
             albedo *= tint;
         }
-        uint index = q.CommittedInstanceIndex();
+        uint index = h.index;
         uint4 entry = index < statics_first
                           ? row_u(c.z, index * 2)
                           : row_u(c.w, (index - statics_first) * 2);
@@ -1274,9 +1431,14 @@ float4 shade<R : IReflection>(float4 position, R reflection)
         under = crossing.z - world.z;
         world = crossing;
     }
-    else if (under > 0.0 && eye.z > world.z + under)
+    else if (under > 0.0)
     {
-        world = eye + (world - eye) * ((eye.z - world.z - under) / (eye.z - world.z));
+        float3 surface;
+        if (on_surface(bed, under, surface))
+        {
+            under = surface.z - bed.z;
+            world = surface;
+        }
     }
     float dist = length(eye - world);
     float3 v = (eye - world) / max(dist, 1e-4);
