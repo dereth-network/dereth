@@ -574,22 +574,22 @@ fn state_graph(p: &Portal, lib: &Library, id: u32) -> Option<Graph> {
     Graph::decode(&st.graph, lib).ok()
 }
 
-/// The effects' definitions of these saved states, and of the effects they add, with what these
-/// wards (by saved state) keep off.
+/// The effects' definitions of these saved states, and of the effects they add, with what the
+/// world's rules (by saved state) say of them: what wards keep off, what taps vitae.
 ///
 /// # Errors
 /// The library does not read.
 pub fn effect_table(
     p: &Portal,
     states: &[u32],
-    wards: &BTreeMap<u32, yalain_world::effect_defs::Ward>,
+    rules: &yalain_world::effect_defs::EffectRules,
 ) -> Result<yalain_world::effect_defs::EffectTable, String> {
     let lib = library(p)?;
     Ok(yalain_world::effect_defs::EffectTable::read(
         lib,
         states,
         &|id| state_graph(p, lib, id),
-        wards,
+        rules,
     ))
 }
 
@@ -2209,7 +2209,8 @@ mod tests {
         let (dat, _) = tallied(&DatName::Portal);
         let p = Portal::over(dat, Vec::new(), None).expect("a context");
         let wanted: Vec<u32> = tables.states().collect();
-        let table = effect_table(&p, &wanted, &yalain_testkit::test_wards()).expect("the table");
+        let table =
+            effect_table(&p, &wanted, &yalain_testkit::test_effect_rules()).expect("the table");
         for s in &wanted {
             let d = table.get(*s);
             assert!(d.is_some(), "{s:08x} reads");
@@ -2229,7 +2230,8 @@ mod tests {
         let (dat, _) = tallied(&DatName::Portal);
         let p = Portal::over(dat, Vec::new(), None).expect("a context");
         let wanted: Vec<u32> = tables.states().collect();
-        let table = effect_table(&p, &wanted, &yalain_testkit::test_wards()).expect("the table");
+        let table =
+            effect_table(&p, &wanted, &yalain_testkit::test_effect_rules()).expect("the table");
         let family = tables
             .weapon
             .families
@@ -2261,8 +2263,8 @@ mod tests {
         const CHAINED: u32 = 0x6F00_2607;
         let (dat, _) = tallied(&DatName::Portal);
         let p = Portal::over(dat, Vec::new(), None).expect("a context");
-        let table =
-            effect_table(&p, &[STASIS, CHAINED], &yalain_testkit::test_wards()).expect("the table");
+        let table = effect_table(&p, &[STASIS, CHAINED], &yalain_testkit::test_effect_rules())
+            .expect("the table");
         let (when, tier) = TreasureTables::retail_2017()
             .tier_of(STASIS)
             .expect("a tier");
@@ -2289,7 +2291,8 @@ mod tests {
         let (dat, _) = tallied(&DatName::Portal);
         let p = Portal::over(dat, Vec::new(), None).expect("a context");
         let wanted: Vec<u32> = tables.states().collect();
-        let table = effect_table(&p, &wanted, &yalain_testkit::test_wards()).expect("the table");
+        let table =
+            effect_table(&p, &wanted, &yalain_testkit::test_effect_rules()).expect("the table");
         for (state, name) in [(0x6F00_03DB, 0x2500_08C9), (0x6F00_03E0, 0x2500_08CE)] {
             let (_, tier) = tables.tier_of(state).expect("a tier");
             assert_eq!(tier.puts_on, state, "it puts itself on what it hits");

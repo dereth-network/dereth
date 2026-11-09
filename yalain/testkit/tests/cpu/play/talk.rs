@@ -280,6 +280,7 @@ fn a_step_says_its_line_then_the_lines_heard_with_its_update_in_order() {
             hero_only: false,
             pay: yalain_content::quests::CompletionPay::default(),
             required: None,
+            cancel_wait: None,
         }],
         steps: vec![Step {
             quest: QUEST,
@@ -302,6 +303,7 @@ fn a_step_says_its_line_then_the_lines_heard_with_its_update_in_order() {
             fellows: false,
             levels: None,
             xp_share: 0.0,
+            transforms: None,
         }],
         gives: Vec::new(),
         rooms: Vec::new(),

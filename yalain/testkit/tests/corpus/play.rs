@@ -272,6 +272,7 @@ fn a_day_of_heals_and_crafts() -> Vec<ServerMessage> {
             hero_only: false,
             pay: yalain_content::quests::CompletionPay::default(),
             required: None,
+            cancel_wait: None,
         });
     let step = Step {
         quest,
@@ -294,6 +295,7 @@ fn a_day_of_heals_and_crafts() -> Vec<ServerMessage> {
         levels: None,
         xp_share: 0.0,
         to: None,
+        transforms: None,
     };
     let clock = h.clock();
     yalain_world::quests::run(&mut h.server, &mut h.net, world, &step, None, clock);
@@ -646,6 +648,7 @@ fn a_visit() -> Vec<ServerMessage> {
             hero_only: false,
             pay: yalain_content::quests::CompletionPay::default(),
             required: None,
+            cancel_wait: None,
         }],
         steps: vec![Step {
             quest: 0x4000_0088,
@@ -668,6 +671,7 @@ fn a_visit() -> Vec<ServerMessage> {
             levels: None,
             xp_share: 0.0,
             to: None,
+            transforms: None,
         }],
         gives: Vec::new(),
         rooms: Vec::new(),

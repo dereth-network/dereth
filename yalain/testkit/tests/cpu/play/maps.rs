@@ -380,6 +380,7 @@ fn a_map_found_at_its_place_moves_on_the_quest_it_is_part_of() {
         hero_only: false,
         pay: yalain_content::quests::CompletionPay::default(),
         required: None,
+        cancel_wait: None,
     });
     h.server.quests.steps.push(Step {
         quest,
@@ -402,6 +403,7 @@ fn a_map_found_at_its_place_moves_on_the_quest_it_is_part_of() {
         fellows: false,
         levels: None,
         xp_share: 0.0,
+        transforms: None,
     });
     let (b, me, world, map) = with_map(&mut h);
     h.server

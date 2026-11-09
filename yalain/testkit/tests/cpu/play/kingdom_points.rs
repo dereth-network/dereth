@@ -109,6 +109,7 @@ fn quest(id: u32) -> QuestDef {
         hero_only: false,
         pay: yalain_content::quests::CompletionPay::default(),
         required: None,
+        cancel_wait: None,
     }
 }
 
@@ -539,6 +540,7 @@ fn a_step_for_one_kingdom_runs_only_for_its_players() {
         levels: None,
         xp_share: 0.0,
         to: None,
+        transforms: None,
     };
     for (k, runs) in [(kingdom::DOMINION, true), (kingdom::ORDER, false)] {
         let mut h = world(true);

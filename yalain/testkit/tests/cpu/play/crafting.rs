@@ -636,6 +636,7 @@ fn a_step_with_its_effects_last_tells_the_update_before_the_recipe() {
                 hero_only: false,
                 pay: yalain_content::quests::CompletionPay::default(),
                 required: None,
+                cancel_wait: None,
             }],
             steps: Vec::new(),
             gives: Vec::new(),
@@ -662,6 +663,7 @@ fn a_step_with_its_effects_last_tells_the_update_before_the_recipe() {
             levels: None,
             xp_share: 0.0,
             to: None,
+            transforms: None,
         };
         let from = h.bots[b].inbox.len();
         let clock = h.clock();
@@ -1271,6 +1273,7 @@ fn a_quest_given_runs_the_step_waiting_on_it_and_one_withheld_runs_none() {
         hero_only: false,
         pay: yalain_content::quests::CompletionPay::default(),
         required,
+        cancel_wait: None,
     };
     for paid in [false, true] {
         let (mut h, b, _me, world) = in_world();
@@ -1301,6 +1304,7 @@ fn a_quest_given_runs_the_step_waiting_on_it_and_one_withheld_runs_none() {
                 levels: None,
                 xp_share: 0.0,
                 to: None,
+                transforms: None,
             }],
             gives: Vec::new(),
             rooms: Vec::new(),

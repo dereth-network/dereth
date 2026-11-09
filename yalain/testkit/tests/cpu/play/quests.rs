@@ -84,6 +84,7 @@ fn quest(id: u32, xp: u64, challenge: i32) -> QuestDef {
         hero_only: false,
         pay: yalain_content::quests::CompletionPay::default(),
         required: None,
+        cancel_wait: None,
     }
 }
 
@@ -109,6 +110,7 @@ fn step(quest: u32, needs: u32, trigger: Trigger, update: Update) -> Step {
         levels: None,
         xp_share: 0.0,
         to: None,
+        transforms: None,
     }
 }
 

@@ -591,6 +591,7 @@ fn an_item_in_the_pack_its_quest_keeps_is_refused_by_its_use() {
         hero_only: false,
         pay: yalain_content::quests::CompletionPay::default(),
         required: None,
+        cancel_wait: None,
     };
     h.server.quests = QuestTable {
         quests: vec![def(false)],
@@ -715,6 +716,7 @@ fn an_item_its_quest_keeps_is_refused_when_taken_until_the_quest_is_where_it_nee
         hero_only: false,
         pay: yalain_content::quests::CompletionPay::default(),
         required: None,
+        cancel_wait: None,
     };
     h.server.quests = QuestTable {
         quests: vec![def(false)],
@@ -1005,6 +1007,7 @@ fn hidden_quest(h: &mut Harness) {
             hero_only: false,
             pay: yalain_content::quests::CompletionPay::default(),
             required: None,
+            cancel_wait: None,
         });
     h.server
         .quest_ids

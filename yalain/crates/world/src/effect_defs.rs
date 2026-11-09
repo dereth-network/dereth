@@ -23,7 +23,7 @@
 //! effect it gives back, and takes off the oldest of the effects found or all of them, as its
 //! flags say; not found, the other effect and adjustment.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 
 use auberean_script::graph::{Graph, PackedObject};
 use auberean_script::library::Library;
@@ -156,7 +156,21 @@ mod watcher_flag {
 }
 
 /// What a ward keeps off, where its own data names nothing: the world's `[[effect_rule]]` rows.
-pub use yalain_content::effect_rules::Ward;
+pub use yalain_content::effect_rules::{EffectRules, Ward};
+
+/// The effects that take a share of their player's vitae, for a world whose rules name none: Aun
+/// Aulatah's tap of a tenth (2017: 81 to 72.9, 1 of 1).
+const VITAE_TAPS_2017: [(u32, f32); 1] = [(0x6F00_1C64, 0.1)];
+
+/// A world whose rules name no share of vitae taps 2017's; one that names any has its rows' alone.
+/// Returns whether the world named none.
+pub fn vitae_taps_or_2017(rules: &mut EffectRules) -> bool {
+    if !rules.vitae_taps.is_empty() {
+        return false;
+    }
+    rules.vitae_taps.extend(VITAE_TAPS_2017);
+    true
+}
 
 /// The kind of an effect a world's row makes a ward: its chance the same at any spellcraft.
 #[must_use]
@@ -351,6 +365,8 @@ pub enum Kind {
     /// An immunity under way: hidden from its holder, it comes on with what it follows, and as it
     /// ends leaves this effect, which keeps that kind off.
     Immunity { then: u32 },
+    /// Takes this share of its player's vitae, once.
+    VitaeTap(f32),
     /// Anything else (kept as a record only).
     Other,
 }
@@ -398,7 +414,7 @@ impl EffectDef {
         !self.duration.is_empty()
             && !matches!(
                 self.kind,
-                Kind::InstantVital { .. } | Kind::VitalTransfer { .. }
+                Kind::InstantVital { .. } | Kind::VitalTransfer { .. } | Kind::VitaeTap(_)
             )
     }
 
@@ -870,13 +886,14 @@ pub struct EffectTable {
 
 impl EffectTable {
     /// The definitions of these saved states and of the effects they add in turn (a state that
-    /// does not read is left out), each of `wards` (by saved state) a ward keeping off what it names.
+    /// does not read is left out), each the world's `rules` name (by saved state) a ward keeping off
+    /// what it names, or a tap of its share of vitae.
     #[must_use]
     pub fn read(
         lib: &Library,
         states: &[u32],
         graph: &dyn Fn(u32) -> Option<Graph>,
-        wards: &BTreeMap<u32, Ward>,
+        rules: &EffectRules,
     ) -> Self {
         let mut t = Self::default();
         let mut todo: Vec<u32> = states.to_vec();
@@ -886,8 +903,11 @@ impl EffectTable {
             }
             let Some(g) = graph(s) else { continue };
             if let Ok(mut d) = EffectDef::from_state(s, lib, &g) {
-                if let Some(w) = wards.get(&s) {
+                if let Some(w) = rules.wards.get(&s) {
                     d.kind = ward_kind(w);
+                }
+                if let Some(share) = rules.vitae_taps.get(&s) {
+                    d.kind = Kind::VitaeTap(*share);
                 }
                 if let Some(text) = EffectDef::description_of(lib, &g) {
                     t.descriptions.insert(s, text);

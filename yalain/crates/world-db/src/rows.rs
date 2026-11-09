@@ -401,6 +401,8 @@ pub struct Quest {
     /// its giving.
     pub timed_phase: Option<u32>,
     pub retry: Option<f64>,
+    /// The wait after a cancel before it may be taken again; left out, the rule's.
+    pub cancel_wait: Option<f64>,
     pub xp: Option<u64>,
     /// In place of an amount, the share of what the player's level takes to reach the next that its
     /// completion pays; left out, as the quest's setup in the install says.
@@ -513,6 +515,8 @@ pub struct Step {
     pub most_level: Option<i32>,
     /// It pays this share of what the player's level takes to reach the next, whole.
     pub xp_share: Option<f64>,
+    /// For a give, it makes its player a hero, after this transformation.
+    pub transforms: Option<yalain_content::quests::Transformation>,
     pub prov: Prov,
 }
 
@@ -661,12 +665,13 @@ pub struct Popup {
 }
 
 /// `[[effect_rule]]`: what the world says of an effect where its own data says nothing: what a ward
-/// keeps off.
+/// keeps off, the share of its player's vitae it takes.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EffectRule {
     /// The effect, by its saved state.
     pub effect: u32,
-    pub ward: yalain_content::effect_rules::Ward,
+    pub ward: Option<yalain_content::effect_rules::Ward>,
+    pub vitae_share: Option<f32>,
     pub prov: Prov,
 }
 
@@ -1129,6 +1134,7 @@ pub const FIELDS: [(&str, &[&str]); 37] = [
             "duration",
             "timed_phase",
             "retry",
+            "cancel_wait",
             "xp",
             "xp_share",
             "xp_share_level",
@@ -1171,6 +1177,7 @@ pub const FIELDS: [(&str, &[&str]); 37] = [
             "least_level",
             "most_level",
             "xp_share",
+            "transforms",
             "prov",
         ],
     ),
@@ -1301,7 +1308,7 @@ pub const FIELDS: [(&str, &[&str]); 37] = [
     ),
     ("points_bonus", &["effect", "add", "up_to", "prov"]),
     ("popup", &["on", "effect", "prov"]),
-    ("effect_rule", &["effect", "ward", "prov"]),
+    ("effect_rule", &["effect", "ward", "vitae_share", "prov"]),
     ("treasure_value", &["level", "values", "prov"]),
     (
         "treasure_rules",
@@ -1749,6 +1756,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
             duration: f.float("duration"),
             timed_phase: f.int("timed_phase").and_then(|v| u32::try_from(v).ok()),
             retry: f.float("retry"),
+            cancel_wait: f.seconds("cancel_wait"),
             xp: f.int("xp").and_then(|v| u64::try_from(v).ok()),
             xp_share: f.float("xp_share"),
             xp_share_level: f.int("xp_share_level").and_then(|v| i32::try_from(v).ok()),
@@ -1807,6 +1815,10 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 least_level: f.int("least_level").and_then(|v| i32::try_from(v).ok()),
                 most_level: f.int("most_level").and_then(|v| i32::try_from(v).ok()),
                 xp_share: f.float("xp_share"),
+                transforms: match f.get("transforms") {
+                    Some(_) => Some(f.transformation()?),
+                    None => None,
+                },
                 prov: f.req_prov()?,
             })
         }
@@ -2000,10 +2012,22 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
         }
         "effect_rule" => {
             let effect = f.req_id("effect")?;
-            let ward = f.ward()?;
+            let ward = match f.get("ward") {
+                Some(_) => Some(f.ward()?),
+                None => None,
+            };
+            let vitae_share = f.share("vitae_share").map(to_f32);
+            if ward.is_none() && vitae_share.is_none() {
+                f.bad(
+                    "ward, vitae_share",
+                    "a rule names a ward or a share of vitae",
+                );
+                return None;
+            }
             Row::EffectRule(EffectRule {
                 effect,
                 ward,
+                vitae_share,
                 prov: f.req_prov()?,
             })
         }
@@ -3498,6 +3522,70 @@ impl<'a> Fields<'a> {
             self.bad(
                 "ward",
                 "{ classes, effects, chance }: the classes and the effects it keeps off, at least one, and a chance above 0, at most 1",
+            );
+        }
+        read
+    }
+
+    /// A share, above 0 and at most 1.
+    fn share(&mut self, name: &str) -> Option<f64> {
+        self.typed(name, "a share above 0, at most 1", |v| {
+            as_number(v).filter(|s| *s > 0.0 && *s <= 1.0)
+        })
+    }
+
+    /// A number of seconds, from 0.
+    fn seconds(&mut self, name: &str) -> Option<f64> {
+        self.typed(name, "a number of seconds from 0", |v| {
+            as_number(v).filter(|s| *s >= 0.0)
+        })
+    }
+
+    /// `{ seconds, fx, behavior, text, name }`: how long after the give's answer, from 0; the
+    /// appearances and the behavior played on the player meanwhile; what the new hero is told (a
+    /// `{ table, string }`), and the variable its name fills.
+    fn transformation(&mut self) -> Option<yalain_content::quests::Transformation> {
+        let v = self.get("transforms")?;
+        let read = v.as_table().and_then(|t| {
+            if t.keys()
+                .any(|k| !["seconds", "fx", "behavior", "text", "name"].contains(&k.as_str()))
+            {
+                return None;
+            }
+            let fx = match t.get("fx") {
+                Some(v) => v
+                    .as_array()?
+                    .iter()
+                    .map(as_u32)
+                    .collect::<Option<Vec<_>>>()?,
+                None => Vec::new(),
+            };
+            let text = match t.get("text") {
+                Some(v) => {
+                    let s = v.as_table().filter(|s| s.len() == 2)?;
+                    Some((as_u32(s.get("string")?)?, as_u32(s.get("table")?)?))
+                }
+                None => None,
+            };
+            let name = match t.get("name") {
+                Some(v) => as_u32(v).filter(|_| text.is_some())?,
+                None => 0,
+            };
+            Some(yalain_content::quests::Transformation {
+                seconds: as_number(t.get("seconds")?).filter(|s| *s >= 0.0)?,
+                fx,
+                behavior: t
+                    .get("behavior")
+                    .map(as_u32)
+                    .map_or(Some(None), |b| b.map(Some))?,
+                text,
+                name,
+            })
+        });
+        if read.is_none() {
+            self.bad(
+                "transforms",
+                "{ seconds, fx, behavior, text, name }: its seconds from 0, the appearances and the behavior played meanwhile, the text the hero is told ({ table, string }) and the variable its name fills, which needs the text",
             );
         }
         read

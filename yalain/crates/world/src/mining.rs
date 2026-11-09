@@ -980,6 +980,7 @@ pub fn quest_mine_done<S: Store>(
             fellows: false,
             levels: None,
             xp_share: 0.0,
+            transforms: None,
         };
         crate::quests::run(s, net, world, &step, None, clock);
     }

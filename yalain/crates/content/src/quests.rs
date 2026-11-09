@@ -15,7 +15,8 @@
 //!   whether it fails when its player dies (0/1), whether it is given only once (0/1), how a kill's
 //!   move on it reaches the killer's fellows (added up: 1 it does, 2 only those near the killer's
 //!   level, 4 only those near the killer), whether its last phase waits for something other than
-//!   a kill to end it (0/1), and the one phase its duration runs in (0 or left out: all of them);
+//!   a kill to end it (0/1), the one phase its duration runs in (0 or left out: all of them), and
+//!   the wait after a cancel in seconds (empty: the rule's);
 //! - `step`: quest, the phase it needs (0: the quest not under way), the trigger (`use:TEMPLATE`,
 //!   `useon:ITEM:TARGET`, `give:ITEM:TARGET`, `arrive:TEMPLATE`, `take:TEMPLATE`, `kill:TEMPLATE`, `done:QUEST`, `given:QUEST`), the giver's line
 //!   (`string:table`, `=` and literal text, or empty), the update (`bestow`, `advance:N`, `complete`), experience, items
@@ -24,7 +25,10 @@
 //!   the pack (templates joined by `,`), where it takes the player (`CELL:X:Y:Z:HEADING`; an item's
 //!   use on an object makes the update on arrival), its effects (saved states joined by `,`), the text shown after them
 //!   (`string:table`), whether its update is made for the player's fellows too (0/1), and for a
-//!   give how many of the item it wants (empty for whatever is given);
+//!   give how many of the item it wants (empty for whatever is given), the levels it is for
+//!   (`LEAST:MOST`), the share of a level it pays, and for a give that makes its player a hero, the
+//!   transformation (`SECONDS:FX/FX...:BEHAVIOR:STRING:TABLE:NAME`, hex but the seconds, empty
+//!   parts for none);
 //! - `give`: what a person or an object does with an item given it that moves no quest: the template
 //!   given to, the item's template (empty: any item), how many of it it wants (empty: whatever is
 //!   given), the items given back (templates joined by `,`, a count after `x`), its effects (saved
@@ -50,6 +54,9 @@ pub struct QuestDef {
     /// The one phase its duration runs in, from when that phase comes (0: all, from its giving).
     pub timed_phase: u32,
     pub retry: f64,
+    /// The wait after a cancel before it may be taken again, in seconds, where its row names one
+    /// (none: the rule's).
+    pub cancel_wait: Option<f64>,
     pub xp: u64,
     pub cancellable: bool,
     pub placed: String,
@@ -275,6 +282,67 @@ pub struct Step {
     pub levels: Option<(i32, i32)>,
     /// It pays this share of what the player's level takes to reach the next, whole.
     pub xp_share: f32,
+    /// For a give, it makes its player a hero, after this transformation.
+    pub transforms: Option<Transformation>,
+}
+
+/// A give's step that makes its player a hero: the gift kept at once and these appearances and
+/// this behavior played on the player, the step run when its time is through, the player then a
+/// hero and told a text that may name it.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Transformation {
+    /// How long after the give's answer the step runs.
+    pub seconds: f64,
+    pub fx: Vec<u32>,
+    pub behavior: Option<u32>,
+    /// What the new hero is told (string id, table), and the variable its name fills (0: none).
+    pub text: Option<(u32, u32)>,
+    pub name: u32,
+}
+
+impl Transformation {
+    fn word(&self) -> String {
+        let fx = self
+            .fx
+            .iter()
+            .map(|f| format!("{f:08X}"))
+            .collect::<Vec<_>>()
+            .join("/");
+        let behavior = self
+            .behavior
+            .map_or_else(String::new, |b| format!("{b:08X}"));
+        let (string, table) = self.text.map_or_else(
+            || (String::new(), String::new()),
+            |(s, t)| (format!("{s:08X}"), format!("{t:08X}")),
+        );
+        format!(
+            "{}:{fx}:{behavior}:{string}:{table}:{:08X}",
+            self.seconds, self.name
+        )
+    }
+
+    fn of_word(w: &str) -> Result<Self, String> {
+        let c: Vec<&str> = w.split(':').collect();
+        let [seconds, fx, behavior, string, table, name] = c[..] else {
+            return Err(format!("a transformation has six parts, not {w}"));
+        };
+        Ok(Self {
+            seconds: seconds
+                .parse()
+                .map_err(|_| format!("{seconds} is not a number"))?,
+            fx: fx
+                .split('/')
+                .filter(|x| !x.is_empty())
+                .map(hex)
+                .collect::<Result<_, _>>()?,
+            behavior: optional(behavior, hex)?,
+            text: match (optional(string, hex)?, optional(table, hex)?) {
+                (Some(s), Some(t)) => Some((s, t)),
+                _ => None,
+            },
+            name: optional(name, hex)?.unwrap_or(0),
+        })
+    }
 }
 
 /// What a person or an object does with an item given it that moves no quest (a toll, a donation,
@@ -447,7 +515,7 @@ impl QuestTable {
                 .join(",");
             let _ = writeln!(
                 out,
-                "quest\t{:08X}\t{}\t{}\t{:08X}\t{}\t{j}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{effects}\t{subs}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                "quest\t{:08X}\t{}\t{}\t{:08X}\t{}\t{j}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{effects}\t{subs}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
                 q.id,
                 r(q.name),
                 r(q.description),
@@ -470,6 +538,7 @@ impl QuestTable {
                     .map_or_else(String::new, |(q, st)| format!("{q:08X}:{st:08X}")),
                 q.pay.word(),
                 q.timed_phase,
+                q.cancel_wait.map_or_else(String::new, |w| w.to_string()),
             );
         }
         for s in &self.steps {
@@ -533,7 +602,7 @@ impl QuestTable {
             });
             let _ = writeln!(
                 out,
-                "step\t{:08X}\t{}\t{trigger}\t{}\t{update}\t{}\t{gives}\t{}\t{requires}\t{takes}\t{to}\t{effects}\t{text}\t{}\t{}\t{}\t{}",
+                "step\t{:08X}\t{}\t{trigger}\t{}\t{update}\t{}\t{gives}\t{}\t{requires}\t{takes}\t{to}\t{effects}\t{text}\t{}\t{}\t{}\t{}\t{}",
                 s.quest,
                 s.needs,
                 s.tell.as_ref().map(Words::to_text).unwrap_or_default(),
@@ -544,6 +613,9 @@ impl QuestTable {
                 s.levels
                     .map_or_else(String::new, |(a, b)| format!("{a}:{b}")),
                 s.xp_share,
+                s.transforms
+                    .as_ref()
+                    .map_or_else(String::new, Transformation::word),
             );
         }
         for g in &self.gives {
@@ -635,7 +707,7 @@ impl QuestTable {
                         .map_err(at)?;
                     t.rooms.push(row);
                 }
-                "quest" if (13..=25).contains(&c.len()) => t.quests.push(QuestDef {
+                "quest" if (13..=26).contains(&c.len()) => t.quests.push(QuestDef {
                     id: hex(c[1]).map_err(at)?,
                     name: pair(c[2]).map_err(at)?,
                     description: pair(c[3]).map_err(at)?,
@@ -696,8 +768,12 @@ impl QuestTable {
                         Some(v) if !v.is_empty() => num(v).map_err(at)?,
                         _ => 0,
                     },
+                    cancel_wait: match c.get(25) {
+                        Some(v) if !v.is_empty() => Some(num(v).map_err(at)?),
+                        _ => None,
+                    },
                 }),
-                "step" if (9..=18).contains(&c.len()) => {
+                "step" if (9..=19).contains(&c.len()) => {
                     let (kind, tpl) = c[3]
                         .split_once(':')
                         .ok_or_else(|| at(format!("a trigger is kind:template, not {}", c[3])))?;
@@ -835,6 +911,7 @@ impl QuestTable {
                                 .parse()
                                 .map_err(|_| at(format!("a share {}", col(17))))?
                         },
+                        transforms: optional(col(18), Transformation::of_word).map_err(at)?,
                     });
                 }
                 "give" if c.len() == 10 => {

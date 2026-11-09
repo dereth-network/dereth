@@ -34,6 +34,7 @@ use std::time::Duration;
 
 use crate::data;
 use auberean_dat::overlay::{WorldOverlay, WORLD_FOLDER};
+use yalain_content::effect_rules::EffectRules;
 use yalain_world_db::compile::{compile, Tables};
 use yalain_world_db::install::DatInstall;
 use yalain_world_db::release::{self, PINNED_TAG, PINNED_ZIP_SHA256};
@@ -279,7 +280,7 @@ pub fn install_problems(p: &data::Portal, db: &rows::Database) -> Result<Vec<Pro
         if let rows::Row::Popup(r) = &l.row {
             let why = if !data::saved_states(p)?.iter().any(|s| s.id == r.effect) {
                 Some("the install holds no such effect")
-            } else if !data::effect_table(p, &[r.effect], &std::collections::BTreeMap::new())?
+            } else if !data::effect_table(p, &[r.effect], &EffectRules::default())?
                 .descriptions
                 .contains_key(&r.effect)
             {
@@ -296,12 +297,11 @@ pub fn install_problems(p: &data::Portal, db: &rows::Database) -> Result<Vec<Pro
             }
         }
         if let rows::Row::EffectRule(r) = &l.row {
-            let named: Vec<u32> = std::iter::once(r.effect)
-                .chain(r.ward.effects.iter().copied())
-                .collect();
-            let read = data::effect_table(p, &named, &std::collections::BTreeMap::new())?;
-            for (what, effect) in std::iter::once(("effect", r.effect))
-                .chain(r.ward.effects.iter().map(|e| ("ward effect", *e)))
+            let warded = r.ward.iter().flat_map(|w| w.effects.iter().copied());
+            let named: Vec<u32> = std::iter::once(r.effect).chain(warded.clone()).collect();
+            let read = data::effect_table(p, &named, &EffectRules::default())?;
+            for (what, effect) in
+                std::iter::once(("effect", r.effect)).chain(warded.map(|e| ("ward effect", e)))
             {
                 if !read.effects.contains_key(&effect) {
                     out.push(Problem::new(
@@ -335,7 +335,7 @@ pub fn install_problems(p: &data::Portal, db: &rows::Database) -> Result<Vec<Pro
                 .flat_map(|t| [t.state, t.puts_on])
                 .filter(|s| *s != 0)
                 .collect();
-            let read = data::effect_table(p, &named, &std::collections::BTreeMap::new())?;
+            let read = data::effect_table(p, &named, &EffectRules::default())?;
             for state in named.iter().filter(|s| !read.effects.contains_key(s)) {
                 out.push(Problem::new(
                     &l.file,
@@ -349,7 +349,7 @@ pub fn install_problems(p: &data::Portal, db: &rows::Database) -> Result<Vec<Pro
             }
         }
         if let rows::Row::TreasurePotion(r) = &l.row {
-            let read = data::effect_table(p, &r.states, &std::collections::BTreeMap::new())?;
+            let read = data::effect_table(p, &r.states, &EffectRules::default())?;
             for state in r.states.iter().filter(|s| !read.effects.contains_key(s)) {
                 out.push(Problem::new(
                     &l.file,

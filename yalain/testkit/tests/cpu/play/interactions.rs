@@ -149,6 +149,7 @@ fn hall() -> Harness {
         hero_only: false,
         pay: yalain_content::quests::CompletionPay::default(),
         required: None,
+        cancel_wait: None,
     });
     h.server.quests.steps.push(Step {
         quest: ENTER_QUEST,
@@ -171,6 +172,7 @@ fn hall() -> Harness {
         fellows: true,
         levels: None,
         xp_share: 0.0,
+        transforms: None,
     });
     h
 }
@@ -392,6 +394,7 @@ fn an_item_used_on_an_object_while_its_step_waits_for_another_phase_is_answered_
         fellows: false,
         levels: None,
         xp_share: 0.0,
+        transforms: None,
     });
     let (a, me, world, glyph) = holding(&mut h, "one", GLYPH_TEMPLATE);
     h.server

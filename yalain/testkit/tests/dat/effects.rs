@@ -2279,7 +2279,7 @@ fn tyrant_world() -> yalain_world_db::Files {
 fn a_ward_reads_as_its_worlds_row_says_and_without_rows_as_a_record() {
     let p = Portal::open();
     let states = [TYRANT_WARD, 0x6F00_266E, 0x6F00_2672];
-    let none = p.effects_warded(&states, &std::collections::BTreeMap::new());
+    let none = p.effects_ruled(&states, &yalain_world::effect_defs::EffectRules::default());
     for s in states {
         assert_eq!(none.get(s).map(|d| &d.kind), Some(&Kind::Other), "{s:08X}");
     }
@@ -2289,7 +2289,7 @@ fn a_ward_reads_as_its_worlds_row_says_and_without_rows_as_a_record() {
         Some(Kind::Ward { classes, .. }) if classes == &[48, 1119, 5013]
     ));
     let t = p.compile(&tyrant_world());
-    let rows = p.effects_warded(&states, &t.effect_rules.wards);
+    let rows = p.effects_ruled(&states, &t.effect_rules);
     match rows.get(TYRANT_WARD).map(|d| &d.kind) {
         Some(Kind::Ward {
             classes,
@@ -2323,7 +2323,7 @@ fn the_tyrant_warder_stone_puts_on_a_ward_that_keeps_off_what_bars_skills() {
     let mut h = yalain_testkit::Harness::new();
     h.server.catalog.insert(p.template(TYRANT_STONE));
     h.server.item_uses = uses;
-    h.server.effect_table = p.effects_warded(&states, &t.effect_rules.wards);
+    h.server.effect_table = p.effects_ruled(&states, &t.effect_rules);
     h.server.quests = t.quests.clone();
     for s in [SILENCE, PACIFY, CLOUDED_EYES] {
         let class = h.server.effect_table.get(s).map(|d| d.eq_class);

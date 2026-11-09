@@ -1537,6 +1537,7 @@ fn a_quest_an_admin_takes_off_a_player_takes_its_subquests_too() {
         hero_only: false,
         required: None,
         pay: yalain_content::quests::CompletionPay::default(),
+        cancel_wait: None,
     };
     let at = |phase, quests: &[u32]| Subquests {
         phase,
@@ -1578,6 +1579,7 @@ fn a_quest_an_admin_takes_off_a_player_takes_its_subquests_too() {
                 levels: None,
                 xp_share: 0.0,
                 to: None,
+                transforms: None,
             })
             .to_vec(),
         gives: Vec::new(),
@@ -1709,6 +1711,7 @@ fn a_quest_an_admin_takes_off_a_player_leaves_its_clients_list_at_once() {
             hero_only: false,
             required: None,
             pay: yalain_content::quests::CompletionPay::default(),
+            cancel_wait: None,
         };
         h.server.quests = yalain_content::QuestTable {
             quests: vec![def(SHOWN, false), def(OTHER, false), def(HIDDEN, true)],

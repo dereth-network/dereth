@@ -1605,9 +1605,9 @@ pub fn back_after_entry<S: Store>(
     crate::world::keep_player(s, world);
 }
 
-/// A share of a player's vitae is taken (a person's tap of it): its vitae is that share of what it
-/// was, and the experience still to earn to raise it worked out again, both told (2017: 81 to 72.9
-/// by a tap leaving nine tenths, with 80,660 to earn, 1 of 1).
+/// A share of a player's vitae is taken (a person's tap of it): its vitae is what is left of it,
+/// and the experience still to earn to raise it worked out again, both told (2017: 81 to 72.9 by a
+/// tap of a tenth, with 80,660 to earn, 1 of 1).
 pub fn tap_vitae<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, share: f32) {
     let costs = s.vitae_costs.clone();
     let Some(p) = s.players.get_mut(&world) else {
@@ -1615,7 +1615,7 @@ pub fn tap_vitae<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId
     };
     let level = crate::examine::level_of(&p.qualities);
     let was = quals::float(&p.qualities, vitae_q::VITAE).unwrap_or(100.0);
-    let vitae = was * share;
+    let vitae = was * (1.0 - share);
     quals::set_float(&mut p.qualities, vitae_q::VITAE, vitae);
     progress::send_float(net, world, vitae_q::VITAE, vitae);
     if let Some(x) = xp_to_raise(&costs, level, vitae) {

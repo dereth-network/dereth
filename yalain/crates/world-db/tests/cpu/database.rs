@@ -2387,6 +2387,165 @@ fn a_give_s_step_may_want_a_count_and_no_other_step_may() {
     );
 }
 
+/// Behaviour: server.quests.cancel-waits-as-rows-say
+#[test]
+fn a_quest_row_may_name_its_wait_after_a_cancel() {
+    let t = compile(&merge(&read(&fixture()).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(t.quests.quests[0].cancel_wait, None, "left out: the rule's");
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/quests/40000088.toml",
+        "duration = 72000",
+        "duration = 72000\ncancel_wait = 18000",
+    );
+    assert_eq!(check(&files), Vec::new());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(t.quests.quests[0].cancel_wait, Some(18_000.0));
+    let again = yalain_content::QuestTable::from_text(&t.quests.to_text()).unwrap();
+    assert_eq!(
+        again.quests[0].cancel_wait,
+        Some(18_000.0),
+        "kept through its text form"
+    );
+    for bad in ["cancel_wait = -1", "cancel_wait = \"long\""] {
+        let mut files = fixture();
+        edit(
+            &mut files,
+            "town/server/quests/40000088.toml",
+            "duration = 72000",
+            &format!("duration = 72000\n{bad}"),
+        );
+        assert!(read(&files).is_err(), "{bad}");
+    }
+}
+
+/// Behaviour: server.gives.hero-transformation
+#[test]
+fn a_give_s_step_may_transform_its_player_and_no_other_step_may() {
+    use yalain_content::quests::Transformation;
+    const TRANSFORMS: &str = "transforms = { seconds = 25.59, fx = [0x410004A5, 0x410004B5], behavior = 0x41000120, text = { table = 0x25002BE3, string = 0x2EE20FE4 }, name = 0x9D066C50 }\n";
+    let give = yalain_content::quests::Trigger::Give(0x4700_20B9, 0x4700_33D0);
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/quests/40000088.toml",
+        "trigger = { give = 0x470020B9, to = 0x470033D0 }\n",
+        &format!("trigger = {{ give = 0x470020B9, to = 0x470033D0 }}\n{TRANSFORMS}"),
+    );
+    assert_eq!(check(&files), Vec::new());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let transforms = |t: &yalain_content::QuestTable| {
+        t.steps
+            .iter()
+            .find(|s| s.trigger == give)
+            .and_then(|s| s.transforms.clone())
+    };
+    assert_eq!(
+        transforms(&t.quests),
+        Some(Transformation {
+            seconds: 25.59,
+            fx: vec![0x4100_04A5, 0x4100_04B5],
+            behavior: Some(0x4100_0120),
+            text: Some((0x2EE2_0FE4, 0x2500_2BE3)),
+            name: 0x9D06_6C50,
+        })
+    );
+    assert_eq!(
+        yalain_content::QuestTable::from_text(&t.quests.to_text()).unwrap(),
+        t.quests,
+        "it reads back as written"
+    );
+    // Its time alone is enough.
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/quests/40000088.toml",
+        "trigger = { give = 0x470020B9, to = 0x470033D0 }\n",
+        "trigger = { give = 0x470020B9, to = 0x470033D0 }\ntransforms = { seconds = 3 }\n",
+    );
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(
+        transforms(&t.quests),
+        Some(Transformation {
+            seconds: 3.0,
+            ..Transformation::default()
+        })
+    );
+    assert_eq!(
+        yalain_content::QuestTable::from_text(&t.quests.to_text()).unwrap(),
+        t.quests,
+        "it reads back as written"
+    );
+    // Its time from 0, a name only for a text, and nothing else.
+    for bad in [
+        "transforms = { fx = [0x410004A5] }",
+        "transforms = { seconds = -1 }",
+        "transforms = { seconds = 3, name = 0x9D066C50 }",
+        "transforms = { seconds = 3, text = { table = 0x25002BE3 } }",
+        "transforms = { seconds = 3, glow = 1 }",
+        "transforms = 25.59",
+    ] {
+        let mut files = fixture();
+        edit(
+            &mut files,
+            "town/server/quests/40000088.toml",
+            "trigger = { give = 0x470020B9, to = 0x470033D0 }\n",
+            &format!("trigger = {{ give = 0x470020B9, to = 0x470033D0 }}\n{bad}\n"),
+        );
+        assert!(read(&files).is_err(), "{bad}");
+    }
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/quests/40000088.toml",
+        "needs = 0\ntrigger = { use = 0x470033D0 }\n",
+        &format!("needs = 0\ntrigger = {{ use = 0x470033D0 }}\n{TRANSFORMS}"),
+    );
+    let messages: Vec<String> = check(&files).iter().map(ToString::to_string).collect();
+    assert!(
+        messages
+            .iter()
+            .any(|m| m.contains("only a give's step transforms its player")),
+        "{messages:?}"
+    );
+}
+
+/// Behaviour: server.gives.vitae-tap
+#[test]
+fn an_effect_rule_row_may_take_a_share_of_vitae_with_or_without_a_ward() {
+    let mut files = fixture();
+    files.insert(
+        "town/server/effects.toml".into(),
+        "[[effect_rule]]\neffect = 0x6F001C64\nvitae_share = 0.1\nprov = { from = \"authored\" }\n\n\
+         [[effect_rule]]\neffect = 0x6F000E94\nward = { classes = [93], chance = 1.0 }\nvitae_share = 0.5\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    assert_eq!(check(&files), Vec::new());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let rules = &t.effect_rules;
+    assert_eq!(rules.vitae_taps.get(&0x6F00_1C64), Some(&0.1));
+    assert_eq!(rules.vitae_taps.get(&0x6F00_0E94), Some(&0.5));
+    assert_eq!(rules.wards.len(), 1, "the tap alone names no ward");
+    assert_eq!(rules.wards[&0x6F00_0E94].classes, [93]);
+    // A share above nothing and at most the whole.
+    for share in ["0", "0.0", "1.5", "-0.1", "\"a tenth\""] {
+        files.insert(
+            "town/server/effects.toml".into(),
+            format!(
+                "[[effect_rule]]\neffect = 0x6F001C64\nvitae_share = {share}\nprov = {{ from = \"authored\" }}\n"
+            ),
+        );
+        assert!(read(&files).is_err(), "{share}");
+    }
+    files.insert(
+        "town/server/effects.toml".into(),
+        "[[effect_rule]]\neffect = 0x6F001C64\nvitae_share = 1\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    assert!(read(&files).is_ok(), "the whole of it");
+}
+
 const GIVE_ROW: &str = r#"[[give]]
 key = "bucket"
 item = 0x470020B9

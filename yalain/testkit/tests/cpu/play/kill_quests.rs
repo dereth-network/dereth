@@ -53,6 +53,7 @@ pub(super) fn quest(phases: u32) -> QuestDef {
         hero_only: false,
         pay: yalain_content::quests::CompletionPay::default(),
         required: None,
+        cancel_wait: None,
     }
 }
 
@@ -485,6 +486,7 @@ fn a_kills_step_runs_first_and_its_quest_is_not_moved_again_by_the_effect() {
         levels: None,
         xp_share: 0.0,
         to: None,
+        transforms: None,
     });
     let from = h.bots[b].inbox.len();
     kill(&mut h, me, &[INCREMENT]);
@@ -617,6 +619,7 @@ fn giving_step() -> Step {
         levels: None,
         xp_share: 0.0,
         to: None,
+        transforms: None,
     }
 }
 
@@ -721,6 +724,7 @@ fn an_item_acquired_moves_the_quest_its_template_names() {
         levels: None,
         xp_share: 0.0,
         to: None,
+        transforms: None,
     });
     let from = h.bots[b].inbox.len();
     take(&mut h);
@@ -754,6 +758,7 @@ fn an_item_acquired_moves_the_quest_its_template_names() {
         levels: None,
         xp_share: 0.0,
         to: None,
+        transforms: None,
     });
     h.server.quests.steps.retain(|st| st.quest != QUEST);
     holds(&mut h, me, status::UNDERWAY, 2);
@@ -804,6 +809,7 @@ fn a_kills_step_that_leads_somewhere_sends_the_killer() {
         wants: None,
         levels: None,
         xp_share: 0.0,
+        transforms: None,
     };
     h.server.quests.steps = vec![step(1, Some(place)), step(2, None)];
     for p in h.server.players.values_mut() {
@@ -860,6 +866,7 @@ pub(super) fn leading_step(template: u32, needs: u32, to: yalain_content::quests
         wants: None,
         levels: None,
         xp_share: 0.0,
+        transforms: None,
     }
 }
 
@@ -1059,6 +1066,7 @@ fn a_kills_step_sends_the_killer_to_a_free_room_of_its_row() {
         wants: None,
         levels: None,
         xp_share: 0.0,
+        transforms: None,
     }];
     for p in h.server.players.values_mut() {
         p.play.quests.push(QuestState {
@@ -1248,6 +1256,7 @@ fn a_named_camps_creature_goes_by_its_name_and_only_its_kill_moves_the_camps_ste
         levels: None,
         xp_share: 0.0,
         to: None,
+        transforms: None,
     });
     let from = h.bots[b].inbox.len();
     slay(&mut h, other, me);

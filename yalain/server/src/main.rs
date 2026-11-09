@@ -1702,7 +1702,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         spawns,
         loot,
         stores,
-        quests,
+        mut quests,
         talk,
         crafting,
         story,
@@ -1717,10 +1717,14 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         effect_names,
         kingdoms: kingdom_rows,
         popups,
-        effect_rules,
+        mut effect_rules,
         treasure,
         ..
     } = compiled;
+    // Fields of kinds a world has that it may leave out everywhere: the server's own then.
+    let cancel_waits_2017 = yalain_world::quests::cancel_waits_or_2017(&mut quests);
+    let transformations_2017 = yalain_world::gives::transformations_or_2017(&mut quests);
+    let vitae_taps_2017 = yalain_world::effect_defs::vitae_taps_or_2017(&mut effect_rules);
     // The numbers treasure draws by: the world's rows, 2017's for each kind it gives none of.
     let (treasure_tables, mut fell_back) =
         yalain_content::treasure_tables::TreasureTables::with_rows(&treasure);
@@ -1740,7 +1744,21 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
                 kinds.join(", ")
             );
         }
-        let wards = effect_rules.wards.clone();
+        if cancel_waits_2017 {
+            tracing::warn!(
+                "this world's [[quest]] rows name no cancel_wait: the eleven quests the server knows wait five hours after a cancel"
+            );
+        }
+        if transformations_2017 {
+            tracing::warn!(
+                "this world's [[step]] rows name no transforms: a give's step putting on the hero's transformation transforms its player as the server's own does"
+            );
+        }
+        if vitae_taps_2017 {
+            tracing::warn!(
+                "this world's [[effect_rule]] rows name no vitae_share: Aun Aulatah's tap takes the server's own tenth of vitae"
+            );
+        }
         let skills = data::skill_table(portal)?;
         tracing::info!(
             skills = skills.skills.len(),
@@ -1762,7 +1780,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             })
             .chain(quests.effect_states())
             .collect();
-        let effects = data::effect_table(portal, &states, &wards)?;
+        let effects = data::effect_table(portal, &states, &effect_rules)?;
         let granted: Vec<u32> = effects
             .effects
             .values()
@@ -1811,7 +1829,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             | yalain_world::craft::Action::ItemEffect { state, .. } => Some(*state),
             _ => None,
         }));
-        let effects = data::effect_table(portal, &states, &wards)?;
+        let effects = data::effect_table(portal, &states, &effect_rules)?;
         tracing::info!(
             effects = effects.effects.len(),
             recipes = craft.recipes.len(),
@@ -1930,7 +1948,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         // What treasure weapons, armor and shields carry and put on what they hit.
         states.extend(treasure_tables.states());
         mounts.note_items(&item_uses);
-        let effects = data::effect_table(portal, &states, &wards)?;
+        let effects = data::effect_table(portal, &states, &effect_rules)?;
         tracing::info!(
             templates = item_uses.len(),
             effects = effects.effects.len(),

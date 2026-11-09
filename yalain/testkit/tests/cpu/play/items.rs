@@ -151,6 +151,7 @@ fn world() -> Harness {
             hero_only: false,
             pay: yalain_content::quests::CompletionPay::default(),
             required: None,
+            cancel_wait: None,
         }],
         steps: Vec::new(),
         gives: Vec::new(),
@@ -714,6 +715,7 @@ fn a_rod_whose_use_moves_a_quest_is_refused_away_from_its_place_and_moves_it_the
         levels: None,
         xp_share: 0.0,
         to: None,
+        transforms: None,
     });
     let (b, me, world) = in_world(&mut h);
     let rod = give(&mut h, world, ROD, 1);
@@ -868,6 +870,7 @@ fn a_reward_quest_is_completed_with_the_quest_it_rewards() {
             fellows: false,
             levels: None,
             xp_share: 0.0,
+            transforms: None,
         }],
         gives: Vec::new(),
         rooms: Vec::new(),

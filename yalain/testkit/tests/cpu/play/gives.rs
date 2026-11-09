@@ -6,7 +6,9 @@
 use auberean_protocol::{queue, ServerMessage};
 use auberean_script::native_object::QuestInfo;
 use auberean_script::wire::In;
-use yalain_content::quests::{Give, Need, QuestDef, QuestTable, Step, Subquests, Trigger, Update};
+use yalain_content::quests::{
+    Give, Need, QuestDef, QuestTable, Step, Subquests, Transformation, Trigger, Update,
+};
 use yalain_content::talk::{How, Line, Role, TalkTable, TalkUpdate, When, Words};
 use yalain_content::{ContentObject, ContentPack, Description, Facts, Kind, Props};
 use yalain_testkit::play::{report, server_call};
@@ -90,6 +92,7 @@ fn quest(id: u32, phases: u32) -> QuestDef {
         hero_only: false,
         pay: yalain_content::quests::CompletionPay::default(),
         required: None,
+        cancel_wait: None,
     }
 }
 
@@ -115,6 +118,7 @@ fn step(quest: u32, needs: u32, trigger: Trigger, update: Update) -> Step {
         levels: None,
         xp_share: 0.0,
         to: None,
+        transforms: None,
     }
 }
 
@@ -1086,14 +1090,15 @@ fn an_item_a_give_brings_moves_its_quest_on_after_the_step() {
     );
 }
 
-/// A step's tap of vitae leaves the player that share of its vitae (told, with what is still to
-/// earn), its appearance played on the player.
+/// A step's tap of vitae leaves the player what its share leaves of its vitae (told, with what is
+/// still to earn), the effect's own appearance played on the player.
 ///
 /// Behaviour: server.gives.vitae-tap
 #[test]
 fn a_steps_vitae_tap_takes_a_tenth_of_the_vitae() {
+    use yalain_testkit::{VITAE_TAP, VITAE_TAP_FX};
     let mut h = world();
-    h.server.quests.steps[0].effects = vec![gives::VITAE_TAPS[0].0];
+    h.server.quests.steps[0].effects = vec![VITAE_TAP];
     let (b, me) = player(&mut h, "one", "Elara");
     at_phase(&mut h, QUEST, 2);
     let world = world_of(&h, me);
@@ -1113,45 +1118,130 @@ fn a_steps_vitae_tap_takes_a_tenth_of_the_vitae() {
     assert!((vitae.expect("vitae") - 72.9).abs() < 1e-3, "{vitae:?}");
     assert!(
         h.world_messages(b, from).iter().any(|m| matches!(m,
-            ServerMessage::DoFx(e) if e.sender.id == me && e.action.fx == gives::VITAE_TAPS[0].2)),
+            ServerMessage::DoFx(e) if e.sender.id == me && e.action.fx == VITAE_TAP_FX)),
         "its appearance"
     );
 }
 
-/// A step that makes a hero runs when the transformation is through, 25.59 s after the give's
-/// answer: the player a hero, the quest completed, the hero's text; before, only the
-/// transformation's appearances, the gift kept.
+/// A world's tap of vitae takes the share its rule names, and one whose rules name none takes 2017's
+/// tenth with Aun Aulatah's tap; a world that names any has its rows' alone.
 ///
-/// Behaviour: server.gives.hero-transformation
+/// Behaviour: server.gives.vitae-tap
 #[test]
-fn a_give_that_makes_a_hero_does_so_when_the_transformation_is_through() {
-    const ELYSA: u32 = 0x4000_024A;
-    const GEM: u32 = 0x4700_1505;
+fn a_vitae_tap_takes_what_its_rule_says_and_without_rules_2017s() {
+    use yalain_world::effect_defs::{vitae_taps_or_2017, EffectRules, Kind};
+    let mut none = EffectRules::default();
+    assert!(vitae_taps_or_2017(&mut none), "named none");
+    assert_eq!(none.vitae_taps.get(&yalain_testkit::VITAE_TAP), Some(&0.1));
+    let mut own = EffectRules::default();
+    own.vitae_taps.insert(0x6F00_7777, 0.5);
+    assert!(!vitae_taps_or_2017(&mut own));
+    assert_eq!(own.vitae_taps.len(), 1, "its rows alone");
+    // A half, put on by a step.
+    let mut h = world();
+    let tap = h
+        .server
+        .effect_table
+        .effects
+        .get(&yalain_testkit::VITAE_TAP)
+        .cloned()
+        .expect("the test world's tap");
+    h.server.effect_table.effects.insert(
+        0x6F00_7777,
+        yalain_world::effect_defs::EffectDef {
+            state: 0x6F00_7777,
+            kind: Kind::VitaeTap(0.5),
+            ..tap
+        },
+    );
+    h.server.quests.steps[0].effects = vec![0x6F00_7777];
+    let (b, me) = player(&mut h, "one", "Elara");
+    at_phase(&mut h, QUEST, 2);
+    let world = world_of(&h, me);
+    yalain_world::quals::set_float(
+        &mut h.server.players.get_mut(&world).expect("in").qualities,
+        yalain_world::death::vitae_q::VITAE,
+        80.0,
+    );
+    let (ashes, slot) = hold(&mut h, me, ASHES, 1);
+    h.bots[b].send(true, queue::WEENIE, &give(me, ashes, slot, PERSON, 1));
+    h.run(steps(HANDED_AFTER) + 8);
+    let vitae = yalain_world::quals::float(
+        &h.server.players[&world].qualities,
+        yalain_world::death::vitae_q::VITAE,
+    );
+    assert!((vitae.expect("vitae") - 40.0).abs() < 1e-3, "{vitae:?}");
+}
+
+const ELYSA: u32 = 0x4000_024A;
+const BOJU_GEM: u32 = 0x4700_1505;
+
+/// A transformation of the test's own: its time, its appearances and behavior, its text naming the
+/// player.
+fn transformation() -> Transformation {
+    Transformation {
+        seconds: 20.0,
+        fx: vec![0x4100_04A5, 0x4100_04B5],
+        behavior: Some(0x4100_0120),
+        text: Some((0x2EE2_0FE4, 0x2500_2BE3)),
+        name: 0x9D06_6C50,
+    }
+}
+
+/// Elysa's last step, giving the gem to the shrine, with these effects and transformation.
+fn hero_world(effects: Vec<u32>, transforms: Option<Transformation>) -> Harness {
     let mut h = world();
     h.server.quests = QuestTable {
         quests: vec![quest(ELYSA, 4)],
         steps: vec![Step {
-            takes: vec![GEM],
-            effects: vec![gives::HERO_TRANSFORMATION],
-            ..step(ELYSA, 4, Trigger::Give(GEM, OBJECT_T), Update::Complete)
+            takes: vec![BOJU_GEM],
+            effects,
+            transforms,
+            ..step(
+                ELYSA,
+                4,
+                Trigger::Give(BOJU_GEM, OBJECT_T),
+                Update::Complete,
+            )
         }],
         gives: Vec::new(),
         rooms: Vec::new(),
     };
+    h
+}
+
+/// A step that transforms its player runs when the transformation is through, its time after the
+/// give's answer: the player a hero, the quest completed, the hero's text naming it; before, only
+/// the transformation's appearances and behavior, the gift kept.
+///
+/// Behaviour: server.gives.hero-transformation
+#[test]
+fn a_give_that_makes_a_hero_does_so_when_the_transformation_is_through() {
+    let t = transformation();
+    let mut h = hero_world(Vec::new(), Some(t.clone()));
     let (b, me) = player(&mut h, "one", "Elara");
     at_phase(&mut h, ELYSA, 4);
-    let (gem, slot) = hold(&mut h, me, GEM, 1);
+    let (gem, slot) = hold(&mut h, me, BOJU_GEM, 1);
     let from = h.bots[b].inbox.len();
     h.bots[b].send(true, queue::WEENIE, &give(me, gem, slot, OBJECT, 1));
     h.run(steps(HANDED_AFTER) + 8);
     let world = world_of(&h, me);
     assert!(!holds(&h, me, gem), "kept");
+    let shown = h.world_messages(b, from);
+    for fx in &t.fx {
+        assert!(
+            shown.iter().any(|m| matches!(m,
+                ServerMessage::DoFx(e) if e.sender.id == me && e.action.fx == *fx)),
+            "transforming: {fx:08X}"
+        );
+    }
     assert!(
-        h.world_messages(b, from).iter().any(|m| matches!(m,
-            ServerMessage::DoFx(e) if e.sender.id == me && e.action.fx == gives::TRANSFORMATION_FX[0])),
-        "transforming"
+        shown
+            .iter()
+            .any(|m| matches!(m, ServerMessage::PlayBehavior(e) if e.sender.id == me)),
+        "its behavior"
     );
-    h.run(steps(gives::TRANSFORMATION_SECONDS) - 10);
+    h.run(steps(t.seconds) - 10);
     assert!(updates(&h, b, from).is_empty(), "not yet");
     assert!(!yalain_world::focus::is_hero(
         &h.server.players[&world].qualities
@@ -1164,9 +1254,61 @@ fn a_give_that_makes_a_hero_does_so_when_the_transformation_is_through() {
     assert!(
         h.texts(b, from)
             .iter()
-            .any(|(_, id)| *id == gives::HERO_TEXT.0),
+            .any(|(_, id)| Some(*id) == t.text.map(|(s, _)| s)),
         "the hero's text"
     );
+}
+
+/// A world whose steps name no transformation transforms the player of a give's step putting on
+/// the hero's transformation as 2017 did, 25.59 s after the answer; once a world names any, a step
+/// it names none for runs at once and makes no hero.
+///
+/// Behaviour: server.gives.hero-transformation
+#[test]
+fn without_rows_the_heros_transformation_is_2017s_and_with_them_the_rows_alone() {
+    let mut h = hero_world(vec![gives::HERO_TRANSFORMATION], None);
+    assert!(gives::transformations_or_2017(&mut h.server.quests));
+    assert_eq!(
+        h.server.quests.steps[0].transforms,
+        Some(gives::transformation_2017())
+    );
+    assert_eq!(gives::transformation_2017().seconds, 25.59);
+    let (b, me) = player(&mut h, "one", "Elara");
+    at_phase(&mut h, ELYSA, 4);
+    let (gem, slot) = hold(&mut h, me, BOJU_GEM, 1);
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(true, queue::WEENIE, &give(me, gem, slot, OBJECT, 1));
+    h.run(steps(HANDED_AFTER) + steps(25.59) - 10);
+    assert!(updates(&h, b, from).is_empty(), "not yet");
+    h.run(12);
+    let world = world_of(&h, me);
+    assert!(yalain_world::focus::is_hero(
+        &h.server.players[&world].qualities
+    ));
+    // A world naming a transformation for another step: this one is a plain step.
+    let mut h = hero_world(vec![gives::HERO_TRANSFORMATION], None);
+    h.server.quests.steps.push(Step {
+        transforms: Some(transformation()),
+        ..step(
+            ELYSA,
+            9,
+            Trigger::Give(BOJU_GEM, OBJECT_T),
+            Update::Complete,
+        )
+    });
+    assert!(!gives::transformations_or_2017(&mut h.server.quests));
+    assert_eq!(h.server.quests.steps[0].transforms, None);
+    let (b, me) = player(&mut h, "one", "Elara");
+    at_phase(&mut h, ELYSA, 4);
+    let (gem, slot) = hold(&mut h, me, BOJU_GEM, 1);
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(true, queue::WEENIE, &give(me, gem, slot, OBJECT, 1));
+    h.run(steps(HANDED_AFTER) + 8);
+    assert_eq!(updates(&h, b, from), vec![(0x3000_0000, ELYSA, 0)]);
+    let world = world_of(&h, me);
+    assert!(!yalain_world::focus::is_hero(
+        &h.server.players[&world].qualities
+    ));
 }
 
 /// One who logs off with its gift given and the transformation under way (the linger is shorter)
@@ -1174,22 +1316,10 @@ fn a_give_that_makes_a_hero_does_so_when_the_transformation_is_through() {
 /// Behaviour: server.gives.a-step-under-way-runs-as-its-player-leaves
 #[test]
 fn a_hero_step_under_way_runs_as_its_player_leaves() {
-    const ELYSA: u32 = 0x4000_024A;
-    const GEM: u32 = 0x4700_1505;
-    let mut h = world();
-    h.server.quests = QuestTable {
-        quests: vec![quest(ELYSA, 4)],
-        steps: vec![Step {
-            takes: vec![GEM],
-            effects: vec![gives::HERO_TRANSFORMATION],
-            ..step(ELYSA, 4, Trigger::Give(GEM, OBJECT_T), Update::Complete)
-        }],
-        gives: Vec::new(),
-        rooms: Vec::new(),
-    };
+    let mut h = hero_world(Vec::new(), Some(transformation()));
     let (b, me) = player(&mut h, "one", "Elara");
     at_phase(&mut h, ELYSA, 4);
-    let (gem, slot) = hold(&mut h, me, GEM, 1);
+    let (gem, slot) = hold(&mut h, me, BOJU_GEM, 1);
     h.bots[b].send(true, queue::WEENIE, &give(me, gem, slot, OBJECT, 1));
     h.run(steps(HANDED_AFTER) + 8);
     assert!(!holds(&h, me, gem), "kept");

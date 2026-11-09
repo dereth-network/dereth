@@ -1784,6 +1784,15 @@ fn a_players_rating_moved_in_2017_by_the_points_of_what_it_completed() {
 
 /// The install's effects a quest's updates put on its player, read as a server reads them.
 fn effects_of(def: &yalain_content::quests::QuestDef) -> yalain_world::effect_defs::EffectTable {
+    let states: Vec<u32> = def.effects.iter().map(|(_, e)| *e).collect();
+    effects_read(&states, &compiled().tables.effect_rules)
+}
+
+/// The install's effects of these saved states, read as a server reads them with these rules.
+fn effects_read(
+    states: &[u32],
+    rules: &yalain_world::effect_defs::EffectRules,
+) -> yalain_world::effect_defs::EffectTable {
     let dir = require_install(TARGET);
     let found = install_dats(&dir).expect("the install");
     let portal = DatFile::open(
@@ -1799,18 +1808,16 @@ fn effects_of(def: &yalain_content::quests::QuestDef) -> yalain_world::effect_de
         .read_checked(RECORD, Library::from_record)
         .expect("the library reads")
         .value;
-    let states: Vec<u32> = def.effects.iter().map(|(_, e)| *e).collect();
-    let wards = compiled().tables.effect_rules.wards.clone();
     yalain_world::effect_defs::EffectTable::read(
         &lib,
-        &states,
+        states,
         &|id| {
             let bytes = portal.read(id).ok()?;
             let st: auberean_assets::script::ScriptState =
                 auberean_assets::decode(id, &bytes, &ctx).ok()?;
             auberean_script::graph::Graph::decode(&st.graph, &lib).ok()
         },
-        &wards,
+        rules,
     )
 }
 
@@ -4721,4 +4728,113 @@ fn a_mushroom_hunt_gives_lies_hands_in_and_ends_with_its_stew() {
         );
         assert!(catalog.get(mushroom).is_some(), "{mushroom:08X}");
     }
+}
+
+/// **A cancel waits as its world says**: every 2017 cancel's answer names the wait the world's rows
+/// give its quest before it may be taken again (a world naming none, the server's own), five hours
+/// for eleven quests and the rule's five minutes for the rest.
+/// Behaviour: server.quests.cancel-waits-as-rows-say
+#[test]
+fn every_recorded_cancel_names_the_wait_the_world_gives_its_quest() {
+    use auberean_script::args::{decode, Arg};
+    use auberean_script::graph::{Body, PackedObject};
+    use auberean_script::native_object::NativeObject;
+    use yalain_world::quests::{cancel_waits_or_2017, status, wait_after, UPDATE_QUEST};
+    let mut quests = compiled().tables.quests.clone();
+    cancel_waits_or_2017(&mut quests);
+    let lib = super::keeping::library().expect("the client library reads");
+    let con = super::keeping::open(&auberean_testkit::data::require_capture_index());
+    let mut st = con
+        .prepare(
+            "SELECT m.raw FROM message m JOIN session s USING (session_id) \
+             JOIN capture c USING (capture_id) \
+             WHERE c.file LIKE '2017-%' AND s.game = 'ac2' \
+             AND m.dir = 's2c' AND m.status = 'ac2' AND m.mtype = 65638",
+        )
+        .expect("the query prepares");
+    let raws = st
+        .query_map([], |r| r.get::<_, Vec<u8>>(0))
+        .expect("the query runs");
+    let (mut cancels, mut long) = (0usize, 0usize);
+    let mut wrong: Vec<String> = Vec::new();
+    for raw in raws.flatten() {
+        let Ok(ServerMessage::PlayerCall(c)) = ServerMessage::decode(&raw) else {
+            continue;
+        };
+        if c.function.0 != UPDATE_QUEST {
+            continue;
+        }
+        let Some(args) = c.args.as_ref().and_then(|a| decode(&a.0, lib).ok()) else {
+            continue;
+        };
+        for a in &args {
+            let Arg::Object(g) = a else { continue };
+            for e in &g.entries {
+                let Body::Object(PackedObject {
+                    native: Some(NativeObject::Quest(q)),
+                    ..
+                }) = &e.body
+                else {
+                    continue;
+                };
+                if q.status != status::CANCELLED {
+                    continue;
+                }
+                cancels += 1;
+                let recorded = f64::from_bits(q.seconds_until_retry);
+                long += usize::from(recorded > 300.0);
+                let ours = quests.quest(q.id).map(|d| wait_after(d, status::CANCELLED));
+                if ours.is_none_or(|w| (w - recorded).abs() > 1.0) {
+                    wrong.push(format!("{:08x}: {recorded} recorded, {ours:?} here", q.id));
+                }
+            }
+        }
+    }
+    assert!(cancels >= 29, "cancels: {cancels}");
+    assert!(long >= 11, "five-hour cancels: {long}");
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+/// **The hero's transformation and Aun Aulatah's tap at start**: as the server reads the world at
+/// start, Elysa's last step transforms its player 25.59 s after the give with 2017's appearances,
+/// behavior and text; the tap reads as taking a tenth of vitae with its state's own appearance; and
+/// the transformation's own effect, put on, does nothing more.
+/// Behaviour: server.gives.hero-transformation
+#[test]
+fn the_heros_transformation_and_the_vitae_tap_read_as_the_server_starts_them() {
+    use yalain_world::effect_defs::{vitae_taps_or_2017, Kind};
+    let t = &compiled().tables;
+    let mut quests = t.quests.clone();
+    yalain_world::gives::transformations_or_2017(&mut quests);
+    let mut rules = t.effect_rules.clone();
+    vitae_taps_or_2017(&mut rules);
+    let hero = quests
+        .steps
+        .iter()
+        .find(|s| {
+            s.quest == 0x4000_024A
+                && s.trigger == yalain_content::quests::Trigger::Give(0x4700_1505, 0x4700_3049)
+        })
+        .expect("Elysa's last step");
+    assert_eq!(
+        hero.transforms,
+        Some(yalain_world::gives::transformation_2017())
+    );
+    let others = quests
+        .steps
+        .iter()
+        .filter(|s| s.transforms.is_some())
+        .count();
+    assert_eq!(others, 1, "the one hero's step");
+    let states: Vec<u32> = quests.effect_states().collect();
+    let effects = effects_read(&states, &rules);
+    let tap = effects.get(0x6F00_1C64).expect("the tap");
+    assert_eq!(tap.kind, Kind::VitaeTap(0.1));
+    assert_eq!(tap.fx, 0x4100_030B, "its own appearance");
+    assert!(!tap.lasts());
+    let heroize = effects
+        .get(0x6F00_1C6F)
+        .expect("the transformation's effect");
+    assert_eq!(heroize.kind, Kind::Other);
+    assert!(!heroize.lasts() && heroize.fx == 0, "nothing more");
 }

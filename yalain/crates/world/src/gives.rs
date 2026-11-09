@@ -29,9 +29,10 @@
 //! naming a count, the other 25 gave that count and were taken). A part of a stack never leaves the pack: its container is not
 //! cleared at the handing over (2017: 25 of 27) nor told again when it comes back.
 //!
-//! **The hero's transformation.** A step whose effects include the transformation into a hero runs
-//! 25.59 s after the answer (the one 2017 hero, 1 of 1), the transformation's appearances played on
-//! the player at the answer.
+//! **The hero's transformation.** A step that transforms its player runs its transformation's time
+//! after the answer (2017: 25.59 s, the one hero, 1 of 1), the transformation's appearances and
+//! behavior played on the player at the answer; as it runs, the player is made a hero and told its
+//! text.
 
 use auberean_primitives::Vec3;
 use auberean_protocol::physics::{Fx, ObjectEvent, ObjectOnly};
@@ -40,7 +41,8 @@ use auberean_protocol::script::{ClientCall, FunctionId, ObjectCall, ScriptArgs};
 use auberean_protocol::types::{BehaviorParams, MoveTarget, MovementParams, ObjectStamp};
 use auberean_protocol::{queue, ServerMessage};
 use auberean_script::args::Arg;
-use yalain_content::quests::{Step, Trigger};
+use yalain_content::quests::{Step, Transformation, Trigger};
+use yalain_content::QuestTable;
 use yalain_net::{BlobKind, ConnId, ServerNet};
 use yalain_store::{Store, StoredPosition};
 
@@ -79,21 +81,39 @@ pub mod status {
 /// The call that tells a client an item in a container is gone (sent as the container's).
 pub const DESTROY_CONTAINED: u32 = 0x820E_005C;
 
-/// The effect that makes a player a hero, how long after the give's answer it is made (2017: 25.59 s,
-/// 1 of 1), and what the player shows meanwhile: an appearance at the answer, then another and a
-/// behavior.
+/// The effect a step puts on to make its player a hero, for a world whose steps name no
+/// transformation at all: such a step transforms its player as 2017's did.
 pub const HERO_TRANSFORMATION: u32 = 0x6F00_1C6F;
-pub const TRANSFORMATION_SECONDS: f64 = 25.59;
-pub const TRANSFORMATION_FX: [u32; 2] = [0x4100_04A5, 0x4100_04B5];
-pub const TRANSFORMATION_BEHAVIOR: u32 = 0x4100_0120;
 
-/// The text a new hero is told, and its variable naming the player.
-pub const HERO_TEXT: (u32, u32) = (0x2EE2_0FE4, 0x2500_2BE3);
-pub const HERO_NAME_VAR: u32 = 0x9D06_6C50;
+/// 2017's transformation (the one hero, 1 of 1): the step 25.59 s after the give's answer; an
+/// appearance at the answer, then another and a behavior; the text the new hero is told, its name
+/// in its variable.
+#[must_use]
+pub fn transformation_2017() -> Transformation {
+    Transformation {
+        seconds: 25.59,
+        fx: vec![0x4100_04A5, 0x4100_04B5],
+        behavior: Some(0x4100_0120),
+        text: Some((0x2EE2_0FE4, 0x2500_2BE3)),
+        name: 0x9D06_6C50,
+    }
+}
 
-/// An effect that takes a share of its player's vitae (2017: Aun Aulatah's, 81 to 72.9, 1 of 1),
-/// with the share left and the appearance it plays.
-pub const VITAE_TAPS: [(u32, f32, u32); 1] = [(0x6F00_1C64, 0.9, 0x4100_030B)];
+/// A world whose steps name no transformation at all transforms the players of its steps that put
+/// on [`HERO_TRANSFORMATION`] as 2017 did; one that names any has its rows' alone. Returns whether the
+/// world named none.
+pub fn transformations_or_2017(table: &mut QuestTable) -> bool {
+    if table.steps.iter().any(|s| s.transforms.is_some()) {
+        return false;
+    }
+    for step in &mut table.steps {
+        if matches!(step.trigger, Trigger::Give(..)) && step.effects.contains(&HERO_TRANSFORMATION)
+        {
+            step.transforms = Some(transformation_2017());
+        }
+    }
+    true
+}
 
 /// A give under way.
 #[derive(Debug, Clone, PartialEq)]
@@ -378,8 +398,8 @@ pub fn handed<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, c
         }
         return;
     };
-    if step.effects.contains(&HERO_TRANSFORMATION) {
-        transforms(s, net, world, &step, given, clock);
+    if let Some(t) = step.transforms.clone() {
+        transforms(s, net, world, &step, &t, given, clock);
         return;
     }
     let speaker = crate::talk::content_speaker(s, i);
@@ -427,9 +447,6 @@ fn takes<S: Store>(
         crate::inventory::give_from(s, net, world, *item, count, given.target);
     }
     for e in &row.effects {
-        if special_effect(s, net, world, *e) {
-            continue;
-        }
         crate::effects::apply(
             s,
             net,
@@ -632,13 +649,14 @@ pub fn keep<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, giv
     crate::world::keep_player(s, world);
 }
 
-/// A step that makes the player a hero: the gift kept, the transformation's appearances played on
-/// the player, and the step run when the transformation is through.
+/// A step that makes the player a hero: the gift kept, the transformation's appearances and
+/// behavior played on the player, and the step run when the transformation is through.
 fn transforms<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     world: ConnId,
     step: &Step,
+    t: &Transformation,
     given: Given,
     clock: Clock,
 ) {
@@ -648,16 +666,18 @@ fn transforms<S: Store>(
     };
     let me = p.character;
     let mut events = Vec::new();
-    for fx in TRANSFORMATION_FX {
+    for &fx in &t.fx {
         events.push(ServerMessage::DoFx(crate::places::player_event(
             p,
             Fx { fx, scalar: 1.0 },
         )));
     }
-    events.push(ServerMessage::PlayBehavior(crate::places::player_event(
-        p,
-        BehaviorParams::behavior(TRANSFORMATION_BEHAVIOR),
-    )));
+    if let Some(b) = t.behavior {
+        events.push(ServerMessage::PlayBehavior(crate::places::player_event(
+            p,
+            BehaviorParams::behavior(b),
+        )));
+    }
     for m in &events {
         crate::combat::to_all_seeing(s, net, me, m);
     }
@@ -673,7 +693,7 @@ fn transforms<S: Store>(
     };
     s.after(
         clock,
-        TRANSFORMATION_SECONDS,
+        t.seconds,
         Timer::GiveStep {
             world,
             step: Box::new(due),
@@ -713,53 +733,37 @@ pub fn step_due<S: Store>(
     }
 }
 
-/// An effect a step puts on its player that the effects themselves do not make: the
-/// transformation into a hero (the hero's text after it), a tap of vitae. Returns whether it was
-/// one.
-pub fn special_effect<S: Store>(
+/// A step's transformation is through: its player is made a hero and told the transformation's
+/// text, its name in the text's variable.
+pub fn made_hero<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     world: ConnId,
-    effect: u32,
-) -> bool {
-    if effect == HERO_TRANSFORMATION {
-        let Some(name) = s.players.get(&world).map(|p| p.name.clone()) else {
-            return true;
-        };
-        if let Err(e) = crate::focus::set_hero(s, net, &name, true) {
-            s.unhandled.note(format!("a hero's transformation: {e}"));
-        }
-        let Some(p) = s.players.get(&world) else {
-            return true;
-        };
+    t: &Transformation,
+) {
+    let Some(name) = s.players.get(&world).map(|p| p.name.clone()) else {
+        return;
+    };
+    if let Err(e) = crate::focus::set_hero(s, net, &name, true) {
+        s.unhandled.note(format!("a hero's transformation: {e}"));
+    }
+    let Some(p) = s.players.get(&world) else {
+        return;
+    };
+    let Some(text) = t.text else {
+        return;
+    };
+    let mut said = progress::text(text);
+    if t.name != 0 {
         let literal = crate::player::world_name(&p.name, p.sex);
-        let mut t = progress::text(HERO_TEXT);
-        t.set_variable(progress::nested(
-            HERO_NAME_VAR,
+        said.set_variable(progress::nested(
+            t.name,
             auberean_script::native_object::TextInfo {
                 has_literal: 1,
                 literal: Some(literal.encode_utf16().collect()),
                 ..Default::default()
             },
         ));
-        progress::say(net, world, t);
-        return true;
     }
-    if let Some((_, share, fx)) = VITAE_TAPS.iter().find(|(e, _, _)| *e == effect) {
-        crate::death::tap_vitae(s, net, world, *share);
-        let Some(p) = s.players.get_mut(&world) else {
-            return true;
-        };
-        let me = p.character;
-        let m = ServerMessage::DoFx(crate::places::player_event(
-            p,
-            Fx {
-                fx: *fx,
-                scalar: 1.0,
-            },
-        ));
-        crate::combat::to_all_seeing(s, net, me, &m);
-        return true;
-    }
-    false
+    progress::say(net, world, said);
 }

@@ -121,11 +121,14 @@ pub mod update {
 /// The player's request to cancel a quest.
 pub const CANCEL_QUEST: u32 = 0x8213_0027;
 
-/// The wait a cancelled quest names before it may be taken again, in seconds: five hours for the
-/// quests below, five minutes for any other (2017: one value per quest, 29 of 29 cancels).
+/// The wait a cancelled quest names before it may be taken again, in seconds, where its row names
+/// none: five minutes (2017: one value per quest, 29 of 29 cancels, 16 quests of 27 at this).
 pub const CANCEL_WAIT: f64 = 300.0;
-pub const LONG_CANCEL_WAIT: f64 = 18_000.0;
-pub const LONG_CANCEL_WAIT_QUESTS: [u32; 11] = [
+
+/// The five-hour cancel waits 2017 named (11 quests of the 27 cancelled), for a world whose quest
+/// rows name no cancel wait at all.
+const LONG_CANCEL_WAIT: f64 = 18_000.0;
+const LONG_CANCEL_WAIT_QUESTS: [u32; 11] = [
     0x8000_00E0,
     0x8000_02D3,
     0x8000_02E3,
@@ -233,14 +236,25 @@ pub mod composed {
 #[must_use]
 pub fn wait_after(q: &QuestDef, status: u32) -> f64 {
     if status == status::CANCELLED {
-        if LONG_CANCEL_WAIT_QUESTS.contains(&q.id) {
-            LONG_CANCEL_WAIT
-        } else {
-            CANCEL_WAIT
-        }
+        q.cancel_wait.unwrap_or(CANCEL_WAIT)
     } else {
         q.retry
     }
+}
+
+/// A world whose quest rows name no cancel wait at all waits 2017's five hours after a cancel of
+/// the eleven quests that named it; one that names any has its rows' alone. Returns whether the
+/// world named none.
+pub fn cancel_waits_or_2017(table: &mut QuestTable) -> bool {
+    if table.quests.iter().any(|q| q.cancel_wait.is_some()) {
+        return false;
+    }
+    for q in &mut table.quests {
+        if LONG_CANCEL_WAIT_QUESTS.contains(&q.id) {
+            q.cancel_wait = Some(LONG_CANCEL_WAIT);
+        }
+    }
+    true
 }
 
 /// What a quest's time counts from (world seconds), if its time is running: under way, with a
@@ -1513,7 +1527,7 @@ fn for_fellows<S: Store>(
 }
 
 /// A step's effects on the player (a reward, a recipe learned), cast by the player itself, then
-/// what they say.
+/// what they say; a step that transforms its player makes it a hero first.
 fn step_effects<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -1523,10 +1537,10 @@ fn step_effects<S: Store>(
     clock: Clock,
 ) {
     let me = s.players.get(&world).map_or(0, |p| p.character);
+    if let Some(t) = &step.transforms {
+        crate::gives::made_hero(s, net, world, t);
+    }
     for e in &step.effects {
-        if crate::gives::special_effect(s, net, world, *e) {
-            continue;
-        }
         crate::effects::apply(
             s,
             net,

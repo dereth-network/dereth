@@ -410,6 +410,7 @@ fn timed_quest(id: u32, duration: f64, retry: f64) -> QuestDef {
         hero_only: false,
         pay: yalain_content::quests::CompletionPay::default(),
         required: None,
+        cancel_wait: None,
     }
 }
 

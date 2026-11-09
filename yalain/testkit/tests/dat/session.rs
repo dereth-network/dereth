@@ -295,6 +295,7 @@ fn a_character_entering_again_gives_the_journal_its_quests() {
             hero_only: false,
             pay: yalain_content::quests::CompletionPay::default(),
             required: None,
+            cancel_wait: None,
         }],
         steps: Vec::new(),
         gives: Vec::new(),

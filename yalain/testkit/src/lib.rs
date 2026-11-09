@@ -1016,6 +1016,11 @@ pub fn test_effects() -> yalain_world::effect_defs::EffectTable {
             ..def(RECALL_PROTECTION_EFFECT, Kind::Other)
         },
         EffectDef {
+            internal_flags: 0,
+            fx: VITAE_TAP_FX,
+            ..def(VITAE_TAP, Kind::VitaeTap(0.1))
+        },
+        EffectDef {
             duration: Scale(vec![(0.0, 180.0)]),
             fx: 0x4100_000F,
             ..def(LIFESTONE_PROTECTION_EFFECT, Kind::Other)
@@ -2119,6 +2124,20 @@ pub fn test_wards() -> std::collections::BTreeMap<u32, yalain_world::effect_defs
         (0x6F00_2674, ward(ARMOR, 1.0)),
     ])
 }
+
+/// The effect rules the test world's rows would name: its wards ([`test_wards`]) and Aun Aulatah's
+/// tap of a tenth of vitae.
+#[must_use]
+pub fn test_effect_rules() -> yalain_world::effect_defs::EffectRules {
+    yalain_world::effect_defs::EffectRules {
+        wards: test_wards(),
+        vitae_taps: std::collections::BTreeMap::from([(VITAE_TAP, 0.1)]),
+    }
+}
+
+/// Aun Aulatah's tap of vitae, by its saved state, and the appearance its state names.
+pub const VITAE_TAP: u32 = 0x6F00_1C64;
+pub const VITAE_TAP_FX: u32 = 0x4100_030B;
 
 impl<S: Store> Harness<S> {
     /// A server with these settings, store and rules.

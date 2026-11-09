@@ -346,25 +346,25 @@ impl Portal {
     }
 
     /// The effects of these saved states (and those they add), as the server reads them at start
-    /// with the test world's wards ([`crate::test_wards`]).
+    /// with the test world's rules ([`crate::test_effect_rules`]): its wards and its tap of vitae.
     ///
     /// # Panics
     /// The library does not read.
     #[must_use]
     pub fn effects(&self, states: &[u32]) -> yalain_world::effect_defs::EffectTable {
-        self.effects_warded(states, &crate::test_wards())
+        self.effects_ruled(states, &crate::test_effect_rules())
     }
 
     /// The effects of these saved states (and those they add), as the server reads them at start
-    /// with these wards (a world's `[[effect_rule]]` rows).
+    /// with these rules (a world's `[[effect_rule]]` rows).
     ///
     /// # Panics
     /// The library does not read.
     #[must_use]
-    pub fn effects_warded(
+    pub fn effects_ruled(
         &self,
         states: &[u32],
-        wards: &std::collections::BTreeMap<u32, yalain_world::effect_defs::Ward>,
+        rules: &yalain_world::effect_defs::EffectRules,
     ) -> yalain_world::effect_defs::EffectTable {
         let lib = self.library();
         let graph = |id: u32| -> Option<Graph> {
@@ -372,7 +372,7 @@ impl Portal {
                 auberean_assets::decode(id, &self.dat.read(id).ok()?, &self.ctx).ok()?;
             Graph::decode(&st.graph, &lib).ok()
         };
-        yalain_world::effect_defs::EffectTable::read(&lib, states, &graph, wards)
+        yalain_world::effect_defs::EffectTable::read(&lib, states, &graph, rules)
     }
 
     /// The mounts as the server reads them at start: the mount effects among the saved states,

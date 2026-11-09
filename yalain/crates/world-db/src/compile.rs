@@ -423,6 +423,7 @@ fn subquest_definitions(quests: &mut yalain_content::QuestTable, install: &dyn I
             duration: 0.0,
             timed_phase: 0,
             retry: 0.0,
+            cancel_wait: None,
             xp: 0,
             cancellable: false,
             placed: format!("derived subquest from {:08X}", def.state),
@@ -913,6 +914,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     duration: q.duration.unwrap_or(0.0),
                     timed_phase: q.timed_phase.unwrap_or(0),
                     retry: q.retry.unwrap_or(0.0),
+                    cancel_wait: q.cancel_wait,
                     xp: q.xp.unwrap_or(def.xp),
                     cancellable: q.cancellable.unwrap_or(false),
                     placed: prov_text(&q.prov),
@@ -1032,6 +1034,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     #[allow(clippy::cast_possible_truncation)]
                     xp_share: s.xp_share.unwrap_or(0.0) as f32,
                     to,
+                    transforms: s.transforms.clone(),
                 });
             }
             Row::Give(g) => {
@@ -1140,7 +1143,12 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 t.popups.by_moment.insert(r.on, r.effect);
             }
             Row::EffectRule(r) => {
-                t.effect_rules.wards.insert(r.effect, r.ward.clone());
+                if let Some(ward) = &r.ward {
+                    t.effect_rules.wards.insert(r.effect, ward.clone());
+                }
+                if let Some(share) = r.vitae_share {
+                    t.effect_rules.vitae_taps.insert(r.effect, share);
+                }
             }
             Row::PointsBonus(r) => {
                 t.kingdoms.points.insert(

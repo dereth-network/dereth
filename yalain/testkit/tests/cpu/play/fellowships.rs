@@ -1005,6 +1005,7 @@ fn a_kill_by_a_player_the_creature_could_not_reach_pays_no_one_and_moves_no_ques
             hero_only: false,
             pay: yalain_content::quests::CompletionPay::default(),
             required: None,
+            cancel_wait: None,
         });
         h.server.quests.steps.push(Step {
             quest: QUEST,
@@ -1027,6 +1028,7 @@ fn a_kill_by_a_player_the_creature_could_not_reach_pays_no_one_and_moves_no_ques
             levels: None,
             xp_share: 0.0,
             to: None,
+            transforms: None,
         });
         let from = [h.bots[a].inbox.len(), h.bots[b].inbox.len()];
         let clock = h.clock();

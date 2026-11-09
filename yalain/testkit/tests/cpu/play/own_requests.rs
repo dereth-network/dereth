@@ -464,6 +464,7 @@ fn a_quest_cancelled_is_updated_as_cancelled_and_no_longer_under_way() {
         hero_only: false,
         pay: yalain_content::quests::CompletionPay::default(),
         required: None,
+        cancel_wait: None,
     });
     let (a, _, world) = player(&mut h, "one");
     h.server
@@ -504,6 +505,98 @@ fn a_quest_cancelled_is_updated_as_cancelled_and_no_longer_under_way() {
             .any(|q| q.quest == quest && q.status == status::CANCELLED),
         "kept as cancelled"
     );
+}
+
+/// A cancelled quest's record names the wait its world's row gives it before it may be taken again,
+/// and five minutes where its row names none; a world whose rows name no cancel wait at all waits
+/// 2017's five hours for the eleven quests that named it, and one that names any, its rows' alone.
+/// Behaviour: server.quests.cancel-waits-as-rows-say
+#[test]
+fn a_cancelled_quest_waits_what_its_row_says_and_without_rows_2017s() {
+    use auberean_script::native_object::QuestInfo;
+    use auberean_script::wire::In;
+    use yalain_world::quests::{self, cancel_waits_or_2017, status, CANCEL_WAIT};
+    const LONG: u32 = 0x8000_02D3;
+    const SHORT: u32 = 0x8000_02E5;
+    let def = |id: u32, cancel_wait: Option<f64>| QuestDef {
+        id,
+        name: (1, 0x2500_14B4),
+        description: (2, 0x2500_14B4),
+        icon: 0x4100_034B,
+        play_fx: false,
+        journals: vec![(3, 0x2500_14B4)],
+        challenge: 1,
+        duration: 0.0,
+        timed_phase: 0,
+        retry: 86_400.0,
+        xp: 0,
+        cancellable: true,
+        placed: "authored for a test".into(),
+        hidden: false,
+        effects: Vec::new(),
+        subquests: Vec::new(),
+        min_level: 0,
+        fails_on_death: false,
+        once: false,
+        fellows: yalain_content::quests::Fellows::default(),
+        last_waits: false,
+        hero_only: false,
+        pay: yalain_content::quests::CompletionPay::default(),
+        required: None,
+        cancel_wait,
+    };
+    // Without rows naming any, 2017's.
+    let mut none = yalain_content::QuestTable {
+        quests: vec![def(LONG, None), def(SHORT, None)],
+        ..Default::default()
+    };
+    assert!(cancel_waits_or_2017(&mut none));
+    assert_eq!(none.quests[0].cancel_wait, Some(18_000.0));
+    assert_eq!(none.quests[1].cancel_wait, None);
+    let mut own = yalain_content::QuestTable {
+        quests: vec![def(LONG, None), def(SHORT, Some(60.0))],
+        ..Default::default()
+    };
+    assert!(!cancel_waits_or_2017(&mut own));
+    assert_eq!(own.quests[0].cancel_wait, None, "its rows alone");
+    // Cancelled, each record names its wait.
+    let mut h = world_of_items();
+    h.server.quests.quests.push(def(LONG, Some(18_000.0)));
+    h.server.quests.quests.push(def(SHORT, None));
+    let (a, _, world) = player(&mut h, "one");
+    for quest in [LONG, SHORT] {
+        h.server
+            .players
+            .get_mut(&world)
+            .expect("in")
+            .play
+            .quests
+            .push(QuestState {
+                quest,
+                status: status::UNDERWAY,
+                phase: 1,
+                started: 0,
+                updated: 0,
+            });
+    }
+    for (quest, wait) in [(LONG, 18_000.0), (SHORT, CANCEL_WAIT)] {
+        let from = h.bots[a].inbox.len();
+        h.ask(a, quests::CANCEL_QUEST, &[Arg::Int(quest)], 3);
+        let record = h
+            .calls(a, from)
+            .into_iter()
+            .filter(|(f, _)| *f == quests::UPDATE_QUEST)
+            .find_map(|(_, v)| match v.get(1)?.root()? {
+                yalain_world::calls::Node::Native { bytes, .. } => {
+                    QuestInfo::unpack(&mut In::new(bytes)).ok()
+                }
+                _ => None,
+            })
+            .expect("the cancelled quest's record");
+        assert_eq!((record.id, record.status), (quest, status::CANCELLED));
+        let named = f64::from_bits(record.seconds_until_retry);
+        assert!((named - wait).abs() < 1e-3, "{quest:08X}: {named}");
+    }
 }
 
 /// A lodestone used from the pack is only answered, made with the flags of a use at once, and is

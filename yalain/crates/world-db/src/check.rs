@@ -466,6 +466,11 @@ pub fn check_database(db: &Database) -> Vec<Problem> {
                         problems.push(at("wants: a count of at least 1".into()));
                     }
                 }
+                if r.transforms.is_some() && !matches!(r.trigger, Trigger::Give(..)) {
+                    problems.push(at(
+                        "transforms: only a give's step transforms its player".into()
+                    ));
+                }
                 if let Some(why) = r.to.as_deref().and_then(|to| place_ref(to, &l.pack)) {
                     problems.push(at(format!("to: {why}")));
                 }

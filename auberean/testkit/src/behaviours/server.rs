@@ -5274,9 +5274,11 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.gives.hero-transformation",
-        says: "A give whose step makes a hero runs that step when the transformation is through, 25.59 \
-               s after the answer: the player a hero, the quest completed, the hero's text; meanwhile \
-               only the transformation's appearances, the gift kept.",
+        says: "A give whose step transforms its player runs that step when the transformation is \
+               through, its time after the answer (2017: 25.59 s): the player a hero, the quest \
+               completed, the hero's text naming it; meanwhile only the transformation's appearances \
+               and behavior, the gift kept. A world whose steps name no transformation has 2017's on a \
+               give's step putting on the hero's transformation.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-GIVE-HERO"),
         station: "yalain-testkit::cpu::play::gives::a_give_that_makes_a_hero_does_so_when_the_transformation_is_through",
@@ -5478,8 +5480,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.gives.vitae-tap",
-        says: "A step's tap of vitae leaves the player nine tenths of its vitae, told with what is \
-               still to earn, its appearance played on the player.",
+        says: "An effect a world's rule makes a tap of vitae takes that share of its player's vitae \
+               (Aun Aulatah's a tenth), told with what is still to earn, the effect's own appearance \
+               played on the player. A world whose rules name no tap has 2017's.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-GIVE-VITAE-TAP"),
         station: "yalain-testkit::cpu::play::gives::a_steps_vitae_tap_takes_a_tenth_of_the_vitae",
@@ -11678,6 +11681,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-QUEST-CANCEL"),
         station: "yalain-testkit::cpu::play::own_requests::a_quest_cancelled_is_updated_as_cancelled_and_no_longer_under_way",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.cancel-waits-as-rows-say",
+        says: "A cancelled quest waits the time its world's row names before it may be taken again, \
+               five minutes where its row names none; a world whose rows name no cancel wait waits \
+               2017's five hours for the eleven quests that named it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-QUEST-CANCEL-WAITS-2017"),
+        station: "yalain-testkit::cpu::play::own_requests::a_cancelled_quest_waits_what_its_row_says_and_without_rows_2017s",
         tier: Tier::Cpu,
     },
     behaviour! {

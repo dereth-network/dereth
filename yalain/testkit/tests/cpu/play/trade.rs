@@ -759,6 +759,7 @@ fn quests() -> QuestTable {
         levels: None,
         xp_share: 0.0,
         to: None,
+        transforms: None,
     };
     QuestTable {
         quests: vec![QuestDef {
@@ -786,6 +787,7 @@ fn quests() -> QuestTable {
             hero_only: false,
             pay: yalain_content::quests::CompletionPay::default(),
             required: None,
+            cancel_wait: None,
         }],
         steps: vec![
             step(0, GUARD_TEMPLATE, Update::Bestow),

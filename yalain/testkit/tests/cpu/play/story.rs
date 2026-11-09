@@ -158,6 +158,7 @@ fn a_vaults_shard_completes_its_quest_as_the_player_comes_out() {
             ..yalain_content::quests::CompletionPay::default()
         },
         required: None,
+        cancel_wait: None,
     }];
     let (a, ida) = h.player_in_world("one", "Elara");
     let conn = *h
