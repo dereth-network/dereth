@@ -9,7 +9,7 @@
 //!
 //! - **Wet.** The G-buffer's surfaces near the viewer that stand out in the rain are darkened and
 //!   deepened in color as soaked material is, and their roughness lowered (`weather.slang`), while
-//!   the rain falls or the puddles gather.
+//!   the rain falls. The puddles alone leave everything but themselves as it is.
 //! - **Puddles.** Flat ground gathers them where its terrain takes them, from a mask fixed to the
 //!   world, written into the ground's material for the water pass to draw. They are the water's
 //!   own switch: they gather on a rainy day whether the rain is drawn or not, and not under
@@ -663,14 +663,14 @@ impl WeatherPass {
             0.0
         };
         let snow = self.fall.snow();
-        // The ground gathers puddles on a rainy day, but not under falling snow; it is wet while
-        // the rain falls or the puddles gather.
+        // The ground gathers puddles on a rainy day, but not under falling snow; it is wet only
+        // while the rain falls: the puddles change nothing but the ground they lie on.
         let gathers = match (puddles, self.drawing) {
             (false, _) => 0.0,
             (true, true) => 1.0 - snow,
             (true, false) => 1.0,
         };
-        let wet = (amount * (1.0 - snow)).max(gathers);
+        let wet = amount * (1.0 - snow);
         let rain_ends = ends(RAIN_PARTICLES, 0);
         let snow_ends = ends(SNOW_PARTICLES, rain_ends[2]);
         let particles = if !self.drawing {

@@ -2,8 +2,8 @@
 //! what it reflects the same however the camera turns; drawn over a body standing in it, below
 //! its surface; the trees and pillars
 //! standing in it meeting it, near and far; rings round a body walking in it from the first step;
-//! its ripples and its color over a lowered bed; and the puddles of a rainy day as a switch of
-//! their own.
+//! its ripples and its color over a lowered bed; its reflections traced over its own level; and
+//! the puddles of a rainy day as a switch of their own, changing nothing but themselves.
 //!
 //! Fixture: the retail dats (`DERETH_TEST_DAT_DIR`) and a hardware Vulkan 1.3 device.
 //!
@@ -20,13 +20,15 @@ use dereth_render::device::{DeviceConfig, Gpu};
 use dereth_scene::world_scene::{RemasterCapture, RemasterLight, RemasterTerrain, RemasterWater};
 
 use crate::instruments::remaster_frames;
-use crate::instruments::stations::{report_station, Shot, Station};
+use crate::instruments::stations::{report_station, Place, Shot, Station};
 
 const W: u32 = 640;
 const H: u32 = 480;
 
 /// The water's kind among the material's kinds.
 const WATER: u8 = 7;
+/// The ground's light class.
+const GROUND: u8 = 1;
 
 /// A lake under hills at dusk, the camera on its bank looking across it.
 const LAKE: &str = "dereth report 1; loc 0xA9B50011 [64.387108 22.052589 38.978706] 0.920786 \
@@ -260,6 +262,27 @@ fn turning_the_camera_down_leaves_what_the_water_reflects() {
     }
 }
 
+/// The rainy town carried `ahead` metres along the viewer's heading and pitched `pitch` radians
+/// more: where a puddle lies on the road before the viewer.
+fn rain_ahead(store: &RetailDatStore, ahead: f32, pitch: f32) -> At<'static> {
+    let mut st = remaster_frames::stations(store, &["rain"])
+        .pop()
+        .expect("the rain station");
+    if let Place::Free {
+        x,
+        y,
+        yaw,
+        pitch: p,
+        ..
+    } = &mut st.place
+    {
+        *x -= dereth_primitives::num::math::sinf(*yaw) * ahead;
+        *y += dereth_primitives::num::math::cosf(*yaw) * ahead;
+        *p += pitch;
+    }
+    At::Station(st)
+}
+
 /// **The puddles are a switch of their own, and gather only on a rainy day**: in the town on a
 /// rainy day, puddles alone change the flat ground's pixels; on a sunny day they change nothing;
 /// and the water alone changes no ground that is not water.
@@ -276,7 +299,7 @@ fn the_puddles_are_a_switch_of_their_own_and_gather_only_on_a_rainy_day() {
         puddles: true,
         ..RemasterWater::default()
     };
-    let rain = At::Station(station("rain"));
+    let rain = rain_ahead(&store, 80.0, -0.12);
     let wet = run(&store, &rain, puddles);
     let dry = run(&store, &rain, RemasterWater::default());
     let water_only = run(&store, &rain, water());
@@ -976,5 +999,52 @@ fn a_reflection_traced_off_still_water_never_meets_its_own_level() {
     assert!(
         turns * 50 <= water,
         "the land is found in whole bands: {turns} turns over {water} pixels"
+    );
+}
+
+/// **The puddles change nothing but the puddles**: on a road in the town on a rainy day, with no
+/// rain drawn, the frame with the puddles gathered is the frame without them at every pixel two or
+/// more pixels from a puddle (no puddle share in the ground's material round it), within a level
+/// in each channel for all but a hundredth of them: the puddles leave the rest of the scene as
+/// bright as it was.
+#[test]
+fn the_puddles_change_nothing_but_the_puddles() {
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    let rain = rain_ahead(&store, 80.0, -0.12);
+    let puddles = RemasterWater {
+        puddles: true,
+        ..RemasterWater::default()
+    };
+    let wet = run(&store, &rain, puddles);
+    let dry = run(&store, &rain, RemasterWater::default());
+    let (w, h) = (wet.width as usize, wet.height as usize);
+    let puddle = |x: usize, y: usize| {
+        let i = y * w + x;
+        wet.class[i] == GROUND && wet.kind[i] != WATER && wet.bed[i] > 0
+    };
+    let (mut pools, mut away, mut differs) = (0usize, 0usize, 0usize);
+    for y in 0..h {
+        for x in 0..w {
+            if puddle(x, y) {
+                pools += 1;
+            }
+            let near = (y.saturating_sub(2)..(y + 3).min(h))
+                .any(|v| (x.saturating_sub(2)..(x + 3).min(w)).any(|u| puddle(u, v)));
+            if near {
+                continue;
+            }
+            away += 1;
+            let i = y * w + x;
+            differs += usize::from(
+                (0..3).any(|k| wet.color[i * 4 + k].abs_diff(dry.color[i * 4 + k]) > 1),
+            );
+        }
+    }
+    eprintln!("town: {pools} puddle pixels; {differs} of {away} pixels away from them differ");
+    assert!(pools > 2_000, "the puddles are in view: {pools}");
+    assert!(
+        differs * 100 <= away,
+        "away from the puddles the frame is unchanged: {differs} of {away} differ"
     );
 }
