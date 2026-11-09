@@ -436,7 +436,7 @@ pub static ROWS: &[Behaviour] = &[
                the look the 2017 servers sent for it.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SERVER-WORN-IN-CODE"),
-        station: "yalain-testkit::corpus::keeping::every_recorded_look_of_a_template_without_worn_properties_is_in_the_table",
+        station: "yalain-testkit::corpus::keeping::every_recorded_look_of_a_template_without_worn_properties_is_one_the_world_gives",
         tier: Tier::Corpus,
     },
     behaviour! {

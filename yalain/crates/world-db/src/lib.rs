@@ -34,6 +34,7 @@
 //! <pack>/server/weapons.toml      [[weapon]]
 //! <pack>/server/pets.toml         [[pet]], [[pet_limit]]
 //! <pack>/server/plants.toml       [[plant]], [[plant_cross]]
+//! <pack>/server/worn.toml         [[worn]]
 //! <pack>/server/effects.toml      [[effect_name]], [[effect_rule]]
 //! <pack>/server/treasure.toml     [[treasure_rules]], [[treasure_sort]]
 //! <pack>/server/treasure_words.toml    [[treasure_word]]

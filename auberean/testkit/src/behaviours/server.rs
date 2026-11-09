@@ -1103,6 +1103,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.characters.starting-clothes-look-from-worn-rows",
+        says: "A starting garment whose data names no look gives a new character the look its world's \
+               `[[worn]]` row gives that body, in the color its physique chose.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WORN-LOOK-CHARGEN"),
+        station: "yalain-testkit::cpu::entry::starting_clothes::a_starting_garment_with_no_look_of_its_own_is_made_with_its_worn_rows_look",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.characters.starting-clothes-made-worn",
         says: "A new character is made wearing the garments its race starts in, each with the \
                appearance the garment gives its body, in the color its physique chose; at its first \
@@ -6257,6 +6266,44 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-WEAR-REPLACE"),
         station: "yalain-testkit::cpu::play::wearing::a_second_chest_piece_replaces_the_first_which_goes_where_it_was",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.inventory.worn-look-from-worn-rows",
+        says: "A garment whose data names no look gives its wearer the first of its world's \
+               `[[worn]]` rows that fits the wearer's race and sex; a garment whose data names a look \
+               keeps its own.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WORN-LOOK-BY-ROWS"),
+        station: "yalain-testkit::cpu::play::wearing::a_garment_with_no_look_of_its_own_is_worn_with_its_worn_rows_look_for_the_wearer",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.inventory.worn-looks-in-the-real-start",
+        says: "A start describes every template of the server's own worn looks, none naming a look in \
+               its own data, and gives each its looks in order, 147 of 147; each race's starting \
+               clothes give either sex a look; a world's rows stand alone.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WORN-LOOK-REAL-START"),
+        station: "yalain::bin.yalain::data::tests::a_start_gives_every_template_of_the_servers_own_worn_looks_its_looks_in_order",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.inventory.worn-looks-without-rows",
+        says: "A world with no `[[worn]]` rows has the server's own worn looks, and warns; a world \
+               with any has its rows alone.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WORN-LOOK-NO-ROWS"),
+        station: "yalain-testkit::cpu::play::wearing::a_world_without_worn_rows_has_the_servers_own_and_with_some_its_rows_alone",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.inventory.worn-rows-hold-the-servers-own",
+        says: "A world's `[[worn]]` rows hold the server's own worn looks, entry for entry and in \
+               order: 147 looks of 75 templates.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WORN-LOOK-ROWS"),
+        station: "yalain-testkit::corpus::world_db::the_worlds_worn_rows_hold_the_servers_own_entry_for_entry",
+        tier: Tier::Corpus,
     },
     behaviour! {
         id: "server.items.a-blow-binds-the-piece-it-lands-on",
@@ -14640,6 +14687,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-KEEP-ITEM-STAMP"),
         station: "yalain-testkit::cpu::entry::keeping::an_items_instance_stamp_is_one_more_at_each_entry",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.world.kept-items-worn-with-their-worn-rows-look",
+        says: "A kept item holds no look of its own: one worn at logoff is drawn at the next entry, \
+               and listed, with the look its world's `[[worn]]` row gives then.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WORN-LOOK-KEPT"),
+        station: "yalain-testkit::cpu::entry::keeping::an_item_kept_worn_takes_its_worn_rows_look_at_the_next_entry",
         tier: Tier::Cpu,
     },
     behaviour! {

@@ -380,3 +380,36 @@ fn a_character_the_operator_makes_is_drawn_by_its_garments_from_its_first_entry(
         log_off(&mut h, b, me);
     }
 }
+
+/// A starting garment whose data names no look takes the one its world's `[[worn]]` row gives its
+/// body: the new character is made wearing the boots' row's appearance in their color, not what
+/// their physique type names.
+/// Behaviour: server.characters.starting-clothes-look-from-worn-rows
+#[test]
+fn a_starting_garment_with_no_look_of_its_own_is_made_with_its_worn_rows_look() {
+    use yalain_content::worn_table::{Worn, WornLooks};
+    let mut h = world();
+    let rows = WornLooks::of_rows([Worn {
+        template: BOOTS,
+        races: 1,
+        sexes: MALE,
+        appearance: BOOTS_LOOK,
+    }]);
+    let mut p = Props::default();
+    p.set("Item_ValidInventoryLocations", Prop::Word(16))
+        .set("Item_PreferredInventoryLocation", Prop::Word(16));
+    h.server.catalog.insert(yalain_testkit::test_template(
+        BOOTS,
+        0x180,
+        p.with_worn_of(BOOTS, &rows),
+    ));
+    let b = h.at_character_list("one");
+    let (_, made) = create(&mut h, b, "one");
+    assert_eq!(
+        value(&made, BOOTS_LOOK, 2),
+        Some(BOOTS_COLOR),
+        "the row's, colored"
+    );
+    assert_eq!(value(&made, BOOTS_LOOK, 0x10), Some(1.0), "shown");
+    assert_eq!(value(&made, BOOTS_NAMED, 2), None, "not the physique's own");
+}

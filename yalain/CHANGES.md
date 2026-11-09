@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Worlds can now set items' worn looks as rows.
 
 ## 0.3.0 (2026-11-09)
 - Worlds can now set quests' cancel waits, hero transformations and vitae taps as rows.

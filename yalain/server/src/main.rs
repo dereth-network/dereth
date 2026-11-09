@@ -1735,6 +1735,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         crafts,
         creatures,
         plants,
+        worn,
         ..
     } = compiled;
     // Fields of kinds a world has that it may leave out everywhere: the server's own then.
@@ -1752,6 +1753,8 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         yalain_world::creature_rows::world_creature_rows(creatures);
     // The dye plants: the world's rows, the server's own of a kind it has none of.
     let (plants, plants_fell_back) = yalain_world::plants::world_plants(&plants);
+    // The worn looks of templates whose data names none: the world's rows, else the server's own.
+    let (worn, worn_fell_back) = yalain_content::worn_table::world_worn(&worn);
     // The numbers treasure draws by: the world's rows, 2017's for each kind it gives none of.
     let (treasure_tables, mut fell_back) =
         yalain_content::treasure_tables::TreasureTables::with_rows(&treasure);
@@ -1816,6 +1819,11 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             tracing::warn!(
                 "this world has no {} rows: its dye plants go by the server's own there",
                 kinds.join(", ")
+            );
+        }
+        if worn_fell_back {
+            tracing::warn!(
+                "this world has no [[worn]] rows: the worn looks of templates whose data names none go by the server's own"
             );
         }
         let skills = data::skill_table(portal)?;
@@ -1954,7 +1962,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
                 .chain(craft.templates())
                 .collect();
         let (mut catalog, mut skipped) =
-            data::catalog(portal, &spawns, &loot, &more, &treasure_tables)?;
+            data::catalog(portal, &spawns, &loot, &more, &treasure_tables, &worn)?;
         // The weapons the creatures wield, described with the rest.
         let weapons = data::creature_weapons(portal, &catalog, &listed_weapons)?;
         let wanted: Vec<u32> = weapons.values().copied().collect();
@@ -1964,6 +1972,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             &LootTable::default(),
             &wanted,
             &treasure_tables,
+            &worn,
         )?;
         skipped.extend(also);
         for (id, t) in held.templates {

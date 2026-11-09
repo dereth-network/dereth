@@ -86,6 +86,13 @@ pub(crate) fn treasure_tables() -> yalain_world::treasure::TreasureTables {
     yalain_world::treasure::TreasureTables::with_rows(&compiled().tables.treasure).0
 }
 
+/// The worn looks the database's world plays by: its `[[worn]]` rows, the server's own when it
+/// gives none.
+pub(crate) fn worn_looks() -> &'static yalain_content::worn_table::WornLooks {
+    static W: OnceLock<yalain_content::worn_table::WornLooks> = OnceLock::new();
+    W.get_or_init(|| yalain_content::worn_table::world_worn(&compiled().tables.worn).0)
+}
+
 /// The pinned release compiled, once (the database itself when it is the pinned release).
 fn pinned() -> &'static Compiled {
     static P: OnceLock<Compiled> = OnceLock::new();
@@ -303,6 +310,20 @@ fn the_worlds_plant_and_plant_cross_rows_hold_the_servers_own_entry_for_entry() 
         assert!(plants.sown_by(c.seeds).is_some(), "{:08X}", c.seeds);
         assert!((1..=3).contains(&c.count), "{c:?}");
     }
+}
+
+/// A world's worn rows hold the server's own, entry for entry and in each template's order: 147
+/// looks of 75 templates.
+/// Behaviour: server.inventory.worn-rows-hold-the-servers-own
+#[test]
+fn the_worlds_worn_rows_hold_the_servers_own_entry_for_entry() {
+    let rows = &compiled().tables.worn;
+    println!("the world's worn rows: {}", rows.iter().count());
+    assert_eq!(
+        *worn_looks(),
+        yalain_content::worn_table::WornLooks::servers_own()
+    );
+    assert_eq!(worn_looks().iter().count(), 147);
 }
 
 /// What the rows leave out comes from the install: the training hall quest's definition (its

@@ -640,6 +640,7 @@ pub enum Row {
     Creature(Creature),
     Plant(Plant),
     PlantCross(PlantCross),
+    Worn(WornRow),
 }
 
 /// `[[concealing]]`: what creatures of a class (none: every creature) make of the holder of a
@@ -785,6 +786,14 @@ pub struct Plant {
 #[derive(Debug, Clone, PartialEq)]
 pub struct PlantCross {
     pub cross: yalain_content::plants::Cross,
+    pub prov: Prov,
+}
+
+/// `[[worn]]`: a worn look of a template whose data names none: the races and sexes it fits, and
+/// the appearance it gives them.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WornRow {
+    pub worn: yalain_content::worn_table::Worn,
     pub prov: Prov,
 }
 
@@ -1097,6 +1106,7 @@ impl Row {
             Self::Creature(_) => "creature",
             Self::Plant(_) => "plant",
             Self::PlantCross(_) => "plant_cross",
+            Self::Worn(_) => "worn",
         }
     }
 
@@ -1154,13 +1164,14 @@ impl Row {
             Self::Creature(r) => Some(&r.prov),
             Self::Plant(r) => Some(&r.prov),
             Self::PlantCross(r) => Some(&r.prov),
+            Self::Worn(r) => Some(&r.prov),
             Self::Remove(_) => None,
         }
     }
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 51] = [
+pub const KINDS: [&str; 52] = [
     "object",
     "camp",
     "loot",
@@ -1212,10 +1223,11 @@ pub const KINDS: [&str; 51] = [
     "creature",
     "plant",
     "plant_cross",
+    "worn",
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 51] = [
+pub const FIELDS: [(&str, &[&str]); 52] = [
     (
         "object",
         &[
@@ -1579,6 +1591,10 @@ pub const FIELDS: [(&str, &[&str]); 51] = [
     (
         "plant_cross",
         &["plant", "pollen", "seeds", "count", "prov"],
+    ),
+    (
+        "worn",
+        &["template", "races", "sexes", "appearance", "prov"],
     ),
 ];
 
@@ -2528,6 +2544,22 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                     pollen,
                     seeds,
                     count,
+                },
+                prov: f.req_prov()?,
+            })
+        }
+        "worn" => {
+            let template = f.req_id("template")?;
+            let races = f.req_id("races")?;
+            let races = f.held("races", races, races != 0, "a mask of races, not 0")?;
+            let sexes = f.req_id("sexes")?;
+            let sexes = f.held("sexes", sexes, sexes != 0, "a mask of sexes, not 0")?;
+            Row::Worn(WornRow {
+                worn: yalain_content::worn_table::Worn {
+                    template,
+                    races,
+                    sexes,
+                    appearance: f.req_id("appearance")?,
                 },
                 prov: f.req_prov()?,
             })

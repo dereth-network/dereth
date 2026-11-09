@@ -235,6 +235,12 @@ pub enum Item {
     Plant { template: u32 },
     /// What a dye plant pollinated with a pollen gives, by the plant's template and the pollen's.
     PlantCross { plant: u32, pollen: u32 },
+    /// A worn look of a template, by the template and the races and sexes it fits.
+    Worn {
+        template: u32,
+        races: u32,
+        sexes: u32,
+    },
 }
 
 impl Item {
@@ -380,6 +386,11 @@ impl Item {
                 plant: number(plant)?,
                 pollen: number(pollen)?,
             },
+            ["worn", template, races, sexes] => Self::Worn {
+                template: number(template)?,
+                races: number(races)?,
+                sexes: number(sexes)?,
+            },
             ["area", lb] => Self::Area {
                 landblock: u16::from_str_radix(lb, 16).ok().filter(|_| lb.len() == 4)?,
             },
@@ -460,6 +471,11 @@ impl fmt::Display for Item {
             Self::PlantCross { plant, pollen } => {
                 write!(f, "plant_cross {plant:#010x} {pollen:#010x}")
             }
+            Self::Worn {
+                template,
+                races,
+                sexes,
+            } => write!(f, "worn {template:#010x} {races:#x} {sexes:#x}"),
         }
     }
 }

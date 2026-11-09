@@ -128,19 +128,16 @@ impl Props {
         self
     }
 
-    /// The properties with the worn appearances of template `template` taken from
-    /// [`crate::worn_table::WORN_IN_CODE`] where its own properties name none.
+    /// The properties with the worn appearances of template `template` taken from the world's
+    /// worn looks where its own properties name none.
     #[must_use]
-    pub fn with_worn_of(mut self, template: u32) -> Self {
+    pub fn with_worn_of(mut self, template: u32, worn: &crate::worn_table::WornLooks) -> Self {
         if self.values.contains_key("Item_WornAppearanceFile1") {
             return self;
         }
-        let rows = crate::worn_table::WORN_IN_CODE
-            .iter()
-            .filter(|(t, ..)| *t == template);
-        for (n, (_, race, sex, file)) in rows.enumerate() {
+        for (n, w) in worn.of(template).iter().enumerate() {
             let n = n + 1;
-            for (name, v) in [("File", *file), ("Race", *race), ("Sex", *sex)] {
+            for (name, v) in [("File", w.appearance), ("Race", w.races), ("Sex", w.sexes)] {
                 self.values
                     .insert(format!("Item_WornAppearance{name}{n}"), Prop::Word(v));
             }

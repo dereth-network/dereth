@@ -1230,3 +1230,85 @@ fn time_away_moves_a_quests_time_on_but_never_past_now() {
     assert_eq!(late[2].started, i64::MAX - 1, "and does not overflow");
     assert_eq!(quests[2].started, 20_000, "one ahead of now stays");
 }
+
+/// A kept item holds no look of its own: one worn at logoff whose template's data names none is
+/// drawn at the next entry with the look its world's `[[worn]]` row gives then, so a save made
+/// while the server's own looks stood wears the rows' looks once a world has them: the character
+/// list and the player made both show the row's appearance, not the one before.
+/// Behaviour: server.world.kept-items-worn-with-their-worn-rows-look
+#[test]
+fn an_item_kept_worn_takes_its_worn_rows_look_at_the_next_entry() {
+    use yalain_content::worn_table::{Worn, WornLooks};
+    use yalain_content::{Prop, Props};
+    const CHEST: u32 = 0x4700_7101;
+    const BEFORE: u32 = 0x2000_7101;
+    const AFTER: u32 = 0x2000_7102;
+    let mut h = Harness::new();
+    let (b, me) = h.player_in_world("one", "Elara");
+    scene_drawn(&mut h, b);
+    let (race, sex) = {
+        let p = h
+            .server
+            .players
+            .values()
+            .find(|p| p.character == me)
+            .unwrap();
+        (p.race, p.sex)
+    };
+    let chest = |look| {
+        let mut props = Props::default();
+        props
+            .set("Item_ValidInventoryLocations", Prop::Word(2))
+            .set("Item_PreferredInventoryLocation", Prop::Word(2));
+        let rows = WornLooks::of_rows([Worn {
+            template: CHEST,
+            races: race,
+            sexes: sex,
+            appearance: look,
+        }]);
+        yalain_testkit::test_template(CHEST, 0x180, props.with_worn_of(CHEST, &rows))
+    };
+    h.server.catalog.insert(chest(BEFORE));
+    let item = h.arm(b, me, CHEST);
+    let wears = |v: &auberean_protocol::types::VisualDesc, look| {
+        v.global
+            .appearance
+            .get(look)
+            .is_some_and(|t| t.entries == [(0x10, 1.0)])
+    };
+    log_off(&mut h, b, me);
+    h.server.catalog.insert(chest(AFTER));
+    let from = h.bots[b].inbox.len();
+    h.enter_world(b, "one", me);
+    let player = h
+        .world_messages(b, from)
+        .iter()
+        .find_map(|m| match m {
+            ServerMessage::CreateObject(o) if o.id == me => Some(o.visual.clone()),
+            _ => None,
+        })
+        .expect("the player made");
+    assert!(wears(&player, AFTER), "made wearing the row's look");
+    assert!(!wears(&player, BEFORE), "not the one before");
+    let p = h
+        .server
+        .players
+        .values()
+        .find(|p| p.character == me)
+        .unwrap();
+    assert!(
+        p.play.items.iter().any(|x| x.id == item && x.location == 2),
+        "still worn"
+    );
+    let before = h.bots[b].inbox.len();
+    log_off(&mut h, b, me);
+    let listed = h.bots[b].inbox[before..]
+        .iter()
+        .find_map(|r| match r.message() {
+            Some(ServerMessage::CharacterList(l)) => Some(l),
+            _ => None,
+        })
+        .expect("the character list");
+    let entry = listed.characters.iter().find(|c| c.id == me).unwrap();
+    assert!(wears(&entry.visual, AFTER), "listed wearing the row's look");
+}

@@ -17,6 +17,7 @@ use auberean_dat::locate::{install_dats, DatName};
 use auberean_dat::DatFile;
 use auberean_script::graph::Graph;
 use auberean_script::library::{Library, RECORD};
+use yalain_content::worn_table::WornLooks;
 use yalain_content::{describe, facts, Catalog, FactIds, Props, Template, FACT_NAMES};
 use yalain_world::levels::{LevelTable, LEVEL_TABLE};
 use yalain_world::skills::{SkillTable, SKILL_NAMES};
@@ -260,9 +261,17 @@ impl Portal {
         self.described(id).expect("the template is described")
     }
 
-    /// A template of the install, described: none when it does not describe.
+    /// A template of the install, described: none when it does not describe. Its worn looks,
+    /// where its data names none, are the server's own.
     #[must_use]
     pub fn described(&self, id: u32) -> Option<Template> {
+        self.described_wearing(id, servers_worn())
+    }
+
+    /// A template of the install, described with a world's worn looks where its data names none:
+    /// none when it does not describe.
+    #[must_use]
+    pub fn described_wearing(&self, id: u32, worn: &WornLooks) -> Option<Template> {
         let name = |p: u32| {
             self.ctx
                 .properties()
@@ -277,7 +286,7 @@ impl Portal {
         });
         let props = Props::of(id, &|e| self.entity(e), &name)
             .with_places_of(self.qualities(yalain_content::qualities_id(id)).as_ref())
-            .with_worn_of(id)
+            .with_worn_of(id, worn)
             .with_class(&class)
             .with_quest_named(&|n| self.quest_ids().get(n).copied());
         Some(Template {
@@ -726,13 +735,17 @@ impl Portal {
             ));
         // The looks treasure draws: the world's, else the server's own.
         let (treasure, _) = yalain_content::treasure_tables::TreasureTables::with_rows(&t.treasure);
+        // The worn looks: the world's, else the server's own.
+        let (worn, _) = yalain_content::worn_table::world_worn(&t.worn);
         let mut seen = std::collections::HashSet::new();
         for id in spawned
             .chain(dropped)
             .chain(made)
             .filter(|id| seen.insert(*id))
         {
-            let t = self.template(id);
+            let t = self
+                .described_wearing(id, &worn)
+                .expect("the template is described");
             let icon = yalain_content::icon_layers(t.description.look, &|did| {
                 auberean_assets::decode(did, &self.dat.read(did).ok()?, &self.ctx).ok()
             });
@@ -753,6 +766,12 @@ impl Portal {
         }
         catalog
     }
+}
+
+/// The server's own worn looks, for templates whose data names none.
+fn servers_worn() -> &'static WornLooks {
+    static OWN: std::sync::OnceLock<WornLooks> = std::sync::OnceLock::new();
+    OWN.get_or_init(WornLooks::servers_own)
 }
 
 /// The authored world, compiled against the install.

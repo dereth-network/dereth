@@ -684,3 +684,92 @@ fn a_treasure_chest_piece_is_refused_by_its_own_least_level_then_its_own_arcane_
     assert_eq!(answers(&h, a, fa).len(), 1, "worn");
     assert_eq!(held(&h, me, item).0, 2, "on the chest");
 }
+
+/// A garment whose data names no look gives its wearer the first of its `[[worn]]` rows that fits
+/// the wearer's race and sex (a row for another race first is passed over); a garment whose data
+/// names its own look keeps it over a row.
+/// Behaviour: server.inventory.worn-look-from-worn-rows
+#[test]
+fn a_garment_with_no_look_of_its_own_is_worn_with_its_worn_rows_look_for_the_wearer() {
+    use yalain_content::worn_table::{Worn, WornLooks};
+    const TUNIC: u32 = 0x4700_7105;
+    const TUNIC_LOOK: u32 = 0x2000_7105;
+    let (mut h, a, me, _) = two_players();
+    let (race, sex) = {
+        let p = h
+            .server
+            .players
+            .values()
+            .find(|p| p.character == me)
+            .unwrap();
+        (p.race, p.sex)
+    };
+    let other = if race == 1 { 2 } else { 1 };
+    let row = |template, races, appearance| Worn {
+        template,
+        races,
+        sexes: sex,
+        appearance,
+    };
+    let rows = WornLooks::of_rows([
+        row(TUNIC, other, 0x2000_7F00),
+        row(TUNIC, race, TUNIC_LOOK),
+        row(CHEST, race, 0x2000_7F01),
+    ]);
+    let mut p = Props::default();
+    p.set("Item_ValidInventoryLocations", Prop::Word(2))
+        .set("Item_PreferredInventoryLocation", Prop::Word(2));
+    h.server.catalog.insert(yalain_testkit::test_template(
+        TUNIC,
+        0x180,
+        p.with_worn_of(TUNIC, &rows),
+    ));
+    let chest = h.server.catalog.get(CHEST).unwrap().props.clone();
+    h.server.catalog.insert(yalain_testkit::test_template(
+        CHEST,
+        0x180,
+        chest.with_worn_of(CHEST, &rows),
+    ));
+    let fa = h.bots[a].inbox.len();
+    let tunic = h.arm(a, me, TUNIC);
+    let last = looks(&h, a, fa, me).pop().expect("the new look");
+    assert!(
+        tables(&last).contains(&TUNIC_LOOK),
+        "the row for the wearer's race"
+    );
+    assert!(!tables(&last).contains(&0x2000_7F00), "not another race's");
+    use_it(&mut h, a, me, tunic);
+    let fa = h.bots[a].inbox.len();
+    h.arm(a, me, CHEST);
+    let last = looks(&h, a, fa, me).pop().expect("the new look");
+    assert!(tables(&last).contains(&CHEST_LOOK), "its own look");
+    assert!(!tables(&last).contains(&0x2000_7F01), "not the row's");
+}
+
+/// A world with no `[[worn]]` rows has the server's own worn looks, 147 of 75 templates, and says
+/// it fell back; a world with any has its rows alone, never merged with the server's: a template
+/// only the server's own names gets no look.
+/// Behaviour: server.inventory.worn-looks-without-rows
+#[test]
+fn a_world_without_worn_rows_has_the_servers_own_and_with_some_its_rows_alone() {
+    use yalain_content::worn_table::{world_worn, Worn, WornLooks};
+    let (own, fell_back) = world_worn(&WornLooks::default());
+    assert!(fell_back, "said");
+    assert_eq!(own, WornLooks::servers_own());
+    assert_eq!(own.iter().count(), 147);
+    assert_eq!(own.by_template.len(), 75);
+    let row = Worn {
+        template: 0x4700_7105,
+        races: 1,
+        sexes: 0x1000,
+        appearance: 0x2000_7105,
+    };
+    let (theirs, fell_back) = world_worn(&WornLooks::of_rows([row]));
+    assert!(!fell_back);
+    assert_eq!(theirs.iter().copied().collect::<Vec<_>>(), [row]);
+    let servers = own.by_template.keys().next().copied().unwrap();
+    assert!(
+        theirs.of(servers).is_empty(),
+        "{servers:08X}: none merged in"
+    );
+}

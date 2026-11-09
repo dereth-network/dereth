@@ -155,6 +155,8 @@ pub struct Tables {
     pub crafts: yalain_content::crafts::Crafts,
     /// The dye plants: species and crosses, each kind only when it has rows.
     pub plants: yalain_content::plants::DyePlants,
+    /// The worn looks of templates whose data names none, by template in the rows' order.
+    pub worn: yalain_content::worn_table::WornLooks,
     /// The treasure numbers the world gives: its rules and its sorts' numbers, each kind only
     /// when it has rows of it.
     pub treasure: yalain_content::treasure_tables::TreasureRows,
@@ -1293,6 +1295,37 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     .fold(true, |ok, (field, t)| cx.template(l, field, t) && ok);
                 if held {
                     t.plants.crosses.insert((c.plant, c.pollen), c);
+                }
+            }
+            Row::Worn(r) => {
+                use yalain_content::worn_table::LOOKS_HELD;
+                let w = r.worn;
+                if cx.template(l, "template", w.template) {
+                    let install = cx.install;
+                    let own =
+                        yalain_content::Props::of(w.template, &|id| install.entity(id), &|id| {
+                            install.property_name(id)
+                        });
+                    if own.word("Item_WornAppearanceFile1").is_some() {
+                        cx.warn(
+                            l,
+                            format!(
+                                "template: {:08X} names its own worn looks, which stand over the row",
+                                w.template
+                            ),
+                        );
+                    }
+                    if t.worn.of(w.template).len() >= LOOKS_HELD {
+                        cx.problem(
+                            l,
+                            format!(
+                                "template: {:08X} has more than {LOOKS_HELD} worn looks",
+                                w.template
+                            ),
+                        );
+                    } else {
+                        t.worn.push(w);
+                    }
                 }
             }
             Row::PointsBonus(r) => {

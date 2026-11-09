@@ -99,6 +99,11 @@ pub fn item(l: &Located) -> Option<Item> {
             plant: r.cross.plant,
             pollen: r.cross.pollen,
         },
+        Row::Worn(r) => Item::Worn {
+            template: r.worn.template,
+            races: r.worn.races,
+            sexes: r.worn.sexes,
+        },
         Row::TreasureSort(r) => Item::TreasureSort {
             sort: r.sort.name().to_string(),
         },
@@ -191,6 +196,7 @@ fn value(row: &Row) -> String {
         Row::Refining(x) => x.prov = crate::rows::Prov::default(),
         Row::Plant(x) => x.prov = crate::rows::Prov::default(),
         Row::PlantCross(x) => x.prov = crate::rows::Prov::default(),
+        Row::Worn(x) => x.prov = crate::rows::Prov::default(),
         Row::Scene(x) => x.prov = crate::rows::Prov::default(),
         Row::Shard(x) => x.prov = crate::rows::Prov::default(),
         Row::Weapon(x) => x.prov = crate::rows::Prov::default(),

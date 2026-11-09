@@ -1235,7 +1235,7 @@ fn armor_dyed_holds_its_plants_value_when_next_made() {
                         continue;
                     };
                     let props = yalain_content::Props::of(*t, &|id| entity(inst, id), &prop_name)
-                        .with_worn_of(*t);
+                        .with_worn_of(*t, crate::world_db::worn_looks());
                     let Some(table) = yalain_world::equip::dye_table(&props) else {
                         continue;
                     };
@@ -1268,7 +1268,7 @@ fn armor_dyed_holds_its_plants_value_when_next_made() {
             held += usize::from(holds);
             let props =
                 yalain_content::Props::of(o.weenie.entity_did, &|id| entity(inst, id), &prop_name)
-                    .with_worn_of(o.weenie.entity_did);
+                    .with_worn_of(o.weenie.entity_did, crate::world_db::worn_looks());
             let table = yalain_world::equip::dye_table(&props);
             tabled += usize::from(
                 o.visual

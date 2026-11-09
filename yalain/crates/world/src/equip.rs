@@ -189,7 +189,7 @@ pub fn worn_look(
     sex: u32,
     own: &crate::treasure::Own,
 ) -> Option<(u32, Table<f32>)> {
-    let file = (1..=16).find_map(|n| {
+    let file = (1..=yalain_content::worn_table::LOOKS_HELD).find_map(|n| {
         let file = props.word(&format!("Item_WornAppearanceFile{n}"))?;
         let r = props.word(&format!("Item_WornAppearanceRace{n}"))?;
         let x = props.word(&format!("Item_WornAppearanceSex{n}"))?;

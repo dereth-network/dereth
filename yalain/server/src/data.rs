@@ -365,8 +365,9 @@ pub const PROFILE_NAMES: u32 = 0x2300_0100;
 /// The templates the world makes things of: every template a camp spawns, every item a loot
 /// profile or a death treasure names, the fixed drops of those creatures, and `more` (corpses,
 /// store products); each
-/// described as the content pack's objects are, with its facts and its properties by name, and the
-/// appearance tables its icon goes by (a dye's, a potion's, the look its treasure draws).
+/// described as the content pack's objects are, with its facts and its properties by name (its
+/// worn looks the world's where its data names none), and the appearance tables its icon goes by
+/// (a dye's, a potion's, the look its treasure draws).
 ///
 /// # Errors
 /// The profile names do not read.
@@ -376,6 +377,7 @@ pub fn catalog(
     loot: &LootTable,
     more: &[u32],
     treasure: &TreasureTables,
+    worn: &yalain_content::worn_table::WornLooks,
 ) -> Result<(Catalog, Vec<String>), String> {
     let mut c = Catalog::default();
     let bytes = p
@@ -427,7 +429,7 @@ pub fn catalog(
         });
         let props = Props::of(t, &|id| p.entity(id), &prop_name)
             .with_places_of(p.qualities(yalain_content::qualities_id(t)).as_ref())
-            .with_worn_of(t)
+            .with_worn_of(t, worn)
             .with_class(&class)
             .with_quest_named(&|n| quests.get(n).copied());
         let description = match describe(t, &|id| p.entity(id), &|id| p.qualities(id)) {
@@ -1666,6 +1668,7 @@ mod tests {
             &LootTable::default(),
             &more,
             &TreasureTables::default(),
+            &yalain_content::worn_table::WornLooks::servers_own(),
         )
         .expect("the catalog");
         let g = &craft.gathering;
@@ -1746,6 +1749,7 @@ mod tests {
             &LootTable::default(),
             &more,
             &TreasureTables::default(),
+            &yalain_content::worn_table::WornLooks::servers_own(),
         )
         .expect("the catalog");
         let described = |t: u32| c.get(t).unwrap_or_else(|| panic!("{t:08X} described"));
@@ -1801,6 +1805,7 @@ mod tests {
             &LootTable::default(),
             &more,
             &TreasureTables::default(),
+            &yalain_content::worn_table::WornLooks::servers_own(),
         )
         .expect("the catalog");
         c.implements = implements(&p, &c).expect("the implements");
@@ -1901,6 +1906,7 @@ mod tests {
             &LootTable::default(),
             &[0x4700_0609, 0x4700_11C7, 0x4700_080B],
             &TreasureTables::default(),
+            &yalain_content::worn_table::WornLooks::servers_own(),
         )
         .expect("the catalog");
         let gate = |t: u32| {
@@ -1928,6 +1934,7 @@ mod tests {
             &LootTable::default(),
             &[0x4700_11C8, 0x4700_1AED, 0x4700_051C],
             &TreasureTables::default(),
+            &yalain_content::worn_table::WornLooks::servers_own(),
         )
         .expect("the catalog");
         assert!(yalain_world::inventory::attunable(&c, 0x4700_11C8));
@@ -1947,6 +1954,7 @@ mod tests {
             &LootTable::default(),
             &[0x4700_10B1, 0x4700_10AC],
             &TreasureTables::default(),
+            &yalain_content::worn_table::WornLooks::servers_own(),
         )
         .expect("the catalog");
         let key = |t: u32| c.get(t).expect("described").props.word("Lock_KeyID");
@@ -1967,6 +1975,7 @@ mod tests {
             &LootTable::default(),
             &[0x4700_1127, 0x4700_1128],
             &TreasureTables::default(),
+            &yalain_content::worn_table::WornLooks::servers_own(),
         )
         .expect("the catalog");
         let key = |t: u32| c.get(t).expect("described").props.word("Lock_KeyID");
@@ -2037,6 +2046,7 @@ mod tests {
             &LootTable::default(),
             &more,
             &TreasureTables::default(),
+            &yalain_content::worn_table::WornLooks::servers_own(),
         )
         .expect("the catalog");
         assert_eq!(rows.start_items, BTreeMap::from([(0x4700_06CD, 1)]));
@@ -2052,11 +2062,129 @@ mod tests {
                 .copied()
                 .collect::<Vec<_>>(),
             &TreasureTables::default(),
+            &yalain_content::worn_table::WornLooks::servers_own(),
         )
         .expect("the catalog");
         for t in rows.uses.keys().chain(rows.books.keys()) {
             assert!(wanted.get(*t).is_some(), "{t:08X} described");
         }
+    }
+
+    /// A start describes every template of the server's own worn looks (75), none of which names a
+    /// worn look in its own data, and gives each its looks in order, 147 of 147: a wearer of each
+    /// race and sex a look fits wears the first that fits, as the starting clothes each race wears
+    /// do. With a world's rows the templates take those alone.
+    /// Behaviour: server.inventory.worn-looks-in-the-real-start
+    #[test]
+    fn a_start_gives_every_template_of_the_servers_own_worn_looks_its_looks_in_order() {
+        use yalain_content::worn_table::{Worn, WornLooks};
+        use yalain_world::chargen::{FEMALE, MALE};
+        let dir = auberean_dat::testing::require_target_install();
+        let p = Portal::open(&dir, None).expect("opens");
+        let own = WornLooks::servers_own();
+        let start = start_rules(&p).expect("the start");
+        let garments: Vec<(u32, u32)> = start
+            .items
+            .iter()
+            .flat_map(|(race, items)| {
+                items
+                    .iter()
+                    .filter(|i| i.worn)
+                    .map(move |i| (*race, i.template))
+            })
+            .collect();
+        let more: Vec<u32> = own
+            .by_template
+            .keys()
+            .copied()
+            .chain(garments.iter().map(|(_, t)| *t))
+            .collect();
+        let build = |worn: &WornLooks| {
+            catalog(
+                &p,
+                &SpawnTable::default(),
+                &LootTable::default(),
+                &more,
+                &TreasureTables::default(),
+                worn,
+            )
+            .expect("the catalog")
+            .0
+        };
+        let c = build(&own);
+        let prop_name = |id: u32| {
+            p.ctx
+                .properties()
+                .and_then(|l| l.names.name(id))
+                .map(str::to_string)
+        };
+        let (mut given, mut fits) = (0, 0);
+        for (t, looks) in &own.by_template {
+            let held = c.get(*t).unwrap_or_else(|| panic!("{t:08X} described"));
+            let data = Props::of(*t, &|id| p.entity(id), &prop_name);
+            assert_eq!(
+                data.word("Item_WornAppearanceFile1"),
+                None,
+                "{t:08X}'s data"
+            );
+            for (n, w) in looks.iter().enumerate() {
+                let n = n + 1;
+                let word = |f: &str| held.props.word(&format!("Item_WornAppearance{f}{n}"));
+                assert_eq!(
+                    (word("File"), word("Race"), word("Sex")),
+                    (Some(w.appearance), Some(w.races), Some(w.sexes)),
+                    "{t:08X} look {n}"
+                );
+                given += 1;
+                let race = w.races & w.races.wrapping_neg();
+                let sex = w.sexes & w.sexes.wrapping_neg();
+                let first = looks
+                    .iter()
+                    .find(|x| x.races & race != 0 && x.sexes & sex != 0)
+                    .map(|x| x.appearance);
+                let worn = yalain_world::equip::worn_look(
+                    &held.props,
+                    race,
+                    sex,
+                    &yalain_world::treasure::Own::default(),
+                )
+                .map(|(a, _)| a);
+                assert_eq!(worn, first, "{t:08X} on {race:#x} {sex:#x}");
+                fits += 1;
+            }
+        }
+        assert_eq!((given, fits), (147, 147));
+        // Each race's starting clothes give a body of either sex a look.
+        assert!(!garments.is_empty(), "the starting clothes");
+        for (race, t) in &garments {
+            let held = c.get(*t).unwrap_or_else(|| panic!("{t:08X} described"));
+            for sex in [MALE, FEMALE] {
+                let worn = yalain_world::equip::worn_look(
+                    &held.props,
+                    *race,
+                    sex,
+                    &yalain_world::treasure::Own::default(),
+                );
+                assert!(worn.is_some(), "{t:08X} on {race:#x} {sex:#x}");
+            }
+        }
+        // A world's rows alone.
+        let (one, other) = {
+            let mut k = own.by_template.keys().copied();
+            (k.next().unwrap(), k.next().unwrap())
+        };
+        let theirs = WornLooks::of_rows([Worn {
+            template: one,
+            races: 0xFFFF_FFFF,
+            sexes: 0xFFFF_FFFF,
+            appearance: 0x2000_0059,
+        }]);
+        let c = build(&theirs);
+        let props = &c.get(one).expect("described").props;
+        assert_eq!(props.word("Item_WornAppearanceFile1"), Some(0x2000_0059));
+        assert_eq!(props.word("Item_WornAppearanceFile2"), None);
+        let props = &c.get(other).expect("described").props;
+        assert_eq!(props.word("Item_WornAppearanceFile1"), None, "{other:08X}");
     }
 
     /// A start describes every template of the server's own dye plants, as it asks for them with
@@ -2092,6 +2220,7 @@ mod tests {
             &LootTable::default(),
             &more,
             &TreasureTables::default(),
+            &yalain_content::worn_table::WornLooks::servers_own(),
         )
         .expect("the catalog");
         let described = |t: u32| assert!(c.get(t).is_some(), "{t:08X} described");
@@ -2130,6 +2259,7 @@ mod tests {
             &LootTable::default(),
             &[0x4700_11B4, 0x4700_1106, FOOD],
             &TreasureTables::default(),
+            &yalain_content::worn_table::WornLooks::servers_own(),
         )
         .expect("the catalog");
         let spent = |t: u32| spends(&rows, t, &c.get(t).expect("described").props);
@@ -2159,6 +2289,7 @@ mod tests {
             &LootTable::default(),
             &[ARMOR, weapon],
             &TreasureTables::default(),
+            &yalain_content::worn_table::WornLooks::servers_own(),
         )
         .expect("the catalog");
         assert!(
@@ -2425,6 +2556,7 @@ mod tests {
             &loot,
             &[],
             &TreasureTables::default(),
+            &yalain_content::worn_table::WornLooks::servers_own(),
         )
         .expect("the catalog");
         let kinds = treasure(&p, &c, &TreasureTables::default()).expect("the treasure kinds");
@@ -2467,6 +2599,7 @@ mod tests {
             &loot,
             &[],
             &TreasureTables::default(),
+            &yalain_content::worn_table::WornLooks::servers_own(),
         )
         .expect("the catalog");
         assert!(c.templates.contains_key(&ITEM));
@@ -2496,6 +2629,7 @@ mod tests {
             &loot,
             &[],
             &TreasureTables::default(),
+            &yalain_content::worn_table::WornLooks::servers_own(),
         )
         .expect("the catalog");
         assert!(c.templates.contains_key(&ITEM));
@@ -2505,6 +2639,7 @@ mod tests {
             &LootTable::default(),
             &[],
             &TreasureTables::default(),
+            &yalain_content::worn_table::WornLooks::servers_own(),
         )
         .expect("the catalog");
         assert!(!c.templates.contains_key(&ITEM), "named by nothing else");

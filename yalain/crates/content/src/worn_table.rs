@@ -1,10 +1,92 @@
-//! The worn appearances of the item templates that keep them nowhere in the data: their classes name
-//! them in code, by file names the data files cannot turn into ids. Each row is a template, the race
-//! and sex it fits, and the appearance. The ids come from what the same names answer elsewhere (a
+//! The worn appearances of item templates whose data names none: their classes name them in code,
+//! by file names the data files cannot turn into ids. A world gives them as `[[worn]]` rows, each a
+//! template, the races and sexes it fits, and the appearance; [`WORN_IN_CODE`] is the server's own,
+//! for a world with no such rows. Its ids come from what the same names answer elsewhere (a
 //! template's pile appearance, another's properties) and from the looks the January 2017 servers
 //! sent. Where nothing says what a name is, a recorded look of the template stands in, else the
 //! male look stands in for the female. The starting clothes' names are also those the character
 //! generation data gives its clothing choices, so they take the ids those choices draw.
+
+use std::collections::BTreeMap;
+
+/// How many worn looks a template holds: its properties number them from 1 to this.
+pub const LOOKS_HELD: usize = 16;
+
+/// One worn look of a template: the races and the sexes it fits (masks), and the appearance it
+/// gives them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Worn {
+    pub template: u32,
+    pub races: u32,
+    pub sexes: u32,
+    pub appearance: u32,
+}
+
+/// A world's worn looks, by template, each template's in the order its rows stand: a wearer takes
+/// the first that fits it, and a dye colors the first.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct WornLooks {
+    pub by_template: BTreeMap<u32, Vec<Worn>>,
+}
+
+impl WornLooks {
+    /// The looks of these rows, in their order.
+    #[must_use]
+    pub fn of_rows(rows: impl IntoIterator<Item = Worn>) -> Self {
+        let mut out = Self::default();
+        for w in rows {
+            out.push(w);
+        }
+        out
+    }
+
+    /// The server's own: [`WORN_IN_CODE`].
+    #[must_use]
+    pub fn servers_own() -> Self {
+        Self::of_rows(
+            WORN_IN_CODE
+                .iter()
+                .map(|&(template, races, sexes, appearance)| Worn {
+                    template,
+                    races,
+                    sexes,
+                    appearance,
+                }),
+        )
+    }
+
+    /// Add a look after the template's others.
+    pub fn push(&mut self, w: Worn) {
+        self.by_template.entry(w.template).or_default().push(w);
+    }
+
+    /// A template's looks, in order.
+    #[must_use]
+    pub fn of(&self, template: u32) -> &[Worn] {
+        self.by_template.get(&template).map_or(&[], Vec::as_slice)
+    }
+
+    /// Every look, by template and in order.
+    pub fn iter(&self) -> impl Iterator<Item = &Worn> + '_ {
+        self.by_template.values().flatten()
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.by_template.is_empty()
+    }
+}
+
+/// A world's worn looks: its rows, or the server's own ([`WORN_IN_CODE`]) when it has none, never
+/// the two merged; and whether it had none.
+#[must_use]
+pub fn world_worn(rows: &WornLooks) -> (WornLooks, bool) {
+    if rows.is_empty() {
+        (WornLooks::servers_own(), true)
+    } else {
+        (rows.clone(), false)
+    }
+}
 
 /// A template, the races and the sexes it fits (masks), and the appearance it gives them.
 pub const WORN_IN_CODE: &[(u32, u32, u32, u32)] = &[

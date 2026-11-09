@@ -57,6 +57,9 @@ const STARTING_SKILL_1: u32 = 0x4100_0003;
 const STARTING_SKILL_2: u32 = 0x4100_0004;
 const DRAWABLE: u32 = 0x4000_0001;
 const MINE_OBJECT: u32 = 0x4100_0005;
+const WORN_FILE: u32 = 0x4100_0006;
+/// A garment of the made-up install that names its own worn look.
+const GARMENT: u32 = 0x4700_0C8B;
 /// A node of the made-up install, giving a material when mined.
 const NODE: u32 = 0x4700_0C8A;
 
@@ -135,6 +138,14 @@ impl Fake {
             ),
         );
         entities.insert(0x4700_2224, entity(CLASS, 0x0E00, vec![look.clone()]));
+        entities.insert(
+            GARMENT,
+            entity(
+                CLASS,
+                0x0C01,
+                vec![(WORN_FILE, PropertyValue::DataFile(DataId(0x2000_0016)))],
+            ),
+        );
         // A pet's template, naming two skills.
         entities.insert(
             0x4700_0846,
@@ -189,6 +200,7 @@ impl Install for Fake {
             STARTING_SKILL_1 => Some("NPC_StartingSkill1".into()),
             STARTING_SKILL_2 => Some("NPC_StartingSkill2".into()),
             MINE_OBJECT => Some("Mine_Object".into()),
+            WORN_FILE => Some("Item_WornAppearanceFile1".into()),
             _ => None,
         }
     }
@@ -4295,4 +4307,113 @@ fn plant_rows_compile_to_species_and_crosses() {
         );
         assert!(merge(&read(&files).unwrap()).is_err(), "{twice}");
     }
+}
+
+#[test]
+fn worn_rows_compile_to_each_templates_looks_in_their_order() {
+    let mut files = fixture();
+    let row = |template: &str, races: &str, sexes: &str, look: &str| {
+        format!(
+            "[[worn]]\ntemplate = {template}\nraces = {races}\nsexes = {sexes}\n\
+             appearance = {look}\nprov = {{ from = \"authored\" }}\n\n"
+        )
+    };
+    let rows = [
+        row("0x47002224", "0x1", "0x2000", "0x20000013"),
+        row("0x47002224", "0x1", "0x1000", "0x20000014"),
+        row("0x4700115B", "0xFFFFFFFF", "0xFFFFFFFF", "0x20000059"),
+    ]
+    .concat();
+    files.insert("town/server/worn.toml".into(), rows.clone());
+    let merged = merge(&read(&files).unwrap()).unwrap();
+    let t = compile(&merged, &Fake::new()).unwrap();
+    let looks: Vec<(u32, u32, u32)> = t
+        .worn
+        .of(0x4700_2224)
+        .iter()
+        .map(|w| (w.races, w.sexes, w.appearance))
+        .collect();
+    assert_eq!(
+        looks,
+        [(1, 0x2000, 0x2000_0013), (1, 0x1000, 0x2000_0014)],
+        "in the rows' order"
+    );
+    assert_eq!(t.worn.of(0x4700_115B).len(), 1);
+    let own_looks = |t: &yalain_world_db::compile::Tables| -> Vec<String> {
+        t.warnings
+            .iter()
+            .map(ToString::to_string)
+            .filter(|w| w.contains("worn looks"))
+            .collect()
+    };
+    assert!(own_looks(&t).is_empty(), "{:?}", own_looks(&t));
+    // The props a template takes from them.
+    let props = yalain_content::Props::default().with_worn_of(0x4700_2224, &t.worn);
+    assert_eq!(props.word("Item_WornAppearanceFile1"), Some(0x2000_0013));
+    assert_eq!(props.word("Item_WornAppearanceSex1"), Some(0x2000));
+    assert_eq!(props.word("Item_WornAppearanceFile2"), Some(0x2000_0014));
+    assert_eq!(props.word("Item_WornAppearanceRace2"), Some(1));
+    // A template the install lacks.
+    files.insert(
+        "town/server/worn.toml".into(),
+        row("0x47009999", "0x1", "0x1000", "0x20000014"),
+    );
+    let merged = merge(&read(&files).unwrap()).unwrap();
+    let problems = compile(&merged, &Fake::new()).unwrap_err();
+    let messages: Vec<String> = problems.iter().map(ToString::to_string).collect();
+    assert_eq!(messages.len(), 1, "{messages:?}");
+    assert!(
+        messages[0].contains("template: template 47009999 is not in the install"),
+        "{messages:?}"
+    );
+    // A template that names its own looks keeps them, and the build warns.
+    files.insert(
+        "town/server/worn.toml".into(),
+        row("0x47000C8B", "0x1", "0x1000", "0x20000014"),
+    );
+    let merged = merge(&read(&files).unwrap()).unwrap();
+    let t = compile(&merged, &Fake::new()).unwrap();
+    let warned = own_looks(&t);
+    assert_eq!(warned.len(), 1, "{warned:?}");
+    assert!(
+        warned[0].contains("47000C8B names its own worn looks"),
+        "{warned:?}"
+    );
+    // Sixteen looks a template at most.
+    let many: String = (0..17u32)
+        .map(|n| {
+            row(
+                "0x47002224",
+                &format!("{:#x}", 1u32 << n),
+                "0x1000",
+                "0x20000014",
+            )
+        })
+        .collect();
+    files.insert("town/server/worn.toml".into(), many);
+    let merged = merge(&read(&files).unwrap()).unwrap();
+    let problems = compile(&merged, &Fake::new()).unwrap_err();
+    let messages: Vec<String> = problems.iter().map(ToString::to_string).collect();
+    assert_eq!(messages.len(), 1, "{messages:?}");
+    assert!(
+        messages[0].contains("more than 16 worn looks"),
+        "{messages:?}"
+    );
+    // A mask of none, a field left out.
+    for (from, to) in [
+        ("races = 0x1\n", "races = 0x0\n"),
+        ("sexes = 0x2000", "sexes = 0"),
+        ("appearance = 0x20000013\n", ""),
+        ("races = 0x1\n", ""),
+    ] {
+        assert!(rows.contains(from), "{from}");
+        files.insert("town/server/worn.toml".into(), rows.replacen(from, to, 1));
+        assert!(read(&files).is_err(), "{from} to {to}");
+    }
+    // One row a template, races and sexes.
+    files.insert(
+        "town/server/worn.toml".into(),
+        format!("{rows}{}", row("0x47002224", "0x1", "0x2000", "0x20000099")),
+    );
+    assert!(merge(&read(&files).unwrap()).is_err(), "set twice");
 }

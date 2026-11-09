@@ -231,14 +231,14 @@ fn every_recorded_worn_or_wielded_item_is_listed_as_this_server_lists_it() {
 }
 
 /// Each look the 2017 servers listed at entry for an item whose template names no worn appearance in
-/// its properties (the data files do not say; the template's class does, in code) is one the table
-/// gives that template.
+/// its properties (the data files do not say; the template's class does, in code) is one the
+/// world's worn looks give that template.
 ///
 /// Behaviour: session.server.an-item-without-worn-properties-changes-the-body-as-2017-showed
 #[test]
-fn every_recorded_look_of_a_template_without_worn_properties_is_in_the_table() {
+fn every_recorded_look_of_a_template_without_worn_properties_is_one_the_world_gives() {
     use std::collections::BTreeMap;
-    use yalain_content::worn_table::WORN_IN_CODE;
+    let looks = crate::world_db::worn_looks();
     let path = auberean_testkit::data::require_capture_index();
     let lib = library().expect("the client library reads from the install");
     let con = open(&path);
@@ -279,11 +279,7 @@ fn every_recorded_look_of_a_template_without_worn_properties_is_in_the_table() {
         let Some(template) = templates.get(&(session, item)) else {
             continue;
         };
-        let given: Vec<u32> = WORN_IN_CODE
-            .iter()
-            .filter(|(t, ..)| t == template)
-            .map(|(.., file)| *file)
-            .collect();
+        let given: Vec<u32> = looks.of(*template).iter().map(|w| w.appearance).collect();
         if given.is_empty() {
             continue;
         }
@@ -293,7 +289,7 @@ fn every_recorded_look_of_a_template_without_worn_properties_is_in_the_table() {
         }
     }
     assert!(checked > 500, "the sessions wear such items: {checked}");
-    assert!(missed.is_empty(), "looks the table lacks: {missed:x?}");
+    assert!(missed.is_empty(), "looks the world lacks: {missed:x?}");
 }
 
 /// The look a recorded profile's appearance native lists: its one appearance and values (none
