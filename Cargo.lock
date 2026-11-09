@@ -3823,7 +3823,7 @@ dependencies = [
 
 [[package]]
 name = "lyceum-cli"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "dereth-dat",
  "lyceum-foundry",
@@ -3831,7 +3831,7 @@ dependencies = [
 
 [[package]]
 name = "lyceum-editor"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "dereth-animation",
  "dereth-assets",
@@ -3872,7 +3872,7 @@ dependencies = [
 
 [[package]]
 name = "lyceum-foundry"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "dereth-assets",
  "dereth-dat",
