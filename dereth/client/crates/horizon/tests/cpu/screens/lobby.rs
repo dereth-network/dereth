@@ -323,3 +323,24 @@ fn alt_and_enter_switch_full_screen_and_neither_ask_to_log_in_nor_stay_in_a_text
     );
     assert!(front.frame_input.keys.contains(&vk::ENTER));
 }
+
+/// Character select names nothing of NVIDIA's DLSS, whether or not the client carries its library:
+/// the attribution is on the settings page, under the boxes it is about.
+#[test]
+fn character_select_draws_the_same_with_or_without_the_dlss_library() {
+    let drawn = |dlss_carried: bool| {
+        let state = GameState {
+            dlss_carried,
+            ..account()
+        };
+        let mut h = Harness::with_built_in_art();
+        // Long enough for the screen to have faded in.
+        for _ in 0..180 {
+            h.frame(&state);
+        }
+        h.list.quads
+    };
+    let without = drawn(false);
+    assert!(!without.is_empty(), "character select drew nothing");
+    assert_eq!(drawn(true), without);
+}

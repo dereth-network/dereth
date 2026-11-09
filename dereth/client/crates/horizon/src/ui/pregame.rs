@@ -857,23 +857,13 @@ impl Pregame {
             .edge(ctx.colours.ui(colours::row::MENU_GLOW));
         let own = p.art.has_piece("window.tl");
         let version = version_line(own, state);
-        // The attribution NVIDIA's license asks for where the client carries its DLSS library,
-        // on the line over the version.
-        let attribution = state
-            .dlss_carried
-            .then_some(dereth_client_contract::options::remaster::DLSS_ATTRIBUTION);
+        // NVIDIA's attribution is on the settings page, beside the boxes it is about, not here.
         if own {
             // Small and plain at the very foot, under the buttons.
             let plain = TextStyle::new(Family::Body, 11.0, 0xFFB8_B4AA);
             p.text(&plain, 25.0 * k, sh - 17.0 * k, &version);
-            if let Some(a) = attribution {
-                p.text(&plain, 25.0 * k, sh - 32.0 * k, a);
-            }
         } else {
             p.text(&small, 25.0 * k, sh - 30.0 * k, &version);
-            if let Some(a) = attribution {
-                p.text(&small, 25.0 * k, sh - 46.0 * k, a);
-            }
         }
         if own {
             return;
