@@ -4148,16 +4148,19 @@ fn a_worlds_creature_rows_read_compile_and_are_held_to_their_shape() {
     files.insert("town/server/creatures.toml".into(), ROWS.into());
     assert_eq!(check(&files), Vec::new());
     let db = read(&files).unwrap();
-    let keys: Vec<String> = db
+    // The keys in sorted order: whether a file's tables keep their order as read is the TOML
+    // reader's to say, and nothing here depends on it.
+    let mut keys: Vec<String> = db
         .rows()
         .filter(|l| l.file.ends_with("creatures.toml"))
         .filter_map(yalain_world_db::merge::item_key)
         .collect();
+    keys.sort();
     assert_eq!(
         keys,
         [
-            "concealing 0x6f001c46 0x17",
             "concealing 0x6f000d8c any",
+            "concealing 0x6f001c46 0x17",
             "creature 0x47002224",
             "friend_table 0xe",
             "npc_table NPCTable_Crone",
