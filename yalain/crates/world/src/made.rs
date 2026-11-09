@@ -297,23 +297,14 @@ pub const fn trade_goods_value(first: u32, second: u32) -> u32 {
 const NOT_NAMED_BY_TOOLS: [u32; 2] = [0x6F00_0691, 0x6F00_0692];
 
 /// The craft skills a tool's requirement names, in the order of their records: a gathering tool's
-/// (a knife's, or a mining tool's) the skill it gathers with, a working tool's those its worn
-/// effects lift.
+/// (a knife's, or a mining tool's: `gathers`) the skill it gathers with, a working tool's those
+/// its worn effects lift.
 #[must_use]
 pub fn tool_skills(
-    template: u32,
-    knife: bool,
+    gathers: Option<u32>,
     worn: &[crate::effect_defs::EffectDef],
     skills: &[crate::craft::CraftSkillDef],
 ) -> Vec<(u32, u32)> {
-    let mining = crate::mining::SKILLS
-        .into_iter()
-        .find(|k| crate::mining::skill_tools(*k).is_some_and(|(_, t)| t.contains(&template)));
-    let gathers = if knife {
-        Some(crate::butchery::SKILL)
-    } else {
-        mining
-    };
     let mut named: Vec<&crate::craft::CraftSkillDef> = skills
         .iter()
         .filter(|d| match gathers {
@@ -398,8 +389,15 @@ pub fn show<S: yalain_store::Store>(
                 .iter()
                 .filter_map(|(state, _)| s.effect_table.get(*state).cloned())
                 .collect();
-            let knife = crate::butchery::is_knife(s, t.template);
-            v.tool_skills = tool_skills(t.template, knife, &worn, &s.crafting.skills)
+            let gathers = if crate::butchery::is_knife(s, t.template) {
+                Some(crate::butchery::SKILL)
+            } else {
+                s.crafting
+                    .gathering
+                    .mine_of_tool(t.template)
+                    .map(|m| m.skill)
+            };
+            v.tool_skills = tool_skills(gathers, &worn, &s.crafting.skills)
                 .into_iter()
                 .map(crate::progress::text)
                 .collect();

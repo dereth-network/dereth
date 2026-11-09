@@ -204,6 +204,10 @@ pub enum Item {
     TreasurePotion { kind: String },
     /// A family of enchantments treasure draws, by its sort and its place in the order.
     TreasureFamily { sort: String, order: u32 },
+    /// What a mining craft skill's nodes do, by the skill.
+    Mine { skill: u32 },
+    /// The nodes a region's surveyor's maps lead to, by the region's key.
+    MapRegion { region: String },
 }
 
 impl Item {
@@ -302,6 +306,12 @@ impl Item {
                 sort: (*sort).to_string(),
                 order: number(order)?,
             },
+            ["mine", skill] => Self::Mine {
+                skill: number(skill)?,
+            },
+            ["map_region", region] => Self::MapRegion {
+                region: symbol(region)?,
+            },
             ["area", lb] => Self::Area {
                 landblock: u16::from_str_radix(lb, 16).ok().filter(|_| lb.len() == 4)?,
             },
@@ -359,6 +369,8 @@ impl fmt::Display for Item {
             Self::TreasureLook { template } => write!(f, "treasure_look {template:#010x}"),
             Self::TreasurePotion { kind } => write!(f, "treasure_potion {kind}"),
             Self::TreasureFamily { sort, order } => write!(f, "treasure_family {sort} {order}"),
+            Self::Mine { skill } => write!(f, "mine {skill:#010x}"),
+            Self::MapRegion { region } => write!(f, "map_region {region}"),
         }
     }
 }

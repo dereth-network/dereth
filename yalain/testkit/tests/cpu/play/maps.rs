@@ -265,6 +265,50 @@ fn a_surveyors_map_tells_how_far_its_place_is_and_conjures_its_node_there() {
     );
 }
 
+/// The node a map conjures is the one its world's `[[map_region]]` row gives the map's effect: a
+/// row giving Linvak's iron effect another node conjures that one; a world whose rows give the
+/// effect none has no such map, and its use is no map's.
+/// Behaviour: server.craft.maps-by-world-rows
+#[test]
+fn a_map_region_row_sets_the_node_a_maps_effect_conjures() {
+    const OTHER: u32 = 0x4700_0C9C;
+    let mut h = world();
+    let mut other = h.server.catalog.get(NODE).expect("the node").clone();
+    other.id = OTHER;
+    h.server.catalog.insert(other);
+    let linvak = h
+        .server
+        .crafting
+        .gathering
+        .map_regions
+        .get_mut("linvak")
+        .expect("Linvak");
+    for (effect, node) in &mut linvak.nodes {
+        if effect == "Eff_SummonMine_Iron_Linvak" {
+            *node = OTHER;
+        }
+    }
+    let (b, me, world, map) = with_map(&mut h);
+    let (dx, dy) = (0x80 as f32 * 160.0 + 50.0, 0x62 as f32 * 160.0 + 70.0);
+    h.server.things.get_mut(map).expect("map").destination = Some(maps::place_of(dx, dy));
+    stand(&mut h, world, dx + 30.0, dy);
+    let from = use_map(&mut h, b, me, map);
+    let made: Vec<u32> = h
+        .world_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::CreateObject(o) => Some(o.weenie.entity_did),
+            _ => None,
+        })
+        .collect();
+    assert!(made.contains(&OTHER), "{made:08X?}");
+    assert!(!made.contains(&NODE), "{made:08X?}");
+    let props = &h.server.catalog.get(MAP).expect("the map").props;
+    let mut none = yalain_testkit::test_gathering();
+    none.map_regions.clear();
+    assert!(maps::map_def(props, &none).is_none());
+}
+
 /// A map at its place whose node this world can't make is kept: it isn't spent, and the summoning
 /// fails.
 /// Behaviour: server.makes.nothing-used-up-for-what-cannot-be-made
@@ -451,7 +495,8 @@ fn a_map_found_at_its_place_moves_on_the_quest_it_is_part_of() {
 fn mining_a_maps_node_sometimes_unearths_a_lodestone_in_place_of_the_ore() {
     let mut h = world();
     const SMOOTH_RUSTY: u32 = 0x4700_0C19;
-    for t in [mining::TESSERA, 0x4700_0C16, 0x4700_0C17, SMOOTH_RUSTY, ORE] {
+    const TESSERA: u32 = 0x4700_052F;
+    for t in [TESSERA, 0x4700_0C16, 0x4700_0C17, SMOOTH_RUSTY, ORE] {
         h.server
             .catalog
             .insert(yalain_testkit::test_template(t, 0x3A1, Props::default()));
@@ -525,51 +570,49 @@ fn mining_a_maps_node_sometimes_unearths_a_lodestone_in_place_of_the_ore() {
 /// Behaviour: server.craft.mining-find-quality-by-level
 #[test]
 fn a_found_lodestones_quality_follows_the_finders_level() {
-    use mining::{lodestone, lodestone_quality, Quality};
-    let bands = [
-        (1, Quality::Crumbling),
-        (29, Quality::Crumbling),
-        (30, Quality::Brittle),
-        (44, Quality::Brittle),
-        (45, Quality::Rough),
-        (59, Quality::Rough),
-        (60, Quality::Smooth),
-        (74, Quality::Smooth),
-        (75, Quality::Shining),
-        (150, Quality::Shining),
-    ];
-    for (level, quality) in bands {
-        assert_eq!(lodestone_quality(level), quality, "level {level}");
-    }
-    let rusty = [
-        Quality::Brittle,
-        Quality::Crumbling,
-        Quality::Rough,
-        Quality::Shining,
-        Quality::Smooth,
-    ]
-    .map(|q| lodestone(0x6F00_069C, q));
-    assert_eq!(
-        rusty,
-        [
-            0x4700_0C14,
-            0x4700_0C16,
-            0x4700_0C17,
-            0x4700_0C18,
-            0x4700_0C19
-        ]
-        .map(Some)
+    let g = yalain_testkit::test_gathering();
+    // Iron's: rusty, the family running brittle, plain, crumbling, rough, shining, smooth.
+    let (brittle, crumbling, rough, shining, smooth) = (
+        0x4700_0C14,
+        0x4700_0C16,
+        0x4700_0C17,
+        0x4700_0C18,
+        0x4700_0C19,
     );
-    let rough = [
-        0x6F00_069B,
-        0x6F00_069C,
-        0x6F00_069D,
-        0x6F00_069E,
-        0x6F00_069F,
-    ]
-    .map(|skill| lodestone(skill, Quality::Rough));
+    let rusty = g.mine(0x6F00_069C).expect("iron");
+    for (level, lodestone) in [
+        (1, crumbling),
+        (29, crumbling),
+        (30, brittle),
+        (44, brittle),
+        (45, rough),
+        (59, rough),
+        (60, smooth),
+        (74, smooth),
+        (75, shining),
+        (150, shining),
+    ] {
+        assert_eq!(rusty.lodestone(level), Some(lodestone), "level {level}");
+    }
+    // Crystal's translucent, iron's rusty, silver's clouded, stone's marbled, wood's mossy.
+    let at = |level| -> Vec<u32> {
+        g.mines
+            .values()
+            .filter_map(|m| m.lodestone(level))
+            .collect()
+    };
     assert_eq!(
-        rough,
+        at(30),
+        [
+            0x4700_0C1A,
+            0x4700_0C14,
+            0x4700_0C02,
+            0x4700_0C08,
+            0x4700_0C0E
+        ]
+    );
+    assert_eq!(
+        at(45),
         [
             0x4700_0C1D,
             0x4700_0C17,
@@ -577,9 +620,8 @@ fn a_found_lodestones_quality_follows_the_finders_level() {
             0x4700_0C0B,
             0x4700_0C11
         ]
-        .map(Some)
     );
-    assert_eq!(lodestone(0x6F00_0690, Quality::Rough), None);
+    assert!(g.mine(0x6F00_0690).is_none(), "surveying mines nothing");
 }
 
 /// A map of a region finding its place lets the region's five map recipes be drawn at once: the

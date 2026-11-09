@@ -56,6 +56,9 @@ const CLASS: u32 = 0x4000_0002;
 const STARTING_SKILL_1: u32 = 0x4100_0003;
 const STARTING_SKILL_2: u32 = 0x4100_0004;
 const DRAWABLE: u32 = 0x4000_0001;
+const MINE_OBJECT: u32 = 0x4100_0005;
+/// A node of the made-up install, giving a material when mined.
+const NODE: u32 = 0x4700_0C8A;
 
 fn entity(kind: u32, object: u32, props: Vec<(u32, PropertyValue)>) -> Entity {
     Entity {
@@ -120,6 +123,17 @@ impl Fake {
             ),
         );
         entities.insert(0x4700_115B, entity(CLASS, 0x0F00, vec![look.clone()]));
+        entities.insert(
+            NODE,
+            entity(
+                CLASS,
+                0x0C00,
+                vec![
+                    look.clone(),
+                    (MINE_OBJECT, PropertyValue::DataFile(DataId(0x4700_0B31))),
+                ],
+            ),
+        );
         entities.insert(0x4700_2224, entity(CLASS, 0x0E00, vec![look.clone()]));
         // A pet's template, naming two skills.
         entities.insert(
@@ -174,6 +188,7 @@ impl Install for Fake {
             STORE_TEMPLATE => Some("StoreTemplate".into()),
             STARTING_SKILL_1 => Some("NPC_StartingSkill1".into()),
             STARTING_SKILL_2 => Some("NPC_StartingSkill2".into()),
+            MINE_OBJECT => Some("Mine_Object".into()),
             _ => None,
         }
     }
@@ -1508,6 +1523,132 @@ fn an_effect_rule_row_gives_a_ward_of_classes_or_effects_at_a_chance() {
             .into(),
     );
     assert!(merge(&read(&files).unwrap()).is_err());
+}
+
+/// A mine row's fields, as the iron mine of 2017 writes them, with the template it may name.
+fn mine_row(skill: &str, node: u32, tool: u32) -> String {
+    format!(
+        "[[mine]]\nskill = {skill}\nbehavior = 0x4100014D\ntools = [{tool:#010X}]\n\
+         answer = {{ table = 0x25000CEC, string = 0x79C276DB }}\n\
+         rich_answer = {{ table = 0x25000CEC, string = 0x53EE7371 }}\n\
+         delving = {{ effect = \"Eff_SummonMine_Iron_Delving\", node = {node:#010X} }}\n\
+         lodestones = [{{ from = 0, template = 0x4700115B }}, {{ from = 30, template = 0x47002224 }}]\n\
+         find_chance = 0.05\nfinds = [{{ template = 0x47000001, share = 0.25 }}]\n\
+         prov = {{ from = \"authored\" }}\n"
+    )
+}
+
+#[test]
+fn a_mine_row_compiles_to_its_skills_mine_and_must_name_installed_templates_and_a_node() {
+    let mut files = fixture();
+    files.insert(
+        "town/server/mines.toml".into(),
+        mine_row("0x6F00069C", NODE, 0x4700_115B),
+    );
+    let merged = merge(&read(&files).unwrap()).unwrap();
+    let t = compile(&merged, &Fake::new()).unwrap();
+    let m = &t.gathering.mines[&0x6F00_069C];
+    assert_eq!(m.behavior, 0x4100_014D);
+    assert_eq!(m.tools, [0x4700_115B]);
+    assert_eq!(m.answer, (0x79C2_76DB, 0x2500_0CEC));
+    assert_eq!(m.rich_answer, (0x53EE_7371, 0x2500_0CEC));
+    assert_eq!(
+        m.delving,
+        Some(("Eff_SummonMine_Iron_Delving".to_string(), NODE))
+    );
+    assert_eq!(m.lodestone(29), Some(0x4700_115B));
+    assert_eq!(m.lodestone(30), Some(0x4700_2224));
+    assert!((m.find_chance - 0.05).abs() < 1e-6);
+    assert_eq!(m.finds, [(0x4700_0001, 0.25)]);
+    assert_eq!(
+        t.gathering.delving_node("Eff_SummonMine_Iron_Delving"),
+        Some(NODE)
+    );
+    assert!(t.gathering.map_regions.is_empty());
+    // A tool the install lacks, and a delving node that gives nothing when mined.
+    for (node, tool, said) in [
+        (
+            NODE,
+            0x4700_9999,
+            "tools: template 47009999 is not in the install",
+        ),
+        (
+            0x4700_115B,
+            0x4700_115B,
+            "delving: template 4700115B gives no material when mined",
+        ),
+    ] {
+        files.insert(
+            "town/server/mines.toml".into(),
+            mine_row("0x6F00069C", node, tool),
+        );
+        let merged = merge(&read(&files).unwrap()).unwrap();
+        let problems = compile(&merged, &Fake::new()).unwrap_err();
+        let messages: Vec<String> = problems.iter().map(ToString::to_string).collect();
+        assert_eq!(messages.len(), 1, "{messages:?}");
+        assert!(messages[0].contains(said), "{messages:?}");
+    }
+    // Lodestones by levels rising from 0, finds by shares above 0 and at most 1 in all, a find
+    // chance from 0 to 1, a delving stone's effect and node.
+    let good = mine_row("0x6F00069C", NODE, 0x4700_115B);
+    for (from, to) in [
+        (
+            "{ from = 0, template = 0x4700115B }, { from = 30",
+            "{ from = 1, template = 0x4700115B }, { from = 30",
+        ),
+        (
+            "{ from = 30, template = 0x47002224 }",
+            "{ from = 0, template = 0x47002224 }",
+        ),
+        ("share = 0.25", "share = 0.0"),
+        ("share = 0.25", "share = 1.5"),
+        ("find_chance = 0.05", "find_chance = 1.5"),
+        (", node = 0x47000C8A", ""),
+        ("answer = {", "answers = {"),
+    ] {
+        assert!(good.contains(from), "{from}");
+        files.insert("town/server/mines.toml".into(), good.replacen(from, to, 1));
+        assert!(read(&files).is_err(), "{to}");
+    }
+    // One row a skill.
+    files.insert(
+        "town/server/mines.toml".into(),
+        format!("{good}\n{}", good.replacen("0x4100014D", "0x41000149", 1)),
+    );
+    assert!(merge(&read(&files).unwrap()).is_err());
+}
+
+#[test]
+fn a_map_region_row_compiles_to_its_nodes_by_effect_and_each_must_give_a_material() {
+    let mut files = fixture();
+    let row = |node: u32| {
+        format!(
+            "[[map_region]]\nregion = \"linvak\"\nnodes = [{{ effect = \"Eff_SummonMine_Crystal_Linvak\", node = {node:#010X} }}]\nprov = {{ from = \"authored\" }}\n"
+        )
+    };
+    files.insert("town/server/maps.toml".into(), row(NODE));
+    let merged = merge(&read(&files).unwrap()).unwrap();
+    let t = compile(&merged, &Fake::new()).unwrap();
+    assert_eq!(
+        t.gathering.map_node("Eff_SummonMine_Crystal_Linvak"),
+        Some(NODE)
+    );
+    assert_eq!(t.gathering.map_regions["linvak"].nodes.len(), 1);
+    assert!(t.gathering.mines.is_empty());
+    files.insert("town/server/maps.toml".into(), row(0x4700_115B));
+    let merged = merge(&read(&files).unwrap()).unwrap();
+    let problems = compile(&merged, &Fake::new()).unwrap_err();
+    assert!(problems.iter().any(|p| p
+        .to_string()
+        .contains("nodes: template 4700115B gives no material when mined")));
+    for bad in [
+        "[[map_region]]\nregion = \"linvak\"\nnodes = []\nprov = { from = \"authored\" }\n",
+        "[[map_region]]\nregion = \"Linvak\"\nnodes = [{ effect = \"Eff_SummonMine_Crystal_Linvak\", node = 0x47000C8A }]\nprov = { from = \"authored\" }\n",
+        "[[map_region]]\nregion = \"linvak\"\nnodes = [{ effect = \"an effect\", node = 0x47000C8A }]\nprov = { from = \"authored\" }\n",
+    ] {
+        files.insert("town/server/maps.toml".into(), bad.into());
+        assert!(read(&files).is_err(), "{bad}");
+    }
 }
 
 #[test]

@@ -1633,6 +1633,83 @@ mod tests {
         assert!(materials.is_empty(), "{materials:?}");
     }
 
+    /// A start describes everything mining and maps name, as it asks for them with crafting's
+    /// templates: the 15 nodes maps conjure and the 5 delving stones do, each giving a material by
+    /// its mine's craft skill (a region's five one of each skill); the 10 tools, each playing its
+    /// mine's behavior in hand but the rock hammers, which play iron's (2017: stone mined with a
+    /// rock hammer in hand played it); the 25 lodestones; and the Tessera.
+    /// Behaviour: server.craft.gathering-in-the-real-start
+    #[test]
+    fn a_start_describes_every_node_tool_and_find_of_the_servers_own_gathering() {
+        let dir = auberean_dat::testing::require_target_install();
+        let p = Portal::open(&dir, None).expect("opens");
+        let start = start_rules(&p).expect("the start");
+        let mut craft =
+            crafting(&p, &yalain_content::CraftStart::default(), &[]).expect("the crafting");
+        let fell_back = yalain_world::mining::take_world_gathering(
+            &mut craft,
+            &yalain_content::gathering::Gathering::default(),
+        );
+        assert_eq!(fell_back, ["mine", "map_region"]);
+        let more: Vec<u32> = yalain_world::makes::by_the_server(&start, &[])
+            .into_iter()
+            .chain(craft.templates())
+            .collect();
+        let (c, _) = catalog(
+            &p,
+            &SpawnTable::default(),
+            &LootTable::default(),
+            &more,
+            &TreasureTables::default(),
+        )
+        .expect("the catalog");
+        let g = &craft.gathering;
+        let props = |t: u32| {
+            &c.get(t)
+                .unwrap_or_else(|| panic!("{t:08X} described"))
+                .props
+        };
+        let skills: Vec<u32> = g.mines.keys().copied().collect();
+        let (mut delving, mut tools, mut lodestones) = (0, 0, 0);
+        for m in g.mines.values() {
+            let (_, node) = m.delving.clone().expect("a delving stone's node");
+            assert_eq!(props(node).word("CraftSkill"), Some(m.skill), "{node:08X}");
+            assert!(props(node).word("Mine_Object").is_some(), "{node:08X}");
+            delving += 1;
+            for t in &m.tools {
+                let rock_hammer = m.skill == 0x6F00_069E;
+                let played = if rock_hammer { 0x4100_014D } else { m.behavior };
+                assert_eq!(
+                    props(*t).word("Usage_UserAnimation"),
+                    Some(played),
+                    "{t:08X}"
+                );
+                tools += 1;
+            }
+            for (_, t) in &m.lodestones {
+                props(*t);
+                lodestones += 1;
+            }
+            for (t, _) in &m.finds {
+                props(*t);
+            }
+        }
+        assert_eq!([delving, tools, lodestones], [5, 10, 25]);
+        for r in g.map_regions.values() {
+            let mut of: Vec<u32> = r
+                .nodes
+                .iter()
+                .map(|(_, n)| {
+                    assert!(props(*n).word("Mine_Object").is_some(), "{n:08X}");
+                    props(*n).word("CraftSkill").expect("a craft skill")
+                })
+                .collect();
+            of.sort_unstable();
+            assert_eq!(of, skills, "{}", r.region);
+        }
+        assert_eq!(g.map_nodes().count(), 15);
+    }
+
     /// A start holds every race's starting weapons as it reads them from the install: each known by
     /// its implement, costing 4 vigor, held as its places say (the human bow and staff in both
     /// hands, the swords in one), and examined with its name, worth 1 and its weapon's numbers.

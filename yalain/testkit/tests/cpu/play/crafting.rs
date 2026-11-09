@@ -1650,8 +1650,9 @@ fn a_slot_that_takes_a_class_takes_the_templates_deriving_from_it() {
     assert_eq!(c.recipes[&1].ingredients[0].items, [100, 102]);
 }
 
-/// The world holds what its recipes make and ask for, and the nodes surveying conjures: without
-/// them a slot holds nothing and a delving stone conjures nothing.
+/// The world holds what its recipes make and ask for, the nodes surveying and maps conjure, the
+/// mining tools and what a find unearths: without them a slot holds nothing, a delving stone
+/// conjures nothing and a find gives nothing.
 /// Behaviour: server.craft.world-holds-what-crafting-needs
 #[test]
 fn crafting_asks_the_world_for_its_products_ingredients_and_conjured_nodes() {
@@ -1659,11 +1660,40 @@ fn crafting_asks_the_world_for_its_products_ingredients_and_conjured_nodes() {
     let wanted = c.templates();
     assert!(wanted.contains(&MINES_SWORD), "a product");
     assert!(wanted.contains(&IRON), "an ingredient");
-    for node in yalain_world::mining::SUMMONED_NODES {
-        assert!(wanted.contains(&node), "{node:08X}");
+    let g = &c.gathering;
+    let delving: Vec<u32> = g
+        .mines
+        .values()
+        .filter_map(|m| m.delving.as_ref())
+        .map(|d| d.1)
+        .collect();
+    let tools: Vec<u32> = g.mines.values().flat_map(|m| m.tools.clone()).collect();
+    let lodestones: Vec<u32> = g
+        .mines
+        .values()
+        .flat_map(|m| m.lodestones.iter().map(|(_, t)| *t))
+        .collect();
+    let finds: Vec<u32> = g
+        .mines
+        .values()
+        .flat_map(|m| m.finds.iter().map(|(t, _)| *t))
+        .collect();
+    let maps: Vec<u32> = g.map_nodes().collect();
+    assert_eq!(
+        [delving.len(), tools.len(), lodestones.len(), maps.len()],
+        [5, 10, 25, 15]
+    );
+    for t in delving
+        .iter()
+        .chain(&tools)
+        .chain(&lodestones)
+        .chain(&finds)
+        .chain(&maps)
+    {
+        assert!(wanted.contains(t), "{t:08X}");
     }
     assert_eq!(
-        yalain_world::mining::summoned_by("Eff_SummonMine_Silver_Delving"),
+        g.delving_node("Eff_SummonMine_Silver_Delving"),
         Some(0x4700_0C8E)
     );
 }

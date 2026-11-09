@@ -24,11 +24,17 @@
 //! the units are drawn for each miner (the node's base quantity and half the miner's level in its
 //! craft skill), it never finds anything, and it goes after its last use like a summoned node; a
 //! while after it goes a new one stands in its place.
+//!
+//! **The world's rows** say what each mining craft skill's nodes play and answer, its tools, the
+//! node its delving stone conjures and what a find unearths (`[[mine]]`), and what a tool not made
+//! yields (`[[tool]]`). A world with no `[[mine]]` rows has the server's own ([`fallback_mines`]),
+//! with their tools' yields where its `[[tool]]` rows give none.
 
 use auberean_protocol::physics::{Fx, ObjectEvent, Release, Word};
 use auberean_protocol::types::BehaviorParams;
 use auberean_protocol::ServerMessage;
 use auberean_script::native_object::Variable;
+use yalain_content::gathering::{Gathering, Mine};
 use yalain_net::{ConnId, ServerNet};
 use yalain_store::{Store, StoredPosition};
 
@@ -66,28 +72,8 @@ pub const SPENT_FX: u32 = 0x8100_0373;
 pub const SUMMON_DISTANCE: f32 = 2.0;
 pub const SUMMON_DROP: f32 = 0.1;
 
-/// A craft skill's mining behavior and its own tools (a hand-made and a crude one): crystal the
-/// chisels, iron the pickaxes, silver the mattocks, stone the rock hammers, wood the hatchets.
-#[must_use]
-pub fn skill_tools(skill: u32) -> Option<(u32, [u32; 2])> {
-    Some(match skill {
-        0x6F00_069B => (0x4100_0149, [0x4700_0CB5, 0x4700_0CB6]),
-        0x6F00_069C => (0x4100_014D, [0x4700_0CC1, 0x4700_0CC2]),
-        0x6F00_069D => (0x4100_014C, [0x4700_0CBF, 0x4700_0CC0]),
-        0x6F00_069E => (0x4100_0149, [0x4700_0CC3, 0x4700_0CC4]),
-        0x6F00_069F => (0x4100_014A, [0x4700_0CB9, 0x4700_0CBA]),
-        _ => return None,
-    })
-}
-
-/// The mining craft skills.
-pub const SKILLS: [u32; 5] = [
-    0x6F00_069B,
-    0x6F00_069C,
-    0x6F00_069D,
-    0x6F00_069E,
-    0x6F00_069F,
-];
+/// The behavior a node plays whose craft skill no mine names.
+const UNNAMED_BEHAVIOR: u32 = 0x4100_014D;
 
 /// A mining tool's durability when its template names none.
 pub const TOOL_DURABILITY: u32 = 100;
@@ -118,62 +104,6 @@ pub mod text {
     pub const NODE: u32 = 0x9352_2CD0;
 }
 
-/// A find: one use of a node a surveyor's map led to may unearth an item in place of its material
-/// (2017: 7 of 165 such uses; none of 162 on delving stones' nodes), a Tessera two times in seven,
-/// else a lodestone of the material's family, of the quality the player's level gives.
-pub const FIND_CHANCE: f32 = 7.0 / 165.0;
-pub const TESSERA_SHARE: f32 = 2.0 / 7.0;
-pub const TESSERA: u32 = 0x4700_052F;
-
-/// A lodestone's quality, by the player's level when it is found: crumbling to 29, brittle 30 to
-/// 44, rough 45 to 59, smooth 60 to 74, shining from 75 (2017: 13 of 14 lodestones held at their
-/// first sighting; of the finds in mining, rough at 48, 50 and 50, smooth at 57).
-#[must_use]
-pub fn lodestone_quality(level: i32) -> Quality {
-    match level {
-        ..=29 => Quality::Crumbling,
-        30..=44 => Quality::Brittle,
-        45..=59 => Quality::Rough,
-        60..=74 => Quality::Smooth,
-        _ => Quality::Shining,
-    }
-}
-
-/// A lodestone's quality.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Quality {
-    Crumbling,
-    Brittle,
-    Rough,
-    Smooth,
-    Shining,
-}
-
-/// The lodestone of a quality a find of each craft skill's material unearths: crystal translucent,
-/// iron rusty, silver clouded, stone marbled, wood mossy.
-#[must_use]
-pub fn lodestone(skill: u32, quality: Quality) -> Option<u32> {
-    // Each family's templates run brittle, plain, crumbling, rough, shining, smooth.
-    let family = match skill {
-        0x6F00_069B => 0x4700_0C1A,
-        0x6F00_069C => 0x4700_0C14,
-        0x6F00_069D => 0x4700_0C02,
-        0x6F00_069E => 0x4700_0C08,
-        0x6F00_069F => 0x4700_0C0E,
-        _ => return None,
-    };
-    Some(
-        family
-            + match quality {
-                Quality::Brittle => 0,
-                Quality::Crumbling => 2,
-                Quality::Rough => 3,
-                Quality::Shining => 4,
-                Quality::Smooth => 5,
-            },
-    )
-}
-
 /// "You unearth a %2 while mining!": the find's answer, its one unit and the item's name.
 pub const FOUND: (u32, u32) = (0xCAE6_2208, 0x2500_000C);
 
@@ -183,41 +113,146 @@ pub const TARGET_KIND: u32 = 8;
 /// The control flags of a delving stone's answer.
 pub const SURVEY_FLAGS: u32 = 956;
 
-/// A material's answers, plain and rich, by the craft skill that mines it.
+/// The mines of a world with no `[[mine]]` rows, by craft skill: crystal, iron, silver, stone and
+/// wood, each with its mining behavior (2017: by the node's craft skill, 387 of 387; stone with
+/// no rock hammer in hand as crystal), its own tools (a hand-made and a crude one: the chisels,
+/// pickaxes, mattocks, rock hammers and hatchets), its answers, the node its delving stone conjures
+/// (54 of 54), and its finds: of uses of a node a map led to, 7 of 165 found an item (none of 162
+/// on delving stones' nodes), a Tessera two times in seven, else a lodestone of the material's
+/// family by the finder's level: crumbling to 29, brittle 30 to 44, rough 45 to 59, smooth 60 to
+/// 74, shining from 75 (13 of 14 lodestones held at their first sighting; of the finds in mining,
+/// rough at 48, 50 and 50, smooth at 57). A world with any row has its rows alone.
 #[must_use]
-pub fn answers(skill: u32) -> Option<((u32, u32), (u32, u32))> {
+pub fn fallback_mines() -> std::collections::BTreeMap<u32, Mine> {
     const T: u32 = 0x2500_0CEC;
-    Some(match skill {
-        0x6F00_069B => ((0x4862_57E3, T), (0x284F_06B2, T)),
-        0x6F00_069C => ((0x79C2_76DB, T), (0x53EE_7371, T)),
-        0x6F00_069D => ((0xEECA_8C2F, T), (0xF862_249F, T)),
-        0x6F00_069E => ((0x8EA1_7A36, T), (0xDAF5_223D, T)),
-        0x6F00_069F => ((0xF742_62DC, T), (0xF742_62DC, T)),
-        _ => return None,
-    })
+    const TESSERA: u32 = 0x4700_052F;
+    // Each family's lodestones run brittle, plain, crumbling, rough, shining, smooth.
+    let lodestones = |family: u32| {
+        vec![
+            (0, family + 2),
+            (30, family),
+            (45, family + 3),
+            (60, family + 5),
+            (75, family + 4),
+        ]
+    };
+    let mine = |skill, behavior, tools: [u32; 2], answers: [u32; 2], effect: &str, node, family| {
+        (
+            skill,
+            Mine {
+                skill,
+                behavior,
+                tools: tools.to_vec(),
+                answer: (answers[0], T),
+                rich_answer: (answers[1], T),
+                delving: Some((effect.to_string(), node)),
+                lodestones: lodestones(family),
+                find_chance: 7.0 / 165.0,
+                finds: vec![(TESSERA, 2.0 / 7.0)],
+            },
+        )
+    };
+    std::collections::BTreeMap::from([
+        mine(
+            0x6F00_069B,
+            0x4100_0149,
+            [0x4700_0CB5, 0x4700_0CB6],
+            [0x4862_57E3, 0x284F_06B2],
+            "Eff_SummonMine_Crystal_Delving",
+            0x4700_0C8A,
+            0x4700_0C1A,
+        ),
+        mine(
+            0x6F00_069C,
+            0x4100_014D,
+            [0x4700_0CC1, 0x4700_0CC2],
+            [0x79C2_76DB, 0x53EE_7371],
+            "Eff_SummonMine_Iron_Delving",
+            0x4700_0C8C,
+            0x4700_0C14,
+        ),
+        mine(
+            0x6F00_069D,
+            0x4100_014C,
+            [0x4700_0CBF, 0x4700_0CC0],
+            [0xEECA_8C2F, 0xF862_249F],
+            "Eff_SummonMine_Silver_Delving",
+            0x4700_0C8E,
+            0x4700_0C02,
+        ),
+        mine(
+            0x6F00_069E,
+            0x4100_0149,
+            [0x4700_0CC3, 0x4700_0CC4],
+            [0x8EA1_7A36, 0xDAF5_223D],
+            "Eff_SummonMine_Stone_Delving",
+            0x4700_0C90,
+            0x4700_0C08,
+        ),
+        mine(
+            0x6F00_069F,
+            0x4100_014A,
+            [0x4700_0CB9, 0x4700_0CBA],
+            [0xF742_62DC, 0xF742_62DC],
+            "Eff_SummonMine_Wood_Delving",
+            0x4700_0C92,
+            0x4700_0C0E,
+        ),
+    ])
 }
 
-/// The nodes delving stones conjure: crystal, iron, silver, stone, wood.
-pub const SUMMONED_NODES: [u32; 5] = [
-    0x4700_0C8A,
-    0x4700_0C8C,
-    0x4700_0C8E,
-    0x4700_0C90,
-    0x4700_0C92,
-];
-
-/// The node a delving stone's summoning effect conjures.
+/// What the tools of a world with no `[[mine]]` rows yield when they were not made: a hand-made
+/// one the 6 of the lowest level it is made at, a crude one 1.
 #[must_use]
-pub fn summoned_by(effect: &str) -> Option<u32> {
-    Some(match effect {
-        "Eff_SummonMine_Crystal_Delving" => SUMMONED_NODES[0],
-        "Eff_SummonMine_Iron_Delving" => SUMMONED_NODES[1],
-        "Eff_SummonMine_Silver_Delving" => SUMMONED_NODES[2],
-        "Eff_SummonMine_Stone_Delving" => SUMMONED_NODES[3],
-        "Eff_SummonMine_Wood_Delving" => SUMMONED_NODES[4],
-        _ => return None,
-    })
+pub fn fallback_tool_yields() -> Vec<(u32, u32)> {
+    fallback_mines()
+        .values()
+        .flat_map(|m| {
+            m.tools
+                .iter()
+                .enumerate()
+                .map(|(i, t)| (*t, if i == 0 { 6 } else { 1 }))
+        })
+        .collect()
 }
+
+/// The world's gathering: its rows of each kind, or the server's own of a kind it has none of
+/// (its mines [`fallback_mines`], its map regions [`crate::usable::maps::fallback_map_regions`]);
+/// and the kinds it had none of.
+#[must_use]
+pub fn world_gathering(rows: &Gathering) -> (Gathering, Vec<&'static str>) {
+    let mut g = rows.clone();
+    let mut fell_back = Vec::new();
+    if g.mines.is_empty() {
+        g.mines = fallback_mines();
+        fell_back.push("mine");
+    }
+    if g.map_regions.is_empty() {
+        g.map_regions = crate::usable::maps::fallback_map_regions();
+        fell_back.push("map_region");
+    }
+    (g, fell_back)
+}
+
+/// Crafting takes the world's gathering ([`world_gathering`]); with the server's own mines come
+/// their tools' yields, where the world's `[[tool]]` rows give none. Returns the kinds the world
+/// had no rows of.
+pub fn take_world_gathering(
+    craft: &mut crate::craft::Crafting,
+    rows: &Gathering,
+) -> Vec<&'static str> {
+    let (gathering, fell_back) = world_gathering(rows);
+    if fell_back.contains(&"mine") {
+        for (tool, unmade) in fallback_tool_yields() {
+            craft.tool_yields.entry(tool).or_insert(unmade);
+        }
+    }
+    craft.gathering = gathering;
+    fell_back
+}
+
+/// What a tool not made yields when no row names it.
+const UNMADE_YIELD: u32 = 1;
 
 /// The units a surveying level adds to a node, for each level: 40 at 150.
 pub const UNITS_PER_SURVEYING_LEVEL: f32 = 40.0 / 150.0;
@@ -233,15 +268,16 @@ pub fn units_for(base: u32, surveying: i32) -> f32 {
     base + level * UNITS_PER_SURVEYING_LEVEL
 }
 
-/// What a mining tool in hand adds to each use of a summoned node: a made one's own yield; else a
-/// crude one's 1, a hand-made one's the 6 of the lowest level it is made at.
+/// What a mining tool in hand adds to each use of a summoned node: a made one's own yield; else
+/// what the world's rows say its template yields unmade (`unmade`, by template); else 1.
 #[must_use]
-pub fn tool_yield(template: u32, made: Option<u32>) -> u32 {
-    let crude = SKILLS
-        .iter()
-        .filter_map(|s| skill_tools(*s))
-        .any(|(_, [_, crude])| crude == template);
-    made.unwrap_or(if crude { 1 } else { 6 })
+pub fn tool_yield(
+    unmade: &std::collections::HashMap<u32, u32>,
+    template: u32,
+    made: Option<u32>,
+) -> u32 {
+    made.or_else(|| unmade.get(&template).copied())
+        .unwrap_or(UNMADE_YIELD)
 }
 
 /// The units a summoned node gives a use, on average: its own, the yield of its craft skill's tool
@@ -273,6 +309,24 @@ pub fn rich_chance(level: i32) -> f32 {
     #[allow(clippy::cast_precision_loss)]
     let l = level.max(0) as f32;
     (l / 440.0).min(1.0)
+}
+
+/// The mine of a craft skill, as the world gives it.
+fn mine_of<S: Store>(s: &Server<S>, skill: u32) -> Option<&Mine> {
+    s.crafting.gathering.mine(skill)
+}
+
+/// What a find unearths: one of the mine's other finds by its share, else the lodestone the
+/// finder's level gives.
+fn find_of<S: Store>(s: &mut Server<S>, mine: &Mine, level: i32) -> Option<u32> {
+    let mut left = 1.0_f32;
+    for (template, share) in &mine.finds {
+        if left > 0.0 && s.rng.chance(share / left) {
+            return Some(*template);
+        }
+        left -= share;
+    }
+    mine.lodestone(level)
 }
 
 /// Is a thing a resource node?
@@ -311,7 +365,7 @@ pub fn survey<S: Store>(
         .catalog
         .get(stone)
         .and_then(|t| t.props.text("Usage_Effect1"))
-        .and_then(summoned_by)
+        .and_then(|e| s.crafting.gathering.delving_node(e))
     else {
         return false;
     };
@@ -489,7 +543,9 @@ pub fn begin<S: Store>(
         return;
     }
     let skill = node_of(s, u.item).map_or(0, |n| n.skill);
-    let (own, tools) = skill_tools(skill).unwrap_or((0x4100_014D, [0, 0]));
+    let (own, tools) = mine_of(s, skill).map_or((UNNAMED_BEHAVIOR, Vec::new()), |m| {
+        (m.behavior, m.tools.clone())
+    });
     let behavior = in_hand(s, world)
         .filter(|(_, t)| tools.contains(t))
         .and_then(|(_, t)| s.catalog.get(t))
@@ -550,26 +606,23 @@ pub fn done<S: Store>(
     };
     let node_name = s.things.get(w.node).and_then(|t| t.facts.name);
     let me = s.players.get(&world).map_or(0, |p| p.character);
-    let Some((plain, rich)) = answers(n.skill) else {
+    let Some(mine) = mine_of(s, n.skill).cloned() else {
         return;
     };
-    let find = if n.finds && s.rng.chance(FIND_CHANCE) {
-        if s.rng.chance(TESSERA_SHARE) {
-            Some(TESSERA)
-        } else {
-            let level = s
-                .players
-                .get(&world)
-                .map_or(1, |p| crate::examine::level_of(&p.qualities));
-            lodestone(n.skill, lodestone_quality(level))
-        }
+    let (plain, rich) = (mine.answer, mine.rich_answer);
+    let find = if n.finds && s.rng.chance(mine.find_chance) {
+        let level = s
+            .players
+            .get(&world)
+            .map_or(1, |p| crate::examine::level_of(&p.qualities));
+        find_of(s, &mine, level)
     } else {
         None
     };
     let level = level_in(s, world, n.skill);
     let expert = find.is_none() && s.rng.chance(rich_chance(level));
     let spread = s.rng.between(-n.variance, n.variance);
-    let tools = skill_tools(n.skill).map_or([0, 0], |(_, t)| t);
+    let tools = mine.tools;
     let tool = in_hand(s, world).filter(|(_, t)| tools.contains(t));
     // A vein's units are drawn for its miner; a summoned node's were set for its summoner, and
     // its miner's tool and perk add to them.
@@ -581,7 +634,7 @@ pub fn done<S: Store>(
             .and_then(|(id, _)| s.things.get(id))
             .and_then(|t| t.own.made)
             .and_then(|m| m.tool_yield);
-        let yields = tool.map_or(0, |(_, t)| tool_yield(t, made));
+        let yields = tool.map_or(0, |(_, t)| tool_yield(&s.crafting.tool_yields, t, made));
         use_units(n.units, yields, mining_perk(s, world))
     };
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]

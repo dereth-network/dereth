@@ -27,8 +27,9 @@ pub fn can_make<S: Store>(s: &Server<S>, template: u32) -> bool {
 
 /// What the server's own rules make, whatever the world holds: the corpse, the races' starting
 /// packs and the book a new character is given, the mount items (`mounts`, as
-/// [`crate::mounts::Mounts::catalog_items`] gives them), a summoned portal, the dye plants and what
-/// they give, and the nodes maps conjure.
+/// [`crate::mounts::Mounts::catalog_items`] gives them), a summoned portal, and the dye plants and
+/// what they give. The nodes delving stones and maps conjure are crafting's
+/// ([`crate::craft::Crafting::templates`]).
 #[must_use]
 pub fn by_the_server(start: &crate::StartRules, mounts: &[u32]) -> Vec<u32> {
     let starting = start.items.values().flatten().map(|i| i.template);
@@ -40,7 +41,6 @@ pub fn by_the_server(start: &crate::StartRules, mounts: &[u32]) -> Vec<u32> {
         .chain(mounts.iter().copied())
         .chain([usable::portals::TEMPLATE])
         .chain(plants)
-        .chain(usable::maps::nodes())
         .collect()
 }
 

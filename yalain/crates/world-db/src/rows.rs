@@ -626,6 +626,8 @@ pub enum Row {
     TreasureLook(TreasureLook),
     TreasurePotion(TreasurePotion),
     TreasureFamily(TreasureFamily),
+    Mine(Mine),
+    MapRegion(MapRegion),
 }
 
 /// `[[event]]`: a named state of the world, on for its times: what it gates (camps, objects and
@@ -672,6 +674,22 @@ pub struct EffectRule {
     pub effect: u32,
     pub ward: Option<yalain_content::effect_rules::Ward>,
     pub vitae_share: Option<f32>,
+    pub prov: Prov,
+}
+
+/// `[[mine]]`: what a mining craft skill's nodes play, answer and unearth, and the node a delving
+/// stone of the skill conjures.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Mine {
+    pub mine: yalain_content::gathering::Mine,
+    pub prov: Prov,
+}
+
+/// `[[map_region]]`: the nodes a region's surveyor's maps lead to, each by the name of the effect
+/// that conjures it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MapRegion {
+    pub region: yalain_content::gathering::MapRegion,
     pub prov: Prov,
 }
 
@@ -938,6 +956,8 @@ impl Row {
             Self::TreasureLook(_) => "treasure_look",
             Self::TreasurePotion(_) => "treasure_potion",
             Self::TreasureFamily(_) => "treasure_family",
+            Self::Mine(_) => "mine",
+            Self::MapRegion(_) => "map_region",
         }
     }
 
@@ -981,13 +1001,15 @@ impl Row {
             Self::TreasureLook(r) => Some(&r.prov),
             Self::TreasurePotion(r) => Some(&r.prov),
             Self::TreasureFamily(r) => Some(&r.prov),
+            Self::Mine(r) => Some(&r.prov),
+            Self::MapRegion(r) => Some(&r.prov),
             Self::Remove(_) => None,
         }
     }
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 37] = [
+pub const KINDS: [&str; 39] = [
     "object",
     "camp",
     "loot",
@@ -1025,10 +1047,12 @@ pub const KINDS: [&str; 37] = [
     "treasure_look",
     "treasure_potion",
     "treasure_family",
+    "mine",
+    "map_region",
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 37] = [
+pub const FIELDS: [(&str, &[&str]); 39] = [
     (
         "object",
         &[
@@ -1349,6 +1373,22 @@ pub const FIELDS: [(&str, &[&str]); 37] = [
             "sort", "order", "when", "weight", "by_level", "tiers", "prov",
         ],
     ),
+    (
+        "mine",
+        &[
+            "skill",
+            "behavior",
+            "tools",
+            "answer",
+            "rich_answer",
+            "delving",
+            "lodestones",
+            "find_chance",
+            "finds",
+            "prov",
+        ],
+    ),
+    ("map_region", &["region", "nodes", "prov"]),
 ];
 
 /// The fields of a `[[treasure_family]]` row's tier.
@@ -2028,6 +2068,56 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 effect,
                 ward,
                 vitae_share,
+                prov: f.req_prov()?,
+            })
+        }
+        "mine" => {
+            let skill = f.req_id("skill")?;
+            let behavior = f.req_id("behavior")?;
+            let tools = f.ids("tools");
+            let answer = f.req_strref("answer")?;
+            let rich_answer = f.req_strref("rich_answer")?;
+            let delving = f.delving();
+            let lodestones = f.lodestones();
+            let find_chance = f.float("find_chance").map_or(0.0, to_f32);
+            let ok = (0.0..=1.0).contains(&find_chance);
+            let find_chance = f.held("find_chance", find_chance, ok, "from 0 to 1")?;
+            let finds = f.finds();
+            Row::Mine(Mine {
+                mine: yalain_content::gathering::Mine {
+                    skill,
+                    behavior,
+                    tools,
+                    answer: (answer.string, answer.table),
+                    rich_answer: (rich_answer.string, rich_answer.table),
+                    delving,
+                    lodestones,
+                    find_chance,
+                    finds,
+                },
+                prov: f.req_prov()?,
+            })
+        }
+        "map_region" => {
+            let region = f.req_symbol("region")?;
+            let nodes = f.list_of(
+                "nodes",
+                "a list of { effect, node }: an effect's name and the node it conjures",
+                &["effect", "node"],
+                |t| {
+                    Some((
+                        t.get("effect")?
+                            .as_str()
+                            .filter(|e| is_ident(e))?
+                            .to_string(),
+                        as_u32(t.get("node")?)?,
+                    ))
+                },
+            );
+            let ok = !nodes.is_empty();
+            let nodes = f.held("nodes", nodes, ok, "at least one { effect, node }")?;
+            Row::MapRegion(MapRegion {
+                region: yalain_content::gathering::MapRegion { region, nodes },
                 prov: f.req_prov()?,
             })
         }
@@ -3273,6 +3363,80 @@ impl<'a> Fields<'a> {
         } else {
             self.bad(name, rule);
             None
+        }
+    }
+
+    fn req_strref(&mut self, name: &str) -> Option<StrRef> {
+        match self.t.get(name) {
+            Some(_) => self.strref(name),
+            None => self.missing(name),
+        }
+    }
+
+    /// `[[mine]]`'s `delving`: `{ effect, node }`, the name of a delving stone's effect and the node
+    /// it conjures; none when left out.
+    fn delving(&mut self) -> Option<(String, u32)> {
+        self.typed(
+            "delving",
+            "{ effect, node }: a delving stone's effect's name and the node it conjures",
+            |v| {
+                let t = v.as_table()?;
+                if t.len() != 2 {
+                    return None;
+                }
+                Some((
+                    t.get("effect")?
+                        .as_str()
+                        .filter(|e| is_ident(e))?
+                        .to_string(),
+                    as_u32(t.get("node")?)?,
+                ))
+            },
+        )
+    }
+
+    /// `[[mine]]`'s `lodestones`: `{ from, template }`, levels rising from 0.
+    fn lodestones(&mut self) -> Vec<(i32, u32)> {
+        let read = self.list_of(
+            "lodestones",
+            "a list of { from, template }: the finder's least level and the lodestone",
+            &["from", "template"],
+            |t| {
+                Some((
+                    i32::try_from(t.get("from")?.as_integer()?).ok()?,
+                    as_u32(t.get("template")?)?,
+                ))
+            },
+        );
+        let rising =
+            read.first().is_none_or(|(f, _)| *f == 0) && read.windows(2).all(|w| w[0].0 < w[1].0);
+        if rising {
+            read
+        } else {
+            self.bad("lodestones", "levels rising from 0");
+            Vec::new()
+        }
+    }
+
+    /// `[[mine]]`'s `finds`: `{ template, share }`, shares above 0 and at most 1 in all.
+    fn finds(&mut self) -> Vec<(u32, f32)> {
+        let read = self.list_of(
+            "finds",
+            "a list of { template, share }",
+            &["template", "share"],
+            |t| {
+                Some((
+                    as_u32(t.get("template")?)?,
+                    to_f32(as_number(t.get("share")?)?),
+                ))
+            },
+        );
+        let sum: f32 = read.iter().map(|(_, s)| s).sum();
+        if read.iter().all(|(_, s)| *s > 0.0) && sum <= 1.0 + 1e-6 {
+            read
+        } else {
+            self.bad("finds", "shares above 0, at most 1 in all");
+            Vec::new()
         }
     }
 

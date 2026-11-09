@@ -573,6 +573,9 @@ pub struct Crafting {
     pub butchery: HashMap<u32, Vec<crate::butchery::Yield>>,
     /// What gathering tools yield when they were not made, by template (the world's rows).
     pub tool_yields: HashMap<u32, u32>,
+    /// What mining's nodes do and the nodes surveyor's maps lead to (the world's rows, or the
+    /// server's own of a kind it has none of).
+    pub gathering: yalain_content::gathering::Gathering,
     /// The level tables recipes' actions read by the spinner, by saved state.
     pub spinner_tables: HashMap<u32, LevelMap>,
 }
@@ -671,7 +674,8 @@ impl Crafting {
     }
 
     /// The templates crafting needs the world to make things of: what the recipes make and ask for,
-    /// and the nodes surveying conjures, whose materials recipes ask for in turn.
+    /// the nodes surveying and maps conjure, whose materials recipes ask for in turn, and the
+    /// mining tools and what a find unearths.
     #[must_use]
     pub fn templates(&self) -> Vec<u32> {
         let made = self
@@ -696,7 +700,7 @@ impl Crafting {
         made.chain(asked)
             .chain(refined)
             .chain([totem::WEAPON, totem::SHIELD, totem::ARMOR])
-            .chain(crate::mining::SUMMONED_NODES)
+            .chain(self.gathering.templates())
             .collect()
     }
 

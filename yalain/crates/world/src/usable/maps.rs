@@ -4,6 +4,9 @@
 //! again, and is thrown away; used farther off, it
 //! says how far the place is ("You're close to the map's destination") with a marker on the
 //! player's map, and whether the player is going the right way since it last took its bearings.
+//!
+//! The node a map conjures is the one its world's `[[map_region]]` rows give its summoning effect;
+//! a world with none has the server's own ([`fallback_map_regions`]).
 
 use auberean_protocol::types::BehaviorParams;
 use auberean_protocol::ServerMessage;
@@ -11,6 +14,10 @@ use auberean_script::args::Arg;
 use dereth_primitives::num::math;
 use yalain_net::{ConnId, ServerNet};
 use yalain_store::{Store, StoredPosition};
+
+use std::collections::BTreeMap;
+
+use yalain_content::gathering::{Gathering, MapRegion};
 
 use crate::places::Use;
 use crate::{progress, session, Clock, Server};
@@ -78,31 +85,28 @@ pub const BANDS: [f32; 4] = [100.0, 200.0, 400.0, 800.0];
 const CELL: f32 = 20.0;
 const BLOCK: f32 = 160.0;
 
-/// The first resource node of each region's set.
-const REGION_NODES: [(&str, u32); 3] = [
-    ("Linvak", 0x4700_0C97),
-    ("Omishan", 0x4700_0CA1),
-    ("Osteth", 0x4700_0CA6),
-];
-
-/// The materials of a region's set of nodes, in its order.
-const NODE_MATERIALS: [&str; 5] = ["Crystal", "Iron", "Silver", "Stone", "Wood"];
-
-/// Every resource node a map can conjure.
-pub fn nodes() -> impl Iterator<Item = u32> {
-    REGION_NODES
-        .iter()
-        .flat_map(|(_, first)| (*first..).take(NODE_MATERIALS.len()))
-}
-
-/// The resource node a map's summoning effect names: its region's set, one node per material.
+/// The map regions of a world with no `[[map_region]]` rows: Linvak's, Omishan's and Osteth's,
+/// each a node of crystal, iron, silver, stone and wood, as the install's templates run (54 of 54
+/// finds conjured the node of the map's region and material). A world with any row has its rows
+/// alone.
 #[must_use]
-pub fn summoned_by(effect: &str) -> Option<u32> {
-    let rest = effect.strip_prefix("Eff_SummonMine_")?;
-    let (material, region) = rest.split_once('_')?;
-    let (_, first) = REGION_NODES.iter().find(|(r, _)| *r == region)?;
-    let n = NODE_MATERIALS.iter().position(|m| *m == material)?;
-    Some(first + u32::try_from(n).ok()?)
+pub fn fallback_map_regions() -> BTreeMap<String, MapRegion> {
+    const MATERIALS: [&str; 5] = ["Crystal", "Iron", "Silver", "Stone", "Wood"];
+    [
+        ("Linvak", 0x4700_0C97_u32),
+        ("Omishan", 0x4700_0CA1),
+        ("Osteth", 0x4700_0CA6),
+    ]
+    .into_iter()
+    .map(|(region, first)| {
+        let key = region.to_ascii_lowercase();
+        let nodes = (first..)
+            .zip(MATERIALS)
+            .map(|(node, material)| (format!("Eff_SummonMine_{material}_{region}"), node))
+            .collect();
+        (key.clone(), MapRegion { region: key, nodes })
+    })
+    .collect()
 }
 
 /// The region a map's summoning effect names (`Linvak`, `Omishan`, `Osteth`): the land it is a map
@@ -185,12 +189,13 @@ pub struct MapDef {
     pub resets: Option<usize>,
 }
 
-/// A template's map, if it is a surveyor's map.
+/// A template's map, if it is a surveyor's map whose effect conjures a node of the world's map
+/// regions.
 #[must_use]
-pub fn map_def(props: &yalain_content::Props) -> Option<MapDef> {
+pub fn map_def(props: &yalain_content::Props, gathering: &Gathering) -> Option<MapDef> {
     let node = ["Usage_Effect1", "Usage_Effect2"]
         .iter()
-        .find_map(|k| props.text(k).and_then(summoned_by))?;
+        .find_map(|k| props.text(k).and_then(|e| gathering.map_node(e)))?;
     let fixed = props
         .place("Usage_RequiredLocation")
         .map(|(cell, origin)| StoredPosition {
@@ -296,7 +301,7 @@ pub fn used<S: Store>(
         .things
         .get(u.item)
         .and_then(|t| s.catalog.get(t.template))
-        .and_then(|t| map_def(&t.props))
+        .and_then(|t| map_def(&t.props, &s.crafting.gathering))
     else {
         return false;
     };

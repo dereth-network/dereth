@@ -1719,6 +1719,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         popups,
         mut effect_rules,
         treasure,
+        gathering,
         ..
     } = compiled;
     // Fields of kinds a world has that it may leave out everywhere: the server's own then.
@@ -1797,6 +1798,15 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             );
         }
         craft.tool_yields = crafting.tool_yields.clone().into_iter().collect();
+        // Mining and maps: the world's rows, the server's own of a kind it has none of.
+        let fell_back = yalain_world::mining::take_world_gathering(&mut craft, &gathering);
+        if !fell_back.is_empty() {
+            let kinds: Vec<String> = fell_back.iter().map(|k| format!("[[{k}]]")).collect();
+            tracing::warn!(
+                "this world has no {} rows: its mining and maps go by the server's own there",
+                kinds.join(", ")
+            );
+        }
         craft.butchery = crafting
             .butchery
             .iter()

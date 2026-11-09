@@ -291,6 +291,84 @@ fn the_summoner_mines_its_node_three_times_for_ore_and_experience() {
     assert!(h.server.things.get(node).is_none(), "the node is gone");
 }
 
+/// What a skill's node plays and answers, and the node its delving stone conjures, are the world's
+/// `[[mine]]` row's: a row giving iron another behavior and answer, and its stone another node, is
+/// played, said and conjured.
+/// Behaviour: server.craft.mining-by-world-rows
+#[test]
+fn a_mine_row_sets_what_its_nodes_play_and_say_and_what_its_stone_conjures() {
+    const OTHER: u32 = 0x4700_0C8D;
+    const BEHAVIOR: u32 = 0x4100_0150;
+    const SAID: u32 = 0x1234_5678;
+    let mut h = world();
+    let mut other = h.server.catalog.get(VEIN).expect("the vein").clone();
+    other.id = OTHER;
+    h.server.catalog.insert(other);
+    let iron = h
+        .server
+        .crafting
+        .gathering
+        .mines
+        .get_mut(&IRON)
+        .expect("iron");
+    iron.behavior = BEHAVIOR;
+    iron.answer = (SAID, 0x2500_0CEC);
+    iron.rich_answer = (SAID, 0x2500_0CEC);
+    iron.delving = Some(("Eff_SummonMine_Iron_Delving".into(), OTHER));
+    let (b, me, world) = in_world(&mut h, "Elara");
+    let stone = give(&mut h, world, STONE);
+    let from = send_use(&mut h, b, me, stone, 0.5);
+    let node = h
+        .world_messages(b, from)
+        .iter()
+        .find_map(|m| match m {
+            ServerMessage::CreateObject(o) if o.weenie.entity_did == OTHER => Some(o.id),
+            _ => None,
+        })
+        .expect("the row's node");
+    let from = send_use(&mut h, b, me, node, mining::WORK_SECONDS + 0.5);
+    assert!(h.world_messages(b, from).iter().any(|m| matches!(m,
+        ServerMessage::PlayBehavior(e) if e.sender.id == me && e.action.behavior == BEHAVIOR)));
+    assert_eq!(use_answers(&h, b, from), [(0, SAID)]);
+}
+
+/// A world with no `[[mine]]` or `[[map_region]]` rows mines and maps by the server's own, which
+/// are the test world's rows, its tools yielding theirs unmade where no `[[tool]]` row says; a world
+/// with rows of a kind has those alone, never the server's beside them, and says which kinds it
+/// lacks.
+/// Behaviour: server.craft.gathering-without-rows
+#[test]
+fn a_world_without_mine_or_map_region_rows_has_the_servers_own_and_with_some_its_rows_alone() {
+    use yalain_content::gathering::Gathering;
+    let test = yalain_testkit::test_gathering();
+    let mut craft = yalain_world::craft::Crafting::default();
+    craft.tool_yields.insert(PICKAXE, 9);
+    let fell_back = mining::take_world_gathering(&mut craft, &Gathering::default());
+    assert_eq!(fell_back, ["mine", "map_region"]);
+    assert_eq!(craft.gathering, test);
+    let mut yields: Vec<(u32, u32)> = craft.tool_yields.clone().into_iter().collect();
+    yields.sort_unstable();
+    let mut own: Vec<(u32, u32)> = yalain_testkit::test_mining_tool_yields()
+        .into_iter()
+        .map(|(t, y)| (t, if t == PICKAXE { 9 } else { y }))
+        .collect();
+    own.sort_unstable();
+    assert_eq!(yields, own, "a [[tool]] row's yield stands");
+    let one = Gathering {
+        mines: test.mines.clone().into_iter().take(1).collect(),
+        ..Gathering::default()
+    };
+    let mut craft = yalain_world::craft::Crafting::default();
+    let fell_back = mining::take_world_gathering(&mut craft, &one);
+    assert_eq!(fell_back, ["map_region"]);
+    assert_eq!(craft.gathering.mines, one.mines);
+    assert_eq!(craft.gathering.map_regions, test.map_regions);
+    assert!(
+        craft.tool_yields.is_empty(),
+        "the world's own mines, its own yields"
+    );
+}
+
 /// Another player may not mine a node it did not summon: refused, nothing gathered.
 /// Behaviour: server.craft.mining-summoner-only
 #[test]
@@ -331,13 +409,20 @@ fn a_nodes_units_follow_its_summoners_surveying_level() {
 }
 
 /// A crude mining tool adds 1, a made one its own yield, a hand-made one with none the 6 of the
-/// lowest level it is made at.
+/// lowest level it is made at, as the world's rows say; a tool no row names and not made adds 1.
 /// Behaviour: server.craft.mining-units-by-tool-and-perk
 #[test]
 fn a_mining_tools_yield_is_its_own_else_its_kinds() {
-    assert_eq!(mining::tool_yield(PICKAXE, Some(18)), 18);
-    assert_eq!(mining::tool_yield(0x4700_0CC2, None), 1);
-    assert_eq!(mining::tool_yield(PICKAXE, None), 6);
+    let unmade: std::collections::HashMap<u32, u32> = yalain_testkit::test_mining_tool_yields()
+        .into_iter()
+        .collect();
+    assert_eq!(mining::tool_yield(&unmade, PICKAXE, Some(18)), 18);
+    assert_eq!(mining::tool_yield(&unmade, 0x4700_0CC2, None), 1);
+    assert_eq!(mining::tool_yield(&unmade, PICKAXE, None), 6);
+    assert_eq!(
+        mining::tool_yield(&std::collections::HashMap::new(), PICKAXE, None),
+        1
+    );
     assert!((mining::use_units(52.4, 15, 14.0) - 81.4).abs() < 1e-3);
 }
 

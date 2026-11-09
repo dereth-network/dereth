@@ -1037,7 +1037,14 @@ fn made_items_profiles_are_built_from_their_recipes_item_level_as_2017_built_the
                 let knife = yalain_content::Props::class_of(template, &|id| entity(inst, id))
                     .zip(inst.lib.package_id(yalain_world::butchery::TOOL_CLASS))
                     .is_some_and(|(c, k)| inst.lib.derives_from(c, k));
-                view.tool_skills = made::tool_skills(template, knife, &worn, &all_skills.skills)
+                let gathers = if knife {
+                    Some(yalain_world::butchery::SKILL)
+                } else {
+                    yalain_testkit::test_gathering()
+                        .mine_of_tool(template)
+                        .map(|m| m.skill)
+                };
+                view.tool_skills = made::tool_skills(gathers, &worn, &all_skills.skills)
                     .into_iter()
                     .map(|(id, table)| profile::string(table, id))
                     .collect();

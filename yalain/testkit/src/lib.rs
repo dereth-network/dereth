@@ -1585,6 +1585,8 @@ pub fn test_crafting() -> yalain_world::craft::Crafting {
             butchery_skill(),
         ],
         starting_recipes: vec![KNIFE_RECIPE],
+        tool_yields: test_mining_tool_yields().into_iter().collect(),
+        gathering: test_gathering(),
         ..Crafting::default()
     };
     c.recipes.insert(MINES_RECIPE, mines);
@@ -2100,6 +2102,172 @@ pub fn test_pet_limits() -> Vec<(u32, Vec<(usize, u32)>)> {
         (444, vec![(2, 0x100)]),
         (450, vec![(2, 0x100)]),
     ]
+}
+
+/// The mines and map regions the test world's rows would name: the five mining craft skills (crystal,
+/// iron, silver, stone, wood), each with its behavior, its hand-made and crude tool, its answers,
+/// the node its delving stone conjures, its lodestones by the finder's level (crumbling, brittle,
+/// rough, smooth, shining) and a find of 7 uses in 165, a Tessera two in seven; and Linvak's,
+/// Omishan's and Osteth's nodes, one of each material.
+#[must_use]
+pub fn test_gathering() -> yalain_content::gathering::Gathering {
+    use yalain_content::gathering::{Gathering, MapRegion, Mine};
+    const T: u32 = 0x2500_0CEC;
+    let mine = |skill: u32,
+                behavior,
+                tools: [u32; 2],
+                answers: [u32; 2],
+                material: &str,
+                node,
+                l: [u32; 5]| {
+        (
+            skill,
+            Mine {
+                skill,
+                behavior,
+                tools: tools.to_vec(),
+                answer: (answers[0], T),
+                rich_answer: (answers[1], T),
+                delving: Some((format!("Eff_SummonMine_{material}_Delving"), node)),
+                lodestones: [0, 30, 45, 60, 75].into_iter().zip(l).collect(),
+                find_chance: 7.0 / 165.0,
+                finds: vec![(0x4700_052F, 2.0 / 7.0)],
+            },
+        )
+    };
+    let region = |name: &str, nodes: [u32; 5]| {
+        let key = name.to_ascii_lowercase();
+        let nodes = ["Crystal", "Iron", "Silver", "Stone", "Wood"]
+            .into_iter()
+            .zip(nodes)
+            .map(|(m, n)| (format!("Eff_SummonMine_{m}_{name}"), n))
+            .collect();
+        (key.clone(), MapRegion { region: key, nodes })
+    };
+    Gathering {
+        mines: [
+            mine(
+                0x6F00_069B,
+                0x4100_0149,
+                [0x4700_0CB5, 0x4700_0CB6],
+                [0x4862_57E3, 0x284F_06B2],
+                "Crystal",
+                0x4700_0C8A,
+                [
+                    0x4700_0C1C,
+                    0x4700_0C1A,
+                    0x4700_0C1D,
+                    0x4700_0C1F,
+                    0x4700_0C1E,
+                ],
+            ),
+            mine(
+                0x6F00_069C,
+                0x4100_014D,
+                [0x4700_0CC1, 0x4700_0CC2],
+                [0x79C2_76DB, 0x53EE_7371],
+                "Iron",
+                0x4700_0C8C,
+                [
+                    0x4700_0C16,
+                    0x4700_0C14,
+                    0x4700_0C17,
+                    0x4700_0C19,
+                    0x4700_0C18,
+                ],
+            ),
+            mine(
+                0x6F00_069D,
+                0x4100_014C,
+                [0x4700_0CBF, 0x4700_0CC0],
+                [0xEECA_8C2F, 0xF862_249F],
+                "Silver",
+                0x4700_0C8E,
+                [
+                    0x4700_0C04,
+                    0x4700_0C02,
+                    0x4700_0C05,
+                    0x4700_0C07,
+                    0x4700_0C06,
+                ],
+            ),
+            mine(
+                0x6F00_069E,
+                0x4100_0149,
+                [0x4700_0CC3, 0x4700_0CC4],
+                [0x8EA1_7A36, 0xDAF5_223D],
+                "Stone",
+                0x4700_0C90,
+                [
+                    0x4700_0C0A,
+                    0x4700_0C08,
+                    0x4700_0C0B,
+                    0x4700_0C0D,
+                    0x4700_0C0C,
+                ],
+            ),
+            mine(
+                0x6F00_069F,
+                0x4100_014A,
+                [0x4700_0CB9, 0x4700_0CBA],
+                [0xF742_62DC, 0xF742_62DC],
+                "Wood",
+                0x4700_0C92,
+                [
+                    0x4700_0C10,
+                    0x4700_0C0E,
+                    0x4700_0C11,
+                    0x4700_0C13,
+                    0x4700_0C12,
+                ],
+            ),
+        ]
+        .into(),
+        map_regions: [
+            region(
+                "Linvak",
+                [
+                    0x4700_0C97,
+                    0x4700_0C98,
+                    0x4700_0C99,
+                    0x4700_0C9A,
+                    0x4700_0C9B,
+                ],
+            ),
+            region(
+                "Omishan",
+                [
+                    0x4700_0CA1,
+                    0x4700_0CA2,
+                    0x4700_0CA3,
+                    0x4700_0CA4,
+                    0x4700_0CA5,
+                ],
+            ),
+            region(
+                "Osteth",
+                [
+                    0x4700_0CA6,
+                    0x4700_0CA7,
+                    0x4700_0CA8,
+                    0x4700_0CA9,
+                    0x4700_0CAA,
+                ],
+            ),
+        ]
+        .into(),
+    }
+}
+
+/// What the test world's rows say its mining tools yield when they were not made: a hand-made one
+/// 6, a crude one 1.
+#[must_use]
+pub fn test_mining_tool_yields() -> Vec<(u32, u32)> {
+    test_gathering()
+        .mines
+        .values()
+        .flat_map(|m| [(m.tools[0], 6), (m.tools[1], 1)])
+        .collect()
 }
 
 /// The wards the test world's rows would name, by the effect's saved state: the six of fire, what

@@ -1928,6 +1928,35 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "server.craft.gathering-in-the-real-start",
+        says: "A start describes everything mining and maps name: the fifteen nodes maps conjure and \
+               the five delving stones do, each giving a material by its mine's craft skill; the ten \
+               tools; the lodestones; and the Tessera.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-GATHERING-REAL-START"),
+        station: "yalain::bin.yalain::data::tests::a_start_describes_every_node_tool_and_find_of_the_servers_own_gathering",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.craft.gathering-rows-hold-the-servers-own",
+        says: "A world's `[[mine]]` and `[[map_region]]` rows, and its mining tools' `[[tool]]` rows, \
+               hold the server's own, entry for entry.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-GATHERING-ROWS"),
+        station: "yalain-testkit::corpus::world_db::the_worlds_mine_and_map_region_rows_hold_the_servers_own_entry_for_entry",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.craft.gathering-without-rows",
+        says: "A world with no `[[mine]]` or `[[map_region]]` rows mines and maps by the server's own, \
+               its mining tools yielding theirs where no `[[tool]]` row says, and warns; a world with rows \
+               of a kind has those alone.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-GATHERING-NO-ROWS"),
+        station: "yalain-testkit::cpu::play::mining::a_world_without_mine_or_map_region_rows_has_the_servers_own_and_with_some_its_rows_alone",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.hoard-time-runs-out",
         says: "A hoard's vein is mined only while the hoard's hidden quest runs; when its five \
                minutes run out the Shaper's Hoard effect is gone, the vein refuses as mysterious, \
@@ -2083,6 +2112,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.craft.maps-by-world-rows",
+        says: "The node a surveyor's map conjures is the one the world's `[[map_region]]` rows give the \
+               map's effect; a map whose effect no row names is no map.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-MAPS-BY-ROWS"),
+        station: "yalain-testkit::cpu::play::maps::a_map_region_row_sets_the_node_a_maps_effect_conjures",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.mining-a-maps-node-may-unearth-a-find",
         says: "A use of a resource node a surveyor's map led to may unearth a find in place of its \
                material: a lodestone of the material's family or a Tessera, one unit, the use told so \
@@ -2090,6 +2128,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-MINING-FIND"),
         station: "yalain-testkit::cpu::play::maps::mining_a_maps_node_sometimes_unearths_a_lodestone_in_place_of_the_ore",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.craft.mining-by-world-rows",
+        says: "What a mining skill's node plays and answers, and the node its delving stone conjures, \
+               are the world's `[[mine]]` row's.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-MINING-BY-ROWS"),
+        station: "yalain-testkit::cpu::play::mining::a_mine_row_sets_what_its_nodes_play_and_say_and_what_its_stone_conjures",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -2561,7 +2608,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.craft.world-holds-what-crafting-needs",
-        says: "The world holds what its recipes make and ask for, and the nodes surveying conjures.",
+        says: "The world holds what its recipes make and ask for, the nodes surveying and maps \
+               conjure, the mining tools and what a find unearths.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-CRAFT-SOURCES"),
         station: "yalain-testkit::cpu::play::crafting::crafting_asks_the_world_for_its_products_ingredients_and_conjured_nodes",
@@ -7310,10 +7358,10 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "server.makes.the-server-names-what-it-makes",
         says: "A start asks for what the server's own rules make: every dye plant with its seed, \
-               pollen and harvest, and every node a map conjures.",
+               pollen and harvest.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-MAKES-LIST"),
-        station: "yalain-testkit::cpu::play::makes::the_server_names_every_plant_and_map_node_it_makes",
+        station: "yalain-testkit::cpu::play::makes::the_server_names_every_plant_it_makes",
         tier: Tier::Cpu,
     },
     behaviour! {

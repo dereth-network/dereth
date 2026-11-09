@@ -1,41 +1,39 @@
-//! What a world's start asks the install to describe: every plant and map node the server's rules
-//! make, and what the world's rows make. Fixture: tables written here.
+//! What a world's start asks the install to describe: every plant the server's rules make, and what
+//! the world's rows make. Fixture: tables written here.
 
 use std::collections::BTreeMap;
 
 use yalain_content::quests::{Give, QuestTable};
 use yalain_content::{CraftStart, DeathSpawn, StoreTable};
 use yalain_world::makes::{by_a_template, by_the_rows, by_the_server, Rows};
-use yalain_world::{plants, usable};
+use yalain_world::plants;
 
-/// The server's own list names every dye plant with its seed, pollen and harvest, and every node a
-/// map conjures.
+/// The server's own list names every dye plant with its seed, pollen and harvest.
 /// Behaviour: server.makes.the-server-names-what-it-makes
 #[test]
-fn the_server_names_every_plant_and_map_node_it_makes() {
+fn the_server_names_every_plant_it_makes() {
     let named = by_the_server(&yalain_testkit::test_start(), &[]);
     for p in plants::SPECIES {
         for t in [p.plant, p.seed, p.harvest].into_iter().chain(p.pollen) {
             assert!(named.contains(&t), "{t:08X}");
         }
     }
-    assert_eq!(usable::maps::nodes().count(), 15);
-    for n in usable::maps::nodes() {
-        assert!(named.contains(&n), "{n:08X}");
-    }
 }
 
-/// A map's effect only names nodes the list holds.
-/// Behaviour: server.makes.the-server-names-what-it-makes
+/// A map's effect only names nodes crafting asks for: each region's five, fifteen in all.
+/// Behaviour: server.craft.world-holds-what-crafting-needs
 #[test]
 fn every_node_a_maps_effect_names_is_among_the_nodes() {
+    let c = yalain_testkit::test_crafting();
+    let wanted = c.templates();
+    assert_eq!(c.gathering.map_nodes().count(), 15);
     for region in ["Linvak", "Omishan", "Osteth"] {
         for material in ["Crystal", "Iron", "Silver", "Stone", "Wood"] {
-            let node = usable::maps::summoned_by(&format!("Eff_SummonMine_{material}_{region}"));
-            assert!(
-                usable::maps::nodes().any(|n| Some(n) == node),
-                "{material} {region}"
-            );
+            let node = c
+                .gathering
+                .map_node(&format!("Eff_SummonMine_{material}_{region}"))
+                .expect("a node");
+            assert!(wanted.contains(&node), "{material} {region}");
         }
     }
 }

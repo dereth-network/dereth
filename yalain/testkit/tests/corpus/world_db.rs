@@ -194,6 +194,34 @@ fn the_worlds_ward_rows_hold_the_six_wards_entry_for_entry() {
         .all(|w| !(w.classes.is_empty() && w.effects.is_empty())));
 }
 
+/// A world's mine and map region rows hold the server's own, entry for entry: each mining skill's
+/// behavior, tools, answers, delving node, lodestones and finds, each region's nodes by their
+/// effects, and what each mining tool yields unmade; so a world with them mines as one without.
+/// Behaviour: server.craft.gathering-rows-hold-the-servers-own
+#[test]
+fn the_worlds_mine_and_map_region_rows_hold_the_servers_own_entry_for_entry() {
+    let t = &compiled().tables;
+    let mut craft = yalain_world::craft::Crafting {
+        tool_yields: t.crafting.tool_yields.clone().into_iter().collect(),
+        ..yalain_world::craft::Crafting::default()
+    };
+    yalain_world::mining::take_world_gathering(&mut craft, &t.gathering);
+    let own = yalain_testkit::test_gathering();
+    for (skill, mine) in &own.mines {
+        assert_eq!(craft.gathering.mines.get(skill), Some(mine), "{skill:08X}");
+    }
+    for (region, nodes) in &own.map_regions {
+        assert_eq!(
+            craft.gathering.map_regions.get(region),
+            Some(nodes),
+            "{region}"
+        );
+    }
+    for (tool, unmade) in yalain_testkit::test_mining_tool_yields() {
+        assert_eq!(craft.tool_yields.get(&tool), Some(&unmade), "{tool:08X}");
+    }
+}
+
 /// What the rows leave out comes from the install: the training hall quest's definition (its
 /// eight journal entries), the Human Weapon Vendor's store and its listings' products and prices,
 /// every loot profile's name, and the people's names for reading.

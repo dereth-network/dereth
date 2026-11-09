@@ -148,6 +148,8 @@ pub struct Tables {
     pub popups: yalain_content::popups::PopupTable,
     /// What effects do where their own data says nothing: what wards keep off.
     pub effect_rules: yalain_content::effect_rules::EffectRules,
+    /// What mining's nodes do and where surveyor's maps lead, each kind only when it has rows.
+    pub gathering: yalain_content::gathering::Gathering,
     /// The treasure numbers the world gives: its rules and its sorts' numbers, each kind only
     /// when it has rows of it.
     pub treasure: yalain_content::treasure_tables::TreasureRows,
@@ -296,6 +298,25 @@ impl Ctx<'_> {
             self.problem(
                 l,
                 format!("{field}: template {t:08X} is not in the install"),
+            );
+            false
+        }
+    }
+
+    /// A template of the install that gives a material when it is mined.
+    fn node(&mut self, l: &Located, field: &str, t: u32) -> bool {
+        if !self.template(l, field, t) {
+            return false;
+        }
+        let install = self.install;
+        let props =
+            yalain_content::Props::of(t, &|id| install.entity(id), &|id| install.property_name(id));
+        if props.word("Mine_Object").is_some() {
+            true
+        } else {
+            self.problem(
+                l,
+                format!("{field}: template {t:08X} gives no material when mined"),
             );
             false
         }
@@ -1148,6 +1169,36 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 }
                 if let Some(share) = r.vitae_share {
                     t.effect_rules.vitae_taps.insert(r.effect, share);
+                }
+            }
+            Row::Mine(r) => {
+                let m = &r.mine;
+                let mut known = true;
+                for (field, n) in m.delving.iter().map(|(_, n)| ("delving", *n)) {
+                    known &= cx.node(l, field, n);
+                }
+                for (field, list) in [
+                    ("tools", m.tools.clone()),
+                    ("lodestones", m.lodestones.iter().map(|(_, t)| *t).collect()),
+                    ("finds", m.finds.iter().map(|(t, _)| *t).collect::<Vec<_>>()),
+                ] {
+                    for t in list {
+                        known &= cx.template(l, field, t);
+                    }
+                }
+                if known {
+                    t.gathering.mines.insert(m.skill, m.clone());
+                }
+            }
+            Row::MapRegion(r) => {
+                let mut known = true;
+                for (_, n) in &r.region.nodes {
+                    known &= cx.node(l, "nodes", *n);
+                }
+                if known {
+                    t.gathering
+                        .map_regions
+                        .insert(r.region.region.clone(), r.region.clone());
                 }
             }
             Row::PointsBonus(r) => {

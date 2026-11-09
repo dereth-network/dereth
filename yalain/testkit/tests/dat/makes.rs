@@ -3,7 +3,7 @@
 
 use yalain_testkit::authored::Portal;
 use yalain_world::makes::by_the_server;
-use yalain_world::{plants, usable};
+use yalain_world::plants;
 
 /// Every kind of pet is a creature in the install, at the level its summoning gives it.
 /// Behaviour: server.makes.the-install-holds-what-the-server-makes
@@ -38,7 +38,7 @@ fn every_seed_and_node_the_server_names_reads_from_the_install() {
             s.seed
         );
     }
-    for n in usable::maps::nodes() {
+    for n in yalain_testkit::test_gathering().map_nodes() {
         assert!(p.template(n).props.word("Mine_Object").is_some(), "{n:08X}");
     }
     for t in by_the_server(&p.start_rules(), &p.mount_items()) {
