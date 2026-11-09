@@ -1329,7 +1329,15 @@ mod tests {
             ));
             match std::fs::create_dir(&p) {
                 Ok(()) => return p,
-                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => serial += 1,
+                // A folder another test just removed can still refuse its name on Windows.
+                Err(e)
+                    if matches!(
+                        e.kind(),
+                        std::io::ErrorKind::AlreadyExists | std::io::ErrorKind::PermissionDenied
+                    ) =>
+                {
+                    serial += 1
+                }
                 Err(e) => panic!("{e}"),
             }
         }
