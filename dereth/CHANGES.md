@@ -14,6 +14,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+- Fixed the paper doll and character previews showing patched items in their old look.
+
 ## 0.4.16 (2026-11-09)
 - Web: a link to an Asheron's Call 2 world now opens it in Auberean.
 - Fixed walking after logging in until Shift was pressed and released.

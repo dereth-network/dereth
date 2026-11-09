@@ -761,13 +761,15 @@ mod imp {
         ///
         /// The client makes one per `Viewport` at layout time and destroys it with the
         /// element; here they outlive the screen, because the meshes and textures behind them are
-        /// what cost and the char-gen wizard is entered and left repeatedly.
+        /// what cost and the char-gen wizard is entered and left repeatedly. A space built over
+        /// data files since reopened (a patch, the world's overlay) is made anew over `assets`,
+        /// so it does not keep dressing with records the old files lacked.
         pub fn ensure_preview(
             &mut self,
             id: PreviewId,
             assets: &std::sync::Arc<dereth_world_data::anim_assets::DatAnimAssets>,
         ) -> bool {
-            if self.previews.contains_key(&id) {
+            if self.previews.get(&id).is_some_and(|s| s.built_over(assets)) {
                 return false;
             }
             self.previews.insert(

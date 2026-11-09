@@ -1584,7 +1584,9 @@ impl HorizonFrontEnd {
             .map_or(dereth_primitives::DataId(0), |sex| sex.motion_table);
         let built = (setup, objdesc, motions.0);
         let present = cx.present_mut();
-        present.preview_ensure(id, &assets);
+        if present.preview_ensure(id, &assets) {
+            self.creation_built = None;
+        }
         if self.creation_built.as_ref() != Some(&built) {
             present.preview_remove_all_objects(id);
             let dressed = present.preview_add_object_dressed(id, &store, built.0, Some(&built.1));
@@ -1729,6 +1731,7 @@ impl HorizonFrontEnd {
         let assets = Arc::clone(cx.anim_assets());
         let present = cx.present_mut();
         if present.preview_ensure(id, &assets) {
+            self.doll_built = None;
             present.preview_use_sharp_mode(id);
             present.preview_set_light(
                 id,

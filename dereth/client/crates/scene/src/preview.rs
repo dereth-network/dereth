@@ -945,6 +945,15 @@ mod imp {
             }
         }
 
+        /// Whether the space dresses its objects from `assets`.
+        #[must_use]
+        pub fn built_over(
+            &self,
+            assets: &Arc<dereth_world_data::anim_assets::DatAnimAssets>,
+        ) -> bool {
+            Arc::ptr_eq(&self.assets, assets)
+        }
+
         /// Create a physics object for the setup with object id zero and dynamic state.
         ///
         /// Returns the object's index, which is what the by-index lookup takes. `None` when the
@@ -1614,6 +1623,41 @@ mod imp {
         pub fn part_array_mut(&mut self, i: usize) -> Option<&mut PartArray> {
             self.objects.get_mut(i).map(|o| &mut o.body.part_array)
         }
+    }
+}
+
+#[cfg(all(test, gpu))]
+mod reopen_tests {
+    //! Behaviour: none (the preview spaces' lifetime over a reopen of the data files, this client's own)
+    use super::PreviewSpace;
+    use dereth_world_data::anim_assets::DatAnimAssets;
+    use std::sync::Arc;
+
+    /// A store of two empty files in the layout from before Throne of Destiny.
+    fn empty_store() -> Arc<dereth_dat::RetailDatStore> {
+        let file = |name: &str| {
+            let bytes = dereth_dat::testing::classic_container(0x100, 1, &[]);
+            dereth_dat::DatFile::from_storage(name.into(), Box::new(bytes)).expect("the file opens")
+        };
+        Arc::new(
+            dereth_dat::RetailDatStore::open_classic_with(file("portal.dat"), file("cell.dat"))
+                .expect("the store opens"),
+        )
+    }
+
+    #[test]
+    fn a_preview_space_made_over_other_assets_is_made_anew() {
+        let store = empty_store();
+        let first = Arc::new(DatAnimAssets::new(Arc::clone(&store)));
+        let space = PreviewSpace::new(Arc::clone(&first));
+        assert!(space.built_over(&first), "its own assets keep it");
+        assert!(
+            space.built_over(&Arc::clone(&first)),
+            "and so does another handle to them"
+        );
+        // A reopen of the data files makes new assets, even over the same files.
+        let reopened = Arc::new(DatAnimAssets::new(store));
+        assert!(!space.built_over(&reopened), "reopened assets make it anew");
     }
 }
 

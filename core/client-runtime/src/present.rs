@@ -401,7 +401,8 @@ pub trait Presentation: std::fmt::Debug {
     // the preview spaces -- small 3D scenes a UI draws into its overlay
     // ---------------------------------------------------------------------------------------
 
-    /// Build the space if it does not exist. `true` when this call created it.
+    /// Build the space if it does not exist, or anew if it was built over other `assets` (a
+    /// reopen of the data files makes new ones). `true` when this call created it.
     fn preview_ensure(
         &mut self,
         id: PreviewSpace,
