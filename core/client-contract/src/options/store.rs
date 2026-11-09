@@ -288,6 +288,8 @@ pub fn init() -> usize {
     super::performance::register();
     // Whether frames slow down while the window is in the background.
     super::background::register();
+    // Horizon's status bars' colors and numbers.
+    super::status_bars::register();
     super::classic::register();
     // The renderer the next start comes up on, which only the Horizon interface's page chooses.
     super::renderer::register();
@@ -414,6 +416,12 @@ const CUSTOM_ENUMS: &[CustomEnum] = &[
         parse: super::remaster::god_rays_value,
         format: super::remaster::god_rays_words,
         choices: super::remaster::god_rays_rows,
+    },
+    CustomEnum {
+        recognizes: |name| name.eq_ignore_ascii_case(super::status_bars::STATUS_BAR_COLORS),
+        parse: super::status_bars::parse_value,
+        format: super::status_bars::convert_to_string,
+        choices: super::status_bars::choice_rows,
     },
 ];
 
@@ -1212,12 +1220,13 @@ mod tests {
     fn loading_a_preferences_file_overwrites_only_the_registered_names() {
         assert_eq!(init(), 34, "the 34 attached preferences all register");
         // ...beside this client's three presentation options from another era, its interface, its
-        // performance panel, its background slow-down, the classic interface's six, the renderer
-        // and the landscape detail texture, and in a build with the remaster its boxes too.
+        // performance panel, its background slow-down, Horizon's two status-bar options, the
+        // classic interface's six, the renderer and the landscape detail texture, and in a build
+        // with the remaster its boxes too.
         #[cfg(not(feature = "fidelity"))]
-        assert_eq!(len(), 48);
+        assert_eq!(len(), 50);
         #[cfg(feature = "fidelity")]
-        assert_eq!(len(), 48 + 3 + super::super::remaster::FEATURES.len());
+        assert_eq!(len(), 50 + 3 + super::super::remaster::FEATURES.len());
         // The registration defaults are in force before any file is read.
         assert_eq!(
             inq_value("Input.MouseLookSensitivity"),

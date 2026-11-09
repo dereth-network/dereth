@@ -478,6 +478,19 @@ pub static DIVERGENCES: &[Divergence] = &[
         why: "A client visiting Launch worlds should not advertise stamina, regeneration or resistance benefits absent from those worlds.",
     },
     Divergence {
+        id: "CD-horizon-status-bars",
+        title: "Horizon's status bars in its own colors or the original game's",
+        change: "Under the Horizon interface, the health, stamina and mana bars of its parameter \
+                 bar, party list and fellowship window are green, gold and pink at first, and the \
+                 parameter bar's numbers are large. Its options page has a Status Bar Colors \
+                 drop-down, whose Classic choice draws the bars in the final client's red, amber \
+                 and blue, and a Large Status Bar Numbers box, which unticked draws the numbers \
+                 smaller, on the line of the bars' titles. The classic and modern interfaces have \
+                 neither option.",
+        why: "Horizon keeps its own look, and a player who wants the bars to read as they always \
+              did can have them.",
+    },
+    Divergence {
         id: "CD-mac-command-key",
         title: "On a Mac, Command works as Control",
         change: "On a Mac either Command key reaches the client as Control, and the key pages name \

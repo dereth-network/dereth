@@ -17,6 +17,7 @@ pub mod remaster;
 pub mod render_scale;
 pub mod renderer;
 pub mod sheet;
+pub mod status_bars;
 pub mod store;
 
 /// The title of the error box shown when opening a support URL fails (the shell's result is 32

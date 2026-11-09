@@ -476,11 +476,11 @@ fn register_all_fills_the_registry() {
     );
     assert_eq!(
         dereth_ui_screens::options::store::len(),
-        48,
+        50,
         "…over 34 registered variables, this client's three options from another era, its \
-         interface choice, its performance panel, its background slow-down, the classic \
-         interface's six, the landscape detail texture and the renderer the next start comes \
-         up on"
+         interface choice, its performance panel, its background slow-down, Horizon's two \
+         status-bar options, the classic interface's six, the landscape detail texture and the \
+         renderer the next start comes up on"
     );
     let (table, label, _) =
         preferences::inq_preference("Camera.AlignToSlope").expect("inq_preference answers");

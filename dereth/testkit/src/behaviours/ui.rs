@@ -261,6 +261,44 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "hud.status-bars.horizon-s-page-has-the-two-options-under-display",
+        says: "The Horizon interface's Client Options page has a Status Bar Colors drop-down, \
+               Horizon or Classic, Horizon at first, and a Large Status Bar Numbers box, ticked at \
+               first, one after the other under Display just before the Performance Panel. A \
+               change is made at once, Defaults puts both back, and the profile keeps them; the \
+               classic and modern interfaces' pages have neither.",
+        since: THIS_CLIENT,
+        divergence: "CD-horizon-status-bars",
+        evidence: Evidence::Private("AC-EVID-HORIZON-STATUS-BAR-OPTIONS"),
+        station: "dereth-client-contract::lib::options::status_bars::tests::the_two_rows_are_on_horizon_s_page_alone_just_before_the_performance_panel",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "hud.status-bars.the-colors-are-horizon-s-or-the-original-game-s",
+        says: "Under the Horizon interface, the health, stamina and mana bars of the parameter \
+               bar, the party list and the fellowship window are drawn in Horizon's own green, \
+               gold and pink while Status Bar Colors is Horizon, and in the original game's red, \
+               amber and blue while it is Classic, from the next frame on. Nothing else in the \
+               picture changes.",
+        since: THIS_CLIENT,
+        divergence: "CD-horizon-status-bars",
+        evidence: Evidence::Private("AC-EVID-HORIZON-STATUS-BAR-COLORS"),
+        station: "dereth-horizon::cpu::hud::status_bars::status_bar_colors_turn_the_three_places_bars_to_retail_s_and_back_at_once",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "hud.status-bars.the-numbers-are-large-or-stand-on-the-titles-line",
+        says: "Under the Horizon interface, the parameter bar's numbers are drawn large while \
+               Large Status Bar Numbers is ticked. Unticked, they are smaller and stand on the \
+               line of their bars' titles, and a number too long for the room beside its title \
+               shrinks rather than reach it. The change is drawn at the next frame.",
+        since: THIS_CLIENT,
+        divergence: "CD-horizon-status-bars",
+        evidence: Evidence::Private("AC-EVID-HORIZON-STATUS-BAR-NUMBERS"),
+        station: "dereth-horizon::cpu::hud::status_bars::large_status_bar_numbers_unticked_draws_them_small_on_the_title_s_baseline",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "hud.vitals.a-press-on-the-bar-flips-it-between-its-two-presentations",
         says: "Pressing the vitals bar really answers: it flips between the two presentations the \
                shipped layout draws for it, and pressing again flips it back, so it is a toggle \
