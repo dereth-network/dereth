@@ -1,0 +1,244 @@
+home	Travel	-	[1-9]	Go to your sanctuary or a recall slot
+save	Travel	-	[1-9]	Set your sanctuary or a recall slot
+teleto	Travel	-	<player>	Teleport to a player
+teletome	Travel	-	<player>	Teleport a player to you
+telereturn	Travel	-	<player>	Return a player to where they were
+tele	Travel	-	[name] <lng> <lat>	Teleport to map coordinates
+teleallto	Travel	confirm	[player]	Teleport every player to a player or you
+telepoi	Travel	-	<POI or list>	Teleport to a point of interest
+teleloc	Travel	-	cell [x y z] (qw qx qy qz)	Teleport to a location as @loc gives it
+telexyz	Travel	-	cell x y z qx qy qz qw	Teleport to a location, its cell in decimal
+teletype	Travel	-	0-22	Teleport to a saved position type
+setposition	Travel	-	1-27	Save a position type
+listpositions	Travel	-	-	List your saved positions
+teledist	Travel	-	<distance>	Jump a distance ahead of the last spawn
+teledungeon	Travel	-	<name or landblock>	Teleport to a dungeon
+delete	Items	confirm,selection	-	Delete the selected object
+regen	Items	selection	-	Regenerate the selected generator
+crack	Items	selection	[. to open it too]	Crack the examined locked object
+create	Items	-	<wcid or class> (amount) (palette) (shade)	Spawn in the world
+createliveops	Items	-	<wcid or class> (amount) (lifespan) (palette) (shade)	Spawn with a lifespan
+createnamed	Items	-	<wcid or class> <count> <name>	Spawn with a name
+ci	Items	-	<wcid or class> (amount) (palette) (shade)	Create in your pack
+cm	Items	-	<material> (structure) (workmanship) (num)	Make a salvage bag
+cisalvage	Items	-	<material> (structure) (workmanship) (num)	Make a salvage bag
+cirand	Items	-	type (num, default 10, max 50)	Random objects in your pack
+ciloot	Items	-	<tier> (items)	Random loot in your pack
+ciaetheria	Items	-	[color] [set] [surge] [level]	Aetheria in your pack
+lootgen	Items	-	<wcid or class> <tier>	Generate one loot item
+makeiou	Items	-	<wcid>	Put an IOU in your pack
+weapons	Items	-	-	Test weapons in your pack
+inv	Items	-	-	Sample items, foci and containers
+splits	Items	-	-	Stackable test items
+comps	Items	-	-	Spell components
+food	Items	-	-	Food
+currency	Items	-	-	Currency
+equiptest	Items	-	-	Simulate equipping an item, replacing all others
+movetome	Items	selection	-	Move the examined object to you
+grantitemxp	Items	selection	<amount>	Item XP to the examined item
+givemana	Items	selection	<amount>	Mana to the examined object
+additemspell	Items	selection	<spell id>	Add a spell to the examined item
+removeitemspell	Items	selection	<spell id>	Remove a spell from the examined item
+usewith	Items	selection	guid	Use an object on the examined object
+gag	Players	-	<character>	Gag a character
+ungag	Players	-	<character>	Remove a gag
+boot	Players	confirm	[account or char or iid] who (, reason)	Boot from the game
+ban	Players	confirm	<account> <days> <hours> <minutes> (reason)	Ban an account
+unban	Players	-	<account>	Remove a ban
+banlist	Players	-	-	List the bans
+finger	Players	-	[[-a] character] [-m account]	Find a character's account, or the reverse
+rename	Players	confirm	<current>, <new>	Rename a character
+bestow	Players	confirm	<name> <level>	Set an Advocate's level
+remove	Players	confirm	<character>	Remove from the Advocates
+copychar	Players	confirm	<existing>, <new>	Copy a character into your list
+listplayers	Players	-	-	List the players connected
+forcelogout	Players	confirm,selection	(name)	Force a log off
+forcelogoff	Players	confirm,selection	(name)	Force a log off
+showsession	Players	selection	-	The examined player's address and session
+bornagain	Players	confirm	deletedCharID(, newName)(, account)	Restore a deleted character
+deletecharacter	Players	confirm	[character]	Delete a character for good
+set-characteraccess	Players	confirm	character (level)	Set a character's access
+set-accountaccess	Players	confirm	account (level)	Set an account's access
+watchmen	Players	-	(level)	List accounts by staff level
+attackable	Character	-	on or off	Whether monsters attack you
+adminvision	Character	-	on, off, toggle, check	See admin-only objects
+cloak	Character	-	on, off, player, creature	Your cloaking
+neversaydie	Character	-	[on or off]	Your immortality
+portal_bypass	Character	-	-	Toggle the portal restriction bypass
+mrt	Character	-	-	Toggle the housing boundary bypass
+buff	Character	-	[name] [maxLevel]	Buff you or a player
+fellowbuff	Character	-	[name]	Buff a fellowship
+run	Character	-	on, off, toggle, check	A temporary run boost
+god	Character	-	-	Raise your stats above the maximum
+ungod	Character	-	-	Restore your mortal stats
+smite	Character	confirm,selection	[all or player]	Kill the target, or all monsters in range
+heal	Character	selection-if-any	-	Restore you or the selected creature
+pk	Character	-	npk, pk, pkl, free	Your PK state
+pktimer	Character	-	-	Set your PK timer to now
+faction	Character	-	none, ch, ew, rb (rank)	Your faction
+sticky	Character	-	off or on	Keep your items on death
+morph	Character	-	<wcid or class> [character]	Change your body's form
+dispel	Character	-	-	Remove all your enchantments
+fumble	Character	selection	-	Make the selected object fumble
+grantxp	Character	-	[name] <amount>	XP to you or a player
+grantluminance	Character	-	[name] <amount>	Luminance to you or a player
+spendallxp	Character	-	-	Spend all your XP
+delevel	Character	confirm	<new level>	Lower your level
+setvital	Character	-	<vital> <value or +-delta>	Set one of your vitals
+sethealth	Character	-	<value>	Set your health
+harmself	Character	confirm	-	Set all your vitals to 1
+addspell	Character	-	<spell id>	Add to your spellbook
+removespell	Character	-	<spell id>	Remove from your spellbook
+addallspells	Character	-	-	Add every spell
+addtitle	Character	-	[title id]	Add a title
+addalltitles	Character	-	-	Add every title
+qst	Character	selection	(fellow) [list, bestow, erase]	The selected target's quest flags
+contract	Character	selection	[list, bestow, erase]	The selected target's contracts
+enable-aetheria	Character	-	-	Enable your aetheria slots
+remove-vitae	Character	selection	-	Remove the examined player's vitae
+requirecomps	Character	-	on or off	Whether spells need components
+safecomps	Character	-	on or off	Whether components burn
+fast	Character	-	-	Speed enchantments on you
+slow	Character	-	-	Slowing enchantments on you
+rip	Character	-	-	Kill you
+setcoin	Character	-	<value>	Coin display debug
+barbershop	Character	-	-	Open the barber
+castspell	Character	selection	<spell id>	Cast on the examined object
+monsterspell	Character	selection	(target guid)	The examined creature casts a spell
+portalstorm	Character	confirm	0-3	A portal storm on you
+modifyvital	Character	confirm,selection	<Health, Stamina, Mana> <delta>	Change the examined object's maximum vital
+modifyskill	Character	confirm,selection	<skill> <delta>	Change the examined object's skill
+modifyattr	Character	confirm,selection	<attribute> <delta>	Change the examined object's attribute
+getproperty	Character	selection	<property>	Read a property of the examined object
+setproperty	Character	confirm,selection	<property> <value>	Write a property of the examined object
+showprops	Properties	-	-	List the server's properties
+fetchbool	Properties	-	<name>	Read a yes-or-no property
+modifybool	Properties	confirm	<name> <true or false>	Write a yes-or-no property
+fetchlong	Properties	-	<name>	Read a whole number property
+modifylong	Properties	confirm	<name> <value>	Write a whole number property
+fetchdouble	Properties	-	<name>	Read a decimal property
+modifydouble	Properties	confirm	<name> <value>	Write a decimal property
+fetchstring	Properties	-	<name>	Read a text property
+modifystring	Properties	confirm	<name> <value>	Write a text property
+modifypropertydesc	Properties	confirm	<STRING, BOOL, DOUBLE, LONG> <name> <text>	Describe a property
+resyncproperties	Properties	confirm	-	Resync the properties database
+setlbenviron	Environment	-	(effect name or id, or list)	This landblock's environment; blank resets
+setglobalenviron	Environment	confirm	(effect name or id, or list)	Every landblock's environment; blank resets
+playsound	Effects	-	<sound> (volume) (guid)	Play a sound
+effect	Effects	-	<effect> (scale)	Play an effect
+animation	Effects	-	<MotionCommand> (target guid)	Play an animation
+pscript	Effects	selection	<script>	Play a script on the examined object
+gamecast	Messages	-	<message>	Tell everyone, with a prefix
+gamecastemote	Messages	-	<message>	Tell everyone, the exact text
+we	Messages	-	<message>	Tell everyone, the exact text
+gamecastlocal	Messages	-	<message>	Tell the whole server
+gamecastlocalemote	Messages	-	<message>	Tell players in chat range, the exact text
+de_n	Messages	-	<name>, <text>	Exact text to a named player
+direct_emote_name	Messages	-	<name>, <text>	Exact text to a named player
+de_s	Messages	selection	<text>	Exact text to the selected player
+direct_emote_select	Messages	selection	<text>	Exact text to the selected player
+echo	Messages	-	"text" [chat type]	Send text back to yourself
+world	World	confirm	[open, close] <boot>	Open or close the world
+shutdown	World	confirm	(message)	Begin the shutdown
+cancel-shutdown	World	-	-	Stop the shutdown
+set-shutdown-interval	World	-	0-99999	The shutdown's delay, in seconds
+stop-now	World	confirm	-	Shut down at once
+save-world	World	-	-	Save everything and keep running
+event	World	-	[start, stop, disable, enable, clear, status] (name)	An event's state
+save-now	World	-	-	Save your session
+loadalllandblocks	World	confirm	-	Load every landblock; not for a live world
+clearphysicscaches	World	confirm	-	Clear the physics caches
+forcegc	World	confirm	-	Force a garbage collection
+forcegc2	World	confirm	-	Force a compacting garbage collection
+database-shard-cache-pbrt	World	confirm	-	Player biota cache retention
+database-shard-cache-npbrt	World	confirm	-	Non-player biota cache retention
+adminhouse	Housing	confirm	<subcommand>	Manage houses
+purchase-house	Housing	selection	-	Buy the house of the examined covenant crystal
+setpurchasetime	Housing	-	-	Set your house purchase time
+barrier-test	Housing	-	-	House barrier debug
+import-json	Content	confirm	<type> <wcid or all>	Import JSON content
+import-sql	Content	confirm	<type> <wcid or all>	Import SQL content
+import-sql-folders	Content	confirm	<wcid or all>	Import weenie SQL recursively
+export-json	Content	-	<type> <id>	Export JSON
+export-json-folders	Content	-	<wcid>	Export JSON by type folders
+export-sql	Content	-	<type> <id>	Export SQL
+export-sql-folders	Content	-	<wcid>	Export SQL by type folders
+createinst	Content	-	<wcid or class>, -p <guid> -c <wcid>, <wcid> <start guid>	Spawn a landblock instance
+removeinst	Content	confirm,selection	-	Remove the examined instance
+addenc	Content	-	<wcid or class>	Add an encounter in this outdoor cell
+removeenc	Content	confirm,selection	-	Remove the examined encounter
+nudge	Content	-	[guid] <dir> <amount>	Adjust an instance's position
+rotate	Content	-	[guid] <dir or 0-360>	Rotate an instance
+rotate-x	Content	-	<degrees>	Rotate an instance on x
+rotate-y	Content	-	<degrees>	Rotate an instance on y
+rotate-z	Content	-	<degrees>	Rotate an instance on z
+clearcache	Content	confirm	-	Clear the database caches
+generate-classnames	Content	-	-	Generate WeenieClassName.cs
+vloc2loc	Content	-	<landblock>	LOCs from the VLOCS dataset
+reload-landblock	Content	confirm	-	Reload this landblock
+reload-dat-overlay	Content	confirm	[folder] [landblock XXYY ...]	Reread the overlay and rebuild its landblocks
+reload-loot-tables	Content	confirm	(profile folder)	Reload the loot tables
+import-treasure	Content	confirm	<death or wielded> <id or all>	Import loot table SQL
+allstats	Inspect	-	-	All the server's stats
+serverstatus	Inspect	-	-	The server's stats
+serverperformance	Inspect	-	-	Performance stats
+landblockperformance	Inspect	-	-	Landblock performance
+landblockstats	Inspect	-	-	Landblock performance
+lbgroupstats	Inspect	-	-	Landblock group stats
+gcstatus	Inspect	-	-	Garbage collection stats
+myiid	Inspect	-	-	Your instance id
+time	Inspect	-	-	The game's time
+trophies	Inspect	selection	-	The target's trophy drops
+deathxp	Inspect	selection	-	The examined creature's XP value
+idlist	Inspect	-	-	The next object id
+show-allegiances	Inspect	-	-	Allegiance chains
+getenchantments	Inspect	selection	-	Enchantments on the examined item
+netstats	Inspect	-	-	Network stats
+echoflags	Inspect	-	[type] [int]	Echo flags
+chatdump	Inspect	-	-	A thousand lines of text
+movement	Inspect	-	<test>	Movement test
+MoveTo	Inspect	-	(distance)	Move-to-object test
+propertydump	Inspect	selection	-	The examined object's properties
+whoami	Inspect	-	-	Your ids
+gps	Inspect	-	-	Your location
+myloc	Inspect	-	-	Your location, as the server sees it
+dist	Inspect	selection	-	The distance to the examined object
+targetloc	Inspect	selection	(guid)	The examined object's location
+dungeonname	Inspect	-	-	The name of this dungeon
+turnto	Inspect	selection	-	Turn the examined creature to you
+debugmove	Inspect	selection	on or off	Movement debug for the examined object
+lostest	Inspect	selection	-	Visibility to the examined object
+showstats	Inspect	selection	-	The examined creature's stats
+knownobjs	Inspect	-	(guid or target)	Known objects
+visibleobjs	Inspect	-	(guid or target)	Visible objects
+knownplayers	Inspect	-	(guid or target)	Known players
+visibleplayers	Inspect	-	(guid or target)	Visible players
+visibletargets	Inspect	-	(guid or target)	A monster's visible targets
+retaliatetargets	Inspect	-	(guid or target)	Retaliate targets
+destructionqueue	Inspect	-	(guid or target)	The destruction queue
+debugemote	Inspect	selection	-	Emote debug for the examined object
+debugdamage	Inspect	selection	attack, defense, all, on, off	Damage information
+debugchess	Inspect	-	-	Chess history
+debugboard	Inspect	-	-	Chess board
+auditobjectmaint	Inspect	-	-	Physics object leak check
+testdeathitems	Inspect	-	-	Death item selection test
+fellow-info	Inspect	selection	-	Fellowship debug
+fellow-dist	Inspect	-	-	The distance to your fellows
+generatordump	Inspect	selection	-	The selected generator's properties
+vendordump	Inspect	selection	-	The selected vendor's properties
+damagehistory	Inspect	-	-	Damage history
+resist-info	Inspect	selection	-	The examined creature's resistances
+debugspell	Inspect	-	-	Spell projectile debug
+recordcast	Inspect	-	-	Record casting keypresses
+getinfo	Inspect	selection	-	The examined object's basic information
+testaim	Inspect	-	<test>	Aim motion test
+showvelocity	Inspect	selection	-	The examined object's velocity
+bumpvelocity	Inspect	selection	-	Bump the examined object's velocity
+check-collision	Inspect	-	-	Collision check
+showtier	Inspect	selection	-	The examined monster's tier
+tiermobs	Inspect	-	<tier>	The monsters of a tier
+debugspellbook	Inspect	selection	-	The examined object's spellbook
+trywield	Inspect	-	<test> <test>	Wield test
+show-wielded-treasure	Inspect	-	<wcid>	A creature's wielded treasure table
+databasequeueinfo	Inspect	-	-	Database queue information
+databaseperftest	Inspect	confirm	(biotas per test)	Database performance test

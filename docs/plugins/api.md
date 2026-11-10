@@ -37,7 +37,9 @@ enabled, any other is listed `disabled` until enabled, and the host remembers wh
 and which the player disabled; [install-and-update](guide/install-and-update.md)). A plugin named
 to load (`--plugins`) is enabled again after a fault, but not disabled. `/plugin policy` tells the
 world's policy in force, and `/plugin huds unlock` and `/plugin huds lock` unlock and lock the
-plugins' HUDs for the player to move ([ui.md](ui.md#huds)).
+plugins' HUDs for the player to move ([ui.md](ui.md#huds)). `/plugin keys` lists the plugins'
+hotkeys and their keys, and `/plugin key <id> <node> <key>` changes one's key (`none` for no key,
+`default` for its plugin's own; [ui.md](ui.md#nodes)).
 
 The chat says when a plugin is loaded, reloaded, unloaded, enabled or disabled, one line each by
 its manifest's name: `[Plugins] XP Meter loaded.` A plugin enabled says `enabled.` rather than

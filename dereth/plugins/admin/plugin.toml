@@ -1,0 +1,16 @@
+id = "network.dereth.admin"
+name = "Admin"
+version = "0.1.0"
+api = "0.7"
+entry = "main.lua"
+contexts = ["world"]
+description = "An administrator's commands as a window: players, travel, the selection, your own powers, spawning, the world and a search of every command, each sent as the line you would type, with the server's replies under it. Only a character with the administrator flag has it."
+authors = ["Jacob Johnston", "Dereth"]
+license = "MIT"
+
+[permissions]
+"chat.send" = "Sends the admin command each button stands for, as you would type it."
+"act.interactive" = "Appraises the selection before a command that acts on it, so the server acts on what you selected."
+
+[capabilities]
+required = ["ui.window"]

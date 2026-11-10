@@ -3,7 +3,7 @@
 **Provenance: design.** How to load Dereth's own plugins and what each shows; the
 transcript below is the headless client's own output over a recorded session.
 
-The eleven samples are in `dereth/plugins/` of the repository, one folder per plugin. Every host
+The twelve samples are in `dereth/plugins/` of the repository, one folder per plugin. Every host
 can load the whole folder at once: a folder of packages loads each package in it.
 
 ## In the desktop client

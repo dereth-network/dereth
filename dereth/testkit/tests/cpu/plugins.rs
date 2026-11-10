@@ -15,6 +15,8 @@ use dereth_testkit::conformance::{assert_case, CASES_DIR};
 use dereth_testkit::plugins::{read_package, PluginRun};
 
 /// The Trackers sample: Mag-Tools' trackers.
+pub(crate) mod admin;
+
 pub(super) mod trackers;
 
 /// The Buffbot sample: buffs for other players on request.

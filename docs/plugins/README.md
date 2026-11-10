@@ -79,11 +79,11 @@ version = "1.0.0"
 api = "0.1"
 ```
 
-Eleven sample plugins are in `dereth/plugins/` of the repository, each walked through in
+Twelve sample plugins are in `dereth/plugins/` of the repository, each walked through in
 [the guide](guide/samples/README.md): an XP meter, a chat logger and filter, a looter driven by a
 loot profile, combat and corpse trackers, ID notices that appraise what drops, a navigator that
 points the way and walks there, auto-login, multi-client follow, a buffbot, an inventory log and
-tools in the manner of Mag-Tools, and an unattended macro in the manner of VTank (the Tank), as a
+tools in the manner of Mag-Tools, an administrator's commands as a window, and an unattended macro in the manner of VTank (the Tank), as a
 reference for automation. [parity.md](parity.md) sets them beside the plugins players know,
 feature by feature.
 

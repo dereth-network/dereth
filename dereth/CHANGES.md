@@ -13,6 +13,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`launcher/RELEASING.md`](launcher/RELEASING.md)).
 
 ## Unreleased
+- New Admin plugin: an administrator's commands in a window.
+- Plugins: a hotkey's key can be changed with /plugin key.
 
 - Fixed the paper doll and character previews showing patched items in their old look.
 - Horizon: new Status Bar Colors and Large Status Bar Numbers options.

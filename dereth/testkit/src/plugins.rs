@@ -813,6 +813,7 @@ pub fn intent_text(r: &Request) -> String {
         Request::TradeAcceptTrade(_) => "trade_accept".to_owned(),
         Request::Emote(m) => format!("emote {}", m.message),
         Request::TalkDirectByName(m) => format!("tell {}: {}", m.target_name, m.message),
+        Request::Talk(m) => format!("talk {}", m.message),
         Request::FellowshipRecruit(m) => format!("fellowship_recruit {:#x}", m.target.0),
         other => {
             let d = format!("{other:?}");
@@ -2301,6 +2302,15 @@ impl PluginRun {
         use dereth_client_model::{StatKey, StatType, StatValue};
         if let Some(q) = self.objects.world.player_qualities_mut() {
             q.set(StatKey::new(StatType::Int, key), StatValue::Int(n));
+        }
+    }
+
+    /// The scripted character's boolean property `key` (a game property number) made `on`: the
+    /// administrator flag, say.
+    pub fn set_player_bool(&mut self, key: u32, on: bool) {
+        use dereth_client_model::{StatKey, StatType, StatValue};
+        if let Some(q) = self.objects.world.player_qualities_mut() {
+            q.set(StatKey::new(StatType::Bool, key), StatValue::Bool(on));
         }
     }
 

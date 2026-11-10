@@ -908,6 +908,75 @@ fn the_host_command_lists_and_reloads() {
     assert_eq!(h.host.plugins().len(), 1, "still loaded");
 }
 
+/// `/plugin key` gives a plugin's hotkey the player's own key, or none, or the plugin's again; a
+/// key a hotkey cannot have, or a hotkey that is not there, is refused. The host keeps the
+/// player's key across a restart, and `/plugin keys` lists each hotkey with its key.
+/// Behaviour: plugins.ui.a-player-gives-a-plugins-hotkey-a-key-of-their-own
+#[test]
+fn a_player_gives_a_plugins_hotkey_a_key_of_their_own_and_the_host_keeps_it() {
+    let main = r#"
+        commands.add("hk", "run by a hotkey", function() print("ran") end)
+        ui.window{ id = "main", ui.hotkey{ id = "go", command = "hk", key = "Ctrl+Shift+F5" } }
+    "#;
+    let key = |h: &Harness| {
+        h.host
+            .hotkeys()
+            .into_iter()
+            .find(|k| k.node == "go")
+            .and_then(|k| k.key)
+    };
+    let said = |h: &mut Harness, args: &str| {
+        let before = h.printed.len();
+        h.frame_with(0.05, &[], &[typed("plugin", args)]);
+        h.printed_text()[before..].to_vec()
+    };
+    let storage = Shared::default();
+    let mut h = Harness::new_with(vec![package("test.keys", main, "")], None, storage.clone());
+    h.login();
+    assert_eq!(
+        key(&h).as_deref(),
+        Some("Ctrl+Shift+F5"),
+        "the plugin's own"
+    );
+    assert_eq!(
+        said(&mut h, "key test.keys go Alt+K"),
+        ["[Plugins] test.keys go: Alt+K"]
+    );
+    assert_eq!(key(&h).as_deref(), Some("Alt+K"));
+    for refused in ["key test.keys go F5", "key test.keys go Ctrl+Space"] {
+        let told = said(&mut h, refused);
+        assert!(
+            told.len() == 1 && told[0].contains("cannot be a hotkey's key"),
+            "{refused}: {told:?}"
+        );
+    }
+    let told = said(&mut h, "key test.keys gone Alt+J");
+    assert!(
+        told.len() == 1 && told[0].contains("has no hotkey gone"),
+        "{told:?}"
+    );
+    assert_eq!(key(&h).as_deref(), Some("Alt+K"), "unchanged by a refusal");
+    assert_eq!(
+        said(&mut h, "keys"),
+        ["[Plugins] test.keys go: Alt+K (/hk)"]
+    );
+
+    // A client started again over the same files.
+    let mut again = Harness::new_with(vec![package("test.keys", main, "")], None, storage);
+    again.login();
+    assert_eq!(key(&again).as_deref(), Some("Alt+K"), "kept");
+    assert_eq!(
+        said(&mut again, "key test.keys go none"),
+        ["[Plugins] test.keys go: no key"]
+    );
+    assert_eq!(key(&again), None);
+    assert_eq!(
+        said(&mut again, "key test.keys go default"),
+        ["[Plugins] test.keys go: Ctrl+Shift+F5"]
+    );
+    assert_eq!(key(&again).as_deref(), Some("Ctrl+Shift+F5"));
+}
+
 /// The plugin panel's tree, as text.
 fn panel_dump(h: &Harness) -> String {
     h.host

@@ -136,6 +136,11 @@ pub const HOST_ID: &str = "dereth.plugins";
 /// it is ticked, `false` where it was unticked. A plugin with neither was never ticked or unticked.
 pub const TICKED_SCOPE: &str = "ticked";
 
+/// The host's store scope for the keys the player gave plugins' hotkeys (`/plugin key`): plugin
+/// id to hotkey node to the key, or to `""` where the player left it with none. A hotkey with
+/// neither has the key its plugin asks for.
+pub const KEYS_SCOPE: &str = "keys";
+
 /// A plugin the host found, as it lists it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FoundInfo {
@@ -488,6 +493,9 @@ pub struct PluginHost {
     toasts: Option<Window>,
     /// Hotkeys pressed since the last frame: plugin and node.
     hotkeys_pressed: Vec<(String, String)>,
+    /// The keys the player gave plugins' hotkeys, by plugin and node: the key, or `""` for none
+    /// ([`KEYS_SCOPE`]).
+    player_keys: std::collections::BTreeMap<(String, String), String>,
     /// Commands the player ran from the interface's own controls, `(plugin, verb)`, for the next
     /// frame.
     commands_run: Vec<(String, String)>,
@@ -536,8 +544,9 @@ impl PluginHost {
         config: HostConfig,
         engine: Box<dyn ScriptEngine>,
         source: Box<dyn PluginSource>,
-        storage: Box<dyn PluginStorage>,
+        mut storage: Box<dyn PluginStorage>,
     ) -> Self {
+        let player_keys = read_player_keys(storage.as_mut());
         Self {
             config,
             engines: vec![engine],
@@ -570,6 +579,7 @@ impl PluginHost {
             context: None,
             toasts: None,
             hotkeys_pressed: Vec::new(),
+            player_keys,
             commands_run: Vec::new(),
             import: import::Import::default(),
             game_data: Box::new(gamedata::NoGameData),
@@ -1046,6 +1056,54 @@ impl PluginHost {
     #[must_use]
     pub fn huds_unlocked(&self) -> bool {
         self.huds_unlocked
+    }
+
+    /// Give plugin `plugin`'s hotkey `node` the key `key` (`Ctrl+Shift+F5`), as `/plugin key` does:
+    /// `none` leaves it with no key, and `default` gives it back the key its plugin asks for. The
+    /// host keeps it for every character, and tells the chat what the hotkey's key is now.
+    pub fn set_player_key(&mut self, plugin: &str, node: &str, key: &str) {
+        if !self
+            .hotkeys()
+            .iter()
+            .any(|h| h.plugin == plugin && h.node == node)
+        {
+            self.tell(&format!(
+                "{plugin} has no hotkey {node} here (/plugin keys lists them)"
+            ));
+            return;
+        }
+        let at = (plugin.to_owned(), node.to_owned());
+        match key.to_ascii_lowercase().as_str() {
+            "default" => {
+                self.player_keys.remove(&at);
+            }
+            "none" => {
+                self.player_keys.insert(at, String::new());
+            }
+            _ => {
+                if dereth_plugin_api::ui::chord(key).is_none() {
+                    self.tell(&format!(
+                        "{key} cannot be a hotkey's key: it holds Ctrl or Alt, with F1 to F24, A to Z or 0 to 9"
+                    ));
+                    return;
+                }
+                self.player_keys.insert(at, key.to_owned());
+            }
+        }
+        let mut all = std::collections::BTreeMap::new();
+        for ((p, n), k) in &self.player_keys {
+            let nodes = all.entry(p.clone()).or_insert_with(Value::map);
+            *nodes = std::mem::take(nodes).with(n, k.as_str());
+        }
+        self.storage
+            .save(HOST_ID, KEYS_SCOPE, &Value::Map(all).to_json());
+        let now = self
+            .hotkeys()
+            .into_iter()
+            .find(|h| h.plugin == plugin && h.node == node)
+            .and_then(|h| h.key)
+            .unwrap_or_else(|| "no key".to_owned());
+        self.tell(&format!("{plugin} {node}: {now}"));
     }
 
     /// Unlock or lock the plugins' HUDs, as `/plugin huds` does.
@@ -1593,7 +1651,8 @@ impl PluginHost {
     }
 
     /// Every hotkey of every running plugin active here, in load order: the `hotkey` nodes of its
-    /// windows, open or closed.
+    /// windows, open or closed, each with the key the player gave it (`/plugin key`), or else the
+    /// key its plugin asks for.
     #[must_use]
     pub fn hotkeys(&self) -> Vec<Hotkey> {
         fn walk(
@@ -1623,13 +1682,21 @@ impl PluginHost {
             for (w, win) in &s.state.windows {
                 let mut found = Vec::new();
                 walk(&win.tree, &mut found);
-                out.extend(found.into_iter().map(|(node, command, text, key)| Hotkey {
-                    plugin: s.state.manifest.id.to_string(),
-                    window: w.clone(),
-                    node,
-                    command,
-                    text,
-                    key,
+                let plugin = s.state.manifest.id.to_string();
+                out.extend(found.into_iter().map(|(node, command, text, key)| {
+                    let key = match self.player_keys.get(&(plugin.clone(), node.clone())) {
+                        Some(k) if k.is_empty() => None,
+                        Some(k) => Some(k.clone()),
+                        None => key,
+                    };
+                    Hotkey {
+                        plugin: plugin.clone(),
+                        window: w.clone(),
+                        node,
+                        command,
+                        text,
+                        key,
+                    }
                 }));
             }
         }
@@ -3294,8 +3361,25 @@ impl PluginHost {
                     "the plugins' HUDs are locked"
                 });
             }
+            (Some("keys"), None) => {
+                let keys = self.hotkeys();
+                if keys.is_empty() {
+                    self.tell("no plugin has a hotkey here");
+                }
+                for h in keys {
+                    let key = h.key.as_deref().unwrap_or("no key");
+                    self.tell(&format!("{} {}: {key} (/{})", h.plugin, h.node, h.command));
+                }
+            }
+            (Some("key"), Some(plugin)) => match (words.get(2), words.get(3)) {
+                (Some(node), Some(key)) if words.len() == 4 => {
+                    let (plugin, node, key) = (plugin.to_owned(), node.clone(), key.clone());
+                    self.set_player_key(&plugin, &node, &key);
+                }
+                _ => self.tell("usage: /plugin key <id> <hotkey> <key | none | default>"),
+            },
             _ => self.tell(
-                "usage: /plugin [show | list | enable <id> | disable <id> | reload <id> | policy | huds [unlock | lock]]",
+                "usage: /plugin [show | list | enable <id> | disable <id> | reload <id> | policy | huds [unlock | lock] | keys | key <id> <hotkey> <key>]",
             ),
         }
     }
@@ -3310,6 +3394,26 @@ fn ubscript_bootstrap(entry: &str, name: &str) -> Vec<u8> {
         Value::from(name).to_json()
     )
     .into_bytes()
+}
+
+/// The keys the player gave plugins' hotkeys, as the host's store keeps them ([`KEYS_SCOPE`]).
+fn read_player_keys(
+    storage: &mut dyn PluginStorage,
+) -> std::collections::BTreeMap<(String, String), String> {
+    let mut out = std::collections::BTreeMap::new();
+    let all = storage
+        .load(HOST_ID, KEYS_SCOPE)
+        .and_then(|t| Value::from_json(&t).ok())
+        .and_then(|v| v.as_map().cloned())
+        .unwrap_or_default();
+    for (plugin, nodes) in all {
+        for (node, key) in nodes.as_map().cloned().unwrap_or_default() {
+            if let Some(key) = key.as_str() {
+                out.insert((plugin.clone(), node), key.to_owned());
+            }
+        }
+    }
+    out
 }
 
 fn open_scope(storage: &mut dyn PluginStorage, slot: &mut SlotState, key: &str) {

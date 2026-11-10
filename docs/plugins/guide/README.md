@@ -44,7 +44,7 @@ leave, act: loot, cast, move the character, log in.
 
 ## The samples
 
-Eleven sample plugins are in `dereth/plugins/` of the repository. Each has a page in
+Twelve sample plugins are in `dereth/plugins/` of the repository. Each has a page in
 [samples/](samples/README.md) that says what it does, what it asks for, and walks through its
 source.
 
@@ -60,4 +60,5 @@ source.
 | [Follow](samples/follow.md) | one client leads, the player's other clients follow |
 | [Buffbot](samples/buffbot.md) | buffs players who ask by tell, and keeps its own buffs up |
 | [Inventory](samples/inventory.md) | logs every character's items to search them all, with Mag-Tools' inventory tools, and builds the best suit from them |
+| [Admin](samples/admin.md) | an administrator's chat commands as a window of forms |
 | [Tank](samples/tank.md) | an unattended macro in the manner of VTank |

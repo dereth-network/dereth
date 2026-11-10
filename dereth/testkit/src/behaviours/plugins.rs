@@ -1296,6 +1296,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "plugins.samples.only-an-administrator-has-the-admin-window",
+        says: "The Admin sample has a window only for a character with the administrator flag: for any \
+               other there is no window, no key and nothing on the plugin bar, and /admin says \
+               why; with the flag its key opens the window, and when the flag goes the forms and \
+               the key go with it.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-ADMIN-ONLY-ADMINS"),
+        station: "dereth-testkit::cpu::plugins::admin::scenario_only_an_administrator_has_the_admin_window",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "plugins.samples.tanks-in-one-fellow-on-a-machine-heal-each-other-and-share-their-debuffs",
         says: "Tanks in two clients on one machine in one fellow of their own (PeerFellow, VI2's \
                fellow) heal each other from the vitals each tells over the machine's bus, with no \
@@ -1306,6 +1318,29 @@ pub static ROWS: &[Behaviour] = &[
         divergence: "CD-plugins",
         evidence: Evidence::Private("AC-EVID-PLUGINS-TANK-PEER-FELLOW"),
         station: "dereth-testkit::cpu::plugins::tank_fellows::scenario_tanks_in_one_fellow_on_a_machine_heal_each_other_and_share_their_debuffs",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "plugins.samples.the-admin-window-takes-players-and-places-only-from-the-servers-replies",
+        says: "The Admin sample fills its list of players and its location box only from the kinds of \
+               line a server answers a command in; another player's speech or emote that reads \
+               like a reply fills neither.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-ADMIN-REPLIES"),
+        station: "dereth-testkit::cpu::plugins::admin::scenario_the_admin_window_takes_players_and_places_only_from_the_servers_replies",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "plugins.samples.the-admin-windows-buttons-send-the-typed-line-and-what-is-hard-to-undo-takes-a-second-press",
+        says: "Each of the Admin sample's buttons sends the chat line an administrator would type; one \
+               that is hard to undo sends it only at a second press of the same command on the \
+               same selection, and a command on the selection is sent after the server has \
+               appraised the selection.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-ADMIN-LINES"),
+        station: "dereth-testkit::cpu::plugins::admin::scenario_the_admin_windows_buttons_send_the_typed_line_and_what_is_hard_to_undo_takes_a_second_press",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -2932,6 +2967,17 @@ pub static ROWS: &[Behaviour] = &[
         divergence: "CD-plugins",
         evidence: Evidence::Private("AC-EVID-PLUGINS-LAYOUT-STRETCH"),
         station: "dereth-testkit::cpu::plugins::scenario_a_node_stretches_across_its_container_unless_it_keeps_its_own_size",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "plugins.ui.a-player-gives-a-plugins-hotkey-a-key-of-their-own",
+        says: "The player gives any plugin's hotkey a key of their own with /plugin key (or none, or \
+               the plugin's own again), held to the keys a hotkey may have; /plugin keys lists \
+               each hotkey and its key, and the host keeps the player's keys across a restart.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-HOTKEY-PLAYER-KEYS"),
+        station: "dereth-plugin-host::lib::tests::a_player_gives_a_plugins_hotkey_a_key_of_their_own_and_the_host_keeps_it",
         tier: Tier::Cpu,
     },
     behaviour! {

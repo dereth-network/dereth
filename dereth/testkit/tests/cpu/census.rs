@@ -33,6 +33,7 @@ static FILES: &[ScenarioFile] = &[
     panels::SCENARIOS,
     plugins::SCENARIOS,
     plugins::trackers::SCENARIOS,
+    plugins::admin::SCENARIOS,
     plugins::navigator::SCENARIOS,
     plugins::windows::SCENARIOS,
     plugins::tank::SCENARIOS,

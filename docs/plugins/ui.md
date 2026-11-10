@@ -170,6 +170,12 @@ while the host's dialog for a file is up; the headless client's script
 presses one with `ui hotkey <plugin> <node>`. A hotkey whose command the plugin has not claimed
 is told to the player.
 
+The key is the player's to change. `/plugin keys` lists every hotkey of the plugins active
+here, its plugin, its node and its key; `/plugin key <plugin> <node> <key>` gives it a key of the
+player's own, held to the same rule, `none` leaves it with no key and `default` gives it back the
+key its plugin asks for. The host keeps the player's keys for every character and across a
+restart, and a hotkey the player gave a key has that key whatever its plugin asks for.
+
 `ui.toast(text [, seconds])` shows a line briefly at the top of the screen with the plugin's name:
 1 to 30 seconds (5 when left out), three at once a plugin (a fourth takes the place of the oldest).
 The host shows the toasts as its own HUD, `dereth.plugins/toasts`; a host that draws no plugin

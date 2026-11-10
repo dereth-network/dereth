@@ -9,12 +9,13 @@ use std::sync::Arc;
 use dereth_assets::tables::SkillFormula;
 use dereth_primitives::NetQueue;
 use dereth_primitives::{DataId, ObjectId};
+use dereth_protocol::combat::CombatQueryHealth;
 use dereth_protocol::comms::{CommunicationTalk, CommunicationTextboxString};
 use dereth_protocol::login::{
     CharacterLoginCompleteNotification, LoginCharacterSet, LoginSendEnterWorld,
     LoginSendEnterWorldRequest,
 };
-use dereth_protocol::objects::{EffectsPlayerTeleport, ItemCreateObject};
+use dereth_protocol::objects::{EffectsPlayerTeleport, ItemAppraise, ItemCreateObject};
 use empyrean_command::command_manager;
 use empyrean_common::dotnet::{DotNetDateTime, DotNetDict};
 use empyrean_content::models::world::{PointsOfInterest, Weenie};
@@ -671,3 +672,106 @@ fn a_cancelled_shutdown_says_so_and_stops_the_countdown() {
 }
 
 pub(crate) use empyrean_testkit::EmptyShard;
+
+/// The ids the admin's client is told of when `@create u62gem 2` spawns them.
+fn two_gems(ts: &mut TestServer, alpha: ClientId) -> (u32, u32) {
+    let creates = ts.received::<ItemCreateObject>(alpha).len();
+    assert!(say(ts, alpha, "@create u62gem 2").is_empty());
+    let gems: Vec<u32> = ts.received::<ItemCreateObject>(alpha)[creates..]
+        .iter()
+        .map(|c| c.0.id.0)
+        .filter(|id| {
+            ts.world
+                .objects
+                .get(ObjectGuid::new(*id))
+                .is_some_and(|o| o.biota.weenie_class_id == GEM_WCID)
+        })
+        .collect();
+    assert_eq!(gems.len(), 2, "{gems:?}");
+    (gems[0], gems[1])
+}
+
+/// What the client's Admin window sends for a command on its selection: the selection's health
+/// query, which the interface sends on selecting, then the cancelled and the fresh appraisal.
+fn appraise_afresh(ts: &mut TestServer, id: ClientId, target: u32) {
+    ts.send_game_action(
+        id,
+        &CombatQueryHealth {
+            target: ObjectId(target),
+        },
+    );
+    ts.send_game_action(
+        id,
+        &ItemAppraise {
+            target: ObjectId(0),
+        },
+    );
+    ts.send_game_action(
+        id,
+        &ItemAppraise {
+            target: ObjectId(target),
+        },
+    );
+}
+
+#[test]
+fn the_admin_window_s_delete_takes_the_selection_and_not_an_older_target() {
+    let (mut ts, alpha, _) = two_players();
+    let (older, chosen) = two_gems(&mut ts, alpha);
+    // What the server last took for the target.
+    ts.send_game_action(
+        alpha,
+        &ItemAppraise {
+            target: ObjectId(older),
+        },
+    );
+    ts.advance(0.5);
+
+    appraise_afresh(&mut ts, alpha, chosen);
+    let _ = say(&mut ts, alpha, "@delete");
+    assert!(ts.world.objects.get(ObjectGuid::new(chosen)).is_none());
+    assert!(ts.world.objects.get(ObjectGuid::new(older)).is_some());
+}
+
+#[test]
+fn the_admin_window_s_delete_of_what_cannot_be_appraised_deletes_nothing() {
+    let (mut ts, alpha, _) = two_players();
+    let (older, chosen) = two_gems(&mut ts, alpha);
+    ts.send_game_action(
+        alpha,
+        &ItemAppraise {
+            target: ObjectId(older),
+        },
+    );
+    ts.advance(0.5);
+    ts.world
+        .objects
+        .get_mut(ObjectGuid::new(chosen))
+        .unwrap()
+        .set_resist_item_appraisal(Some(999));
+
+    appraise_afresh(&mut ts, alpha, chosen);
+    assert_eq!(
+        say(&mut ts, alpha, "@delete"),
+        [broadcast(
+            "Delete failed. Please identify the object you wish to delete first."
+        )]
+    );
+    assert!(ts.world.objects.get(ObjectGuid::new(chosen)).is_some());
+    assert!(ts.world.objects.get(ObjectGuid::new(older)).is_some());
+}
+
+#[test]
+fn the_admin_window_s_lines_for_a_name_of_two_words_reach_that_character() {
+    let (mut ts, alpha, _) = two_players();
+    let reply = |ts: &mut TestServer, line: &str| {
+        let lines = say(ts, alpha, line);
+        assert!(
+            lines.iter().any(|(l, _)| l.contains("Bravo")),
+            "{line}: {lines:?}"
+        );
+    };
+    reply(&mut ts, "@finger Bravo Player");
+    reply(&mut ts, "@set-characteraccess \"Bravo Player\" Sentinel");
+    reply(&mut ts, "@rename Bravo Player, Bravo Renamed");
+}
