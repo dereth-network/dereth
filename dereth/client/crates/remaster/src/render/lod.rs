@@ -22,7 +22,7 @@
 //! errs by how far the full mesh turns between two of its pictures ([`IMPOSTOR_ERROR`]); past it
 //! the tree is drawn as far as its block is.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, HashMap};
 
 use glam::{Mat4, Vec3};
 
@@ -80,37 +80,41 @@ pub const FADE_BAND: f32 = 0.15;
 /// nearest or farthest.
 #[must_use]
 pub fn retail_switches(d: &Degrade, bias: &DegradeBias) -> Vec<f32> {
+    let mut out = Vec::new();
+    retail_switches_into(d, bias, &mut out);
+    out
+}
+
+/// [`retail_switches`], appended to `out`.
+fn retail_switches_into(d: &Degrade, bias: &DegradeBias, out: &mut Vec<f32>) {
     let n = d.bands.len();
     if n < 2 {
-        return Vec::new();
+        return;
     }
     if bias.disabled {
-        return vec![f32::INFINITY; n - 1];
+        out.extend(std::iter::repeat_n(f32::INFINITY, n - 1));
+        return;
     }
     if bias.force >= 0 {
         // LINT-OK: a level index from a small console value.
         #[allow(clippy::cast_sign_loss)]
         let forced = (bias.force as usize).min(n - 1);
-        return (0..n - 1)
-            .map(|i| if i < forced { 0.0 } else { f32::INFINITY })
-            .collect();
+        out.extend((0..n - 1).map(|i| if i < forced { 0.0 } else { f32::INFINITY }));
+        return;
     }
     let z = if d.scale_z == 0.0 {
         1.0
     } else {
         d.scale_z.abs()
     };
-    d.bands[..n - 1]
-        .iter()
-        .map(|[min, ideal, max]| {
-            let threshold = if bias.bias < 0.0 {
-                ideal + (ideal - min) * bias.bias
-            } else {
-                ideal - (ideal - max) * bias.bias
-            };
-            (threshold + bias.distance) * z
-        })
-        .collect()
+    out.extend(d.bands[..n - 1].iter().map(|[min, ideal, max]| {
+        let threshold = if bias.bias < 0.0 {
+            ideal + (ideal - min) * bias.bias
+        } else {
+            ideal - (ideal - max) * bias.bias
+        };
+        (threshold + bias.distance) * z
+    }));
 }
 
 /// How far `level` strays from `full`, in the meshes' own units: the farthest any corner of the
@@ -258,12 +262,26 @@ pub fn hand_overs(
     band: f32,
 ) -> Vec<f32> {
     let mut out: Vec<f32> = Vec::with_capacity(switches.len());
+    hand_overs_into(errors, switches, scale, k, error_px, band, &mut out);
+    out
+}
+
+/// [`hand_overs`], written over `out`.
+fn hand_overs_into(
+    errors: &[f32],
+    switches: &[f32],
+    scale: f32,
+    k: f32,
+    error_px: f32,
+    band: f32,
+    out: &mut Vec<f32>,
+) {
+    out.clear();
     for (i, s) in switches.iter().enumerate() {
         let strays = errors.get(i + 1).copied().unwrap_or(0.0) * scale * k / error_px.max(1e-3);
         let after = out.last().map_or(0.0, |h| h * (1.0 + band.max(0.0)));
         out.push(s.max(strays).max(after));
     }
-    out
 }
 
 /// The level a part at distance `d` draws, given its levels' hand-over distances
@@ -304,9 +322,29 @@ pub fn pick(hand_overs: &[f32], d: f32, band: f32) -> Pick {
 /// measured draws retail's level meanwhile.
 pub const ERRORS_PER_FRAME: usize = 64;
 
-/// A record's levels' errors, by the record's levels and their turns; `None` while a mesh of it
-/// is not yet held.
-type ErrorKey = (Vec<u32>, Vec<u8>);
+/// What records share: their levels and their turns. Records alike share their levels' errors.
+type GroupKey = (Vec<u32>, Vec<u8>);
+
+/// The records alike ([`GroupKey`]): their levels' errors, measured once; `None` until a mesh of
+/// theirs is held. And for those retail gives no distances for, the distances their levels are
+/// drawn to, worked out once a frame.
+#[derive(Debug, Default)]
+struct Group {
+    /// Whether any of their levels turns toward the viewer.
+    turns: bool,
+    errors: Option<Errors>,
+    switches: Vec<f32>,
+    /// The frame `switches` was worked out for.
+    switches_frame: u64,
+}
+
+/// What [`Lod::prepare`] works each record's hand-overs out in, kept from frame to frame.
+#[derive(Debug, Default)]
+struct Scratch {
+    errors: Vec<f32>,
+    switches: Vec<f32>,
+    hand_overs: Vec<f32>,
+}
 
 /// A record's levels' errors, and its impostor's when it is a tree.
 #[derive(Debug, Clone, PartialEq)]
@@ -334,17 +372,57 @@ pub struct Lod {
     /// them (an art pack's models) have no level of retail's to keep to.
     // ORDER-OK: looked up by block.
     walked: BTreeMap<BlockId, usize>,
-    // ORDER-OK: a memo, only looked up.
-    errors: HashMap<ErrorKey, Errors>,
+    /// Each block's records' groups, by record: an index into `groups`.
+    // ORDER-OK: looked up by block.
+    record_groups: BTreeMap<BlockId, Vec<u32>>,
+    // ORDER-OK: only looked up, as a block comes.
+    group_of: HashMap<GroupKey, u32>,
+    groups: Vec<Group>,
+    scratch: Scratch,
+    /// The frames chosen for, counting this one.
+    frames: u64,
     /// Each block's records' impostor levels, by record: the level the impostor stands as.
     // ORDER-OK: looked up by block.
     impostor_levels: BTreeMap<BlockId, Vec<Option<u8>>>,
     // ORDER-OK: walked in block order.
     picks: BTreeMap<BlockId, Vec<Option<Pick>>>,
-    /// The instances whose rows the last frame wrote with a fade or a turn, to be written back.
-    // ORDER-OK: only the set matters.
-    written: BTreeSet<u32>,
+    /// The instances whose rows the last frame wrote with a fade or a turn, to be written back,
+    /// and where each stood: its block and its place among the block's parts.
+    // ORDER-OK: only looked up and compared.
+    written: BTreeMap<u32, (BlockId, usize)>,
     stats: LodStats,
+}
+
+/// What a frame's choice of levels did, counted part by part as the parts are drawn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct LodTally {
+    parts: u32,
+    fading: u32,
+    finer: u32,
+    coarser: u32,
+    turned: u32,
+}
+
+impl LodTally {
+    /// One degrading part drawn as `d`, retail having chosen `retail`, with levels chosen here
+    /// (`on`) or retail's.
+    pub fn add(&mut self, on: bool, d: &PartDraw, retail: u8) {
+        if on {
+            self.parts += 1;
+            if d.level < retail {
+                self.finer += 1;
+            }
+            if d.level > retail && d.impostor == 0.0 {
+                self.coarser += 1;
+            }
+            if d.fade.is_some() {
+                self.fading += 1;
+            }
+        }
+        if d.turned.is_some() {
+            self.turned += 1;
+        }
+    }
 }
 
 /// What the last frame's choice of levels did.
@@ -386,11 +464,14 @@ impl Lod {
         for d in deltas {
             match d {
                 SceneDelta::BlockIn(b) | SceneDelta::BlockChanged(b) => {
+                    let groups: Vec<u32> = b.degrades.iter().map(|r| self.group(r)).collect();
+                    self.record_groups.insert(b.block, groups);
                     self.records.insert(b.block, b.degrades.clone());
                     self.turned.remove(&b.block);
                 }
                 SceneDelta::BlockOut(id) => {
                     self.records.remove(id);
+                    self.record_groups.remove(id);
                     self.turned.remove(id);
                     self.picks.remove(id);
                     self.walked.remove(id);
@@ -404,6 +485,21 @@ impl Lod {
                 .insert(l.block, l.turned.iter().copied().collect());
             self.walked.insert(l.block, l.levels.len());
         }
+    }
+
+    /// The group of the records alike `r`, made when it is the first of them.
+    fn group(&mut self, r: &Degrade) -> u32 {
+        let key = (r.levels.clone(), r.modes.clone());
+        if let Some(g) = self.group_of.get(&key) {
+            return *g;
+        }
+        let g = u32::try_from(self.groups.len()).unwrap_or(u32::MAX);
+        self.groups.push(Group {
+            turns: r.modes.iter().any(|m| (2..=5).contains(m)),
+            ..Group::default()
+        });
+        self.group_of.insert(key, g);
+        g
     }
 
     /// Choose every held degrading part's level for `frame`, drawn `height` pixels tall. A
@@ -425,11 +521,16 @@ impl Lod {
             self.picks.clear();
             return;
         }
+        self.frames += 1;
+        let frame_no = self.frames;
         let k = pixels_at_one_metre(height, frame.camera.fov_y);
         let eye = frame.camera.eye;
         let mut budget = ERRORS_PER_FRAME;
-        let error_px = self.settings.error_px;
-        let fade = self.settings.fade;
+        let (error_px, fade, impostors) = (
+            self.settings.error_px,
+            self.settings.fade,
+            self.settings.impostors,
+        );
         // Retail's bias follows its frame rate from frame to frame; its hand-overs are taken at
         // the farthest it slides them, so a still view stays still and no level comes sooner
         // than retail's would at any frame rate.
@@ -437,7 +538,17 @@ impl Lod {
             bias: frame.degrade.bias.max(1.0),
             ..frame.degrade
         };
-        for (block, records) in &self.records {
+        let Self {
+            records,
+            record_groups,
+            groups,
+            scratch,
+            picks: all_picks,
+            impostor_levels: all_impostor_levels,
+            stats,
+            ..
+        } = self;
+        for (block, records) in records.iter() {
             let (x, y) = (i32::from(block >> 8), i32::from(block & 0xFF));
             #[allow(clippy::cast_precision_loss)] // a few hundred blocks
             let offset = Vec3::new(
@@ -445,13 +556,18 @@ impl Lod {
                 (y - frame.origin[1]) as f32 * 192.0,
                 0.0,
             );
-            let picks = self.picks.entry(*block).or_default();
+            let picks = all_picks.entry(*block).or_default();
             picks.clear();
-            let impostor_levels = self.impostor_levels.entry(*block).or_default();
+            let impostor_levels = all_impostor_levels.entry(*block).or_default();
             impostor_levels.clear();
-            for r in records {
-                let key = (r.levels.clone(), r.modes.clone());
-                if !self.errors.contains_key(&key) {
+            let of = record_groups.get(block).map_or(&[][..], Vec::as_slice);
+            for (i, r) in records.iter().enumerate() {
+                let Some(group) = of.get(i).and_then(|g| groups.get_mut(*g as usize)) else {
+                    picks.push(None);
+                    impostor_levels.push(None);
+                    continue;
+                };
+                if group.errors.is_none() {
                     if budget == 0 {
                         picks.push(None);
                         impostor_levels.push(None);
@@ -463,19 +579,33 @@ impl Lod {
                         continue;
                     };
                     budget -= 1;
-                    self.stats.measured += 1;
-                    self.errors.insert(key.clone(), e);
+                    stats.measured += 1;
+                    group.errors = Some(e);
                 }
-                let e = &self.errors[&key];
-                let mut errors = e.levels.clone();
-                let mut switches = if r.bands.len() >= 2 {
-                    retail_switches(r, &farthest)
+                let switches = &mut scratch.switches;
+                switches.clear();
+                if r.bands.len() >= 2 {
+                    retail_switches_into(r, &farthest, switches);
                 } else {
-                    r.levels[..r.levels.len().saturating_sub(1)]
-                        .iter()
-                        .map(|m| distance_of(*m).unwrap_or(f32::INFINITY))
-                        .collect()
+                    if group.switches_frame != frame_no {
+                        group.switches.clear();
+                        group.switches.extend(
+                            r.levels[..r.levels.len().saturating_sub(1)]
+                                .iter()
+                                .map(|m| distance_of(*m).unwrap_or(f32::INFINITY)),
+                        );
+                        group.switches_frame = frame_no;
+                    }
+                    switches.extend_from_slice(&group.switches);
+                }
+                let Some(e) = group.errors.as_ref() else {
+                    picks.push(None);
+                    impostor_levels.push(None);
+                    continue;
                 };
+                let errors = &mut scratch.errors;
+                errors.clear();
+                errors.extend_from_slice(&e.levels);
                 let scale = if r.scale_z == 0.0 {
                     1.0
                 } else {
@@ -484,7 +614,7 @@ impl Lod {
                 // A tree's impostor takes the place of its level that draws nothing, or comes
                 // after its last; retail hands over to it where it hands over to nothing.
                 let mut impostor = None;
-                if let (true, Some(at)) = (self.settings.impostors, e.impostor) {
+                if let (true, Some(at)) = (impostors, e.impostor) {
                     if r.levels.len() > 1 && r.levels.last() == Some(&0) {
                         let i = r.levels.len() - 1;
                         errors[i] = at;
@@ -496,44 +626,154 @@ impl Lod {
                     }
                 }
                 impostor_levels.push(impostor);
-                let h = hand_overs(&errors, &switches, scale, k, error_px, fade);
-                picks.push(Some(pick(&h, (r.centre + offset).distance(eye), fade)));
+                hand_overs_into(
+                    errors,
+                    switches,
+                    scale,
+                    k,
+                    error_px,
+                    fade,
+                    &mut scratch.hand_overs,
+                );
+                picks.push(Some(pick(
+                    &scratch.hand_overs,
+                    (r.centre + offset).distance(eye),
+                    fade,
+                )));
             }
         }
     }
 
+    /// What this frame chose for block `block`'s records, to ask of part after part
+    /// ([`BlockLod::part`]).
+    #[must_use]
+    pub fn block(&self, block: BlockId) -> BlockLod<'_> {
+        BlockLod {
+            picks: self.picks.get(&block).map_or(&[][..], Vec::as_slice),
+            impostor_levels: self
+                .impostor_levels
+                .get(&block)
+                .map_or(&[][..], Vec::as_slice),
+            records: self.records.get(&block).map_or(&[][..], Vec::as_slice),
+            record_groups: self
+                .record_groups
+                .get(&block)
+                .map_or(&[][..], Vec::as_slice),
+            groups: &self.groups,
+            turned: self.turned.get(&block),
+            walked: self.walked.get(&block).copied().unwrap_or(usize::MAX),
+        }
+    }
+
     /// What degrading part `part` of block `block` draws this frame, retail having chosen
-    /// `retail` for it: the level, the level it fades into and how far, and how it is turned
-    /// toward the viewer. Never a coarser level than retail's. Only a part standing `outdoors`
-    /// is drawn as an impostor; one in a room keeps its last level instead.
+    /// `retail` for it ([`BlockLod::part`]).
     #[must_use]
     pub fn part(&self, block: BlockId, part: &PartItems, retail: u8, outdoors: bool) -> PartDraw {
+        self.block(block).part(part, retail, outdoors)
+    }
+
+    /// Whether block `block`'s record `record` is a tree's, drawn far off as an impostor.
+    #[must_use]
+    pub fn is_tree(&self, block: BlockId, record: u32) -> bool {
+        self.block(block).is_tree(record)
+    }
+
+    /// The first level's GfxObj of block `block`'s record `record`.
+    #[must_use]
+    pub fn first_level(&self, block: BlockId, record: u32) -> Option<u32> {
+        self.records
+            .get(&block)
+            .and_then(|r| r.get(record as usize))
+            .and_then(|d| d.levels.first().copied())
+    }
+
+    /// The instance rows to write this frame for the drawn block parts in `draws` (each a block,
+    /// its place among the block's parts, what it draws and the level retail chose), and for the
+    /// parts written last frame and not now, written back as they stand. `tally` is what the
+    /// frame's levels did over every degrading part drawn, for the stats.
+    pub fn rows(
+        &mut self,
+        scene: &GpuScene,
+        draws: &[(BlockId, usize, PartDraw, u8)],
+        tally: LodTally,
+    ) -> Vec<(u32, Vec<u8>)> {
+        self.stats.parts += tally.parts;
+        self.stats.fading += tally.fading;
+        self.stats.finer += tally.finer;
+        self.stats.coarser += tally.coarser;
+        self.stats.turned += tally.turned;
+        let mut out = Vec::new();
+        let mut now = BTreeMap::new();
+        for (block, k, d, _) in draws {
+            if d.fade.is_none() && d.turned.is_none() {
+                continue;
+            }
+            let Some(b) = scene.blocks.get(block) else {
+                continue;
+            };
+            let Some(p) = b.parts.get(*k) else {
+                continue;
+            };
+            now.insert(p.instance, (*block, *k));
+            out.extend(part_rows(b, p, d));
+        }
+        for (gone, (block, k)) in &self.written {
+            if now.contains_key(gone) {
+                continue;
+            }
+            // Where it stood, unless its block was built again since.
+            let at = scene
+                .blocks
+                .get(block)
+                .and_then(|b| b.parts.get(*k).map(|p| (b, p)))
+                .filter(|(_, p)| p.instance == *gone);
+            if let Some((b, p)) = at {
+                out.extend(part_rows(b, p, &PartDraw::default()));
+                continue;
+            }
+            for b in scene.blocks.values() {
+                if let Some(p) = b.parts.iter().find(|p| p.instance == *gone) {
+                    out.extend(part_rows(b, p, &PartDraw::default()));
+                }
+            }
+        }
+        self.written = now;
+        out
+    }
+}
+
+/// What one frame chose for one block's records, from [`Lod::block`].
+#[derive(Debug, Clone, Copy)]
+pub struct BlockLod<'a> {
+    picks: &'a [Option<Pick>],
+    impostor_levels: &'a [Option<u8>],
+    records: &'a [Degrade],
+    record_groups: &'a [u32],
+    groups: &'a [Group],
+    turned: Option<&'a HashMap<u32, Mat4>>,
+    walked: usize,
+}
+
+impl BlockLod<'_> {
+    /// What degrading part `part` of the block draws this frame, retail having chosen `retail`
+    /// for it: the level, the level it fades into and how far, and how it is turned toward the
+    /// viewer. Never a coarser level than retail's. Only a part standing `outdoors` is drawn as
+    /// an impostor; one in a room keeps its last level instead.
+    #[must_use]
+    pub fn part(&self, part: &PartItems, retail: u8, outdoors: bool) -> PartDraw {
         let record = part.degrade;
-        let picked = record.and_then(|r| {
-            self.picks
-                .get(&block)
-                .and_then(|p| p.get(r as usize))
-                .copied()
-                .flatten()
-        });
+        let turned_at = |r: u32| self.turned.and_then(|t| t.get(&r)).copied();
+        let picked = record.and_then(|r| self.picks.get(r as usize).copied().flatten());
         let Some(p) = picked else {
             // Retail's level, turned toward the viewer as retail turns it.
             return PartDraw {
                 level: retail,
-                turned: record
-                    .and_then(|r| self.turned.get(&block).and_then(|t| t.get(&r)).copied()),
+                turned: record.and_then(turned_at),
                 ..PartDraw::default()
             };
         };
-        let walked = record
-            .is_some_and(|r| (r as usize) < self.walked.get(&block).copied().unwrap_or(usize::MAX));
-        let impostor = record.and_then(|r| {
-            self.impostor_levels
-                .get(&block)
-                .and_then(|i| i.get(r as usize))
-                .copied()
-                .flatten()
-        });
+        let walked = record.is_some_and(|r| (r as usize) < self.walked);
+        let impostor = record.and_then(|r| self.impostor_levels.get(r as usize).copied().flatten());
         // In a room, the impostor's level is never reached: the last level stays.
         let p = match (outdoors, impostor) {
             (false, Some(i)) if p.next >= i => Pick::only(p.level.min(i.saturating_sub(1))),
@@ -550,21 +790,23 @@ impl Lod {
         let level = p.level.min(retail);
         let fade = (p.fade > 0.0 && p.next > p.level && p.next <= retail && level == p.level)
             .then_some((p.next, p.fade));
-        let modes = record.and_then(|r| {
-            self.records
-                .get(&block)
-                .and_then(|recs| recs.get(r as usize))
-                .map(|d| d.modes.clone())
-        });
+        // A record's turns are looked at only when its group has any.
+        let turning = record
+            .and_then(|r| self.record_groups.get(r as usize))
+            .and_then(|g| self.groups.get(*g as usize))
+            .is_some_and(|g| g.turns);
+        let modes = record
+            .filter(|_| turning)
+            .and_then(|r| self.records.get(r as usize))
+            .map(|d| d.modes.as_slice());
         let turns = |l: u8| {
             modes
-                .as_ref()
                 .and_then(|m| m.get(usize::from(l)))
                 .is_some_and(|m| (2..=5).contains(m))
         };
         let turned = record
             .filter(|_| turns(level) || fade.is_some_and(|(n, _)| turns(n)))
-            .and_then(|r| self.turned.get(&block).and_then(|t| t.get(&r)).copied());
+            .and_then(turned_at);
         let to_impostor = match (impostor, fade) {
             (Some(i), _) if level == i => 1.0,
             (Some(i), Some((n, f))) if n == i => f,
@@ -578,73 +820,14 @@ impl Lod {
         }
     }
 
-    /// Whether block `block`'s record `record` is a tree's, drawn far off as an impostor.
+    /// Whether the block's record `record` is a tree's, drawn far off as an impostor.
     #[must_use]
-    pub fn is_tree(&self, block: BlockId, record: u32) -> bool {
+    pub fn is_tree(&self, record: u32) -> bool {
         self.impostor_levels
-            .get(&block)
-            .and_then(|i| i.get(record as usize))
+            .get(record as usize)
             .copied()
             .flatten()
             .is_some()
-    }
-
-    /// The first level's GfxObj of block `block`'s record `record`.
-    #[must_use]
-    pub fn first_level(&self, block: BlockId, record: u32) -> Option<u32> {
-        self.records
-            .get(&block)
-            .and_then(|r| r.get(record as usize))
-            .and_then(|d| d.levels.first().copied())
-    }
-
-    /// The instance rows to write this frame for the drawn block parts in `draws` (each a block,
-    /// its place among the block's parts, what it draws and the level retail chose), and for the
-    /// parts written last frame and not now, written back as they stand.
-    pub fn rows(
-        &mut self,
-        scene: &GpuScene,
-        draws: &[(BlockId, usize, PartDraw, u8)],
-    ) -> Vec<(u32, Vec<u8>)> {
-        let mut out = Vec::new();
-        let mut now = BTreeSet::new();
-        for (block, k, d, retail) in draws {
-            let Some(b) = scene.blocks.get(block) else {
-                continue;
-            };
-            let Some(p) = b.parts.get(*k) else {
-                continue;
-            };
-            if self.settings.on {
-                self.stats.parts += 1;
-                if d.level < *retail {
-                    self.stats.finer += 1;
-                }
-                if d.level > *retail && d.impostor == 0.0 {
-                    self.stats.coarser += 1;
-                }
-                if d.fade.is_some() {
-                    self.stats.fading += 1;
-                }
-            }
-            if d.turned.is_some() {
-                self.stats.turned += 1;
-            }
-            if d.fade.is_none() && d.turned.is_none() {
-                continue;
-            }
-            now.insert(p.instance);
-            out.extend(part_rows(b, p, d));
-        }
-        for gone in self.written.difference(&now) {
-            for b in scene.blocks.values() {
-                if let Some(p) = b.parts.iter().find(|p| p.instance == *gone) {
-                    out.extend(part_rows(b, p, &PartDraw::default()));
-                }
-            }
-        }
-        self.written = now;
-        out
     }
 }
 
@@ -888,5 +1071,182 @@ mod tests {
         // With no band, the next level takes over at once.
         assert_eq!(pick(&h, 100.0, 0.0), Pick::only(1));
         assert_eq!(pick(&h, 99.9, 0.0), Pick::only(0));
+    }
+
+    /// GfxObjs 1 and 2: a meter-wide triangle, and the same one lifted 5 cm.
+    struct Levels;
+
+    impl crate::assets::AssetSource for Levels {
+        fn gfxobj(&mut self, id: u32) -> Option<Mesh> {
+            #[allow(clippy::cast_precision_loss)] // 1 or 2
+            let z = (id as f32 - 1.0) * 0.05;
+            let corner = |x: f32, y: f32| Vertex {
+                position: [x, y, z],
+                normal: [0.0, 0.0, 1.0],
+                uv: [x, y],
+            };
+            Some(Mesh::from_triangle_lists([(
+                crate::assets::SubsetInfo {
+                    surface: crate::assets::SurfaceRef::Surface(7),
+                    two_sided: false,
+                    tiled: false,
+                },
+                vec![corner(0.0, 0.0), corner(1.0, 0.0), corner(0.0, 1.0)],
+            )]))
+        }
+
+        fn cell_piece(&mut self, _key: crate::assets::CellPieceKey) -> Option<Mesh> {
+            None
+        }
+
+        fn appearance(
+            &mut self,
+            _surface: u32,
+            _look: Option<&crate::scene::PartLook>,
+        ) -> crate::assets::Appearance {
+            crate::assets::Appearance::default()
+        }
+
+        fn material(
+            &mut self,
+            _key: &crate::assets::MaterialKey,
+            _used: crate::assets::Use,
+        ) -> crate::assets::Material {
+            crate::assets::Material {
+                kind: crate::assets::Kind::Item,
+                surface_type: 2,
+                data_category: Some(1),
+                texture: None,
+                clip_map: false,
+                alpha_test: None,
+                vertex_alpha: 255,
+                vertex_colored: false,
+                translucent: None,
+                additive: false,
+                blended: false,
+                src_blend: crate::assets::BlendFactor::One,
+                dst_blend: crate::assets::BlendFactor::Zero,
+                z_write: true,
+                fogged: true,
+                solid: None,
+                luminosity: 0.0,
+                diffuse: 1.0,
+                maps: None,
+            }
+        }
+
+        fn texture(
+            &mut self,
+            _key: &crate::assets::TextureKey,
+            _clip_map: bool,
+        ) -> Option<crate::assets::Texture> {
+            None
+        }
+
+        fn terrain_cells(
+            &mut self,
+            _block: BlockId,
+            _t: &crate::scene::Terrain,
+        ) -> Vec<crate::assets::TerrainCell> {
+            Vec::new()
+        }
+
+        fn sky_objects(&mut self) -> Vec<u32> {
+            Vec::new()
+        }
+
+        fn sky(&mut self, _id: u32) -> Option<Mesh> {
+            None
+        }
+    }
+
+    /// Choosing levels again for a block of many parts of one model, as an art pack's ground
+    /// cover makes, allocates nothing for each of them: the records alike are measured once, and
+    /// a frame's choice reuses what the last one worked in. The levels chosen still follow each
+    /// part's distance.
+    #[test]
+    fn choosing_levels_again_allocates_nothing_for_each_part() {
+        const BLOCK: BlockId = 0xA9B4;
+        const PARTS: usize = 2000;
+        let degrades: Vec<Degrade> = (0..PARTS)
+            .map(|i| {
+                #[allow(clippy::cast_precision_loss)] // under two thousand
+                let (x, y) = ((i % 45) as f32 * 4.0, (i / 45) as f32 * 4.0);
+                Degrade {
+                    levels: vec![1, 2, 0],
+                    modes: vec![1; 3],
+                    scale_z: 1.0,
+                    centre: Vec3::new(x, y, 0.0),
+                    ..Degrade::default()
+                }
+            })
+            .collect();
+        let mut vertices = Vec::new();
+        for i in 0..9u8 {
+            for j in 0..9u8 {
+                vertices.push(Vec3::new(f32::from(i) * 24.0, f32::from(j) * 24.0, 0.0));
+            }
+        }
+        let block = crate::scene::Block {
+            block: BLOCK,
+            generation: 1,
+            terrain: crate::scene::Terrain {
+                side: 8,
+                vertices,
+                cuts: vec![false; 64],
+                words: [4; 81],
+            },
+            placements: vec![crate::scene::Placement {
+                id: 0x0100_0001,
+                kind: crate::scene::PlacementKind::Object,
+                frame: Mat4::IDENTITY,
+                scale: 1.0,
+                lifts: [0.0; 2],
+                parts: vec![crate::scene::Part {
+                    gfxobj: 1,
+                    frame: Mat4::IDENTITY,
+                    scale: Vec3::ONE,
+                    degrade: Some(0),
+                }],
+            }],
+            degrades,
+            rooms: Vec::new(),
+            lights: Vec::new(),
+            lamps: Vec::new(),
+        };
+        let came = SceneDelta::BlockIn(Box::new(block));
+        let mut tables = AssetTables::new();
+        tables.apply(&came, &mut Levels);
+        let mut lod = Lod::default();
+        lod.set_settings(LodSettings::ON);
+        lod.take(std::slice::from_ref(&came), &[]);
+        let mut frame = FrameDelta::default();
+        frame.camera.eye = Vec3::new(0.0, 0.0, 2.0);
+        frame.camera.fov_y = 1.0;
+        frame.origin = [0xA9, 0xB4];
+        let distance_of = |_mesh: u32| Some(60.0);
+        lod.prepare(&frame, &tables, 2160, &distance_of);
+        assert_eq!(
+            lod.stats().measured,
+            1,
+            "the records alike are measured once"
+        );
+
+        let ((), made) = crate::counting_alloc::allocations(|| {
+            lod.prepare(&frame, &tables, 2160, &distance_of);
+        });
+        assert!(
+            made < 16,
+            "{made} allocations choosing again for {PARTS} parts"
+        );
+        let picks = &lod.picks[&BLOCK];
+        assert_eq!(picks.len(), PARTS);
+        // The nearest part draws its full mesh; one 100 m off its second level, alone.
+        assert_eq!(picks[0], Some(Pick::only(0)));
+        assert_eq!(
+            picks[25],
+            Some(Pick::only(1)),
+            "25 parts along is 100 m off"
+        );
     }
 }

@@ -312,6 +312,10 @@ pub struct ShadowPass {
     visibility: Option<(Texture, u32, u32, u32)>,
     /// The objects' instances the shadows wrote, with the transform they wrote.
     written: BTreeMap<u32, Mat4>,
+    /// The blocks' parts' spheres in the frame's space, block after block, and each block's box
+    /// round its parts': worked out once a frame that redraws a cascade, for every cascade.
+    spheres: Vec<(Vec3, f32)>,
+    block_boxes: Vec<(Vec3, Vec3)>,
     pub stats: ShadowStats,
 }
 
@@ -447,6 +451,8 @@ impl ShadowPass {
             constants: PerFrame::new(d, "remaster shadow cascades", 512, Default::default())?,
             visibility: None,
             written: BTreeMap::new(),
+            spheres: Vec::new(),
+            block_boxes: Vec::new(),
             stats: ShadowStats::default(),
         })
     }
@@ -637,9 +643,36 @@ impl ShadowPass {
         let command_bytes = super::command_bytes(d);
         let command = |scene: &GpuScene, i: u32, out: &mut Vec<u8>| {
             if let Some(d) = scene.item_draws.get(i as usize) {
-                out.extend(super::command(backend, d.index_count, d.first_index, i));
+                super::command_into(backend, d.index_count, d.first_index, i, out);
             }
         };
+        // The blocks' parts' spheres, once for every cascade drawn again, and the box round each
+        // block's: a cascade its box misses has none of the block's parts.
+        let redraws = cascades.iter().enumerate().any(|(c, cascade)| {
+            drawn_mode
+                || self.keys[c]
+                    != Some(CacheKey {
+                        cascade: cascade.key,
+                        resident,
+                        origin,
+                    })
+        });
+        if redraws {
+            self.spheres.clear();
+            self.block_boxes.clear();
+            for (id, b) in &scene.blocks {
+                let offset = block_offset(*id, origin);
+                let (mut min, mut max) =
+                    (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY));
+                for p in &b.parts {
+                    let (centre, radius) = part_sphere(p, p.transform, offset);
+                    min = min.min(centre - Vec3::splat(radius));
+                    max = max.max(centre + Vec3::splat(radius));
+                    self.spheres.push((centre, radius));
+                }
+                self.block_boxes.push((min, max));
+            }
+        }
 
         let mut plans = Vec::with_capacity(CASCADES);
         let (mut redrawn, mut static_items, mut ground_blocks, mut dynamic_items) = (0, 0, 0, 0);
@@ -663,8 +696,14 @@ impl ShadowPass {
             if redraw {
                 let mut cmds = Vec::new();
                 let mut ground_rows: Vec<[u32; 4]> = Vec::new();
-                for (id, b) in &scene.blocks {
+                let mut first = 0;
+                for ((id, b), (lo, hi)) in scene.blocks.iter().zip(&self.block_boxes) {
                     let offset = block_offset(*id, origin);
+                    let spheres = self
+                        .spheres
+                        .get(first..first + b.parts.len())
+                        .unwrap_or(&[]);
+                    first += b.parts.len();
                     if let Some(g) = scene.ground.get(id) {
                         let min = offset + Vec3::new(0.0, 0.0, g.z[0]);
                         let max = offset + Vec3::new(192.0, 192.0, g.z[1]);
@@ -676,8 +715,11 @@ impl ShadowPass {
                             ground_rows.push([g.vertices.start, g.cells.start, g.side, b.slot]);
                         }
                     }
-                    for p in &b.parts {
-                        let (centre, radius) = part_sphere(p, p.transform, offset);
+                    if b.parts.is_empty() || !cascade.reaches_box(*lo, *hi) {
+                        continue;
+                    }
+                    for (p, (centre, radius)) in b.parts.iter().zip(spheres) {
+                        let (centre, radius) = (*centre, *radius);
                         if !cascade.reaches(centre, radius) {
                             continue;
                         }

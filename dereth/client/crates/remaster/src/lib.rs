@@ -20,6 +20,8 @@
 //! | [`shaders`] | the shaders, compiled ahead of time and embedded: each entry point's blobs |
 
 pub mod assets;
+#[cfg(test)]
+mod counting_alloc;
 pub mod hook;
 pub mod look;
 pub mod render;

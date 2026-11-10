@@ -788,7 +788,7 @@ fn moving_parts(
             for c in pp.previous.to_cols_array() {
                 rows.extend(c.to_le_bytes());
             }
-            commands.extend(super::command(backend, d.index_count, d.first_index, k));
+            super::command_into(backend, d.index_count, d.first_index, k, &mut commands);
             k += 1;
         }
     }

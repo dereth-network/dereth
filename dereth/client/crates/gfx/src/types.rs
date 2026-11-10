@@ -367,6 +367,26 @@ impl Backend {
         }
     }
 
+    /// [`Self::indexed_command`], its words appended to `out` as little-endian bytes, with no
+    /// list of its own made.
+    pub fn write_indexed_command(
+        self,
+        indices: u32,
+        instances: u32,
+        first_index: u32,
+        vertex_offset: i32,
+        item: u32,
+        out: &mut Vec<u8>,
+    ) {
+        let offset = u32::from_ne_bytes(vertex_offset.to_ne_bytes());
+        if self == Self::D3d12 {
+            out.extend_from_slice(&item.to_le_bytes());
+        }
+        for w in [indices, instances, first_index, offset, item] {
+            out.extend_from_slice(&w.to_le_bytes());
+        }
+    }
+
     /// How many 32-bit words one (non-indexed) indirect draw command takes.
     #[must_use]
     pub const fn command_words(self) -> u32 {
@@ -553,4 +573,32 @@ pub struct Stats {
     /// Acceleration structures alive, and their bytes.
     pub acceleration_structures: u32,
     pub acceleration_bytes: u64,
+}
+
+#[cfg(test)]
+mod tests {
+    //! Behaviour: none (experimental)
+    use super::*;
+
+    /// A command written straight into a byte buffer is the command's words, in order, on each
+    /// backend, after whatever the buffer held.
+    #[test]
+    fn a_command_written_into_bytes_is_the_command_as_words() {
+        for backend in [Backend::Vulkan, Backend::D3d12] {
+            let mut out = vec![0xAB];
+            backend.write_indexed_command(36, 2, 120, -4, 7, &mut out);
+            let words: Vec<u8> = backend
+                .indexed_command(36, 2, 120, -4, 7)
+                .iter()
+                .flat_map(|w| w.to_le_bytes())
+                .collect();
+            assert_eq!(out[0], 0xAB, "{backend:?}");
+            assert_eq!(&out[1..], &words[..], "{backend:?}");
+            assert_eq!(
+                out.len() - 1,
+                backend.indexed_command_words() as usize * 4,
+                "{backend:?}"
+            );
+        }
+    }
 }

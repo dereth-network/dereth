@@ -868,7 +868,7 @@ fn cover_commands(
                     continue;
                 };
                 if solid {
-                    out.extend(super::command(backend, d.index_count, d.first_index, i));
+                    super::command_into(backend, d.index_count, d.first_index, i, &mut out);
                 }
             }
         }

@@ -169,18 +169,34 @@ impl Renderer {
             self.scene.ground.iter().map(|(id, g)| (*id, &g.words)),
         );
         let mut drawn = self.drawn(&frame);
-        // The trees drawn as meshes, standing on the drawn ground: for the checks.
-        self.mesh_trees = drawn
-            .lod
-            .iter()
-            .filter(|(_, _, d, _)| d.impostor < 1.0)
-            .filter_map(|(id, k, _, _)| {
-                let p = self.scene.blocks.get(id)?.parts.get(*k)?;
-                let tree = p.degrade.is_some_and(|r| self.lod.is_tree(*id, r));
-                (tree && p.lifts != [0.0; 2]).then_some(p.instance)
-            })
-            .collect();
-        let rows = self.lod.rows(&self.scene, &drawn.lod);
+        self.drawn_sizes = drawn.sizes();
+        // The trees drawn as meshes, standing on the drawn ground: for the checks. The parts come
+        // block by block, so each block is looked up once.
+        let mut mesh_trees = Vec::new();
+        let mut at: Option<(
+            crate::scene::BlockId,
+            Option<&super::scene::BlockGpu>,
+            super::lod::BlockLod<'_>,
+        )> = None;
+        for (id, k, d, _) in &drawn.lod {
+            if d.impostor >= 1.0 {
+                continue;
+            }
+            if at.as_ref().map(|a| a.0) != Some(*id) {
+                at = Some((*id, self.scene.blocks.get(id), self.lod.block(*id)));
+            }
+            let Some((_, Some(b), lod)) = at.as_ref() else {
+                continue;
+            };
+            let Some(p) = b.parts.get(*k) else {
+                continue;
+            };
+            if p.lifts != [0.0; 2] && p.degrade.is_some_and(|r| lod.is_tree(r)) {
+                mesh_trees.push(p.instance);
+            }
+        }
+        self.mesh_trees = mesh_trees;
+        let rows = self.lod.rows(&self.scene, &drawn.lod, drawn.lod_tally);
         drawn.instances.extend(rows);
         // The post passes, when they run, draw the scene's colors into their own target, by
         // pipelines of their own.
@@ -440,7 +456,7 @@ impl Renderer {
             let Some(d) = draws.get(item as usize) else {
                 return;
             };
-            fwd.extend(super::command(backend, d.index_count, d.first_index, item));
+            super::command_into(backend, d.index_count, d.first_index, item, &mut fwd);
             match runs.last_mut() {
                 Some(last) if last.0 == p && last.1 + last.2 == command => last.2 += 1,
                 _ => runs.push((p, command, 1)),

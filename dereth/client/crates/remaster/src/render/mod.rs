@@ -313,6 +313,9 @@ pub struct Renderer {
     lift_probe: dereth_gfx::Pipeline,
     /// The instances of the trees the last frame drew as meshes, with lifts onto the ground.
     mesh_trees: Vec<u32>,
+    /// How long the last frame's lists of what it drew were, to make this frame's that long at
+    /// once.
+    drawn_sizes: DrawnSizes,
 }
 
 /// A raw shader from the embedded blobs.
@@ -329,15 +332,16 @@ pub(crate) fn command_bytes(gfx: &dereth_gfx::Device) -> u32 {
     gfx.indexed_command_words() * 4
 }
 
-/// One indexed indirect draw command on `backend`: `indices` indices from `first_index`, once,
-/// the draw's item `item`.
-pub(crate) fn command(
+/// One indexed indirect draw command on `backend`, appended to `out`: `indices` indices from
+/// `first_index`, once, the draw's item `item`.
+pub(crate) fn command_into(
     backend: dereth_gfx::Backend,
     indices: u32,
     first_index: u32,
     item: u32,
-) -> Vec<u8> {
-    push_words(&backend.indexed_command(indices, 1, first_index, 0, item))
+    out: &mut Vec<u8>,
+) {
+    backend.write_indexed_command(indices, 1, first_index, 0, item, out);
 }
 
 fn gbuffer_targets() -> [ColorTarget; 4] {
@@ -692,6 +696,7 @@ impl Renderer {
             grass,
             lift_probe,
             mesh_trees: Vec::new(),
+            drawn_sizes: DrawnSizes::default(),
         })
     }
 
@@ -1484,17 +1489,42 @@ pub(crate) struct Drawn {
     pub instances: Vec<(u32, Vec<u8>)>,
     /// The objects' material overrides, a row each.
     pub overrides: Vec<[f32; 4]>,
-    /// Each degrading block part drawn by the levels chosen here: its block, its place among the
-    /// block's parts, what it draws and the level retail chose.
+    /// The degrading block parts drawn by the levels chosen here that fade, turn or are trees
+    /// drawn as meshes: each one's block, its place among the block's parts, what it draws and
+    /// the level retail chose.
     pub lod: Vec<(BlockId, usize, lod::PartDraw, u8)>,
+    /// What the levels chosen here did, over every degrading block part drawn.
+    pub lod_tally: lod::LodTally,
     /// The trees drawn as impostors.
     pub impostors: Vec<impostor::ImpostorDraw>,
 }
 
+/// How long a frame's longest lists of what it drew are ([`Drawn`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct DrawnSizes {
+    opaque: usize,
+    forward: usize,
+    edges: usize,
+    lod: usize,
+}
+
+impl Drawn {
+    /// How long its longest lists are.
+    pub(crate) fn sizes(&self) -> DrawnSizes {
+        DrawnSizes {
+            opaque: self.opaque.len(),
+            forward: self.forward.len(),
+            edges: self.edges.len(),
+            lod: self.lod.len(),
+        }
+    }
+}
+
 impl Renderer {
     /// What the frame draws: the walk's own set, block by block, room by room and object part by
-    /// object part.
+    /// object part. Its longest lists start as long as the last frame's were.
     pub(crate) fn drawn(&self, frame: &FrameDelta) -> Drawn {
+        let sizes = self.drawn_sizes;
         let mut out = Drawn {
             inside: frame.landscape && !frame.light.outdoor,
             // Set 0 is every room's: every dynamic light.
@@ -1502,9 +1532,14 @@ impl Renderer {
                 &frame.light.lights,
                 frame.light.statics,
             )],
+            opaque: Vec::with_capacity(sizes.opaque),
+            forward: Vec::with_capacity(sizes.forward),
+            edges: Vec::with_capacity(sizes.edges),
+            lod: Vec::with_capacity(sizes.lod),
             ..Drawn::default()
         };
         let eye = frame.camera.eye;
+        let lod_on = self.lod.settings().on;
         let offset = |b: BlockId| -> Vec3 {
             let (x, y) = (i32::from(b >> 8), i32::from(b & 0xFF));
             #[allow(clippy::cast_precision_loss)] // a few hundred blocks
@@ -1574,17 +1609,24 @@ impl Renderer {
                         .push([g.vertices.start, g.cells.start, g.side, b.slot]);
                 }
                 let o = offset(*id);
+                let lod = self.lod.block(*id);
                 for (k, p) in b.parts.iter().enumerate() {
                     let c = p.transform.transform_point3(Vec3::from(p.sphere.0)) + o;
                     let retail = u8::try_from(level_of(b, p)).unwrap_or(u8::MAX);
-                    let d = self.lod.part(*id, p, retail, true);
+                    let d = lod.part(p, retail, true);
                     for l in std::iter::once(d.level).chain(d.fade.map(|f| f.0)) {
                         if let Some(r) = p.levels.get(usize::from(l)) {
                             push_items(&mut out, r, c, false, false);
                         }
                     }
-                    if p.degrade.is_some() && (self.lod.settings().on || d.turned.is_some()) {
-                        out.lod.push((*id, k, d, retail));
+                    if let (Some(record), true) = (p.degrade, lod_on || d.turned.is_some()) {
+                        out.lod_tally.add(lod_on, &d, retail);
+                        // Only a part fading or turned has rows to write, and only a tree drawn
+                        // as a mesh and lifted is one of the frame's mesh trees.
+                        let tree = d.impostor < 1.0 && p.lifts != [0.0; 2] && lod.is_tree(record);
+                        if d.fade.is_some() || d.turned.is_some() || tree {
+                            out.lod.push((*id, k, d, retail));
+                        }
                     }
                     if let (true, Some(g)) = (
                         d.impostor > 0.0,
