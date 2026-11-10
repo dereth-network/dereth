@@ -3,8 +3,8 @@
 //!
 //! **Depends on** the server crates it commands (`empyrean-common`, `empyrean-entity`,
 //! `empyrean-tables`, `empyrean-content`, `empyrean-store`, `empyrean-dat`, `empyrean-net`,
-//! `empyrean-world`) and the shared `dereth-primitives`, `dereth-physics` and `dereth-progression`
-//! (a playtest character's build and its checks). **Used by** the server (`empyrean-server`)
+//! `empyrean-world`) and the shared `dereth-primitives`, `dereth-physics`, `dereth-progression`
+//! (a playtest character's build and its checks) and `dereth-rules` (the name length). **Used by** the server (`empyrean-server`)
 //! and, in tests, the test kit (`empyrean-testkit`).
 //!
 //! **Must never** mix Empyrean's own commands into the ported handler files: [`handlers`] is the

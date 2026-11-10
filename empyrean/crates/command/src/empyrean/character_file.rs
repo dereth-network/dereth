@@ -291,8 +291,8 @@ pub fn import(
 
     // The name.
     let name = bare(new_name.unwrap_or(&record.name)).trim().to_owned();
-    // Creation's own limit: a name of 1 to 32 characters.
-    if name.is_empty() || name.chars().count() > 32 {
+    // Creation's own limit, the client's: a name of 1 to 32 characters.
+    if !dereth_rules::chargen::name_length_ok(&name) {
         return Err("the name is not one a character can have".into());
     }
     if player_manager::find_by_name(w, &name).0.is_some()

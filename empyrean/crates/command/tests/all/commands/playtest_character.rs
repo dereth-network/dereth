@@ -276,6 +276,90 @@ fn a_new_character_is_refused_for_an_account_the_server_does_not_have() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
+/// The name a new character may have is the one the client's creation screen lets a player type:
+/// 33 characters is refused, 32 is not.
+#[test]
+fn a_new_characters_name_is_held_to_the_clients_creation_limit() {
+    let _table = super::command_manager::initialized_table();
+    let mut ts = empyrean_testkit::TestServer::new();
+    let dir = scratch("playtest-create-name");
+    let input = dir.join("New.json");
+    let order = dereth_progression::order::Order {
+        version: dereth_progression::order::ORDER_VERSION,
+        hash: "new".into(),
+        level: 20,
+        plan: dereth_progression::Archetype::named("archer").unwrap().plan,
+        heritage: None,
+        gender: None,
+        gear: dereth_progression::order::Gear::None,
+        seed: 1,
+        items: Vec::new(),
+        place_tier: None,
+        slots: std::collections::BTreeMap::new(),
+        extras: dereth_progression::Extras::default(),
+    };
+    std::fs::write(&input, serde_json::to_vec(&order).unwrap()).unwrap();
+    ts.auth()
+        .create_account(
+            "builder",
+            "builder",
+            empyrean_entity::enums::AccessLevel::Admin,
+            std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
+        )
+        .unwrap();
+    let limit = dereth_rules::chargen::NAME_MAX_CHARS;
+    // A name at the limit gets past the length to the next check: this one is taken.
+    let at_limit = "N".repeat(limit);
+    let mut biota = Biota {
+        id: 0x5000_0001,
+        weenie_class_id: 1,
+        weenie_type: empyrean_entity::enums::WeenieType::Creature,
+        ..Default::default()
+    };
+    biota.set_property(
+        empyrean_entity::enums::PropertyString::Name,
+        at_limit.clone(),
+    );
+    assert!(ts.shard().save_biota(&mut biota.clone(), false));
+    let offline = {
+        let mut shard = ts.shard();
+        let mut auth = ts.auth();
+        empyrean_world::entity::offline_player::OfflinePlayer::new(biota, &mut **shard, &mut **auth)
+    };
+    let guid = offline.guid;
+    ts.world
+        .player_manager
+        .offline_players
+        .insert(0x5000_0001, offline);
+    ts.world.player_manager.player_names.insert(
+        empyrean_world::managers::player_manager::OrdinalIgnoreCase(at_limit.clone()),
+        empyrean_world::entity::i_player::IPlayer::Offline(guid),
+    );
+    let mut said = |name: String| {
+        empyrean_command::command_manager::start_console_capture();
+        empyrean_command::empyrean::playtest_character::handle(
+            &mut ts.world,
+            None,
+            &[
+                "create".into(),
+                "builder".into(),
+                format!("+{name}"),
+                input.display().to_string(),
+                dir.join("made.json").display().to_string(),
+            ],
+        );
+        empyrean_command::command_manager::take_console_output().join(
+            "
+",
+        )
+    };
+    let refused = "the name is not one a character can have";
+    let long = said("N".repeat(limit + 1));
+    assert!(long.contains(refused), "{long}");
+    assert!(said(at_limit).contains("the name is taken"));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 #[test]
 fn an_unused_account_is_ready_to_connect_again() {
     let _table = super::command_manager::initialized_table();

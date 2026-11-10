@@ -1791,7 +1791,10 @@ impl Interaction {
                 if let Some(cmd) = match handler {
                     // A world whose `@lifestone` is no recall asks whether to die.
                     H::Sepaku => Some(game.do_lifestone_death(args)),
-                    H::Lifestone if !self.era_features.lifestone_recall => {
+                    H::Lifestone
+                        if !dereth_rules::gates::Gate::LifestoneRecall
+                            .available(&self.era_features) =>
+                    {
                         Some(game.do_lifestone_death(args))
                     }
                     H::Lifestone => Some(game.do_lifestone(req, args)),

@@ -141,7 +141,7 @@ pub fn fellowship_create(w: &mut World, this: ObjectGuid, fellowship_name: &str,
 
     // DIVERGE: V485, a world without fellowship options (December 2000) makes every fellowship
     // share experience, whatever the request asks.
-    let share_xp = share_xp || !w.era.features.fellowship_options;
+    let share_xp = dereth_rules::fellowship::shares_experience(&w.era.features, share_xp);
     let fellowship = fellowship::new(w, this, fellowship_name, share_xp);
     set_fellowship(w, this, Some(fellowship));
     let session = session_of(w, this);

@@ -7,6 +7,7 @@
 //! allegiances, combat mode, visibility, lifestone protection) go through pointer functions at the
 //! end of the file, in ACE's order.
 
+use dereth_rules::gates::Gate;
 use empyrean_common::dotnet::cast::CsCast;
 use empyrean_common::dotnet::datetime::DotNetDateTime;
 use empyrean_common::thread_safe_random::ThreadSafeRandom;
@@ -29,7 +30,7 @@ use crate::network::motion::movement_data::Motion;
 use crate::physics::{motion_table, phys_ext};
 use crate::world_objects::world_object::{self, WorldObject, LOCAL_BROADCAST_RANGE};
 use crate::world_objects::world_object_networking::{self, shims};
-use crate::world_objects::{player_networking, player_tick};
+use crate::world_objects::{era_gates, player_networking, player_tick};
 use crate::World;
 
 /// Non-property fields declared in `Player_Location.cs`.
@@ -359,7 +360,7 @@ fn recall_chain(
 pub fn handle_action_tele_to_house(w: &mut World, this: ObjectGuid) {
     // DIVERGE: house recalls go with apartments (`EraFeatures::apartments`); a world without
     // them refuses this one (V420).
-    if !crate::world_objects::era_gates::has(w, this, w.era.features.apartments, "house recall") {
+    if !era_gates::offers(w, this, Gate::HouseRecall, "house recall") {
         return;
     }
 
@@ -395,7 +396,7 @@ pub fn handle_action_tele_to_house(w: &mut World, this: ObjectGuid) {
 pub fn handle_action_tele_to_lifestone(w: &mut World, this: ObjectGuid) {
     // DIVERGE: before `@lifestone` became a recall (`EraFeatures::lifestone_recall`, V472) it
     // killed the character, at once, as `@die` later did.
-    if !w.era.features.lifestone_recall {
+    if !Gate::LifestoneRecall.available(&w.era.features) {
         crate::world_objects::player_death::die_by_lifestone_command(w, this);
         return;
     }
@@ -461,12 +462,7 @@ pub fn motion_marketplace_recall() -> Motion {
 /// 18.4 s), then the teleport to the marketplace drop.
 pub fn handle_action_tele_to_market_place(w: &mut World, this: ObjectGuid) {
     // DIVERGE: `EraFeatures::marketplace_recall` (V461).
-    if !crate::world_objects::era_gates::has(
-        w,
-        this,
-        w.era.features.marketplace_recall,
-        "Marketplace recall",
-    ) {
+    if !era_gates::offers(w, this, Gate::MarketplaceRecall, "Marketplace recall") {
         return;
     }
     if !recall_checks(w, this, true) {
@@ -487,7 +483,7 @@ pub fn handle_action_tele_to_market_place(w: &mut World, this: ObjectGuid) {
     // TODO: (OptimShi): Actual animation length is longer than in retail. 18.4s
     recall_chain(w, this, 14.0, move |w: &mut World| {
         // DIVERGE: `EraFeatures::marketplace_recall` (V461), again at the teleport.
-        if !w.era.features.marketplace_recall {
+        if !Gate::MarketplaceRecall.available(&w.era.features) {
             return;
         }
         let drop = marketplace_drop(w);
@@ -562,7 +558,7 @@ fn verify_recall_allegiance_hometown(w: &mut World, this: ObjectGuid) -> bool {
 pub fn handle_action_tele_to_mansion(w: &mut World, this: ObjectGuid) {
     // DIVERGE: house recalls go with apartments (`EraFeatures::apartments`); a world without
     // them refuses this one (V420).
-    if !crate::world_objects::era_gates::has(w, this, w.era.features.apartments, "house recall") {
+    if !era_gates::offers(w, this, Gate::MansionRecall, "house recall") {
         return;
     }
 
@@ -699,12 +695,7 @@ pub fn handle_action_tele_to_pk_arena(w: &mut World, this: ObjectGuid) {
     //Console.WriteLine($"{Name}.HandleActionTeleToPkArena()");
 
     // DIVERGE: `EraFeatures::pk_arena_recalls` (V472).
-    if !crate::world_objects::era_gates::has(
-        w,
-        this,
-        w.era.features.pk_arena_recalls,
-        "PK arena recalls",
-    ) {
+    if !era_gates::offers(w, this, Gate::PkArenaRecall, "PK arena recalls") {
         return;
     }
 
@@ -805,8 +796,7 @@ pub fn handle_action_tele_to_pkl_arena(w: &mut World, this: ObjectGuid) {
     //Console.WriteLine($"{Name}.HandleActionTeleToPkLiteArena()");
 
     // DIVERGE: `EraFeatures::pk_arena_recalls` and `EraFeatures::pk_lite` (V472).
-    let available = w.era.features.pk_arena_recalls && w.era.features.pk_lite;
-    if !crate::world_objects::era_gates::has(w, this, available, "PK Lite arena recall") {
+    if !era_gates::offers(w, this, Gate::PklArenaRecall, "PK Lite arena recall") {
         return;
     }
 

@@ -4,7 +4,9 @@
 //! client is told the same set and hides what the world lacks, but a client that asks anyway is
 //! refused here: each gate answers whether the world has the system and, when it does not, tells
 //! the player so. The gates themselves stand at ACE's sites, each marked with its divergence row.
+//! Where the client leaves a command out, the two ask the same [`Gate`].
 
+use dereth_rules::gates::Gate;
 use empyrean_entity::enums::{ChatMessageType, HouseType};
 use empyrean_entity::ObjectGuid;
 
@@ -23,6 +25,12 @@ pub fn has(w: &mut World, player: ObjectGuid, has: bool, what: &str) -> bool {
         );
     }
     has
+}
+
+/// Whether the world has the request `gate`, telling the player when it does not, as [`has`].
+pub fn offers(w: &mut World, player: ObjectGuid, gate: Gate, what: &str) -> bool {
+    let available = gate.available(&w.era.features);
+    has(w, player, available, what)
 }
 
 /// Whether the world has houses of `kind`: apartments with apartments, every other kind with

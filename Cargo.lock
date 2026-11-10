@@ -2642,6 +2642,7 @@ dependencies = [
  "dereth-physics",
  "dereth-primitives",
  "dereth-progression",
+ "dereth-rules",
  "empyrean-common",
  "empyrean-content",
  "empyrean-dat",

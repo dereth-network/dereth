@@ -329,7 +329,7 @@ impl crate::World {
         req.send(crate::Request::FellowshipCreate(
             dereth_protocol::social::FellowshipCreate {
                 name: name.to_owned(),
-                share_xp: i32::from(share_xp || !self.era_features.fellowship_options),
+                share_xp: i32::from(shares_experience(&self.era_features, share_xp)),
             },
         ));
     }

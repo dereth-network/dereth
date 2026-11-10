@@ -221,7 +221,7 @@ pub fn turbine_chat_received(
         }
 
         // DIVERGE: V492, a world without the allegiance chat room (January 2004) carries no line in it.
-        if !w.era.features.allegiance_chat
+        if !dereth_rules::gates::Gate::AllegianceChat.available(&w.era.features)
             && (adjusted_channel_id > turbine_chat_channel::OLTHOI
                 || adjusted_channel_id == turbine_chat_channel::ALLEGIANCE)
         {

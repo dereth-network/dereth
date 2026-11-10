@@ -4,11 +4,18 @@
 //! real division**.
 
 use dereth_assets::tables::XpTable;
-use dereth_primitives::ObjectId;
+use dereth_primitives::{EraFeatures, ObjectId};
 use std::collections::BTreeMap;
 
 /// The capacity test returns `count > 8`, i.e. the maximum fellowship is **9**.
 pub const MAX_MEMBERS: usize = 9;
+
+/// Whether a new fellowship shares experience: as its founder asks on a world that lets the
+/// founder choose, and always on one that does not.
+#[must_use]
+pub fn shares_experience(features: &EraFeatures, asked: bool) -> bool {
+    asked || !features.fellowship_options
+}
 
 /// One fellowship member as decoded from the wire.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -168,6 +175,17 @@ mod tests {
             level,
             ..Fellow::default()
         }
+    }
+
+    /// Behaviour: presentation.era.a-fellowship-always-shares-without-the-founders-choice
+    #[test]
+    fn a_fellowship_shares_as_asked_only_where_the_founder_may_choose() {
+        let mut fixed = EraFeatures::END_OF_RETAIL;
+        fixed.fellowship_options = false;
+        assert!(shares_experience(&fixed, false));
+        assert!(shares_experience(&fixed, true));
+        assert!(!shares_experience(&EraFeatures::END_OF_RETAIL, false));
+        assert!(shares_experience(&EraFeatures::END_OF_RETAIL, true));
     }
 
     /// Oracle: the even-split table in `docs/CORRECTIONS.md`.

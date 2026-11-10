@@ -1329,13 +1329,13 @@ fn nav_character(
     // A route may use only the recall commands the world has: `@lifestone` recalls only where
     // it is not a death, and `@marketplace` only where the world has the Marketplace recall.
     out.recall_commands = Vec::new();
-    if features.lifestone_recall {
+    if dereth_rules::gates::Gate::LifestoneRecall.available(&features) {
         out.recall_commands.push((
             dereth_navigation::Recall::Lifestone,
             String::from("lifestone"),
         ));
     }
-    if features.marketplace_recall {
+    if dereth_rules::gates::Gate::MarketplaceRecall.available(&features) {
         out.recall_commands.push((
             dereth_navigation::Recall::Marketplace,
             String::from("marketplace"),

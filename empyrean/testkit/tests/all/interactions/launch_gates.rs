@@ -366,17 +366,17 @@ mod deaths_and_arenas {
 mod allegiance_administration {
     //! Divergence: V480, V482, V483, V484
     //! The allegiance's administration requests, each sent as a client sends it: the message of
-    //! the day (June 2001), booting (April 2002), officers, locks and bans (May 2004) and the
-    //! allegiance's name (May 2006). A Launch world refuses each with a line; a later world
+    //! the day (June 2001), booting (April 2002), officers, locks, bans and booting from the
+    //! allegiance room (May 2004) and the allegiance's name (May 2006). A Launch world refuses each with a line; a later world
     //! answers it as ACE does.
     use crate::support::event_world::*;
     use dereth_protocol::comms::CommunicationTextboxString;
     use dereth_protocol::social::{
-        AllegianceAddAllegianceBan, AllegianceBreakAllegianceBoot, AllegianceChatGag,
-        AllegianceClearMotd, AllegianceDoAllegianceHouseAction, AllegianceDoAllegianceLockAction,
-        AllegianceListAllegianceOfficerTitles, AllegianceListAllegianceOfficers,
-        AllegianceQueryAllegianceName, AllegianceQueryMotd, AllegianceSetAllegianceName,
-        AllegianceSetAllegianceOfficer, AllegianceSetMotd,
+        AllegianceAddAllegianceBan, AllegianceBreakAllegianceBoot, AllegianceChatBoot,
+        AllegianceChatGag, AllegianceClearMotd, AllegianceDoAllegianceHouseAction,
+        AllegianceDoAllegianceLockAction, AllegianceListAllegianceOfficerTitles,
+        AllegianceListAllegianceOfficers, AllegianceQueryAllegianceName, AllegianceQueryMotd,
+        AllegianceSetAllegianceName, AllegianceSetAllegianceOfficer, AllegianceSetMotd,
     };
     use empyrean_common::era::{EraExt as _, EraId};
 
@@ -420,6 +420,13 @@ mod allegiance_administration {
         );
         ts.send_game_action(
             alpha,
+            &AllegianceChatBoot {
+                name: "Bravo".into(),
+                reason: "Spam".into(),
+            },
+        );
+        ts.send_game_action(
+            alpha,
             &AllegianceSetAllegianceName {
                 name: "The Order".into(),
             },
@@ -434,6 +441,7 @@ mod allegiance_administration {
             "This world has no allegiance officers.",
             "This world has no allegiance lock.",
             "This world has no allegiance bans.",
+            "This world has no allegiance chat boot.",
             "This world has no allegiance names.",
             "This world has no allegiance names.",
         ]

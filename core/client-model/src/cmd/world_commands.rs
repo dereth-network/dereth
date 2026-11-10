@@ -5,6 +5,7 @@
 //! that turns a system back on gets its commands back.
 
 use dereth_primitives::EraFeatures;
+use dereth_rules::gates::Gate;
 
 use super::table::{CommandEntry, CommandHandler};
 
@@ -13,20 +14,23 @@ use super::table::{CommandEntry, CommandHandler};
 pub fn handler_available(features: &EraFeatures, handler: CommandHandler) -> bool {
     use CommandHandler as H;
     match handler {
-        H::Marketplace => features.marketplace_recall,
+        H::Marketplace => Gate::MarketplaceRecall.available(features),
         H::Endurance => features.endurance_benefits,
         H::Pklite => features.pk_lite,
-        H::Pkarena => features.pk_arena_recalls,
-        H::Pklarena => features.pk_lite && features.pk_arena_recalls,
-        H::Die => features.lifestone_recall,
-        H::Sepaku => !features.lifestone_recall,
-        H::HouseRecall | H::MansionRecall => features.apartments,
+        H::Pkarena => Gate::PkArenaRecall.available(features),
+        H::Pklarena => Gate::PklArenaRecall.available(features),
+        H::Die => Gate::LifestoneRecall.available(features),
+        H::Sepaku => !Gate::LifestoneRecall.available(features),
+        H::HouseRecall => Gate::HouseRecall.available(features),
+        H::MansionRecall => Gate::MansionRecall.available(features),
         H::House | H::Hslist => features.housing,
         H::Corpse => features.corpse_command,
         H::Permit | H::Consent => features.corpse_permissions,
         H::Log => features.chat_log,
-        H::Motd | H::AllegianceBroadcast | H::Speaker => features.allegiance_messages,
-        H::Guild => features.allegiance_chat,
+        H::Motd | H::AllegianceBroadcast | H::Speaker => {
+            Gate::AllegianceMessages.available(features)
+        }
+        H::Guild => Gate::AllegianceChat.available(features),
         H::General | H::Trade | H::Lfg | H::Roleplay | H::Society | H::Olthoi => {
             features.global_chat_rooms
         }
@@ -38,23 +42,28 @@ pub fn handler_available(features: &EraFeatures, handler: CommandHandler) -> boo
 #[must_use]
 pub fn allegiance_subcommand_available(features: &EraFeatures, sub: &str) -> bool {
     let eq = |lit: &str| sub.eq_ignore_ascii_case(lit);
-    if eq("boot") {
-        features.allegiance_boot
+    let gate = if eq("boot") {
+        Gate::AllegianceBoot
     } else if eq("motd") || eq("broadcast") || eq("br") {
-        features.allegiance_messages
-    } else if eq("officer") || eq("ban") {
-        features.allegiance_officers_and_bans
-    } else if eq("title") || eq("lock") {
-        features.allegiance_officers_and_bans && features.allegiance_titles_and_lock
+        Gate::AllegianceMessages
+    } else if eq("officer") {
+        Gate::AllegianceOfficers
+    } else if eq("ban") {
+        Gate::AllegianceBans
+    } else if eq("title") {
+        Gate::AllegianceOfficerTitles
+    } else if eq("lock") {
+        Gate::AllegianceLock
     } else if eq("house") {
-        features.allegiance_house_commands
+        Gate::AllegianceHouse
     } else if eq("name") {
-        features.allegiance_name
+        Gate::AllegianceName
     } else if eq("chat") || eq("ch") {
-        features.allegiance_chat
+        Gate::AllegianceChat
     } else {
-        true
-    }
+        return true;
+    };
+    gate.available(features)
 }
 
 /// Whether the world has what an `@allegiance chat` subcommand (its first word) asks for: moving
@@ -63,9 +72,9 @@ pub fn allegiance_subcommand_available(features: &EraFeatures, sub: &str) -> boo
 pub fn allegiance_chat_subcommand_available(features: &EraFeatures, sub: &str) -> bool {
     let eq = |lit: &str| sub.eq_ignore_ascii_case(lit);
     if eq("kick") {
-        features.allegiance_officers_and_bans
+        Gate::AllegianceChatBoot.available(features)
     } else if eq("gag") || eq("ungag") {
-        features.allegiance_officers_and_bans && features.allegiance_titles_and_lock
+        Gate::AllegianceChatGag.available(features)
     } else {
         true
     }
@@ -89,8 +98,10 @@ pub fn allegiance_command_available(features: &EraFeatures, args: &[String]) -> 
 #[must_use]
 pub fn house_subcommand_available(features: &EraFeatures, sub: &str) -> bool {
     let eq = |lit: &str| sub.eq_ignore_ascii_case(lit);
-    if eq("recall") || eq("re") || eq("mansion_recall") || eq("alleg_recall") || eq("ma") {
-        features.apartments
+    if eq("recall") || eq("re") {
+        Gate::HouseRecall.available(features)
+    } else if eq("mansion_recall") || eq("alleg_recall") || eq("ma") {
+        Gate::MansionRecall.available(features)
     } else {
         true
     }
@@ -153,7 +164,7 @@ impl HelpScope {
             hidden_allegiance,
             hidden_allegiance_chat,
             hidden_house,
-            lifestone_kills: !features.lifestone_recall,
+            lifestone_kills: !Gate::LifestoneRecall.available(features),
         }
     }
 

@@ -516,10 +516,10 @@ pub fn thread_safe_teleport_on_death(w: &mut World, this: ObjectGuid) {
 pub fn handle_action_die(w: &mut World, this: ObjectGuid) {
     // DIVERGE: `@die` arrived with `@lifestone`'s recall (`EraFeatures::lifestone_recall`, V472);
     // before it `@lifestone` was the way to die.
-    if !crate::world_objects::era_gates::has(
+    if !crate::world_objects::era_gates::offers(
         w,
         this,
-        w.era.features.lifestone_recall,
+        dereth_rules::gates::Gate::LifestoneRecall,
         "@die command",
     ) {
         return;

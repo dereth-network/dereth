@@ -139,8 +139,8 @@ pub fn create(
         return Err("the account is logged in".into());
     }
     let bare = name.trim_start_matches('+');
-    // Creation's own limit: a name of 1 to 32 characters.
-    if bare.trim().is_empty() || bare.chars().count() > 32 {
+    // Creation's own limit, the client's: a name of 1 to 32 characters.
+    if bare.trim().is_empty() || !dereth_rules::chargen::name_length_ok(bare) {
         return Err("the name is not one a character can have".into());
     }
     if player_manager::find_by_name(w, bare).0.is_some()

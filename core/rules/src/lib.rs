@@ -11,7 +11,7 @@
 //! inquiries are written against [`quality::QualityRead`], which the object model implements.
 //!
 //! It holds the XP curves and attribute raise costs, the skill formula, burden and load, vendor
-//! prices, the fellowship split, enchantment stacking ([`enchant`]), the name filter ([`taboo`]),
+//! prices, the fellowship split, the systems each request needs ([`gates`]), enchantment stacking ([`enchant`]), the name filter ([`taboo`]),
 //! chess, the slot tables, the character-creation credits, and a weenie's look as a server
 //! describes it ([`appearance`]).
 
@@ -33,6 +33,8 @@ pub mod combat;
 #[cfg(feature = "proto")]
 pub mod enchant;
 pub mod fellowship;
+/// What a world must have for each request a player makes of it.
+pub mod gates;
 /// The spell-formula rules: power levels and the scarab-only (foci) formula.
 pub mod magic;
 /// The movement system's run rate, jump height and jump stamina cost (one implementation).

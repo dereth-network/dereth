@@ -8,6 +8,7 @@
 
 use std::cmp::Ordering;
 
+use dereth_rules::gates::Gate;
 use empyrean_common::dotnet::datetime::{DotNetDateTime, TimeSpan};
 use empyrean_common::dotnet::format::format;
 use empyrean_common::dotnet::{CsCast, DotNetDict};
@@ -1050,7 +1051,7 @@ pub fn handle_allegiance_on_login(w: &mut World, this: ObjectGuid) {
     action_chain.add_delay_seconds(w, 3.0);
     action_chain.add_action(Actor::Object(this), move |w: &mut World| {
         // DIVERGE: V480, a world without the message of the day shows none at login.
-        let motd_shown = w.era.features.allegiance_messages;
+        let motd_shown = Gate::AllegianceMessages.available(&w.era.features);
         if let Some(allegiance) = player_allegiance(w, this).filter(|_| motd_shown) {
             let o = allegiance_obj(w, allegiance);
             if let Some(motd) = o.allegiance_motd() {
@@ -1196,10 +1197,10 @@ fn require_permission(w: &mut World, this: ObjectGuid, level: AllegiancePermissi
 // ACE: Player.HandleActionQueryMotd
 pub fn handle_action_query_motd(w: &mut World, this: ObjectGuid) {
     // DIVERGE: V480, a world without the allegiance message of the day (June 2001) refuses the request.
-    if !crate::world_objects::era_gates::has(
+    if !crate::world_objects::era_gates::offers(
         w,
         this,
-        w.era.features.allegiance_messages,
+        Gate::AllegianceMessages,
         "allegiance message of the day",
     ) {
         return;
@@ -1248,10 +1249,10 @@ fn motd_set_by(w: &World, this: ObjectGuid) -> String {
 // ACE: Player.HandleActionSetMotd
 pub fn handle_action_set_motd(w: &mut World, this: ObjectGuid, motd: &str) {
     // DIVERGE: V480, a world without the allegiance message of the day (June 2001) refuses the request.
-    if !crate::world_objects::era_gates::has(
+    if !crate::world_objects::era_gates::offers(
         w,
         this,
-        w.era.features.allegiance_messages,
+        Gate::AllegianceMessages,
         "allegiance message of the day",
     ) {
         return;
@@ -1289,10 +1290,10 @@ fn save_allegiance(w: &mut World, allegiance: ObjectGuid) {
 // ACE: Player.HandleActionClearMotd
 pub fn handle_action_clear_motd(w: &mut World, this: ObjectGuid) {
     // DIVERGE: V480, a world without the allegiance message of the day (June 2001) refuses the request.
-    if !crate::world_objects::era_gates::has(
+    if !crate::world_objects::era_gates::offers(
         w,
         this,
-        w.era.features.allegiance_messages,
+        Gate::AllegianceMessages,
         "allegiance message of the day",
     ) {
         return;
@@ -1320,12 +1321,7 @@ pub fn handle_action_clear_motd(w: &mut World, this: ObjectGuid) {
 // ACE: Player.HandleActionQueryAllegianceName
 pub fn handle_action_query_allegiance_name(w: &mut World, this: ObjectGuid) {
     // DIVERGE: V484, a world without allegiance names (May 2006) refuses the request.
-    if !crate::world_objects::era_gates::has(
-        w,
-        this,
-        w.era.features.allegiance_name,
-        "allegiance names",
-    ) {
+    if !crate::world_objects::era_gates::offers(w, this, Gate::AllegianceName, "allegiance names") {
         return;
     }
     //Console.WriteLine($"{Name}.HandleActionQueryAllegianceName()");
@@ -1345,12 +1341,7 @@ pub fn handle_action_query_allegiance_name(w: &mut World, this: ObjectGuid) {
 // ACE: Player.HandleActionSetAllegianceName
 pub fn handle_action_set_allegiance_name(w: &mut World, this: ObjectGuid, allegiance_name: &str) {
     // DIVERGE: V484, a world without allegiance names (May 2006) refuses the request.
-    if !crate::world_objects::era_gates::has(
-        w,
-        this,
-        w.era.features.allegiance_name,
-        "allegiance names",
-    ) {
+    if !crate::world_objects::era_gates::offers(w, this, Gate::AllegianceName, "allegiance names") {
         return;
     }
     //Console.WriteLine($"{Name}.HandleActionSetAllegianceName({allegianceName}");
@@ -1381,12 +1372,7 @@ pub fn handle_action_set_allegiance_name(w: &mut World, this: ObjectGuid, allegi
 // ACE: Player.HandleActionClearAllegianceName
 pub fn handle_action_clear_allegiance_name(w: &mut World, this: ObjectGuid) {
     // DIVERGE: V484, a world without allegiance names (May 2006) refuses the request.
-    if !crate::world_objects::era_gates::has(
-        w,
-        this,
-        w.era.features.allegiance_name,
-        "allegiance names",
-    ) {
+    if !crate::world_objects::era_gates::offers(w, this, Gate::AllegianceName, "allegiance names") {
         return;
     }
     //Console.WriteLine($"{Name}.HandleActionClearAllegianceName()");
@@ -1408,10 +1394,10 @@ pub fn handle_action_clear_allegiance_name(w: &mut World, this: ObjectGuid) {
 // ACE: Player.HandleActionListAllegianceOfficers
 pub fn handle_action_list_allegiance_officers(w: &mut World, this: ObjectGuid) {
     // DIVERGE: V483, a world without allegiance officers, locks and bans (May 2004) refuses the request.
-    if !crate::world_objects::era_gates::has(
+    if !crate::world_objects::era_gates::offers(
         w,
         this,
-        w.era.features.allegiance_officers_and_bans,
+        Gate::AllegianceOfficers,
         "allegiance officers",
     ) {
         return;
@@ -1455,10 +1441,10 @@ pub fn handle_action_list_allegiance_officers(w: &mut World, this: ObjectGuid) {
 // ACE: Player.HandleActionListAllegianceOfficerTitles
 pub fn handle_action_list_allegiance_officer_titles(w: &mut World, this: ObjectGuid) {
     // DIVERGE: V483, a world without officer titles and the lock (May 2006) refuses the request.
-    if !crate::world_objects::era_gates::has(
+    if !crate::world_objects::era_gates::offers(
         w,
         this,
-        w.era.features.allegiance_officers_and_bans && w.era.features.allegiance_titles_and_lock,
+        Gate::AllegianceOfficerTitles,
         "allegiance officer titles",
     ) {
         return;
@@ -1496,10 +1482,10 @@ pub fn handle_action_set_allegiance_officer_title(
     title: &str,
 ) {
     // DIVERGE: V483, a world without officer titles and the lock (May 2006) refuses the request.
-    if !crate::world_objects::era_gates::has(
+    if !crate::world_objects::era_gates::offers(
         w,
         this,
-        w.era.features.allegiance_officers_and_bans && w.era.features.allegiance_titles_and_lock,
+        Gate::AllegianceOfficerTitles,
         "allegiance officer titles",
     ) {
         return;
@@ -1546,10 +1532,10 @@ pub fn handle_action_set_allegiance_officer_title(
 // ACE: Player.HandleActionClearAllegianceOfficerTitles
 pub fn handle_action_clear_allegiance_officer_titles(w: &mut World, this: ObjectGuid) {
     // DIVERGE: V483, a world without officer titles and the lock (May 2006) refuses the request.
-    if !crate::world_objects::era_gates::has(
+    if !crate::world_objects::era_gates::offers(
         w,
         this,
-        w.era.features.allegiance_officers_and_bans && w.era.features.allegiance_titles_and_lock,
+        Gate::AllegianceOfficerTitles,
         "allegiance officer titles",
     ) {
         return;
@@ -1583,10 +1569,10 @@ pub fn handle_action_set_allegiance_officer(
     officer_level: u32,
 ) {
     // DIVERGE: V483, a world without allegiance officers, locks and bans (May 2004) refuses the request.
-    if !crate::world_objects::era_gates::has(
+    if !crate::world_objects::era_gates::offers(
         w,
         this,
-        w.era.features.allegiance_officers_and_bans,
+        Gate::AllegianceOfficers,
         "allegiance officers",
     ) {
         return;
@@ -1661,10 +1647,10 @@ pub fn handle_action_remove_allegiance_officer(
     officer_name: &str,
 ) {
     // DIVERGE: V483, a world without allegiance officers, locks and bans (May 2004) refuses the request.
-    if !crate::world_objects::era_gates::has(
+    if !crate::world_objects::era_gates::offers(
         w,
         this,
-        w.era.features.allegiance_officers_and_bans,
+        Gate::AllegianceOfficers,
         "allegiance officers",
     ) {
         return;
@@ -1731,10 +1717,10 @@ pub fn handle_action_remove_allegiance_officer(
 // ACE: Player.HandleActionClearAllegianceOfficers
 pub fn handle_action_clear_allegiance_officers(w: &mut World, this: ObjectGuid) {
     // DIVERGE: V483, a world without allegiance officers, locks and bans (May 2004) refuses the request.
-    if !crate::world_objects::era_gates::has(
+    if !crate::world_objects::era_gates::offers(
         w,
         this,
-        w.era.features.allegiance_officers_and_bans,
+        Gate::AllegianceOfficers,
         "allegiance officers",
     ) {
         return;
@@ -1816,12 +1802,7 @@ pub fn handle_action_do_allegiance_lock_action(
     action: AllegianceLockAction,
 ) {
     // DIVERGE: V483, a world without officer titles and the lock (May 2006) refuses the request.
-    if !crate::world_objects::era_gates::has(
-        w,
-        this,
-        w.era.features.allegiance_officers_and_bans && w.era.features.allegiance_titles_and_lock,
-        "allegiance lock",
-    ) {
+    if !crate::world_objects::era_gates::offers(w, this, Gate::AllegianceLock, "allegiance lock") {
         return;
     }
     //Console.WriteLine($"{Name}.HandleActionDoAllegianceLockAction({action})");
@@ -1916,12 +1897,7 @@ pub fn handle_action_set_allegiance_approved_vassal(
     player_name: &str,
 ) {
     // DIVERGE: V483, a world without officer titles and the lock (May 2006) refuses the request.
-    if !crate::world_objects::era_gates::has(
-        w,
-        this,
-        w.era.features.allegiance_officers_and_bans && w.era.features.allegiance_titles_and_lock,
-        "allegiance lock",
-    ) {
+    if !crate::world_objects::era_gates::offers(w, this, Gate::AllegianceLock, "allegiance lock") {
         return;
     }
     //Console.WriteLine($"{Name}.HandleActionSetAllegianceApprovedVassal({playerName})");
@@ -2032,6 +2008,15 @@ pub fn handle_action_allegiance_chat_boot(
     player_name: &str,
     reason: &str,
 ) {
+    // DIVERGE: V483, a world without allegiance officers (May 2004) refuses the request.
+    if !crate::world_objects::era_gates::offers(
+        w,
+        this,
+        Gate::AllegianceChatBoot,
+        "allegiance chat boot",
+    ) {
+        return;
+    }
     //Console.WriteLine($"{Name}.HandleActionAllegianceChatBoot({playerName}, {reason})");
 
     let Some(allegiance) = require_allegiance(w, this) else {
@@ -2100,10 +2085,10 @@ pub fn handle_action_allegiance_chat_gag(
     enabled: bool,
 ) {
     // DIVERGE: V483, a world without officer titles and the lock (May 2006) has no gag either.
-    if !crate::world_objects::era_gates::has(
+    if !crate::world_objects::era_gates::offers(
         w,
         this,
-        w.era.features.allegiance_officers_and_bans && w.era.features.allegiance_titles_and_lock,
+        Gate::AllegianceChatGag,
         "allegiance chat gag",
     ) {
         return;
@@ -2225,12 +2210,7 @@ pub fn handle_action_allegiance_chat_gag_disabled(
 // ACE: Player.HandleActionListAllegianceBans
 pub fn handle_action_list_allegiance_bans(w: &mut World, this: ObjectGuid) {
     // DIVERGE: V483, a world without allegiance officers, locks and bans (May 2004) refuses the request.
-    if !crate::world_objects::era_gates::has(
-        w,
-        this,
-        w.era.features.allegiance_officers_and_bans,
-        "allegiance bans",
-    ) {
+    if !crate::world_objects::era_gates::offers(w, this, Gate::AllegianceBans, "allegiance bans") {
         return;
     }
     //Console.WriteLine($"{Name}.HandleActionListAllegianceBans()");
@@ -2266,12 +2246,7 @@ pub fn handle_action_list_allegiance_bans(w: &mut World, this: ObjectGuid) {
 // ACE: Player.HandleActionAddAllegianceBan
 pub fn handle_action_add_allegiance_ban(w: &mut World, this: ObjectGuid, player_name: &str) {
     // DIVERGE: V483, a world without allegiance officers, locks and bans (May 2004) refuses the request.
-    if !crate::world_objects::era_gates::has(
-        w,
-        this,
-        w.era.features.allegiance_officers_and_bans,
-        "allegiance bans",
-    ) {
+    if !crate::world_objects::era_gates::offers(w, this, Gate::AllegianceBans, "allegiance bans") {
         return;
     }
     //Console.WriteLine($"{Name}.HandleActionAddAllegianceBan({playerName})");
@@ -2332,12 +2307,7 @@ pub fn handle_action_add_allegiance_ban(w: &mut World, this: ObjectGuid, player_
 // ACE: Player.HandleActionRemoveAllegianceBan
 pub fn handle_action_remove_allegiance_ban(w: &mut World, this: ObjectGuid, player_name: &str) {
     // DIVERGE: V483, a world without allegiance officers, locks and bans (May 2004) refuses the request.
-    if !crate::world_objects::era_gates::has(
-        w,
-        this,
-        w.era.features.allegiance_officers_and_bans,
-        "allegiance bans",
-    ) {
+    if !crate::world_objects::era_gates::offers(w, this, Gate::AllegianceBans, "allegiance bans") {
         return;
     }
     //Console.WriteLine($"{Name}.HandleActionRemoveAllegianceBan({playerName})");
@@ -2384,12 +2354,8 @@ pub fn handle_action_break_allegiance_boot(
     account_boot: bool,
 ) {
     // DIVERGE: V482, a world without booting from an allegiance (April 2002) refuses the request.
-    if !crate::world_objects::era_gates::has(
-        w,
-        this,
-        w.era.features.allegiance_boot,
-        "allegiance booting",
-    ) {
+    if !crate::world_objects::era_gates::offers(w, this, Gate::AllegianceBoot, "allegiance booting")
+    {
         return;
     }
     log::info!(

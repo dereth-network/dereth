@@ -25,6 +25,8 @@ empyrean-content.workspace = true
 empyrean-dat.workspace = true
 dereth-physics.workspace = true
 dereth-primitives.workspace = true
+# The name rule character creation shares with the client.
+dereth-rules.workspace = true
 # The playtest characters: their budget, how it is spent, and the checks they pass.
 dereth-progression.workspace = true
 empyrean-tables.workspace = true
