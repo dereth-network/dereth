@@ -1019,6 +1019,49 @@ fn an_item_for_monarchs_alone_is_refused_to_anyone_else() {
     assert!(!records_from(&h, world, crown).is_empty(), "and it works");
 }
 
+/// An item for heroes alone used by anyone else is refused (10049) and does nothing; a hero's use
+/// works.
+/// Behaviour: server.items.hero-only
+#[test]
+fn an_item_for_heroes_alone_is_refused_to_anyone_else() {
+    const TROPHY: u32 = 0x4700_14CC;
+    let mut h = world();
+    let mut props = Props::default();
+    props
+        .set("Item_UsageAction", Prop::Word(0x1F))
+        .set("Usage_HeroOnly", Prop::Bool(true));
+    template(&mut h, TROPHY, props);
+    h.server.item_uses.insert(
+        TROPHY,
+        vec![item_use::UsageEffect {
+            state: LUCK,
+            spellcraft: 1.0,
+        }],
+    );
+    let (b, me, world) = in_world(&mut h);
+    let trophy = give(&mut h, world, TROPHY, 1);
+    let from = send_use(&mut h, b, me, trophy, 0.2);
+    assert_eq!(
+        answers(&h, b, from)
+            .iter()
+            .map(|a| a.status)
+            .collect::<Vec<_>>(),
+        vec![refusal::HERO_ONLY]
+    );
+    assert_eq!(refusal::HERO_ONLY, 10_049);
+    assert!(records_from(&h, world, trophy).is_empty());
+    let p = h.server.players.get_mut(&world).expect("in the world");
+    yalain_world::focus::set_hero_kept(&mut p.qualities, true);
+    let from = send_use(&mut h, b, me, trophy, 0.2);
+    assert!(
+        answers(&h, b, from)
+            .iter()
+            .all(|a| a.status != refusal::HERO_ONLY),
+        "a hero is not refused"
+    );
+    assert!(!records_from(&h, world, trophy).is_empty(), "and it works");
+}
+
 /// An item used below its least level is refused (10009) and does nothing.
 /// Behaviour: server.items.least-level
 #[test]

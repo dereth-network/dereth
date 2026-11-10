@@ -4503,6 +4503,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "server.equip.hero-only",
+        says: "An item for heroes alone, used to put it on by anyone else, is refused 10049, its \
+               answer alone with the use's flags 316 and nothing put on; a hero puts it on.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-EQUIP-HERO"),
+        station: "yalain-testkit::cpu::play::wearing::a_chest_piece_for_heroes_alone_is_refused_to_anyone_else_and_worn_by_a_hero",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.equip.own-requirements-refuse",
         says: "A treasure item whose template names no requirement is refused by its own: below \
                its own least level 10009, then below its own Arcane Lore (the player's Arcane \
@@ -6655,6 +6664,15 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-FOOD-READ"),
         station: "yalain-testkit::dat::effects::a_forager_s_food_reads_as_a_drink_that_heals_health_and_vigor",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.items.hero-only",
+        says: "An item for heroes alone, used by anyone else, is refused 10049 and does nothing; a \
+               hero's use works.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ITEM-HERO"),
+        station: "yalain-testkit::cpu::play::items::an_item_for_heroes_alone_is_refused_to_anyone_else",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "server.items.hidden-quest-refused-as-mysterious",
@@ -11657,6 +11675,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-SUMMONED-PORTAL"),
         station: "yalain-testkit::cpu::play::summoned_portals::summon_portal_opens_a_portal_ahead_of_its_summoner_that_goes_after_thirty_seconds",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.places.template-hero-only",
+        says: "A placed object whose template is for heroes alone keeps anyone else out as a row's \
+               hero flag does, whether or not it leads anywhere: 10049 with flags 820 and no trip; a \
+               hero the portal takes.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PLACE-TEMPLATE-HERO"),
+        station: "yalain-testkit::cpu::entry::places::a_placed_portal_whose_template_is_for_heroes_alone_refuses_anyone_else",
         tier: Tier::Cpu,
     },
     behaviour! {

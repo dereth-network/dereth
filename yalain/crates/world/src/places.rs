@@ -517,7 +517,7 @@ fn under_its_level<S: Store>(
 }
 
 /// The refusal of a player a placed object is not for: of another kingdom than the one it names, or
-/// no hero when it is for heroes alone, as its examination says.
+/// no hero when it is for heroes alone, as its examination says ([`for_heroes`]).
 fn not_who_it_is_for<S: Store>(
     s: &Server<S>,
     world: ConnId,
@@ -530,13 +530,22 @@ fn not_who_it_is_for<S: Store>(
     {
         return Some(crate::item_use::refusal::WRONG_KINGDOM);
     }
-    (o.facts.hero && !crate::focus::is_hero(&p.qualities))
+    (for_heroes(s, o) && !crate::focus::is_hero(&p.qualities))
         .then_some(crate::item_use::refusal::HERO_ONLY)
 }
 
-/// Does a placed object keep some players out by what its own row says: a quest, a kingdom, heroes?
-fn keeps_players_out(o: &yalain_content::ContentObject) -> bool {
-    o.gate.is_some() || o.facts.hero || o.facts.kingdom.is_some()
+/// Is a placed object for heroes alone: its row says so, or its template does?
+fn for_heroes<S: Store>(s: &Server<S>, o: &yalain_content::ContentObject) -> bool {
+    o.facts.hero
+        || s.catalog
+            .get(o.template)
+            .is_some_and(|t| t.props.flag("Usage_HeroOnly"))
+}
+
+/// Does a placed object keep some players out by what its own row or template says: a quest, a
+/// kingdom, heroes?
+fn keeps_players_out<S: Store>(s: &Server<S>, o: &yalain_content::ContentObject) -> bool {
+    o.gate.is_some() || for_heroes(s, o) || o.facts.kingdom.is_some()
 }
 
 /// Is a template one a player talks to by using it (a storekeeper, a person or object a quest
@@ -946,7 +955,7 @@ pub fn use_object<S: Store>(
     // (2017: 2 of 2, at 13.5 and 56.9 m; the generic portals kept by their placed instance's
     // quest, 21 of 21 requests answered in 0.09-0.46 s, at 2.9-76.0 m), whether or not where it
     // leads is known.
-    if (o.destination.is_some() || keeps_players_out(o)) && !lifestone && !person && !broker {
+    if (o.destination.is_some() || keeps_players_out(s, o)) && !lifestone && !person && !broker {
         if let Some(why) = quest_keeps_out(s, world, o, clock) {
             let distance = reach(&u.from, o.cell, o.origin).unwrap_or(0.0);
             let no = use_refused(&u, 0, Some(USE_FLAGS_QUEST_KEEPS_OUT), distance, why);
@@ -1390,7 +1399,7 @@ pub fn walked<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, c
         .objects
         .iter()
         .filter(|o| {
-            (o.destination.is_some() || keeps_players_out(o))
+            (o.destination.is_some() || keeps_players_out(s, o))
                 && s.walk_in_packages.contains(&o.description.package)
                 && !crate::events::hides(s, o)
         })
@@ -1506,7 +1515,7 @@ fn walk_refusal_flags<S: Store>(s: &Server<S>, u: &Use) -> u32 {
     }
     let place = presence::content_by_id(&s.content.objects, walk_goal(u)).is_some_and(|i| {
         let o = &s.content.objects[i];
-        is_lifestone(s, o.description.package) || o.destination.is_some() || keeps_players_out(o)
+        is_lifestone(s, o.description.package) || o.destination.is_some() || keeps_players_out(s, o)
     });
     if place {
         USE_FLAGS_BOUND

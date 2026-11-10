@@ -583,6 +583,44 @@ fn a_chest_piece_whose_race_skill_level_or_quest_the_wearer_lacks_is_refused_in_
     assert_eq!(held(&h, me, item).0, 2, "on the chest");
 }
 
+/// A chest piece for heroes alone is refused to anyone else (10049), answered alone and left in
+/// the pack; a hero wears it.
+/// Behaviour: server.equip.hero-only
+#[test]
+fn a_chest_piece_for_heroes_alone_is_refused_to_anyone_else_and_worn_by_a_hero() {
+    const HEROES: u32 = 0x4700_7107;
+    let (mut h, a, me, _) = two_players();
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .unwrap()
+        .0;
+    let (race, sex) = {
+        let p = &h.server.players[&world];
+        (p.race, p.sex)
+    };
+    let mut t = garment(HEROES, (2, 2, 0), CHEST_LOOK, race, sex);
+    t.props.set("Usage_HeroOnly", Prop::Bool(true));
+    h.server.catalog.insert(t);
+    let fa = h.bots[a].inbox.len();
+    let item = h.arm(a, me, HEROES);
+    assert_eq!(
+        use_answers(&h, a, fa),
+        [(yalain_world::item_use::refusal::HERO_ONLY, 316, 0)]
+    );
+    assert!(answers(&h, a, fa).is_empty(), "not worn");
+    assert_eq!(held(&h, me, item).0, 0, "still in the pack");
+    let p = h.server.players.get_mut(&world).unwrap();
+    yalain_world::focus::set_hero_kept(&mut p.qualities, true);
+    let fa = h.bots[a].inbox.len();
+    use_it(&mut h, a, me, item);
+    assert!(use_answers(&h, a, fa).is_empty(), "a hero: no refusal");
+    assert_eq!(answers(&h, a, fa).len(), 1, "worn");
+    assert_eq!(held(&h, me, item).0, 2, "on the chest");
+}
+
 /// A treasure chest piece whose template names no requirement carries its own least level and
 /// Arcane Lore: used below its level it is refused 10009; at its level, without the lore, 10050;
 /// with an Arcane Lore skill rated at the item's lore it is worn.

@@ -1933,6 +1933,18 @@ fn a_glyph_and_treasure_are_named_though_only_their_qualities_say() {
     );
 }
 
+/// The install's items and portals for heroes alone read as such: a trophy, a sword, a suit of
+/// armor and a blue portal; an ordinary item does not.
+/// Behaviour: server.items.hero-only
+#[test]
+fn the_installs_items_and_portals_for_heroes_alone_read_as_for_heroes() {
+    let p = Portal::open();
+    for t in [0x4700_14CC, 0x4700_13F7, 0x4700_12F8, 0x4700_1B5B] {
+        assert!(p.template(t).props.flag("Usage_HeroOnly"), "{t:#x}");
+    }
+    assert!(!p.template(0x4700_0845).props.flag("Usage_HeroOnly"));
+}
+
 /// A template whose least level is only its class's isn't one that sets it, as one whose entity says.
 /// Behaviour: server.loot.treasure-own-properties-over-a-class
 #[test]

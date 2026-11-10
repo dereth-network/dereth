@@ -644,10 +644,16 @@ pub fn not_monarch<S: Store>(s: &Server<S>, world: ConnId, props: &Props) -> boo
             .is_none_or(|p| s.allegiances.monarch(p.character) != Some(p.character))
 }
 
+/// Is this for heroes alone, and the player of these qualities none?
+#[must_use]
+pub fn not_hero(props: &Props, qualities: &[u8]) -> bool {
+    props.flag("Usage_HeroOnly") && !crate::focus::is_hero(qualities)
+}
+
 /// Why a player may not use an item of these properties now, if it may not: for monarchs alone and
 /// the player none, moving (an item that may not be used so), a mount's item with its hands full,
 /// a mount on or indoors, too far from the item's place, its quest (one the server knows) not where
-/// the item needs it, below the item's least level.
+/// the item needs it, below the item's least level, for heroes alone and the player none.
 fn refused<S: Store>(s: &Server<S>, world: ConnId, props: &Props, clock: Clock) -> Option<u32> {
     let p = s.players.get(&world)?;
     if not_monarch(s, world, props) {
@@ -685,7 +691,7 @@ fn refused<S: Store>(s: &Server<S>, world: ConnId, props: &Props, clock: Clock) 
     if i64::from(crate::examine::level_of(&p.qualities)) < least {
         return Some(refusal::LEVEL_TOO_LOW);
     }
-    None
+    not_hero(props, &p.qualities).then_some(refusal::HERO_ONLY)
 }
 
 /// May an item of these properties not be used moving?

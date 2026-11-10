@@ -924,6 +924,73 @@ fn a_placed_portal_for_heroes_alone_refuses_anyone_else_at_a_use_and_a_walk_in()
     );
 }
 
+/// A placed portal whose template is for heroes alone, its row saying nothing of heroes, refuses
+/// anyone else 10049 with flags 820 and no trip, and so does such an object that leads nowhere; a
+/// hero beside the portal it takes.
+/// Behaviour: server.places.template-hero-only
+#[test]
+fn a_placed_portal_whose_template_is_for_heroes_alone_refuses_anyone_else() {
+    use auberean_primitives::Vec3;
+    use yalain_testkit::play::report;
+    use yalain_world::world::IDLE_MOTION;
+    const GATEWAY: u32 = 0x4700_1B5B;
+    let mut h = Harness::new();
+    let mut props = yalain_content::Props::default();
+    props.set("Usage_HeroOnly", yalain_content::Prop::Bool(true));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(GATEWAY, 0x1A01, props));
+    let to = Place {
+        cell: 0x7000_0001,
+        origin: [10.0, 10.0, 50.0],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    let gated = object(PORTAL, GATEWAY, [61.0, 259.2, -44.6], Some(to));
+    assert!(!gated.facts.hero, "its row says nothing of heroes");
+    h.server.content = ContentPack {
+        objects: vec![gated, object(STONE, GATEWAY, [61.0, 262.0, -44.6], None)],
+        ..ContentPack::default()
+    };
+    let (a, me) = h.player_in_world("one", "Elara");
+    h.run(10);
+    let asks = server_call(function::USE, &[use_of(PORTAL, me)]);
+    let from = h.bots[a].inbox.len();
+    h.bots[a].send(true, queue::WEENIE, &asks);
+    h.run(10);
+    let answers = use_answers(&h, a, from);
+    assert_eq!(answers.len(), 1, "answered once");
+    assert_eq!((answers[0].0, answers[0].1), (10_049, 820));
+    assert!(!calls(&h, a, from).contains(&trip::ENTER_PORTAL_SPACE));
+    let from = h.bots[a].inbox.len();
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &server_call(function::USE, &[use_of(STONE, me)]),
+    );
+    h.run(10);
+    let answers = use_answers(&h, a, from);
+    assert_eq!(
+        answers.len(),
+        1,
+        "the object leading nowhere: answered once"
+    );
+    assert_eq!((answers[0].0, answers[0].1), (10_049, 820));
+    let cell = h.server.players.values().next().expect("in").position.cell;
+    let by_it = report(cell, Vec3::new(61.0, 258.2, -44.6), 0, IDLE_MOTION, 0);
+    h.bots[a].send(true, queue::WEENIE, &by_it);
+    h.run(100);
+    for p in h.server.players.values_mut() {
+        yalain_world::focus::set_hero_kept(&mut p.qualities, true);
+    }
+    let from = h.bots[a].inbox.len();
+    h.bots[a].send(true, queue::WEENIE, &asks);
+    h.run(40);
+    assert!(
+        calls(&h, a, from).contains(&trip::ENTER_PORTAL_SPACE),
+        "a hero is taken"
+    );
+}
+
 /// A placed portal of one kingdom refuses a player of no kingdom or another, 10011 with flags 820
 /// and no trip; one of that kingdom it takes.
 /// Behaviour: server.places.portal-kingdom

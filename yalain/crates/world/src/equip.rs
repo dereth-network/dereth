@@ -437,8 +437,9 @@ fn iid_update<S: Store>(s: &mut Server<S>, item: u64, quality: u32, value: u64) 
 }
 
 /// Why a player may not put on an item of these properties, if it may not: its race is not among
-/// the item's, it does not hold a skill the item needs, it is below the item's least level, its
-/// Arcane Lore is below the item's, or the quest the item needs is not where it needs it. A
+/// the item's, it does not hold a skill the item needs, it is below the item's least level, the
+/// item is for heroes alone and the player none, its Arcane Lore is below the item's, or the quest
+/// the item needs is not where it needs it. A
 /// treasure item's own least level and Arcane Lore stand in for its template's (2017: the item's own
 /// least level above the player's, 8 of 9 refusals 10009 whose player's level is known; its own
 /// Arcane Lore, 47 to 53, 5 of 5 refusals 10050 of players of level 51 to 54; the level first, 3
@@ -474,6 +475,9 @@ fn refused<S: Store>(
         .unwrap_or(0);
     if i64::from(crate::examine::level_of(&p.qualities)) < least {
         return Some(crate::item_use::refusal::LEVEL_TOO_LOW);
+    }
+    if crate::item_use::not_hero(props, &p.qualities) {
+        return Some(crate::item_use::refusal::HERO_ONLY);
     }
     let lore = own
         .arcane_lore
