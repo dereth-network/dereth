@@ -13,6 +13,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`RELEASING.md`](RELEASING.md)).
 
 ## Unreleased
+
+## 0.3.13 (2026-11-10)
 - Dereth players download a world's own data much faster.
 
 ## 0.3.12 (2026-11-09)
