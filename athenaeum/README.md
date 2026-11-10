@@ -6,6 +6,11 @@ serves): where people, objects and camps stand, where portals lead, and the rest
 rows. A world's rows replace the database's by key and take them away with `[[remove]]`, and Yalain
 serves the two together, so even the retail client sees what a world places.
 
+[FORMAT.md](FORMAT.md) is the reference for a world's files and every kind of row, with each
+field. [`sample/`](sample/) is a small world over the database: a trader, a portal, the place it
+leads to, a camp and a line of the trader's in Arwic. Copy it to a folder of your own to open it,
+since playing and building a world write beside it.
+
 It is early work: the editor places, moves, turns, changes and takes away people, objects, camps
 and places, outdoors and in rooms and dungeons. It shares Asheron's Call 2's core (`core/auberean-*`) with
 [Auberean](../auberean/README.md) and Yalain, draws the world with Auberean's drawing crates, and
@@ -89,6 +94,13 @@ to where it leads.
 - Shift+click adds a row to the selection. Then dragging, the handles, R, Duplicate and Delete take
   them all together, keeping how they stand to each other, and one Undo takes it back.
 - A place's **key** on the right renames it, and what leads to it follows.
+- The right shows every field of the selected object, camp or place, grouped: a check box for
+  what is on or off, a list for a field of a few values (a person or an object, a kingdom, how a
+  camp's creatures move), and the quest a portal needs and how far along. Hover a field's name for
+  what it does; the rest is typed as the row writes it.
+- A camp's spots, where its creatures appear indoors, are drawn as small squares, joined to it
+  when it's selected. Drag one to move it; **Add spot** on the right adds one at the next click
+  on the floor. A camp placed in a room has one where it was put, and a camp moved takes them along.
 - An object's **Lead to a place** list makes it a portal: this world's places first, then the
   nearest others. A camp's creatures are listed by name, with how often each comes and **Add** for
   the template along the top.
@@ -96,6 +108,9 @@ to where it leads.
   it; Shift+click keeps the window open for the next, and it opens again on the same search.
   Things to carry stay out of the way until **Items** is ticked, or **Worn**, which shows what can
   be worn on a body. **no picture** is something that shows only as effects, which play once it stands in the world.
+- **Pets** lists the world's kinds of pet and what each summoning skill allows. Choose one to see and
+  change its fields, **Put back** one the world changed, or **Take away** one; **Add** makes a new
+  kind of pet (its effect and the template it makes) or a new skill's limit.
 - **Map** or M shows the whole world, this world's rows on it and the camera as a cross. Click
   to go there.
 - Ctrl+F or **Find rows** finds any row of the world by its name, template, kind or key, nearest
@@ -120,7 +135,11 @@ to where it leads.
 - A row of the database is never written: changing one writes this world's own row of its key,
   shown as changed, with what it was and **Put back**; taking one away writes a `[[remove]]`.
 - Ctrl+S saves, Ctrl+Z undoes, Ctrl+Y redoes (Cmd on macOS, as well). The world's problems are listed along the bottom as
-  the server's check finds them.
+  the server's check finds them. Click a problem or a warning to go to it: its row, or its file
+  at its line, for a quest's, a step's, a loot row's or one that doesn't read.
+- A world's files can be edited by hand while the editor is open: what you save in another program
+  shows at once, and reaches Live. A file changed there and here both is kept as it is here and
+  isn't saved until you choose **Keep mine** or **Take the disk's**.
 - T sends the character playing on Live to the camera.
 
 The top of `editor/src/main.rs` lists every option, and `editor/src/script.rs` the steps a

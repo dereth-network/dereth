@@ -1,0 +1,8 @@
+# Where the market's portal leads.
+
+[[place]]
+key = "market-landing"
+cell = 0x77B80006
+at = [3.0, 100.0, 182.5]
+heading = 0.0
+prov = { from = "authored", by = "sample" }

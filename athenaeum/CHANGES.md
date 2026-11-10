@@ -7,6 +7,10 @@ Add a line under **Unreleased** when a change lands that a world builder would n
 see, not how it was done.
 
 ## Unreleased
+- Every field and pet can now be edited in the editor.
+- Files you edit by hand now show in the editor at once.
+- Clicking a problem or warning now takes you to its row.
+- New format reference and a sample world to start from.
 
 ## 0.1.6 (2026-11-10)
 - Reads the world rows Yalain added since the last release.

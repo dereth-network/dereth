@@ -185,6 +185,28 @@ pub struct Session {
     /// The world's key, and which entries are its clearings.
     key: String,
     clearings: Vec<usize>,
+    /// The files changed on disk while the session held a change of its own to them, by path in
+    /// the world's folder: neither is written over the other until one is chosen.
+    clashes: BTreeSet<String>,
+}
+
+/// What a look at the world's files on disk found ([`Session::take_disk_changes`]).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DiskChanges {
+    /// The files taken in as the disk has them, by path in the world's folder.
+    pub taken: Vec<String>,
+    /// The files newly changed on disk and in the session both, kept as the session has them.
+    pub clashing: Vec<String>,
+    /// Whether undo and redo were let go: they would have put back text the disk had replaced.
+    pub history_dropped: bool,
+}
+
+impl DiskChanges {
+    /// Whether nothing changed.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.taken.is_empty() && self.clashing.is_empty()
+    }
 }
 
 impl std::fmt::Debug for Session {
@@ -288,6 +310,7 @@ impl Session {
             revision: 0,
             key: String::new(),
             clearings: Vec::new(),
+            clashes: BTreeSet::new(),
         };
         s.refresh();
         Ok(s)
@@ -365,14 +388,92 @@ impl Session {
         self.sources.unsaved()
     }
 
-    /// Write every changed file. Answers the files written or removed.
+    /// Write every changed file. Answers the files written or removed. A file changed on disk as
+    /// well since the session read it is not written over: it is a clash ([`Session::clashes`]),
+    /// and the rest are written.
     ///
     /// # Errors
-    /// A file that will not write, and why.
+    /// A file that will not write, and why; or the files left unsaved for a clash.
     pub fn save(&mut self) -> Result<Vec<PathBuf>, String> {
-        self.sources
-            .save(&*self.store)
-            .map_err(|(p, e)| format!("{}: {e}", p.display()))
+        let changed: Vec<PathBuf> = self
+            .sources
+            .iter()
+            .map(|(p, _)| p.to_path_buf())
+            .filter(|p| self.sources.differs(p))
+            .collect();
+        for path in changed {
+            let Ok(now) = read_now(&*self.store, &path) else {
+                continue;
+            };
+            let stored = self.sources.stored(&*self.store, &path);
+            if now == stored {
+                continue;
+            }
+            if now == self.sources.text(&*self.store, &path) {
+                self.sources.set_stored(&path, now);
+            } else {
+                let rel = self.rel(&path);
+                self.clashes.insert(rel);
+            }
+        }
+        let held: BTreeSet<PathBuf> = self.clashes.iter().map(|r| self.dir.join(r)).collect();
+        let written = self
+            .sources
+            .save_where(&*self.store, |p| !held.contains(p))
+            .map_err(|(p, e)| format!("{}: {e}", p.display()))?;
+        if self.clashes.is_empty() {
+            return Ok(written);
+        }
+        Err(format!(
+            "saved {} files, but not {}: changed on disk as well; keep yours or take the disk's",
+            written.len(),
+            self.clashes.iter().cloned().collect::<Vec<_>>().join(", ")
+        ))
+    }
+
+    /// The files changed both on disk and in the session, by path in the world's folder: each
+    /// keeps the session's text, unsaved, until [`Session::keep_mine`] or [`Session::take_disk`].
+    #[must_use]
+    pub fn clashes(&self) -> &BTreeSet<String> {
+        &self.clashes
+    }
+
+    /// Settle a clash for the session's text: the next save writes it over what the disk has.
+    ///
+    /// # Errors
+    /// The file will not read.
+    pub fn keep_mine(&mut self, rel: &str) -> Result<(), String> {
+        let path = self.dir.join(rel);
+        let now = read_now(&*self.store, &path).map_err(|e| format!("{rel}: {e}"))?;
+        self.sources.set_stored(&path, now);
+        self.clashes.remove(rel);
+        Ok(())
+    }
+
+    /// Settle a clash for the disk's text: the session's change to the file is let go, and undo
+    /// and redo with it when they would put it back.
+    ///
+    /// # Errors
+    /// The file will not read.
+    pub fn take_disk(&mut self, rel: &str) -> Result<(), String> {
+        let path = self.dir.join(rel);
+        let now = read_now(&*self.store, &path).map_err(|e| format!("{rel}: {e}"))?;
+        self.sources.put(&*self.store, &path, now.clone());
+        self.sources.set_stored(&path, now.clone());
+        match now {
+            Some(t) => {
+                self.files.insert(rel.to_string(), t);
+            }
+            None => {
+                self.files.remove(rel);
+            }
+        }
+        self.clashes.remove(rel);
+        if self.history.names(&path) {
+            self.history = History::default();
+        }
+        self.refresh();
+        Ok(())
     }
 
     /// Take the last change back. Answers whether there was one.
@@ -462,29 +563,55 @@ impl Session {
         }
     }
 
-    /// Take in what the store's files say now where the session has not changed them: a file
-    /// written by hand, or by another program, while the world is open. A file the session holds an
-    /// unsaved edit of keeps the session's text, as saving it would. Answers the files taken in.
-    pub fn take_disk_changes(&mut self) -> Vec<String> {
-        let mut taken = Vec::new();
-        for (rel, held) in self.files.clone() {
+    /// Take in the world's files as the disk has them now (`now`, by path in the world's folder,
+    /// as [`crate::world::load`] reads them): a file written, added or taken away by hand, or by
+    /// another program, while the world is open. A file the session holds a change of its own to
+    /// keeps the session's text; when the disk's changed as well, that is a clash, and neither is
+    /// written over the other ([`Session::clashes`]). Undo and redo are let go when they would put
+    /// back text of a file taken in.
+    pub fn take_disk_changes(&mut self, now: &Files) -> DiskChanges {
+        let mut found = DiskChanges::default();
+        let rels: BTreeSet<String> = self.files.keys().chain(now.keys()).cloned().collect();
+        for rel in rels {
             let path = self.dir.join(&rel);
+            let disk = now.get(&rel).cloned();
+            let held = self.files.get(&rel).cloned();
             if self.sources.differs(&path) {
+                if disk == self.sources.stored(&*self.store, &path) {
+                    continue;
+                }
+                if disk == held {
+                    // The disk has come to the session's text: nothing is left to save.
+                    self.sources.set_stored(&path, disk);
+                    self.clashes.remove(&rel);
+                } else if self.clashes.insert(rel.clone()) {
+                    found.clashing.push(rel);
+                }
                 continue;
             }
-            let Ok(now) = self.store.read_to_string(&path) else {
+            self.clashes.remove(&rel);
+            if disk == held {
                 continue;
-            };
-            if now != held {
-                self.sources.reread(&path, Some(now.clone()));
-                self.files.insert(rel.clone(), now);
-                taken.push(rel);
             }
+            self.sources.reread(&path, disk.clone());
+            match disk {
+                Some(t) => {
+                    self.files.insert(rel.clone(), t);
+                }
+                None => {
+                    self.files.remove(&rel);
+                }
+            }
+            if self.history.names(&path) {
+                self.history = History::default();
+                found.history_dropped = true;
+            }
+            found.taken.push(rel);
         }
-        if !taken.is_empty() {
+        if !found.taken.is_empty() {
             self.refresh();
         }
-        taken
+        found
     }
 
     /// Read, check and merge the world again.
@@ -585,6 +712,36 @@ impl Session {
         self.removed = removed;
         self.problems = problems;
         self.warnings = warnings;
+    }
+
+    /// The placed row whose table holds line `line` of `file` (by path in the world's folder, or
+    /// in the base's): the row a problem there is about. `None` for a line of no placed row's (a
+    /// quest's, a step's, a loot row's), or of none at all.
+    #[must_use]
+    pub fn row_at(&self, file: &str, line: usize) -> Option<&Entry> {
+        if line == 0 {
+            return None;
+        }
+        // Each row's table runs from its `[[kind]]` line to the next one's.
+        let headers: Vec<usize> = match self.files.get(file) {
+            Some(text) => text
+                .lines()
+                .enumerate()
+                .filter(|(_, l)| l.trim_start().starts_with("[["))
+                .map(|(i, _)| i + 1)
+                .collect(),
+            None => self
+                .base
+                .db
+                .rows()
+                .filter(|l| l.file == file)
+                .map(|l| l.line)
+                .collect(),
+        };
+        let header = headers.into_iter().filter(|h| *h <= line).max()?;
+        self.entries
+            .iter()
+            .find(|e| e.row.file == file && e.row.line == header)
     }
 
     /// The world's key.
@@ -718,12 +875,17 @@ impl Session {
                     landblock: lb,
                 });
                 let (radius, population, regen) = NEW_CAMP;
+                // Indoors its creatures appear at its spots: the first is where it is put.
+                let spots = cell
+                    .filter(|c| c & 0xFFFF >= 0x100)
+                    .map(|c| vec![(c, at)])
+                    .unwrap_or_default();
                 let c = Camp {
                     key: key.clone(),
                     cell,
                     at,
                     radius,
-                    spots: Vec::new(),
+                    spots,
                     population,
                     regen,
                     spawns: vec![(new.template, 1)],
@@ -1075,6 +1237,24 @@ impl Session {
         Ok(result)
     }
 
+    /// Give a camp these spots, the points its creatures appear at indoors: each one's cell and
+    /// point in the camp's landblock. None takes the field away.
+    ///
+    /// # Errors
+    /// As [`Session::set`]; a row that is no camp.
+    pub fn set_spots(&mut self, item: &str, spots: &[(u32, At)]) -> Result<String, String> {
+        let e = self.entry(item).ok_or_else(|| not_found(item))?;
+        if !matches!(e.row.row, Row::Camp(_)) {
+            return Err(format!("{item} is not a camp"));
+        }
+        let text = if spots.is_empty() {
+            String::new()
+        } else {
+            rowtoml::spots(spots).to_string()
+        };
+        self.set(item, "spots", &text)
+    }
+
     /// The world's `[[pet]]` and `[[pet_limit]]` rows as they stand.
     #[must_use]
     pub fn pets(&self) -> &[Located] {
@@ -1102,11 +1282,14 @@ impl Session {
                 fields.join(", ")
             ));
         }
+        // The row as it stands, where it came from and all: the field changed is marked a
+        // person's when it is written.
         let (id_field, id, mut table) = match &row.row {
-            Row::Pet(r) => ("effect", r.effect, rowtoml::pet(r, &Prov::AUTHORED)),
-            Row::PetLimit(r) => ("skill", r.skill, rowtoml::pet_limit(r, &Prov::AUTHORED)),
+            Row::Pet(r) => ("effect", r.effect, rowtoml::pet(r, &r.prov)),
+            Row::PetLimit(r) => ("skill", r.skill, rowtoml::pet_limit(r, &r.prov)),
             _ => return Err(not_found(item)),
         };
+        let before = table.clone();
         if field == id_field {
             return Err(format!(
                 "{id_field} names the row: write a new one to have another"
@@ -1121,6 +1304,7 @@ impl Session {
                 .map_err(|e| format!("{field}: {value:?} is not a TOML value: {e}"))?;
             table.insert(field, Item::Value(v));
         }
+        mark_authored(&before, &mut table);
         let file = format!("{}/server/pets.toml", self.target);
         let mut doc = self.doc(&file)?;
         let same = |t: &Table| {
@@ -1150,6 +1334,134 @@ impl Session {
             return Err(why.join("\n"));
         }
         Ok(item.to_string())
+    }
+
+    /// Where a `[[pet]]` or `[[pet_limit]]` of [`Session::pets`] is written: the target's, another
+    /// of the world's packs', or the base's.
+    #[must_use]
+    pub fn pet_layer(&self, l: &Located) -> Layer {
+        if l.pack == self.target_name {
+            Layer::Target
+        } else if self.world_packs.contains(&l.pack) {
+            Layer::Other
+        } else {
+            Layer::Base
+        }
+    }
+
+    /// The base's row of a pet's item, when the world's row replaces one, or the base's own row.
+    #[must_use]
+    pub fn pet_was(&self, item: &str) -> Option<&Located> {
+        self.base_items
+            .get(item)
+            .map(|i| &self.base.merged.rows[*i])
+    }
+
+    /// The file the target writes its kinds of pet in.
+    fn pets_file(&self) -> String {
+        format!("{}/server/pets.toml", self.target)
+    }
+
+    /// Add a kind of pet: what pet `effect` (or a contract's template) makes, `template`, as a
+    /// person's row of the target. Answers its item.
+    ///
+    /// # Errors
+    /// The world has a pet of that effect, or a file that is not TOML.
+    pub fn add_pet(&mut self, effect: u32, template: u32) -> Result<String, String> {
+        let item = ItemKey::Pet { effect }.to_string();
+        self.add_pet_row(&item, "pet", |t| {
+            t.insert("effect", Item::Value(rowtoml::hex(effect)));
+            t.insert("template", Item::Value(rowtoml::hex(template)));
+        })
+    }
+
+    /// Add what a summoning skill allows its user: as many as `most` of pets that share a bit of
+    /// `classes`, as a person's row of the target. Answers its item.
+    ///
+    /// # Errors
+    /// The world has a limit of that skill, or a file that is not TOML.
+    pub fn add_pet_limit(&mut self, skill: u32, most: u32, classes: u32) -> Result<String, String> {
+        let item = ItemKey::PetLimit { skill }.to_string();
+        self.add_pet_row(&item, "pet_limit", |t| {
+            t.insert("skill", Item::Value(Value::from(i64::from(skill))));
+            let mut limit = InlineTable::new();
+            limit.insert("most", Value::from(i64::from(most)));
+            limit.insert("classes", rowtoml::hex(classes));
+            let mut limits = toml_edit::Array::new();
+            limits.push(Value::InlineTable(limit));
+            t.insert("limits", Item::Value(Value::Array(limits)));
+        })
+    }
+
+    fn add_pet_row(
+        &mut self,
+        item: &str,
+        kind: &str,
+        fill: impl FnOnce(&mut Table),
+    ) -> Result<String, String> {
+        if self
+            .pets
+            .iter()
+            .any(|l| item_key(l).as_deref() == Some(item))
+        {
+            return Err(format!("{item}: the world has one already"));
+        }
+        let mut table = Table::new();
+        fill(&mut table);
+        table.insert("prov", Item::Value(rowtoml::prov(&Prov::AUTHORED)));
+        let file = self.pets_file();
+        let mut doc = self.doc(&file)?;
+        // A pet the world took away comes back as this row.
+        take_remove(&mut doc, item);
+        push_row(&mut doc, kind, table);
+        let steps = self.history.len();
+        self.commit(vec![(file.clone(), Some(doc.to_string()))]);
+        let why: Vec<String> = self
+            .problems
+            .iter()
+            .filter(|p| p.file == file)
+            .map(ToString::to_string)
+            .collect();
+        if !why.is_empty() && self.history.len() > steps {
+            self.undo();
+            self.history.clear_redo();
+            return Err(why.join("\n"));
+        }
+        Ok(item.to_string())
+    }
+
+    /// Take a kind of pet or a skill's limit away: the target's own row is deleted, and the
+    /// base's, or the one the target's replaced, is removed by item.
+    ///
+    /// # Errors
+    /// No such row, a row of another pack, or a file that is not TOML.
+    pub fn remove_pet(&mut self, item: &str) -> Result<(), String> {
+        let row = self
+            .pets
+            .iter()
+            .find(|l| item_key(l).as_deref() == Some(item))
+            .cloned()
+            .ok_or_else(|| not_found(item))?;
+        let layer = self.pet_layer(&row);
+        if layer == Layer::Other {
+            return Err(format!(
+                "{item} is pack {}'s; this session edits pack {}",
+                row.pack, self.target_name
+            ));
+        }
+        let file = match layer {
+            Layer::Target => row.file.clone(),
+            _ => self.pets_file(),
+        };
+        let mut doc = self.doc(&file)?;
+        if layer == Layer::Target {
+            remove_pet_row(&mut doc, &row.row);
+        }
+        if self.base_items.contains_key(item) {
+            push_remove(&mut doc, item);
+        }
+        self.commit(vec![(file, text_of(&doc))]);
+        Ok(())
     }
 
     fn set_unchecked(&mut self, item: &str, field: &str, value: &str) -> Result<String, String> {
@@ -1454,7 +1766,7 @@ impl Session {
     }
 
     /// Put a base row back as the base has it: the target's row of its item and its removals
-    /// go.
+    /// go. A placed row's item, or a kind of pet's.
     ///
     /// # Errors
     /// The base has no such row, or a file that is not TOML.
@@ -1464,17 +1776,28 @@ impl Session {
         }
         let prefix = format!("{}/", self.target);
         let parsed = ItemKey::parse(&item.split_whitespace().collect::<Vec<_>>());
+        // The target's own row of a kind of pet, by its file.
+        let pet = self
+            .pets
+            .iter()
+            .find(|l| item_key(l).as_deref() == Some(item) && self.pet_layer(l) == Layer::Target)
+            .map(|l| (l.file.clone(), l.row.clone()));
         let (kind, key) = match &parsed {
             Some(ItemKey::Object { key, .. }) => ("object", key.clone()),
             Some(ItemKey::Camp { key, .. }) => ("camp", key.clone()),
             Some(ItemKey::Place { key }) => ("place", key.clone()),
             Some(ItemKey::Clearing { key, .. }) => ("clearing", key.clone()),
-            _ => return Err(format!("{item}: not a placed row")),
+            Some(ItemKey::Pet { .. }) => ("pet", String::new()),
+            Some(ItemKey::PetLimit { .. }) => ("pet_limit", String::new()),
+            _ => return Err(format!("{item}: not a placed row or a kind of pet")),
         };
-        let own = self
-            .entry(item)
-            .filter(|e| e.layer == Layer::Target)
-            .map(|e| e.row.file.clone());
+        let own = match &pet {
+            Some((file, _)) => Some(file.clone()),
+            None => self
+                .entry(item)
+                .filter(|e| e.layer == Layer::Target)
+                .map(|e| e.row.file.clone()),
+        };
         let mut changes = Vec::new();
         let files: Vec<String> = self
             .files
@@ -1486,7 +1809,10 @@ impl Session {
             let mut doc = self.doc(&f)?;
             let mut changed = take_remove(&mut doc, item);
             if own.as_deref() == Some(f.as_str()) {
-                changed |= remove_row(&mut doc, kind, &key);
+                changed |= match &pet {
+                    Some((_, row)) => remove_pet_row(&mut doc, row),
+                    None => remove_row(&mut doc, kind, &key),
+                };
             }
             if changed {
                 changes.push((f, text_of(&doc)));
@@ -1497,7 +1823,15 @@ impl Session {
     }
 }
 
-/// The key a placed row is written with.
+/// What the store has at `path` now: `None` for no file.
+fn read_now(store: &dyn SourceStore, path: &Path) -> std::io::Result<Option<String>> {
+    match store.read_to_string(path) {
+        Ok(t) => Ok(Some(t)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
 /// A reference to a row (`key`, `key@XXYY`, `pack:key[@XXYY]`) as it is to name the row of `pack`
 /// moved from `old` in landblock `from` to `new` in landblock `to`; `None` when it names another
 /// row, or still names this one as it is (no landblock, and the key kept).
@@ -1645,6 +1979,7 @@ fn move_spots(table: &mut Table, by: [f32; 3], landblock: u16, rooms: Option<(u3
     }
 }
 
+/// The key a placed row is written with.
 fn key_of(row: &Row) -> String {
     match row {
         Row::Object(o) => o.key.clone(),
@@ -1733,6 +2068,31 @@ fn remove_row(doc: &mut DocumentMut, kind: &str, key: &str) -> bool {
         .iter()
         .position(|t| t.get("key").and_then(Item::as_str) == Some(key))
     else {
+        return false;
+    };
+    aot.remove(i);
+    if aot.is_empty() {
+        doc.remove(kind);
+    }
+    true
+}
+
+/// Take a `[[pet]]` or `[[pet_limit]]` table out, the one of `row`'s effect or skill. Answers
+/// whether there was one.
+fn remove_pet_row(doc: &mut DocumentMut, row: &Row) -> bool {
+    let (kind, field, id) = match row {
+        Row::Pet(r) => ("pet", "effect", r.effect),
+        Row::PetLimit(r) => ("pet_limit", "skill", r.skill),
+        _ => return false,
+    };
+    let Some(aot) = doc.get_mut(kind).and_then(Item::as_array_of_tables_mut) else {
+        return false;
+    };
+    let Some(i) = aot.iter().position(|t| {
+        t.get(field)
+            .and_then(Item::as_integer)
+            .is_some_and(|v| v == i64::from(id))
+    }) else {
         return false;
     };
     aot.remove(i);

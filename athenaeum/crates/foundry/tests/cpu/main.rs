@@ -1,6 +1,8 @@
 //! Athenaeum's world machinery without an install: worlds over a base, their edits as pack text,
 //! undo, redo and save, and their counts.
 mod edit;
+mod fields;
+mod format;
 mod world;
 
 use std::path::PathBuf;

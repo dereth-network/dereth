@@ -931,18 +931,36 @@ fn a_camp_moved_into_another_landblock_takes_what_names_it_along() {
     );
 }
 
-#[test]
-fn a_file_changed_on_disk_is_taken_in_unless_the_session_changed_it() {
-    let places = "fill-test/server/places.toml";
-    let place = |key: &str| {
-        format!(
-            "[[place]]\nkey = \"{key}\"\ncell = 0x77B80003\nat = [1.0, 2.0, 3.0]\nheading = 0.0\nprov = {{ from = \"authored\" }}\n"
-        )
-    };
+/// The world's files as the store has them now, by path in the world's folder: what a look at the
+/// disk reads.
+fn on_disk(disk: &MemoryStore) -> yalain_world_db::Files {
+    disk.snapshot()
+        .into_iter()
+        .filter_map(|(p, b)| {
+            let rel = p
+                .strip_prefix(dir())
+                .ok()?
+                .to_string_lossy()
+                .replace('\\', "/");
+            Some((rel, String::from_utf8(b).ok()?))
+        })
+        .collect()
+}
+
+fn a_place(key: &str) -> String {
+    format!(
+        "[[place]]\nkey = \"{key}\"\ncell = 0x77B80003\nat = [1.0, 2.0, 3.0]\nheading = 0.0\nprov = {{ from = \"authored\" }}\n"
+    )
+}
+
+const PLACES: &str = "fill-test/server/places.toml";
+
+/// A session over a new world with a place of its own, `inn`, and the store it reads and saves.
+fn with_a_place() -> (Session, Arc<MemoryStore>) {
     let mut files = world_files();
-    files.insert(places.into(), place("inn"));
+    files.insert(PLACES.into(), a_place("inn"));
     let disk = Arc::new(store(&files));
-    let mut s = Session::new(
+    let s = Session::new(
         dir(),
         Box::new(Shared(Arc::clone(&disk))),
         files,
@@ -950,22 +968,392 @@ fn a_file_changed_on_disk_is_taken_in_unless_the_session_changed_it() {
         None,
     )
     .unwrap();
-    assert!(s.take_disk_changes().is_empty(), "nothing changed yet");
-    // Written by hand while the world is open: taken in, and the world read again.
-    disk.write(&dir().join(places), place("tavern").as_bytes())
+    (s, disk)
+}
+
+#[test]
+fn a_file_changed_on_disk_is_taken_in_and_the_world_read_again() {
+    let (mut s, disk) = with_a_place();
+    assert!(
+        s.take_disk_changes(&on_disk(&disk)).is_empty(),
+        "nothing changed yet"
+    );
+    disk.write(&dir().join(PLACES), a_place("tavern").as_bytes())
         .unwrap();
     let revision = s.revision();
-    assert_eq!(s.take_disk_changes(), [places]);
+    let found = s.take_disk_changes(&on_disk(&disk));
+    assert_eq!(found.taken, [PLACES]);
+    assert!(found.clashing.is_empty());
     assert!(s.revision() > revision);
     assert!(s.entry("place tavern").is_some() && s.entry("place inn").is_none());
     assert!(
         !s.unsaved(),
-        "what the store has is no edit of the session's"
+        "what the disk has is no change of the session's"
     );
-    // A file the session changed and has not saved keeps the session's text.
-    s.turn("place tavern", 90.0).unwrap();
-    disk.write(&dir().join(places), place("cellar").as_bytes())
+}
+
+#[test]
+fn a_file_added_or_taken_away_on_disk_is_taken_in() {
+    let (mut s, disk) = with_a_place();
+    let quest = "fill-test/server/quests/40000088.toml";
+    disk.write(
+        &dir().join(quest),
+        b"[[quest]]\nid = 0x40000088\nid_name = \"QuestTest\"\nprov = { from = \"authored\" }\n",
+    )
+    .unwrap();
+    assert_eq!(s.take_disk_changes(&on_disk(&disk)).taken, [quest]);
+    assert!(s.files().contains_key(quest), "a new file is the world's");
+    disk.remove(&dir().join(PLACES)).unwrap();
+    assert_eq!(s.take_disk_changes(&on_disk(&disk)).taken, [PLACES]);
+    assert!(!s.files().contains_key(PLACES));
+    assert!(s.entry("place inn").is_none());
+    assert!(!s.unsaved());
+    clean(&s);
+}
+
+#[test]
+fn a_file_changed_on_disk_and_in_the_session_clashes_and_neither_is_written_over() {
+    let (mut s, disk) = with_a_place();
+    // A change here, and another to the same file by hand, not yet saved here.
+    s.turn("place inn", 90.0).unwrap();
+    s.place(&person([10.0, 20.0, 30.0])).unwrap();
+    disk.write(&dir().join(PLACES), a_place("tavern").as_bytes())
         .unwrap();
-    assert!(s.take_disk_changes().is_empty());
+    let found = s.take_disk_changes(&on_disk(&disk));
+    assert_eq!(found.clashing, [PLACES]);
+    assert!(found.taken.is_empty());
+    assert!(s.clashes().contains(PLACES));
+    assert!(s.entry("place inn").is_some(), "the session's text is kept");
+    assert!(s.take_disk_changes(&on_disk(&disk)).is_empty(), "said once");
+    // Saving writes the rest, and not the file that clashes.
+    let said = s.save().unwrap_err();
+    assert!(said.contains(PLACES), "{said}");
+    assert_eq!(
+        disk.read_to_string(&dir().join(PLACES)).unwrap(),
+        a_place("tavern"),
+        "the hand's text stays"
+    );
+    assert!(disk.is_file(&dir().join(FILE)), "the other file is saved");
+    assert!(s.unsaved());
+    // Kept: the next save writes it.
+    s.keep_mine(PLACES).unwrap();
+    assert!(s.clashes().is_empty());
+    s.save().unwrap();
+    assert!(disk
+        .read_to_string(&dir().join(PLACES))
+        .unwrap()
+        .contains("key = \"inn\""));
+    assert!(!s.unsaved());
+}
+
+#[test]
+fn a_clash_settled_for_the_disk_takes_its_text_and_lets_undo_go() {
+    let (mut s, disk) = with_a_place();
+    s.turn("place inn", 90.0).unwrap();
+    disk.write(&dir().join(PLACES), a_place("tavern").as_bytes())
+        .unwrap();
+    s.take_disk_changes(&on_disk(&disk));
+    s.take_disk(PLACES).unwrap();
+    assert!(s.clashes().is_empty());
     assert!(s.entry("place tavern").is_some());
+    assert!(!s.unsaved());
+    assert_eq!(s.steps(), (0, 0), "undo would put the session's text back");
+}
+
+#[test]
+fn a_file_changed_on_disk_after_the_last_look_is_not_saved_over() {
+    let (mut s, disk) = with_a_place();
+    s.turn("place inn", 90.0).unwrap();
+    disk.write(&dir().join(PLACES), a_place("tavern").as_bytes())
+        .unwrap();
+    // No look at the disk since: the save finds it.
+    assert!(s.save().is_err());
+    assert_eq!(
+        disk.read_to_string(&dir().join(PLACES)).unwrap(),
+        a_place("tavern")
+    );
+    assert!(s.clashes().contains(PLACES));
+}
+
+#[test]
+fn undo_lets_go_once_a_file_it_would_put_back_is_taken_in_from_disk() {
+    let (mut s, disk) = with_a_place();
+    s.turn("place inn", 90.0).unwrap();
+    s.place(&person([10.0, 20.0, 30.0])).unwrap();
+    s.save().unwrap();
+    assert_eq!(s.steps(), (2, 0));
+    // A file no step changed leaves the history as it is.
+    let quest = "fill-test/server/quests/40000088.toml";
+    disk.write(
+        &dir().join(quest),
+        b"[[quest]]\nid = 0x40000088\nid_name = \"QuestTest\"\nprov = { from = \"authored\" }\n",
+    )
+    .unwrap();
+    assert!(!s.take_disk_changes(&on_disk(&disk)).history_dropped);
+    assert_eq!(s.steps(), (2, 0));
+    // One a step changed lets it go: an undo would put the hand's change back as it was.
+    disk.write(&dir().join(PLACES), a_place("tavern").as_bytes())
+        .unwrap();
+    let found = s.take_disk_changes(&on_disk(&disk));
+    assert!(found.history_dropped);
+    assert_eq!(s.steps(), (0, 0));
+    assert!(s.entry("place tavern").is_some());
+}
+
+/// A recorded pet row changed keeps where it came from, its evidence and how sure; only the field
+/// changed is marked a person's.
+#[test]
+fn a_recorded_pet_row_changed_keeps_its_provenance_and_marks_the_field() {
+    let mut files = crate::base_files();
+    files.insert(
+        "seed/server/pets.toml".into(),
+        r#"[[pet]]
+effect = 0x7000092A
+template = 0x47000862
+flags = 1096
+health = [{ level = 10, health = 200 }]
+prov = { from = "capture", evidence = "TEST-PETS", ref = "pet 1", confidence = "high", sample = { sessions = 3 } }
+"#
+        .into(),
+    );
+    let base = Base::new(&files).expect("the base reads");
+    let world = crate::world_files();
+    let mut s =
+        Session::new(crate::dir(), Box::new(store(&world)), world, base, None).expect("a session");
+    s.set("pet 0x7000092a", "flags", "3128").unwrap();
+    clean(&s);
+    let prov = s
+        .pets()
+        .iter()
+        .find_map(|l| match &l.row {
+            Row::Pet(r) if r.flags == 3128 => Some(r.prov.clone()),
+            _ => None,
+        })
+        .expect("the row, changed");
+    assert_eq!(
+        (
+            prov.source,
+            prov.evidence.as_deref(),
+            prov.reference.as_deref()
+        ),
+        (Source::Capture, Some("TEST-PETS"), Some("pet 1"))
+    );
+    assert!(prov.confidence.is_some());
+    assert_eq!(prov.sample.len(), 1, "{prov:?}");
+    let marked: Vec<(&str, Source)> = prov
+        .fields
+        .iter()
+        .map(|(k, p)| (k.as_str(), p.source))
+        .collect();
+    assert_eq!(marked, [("flags", Source::Authored)]);
+}
+
+#[test]
+fn a_problem_on_a_line_of_a_placed_rows_table_is_that_rows_and_others_are_no_rows() {
+    let mut files = world_files();
+    files.insert(
+        FILE.into(),
+        "[[camp]]\nkey = \"beetles\"\nat = [10.0, 10.0, 133.0]\nradius = 5.0\nparent = \"nowhere\"\npopulation = 2\n\
+         regen = 192.0\nspawns = [{ template = 0x47002224, weight = 1 }]\nprov = { from = \"authored\" }\n\n\
+         [[remove]]\nitems = [\"object s-5c@77B8\"]\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    let quest = "fill-test/server/quests/40000088.toml";
+    files.insert(
+        quest.into(),
+        "[[quest]]\nid = 0x40000088\nid_name = \"QuestTest\"\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    let s = Session::new(dir(), Box::new(store(&files)), files, base(), None).unwrap();
+    // The world's check finds the camp's parent missing, and any line of its table is the camp's.
+    let p = s
+        .problems()
+        .iter()
+        .find(|p| p.file == FILE)
+        .expect("a problem with the camp");
+    let camp = s.row_at(&p.file, p.line).map(|e| e.item.as_str());
+    assert_eq!(camp, Some("camp beetles@77B8"), "{p}");
+    assert_eq!(
+        s.row_at(FILE, 4).map(|e| e.item.as_str()),
+        Some("camp beetles@77B8")
+    );
+    // The removal's lines, a quest's and no line are no placed row's.
+    assert!(s.row_at(FILE, 11).is_none());
+    assert!(s.row_at(quest, 2).is_none());
+    assert!(s.row_at(FILE, 0).is_none());
+    // A base file's lines go by the base's rows.
+    let seed = "seed/server/landblocks/77B8.toml";
+    assert_eq!(
+        s.row_at(seed, 26).map(|e| e.item.as_str()),
+        Some("camp c-4586@77B8")
+    );
+    assert_eq!(
+        s.row_at(seed, 9).map(|e| e.item.as_str()),
+        Some("object n-334c@77B8")
+    );
+    assert!(s.row_at(seed, 2).is_none());
+}
+
+#[test]
+fn a_camp_placed_in_a_room_has_its_first_spot_where_it_was_put_and_outdoors_none() {
+    let mut s = session();
+    let camp = |at| NewRow {
+        kind: NewKind::Camp,
+        ..person(at)
+    };
+    let room = 0x77B8_0105;
+    let inside = s.place_in(&camp([20.0, 30.0, 10.0]), Some(room)).unwrap();
+    assert_eq!(spots(&s, &inside), [(room, [20.0, 30.0])]);
+    let outdoors = s.place(&camp([40.0, 30.0, 10.0])).unwrap();
+    assert!(spots(&s, &outdoors).is_empty());
+    clean(&s);
+}
+
+#[test]
+fn a_camps_spots_are_set_added_moved_and_taken_away() {
+    let mut s = session();
+    let camp = "camp c-4586@77B8";
+    let at = |x, y| yalain_world_db::rows::At {
+        x,
+        y,
+        z: Some(10.0),
+    };
+    let room = 0x77B8_0105;
+    s.set_spots(camp, &[(room, at(20.0, 30.0)), (room, at(22.0, 31.5))])
+        .unwrap();
+    clean(&s);
+    assert_eq!(
+        spots(&s, camp),
+        [(room, [20.0, 30.0]), (room, [22.0, 31.5])]
+    );
+    // A base camp: the world's own row of its key, its provenance kept and the spots a person's.
+    let e = s.entry(camp).unwrap();
+    assert_eq!(e.layer, Layer::Target);
+    let prov = e.prov().unwrap();
+    assert_eq!(prov.source, Source::Capture);
+    assert_eq!(
+        prov.fields.get("spots").map(|p| p.source),
+        Some(Source::Authored)
+    );
+    s.set_spots(camp, &[(room, at(25.0, 30.0))]).unwrap();
+    assert_eq!(spots(&s, camp), [(room, [25.0, 30.0])]);
+    s.set_spots(camp, &[]).unwrap();
+    assert!(spots(&s, camp).is_empty());
+    assert!(!text(&s, FILE).contains("spots = ["), "{}", text(&s, FILE));
+    assert!(
+        s.set_spots("object n-334c@77B8", &[]).is_err(),
+        "a camp's alone"
+    );
+    clean(&s);
+}
+
+/// A session over a new world whose base has a kind of pet and a skill's limit.
+fn with_pets() -> Session {
+    let mut files = crate::base_files();
+    files.insert(
+        "seed/server/pets.toml".into(),
+        r#"[[pet]]
+effect = 0x7000092A
+template = 0x47000862
+flags = 1096
+prov = { from = "capture", evidence = "TEST-PETS", ref = "pet 1", confidence = "high" }
+
+[[pet_limit]]
+skill = 704
+limits = [{ most = 1, classes = 0x1000 }]
+prov = { from = "authored" }
+"#
+        .into(),
+    );
+    let base = Base::new(&files).expect("the base reads");
+    let world = crate::world_files();
+    Session::new(crate::dir(), Box::new(store(&world)), world, base, None).expect("a session")
+}
+
+const PETS: &str = "fill-test/server/pets.toml";
+
+fn pet_items(s: &Session) -> Vec<String> {
+    s.pets()
+        .iter()
+        .filter_map(yalain_world_db::merge::item_key)
+        .collect()
+}
+
+/// A kind of pet and a skill's limit are added as a person's rows of the world, changed, and
+/// taken away again, leaving nothing behind; one the world has already is refused.
+#[test]
+fn a_kind_of_pet_is_added_changed_and_taken_away() {
+    let mut s = with_pets();
+    let pet = s.add_pet(0x7000_1234, 0x4700_0863).unwrap();
+    assert_eq!(pet, "pet 0x70001234");
+    let limit = s.add_pet_limit(705, 2, 0x2000).unwrap();
+    assert_eq!(limit, "pet_limit 0x000002c1");
+    assert!(s.problems().is_empty(), "{:?}", s.problems());
+    let added = s
+        .pets()
+        .iter()
+        .find(|l| yalain_world_db::merge::item_key(l).as_deref() == Some(pet.as_str()))
+        .unwrap()
+        .clone();
+    assert_eq!(s.pet_layer(&added), Layer::Target);
+    assert_eq!(added.file, PETS);
+    match &added.row {
+        Row::Pet(r) => {
+            assert_eq!((r.template, r.count), (0x4700_0863, 1));
+            assert_eq!(r.prov.source, Source::Authored);
+        }
+        other => panic!("{other:?}"),
+    }
+    s.set(&pet, "count", "2").unwrap();
+    assert!(
+        s.add_pet(0x7000_1234, 0x4700_0001).is_err(),
+        "one of its effect"
+    );
+    assert!(s.add_pet(0x7000_092A, 0x4700_0001).is_err(), "the base's");
+    assert!(s.add_pet_limit(704, 1, 1).is_err(), "the base's");
+    s.remove_pet(&pet).unwrap();
+    s.remove_pet(&limit).unwrap();
+    assert!(!pet_items(&s).contains(&pet));
+    assert!(!s.files().contains_key(PETS), "nothing is left in the file");
+    assert!(s.removed().is_empty(), "nothing of the base is taken away");
+    assert!(s.problems().is_empty(), "{:?}", s.problems());
+}
+
+/// A kind of pet of the base, changed or not, taken away is removed by its item; put back, it is
+/// the base's again and the world writes nothing of it.
+#[test]
+fn a_base_pet_taken_away_is_removed_by_item_and_put_back() {
+    let mut s = with_pets();
+    let item = "pet 0x7000092a";
+    let row = s
+        .pets()
+        .iter()
+        .find(|l| matches!(l.row, Row::Pet(_)))
+        .unwrap()
+        .clone();
+    assert_eq!(s.pet_layer(&row), Layer::Base);
+    for changed in [false, true] {
+        if changed {
+            s.set(item, "flags", "3128").unwrap();
+            assert!(s.pet_was(item).is_some());
+        }
+        s.remove_pet(item).unwrap();
+        assert!(!pet_items(&s).contains(&item.to_string()), "taken away");
+        assert!(text(&s, PETS).contains("[[remove]]"), "{}", text(&s, PETS));
+        assert!(!text(&s, PETS).contains("[[pet]]"), "{}", text(&s, PETS));
+        assert!(s.removed().iter().any(|(i, _)| i == item));
+        s.put_back(item).unwrap();
+        assert!(pet_items(&s).contains(&item.to_string()), "back");
+        assert!(!s.files().contains_key(PETS), "the base's again");
+        let back = s
+            .pets()
+            .iter()
+            .find_map(|l| match &l.row {
+                Row::Pet(r) => Some(r.flags),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(back, 1096, "as the base has it");
+    }
+    assert!(s.problems().is_empty(), "{:?}", s.problems());
 }

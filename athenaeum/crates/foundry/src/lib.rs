@@ -23,6 +23,8 @@
 //! - [`build`]: a world compiled against an install into the server's tables.
 //! - [`overlay`]: the client's records a world changes, built into a folder of their own.
 //! - [`facts`]: what a world changes, counted.
+//! - [`fields`]: the fields of a row as the editor shows them, each with the kind of value it
+//!   holds.
 //! - [`edit`]: a world held open for editing: rows placed, moved, turned, changed, removed and put
 //!   back, every change a step undone and redone as text, saved only where the text changed.
 //! - [`toml`]: rows written as the database writes them.
@@ -33,6 +35,7 @@
 pub mod build;
 pub mod edit;
 pub mod facts;
+pub mod fields;
 pub mod new;
 pub mod overlay;
 pub mod toml;

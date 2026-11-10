@@ -5,7 +5,8 @@
 //! **In the world.** The right button held turns the camera; W, A, S, D fly it, E rises and Q
 //! sinks, the wheel changes its speed. A click on a marker or a body selects its row; dragging it moves the
 //! row over the ground, and the selected row's handles ([`gizmo`]) move it along east, north and
-//! up and turn it, by steps with Snap on (Shift for the other). `=` and `-` make an object larger
+//! up and turn it, by steps with Snap on (Shift for the other). A camp's spots are marked as
+//! squares; the selected camp's are dragged to move them. `=` and `-` make an object larger
 //! and smaller. R turns the selected row a step to the right (with Shift, to the left),
 //! Delete or Backspace takes it away, F flies to it, Escape lets it go. T sends the character
 //! playing on the editor's own Yalain to the camera. Ctrl+S saves, Ctrl+Z undoes, Ctrl+Y redoes
@@ -13,9 +14,9 @@
 //!
 //! **The panels.** Along the top: save, undo and redo; what to place (a person, an object, a camp
 //! or a place, and its template) and the button that places it at the next click on the ground;
-//! the moment of the day; and play ([`play`]: the playtest character, Characters, Live, Play,
-//! To camera, Restart). On the left, the
-//! rows near the camera, each with the letter of where it came from (C recorded sessions, D the
+//! Find rows, Map, and Pets (the world's kinds of pet); the moment of the day; and play ([`play`]:
+//! the playtest character, Characters, Live, Play, To camera, Restart). On the left, the rows near
+//! the camera, each with the letter of where it came from (C recorded sessions, D the
 //! data files, R a rule, A a person), and the database's rows the world takes away. On the right,
 //! the selected row: where it came from and what it was, its fields, which are changed there.
 //! Along the bottom: the world's problems, as the server's check finds them, and the status.
@@ -40,6 +41,8 @@ use crate::live::{self, Live, Programs};
 use crate::scene::{Scene, Standing};
 use crate::view::{self, View};
 
+mod fields;
+mod pets;
 pub mod play;
 
 /// How far from the camera rows are drawn as bodies and listed, meters.
@@ -48,6 +51,8 @@ pub const NEAR: f32 = 160.0;
 pub const MARKED: f32 = 400.0;
 /// How close to a marker a click selects it, pixels.
 pub const HIT: f32 = 12.0;
+/// How far above its point a camp's spot is marked, meters.
+pub const SPOT_UP: f32 = 0.3;
 /// How far a look finds what the world has built, meters.
 pub const BUILT_REACH: f32 = 400.0;
 /// A finder tile's side, points; the room under it for a name; the room between tiles.
@@ -108,6 +113,19 @@ pub struct ViewInput {
 pub enum Tool {
     Select,
     Place,
+    /// Add a spot to the selected camp: a point its creatures appear at indoors.
+    Spot,
+}
+
+/// A spot of the selected camp being dragged: which, where the press was, and the floor under the
+/// pointer now.
+#[derive(Debug, Clone, PartialEq)]
+struct SpotDrag {
+    item: String,
+    index: usize,
+    from: [f32; 2],
+    moved: bool,
+    to: Option<[f32; 3]>,
 }
 
 /// A row being dragged: where the press was, and the ground under the pointer now.
@@ -261,12 +279,17 @@ pub struct Editor<'w> {
     pub new_kind: NewKind,
     pub template: String,
     drag: Option<Drag>,
+    spot_drag: Option<SpotDrag>,
     looks: HashMap<u32, Option<(u32, f32)>>,
     labels: HashMap<u32, String>,
     shown: Shown,
     /// The inspector's text for each field of the selected row, as typed.
     fields: Vec<(String, String)>,
     fields_of: Option<(String, u64)>,
+    /// What is typed into the inspector's fields of more than one box.
+    typing: fields::Typing,
+    /// The Pets window.
+    pub pets: pets::Pets,
     pub status: String,
     pub live: Live,
     pub programs: Programs,
@@ -314,8 +337,10 @@ pub struct Editor<'w> {
     new_name: String,
     /// The world's revision last published to the editor's own Yalain.
     published: u64,
-    /// When the world's files were last looked at on disk, for a hand's change to reach Live.
+    /// When the world's files were last looked at on disk, for a hand's change to be taken in,
+    /// and when each of them was last written then.
     disk_looked: std::time::Instant,
+    disk_stamps: Option<DiskStamps>,
     /// The skills' names, by number, for the recipes' skills.
     pub skill_names: Vec<(u32, String)>,
     /// What the Characters window is adding to the chosen recipe, and importing.
@@ -355,6 +380,9 @@ pub struct Editor<'w> {
     pub clearing_rectangle: bool,
     /// The world's revision whose clearings the scene shows.
     clearings_shown: Option<u64>,
+    /// The file and line the file window shows, and whether it has been scrolled to the line.
+    viewing: Option<(String, usize)>,
+    viewing_scrolled: bool,
 }
 
 impl std::fmt::Debug for Editor<'_> {
@@ -383,6 +411,9 @@ fn rotation_of(row: &Row) -> [f32; 4] {
     };
     q.unwrap_or_else(|| view::heading_rotation(h.unwrap_or(0.0)))
 }
+
+/// When each of the world's files was last written, and how long it is.
+type DiskStamps = std::collections::BTreeMap<String, (Option<std::time::SystemTime>, u64)>;
 
 /// What the finder asked for, the text and whether things to carry are among it, and what it found.
 type Found = ((String, bool), std::sync::Arc<[u32]>);
@@ -495,54 +526,6 @@ fn heading_of(row: &Row) -> f32 {
     }
 }
 
-/// A field of a row as TOML text, for the inspector.
-fn field_text(row: &Row, field: &str) -> String {
-    let hex = |v: u32| format!("0x{v:08X}");
-    let num = athenaeum_foundry::toml::number_text;
-    match (row, field) {
-        (Row::Object(o), "template") => hex(o.template),
-        (Row::Object(o), "scale") => o.scale.map(num).unwrap_or_default(),
-        (Row::Object(o), "name_text") => o.name_text.clone().unwrap_or_default(),
-        (Row::Object(o), "kind") => if o.kind == ObjectKind::Npc {
-            "npc"
-        } else {
-            "static"
-        }
-        .to_string(),
-        (Row::Object(o), "cell") => o.cell.map(hex).unwrap_or_default(),
-        (Row::Object(o), "id") => o.id.map(|v| format!("0x{v:016X}")).unwrap_or_default(),
-        (Row::Object(o), "to") => o.to.clone().unwrap_or_default(),
-        (Row::Object(o), "name") => o
-            .name
-            .map(|n| {
-                format!(
-                    "{{ table = 0x{:08X}, string = 0x{:08X} }}",
-                    n.table, n.string
-                )
-            })
-            .unwrap_or_default(),
-        (Row::Camp(c), "radius") => num(c.radius),
-        (Row::Camp(c), "population") => c.population.to_string(),
-        #[allow(clippy::cast_possible_truncation)]
-        (Row::Camp(c), "regen") => num(c.regen as f32),
-        (Row::Camp(c), "spawns") => spawns_toml(&c.spawns),
-        (Row::Camp(c), "cell") => c.cell.map(hex).unwrap_or_default(),
-        (Row::Clearing(c), "radius") => c.radius.map(num).unwrap_or_default(),
-        (Row::Clearing(c), "size") => c
-            .size
-            .map(|[x, y]| format!("[{}, {}]", num(x), num(y)))
-            .unwrap_or_default(),
-        (Row::Place(p), "key") => p.key.clone(),
-        (Row::Place(p), "cell") => p.cell.map(hex).unwrap_or_default(),
-        (Row::Place(p), "destination") => p
-            .destination
-            .as_ref()
-            .map(|d| format!("\"{d}\""))
-            .unwrap_or_default(),
-        _ => String::new(),
-    }
-}
-
 /// A camp's creatures as the TOML of its `spawns` field.
 #[must_use]
 pub fn spawns_toml(spawns: &[(u32, u32)]) -> String {
@@ -567,48 +550,6 @@ fn is_indoors(row: &Row) -> bool {
     cell.is_some_and(|c| c & 0xFFFF >= 0x100)
 }
 
-/// What is typed in the inspector as the TOML of its field: a field of words needs no quotes typed.
-#[must_use]
-pub fn field_toml(field: &str, typed: &str) -> String {
-    let t = typed.trim();
-    let words = matches!(field, "to" | "destination" | "kind" | "name_text");
-    if words && !t.is_empty() && !t.starts_with('"') {
-        format!("\"{}\"", t.replace('\\', "\\\\").replace('"', "\\\""))
-    } else {
-        t.to_string()
-    }
-}
-
-/// A row's kind as a person reads it.
-fn kind_shown(kind: &str) -> &'static str {
-    if kind == "npc" {
-        "person"
-    } else {
-        "object"
-    }
-}
-
-/// The fields the inspector lets a person change, by kind.
-fn editable(row: &Row) -> &'static [&'static str] {
-    match row {
-        Row::Object(_) => &[
-            "template",
-            "kind",
-            "scale",
-            "to",
-            "name_text",
-            "name",
-            "id",
-            "cell",
-        ],
-        Row::Camp(_) => &["radius", "population", "regen", "cell"],
-        Row::Place(_) => &["key", "cell", "destination"],
-        Row::Clearing(c) if c.radius.is_some() => &["radius"],
-        Row::Clearing(_) => &["size"],
-        _ => &[],
-    }
-}
-
 impl<'w> Editor<'w> {
     #[must_use]
     pub fn new(
@@ -628,6 +569,7 @@ impl<'w> Editor<'w> {
             new_kind: NewKind::Person,
             template: "0x470033D0".into(),
             drag: None,
+            spot_drag: None,
             looks: HashMap::new(),
             labels: HashMap::new(),
             shown: Shown {
@@ -640,6 +582,8 @@ impl<'w> Editor<'w> {
             },
             fields: Vec::new(),
             fields_of: None,
+            typing: fields::Typing::default(),
+            pets: pets::Pets::default(),
             status: String::new(),
             live: Live::default(),
             programs,
@@ -668,6 +612,7 @@ impl<'w> Editor<'w> {
             new_name: String::new(),
             published: 0,
             disk_looked: std::time::Instant::now(),
+            disk_stamps: None,
             skill_names: Vec::new(),
             adding: play::Adding::default(),
             closing: false,
@@ -689,6 +634,8 @@ impl<'w> Editor<'w> {
             drawing: None,
             clearing_rectangle: false,
             clearings_shown: None,
+            viewing: None,
+            viewing_scrolled: false,
         };
         e.read_characters();
         e
@@ -882,9 +829,207 @@ impl<'w> Editor<'w> {
         self.report(r);
     }
 
+    /// A camp's spots on the world's grid, as they stand or as what is held would leave them: a
+    /// camp dragged takes them along.
+    fn spots_of(&mut self, e: &Entry) -> Vec<[f32; 3]> {
+        let Row::Camp(c) = &e.row.row else {
+            return Vec::new();
+        };
+        let lb = e.landblock();
+        let camp = entry_global(e, &mut self.scene);
+        let by = match self.held_as(&e.item) {
+            (Some(to), _) => [to[0] - camp[0], to[1] - camp[1], to[2] - camp[2]],
+            _ => [0.0; 3],
+        };
+        let mut out: Vec<[f32; 3]> = c
+            .spots
+            .iter()
+            .map(|(_, at)| {
+                let g = view::global(lb, [at.x, at.y, at.z.unwrap_or(0.0)]);
+                let z = at.z.map_or(camp[2], |_| g[2]);
+                [g[0] + by[0], g[1] + by[1], z + by[2]]
+            })
+            .collect();
+        if let Some(d) = self
+            .spot_drag
+            .as_ref()
+            .filter(|d| d.item == e.item && d.moved)
+        {
+            if let (Some(to), Some(s)) = (d.to, out.get_mut(d.index)) {
+                *s = to;
+            }
+        }
+        out
+    }
+
+    /// The spot of the selected camp whose marker is at a pixel, nearer it than the camp's own.
+    fn selected_spot_at(&mut self, px: [f32; 2]) -> Option<usize> {
+        let e = self.session.entry(self.selected.as_deref()?)?.clone();
+        if !self.shows(&e) {
+            return None;
+        }
+        let v = self.view();
+        let away = |p: [f32; 2]| math::hypotf(p[0] - px[0], p[1] - px[1]);
+        let g = entry_global(&e, &mut self.scene);
+        let camp = v
+            .project([g[0], g[1], g[2] + 1.0])
+            .map_or(f32::INFINITY, away);
+        self.spots_of(&e)
+            .into_iter()
+            .enumerate()
+            .filter_map(|(i, g)| {
+                let d = away(v.project([g[0], g[1], g[2] + SPOT_UP])?);
+                (d <= HIT && d < camp).then_some((i, d))
+            })
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(i, _)| i)
+    }
+
+    /// A point of the world's grid as a spot of the camp `e` holds it: its cell and its point in
+    /// the camp's landblock. Among rooms, the room it falls in; outdoors, the land cell under it.
+    fn spot_point(&mut self, e: &Entry, g: [f32; 3]) -> Result<(u32, At), String> {
+        let lb = e.landblock();
+        let at = view::local_in(lb, g);
+        let cell = match self.inside {
+            Some((home, low)) => self
+                .scene
+                .cell_holding(lb, [at[0], at[1], at[2] + 0.2])
+                .or_else(|| (home == lb).then_some((u32::from(lb) << 16) | u32::from(low)))
+                .ok_or("a spot stands in one of its camp's rooms")?,
+            None => {
+                if view::local(g).0 != lb {
+                    return Err("a spot stands in its camp's landblock".into());
+                }
+                yalain_world_db::compile::outdoor_cell(lb, at[0], at[1])
+            }
+        };
+        Ok((
+            cell,
+            At {
+                x: at[0],
+                y: at[1],
+                z: Some(at[2]),
+            },
+        ))
+    }
+
+    /// A camp's spots as its row has them.
+    fn camp_spots(&self, item: &str) -> Option<Vec<(u32, At)>> {
+        match &self.session.entry(item)?.row.row {
+            Row::Camp(c) => Some(c.spots.clone()),
+            _ => None,
+        }
+    }
+
+    /// Give a camp another spot, at a point of the world's grid.
+    pub fn add_spot(&mut self, item: &str, g: [f32; 3]) {
+        let Some(e) = self.session.entry(item).cloned() else {
+            return;
+        };
+        let Some(mut spots) = self.camp_spots(item) else {
+            self.status = format!("{item} is not a camp");
+            return;
+        };
+        match self.spot_point(&e, g) {
+            Ok(spot) => spots.push(spot),
+            Err(why) => {
+                self.status = why;
+                return;
+            }
+        }
+        let n = spots.len();
+        let r = self.session.set_spots(item, &spots);
+        if let Some(item) = self.report(r) {
+            self.status = format!("{item}: spot {n} added");
+        }
+    }
+
+    /// Move a camp's spot to a point of the world's grid.
+    pub fn move_spot(&mut self, item: &str, index: usize, g: [f32; 3]) {
+        let Some(e) = self.session.entry(item).cloned() else {
+            return;
+        };
+        let Some(mut spots) = self.camp_spots(item).filter(|s| index < s.len()) else {
+            return;
+        };
+        match self.spot_point(&e, g) {
+            Ok(spot) => spots[index] = spot,
+            Err(why) => {
+                self.status = why;
+                return;
+            }
+        }
+        let r = self.session.set_spots(item, &spots);
+        self.report(r);
+    }
+
+    /// Take a camp's spot away.
+    pub fn remove_spot(&mut self, item: &str, index: usize) {
+        let Some(mut spots) = self.camp_spots(item).filter(|s| index < s.len()) else {
+            return;
+        };
+        spots.remove(index);
+        let r = self.session.set_spots(item, &spots);
+        self.report(r);
+    }
+
+    /// A camp's spots in the inspector: each one's room and point, Fly to and taken away; and
+    /// the tool that adds them.
+    fn camp_spots_panel(&mut self, ui: &mut egui::Ui, item: &str, spots: &[(u32, At)]) {
+        ui.label("spots")
+            .on_hover_text("indoors, where its creatures appear; drag one to move it");
+        let mut gone = None;
+        let mut fly = None;
+        for (i, (cell, at)) in spots.iter().enumerate() {
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(format!(
+                        "{}  {cell:08X} ({:.1}, {:.1}, {:.1})",
+                        i + 1,
+                        at.x,
+                        at.y,
+                        at.z.unwrap_or(0.0)
+                    ))
+                    .monospace(),
+                );
+                if ui.small_button("Fly to").clicked() {
+                    fly = Some(*at);
+                }
+                if ui.small_button("x").clicked() {
+                    gone = Some(i);
+                }
+            });
+        }
+        let adding = self.tool == Tool::Spot;
+        if ui
+            .selectable_label(adding, "Add spot")
+            .on_hover_text("then click the floor; Shift keeps adding, Esc stops")
+            .clicked()
+        {
+            if adding {
+                self.stop_placing();
+            } else {
+                self.tool = Tool::Spot;
+            }
+        }
+        if let Some(i) = gone {
+            self.remove_spot(item, i);
+        }
+        if let (Some(at), Some(e)) = (fly, self.session.entry(item).cloned()) {
+            let g = view::global(e.landblock(), [at.x, at.y, at.z.unwrap_or(0.0)]);
+            self.camera.position = Vec3::new(g[0], g[1], g[2] + 1.8);
+            self.enter_block(
+                e.landblock(),
+                view::local_in(e.landblock(), [g[0], g[1], g[2] + 1.8]),
+            );
+        }
+    }
+
     /// Lead a portal to a place, written as its `to` names it.
     pub fn lead_to(&mut self, item: &str, to: &str) {
-        let r = self.session.set(item, "to", &field_toml("to", to));
+        let r = self
+            .session
+            .set(item, "to", &athenaeum_foundry::fields::words_toml(true, to));
         if self.report(r).is_some() {
             self.status = format!("{item} leads to {to}");
         }
@@ -1465,11 +1610,195 @@ impl<'w> Editor<'w> {
             });
     }
 
+    /// Take in the world's files changed on disk since the last look: written, added or taken away
+    /// by hand or by another program. A file changed here as well is kept as it is here, and asked
+    /// about ([`Session::clashes`]). Nothing is read while no file has changed.
+    pub fn look_at_disk(&mut self) {
+        let dir = self.session.dir().to_path_buf();
+        let Ok(stamps) = athenaeum_foundry::world::stamps(&dir) else {
+            return;
+        };
+        if self.disk_stamps.as_ref() == Some(&stamps) {
+            return;
+        }
+        let Ok(now) = athenaeum_foundry::world::load(&dir) else {
+            return;
+        };
+        self.disk_stamps = Some(stamps);
+        let found = self.session.take_disk_changes(&now);
+        if found.is_empty() {
+            return;
+        }
+        let mut said = Vec::new();
+        if !found.taken.is_empty() {
+            said.push(format!("took in {} from disk", found.taken.join(", ")));
+        }
+        if !found.clashing.is_empty() {
+            said.push(format!(
+                "{} changed on disk and here: kept as it is here",
+                found.clashing.join(", ")
+            ));
+        }
+        if found.history_dropped {
+            said.push("undo starts again from here".into());
+        }
+        self.status = said.join("; ");
+    }
+
+    /// The files changed both on disk and here: which to keep, file by file.
+    fn clashes_window(&mut self, ctx: &egui::Context) {
+        let clashes: Vec<String> = self.session.clashes().iter().cloned().collect();
+        if clashes.is_empty() {
+            return;
+        }
+        egui::Window::new("Changed on disk as well")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_TOP, [0.0, 60.0])
+            .show(ctx, |ui| {
+                ui.label(
+                    "These files changed on disk while they had changes here. Neither is saved over the other until you choose.",
+                );
+                for rel in clashes {
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new(&rel).monospace());
+                        if ui
+                            .button("Keep mine")
+                            .on_hover_text("saving writes this editor's text over the disk's")
+                            .clicked()
+                        {
+                            match self.session.keep_mine(&rel) {
+                                Ok(()) => self.status = format!("{rel}: keeping yours"),
+                                Err(e) => self.status = e,
+                            }
+                        }
+                        if ui
+                            .button("Take the disk's")
+                            .on_hover_text("this editor's changes to the file are let go")
+                            .clicked()
+                        {
+                            match self.session.take_disk(&rel) {
+                                Ok(()) => self.status = format!("{rel}: took the disk's"),
+                                Err(e) => self.status = e,
+                            }
+                        }
+                    });
+                }
+            });
+    }
+
     /// Save the world. (The editor's own Yalain has every change already, saved or not.)
     pub fn save(&mut self) {
         match self.session.save() {
             Ok(written) => self.status = format!("saved {} files", written.len()),
             Err(e) => self.status = e,
+        }
+    }
+
+    /// Go where a problem or a warning is: to the placed row it is about, selected; else to its
+    /// file at its line, in the file window (a quest's, a step's, a loot row's, or a row that does
+    /// not read).
+    pub fn open_problem(&mut self, p: &Problem) {
+        if let Some(item) = self.session.row_at(&p.file, p.line).map(|e| e.item.clone()) {
+            self.select(Some(item.clone()));
+            self.fly_to(&item);
+            return;
+        }
+        self.viewing = Some((p.file.clone(), p.line));
+        self.viewing_scrolled = false;
+    }
+
+    /// The file and line the file window shows.
+    #[must_use]
+    pub fn viewing(&self) -> Option<(&str, usize)> {
+        self.viewing.as_ref().map(|(f, l)| (f.as_str(), *l))
+    }
+
+    /// A file a problem names, on disk, and its text: the world's as the editor holds it, saved or
+    /// not, else the base's.
+    fn file_of(&self, rel: &str) -> (PathBuf, Option<String>) {
+        if let Some(text) = self.session.files().get(rel) {
+            return (self.session.dir().join(rel), Some(text.clone()));
+        }
+        let in_base = rel
+            .strip_prefix(&format!("{}/", layer::BASE))
+            .unwrap_or(rel);
+        match &self.base {
+            Some(b) => {
+                let path = b.join(in_base);
+                let text = std::fs::read_to_string(&path).ok();
+                (path, text)
+            }
+            None => (self.session.dir().join(rel), None),
+        }
+    }
+
+    /// The file a problem is in, at its line.
+    fn file_window(&mut self, ctx: &egui::Context) {
+        let Some((rel, line)) = self.viewing.clone() else {
+            return;
+        };
+        let (path, text) = self.file_of(&rel);
+        let mut open = true;
+        let title = if line == 0 {
+            rel.clone()
+        } else {
+            format!("{rel}:{line}")
+        };
+        egui::Window::new(title)
+            .id(egui::Id::new("file window"))
+            .open(&mut open)
+            .default_size([620.0, 420.0])
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new(path.display().to_string()).weak());
+                    if ui.small_button("Copy path").clicked() {
+                        ui.ctx().copy_text(path.display().to_string());
+                    }
+                    if ui
+                        .small_button("Open")
+                        .on_hover_text("in the program your system opens it with")
+                        .clicked()
+                    {
+                        if let Err(e) = open_file(&path) {
+                            self.status = e;
+                        }
+                    }
+                });
+                ui.label(
+                    egui::RichText::new("Saved there, it is taken in here at once.")
+                        .weak()
+                        .small(),
+                );
+                ui.separator();
+                let Some(text) = text else {
+                    ui.label("The file is not there.");
+                    return;
+                };
+                let scroll = !self.viewing_scrolled;
+                egui::ScrollArea::both()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        for (i, l) in text.lines().enumerate() {
+                            let n = i + 1;
+                            let words = egui::RichText::new(format!("{n:>5}  {l}")).monospace();
+                            let words = if n == line {
+                                words
+                                    .background_color(egui::Color32::from_rgb(90, 40, 30))
+                                    .color(egui::Color32::WHITE)
+                            } else {
+                                words
+                            };
+                            let r = ui.label(words);
+                            if n == line && scroll {
+                                r.scroll_to_me(Some(egui::Align::Center));
+                            }
+                        }
+                    });
+                self.viewing_scrolled = true;
+            });
+        if !open {
+            self.viewing = None;
         }
     }
 
@@ -2391,7 +2720,7 @@ impl<'w> Editor<'w> {
     pub fn world_input(&mut self, input: &ViewInput, over_panels: bool, typing: bool, dt: f32) {
         self.find_inside();
         self.near();
-        self.hovered = if over_panels || input.right_down || self.tool == Tool::Place {
+        self.hovered = if over_panels || input.right_down || self.tool != Tool::Select {
             None
         } else {
             self.pick(input.pointer)
@@ -2459,9 +2788,12 @@ impl<'w> Editor<'w> {
                     KeyCode::Escape => {
                         if self.drawing.take().is_some() {
                             // Only the drawing: the tool stays in hand.
-                        } else if self.tool == Tool::Place {
+                        } else if self.tool != Tool::Select {
                             self.stop_placing();
-                        } else if self.grip.take().is_none() && self.drag.take().is_none() {
+                        } else if self.grip.take().is_none()
+                            && self.drag.take().is_none()
+                            && self.spot_drag.take().is_none()
+                        {
                             self.select(None);
                         }
                     }
@@ -2473,7 +2805,7 @@ impl<'w> Editor<'w> {
             self.camera
                 .change_speed(dereth_primitives::num::to_i32(input.wheel.signum()));
         }
-        self.ghost = if self.tool == Tool::Place && !over_panels {
+        self.ghost = if self.tool != Tool::Select && !over_panels {
             if self.new_kind == NewKind::Clearing {
                 self.land_at(input.pointer)
             } else {
@@ -2503,8 +2835,30 @@ impl<'w> Editor<'w> {
                         self.status = "no ground there".into();
                     }
                 }
+                Tool::Spot => match (self.ghost, self.selected.clone()) {
+                    (Some(g), Some(item)) => {
+                        self.add_spot(&item, g);
+                        // Shift keeps adding.
+                        if !input.shift {
+                            self.stop_placing();
+                        }
+                    }
+                    (None, _) => self.status = "no floor there".into(),
+                    (_, None) => self.stop_placing(),
+                },
                 Tool::Select => {
-                    if !self.take_handle(input.pointer) {
+                    let spot = self
+                        .selected_spot_at(input.pointer)
+                        .zip(self.selected.clone());
+                    if let Some((index, item)) = spot {
+                        self.spot_drag = Some(SpotDrag {
+                            item,
+                            index,
+                            from: input.pointer,
+                            moved: false,
+                            to: None,
+                        });
+                    } else if !self.take_handle(input.pointer) {
                         match self.pick(input.pointer) {
                             Some(item) if input.shift => self.toggle_selected(item),
                             Some(item) => {
@@ -2545,6 +2899,18 @@ impl<'w> Editor<'w> {
                 if !input.shift {
                     self.stop_placing();
                 }
+            }
+        }
+        if let Some(mut d) = self.spot_drag.take() {
+            if input.left_down {
+                let far = math::hypotf(input.pointer[0] - d.from[0], input.pointer[1] - d.from[1]);
+                d.moved |= far > 4.0;
+                if d.moved {
+                    d.to = self.ground_at(input.pointer).or(d.to);
+                }
+                self.spot_drag = Some(d);
+            } else if let Some(to) = d.to.filter(|_| d.moved) {
+                self.move_spot(&d.item, d.index, to);
             }
         }
         if let Some(mut d) = self.drag.take() {
@@ -2825,6 +3191,36 @@ impl<'w> Editor<'w> {
                     self.paint_outline(painter, c, [g[0], g[1]], color);
                 }
             }
+            // A camp's spots, where its creatures appear indoors: joined to it when it is selected.
+            if matches!(e.row.row, Row::Camp(_)) && (d < NEAR || selected) {
+                let camp = v.project([g[0], g[1], g[2] + 1.0]).map(pt);
+                for (k, sg) in self.spots_of(&e).into_iter().enumerate() {
+                    let Some(sp) = v.project([sg[0], sg[1], sg[2] + SPOT_UP]).map(pt) else {
+                        continue;
+                    };
+                    let half = if selected { 5.0 } else { 3.0 };
+                    let square = egui::Rect::from_center_size(sp, egui::vec2(half, half) * 2.0);
+                    painter.rect_filled(square, 0.0, color);
+                    painter.rect_stroke(
+                        square,
+                        0.0,
+                        egui::Stroke::new(1.0, egui::Color32::BLACK),
+                        egui::StrokeKind::Outside,
+                    );
+                    if selected {
+                        if let Some(c) = camp {
+                            painter.line_segment([c, sp], egui::Stroke::new(1.0, color));
+                        }
+                        painter.text(
+                            sp + egui::vec2(half + 3.0, 0.0),
+                            egui::Align2::LEFT_CENTER,
+                            format!("{}", k + 1),
+                            font.clone(),
+                            egui::Color32::WHITE,
+                        );
+                    }
+                }
+            }
             if let Row::Object(o) = &e.row.row {
                 if let Some(to) = &o.to {
                     if let Some(p) = self.place_of(to, &e.row.pack) {
@@ -2918,6 +3314,22 @@ impl<'w> Editor<'w> {
         };
         let p = egui::pos2(p[0] / s, p[1] / s);
         let color = egui::Color32::from_rgb(255, 255, 120);
+        if self.tool == Tool::Spot {
+            painter.rect_stroke(
+                egui::Rect::from_center_size(p, egui::vec2(12.0, 12.0)),
+                0.0,
+                egui::Stroke::new(2.0, color),
+                egui::StrokeKind::Outside,
+            );
+            painter.text(
+                p + egui::vec2(0.0, -16.0),
+                egui::Align2::CENTER_BOTTOM,
+                "spot: click to add one to the camp, Shift to keep adding, Esc to stop",
+                egui::FontId::proportional(13.0),
+                color,
+            );
+            return;
+        }
         if self.new_kind == NewKind::Clearing {
             let d = self.drawing.unwrap_or(Drawing { from: g, to: g });
             let (middle, shape) = drawn_clearing(d, self.clearing_rectangle);
@@ -3121,6 +3533,13 @@ impl<'w> Editor<'w> {
                 {
                     self.map_open = !self.map_open;
                 }
+                if ui
+                    .button("Pets")
+                    .on_hover_text("the world's kinds of pet and what each summoning skill allows")
+                    .clicked()
+                {
+                    self.pets.open = !self.pets.open;
+                }
             });
             ui.horizontal_wrapped(|ui| {
                 ui.checkbox(&mut self.snap.on, "Snap").on_hover_text(
@@ -3171,7 +3590,10 @@ impl<'w> Editor<'w> {
         self.row_finder(&ctx);
         self.map_window(&ctx);
         self.characters_window(&ctx);
+        self.pets_window(&ctx);
         self.closing_window(&ctx);
+        self.clashes_window(&ctx);
+        self.file_window(&ctx);
     }
 
     fn status_panel(&mut self, ui: &mut egui::Ui, serving: bool) {
@@ -3199,20 +3621,17 @@ impl<'w> Editor<'w> {
                 egui::ScrollArea::vertical()
                     .max_height(120.0)
                     .show(ui, |ui| {
+                        // Each opens where it is: its row, or its file at its line.
                         let mut go = None;
                         for p in self.session.problems().iter().chain(&built_problems) {
                             let text = egui::RichText::new(p.to_string())
                                 .color(egui::Color32::from_rgb(255, 140, 120));
                             if ui
                                 .add(egui::Label::new(text).sense(egui::Sense::click()))
+                                .on_hover_text("go to it")
                                 .clicked()
                             {
-                                go = self
-                                    .session
-                                    .entries()
-                                    .iter()
-                                    .find(|e| e.row.file == p.file && e.row.line == p.line)
-                                    .map(|e| e.item.clone());
+                                go = Some(p.clone());
                             }
                         }
                         for w in built_warnings
@@ -3220,11 +3639,17 @@ impl<'w> Editor<'w> {
                             .chain(self.session.warnings())
                             .take(200)
                         {
-                            ui.label(egui::RichText::new(w.to_string()).weak());
+                            let text = egui::RichText::new(w.to_string()).weak();
+                            if ui
+                                .add(egui::Label::new(text).sense(egui::Sense::click()))
+                                .on_hover_text("go to it")
+                                .clicked()
+                            {
+                                go = Some(w.clone());
+                            }
                         }
-                        if let Some(item) = go {
-                            self.select(Some(item.clone()));
-                            self.fly_to(&item);
+                        if let Some(p) = go {
+                            self.open_problem(&p);
                         }
                     });
             });
@@ -3550,70 +3975,13 @@ impl<'w> Editor<'w> {
             }
         });
         ui.separator();
-        // Its other fields, as TOML.
-        let fresh = self.fields_of.as_ref() != Some(&(item.clone(), self.session.revision()));
-        if fresh {
-            self.fields = editable(&e.row.row)
-                .iter()
-                .map(|f| ((*f).to_string(), field_text(&e.row.row, f)))
-                .collect();
-            self.fields_of = Some((item.clone(), self.session.revision()));
-        }
-        let mut set = None;
-        egui::Grid::new("fields")
-            .num_columns(2)
-            .striped(true)
-            .show(ui, |ui| {
-                for (name, text) in &mut self.fields {
-                    ui.label(name.as_str());
-                    if name == "kind" {
-                        egui::ComboBox::from_id_salt("row kind")
-                            .selected_text(kind_shown(text))
-                            .width(220.0)
-                            .show_ui(ui, |ui| {
-                                for k in ["npc", "static"] {
-                                    if ui.selectable_label(text == k, kind_shown(k)).clicked() {
-                                        set = Some((name.clone(), k.to_string()));
-                                    }
-                                }
-                            });
-                        ui.end_row();
-                        continue;
-                    }
-                    let r = ui.add(
-                        egui::TextEdit::singleline(text)
-                            .desired_width(220.0)
-                            .font(egui::TextStyle::Monospace),
-                    );
-                    // Going elsewhere keeps what was typed; Escape leaves it as it was.
-                    if r.lost_focus() && !ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                        set = Some((name.clone(), text.clone()));
-                    } else if r.lost_focus() {
-                        self.fields_of = None;
-                    }
-                    ui.end_row();
-                }
-            });
-        let unchanged = |field: &str, value: &str| field_text(&e.row.row, field) == value.trim();
-        if let Some((field, value)) = set.filter(|(f, v)| !unchanged(f, v)) {
-            if field == "key" {
-                match self.session.rename_place(&item, value.trim()) {
-                    Ok(renamed) => self.select(Some(renamed)),
-                    Err(err) => self.status = err,
-                }
-                self.fields_of = None;
-                return;
-            }
-            match self.session.set(&item, &field, &field_toml(&field, &value)) {
-                Ok(_) => self.status = format!("{item}: {field} set"),
-                Err(err) => {
-                    self.status = err;
-                    self.fields_of = None;
-                }
-            }
-        }
+        // Its other fields, each by its kind of value.
+        self.row_fields(ui, &item, &e);
         if let Row::Camp(c) = &e.row.row {
             self.camp_spawns(ui, &item, &c.spawns.clone());
+            if is_indoors(&e.row.row) || !c.spots.is_empty() {
+                self.camp_spots_panel(ui, &item, &c.spots.clone());
+            }
         }
         if let Row::Object(o) = &e.row.row {
             let mut lead = None;
@@ -3670,6 +4038,31 @@ impl<'w> Editor<'w> {
             }
         });
     }
+}
+
+/// Hand a file to the program the system opens it with.
+fn open_file(path: &std::path::Path) -> Result<(), String> {
+    #[cfg(windows)]
+    let mut cmd = {
+        let mut c = std::process::Command::new("explorer.exe");
+        c.arg(path);
+        c
+    };
+    #[cfg(target_os = "macos")]
+    let mut cmd = {
+        let mut c = std::process::Command::new("open");
+        c.arg(path);
+        c
+    };
+    #[cfg(not(any(windows, target_os = "macos")))]
+    let mut cmd = {
+        let mut c = std::process::Command::new("xdg-open");
+        c.arg(path);
+        c
+    };
+    cmd.spawn()
+        .map(|_| ())
+        .map_err(|e| format!("{}: {e}", path.display()))
 }
 
 /// The file the camera's place is kept in between sessions, in the world's build folder.

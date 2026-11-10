@@ -66,6 +66,14 @@ impl Sources {
         }
     }
 
+    /// What the store has at `path` now, for a file the session holds: what a save compares with
+    /// and writes over. The session's own text is kept.
+    pub fn set_stored(&mut self, path: &Path, text: Option<String>) {
+        if self.holds(path) {
+            self.stored.insert(path.to_path_buf(), text);
+        }
+    }
+
     /// Whether the session holds a text (or no file) for `path`: one it has read or changed.
     #[must_use]
     pub fn holds(&self, path: &Path) -> bool {
@@ -101,10 +109,22 @@ impl Sources {
     /// The path and the store's error for a file that will not write; files before it are
     /// written.
     pub fn save(&mut self, store: &dyn SourceStore) -> Result<Vec<PathBuf>, (PathBuf, io::Error)> {
+        self.save_where(store, |_| true)
+    }
+
+    /// As [`Sources::save`], for only the files `writes` allows: the rest keep their text, unsaved.
+    ///
+    /// # Errors
+    /// As [`Sources::save`].
+    pub fn save_where(
+        &mut self,
+        store: &dyn SourceStore,
+        writes: impl Fn(&Path) -> bool,
+    ) -> Result<Vec<PathBuf>, (PathBuf, io::Error)> {
         let mut written = Vec::new();
         for (path, text) in &self.texts {
             let stored = self.stored.get(path).cloned().flatten();
-            if *text == stored {
+            if *text == stored || !writes(path) {
                 continue;
             }
             let result = match text {
@@ -178,6 +198,15 @@ impl History {
     /// Only the first `len` steps taken back can be done again.
     pub fn truncate_redo(&mut self, len: usize) {
         self.redo.truncate(len);
+    }
+
+    /// Whether a step either side changed `path`.
+    #[must_use]
+    pub fn names(&self, path: &Path) -> bool {
+        self.undo
+            .iter()
+            .chain(&self.redo)
+            .any(|s| s.before.contains_key(path) || s.after.contains_key(path))
     }
 
     /// How many steps undo and redo can take.

@@ -1,0 +1,10 @@
+# What the market's trader says to a player who comes near.
+
+[[talk]]
+key = "trader-near"
+who = 0x470033D0
+object = "trader@77B8"
+line_text = "Fresh stock from Linvak, friend. Take a look."
+role = "near"
+when = "near"
+prov = { from = "authored", by = "sample" }

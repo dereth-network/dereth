@@ -299,21 +299,6 @@ fn a_landblock_is_a_place_to_go_and_other_words_are_not() {
 }
 
 #[test]
-fn a_place_is_typed_without_its_quotes() {
-    use athenaeum_editor::app::field_toml;
-    assert_eq!(field_toml("to", "inn"), "\"inn\"");
-    assert_eq!(field_toml("to", "\"inn\""), "\"inn\"");
-    assert_eq!(field_toml("to", " "), "");
-    assert_eq!(field_toml("kind", "static"), "\"static\"");
-    assert_eq!(field_toml("radius", "5.0"), "5.0");
-    assert_eq!(field_toml("name_text", "Old Tom"), "\"Old Tom\"");
-    assert_eq!(
-        field_toml("name_text", "Tom \"Red\" Lee"),
-        "\"Tom \\\"Red\\\" Lee\""
-    );
-}
-
-#[test]
 fn a_line_meets_a_box_from_outside_and_inside_and_misses_it() {
     use athenaeum_editor::view::ray_box;
     let (lo, hi) = ([-1.0, -1.0, 0.0], [1.0, 1.0, 2.0]);

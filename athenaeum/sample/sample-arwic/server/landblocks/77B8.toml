@@ -1,0 +1,29 @@
+# Arwic's market: a trader with a name of their own, a portal, and a camp of creatures.
+
+[[object]]
+key = "trader"
+kind = "npc"
+template = 0x470033D0
+at = [7.0, 105.0, 182.5]
+heading = 180.0
+name_text = "Tamsin the Trader"
+prov = { from = "authored", by = "sample" }
+
+[[object]]
+key = "portal"
+kind = "static"
+template = 0x47001154
+at = [12.0, 112.0, 182.5]
+heading = 90.0
+to = "market-landing"
+min_level = 5
+prov = { from = "authored", by = "sample" }
+
+[[camp]]
+key = "camp"
+at = [30.0, 120.0, 182.5]
+radius = 5.0
+population = 2
+regen = 192.0
+spawns = [{ template = 0x47002224, weight = 1 }]
+prov = { from = "authored", by = "sample" }

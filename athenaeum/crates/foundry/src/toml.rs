@@ -244,6 +244,19 @@ fn landings(ls: &[Landing]) -> Value {
     Value::Array(a)
 }
 
+/// A camp's `spots`: each one's cell and point.
+#[must_use]
+pub fn spots(spots: &[(u32, At)]) -> Value {
+    let mut a = Array::new();
+    for (cell, at) in spots {
+        let mut s = InlineTable::new();
+        s.insert("cell", hex(*cell));
+        s.insert("at", point(*at));
+        a.push(Value::InlineTable(s));
+    }
+    Value::Array(a)
+}
+
 /// `[[camp]]`; `parent` as given.
 #[must_use]
 pub fn camp(c: &Camp, parent: Option<&str>, p: &Prov) -> Table {
@@ -255,14 +268,7 @@ pub fn camp(c: &Camp, parent: Option<&str>, p: &Prov) -> Table {
     put(&mut t, "at", point(c.at));
     put(&mut t, "radius", number(c.radius));
     if !c.spots.is_empty() {
-        let mut a = Array::new();
-        for (cell, at) in &c.spots {
-            let mut s = InlineTable::new();
-            s.insert("cell", hex(*cell));
-            s.insert("at", point(*at));
-            a.push(Value::InlineTable(s));
-        }
-        put(&mut t, "spots", Value::Array(a));
+        put(&mut t, "spots", spots(&c.spots));
     }
     put(&mut t, "population", Value::from(i64::from(c.population)));
     #[allow(clippy::cast_possible_truncation)]
@@ -512,6 +518,12 @@ pub fn place(pl: &Place, p: &Prov) -> Table {
     }
     if let Some(d) = &pl.destination {
         put(&mut t, "destination", Value::from(d.as_str()));
+    }
+    if let Some(r) = &pl.row {
+        put(&mut t, "row", Value::from(r.as_str()));
+    }
+    if let Some(h) = pl.holds {
+        put(&mut t, "holds", hex(h));
     }
     put(&mut t, "prov", prov(p));
     t

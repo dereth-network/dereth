@@ -1229,3 +1229,282 @@ fn escape_drops_a_clearing_being_drawn_and_keeps_the_tool() {
     );
     assert!(e.session.clearings().is_empty());
 }
+
+#[test]
+fn a_file_written_by_hand_is_taken_in_and_one_changed_here_as_well_is_asked_about() {
+    let mut e = editor("by-hand");
+    e.look_at_disk();
+    let cell = yalain_world_db::compile::outdoor_cell(TOWN, OPEN[0], OPEN[1]);
+    let place = |key: &str| {
+        format!(
+            "[[place]]\nkey = \"{key}\"\ncell = 0x{cell:08X}\nat = [{}, {}, 0.0]\nheading = 0.0\nprov = {{ from = \"authored\" }}\n",
+            OPEN[0], OPEN[1]
+        )
+    };
+    let rel = format!("{}/server/places.toml", e.session.target());
+    let path = e.session.dir().join(&rel);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, place("by-hand")).unwrap();
+    e.look_at_disk();
+    assert!(e.session.entry("place by-hand").is_some(), "{}", e.status);
+    assert!(!e.session.unsaved());
+    // Changed here and then on disk: kept as it is here, and asked about.
+    e.session.turn("place by-hand", 90.0).unwrap();
+    std::fs::write(&path, place("written-again")).unwrap();
+    e.look_at_disk();
+    assert!(e.session.clashes().contains(&rel), "{}", e.status);
+    assert!(e.session.entry("place by-hand").is_some());
+    e.save();
+    assert!(
+        std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("written-again"),
+        "the disk's text is not saved over"
+    );
+}
+
+#[test]
+fn a_problem_opens_its_row_or_else_its_file_at_its_line() {
+    let mut e = editor("open-problem");
+    e.look_at_disk();
+    // A quest step that leads nowhere, written by hand: its problem opens the quest's file.
+    let rel = format!("{}/server/quests/40000088.toml", e.session.target());
+    let path = e.session.dir().join(&rel);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(
+        &path,
+        "[[quest]]\nid = 0x40000088\nid_name = \"QuestTest\"\nprov = { from = \"authored\" }\n\n\
+         [[step]]\nkey = \"s1\"\nquest = 0x40000088\nneeds = 0\ntrigger = { use = 0x470020BB, on = 0x4700115B }\n\
+         update = \"bestow\"\nto = \"nowhere\"\nprov = { from = \"authored\" }\n",
+    )
+    .unwrap();
+    e.look_at_disk();
+    let p = e
+        .session
+        .problems()
+        .iter()
+        .find(|p| p.file == rel)
+        .cloned()
+        .unwrap_or_else(|| panic!("a problem in the quest: {:?}", e.session.problems()));
+    e.open_problem(&p);
+    assert_eq!(e.viewing(), Some((rel.as_str(), p.line)));
+    assert_eq!(e.selected, None);
+    // A portal that leads nowhere: its problem selects it.
+    let g = ground(&mut e);
+    e.place_at(g, 0.0);
+    let portal = e.selected.clone().expect("the placed row");
+    e.session.set(&portal, "to", "\"nowhere-else\"").unwrap();
+    e.select(None);
+    let p = e
+        .session
+        .problems()
+        .iter()
+        .find(|p| p.message.contains("nowhere-else"))
+        .cloned()
+        .unwrap_or_else(|| panic!("a problem with the portal: {:?}", e.session.problems()));
+    e.open_problem(&p);
+    assert_eq!(e.selected.as_deref(), Some(portal.as_str()), "{p}");
+}
+
+/// A camp's spots as its row has them: each one's cell and point.
+fn spots_of(e: &Editor<'_>, item: &str) -> Vec<(u32, [f32; 3])> {
+    match &e.session.entry(item).expect("the camp").row.row {
+        Row::Camp(c) => c
+            .spots
+            .iter()
+            .map(|(cell, at)| (*cell, [at.x, at.y, at.z.expect("a height")]))
+            .collect(),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn an_indoor_camp_has_its_spots_added_and_dragged_over_the_floor() {
+    let mut e = in_the_hall("spots");
+    e.new_kind = NewKind::Camp;
+    e.tool = Tool::Place;
+    let px = [800.0, 700.0];
+    frame(
+        &mut e,
+        &ViewInput {
+            pointer: px,
+            ..ViewInput::default()
+        },
+    );
+    click(&mut e, px, false);
+    let camp = e.selected.clone().expect("the camp");
+    // Placed in a room, it has one spot, where it was put.
+    let first = spots_of(&e, &camp);
+    assert_eq!(first.len(), 1);
+    let (room, at) = first[0];
+    assert_eq!(room >> 16, u32::from(HALL));
+    assert!(room & 0xFFFF >= 0x100, "{room:08X}");
+    let placed = e.session.entry(&camp).unwrap().at();
+    assert_eq!([at[0], at[1]], [placed.x, placed.y]);
+    // The spot tool adds another where the floor is clicked.
+    e.tool = Tool::Spot;
+    let px = [740.0, 720.0];
+    frame(
+        &mut e,
+        &ViewInput {
+            pointer: px,
+            ..ViewInput::default()
+        },
+    );
+    assert!(e.ghost().is_some(), "a floor under the pointer");
+    click(&mut e, px, false);
+    assert_eq!(e.tool, Tool::Select, "one click, one spot");
+    let two = spots_of(&e, &camp);
+    assert_eq!(two.len(), 2, "{}", e.status);
+    // Its marker drags it over the floor, into a room of the hall's.
+    let (_, s) = two[1];
+    let g = view::global(HALL, [s[0], s[1], s[2] + athenaeum_editor::app::SPOT_UP]);
+    let on = pixel(&e, g);
+    drag(&mut e, on, [on[0] + 50.0, on[1] + 30.0], false);
+    assert_eq!(
+        e.selected.as_deref(),
+        Some(camp.as_str()),
+        "the camp stays selected"
+    );
+    let now = spots_of(&e, &camp);
+    assert_eq!(now.len(), 2);
+    assert_eq!(now[0], two[0], "the other spot stays");
+    let (cell, moved) = now[1];
+    assert!(
+        ((moved[0] - s[0]).powi(2) + (moved[1] - s[1]).powi(2)).sqrt() > 0.1,
+        "{moved:?}"
+    );
+    assert!(
+        (moved[2] - s[2]).abs() < 2.0,
+        "still on that floor: {moved:?}"
+    );
+    assert_eq!(cell >> 16, u32::from(HALL));
+    assert!(cell & 0xFFFF >= 0x100, "{cell:08X}");
+    // Dragged by its marker, the camp takes its spots along.
+    let c = place_of(&e, &camp);
+    e.select(None);
+    let on = pixel(&e, [c[0], c[1], c[2] + 1.0]);
+    drag(&mut e, on, [on[0] + 60.0, on[1] + 60.0], false);
+    let after = place_of(&e, &camp);
+    let by = [after[0] - c[0], after[1] - c[1]];
+    assert!(
+        (by[0].powi(2) + by[1].powi(2)).sqrt() > 0.1,
+        "the camp moved: {after:?}"
+    );
+    for ((_, was), (_, is)) in now.iter().zip(spots_of(&e, &camp)) {
+        assert!(
+            (is[0] - was[0] - by[0]).abs() < 0.01 && (is[1] - was[1] - by[1]).abs() < 0.01,
+            "{was:?} went to {is:?}, the camp by {by:?}"
+        );
+    }
+    assert!(
+        e.session.problems().is_empty(),
+        "{:?}",
+        e.session.problems()
+    );
+}
+
+/// The panels drawn once, as a window draws them, with nothing pressed.
+fn draw_panels(e: &mut Editor<'_>, ctx: &egui::Context) {
+    let input = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(1600.0, 900.0),
+        )),
+        ..Default::default()
+    };
+    let mut out = ctx.run_ui(input, |ui| e.panels(ui));
+    // Nothing draws them: the pictures they hold are let go.
+    out.textures_delta.clear();
+}
+
+/// The inspector shows every field of a selected object, each as its row writes it: a portal's
+/// gates among them.
+#[test]
+fn the_inspector_shows_every_field_of_the_selected_row_as_it_is_written() {
+    let mut e = editor("inspector");
+    let g = ground(&mut e);
+    e.place_at(g, 0.0);
+    let item = e.selected.clone().expect("the placed row");
+    e.session
+        .set(&item, "requires", "{ quest = 0x800001D5, underway = true }")
+        .unwrap();
+    e.session.set(&item, "hero", "true").unwrap();
+    e.session.set(&item, "kingdom", "4").unwrap();
+    let ctx = egui::Context::default();
+    draw_panels(&mut e, &ctx);
+    draw_panels(&mut e, &ctx);
+    let row = e.session.entry(&item).unwrap().row.row.clone();
+    let shown: Vec<(String, String)> = athenaeum_foundry::fields::of(&row)
+        .iter()
+        .map(|f| {
+            (
+                f.name.to_string(),
+                athenaeum_foundry::fields::text(&row, f.name),
+            )
+        })
+        .collect();
+    assert_eq!(e.shown_fields(), &shown[..]);
+    let get = |name: &str| {
+        shown
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, t)| t.as_str())
+            .unwrap()
+    };
+    assert_eq!(get("requires"), "{ quest = 0x800001D5, underway = true }");
+    assert_eq!((get("hero"), get("kingdom")), ("true", "4"));
+}
+
+/// A kind of pet and a skill's limit added in the Pets window are the world's own rows, chosen
+/// and shown with every field; the database's own kinds are listed with them.
+#[test]
+fn the_pets_window_adds_a_kind_of_pet_and_a_limit_and_shows_every_field() {
+    let mut e = editor("pets");
+    let base_pets = e.session.pets().len();
+    assert!(base_pets > 0, "the database has kinds of pet");
+    e.pets.open = true;
+    e.add_pet("0x7FFF0001", "0x47000862");
+    assert_eq!(
+        e.pets.chosen.as_deref(),
+        Some("pet 0x7fff0001"),
+        "{}",
+        e.status
+    );
+    e.add_pet_limit("4095", "2", "0x2000");
+    assert_eq!(
+        e.pets.chosen.as_deref(),
+        Some("pet_limit 0x00000fff"),
+        "{}",
+        e.status
+    );
+    assert_eq!(e.session.pets().len(), base_pets + 2);
+    e.pets.chosen = Some("pet 0x7fff0001".into());
+    let ctx = egui::Context::default();
+    draw_panels(&mut e, &ctx);
+    draw_panels(&mut e, &ctx);
+    let row = e
+        .session
+        .pets()
+        .iter()
+        .find(|l| yalain_world_db::merge::item_key(l).as_deref() == Some("pet 0x7fff0001"))
+        .map(|l| l.row.clone())
+        .unwrap();
+    let shown: Vec<(String, String)> = athenaeum_foundry::fields::of(&row)
+        .iter()
+        .map(|f| {
+            (
+                f.name.to_string(),
+                athenaeum_foundry::fields::text(&row, f.name),
+            )
+        })
+        .collect();
+    assert_eq!(e.pet_fields(), &shown[..]);
+    e.session.remove_pet("pet 0x7fff0001").unwrap();
+    assert_eq!(e.session.pets().len(), base_pets + 1);
+    assert!(
+        e.session.problems().is_empty(),
+        "{:?}",
+        e.session.problems()
+    );
+}

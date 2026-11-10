@@ -1,0 +1,11 @@
+# A small Asheron's Call 2 world: one pack over the world database, which Yalain serves.
+format_version = 1
+key = "sample"
+game = "ac2"
+era = "eor"
+packs = ["sample-arwic"]
+
+# The database under every pack: the release this build pins (add version = "vX.Y.Z" to keep
+# one). A pack's row replaces the database's row of the same key, and [[remove]] takes one away.
+[base]
+db = "yalain-world"

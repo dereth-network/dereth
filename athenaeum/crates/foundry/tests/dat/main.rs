@@ -372,3 +372,25 @@ fn a_world_built_again_is_the_next_revision_even_with_a_server_reading_the_folde
     drop((held, next, last));
     std::fs::remove_dir_all(&root).ok();
 }
+
+/// Athenaeum's sample world builds against the install over the database: its trader, its portal
+/// and its camp are the server's, the portal leading to its place, and the trader says its line.
+#[test]
+fn the_sample_world_builds_against_the_install() {
+    let base = database();
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../sample");
+    let opened = world::open(&dir, Some(&base)).expect("the sample opens over the database");
+    let problems = opened.check();
+    assert!(problems.is_empty(), "{problems:?}");
+    let t = compiled(&dir, &base);
+    let trader = at(&t, 0x4700_33D0, outdoor_cell(0x77B8, 7.0, 105.0));
+    assert!(
+        trader.iter().any(|o| o.origin == [7.0, 105.0, 182.5]),
+        "the trader is the server's"
+    );
+    let portal = at(&t, 0x4700_1154, outdoor_cell(0x77B8, 12.0, 112.0));
+    assert!(
+        portal.iter().any(|o| o.origin == [12.0, 112.0, 182.5]),
+        "the portal is the server's"
+    );
+}

@@ -6,7 +6,9 @@
 //! checkout of the database, say). A world that names no base is a database of its own and lies
 //! over nothing.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 use yalain_world_db::layer::Base;
 use yalain_world_db::release::{cache_dir_for, Host, PINNED_TAG};
@@ -24,6 +26,38 @@ pub const DATABASE: &str = "yalain-world";
 /// The folder or a file does not read, or a file is not UTF-8.
 pub fn load(dir: &Path) -> Result<Files, String> {
     let mut out = Files::new();
+    walk(dir, |rel, p| {
+        let text = std::fs::read_to_string(p).map_err(|e| format!("{}: {e}", p.display()))?;
+        out.insert(rel, text);
+        Ok(())
+    })?;
+    Ok(out)
+}
+
+/// When each of the files [`load`] reads was last written, and how long it is: what changes when
+/// one is written, added or taken away, for a look at the disk that reads nothing until then.
+///
+/// # Errors
+/// The folder does not read.
+pub fn stamps(dir: &Path) -> Result<BTreeMap<String, (Option<SystemTime>, u64)>, String> {
+    let mut out = BTreeMap::new();
+    walk(dir, |rel, p| {
+        let m = std::fs::metadata(p).ok();
+        let stamp = (
+            m.as_ref().and_then(|m| m.modified().ok()),
+            m.map_or(0, |m| m.len()),
+        );
+        out.insert(rel, stamp);
+        Ok(())
+    })?;
+    Ok(out)
+}
+
+/// Each of a world's text files ([`load`]'s), by its path in the folder and on disk.
+fn walk(
+    dir: &Path,
+    mut each: impl FnMut(String, &Path) -> Result<(), String>,
+) -> Result<(), String> {
     let mut stack = vec![dir.to_path_buf()];
     while let Some(d) = stack.pop() {
         let rd = std::fs::read_dir(&d).map_err(|e| format!("{}: {e}", d.display()))?;
@@ -46,13 +80,11 @@ pub fn load(dir: &Path) -> Result<Files, String> {
                 .to_string_lossy()
                 .replace('\\', "/");
             if rel.ends_with(".toml") || rel == "world.lock" {
-                let text =
-                    std::fs::read_to_string(&p).map_err(|e| format!("{}: {e}", p.display()))?;
-                out.insert(rel, text);
+                each(rel, &p)?;
             }
         }
     }
-    Ok(out)
+    Ok(())
 }
 
 /// The cache folder of a release of the database.
