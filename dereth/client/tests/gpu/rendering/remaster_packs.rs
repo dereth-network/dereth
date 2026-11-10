@@ -23,6 +23,7 @@ use dereth_render::device::{DeviceConfig, Gpu};
 use dereth_scene::art_pack::ArtPack;
 use dereth_scene::world_scene::{
     RemasterCapture, RemasterLight, RemasterPackCounts, RemasterPacks, RemasterPost,
+    RemasterWeather,
 };
 
 use crate::instruments::remaster_frames;
@@ -94,12 +95,36 @@ fn leaf() -> Vec<u8> {
 /// cut at half its picture's alpha and drawn from both sides.
 fn card(width: f32, height: f32) -> (String, Vec<u8>) {
     let hw = width / 2.0;
-    let pos = [
-        [-hw, 0.0, 0.0],
-        [hw, 0.0, 0.0],
-        [hw, height, 0.0],
-        [-hw, height, 0.0],
-    ];
+    quad(
+        [
+            [-hw, 0.0, 0.0],
+            [hw, 0.0, 0.0],
+            [hw, height, 0.0],
+            [-hw, height, 0.0],
+        ],
+        [0.0, 0.0, 1.0],
+    )
+}
+
+/// A leaf lying level `height` metres up, `width` across and as deep, its face to the sky: the top
+/// of a crown, which nothing stands over.
+fn level_leaf(width: f32, height: f32) -> (String, Vec<u8>) {
+    let hw = width / 2.0;
+    quad(
+        [
+            [-hw, height, hw],
+            [hw, height, hw],
+            [hw, height, -hw],
+            [-hw, height, -hw],
+        ],
+        [0.0, 1.0, 0.0],
+    )
+}
+
+/// A glTF of one quad (`pos`, glTF's axes) facing `normal`, carrying the leaf picture.
+fn quad(pos: [[f32; 3]; 4], normal: [f32; 3]) -> (String, Vec<u8>) {
+    let lo = [0, 1, 2].map(|k| pos.iter().map(|p| p[k]).fold(f32::INFINITY, f32::min));
+    let hi = [0, 1, 2].map(|k| pos.iter().map(|p| p[k]).fold(f32::NEG_INFINITY, f32::max));
     let uv = [[0.0f32, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]];
     let mut bin = Vec::new();
     for p in pos {
@@ -108,7 +133,7 @@ fn card(width: f32, height: f32) -> (String, Vec<u8>) {
         }
     }
     for _ in 0..4 {
-        for c in [0.0f32, 0.0, 1.0] {
+        for c in normal {
             bin.extend(c.to_le_bytes());
         }
     }
@@ -134,11 +159,17 @@ fn card(width: f32, height: f32) -> (String, Vec<u8>) {
             {{"buffer": 0, "byteOffset": 96, "byteLength": 32}},
             {{"buffer": 0, "byteOffset": 128, "byteLength": 24}}],
         "accessors": [{{"bufferView": 0, "componentType": 5126, "count": 4, "type": "VEC3",
-                "min": [-{hw}, 0.0, 0.0], "max": [{hw}, {height}, 0.0]}},
+                "min": [{l0}, {l1}, {l2}], "max": [{h0}, {h1}, {h2}]}},
             {{"bufferView": 1, "componentType": 5126, "count": 4, "type": "VEC3"}},
             {{"bufferView": 2, "componentType": 5126, "count": 4, "type": "VEC2"}},
             {{"bufferView": 3, "componentType": 5125, "count": 6, "type": "SCALAR"}}]}}"#,
-        len = bin.len()
+        len = bin.len(),
+        l0 = lo[0],
+        l1 = lo[1],
+        l2 = lo[2],
+        h0 = hi[0],
+        h1 = hi[1],
+        h2 = hi[2],
     );
     (gltf, bin)
 }
@@ -165,6 +196,25 @@ fn files(lighting: Option<&str>) -> HashMap<String, Vec<u8>> {
         files.insert(format!("{level}/card.bin"), bin);
         files.insert(format!("{level}/leaf.png"), leaf());
     }
+    files
+}
+
+/// A pack drawing each of `trees` as a [`level_leaf`] `height` metres up.
+fn level_leaves(trees: &[&str], height: f32) -> HashMap<String, Vec<u8>> {
+    let mut files = HashMap::new();
+    let credit = "author = \"a\"\ntool = \"t\"\nlicense = \"CC0-1.0\"\n";
+    let mut manifest = String::from("[pack]\nname = \"Leaves\"\nformat = 1\n");
+    for tree in trees {
+        manifest.push_str(&format!(
+            "[[model]]\nid = \"{tree}\"\nfoliage = true\ncategory = \"tree\"\n{credit}\
+             [[model.lod]]\nfile = \"leaf/card.gltf\"\n"
+        ));
+    }
+    files.insert("manifest.toml".to_owned(), manifest.into_bytes());
+    let (gltf, bin) = level_leaf(12.0, height);
+    files.insert("leaf/card.gltf".to_owned(), gltf.into_bytes());
+    files.insert("leaf/card.bin".to_owned(), bin);
+    files.insert("leaf/leaf.png".to_owned(), leaf());
     files
 }
 
@@ -214,6 +264,31 @@ fn run(
     packs: RemasterPacks,
     frames: usize,
 ) -> Frame {
+    run_with(store, station, pack, packs, frames, None)
+}
+
+/// [`run`] with the clock running, as the weather needs to come in, and the remaster's rain and
+/// snow falling where `weather` says.
+fn run_in_weather(
+    store: &Arc<RetailDatStore>,
+    station: &Station,
+    pack: Option<(Arc<ArtPack>, Option<PathBuf>)>,
+    packs: RemasterPacks,
+    frames: usize,
+    weather: bool,
+) -> Frame {
+    run_with(store, station, pack, packs, frames, Some(weather))
+}
+
+/// [`run`], or [`run_in_weather`] where `weather` names whether it falls.
+fn run_with(
+    store: &Arc<RetailDatStore>,
+    station: &Station,
+    pack: Option<(Arc<ArtPack>, Option<PathBuf>)>,
+    packs: RemasterPacks,
+    frames: usize,
+    weather: Option<bool>,
+) -> Frame {
     let mut gpu = device();
     let mut shot = Shot::open(store, &mut gpu, station);
     shot.poll(&mut gpu);
@@ -227,8 +302,17 @@ fn run(
     shot.scene
         .draw
         .set_remaster_light(RemasterLight::Pixel, &mut gpu);
+    if let Some(on) = weather {
+        shot.scene
+            .draw
+            .set_remaster_weather(RemasterWeather { on }, &mut gpu);
+    }
     for _ in 0..frames {
-        shot.step_held(&mut gpu);
+        if weather.is_some() {
+            shot.step(&mut gpu);
+        } else {
+            shot.step_held(&mut gpu);
+        }
     }
     let capture = shot
         .scene
@@ -2618,5 +2702,130 @@ fn a_packs_leaves_are_pulled_toward_one_green_and_nothing_else_is() {
         green * 10 >= changed.len() * 9,
         "pulled, they are green: {green} of {} changed pixels",
         changed.len()
+    );
+}
+
+/// The foliage's kind among the material's kinds.
+const FOLIAGE: u8 = 1;
+/// The forest's trees, every one drawn as the pack's card.
+const FOREST_TREES: [&str; 12] = [
+    TREE,
+    "0x020002D3",
+    "0x020002D9",
+    "0x020002DB",
+    "0x020002D8",
+    "0x020002DA",
+    "0x02000256",
+    "0x02000257",
+    "0x02000246",
+    "0x020002D7",
+    "0x0200062C",
+    "0x0200062B",
+];
+/// How high the level leaves lie, meters: over the eye, which stands six meters up, so it sees
+/// their undersides as it sees a crown's over it.
+const LEVEL_LEAF_HEIGHT: f32 = 8.0;
+/// How near the eye the leaves are judged, meters: as near as the drops' splashes are drawn.
+const NEAR_LEAVES: f32 = 16.0;
+/// The most levels the rain may lay over the leaves' own light, the same over dark and light: the
+/// darkening of the wet scales a leaf's color (and its deeper color leaves about three levels that
+/// a scale does not fit), and a veil over it adds (a sheen over every leaf, about six more).
+const LEAF_VEIL: f64 = 4.0;
+
+fn luminance(c: &RemasterCapture, i: usize) -> f32 {
+    let p = &c.color[i * 4..i * 4 + 3];
+    0.2126 * f32::from(p[0]) + 0.7152 * f32::from(p[1]) + 0.0722 * f32::from(p[2])
+}
+
+/// **The rain never hazes the trees**: in the forest on the game's rainy day, with each of its trees
+/// drawn as a leaf lying level over the eye, its face to the sky and its underside to the eye, as a
+/// crown's leaves are over it, the rain darkens the leaves as wet leaves are and lays nothing over
+/// their light. Over the leaves within sixteen meters, a leaf's brightness in the rain is its
+/// brightness dry scaled, and what is added to it besides (fitted through the middle of each
+/// brightness's leaves, past the drops that fall in front) is under four levels: the wet ground's
+/// sheen and the drops' splashes are the ground's.
+#[test]
+fn the_rain_never_hazes_the_trees() {
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    // The frames' stations leave the game's weather out; the rain falls only with it.
+    let mut forest = station(&store, "rain-forest");
+    forest.weather = true;
+    let pack = in_memory(&level_leaves(&FOREST_TREES, LEVEL_LEAF_HEIGHT));
+    let dry = run_in_weather(
+        &store,
+        &forest,
+        Some((pack.clone(), None)),
+        trees(),
+        8,
+        false,
+    );
+    let wet = run_in_weather(&store, &forest, Some((pack, None)), trees(), 8, true);
+    let (a, b) = (&dry.capture, &wet.capture);
+    let inv = glam::Mat4::from_cols_array(&a.view_projection).inverse();
+    let near = |i: usize| -> bool {
+        #[allow(clippy::cast_precision_loss)] // a pixel's place on the screen
+        let (x, y) = ((i % W as usize) as f32, (i / W as usize) as f32);
+        let ndc = glam::Vec4::new(
+            (x + 0.5) / W as f32 * 2.0 - 1.0,
+            1.0 - (y + 0.5) / H as f32 * 2.0,
+            a.depth[i],
+            1.0,
+        );
+        let p = inv * ndc;
+        ((p / p.w).truncate() - glam::Vec3::from(a.eye)).length() < NEAR_LEAVES
+    };
+    // Wet against dry as a scale and what is added, wet = k dry + c, each the middle of its
+    // values, so the few pixels a falling drop crosses do not move them.
+    let mut pairs: Vec<(f32, f32)> = Vec::new();
+    for i in 0..a.class.len() {
+        if a.class[i] != 2 || a.kind[i] != FOLIAGE || b.class[i] != 2 || b.kind[i] != FOLIAGE {
+            continue;
+        }
+        if near(i) {
+            pairs.push((luminance(a, i), luminance(b, i)));
+        }
+    }
+    let middle = |mut v: Vec<f32>| -> f32 {
+        v.sort_by(f32::total_cmp);
+        v.get(v.len() / 2).copied().unwrap_or(0.0)
+    };
+    // The leaves binned by their brightness dry, eight levels a bin; in each bin with enough of
+    // them, the middle of their brightness dry and in the rain; a line through those.
+    let mut points: Vec<(f64, f64, f64)> = Vec::new();
+    for bin in 0..32u8 {
+        let (lo, hi) = (f32::from(bin) * 8.0, f32::from(bin) * 8.0 + 8.0);
+        let inside: Vec<&(f32, f32)> = pairs.iter().filter(|p| p.0 >= lo && p.0 < hi).collect();
+        if inside.len() >= 200 {
+            #[allow(clippy::cast_precision_loss)] // a count of pixels
+            let weight = inside.len() as f64;
+            points.push((
+                f64::from(middle(inside.iter().map(|p| p.0).collect())),
+                f64::from(middle(inside.iter().map(|p| p.1).collect())),
+                weight,
+            ));
+        }
+    }
+    let (w, sx, sy) = points.iter().fold((0.0, 0.0, 0.0), |(w, sx, sy), p| {
+        (w + p.2, sx + p.2 * p.0, sy + p.2 * p.1)
+    });
+    let (mx, my) = (sx / w.max(1.0), sy / w.max(1.0));
+    let (sxx, sxy) = points.iter().fold((0.0, 0.0), |(a, b), p| {
+        (
+            a + p.2 * (p.0 - mx) * (p.0 - mx),
+            b + p.2 * (p.0 - mx) * (p.1 - my),
+        )
+    });
+    let k = sxy / sxx.max(1e-9);
+    let added = my - k * mx;
+    let n = pairs.len();
+    eprintln!(
+        "rain-forest: {n} leaf pixels; in the rain they keep {k:.3} of their light and gain \
+         {added:+.2} levels"
+    );
+    assert!(n > 5_000, "too few of the pack's leaves near the eye: {n}");
+    assert!(
+        added < LEAF_VEIL,
+        "the rain hazed the trees: {added:+.2} levels laid over the leaves"
     );
 }

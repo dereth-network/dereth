@@ -2,7 +2,8 @@
 // world and its forward pass.
 //
 // - **Splashes.** Short-lived crowns where the drops land on ground facing up near the viewer,
-//   out in the rain: a pass over the screen adds them, and the wet ground's sheen with them.
+//   out in the rain: a pass over the screen adds them, and the wet ground's sheen with them. Never
+//   on leaves: the wet darkens them, and that is all the rain does to them.
 // - **Rain and snow.** Every drop and flake is a particle of a lattice fixed in the world. A
 //   lattice fills a box round the viewer: each particle has its own place in the world, and the
 //   box chooses only which repeat of the lattice is drawn, so a particle holds still in the world,
@@ -165,8 +166,10 @@ float splashes(float2 q, float t, float footprint)
 static const float SHEEN = 0.03;
 
 // The splashes and the wet ground's sheen over the scene's colors, added: on ground and what
-// stands outdoors facing up, out in the rain. The splashes within sixteen meters; the sheen, the
-// overcast air mirrored the more the lower the view runs over it, as far as the wet reaches.
+// stands outdoors facing up, out in the rain, but not on leaves. The splashes within sixteen
+// meters; the sheen, the overcast air mirrored the more the lower the view runs over it, as far as
+// the wet reaches. A leaf's face, turned every way in its crown and often away from the eye, would
+// take the whole sheen, laid over its light whatever shades it: a veil over the crowns.
 [shader("fragment")]
 float4 fs_splash(float4 position : SV_Position) : SV_Target0
 {
@@ -188,10 +191,11 @@ float4 fs_splash(float4 position : SV_Position) : SV_Target0
     float dist = length(p - eye);
     float3 n = oct_decode(at(push.normal, px).xy);
     float up = smoothstep(0.3, 0.85, n.z);
-    bool water = uint(at(push.material, px).y * 255.0 + 0.5) == 7;
+    uint kind = uint(at(push.material, px).y * 255.0 + 0.5);
+    bool water = kind == 7;
     float4 w = row(push.weather, W_WORLD);
     float reach = 1.0 - smoothstep(w.z, w.w, dist);
-    if (up <= 0.3 || water || reach <= 0.0)
+    if (up <= 0.3 || water || kind == KIND_FOLIAGE || reach <= 0.0)
     {
         return float4(0.0, 0.0, 0.0, 0.0);
     }
