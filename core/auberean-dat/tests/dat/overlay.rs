@@ -1,5 +1,6 @@
-//! A world's overlay over the end-of-retail cell file and portal file: what a world changes reads
-//! through the client's two ways of reading a record, and what it does not change is the file's.
+//! A world's overlay over the end-of-retail cell, portal and English files: what a world changes
+//! reads through the client's two ways of reading a record, and what it does not change is the
+//! file's.
 
 use std::sync::Arc;
 
@@ -103,4 +104,105 @@ fn a_world_replaces_and_deletes_records_of_the_retail_cell_file() {
         base.read(deleted).is_ok(),
         "the file under it still holds it"
     );
+}
+
+/// **A world's overlay over the real portal and English files: a saved state and a string table
+/// replaced, a saved state added, read by id and through the stores; every other record and each
+/// file's data versions as the file holds them.**
+///
+/// Behaviour: data.overlay.over-the-retail-files
+#[test]
+fn a_world_replaces_and_adds_records_of_the_retail_portal_and_english_files() {
+    let dir = require_install(TARGET);
+    let portal_path = DatName::Portal.in_dir(&dir);
+    let english_path = DatName::Local("English".to_owned()).in_dir(&dir);
+    let portal = DatFile::open(&portal_path).expect("the portal file");
+    let english = DatFile::open(&english_path).expect("the English file");
+    let in_range = |f: &DatFile, r: std::ops::Range<u32>| -> Vec<u32> {
+        f.entries()
+            .map(|e| e.id)
+            .filter(|id| r.contains(id))
+            .collect()
+    };
+    let states = in_range(&portal, 0x6F00_0000..0x7000_0000);
+    let (state, kept_state) = (states[0], states[1]);
+    let added = states.iter().max().unwrap() + 1;
+    assert!(portal.entry(added).is_none());
+    let tables = in_range(&english, 0x2500_0000..0x2700_0000);
+    let (table, kept_table) = (tables[0], tables[1]);
+
+    let folder = Arc::new(MemoryFolder::new(std::path::Path::new("a-world")));
+    let overlay_dir = OverlayDir::in_folder(folder.clone()).unwrap();
+    let put = |role: ModernDat, base: &DatFile, records: &[(u32, Vec<u8>)]| {
+        let name = FILE_SET.name(role).unwrap();
+        let mut w = overlay_dir
+            .writer(role, base.shared(), name, "a world", 0)
+            .unwrap();
+        for (id, bytes) in records {
+            w.put(DataId(*id), bytes, 1, 0, 0).unwrap();
+        }
+        w.flush(0).unwrap();
+    };
+    let mut changed_state = portal.read(state).unwrap();
+    changed_state.extend_from_slice(b"and more");
+    let mut changed_table = english.read(table).unwrap();
+    changed_table.extend_from_slice(b"and more");
+    put(
+        ModernDat::Portal,
+        &portal,
+        &[
+            (state, changed_state.clone()),
+            (added, b"a new state".to_vec()),
+        ],
+    );
+    put(
+        ModernDat::Local,
+        &english,
+        &[(table, changed_table.clone())],
+    );
+
+    let overlay = WorldOverlay::in_folder(folder).unwrap();
+    let p = overlay.over(DatFile::open(&portal_path).unwrap()).unwrap();
+    let e = overlay.over(DatFile::open(&english_path).unwrap()).unwrap();
+    let clock: Arc<dyn Fn() -> u32 + Send + Sync> = Arc::new(|| 0x5000_0000);
+    let s = StoreSet::over_files(&[Arc::new(p.clone()), Arc::new(e.clone())], &clock);
+    let q = |id, kind: RecordType| QualifiedId { id, kind: kind.0 };
+
+    assert_eq!(p.read(state).unwrap(), changed_state);
+    assert_eq!(
+        s.load_data(q(state, RecordType::SCRIPT_STATE)).unwrap(),
+        changed_state
+    );
+    assert_eq!(p.read(added).unwrap(), b"a new state");
+    assert_eq!(
+        s.load_data(q(added, RecordType::SCRIPT_STATE)).unwrap(),
+        b"a new state"
+    );
+    assert_eq!(e.read(table).unwrap(), changed_table);
+    assert_eq!(
+        s.load_data(q(table, RecordType::STRING_TABLE)).unwrap(),
+        changed_table
+    );
+    assert_eq!(
+        p.read(kept_state).unwrap(),
+        portal.read(kept_state).unwrap()
+    );
+    assert_eq!(
+        s.load_data(q(kept_state, RecordType::SCRIPT_STATE))
+            .unwrap(),
+        portal.read(kept_state).unwrap()
+    );
+    assert_eq!(
+        e.read(kept_table).unwrap(),
+        english.read(kept_table).unwrap()
+    );
+    assert_eq!(
+        s.load_data(q(kept_table, RecordType::STRING_TABLE))
+            .unwrap(),
+        english.read(kept_table).unwrap()
+    );
+    assert_eq!(p.iterations().unwrap(), portal.iterations().unwrap());
+    assert_eq!(e.iterations().unwrap(), english.iterations().unwrap());
+    assert_eq!(p.len(), portal.len() + 1, "one record more");
+    assert_eq!(e.len(), english.len());
 }

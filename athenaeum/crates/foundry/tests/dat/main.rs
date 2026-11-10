@@ -394,3 +394,179 @@ fn the_sample_world_builds_against_the_install() {
         "the portal is the server's"
     );
 }
+
+/// A world's overlay sets records of the portal and English files as it does of the cell file: a
+/// store's saved state replaced, a new one added and a string table replaced read as the world's
+/// by id, through the stores the data cache reads and as the client's database decodes them. Each
+/// file is numbered apart, a file the world doesn't change gets no container, and a file it stops
+/// changing reads as the install's again in a revision of its own.
+#[test]
+fn a_worlds_overlay_sets_portal_and_english_records_each_file_numbered_apart() {
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
+
+    use auberean_assets::script::ScriptState;
+    use auberean_assets::strings::StringTable;
+    use auberean_assets::{decode, encode, Database};
+    use auberean_dat::disk::StoreSet;
+    use auberean_dat::{QualifiedId, RecordType};
+    use dereth_dat::ModernDat;
+
+    let dats = require_install(TARGET);
+    let root = scratch("portal-records");
+    let files = install_dats(&dats).unwrap();
+    let open = |want: &dyn Fn(&DatName) -> bool| {
+        let (_, p) = files.iter().find(|(n, _)| want(n)).expect("the file");
+        DatFile::open(p).unwrap()
+    };
+    let portal = open(&|n| *n == DatName::Portal);
+    let english = open(&|n| matches!(n, DatName::Local(l) if l.eq_ignore_ascii_case("english")));
+    let ctx = Context::from_portal(&portal).unwrap();
+
+    // Sabine's store, the Human Weapon Shop's, and an id past every saved state the file holds.
+    let (sabine, shop) = (0x6F00_16E5, 0x6F00_16F6);
+    let state = |id: u32| -> ScriptState { decode(id, &portal.read(id).unwrap(), &ctx).unwrap() };
+    let added = portal
+        .entries()
+        .map(|e| e.id)
+        .filter(|id| (0x6F00_0000..0x7000_0000).contains(id))
+        .max()
+        .unwrap()
+        + 1;
+    assert!(portal.entry(added).is_none() && added < 0x7000_0000);
+    let tables: Vec<u32> = english
+        .entries()
+        .map(|e| e.id)
+        .filter(|id| (0x2500_0000..0x2700_0000).contains(id))
+        .take(2)
+        .collect();
+    let (replaced_table, other_table) = (tables[0], tables[1]);
+    let table = |id: u32| -> StringTable { decode(id, &english.read(id).unwrap(), &ctx).unwrap() };
+
+    let as_shop = encode(sabine, &state(shop));
+    let new_state = encode(added, &state(sabine));
+    let as_other = encode(replaced_table, &table(other_table));
+    assert_ne!(as_shop, portal.read(sabine).unwrap());
+    assert_ne!(as_other, english.read(replaced_table).unwrap());
+    let both = overlay::Records::from([
+        (
+            ModernDat::Portal,
+            BTreeMap::from([(sabine, as_shop.clone()), (added, new_state.clone())]),
+        ),
+        (
+            ModernDat::Local,
+            BTreeMap::from([(replaced_table, as_other.clone())]),
+        ),
+    ]);
+    let folder = overlay::write_records(&both, "a-world", &dats, &root).unwrap();
+    assert_eq!(folder, root.join(overlay::FOLDER));
+
+    let read = || {
+        let w = WorldOverlay::open(&folder).unwrap();
+        assert_eq!(w.world(), "a-world");
+        let p = w.over(portal.clone()).unwrap();
+        let e = w.over(english.clone()).unwrap();
+        let c = w.over(open(&|n| *n == DatName::Cell(1))).unwrap();
+        (p, e, c)
+    };
+    let (p, e, c) = read();
+    assert!(
+        c.shared().layer().is_none(),
+        "no container over the cell file"
+    );
+    assert_eq!(p.read(sabine).unwrap(), as_shop);
+    assert_eq!(p.read(added).unwrap(), new_state);
+    assert_eq!(p.read(shop).unwrap(), portal.read(shop).unwrap());
+    assert_eq!(e.read(replaced_table).unwrap(), as_other);
+    assert_eq!(
+        e.read(other_table).unwrap(),
+        english.read(other_table).unwrap()
+    );
+
+    // Through the stores, as the data cache reads them, and decoded by the client's database.
+    let clock: Arc<dyn Fn() -> u32 + Send + Sync> = Arc::new(|| 0x5000_0000);
+    let (p, e) = (Arc::new(p), Arc::new(e));
+    let stores = Arc::new(StoreSet::over_files(&[p.clone(), e.clone()], &clock));
+    let q = |id, kind: RecordType| QualifiedId { id, kind: kind.0 };
+    assert_eq!(
+        stores
+            .load_data(q(sabine, RecordType::SCRIPT_STATE))
+            .unwrap(),
+        as_shop
+    );
+    assert_eq!(
+        stores
+            .load_data(q(added, RecordType::SCRIPT_STATE))
+            .unwrap(),
+        new_state
+    );
+    assert_eq!(
+        stores
+            .load_data(q(replaced_table, RecordType::STRING_TABLE))
+            .unwrap(),
+        as_other
+    );
+    let db = Database::over_stores(vec![p.clone(), e.clone()], stores);
+    assert_eq!(
+        db.get::<ScriptState>(sabine).unwrap().graph,
+        state(shop).graph
+    );
+    assert_eq!(
+        db.get::<ScriptState>(added).unwrap().graph,
+        state(sabine).graph
+    );
+    assert_eq!(
+        encode(
+            replaced_table,
+            &*db.get::<StringTable>(replaced_table).unwrap()
+        ),
+        as_other
+    );
+
+    // Each file's revision follows its own data versions.
+    let own = |f: &DatFile| f.shared().layer().unwrap().own_iterations().to_vec();
+    let (portal_first, english_first) = (
+        dereth_dat::decompose::revision_over(portal.shared()),
+        dereth_dat::decompose::revision_over(english.shared()),
+    );
+    assert_eq!(own(&p), [portal_first]);
+    assert_eq!(own(&e), [english_first]);
+    drop((p, e, db));
+
+    // The new state taken away: the portal file's next revision, the English file's left as it was.
+    let english_bytes = std::fs::read(folder.join("overlay_local.dat")).unwrap();
+    let less = overlay::Records::from([
+        (
+            ModernDat::Portal,
+            BTreeMap::from([(sabine, as_shop.clone())]),
+        ),
+        (
+            ModernDat::Local,
+            BTreeMap::from([(replaced_table, as_other.clone())]),
+        ),
+    ]);
+    overlay::write_records(&less, "a-world", &dats, &root).unwrap();
+    assert_eq!(
+        std::fs::read(folder.join("overlay_local.dat")).unwrap(),
+        english_bytes
+    );
+    let (p, e, _) = read();
+    assert!(p.entry(added).is_none());
+    assert_eq!(p.read(sabine).unwrap(), as_shop);
+    assert_eq!(own(&p), [portal_first, portal_first + 1]);
+    assert_eq!(own(&e), [english_first]);
+    drop((p, e));
+
+    // Nothing left: both files read as the install's, each in a revision of its own.
+    overlay::write_records(&overlay::Records::new(), "a-world", &dats, &root).unwrap();
+    let (p, e, _) = read();
+    assert_eq!(p.read(sabine).unwrap(), portal.read(sabine).unwrap());
+    assert_eq!(
+        e.read(replaced_table).unwrap(),
+        english.read(replaced_table).unwrap()
+    );
+    assert_eq!(own(&p), [portal_first, portal_first + 1, portal_first + 2]);
+    assert_eq!(own(&e), [english_first, english_first + 1]);
+    drop((p, e));
+    std::fs::remove_dir_all(&root).ok();
+}

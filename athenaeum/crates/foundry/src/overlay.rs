@@ -10,12 +10,17 @@
 //! A world with no clearing has no overlay: the folder is left empty and everything reads the
 //! install's own records.
 //!
-//! A build is numbered as the revision after the folder's last, so a client holding the last one
-//! is sent what changed alone. A build that changes nothing leaves the folder as it is, and one
-//! that does replaces it only once it is written whole, so a server reading the folder as it runs
-//! keeps what it has until it opens it again.
+//! The overlay lies over the portal, the first region's cell file and the English file alike
+//! ([`write_records`]): what a world sets in each goes into that file's container, and each file is
+//! numbered apart.
+//!
+//! A build is numbered as the revision after the folder's last, of each file it changes, so a
+//! client holding the last one is sent what changed alone. A build that changes nothing leaves the
+//! folder as it is, and one that does replaces it only once it is written whole, so a server
+//! reading the folder as it runs keeps what it has until it opens it again.
 
-use std::collections::BTreeMap;
+use std::cell::RefCell;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use auberean_assets::landblock::Landblock;
@@ -302,36 +307,119 @@ pub fn write_rows(
 ) -> Result<(PathBuf, Built), String> {
     let folder = out.join(FOLDER);
     let dir = OverlayDir::new(&folder).map_err(|e| e.to_string())?;
-    if rows.is_empty() && !dir.holds(ModernDat::Cell) {
+    if rows.is_empty() && dir.containers().is_empty() {
         return Ok((folder, Built::default()));
     }
-    let files = install_dats(dats).map_err(|e| format!("{}: {e}", dats.display()))?;
-    let open = |name: DatName| {
-        let path = files
-            .iter()
-            .find(|(n, _)| *n == name)
-            .map(|(_, p)| p)
-            .ok_or_else(|| format!("no {} in {}", name.file_name(), dats.display()))?;
-        DatFile::open(path).map_err(|e| format!("{}: {e}", path.display()))
-    };
-    let portal = open(DatName::Portal)?;
-    let cell = open(DatName::Cell(1))?;
+    let install = Install::new(dats)?;
+    let portal = install.file(ModernDat::Portal)?;
+    let cell = install.file(ModernDat::Cell)?;
     let ctx = Context::from_portal(&portal).map_err(|e| format!("{e:?}"))?;
     let records = WorldRecords::new(portal, cell.clone(), None, ctx.clone());
     let region = records.region().map_err(|e| format!("{e:?}"))?;
     let (blocks, built) = cleared_rows(rows, &cell, &ctx, &region, &records)?;
-    publish(&folder, &cell, key, &blocks).map_err(|e| format!("{}: {e}", folder.display()))?;
+    publish(
+        &folder,
+        key,
+        &Records::from([(ModernDat::Cell, blocks)]),
+        &install,
+    )?;
     Ok((folder, built))
 }
 
-/// Make `folder` read as `blocks` over `cell`, numbered as the revision after what it holds, which is
-/// left as it is when it reads so already. One of another world, or made over other files, is
-/// not followed: the revisions start again.
-fn publish(
-    folder: &Path,
-    cell: &DatFile,
+/// What a world's overlay holds of each of the install's files it changes, by the role the file
+/// plays: the records it sets there, by id. A file left out, or given none, reads as the install's
+/// own.
+pub type Records = BTreeMap<ModernDat, BTreeMap<u32, Vec<u8>>>;
+
+/// Write `records` as the world `key`'s overlay into `out`'s [`FOLDER`], over the install in `dats`:
+/// the revision after what the folder holds, when it reads otherwise, of each file apart. Answers
+/// the folder; a world that changes no record and never did makes no container.
+///
+/// # Errors
+/// A file the records lie over that the install lacks or that does not open, and the containers
+/// not writing.
+pub fn write_records(
+    records: &Records,
     key: &str,
-    blocks: &BTreeMap<u32, Vec<u8>>,
+    dats: &Path,
+    out: &Path,
+) -> Result<PathBuf, String> {
+    let folder = out.join(FOLDER);
+    let dir = OverlayDir::new(&folder).map_err(|e| e.to_string())?;
+    if records.values().all(BTreeMap::is_empty) && dir.containers().is_empty() {
+        return Ok(folder);
+    }
+    publish(&folder, key, records, &Install::new(dats)?)?;
+    Ok(folder)
+}
+
+/// The files of an install an overlay lies over, each opened when first wanted.
+struct Install {
+    dir: PathBuf,
+    files: Vec<(DatName, PathBuf)>,
+    opened: RefCell<BTreeMap<ModernDat, DatFile>>,
+}
+
+impl Install {
+    fn new(dats: &Path) -> Result<Self, String> {
+        Ok(Self {
+            dir: dats.to_path_buf(),
+            files: install_dats(dats).map_err(|e| format!("{}: {e}", dats.display()))?,
+            opened: RefCell::default(),
+        })
+    }
+
+    /// The file playing `role`: the portal, the high-resolution pictures, the first region's cell
+    /// file or the English file.
+    fn file(&self, role: ModernDat) -> Result<DatFile, String> {
+        if let Some(f) = self.opened.borrow().get(&role) {
+            return Ok(f.clone());
+        }
+        let plays = |n: &DatName| match (n, role) {
+            (DatName::Portal, ModernDat::Portal)
+            | (DatName::HighRes, ModernDat::HighRes)
+            | (DatName::Cell(1), ModernDat::Cell) => true,
+            (DatName::Local(l), ModernDat::Local) => l.eq_ignore_ascii_case("english"),
+            _ => false,
+        };
+        let path = self
+            .files
+            .iter()
+            .find(|(n, _)| plays(n))
+            .map(|(_, p)| p)
+            .ok_or_else(|| format!("no {} in {}", role_file(role), self.dir.display()))?;
+        let f = DatFile::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        self.opened.borrow_mut().insert(role, f.clone());
+        Ok(f)
+    }
+}
+
+/// Make `folder` read as `records` over the install's files, numbered as the revision after what it
+/// holds, which is left as it is when it reads so already. Every file the world changes now or
+/// changed before is revised: one it no longer changes gets its records back in a revision of its
+/// own.
+fn publish(folder: &Path, key: &str, records: &Records, install: &Install) -> Result<(), String> {
+    let last = OverlayDir::new(folder).map_err(|e| format!("{}: {e}", folder.display()))?;
+    let mut roles: BTreeSet<ModernDat> = records
+        .iter()
+        .filter(|(_, r)| !r.is_empty())
+        .map(|(role, _)| *role)
+        .collect();
+    roles.extend(ModernDat::ALL.into_iter().filter(|r| last.holds(*r)));
+    let files = roles
+        .into_iter()
+        .map(|role| Ok((role, install.file(role)?)))
+        .collect::<Result<Vec<_>, String>>()?;
+    swap(folder, key, records, &files).map_err(|e| format!("{}: {e}", folder.display()))
+}
+
+/// [`publish`] over files already open. One of another world, or made over other files, is not
+/// followed: the revisions start again.
+fn swap(
+    folder: &Path,
+    key: &str,
+    records: &Records,
+    files: &[(ModernDat, DatFile)],
 ) -> Result<(), ReviseError> {
     let beside = |name: &str| folder.with_file_name(name);
     let (fresh, next) = (beside(".overlay-fresh"), beside(".overlay-next"));
@@ -344,22 +432,22 @@ fn publish(
     clean(&fresh)?;
     clean(&next)?;
     let fresh_dir = OverlayDir::new(&fresh)?;
-    if !blocks.is_empty() {
-        let mut writer = fresh_dir.writer(
-            ModernDat::Cell,
-            cell.shared(),
-            role_file(ModernDat::Cell),
-            key,
-            0,
-        )?;
-        let revision = decompose::revision_over(cell.shared());
-        for (id, bytes) in blocks {
+    for (role, base) in files {
+        let Some(set) = records.get(role).filter(|r| !r.is_empty()) else {
+            continue;
+        };
+        let mut writer = fresh_dir.writer(*role, base.shared(), role_file(*role), key, 0)?;
+        let revision = decompose::revision_over(base.shared());
+        for (id, bytes) in set {
             writer.put(DataId(*id), bytes, 1, revision, 0)?;
         }
         writer.add_iteration(revision, 0)?;
         writer.flush(0)?;
     }
-    let bases = [(ModernDat::Cell, cell.shared().clone())];
+    let bases: Vec<_> = files
+        .iter()
+        .map(|(role, base)| (*role, base.shared().clone()))
+        .collect();
     let last = OverlayDir::new(folder)?;
     let next_dir = OverlayDir::new(&next)?;
     let revised = match revise_folder(&bases, Some(&last), &fresh_dir, &next_dir, key) {
@@ -372,7 +460,7 @@ fn publish(
         other => other,
     }?;
     clean(&fresh)?;
-    if revised.iter().all(|(_, r)| r.revision.is_none()) && last.holds(ModernDat::Cell) {
+    if revised.iter().all(|(_, r)| r.revision.is_none()) && !last.containers().is_empty() {
         return clean(&next);
     }
     clean(folder)?;

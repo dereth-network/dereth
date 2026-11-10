@@ -15,7 +15,7 @@ use dereth_dat::{MemoryFolder, ModernDat};
 use dereth_primitives::DataId;
 use yalain_testkit::session::{self as play, Drive, InProcess};
 use yalain_testkit::{authored, Harness};
-use yalain_world::download::{InstallFiles, CELL_FILE};
+use yalain_world::download::{InstallFiles, CELL_FILE, ENGLISH_FILE, PORTAL_FILE};
 use yalain_world::reload::WorldTables;
 use yalain_world::world_patch::{
     DatOverlaySettings, WorldPatch, NOT_KEPT, NOT_PATCHING, OTHER_FILES, OTHER_WORLD, PAUSE_SECONDS,
@@ -65,6 +65,62 @@ fn overlaid(blocks: usize, revisions: u32) -> (InstallFiles, Vec<u32>) {
             ..files
         },
         numbers,
+    )
+}
+
+/// Records by id, with their bytes.
+type Records = Vec<(u32, Vec<u8>)>;
+
+/// A world over the install that replaces a saved state of the portal file, adds one past every
+/// saved state it holds and replaces a string table of the English file, each file in one revision
+/// past its own. The files, and the portal's and the English file's records by id.
+fn overlaid_portal_and_english() -> (InstallFiles, Records, Records) {
+    let files = authored::install_files();
+    let portal = files.portal.clone().expect("the portal file");
+    let english = files.english.clone().expect("the English file");
+    let folder = Arc::new(MemoryFolder::new(std::path::Path::new("a-world")));
+    let dir = OverlayDir::in_folder(folder.clone()).expect("a folder");
+    let ids = |f: &auberean_dat::DatFile, r: std::ops::Range<u32>| -> Vec<u32> {
+        f.entries()
+            .map(|e| e.id)
+            .filter(|id| r.contains(id))
+            .collect()
+    };
+    let states = ids(&portal, 0x6F00_0000..0x7000_0000);
+    let added = states.iter().max().expect("saved states") + 1;
+    let tables = ids(&english, 0x2500_0000..0x2700_0000);
+    let portal_records = vec![
+        (states[0], b"a state of the world's".to_vec()),
+        (added, b"a state of its own".to_vec()),
+    ];
+    let english_records = vec![(tables[0], b"a table of the world's".to_vec())];
+    for (role, file, records) in [
+        (ModernDat::Portal, &portal, &portal_records),
+        (ModernDat::Local, &english, &english_records),
+    ] {
+        let mut w = dir
+            .writer(role, file.shared(), role_file(role), WORLD, 0)
+            .expect("a writer");
+        let r = dereth_dat::decompose::revision_over(file.shared());
+        for (id, bytes) in records {
+            w.put(DataId(*id), bytes, 1, r, 0).expect("the record");
+        }
+        w.add_iteration(r, 0).expect("the revision");
+        w.flush(0).expect("written");
+    }
+    let overlay = WorldOverlay::in_folder(folder).expect("the overlay");
+    (
+        InstallFiles {
+            portal: Some(overlay.over(portal).expect("it lies over the portal")),
+            english: Some(
+                overlay
+                    .over(english)
+                    .expect("it lies over the English file"),
+            ),
+            ..files
+        },
+        portal_records,
+        english_records,
     )
 }
 
@@ -453,6 +509,98 @@ fn our_client_takes_a_worlds_overlay_as_it_logs_in_and_reads_it() {
         Some(&bytes[..]),
         "the record it reads is the world's"
     );
+}
+
+/// A client lacking a world's records of the portal and English files is sent them as it is sent
+/// cell records: one part of the download for each file, at that file's revision, each record under
+/// its own kind; nothing of a file the world doesn't change.
+/// Behaviour: server.data.a-client-that-keeps-overlays-is-sent-what-it-lacks
+#[test]
+fn a_client_lacking_portal_and_english_records_is_sent_a_part_for_each_file() {
+    let (files, portal_records, english_records) = overlaid_portal_and_english();
+    let first = |f: &Option<auberean_dat::DatFile>| {
+        dereth_dat::decompose::revision_over(f.as_ref().expect("the file").shared())
+    };
+    let (portal_revision, english_revision) = (first(&files.portal), first(&files.english));
+    let install = authored::install_files();
+    let keeps = OverlayHeld {
+        flags: 0,
+        bases: [
+            (PORTAL_FILE, &install.portal),
+            (CELL_FILE, &install.cell),
+            (ENGLISH_FILE, &install.english),
+        ]
+        .into_iter()
+        .map(|(dat_file, f)| OverlayBase {
+            dat_file,
+            fingerprint: layout_of(f.as_ref().expect("the file")),
+        })
+        .collect(),
+    };
+    let mut h = serving(files, DatOverlaySettings::default());
+    let b = asked(&mut h);
+    tell(&mut h, b, Some(keeps), held(&[]));
+
+    let begins = begun(&h, b);
+    assert_eq!(begins.len(), 1);
+    let parts = &begins[0].files;
+    let part = |dat_file| {
+        parts
+            .iter()
+            .find(|p| p.dat_file == dat_file)
+            .unwrap_or_else(|| panic!("a part for {dat_file:#x}: {parts:?}"))
+    };
+    assert_eq!(part(PORTAL_FILE).iteration, portal_revision);
+    assert_eq!(part(ENGLISH_FILE).iteration, english_revision);
+    assert_eq!(parts.len(), 2, "nothing of the cell file");
+
+    h.advance(PAUSE_SECONDS);
+    h.run(10);
+    let got = records(&h, b);
+    for (dat_file, records, kind) in [
+        (PORTAL_FILE, &portal_records, RecordType::SCRIPT_STATE),
+        (ENGLISH_FILE, &english_records, RecordType::STRING_TABLE),
+    ] {
+        let mut sent: Vec<_> = got
+            .iter()
+            .filter(|r| r.dat_file == dat_file)
+            .map(|r| (r.id, r.kind))
+            .collect();
+        sent.sort_unstable();
+        let mut want: Vec<_> = records.iter().map(|(id, _)| (*id, kind.0)).collect();
+        want.sort_unstable();
+        assert_eq!(sent, want, "{dat_file:#x}");
+    }
+}
+
+/// Our client stores a world's records of the portal and English files as it logs in, and reads
+/// them as its own.
+/// Behaviour: session.server.our-client-takes-a-worlds-overlay-as-it-logs-in
+#[test]
+fn our_client_takes_a_worlds_portal_and_english_records_and_reads_them() {
+    let (files, portal_records, english_records) = overlaid_portal_and_english();
+    let mut s = InProcess::new();
+    s.h.server.world_patch = WorldPatch::of(&files).map(Arc::new);
+    s.h.server.data = Some(Box::new(files));
+
+    play::character_list(&mut s).expect("the characters, after what it lacks");
+    let stores = s.client_ref().data_download().stores().expect("the stores");
+    for (records, kind) in [
+        (&portal_records, RecordType::SCRIPT_STATE),
+        (&english_records, RecordType::STRING_TABLE),
+    ] {
+        for (id, bytes) in records {
+            let q = QualifiedId {
+                id: *id,
+                kind: kind.0,
+            };
+            assert_eq!(
+                stores.load_data(q).as_deref(),
+                Some(&bytes[..]),
+                "{id:#x} reads as the world's"
+            );
+        }
+    }
 }
 
 /// A reload that opened the files again patches clients to the overlay as it now is, and a world

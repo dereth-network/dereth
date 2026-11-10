@@ -1044,8 +1044,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "data.overlay.over-the-retail-files",
-        says: "Laid over the end-of-retail cell file, an overlay replaces, adds and deletes \
-               records and leaves every other record and the file's data versions as they were.",
+        says: "Laid over the end-of-retail cell, portal and English files, an overlay replaces, \
+               adds and deletes records and leaves every other record and each file's data \
+               versions as they were.",
         since: THIS_CLIENT,
         divergence: "CD2-world-overlay",
         evidence: Evidence::Private("AC2-EVID-OVERLAY-RETAIL-FILES"),
