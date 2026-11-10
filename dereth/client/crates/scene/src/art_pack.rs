@@ -47,7 +47,9 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use dereth_assets::art_pack::{ArtPackManifest, Credit, ManifestGround, MANIFEST_FILE};
+use dereth_assets::art_pack::{
+    ArtPackManifest, Credit, ManifestCover, ManifestGround, MANIFEST_FILE,
+};
 
 pub use dereth_assets::art_pack::{Category, Ground};
 use dereth_primitives::{DataId, Frame};
@@ -587,6 +589,9 @@ pub struct ArtPack {
     pub grounds: Vec<PackGround>,
     /// The materials for retail pictures that read.
     pub materials: Vec<TextureMaterial>,
+    /// The ground cover whose model read: where each grows and how thickly, its model in
+    /// [`Self::models`] under its id.
+    pub covers: Vec<ManifestCover>,
     /// What would not read, a line each.
     pub problems: Vec<String>,
     /// How the pack says its art wants to be lit: its manifest's `[lighting]` section, as the
@@ -721,9 +726,9 @@ fn bounds(lods: &[PackLod]) -> ([f32; 3], f32) {
 
 /// Leave in each manifest of a stack, bottom first, only what no manifest above it claims: a model
 /// for an object one above has a model for, a ground (flat or steep) one above has a material for,
-/// a retail picture one above has a material for. A material left with no ground or picture is
-/// taken out whole. `[lighting]` is kept whole in each, to be merged key by key
-/// ([`merged_lighting`]).
+/// a retail picture one above has a material for, a cover whose model one above grows. A material
+/// left with no ground or picture is taken out whole. `[lighting]` is kept whole in each, to be
+/// merged key by key ([`merged_lighting`]).
 pub fn keep_winners(manifests: &mut [ArtPackManifest]) {
     let mut models: HashSet<DataId> = HashSet::new();
     let mut grounds: HashSet<(bool, Ground)> = HashSet::new();
@@ -731,6 +736,8 @@ pub fn keep_winners(manifests: &mut [ArtPackManifest]) {
     for m in manifests.iter_mut().rev() {
         m.models.retain(|model| !models.contains(&model.id));
         models.extend(m.models.iter().map(|model| model.id));
+        let kept: HashSet<DataId> = m.models.iter().map(|model| model.id).collect();
+        m.covers.retain(|c| kept.contains(&c.id));
         for g in &mut m.grounds {
             let steep = g.steep;
             g.grounds.retain(|k| !grounds.contains(&(steep, *k)));
@@ -956,6 +963,7 @@ impl ArtPack {
             image_sources: Vec::new(),
             grounds: Vec::new(),
             materials: Vec::new(),
+            covers: Vec::new(),
             problems: Vec::new(),
             lighting: None,
         };
@@ -983,6 +991,7 @@ impl ArtPack {
             out.image_sources.extend(pack.image_sources);
             out.grounds.extend(pack.grounds);
             out.materials.extend(pack.materials);
+            out.covers.extend(pack.covers);
             problems.extend(pack.problems.iter().map(|e| format!("{}: {e}", pack.name)));
             out.lighting = merged_lighting(out.lighting.take(), pack.lighting);
             names.push(pack.name);
@@ -1311,6 +1320,12 @@ impl ArtPack {
         if let Some(r) = recording {
             r.files = reader.kept.take().unwrap_or_default();
         }
+        // A cover whose model would not read grows nothing.
+        let covers = manifest
+            .covers
+            .into_iter()
+            .filter(|c| models.iter().any(|m| m.id == c.id))
+            .collect();
         Ok(Self {
             name: manifest.name,
             serial: next_serial(),
@@ -1320,6 +1335,7 @@ impl ArtPack {
             image_sources,
             grounds,
             materials: retextured,
+            covers,
             problems,
             lighting: manifest.lighting,
         })
@@ -1894,6 +1910,7 @@ license = "CC0-1.0"
             image_sources: Vec::new(),
             grounds: Vec::new(),
             materials: Vec::new(),
+            covers: Vec::new(),
             problems: Vec::new(),
             lighting: None,
         };

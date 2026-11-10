@@ -26,8 +26,9 @@
 //! `foliage_hue` (degrees, 0 to 360) and `foliage_pull` (0 to 1). The tables: `sunny`, `rainy`,
 //! `clear` and `cloudy`; `grade.<table>` (`noon`, `morning`, `evening`, `night`, `rain`, `overcast`),
 //! each of `lift`, `gamma`, `gain` (three numbers), `saturation`, `greens`, `green_turn` and
-//! `contrast`; and `grass.<terrain type, 0 to 31>`, each of `share`, `height`, `dryness` and
-//! `patchy`. Anything else is an error, so a misspelt value is said, not ignored.
+//! `contrast`; and `grass.<terrain type, 0 to 31>`, each of `share`, `height`, `dryness`, `patchy`
+//! and `flowers` (the share of its flowers kept: 0 where an art pack's own cover stands in for
+//! them). Anything else is an error, so a misspelt value is said, not ignored.
 
 use super::{Curve, DayKind, GradePatch, GrassPatch, LookToml, Values, GRADE_TABLES};
 
@@ -247,9 +248,10 @@ fn grass(v: &toml::Value) -> Result<std::collections::BTreeMap<u8, GrassPatch>, 
                 "height" => p.height = Some(bounded(&at, v, 0.0, 3.0)?),
                 "dryness" => p.dryness = Some(bounded(&at, v, 0.0, 1.0)?),
                 "patchy" => p.patchy = Some(bounded(&at, v, 0.0, 1.0)?),
+                "flowers" => p.flowers = Some(bounded(&at, v, 0.0, 1.0)?),
                 _ => {
                     return Err(err(format!(
-                        "{at} is not what grass grows by (share, height, dryness, patchy)"
+                        "{at} is not what grass grows by (share, height, dryness, patchy, flowers)"
                     )))
                 }
             }

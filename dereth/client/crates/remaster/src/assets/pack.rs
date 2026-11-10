@@ -238,7 +238,8 @@ impl PackSwaps {
         let mut counted = |id: u32| {
             let m = model(id).filter(|m| on.models(m.category));
             if let Some(m) = &m {
-                for l in &m.levels {
+                // A level that draws nothing (past a ground cover's reach) is no mesh of the pack's.
+                for l in m.levels.iter().filter(|l| l.mesh != 0) {
                     meshes.insert(l.mesh);
                     distances.insert(l.mesh, l.distance);
                     if m.cover && l.mesh != 0 {

@@ -62,6 +62,9 @@ pub use remaster_assets::DatAssets;
 #[path = "remaster_bridge.rs"]
 mod remaster_bridge;
 #[cfg(feature = "remaster")]
+#[path = "remaster_cover.rs"]
+mod remaster_cover;
+#[cfg(feature = "remaster")]
 #[path = "remaster_look.rs"]
 mod remaster_look;
 #[cfg(feature = "remaster")]

@@ -198,13 +198,15 @@ impl GradePatch {
 }
 
 /// What a look changes of what one terrain type grows: the share of grass, how tall (meters), how
-/// dry its tips (0 to 1) and how patchy (0 to 1); `None` where it leaves it to the layers below.
+/// dry its tips (0 to 1), how patchy (0 to 1) and the share of its flowers kept (0 to 1); `None`
+/// where it leaves it to the layers below.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct GrassPatch {
     pub share: Option<f32>,
     pub height: Option<f32>,
     pub dryness: Option<f32>,
     pub patchy: Option<f32>,
+    pub flowers: Option<f32>,
 }
 
 impl GrassPatch {
@@ -213,6 +215,7 @@ impl GrassPatch {
         self.height = over.height.or(self.height);
         self.dryness = over.dryness.or(self.dryness);
         self.patchy = over.patchy.or(self.patchy);
+        self.flowers = over.flowers.or(self.flowers);
     }
 }
 

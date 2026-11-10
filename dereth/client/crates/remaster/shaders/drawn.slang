@@ -1243,7 +1243,7 @@ void cs_grass(uint3 group : SV_GroupID, uint3 local : SV_GroupThreadID)
 // The push's `first` is the bytes of one draw command, as for the grass; the scatter's command is
 // the third. Its constants: G_SCATTER (12 + 32 = 43) x candidates a square meter, y how far they
 // reach, z the room for them, w how big; G_PEBBLES (44..75) each terrain type's x share of
-// pebbles; G_PALETTE (76..83) the flowers' colors.
+// pebbles and y share of its flowers kept; G_PALETTE (76..83) the flowers' colors.
 
 static const uint G_SCATTER = 43;
 static const uint G_PEBBLES = 44;
@@ -1318,11 +1318,14 @@ void cs_scatter(uint3 group : SV_GroupID, uint3 local : SV_GroupThreadID)
         uint words[4] = { vertex_word(cc), vertex_word(cc + int2(1, 0)), vertex_word(cc + int2(0, 1)), vertex_word(cc + int2(1, 1)) };
         float weights[4] = { (1.0 - f.x) * (1.0 - f.y), f.x * (1.0 - f.y), (1.0 - f.x) * f.y, f.x * f.y };
         float pebbles = 0.0;
+        float kept = 0.0;
         uint scene = 0;
         float most = -1.0;
         for (uint j = 0; j < 4; j++)
         {
-            pebbles += weights[j] * row(g, G_PEBBLES + ((words[j] >> 2) & 31)).x;
+            float4 ground_row = row(g, G_PEBBLES + ((words[j] >> 2) & 31));
+            pebbles += weights[j] * ground_row.x;
+            kept += weights[j] * ground_row.y;
             if (weights[j] > most)
             {
                 most = weights[j];
@@ -1333,6 +1336,7 @@ void cs_scatter(uint3 group : SV_GroupID, uint3 local : SV_GroupThreadID)
                                    (words[3] & 3) != 0, f.x * CELL, f.y * CELL);
         pebbles = max(pebbles, 0.5 * (smoothstep(-3.0, -1.2, inside) - smoothstep(0.0, 1.5, inside)));
         pebbles += 0.4 * smoothstep(0.5, 0.8, slope);
+        flowers *= kept;
         float u = grass_unit(h3);
         bool flower = u < flowers * 0.85;
         bool pebble = !flower && u < flowers * 0.85 + pebbles * 0.3;

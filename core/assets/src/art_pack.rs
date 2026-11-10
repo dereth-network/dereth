@@ -81,6 +81,33 @@
 //! it names, in place of the scree and rock the presentation lays on steep ground of a type with
 //! none: an obsidian cliff, a sandstone face. A type may have one of each kind.
 //!
+//! A pack may also grow ground cover: small models of its own (flowers, ferns, reeds, litter)
+//! scattered over the terrain types each names, near the eye, beside whatever retail places there.
+//!
+//! ```toml
+//! [[cover]]
+//! ground = [1, 9]            # the retail terrain types (0 to 31) it grows on
+//! density = 4.0              # how many grow on 100 square meters of flat ground of those types
+//! scale = [0.8, 1.25]        # each drawn at a size between these, the same on every axis
+//! max_slope = 0.6            # none where the ground rises more than this a meter across
+//! foliage = true
+//! category = "plant"
+//! author = "..."
+//! tool = "..."
+//! license = "..."
+//!
+//! [[cover.lod]]
+//! file = "cover/lupins.gltf"
+//! distance = 40.0            # the last level's distance is how far from the eye it grows
+//! ```
+//!
+//! A cover's levels, `foliage`, `category` and credit are a model's, except that its last level
+//! must name a distance: past it the cover is not drawn. `scale` defaults to `[1, 1]` and
+//! `max_slope` to 0.6. Covers that name the same levels share one model, each growing it on its
+//! own types as thickly as it says. Covers of several packs in a stack all grow, unless two name
+//! the same first file: then the one above wins. Where a cover grows, a pack can thin or take away the grass and
+//! flowers the presentation grows itself through its `[lighting]`'s grass tables.
+//!
 //! A pack may also draw a picture of its own in place of a retail picture, wherever a retail
 //! object or room is drawn with it: buildings, statics, rooms, dungeon pieces and what the
 //! server places alike. Each such material names the retail pictures (texture records, `0x05...`)
@@ -157,6 +184,9 @@ pub struct ArtPackManifest {
     pub grounds: Vec<ManifestGround>,
     /// Its materials for retail pictures, in the order the manifest lists them.
     pub materials: Vec<ManifestMaterial>,
+    /// Its ground cover, in the order the manifest lists it. Each cover's model is also in
+    /// [`Self::models`], under [`ManifestCover::id`].
+    pub covers: Vec<ManifestCover>,
     /// Its `[lighting]` section, as the text of a look file: its keys at the top and each kind
     /// of day's table under its own name. `None` when it has none.
     pub lighting: Option<String>,
@@ -265,6 +295,44 @@ fn about(pack: &toml::Table) -> Result<About, ManifestError> {
         ));
     }
     Ok(about)
+}
+
+/// The first id a cover's model is listed under: `COVER_ID | ` 24 bits of its first file's
+/// hash, a range no retail object uses.
+pub const COVER_ID: u32 = 0xEC00_0000;
+
+/// The id a cover whose first level is `file` is listed under ([`COVER_ID`]).
+#[must_use]
+pub fn cover_id(file: &str) -> DataId {
+    // FNV-1a: the same file, the same id, on every machine and in every build.
+    let mut h: u32 = 0x811C_9DC5;
+    for b in file.bytes() {
+        h = (h ^ u32::from(b)).wrapping_mul(0x0100_0193);
+    }
+    DataId(COVER_ID | (h ^ (h >> 24)) & 0x00FF_FFFF)
+}
+
+/// Whether `id` is a cover's ([`COVER_ID`]).
+#[must_use]
+pub fn is_cover(id: DataId) -> bool {
+    id.0 & 0xFF00_0000 == COVER_ID
+}
+
+/// One ground cover: the model it grows, the terrain types it grows on and how thickly.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ManifestCover {
+    /// Its model's id in [`ArtPackManifest::models`] ([`cover_id`]).
+    pub id: DataId,
+    /// The terrain types it grows on, 0 to 31.
+    pub grounds: Vec<u8>,
+    /// How many grow on 100 square meters of flat ground.
+    pub density: f32,
+    /// The least and the most it is drawn at.
+    pub scale: (f32, f32),
+    /// The steepest ground it grows on: its rise a meter across.
+    pub max_slope: f32,
+    /// How far from the eye it grows: its last level's distance.
+    pub reach: f32,
 }
 
 /// One material drawn in place of retail pictures: the pictures it stands for and its own.
@@ -519,6 +587,32 @@ impl ArtPackManifest {
             }
             materials.push(material);
         }
+        let listed = match table.get("cover") {
+            None => &empty,
+            Some(toml::Value::Array(a)) => a,
+            Some(_) => return fail("`cover` is not a list of [[cover]] tables"),
+        };
+        let mut covers: Vec<ManifestCover> = Vec::with_capacity(listed.len());
+        for (i, c) in listed.iter().enumerate() {
+            let Some(c) = c.as_table() else {
+                return fail(format!("cover {} is not a table", i + 1));
+            };
+            let (model, cover) =
+                cover(c).map_err(|e| ManifestError(format!("cover {}: {}", i + 1, e.0)))?;
+            // Covers that grow the same model on other types, or as thickly, share it.
+            match models.iter().find(|o| o.id == model.id) {
+                None => models.push(model),
+                Some(o) if covers.iter().any(|c| c.id == o.id) && *o == model => {}
+                Some(_) => {
+                    return fail(format!(
+                        "cover {}: another cover grows {:?} with other levels or credit",
+                        i + 1,
+                        model.lods[0].file
+                    ))
+                }
+            }
+            covers.push(cover);
+        }
         let lighting = match table.get("lighting") {
             None => None,
             Some(toml::Value::Table(t)) => Some(t.to_string()),
@@ -530,6 +624,7 @@ impl ArtPackManifest {
             models,
             grounds,
             materials,
+            covers,
             lighting,
         })
     }
@@ -746,6 +841,76 @@ fn material(t: &toml::Table) -> Result<ManifestMaterial, ManifestError> {
 
 fn model(t: &toml::Table) -> Result<ManifestModel, ManifestError> {
     let id = object_id(t.get("id").and_then(toml::Value::as_str).unwrap_or(""))?;
+    shape(t, id, "model")
+}
+
+/// A cover's model, listed under its first file's id, and how it grows.
+fn cover(t: &toml::Table) -> Result<(ManifestModel, ManifestCover), ManifestError> {
+    if t.contains_key("id") {
+        return fail("a cover is no retail object's, and names no id");
+    }
+    let mut model = shape(t, DataId(COVER_ID), "cover")?;
+    model.id = cover_id(&model.lods[0].file);
+    let Some(reach) = model
+        .lods
+        .iter()
+        .rev()
+        .find(|l| !l.shadows_only)
+        .and_then(|l| l.distance)
+    else {
+        return fail("its last level names no distance, how far from the eye it grows");
+    };
+    if model.lods.iter().any(|l| l.views.is_some()) {
+        return fail("a cover has no level of pictures round it");
+    }
+    let grounds = grounds_of(t.get("ground"))?
+        .into_iter()
+        .map(|g| match g {
+            Ground::Type(t) => Ok(t),
+            Ground::Road => fail("a cover grows on terrain types, not on the road"),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+    // Counts, sizes and slopes, well inside both types' range.
+    let number = |v: &toml::Value| match v {
+        toml::Value::Float(f) => Some(*f as f32),
+        toml::Value::Integer(i) => Some(*i as f32),
+        _ => None,
+    };
+    let density = match t.get("density").map(number) {
+        Some(Some(d)) if d.is_finite() && d > 0.0 => d,
+        Some(_) => return fail("density is not a positive number"),
+        None => return fail("no density"),
+    };
+    let scale = match t.get("scale") {
+        None => (1.0, 1.0),
+        Some(toml::Value::Array(a)) if a.len() == 2 => match (number(&a[0]), number(&a[1])) {
+            (Some(lo), Some(hi)) if lo.is_finite() && lo > 0.0 && hi.is_finite() && hi >= lo => {
+                (lo, hi)
+            }
+            _ => return fail("scale is not two positive numbers, the least first"),
+        },
+        Some(_) => return fail("scale is not two positive numbers, the least first"),
+    };
+    let max_slope = match t.get("max_slope").map(number) {
+        None => 0.6,
+        Some(Some(s)) if s.is_finite() && s >= 0.0 => s,
+        Some(_) => return fail("max_slope is not a number from 0"),
+    };
+    let cover = ManifestCover {
+        id: model.id,
+        grounds,
+        density,
+        scale,
+        max_slope,
+        reach,
+    };
+    Ok((model, cover))
+}
+
+/// A model's levels, how it is lit, which switch turns it on and its credit, from `t`, a
+/// `[[kind]]` table, listed under `id`.
+fn shape(t: &toml::Table, id: DataId, kind: &str) -> Result<ManifestModel, ManifestError> {
     let foliage = match t.get("foliage") {
         None => false,
         Some(v) => match v.as_bool() {
@@ -759,10 +924,10 @@ fn model(t: &toml::Table) -> Result<ManifestModel, ManifestError> {
         license: text(t, "license")?.to_owned(),
     };
     let Some(levels) = t.get("lod").and_then(toml::Value::as_array) else {
-        return fail("no [[model.lod]] level of detail");
+        return fail(format!("no [[{kind}.lod]] level of detail"));
     };
     if levels.is_empty() {
-        return fail("no [[model.lod]] level of detail");
+        return fail(format!("no [[{kind}.lod]] level of detail"));
     }
     let mut lods: Vec<ManifestLod> = Vec::with_capacity(levels.len());
     for (k, l) in levels.iter().enumerate() {
@@ -1360,5 +1525,106 @@ license = \"CC0-1.0\"
                 "{bad}"
             );
         }
+    }
+
+    const COVER: &str = "[pack]\nname = \"Meadow\"\nformat = 1\n\
+        [[cover]]\nground = [1, 9]\ndensity = 4\nscale = [0.8, 1.25]\nmax_slope = 0.5\n\
+        foliage = true\nauthor = \"A\"\ntool = \"T\"\nlicense = \"CC0-1.0\"\n\
+        [[cover.lod]]\nfile = \"cover/lupins.gltf\"\ndistance = 20\n\
+        [[cover.lod]]\nfile = \"cover/lupins-far.gltf\"\ndistance = 40.0\n\
+        [[cover]]\nground = 21\ndensity = 1.5\nauthor = \"A\"\ntool = \"T\"\nlicense = \"CC0-1.0\"\n\
+        [[cover.lod]]\nfile = \"cover/fern.gltf\"\ndistance = 30\n";
+
+    #[test]
+    fn a_cover_grows_its_model_on_its_terrain_types_as_thickly_and_as_far_as_it_says() {
+        let m = ArtPackManifest::parse(COVER).expect("the covers read");
+        assert_eq!(m.covers.len(), 2);
+        let lupins = &m.covers[0];
+        assert_eq!(lupins.grounds, [1, 9]);
+        assert_eq!(lupins.density, 4.0);
+        assert_eq!(lupins.scale, (0.8, 1.25));
+        assert_eq!(lupins.max_slope, 0.5);
+        assert_eq!(lupins.reach, 40.0, "its last level's distance");
+        assert_eq!(lupins.id, cover_id("cover/lupins.gltf"));
+        assert!(is_cover(lupins.id));
+        let model = m
+            .model(lupins.id)
+            .expect("its model is listed with the models");
+        assert!(model.foliage);
+        assert_eq!(
+            model.category,
+            Category::Plant,
+            "foliage is taken for a plant"
+        );
+        assert_eq!(model.lods.len(), 2);
+        let fern = &m.covers[1];
+        assert_eq!(fern.grounds, [21]);
+        assert_eq!(
+            (fern.scale, fern.max_slope),
+            ((1.0, 1.0), 0.6),
+            "the defaults"
+        );
+        assert_ne!(fern.id, lupins.id);
+        assert!(!is_cover(DataId(0x0200_0258)));
+    }
+
+    #[test]
+    fn a_cover_that_is_incomplete_or_names_a_retail_object_or_the_road_is_refused() {
+        for (from, to) in [
+            ("ground = [1, 9]\n", ""),
+            ("ground = [1, 9]", "ground = \"road\""),
+            ("ground = [1, 9]", "ground = [32]"),
+            ("density = 4\n", ""),
+            ("density = 4", "density = 0"),
+            ("scale = [0.8, 1.25]", "scale = [1.25, 0.8]"),
+            ("scale = [0.8, 1.25]", "scale = 1"),
+            ("max_slope = 0.5", "max_slope = -1"),
+            ("distance = 40.0\n", ""),
+            (
+                "[[cover]]\nground = [1, 9]",
+                "[[cover]]\nid = \"0x02000258\"\nground = [1, 9]",
+            ),
+            ("license = \"CC0-1.0\"\n[[cover.lod]]", "[[cover.lod]]"),
+            ("file = \"cover/fern.gltf\"", "file = \"cover/lupins.gltf\""),
+            ("file = \"cover/fern.gltf\"", "file = \"../fern.gltf\""),
+        ] {
+            assert!(COVER.contains(from), "{from}");
+            assert!(
+                ArtPackManifest::parse(&COVER.replacen(from, to, 1)).is_err(),
+                "{from:?} -> {to:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn covers_of_one_model_share_it_each_on_its_own_types() {
+        let shared = format!(
+            "{COVER}[[cover]]\nground = 15\ndensity = 0.5\nauthor = \"A\"\ntool = \"T\"\n\
+             license = \"CC0-1.0\"\n[[cover.lod]]\nfile = \"cover/fern.gltf\"\ndistance = 30\n"
+        );
+        let m = ArtPackManifest::parse(&shared).expect("the shared cover reads");
+        assert_eq!(m.covers.len(), 3);
+        assert_eq!(m.covers[1].id, m.covers[2].id);
+        assert_eq!((m.covers[1].density, m.covers[2].density), (1.5, 0.5));
+        assert_eq!(m.covers[2].grounds, [15]);
+        assert_eq!(
+            m.models.len(),
+            2,
+            "one model for the two covers of the fern"
+        );
+        let other = shared.replacen("distance = 30\n", "distance = 31\n", 2);
+        assert!(
+            ArtPackManifest::parse(&other.replacen("distance = 31", "distance = 30", 1)).is_err()
+        );
+    }
+
+    #[test]
+    fn a_covers_id_is_its_first_files_whatever_else_the_manifest_holds() {
+        let one = ArtPackManifest::parse(COVER).expect("reads");
+        let moved = ArtPackManifest::parse(&COVER.replacen("density = 4", "density = 9", 1))
+            .expect("reads");
+        assert_eq!(one.covers[0].id, moved.covers[0].id);
+        assert_eq!(cover_id("cover/lupins.gltf"), cover_id("cover/lupins.gltf"));
+        assert_ne!(cover_id("cover/lupins.gltf"), cover_id("cover/lupin.gltf"));
     }
 }

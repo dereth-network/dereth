@@ -107,6 +107,9 @@ pub struct GrassKind {
     pub dryness: f32,
     /// How patchily it grows, 0 evenly to 1 in clumps with bare ground between.
     pub patchy: f32,
+    /// The share of the flowers its grass would carry that are kept, 0 to 1: an art pack's own
+    /// cover may stand in for them.
+    pub flowers: f32,
 }
 
 const NONE_GROWS: GrassKind = GrassKind {
@@ -114,6 +117,7 @@ const NONE_GROWS: GrassKind = GrassKind {
     height: 0.0,
     dryness: 0.0,
     patchy: 0.0,
+    flowers: 1.0,
 };
 
 /// What each terrain type grows, by its number in the terrain word.
@@ -126,6 +130,7 @@ pub fn kinds() -> [GrassKind; 32] {
             height,
             dryness,
             patchy,
+            flowers: 1.0,
         };
     };
     // Grassland, lush grass, patchy grassland.
@@ -157,6 +162,7 @@ pub fn kinds_with(looks: &crate::look::LookStack) -> [GrassKind; 32] {
         k.height = p.height.unwrap_or(k.height);
         k.dryness = p.dryness.unwrap_or(k.dryness);
         k.patchy = p.patchy.unwrap_or(k.patchy);
+        k.flowers = p.flowers.unwrap_or(k.flowers);
     }
     out
 }
@@ -195,6 +201,8 @@ pub struct GrassPass {
     args: (dereth_gfx::Buffer, u32),
     /// The field's clock last frame, for the blades' motion.
     last_clock: Option<f32>,
+    /// What each terrain type grows, as the looks say: the flowers' shares are read from it.
+    kinds: [GrassKind; 32],
 }
 
 fn bound(
@@ -274,6 +282,7 @@ impl GrassPass {
             scatter_draw,
             motion,
             last_clock: None,
+            kinds: kinds(),
             constants: bound(
                 gfx,
                 "remaster grass constants",
@@ -293,6 +302,11 @@ impl GrassPass {
                 BufferUsage::STORAGE | BufferUsage::INDIRECT,
             )?,
         })
+    }
+
+    /// What each terrain type grows, as the looks now say.
+    pub fn set_kinds(&mut self, kinds: [GrassKind; 32]) {
+        self.kinds = kinds;
     }
 
     /// The field for `frame`, seen through the pair `(clip, eye)` (the eye in the frame's space), lit by the
@@ -357,8 +371,8 @@ impl GrassPass {
             SCATTER_ROOM,
             1.0f32.to_bits(),
         ]);
-        for p in pebbles() {
-            rows.push([p, 0.0, 0.0, 0.0].map(f32::to_bits));
+        for (p, k) in pebbles().into_iter().zip(&self.kinds) {
+            rows.push([p, k.flowers, 0.0, 0.0].map(f32::to_bits));
         }
         for c in PALETTE {
             rows.push([c[0], c[1], c[2], 1.0].map(f32::to_bits));
@@ -610,6 +624,26 @@ mod tests {
         assert_eq!(k[1], kinds()[1]);
         assert!(LookToml::parse("[grass.40]\nheight = 1\n").is_err());
         assert!(LookToml::parse("[grade.dawn]\nsaturation = 1\n").is_err());
+    }
+
+    /// A pack's look can keep a terrain type's grass and take away its flowers, for its own cover
+    /// to stand in for them; every type keeps all its flowers until a look says otherwise.
+    #[test]
+    fn a_looks_flowers_share_takes_that_types_flowers_and_leaves_its_grass() {
+        use crate::look::{Layer, LookStack, LookToml};
+        assert!(kinds().iter().all(|k| k.flowers == 1.0));
+        let mut looks = LookStack::new();
+        looks.set(
+            Layer::ArtPack,
+            Some(
+                LookToml::parse("[grass.1]\nflowers = 0\n[grass.9]\nflowers = 0.25\n")
+                    .expect("a look"),
+            ),
+        );
+        let k = kinds_with(&looks);
+        assert_eq!((k[1].flowers, k[9].flowers, k[3].flowers), (0.0, 0.25, 1.0));
+        assert_eq!(k[1].share, kinds()[1].share, "the grass stays");
+        assert!(LookToml::parse("[grass.1]\nflowers = 2\n").is_err());
     }
 
     /// Grass grows on the grass types and nowhere wet, sandy, rocky or snowy.

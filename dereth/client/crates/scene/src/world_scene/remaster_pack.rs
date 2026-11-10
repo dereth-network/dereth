@@ -249,7 +249,7 @@ impl PackAssets {
         if !on.models(category) {
             return None;
         }
-        let levels: Vec<PackLevel> = self.view_levels[index as usize]
+        let mut levels: Vec<PackLevel> = self.view_levels[index as usize]
             .iter()
             .enumerate()
             .filter_map(|(k, l)| {
@@ -259,10 +259,19 @@ impl PackAssets {
                 })
             })
             .collect();
+        // Ground cover grows only out to its last level's distance: past it, a level that draws
+        // nothing.
+        let cover = dereth_assets::art_pack::is_cover(m.id);
+        if !levels.is_empty() && cover {
+            levels.push(PackLevel {
+                mesh: 0,
+                distance: f32::INFINITY,
+            });
+        }
         (!levels.is_empty()).then_some(PackModel {
             category,
             levels,
-            cover: false,
+            cover,
         })
     }
 

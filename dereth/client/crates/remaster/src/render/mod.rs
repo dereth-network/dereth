@@ -773,6 +773,7 @@ impl Renderer {
         let looks = self.intents.looks();
         self.post.set_grade_tables(grade::tables_with(looks));
         self.drawn_ground.grass_kinds = grass::kinds_with(looks);
+        self.grass.set_kinds(self.drawn_ground.grass_kinds);
     }
 
     /// The looks laid over retail's light.

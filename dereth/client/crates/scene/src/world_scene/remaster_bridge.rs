@@ -417,6 +417,7 @@ fn block_delta(
     mesh: &dereth_terrain::land::mesh::LandblockMesh,
     ground: &super::remaster_ground::RemasterGround,
     store: Option<&RetailDatStore>,
+    covers: &[dereth_assets::art_pack::ManifestCover],
 ) -> rm::Block {
     let own = u32::try_from(block.degrade.len()).unwrap_or(u32::MAX);
     let mut first = own;
@@ -475,6 +476,38 @@ fn block_delta(
         })
         .collect();
     let lamps = store.map_or_else(Vec::new, |store| block_lamps(store, at, block, ground));
+    let mut placements: Vec<rm::Placement> = block
+        .remaster_placements
+        .iter()
+        .map(|p| {
+            let mut placed = placement(p, 0);
+            // LINT-OK: block coordinates, far inside f32's exact range.
+            #[allow(clippy::cast_precision_loss)]
+            let (x, y) = (
+                at.0 as f32 * dereth_terrain::land::drawn::BLOCK_METERS + p.frame.origin.x,
+                at.1 as f32 * dereth_terrain::land::drawn::BLOCK_METERS + p.frame.origin.y,
+            );
+            placed.lifts = ground.lifts(x, y, p.frame.origin.z);
+            placed
+        })
+        .collect();
+    // The pack's ground cover, on full-detail ground.
+    if let (false, Some(cover_ground)) = (covers.is_empty(), super::remaster_cover::ground_of(mesh))
+    {
+        let buildings: Vec<glam::Vec3> = placements
+            .iter()
+            .filter(|p| p.kind == rm::PlacementKind::Building)
+            .map(|p| p.frame.w_axis.truncate())
+            .collect();
+        placements.extend(super::remaster_cover::cover_placements(
+            at,
+            &cover_ground,
+            &block.terrain,
+            covers,
+            &buildings,
+            &|x, y, z| ground.lifts(x, y, z),
+        ));
+    }
     rm::Block {
         block: id,
         generation: block.remaster_generation,
@@ -484,21 +517,7 @@ fn block_delta(
             cuts: mesh.sw_to_ne_cut.clone(),
             words: block.terrain,
         },
-        placements: block
-            .remaster_placements
-            .iter()
-            .map(|p| {
-                let mut placed = placement(p, 0);
-                // LINT-OK: block coordinates, far inside f32's exact range.
-                #[allow(clippy::cast_precision_loss)]
-                let (x, y) = (
-                    at.0 as f32 * dereth_terrain::land::drawn::BLOCK_METERS + p.frame.origin.x,
-                    at.1 as f32 * dereth_terrain::land::drawn::BLOCK_METERS + p.frame.origin.y,
-                );
-                placed.lifts = ground.lifts(x, y, p.frame.origin.z);
-                placed
-            })
-            .collect(),
+        placements,
         degrades: block_degrades(block).map(degrade).collect(),
         rooms,
         lights,
@@ -928,6 +947,21 @@ pub(super) fn publish(draw: &SceneDraw, bridge: &mut Bridge, ws: &WorldState, si
     }
 
     // --- the blocks -----------------------------------------------------------------------
+    // The pack's ground cover whose kind is switched on.
+    let covers: Vec<dereth_assets::art_pack::ManifestCover> = {
+        let view = draw.remaster_view.borrow();
+        view.pack
+            .as_ref()
+            .map(|p| {
+                p.pack()
+                    .covers
+                    .iter()
+                    .filter(|c| p.model(c.id.0, view.packs).is_some())
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
     let mid = window.mid_width();
     let mut resident: Vec<u16> = Vec::new();
     for xi in 0..mid {
@@ -949,7 +983,15 @@ pub(super) fn publish(draw: &SceneDraw, bridge: &mut Bridge, ws: &WorldState, si
             resident.push(id);
             let sent = sh.blocks.get(&id).copied();
             let at = (slot.block_x, slot.block_y);
-            let lifts_key = draw.remaster_ground.lifts_key(at);
+            // Ground cover grows on the viewer's block and those round it alone: a block is sent
+            // again as it comes into that ring or leaves it.
+            let near = (at.0 - origin[0]).abs() <= 1 && (at.1 - origin[1]).abs() <= 1;
+            let lifts_key = draw.remaster_ground.lifts_key(at)
+                ^ if near && !covers.is_empty() {
+                    0x00C0_7E20_0000_0000
+                } else {
+                    0
+                };
             if sent != Some(block.remaster_generation)
                 || sh.shifts.get(&id).copied().unwrap_or(0) != lifts_key
             {
@@ -960,6 +1002,7 @@ pub(super) fn publish(draw: &SceneDraw, bridge: &mut Bridge, ws: &WorldState, si
                     mesh,
                     &draw.remaster_ground,
                     draw.remaster_view.borrow().store.as_ref(),
+                    if near { &covers } else { &[] },
                 ));
                 let contents = contents_of(&b);
                 let same = sent.is_some() && sh.contents.get(&id) == Some(&contents);
