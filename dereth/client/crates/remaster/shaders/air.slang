@@ -71,11 +71,16 @@ float ground_at(float2 xy)
     return lerp(lerp(h[0], h[1], f.x), lerp(h[2], h[3], f.x), f.y);
 }
 
-// How far into the low fog the eye sees a point `dist` metres away at height `z` over its ground
-// `gz`, from the eye at `eye_z` over its ground `ge`: its extinction integrated along the line, the
-// fog thinning by e every `height` metres over the ground under it, and thicker the lower that
-// ground lies toward the lowest round the eye. Nothing within the first 25 metres from the eye, and no
-// more than a kilometre and a half of it, past which the air's own haze takes over.
+// How far along the line from the eye the low fog lies, metres: past it the air's own haze takes
+// over.
+static const float LOW_FOG_REACH = 1500.0;
+
+// How far into the low fog the eye sees a point `dist` metres away, along a line that stands at
+// height `z` over its ground `gz` where the fog along it ends (the point itself, when it is nearer
+// than that), from the eye at `eye_z` over its ground `ge`: its extinction integrated along the
+// line, the fog thinning by e every `height` metres over the ground under it, and thicker the lower
+// that ground lies toward the lowest round the eye. Nothing within the first 25 metres from the eye,
+// and nothing past `LOW_FOG_REACH`.
 float low_fog_depth(float4 fog, float dist, float eye_z, float ge, float z, float gz)
 {
     float he = clamp((eye_z - ge) / fog.y, -3.0, 40.0);
@@ -83,7 +88,7 @@ float low_fog_depth(float4 fog, float dist, float eye_z, float ge, float z, floa
     float dz = hp - he;
     float shape = abs(dz) > 1e-3 ? (exp(-he) - exp(-hp)) / dz : exp(-he);
     float low = exp(-max(0.5 * (ge + gz) - fog.z, 0.0) / (fog.y * 6.0));
-    return fog.x * clamp(dist - 25.0, 0.0, 1500.0) * shape * low;
+    return fog.x * clamp(dist - 25.0, 0.0, LOW_FOG_REACH) * shape * low;
 }
 
 // The shadow cascades' rows, as the sun's visibility pass reads them.
@@ -184,9 +189,14 @@ float4 fs_air(float4 position : SV_Position) : SV_Target0
         // The low fog: the haze's own light toward the eye, all of its glow toward the sun built up,
         // a little brighter for the sun lighting it from above; dimmer where the sun's shadows lie
         // across the line to the point, at four places along it.
+        // The line is measured where the fog along it ends. A point farther than that says nothing
+        // of the fog, and how high it stands over its own ground is not known there: the depth
+        // places a far point only to within tens of metres, differently as the view moves by a
+        // hair, and the fog thins by e every few metres of that height.
+        float3 end = dist > LOW_FOG_REACH ? eye + dir * LOW_FOG_REACH : world;
         float ge = ground_at(eye.xy);
-        float gz = ground_at(world.xy);
-        float through_fog = exp(-low_fog_depth(low, dist, eye.z, ge, world.z, gz));
+        float gz = ground_at(end.xy);
+        float through_fog = exp(-low_fog_depth(low, dist, eye.z, ge, end.z, gz));
         uint cascades = asuint(row(a, ATM_LOW_FOG_GROUND).w);
         float lit = 1.0;
         if (cascades != 0xFFFFFFFF && through_fog < 0.999)

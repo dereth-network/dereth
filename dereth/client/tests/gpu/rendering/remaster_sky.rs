@@ -3,7 +3,8 @@
 //! the day stays within a measured band of Retail Look's, closer in the high sky than near the
 //! horizon, where the low sun's glow is its own, and dusk keeps its purple. The fog drawn from its
 //! volume is retail's range fog without its glow; with the glow it only brightens. God Rays only
-//! brighten it too, the air toward a low sun most, high more than low.
+//! brighten it too, the air toward a low sun most, high more than low. The far land holds still
+//! while the camera turns by a hair, as a settling camera does from one frame to the next.
 //!
 //! The sky's pixels are those neither Retail Look nor the remaster drew the world on; the high
 //! sky is those in the top two fifths of the frame.
@@ -306,5 +307,136 @@ fn god_rays_only_brighten_the_air_toward_the_sun_and_high_more_than_low() {
     assert!(
         high_added * 2 > low_added * 3,
         "high brightens it more than low: {high_added} against {low_added}"
+    );
+}
+
+/// A hill north of Holtburg looking out at the far mountains, where the far land was seen to
+/// flicker.
+const FAR_MOUNTAINS: &str = "dereth report 1; loc 0xA9B4001F [85.297768 165.863739 66.005005] \
+                             -0.988372 0.000000 -0.000000 -0.152058; weather off";
+
+/// Every box the options page ticks at first.
+const PAGE_BOXES: &str = "RemasterGrade=1,RemasterAir=1,RemasterGrass=1,RemasterFlowers=1";
+
+/// How far off land is far, metres: well past the reach of the low fog.
+const FAR_LAND: f64 = 4000.0;
+
+/// The most each pixel of the far land may change, on average, in display levels, from one frame
+/// to the next while the camera turns by a hair. Measured: 0.56; 1.73 when the low fog took a far
+/// point's height over its ground from the depth.
+const FAR_LAND_STILL: f64 = 1.0;
+
+/// **The far land holds still while the camera turns by a hair**: with every box the options page
+/// ticks at first, the camera held over the hill and turned back and forth by a hundred-thousandth
+/// of a radian each frame, as a settling camera moves, each pixel of the land past [`FAR_LAND`]
+/// changes by less than [`FAR_LAND_STILL`] a frame on average. The turn moves the picture by a
+/// hundredth of a pixel.
+#[test]
+#[allow(clippy::cast_precision_loss)] // pixel counts and levels
+fn the_far_land_holds_still_while_the_camera_turns_by_a_hair() {
+    use crate::instruments::remaster_look_frames::EVERY_BOX;
+    use crate::instruments::stations::{report_station, Shot};
+    use dereth_client_runtime::render_prefs::FidelityPreferences;
+    use dereth_client_runtime::report::VisualReport;
+    use dereth_render::device::{DeviceConfig, Gpu};
+
+    const HAIR: f32 = 1e-5;
+    const FRAMES: usize = 12;
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    let report = VisualReport::parse(FAR_MOUNTAINS).expect("the report reads");
+    let station = report_station(&report, Some(8));
+    let cfg = DeviceConfig {
+        width: 960,
+        height: 540,
+        remaster: true,
+        ..DeviceConfig::default()
+    };
+    let mut gpu = Gpu::new_on(crate::common::remaster_backend(), None, &cfg).expect("a device");
+    let mut shot = Shot::open(&store, &mut gpu, &station);
+    shot.apply_report(&report);
+    shot.poll(&mut gpu);
+    shot.scene.draw.cfg.render.fidelity =
+        FidelityPreferences::parse_switch(&format!("{EVERY_BOX},{PAGE_BOXES}"))
+            .expect("the boxes read");
+    shot.poll(&mut gpu);
+    shot.step_held(&mut gpu);
+    shot.scene.wait_for_remaster_ground();
+    shot.step_held(&mut gpu);
+    // Every far tree's pictures on the device, a few a frame.
+    for _ in 0..400 {
+        shot.step_held(&mut gpu);
+        let s = shot.scene.draw.remaster_forest_stats(&mut gpu);
+        if s.is_none_or(|s| s.wanted > 0 && s.pictures >= s.wanted) {
+            break;
+        }
+    }
+    let camera = shot.scene.camera;
+    let (at, yaw, pitch) = (camera.position, camera.yaw, camera.pitch);
+    shot.hold_camera(at, yaw, pitch);
+    for _ in 0..16 {
+        shot.step_held(&mut gpu);
+    }
+    // The far land: the ground and what stands in the sun, past [`FAR_LAND`].
+    let c = shot
+        .scene
+        .draw
+        .remaster_capture(&mut gpu)
+        .expect("the remaster drew");
+    assert_eq!(
+        (c.width, c.height),
+        c.render_size,
+        "the frame is drawn at its own size"
+    );
+    let inverse = glam::DMat4::from_cols_array(&c.view_projection.map(f64::from)).inverse();
+    let eye = glam::DVec3::from_array(c.eye.map(f64::from));
+    let (w, h) = (c.width as usize, c.height as usize);
+    let far: Vec<usize> = (0..w * h)
+        .filter(|&i| matches!(c.class[i], 1 | 2))
+        .filter(|&i| {
+            let ndc = glam::DVec4::new(
+                ((i % w) as f64 + 0.5) / w as f64 * 2.0 - 1.0,
+                1.0 - ((i / w) as f64 + 0.5) / h as f64 * 2.0,
+                f64::from(c.depth[i]),
+                1.0,
+            );
+            let p = inverse * ndc;
+            (p.truncate() / p.w - eye).length() > FAR_LAND
+        })
+        .collect();
+    assert!(
+        far.len() > 2_000,
+        "the far land is in view: {} pixels",
+        far.len()
+    );
+    let mut last = c.color;
+    let mut total = 0.0;
+    for k in 0..FRAMES {
+        let turn = if k % 2 == 0 { HAIR } else { 0.0 };
+        shot.hold_camera(at, yaw + turn, pitch + turn);
+        shot.step_held(&mut gpu);
+        let now = shot
+            .scene
+            .draw
+            .remaster_capture(&mut gpu)
+            .expect("the remaster drew")
+            .color;
+        let moved: f64 = far
+            .iter()
+            .map(|&i| {
+                (0..3)
+                    .map(|j| f64::from(now[i * 4 + j].abs_diff(last[i * 4 + j])))
+                    .fold(0.0, f64::max)
+            })
+            .sum::<f64>()
+            / far.len() as f64;
+        println!("frame {k}: the far land's pixels moved {moved:.2} levels from the last");
+        total += moved;
+        last = now;
+    }
+    let mean = total / FRAMES as f64;
+    assert!(
+        mean < FAR_LAND_STILL,
+        "the far land's pixels change by {mean:.2} levels a frame while the camera turns by a hair"
     );
 }
