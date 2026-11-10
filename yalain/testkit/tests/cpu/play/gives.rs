@@ -1123,21 +1123,12 @@ fn a_steps_vitae_tap_takes_a_tenth_of_the_vitae() {
     );
 }
 
-/// A world's tap of vitae takes the share its rule names, and one whose rules name none takes 2017's
-/// tenth with Aun Aulatah's tap; a world that names any has its rows' alone.
+/// A world's tap of vitae takes the share its rule names: a half, put on by a step.
 ///
 /// Behaviour: server.gives.vitae-tap
 #[test]
-fn a_vitae_tap_takes_what_its_rule_says_and_without_rules_2017s() {
-    use yalain_world::effect_defs::{vitae_taps_or_2017, EffectRules, Kind};
-    let mut none = EffectRules::default();
-    assert!(vitae_taps_or_2017(&mut none), "named none");
-    assert_eq!(none.vitae_taps.get(&yalain_testkit::VITAE_TAP), Some(&0.1));
-    let mut own = EffectRules::default();
-    own.vitae_taps.insert(0x6F00_7777, 0.5);
-    assert!(!vitae_taps_or_2017(&mut own));
-    assert_eq!(own.vitae_taps.len(), 1, "its rows alone");
-    // A half, put on by a step.
+fn a_vitae_tap_takes_the_share_its_rule_names() {
+    use yalain_world::effect_defs::Kind;
     let mut h = world();
     let tap = h
         .server
@@ -1378,45 +1369,14 @@ fn a_give_that_makes_a_hero_does_so_when_the_transformation_is_through() {
     );
 }
 
-/// A world whose steps name no transformation transforms the player of a give's step putting on
-/// the hero's transformation as 2017 did, 25.59 s after the answer; once a world names any, a step
-/// it names none for runs at once and makes no hero.
+/// A give's step whose row names no transformation runs at once and makes no hero, even one that
+/// puts on the hero's transformation effect.
 ///
 /// Behaviour: server.gives.hero-transformation
 #[test]
-fn without_rows_the_heros_transformation_is_2017s_and_with_them_the_rows_alone() {
-    let mut h = hero_world(vec![gives::HERO_TRANSFORMATION], None);
-    assert!(gives::transformations_or_2017(&mut h.server.quests));
-    assert_eq!(
-        h.server.quests.steps[0].transforms,
-        Some(gives::transformation_2017())
-    );
-    assert_eq!(gives::transformation_2017().seconds, 25.59);
-    let (b, me) = player(&mut h, "one", "Elara");
-    at_phase(&mut h, ELYSA, 4);
-    let (gem, slot) = hold(&mut h, me, BOJU_GEM, 1);
-    let from = h.bots[b].inbox.len();
-    h.bots[b].send(true, queue::WEENIE, &give(me, gem, slot, OBJECT, 1));
-    h.run(steps(HANDED_AFTER) + steps(25.59) - 10);
-    assert!(updates(&h, b, from).is_empty(), "not yet");
-    h.run(12);
-    let world = world_of(&h, me);
-    assert!(yalain_world::focus::is_hero(
-        &h.server.players[&world].qualities
-    ));
-    // A world naming a transformation for another step: this one is a plain step.
-    let mut h = hero_world(vec![gives::HERO_TRANSFORMATION], None);
-    h.server.quests.steps.push(Step {
-        transforms: Some(transformation()),
-        ..step(
-            ELYSA,
-            9,
-            Trigger::Give(BOJU_GEM, OBJECT_T),
-            Update::Complete,
-        )
-    });
-    assert!(!gives::transformations_or_2017(&mut h.server.quests));
-    assert_eq!(h.server.quests.steps[0].transforms, None);
+fn a_step_whose_row_names_no_transformation_runs_at_once_and_makes_no_hero() {
+    const HERO_TRANSFORMATION: u32 = 0x6F00_1C6F;
+    let mut h = hero_world(vec![HERO_TRANSFORMATION], None);
     let (b, me) = player(&mut h, "one", "Elara");
     at_phase(&mut h, ELYSA, 4);
     let (gem, slot) = hold(&mut h, me, BOJU_GEM, 1);

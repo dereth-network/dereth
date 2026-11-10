@@ -125,23 +125,6 @@ pub const CANCEL_QUEST: u32 = 0x8213_0027;
 /// none: five minutes (2017: one value per quest, 29 of 29 cancels, 16 quests of 27 at this).
 pub const CANCEL_WAIT: f64 = 300.0;
 
-/// The five-hour cancel waits 2017 named (11 quests of the 27 cancelled), for a world whose quest
-/// rows name no cancel wait at all.
-const LONG_CANCEL_WAIT: f64 = 18_000.0;
-const LONG_CANCEL_WAIT_QUESTS: [u32; 11] = [
-    0x8000_00E0,
-    0x8000_02D3,
-    0x8000_02E3,
-    0x8000_02EE,
-    0x8000_02F4,
-    0x8000_02FA,
-    0x8000_02FB,
-    0x8000_0303,
-    0x8000_0338,
-    0x8000_0355,
-    0x8000_035A,
-];
-
 /// The variable naming the player in a person's line (a string reference whose literal is the
 /// player's name in the world).
 pub const PLAYER_NAME: u32 = 0x15B2_0D98;
@@ -240,21 +223,6 @@ pub fn wait_after(q: &QuestDef, status: u32) -> f64 {
     } else {
         q.retry
     }
-}
-
-/// A world whose quest rows name no cancel wait at all waits 2017's five hours after a cancel of
-/// the eleven quests that named it; one that names any has its rows' alone. Returns whether the
-/// world named none.
-pub fn cancel_waits_or_2017(table: &mut QuestTable) -> bool {
-    if table.quests.iter().any(|q| q.cancel_wait.is_some()) {
-        return false;
-    }
-    for q in &mut table.quests {
-        if LONG_CANCEL_WAIT_QUESTS.contains(&q.id) {
-            q.cancel_wait = Some(LONG_CANCEL_WAIT);
-        }
-    }
-    true
 }
 
 /// What a quest's time counts from (world seconds), if its time is running: under way, with a

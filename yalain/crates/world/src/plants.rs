@@ -48,142 +48,16 @@ use crate::{progress, Clock, Server, Timer};
 
 pub use yalain_content::plants::{Cross, DyePlants, Species};
 
-/// The server's own dye plants, which a world with no `[[plant]]` rows has: the thirteen species,
-/// Thananim (black), Siennan (bronze), Berimphur (brown), Acromitan (the clear one, that takes dye
-/// away), Colban (dark blue), Verdalim (dark green), Aurim (gold), Lapyan (light blue), Minalim
-/// (light green), Bergaphur (orange), Rosim (pink), Relanim (purple) and Hennacin (red).
+/// The kinds of dye plant row a world has none of: it has no species or crosses of such a kind.
 #[must_use]
-pub fn fallback_species() -> BTreeMap<u32, Species> {
+pub fn kinds_missing(rows: &DyePlants) -> Vec<&'static str> {
     [
-        Species::new(
-            0x4700_341D,
-            0x4700_1452,
-            Some(0x4700_1446),
-            0x4700_0FF5,
-            0x8129_71D6,
-        ),
-        Species::new(
-            0x4700_341F,
-            0x4700_1453,
-            Some(0x4700_1447),
-            0x4700_0FF7,
-            0x839B_71D6,
-        ),
-        Species::new(
-            0x4700_3420,
-            0x4700_1454,
-            Some(0x4700_1448),
-            0x4700_0FF9,
-            0x811B_71D6,
-        ),
-        Species::new(0x4700_3421, 0x4700_1455, None, 0x4700_0FFB, 0),
-        Species::new(
-            0x4700_3422,
-            0x4700_1456,
-            Some(0x4700_1449),
-            0x4700_0FFD,
-            0x821B_71D6,
-        ),
-        Species::new(
-            0x4700_3423,
-            0x4700_1457,
-            Some(0x4700_144A),
-            0x4700_0FFF,
-            0x801B_71D6,
-        ),
-        Species::new(
-            0x4700_3424,
-            0x4700_1458,
-            Some(0x4700_144B),
-            0x4700_1001,
-            0x831B_71D6,
-        ),
-        Species::new(
-            0x4700_3425,
-            0x4700_1459,
-            Some(0x4700_144C),
-            0x4700_1003,
-            0x859B_71D6,
-        ),
-        Species::new(
-            0x4700_3426,
-            0x4700_145A,
-            Some(0x4700_144D),
-            0x4700_1005,
-            0x829B_71D6,
-        ),
-        Species::new(
-            0x4700_3427,
-            0x4700_145B,
-            Some(0x4700_144E),
-            0x4700_1006,
-            0x812B_71D6,
-        ),
-        Species::new(
-            0x4700_3428,
-            0x4700_145C,
-            Some(0x4700_144F),
-            0x4700_1007,
-            0x812A_71D6,
-        ),
-        Species::new(
-            0x4700_3429,
-            0x4700_145D,
-            Some(0x4700_1450),
-            0x4700_1009,
-            0x851B_71D6,
-        ),
-        Species::new(
-            0x4700_342A,
-            0x4700_145E,
-            Some(0x4700_1451),
-            0x4700_100A,
-            0x809B_71D6,
-        ),
+        ("plant", rows.species.is_empty()),
+        ("plant_cross", rows.crosses.is_empty()),
     ]
     .into_iter()
-    .map(|s| (s.plant, s))
+    .filter_map(|(kind, none)| none.then_some(kind))
     .collect()
-}
-
-/// The server's own crosses, which a world with no `[[plant_cross]]` rows has: Berimphur with
-/// Hennacin pollen gives three Siennan seeds, Aurim with Siennan pollen two Colban seeds.
-#[must_use]
-pub fn fallback_crosses() -> BTreeMap<(u32, u32), Cross> {
-    [
-        Cross {
-            plant: 0x4700_3420,
-            pollen: 0x4700_1451,
-            seeds: 0x4700_1453,
-            count: 3,
-        },
-        Cross {
-            plant: 0x4700_3424,
-            pollen: 0x4700_1447,
-            seeds: 0x4700_1456,
-            count: 2,
-        },
-    ]
-    .into_iter()
-    .map(|c| ((c.plant, c.pollen), c))
-    .collect()
-}
-
-/// A world's dye plants: its rows of each kind, or the server's own of a kind it has none of
-/// ([`fallback_species`], [`fallback_crosses`]), never the two merged; and the kinds it had none of.
-#[must_use]
-pub fn world_plants(rows: &DyePlants) -> (DyePlants, Vec<&'static str>) {
-    let mut p = rows.clone();
-    let mut fell_back = Vec::new();
-    if p.species.is_empty() {
-        p.species = fallback_species();
-        fell_back.push("plant");
-    }
-    if p.crosses.is_empty() {
-        p.crosses = fallback_crosses();
-        fell_back.push("plant_cross");
-    }
-    (p, fell_back)
 }
 
 /// The watering can and the bag of fertilizer.
@@ -296,7 +170,7 @@ pub struct Plant {
 /// Each species' ripe look, by its plant item.
 pub type Looks = HashMap<u32, VisualDesc>;
 
-/// The plants of the world, its species and crosses ([`world_plants`]), and each species' ripe
+/// The plants of the world, its species and crosses (the world's rows), and each species' ripe
 /// look.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Plants {

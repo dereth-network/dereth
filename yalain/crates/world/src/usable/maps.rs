@@ -6,7 +6,7 @@
 //! player's map, and whether the player is going the right way since it last took its bearings.
 //!
 //! The node a map conjures is the one its world's `[[map_region]]` rows give its summoning effect;
-//! a world with none has the server's own ([`fallback_map_regions`]).
+//! in a world with none, no map is a surveyor's map.
 
 use auberean_protocol::types::BehaviorParams;
 use auberean_protocol::ServerMessage;
@@ -15,9 +15,7 @@ use dereth_primitives::num::math;
 use yalain_net::{ConnId, ServerNet};
 use yalain_store::{Store, StoredPosition};
 
-use std::collections::BTreeMap;
-
-use yalain_content::gathering::{Gathering, MapRegion};
+use yalain_content::gathering::Gathering;
 
 use crate::places::Use;
 use crate::{progress, session, Clock, Server};
@@ -84,30 +82,6 @@ pub const BANDS: [f32; 4] = [100.0, 200.0, 400.0, 800.0];
 /// The side of an outdoor cell and of a landblock, in meters.
 const CELL: f32 = 20.0;
 const BLOCK: f32 = 160.0;
-
-/// The map regions of a world with no `[[map_region]]` rows: Linvak's, Omishan's and Osteth's,
-/// each a node of crystal, iron, silver, stone and wood, as the install's templates run (54 of 54
-/// finds conjured the node of the map's region and material). A world with any row has its rows
-/// alone.
-#[must_use]
-pub fn fallback_map_regions() -> BTreeMap<String, MapRegion> {
-    const MATERIALS: [&str; 5] = ["Crystal", "Iron", "Silver", "Stone", "Wood"];
-    [
-        ("Linvak", 0x4700_0C97_u32),
-        ("Omishan", 0x4700_0CA1),
-        ("Osteth", 0x4700_0CA6),
-    ]
-    .into_iter()
-    .map(|(region, first)| {
-        let key = region.to_ascii_lowercase();
-        let nodes = (first..)
-            .zip(MATERIALS)
-            .map(|(node, material)| (format!("Eff_SummonMine_{material}_{region}"), node))
-            .collect();
-        (key.clone(), MapRegion { region: key, nodes })
-    })
-    .collect()
-}
 
 /// The region a map's summoning effect names (`Linvak`, `Omishan`, `Osteth`): the land it is a map
 /// of.

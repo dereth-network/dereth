@@ -1963,8 +1963,8 @@ fn a_refining_row_sets_its_recipes_product_and_the_level_it_yields_all_at() {
         .into(),
         ..Crafts::default()
     };
-    let fell_back = c.take_world_crafts(&rows);
-    assert_eq!(fell_back, ["map_recipes", "spellbinding"]);
+    let missing = c.take_world_crafts(&rows);
+    assert_eq!(missing, ["map_recipes", "spellbinding"]);
     assert_eq!(
         c.recipes[&1].custom,
         Custom::Refine {
@@ -1999,19 +1999,19 @@ fn a_refining_row_sets_its_recipes_product_and_the_level_it_yields_all_at() {
     assert_eq!(steel, 100, "all it takes at its row's level");
 }
 
-/// A world with no `[[map_recipes]]`, `[[spellbinding]]` or `[[refining]]` rows has the server's
-/// own of each, as the test world's rows give them; with rows of a kind it has those alone, never
-/// merged with the server's.
+/// A world with no `[[map_recipes]]`, `[[spellbinding]]` or `[[refining]]` rows has none of each
+/// and names the kinds it lacks; with rows of a kind it has those alone and names the others.
 /// Behaviour: server.craft.crafting-without-rows
 #[test]
-fn a_world_without_map_recipes_spellbinding_or_refining_rows_has_the_servers_own_and_with_some_its_rows_alone(
-) {
+fn a_world_without_map_recipes_spellbinding_or_refining_rows_has_none_and_names_the_kinds_it_lacks()
+{
     use yalain_content::crafts::{Crafts, Totem};
     use yalain_content::treasure_tables::Sort;
-    use yalain_world::craft::world_crafts;
-    let (own, fell_back) = world_crafts(&Crafts::default());
-    assert_eq!(fell_back, ["map_recipes", "spellbinding", "refining"]);
-    assert_eq!(own, yalain_testkit::test_crafts());
+    use yalain_world::craft::Crafting;
+    let mut c = Crafting::default();
+    let missing = c.take_world_crafts(&Crafts::default());
+    assert_eq!(missing, ["map_recipes", "spellbinding", "refining"]);
+    assert_eq!(c.crafts, Crafts::default());
     let one = Crafts {
         totems: vec![Totem {
             sort: Sort::Weapon,
@@ -2020,12 +2020,15 @@ fn a_world_without_map_recipes_spellbinding_or_refining_rows_has_the_servers_own
         }],
         ..Crafts::default()
     };
-    let (c, fell_back) = world_crafts(&one);
-    assert_eq!(fell_back, ["map_recipes", "refining"]);
-    assert_eq!(c.totems, one.totems, "the row alone");
-    assert!(c.totem(Sort::Shield).is_none(), "no shield totem merged in");
-    assert_eq!(c.map_recipes, own.map_recipes);
-    assert_eq!(c.refining, own.refining);
+    let missing = c.take_world_crafts(&one);
+    assert_eq!(missing, ["map_recipes", "refining"]);
+    assert_eq!(c.crafts.totems, one.totems, "the row alone");
+    assert!(c.crafts.totem(Sort::Shield).is_none(), "no shield totem");
+    assert!(c.crafts.map_recipes.is_empty() && c.crafts.refining.is_empty());
+    assert!(c
+        .take_world_crafts(&yalain_testkit::test_crafts())
+        .is_empty());
+    assert_eq!(c.crafts, yalain_testkit::test_crafts());
 }
 
 /// What a refining yields grows with the craft skill to all it takes at the skill's cap, and what

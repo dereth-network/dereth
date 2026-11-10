@@ -53,7 +53,7 @@ pub struct Rows<'a> {
     pub death_spawns: &'a BTreeMap<String, DeathSpawn>,
     pub pets: &'a BTreeMap<u32, yalain_content::PetKind>,
     pub items: &'a yalain_content::item_rows::ItemRows,
-    /// The dye plants, as [`crate::plants::world_plants`] gives them.
+    /// The dye plants, the world's rows.
     pub plants: &'a plants::DyePlants,
 }
 

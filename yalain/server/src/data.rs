@@ -1646,24 +1646,24 @@ mod tests {
         assert!(materials.is_empty(), "{materials:?}");
     }
 
-    /// A start describes everything mining and maps name, as it asks for them with crafting's
-    /// templates: the 15 nodes maps conjure and the 5 delving stones do, each giving a material by
+    /// A start describes everything the test world's mining and maps rows name (the release's,
+    /// entry for entry), as it asks for them with crafting's templates: the 15 nodes maps conjure and the 5 delving stones do, each giving a material by
     /// its mine's craft skill (a region's five one of each skill); the 10 tools, each playing its
     /// mine's behavior in hand but the rock hammers, which play iron's (2017: stone mined with a
     /// rock hammer in hand played it); the 25 lodestones; and the Tessera.
     /// Behaviour: server.craft.gathering-in-the-real-start
     #[test]
-    fn a_start_describes_every_node_tool_and_find_of_the_servers_own_gathering() {
+    fn a_start_describes_every_node_tool_and_find_of_the_test_worlds_gathering() {
         let dir = auberean_dat::testing::require_target_install();
         let p = Portal::open(&dir, None).expect("opens");
         let start = start_rules(&p).expect("the start");
         let mut craft =
             crafting(&p, &yalain_content::CraftStart::default(), &[]).expect("the crafting");
-        let fell_back = yalain_world::mining::take_world_gathering(
+        let missing = yalain_world::mining::take_world_gathering(
             &mut craft,
-            &yalain_content::gathering::Gathering::default(),
+            &yalain_testkit::test_gathering(),
         );
-        assert_eq!(fell_back, ["mine", "map_region"]);
+        assert!(missing.is_empty(), "{missing:?}");
         let more: Vec<u32> = yalain_world::makes::by_the_server(&start, &[])
             .into_iter()
             .chain(craft.templates())
@@ -1674,7 +1674,7 @@ mod tests {
             &LootTable::default(),
             &more,
             &TreasureTables::default(),
-            &yalain_content::worn_table::WornLooks::servers_own(),
+            yalain_testkit::test_worn_looks(),
         )
         .expect("the catalog");
         let g = &craft.gathering;
@@ -1724,18 +1724,18 @@ mod tests {
         assert_eq!(g.map_nodes().count(), 15);
     }
 
-    /// A start describes everything the server's own crafting work makes, as it asks for them with
-    /// crafting's templates: the three totems and the ten refined products, each a stack; each of
+    /// A start describes everything the test world's crafting rows make (the release's, entry for
+    /// entry), as it asks for them with crafting's templates: the three totems and the ten refined products, each a stack; each of
     /// the ten refinings is of a script package the install holds; and each region's five map
     /// recipes read from the install, each drawing putting on the region's own effect.
     /// Behaviour: server.craft.crafting-in-the-real-start
     #[test]
-    fn a_start_describes_every_totem_and_refined_product_of_the_servers_own_crafting() {
+    fn a_start_describes_every_totem_and_refined_product_of_the_test_worlds_crafting() {
         use yalain_world::craft::Action;
         let dir = auberean_dat::testing::require_target_install();
         let p = Portal::open(&dir, None).expect("opens");
         let start = start_rules(&p).expect("the start");
-        let own = yalain_world::craft::world_crafts(&yalain_content::crafts::Crafts::default()).0;
+        let own = yalain_testkit::test_crafts();
         let map_recipes: Vec<u32> = own
             .map_recipes
             .values()
@@ -1743,8 +1743,8 @@ mod tests {
             .collect();
         let mut craft = crafting(&p, &yalain_content::CraftStart::default(), &map_recipes)
             .expect("the crafting");
-        let fell_back = craft.take_world_crafts(&yalain_content::crafts::Crafts::default());
-        assert_eq!(fell_back, ["map_recipes", "spellbinding", "refining"]);
+        let missing = craft.take_world_crafts(&own);
+        assert!(missing.is_empty(), "{missing:?}");
         let more: Vec<u32> = yalain_world::makes::by_the_server(&start, &[])
             .into_iter()
             .chain(craft.templates())
@@ -1755,7 +1755,7 @@ mod tests {
             &LootTable::default(),
             &more,
             &TreasureTables::default(),
-            &yalain_content::worn_table::WornLooks::servers_own(),
+            yalain_testkit::test_worn_looks(),
         )
         .expect("the catalog");
         let described = |t: u32| c.get(t).unwrap_or_else(|| panic!("{t:08X} described"));
@@ -1811,7 +1811,7 @@ mod tests {
             &LootTable::default(),
             &more,
             &TreasureTables::default(),
-            &yalain_content::worn_table::WornLooks::servers_own(),
+            yalain_testkit::test_worn_looks(),
         )
         .expect("the catalog");
         c.implements = implements(&p, &c).expect("the implements");
@@ -1912,7 +1912,7 @@ mod tests {
             &LootTable::default(),
             &[0x4700_0609, 0x4700_11C7, 0x4700_080B],
             &TreasureTables::default(),
-            &yalain_content::worn_table::WornLooks::servers_own(),
+            yalain_testkit::test_worn_looks(),
         )
         .expect("the catalog");
         let gate = |t: u32| {
@@ -1940,7 +1940,7 @@ mod tests {
             &LootTable::default(),
             &[0x4700_11C8, 0x4700_1AED, 0x4700_051C],
             &TreasureTables::default(),
-            &yalain_content::worn_table::WornLooks::servers_own(),
+            yalain_testkit::test_worn_looks(),
         )
         .expect("the catalog");
         assert!(yalain_world::inventory::attunable(&c, 0x4700_11C8));
@@ -1960,7 +1960,7 @@ mod tests {
             &LootTable::default(),
             &[0x4700_10B1, 0x4700_10AC],
             &TreasureTables::default(),
-            &yalain_content::worn_table::WornLooks::servers_own(),
+            yalain_testkit::test_worn_looks(),
         )
         .expect("the catalog");
         let key = |t: u32| c.get(t).expect("described").props.word("Lock_KeyID");
@@ -1981,7 +1981,7 @@ mod tests {
             &LootTable::default(),
             &[0x4700_1127, 0x4700_1128],
             &TreasureTables::default(),
-            &yalain_content::worn_table::WornLooks::servers_own(),
+            yalain_testkit::test_worn_looks(),
         )
         .expect("the catalog");
         let key = |t: u32| c.get(t).expect("described").props.word("Lock_KeyID");
@@ -2005,19 +2005,17 @@ mod tests {
         assert_eq!(rules.bodies.len(), 10);
     }
 
-    /// A start with the server's own item rows reads every effect their uses put on (the forager's
-    /// food's two heals, the training hall's haste, healing and thorns), describes every template they name (the food, the potions, the cards, the Shi) and,
-    /// asking for what the rows give with the server's own, the Shaper's Guide every new character
-    /// is given.
+    /// A start with the test world's item rows (the release's, entry for entry) reads every effect
+    /// their uses put on (the forager's food's two heals, the training hall's haste, healing and
+    /// thorns), describes every template they name (the food, the potions, the cards, the Shi) and,
+    /// asking for what the rows give, the Shaper's Guide every new character is given.
     /// Behaviour: server.items.item-rows-in-the-real-start
     #[test]
-    fn a_start_reads_the_effects_and_describes_the_templates_of_the_servers_own_item_rows() {
+    fn a_start_reads_the_effects_and_describes_the_templates_of_the_test_worlds_item_rows() {
         use yalain_world::effect_defs::Kind;
         let dir = auberean_dat::testing::require_target_install();
         let p = Portal::open(&dir, None).expect("opens");
-        let (rows, fell_back) =
-            yalain_world::item_use::world_item_rows(yalain_content::item_rows::ItemRows::default());
-        assert_eq!(fell_back, ["item_use", "book", "start_item"]);
+        let rows = yalain_testkit::test_item_rows();
         let states: Vec<u32> = rows.states().collect();
         assert_eq!(states.len(), 5);
         let t = effect_table(
@@ -2052,7 +2050,7 @@ mod tests {
             &LootTable::default(),
             &more,
             &TreasureTables::default(),
-            &yalain_content::worn_table::WornLooks::servers_own(),
+            yalain_testkit::test_worn_looks(),
         )
         .expect("the catalog");
         assert_eq!(rows.start_items, BTreeMap::from([(0x4700_06CD, 1)]));
@@ -2068,7 +2066,7 @@ mod tests {
                 .copied()
                 .collect::<Vec<_>>(),
             &TreasureTables::default(),
-            &yalain_content::worn_table::WornLooks::servers_own(),
+            yalain_testkit::test_worn_looks(),
         )
         .expect("the catalog");
         for t in rows.uses.keys().chain(rows.books.keys()) {
@@ -2076,18 +2074,18 @@ mod tests {
         }
     }
 
-    /// A start describes every template of the server's own worn looks (75), none of which names a
-    /// worn look in its own data, and gives each its looks in order, 147 of 147: a wearer of each
+    /// A start describes every template of the test world's worn looks (the release's, 75), none of
+    /// which names a worn look in its own data, and gives each its looks in order, 147 of 147: a wearer of each
     /// race and sex a look fits wears the first that fits, as the starting clothes each race wears
     /// do. With a world's rows the templates take those alone.
     /// Behaviour: server.inventory.worn-looks-in-the-real-start
     #[test]
-    fn a_start_gives_every_template_of_the_servers_own_worn_looks_its_looks_in_order() {
+    fn a_start_gives_every_template_of_the_test_worlds_worn_looks_its_looks_in_order() {
         use yalain_content::worn_table::{Worn, WornLooks};
         use yalain_world::chargen::{FEMALE, MALE};
         let dir = auberean_dat::testing::require_target_install();
         let p = Portal::open(&dir, None).expect("opens");
-        let own = WornLooks::servers_own();
+        let own = yalain_testkit::test_worn_looks();
         let start = start_rules(&p).expect("the start");
         let garments: Vec<(u32, u32)> = start
             .items
@@ -2117,7 +2115,7 @@ mod tests {
             .expect("the catalog")
             .0
         };
-        let c = build(&own);
+        let c = build(own);
         let prop_name = |id: u32| {
             p.ctx
                 .properties()
@@ -2193,17 +2191,15 @@ mod tests {
         assert_eq!(props.word("Item_WornAppearanceFile1"), None, "{other:08X}");
     }
 
-    /// A start describes every template of the server's own dye plants, as it asks for them with
-    /// the rows' makers: each species' plant, seed, plant item and pollen (twelve of thirteen have
+    /// A start describes every template of the test world's dye plants (the release's, entry for
+    /// entry), as it asks for them with the rows' makers: each species' plant, seed, plant item and pollen (twelve of thirteen have
     /// one) and each cross's seeds; and it reads each species' ripe look from its plant item.
     /// Behaviour: server.plants.plants-in-the-real-start
     #[test]
-    fn a_start_describes_every_template_and_ripe_look_of_the_servers_own_dye_plants() {
+    fn a_start_describes_every_template_and_ripe_look_of_the_test_worlds_dye_plants() {
         let dir = auberean_dat::testing::require_target_install();
         let p = Portal::open(&dir, None).expect("opens");
-        let (plants, fell_back) =
-            yalain_world::plants::world_plants(&yalain_world::plants::DyePlants::default());
-        assert_eq!(fell_back, ["plant", "plant_cross"]);
+        let plants = yalain_testkit::test_plants();
         let start = start_rules(&p).expect("the start");
         let more: Vec<u32> = yalain_world::makes::by_the_server(&start, &[])
             .into_iter()
@@ -2226,7 +2222,7 @@ mod tests {
             &LootTable::default(),
             &more,
             &TreasureTables::default(),
-            &yalain_content::worn_table::WornLooks::servers_own(),
+            yalain_testkit::test_worn_looks(),
         )
         .expect("the catalog");
         let described = |t: u32| assert!(c.get(t).is_some(), "{t:08X} described");
@@ -2254,9 +2250,9 @@ mod tests {
     /// Behaviour: server.content.destroyed-on-use-of-classes
     #[test]
     fn a_start_reads_which_items_their_use_destroys_from_their_classes() {
-        use yalain_world::item_use::{spends, world_item_rows};
+        use yalain_world::item_use::spends;
         const FOOD: u32 = 0x4700_0845;
-        let (rows, _) = world_item_rows(yalain_content::item_rows::ItemRows::default());
+        let rows = yalain_testkit::test_item_rows();
         let dir = auberean_dat::testing::require_target_install();
         let p = Portal::open(&dir, None).expect("opens");
         let (c, _) = catalog(
@@ -2265,7 +2261,7 @@ mod tests {
             &LootTable::default(),
             &[0x4700_11B4, 0x4700_1106, FOOD],
             &TreasureTables::default(),
-            &yalain_content::worn_table::WornLooks::servers_own(),
+            yalain_testkit::test_worn_looks(),
         )
         .expect("the catalog");
         let spent = |t: u32| spends(&rows, t, &c.get(t).expect("described").props);
@@ -2295,7 +2291,7 @@ mod tests {
             &LootTable::default(),
             &[ARMOR, weapon],
             &TreasureTables::default(),
-            &yalain_content::worn_table::WornLooks::servers_own(),
+            yalain_testkit::test_worn_looks(),
         )
         .expect("the catalog");
         assert!(
@@ -2562,7 +2558,7 @@ mod tests {
             &loot,
             &[],
             &TreasureTables::default(),
-            &yalain_content::worn_table::WornLooks::servers_own(),
+            yalain_testkit::test_worn_looks(),
         )
         .expect("the catalog");
         let kinds = treasure(&p, &c, &TreasureTables::default()).expect("the treasure kinds");
@@ -2605,7 +2601,7 @@ mod tests {
             &loot,
             &[],
             &TreasureTables::default(),
-            &yalain_content::worn_table::WornLooks::servers_own(),
+            yalain_testkit::test_worn_looks(),
         )
         .expect("the catalog");
         assert!(c.templates.contains_key(&ITEM));
@@ -2635,7 +2631,7 @@ mod tests {
             &loot,
             &[],
             &TreasureTables::default(),
-            &yalain_content::worn_table::WornLooks::servers_own(),
+            yalain_testkit::test_worn_looks(),
         )
         .expect("the catalog");
         assert!(c.templates.contains_key(&ITEM));
@@ -2645,7 +2641,7 @@ mod tests {
             &LootTable::default(),
             &[],
             &TreasureTables::default(),
-            &yalain_content::worn_table::WornLooks::servers_own(),
+            yalain_testkit::test_worn_looks(),
         )
         .expect("the catalog");
         assert!(!c.templates.contains_key(&ITEM), "named by nothing else");

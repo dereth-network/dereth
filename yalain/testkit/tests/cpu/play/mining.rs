@@ -332,41 +332,35 @@ fn a_mine_row_sets_what_its_nodes_play_and_say_and_what_its_stone_conjures() {
     assert_eq!(use_answers(&h, b, from), [(0, SAID)]);
 }
 
-/// A world with no `[[mine]]` or `[[map_region]]` rows mines and maps by the server's own, which
-/// are the test world's rows, its tools yielding theirs unmade where no `[[tool]]` row says; a world
-/// with rows of a kind has those alone, never the server's beside them, and says which kinds it
-/// lacks.
+/// A world with no `[[mine]]` or `[[map_region]]` rows has no mines or maps' nodes and names the
+/// kinds it lacks, its tools yielding only what its `[[tool]]` rows say; a world with rows of a kind
+/// has those alone and names the other.
 /// Behaviour: server.craft.gathering-without-rows
 #[test]
-fn a_world_without_mine_or_map_region_rows_has_the_servers_own_and_with_some_its_rows_alone() {
+fn a_world_without_mine_or_map_region_rows_has_none_and_names_the_kinds_it_lacks() {
     use yalain_content::gathering::Gathering;
     let test = yalain_testkit::test_gathering();
     let mut craft = yalain_world::craft::Crafting::default();
     craft.tool_yields.insert(PICKAXE, 9);
-    let fell_back = mining::take_world_gathering(&mut craft, &Gathering::default());
-    assert_eq!(fell_back, ["mine", "map_region"]);
-    assert_eq!(craft.gathering, test);
-    let mut yields: Vec<(u32, u32)> = craft.tool_yields.clone().into_iter().collect();
-    yields.sort_unstable();
-    let mut own: Vec<(u32, u32)> = yalain_testkit::test_mining_tool_yields()
-        .into_iter()
-        .map(|(t, y)| (t, if t == PICKAXE { 9 } else { y }))
-        .collect();
-    own.sort_unstable();
-    assert_eq!(yields, own, "a [[tool]] row's yield stands");
+    let missing = mining::take_world_gathering(&mut craft, &Gathering::default());
+    assert_eq!(missing, ["mine", "map_region"]);
+    assert_eq!(craft.gathering, Gathering::default());
+    assert_eq!(
+        craft.tool_yields.into_iter().collect::<Vec<_>>(),
+        [(PICKAXE, 9)],
+        "a [[tool]] row's yield alone"
+    );
     let one = Gathering {
         mines: test.mines.clone().into_iter().take(1).collect(),
         ..Gathering::default()
     };
     let mut craft = yalain_world::craft::Crafting::default();
-    let fell_back = mining::take_world_gathering(&mut craft, &one);
-    assert_eq!(fell_back, ["map_region"]);
-    assert_eq!(craft.gathering.mines, one.mines);
-    assert_eq!(craft.gathering.map_regions, test.map_regions);
-    assert!(
-        craft.tool_yields.is_empty(),
-        "the world's own mines, its own yields"
-    );
+    let missing = mining::take_world_gathering(&mut craft, &one);
+    assert_eq!(missing, ["map_region"]);
+    assert_eq!(craft.gathering, one, "its rows alone");
+    let mut craft = yalain_world::craft::Crafting::default();
+    assert!(mining::take_world_gathering(&mut craft, &test).is_empty());
+    assert_eq!(craft.gathering, test);
 }
 
 /// Another player may not mine a node it did not summon: refused, nothing gathered.

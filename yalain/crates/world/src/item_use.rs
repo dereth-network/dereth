@@ -40,7 +40,7 @@
 //! **An item that is only looked at** (its usage action the examination's, no effects) is shown
 //! to the player as an examination, then the use answered at once.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 
 use auberean_protocol::types::BehaviorParams;
 use auberean_protocol::ServerMessage;
@@ -191,60 +191,18 @@ pub fn read_named_or<'a>(
         .collect()
 }
 
-/// The item uses a world with no `[[item_use]]` row has, until the world's release holds them. A
-/// forager's food (a Piece of Food): its template names no effect for its use, but its use heals
-/// health and vigor at the food's spellcraft, the forage's (2017: 40 for 10 of the 15 foods used,
-/// their heals 244 each, 50 of 66 vital updates; 45 and 19 for the others), and wears it by one;
-/// at its last durability it is destroyed through overuse (12 of 12, at the fifth use). The
-/// training hall's potions (haste, healing, thorns): their templates name no effect, but each is
-/// drunk for its one effect, at the spellcraft of 1 (2017: 5 of 5 drinks, 2 haste, 2 healing,
-/// 1 thorns). Both play the drink (65 of 65 uses; 5 of 5).
+/// The kinds of item row a world has none of: it has no item uses, books or first gifts of such
+/// a kind.
 #[must_use]
-pub fn fallback_uses() -> BTreeMap<u32, yalain_content::item_rows::ItemUse> {
-    let food = yalain_content::item_rows::ItemUse {
-        template: 0x4700_0845,
-        effects: vec![(0x6F00_2255, 40.0), (0x6F00_2251, 40.0)],
-        behavior: Some(DRINK),
-        wears: Some(5),
-    };
-    let potion = |template, state| yalain_content::item_rows::ItemUse {
-        template,
-        effects: vec![(state, 1.0)],
-        behavior: Some(DRINK),
-        wears: None,
-    };
+pub fn kinds_missing(rows: &yalain_content::item_rows::ItemRows) -> Vec<&'static str> {
     [
-        food,
-        potion(0x4700_1AEE, 0x7000_0A13),
-        potion(0x4700_1AEF, 0x7000_0A00),
-        potion(0x4700_1AF0, 0x7000_09FD),
+        ("item_use", rows.uses.is_empty()),
+        ("book", rows.books.is_empty()),
+        ("start_item", rows.start_items.is_empty()),
     ]
     .into_iter()
-    .map(|u| (u.template, u))
+    .filter_map(|(kind, none)| none.then_some(kind))
     .collect()
-}
-
-/// A world's item rows, each kind its rows or, with none, the server's own (never the two
-/// merged), and the kinds that fell back.
-#[must_use]
-pub fn world_item_rows(
-    rows: yalain_content::item_rows::ItemRows,
-) -> (yalain_content::item_rows::ItemRows, Vec<&'static str>) {
-    let mut out = rows;
-    let mut fell_back = Vec::new();
-    if out.uses.is_empty() {
-        out.uses = fallback_uses();
-        fell_back.push("item_use");
-    }
-    if out.books.is_empty() {
-        out.books = crate::books::fallback_books();
-        fell_back.push("book");
-    }
-    if out.start_items.is_empty() {
-        out.start_items = crate::inventory::fallback_start_items();
-        fell_back.push("start_item");
-    }
-    (out, fell_back)
 }
 
 /// The effects an item's use puts on that the world's rows name, not its template.

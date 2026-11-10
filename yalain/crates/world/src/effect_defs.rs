@@ -158,20 +158,6 @@ mod watcher_flag {
 /// What a ward keeps off, where its own data names nothing: the world's `[[effect_rule]]` rows.
 pub use yalain_content::effect_rules::{EffectRules, VitaeRestore, Ward};
 
-/// The effects that take a share of their player's vitae, for a world whose rules name none: Aun
-/// Aulatah's tap of a tenth (2017: 81 to 72.9, 1 of 1).
-const VITAE_TAPS_2017: [(u32, f32); 1] = [(0x6F00_1C64, 0.1)];
-
-/// A world whose rules name no share of vitae taps 2017's; one that names any has its rows' alone.
-/// Returns whether the world named none.
-pub fn vitae_taps_or_2017(rules: &mut EffectRules) -> bool {
-    if !rules.vitae_taps.is_empty() {
-        return false;
-    }
-    rules.vitae_taps.extend(VITAE_TAPS_2017);
-    true
-}
-
 /// The kind of an effect a world's row makes a ward: its chance the same at any spellcraft.
 #[must_use]
 pub fn ward_kind(w: &Ward) -> Kind {
@@ -180,42 +166,6 @@ pub fn ward_kind(w: &Ward) -> Kind {
         effects: w.effects.clone(),
         chance: Scale(vec![(0.0, w.chance)]),
     }
-}
-
-/// The crowd control immunities, for a world whose rules name none: each the short effect a use
-/// puts on along with it, the long one its end leaves, and the classes the long one keeps off for
-/// certain. Their own data names neither the second nor the classes.
-const IMMUNITIES_2017: [(u32, u32, &[u32]); 12] = [
-    (0x7000_0718, 0x7000_0719, &[52, 5015, 98]),
-    (0x7000_071A, 0x7000_071B, &[51, 5017, 99]),
-    (0x7000_071C, 0x7000_071D, &[77, 101]),
-    (0x7000_071E, 0x7000_071F, &[52, 5015, 51, 5017, 97]),
-    (0x7000_0720, 0x7000_0721, &[55, 100]),
-    (0x7000_1EDF, 0x7000_1EE0, &[1124]),
-    (0x6F00_2103, 0x6F00_2104, &[52, 5015, 98]),
-    (0x6F00_2105, 0x6F00_2106, &[51, 5017, 99]),
-    (0x6F00_2107, 0x6F00_2108, &[1124]),
-    (0x6F00_2109, 0x6F00_210A, &[77, 101]),
-    (0x6F00_210B, 0x6F00_210C, &[52, 5015, 51, 5017, 97]),
-    (0x6F00_210D, 0x6F00_210E, &[55, 100]),
-];
-
-/// A world whose rules name no immunity has the server's own twelve, each the short one leaving
-/// the long one and the long one's ward; one that names any has its rows' alone. Returns whether
-/// the world named none.
-pub fn immunities_or_2017(rules: &mut EffectRules) -> bool {
-    if !rules.immunities.is_empty() {
-        return false;
-    }
-    for (short, long, classes) in IMMUNITIES_2017 {
-        rules.immunities.insert(short, long);
-        rules.wards.entry(long).or_insert_with(|| Ward {
-            classes: classes.to_vec(),
-            effects: Vec::new(),
-            chance: 1.0,
-        });
-    }
-    true
 }
 
 /// What a reflective effect's external flags say of keeping effects off: its chance the same at

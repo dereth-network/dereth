@@ -26,6 +26,7 @@ pub mod play;
 pub mod session;
 #[cfg(feature = "retail-dats")]
 pub mod treasure_drops;
+mod worn_rows;
 
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
@@ -37,6 +38,7 @@ use yalain_world::start::StartArea;
 use yalain_world::{CharGenRules, Clock, Server, ServerConfig, StartRules};
 
 pub use bot::{Bot, Received};
+pub use worn_rows::{test_worn_looks, TEST_WORN};
 
 /// The virtual clock's step.
 pub const STEP: f64 = 0.05;
@@ -2619,9 +2621,27 @@ pub fn test_wards() -> std::collections::BTreeMap<u32, yalain_world::effect_defs
     ])
 }
 
+/// The crowd control immunities the test world's rows would name: each the short effect a use
+/// puts on along with it, the long one its end leaves, and the classes the long one keeps off for
+/// certain.
+pub const TEST_IMMUNITIES: [(u32, u32, &[u32]); 12] = [
+    (0x7000_0718, 0x7000_0719, &[52, 5015, 98]),
+    (0x7000_071A, 0x7000_071B, &[51, 5017, 99]),
+    (0x7000_071C, 0x7000_071D, &[77, 101]),
+    (0x7000_071E, 0x7000_071F, &[52, 5015, 51, 5017, 97]),
+    (0x7000_0720, 0x7000_0721, &[55, 100]),
+    (0x7000_1EDF, 0x7000_1EE0, &[1124]),
+    (0x6F00_2103, 0x6F00_2104, &[52, 5015, 98]),
+    (0x6F00_2105, 0x6F00_2106, &[51, 5017, 99]),
+    (0x6F00_2107, 0x6F00_2108, &[1124]),
+    (0x6F00_2109, 0x6F00_210A, &[77, 101]),
+    (0x6F00_210B, 0x6F00_210C, &[52, 5015, 51, 5017, 97]),
+    (0x6F00_210D, 0x6F00_210E, &[55, 100]),
+];
+
 /// The effect rules the test world's rows would name: its wards ([`test_wards`]), Aun Aulatah's
-/// tap of a tenth of vitae, the Crystalabra's two points given back to its user and fellows, and the server's own twelve crowd control immunities with their long
-/// effects' wards.
+/// tap of a tenth of vitae, the Crystalabra's two points given back to its user and fellows, and
+/// the twelve crowd control immunities ([`TEST_IMMUNITIES`]) with their long effects' wards.
 #[must_use]
 pub fn test_effect_rules() -> yalain_world::effect_defs::EffectRules {
     let mut rules = yalain_world::effect_defs::EffectRules {
@@ -2636,7 +2656,17 @@ pub fn test_effect_rules() -> yalain_world::effect_defs::EffectRules {
         )]),
         immunities: std::collections::BTreeMap::new(),
     };
-    yalain_world::effect_defs::immunities_or_2017(&mut rules);
+    for (short, long, classes) in TEST_IMMUNITIES {
+        rules.immunities.insert(short, long);
+        rules
+            .wards
+            .entry(long)
+            .or_insert_with(|| yalain_world::effect_defs::Ward {
+                classes: classes.to_vec(),
+                effects: Vec::new(),
+                chance: 1.0,
+            });
+    }
     rules
 }
 

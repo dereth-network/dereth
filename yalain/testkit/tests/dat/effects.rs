@@ -811,17 +811,27 @@ fn skills_effect_states(p: &Portal) -> Vec<u32> {
 
 /// As a start reads the skills' effects, an immunity is what its world's rules say: with no rule
 /// the short effects read as no immunity and the long ones as no ward (their data names neither
-/// the long one nor its classes); a world whose rules name none has the server's own twelve (three of them the
-/// install's skills put on), each leaving its long one, which keeps its classes off for certain;
-/// and a world's rows are its immunities alone.
+/// the long one nor its classes); with the test world's twelve (three of them the install's skills
+/// put on), each leaves its long one, which keeps its classes off for certain; and a world's rows
+/// are its immunities alone.
 /// Behaviour: server.effects.immunities-as-rows-say
 #[test]
-fn an_immunity_reads_as_its_worlds_rules_say_and_without_rows_as_the_servers_own() {
-    use yalain_world::effect_defs::{immunities_or_2017, EffectRules};
+fn an_immunity_reads_as_its_worlds_rules_say_and_without_rows_as_none() {
+    use yalain_world::effect_defs::{EffectRules, Ward};
     let p = Portal::open();
     let mut states = skills_effect_states(&p);
     let mut own = EffectRules::default();
-    assert!(immunities_or_2017(&mut own), "named none");
+    for (short, long, classes) in yalain_testkit::TEST_IMMUNITIES {
+        own.immunities.insert(short, long);
+        own.wards.insert(
+            long,
+            Ward {
+                classes: classes.to_vec(),
+                effects: Vec::new(),
+                chance: 1.0,
+            },
+        );
+    }
     assert_eq!(own.immunities.len(), 12);
     let by_skills = p.effects_ruled(&states, &own);
     let skills_put_on: Vec<u32> = own
@@ -872,8 +882,7 @@ fn an_immunity_reads_as_its_worlds_rules_say_and_without_rows_as_the_servers_own
         "[[effect_rule]]\neffect = 0x70000720\nthen = 0x7000071D\nprov = { from = \"authored\" }\n"
             .into(),
     );
-    let mut rows = p.compile(&files).effect_rules;
-    assert!(!immunities_or_2017(&mut rows), "its rows alone");
+    let rows = p.compile(&files).effect_rules;
     let ruled = p.effects_ruled(&states, &rows);
     let immunities: Vec<(u32, &Kind)> = ruled
         .effects

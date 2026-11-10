@@ -1716,7 +1716,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         spawns,
         loot,
         stores,
-        mut quests,
+        quests,
         talk,
         crafting,
         story,
@@ -1731,7 +1731,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         effect_names,
         kingdoms: kingdom_rows,
         popups,
-        mut effect_rules,
+        effect_rules,
         treasure,
         gathering,
         items,
@@ -1741,23 +1741,34 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         worn,
         ..
     } = compiled;
-    // Fields of kinds a world has that it may leave out everywhere: the server's own then.
-    let cancel_waits_2017 = yalain_world::quests::cancel_waits_or_2017(&mut quests);
-    let transformations_2017 = yalain_world::gives::transformations_or_2017(&mut quests);
-    let vitae_taps_2017 = yalain_world::effect_defs::vitae_taps_or_2017(&mut effect_rules);
-    // Whether the world wards anything is told before the server's own immunities add theirs.
+    // The rows of each kind are the world's alone: of a kind it has none of, it has nothing. Such
+    // kinds are named at start, and the fields of kinds it has that none of its rows names.
+    let item_rows = items;
+    let creature_rows = creatures;
+    let mut missing: Vec<&str> = [
+        yalain_world::item_use::kinds_missing(&item_rows),
+        yalain_world::creature_rows::kinds_missing(&creature_rows),
+        yalain_world::plants::kinds_missing(&plants),
+    ]
+    .concat();
+    if worn.is_empty() {
+        missing.push("worn");
+    }
+    let fields_missing: Vec<&str> = [
+        (
+            "[[step]] transforms",
+            !quests.steps.iter().any(|s| s.transforms.is_some()),
+        ),
+        (
+            "[[effect_rule]] vitae_share",
+            effect_rules.vitae_taps.is_empty(),
+        ),
+        ("[[effect_rule]] then", effect_rules.immunities.is_empty()),
+    ]
+    .into_iter()
+    .filter_map(|(field, none)| none.then_some(field))
+    .collect();
     let no_wards = effect_rules.wards.is_empty();
-    let immunities_2017 = yalain_world::effect_defs::immunities_or_2017(&mut effect_rules);
-    // What items' uses do, books show and new characters are given: the world's rows, the
-    // server's own of a kind it has none of.
-    let (item_rows, items_fell_back) = yalain_world::item_use::world_item_rows(items);
-    // What creatures do: the world's rows, the server's own of a kind it has none of.
-    let (creature_rows, creatures_fell_back) =
-        yalain_world::creature_rows::world_creature_rows(creatures);
-    // The dye plants: the world's rows, the server's own of a kind it has none of.
-    let (plants, plants_fell_back) = yalain_world::plants::world_plants(&plants);
-    // The worn looks of templates whose data names none: the world's rows, else the server's own.
-    let (worn, worn_fell_back) = yalain_content::worn_table::world_worn(&worn);
     // The numbers treasure draws by: the world's rows, 2017's for each kind it gives none of.
     let (treasure_tables, mut fell_back) =
         yalain_content::treasure_tables::TreasureTables::with_rows(&treasure);
@@ -1777,56 +1788,10 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
                 kinds.join(", ")
             );
         }
-        if cancel_waits_2017 {
+        if !fields_missing.is_empty() {
             tracing::warn!(
-                "this world's [[quest]] rows name no cancel_wait: the eleven quests the server knows wait five hours after a cancel"
-            );
-        }
-        if transformations_2017 {
-            tracing::warn!(
-                "this world's [[step]] rows name no transforms: a give's step putting on the hero's transformation transforms its player as the server's own does"
-            );
-        }
-        if vitae_taps_2017 {
-            tracing::warn!(
-                "this world's [[effect_rule]] rows name no vitae_share: Aun Aulatah's tap takes the server's own tenth of vitae"
-            );
-        }
-        if immunities_2017 {
-            tracing::warn!(
-                "this world's [[effect_rule]] rows name no then: its crowd control immunities are the server's own twelve"
-            );
-        }
-        if !items_fell_back.is_empty() {
-            let kinds: Vec<String> = items_fell_back.iter().map(|k| format!("[[{k}]]")).collect();
-            tracing::warn!(
-                "this world has no {} rows: its items go by the server's own there",
-                kinds.join(", ")
-            );
-        }
-        if !creatures_fell_back.is_empty() {
-            let kinds: Vec<String> = creatures_fell_back
-                .iter()
-                .map(|k| format!("[[{k}]]"))
-                .collect();
-            tracing::warn!(
-                "this world has no {} rows: its creatures go by the server's own there",
-                kinds.join(", ")
-            );
-        }
-        if !plants_fell_back.is_empty() {
-            let kinds: Vec<String> = plants_fell_back
-                .iter()
-                .map(|k| format!("[[{k}]]"))
-                .collect();
-            tracing::warn!(
-                "this world has no {} rows: its dye plants go by the server's own there",
-                kinds.join(", ")
-            );
-        }
-        if worn_fell_back {
-            tracing::warn!(
-                "this world has no [[worn]] rows: the worn looks of templates whose data names none go by the server's own"
+                "this world's rows name no {}: it has none of what they give",
+                fields_missing.join(", ")
             );
         }
         let skills = data::skill_table(portal)?;
@@ -1867,22 +1832,15 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             );
         }
         craft.tool_yields = crafting.tool_yields.clone().into_iter().collect();
-        // Mining and maps: the world's rows, the server's own of a kind it has none of.
-        let fell_back = yalain_world::mining::take_world_gathering(&mut craft, &gathering);
-        if !fell_back.is_empty() {
-            let kinds: Vec<String> = fell_back.iter().map(|k| format!("[[{k}]]")).collect();
+        // Mining and maps, map recipes, totems and refining: the world's rows.
+        missing.extend(yalain_world::mining::take_world_gathering(
+            &mut craft, &gathering,
+        ));
+        missing.extend(craft.take_world_crafts(&crafts));
+        if !missing.is_empty() {
+            let kinds: Vec<String> = missing.iter().map(|k| format!("[[{k}]]")).collect();
             tracing::warn!(
-                "this world has no {} rows: its mining and maps go by the server's own there",
-                kinds.join(", ")
-            );
-        }
-        // Map recipes, totems and refining: the world's rows, the server's own of a kind it has
-        // none of.
-        let fell_back = craft.take_world_crafts(&crafts);
-        if !fell_back.is_empty() {
-            let kinds: Vec<String> = fell_back.iter().map(|k| format!("[[{k}]]")).collect();
-            tracing::warn!(
-                "this world has no {} rows: its crafting goes by the server's own there",
+                "this world has no {} rows: it has none of what they give",
                 kinds.join(", ")
             );
         }

@@ -508,14 +508,13 @@ fn a_quest_cancelled_is_updated_as_cancelled_and_no_longer_under_way() {
 }
 
 /// A cancelled quest's record names the wait its world's row gives it before it may be taken again,
-/// and five minutes where its row names none; a world whose rows name no cancel wait at all waits
-/// 2017's five hours for the eleven quests that named it, and one that names any, its rows' alone.
+/// and five minutes where its row names none.
 /// Behaviour: server.quests.cancel-waits-as-rows-say
 #[test]
-fn a_cancelled_quest_waits_what_its_row_says_and_without_rows_2017s() {
+fn a_cancelled_quest_waits_what_its_row_says_and_without_one_five_minutes() {
     use auberean_script::native_object::QuestInfo;
     use auberean_script::wire::In;
-    use yalain_world::quests::{self, cancel_waits_or_2017, status, CANCEL_WAIT};
+    use yalain_world::quests::{self, status, CANCEL_WAIT};
     const LONG: u32 = 0x8000_02D3;
     const SHORT: u32 = 0x8000_02E5;
     let def = |id: u32, cancel_wait: Option<f64>| QuestDef {
@@ -545,20 +544,6 @@ fn a_cancelled_quest_waits_what_its_row_says_and_without_rows_2017s() {
         required: None,
         cancel_wait,
     };
-    // Without rows naming any, 2017's.
-    let mut none = yalain_content::QuestTable {
-        quests: vec![def(LONG, None), def(SHORT, None)],
-        ..Default::default()
-    };
-    assert!(cancel_waits_or_2017(&mut none));
-    assert_eq!(none.quests[0].cancel_wait, Some(18_000.0));
-    assert_eq!(none.quests[1].cancel_wait, None);
-    let mut own = yalain_content::QuestTable {
-        quests: vec![def(LONG, None), def(SHORT, Some(60.0))],
-        ..Default::default()
-    };
-    assert!(!cancel_waits_or_2017(&mut own));
-    assert_eq!(own.quests[0].cancel_wait, None, "its rows alone");
     // Cancelled, each record names its wait.
     let mut h = world_of_items();
     h.server.quests.quests.push(def(LONG, Some(18_000.0)));

@@ -11,8 +11,6 @@
 //! the tarot whose pictures are known) is opened the same way, with the picture's table, no page
 //! controls and its picture, the use answered with the picture's own flags; the card is kept.
 
-use std::collections::BTreeMap;
-
 use auberean_protocol::ServerMessage;
 use auberean_script::args::Arg;
 use auberean_script::native_object::TextInfo;
@@ -80,25 +78,6 @@ pub fn npc_book<S: Store>(s: &Server<S>, template: u32) -> Option<u32> {
         Shows::Book(table) => Some(table),
         Shows::Picture(_) => None,
     }
-}
-
-/// What a world with no `[[book]]` row shows, until the world's release holds it: the greater
-/// trumps whose pictures the 2017 servers showed (template, picture), and the two Shi who show the
-/// Shaper Architect's book (template, the book's string table).
-#[must_use]
-pub fn fallback_books() -> BTreeMap<u32, Shows> {
-    const CARDS: [(u32, u32); 4] = [
-        (0x4700_13C1, 0x4100_91EC),
-        (0x4700_13CE, 0x4100_91F0),
-        (0x4700_13D2, 0x4100_91F2),
-        (0x4700_13DC, 0x4100_91F7),
-    ];
-    const PEOPLE: [(u32, u32); 2] = [(0x4700_3367, 0x2500_2C90), (0x4700_3375, 0x2500_2C90)];
-    CARDS
-        .iter()
-        .map(|&(t, p)| (t, Shows::Picture(p)))
-        .chain(PEOPLE.iter().map(|&(t, b)| (t, Shows::Book(b))))
-        .collect()
 }
 
 /// The book opened: its table, its controls shown or not, its picture (0: none).

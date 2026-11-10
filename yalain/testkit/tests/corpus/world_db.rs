@@ -74,10 +74,9 @@ fn compiled() -> &'static Compiled {
     C.get_or_init(|| compile_at(&database()))
 }
 
-/// The item rows the database's world plays by: its rows', the server's own for each kind it
-/// gives none of.
+/// The item rows the database's world plays by: its rows.
 pub(crate) fn item_rows() -> yalain_content::item_rows::ItemRows {
-    yalain_world::item_use::world_item_rows(compiled().tables.items.clone()).0
+    compiled().tables.items.clone()
 }
 
 /// The treasure numbers the database's world plays by: its rows', the server's own for each kind
@@ -86,11 +85,9 @@ pub(crate) fn treasure_tables() -> yalain_world::treasure::TreasureTables {
     yalain_world::treasure::TreasureTables::with_rows(&compiled().tables.treasure).0
 }
 
-/// The worn looks the database's world plays by: its `[[worn]]` rows, the server's own when it
-/// gives none.
+/// The worn looks the database's world plays by: its `[[worn]]` rows.
 pub(crate) fn worn_looks() -> &'static yalain_content::worn_table::WornLooks {
-    static W: OnceLock<yalain_content::worn_table::WornLooks> = OnceLock::new();
-    W.get_or_init(|| yalain_content::worn_table::world_worn(&compiled().tables.worn).0)
+    &compiled().tables.worn
 }
 
 /// The pinned release compiled, once (the database itself when it is the pinned release).
@@ -207,20 +204,14 @@ fn the_worlds_ward_rows_hold_the_six_wards_entry_for_entry() {
         .all(|w| !(w.classes.is_empty() && w.effects.is_empty())));
 }
 
-/// The immunities the database's world plays by are the server's own, entry for entry: the twelve
+/// The immunities the database's world plays by are the test world's, entry for entry: the twelve
 /// short effects of crowd control, each leaving its long one, and each long one's ward of its
-/// classes for certain; a world's rows are read as they are, one with none has the server's own.
+/// classes for certain.
 /// Behaviour: server.effects.immunity-rows-as-2017
 #[test]
-fn the_worlds_immunity_rows_are_the_servers_own_entry_for_entry() {
-    use yalain_world::effect_defs::{immunities_or_2017, EffectRules};
-    let world = &compiled().tables.effect_rules;
-    let mut rules = world.clone();
-    if !immunities_or_2017(&mut rules) {
-        assert_eq!(&rules, world, "its rows as they are");
-    }
-    let mut own = EffectRules::default();
-    immunities_or_2017(&mut own);
+fn the_worlds_immunity_rows_are_the_test_worlds_entry_for_entry() {
+    let rules = &compiled().tables.effect_rules;
+    let own = yalain_testkit::test_effect_rules();
     assert_eq!(rules.immunities.len(), 12);
     assert_eq!(rules.immunities, own.immunities);
     for long in own.immunities.values() {
@@ -265,12 +256,12 @@ fn the_worlds_crystalabra_rows_give_its_cure_through_its_quest() {
     assert!(quest.hidden);
 }
 
-/// A world's mine and map region rows hold the server's own, entry for entry: each mining skill's
+/// A world's mine and map region rows hold the test world's, entry for entry: each mining skill's
 /// behavior, tools, answers, delving node, lodestones and finds, each region's nodes by their
-/// effects, and what each mining tool yields unmade; so a world with them mines as one without.
+/// effects, and what each mining tool yields unmade.
 /// Behaviour: server.craft.gathering-rows-hold-the-servers-own
 #[test]
-fn the_worlds_mine_and_map_region_rows_hold_the_servers_own_entry_for_entry() {
+fn the_worlds_mine_and_map_region_rows_hold_the_test_worlds_entry_for_entry() {
     let t = &compiled().tables;
     let mut craft = yalain_world::craft::Crafting {
         tool_yields: t.crafting.tool_yields.clone().into_iter().collect(),
@@ -293,13 +284,12 @@ fn the_worlds_mine_and_map_region_rows_hold_the_servers_own_entry_for_entry() {
     }
 }
 
-/// A world's item use, book and first gift rows hold the server's own, entry for entry: the
+/// A world's item use, book and first gift rows hold the test world's, entry for entry: the
 /// forager's food's and the training hall's potions' effects, behavior and wear, what the cards and
-/// the Shi show, and the guide every new character is given; so a world with them plays as one
-/// without.
+/// the Shi show, and the guide every new character is given.
 /// Behaviour: server.items.item-rows-hold-the-servers-own
 #[test]
-fn the_worlds_item_use_book_and_start_item_rows_hold_the_servers_own_entry_for_entry() {
+fn the_worlds_item_use_book_and_start_item_rows_hold_the_test_worlds_entry_for_entry() {
     let world = item_rows();
     let own = yalain_testkit::test_item_rows();
     for (t, u) in &own.uses {
@@ -311,14 +301,13 @@ fn the_worlds_item_use_book_and_start_item_rows_hold_the_servers_own_entry_for_e
     assert_eq!(world.start_items, own.start_items);
 }
 
-/// A world's map recipes, spellbinding and refining rows hold the server's own, entry for entry: each
+/// A world's map recipes, spellbinding and refining rows hold the test world's, entry for entry: each
 /// region's five recipes, the effects that set and end their wait and how long; each sort's totem
 /// and its word; each refining recipe's product and the level it yields all at.
 /// Behaviour: server.craft.crafting-rows-hold-the-servers-own
 #[test]
-fn the_worlds_map_recipes_spellbinding_and_refining_rows_hold_the_servers_own_entry_for_entry() {
-    let t = &compiled().tables;
-    let (c, _) = yalain_world::craft::world_crafts(&t.crafts);
+fn the_worlds_map_recipes_spellbinding_and_refining_rows_hold_the_test_worlds_entry_for_entry() {
+    let c = &compiled().tables.crafts;
     let own = yalain_testkit::test_crafts();
     assert_eq!(c.map_recipes, own.map_recipes);
     assert_eq!(c.refining, own.refining);
@@ -328,14 +317,13 @@ fn the_worlds_map_recipes_spellbinding_and_refining_rows_hold_the_servers_own_en
     }
 }
 
-/// A world's plant and plant cross rows hold the server's own, entry for entry: each species'
+/// A world's plant and plant cross rows hold the test world's, entry for entry: each species'
 /// plant, seed, pollen, plant item and pollen's name, and each of its crosses' seeds and how many;
 /// and every other cross is of a species' plant and pollen and gives a species' seeds, one to three.
 /// Behaviour: server.plants.plant-rows-hold-the-servers-own
 #[test]
-fn the_worlds_plant_and_plant_cross_rows_hold_the_servers_own_entry_for_entry() {
-    let t = &compiled().tables;
-    let (plants, _) = yalain_world::plants::world_plants(&t.plants);
+fn the_worlds_plant_and_plant_cross_rows_hold_the_test_worlds_entry_for_entry() {
+    let plants = &compiled().tables.plants;
     let own = yalain_testkit::test_plants();
     assert_eq!(plants.species, own.species);
     for (pair, cross) in &own.crosses {
@@ -349,17 +337,12 @@ fn the_worlds_plant_and_plant_cross_rows_hold_the_servers_own_entry_for_entry() 
     }
 }
 
-/// A world's worn rows hold the server's own, entry for entry and in each template's order: 147
+/// A world's worn rows hold the test world's, entry for entry and in each template's order: 147
 /// looks of 75 templates.
 /// Behaviour: server.inventory.worn-rows-hold-the-servers-own
 #[test]
-fn the_worlds_worn_rows_hold_the_servers_own_entry_for_entry() {
-    let rows = &compiled().tables.worn;
-    println!("the world's worn rows: {}", rows.iter().count());
-    assert_eq!(
-        *worn_looks(),
-        yalain_content::worn_table::WornLooks::servers_own()
-    );
+fn the_worlds_worn_rows_hold_the_test_worlds_entry_for_entry() {
+    assert_eq!(worn_looks(), yalain_testkit::test_worn_looks());
     assert_eq!(worn_looks().iter().count(), 147);
 }
 
@@ -4500,7 +4483,6 @@ fn everything_the_worlds_rows_make_reads_from_the_install() {
     let t = &compiled().tables;
     let portal = yalain_testkit::authored::Portal::open();
     let items = item_rows();
-    let (plants, _) = yalain_world::plants::world_plants(&t.plants);
     let named = yalain_world::makes::by_the_rows(yalain_world::makes::Rows {
         objects: &t.content.objects,
         stores: &t.stores,
@@ -4509,7 +4491,7 @@ fn everything_the_worlds_rows_make_reads_from_the_install() {
         death_spawns: &t.death_spawns,
         pets: &t.pet_kinds,
         items: &items,
-        plants: &plants,
+        plants: &t.plants,
     });
     for template in named {
         assert_eq!(portal.template(template).id, template);
@@ -5072,17 +5054,16 @@ fn a_mushroom_hunt_gives_lies_hands_in_and_ends_with_its_stew() {
 }
 
 /// **A cancel waits as its world says**: every 2017 cancel's answer names the wait the world's rows
-/// give its quest before it may be taken again (a world naming none, the server's own), five hours
-/// for eleven quests and the rule's five minutes for the rest.
+/// give its quest before it may be taken again, five hours for eleven quests and the rule's five
+/// minutes for the rest.
 /// Behaviour: server.quests.cancel-waits-as-rows-say
 #[test]
 fn every_recorded_cancel_names_the_wait_the_world_gives_its_quest() {
     use auberean_script::args::{decode, Arg};
     use auberean_script::graph::{Body, PackedObject};
     use auberean_script::native_object::NativeObject;
-    use yalain_world::quests::{cancel_waits_or_2017, status, wait_after, UPDATE_QUEST};
-    let mut quests = compiled().tables.quests.clone();
-    cancel_waits_or_2017(&mut quests);
+    use yalain_world::quests::{status, wait_after, UPDATE_QUEST};
+    let quests = &compiled().tables.quests;
     let lib = super::keeping::library().expect("the client library reads");
     let con = super::keeping::open(&auberean_testkit::data::require_capture_index());
     let mut st = con
@@ -5143,12 +5124,9 @@ fn every_recorded_cancel_names_the_wait_the_world_gives_its_quest() {
 /// Behaviour: server.gives.hero-transformation
 #[test]
 fn the_heros_transformation_and_the_vitae_tap_read_as_the_server_starts_them() {
-    use yalain_world::effect_defs::{vitae_taps_or_2017, Kind};
+    use yalain_world::effect_defs::Kind;
     let t = &compiled().tables;
-    let mut quests = t.quests.clone();
-    yalain_world::gives::transformations_or_2017(&mut quests);
-    let mut rules = t.effect_rules.clone();
-    vitae_taps_or_2017(&mut rules);
+    let (quests, rules) = (&t.quests, &t.effect_rules);
     let hero = quests
         .steps
         .iter()
@@ -5159,7 +5137,13 @@ fn the_heros_transformation_and_the_vitae_tap_read_as_the_server_starts_them() {
         .expect("Elysa's last step");
     assert_eq!(
         hero.transforms,
-        Some(yalain_world::gives::transformation_2017())
+        Some(yalain_content::quests::Transformation {
+            seconds: 25.59,
+            fx: vec![0x4100_04A5, 0x4100_04B5],
+            behavior: Some(0x4100_0120),
+            text: Some((0x2EE2_0FE4, 0x2500_2BE3)),
+            name: 0x9D06_6C50,
+        })
     );
     let others = quests
         .steps
@@ -5168,7 +5152,7 @@ fn the_heros_transformation_and_the_vitae_tap_read_as_the_server_starts_them() {
         .count();
     assert_eq!(others, 1, "the one hero's step");
     let states: Vec<u32> = quests.effect_states().collect();
-    let effects = effects_read(&states, &rules);
+    let effects = effects_read(&states, rules);
     let tap = effects.get(0x6F00_1C64).expect("the tap");
     assert_eq!(tap.kind, Kind::VitaeTap(0.1));
     assert_eq!(tap.fx, 0x4100_030B, "its own appearance");
@@ -5180,18 +5164,13 @@ fn the_heros_transformation_and_the_vitae_tap_read_as_the_server_starts_them() {
     assert!(!heroize.lasts() && heroize.fx == 0, "nothing more");
 }
 
-/// **Creatures' behavior as 2017's**: what the server reads of creatures' behavior, the world's rows
-/// or its own for a kind the world has none of, is 2017's entry for entry: 27 concealing rows of 23
-/// effects, the five healers' behavior tables, the five friend tables that never attack a player
-/// first, and the six shooters' rhythms of the start area. A world's rows are read as they are.
+/// **Creatures' behavior as 2017's**: the world's creature rows are 2017's entry for entry, and
+/// the test world's: 27 concealing rows of 23 effects, the five healers' behavior tables, the five
+/// friend tables that never attack a player first, and the six shooters' rhythms of the start area.
 /// Behaviour: server.creatures.behavior-rows-as-2017
 #[test]
 fn the_worlds_creature_rows_are_2017s_entry_for_entry() {
-    let world = compiled().tables.creatures.clone();
-    let (rows, fell_back) = yalain_world::creature_rows::world_creature_rows(world.clone());
-    if fell_back.is_empty() {
-        assert_eq!(rows, world);
-    }
+    let rows = &compiled().tables.creatures;
     assert_eq!(rows.concealing.len(), 27);
     let effects: std::collections::BTreeSet<u32> =
         rows.concealing.keys().map(|(e, _)| *e).collect();
@@ -5204,6 +5183,5 @@ fn the_worlds_creature_rows_are_2017s_entry_for_entry() {
         ),
         (5, 5, 6)
     );
-    assert_eq!(rows, yalain_world::creature_rows::fallback());
-    assert_eq!(rows, yalain_testkit::test_creature_rows());
+    assert_eq!(*rows, yalain_testkit::test_creature_rows());
 }

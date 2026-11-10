@@ -370,28 +370,32 @@ fn a_friend_table_row_decides_who_never_attacks_first() {
     assert!(h.run_until(100, |h| chasing(h, ids[0])), "its row: first");
 }
 
-/// A world with no rows of a creature kind has the server's own of that kind and names it; one
-/// with rows of a kind has its rows alone, never the server's beside them.
+/// A world with no rows of a creature kind has none of that kind and names it; one with rows of a
+/// kind has its rows alone and names the others.
 /// Behaviour: server.creatures.behavior-as-rows-say
 #[test]
-fn a_world_with_no_creature_rows_of_a_kind_has_the_servers_own_of_it() {
+fn a_world_with_no_creature_rows_of_a_kind_has_none_of_it_and_names_it() {
     use yalain_content::creature_rows::{CreatureRows, Regard};
-    use yalain_world::creature_rows::{fallback, world_creature_rows};
-    let (rows, fell_back) = world_creature_rows(CreatureRows::default());
-    assert_eq!(rows, fallback());
+    use yalain_world::creature_rows::kinds_missing;
     assert_eq!(
-        fell_back,
+        kinds_missing(&CreatureRows::default()),
         ["concealing", "npc_table", "friend_table", "creature"]
     );
-    assert_eq!(rows, yalain_testkit::test_creature_rows());
+    assert!(kinds_missing(&yalain_testkit::test_creature_rows()).is_empty());
     let mine = CreatureRows {
         concealing: [((PEACE, Some(DRUDGES)), Regard::Hates)]
             .into_iter()
             .collect(),
         ..CreatureRows::default()
     };
-    let (rows, fell_back) = world_creature_rows(mine.clone());
-    assert_eq!(rows.concealing, mine.concealing, "its rows alone");
-    assert_eq!(fell_back, ["npc_table", "friend_table", "creature"]);
-    assert_eq!(rows.heals_kin, fallback().heals_kin);
+    assert_eq!(
+        kinds_missing(&mine),
+        ["npc_table", "friend_table", "creature"]
+    );
+    let (mut h, _, _, ids) = beside(DRUDGES, NEVER_FIRST, None);
+    h.server.creature_rows = CreatureRows::default();
+    assert!(
+        h.run_until(100, |h| chasing(h, ids[0])),
+        "no friend table rows: it attacks first"
+    );
 }

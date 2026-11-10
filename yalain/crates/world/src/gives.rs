@@ -42,7 +42,6 @@ use auberean_protocol::types::{BehaviorParams, MoveTarget, MovementParams, Objec
 use auberean_protocol::{queue, ServerMessage};
 use auberean_script::args::Arg;
 use yalain_content::quests::{Step, Transformation, Trigger};
-use yalain_content::QuestTable;
 use yalain_net::{BlobKind, ConnId, ServerNet};
 use yalain_store::{Store, StoredPosition};
 
@@ -80,40 +79,6 @@ pub mod status {
 
 /// The call that tells a client an item in a container is gone (sent as the container's).
 pub const DESTROY_CONTAINED: u32 = 0x820E_005C;
-
-/// The effect a step puts on to make its player a hero, for a world whose steps name no
-/// transformation at all: such a step transforms its player as 2017's did.
-pub const HERO_TRANSFORMATION: u32 = 0x6F00_1C6F;
-
-/// 2017's transformation (the one hero, 1 of 1): the step 25.59 s after the give's answer; an
-/// appearance at the answer, then another and a behavior; the text the new hero is told, its name
-/// in its variable.
-#[must_use]
-pub fn transformation_2017() -> Transformation {
-    Transformation {
-        seconds: 25.59,
-        fx: vec![0x4100_04A5, 0x4100_04B5],
-        behavior: Some(0x4100_0120),
-        text: Some((0x2EE2_0FE4, 0x2500_2BE3)),
-        name: 0x9D06_6C50,
-    }
-}
-
-/// A world whose steps name no transformation at all transforms the players of its steps that put
-/// on [`HERO_TRANSFORMATION`] as 2017 did; one that names any has its rows' alone. Returns whether the
-/// world named none.
-pub fn transformations_or_2017(table: &mut QuestTable) -> bool {
-    if table.steps.iter().any(|s| s.transforms.is_some()) {
-        return false;
-    }
-    for step in &mut table.steps {
-        if matches!(step.trigger, Trigger::Give(..)) && step.effects.contains(&HERO_TRANSFORMATION)
-        {
-            step.transforms = Some(transformation_2017());
-        }
-    }
-    true
-}
 
 /// A give under way.
 #[derive(Debug, Clone, PartialEq)]

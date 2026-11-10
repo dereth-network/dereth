@@ -882,25 +882,22 @@ fn a_plant_cross_row_sets_the_seeds_a_pollinated_plant_gives_and_how_many() {
     assert_eq!(held(&h, world, SIENNAN_SEED), None);
 }
 
-/// A world with no `[[plant]]` or `[[plant_cross]]` rows has the server's own, the test world's
-/// thirteen species and two crosses; with rows of a kind it has those alone, never merged with
-/// the server's, and the other kind still the server's own.
+/// A world with no `[[plant]]` or `[[plant_cross]]` rows has no dye plants and names the kinds it
+/// lacks; with rows of a kind it has those alone and names the other.
 /// Behaviour: server.plants.plants-without-rows
 #[test]
-fn a_world_without_plant_or_plant_cross_rows_has_the_servers_own_and_with_some_its_rows_alone() {
-    let own = yalain_testkit::test_plants();
-    let (none, fell_back) = plants::world_plants(&plants::DyePlants::default());
-    assert_eq!(fell_back, ["plant", "plant_cross"]);
-    assert_eq!(none, own);
+fn a_world_without_plant_or_plant_cross_rows_has_none_and_names_the_kinds_it_lacks() {
+    assert_eq!(
+        plants::kinds_missing(&plants::DyePlants::default()),
+        ["plant", "plant_cross"]
+    );
+    assert!(plants::kinds_missing(&yalain_testkit::test_plants()).is_empty());
     let one = plants::Species::new(PLANT, SEED, None, ITEM, 0);
     let rows = plants::DyePlants {
         species: [(PLANT, one)].into(),
         ..plants::DyePlants::default()
     };
-    let (some, fell_back) = plants::world_plants(&rows);
-    assert_eq!(fell_back, ["plant_cross"]);
-    assert_eq!(some.species.len(), 1);
-    assert_eq!(some.sown_by(SEED), Some(one));
-    assert_eq!(some.sown_by(SIENNAN_SEED), None, "not merged");
-    assert_eq!(some.crosses, own.crosses);
+    assert_eq!(plants::kinds_missing(&rows), ["plant_cross"]);
+    assert_eq!(rows.sown_by(SEED), Some(one));
+    assert_eq!(rows.sown_by(SIENNAN_SEED), None, "no other species");
 }

@@ -1873,30 +1873,30 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.craft.crafting-in-the-real-start",
-        says: "A start describes everything crafting's own work makes: the three totems and the ten \
+        says: "A start describes everything the test world's crafting rows make: the three totems and the ten \
                refined products, each a stack, each refining of a script package the install holds; and \
                each region's five map recipes read, each drawing putting on its region's effect.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-CRAFTS-REAL-START"),
-        station: "yalain::bin.yalain::data::tests::a_start_describes_every_totem_and_refined_product_of_the_servers_own_crafting",
+        station: "yalain::bin.yalain::data::tests::a_start_describes_every_totem_and_refined_product_of_the_test_worlds_crafting",
         tier: Tier::Cpu,
     },
     behaviour! {
         id: "server.craft.crafting-rows-hold-the-servers-own",
-        says: "A world's `[[map_recipes]]`, `[[spellbinding]]` and `[[refining]]` rows hold the \
-               server's own, entry for entry.",
+        says: "A world's `[[map_recipes]]`, `[[spellbinding]]` and `[[refining]]` rows hold the test \
+               world's, entry for entry.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-CRAFTS-ROWS"),
-        station: "yalain-testkit::corpus::world_db::the_worlds_map_recipes_spellbinding_and_refining_rows_hold_the_servers_own_entry_for_entry",
+        station: "yalain-testkit::corpus::world_db::the_worlds_map_recipes_spellbinding_and_refining_rows_hold_the_test_worlds_entry_for_entry",
         tier: Tier::Corpus,
     },
     behaviour! {
         id: "server.craft.crafting-without-rows",
-        says: "A world with no `[[map_recipes]]`, `[[spellbinding]]` or `[[refining]]` rows crafts by \
-               the server's own of that kind, and warns; a world with rows of a kind has those alone.",
+        says: "A world with no `[[map_recipes]]`, `[[spellbinding]]` or `[[refining]]` rows has none \
+               of that kind, and warns naming it; a world with rows of a kind has those alone.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-CRAFTS-NO-ROWS"),
-        station: "yalain-testkit::cpu::play::crafting::a_world_without_map_recipes_spellbinding_or_refining_rows_has_the_servers_own_and_with_some_its_rows_alone",
+        station: "yalain-testkit::cpu::play::crafting::a_world_without_map_recipes_spellbinding_or_refining_rows_has_none_and_names_the_kinds_it_lacks",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -1966,31 +1966,31 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.craft.gathering-in-the-real-start",
-        says: "A start describes everything mining and maps name: the fifteen nodes maps conjure and \
+        says: "A start describes everything the test world's mining and maps rows name: the fifteen nodes maps conjure and \
                the five delving stones do, each giving a material by its mine's craft skill; the ten \
                tools; the lodestones; and the Tessera.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-GATHERING-REAL-START"),
-        station: "yalain::bin.yalain::data::tests::a_start_describes_every_node_tool_and_find_of_the_servers_own_gathering",
+        station: "yalain::bin.yalain::data::tests::a_start_describes_every_node_tool_and_find_of_the_test_worlds_gathering",
         tier: Tier::Cpu,
     },
     behaviour! {
         id: "server.craft.gathering-rows-hold-the-servers-own",
         says: "A world's `[[mine]]` and `[[map_region]]` rows, and its mining tools' `[[tool]]` rows, \
-               hold the server's own, entry for entry.",
+               hold the test world's, entry for entry.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-GATHERING-ROWS"),
-        station: "yalain-testkit::corpus::world_db::the_worlds_mine_and_map_region_rows_hold_the_servers_own_entry_for_entry",
+        station: "yalain-testkit::corpus::world_db::the_worlds_mine_and_map_region_rows_hold_the_test_worlds_entry_for_entry",
         tier: Tier::Corpus,
     },
     behaviour! {
         id: "server.craft.gathering-without-rows",
-        says: "A world with no `[[mine]]` or `[[map_region]]` rows mines and maps by the server's own, \
-               its mining tools yielding theirs where no `[[tool]]` row says, and warns; a world with rows \
-               of a kind has those alone.",
+        says: "A world with no `[[mine]]` or `[[map_region]]` rows has no mines or maps' nodes of that \
+               kind, its mining tools yielding only what its `[[tool]]` rows say, and warns naming the \
+               kind; a world with rows of a kind has those alone.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-GATHERING-NO-ROWS"),
-        station: "yalain-testkit::cpu::play::mining::a_world_without_mine_or_map_region_rows_has_the_servers_own_and_with_some_its_rows_alone",
+        station: "yalain-testkit::cpu::play::mining::a_world_without_mine_or_map_region_rows_has_none_and_names_the_kinds_it_lacks",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -2833,8 +2833,8 @@ pub static ROWS: &[Behaviour] = &[
         id: "server.creatures.behavior-as-rows-say",
         says: "Whom a concealing effect spares or makes hated, which behavior tables' healers heal \
                their kin, which friend tables never attack a player first and a shooter's rhythm are \
-               the world's rows; a world with no rows of one of these kinds has the server's own of \
-               it, never mixed with rows.",
+               the world's rows; a world with no rows of one of these kinds has none of it, and warns \
+               naming it.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-ROWS"),
         station: "yalain-testkit::cpu::play::concealing::a_concealing_row_decides_whom_its_effect_spares",
@@ -4038,21 +4038,20 @@ pub static ROWS: &[Behaviour] = &[
         id: "server.effects.immunities-as-rows-say",
         says: "An effect a world's rule says leaves another as it ends is an immunity under way: \
                hidden from its holder, it comes on with what it follows and leaves that effect, whose \
-               ward keeps its kind off. A world whose rules name none has the server's own twelve, \
-               each with its long effect's ward, never mixed with rows.",
+               ward keeps its kind off. A world whose rules name none has no immunities, and warns.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-CC-IMMUNITY-ROWS"),
-        station: "yalain-testkit::dat::effects::an_immunity_reads_as_its_worlds_rules_say_and_without_rows_as_the_servers_own",
+        station: "yalain-testkit::dat::effects::an_immunity_reads_as_its_worlds_rules_say_and_without_rows_as_none",
         tier: Tier::Dat,
     },
     behaviour! {
         id: "server.effects.immunity-rows-as-2017",
-        says: "The world's immunity rows are the server's own entry for entry: the twelve short \
+        says: "The world's immunity rows are the test world's entry for entry: the twelve short \
                effects of crowd control, each leaving its long one, and each long one's ward of its \
                classes for certain.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-CC-IMMUNITY-ROWS-2017"),
-        station: "yalain-testkit::corpus::world_db::the_worlds_immunity_rows_are_the_servers_own_entry_for_entry",
+        station: "yalain-testkit::corpus::world_db::the_worlds_immunity_rows_are_the_test_worlds_entry_for_entry",
         tier: Tier::Corpus,
     },
     behaviour! {
@@ -5469,8 +5468,7 @@ pub static ROWS: &[Behaviour] = &[
         says: "A give whose step transforms its player runs that step when the transformation is \
                through, its time after the answer (2017: 25.59 s): the player a hero, the quest \
                completed, the hero's text naming it; meanwhile only the transformation's appearances \
-               and behavior, the gift kept. A world whose steps name no transformation has 2017's on a \
-               give's step putting on the hero's transformation.",
+               and behavior, the gift kept. A step whose row names no transformation makes no hero.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-GIVE-HERO"),
         station: "yalain-testkit::cpu::play::gives::a_give_that_makes_a_hero_does_so_when_the_transformation_is_through",
@@ -5674,7 +5672,7 @@ pub static ROWS: &[Behaviour] = &[
         id: "server.gives.vitae-tap",
         says: "An effect a world's rule makes a tap of vitae takes that share of its player's vitae \
                (Aun Aulatah's a tenth), told with what is still to earn, the effect's own appearance \
-               played on the player. A world whose rules name no tap has 2017's.",
+               played on the player. A world whose rules name no tap takes no vitae, and warns.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-GIVE-VITAE-TAP"),
         station: "yalain-testkit::cpu::play::gives::a_steps_vitae_tap_takes_a_tenth_of_the_vitae",
@@ -6318,30 +6316,30 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.inventory.worn-looks-in-the-real-start",
-        says: "A start describes every template of the server's own worn looks, none naming a look in \
+        says: "A start describes every template of the test world's worn looks, none naming a look in \
                its own data, and gives each its looks in order, 147 of 147; each race's starting \
                clothes give either sex a look; a world's rows stand alone.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-WORN-LOOK-REAL-START"),
-        station: "yalain::bin.yalain::data::tests::a_start_gives_every_template_of_the_servers_own_worn_looks_its_looks_in_order",
+        station: "yalain::bin.yalain::data::tests::a_start_gives_every_template_of_the_test_worlds_worn_looks_its_looks_in_order",
         tier: Tier::Cpu,
     },
     behaviour! {
         id: "server.inventory.worn-looks-without-rows",
-        says: "A world with no `[[worn]]` rows has the server's own worn looks, and warns; a world \
-               with any has its rows alone.",
+        says: "A world with no `[[worn]]` rows gives a template whose data names no worn look none, \
+               and warns; a world with any has its rows alone.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-WORN-LOOK-NO-ROWS"),
-        station: "yalain-testkit::cpu::play::wearing::a_world_without_worn_rows_has_the_servers_own_and_with_some_its_rows_alone",
+        station: "yalain-testkit::cpu::play::wearing::a_world_without_worn_rows_gives_no_worn_look_and_with_some_its_rows_alone",
         tier: Tier::Cpu,
     },
     behaviour! {
         id: "server.inventory.worn-rows-hold-the-servers-own",
-        says: "A world's `[[worn]]` rows hold the server's own worn looks, entry for entry and in \
+        says: "A world's `[[worn]]` rows hold the test world's worn looks, entry for entry and in \
                order: 147 looks of 75 templates.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-WORN-LOOK-ROWS"),
-        station: "yalain-testkit::corpus::world_db::the_worlds_worn_rows_hold_the_servers_own_entry_for_entry",
+        station: "yalain-testkit::corpus::world_db::the_worlds_worn_rows_hold_the_test_worlds_entry_for_entry",
         tier: Tier::Corpus,
     },
     behaviour! {
@@ -6520,30 +6518,30 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.items.item-rows-hold-the-servers-own",
-        says: "A world's `[[item_use]]`, `[[book]]` and `[[start_item]]` rows hold the server's own, entry \
-               for entry.",
+        says: "A world's `[[item_use]]`, `[[book]]` and `[[start_item]]` rows hold the test world's, \
+               entry for entry.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-ITEM-ROWS"),
-        station: "yalain-testkit::corpus::world_db::the_worlds_item_use_book_and_start_item_rows_hold_the_servers_own_entry_for_entry",
+        station: "yalain-testkit::corpus::world_db::the_worlds_item_use_book_and_start_item_rows_hold_the_test_worlds_entry_for_entry",
         tier: Tier::Corpus,
     },
     behaviour! {
         id: "server.items.item-rows-in-the-real-start",
-        says: "A start reads every effect the server's own item use rows put on and describes every \
+        says: "A start reads every effect the test world's item use rows put on and describes every \
                template its item rows name, the guide new characters are given among them; a row naming \
                an effect the install lacks is a problem.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-ITEM-ROWS-REAL-START"),
-        station: "yalain::bin.yalain::data::tests::a_start_reads_the_effects_and_describes_the_templates_of_the_servers_own_item_rows",
+        station: "yalain::bin.yalain::data::tests::a_start_reads_the_effects_and_describes_the_templates_of_the_test_worlds_item_rows",
         tier: Tier::Cpu,
     },
     behaviour! {
         id: "server.items.item-rows-without-rows",
-        says: "A world with no `[[item_use]]`, `[[book]]` or `[[start_item]]` rows has the server's own of \
-               that kind, and warns; a world with rows of a kind has those alone.",
+        says: "A world with no `[[item_use]]`, `[[book]]` or `[[start_item]]` rows has none of that \
+               kind, and warns naming it; a world with rows of a kind has those alone.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-ITEM-ROWS-NO-ROWS"),
-        station: "yalain-testkit::cpu::play::items::a_world_without_item_rows_has_the_servers_own_and_with_some_its_rows_alone",
+        station: "yalain-testkit::cpu::play::items::a_world_without_item_rows_has_none_and_names_the_kinds_it_lacks",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -7550,8 +7548,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.makes.a-real-start-describes-what-the-server-makes",
-        says: "A real start of the executable describes what the server's own rules make, every dye \
-               plant and map node: an operator's recipe naming them is made.",
+        says: "A real start of the executable describes what the server's own rules make: an \
+               operator's recipe naming them is made.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-MAKES-REAL-START"),
         station: "yalain::live::configured::a_real_start_describes_everything_the_servers_rules_make",
@@ -11398,11 +11396,11 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.plants.plant-rows-hold-the-servers-own",
-        says: "A world's `[[plant]]` and `[[plant_cross]]` rows hold the server's own, entry for entry; \
+        says: "A world's `[[plant]]` and `[[plant_cross]]` rows hold the test world's, entry for entry; \
                every other cross is of the world's own species and gives one to three seeds.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-DYE-PLANT-ROWS"),
-        station: "yalain-testkit::corpus::world_db::the_worlds_plant_and_plant_cross_rows_hold_the_servers_own_entry_for_entry",
+        station: "yalain-testkit::corpus::world_db::the_worlds_plant_and_plant_cross_rows_hold_the_test_worlds_entry_for_entry",
         tier: Tier::Corpus,
     },
     behaviour! {
@@ -11419,20 +11417,20 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.plants.plants-in-the-real-start",
-        says: "A start describes every template of the server's own dye plants (each species' plant, \
+        says: "A start describes every template of the test world's dye plants (each species' plant, \
                seed, plant item and pollen, each cross's seeds) and reads each species' ripe look.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-DYE-PLANT-REAL-START"),
-        station: "yalain::bin.yalain::data::tests::a_start_describes_every_template_and_ripe_look_of_the_servers_own_dye_plants",
+        station: "yalain::bin.yalain::data::tests::a_start_describes_every_template_and_ripe_look_of_the_test_worlds_dye_plants",
         tier: Tier::Cpu,
     },
     behaviour! {
         id: "server.plants.plants-without-rows",
-        says: "A world with no `[[plant]]` or `[[plant_cross]]` rows grows the server's own of that \
-               kind, and warns; a world with rows of a kind has those alone.",
+        says: "A world with no `[[plant]]` or `[[plant_cross]]` rows has none of that kind, and warns \
+               naming it; a world with rows of a kind has those alone.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-DYE-PLANT-NO-ROWS"),
-        station: "yalain-testkit::cpu::play::dye_plants::a_world_without_plant_or_plant_cross_rows_has_the_servers_own_and_with_some_its_rows_alone",
+        station: "yalain-testkit::cpu::play::dye_plants::a_world_without_plant_or_plant_cross_rows_has_none_and_names_the_kinds_it_lacks",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -12098,11 +12096,10 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "server.quests.cancel-waits-as-rows-say",
         says: "A cancelled quest waits the time its world's row names before it may be taken again, \
-               five minutes where its row names none; a world whose rows name no cancel wait waits \
-               2017's five hours for the eleven quests that named it.",
+               five minutes where its row names none.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-WDB-QUEST-CANCEL-WAITS-2017"),
-        station: "yalain-testkit::cpu::play::own_requests::a_cancelled_quest_waits_what_its_row_says_and_without_rows_2017s",
+        station: "yalain-testkit::cpu::play::own_requests::a_cancelled_quest_waits_what_its_row_says_and_without_one_five_minutes",
         tier: Tier::Cpu,
     },
     behaviour! {

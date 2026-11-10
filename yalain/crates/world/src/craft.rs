@@ -73,7 +73,7 @@
 //! **A day's craft experience** starts over 22 hours after it last did (at entry, when that came
 //! while the player was away): every craft skill's record is told with nothing earned today.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 
 use auberean_protocol::physics::Release;
 use auberean_protocol::quality::VisualQuality;
@@ -83,7 +83,7 @@ use auberean_script::args::Arg;
 use auberean_script::graph::{Graph, PackedObject};
 use auberean_script::library::{Elem, Library};
 use auberean_script::native_object::{Item, NativeObject};
-use yalain_content::crafts::{Crafts, MapRecipes, Refining, Totem};
+use yalain_content::crafts::Crafts;
 use yalain_content::treasure_tables::Sort;
 use yalain_net::{ConnId, ServerNet};
 use yalain_store::Store;
@@ -341,30 +341,6 @@ pub enum Custom {
     Unknown,
 }
 
-/// The totems spellbinding makes in a world with no `[[spellbinding]]` rows, by what the item taken
-/// apart is: a weapon, a shield, armor (2017: 11 weapons, 2 armor, each by the recipe for its
-/// class; the shield's by the totems seen in play, none made).
-#[must_use]
-pub fn fallback_totems() -> Vec<Totem> {
-    vec![
-        Totem {
-            sort: Sort::Weapon,
-            template: 0x4700_0CCB,
-            word: 0xEE40_CD5E,
-        },
-        Totem {
-            sort: Sort::Shield,
-            template: 0x4700_0CC9,
-            word: 0x3B28_4FFE,
-        },
-        Totem {
-            sort: Sort::Armor,
-            template: 0x4700_0CC7,
-            word: 0xCED7_169A,
-        },
-    ]
-}
-
 /// The script packages whose recipes bind an item's enchantments into a totem, and whose recipes
 /// work out a product for themselves.
 const SPELLBINDING: [&str; 2] = ["MinorSpellbindingRecipe", "MajorSpellbindingRecipe"];
@@ -373,36 +349,6 @@ const DYEING: &str = "DyeingRecipe";
 
 /// "You fail to produce anything."
 pub const NOTHING_PRODUCED: (u32, u32) = (0x9CD4_94DC, 0x2500_000C);
-
-/// What the refining recipes yield in a world with no `[[refining]]` rows: by their script
-/// packages, the template of each product, all it takes at [`REFINING_CAP`].
-#[must_use]
-pub fn fallback_refining() -> BTreeMap<String, Refining> {
-    [
-        ("SteelRefiningRecipe", 0x4700_0B40),
-        ("DramasticRefiningRecipe", 0x4700_0B46),
-        ("MoonglassRefiningRecipe", 0x4700_08FC),
-        ("RunewoodRefiningRecipe", 0x4700_08DA),
-        ("TukaliteRefiningRecipe", 0x4700_08D3),
-        ("TileRefiningRecipe", 0x4700_0657),
-        ("BlockRefiningRecipe", 0x4700_0658),
-        ("BoardRefiningRecipe", 0x4700_0659),
-        ("BrickRefiningRecipe", 0x4700_0655),
-        ("PlasterRefiningRecipe", 0x4700_0656),
-    ]
-    .into_iter()
-    .map(|(recipe, product)| {
-        (
-            recipe.to_string(),
-            Refining {
-                recipe: recipe.to_string(),
-                product,
-                full_at: Some(REFINING_CAP),
-            },
-        )
-    })
-    .collect()
-}
 
 /// The craft skill level at which a refining yields all it takes, where its row names none.
 pub const REFINING_CAP: u32 = 150;
@@ -603,11 +549,9 @@ pub struct Crafting {
     pub butchery: HashMap<u32, Vec<crate::butchery::Yield>>,
     /// What gathering tools yield when they were not made, by template (the world's rows).
     pub tool_yields: HashMap<u32, u32>,
-    /// What mining's nodes do and the nodes surveyor's maps lead to (the world's rows, or the
-    /// server's own of a kind it has none of).
+    /// What mining's nodes do and the nodes surveyor's maps lead to (the world's rows).
     pub gathering: yalain_content::gathering::Gathering,
-    /// Map recipes' waits, spellbinding's totems and refining's products (the world's rows, or the
-    /// server's own of a kind it has none of).
+    /// Map recipes' waits, spellbinding's totems and refining's products (the world's rows).
     pub crafts: Crafts,
     /// The level tables recipes' actions read by the spinner, by saved state.
     pub spinner_tables: HashMap<u32, LevelMap>,
@@ -1499,99 +1443,18 @@ pub fn recipes_call(rs: &[RecipeState], now: f64) -> ServerMessage {
     session::call(function::UPDATE_RECIPES, &[Arg::Object(b.graph())]).expect("records pack")
 }
 
-/// The surveyor's map recipes of each region in a world with no `[[map_recipes]]` rows, in the
-/// order their call lists them (crystal, iron, stone, wood, silver), with the effect a map drawn
-/// puts on the drawer to set their wait and the usage effect of the region's maps that ends it.
-#[must_use]
-pub fn fallback_map_recipes() -> BTreeMap<String, MapRecipes> {
-    [
-        (
-            "linvak",
-            0x6F00_170C,
-            "Eff_ResetLinvakResetTimers",
-            [
-                0x6F00_109B,
-                0x6F00_1099,
-                0x6F00_109C,
-                0x6F00_109D,
-                0x6F00_109A,
-            ],
-        ),
-        (
-            "omishan",
-            0x6F00_170D,
-            "Eff_ResetOmishanResetTimers",
-            [
-                0x6F00_1096,
-                0x6F00_1094,
-                0x6F00_1097,
-                0x6F00_1098,
-                0x6F00_1095,
-            ],
-        ),
-        (
-            "osteth",
-            0x6F00_170E,
-            "Eff_ResetOstethResetTimers",
-            [
-                0x6F00_1091,
-                0x6F00_108F,
-                0x6F00_1092,
-                0x6F00_1093,
-                0x6F00_1090,
-            ],
-        ),
-    ]
-    .into_iter()
-    .map(|(region, drawn, found, recipes)| {
-        (
-            region.to_string(),
-            MapRecipes {
-                region: region.to_string(),
-                drawn,
-                found: found.to_string(),
-                recipes: recipes.to_vec(),
-                wait: Some(MAP_RECIPES_WAIT),
-            },
-        )
-    })
-    .collect()
-}
-
 /// How long a region's map recipes wait after one of them is drawn, in seconds of game time, where
 /// its row names no wait.
 pub const MAP_RECIPES_WAIT: f64 = 300.0;
 
-/// The world's crafting work: its rows of each kind, or the server's own of a kind it has none of
-/// ([`fallback_map_recipes`], [`fallback_totems`], [`fallback_refining`]); and the kinds it had
-/// none of.
-#[must_use]
-pub fn world_crafts(rows: &Crafts) -> (Crafts, Vec<&'static str>) {
-    let mut c = rows.clone();
-    let mut fell_back = Vec::new();
-    if c.map_recipes.is_empty() {
-        c.map_recipes = fallback_map_recipes();
-        fell_back.push("map_recipes");
-    }
-    if c.totems.is_empty() {
-        c.totems = fallback_totems();
-        fell_back.push("spellbinding");
-    }
-    if c.refining.is_empty() {
-        c.refining = fallback_refining();
-        fell_back.push("refining");
-    }
-    (c, fell_back)
-}
-
 impl Crafting {
-    /// Crafting takes the world's crafting work ([`world_crafts`]): each refining recipe yields its
-    /// row's product, a recipe no row names nothing of its own. Returns the kinds the world had no
-    /// rows of.
+    /// Crafting takes the world's crafting work, its `[[map_recipes]]`, `[[spellbinding]]` and
+    /// `[[refining]]` rows: each refining recipe yields its row's product, a recipe no row names
+    /// nothing of its own. Returns the kinds the world had no rows of: it has no map recipes'
+    /// waits, totems or refined products of such a kind.
     pub fn take_world_crafts(&mut self, rows: &Crafts) -> Vec<&'static str> {
-        let (crafts, fell_back) = world_crafts(rows);
         for r in self.recipes.values_mut() {
-            if let Some(row) = crafts.refining.get(&r.package) {
+            if let Some(row) = rows.refining.get(&r.package) {
                 r.custom = Custom::Refine {
                     product: row.product,
                     full_at: row.full_at.unwrap_or(REFINING_CAP),
@@ -1600,8 +1463,15 @@ impl Crafting {
                 r.custom = Custom::None;
             }
         }
-        self.crafts = crafts;
-        fell_back
+        self.crafts = rows.clone();
+        [
+            ("map_recipes", rows.map_recipes.is_empty()),
+            ("spellbinding", rows.totems.is_empty()),
+            ("refining", rows.refining.is_empty()),
+        ]
+        .into_iter()
+        .filter_map(|(kind, none)| none.then_some(kind))
+        .collect()
     }
 
     /// The `[[refining]]` rows whose recipe none of crafting's recipes is of (none a player can

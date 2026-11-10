@@ -27,8 +27,7 @@
 //!
 //! **The world's rows** say what each mining craft skill's nodes play and answer, its tools, the
 //! node its delving stone conjures and what a find unearths (`[[mine]]`), and what a tool not made
-//! yields (`[[tool]]`). A world with no `[[mine]]` rows has the server's own ([`fallback_mines`]),
-//! with their tools' yields where its `[[tool]]` rows give none.
+//! yields (`[[tool]]`). A world with no `[[mine]]` rows has no mines.
 
 use auberean_protocol::physics::{Fx, ObjectEvent, Release, Word};
 use auberean_protocol::types::BehaviorParams;
@@ -113,142 +112,20 @@ pub const TARGET_KIND: u32 = 8;
 /// The control flags of a delving stone's answer.
 pub const SURVEY_FLAGS: u32 = 956;
 
-/// The mines of a world with no `[[mine]]` rows, by craft skill: crystal, iron, silver, stone and
-/// wood, each with its mining behavior (2017: by the node's craft skill, 387 of 387; stone with
-/// no rock hammer in hand as crystal), its own tools (a hand-made and a crude one: the chisels,
-/// pickaxes, mattocks, rock hammers and hatchets), its answers, the node its delving stone conjures
-/// (54 of 54), and its finds: of uses of a node a map led to, 7 of 165 found an item (none of 162
-/// on delving stones' nodes), a Tessera two times in seven, else a lodestone of the material's
-/// family by the finder's level: crumbling to 29, brittle 30 to 44, rough 45 to 59, smooth 60 to
-/// 74, shining from 75 (13 of 14 lodestones held at their first sighting; of the finds in mining,
-/// rough at 48, 50 and 50, smooth at 57). A world with any row has its rows alone.
-#[must_use]
-pub fn fallback_mines() -> std::collections::BTreeMap<u32, Mine> {
-    const T: u32 = 0x2500_0CEC;
-    const TESSERA: u32 = 0x4700_052F;
-    // Each family's lodestones run brittle, plain, crumbling, rough, shining, smooth.
-    let lodestones = |family: u32| {
-        vec![
-            (0, family + 2),
-            (30, family),
-            (45, family + 3),
-            (60, family + 5),
-            (75, family + 4),
-        ]
-    };
-    let mine = |skill, behavior, tools: [u32; 2], answers: [u32; 2], effect: &str, node, family| {
-        (
-            skill,
-            Mine {
-                skill,
-                behavior,
-                tools: tools.to_vec(),
-                answer: (answers[0], T),
-                rich_answer: (answers[1], T),
-                delving: Some((effect.to_string(), node)),
-                lodestones: lodestones(family),
-                find_chance: 7.0 / 165.0,
-                finds: vec![(TESSERA, 2.0 / 7.0)],
-            },
-        )
-    };
-    std::collections::BTreeMap::from([
-        mine(
-            0x6F00_069B,
-            0x4100_0149,
-            [0x4700_0CB5, 0x4700_0CB6],
-            [0x4862_57E3, 0x284F_06B2],
-            "Eff_SummonMine_Crystal_Delving",
-            0x4700_0C8A,
-            0x4700_0C1A,
-        ),
-        mine(
-            0x6F00_069C,
-            0x4100_014D,
-            [0x4700_0CC1, 0x4700_0CC2],
-            [0x79C2_76DB, 0x53EE_7371],
-            "Eff_SummonMine_Iron_Delving",
-            0x4700_0C8C,
-            0x4700_0C14,
-        ),
-        mine(
-            0x6F00_069D,
-            0x4100_014C,
-            [0x4700_0CBF, 0x4700_0CC0],
-            [0xEECA_8C2F, 0xF862_249F],
-            "Eff_SummonMine_Silver_Delving",
-            0x4700_0C8E,
-            0x4700_0C02,
-        ),
-        mine(
-            0x6F00_069E,
-            0x4100_0149,
-            [0x4700_0CC3, 0x4700_0CC4],
-            [0x8EA1_7A36, 0xDAF5_223D],
-            "Eff_SummonMine_Stone_Delving",
-            0x4700_0C90,
-            0x4700_0C08,
-        ),
-        mine(
-            0x6F00_069F,
-            0x4100_014A,
-            [0x4700_0CB9, 0x4700_0CBA],
-            [0xF742_62DC, 0xF742_62DC],
-            "Eff_SummonMine_Wood_Delving",
-            0x4700_0C92,
-            0x4700_0C0E,
-        ),
-    ])
-}
-
-/// What the tools of a world with no `[[mine]]` rows yield when they were not made: a hand-made
-/// one the 6 of the lowest level it is made at, a crude one 1.
-#[must_use]
-pub fn fallback_tool_yields() -> Vec<(u32, u32)> {
-    fallback_mines()
-        .values()
-        .flat_map(|m| {
-            m.tools
-                .iter()
-                .enumerate()
-                .map(|(i, t)| (*t, if i == 0 { 6 } else { 1 }))
-        })
-        .collect()
-}
-
-/// The world's gathering: its rows of each kind, or the server's own of a kind it has none of
-/// (its mines [`fallback_mines`], its map regions [`crate::usable::maps::fallback_map_regions`]);
-/// and the kinds it had none of.
-#[must_use]
-pub fn world_gathering(rows: &Gathering) -> (Gathering, Vec<&'static str>) {
-    let mut g = rows.clone();
-    let mut fell_back = Vec::new();
-    if g.mines.is_empty() {
-        g.mines = fallback_mines();
-        fell_back.push("mine");
-    }
-    if g.map_regions.is_empty() {
-        g.map_regions = crate::usable::maps::fallback_map_regions();
-        fell_back.push("map_region");
-    }
-    (g, fell_back)
-}
-
-/// Crafting takes the world's gathering ([`world_gathering`]); with the server's own mines come
-/// their tools' yields, where the world's `[[tool]]` rows give none. Returns the kinds the world
-/// had no rows of.
+/// Crafting takes the world's gathering, its `[[mine]]` and `[[map_region]]` rows. Returns the
+/// kinds the world had no rows of: it has no mines or maps' nodes of such a kind.
 pub fn take_world_gathering(
     craft: &mut crate::craft::Crafting,
     rows: &Gathering,
 ) -> Vec<&'static str> {
-    let (gathering, fell_back) = world_gathering(rows);
-    if fell_back.contains(&"mine") {
-        for (tool, unmade) in fallback_tool_yields() {
-            craft.tool_yields.entry(tool).or_insert(unmade);
-        }
-    }
-    craft.gathering = gathering;
-    fell_back
+    craft.gathering = rows.clone();
+    [
+        ("mine", rows.mines.is_empty()),
+        ("map_region", rows.map_regions.is_empty()),
+    ]
+    .into_iter()
+    .filter_map(|(kind, none)| none.then_some(kind))
+    .collect()
 }
 
 /// What a tool not made yields when no row names it.

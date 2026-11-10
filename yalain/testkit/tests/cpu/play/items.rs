@@ -1286,16 +1286,19 @@ fn an_item_use_row_gives_a_template_naming_nothing_its_effect_behavior_and_wear(
     );
 }
 
-/// A world with no item use, book or first gift rows has the server's own of each (the test world's
-/// rows, entry for entry); one with rows of a kind has its rows alone of that kind, never the two
-/// merged, and the server's own of the others.
+/// A world with no item use, book or first gift rows has none of each, and names the kinds it
+/// lacks; one with rows of a kind has its rows alone of that kind and names the others: its food
+/// then heals nothing beyond what its template names.
 /// Behaviour: server.items.item-rows-without-rows
 #[test]
-fn a_world_without_item_rows_has_the_servers_own_and_with_some_its_rows_alone() {
+fn a_world_without_item_rows_has_none_and_names_the_kinds_it_lacks() {
     use yalain_content::item_rows::{ItemRows, ItemUse};
-    let (own, fell_back) = item_use::world_item_rows(ItemRows::default());
-    assert_eq!(fell_back, ["item_use", "book", "start_item"]);
-    assert_eq!(own, yalain_testkit::test_item_rows());
+    use yalain_testkit::FOOD;
+    assert_eq!(
+        item_use::kinds_missing(&ItemRows::default()),
+        ["item_use", "book", "start_item"]
+    );
+    assert!(item_use::kinds_missing(&yalain_testkit::test_item_rows()).is_empty());
     let one = ItemUse {
         template: 0x4700_7A10,
         effects: vec![(TENACITY, 1.0)],
@@ -1306,12 +1309,20 @@ fn a_world_without_item_rows_has_the_servers_own_and_with_some_its_rows_alone() 
         uses: [(one.template, one.clone())].into_iter().collect(),
         ..ItemRows::default()
     };
-    let (got, fell_back) = item_use::world_item_rows(rows);
-    assert_eq!(fell_back, ["book", "start_item"]);
-    assert_eq!(got.uses.len(), 1, "its row alone");
-    assert_eq!(got.uses.get(&one.template), Some(&one));
-    assert_eq!(got.books, own.books);
-    assert_eq!(got.start_items, own.start_items);
+    assert_eq!(item_use::kinds_missing(&rows), ["book", "start_item"]);
+    let mut h = world();
+    h.server.item_rows = rows;
+    assert_eq!(
+        item_use::own_effects(&h.server.item_rows, one.template),
+        [UsageEffect {
+            state: TENACITY,
+            spellcraft: 1.0
+        }]
+    );
+    assert!(
+        item_use::own_effects(&h.server.item_rows, FOOD).is_empty(),
+        "no row of the food's"
+    );
 }
 
 /// A treasure potion's own effect: dropped by a level 46 creature it is given one of the nine kinds
