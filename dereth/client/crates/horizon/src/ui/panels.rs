@@ -24,6 +24,7 @@ mod examine;
 pub mod info;
 mod items;
 mod journal;
+pub mod map;
 mod notebook;
 pub mod options;
 pub mod pad_items;
@@ -468,6 +469,8 @@ pub struct Windows {
     info_spell: Option<(u32, bool)>,
     /// Where the map window's picture of the world was drawn this frame, while it is open.
     pub map_picture: Option<Rect>,
+    /// Which part of the picture the map window shows.
+    pub map_view: map::MapView,
 }
 
 impl Windows {
@@ -833,6 +836,9 @@ impl Windows {
         let rects = self.rects(p.scale);
         let order: Vec<WindowId> = self.order.clone();
         self.map_picture = None;
+        if !self.is_open(WindowId::Map) {
+            self.map_closed(p);
+        }
         for id in order {
             // The HUD draws its own layout window, over the element outlines; a window a plugin
             // hides is not drawn.
@@ -1657,133 +1663,6 @@ impl Windows {
     // -----------------------------------------------------------------------------------------
     // Social, allegiance, map
     // -----------------------------------------------------------------------------------------
-
-    fn map(&mut self, p: &mut Painter<'_>, ctx: &mut Ctx<'_>, state: &GameState, body: Rect) {
-        use dereth_ui_screens::mapradar::map::{
-            graphic, place_marker_on_map, SHIPPED_NOTE_BINDING,
-        };
-        let k = p.scale;
-        p.fill(body, 0xFF2A_2418);
-        // The picture, as large as the window holds it at its own shape.
-        let (iw, ih) = (257.0, 267.0);
-        let fit = ((body.w - 24.0 * k) / iw).min((body.h - 48.0 * k) / ih);
-        let area = Rect::new(
-            body.x + (body.w - iw * fit) / 2.0,
-            body.y + 8.0 * k,
-            iw * fit,
-            ih * fit,
-        );
-        match p.art.ac_icon(graphic::MAP_IMAGE.0) {
-            Some(map) => p.sprite(&map, area, WHITE),
-            None => p.fill(area, 0xFFC8_B488),
-        }
-        // The pad's focus starts on the map itself, none of its places chosen.
-        {
-            let input = &mut *ctx.input;
-            input
-                .nav
-                .note(area, crate::ui::nav::Kind::Plain, &input.occluders);
-            input.nav.home(area);
-        }
-        self.map_picture = Some(area);
-        self.tell_map_presses(ctx, area, fit);
-        let style = TextStyle::new(Family::Body, 14.0, ctx.colours.text()).edge(ctx.colours.edge());
-        // The places the map names: framed and named while the pointer is on one, as the game's
-        // map notes are.
-        for note in dereth_client_contract::panels::map::notes(state.map_profile) {
-            #[allow(clippy::cast_precision_loss)]
-            let r = Rect::new(
-                area.x + note.x as f32 * fit,
-                area.y + note.y as f32 * fit,
-                note.w as f32 * fit,
-                note.h as f32 * fit,
-            );
-            if ctx.over(&r) {
-                p.fill(r, 0x30FF_E8A0);
-                p.outline(r, 1.5 * k, 0xFFF0_C860);
-                self.tip = Some((note.name.to_owned(), Vec::new()));
-            }
-        }
-        // The plugins' points and lines on the map.
-        if !self.plugins.frame.marks.map.is_empty() {
-            let (_, _, markers) = SHIPPED_NOTE_BINDING;
-            #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
-            let place = |ns: f64, ew: f64| {
-                let (mx, my) = place_marker_on_map(markers, ew as f32, ns as f32, (0, 0));
-                Some((
-                    dereth_primitives::num::to_i32(area.x + mx as f32 * fit),
-                    dereth_primitives::num::to_i32(area.y + my as f32 * fit),
-                ))
-            };
-            let glyphs = dereth_plugin_ui::marks::map_glyphs(&self.plugins.frame.marks.map, &place);
-            p.list.push_clip(area);
-            dereth_plugin_ui::layer::glyphs(p, &glyphs);
-            p.list.pop_clip();
-        }
-        if let Some((n, e)) = state.coords {
-            let (_, _, markers) = SHIPPED_NOTE_BINDING;
-            let (mx, my) = place_marker_on_map(markers, e, n, (0, 0));
-            #[allow(clippy::cast_precision_loss)]
-            let (px, py) = (area.x + mx as f32 * fit, area.y + my as f32 * fit);
-            let s = 12.0 * k;
-            match p.art.ac_icon(graphic::PLAYER_ICON.0) {
-                Some(icon) => p.sprite(&icon, Rect::new(px - s, py - s, 2.0 * s, 2.0 * s), WHITE),
-                None => p.fill(Rect::new(px - s / 2.0, py - s / 2.0, s, s), 0xFF40_E040),
-            }
-            let label = format!(
-                "{:.1}{} {:.1}{}",
-                n.abs(),
-                if n >= 0.0 { "N" } else { "S" },
-                e.abs(),
-                if e >= 0.0 { "E" } else { "W" }
-            );
-            p.text_in(
-                &style,
-                Rect::new(body.x, area.bottom() + 6.0 * k, body.w, 24.0 * k),
-                Align::Centre,
-                &label,
-            );
-        }
-    }
-
-    /// A press on the map's picture `area`, drawn `fit` times the picture's own size, told to the
-    /// plugins: the place under the pointer, the button and the modifiers held (the pad's A at the
-    /// map's cursor is a left press there). The press is left to the map, which does nothing else
-    /// with it; one on the picture's margin, beyond the world, is told to no one.
-    fn tell_map_presses(&mut self, ctx: &mut Ctx<'_>, area: Rect, fit: f32) {
-        use dereth_client_contract::panels::map::{MapButton, MapClick};
-        let input = &*ctx.input;
-        if fit <= 0.0 || !input.hover(&area) {
-            return;
-        }
-        let (_, _, markers) = dereth_ui_screens::mapradar::map::SHIPPED_NOTE_BINDING;
-        let at = (
-            f64::from((input.mouse.0 - area.x) / fit),
-            f64::from((input.mouse.1 - area.y) / fit),
-        );
-        let Some((ns, ew)) = dereth_ui_screens::mapradar::map::map_coords_at(markers, at.0, at.1)
-        else {
-            return;
-        };
-        for (pressed, button) in
-            input
-                .pressed
-                .iter()
-                .zip([MapButton::Left, MapButton::Right, MapButton::Middle])
-        {
-            if *pressed {
-                self.plugins
-                    .push_input(dereth_plugin_ui::Input::Map(MapClick {
-                        ns,
-                        ew,
-                        button,
-                        ctrl: input.ctrl,
-                        shift: input.shift,
-                        alt: input.alt,
-                    }));
-            }
-        }
-    }
 }
 
 impl Windows {

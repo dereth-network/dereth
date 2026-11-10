@@ -27,6 +27,8 @@ other two, it draws the screens before the world at the window's own size.
   spellbook. Tab and Shift-Tab pick the next and previous creature. F uses the selection, Shift+F
   picks it up and G examines it. `/` opens the chat line with a `/` in it, and F12 takes a
   screenshot.
+- **The map** (M). The wheel zooms about the pointer, the buttons under it zoom about the player
+  and go back to the whole picture, and a drag pans. It is the same for every character.
 - **Hotbar 1** is the shortcut bar. Click a shortcut to use it, drag it to another slot to move it,
   or drag it off the bar to remove it. Drag an item from the inventory onto a slot to make a
   shortcut.
@@ -78,6 +80,17 @@ Horizon draws its own art: pieces packed into atlases at several scales, with a 
 names them (`pieces/`), and its fonts as glyph pages. The game's own icons (items, spells,
 effects) come from the game's data files. Everything is drawn on whole pixels, and text at its
 font's own size. Where a piece is missing, a plain shape is drawn in its place.
+
+The map's picture is drawn on the player's machine from the data they play with, the older data
+set's too (`dereth_scene::world_map`): the land in the original map's colours, shaded by its
+relief, the roads, the sea with its lighter shoreline, and a grid every five units, with nothing
+written on it, three pixels to a landcell and 6123 to a side. The world is read and the whole drawn
+at 2048 pixels a side off the frame when the map first opens; closer in, tiles of 1024 are drawn
+as a view needs them. The places drawn over it are read from the same data: the towns and the
+smaller places the game's own map names, each where the data's buildings stand and only where they
+do, and the cottages, villas and mansions by their buildings as the map is zoomed in. Portals,
+lifestones and anything else a world's server places are not in the data, so the map does not show
+them.
 
 The desktop client has the art built in. The web client fetches it from `pkg/horizon/` beside the
 module when the page opens. Until it arrives, a choice of Horizon waits (a saved one starts in the

@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`launcher/RELEASING.md`](launcher/RELEASING.md)).
 
 ## Unreleased
+- Horizon: a new zoomable world map, with its towns and houses.
 - Remaster: doorways in Launch-era dungeons no longer draw black.
 - Each world remembers the interface you chose there; the Library's Settings set the default.
 

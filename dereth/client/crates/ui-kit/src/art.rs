@@ -479,6 +479,24 @@ impl Art {
         Some(hit.as_ref().map(Sprite::whole))
     }
 
+    /// The skin's file `name`, as it is.
+    #[must_use]
+    pub fn file(&self, name: &str) -> Option<&[u8]> {
+        self.read(name)
+    }
+
+    /// Let go of the picture kept under `key`: the next ask makes it again.
+    pub fn let_go(&self, key: &str) {
+        let kept = self
+            .inner
+            .lock()
+            .ok()
+            .and_then(|mut i| i.by_path.remove(key));
+        if let Some(Some(tex)) = kept {
+            self.forget_image(tex.id);
+        }
+    }
+
     /// The picture kept under `key`, made by `make` the first time it is asked for (and kept as
     /// missing when `make` has none), as a sprite of the whole picture.
     pub fn cached(&self, key: &str, make: impl FnOnce() -> Option<Image>) -> Option<Sprite> {

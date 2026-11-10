@@ -1284,18 +1284,16 @@ on("map.clicked", function(e) print(e.button, e.position.ns, e.position.ew) end)
 "#;
 
 /// How an interface places a mark on its map: the box of the modern map page's picture on the
-/// screen, the classic map page's own projection, or where Horizon's picture is drawn and how many
-/// screen pixels a side one of its pixels is.
+/// screen, the classic map page's own projection, or where Horizon's picture is drawn.
 #[derive(Clone, Copy)]
 enum MapPlacing {
     Modern(dereth_ui::Box2D),
     Classic,
-    Horizon(dereth_ui_kit::draw::Rect, f32),
+    Horizon(dereth_ui_kit::draw::Rect),
 }
 
 impl Client {
-    /// The pixel a mark at `ns`, `ew` is drawn on: a screen pixel under the modern and the classic
-    /// interface, a pixel of the picture under Horizon, which scales it.
+    /// The screen pixel a mark at `ns`, `ew` is drawn on.
     #[allow(clippy::cast_possible_truncation)]
     fn map_pixel(&self, placing: MapPlacing, ns: f64, ew: f64) -> (i32, i32) {
         use dereth_ui_screens::mapradar::map::{place_marker_on_map, SHIPPED_NOTE_BINDING};
@@ -1308,20 +1306,17 @@ impl Client {
                 .active()
                 .and_then(|ui| ui.map_point(ns, ew))
                 .expect("the place is on the classic map"),
-            MapPlacing::Horizon(..) => (mx, my),
+            MapPlacing::Horizon(area) => {
+                let (x, y) = dereth_horizon::ui::panels::map::MapView::default()
+                    .on_screen(area, dereth_horizon::ui::panels::map::map_pixel(ns, ew));
+                (x as i32, y as i32)
+            }
         }
     }
 
     /// Where on the screen the middle of `pixel` is.
-    #[allow(clippy::cast_precision_loss)]
-    fn map_press_point(placing: MapPlacing, (x, y): (i32, i32)) -> (f64, f64) {
-        match placing {
-            MapPlacing::Horizon(area, fit) => (
-                f64::from(area.x + (x as f32 + 0.5) * fit),
-                f64::from(area.y + (y as f32 + 0.5) * fit),
-            ),
-            _ => (f64::from(x) + 0.5, f64::from(y) + 0.5),
-        }
+    fn map_press_point((x, y): (i32, i32)) -> (f64, f64) {
+        (f64::from(x) + 0.5, f64::from(y) + 0.5)
     }
 }
 
@@ -1395,12 +1390,12 @@ fn a_press_on_each_interfaces_map_reaches_the_plugins_with_the_place_under_the_p
                 c.frames(3);
                 let ui = c.shell.horizon.ui.as_ref().expect("Horizon");
                 let area = ui.ui.windows.map_picture.expect("the map window is open");
-                MapPlacing::Horizon(area, area.w / 257.0)
+                MapPlacing::Horizon(area)
             }
         };
         let pixel = c.map_pixel(placing, 42.2, 33.8);
         let before = c.console("test.map").len();
-        c.click(Client::map_press_point(placing, pixel));
+        c.click(Client::map_press_point(pixel));
         c.frames(2);
         let said = c.console("test.map")[before..].to_vec();
         let told: Vec<&str> = said
