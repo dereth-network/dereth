@@ -54,6 +54,10 @@ dereth-network-hub -- the Dereth Network's hub and world registry
   dereth-network-hub report <id> dismiss|revoke \"<note>\"   revoke: federation off, key revoked, locked
   dereth-network-hub unlock <slug>                lift a revocation's lock
   dereth-network-hub remove <slug>                remove a world for good, freeing its slug
+  dereth-network-hub rename <slug> <new slug>     rename a world; everything of it follows
+  dereth-network-hub fix-slugs [--apply]          rename the unclaimed community listings whose
+                                                  slugs cannot join the network; a dry run
+                                                  unless --apply
   dereth-network-hub directory remove <Name@world>   take a character out of the directory and
                                                   hold it out for 30 days; its world is told,
                                                   and its log says so
@@ -531,6 +535,45 @@ fn run(mut args: Vec<String>) -> Result<ExitCode, String> {
             println!("{}: removed", arg(0)?);
             Ok(ExitCode::SUCCESS)
         }
+        "rename" => {
+            let r = open()?.rename(&arg(0)?, &arg(1)?).map_err(|e| e.message)?;
+            println!("{} is now {}", r.from, r.to);
+            if r.has_key {
+                println!(
+                    "Its key still works under the new slug; `rotate-key {}` gives a fresh one.",
+                    r.to
+                );
+            }
+            println!(
+                "A serving hub closes a link still open under {} within a second; the world links again once its server names {}.",
+                r.from, r.to
+            );
+            Ok(ExitCode::SUCCESS)
+        }
+        "fix-slugs" => {
+            let apply = take_flag(&mut args, "--apply");
+            if !args.is_empty() {
+                return Err(format!(
+                    "fix-slugs: unexpected {args:?}
+
+{USAGE}"
+                ));
+            }
+            let plan = open()?.fix_slugs(apply).map_err(|e| e.message)?;
+            println!(
+                "{}",
+                pretty(&serde_json::json!({ "applied": apply, "plan": plan }))
+            );
+            let count = |a: &str| plan.iter().filter(|f| f.action == a).count();
+            eprintln!(
+                "{}{} renamed, {} kept, {} conflicts",
+                if apply { "" } else { "dry run: " },
+                count("rename"),
+                count("keep"),
+                count("conflict")
+            );
+            Ok(ExitCode::SUCCESS)
+        }
         "directory" => {
             if arg(0)? != "remove" {
                 return Err(format!("directory: remove <Name@world>\n\n{USAGE}"));
@@ -950,6 +993,51 @@ mod tests {
         drop(r);
         assert!(run(s(&["directory", "remove", "Eve@zz", "--db", &db])).is_err());
         assert!(run(s(&["directory", "list", "--db", &db])).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Spec: hub: `rename` and `fix-slugs` on the command line: a rename moves the world and
+    /// refuses a slug that cannot join the network; `fix-slugs` is a dry run unless applied.
+    #[test]
+    fn rename_and_fix_slugs_on_the_command_line() {
+        assert!(
+            USAGE.contains("rename <slug> <new slug>") && USAGE.contains("fix-slugs [--apply]")
+        );
+        let dir =
+            std::env::temp_dir().join(format!("dereth-hub-cli-rename-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a folder");
+        let db = dir.join("hub.sqlite").to_str().expect("a path").to_owned();
+        let open = || {
+            Registry::open(&db, "dereth.network", Box::new(std::time::SystemTime::now))
+                .expect("a registry")
+        };
+        let world = |slug: &str| {
+            Registration::from_json(&serde_json::json!({
+                "slug": slug, "name": "A World", "ruleset": "PvE",
+                "endpoint": { "mode": "manual", "address": "192.0.2.1", "port": 9000 },
+                "emulator": { "family": "ACE" },
+            }))
+            .expect("a registration")
+        };
+        open()
+            .register(&world("hollowtide-pk"))
+            .expect("registered");
+        let s = |v: &[&str]| v.iter().map(|a| (*a).to_owned()).collect::<Vec<String>>();
+        assert!(run(s(&[
+            "rename",
+            "hollowtide-pk",
+            "hollowtide-pvp",
+            "--db",
+            &db
+        ]))
+        .is_err());
+        run(s(&["fix-slugs", "--db", &db])).expect("a dry run");
+        run(s(&["rename", "hollowtide-pk", "hollowtide", "--db", &db])).expect("renamed");
+        let r = open();
+        assert!(r.server("hollowtide").expect("read").is_some());
+        assert!(r.server("hollowtide-pk").expect("read").is_none());
+        drop(r);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -294,6 +294,17 @@ journalctl -u dereth-network-hub -f
   and a hub refuses to start with a flag it does not know.
 - `remove <slug>` removes any world for good; `unlist <slug>` and `relist <slug>` take one out of
   the public lists and put it back (run them as the hub's user, below).
+- `rename <slug> <new slug>` renames a world, and its key, claim, proof, operator, log, mirrors and
+  characters follow it. The new slug must be one a world may take on the network (2 to 12 of
+  `a-z`, `0-9` and inner hyphens, not reserved) and free. Its key keeps working under the new
+  slug (`rotate-key <new slug>` gives a fresh one); the world's server must be given the new slug,
+  and a serving hub closes a link still open under the old one within a second. A world whose
+  characters are in a channel is refused. The next community import updates the listing under its
+  new slug.
+- `fix-slugs` lists, and with `--apply` renames, every unclaimed community listing whose slug
+  cannot join the network (earlier imports made slugs of up to 40 characters) to the slug an
+  import now gives its name. Claimed and managed worlds are listed, never touched: rename those
+  with `rename`.
 - `--no-treestats`: the hub reads no player counts from TreeStats, which it otherwise does every 15
   minutes for the worlds that have no count of their own, over HTTPS to `treestats.net`.
 - `--deny-fetch` (repeated, or one range to a line in a `--deny-fetch-file`): ranges the hub never

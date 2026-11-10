@@ -2201,7 +2201,7 @@ impl Registry {
                     |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
                 )
                 .optional()?;
-            let slug = existing
+            let mut slug = existing
                 .as_ref()
                 .map_or_else(|| e.registration.slug.clone(), |x| x.1.clone());
             let mut item = PlanItem {
@@ -2270,18 +2270,36 @@ impl Registry {
                 }
             }
             if existing.is_none() {
-                let taken: Option<String> = tx
-                    .query_row("SELECT id FROM servers WHERE slug = ?", [&slug], |r| {
-                        r.get(0)
-                    })
-                    .optional()?;
-                if taken.is_some() {
+                // A slug the name had to be shortened to make may be taken by a world whose name
+                // begins alike: the next of its numbered choices is taken instead. A slug that is
+                // the whole name is a conflict.
+                let mut choices =
+                    crate::community::slug_choices(&e.registration.name, &e.external_id);
+                if choices.first() != Some(&slug) {
+                    choices = vec![slug.clone()];
+                }
+                let mut free = None;
+                for choice in choices {
+                    let taken: Option<String> = tx
+                        .query_row("SELECT id FROM servers WHERE slug = ?", [&choice], |r| {
+                            r.get(0)
+                        })
+                        .optional()?;
+                    if taken.is_none() {
+                        free = Some(choice);
+                        break;
+                    }
+                }
+                let Some(free) = free else {
                     item.action = "conflict".into();
                     item.reason =
                         Some("Slug belongs to a different identity; no automatic merge".into());
                     plan.push(item);
                     continue;
-                }
+                };
+                reg.slug.clone_from(&free);
+                item.slug.clone_from(&free);
+                slug = free;
             }
             let same_endpoint = existing.as_ref().is_some_and(|x| {
                 serde_json::from_str::<Registration>(&x.3).is_ok_and(|m| m.endpoint == reg.endpoint)

@@ -4,8 +4,7 @@
 //! (`id`, `name`, `description`, `emu`, `server_host`, `server_port`, `type`, `status`,
 //! `website_url`, `discord_url`). The reader takes exactly that shape: no document type, no entity
 //! declarations, no attributes it needs, at most 2 MiB and 2000 records. An entry's slug is its
-//! name folded to the registry's slug form; one that does not fold becomes `world-` and the
-//! first eight characters of its id.
+//! name folded to a network slug ([`network_slug`]).
 
 use std::time::Duration;
 
@@ -246,36 +245,101 @@ fn fields(mut s: &str) -> Result<Vec<(String, String)>, String> {
     }
 }
 
-fn fold_slug(name: &str, id: &str) -> String {
-    let mut slug = String::new();
-    let mut dash = false;
+/// The longest slug the import makes: a network slug's, so that every imported listing can join the
+/// network once claimed.
+const SLUG_CHARS: usize = dereth_network_protocol::address::MAX_SLUG_CHARS;
+
+/// Whether `slug` is a slug the import may give: a registry slug that is also a network slug.
+fn is_import_slug(slug: &str) -> bool {
+    crate::registry::is_registry_slug(slug)
+        && dereth_network_protocol::address::is_network_slug(slug)
+}
+
+/// `name` folded to its words of `a-z` and `0-9`.
+fn slug_words(name: &str) -> Vec<String> {
+    let mut words = vec![String::new()];
     for c in name.chars() {
-        let c = crate::fold::fold_char(c);
-        for c in c.chars() {
+        for c in crate::fold::fold_char(c).chars() {
             if c.is_ascii_alphanumeric() {
-                slug.push(c.to_ascii_lowercase());
-                dash = false;
-            } else if !dash && !slug.is_empty() {
-                slug.push('-');
-                dash = true;
+                words
+                    .last_mut()
+                    .expect("never empty")
+                    .push(c.to_ascii_lowercase());
+            } else if !words.last().expect("never empty").is_empty() {
+                words.push(String::new());
             }
         }
     }
-    let mut slug: String = slug.trim_end_matches('-').chars().take(40).collect();
-    while slug.ends_with('-') {
-        slug.pop();
+    words.retain(|w| !w.is_empty());
+    words
+}
+
+/// `slug` cut to at most `max` characters, at a hyphen when one falls within them.
+fn cut(slug: &str, max: usize) -> String {
+    if slug.len() <= max {
+        return slug.to_owned();
     }
-    if crate::registry::is_registry_slug(&slug) {
-        slug
+    let head = &slug[..max];
+    let head = if slug.as_bytes()[max] == b'-' {
+        head
     } else {
-        let head: String = slug.chars().take(30).collect();
-        let head = head.trim_end_matches('-');
-        format!(
-            "{}-{}",
-            if head.is_empty() { "world" } else { head },
-            &id[..8]
-        )
+        head.rfind('-').map_or(head, |i| &head[..i])
+    };
+    head.trim_end_matches('-').to_owned()
+}
+
+/// The slug an imported world named `name`, of community id `id`, is given, and whether its name
+/// had to be shortened to make it. The slug is the name's words joined by hyphens, with whole
+/// words dropped from its end until it fits [`SLUG_CHARS`] (`Hollowtide PK` is `hollowtide`); a
+/// first word longer than that is cut to it. One that is still no network slug (too short, or
+/// reserved) is the start of it and the first four hex digits of the id (`darktid-1a2b`), and a
+/// name with no letters or digits is `world-` and the first six.
+fn fold(name: &str, id: &str) -> (String, bool) {
+    let words = slug_words(name);
+    let full = words.join("-");
+    let mut n = words.len();
+    let mut slug = full.clone();
+    while slug.len() > SLUG_CHARS && n > 1 {
+        n -= 1;
+        slug = words[..n].join("-");
     }
+    let slug = cut(&slug, SLUG_CHARS);
+    if is_import_slug(&slug) {
+        let shortened = slug != full;
+        return (slug, shortened);
+    }
+    let hex: String = id.chars().filter(char::is_ascii_hexdigit).collect();
+    let head = cut(&slug, SLUG_CHARS - 5);
+    let tagged = format!("{head}-{}", &hex[..4.min(hex.len())]);
+    if !head.is_empty() && is_import_slug(&tagged) {
+        return (tagged, false);
+    }
+    (format!("world-{}", &hex[..6.min(hex.len())]), false)
+}
+
+/// The slug the import gives a new world named `name`, of community id `id` ([`fold`]).
+#[must_use]
+pub fn network_slug(name: &str, id: &str) -> String {
+    fold(name, id).0
+}
+
+/// The slugs the import tries, in order, for a new world named `name`, of community id `id`: its
+/// own ([`network_slug`]), then, only when its name had to be shortened to make it (so that two
+/// worlds whose names begin alike do not collide), that slug numbered from 2 to 9 within
+/// [`SLUG_CHARS`] (`hollowtide-2`).
+#[must_use]
+pub fn slug_choices(name: &str, id: &str) -> Vec<String> {
+    let (slug, shortened) = fold(name, id);
+    let mut choices = vec![slug.clone()];
+    if shortened {
+        let head = cut(&slug, SLUG_CHARS - 2);
+        choices.extend(
+            (2..=9)
+                .map(|n| format!("{head}-{n}"))
+                .filter(|s| is_import_slug(s)),
+        );
+    }
+    choices
 }
 
 fn is_uuid(s: &str) -> bool {
@@ -355,7 +419,7 @@ pub fn parse(xml: &str) -> Result<CommunityInput, String> {
                 .replace('\r', "\n")
                 .replace('\t', " ");
             let registration = Registration::from_json(&json!({
-                "slug": fold_slug(&name, &id),
+                "slug": network_slug(&name, &id),
                 "name": name,
                 "description": description,
                 "ruleset": ruleset,
@@ -526,6 +590,97 @@ mod tests {
             input.entries[1].registration.endpoint,
             Endpoint::Manual { port: 9050, .. }
         ));
+    }
+
+    /// Spec: registry: an imported world's slug is a network slug: its name's words, with whole
+    /// words dropped from the end until it fits 12, a single longer word cut to 12, and a reserved
+    /// or too short one marked with its id.
+    #[test]
+    fn an_imported_slug_is_a_network_slug() {
+        let id = "1a2b3c4d-0000-4000-8000-000000000000";
+        for (name, slug) in [
+            ("Hollowtide PK", "hollowtide"),
+            ("Frost & Fire", "frost-fire"),
+            ("Ærø!!", "aero"),
+            ("Coldeve", "coldeve"),
+            ("The Dark Side of Dereth", "the-dark"),
+            ("Supercalifragilistic", "supercalifra"),
+            ("Darktide", "darktid-1a2b"),
+            ("Darktide Classic Edition", "darktid-1a2b"),
+            ("World", "world-1a2b"),
+            ("X", "x-1a2b"),
+            ("API", "api-1a2b"),
+            ("!!!", "world-1a2b3c"),
+        ] {
+            let made = network_slug(name, id);
+            assert_eq!(made, slug, "{name}");
+            assert!(
+                dereth_network_protocol::address::is_network_slug(&made)
+                    && crate::registry::is_registry_slug(&made),
+                "{name}: {made}"
+            );
+        }
+    }
+
+    /// Spec: registry: a shortened slug's numbered choices stay within 12 and are network slugs;
+    /// a slug that is the whole name has no others.
+    #[test]
+    fn a_shortened_slugs_choices_stay_within_twelve() {
+        let id = "1a2b3c4d-0000-4000-8000-000000000000";
+        let choices = slug_choices("Hollowtide PK", id);
+        assert_eq!(choices.len(), 9);
+        assert_eq!(choices[..3], ["hollowtide", "hollowtide-2", "hollowtide-3"]);
+        let long = slug_choices("Supercalifragilistic", id);
+        assert_eq!(long[..2], ["supercalifra", "supercalif-2"]);
+        let words = slug_choices("Frostfire Legends of Old", id);
+        assert_eq!(words[..2], ["frostfire", "frostfire-2"]);
+        for c in choices.iter().chain(&long).chain(&words) {
+            assert!(
+                c.len() <= 12 && dereth_network_protocol::address::is_network_slug(c),
+                "{c}"
+            );
+        }
+        assert_eq!(slug_choices("Coldeve", id), ["coldeve"]);
+    }
+
+    /// Spec: registry: two new listings whose names shorten to the same slug are both imported,
+    /// the second under the next numbered choice; a name that is the slug whole is a conflict.
+    #[test]
+    fn listings_whose_names_shorten_alike_are_both_imported() {
+        let item = |id: &str, name: &str| {
+            format!(
+                "<ServerItem><id>00000000-0000-4000-8000-0000000000{id}</id><name>{name}</name>\
+                 <server_host>192.0.2.10</server_host><server_port>9000</server_port></ServerItem>"
+            )
+        };
+        let list = format!(
+            "<ArrayOfServerItem>{}{}{}</ArrayOfServerItem>",
+            item("c1", "Hollowtide PK"),
+            item("c2", "Hollowtide PvE"),
+            item("c3", "Hollowtide"),
+        );
+        let input = parse(&list).expect("parsed");
+        let mut r = crate::registry::Registry::open(
+            ":memory:",
+            "dereth.network",
+            Box::new(std::time::SystemTime::now),
+        )
+        .expect("a registry");
+        let plan = r
+            .import_community(&input.entries, false)
+            .expect("a dry run");
+        let made: Vec<(&str, &str)> = plan
+            .iter()
+            .map(|p| (p.slug.as_str(), p.action.as_str()))
+            .collect();
+        assert_eq!(
+            made,
+            [
+                ("hollowtide", "add"),
+                ("hollowtide-2", "add"),
+                ("hollowtide", "conflict")
+            ]
+        );
     }
 
     /// Spec: registry: a document with a type declaration or entities is refused whole.

@@ -2520,7 +2520,13 @@ impl Hub {
             .cloned()
             .collect();
         for s in off {
-            out.push(Out::Close(s.clone(), "federation no longer on"));
+            // A world renamed or removed is no longer under the slug its link was opened with.
+            let why = if dir.lookup(&s).is_some() {
+                "federation no longer on"
+            } else {
+                "no world has this slug now"
+            };
+            out.push(Out::Close(s.clone(), why));
             out.extend(self.link_down(&s));
         }
         let rekeyed: Vec<String> = self
@@ -3533,6 +3539,18 @@ mod tests {
         assert_eq!(h.linked().collect::<Vec<_>>(), ["aa"]);
         let to_off = h.receive(&d, "aa", tell("t", "Ann@aa", "Bob@bb"), 2.0);
         assert_eq!(result_of(&to_off, "aa"), Some(Outcome::NotOnNetwork));
+    }
+
+    /// Spec: hub: a link open under a slug the registry no longer has (the world was renamed or
+    /// removed) is closed, saying so.
+    #[test]
+    fn a_linked_world_no_longer_under_its_slug_is_closed() {
+        let mut d = dir();
+        let mut h = hub_with(&["aa", "bb"]);
+        d.0.remove("bb");
+        let out = h.tick(&d, 1.0);
+        assert!(out.contains(&Out::Close("bb".into(), "no world has this slug now")));
+        assert_eq!(h.linked().collect::<Vec<_>>(), ["aa"]);
     }
 
     /// Spec: hub: presence and watches go only to the world named, and only from the world named.

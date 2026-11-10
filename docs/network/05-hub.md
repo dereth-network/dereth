@@ -73,7 +73,14 @@ below only make it slower and costlier).
 - **The community list** (`Servers.xml`) is imported as **unclaimed** listings: a dry run unless
   applied; an applied import with any conflict changes nothing, unless it skips conflicts
   (below); a managed listing is never
-  overwritten; a slug held by another identity is a conflict, never merged. A listing becomes
+  overwritten; a slug held by another identity is a conflict, never merged. A new listing's slug
+  is one a world may take on the network: its name's words joined by hyphens, with whole words
+  dropped from the end until it fits 12 characters (`Hollowtide PK` is `hollowtide`), a single
+  longer word cut to 12; one still too short or reserved is its start and the first four hex
+  digits of its id (`darktid-1a2b`), and a name with no letters or digits `world-` and the first
+  six. When a slug the name had to be shortened to make is taken, the listing takes the first free
+  of it numbered 2 to 9 (`hollowtide-2`); a slug that is the whole name is a conflict. A listing
+  already imported is matched by its id and keeps its slug. A listing becomes
   managed when the hub's operator records the ownership evidence they reviewed (`claim` on the
   command line), which issues its first key, or when a world operator's claim of it is verified
   (section 2.4). A document type or entity declaration refuses the whole document. An imported
@@ -822,7 +829,15 @@ stay ended; everyone signs in again);
 `disable-operator <discord id>` and `enable-operator <discord id>`; `remove <slug>`, which removes a
 world for good, whatever its state (its key, claims, reports, log and its characters' links to
 persons go with it, its slug is free,
-and its operator's log says so); and `unlist <slug>` and `relist <slug>`, which take a world out of
+and its operator's log says so); `rename <slug> <new slug>`, which gives a world a new slug that
+may join the network and is free, in one transaction carrying across everything kept of it (its
+key, which keeps working, its claim, verifications, reports, log, mirrors and rooms, its
+characters' links, link codes, directory listings and holds, and every person friend naming one of
+its characters), with a `renamed` event in its log and its operator's, while a link still open
+under the old slug is closed within a second and a world whose characters are in a channel is
+refused; `fix-slugs [--apply]`, which renames each unclaimed community listing whose slug cannot
+join the network to the slug the import now gives its name, a dry run unless applied, listing and
+keeping claimed and managed ones; and `unlist <slug>` and `relist <slug>`, which take a world out of
 every public answer and put it back. An unlisted world's federation is turned off, and neither its
 operator nor the hub's operator can turn it on until it is relisted; its operator still sees and
 edits it. A disabled operator's
