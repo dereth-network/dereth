@@ -2,7 +2,7 @@
 // world and its forward pass.
 //
 // - **Splashes.** Short-lived crowns where the drops land on ground facing up near the viewer,
-//   out in the rain: a pass over the screen adds them.
+//   out in the rain: a pass over the screen adds them, and the wet ground's sheen with them.
 // - **Rain and snow.** Every drop and flake is a particle of a lattice fixed in the world. A
 //   lattice fills a box round the viewer: each particle has its own place in the world, and the
 //   box chooses only which repeat of the lattice is drawn, so a particle holds still in the world,
@@ -161,8 +161,12 @@ float splashes(float2 q, float t, float footprint)
     return saturate(s);
 }
 
-// The splashes over the scene's colors, added: on ground and what stands outdoors facing up,
-// within sixteen meters, out in the rain.
+// How much of the overcast air wet ground facing the sky mirrors where it is seen edge on.
+static const float SHEEN = 0.03;
+
+// The splashes and the wet ground's sheen over the scene's colors, added: on ground and what
+// stands outdoors facing up, out in the rain. The splashes within sixteen meters; the sheen, the
+// overcast air mirrored the more the lower the view runs over it, as far as the wet reaches.
 [shader("fragment")]
 float4 fs_splash(float4 position : SV_Position) : SV_Target0
 {
@@ -180,23 +184,29 @@ float4 fs_splash(float4 position : SV_Position) : SV_Target0
         return float4(0.0, 0.0, 0.0, 0.0);
     }
     float3 p = world_at(position.xy, d);
-    float dist = length(p - row(push.frame, FRAME_EYE).xyz);
+    float3 eye = row(push.frame, FRAME_EYE).xyz;
+    float dist = length(p - eye);
     float3 n = oct_decode(at(push.normal, px).xy);
     float up = smoothstep(0.3, 0.85, n.z);
     bool water = uint(at(push.material, px).y * 255.0 + 0.5) == 7;
-    if (dist >= 16.0 || up <= 0.3 || water)
+    float4 w = row(push.weather, W_WORLD);
+    float reach = 1.0 - smoothstep(w.z, w.w, dist);
+    if (up <= 0.3 || water || reach <= 0.0)
     {
         return float4(0.0, 0.0, 0.0, 0.0);
     }
     float open = 1.0 - shelter_share(push.weather, p, 0.4);
-    if (open <= 0.5)
+    float cosine = saturate(dot(n, (eye - p) / max(dist, 1e-4)));
+    float fresnel = 0.02 + 0.98 * pow(1.0 - cosine, 5.0);
+    float sheen = fresnel * SHEEN * up * reach * open * state.x;
+    float s = 0.0;
+    if (dist < 16.0 && open > 0.5)
     {
-        return float4(0.0, 0.0, 0.0, 0.0);
+        float footprint = dist * row(push.weather, W_SNOW).w;
+        s = splashes(world_xy(push.weather, p.xy), state.z, footprint) * up
+            * (1.0 - smoothstep(7.0, 16.0, dist)) * open * rain * 0.6;
     }
-    float footprint = dist * row(push.weather, W_SNOW).w;
-    float s = splashes(world_xy(push.weather, p.xy), state.z, footprint) * up
-        * (1.0 - smoothstep(7.0, 16.0, dist)) * open * rain;
-    return float4(scene_terms(air()) * s * 0.6, 0.0);
+    return float4(scene_terms(air()) * (s + sheen), 0.0);
 }
 
 // --- the falling rain and snow ------------------------------------------------------------------

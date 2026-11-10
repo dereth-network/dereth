@@ -2,10 +2,10 @@
 //!
 //! The remaster's weather: it falls on the game's own rainy days, as rain or over snowy land as
 //! snow, and the game's own falling weather gives way to it; on a dry day it draws nothing; it
-//! leaves the sky and the far land unveiled; a roof keeps all of it off what stands under it; far
-//! puddles never turn into white sheets; snow falls but lies nowhere; and the puddles are a switch
-//! of their own, lying in the ground's own material where its terrain takes them, the same near
-//! and far, never fighting the ground.
+//! leaves the sky and the far land unveiled; a roof keeps all of it off what stands under it; wet
+//! ground darkens a little and never turns black; far puddles never turn into white sheets; snow
+//! falls but lies nowhere; and the puddles are a switch of their own, lying in the ground's own
+//! material where its terrain takes them, the same near and far, never fighting the ground.
 //!
 //! Each frame is compared with the same station loaded again without the weather and stepped the
 //! same number of frames, so the sky and the clock stand alike in both.
@@ -692,6 +692,77 @@ fn the_rain_and_the_puddles_are_switches_of_their_own() {
     assert!(
         on_grid > 2_000,
         "the puddles gathered {on_grid} pixels on retail's grid"
+    );
+}
+
+/// What the wettest ground keeps of its brightness, at the least, on average: a fifth darker in
+/// display values is about two fifths darker in light, as soaked soil is; the rainy day's light is
+/// dim already, and anything darker reads as black.
+const WET_KEEPS_AT_LEAST: f64 = 0.75;
+/// How many ground pixels in a hundred may keep less than [`WET_DARKEST_PIXEL`] of their
+/// brightness: the odd one the ground's detail or a passing streak darkens more.
+const WET_DARKER_PERCENT: usize = 5;
+/// What counts as a pixel turned near black by the wet.
+const WET_DARKEST_PIXEL: f32 = 0.6;
+
+/// Wet ground darkens a little in the rain, and never turns black. In the town's street on the
+/// game's rainy day, on the ground the player draws, with the puddles gathering: the ground away
+/// from the puddles within the wet's reach keeps at least three quarters of its brightness without
+/// the rain on average, and no more than its brightness and a sheen; and under one pixel in twenty
+/// keeps less than three fifths of it.
+#[test]
+fn wet_ground_in_the_rain_darkens_a_little_and_never_turns_black() {
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    let street = station(&store, "rain-street");
+    let puddles = Setup {
+        drawn: true,
+        puddles: true,
+        ..dry()
+    };
+    let without = run(&store, &street, puddles);
+    let with = run(
+        &store,
+        &street,
+        Setup {
+            weather: true,
+            ..puddles
+        },
+    );
+    let (a, b) = (without.last(), with.last());
+    let inv = inverse(a);
+    let (mut sum_a, mut sum_b, mut n, mut black) = (0.0f64, 0.0f64, 0usize, 0usize);
+    for i in 0..a.class.len() {
+        let ground = a.class[i] == 1 && a.kind[i] != WATER && b.class[i] == 1;
+        if !ground || puddle(a, i) > 0 || puddle(b, i) > 0 || distance(a, &inv, i) > 100.0 {
+            continue;
+        }
+        let (la, lb) = (luminance(&a.color, i * 4), luminance(&b.color, i * 4));
+        if la < 8.0 {
+            continue;
+        }
+        sum_a += f64::from(la);
+        sum_b += f64::from(lb);
+        n += 1;
+        black += usize::from(lb < la * WET_DARKEST_PIXEL);
+    }
+    let keeps = sum_b / sum_a.max(1.0);
+    eprintln!(
+        "rain-street: {n} ground pixels away from the puddles keep {keeps:.3} of their brightness \
+         in the rain; {black} keep under {WET_DARKEST_PIXEL}"
+    );
+    assert!(n > 20_000, "too little ground away from the puddles: {n}");
+    assert!(
+        keeps >= WET_KEEPS_AT_LEAST,
+        "the rain darkened the ground to {keeps:.3} of its brightness"
+    );
+    assert!(
+        keeps <= 1.0,
+        "the rain brightened the ground to {keeps:.3} of its brightness"
+    );
+    assert!(
+        black * 100 < n * WET_DARKER_PERCENT,
+        "{black} of {n} ground pixels turned near black in the rain"
     );
 }
 

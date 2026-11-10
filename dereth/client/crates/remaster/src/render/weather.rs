@@ -7,9 +7,11 @@
 //! player may ask for rain or snow whatever the land. While it falls, the game's own falling
 //! weather is left out of the sky, so only one precipitation is ever seen.
 //!
-//! - **Wet.** The G-buffer's surfaces near the viewer that stand out in the rain are darkened and
-//!   deepened in color as soaked material is, and their roughness lowered (`weather.slang`), while
-//!   the rain falls. The puddles alone leave everything but themselves as it is.
+//! - **Wet.** The G-buffer's surfaces near the viewer that stand out in the rain are darkened a
+//!   little and deepened in color as soaked material is, and their roughness lowered
+//!   (`weather.slang`), while the rain falls; the ground facing the sky takes a faint sheen of the
+//!   overcast air, the more the lower the view runs over it (`rain.slang`). The puddles alone
+//!   leave everything but themselves as it is.
 //! - **Puddles.** Flat ground gathers them where its terrain takes them, from a mask fixed to the
 //!   world, written into the ground's material for the water pass to draw. They are the water's
 //!   own switch: they gather on a rainy day whether the rain is drawn or not, and not under

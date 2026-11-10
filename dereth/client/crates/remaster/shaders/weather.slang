@@ -3,8 +3,9 @@
 // roof. The G-buffer's shaders call it, and so do the rain's and the splashes'.
 //
 // - **Wet.** A surface near the viewer, out in the rain and lit by the sun (the ground and what
-//   stands outdoors), is darkened and deepened in color as soaked material is, and its roughness
-//   lowered; what faces the sky the most. Rooms and what stands in them never are.
+//   stands outdoors), is darkened a little and deepened in color as soaked material is, and its
+//   roughness lowered; what faces the sky the most. Rooms and what stands in them never are. Its
+//   sheen is the rain pass's.
 // - **Puddles.** Flat ground gathers them where its terrain takes them (dirt and roads the most,
 //   grass a few; rock, sand, snow and water none), from a mask fixed to the world, so a puddle
 //   lies in the same place near and far and frame after frame.
@@ -48,6 +49,9 @@ public static const uint W_SNOW = 8;
 
 // No weather: the push word of a frame without it.
 public static const uint NO_WEATHER = 0xFFFFFFFF;
+
+// What the wettest surface keeps of its color, in display values.
+public static const float WET_DARKEST = 0.8;
 
 // The steps the puddle's share is written in: the ground's material target's fourth byte, where
 // its kind is not water.
@@ -254,7 +258,9 @@ public float4 wetted(uint weather, uint frame, float4 position, uint cls, float3
     }
     float l = dot(albedo.rgb, float3(0.2126, 0.7152, 0.0722));
     float3 c = max(lerp(float3(l, l, l), albedo.rgb, 1.0 + 0.3 * wet), 0.0);
-    c *= lerp(1.0, 0.58, wet);
+    // A fifth darker in display values, about two fifths in light, as soaked soil is: no more,
+    // since the rainy day's light is dim already.
+    c *= lerp(1.0, WET_DARKEST, wet);
     float roughness = lerp(albedo.a, min(albedo.a, 0.35), wet * up);
     return float4(c, roughness);
 }
