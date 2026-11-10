@@ -284,7 +284,9 @@ pub static DIVERGENCES: &[Divergence] = &[
                  manifest, an overlay made against other files, for a blocked world or for \
                  another world's folder is refused, and every record is checked against the \
                  manifest. A refused world is not played: the session ends before the character \
-                 list, and a refusal the client can tell at the start is made before it connects.",
+                 list, and a refusal the client can tell at the start is made before it connects. \
+                 The overlay a client kept for a world over other files than those in use now is \
+                 thrown away, and the world patches the files in use afresh.",
         why: "One set of installed files serves every world, each world's changes stay its own, \
               and a server cannot change the files the player installed.",
     },

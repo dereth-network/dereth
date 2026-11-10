@@ -515,6 +515,21 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "net.dat-patch.an-overlay-made-for-other-files-is-thrown-away-and-patched-afresh",
+        says: "A world's overlay is only ever read over the data files it was made against. When \
+               the files in use are others (another set chosen for the world, or the same set \
+               downloaded again), the overlay the client kept for the world is thrown away \
+               unread, before the client connects or as soon as the world is named, and the \
+               world is not refused: the client answers the update question with its files as \
+               installed, and the world patches them afresh. Changed back, the same happens the \
+               other way.",
+        since: THIS_CLIENT,
+        divergence: "CD-031",
+        evidence: Evidence::Private("AC-EVID-DAT-OVERLAY-OTHER-BASE"),
+        station: "dereth-client-runtime::lib::world_overlay::tests::a_worlds_overlay_is_thrown_away_when_its_files_change_and_the_world_patches_them_afresh",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "net.dat-patch.an-overlay-the-client-cannot-take-is-refused-and-nothing-is-written",
         says: "A world's overlay is refused and reported, and nothing of it is written, when the \
                world's manifest names another base than the data file the client holds, when \

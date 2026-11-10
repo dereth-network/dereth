@@ -925,6 +925,19 @@ impl OverlayDir {
         })
     }
 
+    /// Whether the folder's container over `target`'s file was made against `base`
+    /// ([`is_named_base`]): `None` when the folder holds no such container, or one with no
+    /// manifest to say.
+    #[must_use]
+    pub fn made_against(&self, target: ModernDat, base: &DatFile) -> Option<bool> {
+        let m = self.manifest_of(target)?;
+        Some(is_named_base(
+            &base.base(),
+            &m.base_fingerprint,
+            m.base_records.as_ref(),
+        ))
+    }
+
     /// The overlay over `base`, which is `target`'s file, when the folder has one. `world_key`,
     /// when given, is the world it must belong to.
     ///

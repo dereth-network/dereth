@@ -47,7 +47,9 @@
 //! laid over the locked files. A purge is a tombstone there, not a deletion: a landblock purge
 //! hides the whole landblock family, a record purge one record. The iterations the client reports
 //! are the locked files' and the overlay's together, so a server's ordinary patch logic carries an
-//! overlay's revisions as it would retail's.
+//! overlay's revisions as it would retail's. An overlay is only ever laid over the files it was
+//! made against: one made against other files than those in use now is thrown away, and the
+//! world patches the files in use afresh.
 //!
 //! **The overlay extension.** With a server that knows it (Empyrean), the client receives the
 //! world's overlay manifest (`0xF7EC`) before the patch: the world's name, the base each file's
@@ -818,6 +820,8 @@ impl DddPatcher {
         if let Some(held) = next.world_key().filter(|h| *h != world) {
             return Err(other_world(&to, held));
         }
+        // What the world sent there over other files than these is never laid over them.
+        crate::world_overlay::discard_other_bases(&next, |t| target.bases.get(&t).map(|(f, _)| f));
         let made_here = target.dir.containers();
         let ours = !made_here.is_empty()
             && made_here

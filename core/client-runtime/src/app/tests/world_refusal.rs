@@ -95,9 +95,9 @@ fn character_set() -> SessionEvent {
 /// Behaviour: net.dat-patch.an-overlay-the-client-cannot-take-is-refused-and-nothing-is-written
 /// A world whose folder the client refuses when it starts is never connected to, for each reason
 /// the client can tell then: the folder's world is on the blocklist, it holds another world's
-/// data, it was made for other game files, it cannot be read. The session's end says why, the run
-/// with no interface stops, and no connection can be attached after. The same folder, not
-/// refused, is connected to.
+/// data, it cannot be read. The session's end says why, the run with no interface stops, and no
+/// connection can be attached after. The same folder, not refused, is connected to, and so is one
+/// whose overlay was made for other game files, which is not read.
 #[test]
 #[cfg_attr(
     not(feature = "retail-dats"),
@@ -107,7 +107,7 @@ fn a_world_refused_at_the_start_is_never_connected_to_for_each_local_reason() {
     let store = retail_store();
     let scratch = dereth_dat::testing::ScratchDir::new("refused-at-start").expect("scratch");
     type Make = fn(&Path, &RetailDatStore);
-    let cases: [(&str, Make, &str); 4] = [
+    let cases: [(&str, Make, &str); 3] = [
         (
             "blocked",
             |dir, store| {
@@ -140,12 +140,6 @@ fn a_world_refused_at_the_start_is_never_connected_to_for_each_local_reason() {
                 w.flush(1).unwrap();
             },
             "holds another world's data (\"There\")",
-        ),
-        (
-            "other-files",
-            // A portal container made over the language file: not the player's portal file.
-            |dir, store| write_picture(dir, store.local(), "Mine", b"mine"),
-            "made for other game files than yours",
         ),
         (
             "unreadable",
@@ -215,6 +209,32 @@ fn a_world_refused_at_the_start_is_never_connected_to_for_each_local_reason() {
     assert_eq!(
         app.store.read_portal(PICTURE).expect("the picture"),
         b"taken"
+    );
+
+    // Made for other game files, the folder is not refused: what it held is never read, and the
+    // world is connected to, to patch the files in use afresh.
+    let folder = scratch.path().join("other-files");
+    // A portal container made over the language file: not the player's portal file.
+    write_picture(&folder, store.local(), "Mine", b"mine");
+    let settings = scratch.path().join("other-files-settings");
+    std::fs::create_dir_all(&settings).unwrap();
+    let app = bring_up(
+        Config {
+            overlay_dat_dir: Some(folder.clone()),
+            ..connecting(&settings)
+        },
+        &store,
+    );
+    assert_eq!(app.world_refused(), None);
+    assert!(app.link.is_some(), "connected");
+    assert!(!app.store.has_overlay(), "nothing of it is read");
+    assert!(app
+        .store
+        .read_portal(PICTURE)
+        .map_or(true, |b| b != b"mine"));
+    assert!(
+        OverlayDir::new(&folder).unwrap().containers().is_empty(),
+        "what it held is thrown away"
     );
 }
 

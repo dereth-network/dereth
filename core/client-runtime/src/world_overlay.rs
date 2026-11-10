@@ -19,12 +19,17 @@
 //!   containers name another world than the one it is for is refused.
 //! - **The blocklist.** `overlay-blocklist.txt` beside the preferences file, one world name a
 //!   line: those worlds' overlays are never opened or written, wherever their folder is.
+//! - **Another base.** A world's overlay holds only what the world sent over the files it was
+//!   made against. When the files in use now are others (another set chosen for the world, the
+//!   same set downloaded again), the folder's overlay is thrown away before anything reads it
+//!   ([`discard_other_bases`](crate::world_overlay::discard_other_bases)): the client answers
+//!   with its files as installed, and the world patches it afresh.
 //! - **A refusal ends the session.** A world whose overlay the client cannot take is not played
 //!   with the installed files instead. A refusal the client can tell at the start (the folder's
-//!   world is blocked, holds another world's data, was made for other files, or cannot be read)
-//!   is made before it connects; one only the server can tell (the world is blocked, its overlay
-//!   was made for other files, a record is not the one it names) is made during the data patch,
-//!   before character select. Either way the player is told why
+//!   world is blocked, holds another world's data, or cannot be read) is made before it
+//!   connects; one only the server can tell (the world is blocked, its overlay was made for other
+//!   files, a record is not the one it names) is made during the data patch, before character
+//!   select. Either way the player is told why
 //!   ([`Refusal::message`](crate::world_overlay::Refusal::message)) and the session ends there.
 //! - **Where it is kept.** On disk, unless the host keeps its folders elsewhere
 //!   ([`install_folders`](crate::world_overlay::install_folders)): a browser keeps them in its
@@ -36,7 +41,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use dereth_dat::overlay::{OverlayDir, OverlayError};
-use dereth_dat::{DatFolder, RetailDatStore};
+use dereth_dat::{DatFile, DatFolder, ModernDat, RetailDatStore};
 
 use crate::config::Config;
 use crate::platform::files as host_files;
@@ -55,7 +60,8 @@ pub enum Refusal {
     Blocked { world: String },
     /// The folder holds the overlay of another world, `held`.
     OtherWorld { folder: PathBuf, held: String },
-    /// The overlay was made against other data files than the player's.
+    /// The world's overlay, as its server names it, was made against other data files than the
+    /// player's.
     OtherFiles,
     /// The run keeps no folder for the world's overlay.
     NoFolder,
@@ -378,6 +384,9 @@ pub fn lay_folder(
         );
         return (store, Some(Refusal::Blocked { world: k }));
     }
+    if discard_other_bases(dir, |t| store_base(&store, t)) {
+        return (store, None);
+    }
     match store.clone().with_overlay(dir, Some(&k)) {
         Ok(with) => {
             tracing::info!(
@@ -391,6 +400,43 @@ pub fn lay_folder(
             (store, Some(Refusal::from_error(&e)))
         }
     }
+}
+
+/// The file of `store` that `target`'s container lies over: `None` for the language file of a set
+/// whose portal file holds the strings, which no container lies over.
+fn store_base(store: &RetailDatStore, target: ModernDat) -> Option<&DatFile> {
+    let file = store.target_file(target)?;
+    (target != ModernDat::Local || file.path() != store.portal().path()).then_some(file)
+}
+
+/// Throw away the overlay in `dir` when any of its containers was made against other files than
+/// the ones `base` names for it: the world's overlay holds only what the world sent over the files
+/// it was made against, and the world patches the files in use now afresh. Every container goes,
+/// so what is left is never one world's data over two sets of files. Answers whether it did.
+pub fn discard_other_bases<'a>(
+    dir: &OverlayDir,
+    base: impl Fn(ModernDat) -> Option<&'a DatFile>,
+) -> bool {
+    let other = ModernDat::ALL
+        .into_iter()
+        .find(|t| base(*t).is_some_and(|file| dir.made_against(*t, file) == Some(false)));
+    let Some(other) = other else {
+        return false;
+    };
+    tracing::warn!(
+        "the world's overlay in {} was made against another {} than the one in use now; it is \
+         thrown away, and the world patches these files afresh",
+        dir.path().display(),
+        other.file_name()
+    );
+    for t in ModernDat::ALL {
+        if dir.holds(t) {
+            if let Err(e) = dir.remove(t) {
+                tracing::warn!("{} could not be removed: {e}", dir.container(t).display());
+            }
+        }
+    }
+    true
 }
 
 /// The world whose overlay `store`'s files read through, which the data patch's answer names.
@@ -486,6 +532,11 @@ mod tests {
 
     /// A store of three small files kept in memory, each with one record and the iteration list.
     fn memory_store() -> RetailDatStore {
+        memory_store_of(b"base")
+    }
+
+    /// [`memory_store`] whose one record is `record`: files of another length are other files.
+    fn memory_store_of(record: &[u8]) -> RetailDatStore {
         use dereth_dat::{write::DatWriter, DatFile, MemoryFile, ITERATION_LIST};
         let file = |name: &str, set: u32, subset: u32| {
             let bytes = MemoryFile::default();
@@ -506,7 +557,7 @@ mod tests {
                 1,
             )
             .unwrap();
-            w.save(dereth_primitives::DataId(0x0600_0001), b"base", 1, 2, 1)
+            w.save(dereth_primitives::DataId(0x0600_0001), record, 1, 2, 1)
                 .unwrap();
             drop(w);
             DatFile::from_storage(PathBuf::from(name), Box::new(bytes)).unwrap()
@@ -576,6 +627,94 @@ mod tests {
         remember_world(&root, "Newer").unwrap();
         adopt_single_world(&root);
         assert_eq!(last_world(&root).as_deref(), Some("Newer"));
+    }
+
+    /// What the world at `dir` patches into a client over `store` that has none of it: one
+    /// picture in a revision past the files, written by the client's own patcher. Answers the
+    /// files read through what is in the folder then.
+    fn patch_world(store: &RetailDatStore, dir: &Path) -> RetailDatStore {
+        use dereth_protocol::admin::{DddBeginDdd, DddData, PatchRevision};
+        const PICTURE: u32 = 0x0600_0002;
+        let folder = OverlayDir::new(dir).unwrap();
+        let mut p = crate::ddd::DddPatcher::new(Some(crate::ddd::OverlayTarget::new(
+            folder.clone(),
+            store,
+            "a world",
+        )));
+        p.on_interrogation();
+        p.on_begin(&DddBeginDdd {
+            data_expected: 7,
+            revisions: vec![PatchRevision {
+                dat_file_type: 0,
+                dat_file_id: 1,
+                iteration: 3,
+                ids_to_download: vec![PICTURE],
+                ids_to_purge: Vec::new(),
+            }],
+        });
+        assert!(p
+            .on_data(&DddData {
+                dat_file_type: 0,
+                dat_file_id: 1,
+                resource_type: 6,
+                resource_id: PICTURE,
+                iteration: 3,
+                compressed: 0,
+                version: 1,
+                data_size: 11,
+                data: b"patched".to_vec(),
+            })
+            .0
+            .wrote());
+        p.on_end();
+        assert_eq!(p.refused(), None);
+        let (laid, refused) = lay_folder(store.clone(), Some(&folder), &BTreeSet::new());
+        assert_eq!(refused, None);
+        laid
+    }
+
+    /// Behaviour: net.dat-patch.an-overlay-made-for-other-files-is-thrown-away-and-patched-afresh
+    /// A world's overlay is laid only over the files it was made against. With other files in use,
+    /// the folder's overlay is thrown away unread and the world is not refused: the client answers
+    /// with its files as installed, the world patches them afresh, and the folder then holds the
+    /// world over those files. Changed back, the same happens the other way.
+    #[test]
+    fn a_worlds_overlay_is_thrown_away_when_its_files_change_and_the_world_patches_them_afresh() {
+        use dereth_primitives::DataId;
+        let scratch = dereth_dat::testing::ScratchDir::new("overlay-other-base").expect("scratch");
+        let dir = scratch.path().join("a-world");
+        let one = memory_store_of(b"one");
+        let two = memory_store_of(b"second");
+        let picture = DataId(0x0600_0002);
+        let mut from = &one;
+        for to in [&one, &two, &one, &two] {
+            let folder = OverlayDir::new(&dir).unwrap();
+            if !std::ptr::eq(from, to) {
+                assert!(
+                    matches!(
+                        to.clone().with_overlay(&folder, Some("a world")),
+                        Err(OverlayError::BaseMismatch { .. })
+                    ),
+                    "the overlay made over the other files does not lie over these"
+                );
+            }
+            let (laid, refused) = lay_folder(to.clone(), Some(&folder), &BTreeSet::new());
+            assert_eq!(refused, None, "the world is not refused");
+            assert!(!laid.has_overlay(), "nothing made over other files is read");
+            assert!(folder.containers().is_empty(), "it is thrown away");
+            assert_eq!(laid.portal().iteration_list().unwrap(), [1, 2]);
+            assert!(laid.read_portal(picture).is_err());
+
+            let patched = patch_world(to, &dir);
+            assert_eq!(patched.read_portal(picture).unwrap(), b"patched");
+            assert_eq!(
+                patched.read_portal(DataId(0x0600_0001)).unwrap(),
+                to.read_portal(DataId(0x0600_0001)).unwrap(),
+                "over the files in use"
+            );
+            assert_eq!(patched.portal().iteration_list().unwrap(), [1, 2, 3]);
+            from = to;
+        }
     }
 
     thread_local! {
