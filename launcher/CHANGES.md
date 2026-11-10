@@ -10,6 +10,8 @@ section, dated, and opens a new empty one in the same commit as the version.
 
 ## Unreleased
 
+## 0.5.4 (2026-11-10)
+
 ## 0.5.3 (2026-11-09)
 - Publishing an Athenaeum world now takes its clearings along.
 - A hosted world can update itself, counting down for its players first.
