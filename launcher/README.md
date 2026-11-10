@@ -247,8 +247,19 @@ on with `--art-pack`, once each, the lowest first, and where two replace the sam
 retail picture or lighting key, the higher one wins. A new pack goes to the top. Packs are the
 player's, not a world's: every world the Dereth client plays draws them. The logic is
 `dereth-launch`'s `art` module, over `dereth-art-catalog`; the files are under the launcher's data
-folder, in `art` (`sources.json`, `installed.json` in the stack's order, a folder per pack holding
-its `current.dat`).
+folder, in `art` (`sources.json`, `installed.json` in the stack's order, `files.json`, a folder per
+pack holding its `current.dat`).
+
+**Add a pack file…**, under the installed packs, adds a packed pack from anywhere on this computer,
+chosen with the system's file picker. The launcher reads its manifest as it reads a download's: a
+file that is not a pack, names no id or version, or has an id under `network.dereth.` or one already
+on the list is refused. It goes to the top, on, and moves and turns off like any other; its row says
+**This computer** and gives its path. The launcher keeps the path, not a copy, so a pack rebuilt in
+place is what the client gets at the next Play, and its manifest is read again at the next start. It
+never updates, and Remove takes it off the list without deleting the file. A file that is gone shows
+**File not found** and is left out of what the client is given. These packs are kept in
+`files.json`, each with its place in the stack, so `installed.json` stays as earlier launchers read
+and write it. In the demo page, `?art=files` starts with two such packs, one of them gone.
 
 ## Updates
 

@@ -29,6 +29,8 @@ The client can load either form, using any of:
 
 The launcher starts the client with whichever packs the player has enabled in the Library. Even then, a pack does nothing until the player turns on the remaster's art pack option and the toggles for the categories it covers (trees, plants, rocks, water plants, building materials, ground).
 
+To try a pack you are making, add its packed file with **Add a pack file…** in the Library. The launcher uses the file where it is, so a pack you rebuild in place is what the client gets at the next Play.
+
 ## The manifest
 
 ```toml

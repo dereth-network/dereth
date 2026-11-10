@@ -25,11 +25,23 @@
 //! Packs are the player's, not a world's: every world the Dereth client plays draws them, the
 //! worlds that play the 1999 data among them, since a pack replaces things by their ids.
 //!
+//! **Packs on this computer.** The player may also add a packed pack's file from anywhere on this
+//! computer ([`Shelf::add_file`]). It is read as a download is, refused when it is not a pack or
+//! its id is one of Dereth's own, and joins the stack last and on, as an installed pack does. It
+//! stays where it is: the launcher keeps its path, not a copy, so a pack rebuilt in place is what
+//! the client is given at the next start. It never updates, removing it never deletes it, and a
+//! file that is gone stays on the list, marked, and is not given to the client.
+//!
 //! **Where they are kept**: the launcher's data folder, `art/`: `sources.json` (the sources and
-//! the last list each gave), `installed.json` (the installed packs in their order) and one folder
-//! per pack holding its `current.dat`. A pack runs to 2 GiB, so the fetching streams it to a file
-//! of its own beside that one ([`Download::partial`]), hashing as it goes, and the shelf takes the
-//! file ([`Shelf::finish`]); the fetching is the caller's.
+//! the last list each gave), `installed.json` (the installed packs in their order), `files.json`
+//! (the packs on this computer, each with its place in the stack) and one folder per installed
+//! pack holding its `current.dat`. The packs on this computer have a file of their own so that
+//! `installed.json` stays as a launcher from before them reads and writes it: such a launcher
+//! keeps every installed pack, and leaves the packs on this computer for a later one to find.
+//!
+//! A pack runs to 2 GiB, so the fetching streams it to a file of its own beside that one
+//! ([`Download::partial`]), hashing as it goes, and the shelf takes the file
+//! ([`Shelf::finish`]); the fetching is the caller's.
 
 use std::path::{Path, PathBuf};
 
@@ -55,6 +67,12 @@ pub const SOURCES_FILE: &str = "sources.json";
 
 /// The installed packs' file in the art folder.
 pub const INSTALLED_FILE: &str = "installed.json";
+
+/// The packs on this computer's file in the art folder.
+pub const FILES_FILE: &str = "files.json";
+
+/// What the page calls where a pack on this computer comes from.
+pub const THIS_COMPUTER: &str = "This computer";
 
 /// The installed file's name in a pack's folder.
 pub const PACK_FILE: &str = "current.dat";
@@ -190,6 +208,42 @@ pub struct Installed {
     /// Whether the client is given it.
     #[serde(default = "yes")]
     pub on: bool,
+    /// For a pack on this computer, its file, where it is; its source is then empty. Kept in
+    /// [`FILES_FILE`], never in [`INSTALLED_FILE`].
+    #[serde(skip)]
+    pub file: Option<PathBuf>,
+}
+
+impl Installed {
+    /// Where it comes from, for the player: its file's path for a pack on this computer, else its
+    /// source's address.
+    #[must_use]
+    pub fn origin(&self) -> String {
+        self.file
+            .as_ref()
+            .map_or_else(|| self.source.clone(), |f| f.display().to_string())
+    }
+}
+
+/// A pack on this computer as [`FILES_FILE`] keeps it: its file, what its manifest said when it
+/// was last read, whether it is on, and its place in the whole stack.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct FileEntry {
+    file: PathBuf,
+    id: String,
+    release: Release,
+    #[serde(default = "yes")]
+    on: bool,
+    /// Its index in the stack, the installed packs counted. A stack changed since by a launcher
+    /// that does not keep this file puts it as near there as it can.
+    #[serde(default)]
+    at: usize,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct FilesFile {
+    #[serde(default)]
+    files: Vec<FileEntry>,
 }
 
 fn yes() -> bool {
@@ -251,6 +305,15 @@ pub enum ArtError {
         source: String,
     },
     NothingNewer(String),
+    /// A pack on this computer: it never updates.
+    FromFile(String),
+    /// That file is on the list already.
+    FileAdded(String),
+    /// The file is not a packed art pack, or one with no id or version: the file, and why.
+    NotAPack {
+        file: String,
+        why: String,
+    },
     /// Its file is not where the source says: an address that does not resolve to `https://`.
     BadAddress(String),
     Mismatch(Mismatch),
@@ -279,6 +342,11 @@ impl std::fmt::Display for ArtError {
                 )
             }
             Self::NothingNewer(name) => write!(f, "{name} is up to date"),
+            Self::FromFile(name) => {
+                write!(f, "{name} is a file on this computer, so it never updates")
+            }
+            Self::FileAdded(file) => write!(f, "{file} is on the list already"),
+            Self::NotAPack { file, why } => write!(f, "{file} is not an art pack: {why}"),
             Self::BadAddress(u) => write!(f, "{u} is not an https:// address"),
             Self::Mismatch(m) => write!(f, "{m}"),
             Self::Io(e) => write!(f, "{e}"),
@@ -312,7 +380,8 @@ pub struct Shelf {
 impl Shelf {
     /// The shelf in `dir` (the launcher's `art` data folder): Dereth's own source and nothing
     /// installed when it holds nothing yet. A file that does not read is treated as empty and
-    /// replaced at the next change. An installed pack whose file is gone is dropped.
+    /// replaced at the next change. An installed pack whose file is gone is dropped; a pack on this
+    /// computer whose file is gone stays, marked ([`InstalledView::missing`]).
     #[must_use]
     pub fn open(dir: impl Into<PathBuf>) -> Self {
         let dir = dir.into();
@@ -341,6 +410,38 @@ impl Shelf {
             seen.push(p.id.clone());
             keep
         });
+        // The packs on this computer go back in their places, each read again, so a pack rebuilt in
+        // place shows its new version. One whose id an installed pack has now (installed meanwhile
+        // by a launcher that does not keep them) gives way to it.
+        let files: FilesFile = std::fs::read(dir.join(FILES_FILE))
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or_default();
+        let mut files = files.files;
+        files.sort_by_key(|f| f.at);
+        for f in files {
+            if packs
+                .iter()
+                .any(|p| p.id == f.id || p.file.as_ref() == Some(&f.file))
+            {
+                continue;
+            }
+            let release = match read_file(&f.file) {
+                Ok((id, release)) if id == f.id => release,
+                _ => f.release,
+            };
+            let at = f.at.min(packs.len());
+            packs.insert(
+                at,
+                Installed {
+                    id: f.id,
+                    source: String::new(),
+                    release,
+                    on: f.on,
+                    file: Some(f.file),
+                },
+            );
+        }
         Self {
             dir,
             sources,
@@ -356,7 +457,25 @@ impl Shelf {
     }
 
     fn save_installed(&self) -> Result<(), ArtError> {
-        self.write(INSTALLED_FILE, &self.packs)
+        let installed: Vec<&Installed> = self.packs.iter().filter(|p| p.file.is_none()).collect();
+        let files = FilesFile {
+            files: self
+                .packs
+                .iter()
+                .enumerate()
+                .filter_map(|(at, p)| {
+                    Some(FileEntry {
+                        file: p.file.clone()?,
+                        id: p.id.clone(),
+                        release: p.release.clone(),
+                        on: p.on,
+                        at,
+                    })
+                })
+                .collect(),
+        };
+        self.write(INSTALLED_FILE, &installed)?;
+        self.write(FILES_FILE, &files)
     }
 
     fn write(&self, name: &str, value: &impl Serialize) -> Result<(), ArtError> {
@@ -384,13 +503,22 @@ impl Shelf {
         self.sources.iter().find(|s| s.url == url)
     }
 
-    /// The files of the packs that are on, in the stack's order: what the client is given.
+    /// The file pack `p` is given to the client from: its own, for a pack on this computer.
+    #[must_use]
+    pub fn file_of(&self, p: &Installed) -> PathBuf {
+        p.file
+            .clone()
+            .unwrap_or_else(|| self.pack_dir(&p.id).join(PACK_FILE))
+    }
+
+    /// The files of the packs that are on, in the stack's order: what the client is given. A pack
+    /// on this computer whose file is not there is left out.
     #[must_use]
     pub fn stack(&self) -> Vec<PathBuf> {
         self.packs
             .iter()
-            .filter(|p| p.on)
-            .map(|p| self.pack_dir(&p.id).join(PACK_FILE))
+            .filter(|p| p.on && p.file.as_ref().is_none_or(|f| f.is_file()))
+            .map(|p| self.file_of(p))
             .collect()
     }
 
@@ -585,7 +713,19 @@ impl Shelf {
     /// Not a source, not listed by it, or one of Dereth's own packs from another source.
     pub fn plan_install(&self, source: &str, id: &str) -> Result<Download, ArtError> {
         let e = self.entry(source, id)?;
+        self.on_this_computer(&e.id)?;
         self.download_of(source, e)
+    }
+
+    /// Refuses `id` when a pack on this computer has it.
+    fn on_this_computer(&self, id: &str) -> Result<(), ArtError> {
+        match self.get(id).filter(|p| p.file.is_some()) {
+            Some(p) => Err(ArtError::InstalledFrom {
+                id: id.to_owned(),
+                source: p.origin(),
+            }),
+            None => Ok(()),
+        }
     }
 
     /// The download that updates pack `id` from its own source.
@@ -596,6 +736,9 @@ impl Shelf {
         let p = self
             .get(id)
             .ok_or_else(|| ArtError::NotInstalled(id.to_owned()))?;
+        if p.file.is_some() {
+            return Err(ArtError::FromFile(p.release.name.clone()));
+        }
         let e = self.entry(&p.source, id)?;
         if !art_catalog::is_newer(&e.version, &p.release.version) {
             return Err(ArtError::NothingNewer(p.release.name.clone()));
@@ -635,6 +778,7 @@ impl Shelf {
                 .map_err(|m| refuse(ArtError::Mismatch(m)))?;
             (e.id.clone(), Release::of(&e))
         };
+        self.on_this_computer(&id).map_err(refuse)?;
         let dir = self.pack_dir(&id);
         std::fs::create_dir_all(&dir).map_err(|err| io("making", &dir, &err))?;
         let to = dir.join(PACK_FILE);
@@ -663,6 +807,7 @@ impl Shelf {
                     source: download.source.clone(),
                     release,
                     on: true,
+                    file: None,
                 });
                 false
             }
@@ -710,7 +855,7 @@ impl Shelf {
         if let Some(p) = self.get(&id).filter(|p| p.source != download.source) {
             return Err(ArtError::InstalledFrom {
                 id,
-                source: p.source.clone(),
+                source: p.origin(),
             });
         }
         let mut release = Release::of(e);
@@ -731,20 +876,57 @@ impl Shelf {
         Ok((id, release))
     }
 
-    /// Remove pack `id` and its file.
+    /// Remove pack `id` and its file. A pack on this computer only leaves the list: its file is the
+    /// player's, and stays.
     ///
     /// # Errors
     /// Not installed, or its folder could not be deleted.
     pub fn remove(&mut self, id: &str) -> Result<(), ArtError> {
-        if self.get(id).is_none() {
+        let Some(p) = self.get(id) else {
             return Err(ArtError::NotInstalled(id.to_owned()));
-        }
+        };
         let dir = self.pack_dir(id);
-        if dir.exists() {
+        if p.file.is_none() && dir.exists() {
             std::fs::remove_dir_all(&dir).map_err(|e| io("removing", &dir, &e))?;
         }
         self.packs.retain(|p| p.id != id);
         self.save_installed()
+    }
+
+    /// Add the packed pack in `file`, on this computer, to the stack: last, so it wins, and on. Its
+    /// manifest names its id and version, and the file stays where it is. Answers what was added.
+    ///
+    /// # Errors
+    /// The file is on the list already, is not a pack, names no id or version, has one of Dereth's
+    /// own ids or the id of a pack on the list, or the folder could not be written.
+    pub fn add_file(&mut self, file: &Path) -> Result<Done, ArtError> {
+        if self.packs.iter().any(|p| p.file.as_deref() == Some(file)) {
+            return Err(ArtError::FileAdded(file.display().to_string()));
+        }
+        let (id, release) = read_file(file)?;
+        if art_catalog::first_party_only(&id) {
+            return Err(ArtError::FirstPartyOnly(id));
+        }
+        if let Some(p) = self.get(&id) {
+            return Err(ArtError::InstalledFrom {
+                source: p.origin(),
+                id,
+            });
+        }
+        let done = Done {
+            name: release.name.clone(),
+            version: release.version.clone(),
+            updated: false,
+        };
+        self.packs.push(Installed {
+            id,
+            source: String::new(),
+            release,
+            on: true,
+            file: Some(file.to_owned()),
+        });
+        self.save_installed()?;
+        Ok(done)
     }
 
     /// Turn pack `id` on or off.
@@ -821,11 +1003,17 @@ impl Shelf {
             .map(|p| InstalledView {
                 id: p.id.clone(),
                 source: p.source.clone(),
-                source_name: label(&p.source),
-                source_removed: self.source(&p.source).is_none(),
+                source_name: if p.file.is_some() {
+                    THIS_COMPUTER.to_owned()
+                } else {
+                    label(&p.source)
+                },
+                source_removed: p.file.is_none() && self.source(&p.source).is_none(),
                 on: p.on,
                 release: p.release.clone(),
                 update: pending.iter().find(|u| u.id == p.id).cloned(),
+                file: p.file.as_ref().map(|f| f.display().to_string()),
+                missing: p.file.as_ref().is_some_and(|f| !f.is_file()),
             })
             .collect();
         let mut available = Vec::new();
@@ -864,6 +1052,37 @@ impl Shelf {
             available,
         }
     }
+}
+
+/// The id and the release the packed pack in `file` gives: what its manifest says, and the file's
+/// size.
+fn read_file(file: &Path) -> Result<(String, Release), ArtError> {
+    let not = |why: String| ArtError::NotAPack {
+        file: file.display().to_string(),
+        why,
+    };
+    let packed = dereth_assets::packed_art::read_manifest(file).map_err(not)?;
+    let about = dereth_assets::art_pack::ArtPackManifest::parse(&packed.manifest)
+        .map_err(|e| not(format!("its manifest will not read: {}", e.0)))?
+        .about;
+    if about.id.is_empty() {
+        return Err(not("its manifest's [pack] names no id".into()));
+    }
+    if about.version.is_empty() {
+        return Err(not("its manifest's [pack] names no version".into()));
+    }
+    let size = std::fs::metadata(file).map_or(0, |m| m.len());
+    let e = Entry::for_packed(
+        &packed,
+        &dereth_assets::art_pack::About::default(),
+        "",
+        size,
+        "",
+        "",
+        "",
+    )
+    .map_err(not)?;
+    Ok((e.id.clone(), Release::of(&e)))
 }
 
 // ----- streaming ---------------------------------------------------------------------------------
@@ -1002,6 +1221,10 @@ pub struct InstalledView {
     pub on: bool,
     pub release: Release,
     pub update: Option<Pending>,
+    /// For a pack on this computer, its file's path.
+    pub file: Option<String>,
+    /// A pack on this computer whose file is not there, which the client is not given.
+    pub missing: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

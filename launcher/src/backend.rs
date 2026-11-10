@@ -2648,12 +2648,14 @@ impl Backend {
         Self::fetch_art(shared, fetch_pack, None, id)
     }
 
-    /// Remove art pack `id` and its file.
+    /// Remove art pack `id` and its file; a pack on this computer only leaves the list.
     ///
     /// # Errors
-    /// Not installed, a Dereth client is running, or its folder could not be deleted.
+    /// Not installed, a Dereth client is running (for a file the launcher keeps), or its folder
+    /// could not be deleted.
     pub fn remove_art_pack(&mut self, id: &str) -> Result<(), String> {
-        if self.dereth_running() {
+        let on_this_computer = self.art.get(id).is_some_and(|p| p.file.is_some());
+        if self.dereth_running() && !on_this_computer {
             return Err("Close Dereth to remove an art pack.".into());
         }
         self.art.remove(id).map_err(|e| e.to_string())
@@ -2673,6 +2675,19 @@ impl Backend {
     /// Not installed.
     pub fn move_art_pack(&mut self, id: &str, up: bool) -> Result<(), String> {
         self.art.move_pack(id, up).map_err(|e| e.to_string())
+    }
+
+    /// Add the art pack in `file`, on this computer, to the stack, last and on. The file stays
+    /// where it is, and the client is given it from there.
+    ///
+    /// # Errors
+    /// It is not an art pack, is one of Dereth's own, or is on the list already, in words for the
+    /// page.
+    pub fn add_art_file(&mut self, file: &Path) -> Result<String, String> {
+        self.art
+            .add_file(file)
+            .map(|done| format!("Added {} {}.", done.name, done.version))
+            .map_err(|e| e.to_string())
     }
 
     /// Which plugins update without the player: `none`, `all` or `first_party`.
@@ -3717,6 +3732,37 @@ mod tests {
             Backend::refresh_art(&shared, &fetch, &no_github, &packs),
             ""
         );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Add a pack file: a packed pack on this computer joins the stack last, from where it is,
+    /// and the page shows it as from this computer, with its path; a file that is not a pack is
+    /// refused in words for the page, and Remove takes it off the list and leaves the file.
+    #[test]
+    fn an_art_pack_file_reaches_the_client_from_where_it_is_and_remove_keeps_the_file() {
+        let (mut b, dir) = backend("art-file");
+        let mine = dir.join("my art");
+        std::fs::create_dir_all(&mine).unwrap();
+        let file = mine.join("flowers.dat");
+        let bytes = dereth_launch::testing::art_pack("org.example.flowers", "0.3.0");
+        std::fs::write(&file, &bytes).unwrap();
+        let junk = mine.join("notes.dat");
+        std::fs::write(&junk, b"not a pack").unwrap();
+
+        let said = b.add_art_file(&junk).unwrap_err();
+        assert!(said.contains("is not an art pack"), "{said}");
+        assert_eq!(
+            b.add_art_file(&file),
+            Ok("Added org.example.flowers 0.3.0.".to_owned())
+        );
+        let shown = &b.snapshot().art.installed[0];
+        assert_eq!(shown.source_name, "This computer");
+        assert_eq!(shown.file, Some(file.display().to_string()));
+        assert_eq!(b.art.stack(), std::slice::from_ref(&file));
+
+        b.remove_art_pack("org.example.flowers").unwrap();
+        assert!(b.art.stack().is_empty());
+        assert_eq!(std::fs::read(&file).unwrap(), bytes, "the file stays");
         let _ = std::fs::remove_dir_all(dir);
     }
 

@@ -7,6 +7,7 @@ Out of the box, the launcher knows about Dereth's own source, `https://art.deret
 - add other sources by pasting their address;
 - install, update and remove packs;
 - turn installed packs on or off, and drag them into order.
+- add a packed pack file from their own computer with **Add a pack file…**. It is used from where it is, never updates, and Remove leaves the file alone.
 
 When two packs change the same thing, the one higher in the Library's list wins. A newly installed pack goes to the top. If **Automatically update components** is turned on in the Library, installed packs update by themselves; otherwise they wait until the player clicks Update.
 

@@ -1,0 +1,40 @@
+[
+  {
+    "id": "org.example.trees",
+    "source": "https://packs.example.org/art.json",
+    "release": {
+      "name": "org.example.trees",
+      "version": "1.0.0",
+      "sha256": "0b9f2f0ac1b7a7c8e3b8c94b4d5bd2c55f3e43c5f2bb41f4c3c4e1f7c56b8a21",
+      "size": 3584,
+      "hash": "hash-org.example.trees-1.0.0",
+      "description": "",
+      "authors": [],
+      "license": "",
+      "homepage": "",
+      "made_for": [],
+      "released": "2026-11-08",
+      "notes": "Notes."
+    },
+    "on": true
+  },
+  {
+    "id": "org.example.rocks",
+    "source": "https://packs.example.org/art.json",
+    "release": {
+      "name": "org.example.rocks",
+      "version": "1.0.0",
+      "sha256": "6c1d0f3a92e4b7f05d8a3c2e1b4f6a7d9c0e2b3a4f5d6c7b8a9e0f1d2c3b4a5e",
+      "size": 3584,
+      "hash": "hash-org.example.rocks-1.0.0",
+      "description": "",
+      "authors": [],
+      "license": "",
+      "homepage": "",
+      "made_for": [],
+      "released": "2026-11-08",
+      "notes": "Notes."
+    },
+    "on": false
+  }
+]

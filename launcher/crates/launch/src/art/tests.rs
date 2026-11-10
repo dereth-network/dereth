@@ -1,10 +1,12 @@
 //! Behaviour: none (the launcher's art packs: their sources, installs and order)
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use dereth_art_catalog::Mismatch;
 
-use super::{resume_at, room_for, stream, ArtError, Shelf, FIRST_PARTY, PACK_FILE};
+use super::{
+    resume_at, room_for, stream, ArtError, Release, Shelf, FIRST_PARTY, INSTALLED_FILE, PACK_FILE,
+};
 
 const OURS: &str = "https://packs.example.org/art.json";
 
@@ -562,4 +564,290 @@ fn a_github_repository_cannot_install_one_of_dereths_own_packs() {
     ));
     assert!(shelf.packs.is_empty());
     let _ = std::fs::remove_dir_all(dir);
+}
+
+// ----- packs on this computer -------------------------------------------------------------------
+
+/// A packed pack whose manifest is `manifest`, as a builder writes one.
+fn pack_with(manifest: &str) -> Vec<u8> {
+    let files = std::collections::BTreeMap::from([(
+        "manifest.toml".to_owned(),
+        manifest.as_bytes().to_vec(),
+    )]);
+    dereth_assets::packed_art::pack_files("a pack", "hash-a-pack", &files).unwrap()
+}
+
+/// `bytes` written to `name` in `dir`, a folder of the player's apart from the shelf's.
+fn players_file(dir: &Path, name: &str, bytes: &[u8]) -> PathBuf {
+    std::fs::create_dir_all(dir).unwrap();
+    let path = dir.join(name);
+    std::fs::write(&path, bytes).unwrap();
+    path
+}
+
+#[test]
+fn a_pack_file_joins_the_stack_last_and_on_from_where_it_is() {
+    let dir = temp("file-stack");
+    let mine = temp("file-stack-mine");
+    let mut shelf = Shelf::open(&dir);
+    listing(&mut shelf, &[("org.example.trees", "1.0.0")]);
+    install(
+        &mut shelf,
+        "org.example.trees",
+        &pack("org.example.trees", "1.0.0"),
+    )
+    .unwrap();
+    let file = players_file(&mine, "flowers.dat", &pack("org.example.flowers", "0.3.0"));
+    let done = shelf.add_file(&file).unwrap();
+    assert_eq!(
+        (done.name.as_str(), done.version.as_str()),
+        ("org.example.flowers", "0.3.0")
+    );
+    let trees = dir.join("org.example.trees").join(PACK_FILE);
+    assert_eq!(
+        shelf.stack(),
+        [trees.clone(), file.clone()],
+        "last, so it wins, and on"
+    );
+    assert!(
+        !dir.join("org.example.flowers").exists(),
+        "kept where it is, not copied"
+    );
+    let view = shelf.view();
+    let shown = &view.installed[0];
+    assert_eq!(shown.id, "org.example.flowers");
+    assert_eq!(shown.source_name, "This computer");
+    assert_eq!(shown.file, Some(file.display().to_string()));
+    assert!(!shown.missing && !shown.source_removed && shown.update.is_none());
+    assert!(
+        view.installed[1].file.is_none(),
+        "an installed pack has no file of the player's"
+    );
+
+    shelf.move_pack("org.example.flowers", false).unwrap();
+    assert_eq!(
+        shelf.stack(),
+        [file.clone(), trees.clone()],
+        "moved like any other"
+    );
+    shelf.set_on("org.example.flowers", false).unwrap();
+    assert_eq!(
+        shelf.stack(),
+        std::slice::from_ref(&trees),
+        "and switched off like any other"
+    );
+    shelf.set_on("org.example.flowers", true).unwrap();
+    let again = Shelf::open(&dir);
+    assert_eq!(again.stack(), [file.clone(), trees], "kept in its place");
+    assert_eq!(
+        again.get("org.example.flowers").unwrap().file.as_deref(),
+        Some(file.as_path())
+    );
+    let _ = std::fs::remove_dir_all(dir);
+    let _ = std::fs::remove_dir_all(mine);
+}
+
+#[test]
+fn a_file_that_is_not_a_pack_or_is_one_of_dereths_own_or_on_the_list_already_is_refused() {
+    let dir = temp("file-refused");
+    let mine = temp("file-refused-mine");
+    let mut shelf = Shelf::open(&dir);
+    listing(&mut shelf, &[("org.example.trees", "1.0.0")]);
+    install(
+        &mut shelf,
+        "org.example.trees",
+        &pack("org.example.trees", "1.0.0"),
+    )
+    .unwrap();
+    let refused = |shelf: &mut Shelf, file: &Path| shelf.add_file(file).unwrap_err();
+
+    let text = players_file(&mine, "notes.dat", b"not a pack at all");
+    assert!(matches!(
+        refused(&mut shelf, &text),
+        ArtError::NotAPack { .. }
+    ));
+    assert!(matches!(
+        refused(&mut shelf, &mine.join("nowhere.dat")),
+        ArtError::NotAPack { .. }
+    ));
+    let no_id = players_file(
+        &mine,
+        "no-id.dat",
+        &pack_with("[pack]\nname = \"x\"\nformat = 1\nversion = \"1.0.0\"\n"),
+    );
+    let e = refused(&mut shelf, &no_id);
+    assert!(
+        e.to_string().ends_with("its manifest's [pack] names no id"),
+        "{e}"
+    );
+    let no_version = players_file(
+        &mine,
+        "no-version.dat",
+        &pack_with("[pack]\nname = \"x\"\nformat = 1\nid = \"org.example.x\"\n"),
+    );
+    let e = refused(&mut shelf, &no_version);
+    assert!(e.to_string().ends_with("names no version"), "{e}");
+    let ours = players_file(
+        &mine,
+        "ours.dat",
+        &pack("network.dereth.remastered", "1.0.0"),
+    );
+    assert_eq!(
+        refused(&mut shelf, &ours),
+        ArtError::FirstPartyOnly("network.dereth.remastered".into())
+    );
+    let trees = players_file(&mine, "trees.dat", &pack("org.example.trees", "2.0.0"));
+    assert!(
+        matches!(refused(&mut shelf, &trees), ArtError::InstalledFrom { ref source, .. } if source == OURS),
+        "an id on the list already"
+    );
+    let flowers = players_file(&mine, "flowers.dat", &pack("org.example.flowers", "0.3.0"));
+    shelf.add_file(&flowers).unwrap();
+    assert!(matches!(
+        refused(&mut shelf, &flowers),
+        ArtError::FileAdded(_)
+    ));
+    let copy = players_file(
+        &mine,
+        "flowers-copy.dat",
+        &pack("org.example.flowers", "0.3.0"),
+    );
+    assert!(matches!(
+        refused(&mut shelf, &copy),
+        ArtError::InstalledFrom { .. }
+    ));
+    assert_eq!(shelf.packs.len(), 2, "nothing refused was added");
+    let _ = std::fs::remove_dir_all(dir);
+    let _ = std::fs::remove_dir_all(mine);
+}
+
+#[test]
+fn a_pack_file_that_is_gone_shows_and_is_not_given_to_the_client_until_it_is_back() {
+    let dir = temp("file-gone");
+    let mine = temp("file-gone-mine");
+    let mut shelf = Shelf::open(&dir);
+    let file = players_file(&mine, "flowers.dat", &pack("org.example.flowers", "0.3.0"));
+    shelf.add_file(&file).unwrap();
+    std::fs::remove_file(&file).unwrap();
+    assert!(shelf.stack().is_empty(), "not given to the client");
+    assert!(shelf.view().installed[0].missing);
+    let again = Shelf::open(&dir);
+    assert_eq!(again.packs.len(), 1, "it stays on the list");
+    let shown = &again.view().installed[0];
+    assert!(shown.missing);
+    assert_eq!(shown.release.version, "0.3.0", "as last read");
+
+    // Rebuilt in place: the next start reads it again.
+    std::fs::write(&file, pack("org.example.flowers", "0.4.0")).unwrap();
+    let again = Shelf::open(&dir);
+    assert_eq!(again.stack(), std::slice::from_ref(&file));
+    let shown = &again.view().installed[0];
+    assert!(!shown.missing);
+    assert_eq!(shown.release.version, "0.4.0");
+    let _ = std::fs::remove_dir_all(dir);
+    let _ = std::fs::remove_dir_all(mine);
+}
+
+#[test]
+fn a_pack_file_never_updates_and_removing_it_leaves_the_players_file() {
+    let dir = temp("file-remove");
+    let mine = temp("file-remove-mine");
+    let mut shelf = Shelf::open(&dir);
+    let bytes = pack("org.example.flowers", "0.3.0");
+    let file = players_file(&mine, "flowers.dat", &bytes);
+    shelf.add_file(&file).unwrap();
+    // A source listing the same id at a higher version updates nothing and installs nothing.
+    listing(&mut shelf, &[("org.example.flowers", "9.0.0")]);
+    assert!(shelf.pending().is_empty());
+    assert!(matches!(
+        shelf.plan_update("org.example.flowers"),
+        Err(ArtError::FromFile(_))
+    ));
+    assert!(matches!(
+        shelf.plan_install(OURS, "org.example.flowers"),
+        Err(ArtError::InstalledFrom { .. })
+    ));
+    assert!(shelf.view().available.is_empty());
+
+    shelf.remove("org.example.flowers").unwrap();
+    assert!(shelf.packs.is_empty() && shelf.stack().is_empty());
+    assert_eq!(
+        std::fs::read(&file).unwrap(),
+        bytes,
+        "the player's file stays"
+    );
+    assert!(Shelf::open(&dir).packs.is_empty(), "off the list for good");
+    let _ = std::fs::remove_dir_all(dir);
+    let _ = std::fs::remove_dir_all(mine);
+}
+
+/// `installed.json` as a launcher from before packs on this computer wrote it.
+const INSTALLED_BEFORE: &str = include_str!("testdata/installed-before-files.json");
+
+/// An installed pack as a launcher from before packs on this computer reads and writes it.
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+struct Before {
+    id: String,
+    source: String,
+    release: Release,
+    on: bool,
+}
+
+#[test]
+fn a_launcher_from_before_pack_files_reads_every_installed_pack_and_the_files_outlast_it() {
+    let dir = temp("file-before");
+    let mine = temp("file-before-mine");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join(INSTALLED_FILE), INSTALLED_BEFORE).unwrap();
+    for id in ["org.example.trees", "org.example.rocks"] {
+        players_file(&dir.join(id), PACK_FILE, &pack(id, "1.0.0"));
+    }
+    let ids = |shelf: &Shelf| -> Vec<String> { shelf.packs.iter().map(|p| p.id.clone()).collect() };
+    let mut shelf = Shelf::open(&dir);
+    assert_eq!(
+        ids(&shelf),
+        ["org.example.trees", "org.example.rocks"],
+        "the earlier file reads"
+    );
+    assert!(!shelf.packs[1].on);
+
+    let file = players_file(&mine, "flowers.dat", &pack("org.example.flowers", "0.3.0"));
+    shelf.add_file(&file).unwrap();
+    shelf.move_pack("org.example.flowers", false).unwrap();
+    assert_eq!(
+        ids(&shelf),
+        [
+            "org.example.trees",
+            "org.example.flowers",
+            "org.example.rocks"
+        ]
+    );
+    // What the earlier launcher reads is its own file, with the same packs as it wrote them.
+    let read: Vec<Before> =
+        serde_json::from_slice(&std::fs::read(dir.join(INSTALLED_FILE)).unwrap()).unwrap();
+    let before: Vec<Before> = serde_json::from_str(INSTALLED_BEFORE).unwrap();
+    assert_eq!(
+        serde_json::to_value(&read).unwrap(),
+        serde_json::to_value(&before).unwrap()
+    );
+
+    // It removes a pack and writes its file again; the pack on this computer is there after.
+    let kept: Vec<&Before> = read
+        .iter()
+        .filter(|p| p.id != "org.example.trees")
+        .collect();
+    std::fs::write(
+        dir.join(INSTALLED_FILE),
+        serde_json::to_vec_pretty(&kept).unwrap(),
+    )
+    .unwrap();
+    let again = Shelf::open(&dir);
+    assert_eq!(
+        ids(&again),
+        ["org.example.rocks", "org.example.flowers"],
+        "as near its place as it can be"
+    );
+    assert_eq!(again.stack(), [file], "rocks is still off");
+    let _ = std::fs::remove_dir_all(dir);
+    let _ = std::fs::remove_dir_all(mine);
 }

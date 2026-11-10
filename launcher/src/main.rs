@@ -286,6 +286,25 @@ fn move_art_pack(b: State<'_, Shared>, id: String, up: bool) -> Cmd<()> {
     lock(&b).move_art_pack(&id, up)
 }
 
+/// Choose a packed art pack's file on this computer for the Library's Add a pack file, which adds
+/// it at once. `None` when the player cancels.
+#[tauri::command]
+async fn pick_art_file(app: tauri::AppHandle) -> Cmd<Option<PathBuf>> {
+    let picked = app
+        .dialog()
+        .file()
+        .set_title("Choose an art pack file")
+        .add_filter("Art pack", &["dat"])
+        .blocking_pick_file();
+    Ok(picked.and_then(|p| p.into_path().ok()))
+}
+
+/// Add an art pack file on this computer to the stack; the file stays where it is.
+#[tauri::command]
+fn add_art_file(b: State<'_, Shared>, file: PathBuf) -> Cmd<String> {
+    lock(&b).add_art_file(&file)
+}
+
 /// Build a new plugin: the name and the repository are checked, then the player chooses an empty
 /// folder, where the template is written, or a plugin repository, which gets the new plugin's
 /// folder. `None` when the player cancels.
@@ -1121,6 +1140,8 @@ fn main() {
             remove_art_pack,
             set_art_pack_on,
             move_art_pack,
+            pick_art_file,
+            add_art_file,
             create_plugin,
             pick_plugin_folder,
             add_plugin_folder,
@@ -1378,6 +1399,42 @@ mod tests {
         ));
         assert!(!row.contains("class=\"sub\""), "no explainer under it");
         assert!(!page.contains("added optional components"));
+    }
+
+    /// The art packs' Add a pack file sits under Installed's list: the system's picker chooses a
+    /// file, which is added at once, and a pack on this computer's row shows its path, and File not
+    /// found when it is gone.
+    #[test]
+    fn add_a_pack_file_sits_under_installed_and_its_row_shows_the_path() {
+        let art = page_function("artPacks");
+        assert!(art.contains(
+            r#"const addFile = `<div class="plugin-line add"><button class="btn" data-act="art-file-add" ${busy ? "disabled" : ""}>Add a pack file…</button></div>`;"#
+        ));
+        assert!(
+            art.contains(r#"`<div class="list">${installed}</div>${addFile}`, { sub: true })"#),
+            "the button sits under Installed's list"
+        );
+        assert!(art.contains(r#"(p.missing ? `<div class="sub bad">File not found</div>` : "")"#));
+        assert!(art.contains(r#"${esc(p.file)}</div>"#));
+        let add = page_function("addArtFile");
+        let picked = add
+            .find(r#"file = await api("pick_art_file");"#)
+            .expect("the picker");
+        let added = add
+            .find(r#"if (file) await artFetch("add_art_file", { file });"#)
+            .expect("added at once");
+        assert!(picked < added, "{add}");
+        let app = include_str!("../ui/app.js");
+        assert!(app.contains(r#"case "art-file-add": await addArtFile(); break;"#));
+        let main = include_str!("main.rs");
+        for command in ["pick_art_file,", "add_art_file,"] {
+            assert!(main.contains(command), "the app answers {command}");
+        }
+        assert_eq!(
+            dereth_launch::art::THIS_COMPUTER,
+            "This computer",
+            "where the row says it is from"
+        );
     }
 
     /// The Library's settings say what they do in their tooltips, with nothing under the checkbox,

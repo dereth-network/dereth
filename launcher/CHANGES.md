@@ -9,6 +9,7 @@ not how it was done. `cargo xtask release launcher <version>` turns Unreleased i
 section, dated, and opens a new empty one in the same commit as the version.
 
 ## Unreleased
+- Library: add an art pack from a file on this computer.
 
 ## 0.5.4 (2026-11-10)
 

@@ -285,9 +285,23 @@
     packs: { "network.dereth.remastered": artRelease("Remastered", "1.0.0", 1176519680, "Trees, plants and rocks made again."),
       "network.dereth.holtburg": artRelease("Holtburg Houses", "0.2.0", 48234496, "Holtburg's houses with new roofs and walls.") } }];
   const artInstalled = [];
+  // The packed packs the demo's file picker offers, in turn, as the backend would read each: a
+  // pack, and a file that is not one, which is refused.
+  const artPickable = [
+    { file: "C:\\Users\\you\\art\\brighter-grass.dat", id: "io.github.you.brighter-grass", release: artRelease("Brighter Grass", "0.1.0", 31457280, "Greener, brighter grass everywhere.") },
+    { file: "C:\\Users\\you\\Downloads\\portal.dat", id: null, why: "not a packed art pack" },
+  ];
+  let artPicks = 0;
+  // `?art=files` starts with packs on this computer: one there, and one whose file is gone.
+  if (new URLSearchParams(location.search).get("art") === "files") {
+    artInstalled.push({ id: "network.dereth.remastered", source: ART_FIRST_PARTY, release: artSources[0].packs["network.dereth.remastered"], on: true },
+      { id: "io.github.you.holtburg-flowers", source: "", file: "C:\\Users\\you\\art\\holtburg-flowers.dat", release: artRelease("Holtburg Flowers", "0.3.0", 8388608, "Flowers along Holtburg's roads."), on: true },
+      { id: "io.github.you.old-rocks", source: "", file: "D:\\packs\\old-rocks.dat", missing: true, release: artRelease("Old Rocks", "0.1.0", 20971520, "Rocks from an earlier try."), on: true });
+  }
   const artView = () => ({
     sources: artSources.map((x) => ({ url: x.url, name: x.name, first_party: x.first_party, github: x.github, packs: Object.keys(x.packs).length, error: x.error, skipped: x.skipped })),
-    installed: [...artInstalled].reverse().map((p) => ({ ...p, source_name: artSources.find((x) => x.url === p.source)?.name ?? "removed", source_removed: !artSources.some((x) => x.url === p.source), update: null })),
+    installed: [...artInstalled].reverse().map((p) => ({ file: null, missing: false, ...p, source_name: p.file ? "This computer" : artSources.find((x) => x.url === p.source)?.name ?? "removed",
+      source_removed: !p.file && !artSources.some((x) => x.url === p.source), update: null })),
     available: artSources.flatMap((x) => Object.entries(x.packs).filter(([id]) => !artInstalled.some((p) => p.id === id))
       .map(([id, release]) => ({ id, source: x.url, source_name: x.name, installable: !id.startsWith("network.dereth.") || x.first_party, release }))),
   });
@@ -318,6 +332,17 @@
       const at = artInstalled.findIndex((p) => p.id === id);
       const to = up ? Math.min(at + 1, artInstalled.length - 1) : Math.max(at - 1, 0);
       [artInstalled[at], artInstalled[to]] = [artInstalled[to], artInstalled[at]];
+    },
+    // The system's file picker, standing in: each time the next of the files it offers.
+    pick_art_file: () => artPickable[artPicks++ % artPickable.length].file,
+    // As the backend: a pack joins the stack last and on, where it is; anything else is refused.
+    add_art_file: ({ file }) => {
+      if (artInstalled.some((p) => p.file === file)) throw `${file} is on the list already`;
+      const f = artPickable.find((x) => x.file === file);
+      if (!f?.id) throw `${file} is not an art pack: ${f?.why ?? "no such file"}`;
+      if (artInstalled.some((p) => p.id === f.id)) throw `${f.id} is installed from ${artInstalled.find((p) => p.id === f.id).file ?? "a source"} already; remove it first`;
+      artInstalled.push({ id: f.id, source: "", file, release: f.release, on: true });
+      return `Added ${f.release.name} ${f.release.version}.`;
     },
   });
 

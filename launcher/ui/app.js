@@ -2265,7 +2265,9 @@ function artPacks() {
   const installed = a.installed.map((p, i) => {
     const u = p.update;
     const line = (u ? `<div class="sub">Update ${esc(u.to)} is ready.</div>` : "")
-      + (p.source_removed ? `<div class="sub warn">You removed its source, so it gets no updates.</div>` : "");
+      + (p.source_removed ? `<div class="sub warn">You removed its source, so it gets no updates.</div>` : "")
+      + (p.file ? `<div class="sub muted small path" title="${esc(p.file)}">${esc(p.file)}</div>` : "")
+      + (p.missing ? `<div class="sub bad">File not found</div>` : "");
     const buttons = `<label class="check small" title="Use it in the game"><input type="checkbox" data-art-on="${esc(p.id)}" ${p.on ? "checked" : ""}>On</label>
       <button class="btn mini-btn" data-art-move="${esc(p.id)}" data-art-up="1" title="Move up" ${i === 0 ? "disabled" : ""}>▲</button>
       <button class="btn mini-btn" data-art-move="${esc(p.id)}" data-art-up="0" title="Move down" ${i === n - 1 ? "disabled" : ""}>▼</button>
@@ -2273,6 +2275,8 @@ function artPacks() {
       <button class="btn" data-art-remove="${esc(p.id)}" ${busy ? "disabled" : ""}>Remove</button>`;
     return artRow(`i:${p.id}`, p.release, p.source_name, line, buttons);
   }).join("") || `<p class="muted empty">No art packs installed.</p>`;
+  // A packed pack on this computer, chosen with the system's picker and added at once.
+  const addFile = `<div class="plugin-line add"><button class="btn" data-act="art-file-add" ${busy ? "disabled" : ""}>Add a pack file…</button></div>`;
   const available = a.available.map((p) => {
     const button = p.installable
       ? `<button class="btn" data-art-install="${esc(p.source)}" data-art-id="${esc(p.id)}" ${busy ? "disabled" : ""}>Install</button>`
@@ -2293,7 +2297,7 @@ function artPacks() {
   const refresh = `<button class="btn mini-btn" data-act="art-refresh" ${busy ? "disabled" : ""}>Refresh</button>`;
   return libFold("art", "ART PACKS",
     `<div class="lib-explain"><p class="muted small">Art packs replace Dereth's visuals (only while Remaster is enabled). You can layer and combine packs as you see fit to dial in your perfect vision of Dereth.</p>${refresh}</div>`
-    + libFold("art.installed", `INSTALLED<span class="muted small">${a.installed.length}</span>`, `<div class="list">${installed}</div>`, { sub: true })
+    + libFold("art.installed", `INSTALLED<span class="muted small">${a.installed.length}</span>`, `<div class="list">${installed}</div>${addFile}`, { sub: true })
     + libFold("art.available", `AVAILABLE<span class="muted small">${a.available.length}</span>`, `<div class="list">${available}</div>`, { sub: true, closed: true })
     + libFold("art.sources", `SOURCES<span class="muted small">${a.sources.length}</span>`, `<div class="list">${sources}</div>${add}`, { sub: true, closed: true }),
   );
@@ -2328,6 +2332,19 @@ async function addArtSource(confirmed) {
   ui.art.confirm = false;
   if (await artFetch("add_art_source", { url })) ui.art.add = "";
   render();
+}
+
+// Add a pack file: choose a packed art pack on this computer with the system's picker, and it is
+// added at once, last in the stack; cancelling the picker changes nothing.
+async function addArtFile() {
+  if (ui.art.busy) return;
+  let file = null;
+  try {
+    file = await api("pick_art_file");
+  } catch (e) {
+    toast(String(e), true);
+  }
+  if (file) await artFetch("add_art_file", { file });
 }
 
 // What a folder holds. `purpose` says what it was chosen for: the retail client, or data files (in
@@ -3106,6 +3123,7 @@ document.addEventListener("click", async (ev) => {
     case "art-source-add": await addArtSource(false); break;
     case "art-source-confirm": await addArtSource(true); break;
     case "art-source-cancel": ui.art.confirm = false; render(); break;
+    case "art-file-add": await addArtFile(); break;
     case "plugin-source-add": await addPluginSource(false); break;
     case "plugin-source-confirm": await addPluginSource(true); break;
     case "plugin-source-cancel": ui.plugin.confirm = false; render(); break;
