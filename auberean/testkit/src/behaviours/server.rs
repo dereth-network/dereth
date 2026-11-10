@@ -7185,6 +7185,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.loot.fixed-treasure-potions-are-treasure",
+        says: "A magic potion a creature leaves as a fixed item, beside its profile's draw, has \
+               an effect of its own, is named for it and is worth what treasure of its dropper's \
+               level is, as a drawn one is.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TREASURE-POTION-FIXED"),
+        station: "yalain-testkit::cpu::play::fights::a_magic_potion_a_creature_leaves_as_an_extra_has_its_own_effect_name_and_value",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.loot.freed-two-minutes-after-the-death",
         says: "Two minutes after the death a corpse nobody opened opens to anyone, and not before.",
         since: RETAIL,

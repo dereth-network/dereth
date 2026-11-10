@@ -118,8 +118,14 @@ fn use_of(item: u64, player: u64) -> Arg {
 /// A world with one beetle beside a new player, which attacks it until it dies; returns the
 /// harness, the client, the player and the beetle.
 fn fight() -> (Harness, usize, u64, u64) {
+    fight_with(|_| {})
+}
+
+/// [`fight`], the world first set up as a test asks.
+fn fight_with(setup: impl FnOnce(&mut Harness)) -> (Harness, usize, u64, u64) {
     let mut h = Harness::new();
     h.add_creatures(1);
+    setup(&mut h);
     h.server.levels = levels();
     let (b, me) = h.player_in_world("one", "Elara");
     scene_drawn(&mut h, b);
@@ -369,6 +375,77 @@ fn jewelry_a_creature_leaves_is_worth_what_treasure_of_its_level_is() {
     for v in values {
         assert!((1..=4).contains(&v), "a level 2 creature's: {v}");
     }
+}
+
+/// A magic potion a creature leaves as its profile's extra, beside the profile's draw, is treasure as
+/// a drawn one is: it has an effect of its own, is named for it and is worth what treasure of its
+/// dropper's level is; another extra has nothing of its own (2017: 194 of 194 magic potions dropped
+/// carried a value of their own).
+/// Behaviour: server.loot.fixed-treasure-potions-are-treasure
+#[test]
+fn a_magic_potion_a_creature_leaves_as_an_extra_has_its_own_effect_name_and_value() {
+    use yalain_content::treasure_tables::POTION_EFFECTS;
+    use yalain_content::{Prop, Props};
+    use yalain_world::inventory::{item_create, potion_name};
+    const MAGIC: u32 = 0x4700_11B4;
+    const MAGIC_PACKAGE: u32 = 0xF15;
+    const OTHER: u32 = 0x4700_2109;
+    const NAME: (u32, u32) = (0xA860_7CEC, 0x2500_1E8E);
+    let (mut h, b, _, _) = fight_with(|h| {
+        let mut p = Props::default();
+        p.set("Item_IsDestroyOnUse", Prop::Bool(true));
+        let mut t = yalain_testkit::test_template(MAGIC, MAGIC_PACKAGE, p);
+        t.description.name = Some(NAME);
+        t.facts.name = Some(NAME);
+        h.server.catalog.insert(t);
+        h.server.catalog.insert(yalain_testkit::test_template(
+            OTHER,
+            0x200,
+            Props::default(),
+        ));
+        h.server.treasure.potions.insert(MAGIC_PACKAGE);
+        for (n, &state) in POTION_EFFECTS.iter().flatten().enumerate() {
+            let n = u32::try_from(n).unwrap();
+            h.server
+                .treasure
+                .potion_looks
+                .insert(state, (0x2500_08D0 + n, 0.5));
+        }
+        let profile = &mut h.server.loot.profiles[0];
+        profile.extras = vec![(MAGIC, 1.0), (OTHER, 1.0)];
+        profile.counts = vec![0.0, 0.0, 0.0, 1.0];
+    });
+    assert!(h.run_until(200, |h| h.world_messages(b, 0).iter().any(
+        |m| matches!(m, ServerMessage::CreateObject(o) if o.weenie.entity_did == CORPSE)
+    )));
+    let left = |template: u32| {
+        h.server
+            .things
+            .by_id
+            .values()
+            .find(|t| t.template == template)
+            .unwrap_or_else(|| panic!("the corpse holds {template:#010x}"))
+    };
+    let potion = left(MAGIC);
+    let e = potion
+        .own
+        .effect
+        .expect("the potion has an effect of its own");
+    assert!(
+        POTION_EFFECTS.iter().any(|kind| kind[0] == e.state),
+        "the lowest tier's, for a level 2 creature: {:08X}",
+        e.state
+    );
+    assert!(
+        (1..=4).contains(&potion.value),
+        "worth a level 2 creature's treasure: {}",
+        potion.value
+    );
+    assert_eq!(item_create(potion).weenie.name, potion_name(NAME, e.table));
+    let other = left(OTHER);
+    assert_eq!(other.value, 0, "no value of its own");
+    assert!(other.own.is_empty(), "nothing of its own");
+    assert!(left(TEST_ITEM).value > 0, "the profile's draw is treasure");
 }
 
 /// A least level its template holds, only its class's or its own, gives way to a drop's own, and

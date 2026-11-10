@@ -670,10 +670,26 @@ fn treasure_value<S: Store>(s: &mut Server<S>, level: i32, template: u32) -> Opt
     })
 }
 
+/// A creature's item from outside its profile's draw (a fixed drop, an extra or a death
+/// treasure): none of its own, except that a treasure potion is treasure however it comes, with its
+/// own value ([`treasure_value`]) and so, once made, its own effect.
+fn fixed<S: Store>(s: &mut Server<S>, level: i32, template: u32) -> (u32, Option<u32>) {
+    let potion = s
+        .catalog
+        .get(template)
+        .is_some_and(|t| s.treasure.potions.contains(&t.description.package));
+    let value = if potion {
+        treasure_value(s, level, template)
+    } else {
+        None
+    };
+    (template, value)
+}
+
 /// What a dead creature leaves: its fixed drops, its profile's extras, the profile's draw (from its
 /// items, or its pools for its killer: [`crate::treasure_pools`]), and its death treasures. Each
-/// item is its template and, for treasure (those drawn from the profile), its own value
-/// ([`treasure_value`]); none for the rest.
+/// item is its template and, for treasure (those drawn from the profile, and a treasure potion
+/// wherever it comes from: [`fixed`]), its own value ([`treasure_value`]); none for the rest.
 pub fn roll_loot<S: Store>(
     s: &mut Server<S>,
     creature: &Thing,
@@ -682,10 +698,11 @@ pub fn roll_loot<S: Store>(
     let Some(c) = creature.creature.as_ref() else {
         return Vec::new();
     };
+    let level = c.stats.level;
     let mut out: Vec<(u32, Option<u32>)> = Vec::new();
     for (t, rate) in c.stats.trophies.clone() {
         if s.rng.chance(rate) {
-            out.push((t, None));
+            out.push(fixed(s, level, t));
         }
     }
     let name = c.stats.loot_profile.and_then(|v| s.catalog.profile_name(v));
@@ -696,7 +713,7 @@ pub fn roll_loot<S: Store>(
     if let Some(p) = profile {
         for (t, rate) in &p.extras {
             if s.rng.chance(*rate) {
-                out.push((*t, None));
+                out.push(fixed(s, level, *t));
             }
         }
         let count = s.rng.weighted(p.counts.iter().copied()).unwrap_or(0);
@@ -712,7 +729,6 @@ pub fn roll_loot<S: Store>(
             .unwrap_or(MOST_ITEMS);
         let count = count.clamp(min.min(max), max);
         let count = crate::rates::loot_count(&mut s.rng, s.cfg.rates.loot, count);
-        let level = c.stats.level;
         let base = crate::treasure::base_of(level, c.stats.loot_quality);
         let race = crate::treasure_pools::race_of(s, killer);
         let profile_name = name.as_deref().unwrap_or_default();
@@ -743,7 +759,9 @@ pub fn roll_loot<S: Store>(
     }
     let treasures = death_treasures(s, creature);
     out.truncate(MOST_ITEMS.saturating_sub(treasures.len()));
-    out.extend(treasures.into_iter().map(|t| (t, None)));
+    for t in treasures {
+        out.push(fixed(s, level, t));
+    }
     out
 }
 
@@ -826,7 +844,7 @@ pub fn corpse_appears<S: Store>(
     let mut contents = Vec::new();
     for (template, value) in loot {
         if let Some(item) = crate::inventory::make_item(s, template, 1, value.unwrap_or(0)) {
-            // A treasure item (one drawn from the profile) carries its own.
+            // A treasure item (one drawn from the profile, or a treasure potion) carries its own.
             if value.is_some() {
                 crate::treasure::endow(s, item, level, quality);
             }
