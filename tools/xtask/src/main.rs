@@ -49,6 +49,7 @@ mod package;
 mod preflight;
 mod publish;
 mod release;
+mod run_launcher;
 mod seams;
 mod separation;
 mod server;
@@ -130,6 +131,10 @@ Tests:
                             `cargo xtask build --game auberean --release`); on Windows, Asheron's
                             Call 2's also builds the retail client's friends library
                             (auberean_friends.dll) beside the programs
+  run [--debug] [--game G] [-- LAUNCHER-ARGS]
+                            build the games' products (as build does) and the launcher, in release
+                            unless --debug, then start the launcher, which plays and hosts with
+                            those builds; what follows -- goes to the launcher
   test | clippy             cargo test / clippy -D warnings over the whole workspace (clippy with
                             `retail-dats` on, so the data and device tests are linted too)
   gate <name>               one area's whole suite, data and device tiers included (--serial);
@@ -308,6 +313,37 @@ fn web(args: &[String]) -> i32 {
     i32::from(!run(&workspace_root(), "cargo", &argv))
 }
 
+/// `cargo xtask build [--game G] [ARGS]`: cargo build of one game's products and tools, or both,
+/// with the retail AC2 client's friends library beside them on Windows.
+fn build(args: &[String]) -> i32 {
+    match Game::from_args(args) {
+        Ok(game) => {
+            let rest = Game::without_flag(args);
+            let mut argv = vec!["build"];
+            argv.extend(game.selection());
+            argv.extend(rest.iter().map(String::as_str));
+            if !run(&workspace_root(), "cargo", &argv) {
+                1
+            } else if cfg!(windows) && game.auberean() {
+                // The retail client's friends library, beside the launcher built here.
+                match package::friends_dll::build_beside(&rest) {
+                    Ok(_) => 0,
+                    Err(e) => {
+                        eprintln!("the retail AC2 client's friends library: {e}");
+                        1
+                    }
+                }
+            } else {
+                0
+            }
+        }
+        Err(e) => {
+            eprintln!("{e}");
+            2
+        }
+    }
+}
+
 fn main() {
     if let Some(rustdoc) = std::env::var_os(RUSTDOC_STAND_IN) {
         std::process::exit(rustdoc_stand_in(&rustdoc));
@@ -316,32 +352,8 @@ fn main() {
     let profile = Profile::from_args(&args);
     let code = match args.first().map(String::as_str) {
         Some("check") => check::check(&args[1..]),
-        Some("build") => match Game::from_args(&args[1..]) {
-            Ok(game) => {
-                let rest = Game::without_flag(&args[1..]);
-                let mut argv = vec!["build"];
-                argv.extend(game.selection());
-                argv.extend(rest.iter().map(String::as_str));
-                if !run(&workspace_root(), "cargo", &argv) {
-                    1
-                } else if cfg!(windows) && game.auberean() {
-                    // The retail client's friends library, beside the launcher built here.
-                    match package::friends_dll::build_beside(&rest) {
-                        Ok(_) => 0,
-                        Err(e) => {
-                            eprintln!("the retail AC2 client's friends library: {e}");
-                            1
-                        }
-                    }
-                } else {
-                    0
-                }
-            }
-            Err(e) => {
-                eprintln!("{e}");
-                2
-            }
-        },
+        Some("build") => build(&args[1..]),
+        Some("run") => run_launcher::run(&args[1..]),
         Some("test") => {
             let mut argv = vec!["test", "--workspace"];
             argv.extend_from_slice(profile.cargo_args());

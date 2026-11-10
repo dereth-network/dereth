@@ -85,6 +85,15 @@ impl Game {
         }
     }
 
+    /// The word `--game` takes for it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Game::All => "all",
+            Game::Dereth => "dereth",
+            Game::Auberean => "auberean",
+        }
+    }
+
     /// Whether Asheron's Call's crates are covered.
     pub fn dereth(self) -> bool {
         matches!(self, Game::All | Game::Dereth)
