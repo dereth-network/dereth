@@ -6,6 +6,8 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Fixed some creatures hitting heavily armored players too hard.
+- Creatures now cast up close too, and shooters switch to melee at their own reach.
 - /skills reset and /heroskills reset now work for players granted a reset.
 - New admin channel, so a program on the same computer can use the console.
 - New experience, loot and respawn rate settings.

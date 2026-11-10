@@ -350,6 +350,9 @@ pub struct CreatureStats {
     pub natural_damage: f32,
     pub natural_variance: f32,
     pub armor: i32,
+    /// The most of its hit a target's armor leaves it when armor takes nearly all of it, if its
+    /// template sets one (else the usual quarter).
+    pub armor_threshold: Option<f32>,
     /// Health and vigor regained a second at rest.
     pub health_regen: f32,
     pub vigor_regen: f32,
@@ -420,6 +423,7 @@ pub mod creature_property {
     pub const NATURAL_DAMAGE: &str = "AICombat_NaturalDamage";
     pub const NATURAL_VARIANCE: &str = "AICombat_NaturalVariance";
     pub const ARMOR: &str = "NPC_ArmorLevel";
+    pub const ARMOR_THRESHOLD: &str = "NPC_ArmorThreshold";
     pub const PERCEPTION: &str = "AI_PerceptionRadius";
     pub const HOMESICK: &str = "AI_HomesickRadius";
     pub const WANDER_RANGE: &str = "AI_WanderingRange";
@@ -572,6 +576,7 @@ impl CreatureStats {
             natural_damage: p.float(k::NATURAL_DAMAGE).unwrap_or(0.0),
             natural_variance: p.float(k::NATURAL_VARIANCE).unwrap_or(0.0),
             armor: i32_of(k::ARMOR).unwrap_or(0),
+            armor_threshold: p.float(k::ARMOR_THRESHOLD).filter(|t| *t > 0.0),
             health_regen: p.float(k::HEALTH_REGEN).unwrap_or(0.0),
             vigor_regen: p.float(k::VIGOR_REGEN).unwrap_or(0.0),
             attacks_first: match p.get(k::FREE_ATTACKING) {

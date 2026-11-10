@@ -13,8 +13,22 @@ const SHOOTER: u32 = 0x4700_2225;
 const MISSILE: u32 = 1861;
 const POISON: u32 = 1863;
 
+/// The plain strike and a bolt of magic, as basic attacks of a creature that also strikes.
+const STRIKE: u32 = 1845;
+const BOLT: u32 = 1840;
+
 /// A camp of one shooter `distance` meters east of where a character starts, in the start's cell.
 fn shooter_at(h: &mut Harness, distance: f32, special: bool) {
+    let mut skills = vec![(MISSILE, true)];
+    if special {
+        skills.push((POISON, false));
+    }
+    creature_at(h, distance, &skills);
+}
+
+/// A camp of one creature with these skills (each a basic attack or not) `distance` meters east of
+/// where a character starts.
+fn creature_at(h: &mut Harness, distance: f32, skills: &[(u32, bool)]) {
     let mut p = yalain_content::Props::default();
     p.set("GameplayStatistics_Level", Prop::Int(3))
         .set("GameplayStatistics_MaxHealth", Prop::Int(60))
@@ -22,13 +36,14 @@ fn shooter_at(h: &mut Harness, distance: f32, special: bool) {
         .set("AICombat_NaturalVariance", Prop::Float(0.5))
         .set("AI_PerceptionRadius", Prop::Float(30.0))
         .set("AI_HomesickRadius", Prop::Float(40.0))
-        .set("NPC_StartingSkill1", Prop::Word(MISSILE))
-        .set("NPC_StartingSkill1Level", Prop::Int(1))
-        .set("NPC_StartingSkill1_IsBase", Prop::Bool(true))
         .set("NPC_DeathLootProfile", Prop::Word(TEST_PROFILE));
-    if special {
-        p.set("NPC_StartingSkill2", Prop::Word(POISON))
-            .set("NPC_StartingSkill2Level", Prop::Int(1));
+    for (n, (skill, basic)) in skills.iter().enumerate() {
+        let n = n + 1;
+        p.set(&format!("NPC_StartingSkill{n}"), Prop::Word(*skill))
+            .set(&format!("NPC_StartingSkill{n}Level"), Prop::Int(1));
+        if *basic {
+            p.set(&format!("NPC_StartingSkill{n}_IsBase"), Prop::Bool(true));
+        }
     }
     let mut catalog = yalain_testkit::test_catalog();
     catalog.insert(test_template(SHOOTER, 0x1169, p));
@@ -503,5 +518,136 @@ fn a_missiles_hit_comes_off_the_armor_the_player_has() {
     assert!(
         armored.iter().all(|d| *d <= 3),
         "a quarter of 10 at the most: {armored:?}"
+    );
+}
+
+/// A creature's bolt of magic, as the install defines one: an attack of the magic kind whose hook
+/// throws a missile.
+fn bolt() -> yalain_world::skills::SkillDef {
+    use yalain_world::skills::{Hook, SkillDef, Usage};
+    SkillDef {
+        id: BOLT,
+        active: true,
+        kind: Some(yalain_world::rules::Kind::Magic),
+        usage: Some(Usage {
+            min_range: -1.0,
+            max_range: 40.0,
+            behavior_other: [0x4100_0079; 3],
+            hooks: vec![Hook {
+                damages: true,
+                flags: 0x2804,
+                missile: 0x4700_00BE,
+                missile_speed: 35.0,
+                add: 5.0,
+                mult: 1.0,
+                chance: 1.0,
+                anim_hook: 1,
+                ..Hook::default()
+            }],
+            ..Usage::default()
+        }),
+        ..SkillDef::default()
+    }
+}
+
+/// The basic attacks a creature in reach of the player used over a while: each one's skill, and
+/// whether it threw a missile at the player.
+fn attacks_in_reach(skills: &[(u32, bool)]) -> Vec<(u32, bool)> {
+    attacks_from(0.5, skills)
+}
+
+/// The basic attacks a creature `distance` meters from a player who stands used over a while:
+/// each one's skill, and whether it threw a missile at the player.
+fn attacks_from(distance: f32, skills: &[(u32, bool)]) -> Vec<(u32, bool)> {
+    let mut h = Harness::new();
+    h.server.skill_table.skills.insert(BOLT, bolt());
+    creature_at(&mut h, distance, skills);
+    let (b, me) = h.player_in_world("one", "Elara");
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .expect("in the world")
+        .0;
+    if let Some(p) = h.server.players.get_mut(&world) {
+        use yalain_world::player::quality;
+        yalain_world::quals::set_int(&mut p.qualities, quality::HEALTH_MAX, 100_000);
+        yalain_world::quals::set_int(&mut p.qualities, quality::HEALTH, 100_000);
+    }
+    scene_drawn(&mut h, b);
+    let id = shooter_id(&h, b);
+    let from = h.bots[b].inbox.len();
+    let used = |h: &Harness| -> Vec<(u32, bool)> {
+        h.world_messages(b, from)
+            .iter()
+            .filter_map(|m| match m {
+                ServerMessage::DoStory(e) if e.sender.id == id && e.action.attacker == id => {
+                    let thrown = e
+                        .action
+                        .hooks
+                        .iter()
+                        .any(|k| k.bits == 0x303 && k.target == me);
+                    Some((e.action.skill, thrown))
+                }
+                _ => None,
+            })
+            .collect()
+    };
+    h.run_until(5000, |h| used(h).len() >= 12);
+    used(&h)
+}
+
+/// A creature with a basic bolt of magic casts it at a player in its reach, drawn with its strikes.
+/// Behaviour: server.creatures.casters-cast-in-reach
+#[test]
+fn a_creature_in_reach_casts_its_basic_magic_as_well_as_it_strikes() {
+    let used = attacks_in_reach(&[(STRIKE, true), (BOLT, true)]);
+    assert!(used.len() >= 10, "it attacks again and again: {used:?}");
+    assert!(
+        used.contains(&(BOLT, true)),
+        "it casts its bolt in reach, thrown: {used:?}"
+    );
+    assert!(used.contains(&(STRIKE, false)), "and strikes too: {used:?}");
+    assert!(
+        !used.contains(&(BOLT, false)),
+        "a bolt is never struck: {used:?}"
+    );
+}
+
+/// A creature with a basic missile only strikes a player in its reach.
+/// Behaviour: server.creatures.casters-cast-in-reach
+#[test]
+fn a_creature_in_reach_never_looses_its_basic_missile() {
+    let used = attacks_in_reach(&[(STRIKE, true), (MISSILE, true)]);
+    assert!(used.len() >= 10, "it attacks again and again: {used:?}");
+    assert!(
+        used.iter().all(|k| *k == (STRIKE, false)),
+        "it only strikes: {used:?}"
+    );
+}
+
+/// A creature that chose to shoot strikes a player within its melee reach, 3 m past its body's
+/// radius (3.4 m for the test's body), not only one that comes within 2.5 m.
+/// Behaviour: server.creatures.shooters-strike-in-reach
+#[test]
+fn a_shooter_strikes_a_player_within_its_melee_reach() {
+    let used = attacks_from(3.2, &[(MISSILE, true)]);
+    assert!(used.len() >= 10, "it attacks again and again: {used:?}");
+    assert!(
+        used.iter().all(|(_, thrown)| !thrown),
+        "it strikes and never shoots: {used:?}"
+    );
+}
+
+/// A creature that chose to shoot shoots a player just beyond its melee reach.
+/// Behaviour: server.creatures.shooters-strike-in-reach
+#[test]
+fn a_shooter_shoots_a_player_beyond_its_melee_reach() {
+    let used = attacks_from(4.0, &[(MISSILE, true)]);
+    assert!(used.len() >= 10, "it attacks again and again: {used:?}");
+    assert!(
+        used.iter().all(|k| *k == (MISSILE, true)),
+        "it only shoots: {used:?}"
     );
 }

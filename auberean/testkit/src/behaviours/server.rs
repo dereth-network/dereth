@@ -1398,6 +1398,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.combat.armor-threshold-tops-the-floor",
+        says: "A creature whose template sets an armor threshold draws the floor of its hit up \
+               to that share of the hit rather than a quarter.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ARMOR-THRESHOLD"),
+        station: "yalain-testkit::cpu::play::armor::a_creatures_armor_threshold_tops_what_armor_leaves_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.combat.asking-again-keeps-the-swings-pace",
         says: "However often it asks, a player's swings come no faster than their pace and what asking allows, and asking never costs it one.",
         since: TOOLING,
@@ -2922,6 +2931,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.casters-cast-in-reach",
+        says: "A creature in reach of its target draws among its basic melee and magic attacks, \
+               casting a bolt of magic from where it stands; a basic missile it looses only \
+               from afar.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-CASTS-IN-REACH"),
+        station: "yalain-testkit::cpu::play::missiles::a_creature_in_reach_casts_its_basic_magic_as_well_as_it_strikes",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.chase-around-walls",
         says: "A creature's steps never pass through walls or what stands in the world: going \
                after a player in another room it runs around them to it, through the doorways.",
@@ -3316,6 +3335,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-WANDER-SETTLED"),
         station: "yalain-testkit::cpu::play::resting::a_creature_with_a_homesick_radius_under_five_meters_never_wanders",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.shooters-strike-in-reach",
+        says: "A creature that chose to shoot strikes its target for the rest of the fight once the \
+               target is within its melee reach, 3 m past its body's radius; beyond that it shoots.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SHOOTERS-STRIKE-IN-REACH"),
+        station: "yalain-testkit::cpu::play::missiles::a_shooter_strikes_a_player_within_its_melee_reach",
         tier: Tier::Cpu,
     },
     behaviour! {

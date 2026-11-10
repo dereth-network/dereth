@@ -537,10 +537,11 @@ pub fn arrives<S: Store>(s: &mut Server<S>, net: &mut ServerNet, f: Flight, cloc
         return;
     };
     let Some(c) = t.creature.as_ref() else { return };
-    let (level, natural, variance) = (
+    let (level, natural, variance, threshold) = (
         c.stats.level,
         c.stats.natural_damage,
         c.stats.natural_variance,
+        rules::threshold_of(&c.stats),
     );
     let Some(p) = s.players.get(&world) else {
         return;
@@ -569,6 +570,7 @@ pub fn arrives<S: Store>(s: &mut Server<S>, net: &mut ServerNet, f: Flight, cloc
                 variance,
                 added: f.skill.added + more,
                 factor: f.skill.factor,
+                threshold,
             },
             my_level,
             armor,

@@ -275,20 +275,37 @@ pub fn armor_lets_through_missiles(player_level: i32) -> f32 {
 }
 
 /// What a creature's hit is made of: its natural damage and variance, what its skill's hook adds at
-/// its rating, and the factor of a skill known without its definition (1 otherwise).
+/// its rating, the factor of a skill known without its definition (1 otherwise), and the most of
+/// the hit armor leaves it when armor takes nearly all of it (its template's armor threshold, else
+/// [`ARMOR_FLOOR`]'s top).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Natural {
     pub damage: f32,
     pub variance: f32,
     pub added: f32,
     pub factor: f32,
+    pub threshold: f32,
+}
+
+/// The most of a creature's hit its armor threshold lets armor leave it: the template's own, else
+/// [`ARMOR_FLOOR`]'s top (2017: hits of creatures whose templates set 0.1 came to 0.63 of a floor
+/// drawn up to a quarter where armor reached 0.7 to 1.3 of the hit, 386 hits, and 0.92 of one
+/// drawn up to 0.1; those setting 0.2, 0.86 and 0.92 over 2,096; at levels 35 to 44 0.86 and
+/// 0.99 over 145; the rest 1.00 over 4,081).
+#[must_use]
+pub fn threshold_of(stats: &yalain_content::CreatureStats) -> f32 {
+    stats
+        .armor_threshold
+        .filter(|t| *t > ARMOR_FLOOR.0)
+        .unwrap_or(ARMOR_FLOOR.1)
 }
 
 /// A creature's critical on a player, before armor (2017: 327 critical hits, damage with the armor
 /// back on over the plain mean, 1.20 at every rating up to the mean hit).
 pub const CRITICAL_BEFORE_ARMOR: f32 = 1.2;
-/// What a hit can come to when armor has taken more than this much of it: a share drawn from these,
-/// of the hit before armor, if that's more than armor left (2017: armor past natural, 1,641 hits,
+/// What a hit can come to when armor has taken more than this much of it: a share drawn from these
+/// (the top a creature's armor threshold may set lower), of the hit before armor, if that's more
+/// than armor left (2017: armor past natural, 1,641 hits,
 /// the top twentieth at 0.23 of natural for the least variance and 0.20 for the most, a mean of 0.11;
 /// armor reaching 0.8 to 0.9 of the hit keeps what it left, 1,055 hits).
 pub const ARMOR_FLOOR: (f32, f32) = (0.01, 0.25);
@@ -326,7 +343,7 @@ pub fn creature_hit_on_armor(rng: &mut Rng, n: Natural, armor: f32, critical: bo
     if critical {
         d *= CRITICAL_BEFORE_ARMOR;
     }
-    let floor = rng.between(ARMOR_FLOOR.0, ARMOR_FLOOR.1) * d;
+    let floor = rng.between(ARMOR_FLOOR.0, n.threshold.max(ARMOR_FLOOR.0)) * d;
     dereth_primitives::num::to_i32((d - armor).max(floor).round()).max(1)
 }
 
@@ -372,6 +389,7 @@ pub fn creature_damage(
             variance,
             added: 0.0,
             factor: 1.0,
+            threshold: ARMOR_FLOOR.1,
         },
         player_level,
         critical,

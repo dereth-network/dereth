@@ -168,9 +168,8 @@ pub fn joins_chance(table: Option<u32>) -> f32 {
     }
 }
 
-/// How close a creature fighting a pet must be to strike it, how near a shooter lets a player come
-/// before it fights hand to hand, and what a turret's reach is at least, in meters (center to
-/// center).
+/// How close a creature fighting a pet must be to strike it, and what a turret's reach is at least,
+/// in meters (center to center).
 pub const MELEE_REACH: f32 = 2.5;
 
 /// How far past its body's radius a creature running at a player who stands stops, in meters. 2017:
@@ -184,8 +183,8 @@ pub const STOPS_PAST_BODY: f32 = 0.7;
 pub const STOPS_PAST_BODY_MOVING: f32 = 2.0;
 
 /// How far past its body's radius a creature's melee swing reaches, in meters: within it, a creature
-/// standing stays where it is and swings. 2017: 407 of those 415 swings came from under 3.0, and a
-/// player walking saw the same edge (p90 3.12).
+/// standing stays where it is and swings, and one that shoots strikes instead. 2017: 407 of those
+/// 415 swings came from under 3.0, and a player walking saw the same edge (p90 3.12).
 pub const REACHES_PAST_BODY: f32 = 3.0;
 
 /// How far a player can shift between two of a creature's steps and still count as standing, in
@@ -530,7 +529,11 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock, 
                 .get(id)
                 .and_then(|t| t.creature.as_ref())
                 .is_some_and(|c| c.ranged);
-            if ranged && d.is_some_and(|d| d > MELEE_REACH) {
+            // A shooter strikes once the player is within its melee reach, the reach a creature that
+            // chose to strike swings within (2017: shooters struck 9 in 10 of their attacks within
+            // it and 2 in 100 beyond, the edge moving with the body).
+            let reach = body_radius_of(s, id) + REACHES_PAST_BODY;
+            if ranged && d.is_some_and(|d| d > reach) {
                 // Shooting: in range it stands and shoots; beyond it, it runs in.
                 if d.is_some_and(|d| d > crate::missiles::MISSILE_RANGE) {
                     let near = crate::missiles::MISSILE_RANGE * 0.95;
@@ -545,7 +548,6 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock, 
                 // within reach; one that got there, or never had to run, stands for as long as the
                 // player stays within reach.
                 let radius = body_radius_of(s, id);
-                let reach = radius + REACHES_PAST_BODY;
                 let d = d.unwrap_or(f32::MAX);
                 let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) else {
                     return;

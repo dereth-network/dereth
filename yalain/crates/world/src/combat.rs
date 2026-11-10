@@ -1806,8 +1806,9 @@ pub fn armor_on<S: Store>(s: &Server<S>, world: ConnId) -> f32 {
 
 /// A creature within reach of its target strikes, when its next attack is due: a heal or a buff on
 /// itself by its chance ([`crate::missiles::helps`]), else a special at hand by its chance (one that
-/// throws a missile looses it even this near), else one of its basic melee attacks drawn by its
-/// weights (the plain strike for a creature that names none).
+/// throws a missile looses it even this near), else one of its basic melee and magic attacks
+/// drawn by their weights, a bolt of magic cast from where it stands (the plain strike for a
+/// creature that names neither). Its basic missiles are for afar.
 pub fn creature_strikes<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -1823,8 +1824,12 @@ pub fn creature_strikes<S: Store>(
         return;
     }
     let (basic, specials) = crate::missiles::attacks_of(&s.skill_table, &c.stats);
-    let melee: Vec<crate::missiles::AttackSkill> =
-        basic.into_iter().filter(|a| !a.missile).collect();
+    // In reach it draws among its melee and magic basic attacks: a bolt of magic is cast from
+    // where it stands, a missile only from afar.
+    let near: Vec<crate::missiles::AttackSkill> = basic
+        .into_iter()
+        .filter(|a| a.kind != Kind::Missile)
+        .collect();
     let distance = s
         .things
         .get(id)
@@ -1859,8 +1864,12 @@ pub fn creature_strikes<S: Store>(
         .and_then(|t| t.creature.as_ref())
         .map(|c| c.stats.clone())
         .unwrap_or_default();
-    let skill = crate::missiles::pick_basic(s, &stats, &melee)
+    let skill = crate::missiles::pick_basic(s, &stats, &near)
         .unwrap_or(crate::missiles::CREATURE_ATTACKS[0]);
+    if skill.missile {
+        crate::missiles::launch(s, net, id, target, skill, false, clock);
+        return;
+    }
     let next = creature_strike_with(s, net, id, target, skill, false, clock);
     if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
         c.next_attack = now + next;
@@ -1885,6 +1894,7 @@ pub fn creature_strike_with<S: Store>(
         return unknown;
     };
     let (natural, variance) = (c.stats.natural_damage, c.stats.natural_variance);
+    let threshold = rules::threshold_of(&c.stats);
     let Some(p) = s.players.get(&target) else {
         return unknown;
     };
@@ -1915,6 +1925,7 @@ pub fn creature_strike_with<S: Store>(
                 variance,
                 added: skill.added + more,
                 factor: skill.factor,
+                threshold,
             },
             my_level,
             armor,
@@ -2110,6 +2121,7 @@ pub fn thing_strikes_thing<S: Store>(
         variance: stats.natural_variance,
         added: skill.added,
         factor: skill.factor,
+        threshold: rules::threshold_of(&stats),
     };
     let critical = outcome == Outcome::Critical;
     let damage = match (outcome.landed(), crate::pets::armor_of(s, target)) {

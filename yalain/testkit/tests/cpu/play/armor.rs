@@ -28,6 +28,7 @@ fn plain(damage: f32, variance: f32) -> Natural {
         variance,
         added: 0.0,
         factor: 1.0,
+        threshold: rules::ARMOR_FLOOR.1,
     }
 }
 
@@ -169,6 +170,113 @@ fn the_floor_is_a_share_of_the_hit_as_rolled() {
         (150.0..162.0).contains(&critical),
         "0.13 of 1200: {critical}"
     );
+}
+
+/// A creature whose template sets a lower armor threshold draws its floor up to that share of the
+/// hit, not a quarter: armor past the hit leaves it at most a tenth.
+/// Behaviour: server.combat.armor-threshold-tops-the-floor
+#[test]
+fn a_creatures_armor_threshold_tops_what_armor_leaves_it() {
+    let draws = |threshold: f32| {
+        let mut rng = Rng::new(31);
+        let n = Natural {
+            threshold,
+            ..plain(100.0, 0.0)
+        };
+        (0..4000)
+            .map(|_| rules::creature_hit_on_player(&mut rng, Kind::Melee, n, 40, 100_000.0, false))
+            .collect::<Vec<i32>>()
+    };
+    let tenth = draws(0.1);
+    assert!(tenth.iter().all(|d| (1..=10).contains(d)), "{tenth:?}");
+    assert!(tenth.iter().any(|d| *d >= 9), "the draw reaches its top");
+    let usual = draws(rules::ARMOR_FLOOR.1);
+    assert!(usual.iter().any(|d| *d > 20), "a quarter without one");
+    // Armor that leaves more than the threshold leaves what it leaves.
+    let mut rng = Rng::new(33);
+    let n = Natural {
+        threshold: 0.1,
+        ..plain(100.0, 0.0)
+    };
+    assert_eq!(
+        rules::creature_hit_on_player(&mut rng, Kind::Melee, n, 40, 80.0, false),
+        20
+    );
+}
+
+/// The threshold is the creature template's: a template that sets one gives it, one that doesn't
+/// gives a quarter, and a creature's strike on a player reads it.
+/// Behaviour: server.combat.armor-threshold-tops-the-floor
+#[test]
+fn a_templates_armor_threshold_reaches_its_strikes() {
+    let mut props = Props::default();
+    props
+        .set("GameplayStatistics_Level", Prop::Int(40))
+        .set("GameplayStatistics_MaxHealth", Prop::Int(500));
+    let stats = yalain_content::CreatureStats::from_props(&props).expect("a creature");
+    assert!((rules::threshold_of(&stats) - 0.25).abs() < f32::EPSILON);
+    props.set("NPC_ArmorThreshold", Prop::Float(0.1));
+    let stats = yalain_content::CreatureStats::from_props(&props).expect("a creature");
+    assert!((rules::threshold_of(&stats) - 0.1).abs() < 1e-6);
+
+    let strikes = |threshold: Option<f32>| {
+        let mut h = Harness::new();
+        h.add_creatures(1);
+        let (b, me) = h.player_in_world("one", "Elara");
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &auberean_protocol::ClientMessage::SceneRenderingComplete(
+                auberean_protocol::login::Empty,
+            ),
+        );
+        h.run(5);
+        piece(&mut h, COAT, 2, 100_000);
+        h.arm(b, me, COAT);
+        for p in h.server.players.values_mut() {
+            yalain_world::quals::set_int(&mut p.qualities, yalain_world::examine::LEVEL, 40);
+            yalain_world::quals::set_int(&mut p.qualities, 263, 1_000_000);
+            yalain_world::quals::set_int(&mut p.qualities, 258, 1_000_000);
+        }
+        let foe = h
+            .world_messages(b, 0)
+            .iter()
+            .find_map(|m| match m {
+                ServerMessage::CreateObject(o) if o.weenie.entity_did == TEST_CREATURE => {
+                    Some(o.id)
+                }
+                _ => None,
+            })
+            .expect("the creature");
+        if let Some(c) = h
+            .server
+            .things
+            .get_mut(foe)
+            .and_then(|t| t.creature.as_mut())
+        {
+            c.stats.natural_damage = 1000.0;
+            c.stats.natural_variance = 0.0;
+            c.stats.armor_threshold = threshold;
+        }
+        let from = h.bots[b].inbox.len();
+        h.run(4000);
+        h.world_messages(b, from)
+            .iter()
+            .filter_map(|m| match m {
+                ServerMessage::DoStory(e) if e.action.attacker == foe => Some(e),
+                _ => None,
+            })
+            .flat_map(|e| e.action.hooks.iter())
+            .filter(|k| k.target == me && k.numbers[3] < 0)
+            .map(|k| -k.numbers[3])
+            .collect::<Vec<i32>>()
+    };
+    let low = strikes(Some(0.1));
+    assert!(!low.is_empty(), "the creature lands a hit in the run");
+    // Its hits of 1,000 or more (what its skill adds), a critical a fifth more: a tenth of that.
+    assert!(low.iter().all(|d| *d <= 150), "{low:?}");
+    let usual = strikes(None);
+    assert!(usual.iter().any(|d| *d > 150), "{usual:?}");
 }
 
 /// Armor effects have taken below nothing adds to a hit, a point for a point.
