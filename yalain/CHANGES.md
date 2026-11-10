@@ -6,6 +6,8 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+
+## 0.3.1 (2026-11-10)
 - Fight timing now follows each body's own animations, as in retail.
 - Worlds can now have an effect give vitae back, as the Crystalabra does.
 - Worlds can now set items' worn looks as rows.
