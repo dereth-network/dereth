@@ -498,6 +498,8 @@ pub struct Step {
     pub events: Vec<String>,
     /// The kingdom it runs for alone (a player in none counting as of the neutral one).
     pub kingdom: Option<u32>,
+    /// The acts it runs for only once they are whole (the scenes an act needs held).
+    pub acts: Vec<u32>,
     /// The items it takes from the player's pack, which the player must hold.
     pub takes: Vec<u32>,
     /// The place it takes the player to, its update made on arrival.
@@ -720,9 +722,18 @@ pub struct Popup {
     pub prov: Prov,
 }
 
+/// What a step's or a give's `requires` names: other quests, the `[[event]]`s that must be on, the
+/// one kingdom it is for and the acts that must be whole.
+struct Requires {
+    quests: Vec<(u32, Need)>,
+    events: Vec<String>,
+    kingdom: Option<u32>,
+    acts: Vec<u32>,
+}
+
 /// `[[effect_rule]]`: what the world says of an effect where its own data says nothing: what a ward
 /// keeps off, the share of its player's vitae it takes, the effect an immunity leaves as it ends,
-/// the complete reset of skills it grants.
+/// the complete reset of skills it grants, the skill it trains.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EffectRule {
     /// The effect, by its saved state.
@@ -735,6 +746,8 @@ pub struct EffectRule {
     pub then: Option<u32>,
     /// The kind of skills a complete reset it grants gives back.
     pub reset: Option<yalain_content::effect_rules::Reset>,
+    /// The skill it trains its player for good, by its number.
+    pub skill: Option<u32>,
     pub prov: Prov,
 }
 
@@ -1522,6 +1535,7 @@ pub const FIELDS: [(&str, &[&str]); 52] = [
             "vitae_restore",
             "then",
             "reset",
+            "skill",
             "prov",
         ],
     ),
@@ -2048,7 +2062,12 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                     return None;
                 }
             };
-            let (requires, events, kingdom) = f.requires_and_events("requires", true);
+            let Requires {
+                quests: requires,
+                events,
+                kingdom,
+                acts,
+            } = f.requires_and_events("requires", true);
             Row::Step(Step {
                 key: f.req_symbol("key")?,
                 quest: f.req_id("quest")?,
@@ -2066,6 +2085,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 requires,
                 events,
                 kingdom,
+                acts,
                 takes: f.ids("takes"),
                 to: f.symbol("to"),
                 races: f.ids("races"),
@@ -2083,7 +2103,11 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
             })
         }
         "give" => {
-            let (requires, _, kingdom) = f.requires_and_events("requires", false);
+            let Requires {
+                quests: requires,
+                kingdom,
+                ..
+            } = f.requires_and_events("requires", false);
             Row::Give(Give {
                 key: f.req_symbol("key")?,
                 to: f.req_id("to")?,
@@ -2357,16 +2381,23 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 Some(None) => return None,
                 None => None,
             };
+            let skill = f.typed("skill", "a skill (its number, such as 925)", |v| {
+                as_u32(v).filter(|n| *n > 0)
+            });
+            if f.get("skill").is_some() && skill.is_none() {
+                return None;
+            }
             if ward.is_none()
                 && vitae_share.is_none()
                 && vitae_restore.is_none()
                 && then.is_none()
                 && reset.is_none()
+                && skill.is_none()
             {
                 f.bad(
-                    "ward, vitae_share, vitae_restore, then, reset",
-                    "a rule names a ward, a share of vitae, vitae given back, what an immunity leaves \
-                     or a reset it grants",
+                    "ward, vitae_share, vitae_restore, then, reset, skill",
+                    "a rule names a ward, a share of vitae, vitae given back, what an immunity leaves, \
+                     a reset it grants or a skill it trains",
                 );
                 return None;
             }
@@ -2377,6 +2408,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 vitae_restore,
                 then,
                 reset,
+                skill,
                 prov: f.req_prov()?,
             })
         }
@@ -3675,23 +3707,21 @@ impl<'a> Fields<'a> {
 
     /// A step's or a give's `requires`: other quests (`{ quest, phase }`, `{ quest, done = true }`
     /// or `{ quest, free = true }`); `{ kingdom = "word" }`, the one kingdom it is for, a word of
-    /// [`yalain_content::kingdoms::kingdom::WORDS`]; and, where `events` allows them,
-    /// `{ event = "key" }`, an `[[event]]` that must be on.
-    fn requires_and_events(
-        &mut self,
-        name: &str,
-        events: bool,
-    ) -> (Vec<(u32, Need)>, Vec<String>, Option<u32>) {
+    /// [`yalain_content::kingdoms::kingdom::WORDS`]; and, for a step (`events`),
+    /// `{ event = "key" }`, an `[[event]]` that must be on, and `{ act = A }`, an act that must be
+    /// whole.
+    fn requires_and_events(&mut self, name: &str, events: bool) -> Requires {
         use yalain_content::kingdoms::kingdom;
         enum Req {
             Quest(u32, Need),
             Event(String),
             Kingdom(u32),
+            Act(u32),
         }
         let (what, keys): (&str, &[&str]) = if events {
             (
-                "a list of { quest, phase }, { quest, done = true }, { quest, free = true }, { event } or { kingdom } (neutral, shadow, order or dominion)",
-                &["quest", "phase", "done", "free", "event", "kingdom"],
+                "a list of { quest, phase }, { quest, done = true }, { quest, free = true }, { event }, { act } or { kingdom } (neutral, shadow, order or dominion)",
+                &["quest", "phase", "done", "free", "event", "act", "kingdom"],
             )
         } else {
             (
@@ -3712,6 +3742,9 @@ impl<'a> Fields<'a> {
                     .flatten()
                     .map(Req::Kingdom);
             }
+            if let Some(a) = t.get("act") {
+                return (t.len() == 1).then(|| as_u32(a)).flatten().map(Req::Act);
+            }
             let quest = as_u32(t.get("quest")?)?;
             let need = match (t.get("phase"), t.get("done"), t.get("free")) {
                 (Some(p), None, None) => Need::Phase(as_u32(p)?),
@@ -3724,17 +3757,24 @@ impl<'a> Fields<'a> {
         let mut quests = Vec::new();
         let mut named = Vec::new();
         let mut kingdoms = Vec::new();
+        let mut acts = Vec::new();
         for r in all {
             match r {
                 Req::Quest(q, n) => quests.push((q, n)),
                 Req::Event(e) => named.push(e),
                 Req::Kingdom(k) => kingdoms.push(k),
+                Req::Act(a) => acts.push(a),
             }
         }
         if kingdoms.len() > 1 {
             self.bad(name, "names at most one kingdom");
         }
-        (quests, named, kingdoms.first().copied())
+        Requires {
+            quests,
+            events: named,
+            kingdom: kingdoms.first().copied(),
+            acts,
+        }
     }
 
     /// An `[[event]]`'s `when`: at least one window, each `{ from, until }` (UTC times,

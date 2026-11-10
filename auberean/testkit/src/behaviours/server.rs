@@ -12253,6 +12253,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.a-step-waits-for-its-act-whole",
+        says: "A quest step whose `requires` names an act runs only for a player holding the act \
+               whole, seven of its scenes, its hidden ones aside; short of that the person used \
+               says its own line, as at a use that moves nothing. An act no served scene is of is \
+               a problem, and a give names none.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-STEP-ACT-WHOLE"),
+        station: "yalain-testkit::cpu::play::skill_grants::a_step_gated_by_an_act_runs_once_the_act_is_whole_and_its_effect_trains_the_skill",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.a-strangers-kill-moves-nothing",
         says: "A kill moves nothing for a player who is no fellow of the killer, whatever it holds \
                and however near it stands.",
@@ -13247,6 +13258,19 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-ITEM-EFFECT-ENDS"),
         station: "yalain-testkit::cpu::play::item_effects::an_effect_on_an_item_does_not_stack_and_ends_with_its_time",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.skills.an-effect-trains-a-skill-for-good",
+        says: "An effect a world's rule names a skill for trains its player that skill for good \
+               when it is put on: trained at level 1 by the grant, unraisable, costing nothing, told \
+               as the repository, the skill's information, the effect's line of its own table \
+               naming the effect and who gave it, and its appearance; a player who holds the skill \
+               gains nothing and is told nothing, and a rule naming a skill the install lacks is a \
+               problem.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SKILL-GRANT-BY-EFFECT"),
+        station: "yalain-testkit::cpu::play::skill_grants::an_effect_that_trains_a_skill_gives_nothing_to_a_player_holding_it",
         tier: Tier::Cpu,
     },
     behaviour! {

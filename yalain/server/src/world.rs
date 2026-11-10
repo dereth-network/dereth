@@ -331,7 +331,8 @@ fn check_cmd(args: &[String]) -> Result<(), String> {
 /// event the install does not have, a `[[points_bonus]]` naming an effect the install holds no
 /// saved state of, a `[[popup]]` naming an effect the install holds no saved state of or one
 /// whose effect has no description to show, an `[[effect_rule]]` naming an effect, a ward
-/// keeping off an effect or an effect an immunity leaves, the install holds no saved state of, a `[[treasure_look]]` naming a
+/// keeping off an effect or an effect an immunity leaves, the install holds no saved state of, or a
+/// skill to train the install has not, a `[[treasure_look]]` naming a
 /// table the install has not, a `[[treasure_potion]]`, a `[[treasure_family]]` or an
 /// `[[item_use]]` naming an effect the install has not, and a `[[concealing]]` naming an effect
 /// the install has not.
@@ -341,6 +342,7 @@ fn check_cmd(args: &[String]) -> Result<(), String> {
 pub fn install_problems(p: &data::Portal, db: &rows::Database) -> Result<Vec<Problem>, String> {
     let mut out = Vec::new();
     let mut game_events = None;
+    let mut skills = None;
     for l in db.rows() {
         if let rows::Row::Popup(r) = &l.row {
             let why = if !data::saved_states(p)?.iter().any(|s| s.id == r.effect) {
@@ -376,6 +378,24 @@ pub fn install_problems(p: &data::Portal, db: &rows::Database) -> Result<Vec<Pro
                         l.line,
                         format!(
                             "[[effect_rule]] {:#010x}: {what} {effect:#010x}: the install holds no such effect",
+                            r.effect
+                        ),
+                    ));
+                }
+            }
+            if let Some(skill) = r.skill {
+                if skills.is_none() {
+                    skills = Some(data::skill_table(p)?);
+                }
+                if skills
+                    .as_ref()
+                    .is_some_and(|t| !t.skills.contains_key(&skill))
+                {
+                    out.push(Problem::new(
+                        &l.file,
+                        l.line,
+                        format!(
+                            "[[effect_rule]] {:#010x}: skill {skill}: the install has no such skill",
                             r.effect
                         ),
                     ));

@@ -855,6 +855,26 @@ pub fn apply_on<S: Store>(
             crate::skills::grant_reset(s, net, world, *kind);
             true
         }
+        // A skill trained is told as 2017's were: the repository and the skill, then the effect's
+        // own line of its table naming the effect and who gave it, then its appearance. A player who
+        // holds the skill already gains nothing and is told nothing.
+        (Kind::GrantSkill(skill), On::Player(world)) => {
+            if !crate::skills::trained_for_good(s, net, world, *skill) {
+                return false;
+            }
+            if let Some(name) = def.name {
+                let mut vars = vec![progress::nested(learned::EFFECT_VAR, progress::text(name))];
+                if let Some((_, Some(g))) = cast.giver {
+                    vars.push(progress::nested(learned::GIVER_VAR, progress::text(g)));
+                }
+                let line = progress::text_with((learned::TEXT.0, name.1), vars);
+                progress::private(net, world, &crate::chat::show_text(2, line));
+            }
+            if def.fx != 0 {
+                show_fx(s, net, world, def.fx);
+            }
+            true
+        }
         (Kind::Taunt(share), On::Creature(id)) => {
             crate::ai::taunted(s, id, cast.caster, *share, clock.local.0);
             true
@@ -864,7 +884,10 @@ pub fn apply_on<S: Store>(
             On::Creature(_),
         )
         | (Kind::Taunt(_), On::Player(_))
-        | (Kind::VitaeTap(_) | Kind::VitaeRestore(_) | Kind::Reset(_), On::Creature(_))
+        | (
+            Kind::VitaeTap(_) | Kind::VitaeRestore(_) | Kind::Reset(_) | Kind::GrantSkill(_),
+            On::Creature(_),
+        )
         | (Kind::Aura(_), _) => false,
         // A pet is summoned as its skill's use ends ([`crate::pets`]), never as an effect; a
         // recall is its skill's trip ([`crate::skill_use`]).
@@ -2461,6 +2484,7 @@ pub fn toggled_on<S: Store>(
             | Kind::VitaeTap(_)
             | Kind::VitaeRestore(_)
             | Kind::Reset(_)
+            | Kind::GrantSkill(_)
             | Kind::Aura(_)
             | Kind::Pet { .. }
             | Kind::Recall(_)

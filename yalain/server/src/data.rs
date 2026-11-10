@@ -2411,6 +2411,57 @@ mod tests {
         assert!(problems[0].message.contains("0x6ffffff0"), "{problems:?}");
     }
 
+    /// An effect rule's skill: the install's three effects that bestow a city's recall, each with a
+    /// rule naming its skill, read as training those skills, which are the install's skills, with
+    /// their own name's table and appearance; a rule naming a skill the install lacks is a problem.
+    /// Behaviour: server.skills.an-effect-trains-a-skill-for-good
+    #[test]
+    fn an_effect_rule_trains_a_skill_of_the_install_and_one_it_lacks_is_a_problem() {
+        use yalain_world::effect_defs::{EffectRules, Kind};
+        let (dat, _) = tallied(&DatName::Portal);
+        let p = Portal::over(dat, Vec::new(), None).expect("a context");
+        let named = [
+            (0x6F00_1A98, 925, 0x2500_10AA),
+            (0x6F00_1A99, 926, 0x2500_10AB),
+            (0x6F00_1A9A, 927, 0x2500_10AC),
+        ];
+        let rules = EffectRules {
+            skills: named.iter().map(|(e, k, _)| (*e, *k)).collect(),
+            ..EffectRules::default()
+        };
+        let states: Vec<u32> = named.iter().map(|(e, _, _)| *e).collect();
+        let t = effect_table(&p, &states, &rules).expect("the effects");
+        let skills = skill_table(&p).expect("the skills");
+        for (effect, skill, table) in named {
+            let d = t.get(effect).unwrap_or_else(|| panic!("{effect:08X} read"));
+            assert_eq!(d.kind, Kind::GrantSkill(skill), "{effect:08X}");
+            assert_eq!(d.name.map(|n| n.1), Some(table), "{effect:08X}");
+            assert_eq!(d.fx, 0x4100_0499, "{effect:08X}");
+            assert!(!d.lasts(), "{effect:08X}: once");
+            assert!(skills.skills.contains_key(&skill), "{skill}");
+        }
+        let mut files = yalain_world_db::Files::new();
+        files.insert(
+            "world.toml".into(),
+            "format_version = 1\nkey = \"w\"\ngame = \"ac2\"\nera = \"eor\"\npacks = [\"p\"]\n"
+                .into(),
+        );
+        files.insert(
+            "p/pack.toml".into(),
+            "format_version = 1\nname = \"p\"\nversion = \"0.1.0\"\ngame = \"ac2\"\nauthors = [\"a\"]\nlicense = \"CC0-1.0\"\ndescription = \"d\"\n".into(),
+        );
+        files.insert(
+            "p/server/effects.toml".into(),
+            "[[effect_rule]]\neffect = 0x6F001A98\nskill = 925\nprov = { from = \"authored\" }\n\n\
+             [[effect_rule]]\neffect = 0x6F001A99\nskill = 99999\nprov = { from = \"authored\" }\n"
+                .into(),
+        );
+        let db = yalain_world_db::rows::read(&files).expect("reads");
+        let problems = crate::world::install_problems(&p, &db).expect("checks");
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].message.contains("skill 99999"), "{problems:?}");
+    }
+
     /// An `[[item_use]]` row may name only effects the install holds: a training hall potion's
     /// haste passes; an effect the install lacks is a problem that names it.
     /// Behaviour: server.items.item-rows-in-the-real-start

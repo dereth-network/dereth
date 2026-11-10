@@ -1616,6 +1616,45 @@ pub fn bestowed(
     Some((new, changed))
 }
 
+/// Train a player a skill for good, as an effect's grant does (2017: five grants of a city's
+/// recall): trained at level 1 by the grant, which can't be raised and costs nothing, its trained
+/// parents counting one more child and its prerequisites one more dependent; the player told its
+/// repository, the skills it changed and the skill. False, and nothing told, for a skill the player
+/// holds already or the install does not have.
+pub fn trained_for_good<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    skill: u32,
+) -> bool {
+    let Some(p) = s.players.get(&world) else {
+        return false;
+    };
+    let starting = s.start.skills.get(&p.race).cloned().unwrap_or_default();
+    let mut held = held(&starting, &p.play.skills);
+    let Some((mut new, changed)) = bestowed(&s.skill_table, &mut held, skill) else {
+        return false;
+    };
+    new.granted = 1;
+    new.mask = mask::TRAINED | mask::CANNOT_RAISE;
+    if let Some(h) = held.iter_mut().find(|h| h.skill == skill) {
+        *h = new;
+    }
+    let Some(p) = s.players.get_mut(&world) else {
+        return false;
+    };
+    p.play.skills = kept(&starting, &held);
+    let Some(p) = s.players.get(&world) else {
+        return false;
+    };
+    progress::private(net, world, &repository_of(s, p));
+    for h in changed.iter().chain(std::iter::once(&new)) {
+        progress::private(net, world, &info_update(h, None));
+    }
+    crate::world::keep_player(s, world);
+    true
+}
+
 /// A player asks to train a skill.
 pub fn train<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v: &[Value]) {
     let Some(skill) = skill_of(v) else {

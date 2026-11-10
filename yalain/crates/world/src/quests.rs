@@ -532,6 +532,9 @@ fn may_run_at_any_level<S: Store>(s: &Server<S>, world: ConnId, st: &Step, now_u
     {
         return false;
     }
+    if !s.story.step_for(st, &p.play.scenes) {
+        return false;
+    }
     if st.needs == 0 {
         let Some(def) = s.quests.quest(st.quest) else {
             return false;

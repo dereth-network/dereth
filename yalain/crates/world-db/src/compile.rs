@@ -550,6 +550,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
     // The steps an event gates, by their row in the quest table, to copy once each is whole.
     let mut event_steps: Vec<(usize, String)> = Vec::new();
     let mut kingdom_steps: Vec<(usize, u32)> = Vec::new();
+    let mut act_steps: Vec<(&Located, usize, u32)> = Vec::new();
     // The scenes a new character holds, by their order.
     let mut door_scenes: Vec<(&Located, u32)> = Vec::new();
     let mut starts: Vec<(u32, u32)> = Vec::new();
@@ -1026,6 +1027,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 if let Some(k) = s.kingdom {
                     kingdom_steps.push((t.quests.steps.len(), k));
                 }
+                for a in &s.acts {
+                    act_steps.push((l, t.quests.steps.len(), *a));
+                }
                 t.quests.steps.push(TableStep {
                     quest: s.quest,
                     needs: s.needs,
@@ -1230,6 +1234,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 }
                 if let Some(reset) = r.reset {
                     t.effect_rules.resets.insert(r.effect, reset);
+                }
+                if let Some(skill) = r.skill {
+                    t.effect_rules.skills.insert(r.effect, skill);
                 }
             }
             Row::Mine(r) => {
@@ -1506,6 +1513,15 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
     for (i, k) in kingdom_steps {
         if let Some(st) = t.quests.steps.get(i) {
             t.kingdoms.steps.push((st.clone(), k));
+        }
+    }
+    // The steps an act gates, whole, likewise; and an act a step names has scenes.
+    for (l, i, a) in act_steps {
+        if !t.story.scenes.values().any(|sc| sc.act == a) {
+            cx.problem(l, format!("requires: no scene of act {a:08X} is served"));
+        }
+        if let Some(st) = t.quests.steps.get(i) {
+            t.story.step_acts.push((st.clone(), a));
         }
     }
     let keys: std::collections::BTreeSet<&str> = t

@@ -2656,6 +2656,7 @@ pub fn test_effect_rules() -> yalain_world::effect_defs::EffectRules {
         )]),
         immunities: std::collections::BTreeMap::new(),
         resets: std::collections::BTreeMap::new(),
+        skills: std::collections::BTreeMap::new(),
     };
     for (short, long, classes) in TEST_IMMUNITIES {
         rules.immunities.insert(short, long);

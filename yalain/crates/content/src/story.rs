@@ -1,8 +1,13 @@
 //! The story's scenes: what each plays (its pictures, music, voice and subtitles, each step's
-//! length), which act it belongs to, which shard bestows it, and which scenes every new character
-//! holds from the start.
+//! length), which act it belongs to, which shard bestows it, which scenes every new character
+//! holds from the start, and the quest steps that run only for a player whose act is whole.
 
 use std::collections::BTreeMap;
+
+use crate::quests::Step;
+
+/// An act is whole with this many of its scenes held, its hidden ones aside.
+pub const ACT_WHOLE: usize = 7;
 
 /// One step of a scene.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -44,6 +49,8 @@ pub struct StoryTable {
     pub at_start: Vec<u32>,
     /// The scene each door (by its cell and template) plays on the way to its destination.
     pub doors: BTreeMap<(u32, u32), u32>,
+    /// Quest steps that run only for a player whose act is whole: the step and the act.
+    pub step_acts: Vec<(Step, u32)>,
 }
 
 impl StoryTable {
@@ -53,5 +60,25 @@ impl StoryTable {
         let mut v: Vec<&Scene> = self.scenes.values().filter(|s| s.act == act).collect();
         v.sort_by_key(|s| (s.number, s.id));
         v
+    }
+
+    /// Is an act whole for a player holding these scenes: [`ACT_WHOLE`] of its scenes held, its
+    /// hidden ones aside.
+    #[must_use]
+    pub fn act_whole(&self, act: u32, held: &[u32]) -> bool {
+        self.scenes
+            .values()
+            .filter(|s| s.act == act && !s.hidden && held.contains(&s.id))
+            .count()
+            >= ACT_WHOLE
+    }
+
+    /// Does a step run for a player holding these scenes: every act it is gated by is whole.
+    #[must_use]
+    pub fn step_for(&self, step: &Step, held: &[u32]) -> bool {
+        self.step_acts
+            .iter()
+            .filter(|(st, _)| st == step)
+            .all(|(_, act)| self.act_whole(*act, held))
     }
 }

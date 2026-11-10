@@ -359,7 +359,7 @@ What moves a quest on, in its quest's file.
 | `least_level`, `most_level` | | the levels it runs for |
 | `gives`, `counts` | | templates it gives, and how many of each in order (1 when left out) |
 | `effects`, `text`, `effects_last` | | the effects it puts on the player, by their saved states; a text shown after them; `effects_last = true` tells the quest's update before them |
-| `requires` | | other quests it needs (`{ quest, phase }`, `{ quest, done = true }`, `{ quest, free = true }`), an event that must be on (`{ event = "key" }`) and one kingdom (`{ kingdom = "order" }`: `neutral`, `shadow`, `order` or `dominion`) |
+| `requires` | | other quests it needs (`{ quest, phase }`, `{ quest, done = true }`, `{ quest, free = true }`), an event that must be on (`{ event = "key" }`), acts that must be whole (`{ act = A }`: seven of the act's scenes held, its hidden ones aside; a scene of the act must be served) and one kingdom (`{ kingdom = "order" }`: `neutral`, `shadow`, `order` or `dominion`) |
 | `takes` | | templates of items taken from the player's pack, which the player must hold |
 | `to` | | a place it takes the player to, through portal space |
 | `races` | | the races it is for, by number: 1 human, 2 Lugian, 4 Tumerok, 8 Drudge, 16 Empyrean; every race when left out |
@@ -853,6 +853,7 @@ What an effect of the install does where its own data says nothing. One row per 
 | `vitae_restore` | | `{ points, fellows }`, the vitae it gives back when it is put on |
 | `then` | | the effect is an immunity under way and leaves this effect as it ends |
 | `reset` | | `skills` or `hero-skills`: putting it on grants its player one complete reset of that kind, which `/skills reset` or `/heroskills reset` uses |
+| `skill` | | a skill, by its number: putting it on trains its player that skill for good, at level 1 by the grant, unraisable and at no cost, told with the effect's own line and appearance; a player who holds it gains nothing |
 | `prov` | required | where it came from |
 
 #### `[[points_bonus]]`

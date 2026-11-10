@@ -2699,6 +2699,96 @@ fn an_effect_rule_row_may_take_a_share_of_vitae_with_or_without_a_ward() {
     assert!(read(&files).is_ok(), "the whole of it");
 }
 
+/// Behaviour: server.skills.an-effect-trains-a-skill-for-good
+#[test]
+fn an_effect_rule_row_may_name_the_skill_an_effect_trains() {
+    let mut files = fixture();
+    files.insert(
+        "town/server/effects.toml".into(),
+        "[[effect_rule]]\neffect = 0x6F001A98\nskill = 925\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    assert_eq!(check(&files), Vec::new());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(
+        t.effect_rules.skills,
+        std::collections::BTreeMap::from([(0x6F00_1A98, 925)])
+    );
+    for skill in ["0", "-1", "\"recall\"", "1.5"] {
+        files.insert(
+            "town/server/effects.toml".into(),
+            format!(
+                "[[effect_rule]]\neffect = 0x6F001A98\nskill = {skill}\nprov = {{ from = \"authored\" }}\n"
+            ),
+        );
+        assert!(read(&files).is_err(), "{skill}");
+    }
+}
+
+/// A step's `requires` may name an act that must be whole: the step is served with it, an act no
+/// served scene is of is a problem, and a give names none.
+/// Behaviour: server.quests.a-step-waits-for-its-act-whole
+#[test]
+fn a_steps_requires_may_name_an_act_and_the_act_must_have_scenes() {
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/quests/40000088.toml",
+        "update = \"bestow\"\n",
+        "update = \"bestow\"\nrequires = [{ act = 0x4000000C }]\n",
+    );
+    let merged = merge(&read(&files).unwrap()).unwrap();
+    let problems = compile(&merged, &Fake::new()).unwrap_err();
+    let messages: Vec<String> = problems.iter().map(ToString::to_string).collect();
+    assert_eq!(messages.len(), 1, "{messages:?}");
+    assert!(
+        messages[0].contains("requires: no scene of act 4000000C is served"),
+        "{messages:?}"
+    );
+    files.insert(
+        "town/server/story.toml".into(),
+        "[[scene]]\nid = 0x4000005A\nact = 0x4000000C\nnumber = 28\n\
+         name = { table = 0x250018A7, string = 0xD2F7ECB9 }\n\
+         keyframes = [{ seconds = 12.0, picture = 0x41004BD7, tracks = 0x01 }]\n\
+         prov = { from = \"authored\" }\n"
+            .into(),
+    );
+    assert!(check(&files).is_empty(), "{:?}", check(&files));
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(t.story.step_acts.len(), 1);
+    let (step, act) = &t.story.step_acts[0];
+    assert_eq!(*act, 0x4000_000C);
+    assert_eq!(step.trigger, Trigger::Use(0x4700_33D0));
+    assert!(t.quests.steps.contains(step), "the step itself is served");
+    assert!(step.requires.is_empty(), "no quest required");
+    // An act alone in its table, by its id; a give names none.
+    for bad in [
+        "requires = [{ act = 0x4000000C, quest = 0x40000016 }]",
+        "requires = [{ act = \"Osteth\" }]",
+    ] {
+        let mut f = files.clone();
+        edit(
+            &mut f,
+            "town/server/quests/40000088.toml",
+            "requires = [{ act = 0x4000000C }]",
+            bad,
+        );
+        assert!(read(&f).is_err(), "{bad}");
+    }
+    let mut f = files.clone();
+    f.insert(
+        "town/server/gives/470033D0.toml".into(),
+        "[[give]]\nkey = \"gem\"\nto = 0x470033D0\nitem = 0x470020BB\n\
+         requires = [{ act = 0x4000000C }]\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    let problems = check(&f);
+    assert!(
+        problems.iter().any(|p| p.message.contains("requires")),
+        "a give's act: {problems:?}"
+    );
+}
+
 /// Behaviour: server.skills.an-effect-grants-a-reset
 #[test]
 fn an_effect_rule_row_may_name_the_reset_of_skills_an_effect_grants() {

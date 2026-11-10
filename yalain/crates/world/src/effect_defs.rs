@@ -16,7 +16,9 @@
 //! skill's ([`crate::skill_use`]): to a place its user keeps (a link), to one of a list of named
 //! places, or to its allegiance's hall; a taunt, which changes a creature's mind about its caster
 //! once ([`crate::ai`]), by the low end of the range its data gives over spellcraft; a resurrection,
-//! which offers a dead player a return ([`crate::resurrections`]).
+//! which offers a dead player a return ([`crate::resurrections`]). Where a world's rules say what an
+//! effect does that its own data doesn't, the rule's kind: among them a skill trained for good
+//! ([`crate::skills::trained_for_good`]).
 //!
 //! **A combination** looks for the target's effects of its types (or classes): found, it adds its
 //! effect for that case at the cast's spellcraft adjusted by its own amount, gives its user the
@@ -322,6 +324,8 @@ pub enum Kind {
     VitaeRestore(VitaeRestore),
     /// Grants its player one complete reset of this kind of its skills, once.
     Reset(Reset),
+    /// Trains its player this skill for good (by its number), once.
+    GrantSkill(u32),
     /// Anything else (kept as a record only).
     Other,
 }
@@ -374,6 +378,7 @@ impl EffectDef {
                     | Kind::VitaeTap(_)
                     | Kind::VitaeRestore(_)
                     | Kind::Reset(_)
+                    | Kind::GrantSkill(_)
             )
     }
 
@@ -845,7 +850,7 @@ impl EffectTable {
     /// The definitions of these saved states and of the effects they add in turn (a state that
     /// does not read is left out), each the world's `rules` name (by saved state) an immunity
     /// leaving the effect they name, a ward keeping off what it names, a tap of its share of vitae,
-    /// vitae given back, or a complete reset of skills granted.
+    /// vitae given back, a complete reset of skills granted, or a skill trained.
     #[must_use]
     pub fn read(
         lib: &Library,
@@ -875,6 +880,9 @@ impl EffectTable {
                 }
                 if let Some(reset) = rules.resets.get(&s) {
                     d.kind = Kind::Reset(*reset);
+                }
+                if let Some(skill) = rules.skills.get(&s) {
+                    d.kind = Kind::GrantSkill(*skill);
                 }
                 if let Some(text) = EffectDef::description_of(lib, &g) {
                     t.descriptions.insert(s, text);
