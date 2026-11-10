@@ -1640,6 +1640,10 @@ impl HostCalls for Call<'_, '_> {
                 .frame
                 .and_then(|f| f.travel_store)
                 .map_or_else(|| Value::List(Vec::new()), portals_value)),
+            "nav.known_places" => Ok(self
+                .frame
+                .and_then(|f| f.world_places)
+                .map_or_else(|| Value::List(Vec::new()), places_value)),
             "nav.recalls" => {
                 let character = self.character_name();
                 Ok(self
@@ -2248,6 +2252,34 @@ fn portals_value(store: &dereth_navigation::PortalStore) -> Value {
                 }
                 if e.verified != 0 {
                     v = v.with("verified", i64::try_from(e.verified).unwrap_or(i64::MAX));
+                }
+                v
+            })
+            .collect(),
+    )
+}
+
+/// This world's learned places, as plugins read them.
+fn places_value(store: &dereth_navigation::PlaceStore) -> Value {
+    Value::List(
+        store
+            .places()
+            .iter()
+            .map(|p| {
+                let mut v = Value::map()
+                    .with("kind", p.kind.word())
+                    .with("name", p.name.as_str())
+                    .with("source", p.source.word())
+                    .with("at", crate::places::to_value(&p.at))
+                    .with("seen", i64::try_from(p.last_seen).unwrap_or(i64::MAX));
+                if let Some(w) = p.wcid {
+                    v = v.with("class", w);
+                }
+                if let Some(o) = &p.owner {
+                    v = v.with("owner", o.as_str());
+                }
+                if let Some(t) = &p.to {
+                    v = v.with("to", crate::places::to_value(t));
                 }
                 v
             })

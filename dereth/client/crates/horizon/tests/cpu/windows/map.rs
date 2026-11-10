@@ -262,3 +262,80 @@ fn a_player_sees_the_towns_and_then_the_houses_as_the_map_zooms_in() {
     );
     assert_eq!(marks(&h, PlaceKind::Villa), 1);
 }
+
+/// A store of one world's learned places about Holtburg: a lifestone outdoors, a vendor in a
+/// shop of the town, and a person in a dungeon.
+fn learned(world: &str) -> (Arc<dereth_navigation::PlaceStore>, u64) {
+    use dereth_navigation::{EdgeSource, KnownPlace, PlaceKind as L, PlaceStore};
+    use dereth_primitives::{CellId, Frame, Position, Quat, Vec3};
+    let at = |cell: u32, x: f32, y: f32| {
+        Position::new(
+            CellId(cell),
+            Frame::new(Vec3::new(x, y, 60.0), Quat::IDENTITY),
+        )
+    };
+    let place = |kind, name: &str, at| KnownPlace {
+        kind,
+        source: EdgeSource::Learned,
+        wcid: None,
+        name: name.to_owned(),
+        at,
+        first_seen: 0,
+        last_seen: 0,
+        owner: None,
+        to: None,
+    };
+    let mut s = PlaceStore::new(world);
+    s.see(place(
+        L::Lifestone,
+        "Life Stone",
+        at(0xA9B4_002A, 132.0, 36.0),
+    ));
+    s.see(place(L::Vendor, "Grocer", at(0xA9B4_0150, 140.0, 40.0)));
+    s.see(place(L::Npc, "Guard", at(0x01D9_0108, 10.0, 20.0)));
+    let revision = s.revision();
+    (Arc::new(s), revision)
+}
+
+/// What the player learned of the world they are in is marked over the data's places, and only
+/// that world's: a place in a dungeon is not on the map.
+#[test]
+fn a_player_sees_the_places_they_learned_of_this_world_over_the_data_s() {
+    let art = Arc::new(Art::empty());
+    let marks = |h: &Harness, kind: PlaceKind| {
+        h.list
+            .quads
+            .iter()
+            .filter(|q| q.tex.is_none() && q.colour & 0x00FF_FFFF == colour(kind) & 0x00FF_FFFF)
+            .count()
+    };
+    let mut state = player();
+    let (mut h, _) = opened(&art, &state);
+    h.ui.windows.map_view.show(drawn());
+    h.ui.windows.map_view.zoom = 12.0;
+    h.ui.windows.map_view.centre = map_pixel(42.2, 33.8);
+    h.frame(&state);
+    assert_eq!(marks(&h, PlaceKind::Lifestone), 0, "nothing learned yet");
+
+    state.world_places = Some(learned("Here@127.0.0.1:9000"));
+    h.frame(&state);
+    assert_eq!(marks(&h, PlaceKind::Lifestone), 1, "the lifestone outdoors");
+    assert_eq!(
+        marks(&h, PlaceKind::Vendor),
+        1,
+        "the vendor in a shop of the town"
+    );
+    assert_eq!(marks(&h, PlaceKind::Npc), 0, "the guard in a dungeon");
+    assert_eq!(marks(&h, PlaceKind::Cottage), 2, "the data's places still");
+
+    // Another world: what was learned in this one is gone from the map.
+    state.world_places = Some((
+        Arc::new(dereth_navigation::PlaceStore::new(
+            "Elsewhere@10.0.0.1:9000",
+        )),
+        0,
+    ));
+    h.frame(&state);
+    assert_eq!(marks(&h, PlaceKind::Lifestone), 0);
+    assert_eq!(marks(&h, PlaceKind::Vendor), 0);
+}

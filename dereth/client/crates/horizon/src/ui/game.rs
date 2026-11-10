@@ -602,6 +602,8 @@ pub struct GameState {
     pub camera_heading: f32,
     /// The player's map coordinates, north and east positive.
     pub coords: Option<(f32, f32)>,
+    /// The places of this world the player has learned, and their revision, once in a world.
+    pub world_places: Option<(std::sync::Arc<dereth_navigation::PlaceStore>, u64)>,
     /// The region the player is in.
     pub zone: String,
     pub shortcuts: Vec<Shortcut>,

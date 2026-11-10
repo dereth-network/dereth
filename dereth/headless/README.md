@@ -72,5 +72,8 @@ machine, each with its own account, store and log.
 - `--plugin-data <dir>`, `--plugin-store <dir>`: the plugins' data folders and stores (in memory
   when absent).
 - `--plugin-policy <file>`: the world's plugin policy, as its world entry publishes it.
-- `--nav-published <file>`: the server's published portal table, for journeys.
+- `--nav-published <file>`: the server's published portal table or places, for journeys and the
+  world's places.
+- `--world-status <url>`: the world's status document (`http://`), and the portal table and places
+  it names as published.
 - `--log <filter>`: the log on stderr (`info` by default).

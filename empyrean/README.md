@@ -171,7 +171,7 @@ replaces; Empyrean's own are marked `(Empyrean only)`. The main ones:
 | `server.log_level` | `info` | `error`, `warn`, `info`, `debug` or `trace`. Anything else logs a warning and uses `info`. |
 | `server.status_address` | empty (off) | The status endpoint's `<ip>:<port>`. |
 | `server.status_public_url` | empty | Where players reach `/status` from outside. With the Dereth Network on, the world tells its hub this and its WebSocket URL. |
-| `server.publish_portals` | `false` | The status endpoint also serves `GET /portals` (below). |
+| `server.publish_portals` | `false` | The status endpoint also serves `GET /portals` and `GET /places` (below). |
 | `server.interactive_console` | `true` | Read console commands from standard input. |
 | `server.admin_channel` | `true` | A console for programs on this computer, on loopback. Its address and secret are in `admin-channel.json` in the server's folder (SETUP.md, "The console"). |
 | `server.source_url` | empty (the repository the build came from) | Where players are told the source is (see [License](#license)). |
@@ -226,7 +226,7 @@ address. It has no authentication, so keep it on loopback or a private network.
  "landblocks_loaded":9,"content_hash":"1b260e4e…a8a8","corrections_digest":"v1:aea10e6ae7317bfe",
  "era":"eor","features":{"ratings":true,"consolidated_weapon_skills":true,…,"spell_research":false,
  "chess":true},"dats":{"portal":2072,"cell":982,"local":994,"highres":497,"patching":false},
- "client_versions":["1802"],"websocket_url":null,
+ "client_versions":["1802"],"websocket_url":null,"portals":null,"places":null,
  "not_ported":{"ACE: EventManager.Initialize":1}}
 ```
 
@@ -234,6 +234,8 @@ address. It has no authentication, so keep it on loopback or a private network.
 - `era` is the `[era] profile`, and `features` lists every system and whether the world has it.
 - `dats` gives the iterations of the server's data files, which it compares a client's against,
   and whether it patches them.
+- `portals` and `places` are the paths of the portal table and the places below, on this
+  endpoint, or `null` when the world does not publish them.
 - `not_ported` lists each unported ACE member this process has reached, and how often.
 
 ### The portal table
@@ -241,8 +243,8 @@ address. It has no authentication, so keep it on loopback or a private network.
 With `server.publish_portals = true` (default `false`), the endpoint also answers `GET /portals`
 with every portal placed in the world, where it leads and its level limits, so a client can route a
 character through portals. ACE publishes nothing like it. With the switch off, `/portals` is `404`.
-The table is read from the loaded world content (no landblock is loaded for it), once, on the first
-request.
+The table is read from the loaded world content (no landblock is loaded for it), once, as the server
+starts; until it is ready, `/portals` answers `503`.
 
 It is `text/tab-separated-values; charset=utf-8`, fields separated by a tab, every line ending in a
 line feed:
@@ -262,6 +264,29 @@ portal	published	<wcid>	<name>	<from>	<to>	0	0	0	<min level or ->	<max level or 
 - The level limits are the weenie's `MinLevel` and `MaxLevel` (ints 86 and 87), or `-` without one.
 - A name (the weenie's `Name`) has each tab, line feed and carriage return replaced by a space, and
   each backslash written `\\`. The world name is written the same way.
+
+### The places
+
+With the same switch, the endpoint also answers `GET /places` with the places the world puts down:
+its lifestones, its portals and where they lead, its vendors, and the people who cannot be
+attacked. A client draws them on its map and lists them, under what its player has seen. Only what
+the world content places is listed: never a player, nothing anyone carries and no house owner. It
+is read with the portal table, and is `404` with the switch off and `503` until it is ready.
+
+```
+dereth-places-store	1
+world	<world name>
+place	<kind>	published	<wcid>	<name>	<at>	0	0	-	<to or ->
+```
+
+- One `place` line for each landblock instance whose weenie is a lifestone (`lifestone`), a portal
+  (`portal`), a vendor (`vendor`), or a creature (`Creature` or `Cow`) whose item type is a
+  creature's and whose `Attackable` is false (`npc`). A weenie whose `UiHidden` is true is left out.
+- They are ordered by cell, then kind in that order, then `wcid`, then instance.
+- `at` is where it stands, and a portal's `to` where it leads (`-` when its weenie names no
+  destination), each written as the portal table writes positions. Names are written the same way.
+- The two zeros are when the place was first and last seen, which a server does not know, and the
+  `-` is a house's owner, which it never names.
 
 ## License
 

@@ -21,6 +21,8 @@ dereth-primitives.workspace = true
 dereth-client-contract.workspace = true
 dereth-client-runtime.workspace = true
 dereth-client-model.workspace = true
+# The places of a world learned while playing, which the map draws.
+dereth-navigation.workspace = true
 # The world's address, read from the host and port as the connection reads them: what the
 # characters' own files are kept by.
 dereth-client-net.workspace = true

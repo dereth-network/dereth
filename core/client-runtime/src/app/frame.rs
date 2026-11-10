@@ -192,6 +192,7 @@ impl<S: Shell> App<S> {
         // therefore of the typing barrier. It is before `WorldScene::update` reads `char_input`,
         // and after step 7 because the UI gets first refusal.
         self.travel_use_time();
+        self.places_use_time();
         self.apply_input_actions(shell);
         self.apply_orbit_camera();
         spans.step(FrameStep::WorldViewStep);

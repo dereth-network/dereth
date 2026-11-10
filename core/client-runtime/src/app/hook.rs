@@ -114,6 +114,9 @@ impl<S: Shell> App<S> {
                 &self.travel_status,
                 (!self.travel.store().world.is_empty()).then(|| self.travel.store()),
             )
+            .with_world_places(
+                (!self.travel.places().world.is_empty()).then(|| self.travel.places()),
+            )
             .with_control(
                 // The player's own movement since the hook last ran, carried out or still to be
                 // offered, under any interface.

@@ -36,6 +36,7 @@ mod input;
 mod interaction;
 mod motion;
 mod movement;
+mod places;
 mod report;
 mod scripted;
 mod session;
@@ -849,15 +850,18 @@ pub struct App<S: Shell> {
     nav_academies: Option<Vec<u16>>,
     /// Spells that fizzled since the travel's last step.
     travel_fizzles: usize,
-    /// The server's published portal table, when a host fetched it (`--nav-published`), taken
+    /// The documents the server publishes, as a host fetched them (`--nav-published`, or those
+    /// the world's status names, `--world-status`): its portal table and its places, each taken
     /// into the travel at the next frame.
-    pub published_portals: std::sync::Arc<std::sync::Mutex<Option<String>>>,
+    pub published: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
     /// How many times the movement stage has carried out the player's own movement of the
     /// character (a key, a stick or a mouse button, under any interface), and how many of those
     /// the frame hook and the travel had heard of when each last ran.
     player_moves: u64,
     hook_player_moves: u64,
     travel_player_moves: u64,
+    /// The house profiles the world's places have taken in, of those the model has received.
+    places_house_notices: u64,
     /// The last reported, so a transition is logged once.
     pub last_link_status: Option<crate::net::LinkStatus>,
     /// The bad-packets-received counter, reported when it moves.

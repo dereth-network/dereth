@@ -32,6 +32,8 @@ pub mod hud;
 /// Plugins on the desktop: the plugins folder, the stores, and the host in the frame.
 pub mod player_count;
 pub mod plugins;
+/// What the world's server publishes, read off the frame's thread.
+pub mod published;
 
 /// The Dereth client, as a product on the desktop host.
 #[derive(Debug, Clone, Copy, Default)]

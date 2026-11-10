@@ -137,6 +137,8 @@ pub struct HookFrame<'a> {
     pub travel: &'a crate::travel::TravelStatus,
     /// This world's portal and recall knowledge, once a world is entered.
     pub travel_store: Option<&'a dereth_navigation::PortalStore>,
+    /// This world's places as the client has learned them, once a world is entered.
+    pub world_places: Option<&'a dereth_navigation::PlaceStore>,
     hidden: Vec<usize>,
     printed: Vec<ChatMessage>,
     requests: Vec<UiRequest>,
@@ -472,6 +474,7 @@ impl<'a> HookFrame<'a> {
             messages: &[],
             travel: &NO_TRAVEL,
             travel_store: None,
+            world_places: None,
             hidden: Vec::new(),
             printed: Vec::new(),
             requests: Vec::new(),
@@ -491,6 +494,16 @@ impl<'a> HookFrame<'a> {
     ) -> Self {
         self.travel = travel;
         self.travel_store = store;
+        self
+    }
+
+    /// The same frame, with this world's learned places.
+    #[must_use]
+    pub const fn with_world_places(
+        mut self,
+        places: Option<&'a dereth_navigation::PlaceStore>,
+    ) -> Self {
+        self.world_places = places;
         self
     }
 

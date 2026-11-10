@@ -48,6 +48,8 @@ declare nav: {
 	show_journey: (on: boolean) -> boolean,
 	-- The portals this world's store knows: where each stands and sends, how it is known (learned, published, hint), its uses, failures and level range, and why it was retired.
 	known_portals: () -> any,
+	-- The places of this world the client has learned: each lifestone, portal, vendor, person and house it was shown, where it stands, how it is known, when it was seen, and a house's owner.
+	known_places: () -> any,
 	-- Where the character's recalls have sent it: each recall (`spell <id>`, `lifestone`, `marketplace`) and its landing.
 	recalls: () -> any,
 }

@@ -22,7 +22,7 @@
 //! taken up when they are answered, some frames later; the character stands while it waits.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use dereth_dat::RetailDatStore;
@@ -39,6 +39,13 @@ use dereth_primitives::{CellId, DataId, Frame, LandblockId, ObjectId, Position, 
 use dereth_world_data::land_source::DatLandSource;
 
 use crate::planning::{Answer, Goal, Job, Planning};
+
+mod places;
+pub use places::PlaceSeen;
+mod published;
+pub use published::{
+    published_documents, Answered, Fetched, PublishedReading, PUBLISHED_AGAIN, PUBLISHED_TRIES,
+};
 
 /// A setup resolver over the dat store, memoised.
 pub type Setups = Box<dyn Fn(DataId) -> Option<Arc<SetupGeometry>>>;
@@ -432,6 +439,24 @@ pub struct StoreFiles {
     pub prefix: String,
 }
 
+impl StoreFiles {
+    /// Where a client run on `cfg` keeps the travel's files: in `--nav-store`'s folder, or beside
+    /// the preferences file.
+    #[must_use]
+    pub fn of(cfg: &crate::config::Config) -> Self {
+        match &cfg.nav_store {
+            Some(dir) => Self {
+                dir: Some(dir.clone()),
+                prefix: String::new(),
+            },
+            None => Self {
+                dir: cfg.preferences_file.parent().map(Path::to_path_buf),
+                prefix: String::from("navigation-"),
+            },
+        }
+    }
+}
+
 /// How long a used door is waited for to stand open, seconds; and how many uses it gets before
 /// the walk goes round it for now. A door is judged locked only on the server's answer. With no
 /// way round, a door with no such answer gets this many uses once more, and that is the most a
@@ -819,8 +844,12 @@ pub fn planner(land: &Arc<DatLandSource>, store: &Arc<RetailDatStore>) -> Result
 pub struct Travel {
     files: StoreFiles,
     portals: PortalStore,
-    /// What the server publishes, kept to merge into each world's store as it loads.
+    /// This world's places, and what is being learned of them ([`places`]).
+    places: places::Learning,
+    /// What the server publishes, kept to merge into each world's store as it loads: its
+    /// portal table, and its places.
     published: Vec<dereth_navigation::PortalEdge>,
+    published_places: Vec<dereth_navigation::KnownPlace>,
     planning: Option<Planning>,
     /// The planning's next job number.
     jobs: u64,
@@ -882,7 +911,9 @@ impl Travel {
         Self {
             files,
             portals: PortalStore::default(),
+            places: places::Learning::default(),
             published: Vec::new(),
+            published_places: Vec::new(),
             planning: None,
             jobs: 0,
             routes_asked: BTreeMap::new(),
@@ -1094,6 +1125,7 @@ impl Travel {
         if self.portals.world == world {
             return;
         }
+        self.load_places(world);
         self.portals = PortalStore::new(world);
         if let Some(path) = self.store_path(&file_name(world)) {
             match crate::platform::files::read_to_string(&path) {
@@ -1129,6 +1161,20 @@ impl Travel {
             self.portals.portals().len(),
             self.portals.recalls().len()
         );
+    }
+
+    /// Take in a document the server publishes, told by its first line: its portal table
+    /// ([`Self::set_published`]) or its places ([`Self::set_published_places`]). How many
+    /// portals or places it held.
+    ///
+    /// # Errors
+    /// The text is neither.
+    pub fn take_published(&mut self, text: &str) -> Result<usize, String> {
+        if text.starts_with("dereth-places-store") {
+            self.set_published_places(text)
+        } else {
+            self.set_published(text)
+        }
     }
 
     /// Take in the portal table the server publishes (the store's text form, its edges of

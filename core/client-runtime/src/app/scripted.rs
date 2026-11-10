@@ -3,17 +3,12 @@
 use super::*;
 
 impl<S: Shell> App<S> {
-    /// The world's identity for the travel's store: its name and the server's address, since two
-    /// servers may share a name and hold different portals.
-    fn travel_world(&self) -> Option<String> {
-        self.host_state.world_name.as_ref().map(|n| {
-            // `-h` may carry the port itself.
-            if self.cfg.host.contains(':') {
-                format!("{n}@{}", self.cfg.host)
-            } else {
-                format!("{n}@{}:{}", self.cfg.host, self.cfg.port)
-            }
-        })
+    /// The world's identity for the travel's store ([`Config::travel_world`]).
+    pub(super) fn travel_world(&self) -> Option<String> {
+        self.host_state
+            .world_name
+            .as_ref()
+            .map(|n| self.cfg.travel_world(n))
     }
 
     /// The travel's frame, with `--nav-proof`'s before it: read where the player is and what
@@ -32,13 +27,13 @@ impl<S: Shell> App<S> {
             }
         }
         let published = self
-            .published_portals
+            .published
             .lock()
-            .ok()
-            .and_then(|mut p| p.take());
-        if let Some(text) = published {
-            if let Err(e) = self.travel.set_published(&text) {
-                tracing::warn!("--nav-published: {e}");
+            .map(|mut p| std::mem::take(&mut *p))
+            .unwrap_or_default();
+        for text in published {
+            if let Err(e) = self.travel.take_published(&text) {
+                tracing::warn!("a published document: {e}");
             }
         }
         // Nothing asks for a journey or a plan: the travel keeps its world's knowledge loaded

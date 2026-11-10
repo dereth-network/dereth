@@ -358,6 +358,12 @@ servers added and the data sets) is kept in the browser's local storage, never s
   never starts or offers a relay of its own. Worlds reached directly are listed first. A server the
   player added that the hub's list names too, by its status address or its WebSocket URL, is shown
   once, as the hub's world.
+- **A world's places.** For a world whose status address the page may read, the client reads the
+  portal table and the places its status names (an Empyrean world with `publish_portals` on), on
+  the status's own address and nowhere else, as the desktop client does, and draws them on the
+  map under what the player found. What the player finds is kept in this browser, per world, with
+  the client's own files. The server answers these as it answers its status, so the page's origin
+  must be in its `allowed_origins`.
 
 ## The picture
 

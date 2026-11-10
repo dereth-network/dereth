@@ -56,7 +56,10 @@ dereth-headless -- the dere client with no window and no graphics device
                        the host's own); a run on a busy machine may raise it
   --peers <dir>        the plugins' bus between clients reaches the other headless clients
                        naming the same folder (loopback only)
-  --nav-published <file>  the server's published portal table, for the client's journeys
+  --nav-published <file>  the server's published portal table or places, for the client's
+                       journeys and its record of the world's places
+  --world-status <url>  the world's status document (http://), and the portal table and
+                       places it names
   --log <filter>       the client's log on stderr: a level (error, warn, info, debug,
                        trace, off) or `level,target=level,...` (default: info)
   -h, --help           this text
@@ -193,6 +196,7 @@ fn real_main() -> Result<ExitCode, Box<dyn std::error::Error>> {
             "--nav-published" => {
                 opts.nav_published = Some(PathBuf::from(value("--nav-published")?));
             }
+            "--world-status" => opts.world_status = Some(value("--world-status")?),
             "--size" => {
                 let s = value("--size")?;
                 let (w, h) = s

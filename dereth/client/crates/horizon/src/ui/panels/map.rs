@@ -92,9 +92,11 @@ pub fn map_place(x: f32, y: f32) -> Option<(f64, f64)> {
 #[must_use]
 pub const fn marked_from(kind: PlaceKind) -> f32 {
     match kind {
-        PlaceKind::Town | PlaceKind::Landmark => 1.0,
+        PlaceKind::Town | PlaceKind::Landmark | PlaceKind::Dungeon => 1.0,
+        PlaceKind::Lifestone | PlaceKind::Portal => 3.0,
         PlaceKind::Mansion => 4.0,
-        PlaceKind::Villa | PlaceKind::Cottage => 6.0,
+        PlaceKind::Villa | PlaceKind::Cottage | PlaceKind::Vendor => 6.0,
+        PlaceKind::Npc => 10.0,
     }
 }
 
@@ -106,6 +108,11 @@ pub const fn colour(kind: PlaceKind) -> u32 {
         PlaceKind::Cottage => 0xFF40_B050,
         PlaceKind::Villa => 0xFF40_70E0,
         PlaceKind::Mansion => 0xFFE0_4040,
+        PlaceKind::Lifestone => 0xFF60_C0F0,
+        PlaceKind::Portal => 0xFFB0_60E0,
+        PlaceKind::Dungeon => 0xFFE0_8030,
+        PlaceKind::Vendor => 0xFFE0_E050,
+        PlaceKind::Npc => 0xFFC8_C8C8,
     }
 }
 
@@ -134,6 +141,10 @@ enum Picture {
     Failed,
 }
 
+/// What the places drawn were made from: the world, the revision of its learned places, and the
+/// data's places, by their address.
+type LearnedFrom = (String, u64, usize);
+
 /// Which part of the picture the map window shows.
 #[derive(Debug)]
 pub struct MapView {
@@ -149,6 +160,9 @@ pub struct MapView {
     tiles: HashMap<(u32, u32), f64>,
     /// The places the data names, once read.
     places: Option<Arc<Vec<Place>>>,
+    /// Those and the places the player learned of this world, and what they were made from: the
+    /// world, its places' revision and the data's places.
+    with_learned: Option<(LearnedFrom, Arc<Vec<Place>>)>,
     /// The world the picture is drawn from.
     picture: Picture,
     /// The data it is drawn from, by its address; `None` for a picture handed over.
@@ -166,6 +180,7 @@ impl Default for MapView {
             drag: None,
             tiles: HashMap::new(),
             places: None,
+            with_learned: None,
             picture: Picture::None,
             data: None,
             given_overview: None,
@@ -256,6 +271,32 @@ impl MapView {
         self.data = None;
         self.given_overview = built.overview;
         self.places = Some(built.places);
+    }
+
+    /// The places to draw: the data's, and over them those the player learned of `world` (its
+    /// places and their revision), made again only when either changes.
+    pub fn places_with(
+        &mut self,
+        world: Option<&(Arc<dereth_navigation::PlaceStore>, u64)>,
+    ) -> Option<Arc<Vec<Place>>> {
+        let data = self.places.clone()?;
+        let Some((store, revision)) = world else {
+            return Some(data);
+        };
+        let key = (store.world.clone(), *revision, Arc::as_ptr(&data) as usize);
+        if let Some((k, all)) = &self.with_learned {
+            if *k == key {
+                return Some(Arc::clone(all));
+            }
+        }
+        let mut all = (*data).clone();
+        all.extend(dereth_scene::world_map::places::learned(
+            store.places(),
+            &data,
+        ));
+        let all = Arc::new(all);
+        self.with_learned = Some((key, Arc::clone(&all)));
+        Some(all)
     }
 
     /// Whether the world the tiles are drawn from is here.
@@ -431,7 +472,7 @@ impl Windows {
         }
         self.map_picture = Some(area);
         self.tell_map_presses(ctx, area);
-        self.map_places(p, ctx, area);
+        self.map_places(p, ctx, state, area);
         // The plugins' points and lines on the map.
         if !self.plugins.frame.marks.map.is_empty() {
             let view = &self.map_view;
@@ -600,8 +641,14 @@ impl Windows {
     /// The places over the picture: the towns' icons and names, then the landmarks' and the
     /// houses' marks as the zoom shows them, with the landmarks' names where they fit; and the name
     /// and place of the one under the pointer. None until the data has been read.
-    fn map_places(&mut self, p: &mut Painter<'_>, ctx: &mut Ctx<'_>, area: Rect) {
-        let Some(places) = self.map_view.places.clone() else {
+    fn map_places(
+        &mut self,
+        p: &mut Painter<'_>,
+        ctx: &mut Ctx<'_>,
+        state: &GameState,
+        area: Rect,
+    ) {
+        let Some(places) = self.map_view.places_with(state.world_places.as_ref()) else {
             return;
         };
         let view = &self.map_view;
@@ -669,7 +716,7 @@ impl Windows {
                         nearest = Some((d, place));
                     }
                 }
-                if place.kind == PlaceKind::Landmark {
+                if matches!(place.kind, PlaceKind::Landmark | PlaceKind::Dungeon) {
                     let (w, h) = (p.measure(&small, &place.name), p.line_height(&small));
                     let r = Rect::new(at.0 + mark_side, at.1 - h / 2.0, w, h);
                     if !taken.iter().any(|t| t.intersect(&r).is_some()) {

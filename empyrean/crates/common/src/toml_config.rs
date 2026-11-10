@@ -210,7 +210,8 @@ pub const SECTIONS: &[Section] = &[
                 "PublishPortals",
                 "Also serve GET /portals on the status endpoint: every portal placed in the world,\n\
                  with its destination and level limits, as a tab-separated table that clients use to\n\
-                 route through portals. Off by default; it needs status_address.",
+                 route through portals; and GET /places: its lifestones, portals, vendors and people,\n\
+                 for clients' maps. Off by default; it needs status_address.",
             ),
             e(
                 "interactive_console",

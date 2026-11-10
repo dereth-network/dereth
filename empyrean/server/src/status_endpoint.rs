@@ -19,10 +19,12 @@
 //! - `GET /v1/world`: the same document, at the address a launcher's world registry names.
 //!
 //! With `server.publish_portals` on, it also answers `GET /portals` with the world's portal table
-//! (`503` until the table, built once on a thread of its own from start-up, is ready)
-//! ([`crate::portal_table`]: where each placed portal stands, where it leads and its level limits,
-//! as `text/tab-separated-values`), built from the world content on the first request and kept;
-//! with it off, `/portals` is `404` like any other path.
+//! and `GET /places` with its places (`503` until they, built once on a thread of their own from
+//! start-up, are ready) ([`crate::portal_table`]: where each placed portal stands, where it leads
+//! and its level limits; where each lifestone, portal, vendor and person the world places stands;
+//! both as `text/tab-separated-values`), and the status document names them (`"portals"` and
+//! `"places"`, each a path on this endpoint, `null` when not published); with it off, `/portals`
+//! and `/places` are `404` like any other path.
 //!
 //! The snapshot is taken on the world thread (a command through the world queue), so the
 //! endpoint never reads the world from another thread. Anything else is `404`, or `405` for a method
@@ -110,6 +112,10 @@ pub struct StatusSnapshot {
     pub client_versions: Vec<String>,
     /// The WebSocket endpoint's URL (`server.websocket`), `None` when it is off.
     pub websocket_url: Option<String>,
+    /// The path of the portal table on this endpoint, `None` when it is not published.
+    pub portals: Option<String>,
+    /// The path of the world's places on this endpoint, `None` when they are not published.
+    pub places: Option<String>,
     /// Each `not_ported!` site reached in this process, with its hits, by name.
     pub not_ported: Vec<(String, u64)>,
 }
@@ -140,6 +146,8 @@ impl StatusSnapshot {
                 empyrean_net::handlers::authentication_handler::CLIENT_VERSION.to_owned(),
             ],
             websocket_url: None,
+            portals: None,
+            places: None,
             not_ported: empyrean_common::not_ported::global_snapshot()
                 .into_iter()
                 .map(|(k, v)| (k.to_owned(), v))
@@ -175,7 +183,7 @@ impl StatusSnapshot {
             .map(|v| json_string(v))
             .collect();
         format!(
-            "{{\"world_name\":{},\"version\":{},\"source_url\":{},\"uptime_seconds\":{},\"world_open\":{},\"shutting_down\":{},\"connections\":{},\"authenticated_connections\":{},\"players_online\":{},\"landblocks_loaded\":{},\"content_hash\":{},\"corrections_digest\":{},\"era\":{},\"features\":{{{}}},\"dats\":{dats},\"client_versions\":[{}],\"websocket_url\":{},\"not_ported\":{{{}}}}}\n",
+            "{{\"world_name\":{},\"version\":{},\"source_url\":{},\"uptime_seconds\":{},\"world_open\":{},\"shutting_down\":{},\"connections\":{},\"authenticated_connections\":{},\"players_online\":{},\"landblocks_loaded\":{},\"content_hash\":{},\"corrections_digest\":{},\"era\":{},\"features\":{{{}}},\"dats\":{dats},\"client_versions\":[{}],\"websocket_url\":{},\"portals\":{},\"places\":{},\"not_ported\":{{{}}}}}\n",
             json_string(&self.world_name),
             json_string(&self.version),
             json_string(&self.source_url),
@@ -192,6 +200,8 @@ impl StatusSnapshot {
             features.join(","),
             client_versions.join(","),
             self.websocket_url.as_deref().map_or_else(|| "null".to_owned(), json_string),
+            self.portals.as_deref().map_or_else(|| "null".to_owned(), json_string),
+            self.places.as_deref().map_or_else(|| "null".to_owned(), json_string),
             not_ported.join(","),
         )
     }
@@ -242,7 +252,8 @@ pub fn respond(request_line: &str, snapshot: impl FnOnce() -> Option<StatusSnaps
     respond_with_portals(request_line, snapshot, None)
 }
 
-/// [`respond`], also answering `/portals` from `portals` when it is published.
+/// [`respond`], also answering `/portals` and `/places` from `portals` when they are published,
+/// and naming them in the status document.
 #[must_use]
 pub fn respond_with_portals(
     request_line: &str,
@@ -262,7 +273,13 @@ pub fn respond_with_portals(
             None => response(503, "text/plain", "unavailable\n", head_only),
         },
         "/status" | "/v1/world" => match snapshot() {
-            Some(s) => response(200, "application/json", &s.to_json(), head_only),
+            Some(mut s) => {
+                if portals.is_some() {
+                    s.portals = Some("/portals".to_owned());
+                    s.places = Some("/places".to_owned());
+                }
+                response(200, "application/json", &s.to_json(), head_only)
+            }
             None => response(
                 503,
                 "application/json",
@@ -276,6 +293,15 @@ pub fn respond_with_portals(
                 503,
                 "text/plain",
                 "the portal table is being built; ask again shortly\n",
+                head_only,
+            ),
+        },
+        "/places" if portals.is_some() => match portals.and_then(PortalTable::places_ready) {
+            Some(document) => response(200, "text/tab-separated-values", document, head_only),
+            None => response(
+                503,
+                "text/plain",
+                "the places are being gathered; ask again shortly\n",
                 head_only,
             ),
         },
@@ -349,8 +375,8 @@ impl StatusEndpoint {
 /// Binds the endpoint and serves it on a thread of its own until the process ends or the
 /// endpoint is [shut down](StatusEndpoint::shutdown). `snapshot` is called once per `/status` or
 /// `/health` request and must answer within its own timeout. `portals`, when given, is served as
-/// `/portals`. A request from a page origin in `allowed_origins` is answered with that origin
-/// allowed.
+/// `/portals` and `/places`. A request from a page origin in `allowed_origins` is answered with
+/// that origin allowed.
 ///
 /// # Errors
 /// The address cannot be bound, or the thread cannot start.

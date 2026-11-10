@@ -21,9 +21,10 @@
 //!
 //! **Must never** read the player's data files from anywhere but the browser on the player's own
 //! machine (the dev runner that can stand in for browser storage binds `127.0.0.1` only), reach a
-//! network except over the one WebSocket to the server the player chose, or send the game's
-//! unencrypted protocol over plain `ws://` to anything but this machine (the launcher holds that
-//! rule, and refuses such a world before this module is loaded).
+//! network except over the one WebSocket to the server the player chose and the documents that
+//! world's status names on its own address, or send the game's unencrypted protocol over plain
+//! `ws://` to anything but this machine (the launcher holds that rule, and refuses such a world
+//! before this module is loaded).
 //!
 //! The launcher is a module of its own, which this one knows nothing of. The browser half, `browser`,
 //! compiles only for `wasm32`: the data files arrive through a
@@ -31,7 +32,8 @@
 //! browser's own storage through the same kind of calls (`overlay`), datagrams cross the
 //! WebSocket with a two-byte port in front ([`frame`]), and [`play`] runs the client shell's whole
 //! application on the browser's host ([`host`]), one frame per animation frame, with the plugins
-//! the player added to the page ([`plugins`]). Everything else here is platform-neutral and
+//! the player added to the page ([`plugins`]) and what the world's server publishes for its map
+//! and its journeys ([`published`]). Everything else here is platform-neutral and
 //! tested on the host.
 
 pub mod dats;
@@ -40,6 +42,7 @@ pub mod host;
 pub mod keycodes;
 pub mod play;
 pub mod plugins;
+pub mod published;
 pub use dereth_web_store::settings;
 
 #[cfg(target_arch = "wasm32")]

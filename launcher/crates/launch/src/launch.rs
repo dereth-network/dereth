@@ -9,7 +9,7 @@
 //!
 //! | client | form |
 //! |---|---|
-//! | Dereth | `dereth-client.exe -a <account> -v <password> -h <host> -p <port> --dat-dir <dir> [--classic-dat-dir <dir>] [--world-base <set>] [--era <era>] [--era-features <version>:<bits>] [--logon-version <string>] [--world-profile <name>]` |
+//! | Dereth | `dereth-client.exe -a <account> -v <password> -h <host> -p <port> --dat-dir <dir> [--classic-dat-dir <dir>] [--world-status <url>] [--world-base <set>] [--era <era>] [--era-features <version>:<bits>] [--logon-version <string>] [--world-profile <name>]` |
 //! | retail, ACE or Empyrean | `acclient.exe -a <account> -v <password> -h <host>:<port>` |
 //! | retail, GDLE | `acclient.exe -h <host> -p <port> -a <account>:<password>` |
 //!
@@ -23,7 +23,8 @@
 //! client is told nothing: it plays the end of retail from the later files its world is drawn
 //! from. A world that runs a client of its own
 //! ([`crate::known`]) also names the set its world is drawn from, the logon version its server
-//! accepts and the rules its client played by.
+//! accepts and the rules its client played by. A world whose status the launcher may read is
+//! named by its status's address, where the client finds what the server publishes of its world.
 
 use std::path::PathBuf;
 
@@ -178,6 +179,18 @@ impl WorldLaunch {
     }
 }
 
+/// The address of `world`'s status document when a launcher may read it
+/// ([`crate::direct::is_status_url`]): where the Dereth client finds what the world's server
+/// publishes (its portal table and its places), for its journeys and its map.
+#[must_use]
+pub fn world_status(world: &World) -> Option<&str> {
+    world
+        .status_url
+        .as_deref()
+        .filter(|u| crate::direct::is_status_url(u))
+        .map(str::trim)
+}
+
 /// Build the command line for a launch.
 pub fn plan(req: &LaunchRequest<'_>) -> Result<LaunchPlan, PlanError> {
     let ep = req.world.endpoint.as_ref().ok_or(PlanError::NoEndpoint)?;
@@ -211,6 +224,9 @@ pub fn plan(req: &LaunchRequest<'_>) -> Result<LaunchPlan, PlanError> {
                     .into_iter()
                     .map(Arg::Plain),
             );
+            if let Some(status) = world_status(req.world) {
+                args.extend([plain("--world-status"), plain(status)]);
+            }
             args.extend(describe(req.world).args().into_iter().map(Arg::Plain));
             // The world's plugin policy, for the client's plugin host to honour and show.
             let policy = req
@@ -397,6 +413,32 @@ mod tests {
             .unwrap()
             .argv("x")
             .ends_with(&["--plugin-policy".into(), "/tmp/eulmore.toml".into()]));
+    }
+
+    #[test]
+    fn a_worlds_status_reaches_the_dereth_client_when_a_launcher_may_read_it_and_never_retail() {
+        let (mut w, i) = (world(Emulator::Empyrean), inst(ClientKind::Dereth));
+        let status = |w: &World, i: &Installation| {
+            let argv = plan(&req(w, i)).unwrap().argv("x");
+            argv.iter()
+                .position(|a| a == "--world-status")
+                .map(|at| argv[at + 1].clone())
+        };
+        assert_eq!(status(&w, &i), None, "a world with no status");
+        w.status_url = Some("https://eulmore.example/status".into());
+        assert_eq!(
+            status(&w, &i).as_deref(),
+            Some("https://eulmore.example/status")
+        );
+        w.status_url = Some("http://127.0.0.1:9100/status".into());
+        assert_eq!(
+            status(&w, &i).as_deref(),
+            Some("http://127.0.0.1:9100/status")
+        );
+        w.status_url = Some("http://eulmore.example/status".into());
+        assert_eq!(status(&w, &i), None, "plain http to another machine");
+        w.status_url = Some("https://eulmore.example/status".into());
+        assert_eq!(status(&w, &inst(ClientKind::Retail)), None);
     }
 
     #[test]

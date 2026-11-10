@@ -286,6 +286,7 @@ pub fn snapshot<S: Shell>(
     g.vitae_display = v.vitae_display();
     g.combat_mode = v.combat_mode();
     g.coords = v.player_coords();
+    g.world_places = cx.world_places();
     g.heading = v.player_heading();
     g.title = v.display_title().unwrap_or_default();
     g.heritage = v.gender_heritage_display().unwrap_or_default();

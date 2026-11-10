@@ -362,9 +362,20 @@ pub struct Config {
     /// `--nav-store <dir>`: where the travel keeps what it learns about portals and recalls, one
     /// file per world, and finds `hints.tsv`. `None` keeps them beside the preferences file.
     pub nav_store: Option<PathBuf>,
-    /// `--nav-published <url>`: a server's published portal table (`http://`, `https://`, or a
-    /// file), fetched at start and taken into the travel's store as the server's knowledge.
+    /// `--nav-published <url>`: a server's published portal table or places (`http://`,
+    /// `https://`, or a file), fetched at start and taken into the travel's stores as the
+    /// server's knowledge.
     pub nav_published: Option<String>,
+    /// `--world-status <url>`: the world's status document (`http://` or `https://`), which names
+    /// the documents the server publishes (its portal table and its places), fetched at start
+    /// and taken into the travel as `--nav-published`'s are. The launcher gives it for a world
+    /// whose status it reads.
+    pub world_status: Option<String>,
+    /// `--world-address <host:port>`: the world's address as its launcher lists it, which names
+    /// what the travel keeps of the world (its portals and places) in place of the address the
+    /// client gives its server: a browser's, whose server is the far end of its WebSocket, gives
+    /// every server the same.
+    pub world_address: Option<String>,
     /// `--nav-prep "<line>;<line>"`: chat lines typed once in the world, as the player types them:
     /// with `--nav-proof`, before it teleports, to set a test character up; without, five seconds
     /// after the character is in the world.
@@ -588,6 +599,8 @@ impl Default for Config {
             nav_proof: None,
             nav_store: None,
             nav_published: None,
+            world_status: None,
+            world_address: None,
             nav_prep: Vec::new(),
             cell_statics: true,
             mesh_collision: true,
@@ -917,6 +930,18 @@ const REBUILD_SWITCHES: &[Switch] = &[
     // A server's published portal table.
     Switch {
         long: "nav-published",
+        short: None,
+        arity: Arity::Required,
+    },
+    // The world's status document, which names what the server publishes.
+    Switch {
+        long: "world-status",
+        short: None,
+        arity: Arity::Required,
+    },
+    // The world's address as its launcher lists it, for what the travel keeps of it.
+    Switch {
+        long: "world-address",
         short: None,
         arity: Arity::Required,
     },
@@ -1876,6 +1901,10 @@ impl Config {
             }
             "nav-store" => self.nav_store = Some(PathBuf::from(v)),
             "nav-published" => self.nav_published = Some(v.to_owned()),
+            "world-status" => self.world_status = Some(v.to_owned()),
+            "world-address" => {
+                self.world_address = Some(v.trim().to_owned()).filter(|a| !a.is_empty());
+            }
             "nav-prep" => {
                 self.nav_prep = v
                     .split(';')
@@ -2021,6 +2050,19 @@ impl Config {
     #[must_use]
     pub fn will_connect(&self) -> bool {
         self.connect && !(self.account.is_empty() && self.host.is_empty())
+    }
+
+    /// The identity the travel keeps a world's portals and places under, for the world that
+    /// names itself `name`: its name and its address (`--world-address`, else the server's), since
+    /// two servers may share a name and hold different portals.
+    #[must_use]
+    pub fn travel_world(&self, name: &str) -> String {
+        match &self.world_address {
+            Some(address) => format!("{name}@{address}"),
+            // `-h` may carry the port itself.
+            None if self.host.contains(':') => format!("{name}@{}", self.host),
+            None => format!("{name}@{}:{}", self.host, self.port),
+        }
     }
 
     /// Whether a headless run keeps the system's clock: when asked (`--real-time`), or when it

@@ -49,7 +49,7 @@ impl EdgeSource {
         }
     }
 
-    fn parse(w: &str) -> Option<Self> {
+    pub(crate) fn parse(w: &str) -> Option<Self> {
         match w {
             "hint" => Some(Self::Hint),
             "published" => Some(Self::Published),
@@ -197,12 +197,12 @@ pub struct PortalStore {
 }
 
 /// A position as one field: `0xCELLID x y z`.
-fn write_position(p: &Position) -> String {
+pub(crate) fn write_position(p: &Position) -> String {
     let o = p.frame.origin;
     format!("0x{:08X} {:.3} {:.3} {:.3}", p.cell.0, o.x, o.y, o.z)
 }
 
-fn read_position(s: &str) -> Option<Position> {
+pub(crate) fn read_position(s: &str) -> Option<Position> {
     let mut w = s.split(' ');
     let cell = u32::from_str_radix(w.next()?.trim_start_matches("0x"), 16).ok()?;
     let x = w.next()?.parse().ok()?;
@@ -215,13 +215,13 @@ fn read_position(s: &str) -> Option<Position> {
 }
 
 /// A free-text field with its tabs and line breaks escaped.
-fn escape(s: &str) -> String {
+pub(crate) fn escape(s: &str) -> String {
     s.replace('\\', "\\\\")
         .replace('\t', "\\t")
         .replace('\n', "\\n")
 }
 
-fn unescape(s: &str) -> String {
+pub(crate) fn unescape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut chars = s.chars();
     while let Some(c) = chars.next() {
@@ -239,11 +239,11 @@ fn unescape(s: &str) -> String {
     out
 }
 
-fn opt<T: std::fmt::Display>(v: Option<T>) -> String {
+pub(crate) fn opt<T: std::fmt::Display>(v: Option<T>) -> String {
     v.map_or_else(|| String::from("-"), |v| v.to_string())
 }
 
-fn read_opt<T: std::str::FromStr>(s: &str) -> Result<Option<T>, ()> {
+pub(crate) fn read_opt<T: std::str::FromStr>(s: &str) -> Result<Option<T>, ()> {
     if s == "-" {
         Ok(None)
     } else {

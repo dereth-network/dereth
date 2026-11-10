@@ -52,6 +52,8 @@ dereth-server-updater.workspace = true
 
 [dev-dependencies]
 dereth-dat = { workspace = true, features = ["test-support"] }
+# The published places are read back as the client reads them.
+dereth-navigation.workspace = true
 # The WebSocket endpoint's tests are its clients: the frame, the handshake and wss://.
 dereth-transport.workspace = true
 tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }

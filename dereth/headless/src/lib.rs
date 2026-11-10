@@ -8,10 +8,10 @@
 //! **Must never** depend on any other `dereth-*` crate or on anything under `dereth/client/`
 //! (`cargo xtask seams`, `seam: headless deps`), name a key or device message (`seam: action seam
 //! code`), or open a window or a graphics device; it opens a socket only to the server
-//! `--connect` names. The only files it reads besides a script are a recorded session under
-//! `fixtures/packet-captures/`, the retail data in the directory `--dat-dir` names (else the
-//! working directory or the executable's), the password file `--password-file` names and the
-//! plugins' folders.
+//! `--connect` names and to the world's status `--world-status` names. The only files it reads
+//! besides a script are a recorded session under `fixtures/packet-captures/`, the retail data in
+//! the directory `--dat-dir` names (else the working directory or the executable's), the password
+//! file `--password-file` names and the plugins' folders.
 //!
 //! It is the runtime's application with nothing plugged in: `NullShell` for the front end,
 //! `NullPresentation` for the device, `Platform::headless` for the window and the clock. [`script`]
@@ -58,6 +58,7 @@ pub mod capture;
 pub mod daemon;
 pub mod dialogs;
 pub mod plugins;
+pub mod published;
 pub mod run;
 pub mod script;
 

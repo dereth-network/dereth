@@ -182,6 +182,14 @@ impl<'a, S: Shell> UiContext<'a, S> {
         &self.app.objects
     }
 
+    /// The places of the world the player is in that the client has learned, and their revision
+    /// (it goes up as they change); `None` before a world is entered.
+    #[must_use]
+    pub fn world_places(&self) -> Option<(Arc<dereth_navigation::PlaceStore>, u64)> {
+        let t = &self.app.travel;
+        (!t.places().world.is_empty()).then(|| (t.places_shared(), t.places_revision()))
+    }
+
     /// Where `id` stands against the player: whether it is outdoors (on the landscape rather than
     /// in a building or a dungeon) and how far it is, in metres. `None` while either has no place
     /// in the world.

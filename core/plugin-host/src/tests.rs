@@ -74,6 +74,8 @@ struct Harness {
     hidden: Vec<usize>,
     verbs: Vec<String>,
     storage: Shared,
+    /// The world's places the client has learned, as the frame offers them.
+    places: Option<dereth_navigation::PlaceStore>,
 }
 
 /// A package; active everywhere unless `extra_manifest` names its contexts (most tests here run
@@ -165,6 +167,7 @@ impl Harness {
             hidden: Vec::new(),
             verbs: Vec::new(),
             storage,
+            places: None,
         }
     }
 
@@ -179,7 +182,8 @@ impl Harness {
             self.time,
             chat,
             typed,
-        );
+        )
+        .with_world_places(self.places.as_ref());
         self.host.step(&mut frame);
         let out = frame.into_output();
         self.printed.extend(out.printed);
@@ -454,6 +458,57 @@ fn a_typed_command_reaches_the_plugin_that_claimed_it() {
     assert_eq!(
         h.printed_text(),
         ["[Plugins] Test test.cmd loaded.", "xp reset now 2"]
+    );
+}
+
+/// A plugin reads the places of this world the client learned: what each is, its name, where it
+/// stands, and a house's owner.
+#[test]
+fn a_plugin_reads_the_places_the_client_learned_of_this_world() {
+    use dereth_navigation::{EdgeSource, KnownPlace, PlaceKind, PlaceStore};
+    use dereth_primitives::{CellId, Frame, Position, Quat, Vec3};
+    let mut h = Harness::new(vec![package(
+        "test.places",
+        "commands.add('places', 'lists places', function()            for _, p in ipairs(nav.known_places()) do              chat.print(p.kind .. ' ' .. p.name .. ' ' .. p.source .. ' ' .. string.format('0x%08X', p.at.cell)                .. ' ' .. tostring(p.at.ns ~= nil) .. ' ' .. tostring(p.owner))            end            chat.print('places ' .. #nav.known_places())          end)",
+        "",
+    )]);
+    h.frame_with(0.05, &[], &[typed("places", "")]);
+    let at = |cell: u32| {
+        Position::new(
+            CellId(cell),
+            Frame::new(Vec3::new(132.0, 36.0, 60.0), Quat::IDENTITY),
+        )
+    };
+    let place = |kind, name: &str, cell: u32, owner: Option<&str>| KnownPlace {
+        kind,
+        source: EdgeSource::Learned,
+        wcid: Some(509),
+        name: name.to_owned(),
+        at: at(cell),
+        first_seen: 1,
+        last_seen: 2,
+        owner: owner.map(str::to_owned),
+        to: None,
+    };
+    let mut s = PlaceStore::new("Here@127.0.0.1:9000");
+    s.see(place(PlaceKind::Lifestone, "Life Stone", 0xA9B4_002A, None));
+    s.see(place(
+        PlaceKind::House,
+        "Villa",
+        0xA9B4_0011,
+        Some("Someone"),
+    ));
+    h.places = Some(s);
+    h.frame_with(0.05, &[], &[typed("places", "")]);
+    assert_eq!(
+        h.printed_text(),
+        [
+            "[Plugins] Test test.places loaded.",
+            "places 0",
+            "lifestone Life Stone learned 0xA9B4002A true nil",
+            "house Villa learned 0xA9B40011 true Someone",
+            "places 2",
+        ]
     );
 }
 

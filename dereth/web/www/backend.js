@@ -393,8 +393,9 @@ export function webBackend({ call, start, params, log, scale }) {
       counted,
       account,
       password,
-      // The launcher's interface for every world and the world's name, then the world's own words.
-      args: [...(page.interface_args ?? []), ...page.args],
+      // The launcher's interface for every world and the world's name, where the world is, then
+      // the world's own words.
+      args: [...(page.interface_args ?? []), ...(page.where_args ?? []), ...page.args],
       overlay: page.overlay_folder ? `overlays/${page.overlay_folder}` : '',
     });
     return { kind: 'launched', stays: true, world: page.world.name, account };

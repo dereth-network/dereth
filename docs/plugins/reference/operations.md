@@ -35,7 +35,7 @@ An operation that fails answers an error saying why (a wrong argument says which
 | `magic` | `magic.spell`, `magic.known` |
 | `files` | `files.package`, `files.package_list`, `files.data`, `files.data_list`, `files.save_data` |
 | `act` | `act.request` |
-| `nav` | `nav.owner`, `nav.journey`, `nav.show_journey`, `nav.known_portals`, `nav.recalls`, `nav.sight`, `nav.parse` |
+| `nav` | `nav.owner`, `nav.journey`, `nav.show_journey`, `nav.known_portals`, `nav.known_places`, `nav.recalls`, `nav.sight`, `nav.parse` |
 | `meta` | `meta.parse` |
 | `profile` | `profile.usd` |
 | `text` | `text.match` |
@@ -53,7 +53,7 @@ An operation that fails answers an error saying why (a wrong argument says which
 | `host` | `host.info`, `host.has` |
 | `time` | `time.clock`, `time.unix` |
 
-87 operations in 31 namespaces.
+88 operations in 31 namespaces.
 
 ## `console`
 
@@ -406,6 +406,13 @@ The portals this world's store knows: where each stands and sends, how it is kno
 
 - WIT: `nav-known-portals: func() -> result<value, string>`
 - Lua: `nav.known_portals() -> any`
+
+### `nav.known_places`
+
+The places of this world the client has learned: each lifestone, portal, vendor, person and house it was shown, where it stands, how it is known, when it was seen, and a house's owner.
+
+- WIT: `nav-known-places: func() -> result<value, string>`
+- Lua: `nav.known_places() -> any`
 
 ### `nav.recalls`
 

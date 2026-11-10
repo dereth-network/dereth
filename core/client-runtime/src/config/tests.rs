@@ -1130,6 +1130,10 @@ fn travel_switches_take_their_values_even_lines_that_begin_with_a_slash() {
         "store",
         "--nav-published",
         "http://127.0.0.1:19341/portals",
+        "--world-status",
+        "http://127.0.0.1:19341/status",
+        "--world-address",
+        "play.example.org:9050",
     ])
     .expect("parses");
     assert_eq!(c.nav_prep, ["/journey Drudge Hideout", "@heal"]);
@@ -1138,6 +1142,31 @@ fn travel_switches_take_their_values_even_lines_that_begin_with_a_slash() {
         c.nav_published.as_deref(),
         Some("http://127.0.0.1:19341/portals")
     );
+    assert_eq!(
+        c.world_status.as_deref(),
+        Some("http://127.0.0.1:19341/status")
+    );
+    assert_eq!(c.world_address.as_deref(), Some("play.example.org:9050"));
+}
+
+/// Behaviour: none (the client's own key for what it keeps of a world).
+#[test]
+fn a_world_is_kept_under_its_name_and_the_address_its_launcher_lists() {
+    let mut c = parse(&["-a", "x", "-h", "10.0.0.1", "-p", "9010"]).expect("parses");
+    assert_eq!(c.travel_world("Server"), "Server@10.0.0.1:9010");
+    c.host = "10.0.0.1:9020".into();
+    assert_eq!(c.travel_world("Server"), "Server@10.0.0.1:9020");
+    // A browser gives every server one address; the launcher's tells them apart.
+    let c = parse(&[
+        "-a",
+        "x",
+        "-h",
+        "127.0.0.1:9000",
+        "--world-address",
+        "play.example.org:9050",
+    ])
+    .expect("parses");
+    assert_eq!(c.travel_world("Server"), "Server@play.example.org:9050");
 }
 
 /// Behaviour: presentation.window.the-window-opens-at-the-size-it-closed-at

@@ -46,6 +46,8 @@ tracing.workspace = true
 
 [dev-dependencies]
 dereth-client-sdk = { workspace = true, features = ["test-support"] }
+# The places a test of what a world publishes reads back.
+dereth-navigation.workspace = true
 # Blocks on the GPU backend's asynchronous set-up in the native tests.
 pollster.workspace = true
 

@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`RELEASING.md`](RELEASING.md)).
 
 ## Unreleased
+- Worlds that publish their portals now also publish lifestones, shops and people.
 - Launch worlds now accept players on the retail CD's 1999 data files.
 
 ## 0.3.13 (2026-11-10)

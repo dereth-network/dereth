@@ -127,6 +127,17 @@ async function readPlugins() {
 }
 globalThis.derethPluginsLoad = () => pluginBundle;
 
+// What the world's server publishes (its portal table and its places), fetched for the client a
+// request at a time from the addresses its status names; each answer is handed back as a line,
+// the request's number and the HTTP status (or `error`), then the body (or why).
+const publishedAnswers = [];
+globalThis.derethPublishedFetch = (id, url) => {
+  fetch(url, { cache: 'no-store', redirect: 'error' })
+    .then(async (res) => publishedAnswers.push(`${id} ${res.status}\n${res.ok ? await res.text() : ''}`))
+    .catch((e) => publishedAnswers.push(`${id} error\n${e?.message ?? e}`));
+};
+globalThis.derethPublishedNext = () => publishedAnswers.shift() ?? '';
+
 // The store opened over the data files, by the files and the set the world is drawn from: a later
 // start on the same ones takes the files up again and has no need to open it anew.
 let storeKey = null;

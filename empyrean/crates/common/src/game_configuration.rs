@@ -122,8 +122,9 @@ pub struct GameConfiguration {
     #[serde(rename = "StatusPublicUrl")]
     pub status_public_url: String,
     /// Not ACE: whether the status endpoint also serves `GET /portals`, the world's placed portals
-    /// with their destinations and level limits, for clients that route through portals (default
-    /// false).
+    /// with their destinations and level limits, for clients that route through portals, and
+    /// `GET /places`, its placed lifestones, portals, vendors and people, for clients' maps
+    /// (default false).
     /// DIVERGE: an extra key; ACE publishes no portal table.
     #[serde(rename = "PublishPortals")]
     pub publish_portals: bool,

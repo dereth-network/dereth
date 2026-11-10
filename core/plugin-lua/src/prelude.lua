@@ -577,6 +577,10 @@ api.nav = {
 	known_portals = function()
 		return hostcall("nav.known_portals")
 	end,
+	-- The places of this world the client has learned.
+	known_places = function()
+		return hostcall("nav.known_places")
+	end,
 	-- Where the character's recalls have sent it.
 	recalls = function()
 		return hostcall("nav.recalls")

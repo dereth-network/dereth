@@ -63,6 +63,8 @@ pub struct Play {
     world_players: Rc<std::cell::Cell<Option<u32>>>,
     /// The cursor [`Play::cursor_change`] last returned.
     cursor_shown: Option<(dereth_primitives::DataId, i32, i32)>,
+    /// The reading of what the world's server publishes, while it lasts.
+    published: Option<crate::published::Published>,
 }
 
 impl std::fmt::Debug for Play {
@@ -151,6 +153,10 @@ impl Play {
         ));
         cfg.apply_args(world_args).map_err(|e| e.to_string())?;
         let logon_version = cfg.logon_version.clone();
+        let published = cfg
+            .world_status
+            .as_deref()
+            .and_then(crate::published::Published::new);
         // The world is built where the server puts the player, so it waits for world entry, as
         // the desktop client's does when it connects. The profile's scene policy, with the
         // browser's one difference: the WebSocket is not the runtime's socket connection, so the
@@ -223,6 +229,7 @@ impl Play {
             frames: 0,
             world_players,
             cursor_shown: None,
+            published,
         })
     }
 
@@ -248,6 +255,21 @@ impl Play {
         }
         self.frames += 1;
         self.app.frame()
+    }
+
+    /// This frame's turn at reading what the world's server publishes (its portal table and its
+    /// places), for the client's map and its journeys: the answers the worker has (`next`, an
+    /// empty one when it has no more), each document taken in at the client's next frame; then
+    /// the request for the worker to start now, by its number and address. See
+    /// [`crate::published`].
+    pub fn published_step(&mut self, next: impl FnMut() -> String) -> Option<(u32, String)> {
+        let reading = self.published.as_mut()?;
+        let now = self.app.clock().local_time;
+        let asked = reading.step(now, next, &self.app.published);
+        if reading.done() {
+            self.published = None;
+        }
+        asked
     }
 
     /// How many players the world said it has at login, once each time it says so.

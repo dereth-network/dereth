@@ -164,6 +164,28 @@ first: what the character learned by using a portal, what the server publishes, 
 prefers what was learned, tries a hint only when it is clearly worth it, and never routes through a
 portal the character was refused at until a use of it succeeds.
 
+A portal the player uses by hand is learned the same way as one a journey uses. The store learns
+where it sent the character, but only when the teleport began at that portal within 20 seconds
+of the use. A recall, or the server moving the character, teaches nothing.
+
+### The places it has learned
+
+`nav.known_places()` lists the places of this world the client has learned as the player plays:
+`{ kind, name, class, source, at, seen, owner }`.
+- `kind` is `lifestone`, `portal`, `vendor`, `npc` (a person who is neither a vendor nor
+  attackable) or `house`.
+- `at` is where the place stands, as `game.player.position` gives places.
+- `seen` is when it was last seen, in seconds since 1970.
+- `owner` is a house's owner; a house without one is for sale.
+
+Each place is learned when the server puts it in the world in front of the character. A house is
+learned when the player uses its crystal, along with the owner the server names. Places are kept
+per world, as the portals are, and never include a player or anything carried. A place is not
+forgotten for being out of sight: seeing it again updates it.
+
+A world whose server publishes its places adds them too, with `source` `published` and `seen` 0
+until the player sees them. What the player saw always wins over what the server says.
+
 ## Paths and lines of sight
 
 The client's own planner, the one its journeys walk, answers two questions without moving the

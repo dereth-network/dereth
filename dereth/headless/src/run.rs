@@ -4,8 +4,8 @@
 //! [`HeadlessShell`] for the front end (no UI, only the game's questions and pop-ups kept for the
 //! script), `NullPresentation` for the device, `NullWindow` for the window, `FixedStepClock` for
 //! the clock. There is no window, no graphics device and no UI; a socket is opened only to the
-//! server [`Options::connect`] names, and no data file is read beyond the retail dats
-//! [`Options::dat_dir`] names and the plugins' folders.
+//! server [`Options::connect`] names and to the status [`Options::world_status`] names, and no
+//! data file is read beyond the retail dats [`Options::dat_dir`] names and the plugins' folders.
 //!
 //! Everything this module prints goes through one `Write`, one line per fact, so the whole run is
 //! a text file a test can compare.
@@ -87,9 +87,13 @@ pub struct Options {
     /// `--password`; the script's `enter` then takes a character into the world.
     pub connect: Option<String>,
     pub password: String,
-    /// `--nav-published <file>`: the server's published portal table, read at start and taken
-    /// into the client's journeys as the server's knowledge.
+    /// `--nav-published <file>`: the server's published portal table or places, read at start
+    /// and taken into the client's journeys and its record of the world's places as the
+    /// server's knowledge.
     pub nav_published: Option<PathBuf>,
+    /// `--world-status <url>`: the world's status document (`http://`), read at start, and the
+    /// documents it names as published, each taken in as `--nav-published`'s is.
+    pub world_status: Option<String>,
     /// The time a plugin's entry may take before it is stopped, in milliseconds; `None` for the
     /// host's own. A test that runs a large plugin on a busy machine raises it, so that the
     /// plugin's work, not the machine's speed, decides what happens.
@@ -123,6 +127,7 @@ impl Default for Options {
             connect: None,
             password: String::new(),
             nav_published: None,
+            world_status: None,
             plugin_call_budget_ms: None,
             stop: Arc::new(AtomicBool::new(false)),
         }
@@ -320,8 +325,17 @@ impl<'a> Run<'a> {
             let text = std::fs::read_to_string(path).map_err(|e| {
                 RunError::Startup(format!("--nav-published {}: {e}", path.display()))
             })?;
-            if let Ok(mut slot) = app.published_portals.lock() {
-                *slot = Some(text);
+            if let Ok(mut inbox) = app.published.lock() {
+                inbox.push(text);
+            }
+        }
+        if let Some(url) = &opts.world_status {
+            let (texts, failed) = crate::published::fetch(url);
+            for e in failed {
+                tracing::warn!("--world-status: {e}");
+            }
+            if let Ok(mut inbox) = app.published.lock() {
+                inbox.extend(texts);
             }
         }
         let mut shell = HeadlessShell::default();

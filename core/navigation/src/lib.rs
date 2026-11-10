@@ -2,8 +2,9 @@
 //! the right corridors and streets and around the objects in them.
 //!
 //! **Depends on** `dereth-primitives` and `dereth-physics` (its shapes, its walkable slope and, for
-//! checking a route, its world). **Used by** the client runtime (`dereth-client-runtime`, its
-//! `--nav-proof` run).
+//! checking a route, its world). **Used by** the client runtime (`dereth-client-runtime`: its
+//! journeys, its `--nav-proof` run and the places of a world it learns, [`PlaceStore`]), the plugin
+//! host and the client's world map.
 //!
 //! **Must never** read the data files, touch a device or keep a clock: cells, land, buildings and
 //! setups arrive through [`NavSource`], and time arrives as an argument. It builds for
@@ -51,6 +52,7 @@ mod follow;
 mod journey;
 mod mesh;
 mod path;
+mod places;
 mod portals;
 mod region;
 mod search;
@@ -69,6 +71,7 @@ pub use journey::{
 };
 pub use path::{global, global_distance};
 pub use path::{End, NavPath, NoPath, Waypoint, WaypointAction};
+pub use places::{KnownPlace, PlaceKind, PlaceStore, PortalUseWatch, PLACES_VERSION};
 pub use portals::{
     EdgeSource, PortalEdge, PortalSighting, PortalStore, Recall, RecallEdge, StoreError,
     TeleportOutcome, TeleportWatch, STORE_VERSION,

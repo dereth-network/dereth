@@ -76,6 +76,8 @@ web-time.workspace = true
 # object_identity.rs -- the cache of which ids two eras' files share as the same object is keyed
 # by both files' hashes.
 blake3.workspace = true
+# The world's status document, which names what its server publishes.
+serde_json.workspace = true
 
 [dev-dependencies]
 dereth-client-runtime = { path = ".", default-features = false, features = ["test-support"] }

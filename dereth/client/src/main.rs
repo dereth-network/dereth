@@ -129,18 +129,21 @@ fn run_with(
     });
 
     let nav_published = cfg.nav_published.clone();
+    let world_status = cfg.world_status.clone();
     // initialize the client application and its presentation.
     let mut app = dereth_client::app::App::new(cfg).map_err(fatal)?;
-    // The server's published portal table, fetched off the frame's thread.
-    if let Some(source) = nav_published {
-        let inbox = std::sync::Arc::clone(&app.published_portals);
-        std::thread::spawn(move || match dereth_client::plugins::fetch_text(&source) {
-            Ok(text) => {
-                if let Ok(mut slot) = inbox.lock() {
-                    *slot = Some(text);
-                }
-            }
-            Err(e) => tracing::warn!("--nav-published: {e}"),
+    // What the server publishes, fetched off the frame's thread: the document `--nav-published`
+    // names, and those the world's status names.
+    if nav_published.is_some() || world_status.is_some() {
+        let inbox = std::sync::Arc::clone(&app.published);
+        std::thread::spawn(move || {
+            dereth_client::published::read(
+                world_status.as_deref(),
+                nav_published,
+                dereth_client::plugins::fetched,
+                |seconds| std::thread::sleep(std::time::Duration::from_secs_f64(seconds)),
+                &inbox,
+            );
         });
     }
     tracing::info!(

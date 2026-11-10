@@ -85,3 +85,92 @@ fn a_small_note_is_a_landmark() {
         Some(PlaceKind::Landmark)
     );
 }
+
+fn learned_at(
+    kind: dereth_navigation::PlaceKind,
+    name: &str,
+    cell: u32,
+    x: f32,
+    y: f32,
+) -> dereth_navigation::KnownPlace {
+    dereth_navigation::KnownPlace {
+        kind,
+        source: dereth_navigation::EdgeSource::Learned,
+        wcid: None,
+        name: name.to_owned(),
+        at: position(cell, x, y),
+        first_seen: 0,
+        last_seen: 0,
+        owner: None,
+        to: None,
+    }
+}
+
+fn position(cell: u32, x: f32, y: f32) -> dereth_primitives::Position {
+    dereth_primitives::Position::new(
+        dereth_primitives::CellId(cell),
+        dereth_primitives::Frame::new(
+            dereth_primitives::Vec3::new(x, y, 20.0),
+            dereth_primitives::Quat::IDENTITY,
+        ),
+    )
+}
+
+#[test]
+fn what_the_player_learned_is_drawn_where_it_stands_and_a_dungeon_s_insides_are_not() {
+    use dereth_navigation::PlaceKind as L;
+    let stone = learned_at(L::Lifestone, "Life Stone", 0xDA55_001D, 88.8, 103.1);
+    let (ns, ew) = coords(&stone.at);
+    assert!(
+        (ns + 33.6).abs() < 0.1 && (ew - 72.8).abs() < 0.1,
+        "Shoushi: {ns} {ew}"
+    );
+    let town = Place {
+        kind: PlaceKind::Town,
+        name: String::from("Shoushi"),
+        ns: -33.5,
+        ew: 72.8,
+    };
+    let mut entrance = learned_at(
+        L::Portal,
+        "Mannikin Foundry Portal",
+        0xDA55_0016,
+        96.1,
+        139.0,
+    );
+    entrance.to = Some(position(0x0164_0100, 10.0, -10.0));
+    let mut within = learned_at(L::Portal, "Central Courtyard", 0xDA55_0016, 90.0, 139.0);
+    within.to = Some(position(0xDA55_0120, 10.0, 10.0));
+    let mut house = learned_at(L::House, "Villa", 0xDA55_0021, 10.0, 10.0);
+    house.owner = Some(String::from("Someone"));
+    let learned = [
+        stone,
+        learned_at(
+            L::Vendor,
+            "Hau Ji Tan the Grocer",
+            0xDA55_0185,
+            156.0,
+            148.4,
+        ),
+        learned_at(L::Npc, "Academy Foreman", 0x7F03_01F4, 36.8, -73.7),
+        entrance,
+        within,
+        house,
+        learned_at(L::House, "Cottage", 0xDA55_0022, 30.0, 10.0),
+    ];
+    let drawn = super::learned(&learned, std::slice::from_ref(&town));
+    let names: Vec<(PlaceKind, &str)> = drawn.iter().map(|p| (p.kind, p.name.as_str())).collect();
+    assert_eq!(
+        names,
+        [
+            (PlaceKind::Lifestone, "Life Stone"),
+            (PlaceKind::Vendor, "Hau Ji Tan the Grocer"),
+            (PlaceKind::Dungeon, "Mannikin Foundry"),
+            (PlaceKind::Portal, "Central Courtyard"),
+            (PlaceKind::Villa, "Villa, owned by Someone"),
+            (PlaceKind::Cottage, "Cottage, for sale"),
+        ],
+        "the person in the Academy is in a dungeon, far from any town"
+    );
+    assert_eq!(dungeon_name("Portal to Drudge Hideout"), "Drudge Hideout");
+}

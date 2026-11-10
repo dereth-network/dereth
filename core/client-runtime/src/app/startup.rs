@@ -256,20 +256,7 @@ impl<S: Shell> App<S> {
         // is moved into it.
         // Every patch goes into the world's overlay, never into the locked files.
         let ddd = crate::world_overlay::patcher(&store, &cfg);
-        // The travel's store: in `--nav-store`'s folder, or beside the preferences file.
-        let travel = crate::travel::Travel::new(match cfg.nav_store.clone() {
-            Some(dir) => crate::travel::StoreFiles {
-                dir: Some(dir),
-                prefix: String::new(),
-            },
-            None => crate::travel::StoreFiles {
-                dir: cfg
-                    .preferences_file
-                    .parent()
-                    .map(std::path::Path::to_path_buf),
-                prefix: String::from("navigation-"),
-            },
-        });
+        let travel = crate::travel::Travel::new(crate::travel::StoreFiles::of(&cfg));
         // The object identity verdicts start now, whatever look is chosen, so a later switch to
         // the other era's look is instant.
         let scene_cfg = cfg.scene_config();
@@ -323,10 +310,11 @@ impl<S: Shell> App<S> {
             nav_spells: None,
             nav_academies: None,
             travel_fizzles: 0,
-            published_portals: std::sync::Arc::default(),
+            published: std::sync::Arc::default(),
             player_moves: 0,
             hook_player_moves: 0,
             travel_player_moves: 0,
+            places_house_notices: 0,
             last_link_status: None,
             last_rejected: 0,
             last_net_error: None,

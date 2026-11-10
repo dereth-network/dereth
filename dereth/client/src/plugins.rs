@@ -26,6 +26,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
+use dereth_client_runtime::travel::Fetched;
 use dereth_plugin_api::{HostCapability, PluginId};
 use dereth_plugin_host::package::{is_package_root, MANIFEST_FILE};
 use dereth_plugin_host::{
@@ -570,16 +571,8 @@ fn policy_text(source: &str) -> Result<String, String> {
 /// # Errors
 /// The fetch or the read failed, the server answered other than 200, or the text is not UTF-8.
 pub fn fetch_text(source: &str) -> Result<String, String> {
-    if source.starts_with("https://") || source.starts_with("http://") {
-        let r = fetch(
-            &HttpRequest {
-                method: "GET".into(),
-                url: source.to_owned(),
-                headers: Vec::new(),
-                body: None,
-            },
-            false,
-        )?;
+    if is_url(source) {
+        let r = get(source)?;
         if r.status != 200 {
             return Err(format!("{source} answered HTTP {}", r.status));
         }
@@ -587,6 +580,40 @@ pub fn fetch_text(source: &str) -> Result<String, String> {
     } else {
         std::fs::read_to_string(source).map_err(|e| format!("{source}: {e}"))
     }
+}
+
+/// What a client switch's text brought ([`fetch_text`]'s, with the server's answer kept): the
+/// text of a file or of an `http://` or `https://` URL's `200`, the code of any other answer,
+/// or why there was none.
+#[must_use]
+pub fn fetched(source: &str) -> Fetched {
+    if !is_url(source) {
+        return std::fs::read_to_string(source)
+            .map_or_else(|e| Fetched::Failed(e.to_string()), Fetched::Text);
+    }
+    match get(source) {
+        Err(why) => Fetched::Failed(why),
+        Ok(r) if r.status != 200 => Fetched::Http(r.status),
+        Ok(r) => String::from_utf8(r.body)
+            .map_or_else(|_| Fetched::Failed("not text".to_owned()), Fetched::Text),
+    }
+}
+
+fn is_url(source: &str) -> bool {
+    source.starts_with("https://") || source.starts_with("http://")
+}
+
+/// A `GET` of `url`, made now, for the client itself.
+fn get(url: &str) -> Result<HttpResponse, String> {
+    fetch(
+        &HttpRequest {
+            method: "GET".into(),
+            url: url.to_owned(),
+            headers: Vec::new(),
+            body: None,
+        },
+        false,
+    )
 }
 
 /// What the desktop's plugin host is, and where it looks.

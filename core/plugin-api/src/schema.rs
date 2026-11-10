@@ -163,6 +163,8 @@ pub const OPS: &[Op] = &[
          doc: "Show or hide the host's drawing of this plugin's journey (the arrow, the way on the map and radar); false when it has none." },
     Op { name: "nav.known_portals", lua: Some("nav.known_portals"), params: &[], result: Some(Ty::Value),
          doc: "The portals this world's store knows: where each stands and sends, how it is known (learned, published, hint), its uses, failures and level range, and why it was retired." },
+    Op { name: "nav.known_places", lua: Some("nav.known_places"), params: &[], result: Some(Ty::Value),
+         doc: "The places of this world the client has learned: each lifestone, portal, vendor, person and house it was shown, where it stands, how it is known, when it was seen, and a house's owner." },
     Op { name: "nav.recalls", lua: Some("nav.recalls"), params: &[], result: Some(Ty::Value),
          doc: "Where the character's recalls have sent it: each recall (`spell <id>`, `lifestone`, `marketplace`) and its landing." },
     Op { name: "nav.sight", lua: None, params: &[p("target", Ty::Value), p("from", Ty::Opt(&Ty::Value))], result: Some(Ty::Opt(&Ty::Bool)),

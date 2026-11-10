@@ -372,6 +372,7 @@ fn places_of(store: &RetailDatStore) -> (Vec<Place>, [usize; 5]) {
             PlaceKind::Cottage => 2,
             PlaceKind::Villa => 3,
             PlaceKind::Mansion => 4,
+            other => panic!("the data names no {other:?}"),
         }] += 1;
     }
     (places, counts)

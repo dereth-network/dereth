@@ -57,6 +57,15 @@ extern "C" {
     #[wasm_bindgen(js_namespace = globalThis, js_name = derethPluginPolicy)]
     fn plugin_policy() -> String;
 
+    /// Begin fetching `url`, what the world's server publishes, as request `id`.
+    #[wasm_bindgen(js_namespace = globalThis, js_name = derethPublishedFetch)]
+    fn published_fetch(id: f64, url: &str);
+
+    /// One answer to such a request ([`crate::published::answer_of`]); empty when none has
+    /// ended.
+    #[wasm_bindgen(js_namespace = globalThis, js_name = derethPublishedNext)]
+    fn published_next() -> String;
+
     #[wasm_bindgen(js_namespace = console, js_name = error)]
     fn console_error(message: &str);
 
@@ -552,9 +561,16 @@ impl WebPlay {
         }
     }
 
-    /// One frame, drawn; `false` once the client has shut itself down.
+    /// One frame, drawn; `false` once the client has shut itself down. What the world's server
+    /// publishes is read alongside, a request at a time.
     pub fn frame(&mut self) -> bool {
-        self.play.as_mut().is_some_and(crate::play::Play::frame)
+        let Some(play) = self.play.as_mut() else {
+            return false;
+        };
+        if let Some((id, url)) = play.published_step(published_next) {
+            published_fetch(f64::from(id), &url);
+        }
+        play.frame()
     }
 
     /// The size the client draws at, `[width, height]`: see [`crate::play::Play::client_size`].

@@ -88,9 +88,15 @@ written on it, three pixels to a landcell and 6123 to a side. The world is read 
 at 2048 pixels a side off the frame when the map first opens; closer in, tiles of 1024 are drawn
 as a view needs them. The places drawn over it are read from the same data: the towns and the
 smaller places the game's own map names, each where the data's buildings stand and only where they
-do, and the cottages, villas and mansions by their buildings as the map is zoomed in. Portals,
-lifestones and anything else a world's server places are not in the data, so the map does not show
-them.
+do, and the cottages, villas and mansions by their buildings as the map is zoomed in.
+
+Portals, lifestones, vendors and anything else a world's server places are not in the data. The
+client learns them as the player plays, each world's kept apart (`dereth_navigation::PlaceStore`),
+and the map draws them over the data's places:
+- the lifestones, portals, vendors and people the player has seen, outdoors or in a town's
+  buildings;
+- each portal the player took into a dungeon, as that dungeon's entrance;
+- each house whose crystal the player used, with its owner.
 
 The desktop client has the art built in. The web client fetches it from `pkg/horizon/` beside the
 module when the page opens. Until it arrives, a choice of Horizon waits (a saved one starts in the

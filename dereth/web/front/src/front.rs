@@ -317,6 +317,8 @@ impl Front {
                 &w.slug,
                 dereth_launch::interface::default_of(&self.state),
             ),
+            // Put between `interface_args` and `args`, likewise.
+            "where_args": where_args(&w),
             "prefs": self.state.world_prefs.get(slug),
             "accounts": self.state.accounts_for(&w.slug).collect::<Vec<_>>(),
             "address": address(&w),
@@ -791,6 +793,21 @@ fn address(w: &World) -> Option<String> {
     w.endpoint
         .as_ref()
         .map(|e| format!("{}:{}", e.address, e.port))
+}
+
+/// Where world `w` is, for the client: its status address, where the client finds what its
+/// server publishes, as the desktop's command line has it; and the address the world is listed
+/// at, which the client keeps what it learns of the world under, since every server is one
+/// address to a client in a browser.
+fn where_args(w: &World) -> Vec<String> {
+    let mut args = Vec::new();
+    if let Some(status) = launch::world_status(w) {
+        args.extend(["--world-status".to_owned(), status.to_owned()]);
+    }
+    if let Some(address) = address(w) {
+        args.extend(["--world-address".to_owned(), address]);
+    }
+    args
 }
 
 #[cfg(test)]
@@ -1678,6 +1695,49 @@ mod tests {
         cfg.apply_args(&words).unwrap();
         assert_eq!(cfg.interface, Some(Interface::Horizon));
         assert_eq!(cfg.world_slug.as_deref(), Some(slug.as_str()));
+    }
+
+    /// The client in the browser is told where the world is, as the desktop client's command
+    /// line tells it: the world's status, where it finds what the server publishes, when the
+    /// launcher may read it; and the address the world is listed at, which the client keeps what
+    /// it learns of the world under.
+    #[test]
+    fn the_client_is_told_the_worlds_status_and_its_listed_address() {
+        let mut f = Front::default();
+        f.set_state("").unwrap();
+        let slug = f
+            .add_world("", "play.example.org", "9050", "PvE", "empyrean")
+            .unwrap();
+        let words = |f: &Front| -> Vec<String> {
+            f.world(&slug, NOW).unwrap()["where_args"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|a| a.as_str().unwrap().to_owned())
+                .collect()
+        };
+        assert_eq!(words(&f), ["--world-address", "play.example.org:9050"]);
+        f.added_by(&slug, "https://play.example.org/status");
+        let told = words(&f);
+        assert_eq!(
+            told,
+            [
+                "--world-status",
+                "https://play.example.org/status",
+                "--world-address",
+                "play.example.org:9050",
+            ]
+        );
+        let mut cfg = dereth_client_runtime::config::Config::default();
+        cfg.apply_args(&told).unwrap();
+        assert_eq!(
+            cfg.world_status.as_deref(),
+            Some("https://play.example.org/status")
+        );
+        assert_eq!(cfg.travel_world("W"), "W@play.example.org:9050");
+        // Plain http to another machine is no status a launcher reads.
+        f.added_by(&slug, "http://play.example.org/status");
+        assert!(!words(&f).contains(&"--world-status".to_owned()));
     }
 
     #[test]

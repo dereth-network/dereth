@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`launcher/RELEASING.md`](launcher/RELEASING.md)).
 
 ## Unreleased
+- The map shows the lifestones, portals, shops and houses you have found, and those Empyrean worlds publish.
 - Remaster: wet ground in the rain no longer turns nearly black.
 - Fixed a world refusing your data after you switched its game files.
 - Horizon: a new zoomable world map, with its towns and houses.
