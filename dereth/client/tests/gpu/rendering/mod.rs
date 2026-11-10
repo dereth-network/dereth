@@ -42,6 +42,7 @@ mod preview_level_zero;
 mod rain_extent;
 mod remaster_ao;
 mod remaster_d3d12;
+mod remaster_doorways;
 mod remaster_drawn;
 mod remaster_gi;
 mod remaster_lamps;

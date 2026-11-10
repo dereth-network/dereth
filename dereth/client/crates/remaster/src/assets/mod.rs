@@ -350,6 +350,16 @@ pub struct Material {
     pub maps: Option<MaterialMaps>,
 }
 
+impl Material {
+    /// Whether the surface record draws no picture: neither its image bit nor its clip-map bit
+    /// is set. A room's walls leave such a surface out, as retail draws them: the opaque fillers
+    /// the oldest rooms carry in their openings are never seen.
+    #[must_use]
+    pub const fn untextured(&self) -> bool {
+        self.surface_type & 6 == 0
+    }
+}
+
 /// Which picture, keyed as retail caches pictures, so two surfaces that draw the same picture
 /// share one texture.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]

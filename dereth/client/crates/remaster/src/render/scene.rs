@@ -208,6 +208,8 @@ pub struct MaterialGpu {
     pub maps: Option<u32>,
     /// Its picture's place in the table (`NONE` when it has none or it is not held).
     pub picture: u32,
+    /// Its surface draws no picture ([`Material::untextured`]), so a room's walls leave it out.
+    pub untextured: bool,
 }
 
 /// One item as the processor sees it: what a command for it needs, and whether it is a blended
@@ -361,6 +363,13 @@ pub struct GpuScene {
     /// Quarter turns added to every ground cell's own, for the checks that a cell's pictures and
     /// their maps turn with it.
     pub turn: u8,
+}
+
+/// Whether an item's subset is drawn: a room's walls leave out every surface that draws no
+/// picture, as retail draws a room. Some rooms' openings carry an opaque filler of such a surface,
+/// which would hide the room beyond.
+const fn subset_drawn(m: &MaterialGpu, flags: u32) -> bool {
+    flags & ITEM_ROOM == 0 || !m.untextured
 }
 
 /// The item's material, flags and bucket for a subset with material `m`.
@@ -597,6 +606,9 @@ impl GpuScene {
             let Some(m) = key.and_then(|key| self.material_index.get(&key)).cloned() else {
                 continue;
             };
+            if !subset_drawn(&m, extra_flags) {
+                continue;
+            }
             let bucket = bucket_of(&m, s.two_sided);
             let flags = extra_flags | if s.tiled { ITEM_TILED } else { 0 };
             bytes.extend(words(&[
@@ -1575,6 +1587,7 @@ impl Sink<'_> {
                 additive: adds,
                 maps,
                 picture: texture,
+                untextured: m.untextured(),
             },
         );
         Ok(())
