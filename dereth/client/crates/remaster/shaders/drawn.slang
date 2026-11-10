@@ -911,11 +911,17 @@ Targets fs_ground(Varyings in)
     float bed = water.x > 0.5 ? bed_depth(shore_distance(p, foot), water.y, water.z) : 0.0;
     uint below = uint(clamp(bed / BED_STEP + 0.5, 0.0, 255.0));
     // Where the ground is not water and the weather is drawn, the fourth byte is how much of it is
-    // puddle instead: on ground the smooth surface holds flat, judged the same way however far
-    // off it is drawn.
+    // puddle instead: on ground the smooth surface holds flat, judged over half a meter however
+    // far off it is drawn, and over the stretch the pixel covers where that is longer, so a far
+    // pixel drawn across the foot of a slope gathers none from the flat half meter at its middle.
     if (kind != KIND_WATER && push.weather != NO_WEATHER)
     {
         float3 level = smooth_normal(p, 0.5);
+        float3 wide = smooth_normal(p, max(e, 0.5));
+        if (wide.z < level.z)
+        {
+            level = wide;
+        }
         below = puddle_byte(puddle_share(push.weather, at, level, takes * (1.0 - t.a)));
     }
     Targets o;
