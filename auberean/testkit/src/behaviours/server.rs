@@ -12497,6 +12497,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.hierophant-temple-walk-through",
+        says: "The Hierophant Temple's portal takes in only a player with Seskri's quest under way, \
+               each chamber door is locked from the way in and opens with its preceptor's \
+               talisman, the Hierophant's corpse holds the talisman that brings her quest to its \
+               last phase, and the temple's ways out lead back beside its portal.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-HIEROPHANT-TEMPLE"),
+        station: "yalain-testkit::corpus::world_db::the_hierophant_temple_opens_by_the_talismans_and_its_last_guardian_ends_seskris_quest",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.quests.item-on-object-takes-the-player",
         says: "A held item used on an object that a quest step names with a place: the player \
                plays the use, two and a half seconds later the object flashes and the player \
@@ -12561,6 +12572,15 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-QUEST-MONARCH-ONLY"),
         station: "yalain-testkit::dat::quests::a_quests_setup_says_whether_it_is_for_a_monarch",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.quests.olthoi-hunts-walk-through",
+        says: "Thorsten Cragstone gives each of his five Olthoi hunts at a use, the kill of either \
+               creature the install names for a hunt moves it on, and his use ends it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-BUG-HUNTS"),
+        station: "yalain-testkit::corpus::world_db::each_olthoi_hunt_is_given_by_thorsten_moved_by_its_kill_and_ended_by_him",
+        tier: Tier::Corpus,
     },
     behaviour! {
         id: "server.quests.one-errand-step-a-use",

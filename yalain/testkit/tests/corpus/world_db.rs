@@ -5186,3 +5186,195 @@ fn the_worlds_creature_rows_are_2017s_entry_for_entry() {
     );
     assert_eq!(*rows, yalain_testkit::test_creature_rows());
 }
+
+/// **Thorsten Cragstone's Olthoi hunts walk through**: a use of him gives each of his five hunts
+/// (one at random, as a person with several does), the kill of either creature the install names
+/// for it moves it on, and a use of him ends it.
+/// Behaviour: server.quests.olthoi-hunts-walk-through
+#[test]
+fn each_olthoi_hunt_is_given_by_thorsten_moved_by_its_kill_and_ended_by_him() {
+    use yalain_world::quests::status;
+    const THORSTEN: u32 = 0x4700_2F44;
+    const HUNTS: [(u32, [u32; 2]); 5] = [
+        (0x4000_0259, [0x4700_2939, 0x4700_293A]),
+        (0x4000_025A, [0x4700_292F, 0x4700_2930]),
+        (0x4000_025B, [0x4700_290D, 0x4700_290F]),
+        (0x4000_025C, [0x4700_2910, 0x4700_2913]),
+        (0x4000_025D, [0x4700_2929, 0x4700_292A]),
+    ];
+    let t = &compiled().tables;
+    let install = dat_install();
+    let o = t
+        .content
+        .objects
+        .iter()
+        .position(|o| o.template == THORSTEN)
+        .expect("Thorsten is placed");
+    let held = |h: &Harness, quest: u32| {
+        h.server.players.values().next().and_then(|p| {
+            p.play
+                .quests
+                .iter()
+                .find(|x| x.quest == quest)
+                .map(|x| (x.status, x.phase))
+        })
+    };
+    for (quest, creatures) in HUNTS {
+        for creature in creatures {
+            let (mut h, b, me) = served(t);
+            h.server.quest_ids = quest_ids();
+            set_level(&mut h, 50);
+            for p in h.server.players.values_mut() {
+                yalain_world::quals::set_bool(&mut p.qualities, yalain_world::focus::HERO, true);
+            }
+            let mut tries = 0;
+            use_person(&mut h, b, me, t, o);
+            while tries < 60 && !holds(&h, quest) {
+                for p in h.server.players.values_mut() {
+                    p.play.quests.clear();
+                }
+                use_person(&mut h, b, me, t, o);
+                tries += 1;
+            }
+            assert_eq!(
+                held(&h, quest),
+                Some((status::UNDERWAY, 1)),
+                "{quest:08X} given"
+            );
+            killed_as(&mut h, me, creature, &install);
+            assert_eq!(
+                held(&h, quest),
+                Some((status::UNDERWAY, 2)),
+                "{quest:08X} after {creature:08X}"
+            );
+            use_person(&mut h, b, me, t, o);
+            assert_eq!(
+                held(&h, quest).map(|x| x.0),
+                Some(status::COMPLETED),
+                "{quest:08X} ended"
+            );
+        }
+    }
+}
+
+/// **The Hierophant Temple walks through**: its portal takes in only a player with Seskri's quest
+/// under way; each of its four chamber doors is locked from the way in and opens with its
+/// preceptor's talisman; the Hierophant stands at its end and its corpse holds its talisman, whose
+/// taking brings her quest to its last phase, where she takes it; and its ways out lead back beside
+/// the portal.
+/// Behaviour: server.quests.hierophant-temple-walk-through
+#[test]
+fn the_hierophant_temple_opens_by_the_talismans_and_its_last_guardian_ends_seskris_quest() {
+    use yalain_store::StoredPosition;
+    use yalain_world::quests::status;
+    use yalain_world::usable::doors::in_front;
+    use yalain_world::usable::maps::ground_distance;
+    const QUEST: u32 = 0x4000_0101;
+    const TEMPLE: u32 = 0x09FB;
+    const HIEROPHANT: u32 = 0x4700_2A4E;
+    const ITS_TALISMAN: u32 = 0x4700_18A8;
+    // Each chamber door, by its id, and the preceptor's talisman that opens it.
+    const DOORS: [(u64, u32); 4] = [
+        (0x4009_FB00_0000_0001, 0x4700_18A4),
+        (0x4009_FB00_0000_0002, 0x4700_18A6),
+        (0x4009_FB00_0000_0003, 0x4700_18AC),
+        (0x4009_FB00_0000_0004, 0x4700_18AE),
+    ];
+    let t = &compiled().tables;
+    let portal = yalain_testkit::authored::Portal::open();
+    let at = |cell: u32, origin: [f32; 3], rotation: [f32; 4]| StoredPosition {
+        cell,
+        origin,
+        rotation,
+    };
+    let way_in = t
+        .content
+        .objects
+        .iter()
+        .find(|o| {
+            o.cell >> 16 != TEMPLE
+                && o.destination
+                    .as_ref()
+                    .is_some_and(|d| d.cell >> 16 == TEMPLE)
+        })
+        .expect("a portal into the temple");
+    let gate = way_in.gate.expect("the temple's portal is gated");
+    assert_eq!((gate.quest, gate.status), (QUEST, status::UNDERWAY));
+    let landing = way_in.destination.expect("its landing");
+    let mut before = at(landing.cell, landing.origin, landing.rotation);
+    for (id, talisman) in DOORS {
+        let door = t
+            .content
+            .objects
+            .iter()
+            .find(|o| o.object == Some(id))
+            .unwrap_or_else(|| panic!("{id:016X} placed"));
+        assert_eq!(door.cell >> 16, TEMPLE, "{id:016X}");
+        let key = as_installed(&portal, talisman).props.word("Lock_KeyID");
+        assert!(key.is_some(), "{talisman:08X} is a key");
+        assert_eq!(
+            t.locks.of(id).map(|l| l.key),
+            Some(key),
+            "{id:016X} is locked to {talisman:08X}"
+        );
+        let here = at(door.cell, door.origin, door.rotation);
+        assert!(
+            in_front(&here, &before),
+            "{id:016X} is locked from the way in"
+        );
+        before = here;
+    }
+    let camp = t
+        .spawns
+        .camps
+        .iter()
+        .find(|c| c.templates.iter().any(|(m, _)| *m == HIEROPHANT))
+        .expect("the Hierophant's camp");
+    assert_eq!(camp.cell >> 16, TEMPLE);
+    let hoard = as_installed(&portal, HIEROPHANT)
+        .props
+        .word("NPC_DeathLootProfile")
+        .expect("its loot profile");
+    let profile = t
+        .loot
+        .profiles
+        .iter()
+        .find(|p| p.name.contains("Hierophant"))
+        .expect("its loot row");
+    assert_eq!(hoard, 0x479, "{}", profile.name);
+    assert!(
+        profile.extras.contains(&(ITS_TALISMAN, 1.0)),
+        "{:?}",
+        profile.extras
+    );
+    let outs: Vec<_> = t
+        .content
+        .objects
+        .iter()
+        .filter(|o| {
+            o.cell >> 16 == TEMPLE
+                && o.destination
+                    .as_ref()
+                    .is_some_and(|d| d.cell >> 16 != TEMPLE)
+        })
+        .collect();
+    assert!(outs.len() >= 2, "a way out by the landing and at the end");
+    for o in outs {
+        let d = o.destination.as_ref().expect("a destination");
+        let near = ground_distance(
+            &at(d.cell, d.origin, d.rotation),
+            &at(way_in.cell, way_in.origin, way_in.rotation),
+        );
+        assert!(near < 10.0, "{near}");
+    }
+    let (mut h, _, _) = served(t);
+    h.server.quest_ids = quest_ids();
+    let world = player_world(&h);
+    h.server.catalog.insert(as_installed(&portal, ITS_TALISMAN));
+    quest_at(&mut h, QUEST, 5);
+    let clock = h.clock();
+    yalain_world::quests::took(&mut h.server, &mut h.net, world, ITS_TALISMAN, clock);
+    assert_eq!(quest_state(&h, QUEST), Some((status::UNDERWAY, 6)));
+    hand_in(&mut h, &portal, ITS_TALISMAN, 0x4700_3293);
+    assert_eq!(quest_state(&h, QUEST).map(|q| q.0), Some(status::COMPLETED));
+}

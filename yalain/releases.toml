@@ -37,4 +37,4 @@ notes = "Serves world database v0.33.0: fetch it with yalain world fetch before 
 [[release]]
 version = "0.4.0"
 upgrades_from = "0.3.0"
-notes = "Serves world database v0.34.0: fetch it with yalain world fetch before the new program starts. A world with no crafting, gathering, creature, item use, dye plant or worn look rows now warns at start and has none of them, where the server used to supply its own. Nor has it crowd control immunities, vitae taps or hero transformations its rows do not name, and a cancelled quest whose row names no wait waits five minutes."
+notes = "Serves world database v0.35.0: fetch it with yalain world fetch before the new program starts. A world with no crafting, gathering, creature, item use, dye plant or worn look rows now warns at start and has none of them, where the server used to supply its own. Nor has it crowd control immunities, vitae taps or hero transformations its rows do not name, and a cancelled quest whose row names no wait waits five minutes."
