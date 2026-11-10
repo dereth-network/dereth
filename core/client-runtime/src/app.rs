@@ -1100,6 +1100,9 @@ pub struct App<S: Shell> {
 
     /// Which of the game's own per-frame duties have run this frame. See [`FrameDuties`].
     duties: FrameDuties,
+    /// The interface on the world the launcher named, which the save keeps for that world once
+    /// the player changes it in game. `None` for a run no launcher named a world for.
+    interface_world: Option<dereth_client_contract::options::interface::WorldChoice>,
 }
 
 /// How long a frame of a connected client gives the object identity verdicts while nothing waits

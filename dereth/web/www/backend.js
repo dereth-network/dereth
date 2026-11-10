@@ -298,7 +298,10 @@ export function webBackend({ call, start, params, log, scale }) {
       await save();
       await readKept();
     },
-    set_interface: ({ name }) => call('setInterface', name),
+    set_interface: async ({ name }) => {
+      await call('setInterface', name);
+      await save();
+    },
     // Plugins, from plugin sources, with the launcher's own shelf in the worker.
     refresh_plugins: async () => (await call('pluginRefresh')).said,
     add_plugin_source: ({ url }) => call('pluginAddSource', url),
@@ -390,7 +393,8 @@ export function webBackend({ call, start, params, log, scale }) {
       counted,
       account,
       password,
-      args: page.args,
+      // The launcher's interface for every world and the world's name, then the world's own words.
+      args: [...(page.interface_args ?? []), ...page.args],
       overlay: page.overlay_folder ? `overlays/${page.overlay_folder}` : '',
     });
     return { kind: 'launched', stays: true, world: page.world.name, account };

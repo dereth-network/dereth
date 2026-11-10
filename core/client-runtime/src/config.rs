@@ -205,6 +205,13 @@ pub struct Config {
     /// [`dereth_client_contract::options::interface::NEW_PLAYER`]). `None` leaves the interface
     /// option's registered one, the modern interface: what a run built in code starts in.
     pub new_player_interface: Option<dereth_client_contract::options::interface::Interface>,
+    /// `--interface <name>`: the interface the launcher starts every world in that the player has
+    /// not changed in game ([`dereth_client_contract::options::interface::world_start`]), over the
+    /// preferences file's own. `None` leaves it to the file.
+    pub interface: Option<dereth_client_contract::options::interface::Interface>,
+    /// `--world-slug <name>`: the launcher's name for the world, which an interface chosen in game
+    /// is kept under. `None` for a run no launcher named a world for.
+    pub world_slug: Option<String>,
     /// Which graphics backend to bring the device up on:
     /// `--renderer vulkan|d3d12`, else the `Renderer=` preference, else `None`, which leaves the
     /// choice to the default (Vulkan). A rebuild-only
@@ -567,6 +574,8 @@ impl Default for Config {
             preferences_file: PathBuf::new(),
             preferences_named: false,
             new_player_interface: None,
+            interface: None,
+            world_slug: None,
             renderer: None,
             renderer_preference: None,
             renderer_argument: None,
@@ -861,6 +870,17 @@ const REBUILD_SWITCHES: &[Switch] = &[
     },
     Switch {
         long: "world-profile",
+        short: None,
+        arity: Arity::Required,
+    },
+    // The launcher's interface for every world, and its name for the world played.
+    Switch {
+        long: "interface",
+        short: None,
+        arity: Arity::Required,
+    },
+    Switch {
+        long: "world-slug",
         short: None,
         arity: Arity::Required,
     },
@@ -1829,6 +1849,18 @@ impl Config {
             "world-profile" => {
                 self.world_rules = dereth_rules::world::profile_rules(v)
                     .map_err(|e| ConfigError::new(format!("bad --world-profile: {e}")))?;
+            }
+            "interface" => {
+                use dereth_client_contract::options::interface;
+                let value = interface::parse_value(interface::INTERFACE, v).ok_or_else(|| {
+                    ConfigError::new(format!(
+                        "--interface takes Horizon, Modern or Classic, not {v:?}"
+                    ))
+                })?;
+                self.interface = Some(interface::Interface::from_value(value));
+            }
+            "world-slug" => {
+                self.world_slug = Some(v.trim().to_owned()).filter(|s| !s.is_empty());
             }
             "landblock" => {
                 self.landblock = u16::from_str_radix(v.trim_start_matches("0x"), 16)

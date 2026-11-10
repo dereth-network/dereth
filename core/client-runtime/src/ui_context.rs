@@ -609,6 +609,14 @@ impl<'a, S: Shell> UiContext<'a, S> {
         self.app.interaction.take_framerate_display_notices()
     }
 
+    /// The interface shown is now `shown`, after a switch: see [`App::note_interface_shown`].
+    pub fn note_interface_shown(
+        &mut self,
+        shown: dereth_client_contract::options::interface::Interface,
+    ) {
+        self.app.note_interface_shown(shown);
+    }
+
     /// A local line in the text scroll.
     pub fn add_scroll_line(&mut self, text: &str, kind: u32) {
         self.app

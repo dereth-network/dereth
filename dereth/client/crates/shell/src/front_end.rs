@@ -1699,6 +1699,7 @@ impl<H: Host> ClientShell<H> {
             Interface::Classic => self.enter_classic(cx),
             Interface::Horizon => self.enter_horizon(cx),
         }
+        cx.note_interface_shown(want);
         // The interface shown now never saw the press that turned the camera with the pointer:
         // the camera stops turning with it, and a pointer held for the drag is shown again where
         // the drag began.

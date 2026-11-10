@@ -550,7 +550,7 @@ fn forget_all_passwords(b: State<'_, Shared>) {
     lock(&b).forget_all_passwords();
 }
 
-/// Start the Dereth client in this interface from now on: written into the client's preferences.
+/// Start every world the player has not changed in game in this interface from now on.
 #[tauri::command]
 fn set_interface(b: State<'_, Shared>, name: String) -> Cmd<()> {
     lock(&b).set_interface(&name)
@@ -840,8 +840,8 @@ fn main() {
         find_client(named, &here, installed)
     };
     let tool = find_tool(&here, client.as_deref());
-    // The preferences file the Dereth client reads when it is started from its own folder, which
-    // names the interface it starts in.
+    // The preferences file the Dereth client reads when it is started from its own folder, where
+    // an earlier launcher wrote the interface it starts in.
     let client_preferences = dereth_launch::interface::preferences_file(
         System::HOST,
         &|name| std::env::var_os(name),

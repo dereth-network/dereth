@@ -621,6 +621,128 @@ fn a_minimized_window_rests_its_frames_until_it_is_restored() {
     store::clear();
 }
 
+/// A run on a world the launcher names starts in the interface the player last chose in game
+/// there, else in the launcher's default; a switch made in game is kept for that world alone when
+/// the client saves, and the switch to the interface the run started in is not one. A world kept
+/// in the classic interface starts in the default, and says so, when the Classic files are not
+/// here.
+///
+/// Behaviour: none (the launcher's interface for every world, and each world's own)
+#[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads the retail dats: --features retail-dats"
+)]
+fn a_world_starts_in_its_own_interface_or_the_default_and_keeps_a_switch_made_in_game() {
+    use dereth_client_contract::options::interface::{kept_for_world, Interface};
+    use dereth_client_contract::options::store;
+    use dereth_client_contract::persist::preferences::UserPreferences;
+    let data = std::sync::Arc::new(dereth_dat::testing::open_store().unwrap_or_else(|| {
+        panic!(
+            "the retail dats are this test's oracle and they are not under {}",
+            dereth_dat::testing::dat_dir().display()
+        )
+    }));
+    let classic_files = data.classic_files().is_some();
+    let folder = std::env::temp_dir().join(format!("world-interface-{}", std::process::id()));
+    std::fs::create_dir_all(&folder).unwrap();
+    let profile = folder.join("UserPreferences.ini");
+    let start = |world: &str, default: Interface| {
+        let cfg = Config {
+            headless: true,
+            frames: None,
+            connect: false,
+            sound: false,
+            dat_dir: std::path::PathBuf::from("a directory that does not exist"),
+            preferences_file: profile.clone(),
+            interface: Some(default),
+            world_slug: Some(world.to_owned()),
+            ..Config::default()
+        };
+        let mut app = App::<NullShell>::bring_up_with_store(
+            cfg,
+            Some(std::sync::Arc::clone(&data)),
+            |_| Ok(Platform::headless(64, 64)),
+            |_, _, _, _| Ok(Box::new(crate::present::NullPresentation::new(64, 64))),
+        )
+        .expect("bring-up");
+        store::init();
+        app.start_preferences();
+        app
+    };
+    let kept = || UserPreferences::parse(&std::fs::read_to_string(&profile).unwrap()).unwrap();
+    std::fs::write(
+        &profile,
+        "[UI]
+Interface=Modern
+[WorldInterface]
+ac1999=Horizon
+",
+    )
+    .unwrap();
+
+    // A world with its own choice starts in it; one without starts in the default.
+    let app = start("ac1999", Interface::Modern);
+    assert_eq!(Interface::chosen(), Interface::Horizon);
+    app.shutdown(&mut NullShell);
+    let mut app = start("eor", Interface::Classic);
+    assert_eq!(Interface::chosen(), Interface::Classic);
+    // The run shows the interface it started in, then the player switches in game.
+    app.note_interface_shown(Interface::Classic);
+    app.shutdown(&mut NullShell);
+    assert_eq!(
+        kept_for_world(&kept(), "eor"),
+        None,
+        "no switch, nothing kept"
+    );
+    let mut app = start("eor", Interface::Classic);
+    app.note_interface_shown(Interface::Classic);
+    app.note_interface_shown(Interface::Modern);
+    store::set_value(
+        dereth_client_contract::options::interface::INTERFACE,
+        dereth_client_contract::PrefValue::Int(Interface::Modern.value()),
+    );
+    app.shutdown(&mut NullShell);
+    assert_eq!(kept_for_world(&kept(), "eor"), Some(Interface::Modern));
+    assert_eq!(kept_for_world(&kept(), "ac1999"), Some(Interface::Horizon));
+    let app = start("eor", Interface::Horizon);
+    assert_eq!(
+        Interface::chosen(),
+        Interface::Modern,
+        "kept over a new default"
+    );
+    app.shutdown(&mut NullShell);
+
+    // A world kept in the classic interface, with and without the Classic files.
+    std::fs::write(
+        &profile,
+        "[WorldInterface]
+ac1999=Classic
+",
+    )
+    .unwrap();
+    let mut app = start("ac1999", Interface::Horizon);
+    let said = app.objects.world.scroll.drain().into_iter().any(|l| {
+        l.body
+            .contains("Classic needs Classic data files: starting in Horizon.")
+    });
+    if classic_files {
+        assert_eq!(Interface::chosen(), Interface::Classic);
+        assert!(!said);
+    } else {
+        assert_eq!(Interface::chosen(), Interface::Horizon);
+        assert!(said, "the chat says why");
+    }
+    app.shutdown(&mut NullShell);
+    assert_eq!(
+        kept_for_world(&kept(), "ac1999"),
+        Some(Interface::Classic),
+        "the world's own choice is kept for when the files are back"
+    );
+    store::clear();
+    let _ = std::fs::remove_dir_all(&folder);
+}
+
 /// A window that draws full screen at a share of its screen's pixels offers the render scale: the
 /// preferences, once read, hold it at the share the window starts at, whatever the profile says. A
 /// window that cannot leaves it out.

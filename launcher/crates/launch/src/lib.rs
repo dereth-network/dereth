@@ -44,7 +44,7 @@
 //! | [`discord`] | what Discord shows while a game the launcher started is running, and the frames that say it to the Discord app |
 //! | [`state`] | `launcher-state.json`: the retail client, sets, accounts, favourites, per-world choices |
 //! | [`folders`] | where the state and the private sets live on each system, and the one-time move there |
-//! | [`interface`] | the interface the Dereth client starts in, asked for once and written where the client reads it |
+//! | [`interface`] | the interface every world starts in until the player changes it there in game, asked for once |
 //! | [`pad`] | a pad on the launcher's page: what each button does there, and which control a move reaches |
 //! | [`releases`] | which of the repository's GitHub releases the launcher updates from, on its channel, never to an older launcher |
 //! | [`defaults`] | what a package tells its launcher: the realm a first run opens in, and the channel it updates from |

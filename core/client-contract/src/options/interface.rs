@@ -12,6 +12,13 @@
 //! waits, the current interface stays and the client says so ([`HORIZON_ART_LOADING`]), and the
 //! choice is followed once the art is in; on a host that cannot get it, Horizon is refused as the
 //! classic interface is ([`REQUIRES_HORIZON_ART`]).
+//!
+//! A run the launcher starts on a world is told the world and the launcher's interface, the
+//! default for every world. It starts in the one the player last chose in game on that world,
+//! else in the default ([`world_start`]), and a switch made in game is kept for that world alone
+//! ([`WorldChoice`], under [`WORLD_SECTION`]). A world kept in the classic interface starts in the
+//! default when the classic interface's files are not here, and the chat says so
+//! ([`classic_missing_notice`]).
 
 use crate::view::PrefValue;
 
@@ -203,6 +210,136 @@ pub fn start_new_player(
     super::store::set_value(INTERFACE, PrefValue::Int(first.value()))
 }
 
+/// The section of the preferences file that keeps, for each world the launcher names, the
+/// interface the player last chose in game there: `<world>=<interface>`.
+pub const WORLD_SECTION: &str = "WorldInterface";
+
+/// The key a world's interface is kept under: the launcher's name for it, lowercased, with
+/// anything but ASCII letters, digits, `-` and `_` made `_`. `None` for an empty name.
+#[must_use]
+pub fn world_key(world: &str) -> Option<String> {
+    let key: String = world
+        .trim()
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    (!key.is_empty()).then_some(key)
+}
+
+/// The interface the player last chose in game on `world`, as `ini` keeps it.
+#[must_use]
+pub fn kept_for_world(
+    ini: &crate::persist::preferences::UserPreferences,
+    world: &str,
+) -> Option<Interface> {
+    let key = crate::persist::preferences::UserPreferences::key(WORLD_SECTION, &world_key(world)?);
+    ini.entries
+        .iter()
+        .rev()
+        .filter(|(k, _)| k.trim().eq_ignore_ascii_case(&key))
+        .find_map(|(_, raw)| parse_value(INTERFACE, raw))
+        .map(Interface::from_value)
+}
+
+/// What the chat says when a world kept in the classic interface starts in `start` because the
+/// classic interface's files are not here.
+#[must_use]
+pub fn classic_missing_notice(start: Interface) -> String {
+    format!(
+        "Classic needs Classic data files: starting in {}.",
+        start.label()
+    )
+}
+
+/// The interface a run on a world starts in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WorldStart {
+    /// The interface to start in; `None` leaves it to the preferences file and the new-player
+    /// rule ([`start_new_player`]).
+    pub interface: Option<Interface>,
+    /// The world is kept in the classic interface, whose files are not here, so the run starts
+    /// in the default instead.
+    pub classic_missing: bool,
+}
+
+/// The interface a run starts in on `world` (the launcher's name for it, `None` when no launcher
+/// named one), from the preferences `ini`: the one the player last chose in game there, else
+/// `default`, the launcher's choice for every world. A world kept in the classic interface starts
+/// in `default` when the classic interface's files are not here (`classic_files`).
+#[must_use]
+pub fn world_start(
+    ini: Option<&crate::persist::preferences::UserPreferences>,
+    world: Option<&str>,
+    default: Option<Interface>,
+    classic_files: bool,
+) -> WorldStart {
+    let own = world
+        .zip(ini)
+        .and_then(|(world, ini)| kept_for_world(ini, world));
+    match own {
+        Some(Interface::Classic) if !classic_files => WorldStart {
+            interface: default,
+            classic_missing: true,
+        },
+        Some(own) => WorldStart {
+            interface: Some(own),
+            classic_missing: false,
+        },
+        None => WorldStart {
+            interface: default,
+            classic_missing: false,
+        },
+    }
+}
+
+/// One run's interface on a world the launcher named: the world, the interface the run started
+/// in, and the one the player chose in game, once they have.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorldChoice {
+    /// The launcher's name for the world.
+    pub world: String,
+    /// The interface the run started in.
+    pub started: Interface,
+    /// The interface the player switched to in game, if they did.
+    pub chosen: Option<Interface>,
+}
+
+impl WorldChoice {
+    /// A run on `world` that started in `started`.
+    #[must_use]
+    pub fn new(world: &str, started: Interface) -> Self {
+        Self {
+            world: world.to_owned(),
+            started,
+            chosen: None,
+        }
+    }
+
+    /// The interface shown is now `shown`. Until the player switches, the only switch is the one
+    /// to the interface the run started in, which is not a choice; any other is.
+    pub fn shown(&mut self, shown: Interface) {
+        if self.chosen.is_some() || shown != self.started {
+            self.chosen = Some(shown);
+        }
+    }
+
+    /// Keep the player's choice for the world in `ini`, when they made one; a world they did not
+    /// change keeps following the default. True when it was kept.
+    pub fn keep(&self, ini: &mut crate::persist::preferences::UserPreferences) -> bool {
+        let (Some(chosen), Some(key)) = (self.chosen, world_key(&self.world)) else {
+            return false;
+        };
+        ini.write_profile_string(WORLD_SECTION, &key, chosen.label());
+        true
+    }
+}
+
 #[cfg(test)]
 mod tests {
     //! Behaviour: none (an option's own values; the switch it drives is tested where it happens).
@@ -338,5 +475,151 @@ mod tests {
         );
         assert_eq!(twice, "[UI]\nInterface=Modern\nInterface=Modern\n");
         assert_eq!(starts_in(&twice), (false, Interface::Modern));
+    }
+
+    /// A run on `world` that started in what [`world_start`] gave, in which the player switched
+    /// to each of `switches`, saved into `ini`.
+    fn play(
+        ini: &mut crate::persist::preferences::UserPreferences,
+        world: &str,
+        default: Interface,
+        switches: &[Interface],
+    ) -> Interface {
+        let started = world_start(Some(ini), Some(world), Some(default), true)
+            .interface
+            .unwrap();
+        let mut run = WorldChoice::new(world, started);
+        // The client shows the interface it started in first.
+        run.shown(started);
+        for &to in switches {
+            run.shown(to);
+        }
+        run.keep(ini);
+        started
+    }
+
+    #[test]
+    fn a_world_never_changed_in_game_starts_in_the_default() {
+        use crate::persist::preferences::UserPreferences;
+        let mut ini = UserPreferences::parse("[UI]\nInterface=Modern\n").unwrap();
+        assert_eq!(
+            world_start(Some(&ini), Some("eor"), Some(Interface::Horizon), true),
+            WorldStart {
+                interface: Some(Interface::Horizon),
+                classic_missing: false
+            },
+            "the default wins over the file's own line"
+        );
+        assert_eq!(
+            play(&mut ini, "eor", Interface::Horizon, &[]),
+            Interface::Horizon
+        );
+        assert_eq!(
+            ini.to_text(),
+            "[UI]\nInterface=Modern\n",
+            "a run with no switch keeps nothing for its world"
+        );
+        assert_eq!(
+            world_start(None, Some("eor"), Some(Interface::Classic), false).interface,
+            Some(Interface::Classic),
+            "no file yet: the default, whatever it is"
+        );
+        assert_eq!(
+            world_start(Some(&ini), None, None, true).interface,
+            None,
+            "no launcher: the file's own rule"
+        );
+    }
+
+    #[test]
+    fn an_interface_changed_in_game_is_kept_for_that_world_only() {
+        use crate::persist::preferences::UserPreferences;
+        let mut ini = UserPreferences::parse("[UI]\nInterface=Horizon\n").unwrap();
+        play(
+            &mut ini,
+            "ac1999",
+            Interface::Horizon,
+            &[Interface::Classic],
+        );
+        assert_eq!(kept_for_world(&ini, "ac1999"), Some(Interface::Classic));
+        assert_eq!(kept_for_world(&ini, "AC1999"), Some(Interface::Classic));
+        assert_eq!(kept_for_world(&ini, "eor"), None);
+        assert_eq!(
+            play(&mut ini, "ac1999", Interface::Horizon, &[]),
+            Interface::Classic,
+            "the world opens in it next time"
+        );
+        assert_eq!(
+            play(&mut ini, "eor", Interface::Horizon, &[]),
+            Interface::Horizon,
+            "another world keeps the default"
+        );
+        // Switching away and back again is still a choice made there.
+        play(
+            &mut ini,
+            "eor",
+            Interface::Horizon,
+            &[Interface::Modern, Interface::Horizon],
+        );
+        assert_eq!(kept_for_world(&ini, "eor"), Some(Interface::Horizon));
+        assert_eq!(
+            ini.to_text(),
+            "[UI]\nInterface=Horizon\n[WorldInterface]\nac1999=Classic\neor=Horizon\n"
+        );
+        assert_eq!(world_key(" Mine.World "), Some("mine_world".into()));
+        assert_eq!(world_key("  "), None);
+    }
+
+    #[test]
+    fn a_new_default_leaves_a_world_with_its_own_choice_alone() {
+        use crate::persist::preferences::UserPreferences;
+        let mut ini = UserPreferences::default();
+        play(
+            &mut ini,
+            "ac1999",
+            Interface::Horizon,
+            &[Interface::Classic],
+        );
+        for default in Interface::ALL {
+            assert_eq!(
+                play(&mut ini, "ac1999", default, &[]),
+                Interface::Classic,
+                "{default:?}"
+            );
+            assert_eq!(
+                play(&mut ini, "eor", default, &[]),
+                default,
+                "an untouched world follows it"
+            );
+        }
+    }
+
+    #[test]
+    fn a_world_kept_in_classic_starts_in_the_default_without_classic_files() {
+        use crate::persist::preferences::UserPreferences;
+        let ini = UserPreferences::parse("[WorldInterface]\nac1999=Classic\neor=Modern\n").unwrap();
+        assert_eq!(
+            world_start(Some(&ini), Some("ac1999"), Some(Interface::Horizon), false),
+            WorldStart {
+                interface: Some(Interface::Horizon),
+                classic_missing: true
+            }
+        );
+        assert_eq!(
+            world_start(Some(&ini), Some("ac1999"), Some(Interface::Horizon), true),
+            WorldStart {
+                interface: Some(Interface::Classic),
+                classic_missing: false
+            }
+        );
+        assert_eq!(
+            world_start(Some(&ini), Some("eor"), Some(Interface::Horizon), false).interface,
+            Some(Interface::Modern),
+            "only the classic interface needs the files"
+        );
+        assert_eq!(
+            classic_missing_notice(Interface::Horizon),
+            "Classic needs Classic data files: starting in Horizon."
+        );
     }
 }

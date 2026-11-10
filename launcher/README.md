@@ -84,14 +84,17 @@ a checkout never takes it over.
 
 ## The interface
 
-On first start, while the client's preferences name no interface, the launcher asks which to play
-in: **Horizon** (chosen to begin with), **Modern** or **Classic**. It writes the answer as
-`Interface=<name>` under `[UI]` in the client's `UserPreferences.ini`, keeping every other line,
-and never asks again. You can change it later in the client's options or in the Library, except
-while a Dereth client the launcher started is running.
+On first start the launcher asks which interface to play in: **Horizon** (chosen to begin with),
+**Modern** or **Classic**. The answer is the default for every world, kept in the launcher's
+state and changed under the Library's **Settings**. Each world starts in the default until you
+change the interface in game there; the client keeps that choice for that world alone, under
+`[WorldInterface]` in its `UserPreferences.ini`, and the world opens in it from then on. A world
+kept in Classic starts in the default when there are no Classic data files, and the game says so.
 
-The file is the one the client reads: in `DERETH_SETTINGS_DIR` if set, else a
-`UserPreferences.ini` beside the client, else the client's settings folder.
+An earlier launcher wrote its answer as `Interface=<name>` under `[UI]` in the client's
+preferences; a launcher whose state has no default takes that one, so it does not ask again. The
+file is the one the client reads: in `DERETH_SETTINGS_DIR` if set, else a `UserPreferences.ini`
+beside the client, else the client's settings folder.
 
 ## A pad
 
@@ -130,8 +133,7 @@ looks again every 10 seconds. The Library's **Show what I'm playing on Discord**
 | both, in one folder of your choosing | `DERETH_STATE_DIR` |
 | passwords | Windows Credential Manager, the macOS login Keychain, or the Linux desktop's keyring (Secret Service), one entry per account per world: `dereth:world/<slug>/<account>`. With no keyring, the passwords earlier launchers made up for Asheron's Call 2 accounts are in the data folder's `auberean/secrets.json`, readable by you alone, and still play those accounts; no launcher makes one now |
 
-The launcher writes nothing outside its own `launcher` folders, except the interface in the
-client's preferences.
+The launcher writes nothing outside its own `launcher` folders.
 
 **The world list** is the Dereth Network hub's (`https://hub.dereth.network/v1/servers`). The hub
 imports the community list (`Servers.xml` from

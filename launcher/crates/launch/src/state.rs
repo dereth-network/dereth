@@ -347,6 +347,10 @@ pub struct Settings {
     /// `auberean.sets`): whether each is open. A section not named is as it is at first.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub library_open: BTreeMap<String, bool>,
+    /// The interface the Dereth client starts every world in until the player changes it there in
+    /// game, by its name ([`crate::interface::default_of`]). `None` until the player chooses one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interface: Option<String>,
 }
 
 /// The most Library sections whose folding is kept.
@@ -434,6 +438,7 @@ impl Default for Settings {
             update_components: true,
             library_open: BTreeMap::new(),
             realm: Realm::Dereth,
+            interface: None,
         }
     }
 }

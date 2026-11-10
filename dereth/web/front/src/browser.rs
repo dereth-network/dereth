@@ -516,28 +516,24 @@ pub fn front_set_default_set(id: &str) -> Result<(), JsError> {
         .map_err(js_err)
 }
 
-/// The interface the client starts in and the ones on offer, as JSON, as the desktop launcher's
-/// page has them: `{ chosen, offers: [{ name, line }] }`, `chosen` null while the kept profile
-/// names none.
+/// The interface every world starts in until the player changes it there in game, and the ones
+/// on offer, as JSON: [`Front::interface`].
 #[wasm_bindgen(js_name = frontInterface)]
 #[must_use]
 pub fn front_interface() -> String {
-    serde_json::json!({
-        "chosen": settings::interface().map(|i| i.label()),
-        "offers": dereth_launch::interface::offers(),
-    })
-    .to_string()
+    let saved = settings::interface();
+    FRONT.with(|f| f.borrow_mut().interface(saved)).to_string()
 }
 
-/// Name the interface the client starts in, by its name in any case.
+/// Start every world the player has not changed in game in the interface named `name`.
 ///
 /// # Errors
-/// No interface of that name, or a profile the store will not take.
+/// No interface of that name.
 #[wasm_bindgen(js_name = frontSetInterface)]
 pub fn front_set_interface(name: &str) -> Result<(), JsError> {
-    let choice = dereth_launch::interface::by_name(name)
-        .ok_or_else(|| JsError::new(&format!("{name} is not an interface the client has.")))?;
-    settings::set_interface(choice).map_err(js_err)
+    FRONT
+        .with(|f| f.borrow_mut().set_interface(name))
+        .map_err(js_err)
 }
 
 /// This build's version: Dereth's.

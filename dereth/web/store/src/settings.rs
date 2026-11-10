@@ -159,34 +159,14 @@ pub fn set_up_full_screen() -> io::Result<()> {
     }
 }
 
-/// The interface the kept profile names, read as the client reads it; `None` when it names none
-/// (the client then starts a new player in Horizon) or there is no profile yet.
+/// The interface the kept profile names, read as the client reads it: an earlier front page's
+/// answer, which becomes the launcher's default. `None` when it names none or there is no profile
+/// yet.
 #[must_use]
 pub fn interface() -> Option<dereth_client_contract::options::interface::Interface> {
     use dereth_client_contract::persist::preferences::UserPreferences;
     let text = files::read_to_string(&preferences_file()).ok()?;
     dereth_client_contract::options::interface::named_in(&UserPreferences::parse(&text).ok()?)
-}
-
-/// Name `choice` in the kept profile as the interface the client starts in, as the desktop
-/// launcher writes it: every other line kept, or a new profile when there is none.
-///
-/// # Errors
-/// A profile that does not read, or a store that will not take it.
-pub fn set_interface(
-    choice: dereth_client_contract::options::interface::Interface,
-) -> io::Result<()> {
-    use dereth_client_contract::persist::preferences::UserPreferences;
-    let path = preferences_file();
-    let mut ini = match files::read_to_string(&path) {
-        Ok(text) => UserPreferences::parse(&text).map_err(io::Error::other)?,
-        Err(_) => UserPreferences {
-            crlf: true,
-            ..UserPreferences::default()
-        },
-    };
-    dereth_client_contract::options::interface::write_in(&mut ini, choice);
-    files::write(&path, ini.to_text())
 }
 
 /// Where the overlay blocklist is kept: beside the preferences profile, as the desktop client
@@ -291,28 +271,31 @@ mod tests {
         files::install(files::DISK);
     }
 
-    /// The front page names the interface the client starts in, in the kept profile, as the
-    /// desktop launcher writes it: the profile's other lines stay, and the client reads it back.
+    /// The interface the kept profile names is read as the client reads it, the profile's other
+    /// lines whatever they are.
     #[test]
-    fn the_front_page_names_the_interface_the_client_starts_in() {
+    fn the_interface_the_kept_profile_names_is_read_as_the_client_reads_it() {
         use dereth_client_contract::options::interface::Interface;
         install(&[], None);
         assert_eq!(interface(), None, "no profile yet");
-        set_interface(Interface::Classic).unwrap();
-        assert_eq!(interface(), Some(Interface::Classic));
         files::write(
             &preferences_file(),
-            "[Display]\r\nResolution=1024x768\r\n[UI]\r\nInterface=Modern\r\n",
+            "[Display]
+Resolution=1024x768
+[UI]
+Interface=Modern
+",
         )
         .unwrap();
         assert_eq!(interface(), Some(Interface::Modern));
-        set_interface(Interface::Horizon).unwrap();
-        let text = files::read_to_string(&preferences_file()).unwrap();
-        assert!(
-            text.contains("Resolution=1024x768") && text.contains("Interface=Horizon"),
-            "{text}"
-        );
-        assert_eq!(interface(), Some(Interface::Horizon));
+        files::write(
+            &preferences_file(),
+            "[UI]
+Interface=Retail
+",
+        )
+        .unwrap();
+        assert_eq!(interface(), None, "a word the client does not read");
         files::install(files::DISK);
     }
 

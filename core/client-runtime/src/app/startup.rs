@@ -372,6 +372,7 @@ impl<S: Shell> App<S> {
             base_store,
             pending_auto_layout: false,
             duties: FrameDuties::default(),
+            interface_world: None,
             applied_full_screen: started_full_screen,
             applied_resolution: (client_w, client_h),
             applied_sync_to_refresh: started_sync_to_refresh,
@@ -647,13 +648,51 @@ impl<S: Shell> App<S> {
         if let (Some(start), false) = (render_scale, in_profile) {
             dereth_client_contract::options::render_scale::register(start);
         }
-        if let Some(first) = self.cfg.new_player_interface {
+        let start = interface::world_start(
+            ini.as_ref(),
+            self.cfg.world_slug.as_deref(),
+            self.cfg.interface,
+            self.store.classic_files().is_some(),
+        );
+        if let Some(start) = start.interface {
+            store::set_value(
+                interface::INTERFACE,
+                dereth_client_contract::PrefValue::Int(start.value()),
+            );
+        } else if let Some(first) = self.cfg.new_player_interface {
             if interface::start_new_player(ini.as_ref(), first) {
                 tracing::info!(
                     "the preferences name no interface: starting in the {} interface",
                     first.label()
                 );
             }
+        }
+        let started = interface::Interface::chosen();
+        if start.classic_missing {
+            let notice = interface::classic_missing_notice(started);
+            tracing::info!("{notice}");
+            self.objects.world.scroll.add_text_to_scroll(
+                &notice,
+                dereth_client_model::scroll::LOCAL_ERROR_TYPE,
+                true,
+                0,
+            );
+        }
+        self.interface_world = self
+            .cfg
+            .world_slug
+            .as_deref()
+            .map(|world| interface::WorldChoice::new(world, started));
+    }
+
+    /// The interface shown is now `shown`: kept for the world the launcher named once it is a
+    /// switch the player made ([`dereth_client_contract::options::interface::WorldChoice`]).
+    pub fn note_interface_shown(
+        &mut self,
+        shown: dereth_client_contract::options::interface::Interface,
+    ) {
+        if let Some(world) = self.interface_world.as_mut() {
+            world.shown(shown);
         }
     }
 

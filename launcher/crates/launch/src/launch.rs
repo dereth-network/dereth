@@ -94,6 +94,9 @@ pub struct LaunchRequest<'a> {
     /// The art packs the player turned on, in the order they are drawn: a later one wins where two
     /// replace the same thing ([`crate::art::Shelf::stack`]).
     pub art_packs: Vec<PathBuf>,
+    /// The interface every world starts in until the player changes it there in game
+    /// ([`crate::interface::default_of`]); `None` while the player has chosen none.
+    pub interface: Option<crate::interface::Interface>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -203,6 +206,11 @@ pub fn plan(req: &LaunchRequest<'_>) -> Result<LaunchPlan, PlanError> {
                     plain(classic.display().to_string()),
                 ]);
             }
+            args.extend(
+                crate::interface::args(&req.world.slug, req.interface)
+                    .into_iter()
+                    .map(Arg::Plain),
+            );
             args.extend(describe(req.world).args().into_iter().map(Arg::Plain));
             // The world's plugin policy, for the client's plugin host to honour and show.
             let policy = req
@@ -344,6 +352,7 @@ mod tests {
             plugin_policy_file: None,
             plugins: Vec::new(),
             art_packs: Vec::new(),
+            interface: None,
         }
     }
 
@@ -432,7 +441,9 @@ mod tests {
                 "-p",
                 "19000",
                 "--dat-dir",
-                "/lib/eor"
+                "/lib/eor",
+                "--world-slug",
+                "eulmore"
             ]
         );
         assert_eq!(p.working_dir, PathBuf::from("/games/ac"));
@@ -503,6 +514,8 @@ mod tests {
                 "/lib/eor",
                 "--classic-dat-dir",
                 "/lib/feb2005",
+                "--world-slug",
+                "eulmore",
                 "--era",
                 "infiltration",
                 "--era-features",
@@ -547,6 +560,38 @@ mod tests {
             dereth_client_contract::EraView::era_of_dats(ContainerEra::Modern),
             EraId::Eor
         );
+    }
+
+    /// The Dereth client is told the launcher's interface for every world and the world's name,
+    /// which a change made in game is kept under; a retail client is told neither.
+    #[test]
+    fn the_dereth_client_is_told_the_default_interface_and_the_world_it_keeps_its_own_under() {
+        use crate::interface::Interface;
+        let (w, i) = (world(Emulator::Ace), inst(ClientKind::Dereth));
+        let parse = |argv: &[String]| {
+            dereth_client_runtime::config::Config::from_args_and_prefs_with(
+                argv,
+                &dereth_client_runtime::config::Preferences::default(),
+            )
+            .unwrap()
+        };
+        let cfg = parse(&plan(&req(&w, &i)).unwrap().argv("pw"));
+        assert_eq!(
+            (cfg.interface, cfg.world_slug.as_deref()),
+            (None, Some("eulmore"))
+        );
+        for choice in crate::interface::OFFERED {
+            let mut r = req(&w, &i);
+            r.interface = Some(choice);
+            let cfg = parse(&plan(&r).unwrap().argv("pw"));
+            assert_eq!(cfg.interface, Some(choice));
+            assert_eq!(cfg.world_slug.as_deref(), Some("eulmore"));
+        }
+        let retail = inst(ClientKind::Retail);
+        let mut r = req(&w, &retail);
+        r.interface = Some(Interface::Classic);
+        let argv = plan(&r).unwrap().argv("pw");
+        assert!(!argv.iter().any(|a| a.starts_with("--")), "{argv:?}");
     }
 
     /// A world's status document, read as the launcher reads it, reaches the Dereth client's era
@@ -689,6 +734,8 @@ mod tests {
                     port,
                     "--dat-dir",
                     "/lib/world",
+                    "--world-slug",
+                    w.slug.as_str(),
                     "--world-base",
                     "modern",
                     "--era",

@@ -312,6 +312,11 @@ impl Front {
             "classic_sets": choices::classic_sets_for(&self.state, &w),
             "launch": launch::describe(&w),
             "args": launch::describe(&w).args(),
+            // Put before `args`, as the desktop's command line has them.
+            "interface_args": dereth_launch::interface::args(
+                &w.slug,
+                dereth_launch::interface::default_of(&self.state),
+            ),
             "prefs": self.state.world_prefs.get(slug),
             "accounts": self.state.accounts_for(&w.slug).collect::<Vec<_>>(),
             "address": address(&w),
@@ -573,6 +578,33 @@ impl Front {
         for (slug, username) in all {
             self.state.forget_account(&slug, &username);
         }
+    }
+
+    /// The interface every world starts in until the player changes it there in game, and the
+    /// ones on offer, as the desktop launcher's page has them: `{ chosen, offers: [{ name, line }] }`,
+    /// `chosen` null while the player has chosen none. `saved` is the interface the client's kept
+    /// profile names, the answer an earlier page wrote there, which becomes the default for a
+    /// state that has none.
+    pub fn interface(&mut self, saved: Option<dereth_launch::interface::Interface>) -> Value {
+        use dereth_launch::interface;
+        interface::adopt(&mut self.state, saved);
+        json!({
+            "chosen": interface::default_of(&self.state).map(interface::Interface::label),
+            "offers": interface::offers(),
+        })
+    }
+
+    /// Start every world the player has not changed in game in the interface named `name`, in
+    /// any case.
+    ///
+    /// # Errors
+    /// No interface of that name.
+    pub fn set_interface(&mut self, name: &str) -> Result<(), String> {
+        use dereth_launch::interface;
+        let choice = interface::by_name(name)
+            .ok_or_else(|| format!("{name} is not an interface the client has."))?;
+        interface::set_default(&mut self.state, choice);
+        Ok(())
     }
 
     /// Make the data set `id` the default of its kind, the one a world's page offers first.
@@ -1606,6 +1638,46 @@ mod tests {
             .as_array()
             .unwrap()
             .contains(&json!("--era-features")));
+    }
+
+    /// The page's interface is the default for every world, kept in the state record; a profile's
+    /// answer from an earlier page becomes it once; and the client in the browser is told it and
+    /// the world's name ahead of the world's own words, as the desktop's command line has them.
+    #[test]
+    fn the_interface_is_every_worlds_default_and_the_client_is_told_it_with_the_world() {
+        use dereth_launch::interface::Interface;
+        let mut f = Front::default();
+        f.set_state("").unwrap();
+        let slug = f
+            .add_world("", "127.0.0.1", "19960", "PvE", "empyrean")
+            .unwrap();
+        assert_eq!(f.interface(None)["chosen"], Value::Null, "the page asks");
+        let page = f.world(&slug, NOW).unwrap();
+        assert_eq!(page["interface_args"], json!(["--world-slug", slug]));
+
+        assert_eq!(f.interface(Some(Interface::Classic))["chosen"], "Classic");
+        assert_eq!(
+            f.interface(Some(Interface::Modern))["chosen"],
+            "Classic",
+            "taken once"
+        );
+        assert!(f.set_interface("Retail").is_err());
+        f.set_interface("horizon").unwrap();
+        let mut again = Front::default();
+        again.set_state(&f.state_json()).unwrap();
+        assert_eq!(again.interface(None)["chosen"], "Horizon");
+        let page = again.world(&slug, NOW).unwrap();
+        let words: Vec<String> = page["interface_args"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .chain(page["args"].as_array().unwrap())
+            .map(|a| a.as_str().unwrap().to_owned())
+            .collect();
+        let mut cfg = dereth_client_runtime::config::Config::default();
+        cfg.apply_args(&words).unwrap();
+        assert_eq!(cfg.interface, Some(Interface::Horizon));
+        assert_eq!(cfg.world_slug.as_deref(), Some(slug.as_str()));
     }
 
     #[test]

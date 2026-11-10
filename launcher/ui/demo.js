@@ -131,7 +131,7 @@
   };
   // The kept passwords, by world and account; shardfall's player's is one an earlier launcher made up.
   const vault = new Map([["eulmore/player", "hunter2"], ["achard/player2", "hunter2"], ["lumenvale/player", "hunter2"], ["shardfall/player", "Vx3kQ9-rT2mLpZ8aWc4bNd"], ["shardfall/alt1", "hunter2"]]);
-  // The interface the Dereth client starts in; `#interface` shows the first start, with none saved.
+  // The interface every world starts in; `#interface` shows the first start, with none chosen.
   let chosenInterface = location.hash === "#interface" ? null : "Horizon";
   const interfaceOffers = [
     { name: "Horizon", line: "Dereth's own interface, with hotbars, a minimap and nameplates." },
@@ -620,7 +620,7 @@
       state: structuredClone(state), dereth, auberean, running: [], job, message,
       vault_name: "Windows Credential Manager", platform, library_dir: "C:\\Users\\you\\AppData\\Local\\Dereth\\launcher\\library",
       update: { kind: "none" }, version: "0.1.0", shortcut: platform !== "macos", development,
-      interface: { chosen: chosenInterface, offers: interfaceOffers, file: "C:\\Users\\you\\AppData\\Roaming\\Dereth\\client\\UserPreferences.ini" },
+      interface: { chosen: chosenInterface, offers: interfaceOffers },
       plugins: pluginsView(),
       art: artView(),
       art_progress: null,

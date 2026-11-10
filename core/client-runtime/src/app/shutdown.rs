@@ -149,6 +149,11 @@ impl<S: Shell> App<S> {
                     );
                 let n = dereth_client_contract::options::store::save_into(&mut ini);
                 self.save_window_size(&mut ini);
+                // The interface the player chose in game on the world the launcher named is that
+                // world's from now on.
+                if let Some(world) = &self.interface_world {
+                    world.keep(&mut ini);
+                }
                 match crate::platform::files::write(&path, ini.to_text()) {
                     Ok(()) => {
                         tracing::info!("saved {n} preferences to {}", path.display());

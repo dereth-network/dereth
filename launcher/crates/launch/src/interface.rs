@@ -1,17 +1,21 @@
 //! The interface the Dereth client starts in, which the launcher asks for once.
 //!
-//! The client keeps its interface in its preferences file, `UserPreferences.ini`, as `Interface=`
-//! under `[UI]`, and a client started on its own whose file names none starts in the modern
-//! interface. While the file the client will read ([`preferences_file`]) names no interface, the
-//! launcher asks which to play in, offering the three ([`OFFERED`]) with Horizon first and chosen
-//! to begin with ([`FIRST_CHOICE`]).
-//! It writes the answer into that file with the client's own reader and writer ([`save`]), every
-//! other line kept, so the client starts in it; once the file names one, the launcher never asks
-//! again. The player changes it later in the client's options, as before, or from the launcher.
+//! The launcher's interface is the default for every world: it keeps it in its own state
+//! ([`crate::state::Settings::interface`]) and tells the client it, with the world's name, each
+//! time it starts the client ([`args`]). A world starts in the interface the player last chose in
+//! game there, else in the default; the client keeps a choice made in game for that world alone,
+//! in its preferences file (`[WorldInterface]`), so a world never changed in game follows the
+//! default, whatever it becomes. A world kept in the classic interface starts in the default when
+//! there are no Classic data files.
+//!
+//! Until the player has chosen a default the launcher asks, offering the three ([`OFFERED`]) with
+//! Horizon first and chosen to begin with ([`FIRST_CHOICE`]). A launcher from before the default
+//! was its own wrote the answer into the client's preferences file, as `Interface=` under `[UI]`;
+//! that answer becomes the default ([`adopt`]), so such a player is not asked again.
 //!
 //! # Which file
 //!
-//! The one the client reads when the launcher starts it: the folder `DERETH_SETTINGS_DIR` names,
+//! The one the client reads when the launcher starts it ([`preferences_file`]): the folder `DERETH_SETTINGS_DIR` names,
 //! when it is set (a relative value is taken against the client's folder, where the client runs);
 //! else a `UserPreferences.ini` in the client's folder, which makes a portable install; else the
 //! client's settings folder:
@@ -27,16 +31,16 @@
 //! system's answer is tested on every system.
 
 use std::ffi::OsString;
-use std::io;
 use std::path::{Path, PathBuf};
 
-use dereth_client_contract::options::interface::{named_in, write_in, NEW_PLAYER};
+use dereth_client_contract::options::interface::{named_in, NEW_PLAYER};
 use dereth_client_contract::persist::preferences::UserPreferences;
 use serde::Serialize;
 
 pub use dereth_client_contract::options::interface::Interface;
 
 use crate::folders::System;
+use crate::state::LauncherState;
 
 /// The variable that names the client's settings folder outright, which the client reads.
 pub const SETTINGS_DIR_VAR: &str = "DERETH_SETTINGS_DIR";
@@ -153,39 +157,42 @@ pub fn saved(path: &Path) -> Option<Interface> {
     named_in(&UserPreferences::parse(&text).ok()?)
 }
 
-/// Write `choice` into the preferences file at `path` as the client's own save writes it: the
-/// file's other lines and line ends kept, or, when there is no file yet, a new one with Windows
-/// line ends as the client's first save makes. Atomically: a temporary file beside it, then a
-/// rename over it.
-///
-/// # Errors
-/// A file that is there but cannot be read (it is not text, or not readable) is left alone and
-/// its error returned, as is any error making the folder or writing.
-pub fn save(path: &Path, choice: Interface) -> io::Result<()> {
-    let mut ini = match std::fs::read_to_string(path) {
-        Ok(text) => UserPreferences::parse(&text).map_err(io::Error::other)?,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => UserPreferences {
-            crlf: true,
-            ..UserPreferences::default()
-        },
-        Err(e) => return Err(e),
-    };
-    write_in(&mut ini, choice);
-    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
-        std::fs::create_dir_all(dir)?;
+/// The interface every world starts in until the player changes it there in game; `None` until
+/// the player has chosen one, and the launcher asks.
+#[must_use]
+pub fn default_of(state: &LauncherState) -> Option<Interface> {
+    state.settings.interface.as_deref().and_then(by_name)
+}
+
+/// Make `choice` the interface every world starts in until the player changes it there in game.
+pub fn set_default(state: &mut LauncherState, choice: Interface) {
+    state.settings.interface = Some(choice.label().to_owned());
+}
+
+/// Take `saved`, the interface the client's preferences name ([`saved`]), as the default, for a
+/// state that has none: the answer an earlier launcher wrote there. True when it was taken.
+pub fn adopt(state: &mut LauncherState, saved: Option<Interface>) -> bool {
+    match saved {
+        Some(choice) if default_of(state).is_none() => {
+            set_default(state, choice);
+            true
+        }
+        _ => false,
     }
-    let mut tmp = path.as_os_str().to_owned();
-    tmp.push(".launcher");
-    let tmp = PathBuf::from(tmp);
-    {
-        use std::io::Write;
-        let mut f = std::fs::File::create(&tmp)?;
-        f.write_all(ini.to_text().as_bytes())?;
-        f.sync_all()?;
+}
+
+/// What the Dereth client is told of its interface when it is started on the world `slug`: the
+/// default, when there is one, and the world's name, which a choice made in game is kept under.
+#[must_use]
+pub fn args(slug: &str, default: Option<Interface>) -> Vec<String> {
+    let mut args = Vec::new();
+    if let Some(default) = default {
+        args.extend(["--interface".to_owned(), default.label().to_owned()]);
     }
-    std::fs::rename(&tmp, path).inspect_err(|_| {
-        let _ = std::fs::remove_file(&tmp);
-    })
+    if !slug.trim().is_empty() {
+        args.extend(["--world-slug".to_owned(), slug.to_owned()]);
+    }
+    args
 }
 
 /// Whether the Dereth client whose preferences file is `preferences` refuses the world
@@ -351,84 +358,163 @@ mod tests {
     }
 
     #[test]
-    fn the_launcher_asks_while_no_interface_is_saved_and_never_once_one_is() {
+    fn the_launcher_asks_until_it_has_a_default_and_an_answer_an_earlier_one_wrote_is_it() {
         let dir = tmp("interface-asks");
         let path = dir.join("client").join("UserPreferences.ini");
-        assert_eq!(saved(&path), None, "no file yet: asks");
+        let mut state = LauncherState::default();
+        assert_eq!(saved(&path), None, "no file yet");
+        assert!(!adopt(&mut state, saved(&path)));
+        assert_eq!(default_of(&state), None, "asks");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(&path, "[Display]\r\nFullScreen=True\r\n").unwrap();
-        assert_eq!(
-            saved(&path),
-            None,
-            "the original game's file names none: asks"
-        );
-        std::fs::write(&path, "[UI]\nInterface=Retail\n").unwrap();
-        assert_eq!(saved(&path), None, "a word the client does not read: asks");
-        std::fs::write(&path, "[UI]\nInterface=classic\n").unwrap();
-        assert_eq!(
-            saved(&path),
-            Some(Interface::Classic),
-            "one is saved: never asks"
-        );
+        std::fs::write(
+            &path,
+            "[Display]
+FullScreen=True
+",
+        )
+        .unwrap();
+        assert_eq!(saved(&path), None, "the original game's file names none");
+        std::fs::write(
+            &path,
+            "[UI]
+Interface=Retail
+",
+        )
+        .unwrap();
+        assert_eq!(saved(&path), None, "a word the client does not read");
+        assert!(!adopt(&mut state, saved(&path)));
+        assert_eq!(default_of(&state), None, "still asks");
 
-        std::fs::remove_file(&path).unwrap();
-        save(&path, FIRST_CHOICE).unwrap();
-        assert_eq!(
-            saved(&path),
-            Some(Interface::Horizon),
-            "the answer is saved"
-        );
-        save(&path, Interface::Modern).unwrap();
-        assert_eq!(saved(&path), Some(Interface::Modern), "and changed");
+        // An earlier launcher's answer, in the client's file, is the default from now on, and
+        // the file is not read for it again.
+        std::fs::write(
+            &path,
+            "[UI]
+Interface=classic
+",
+        )
+        .unwrap();
+        assert!(adopt(&mut state, saved(&path)));
+        assert_eq!(default_of(&state), Some(Interface::Classic));
+        std::fs::write(
+            &path,
+            "[UI]
+Interface=Modern
+",
+        )
+        .unwrap();
+        assert!(!adopt(&mut state, saved(&path)));
+        assert_eq!(default_of(&state), Some(Interface::Classic));
+
+        set_default(&mut state, FIRST_CHOICE);
+        assert_eq!(default_of(&state), Some(Interface::Horizon));
+        let json = serde_json::to_string(&state).unwrap();
+        assert!(json.contains("\"interface\":\"Horizon\""), "{json}");
+        let read: LauncherState = serde_json::from_str(&json).unwrap();
+        assert_eq!(default_of(&read), Some(Interface::Horizon), "kept");
         let _ = std::fs::remove_dir_all(dir);
     }
 
+    /// The client's start on world `slug` from the launcher's state, as it reads its command line
+    /// and its preferences `ini`: the interface it starts in, and whether the classic interface
+    /// fell back.
+    fn starts_in(
+        state: &LauncherState,
+        slug: &str,
+        ini: &UserPreferences,
+        classic_files: bool,
+    ) -> (Interface, bool) {
+        use dereth_client_contract::options::interface::world_start;
+        let argv = args(slug, default_of(state));
+        let cfg = dereth_client_runtime::config::Config::from_args_and_prefs_with(
+            &argv,
+            &dereth_client_runtime::config::Preferences::default(),
+        )
+        .unwrap();
+        let start = world_start(
+            Some(ini),
+            cfg.world_slug.as_deref(),
+            cfg.interface,
+            classic_files,
+        );
+        (start.interface.unwrap(), start.classic_missing)
+    }
+
+    /// A run on `slug` in which the player switched to `to` in game, saved into `ini`.
+    fn switch_in_game(state: &LauncherState, slug: &str, ini: &mut UserPreferences, to: Interface) {
+        use dereth_client_contract::options::interface::WorldChoice;
+        let mut run = WorldChoice::new(slug, starts_in(state, slug, ini, true).0);
+        run.shown(run.started);
+        run.shown(to);
+        assert!(run.keep(ini));
+    }
+
     #[test]
-    fn the_choice_is_written_as_the_client_reads_it_and_the_rest_of_the_file_is_kept() {
-        use dereth_client_contract::options::{interface, store};
-        let dir = tmp("interface-writes");
-        let path = dir.join("client").join("UserPreferences.ini");
-        // The client's start, as it reads its file: the store loaded from it, then a new player
-        // started in Horizon unless the file names an interface.
-        let client_starts_in = |path: &Path| {
-            store::init();
-            let text = std::fs::read_to_string(path).unwrap();
-            let ini = UserPreferences::parse(&text).unwrap();
-            store::load(&ini);
-            interface::start_new_player(Some(&ini), NEW_PLAYER);
-            Interface::chosen()
-        };
-
-        for choice in OFFERED {
-            let _ = std::fs::remove_dir_all(&dir);
-            save(&path, choice).unwrap();
-            assert_eq!(
-                std::fs::read_to_string(&path).unwrap(),
-                format!("[UI]\r\nInterface={}\r\n", choice.label()),
-                "a new file, as the client's first save writes one"
-            );
-            assert_eq!(client_starts_in(&path), choice);
-        }
-
-        let file = "[Display]\nFullScreen=True\n\n; a note\n[UI]\nChatFontSize=12\n[Net]\nUserName=keep-me\n";
-        std::fs::write(&path, file).unwrap();
-        save(&path, Interface::Classic).unwrap();
+    fn the_default_starts_a_fresh_world_and_a_change_in_game_is_that_worlds_alone() {
+        let mut state = LauncherState::default();
+        set_default(&mut state, Interface::Horizon);
+        let mut ini = UserPreferences::parse(
+            "[UI]
+Interface=Modern
+",
+        )
+        .unwrap();
         assert_eq!(
-            std::fs::read_to_string(&path).unwrap(),
-            "[Display]\nFullScreen=True\n\n; a note\n[UI]\nChatFontSize=12\nInterface=Classic\n[Net]\nUserName=keep-me\n"
-        );
-        assert_eq!(client_starts_in(&path), Interface::Classic);
-        assert!(
-            !dir.join("client")
-                .join("UserPreferences.ini.launcher")
-                .exists(),
-            "the temporary file is renamed away"
+            starts_in(&state, "eor", &ini, true),
+            (Interface::Horizon, false),
+            "a fresh world starts in the default"
         );
 
-        // A file that is not text is not the launcher's to replace.
-        std::fs::write(&path, [0xff, 0xfe, 0x00, b'[']).unwrap();
-        assert!(save(&path, Interface::Modern).is_err());
-        assert_eq!(std::fs::read(&path).unwrap(), [0xff, 0xfe, 0x00, b'[']);
-        let _ = std::fs::remove_dir_all(dir);
+        switch_in_game(&state, "ac1999", &mut ini, Interface::Classic);
+        assert_eq!(
+            starts_in(&state, "ac1999", &ini, true),
+            (Interface::Classic, false)
+        );
+        assert_eq!(
+            starts_in(&state, "eor", &ini, true),
+            (Interface::Horizon, false),
+            "another world is untouched"
+        );
+
+        // A new default moves every world but the one with its own choice.
+        set_default(&mut state, Interface::Modern);
+        assert_eq!(
+            starts_in(&state, "eor", &ini, true),
+            (Interface::Modern, false)
+        );
+        assert_eq!(
+            starts_in(&state, "ac1999", &ini, true),
+            (Interface::Classic, false)
+        );
+    }
+
+    #[test]
+    fn a_world_kept_in_classic_starts_in_the_default_without_classic_files() {
+        let mut state = LauncherState::default();
+        set_default(&mut state, Interface::Horizon);
+        let mut ini = UserPreferences::default();
+        switch_in_game(&state, "ac1999", &mut ini, Interface::Classic);
+        assert_eq!(
+            starts_in(&state, "ac1999", &ini, false),
+            (Interface::Horizon, true)
+        );
+        assert_eq!(
+            starts_in(&state, "ac1999", &ini, true),
+            (Interface::Classic, false),
+            "and in Classic again once the files are back"
+        );
+    }
+
+    #[test]
+    fn the_client_is_told_the_default_only_once_there_is_one_and_always_the_world() {
+        assert_eq!(args("eor", None), ["--world-slug", "eor"]);
+        assert_eq!(
+            args("eor", Some(Interface::Modern)),
+            ["--interface", "Modern", "--world-slug", "eor"]
+        );
+        assert_eq!(
+            args(" ", Some(Interface::Modern)),
+            ["--interface", "Modern"]
+        );
     }
 }

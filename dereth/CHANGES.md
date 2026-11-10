@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`launcher/RELEASING.md`](launcher/RELEASING.md)).
 
 ## Unreleased
+- Each world remembers the interface you chose there; the Library's Settings set the default.
 
 ## 0.4.17 (2026-11-10)
 - New Admin plugin: an administrator's commands in a window.

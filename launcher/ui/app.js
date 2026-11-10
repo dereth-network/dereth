@@ -2142,7 +2142,7 @@ function library() {
       ? `<div class="row static"><div class="grow"><div class="name">${esc(installName(d))}</div><div class="sub">${esc(d.path)}</div></div></div>`
       : comp("dereth") ? programRow("dereth")
       : `<div class="row static"><div class="grow"><div class="sub warn">The Dereth client was not found beside the launcher.</div></div></div>`)
-      + interfaceRow() + (host.libraryClientRows?.(ui.snap) ?? "");
+      + (host.libraryClientRows?.(ui.snap) ?? "");
   const clients = libFold("clients", "CLIENTS",
     (retailHere() ? libFold("clients.retail", "RETAIL", `<div class="list">${retail}</div>`, { sub: true }) : "")
     + libFold(ac2Realm ? "clients.auberean" : "clients.dereth", ac2Realm ? "AUBEREAN" : "DERETH", `<div class="list">${own}</div>`, { sub: true }));
@@ -2176,8 +2176,8 @@ function library() {
       + libFold("sets.original", "1999", `<p class="muted small">The files the game launched with in 1999, for the Launch era.</p><div class="list">${original}</div>`, { sub: true }));
   }
 
-  // The launcher's own settings: its updates and Discord.
-  const settingRows = (offered("downloads") ? updatesRow() : "") + (offered("discord") ? discordRow() : "");
+  // The launcher's own settings: the interface every world starts in, its updates and Discord.
+  const settingRows = (ac2Realm ? "" : interfaceRow()) + (offered("downloads") ? updatesRow() : "") + (offered("discord") ? discordRow() : "");
   const settings = settingRows ? libFold("settings", "SETTINGS", `<div class="list">${settingRows}</div>`) : "";
 
   let pending = "";
@@ -2631,10 +2631,6 @@ function interfaceAsked() {
   return !!i && !i.chosen && !ui.iface.dismissed;
 }
 
-// Whether a Dereth client the launcher started is running: it saves its own interface when it
-// closes, so the launcher does not change it under it.
-const derethRunning = () => ui.snap.running.some((r) => r.kind === "dereth");
-
 // A picture of each interface: the screen in miniature on a 64 by 40 grid, drawn as pixel art like
 // the rest of the chrome, with each part where that interface puts it over the world.
 const px = (x, y, w, h, fill) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${fill}"/>`;
@@ -2716,22 +2712,19 @@ function interfacePage() {
       <p style="font-size:21px">Which interface would you like to play Dereth in?</p>
       <div class="ifaces" role="radiogroup" aria-label="Interface">${cards}</div>
       ${noClassic ? `<p class="small warn">There are no Classic data files yet: add portal.dat and cell.dat in the Library before playing in the classic interface.</p>` : ""}
-      <p class="muted small">You can change it whenever you like in the game's options, or here in the Library.</p>
+      <p class="muted small">Every world starts in it. Change it for one world in the game's options, or under Settings in the Library.</p>
       <div class="btns end" style="margin-top:12px">${fromLibrary ? `<button class="btn" data-act="iface-cancel">Cancel</button>` : ""}
-        <button class="btn" data-act="iface-save" ${fromLibrary && derethRunning() ? `disabled title="Close the Dereth client first"` : ""}>${fromLibrary ? "Save" : "Continue"}</button></div>
+        <button class="btn" data-act="iface-save">${fromLibrary ? "Save" : "Continue"}</button></div>
     </section></div>`;
 }
 
-// The Library's line for the interface the Dereth client starts in, with the way to change it.
+// The Library's setting for the interface every world starts in, with the way to change it.
 function interfaceRow() {
   const i = ui.snap.interface;
   if (!i) return "";
-  const running = derethRunning();
-  const sub = running ? "Close the Dereth client to change it here; its own options change it while it runs."
-    : "The interface the Dereth client starts in. Its own options change it too.";
   return `<div class="row static"><div class="grow"><div class="name">Interface: ${esc(i.chosen ?? "not chosen yet")}</div>
-      <div class="sub">${esc(sub)}</div></div>
-      <div class="btns"><button class="btn" data-act="iface-change" ${running ? "disabled" : ""}>Change</button></div></div>`;
+      <div class="sub">Every world starts in it. A change in game is kept for that world only.</div></div>
+      <div class="btns"><button class="btn" data-act="iface-change">Change</button></div></div>`;
 }
 
 // Save the interface picked, and go back where the question came from. On the first start, an
