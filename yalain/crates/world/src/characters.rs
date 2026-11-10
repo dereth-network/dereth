@@ -107,6 +107,7 @@ fn refusal_words(code: u32) -> &'static str {
         refusal::RACE => "it is not for the race",
         refusal::PARENT => "a parent skill is untrained",
         refusal::PREREQUISITE => "a prerequisite is untrained or too low",
+        refusal::BARRED => "a skill held bars it",
         refusal::CREDITS => "the credits are short",
         refusal::UNTRAINED => "it is untrained",
         refusal::CAP => "it is at its cap",

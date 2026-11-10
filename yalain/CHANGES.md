@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- A character can no longer train a second class.
 - /status now names the world release and what the server doesn't handle yet.
 - Deleted characters are now removed after their hour even if nobody logs in.
 - /uninscribe now takes an inscription off, for whoever wrote it.

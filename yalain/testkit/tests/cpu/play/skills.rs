@@ -169,6 +169,154 @@ fn training_a_skill_spends_its_credits_and_again_is_refused() {
     assert_eq!(fs, vec![SHOW_TEXT], "already trained: a text alone");
 }
 
+/// The text ids a client was shown since `from`.
+fn shown(h: &Harness, b: usize, from: usize) -> Vec<(u32, u32)> {
+    calls_of(h, b, from)
+        .into_iter()
+        .filter(|(f, _)| *f == SHOW_TEXT)
+        .filter_map(|(_, v)| {
+            v.iter().find_map(|x| match x.root() {
+                Some(calls::Node::TextInfo(t)) => Some((t.string_id, t.table)),
+                _ => None,
+            })
+        })
+        .collect()
+}
+
+/// A second class is refused: holding one made-up class's root, a player asking for another's root
+/// is told that one of its skills bars it, a text alone, its credits kept; holding none, it trains
+/// the root. Only the asked skill's own barring skills count, so a root no other names is trained
+/// beside them. The bar is asked after the prerequisites and before the credits.
+/// Behaviour: server.skills.barred-by-a-held-skill
+#[test]
+fn a_player_holding_one_class_root_is_refused_another_and_one_holding_none_trains_it() {
+    use yalain_world::skills::{refusal, Credits, Held, TEXTS};
+    const ROOT: u32 = 68;
+    const OTHER_ROOT: u32 = 116;
+    const NAMED_BY_NONE: u32 = 150;
+    const BARRED_TEXT: u32 = 0xA667_5BCE;
+    let mut h = Harness::new();
+    let b = trainee(&mut h);
+    for (id, barring) in [
+        (ROOT, vec![OTHER_ROOT, NAMED_BY_NONE]),
+        (OTHER_ROOT, vec![ROOT]),
+        (NAMED_BY_NONE, vec![]),
+    ] {
+        h.server.skill_table.skills.insert(
+            id,
+            SkillDef {
+                id,
+                name: (0xA860_7CEC, 0x2500_085B),
+                cost: 1,
+                min_level: 2,
+                cap: 50,
+                table: TABLE,
+                flags: 0x1,
+                barring,
+                ..SkillDef::default()
+            },
+        );
+    }
+    let train = |h: &mut Harness, skill: u32| {
+        for p in h.server.players.values_mut() {
+            p.play.credits = 1;
+        }
+        let from = h.bots[b].inbox.len();
+        h.bots[b].send(true, queue::WEENIE, &server_call(TRAIN, &[Arg::Int(skill)]));
+        h.run(10);
+        from
+    };
+    let holds = |h: &Harness, skill: u32| {
+        h.server
+            .players
+            .values()
+            .next()
+            .expect("the player")
+            .play
+            .skills
+            .iter()
+            .any(|s| s.skill == skill && s.mask & 0x1 != 0)
+    };
+
+    let from = train(&mut h, ROOT);
+    let fs: Vec<u32> = calls_of(&h, b, from).iter().map(|(f, _)| *f).collect();
+    assert_eq!(
+        fs,
+        vec![UPDATE_REPOSITORY, UPDATE_INFO, SHOW_TEXT],
+        "no class yet"
+    );
+    assert!(holds(&h, ROOT));
+
+    let from = train(&mut h, OTHER_ROOT);
+    let fs: Vec<u32> = calls_of(&h, b, from).iter().map(|(f, _)| *f).collect();
+    assert_eq!(fs, vec![SHOW_TEXT], "a second class: a text alone");
+    assert_eq!(shown(&h, b, from), vec![(BARRED_TEXT, TEXTS)]);
+    assert!(!holds(&h, OTHER_ROOT));
+    let p = h.server.players.values().next().expect("the player");
+    assert_eq!(p.play.credits, 1, "its credits kept");
+
+    let from = train(&mut h, NAMED_BY_NONE);
+    let fs: Vec<u32> = calls_of(&h, b, from).iter().map(|(f, _)| *f).collect();
+    assert_eq!(
+        fs,
+        vec![UPDATE_REPOSITORY, UPDATE_INFO, SHOW_TEXT],
+        "a root naming none held"
+    );
+
+    let t = &h.server.skill_table;
+    let root = Held {
+        skill: ROOT,
+        granted: 0,
+        xp: 0,
+        mask: 0x3,
+        cost: 1,
+        children: 0,
+        dependents: 0,
+    };
+    let broke = Credits {
+        skill: 0,
+        hero: None,
+    };
+    assert_eq!(
+        t.train_refusal(&[root], OTHER_ROOT, 2, 1, broke),
+        Some(refusal::BARRED),
+        "barred before the credits"
+    );
+    let mut needs = t.skills[&OTHER_ROOT].clone();
+    needs.prereqs = vec![(SKILL, 1)];
+    let mut t = t.clone();
+    t.skills.insert(OTHER_ROOT, needs);
+    assert_eq!(
+        t.train_refusal(&[root], OTHER_ROOT, 2, 1, broke),
+        Some(refusal::PREREQUISITE),
+        "the prerequisites before the bar"
+    );
+    let untrained = Held { mask: 0, ..root };
+    assert_eq!(
+        t.train_refusal(&[untrained], OTHER_ROOT, 2, 1, broke),
+        Some(refusal::PREREQUISITE)
+    );
+    t.skills
+        .get_mut(&OTHER_ROOT)
+        .expect("the root")
+        .prereqs
+        .clear();
+    assert_eq!(
+        t.train_refusal(
+            &[untrained],
+            OTHER_ROOT,
+            2,
+            1,
+            Credits {
+                skill: 1,
+                hero: None
+            }
+        ),
+        None,
+        "a barring skill held untrained bars nothing"
+    );
+}
+
 /// Raising a trained skill costs the experience to its table's next level (4 from none on the
 /// masters' table, then 8): the skill's information, the experience left, its text; with too
 /// little experience left, a text alone.

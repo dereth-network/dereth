@@ -13024,6 +13024,25 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "server.skills.barred-by-a-held-skill",
+        says: "Training a skill is refused (30005) when the player holds trained a skill the asked \
+               skill names as barring it, after the prerequisites and before the credits: a text \
+               alone, the credits kept. Only the asked skill's own barring skills count.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SKILL-BARRED"),
+        station: "yalain-testkit::cpu::play::skills::a_player_holding_one_class_root_is_refused_another_and_one_holding_none_trains_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.skills.barring-skills-read",
+        says: "Each skill's barring skills read from its definition: every class's root names its \
+               race's other roots, the Paragons each other, and some perks their opposites.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SKILL-BARRING-SETS"),
+        station: "yalain-testkit::dat::skills::each_class_root_names_its_races_other_roots_as_barring_it",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.skills.blood-perks-raise-vigor-by-the-hour",
         says: "Nocturnal Blood adds to the vigor rates by night and Diurnal Blood by day, 0.3 each, \
                and neither to health's.",

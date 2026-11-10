@@ -832,6 +832,65 @@ fn perks_read_with_their_kind_value_and_priority() {
     assert!((2053..=2058).all(|id| perk(id).kind == 19));
 }
 
+/// The install's barring skills: 47 skills name 164 in all. Each playable class's root names its
+/// race's other roots, Balance the five other human roots; the three Paragons name each other, Night
+/// and Day Stalker each other; Inspiration and Iron Pincers, a Defender's and a Feral Intendant's
+/// second root, name the race's other roots and no skill names them. A human holding Balance is
+/// refused Quickening, one holding none may train it.
+/// Behaviour: server.skills.barring-skills-read
+#[test]
+fn each_class_root_names_its_races_other_roots_as_barring_it() {
+    use yalain_world::skills::{refusal, Credits, Held};
+    let t = Portal::open().skills();
+    let barring: Vec<_> = t
+        .skills
+        .values()
+        .filter(|d| !d.barring.is_empty())
+        .collect();
+    assert_eq!(barring.len(), 47);
+    assert_eq!(barring.iter().map(|d| d.barring.len()).sum::<usize>(), 164);
+    let bars = |id: u32| {
+        t.skills[&id]
+            .barring
+            .iter()
+            .copied()
+            .collect::<BTreeSet<u32>>()
+    };
+    assert_eq!(bars(68), BTreeSet::from([116, 132, 148, 189, 235]));
+    assert_eq!(bars(150), BTreeSet::from([68, 116, 132, 189, 235]));
+    assert_eq!(bars(695), BTreeSet::from([642, 654, 731, 763, 769]));
+    assert_eq!(bars(1544), BTreeSet::from([1868, 1929]));
+    for (paragon, others) in [(5, [11, 16]), (11, [5, 16]), (16, [5, 11])] {
+        assert_eq!(bars(paragon), BTreeSet::from(others));
+    }
+    assert_eq!(bars(2028), BTreeSet::from([1958]));
+    assert_eq!(bars(1958), BTreeSet::from([2028]));
+    let named: BTreeSet<u32> = barring
+        .iter()
+        .flat_map(|d| d.barring.iter().copied())
+        .collect();
+    assert!(!named.contains(&150) && !named.contains(&695));
+
+    let balance = Held {
+        skill: 68,
+        granted: 0,
+        xp: 0,
+        mask: 0x3,
+        cost: 5,
+        children: 0,
+        dependents: 0,
+    };
+    let credits = Credits {
+        skill: 20,
+        hero: None,
+    };
+    assert_eq!(
+        t.train_refusal(&[balance], 116, 15, 1, credits),
+        Some(refusal::BARRED)
+    );
+    assert_eq!(t.train_refusal(&[], 116, 15, 1, credits), None);
+}
+
 /// The install's six Mining Master perks read as more units on each use of a summoned node: 2, 4,
 /// 6, 9, 14 and 20, each overriding the one before it.
 /// Behaviour: server.craft.mining-units-by-tool-and-perk

@@ -7,10 +7,12 @@
 //!
 //! - **Training** a skill is refused, first failure first, when it is trained already, may not be
 //!   trained by a player, the player's level is below its minimum, it is not for the player's race,
-//!   it is a hero skill, a parent is untrained, a prerequisite is untrained or below its level, or the
-//!   credits are short of its cost. Trained, the player pays its cost in credits; each trained
-//!   parent counts one more trained child and each prerequisite one more dependent; the skill holds
-//!   no experience, and is marked trained (and the player's to untrain when the skill may be).
+//!   it is a hero skill, a parent is untrained, a prerequisite is untrained or below its level, the
+//!   player has trained a skill it names as barring it (a class's root names its race's other
+//!   roots), or the credits are short of its cost. Trained, the player pays its cost in credits;
+//!   each trained parent counts one more trained child and each prerequisite one more dependent; the
+//!   skill holds no experience, and is marked trained (and the player's to untrain when the skill
+//!   may be).
 //! - **A skill's rating** is its granted level, plus a tenth of its trained parents' ratings (each
 //!   at most 50), plus the level its experience reaches in its advancement table (the highest level
 //!   whose experience it has: none still reaches level 1), at most its cap (for an active skill of
@@ -115,6 +117,7 @@ pub mod refusal {
     pub const RACE: u32 = 30_002;
     pub const PARENT: u32 = 30_003;
     pub const PREREQUISITE: u32 = 30_004;
+    pub const BARRED: u32 = 30_005;
     pub const CREDITS: u32 = 30_006;
     pub const UNTRAINED: u32 = 30_009;
     pub const BEING_UNTRAINED: u32 = 30_010;
@@ -161,6 +164,7 @@ pub const fn refusal_text(code: u32) -> u32 {
         refusal::RACE => 0x38A0_983D,
         refusal::PARENT => 0x75B4_0A93,
         refusal::PREREQUISITE => 0xD766_7171,
+        refusal::BARRED => 0xA667_5BCE,
         refusal::CREDITS => 0xC036_658E,
         refusal::UNTRAINED => 0xD14A_05D7,
         refusal::NOT_BY_PLAYER => 0x337D_77B9,
@@ -318,6 +322,9 @@ pub struct SkillDef {
     /// Its parents and prerequisites, each with the rating it needs.
     pub parents: Vec<(u32, u32)>,
     pub prereqs: Vec<(u32, u32)>,
+    /// The skills whose holder may not train it: a class's root names its race's other roots, a
+    /// Paragon the other Paragons, a perk its opposite.
+    pub barring: Vec<u32>,
     /// The races it is for (0: all).
     pub species: u32,
     /// An active skill (one used), capped at 50 for players who are no heroes.
@@ -762,6 +769,10 @@ impl SkillDef {
             flags: nav.field(root, "m_skillFlags")?,
             parents: pairs("mParents")?,
             prereqs: pairs("mPrereqs")?,
+            barring: pairs("mBarringSkills")?
+                .into_iter()
+                .map(|(s, _)| s)
+                .collect(),
             species: nav.field(root, "mAllowedSpecies").unwrap_or(0),
             active,
             auto_attack: active
@@ -1162,6 +1173,9 @@ impl SkillTable {
             .any(|(p, at)| !trained(*p) || self.rating(skills, *p, credits.hero.is_some()) < *at)
         {
             return Some(refusal::PREREQUISITE);
+        }
+        if d.barring.iter().any(|b| trained(*b)) {
+            return Some(refusal::BARRED);
         }
         let short = if hero_skill {
             credits.hero.unwrap_or(0) < d.hero_cost
