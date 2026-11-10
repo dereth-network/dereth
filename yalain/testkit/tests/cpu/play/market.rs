@@ -1145,22 +1145,18 @@ fn an_attuned_item_is_refused_its_sale_by_its_template_or_a_recipe() {
     assert_eq!(sold(&mut h, a, ida, by_recipe), (1_000, refused, false));
 }
 
-/// A character at the most consignments it may hold is told so and nothing is taken; one collected
-/// makes room again.
-/// Behaviour: server.market.a-character-holds-so-many-consignments
-#[test]
-fn a_character_at_its_most_consignments_is_refused_and_told() {
-    use yalain_world::market::{AT_THE_MOST, MOST_CONSIGNMENTS};
-    use yalain_world::store::{self, error};
-    let mut h = world();
+/// A character with as many gems as it may hold put up with the broker, one at a time from a stack:
+/// its client, its connection, the stack and the sale request.
+fn at_the_most(h: &mut Harness) -> (usize, yalain_net::ConnId, u64, [Arg; 5]) {
+    use yalain_world::market::MOST_CONSIGNMENTS;
     let (a, ida) = h.player_in_world("one", "Seller");
-    at_the_broker(&mut h, ida);
-    money(&mut h, ida, 100_000);
+    at_the_broker(h, ida);
+    money(h, ida, 100_000);
     let mut stacks = Props::default();
     stacks.set("Item_MaxStackSize", yalain_content::Prop::Int(1000));
     h.server.catalog.insert(test_template(GEM, 0x1067, stacks));
     let gem = yalain_world::inventory::make_item(&mut h.server, GEM, 1000, 0).expect("made");
-    let w = world_of(&h, ida);
+    let w = world_of(h, ida);
     let p = h.server.players.get_mut(&w).expect("in the world");
     p.play.items.push(yalain_world::state::Held {
         id: gem,
@@ -1181,6 +1177,19 @@ fn a_character_at_its_most_consignments_is_refused_and_told() {
         h.ask(a, function::SELL, &sell, 2);
     }
     assert_eq!(h.server.market.list.len(), MOST_CONSIGNMENTS);
+    (a, w, gem, sell)
+}
+
+/// A character at the most consignments it may hold is refused in the client's own words ("The
+/// maximum number of consignments for your player has been reached.") and nothing is taken; one
+/// collected makes room again.
+/// Behaviour: server.market.a-character-holds-so-many-consignments
+#[test]
+fn a_character_at_its_most_consignments_is_refused_and_told() {
+    use yalain_world::market::{AT_THE_MOST, MOST_CONSIGNMENTS};
+    use yalain_world::store;
+    let mut h = world();
+    let (a, w, _, sell) = at_the_most(&mut h);
     let left = yalain_world::store::money(&h.server.players[&w].qualities);
     let from = h.bots[a].inbox.len();
     h.ask(a, function::SELL, &sell, 5);
@@ -1190,15 +1199,72 @@ fn a_character_at_its_most_consignments_is_refused_and_told() {
         left,
         "nothing taken"
     );
-    assert_eq!(last_error(&h, a, from), Some(error::SALE_REFUSED));
-    assert!(h
-        .texts(a, from)
-        .iter()
-        .any(|(k, id)| (*k, *id) == (1, AT_THE_MOST.0)));
+    assert_eq!(last_error(&h, a, from), Some(AT_THE_MOST));
+    assert!(h.texts(a, from).is_empty(), "the client's words alone");
     let sale = h.server.market.list[0].sale;
     let collect = [Arg::Int(0), Arg::Int(sale), Arg::LongInt(BROKER)];
     h.ask(a, function::COLLECT, &collect, 5);
     assert_eq!(h.server.market.list.len(), MOST_CONSIGNMENTS - 1);
+    h.ask(a, function::SELL, &sell, 2);
+    assert_eq!(h.server.market.list.len(), MOST_CONSIGNMENTS, "room again");
+}
+
+/// Expired consignments left uncollected count toward a character's most: with all of them expired
+/// it is refused another, and they stay with the broker, whole, however long they wait. It may still
+/// restock one, which goes on sale again, and collecting one makes room.
+/// Behaviour: server.market.expired-consignments-count-toward-the-most
+#[test]
+fn expired_uncollected_consignments_count_toward_the_most_and_stay_with_the_broker() {
+    use yalain_world::market::{AT_THE_MOST, EXPIRY_LOOK, MOST_CONSIGNMENTS};
+    let mut h = world();
+    let (a, w, gem, sell) = at_the_most(&mut h);
+    let now = h.server.game_now;
+    for c in &mut h.server.market.list {
+        c.entered = now - yalain_world::market::ON_SALE_SECONDS - 1.0;
+    }
+    // Long past their time, and past many looks at the clock.
+    let t = h.now.0 + 3.0 * EXPIRY_LOOK;
+    while h.now.0 < t {
+        h.step();
+    }
+    let now = h.server.game_now;
+    assert!(h.server.market.list.iter().all(|c| c.expired(now)));
+    assert_eq!(h.server.market.list.len(), MOST_CONSIGNMENTS, "all kept");
+    assert!(
+        h.server.market.list.iter().all(|c| h
+            .server
+            .things
+            .get(c.item)
+            .is_some_and(|t| t.quantity == 1)),
+        "each item whole with its broker"
+    );
+    let from = h.bots[a].inbox.len();
+    h.ask(a, function::SELL, &sell, 5);
+    assert_eq!(last_error(&h, a, from), Some(AT_THE_MOST));
+    assert_eq!(h.server.market.list.len(), MOST_CONSIGNMENTS, "no more");
+    // A restock is not another consignment.
+    let sale = h.server.market.list[0].sale;
+    restock(&mut h, a, sale, 1, gem);
+    let c = h.server.market.list[0];
+    assert_eq!(c.offered, 2, "restocked");
+    assert!(c.on_sale(h.server.game_now), "on sale again");
+    assert_eq!(h.server.market.list.len(), MOST_CONSIGNMENTS);
+    // Collected, an expired one comes back and makes room.
+    let gems = |h: &Harness| -> u32 {
+        h.server.players[&w]
+            .play
+            .items
+            .iter()
+            .filter(|i| i.template == GEM)
+            .map(|i| i.quantity.max(1))
+            .sum()
+    };
+    let held = gems(&h);
+    let sale = h.server.market.list[1].sale;
+    let collect = [Arg::Int(0), Arg::Int(sale), Arg::LongInt(BROKER)];
+    h.ask(a, function::COLLECT, &collect, 5);
+    assert_eq!(h.server.market.list.len(), MOST_CONSIGNMENTS - 1);
+    assert_eq!(gems(&h), held + 1, "back in the pack");
     h.ask(a, function::SELL, &sell, 2);
     assert_eq!(h.server.market.list.len(), MOST_CONSIGNMENTS, "room again");
 }

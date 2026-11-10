@@ -7680,8 +7680,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.market.a-character-holds-so-many-consignments",
-        says: "A character holding the most consignments it may is told so and nothing is taken; one \
-               collected makes room again.",
+        says: "A character holding the most consignments it may is refused another in the client's \
+               own words for a character's maximum (45020) and nothing is taken; one collected makes \
+               room again.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-MARKET-MOST"),
         station: "yalain-testkit::cpu::play::market::a_character_at_its_most_consignments_is_refused_and_told",
@@ -7833,6 +7834,17 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-MARKET-LIMITS"),
         station: "yalain-testkit::cpu::play::market::a_brokers_dealings_need_reach_and_room",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.market.expired-consignments-count-toward-the-most",
+        says: "Expired consignments left uncollected count toward a character's most consignments: \
+               with that many it is refused another, and they stay with their broker, whole, however \
+               long they wait; it may still restock one, and collecting one makes room. This \
+               server's own: the recordings hold no character near a maximum.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-MARKET-MOST-EXPIRED"),
+        station: "yalain-testkit::cpu::play::market::expired_uncollected_consignments_count_toward_the_most_and_stay_with_the_broker",
         tier: Tier::Cpu,
     },
     behaviour! {

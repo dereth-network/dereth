@@ -21,7 +21,8 @@
 //!
 //! **What may not be sold**: an item attuned to its holder, and one bound by use in combat: refused,
 //! nothing taken and nothing moved. Nor anything by a character holding [`MOST_CONSIGNMENTS`] already,
-//! which is told so.
+//! on sale, expired or sold and not yet collected, which is told so in the client's own words; it
+//! may still restock one, and collecting one makes room.
 //!
 //! **A page** shows as many sales as a storekeeper's and names the whole listing's size; the client
 //! turns the pages as it does a storekeeper's (2017: no page of any store showed more than 7 of 510
@@ -130,12 +131,14 @@ pub const EXPIRY_LOOK: f64 = 60.0;
 /// A consignment's flag: expired.
 const FLAG_EXPIRED: u32 = 1;
 
-/// The most consignments a character holds at once. The client has words for a character's maximum,
-/// so the 2017 servers had one; its number was never recorded (of 2 sales put up in the recordings,
-/// a character's most is 2), so this is ours.
+/// The most consignments a character holds at once: on sale, expired or sold, until collected. The
+/// client has words for a character's maximum, so the 2017 servers had one; its number was never
+/// recorded (the recordings hold two characters' consignments, the most of one 2, and the client
+/// lists every consignment it is sent in one list), so this is ours.
 pub const MOST_CONSIGNMENTS: usize = 100;
-/// The words for a character at that maximum.
-pub const AT_THE_MOST: (u32, u32) = (0xCF60_26D2, 0x2500_0CEE);
+/// The refusal of a sale by a character at that maximum, which the client words "Cannot add
+/// consignment. The maximum number of consignments for your player has been reached."
+pub const AT_THE_MOST: u32 = 45_020;
 /// A connection's rows of pages, at once and each second (18 recorded asks, none of more than 13).
 pub const PAGE_ROWS_HELD: f64 = 2000.0;
 pub const PAGE_ROWS_A_SECOND: f64 = 1000.0;
@@ -1022,14 +1025,11 @@ pub fn sell<S: Store>(
         progress::private(net, world, &m);
         return;
     }
+    // Every consignment counts until it is collected, an expired one too, so what a character
+    // leaves with brokers is bounded and nothing of it is ever taken away.
     if s.market.list.iter().filter(|c| c.owner == me).count() >= MOST_CONSIGNMENTS {
-        let m = call(
-            store::function::REQUEST_DONE,
-            &[Arg::Int(store::error::SALE_REFUSED)],
-        );
+        let m = call(store::function::REQUEST_DONE, &[Arg::Int(AT_THE_MOST)]);
         progress::private(net, world, &m);
-        let told = crate::chat::show_text(1, progress::text(AT_THE_MOST));
-        progress::private(net, world, &told);
         return;
     }
     // An item bound to its seller stays with it, and so does one used in combat: its sale profile
