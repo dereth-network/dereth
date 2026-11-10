@@ -7,6 +7,8 @@ Add a line under **Unreleased** when a change lands that a world builder would n
 see, not how it was done.
 
 ## Unreleased
+
+## 0.1.6 (2026-11-10)
 - Reads the world rows Yalain added since the last release.
 
 ## 0.1.5 (2026-11-09)
