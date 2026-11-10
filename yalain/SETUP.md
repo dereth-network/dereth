@@ -437,7 +437,10 @@ With `--status <ip>:<port>` (for example `--status 127.0.0.1:9100`), the server 
   `version`, `game` (`auberean`), `uptime_seconds`, `state` (`online`, or `maintenance` while a
   shutdown counts down), `players_online` (characters in the world), `logins`, `max_logins`,
   `connections`, `saves_failing` (true while the database will not take saves: watch this one) and
-  `websocket_url` (section 4.1; `null` with the endpoint off).
+  `websocket_url` (section 4.1; `null` with the endpoint off), `world_database` (the world served:
+  its `key` and `era`, the `release` it is, the `base` release it lies over and the world whose
+  `overlay` is read, each `null` when there is none) and `not_handled` (what clients asked for that
+  the server doesn't do yet: the `requests` met, and each kind's count in `kinds`).
 
 **If saves fail** (the disk is full, the file is read-only or another program has it locked), nothing is
 lost while the server runs: it holds what it could not write and tries again every five seconds. The log

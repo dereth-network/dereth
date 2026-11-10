@@ -416,6 +416,39 @@ fn a_deleted_character_is_booted_and_grayed_out_for_the_hour_then_gone() {
     );
 }
 
+/// A deleted character whose account never comes back for it is gone once its hour is up, at the
+/// world's next look for them, and its name is free again; one deleted since waits out its hour.
+/// Behaviour: server.operator.deleted-characters-go-without-their-account
+#[test]
+fn a_deleted_character_whose_account_never_returns_is_gone_after_its_hour() {
+    let mut h = world();
+    let (_, kara) = h.player_in_world("one", "Sir Kara");
+    let (_, ivo) = h.player_in_world("two", "Ivo");
+    let clock = h.clock();
+    characters::delete(&mut h.server, &mut h.net, clock, "Sir Kara").expect("deleted");
+    h.run_to(yalain_net::LocalTime(h.now.0 + 25.0));
+    assert!(
+        h.server.store.name_taken("sir kara").expect("reads"),
+        "its hour"
+    );
+    h.advance(f64::from(h.server.cfg.delete_seconds) + 1.0);
+    h.advance(f64::from(
+        u32::try_from(yalain_world::login::PURGE_EVERY_SECONDS).expect("small"),
+    ));
+    let clock = h.clock();
+    characters::delete(&mut h.server, &mut h.net, clock, "Ivo").expect("deleted");
+    h.run_to(yalain_net::LocalTime(h.now.0 + 25.0));
+    assert_eq!(h.server.store.character(kara).expect("reads"), None, "gone");
+    assert!(
+        !h.server.store.name_taken("Sir Kara").expect("reads"),
+        "its name free"
+    );
+    assert!(
+        h.server.store.character(ivo).expect("reads").is_some(),
+        "still in its hour"
+    );
+}
+
 /// A character file carries every number an item holds of its own, in its state: imported under a
 /// new id, the item comes back with its value, what its level gave it, its effects, its maker, its
 /// wear, its map's place, its color and its inscription. The build beside it names items by template and count only;

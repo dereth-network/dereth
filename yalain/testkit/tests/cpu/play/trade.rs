@@ -375,6 +375,54 @@ fn a_store_that_hides_sales_for_others_leaves_them_off_the_page_but_counts_them(
     assert_eq!(page(&mut h), [0, 2, 3], "the finished quest's sale listed");
 }
 
+/// A shopper's client asking its storekeeper for the sales again, as it does when the player's
+/// experience or quests change, is sent the page it is on as it now stands: a quest finished since
+/// lists its sale. Asked of another storekeeper, nothing is sent.
+/// Behaviour: server.store.sales-sent-again-when-asked
+#[test]
+fn a_shopper_asking_for_the_sales_again_gets_its_page_as_it_now_stands() {
+    let mut h = gated_shop(true);
+    let (b, _, view) = enter_gated(&mut h);
+    assert_eq!(
+        listed(&view).1.iter().map(|p| p[9].1).collect::<Vec<u32>>(),
+        [0, 3]
+    );
+    for p in h.server.players.values_mut() {
+        p.play.quests = vec![yalain_world::state::QuestState {
+            quest: GATED_QUEST,
+            status: 0x3000_0000,
+            phase: 0,
+            started: 0,
+            updated: 0,
+        }];
+    }
+    let asked = |h: &mut Harness, keeper: u64| {
+        let from = h.bots[b].inbox.len();
+        h.ask(
+            b,
+            yalain_world::store::function::UPDATE_SALES,
+            &[Arg::LongInt(keeper)],
+            10,
+        );
+        calls_of(h, b, from)
+            .into_iter()
+            .filter(|(f, _)| *f == UPDATE_STORE)
+            .map(|(_, mut v)| listed(&v.remove(0)).1.iter().map(|p| p[9].1).collect())
+            .collect::<Vec<Vec<u32>>>()
+    };
+    assert_eq!(
+        asked(&mut h, GUARD),
+        Vec::<Vec<u32>>::new(),
+        "not its keeper"
+    );
+    assert_eq!(
+        asked(&mut h, KEEPER),
+        [vec![0, 2, 3]],
+        "the page as it stands"
+    );
+    assert_eq!(h.server.unhandled.count("script call 0x9b5e0042"), 0);
+}
+
 /// A store that does not hide them shows the sales a player may not have restricted, and buying
 /// one finds no sale and takes nothing.
 /// Behaviour: server.store.sales-for-others-restricted

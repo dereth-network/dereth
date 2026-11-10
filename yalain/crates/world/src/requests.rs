@@ -115,6 +115,9 @@ pub fn call<S: Store>(
         crate::mounts::DISMOUNT => crate::mounts::dismount(s, net, world),
         crate::personal::function::SET_ALIAS => crate::personal::set_alias(s, world, &values),
         crate::personal::function::INSCRIBE => crate::personal::inscribe(s, net, world, &values),
+        crate::personal::function::UNINSCRIBE => {
+            crate::personal::uninscribe(s, net, world, &values);
+        }
         crate::personal::function::LIST_SKILLS => crate::personal::list_skills(s, net, world),
         crate::quests::CANCEL_QUEST => crate::quests::cancel(s, net, world, &values, clock),
         function::USE => {
@@ -190,10 +193,16 @@ pub fn call<S: Store>(
             crate::store::turn_page(s, net, world, false, clock.local);
         }
         crate::store::function::LEAVE_STORE => crate::store::leave(s, world),
+        crate::store::function::UPDATE_SALES => crate::store::update_sales(s, net, world, &values),
         crate::store::function::PURCHASE => crate::store::purchase(s, net, world, &values, clock),
         crate::skills::function::TRAIN => crate::skills::train(s, net, world, &values),
         crate::skills::function::UNTRAIN => crate::skills::untrain(s, net, world, &values, clock),
         crate::skills::function::UNTRAIN_CANCEL => crate::skills::cancel_untraining(s, net, world),
+        crate::skills::function::SELL_BACK_ALL
+        | crate::skills::function::SELL_BACK_ALL_HERO
+        | crate::skills::function::SELL_BACK_ALL_CRAFT => {
+            crate::skills::sell_back_all(net, world, f);
+        }
         crate::death::player_fn::RESURRECT => crate::death::resurrect(s, net, world, clock),
         crate::resurrections::function::DECLINE => crate::resurrections::declined(s, world),
         crate::skills::function::RAISE => crate::skills::raise(s, net, world, &values, clock),

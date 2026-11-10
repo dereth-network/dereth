@@ -480,7 +480,7 @@ pub fn delete<S: Store>(
 }
 
 /// Is a character in the world (lingering included), or on its way in?
-fn in_world_or_entering<S: Store>(s: &Server<S>, id: u64) -> bool {
+pub(crate) fn in_world_or_entering<S: Store>(s: &Server<S>, id: u64) -> bool {
     s.players.values().any(|p| p.character == id)
         || s.sessions.values().any(|x| match x.stage {
             Stage::Entering { character, .. } | Stage::InWorld { character, .. } => character == id,

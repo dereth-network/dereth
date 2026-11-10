@@ -609,6 +609,46 @@ fn every_admin_call_answers_an_admin_character_even_with_no_values() {
     }
 }
 
+/// `/stormthresh` sets the players a landblock must hold for a portal storm to brew and
+/// `/stormnumstormed` the fewest a storm sends away, until the server stops, each answered; a
+/// threshold of none is refused and changes nothing. A player's own call changes nothing.
+/// Behaviour: server.admin.portal-storm-numbers-set
+#[test]
+fn an_admin_sets_the_portal_storms_threshold_and_the_fewest_sent_away() {
+    const THRESHOLD: u32 = 0x8201_0030;
+    const SENT: u32 = 0x8201_0085;
+    let mut h = Harness::new();
+    let (me, _) = admin_in_world(&mut h, "one", "Elara");
+    let (player, _) = h.player_in_world("two", "Bran");
+    let was = (h.server.storms.threshold, h.server.storms.least);
+    send(&mut h, player, THRESHOLD, &[Arg::Int(2)]);
+    assert_eq!((h.server.storms.threshold, h.server.storms.least), was);
+    let from = h.bots[me].inbox.len();
+    send(&mut h, me, THRESHOLD, &[Arg::Int(2)]);
+    send(&mut h, me, SENT, &[Arg::Int(1)]);
+    assert_eq!((h.server.storms.threshold, h.server.storms.least), (2, 1));
+    assert_eq!(
+        answers(&h, me, from),
+        [
+            "A portal storm now brews in a landblock holding 2 or more players.",
+            "A portal storm now sends away at least 1 of the players there, and any past the threshold."
+        ]
+    );
+    let from = h.bots[me].inbox.len();
+    send(&mut h, me, THRESHOLD, &[Arg::Int(0)]);
+    assert_eq!(h.server.storms.threshold, 2, "none refused");
+    assert_eq!(
+        answers(&h, me, from),
+        ["Give the players a landblock holds for a portal storm, 1 or more."]
+    );
+    assert_eq!(
+        h.server
+            .unhandled
+            .count("admin call 0x82010030, which has no place here"),
+        0
+    );
+}
+
 /// A command the operator keeps to named groups is refused to an admin in none of them, in game and
 /// as a call, logged and told so; an admin in one may give it, and a command kept to nothing is open
 /// to every admin. The console is never refused; a change of an account's groups holds at once.
@@ -1670,6 +1710,101 @@ fn a_quest_an_admin_takes_off_a_player_takes_its_subquests_too() {
     assert_eq!(held(&h), [SHARED, OTHER_PARENT, UNRELATED]);
     remove(&mut h, OTHER_PARENT);
     assert_eq!(held(&h), [UNRELATED], "the shared one goes with its last");
+}
+
+/// `/qst bestow`, `advance`, `complete` and `fail` move a player's quest as its kind of update says,
+/// its client told each time: given, on to the next phase or a named one, done; failed only while
+/// under way; a quest the world doesn't define, and a kind of update with no counterpart here,
+/// change nothing and are answered so.
+/// Behaviour: server.admin.quest-moved-by-an-admin
+#[test]
+fn an_admin_gives_moves_on_and_finishes_a_players_quest() {
+    use yalain_world::quests::{status, update};
+    const QUEST: u32 = 0x8000_0101;
+    const UPDATE: u32 = 0x8201_0077;
+    let mut h = Harness::new();
+    let (victim, victim_id) = h.player_in_world("one", "Elara");
+    let (me, _) = admin_in_world(&mut h, "two", "Cara");
+    h.server.quests = yalain_content::QuestTable {
+        quests: vec![yalain_content::quests::QuestDef {
+            id: QUEST,
+            name: (1, 0x2500_0001),
+            description: (2, 0x2500_0001),
+            icon: 0,
+            play_fx: false,
+            journals: Vec::new(),
+            challenge: 0,
+            duration: 0.0,
+            timed_phase: 0,
+            retry: 0.0,
+            xp: 0,
+            cancellable: false,
+            placed: "authored for a test".into(),
+            hidden: false,
+            effects: Vec::new(),
+            subquests: Vec::new(),
+            min_level: 0,
+            fails_on_death: false,
+            once: false,
+            fellows: yalain_content::quests::Fellows::default(),
+            last_waits: false,
+            hero_only: false,
+            required: None,
+            pay: yalain_content::quests::CompletionPay::default(),
+            cancel_wait: None,
+        }],
+        steps: Vec::new(),
+        gives: Vec::new(),
+        rooms: Vec::new(),
+    };
+    let held = |h: &Harness| {
+        h.server
+            .players
+            .values()
+            .find(|p| p.character == victim_id)
+            .expect("in the world")
+            .play
+            .quests
+            .iter()
+            .find(|q| q.quest == QUEST)
+            .map(|q| (q.status, q.phase))
+    };
+    let ask = |h: &mut Harness, quest: u32, kind: u32| {
+        let (from, told) = (h.bots[me].inbox.len(), h.bots[victim].inbox.len());
+        send(
+            h,
+            me,
+            UPDATE,
+            &[Arg::LongInt(victim_id), Arg::Int(quest), Arg::Int(kind)],
+        );
+        (answers(h, me, from), quest_updates(h, victim, told))
+    };
+    let (said, told) = ask(&mut h, QUEST, update::FAIL);
+    assert_eq!(said, ["Elara does not have quest 80000101 under way."]);
+    assert!(told.is_empty());
+    let (said, told) = ask(&mut h, QUEST, update::BESTOW);
+    assert_eq!(said, ["Elara's quest 80000101 is given."]);
+    assert_eq!(told, [(update::BESTOW, QUEST)]);
+    assert_eq!(held(&h), Some((status::UNDERWAY, 1)));
+    let (said, told) = ask(&mut h, QUEST, update::ADVANCE);
+    let next = 2;
+    assert_eq!(
+        said,
+        [format!("Elara's quest 80000101 is at phase {next}.")]
+    );
+    assert_eq!(told, [(update::ADVANCE | next, QUEST)]);
+    ask(&mut h, QUEST, update::ADVANCE | 5);
+    assert_eq!(held(&h), Some((status::UNDERWAY, 5)), "a named phase");
+    let (said, told) = ask(&mut h, QUEST, update::COMPLETE);
+    assert_eq!(said, ["Elara's quest 80000101 is done."]);
+    assert_eq!(told, [(update::COMPLETE, QUEST)]);
+    assert_eq!(held(&h), Some((status::COMPLETED, 0)));
+    let (said, _) = ask(&mut h, 0x8000_0999, update::BESTOW);
+    assert_eq!(said, ["The world defines no quest 80000999."]);
+    let (said, told) = ask(&mut h, QUEST, update::INCREMENT);
+    assert_eq!(said, ["This server has no quest update 0x60000000."]);
+    assert!(told.is_empty());
+    assert_eq!(held(&h), Some((status::COMPLETED, 0)));
 }
 
 /// `/qst remove` and `/qst retry` tell the player's client at once, as the update its own handling

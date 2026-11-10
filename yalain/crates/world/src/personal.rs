@@ -27,6 +27,8 @@ use crate::{session, Server};
 pub mod function {
     pub const SET_ALIAS: u32 = 0x8212_0011;
     pub const INSCRIBE: u32 = 0x8212_0002;
+    /// `UninscribeItem`, the client's `/uninscribe` of its selection.
+    pub const UNINSCRIBE: u32 = 0x8212_0008;
     pub const LIST_SKILLS: u32 = 0x8212_0052;
     pub const LIST_SKILLS_DONE: u32 = 0x8212_005E;
 }
@@ -55,6 +57,12 @@ pub mod text {
     pub const CANNOT_INSCRIBE: (u32, u32) = (0x8669_67B4, 0x2500_000B);
     /// "Your inscription is too long."
     pub const TOO_LONG: (u32, u32) = (0x72F8_3432, 0x2500_000B);
+    /// "You successfully remove the inscription.", "You cannot uninscribe that.", "That item is not
+    /// inscribed!" and "You do not have permission to remove the inscription.".
+    pub const UNINSCRIBED: (u32, u32) = (0xB5C5_682B, 0x2500_000B);
+    pub const CANNOT_UNINSCRIBE: (u32, u32) = (0x8DC4_E2A8, 0x2500_000B);
+    pub const NOT_INSCRIBED: (u32, u32) = (0xEAA3_66B7, 0x2500_000B);
+    pub const NOT_YOURS_TO_UNINSCRIBE: (u32, u32) = (0xB503_AD3C, 0x2500_000B);
     /// The kind of text they are shown as.
     pub const SHOWN_AS: u32 = 8;
     /// One line of the trained skills: the skill, its experience, its credits, its hero credits.
@@ -140,6 +148,41 @@ pub fn inscribe<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId,
         }
         crate::world::keep_player(s, world);
         text::INSCRIBED
+    };
+    progress::private(
+        net,
+        world,
+        &crate::chat::show_text(text::SHOWN_AS, progress::text(said)),
+    );
+}
+
+/// A player takes the inscription off an item it holds. Only whoever wrote it may (the client's own
+/// help: "only by the person who inscribed the item in the first place"); an item it doesn't hold,
+/// or one that takes no inscription, is refused, as is one with none. Each is told in the
+/// install's words.
+pub fn uninscribe<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v: &[Value]) {
+    let Some(Value::Long(item)) = v.first() else {
+        s.unhandled.note("an uninscription that does not read");
+        return;
+    };
+    let Some(p) = s.players.get(&world) else {
+        return;
+    };
+    let held = p.play.items.iter().any(|h| h.id == *item);
+    let me = crate::player::world_name(&p.name, p.sex);
+    let thing = s.things.get(*item);
+    let template = thing.map_or(0, |t| t.template);
+    let said = match thing.and_then(|t| t.inscription.as_ref()) {
+        _ if !held || !inscribable(s, template) => text::CANNOT_UNINSCRIBE,
+        None => text::NOT_INSCRIBED,
+        Some((_, by)) if *by != me => text::NOT_YOURS_TO_UNINSCRIBE,
+        Some(_) => {
+            if let Some(t) = s.things.get_mut(*item) {
+                t.inscription = None;
+            }
+            crate::world::keep_player(s, world);
+            text::UNINSCRIBED
+        }
     };
     progress::private(
         net,

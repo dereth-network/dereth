@@ -748,6 +748,17 @@ impl Store for SqliteStore {
         rows.collect::<rusqlite::Result<Vec<_>>>().map_err(err)
     }
 
+    fn deleted_by(&mut self, at: i64) -> StoreResult<Vec<Character>> {
+        let mut s = self
+            .db
+            .prepare(&format!(
+                "SELECT {CHARACTER_COLUMNS} FROM character WHERE deleted_at <= ?1 ORDER BY rowid"
+            ))
+            .map_err(err)?;
+        let rows = s.query_map([at], character).map_err(err)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>().map_err(err)
+    }
+
     fn character(&mut self, id: u64) -> StoreResult<Option<Character>> {
         self.db
             .query_row(

@@ -128,6 +128,8 @@ pub struct LoginGuard {
     waiting: VecDeque<(ConnId, GameLogin)>,
     /// Logins turned away with too many waiting.
     turned_away: u64,
+    /// When the world next looks for deleted characters whose time is up (Unix seconds).
+    next_purge: i64,
 }
 
 /// An address's next check, under its limit; the addresses remembered stay bounded, those with their
@@ -744,6 +746,35 @@ fn greyed_for(cfg_seconds: u32, deleted_at: Option<i64>, now: i64) -> Option<u32
         Some(at) => {
             let left = i64::from(cfg_seconds) - (now - at);
             (left > 0).then(|| u32::try_from(left).unwrap_or(0))
+        }
+    }
+}
+
+/// How often the world looks for deleted characters whose time in their account's list is up.
+pub const PURGE_EVERY_SECONDS: i64 = 3600;
+
+/// Every deleted character whose time in its account's list is up goes for good, its name free
+/// again and its consignments with it, whether or not its account comes back to see it go: looked
+/// for as the world starts and every [`PURGE_EVERY_SECONDS`] after. One still in the world, or one
+/// the store can't take out, waits for the next look.
+pub(crate) fn purge_due<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
+    if clock.unix < s.login_guard.next_purge {
+        return;
+    }
+    s.login_guard.next_purge = clock.unix + PURGE_EVERY_SECONDS;
+    let up = clock.unix - i64::from(s.cfg.delete_seconds);
+    let Ok(gone) = s.store.deleted_by(up) else {
+        return;
+    };
+    for c in gone {
+        // One still leaving the world goes at a later look.
+        if crate::characters::in_world_or_entering(s, c.id) {
+            continue;
+        }
+        if s.store.purge_character(c.id).is_ok() {
+            s.saves.forget(c.id);
+            crate::market::seller_gone(s, net, c.id);
+            tracing::info!(character = %c.name, "a deleted character's time is up: it is gone");
         }
     }
 }

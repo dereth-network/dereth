@@ -14,6 +14,7 @@ pub const TOO_MANY: &str = "more kinds than are kept";
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Unhandled {
     counts: BTreeMap<String, u64>,
+    requests: u64,
 }
 
 impl Unhandled {
@@ -28,12 +29,19 @@ impl Unhandled {
             tracing::info!(%what, "not handled yet");
         }
         *n += 1;
+        self.requests += 1;
     }
 
     /// How many times each kind was met.
     #[must_use]
     pub fn counts(&self) -> &BTreeMap<String, u64> {
         &self.counts
+    }
+
+    /// How many requests were met, of every kind.
+    #[must_use]
+    pub fn requests(&self) -> u64 {
+        self.requests
     }
 
     /// How many times one kind was met.

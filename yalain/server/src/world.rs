@@ -189,6 +189,70 @@ pub fn uses_the_pin(world_db: &str, world_base: Option<&Path>) -> bool {
     db.world.base.is_some_and(|b| b.version.is_none())
 }
 
+/// The world database a server serves, as `/status` names it: its key and era from its world file,
+/// the release it is (a release's folder holds its tag), the database and release it lies over, and
+/// the world whose overlay the install is read through.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Served {
+    pub key: String,
+    pub era: String,
+    /// `None` for a folder that is no release, such as a checkout.
+    pub release: Option<String>,
+    pub base: Option<ServedBase>,
+    pub overlay: Option<String>,
+}
+
+/// The base a served world lies over: the database it names and the release its folder is.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ServedBase {
+    pub key: String,
+    pub release: Option<String>,
+}
+
+/// The world a server started with these arguments serves, read from its world file alone; what
+/// doesn't read is left empty.
+#[must_use]
+pub fn served(world_db: &str, world_base: Option<&Path>, dat_overlay: Option<&Path>) -> Served {
+    let Ok(dir) = database_dir(world_db) else {
+        return Served::default();
+    };
+    let head: toml::Table = std::fs::read_to_string(dir.join("world.toml"))
+        .ok()
+        .and_then(|t| t.parse().ok())
+        .unwrap_or_default();
+    let text = |t: &toml::Table, k: &str| t.get(k).and_then(toml::Value::as_str).map(str::to_owned);
+    let base = head
+        .get("base")
+        .and_then(toml::Value::as_table)
+        .map(|b| ServedBase {
+            key: text(b, "db").unwrap_or_default(),
+            release: world_base
+                .map(Path::to_path_buf)
+                .or_else(|| release_dir(text(b, "version").as_deref().unwrap_or(PINNED_TAG)).ok())
+                .and_then(|d| release_tag(&d)),
+        });
+    let overlay = match dat_overlay {
+        Some(g) => WorldOverlay::open(g).ok(),
+        None if world_db == "pinned" => None,
+        None => WorldOverlay::of_world(&dir).ok().flatten(),
+    };
+    Served {
+        key: text(&head, "key").unwrap_or_default(),
+        era: text(&head, "era").unwrap_or_default(),
+        release: release_tag(&dir),
+        base,
+        overlay: overlay.map(|o| o.world().to_owned()),
+    }
+}
+
+/// The tag of the release a folder holds, from the manifest its archive carried; `None` for a
+/// folder that holds none.
+fn release_tag(dir: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(dir.join("manifest.json")).ok()?;
+    let manifest: serde_json::Value = serde_json::from_str(&text).ok()?;
+    manifest["tag"].as_str().map(str::to_owned)
+}
+
 /// A release's folder in the cache.
 ///
 /// # Errors
@@ -1373,6 +1437,60 @@ mod tests {
             "{e}"
         );
         assert!(!cache.join("v0.9.0").exists());
+        std::fs::remove_dir_all(&d).ok();
+    }
+
+    /// `/status` names the world database a server serves from its world file: a release's folder
+    /// by the tag its archive carried, a checkout by none, and the base a checkout lies over by the
+    /// release its folder holds.
+    /// Behaviour: server.operator.status-names-the-world-database
+    #[test]
+    fn a_served_world_is_named_by_its_key_era_release_and_base() {
+        let d = scratch("served");
+        let release = d.join("v0.9.0");
+        let checkout = d.join("mine");
+        for dir in [&release, &checkout] {
+            std::fs::create_dir_all(dir).unwrap();
+        }
+        std::fs::write(
+            release.join("world.toml"),
+            "format_version = 1\nkey = \"yalain-world\"\ngame = \"ac2\"\nera = \"eor\"\npacks = []\n",
+        )
+        .unwrap();
+        std::fs::write(release.join("manifest.json"), r#"{"tag": "v0.9.0"}"#).unwrap();
+        std::fs::write(
+            checkout.join("world.toml"),
+            "format_version = 1\nkey = \"mine\"\ngame = \"ac2\"\nera = \"eor\"\npacks = []\n\n[base]\ndb = \"yalain-world\"\nversion = \"v0.9.0\"\n",
+        )
+        .unwrap();
+        let path = |p: &Path| p.display().to_string();
+        assert_eq!(
+            served(&path(&release), None, None),
+            Served {
+                key: "yalain-world".into(),
+                era: "eor".into(),
+                release: Some("v0.9.0".into()),
+                base: None,
+                overlay: None,
+            }
+        );
+        assert_eq!(
+            served(&path(&checkout), Some(&release), None),
+            Served {
+                key: "mine".into(),
+                era: "eor".into(),
+                release: None,
+                base: Some(ServedBase {
+                    key: "yalain-world".into(),
+                    release: Some("v0.9.0".into()),
+                }),
+                overlay: None,
+            }
+        );
+        assert_eq!(
+            served(&path(&d.join("none")), None, None),
+            Served::default()
+        );
         std::fs::remove_dir_all(&d).ok();
     }
 }

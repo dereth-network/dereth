@@ -63,6 +63,19 @@ pub mod function {
     /// The client's requests to untrain a skill, and to cancel an untraining under way.
     pub const UNTRAIN: u32 = 0x8214_0007;
     pub const UNTRAIN_CANCEL: u32 = 0x8214_0001;
+    /// `SellBackAllSkills`, `SellBackAllHeroSkills` and `SellBackAllCraftSkills`: the client's
+    /// `/skills reset`, `/heroskills reset` and `/craftskills reset`.
+    pub const SELL_BACK_ALL: u32 = 0x8212_0040;
+    pub const SELL_BACK_ALL_HERO: u32 = 0x8212_002E;
+    pub const SELL_BACK_ALL_CRAFT: u32 = 0x8212_0058;
+}
+
+/// What a player who hasn't been granted a reset is told when it asks to sell back all its skills,
+/// all its hero skills, or all its craft skills at once: that it may not, and to untrain each instead.
+pub mod no_reset {
+    pub const SKILLS: (u32, u32) = (0x1624_3A16, super::TEXTS);
+    pub const HERO_SKILLS: (u32, u32) = (0x5BA0_B0FC, super::TEXTS);
+    pub const CRAFT_SKILLS: (u32, u32) = (0x73EF_12D8, 0x2500_000C);
 }
 
 /// The untraining texts (in [`TEXTS`]): untrained, with the credits and experience regained;
@@ -1897,6 +1910,22 @@ pub fn earned<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, t
     quals::set_long(&mut p.qualities, progress::q::AVAILABLE_XP, available);
     let now = s.game_now;
     untrained(s, net, world, u.skill, u.xp, now);
+}
+
+/// A player asks to sell back all its skills, hero skills or craft skills at once. Only a player
+/// granted a reset could (the install's own words, granted by an item or an event); this server
+/// grants none, so each is refused in the install's words and nothing is untrained.
+pub fn sell_back_all(net: &mut ServerNet, world: ConnId, asked: u32) {
+    let said = match asked {
+        function::SELL_BACK_ALL_HERO => no_reset::HERO_SKILLS,
+        function::SELL_BACK_ALL_CRAFT => no_reset::CRAFT_SKILLS,
+        _ => no_reset::SKILLS,
+    };
+    progress::private(
+        net,
+        world,
+        &crate::chat::show_text(untraining::SHOWN_AS, progress::text(said)),
+    );
 }
 
 /// A player cancels its untraining under way: the repository names none, the skill is shown as it

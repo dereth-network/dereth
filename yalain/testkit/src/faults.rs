@@ -118,6 +118,11 @@ impl Store for FaultStore {
         self.inner.characters(account)
     }
 
+    fn deleted_by(&mut self, at: i64) -> StoreResult<Vec<Character>> {
+        self.read()?;
+        self.inner.deleted_by(at)
+    }
+
     fn character(&mut self, id: u64) -> StoreResult<Option<Character>> {
         self.read()?;
         self.inner.character(id)

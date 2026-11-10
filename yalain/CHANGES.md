@@ -6,6 +6,11 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- /status now names the world release and what the server doesn't handle yet.
+- Deleted characters are now removed after their hour even if nobody logs in.
+- /uninscribe now takes an inscription off, for whoever wrote it.
+- A store's page now updates when a shopper levels up or finishes a quest.
+- Admins can now set portal storm numbers and move a player's quests with /qst.
 - More game content now comes only from the world database; see the release notes.
 - Fixed items on the ground or in corpses keeping an effect's look after it ended.
 - World: the Crystalabra gives its user and fellows back 2% vitae.

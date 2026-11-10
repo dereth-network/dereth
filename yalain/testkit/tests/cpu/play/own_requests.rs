@@ -1,8 +1,8 @@
 //! A player's own small requests: using another player (refused, the other told nothing), using an
 //! item of the pack that has no use (a mote refused, a dye plant and a lodestone only answered),
 //! setting and removing an alias (kept with the options, nothing answered), inscribing an item (a
-//! weapon takes it, anything else is refused with a text), listing the skills it trained, and
-//! cancelling a quest. Fixture: new players in the test world, made-up item templates and a made-up quest.
+//! weapon takes it, anything else is refused with a text) and taking it off, listing the skills it
+//! trained, and cancelling a quest. Fixture: new players in the test world, made-up item templates and a made-up quest.
 
 use std::collections::HashMap;
 
@@ -330,6 +330,91 @@ fn an_item_the_player_does_not_hold_takes_no_inscription() {
             .and_then(|t| t.inscription.clone())
             .is_none());
     }
+}
+
+/// Whoever wrote an inscription may take it off again, and is told so; another player holding the
+/// item is refused permission and the words stay, an item with none is "not inscribed", and one that
+/// takes no inscription, or isn't held, "cannot" be uninscribed.
+/// Behaviour: server.inventory.uninscribing-an-item
+#[test]
+fn only_the_inscriber_takes_an_inscription_off_and_others_are_told_why_not() {
+    let mut h = world_of_items();
+    let (a, _, one) = player(&mut h, "one");
+    let (b, _, two) = player(&mut h, "two");
+    let sword = give(&mut h, one, SWORD);
+    let mote = give(&mut h, one, MOTE);
+    let words = |s: &str| yalain_world::chat::text_arg(yalain_world::profile::literal(s));
+    let inscribed = |h: &Harness| {
+        h.server
+            .things
+            .get(sword)
+            .and_then(|t| t.inscription.clone())
+            .map(|(t, _)| t)
+    };
+    let uninscribe = |h: &mut Harness, bot: usize, item: u64| {
+        let from = h.bots[bot].inbox.len();
+        h.ask(bot, function::UNINSCRIBE, &[Arg::LongInt(item)], 3);
+        h.texts(bot, from)
+    };
+    h.ask(
+        a,
+        function::INSCRIBE,
+        &[words("Sharp"), Arg::LongInt(sword)],
+        3,
+    );
+    // Handed to another, who may not take the words off.
+    let pack = &mut h.server.players.get_mut(&one).expect("in").play.items;
+    let i = pack.iter().position(|x| x.id == sword).expect("held");
+    let item = pack.remove(i);
+    h.server
+        .players
+        .get_mut(&two)
+        .expect("in")
+        .play
+        .items
+        .push(item);
+    assert_eq!(
+        uninscribe(&mut h, b, sword),
+        [(text::SHOWN_AS, text::NOT_YOURS_TO_UNINSCRIBE.0)]
+    );
+    assert_eq!(inscribed(&h).as_deref(), Some("Sharp"));
+    // Not held, then held again by whoever wrote them.
+    assert_eq!(
+        uninscribe(&mut h, a, sword),
+        [(text::SHOWN_AS, text::CANNOT_UNINSCRIBE.0)]
+    );
+    let item = h
+        .server
+        .players
+        .get_mut(&two)
+        .expect("in")
+        .play
+        .items
+        .pop()
+        .expect("held");
+    h.server
+        .players
+        .get_mut(&one)
+        .expect("in")
+        .play
+        .items
+        .push(item);
+    assert_eq!(
+        uninscribe(&mut h, a, sword),
+        [(text::SHOWN_AS, text::UNINSCRIBED.0)]
+    );
+    assert_eq!(inscribed(&h), None);
+    assert_eq!(
+        uninscribe(&mut h, a, sword),
+        [(text::SHOWN_AS, text::NOT_INSCRIBED.0)]
+    );
+    assert_eq!(
+        uninscribe(&mut h, a, mote),
+        [(text::SHOWN_AS, text::CANNOT_UNINSCRIBE.0)]
+    );
+    // The install's words.
+    assert_eq!(text::UNINSCRIBED, (0xB5C5_682B, 0x2500_000B));
+    assert_eq!(text::NOT_YOURS_TO_UNINSCRIBE, (0xB503_AD3C, 0x2500_000B));
 }
 
 /// An inscription stays with its item across a logout, with who wrote it.

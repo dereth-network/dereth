@@ -267,6 +267,12 @@ pub trait Store {
     /// The database failed.
     fn characters(&mut self, account: u64) -> StoreResult<Vec<Character>>;
 
+    /// Every account's characters deleted at `at` or before, in the order they were kept.
+    ///
+    /// # Errors
+    /// The database failed.
+    fn deleted_by(&mut self, at: i64) -> StoreResult<Vec<Character>>;
+
     /// One character.
     ///
     /// # Errors

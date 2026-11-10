@@ -427,6 +427,26 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.admin.portal-storm-numbers-set",
+        says: "An admin's /stormthresh sets the players a landblock must hold for a portal storm to \
+               brew and /stormnumstormed the fewest a storm sends away, until the server stops; a \
+               threshold of none is refused.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-STORM-NUMBERS"),
+        station: "yalain-testkit::cpu::operator::admin_calls::an_admin_sets_the_portal_storms_threshold_and_the_fewest_sent_away",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.admin.quest-moved-by-an-admin",
+        says: "An admin's /qst moves a player's quest as its kind of update says, the client told \
+               each time: given, on to the next phase or a named one, done, or failed while under \
+               way; an undefined quest or a kind with no counterpart changes nothing.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-QUEST-UPDATE"),
+        station: "yalain-testkit::cpu::operator::admin_calls::an_admin_gives_moves_on_and_finishes_a_players_quest",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.admin.quest-removal-takes-its-subquests",
         says: "An admin's taking a quest off a player takes the subquests of its phases with it, done \
                or not, and theirs, without a word, but for one another quest the player holds at a \
@@ -6251,6 +6271,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.inventory.uninscribing-an-item",
+        says: "Whoever wrote an inscription may take it off an item they hold, and is told so; \
+               anyone else is refused permission, an item with none is not inscribed, and one \
+               not held or that takes none cannot be uninscribed, each in the install's words.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-UNINSCRIBE"),
+        station: "yalain-testkit::cpu::play::own_requests::only_the_inscriber_takes_an_inscription_off_and_others_are_told_why_not",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.inventory.units-gathered-stay-within-a-stacks-limit",
         says: "Units gathered fill a player's plain stacks to their template's limit, and the rest \
                make new stacks, none past it, and none lost. Our choice which fills first.",
@@ -9149,6 +9179,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.operator.deleted-characters-go-without-their-account",
+        says: "A deleted character whose hour in its account's list is up goes for good, its name \
+               free again, whether or not its account comes back: the world looks for them as it \
+               starts and every hour.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-DELETED-PURGED"),
+        station: "yalain-testkit::cpu::operator::characters::a_deleted_character_whose_account_never_returns_is_gone_after_its_hour",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.operator.exported-characters-carry-their-build",
         says: "A character written to a file carries its build in a recipe's own words, readable \
                without the server's encodings: its level (or experience past a level's), money, \
@@ -9589,6 +9629,16 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-STATUS-ENDPOINT"),
         station: "yalain::live::configured::the_server_takes_its_settings_from_its_config_file_and_answers_its_status_endpoint",
         tier: Tier::Live,
+    },
+    behaviour! {
+        id: "server.operator.status-names-the-world-database",
+        says: "The status endpoint names the world database served (its key and era, the release \
+               it is, the release it lies over and the world whose overlay is read) and what \
+               clients asked for that the server doesn't do yet, with each kind's count.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-STATUS-WORLD-DATABASE"),
+        station: "yalain::bin.yalain::status::tests::the_status_endpoint_names_the_world_database_and_what_is_not_handled",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "server.operator.status-ping-on-the-login-port",
@@ -13149,6 +13199,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.skills.selling-back-all-refused-without-a-reset",
+        says: "Asking to sell back all skills, all hero skills or all craft skills at once is \
+               refused in the install's words to a player granted no reset, and nothing is \
+               untrained.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SELL-BACK-ALL-REFUSED"),
+        station: "yalain-testkit::cpu::play::untraining::selling_back_every_skill_at_once_is_refused_and_nothing_is_untrained",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.skills.session-start-tells-its-perks",
         says: "A session start tells the perks its character holds, as the updates after it do.",
         since: RETAIL,
@@ -13670,6 +13730,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-STORE-GATED-SHOWN"),
         station: "yalain-testkit::cpu::play::trade::a_store_shows_sales_for_others_restricted_and_will_not_sell_them",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.store.sales-sent-again-when-asked",
+        says: "A shopper's client asking its storekeeper for the sales again, as it does when the \
+               player's experience or quests change, is sent the page it is on as it now stands; \
+               asked of another storekeeper, nothing is sent.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-STORE-UPDATE-SALES"),
+        station: "yalain-testkit::cpu::play::trade::a_shopper_asking_for_the_sales_again_gets_its_page_as_it_now_stands",
         tier: Tier::Cpu,
     },
     behaviour! {

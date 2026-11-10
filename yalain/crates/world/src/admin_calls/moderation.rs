@@ -1,5 +1,5 @@
 //! An admin's commands over accounts and what players are told: boots, bans, who a character is,
-//! the world's limit, and the broadcasts.
+//! the world's limits, the portal storms' numbers, and the broadcasts.
 
 use yalain_net::ConnId;
 use yalain_store::Store;
@@ -31,6 +31,9 @@ pub mod function {
     pub const UNCLOAK: u32 = 0x8201_0061;
     pub const CLOAK_STATUS: u32 = 0x8201_0009;
     pub const SEES_HIDDEN: u32 = 0x8201_0088;
+    /// `/stormthresh` and `/stormnumstormed`.
+    pub const STORM_THRESHOLD: u32 = 0x8201_0030;
+    pub const STORM_SENT: u32 = 0x8201_0085;
 }
 
 /// The line a `/admindialog` with no words of its own shows its target, the client's table's words.
@@ -45,6 +48,8 @@ pub(super) fn call<S: Store>(cx: &mut Cx<'_, S>, f: u32, a: &Args<'_>) -> Option
         function::FINGER_ID => finger_id(cx, a),
         function::FINGER_ACCOUNT => finger_account(cx, a),
         function::USER_LIMIT => user_limit(cx, a),
+        function::STORM_THRESHOLD => storm_threshold(cx, a),
+        function::STORM_SENT => storm_sent(cx, a),
         function::ADMIN_TABLE => crate::admin_groups::table(cx.s),
         function::SERVER_LIST => server_list(cx),
         function::BROADCAST => broadcast(cx, a.text(0)),
@@ -184,6 +189,31 @@ fn user_limit<S: Store>(cx: &mut Cx<'_, S>, a: &Args<'_>) -> Vec<String> {
     };
     cx.s.cfg.max_sessions = n;
     vec![format!("The world now holds {n} logins.")]
+}
+
+/// The players a landblock must hold for a portal storm to brew there, until the server stops.
+fn storm_threshold<S: Store>(cx: &mut Cx<'_, S>, a: &Args<'_>) -> Vec<String> {
+    let Some(n) = a.int(0).filter(|n| *n > 0) else {
+        return vec![
+            "Give the players a landblock holds for a portal storm, 1 or more.".to_owned(),
+        ];
+    };
+    cx.s.storms.threshold = usize::try_from(n).unwrap_or(usize::MAX);
+    vec![format!(
+        "A portal storm now brews in a landblock holding {n} or more players."
+    )]
+}
+
+/// The fewest players a portal storm sends away (more when the landblock holds more beyond the
+/// threshold), until the server stops.
+fn storm_sent<S: Store>(cx: &mut Cx<'_, S>, a: &Args<'_>) -> Vec<String> {
+    let Some(n) = a.int(0) else {
+        return vec!["Give the fewest players a portal storm sends away.".to_owned()];
+    };
+    cx.s.storms.least = usize::try_from(n).unwrap_or(usize::MAX);
+    vec![format!(
+        "A portal storm now sends away at least {n} of the players there, and any past the threshold."
+    )]
 }
 
 fn server_list<S: Store>(cx: &Cx<'_, S>) -> Vec<String> {

@@ -1098,10 +1098,18 @@ fn run<S: Store>(
     );
     let mut ping = status_ping(o);
     let mut reporter = o.hub.clone().map(hub::Reporter::start);
+    let mut told = Told {
+        world: world::served(
+            &o.world_db,
+            o.world_base.as_deref(),
+            o.dat_overlay.as_deref(),
+        ),
+        not_handled: (0, std::sync::Arc::default()),
+    };
     let status = o
         .status
         .map(|at| {
-            let first = snapshot(&server, &net, started, websocket_url.as_ref());
+            let first = snapshot(&server, &net, started, websocket_url.as_ref(), &mut told);
             let pages = if wire.websocket.is_some() {
                 o.websocket.allowed_origins.clone()
             } else {
@@ -1308,6 +1316,11 @@ fn run<S: Store>(
                             unix: unix_now(),
                         };
                         let r = server.reload(&mut net, clock, tables);
+                        told.world = world::served(
+                            &o.world_db,
+                            o.world_base.as_deref(),
+                            o.dat_overlay.as_deref(),
+                        );
                         console::answer(
                             "reload",
                             &Ok(format!("world database {}: {}", dir.display(), r.summary())),
@@ -1375,7 +1388,13 @@ fn run<S: Store>(
                 );
             }
             if let Some(s) = &status {
-                s.set(snapshot(&server, &net, started, websocket_url.as_ref()));
+                s.set(snapshot(
+                    &server,
+                    &net,
+                    started,
+                    websocket_url.as_ref(),
+                    &mut told,
+                ));
             }
             ping.facts.state = if server.shutdown == yalain_world::shutdown::Shutdown::No {
                 yalain_net::status_ping::WorldState::Open
@@ -1587,14 +1606,30 @@ fn status_ping(o: &Options) -> yalain_net::status_ping::StatusPing {
     )
 }
 
+/// What the status endpoint is told beside the world's own state: the world database served, and
+/// the requests not handled as last copied, copied again only when another has been met.
+struct Told {
+    world: world::Served,
+    not_handled: (u64, std::sync::Arc<std::collections::BTreeMap<String, u64>>),
+}
+
 /// What the status endpoint says of the world now.
 fn snapshot<S: Store>(
     server: &Server<S>,
     net: &ServerNet,
     started: Instant,
     websocket_url: Option<&String>,
+    told: &mut Told,
 ) -> status::Snapshot {
+    if told.not_handled.0 != server.unhandled.requests() {
+        told.not_handled = (
+            server.unhandled.requests(),
+            std::sync::Arc::new(server.unhandled.counts().clone()),
+        );
+    }
     status::Snapshot {
+        world: told.world.clone(),
+        not_handled: told.not_handled.clone(),
         websocket_url: websocket_url.cloned(),
         world_name: server.cfg.world_name.clone(),
         uptime_seconds: started.elapsed().as_secs(),

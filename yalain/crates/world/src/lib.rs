@@ -1129,6 +1129,7 @@ impl<S: Store> Server<S> {
             .is_none_or(|t| clock.local.0 - t.0 >= spawn::STEP_SECONDS);
         self.saves.piece_begins();
         login::checks_due(self, net, clock);
+        login::purge_due(self, net, clock);
         self.step_timer.lap(Stage::Other);
         self.saves.piece_begins();
         if due {

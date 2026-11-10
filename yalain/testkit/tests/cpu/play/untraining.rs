@@ -103,6 +103,29 @@ fn a_skill_with_no_experience_in_it_is_untrained_at_once_and_its_credits_come_ba
     assert_eq!(h.server.players[&world].play.credits, 1 + COST);
 }
 
+/// Asking to sell back all skills, all hero skills or all craft skills at once is refused, each in
+/// the install's own words (a reset is only for a player granted one, and this server grants none);
+/// the skill and its credits stay.
+/// Behaviour: server.skills.selling-back-all-refused-without-a-reset
+#[test]
+fn selling_back_every_skill_at_once_is_refused_and_nothing_is_untrained() {
+    use yalain_world::skills::no_reset;
+    let (mut h, b, world) = trained(0);
+    for (asked, said) in [
+        (function::SELL_BACK_ALL, no_reset::SKILLS),
+        (function::SELL_BACK_ALL_HERO, no_reset::HERO_SKILLS),
+        (function::SELL_BACK_ALL_CRAFT, no_reset::CRAFT_SKILLS),
+    ] {
+        let from = ask(&mut h, b, asked, &[]);
+        assert_eq!(h.texts(b, from), [(untraining::SHOWN_AS, said.0)]);
+    }
+    assert!(holds(&h, world));
+    assert_eq!(h.server.players[&world].play.credits, 1);
+    // "You do not have the option to untrain all of your skills instantly. ..."
+    assert_eq!(no_reset::SKILLS, (0x1624_3A16, 0x2500_04AA));
+    assert_eq!(no_reset::CRAFT_SKILLS, (0x73EF_12D8, 0x2500_000C));
+}
+
 /// A perk given up lowers a vital that stood above what is left of its greatest, and the player is
 /// told; below that, nothing moves.
 /// Behaviour: server.skills.perk-given-up-lowers-a-vital

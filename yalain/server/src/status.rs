@@ -6,8 +6,11 @@
 //! (`world_step`, in milliseconds: the step's budget; since the start, the steps and overruns, the
 //! first step's work, which fills every camp, and the worst since; the creatures that acted at the
 //! last step; and over the last minute's steps, the last, mean, 99th percentile and worst step's
-//! work, and each stage's mean and worst). It has no authentication: it is meant for loopback or a
-//! private network.
+//! work, and each stage's mean and worst); the world database it serves (`world_database`: its key
+//! and era, the release it is, the release it lies over and the world whose overlay the install is
+//! read through, each null when there is none); and what clients asked for that the server doesn't
+//! do yet (`not_handled`: the requests met, and each kind's count). It has no authentication: it
+//! is meant for loopback or a private network.
 //!
 //! A web page may read it from a page origin the WebSocket endpoint admits
 //! (`server.websocket.allowed_origins`), so that it can find the endpoint: the answer then carries
@@ -16,6 +19,7 @@
 //! The loop puts the latest [`Snapshot`] in with [`Endpoint::set`]; a thread of its own answers
 //! the requests from it, one at a time.
 
+use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Read as _, Write};
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -45,6 +49,10 @@ pub struct Snapshot {
     pub saves_failing: bool,
     /// The world's step times.
     pub world_step: yalain_world::step_timer::Figures,
+    /// The world database served.
+    pub world: crate::world::Served,
+    /// The requests met that the server doesn't handle, and each kind's count.
+    pub not_handled: (u64, Arc<BTreeMap<String, u64>>),
 }
 
 impl Snapshot {
@@ -65,9 +73,25 @@ impl Snapshot {
             "connections": self.connections,
             "websocket_url": self.websocket_url,
             "world_step": step_json(&self.world_step),
+            "world_database": served_json(&self.world),
+            "not_handled": {
+                "requests": self.not_handled.0,
+                "kinds": *self.not_handled.1,
+            },
         })
         .to_string()
     }
+}
+
+/// The world database served, as `/status` names it.
+fn served_json(w: &crate::world::Served) -> serde_json::Value {
+    serde_json::json!({
+        "key": w.key,
+        "era": w.era,
+        "release": w.release,
+        "base": w.base.as_ref().map(|b| serde_json::json!({ "key": b.key, "release": b.release })),
+        "overlay": w.overlay,
+    })
 }
 
 /// Microseconds as milliseconds.
@@ -305,6 +329,7 @@ mod tests {
             max_logins: 128,
             connections: 7,
             world_step: yalain_world::step_timer::Figures::default(),
+            ..Snapshot::default()
         });
         let health = get(e.addr(), "/health");
         assert!(health.starts_with("HTTP/1.1 200 OK\r\n"), "{health}");
@@ -386,6 +411,63 @@ mod tests {
         let names: Vec<&String> = r["stages"].as_object().expect("by stage").keys().collect();
         assert_eq!(names.len(), Stage::ALL.len());
         e.stop();
+    }
+
+    /// `/status` names the world database served (its key and era, its release, the release it
+    /// lies over and the overlay's world, null where there is none) and what clients asked for that
+    /// the server doesn't do yet, each kind with its count.
+    /// Behaviour: server.operator.status-names-the-world-database
+    #[test]
+    fn the_status_endpoint_names_the_world_database_and_what_is_not_handled() {
+        let mut not_handled = yalain_world::Unhandled::default();
+        for what in [
+            "script call 0x82120046",
+            "script call 0x82120046",
+            "a pet's name",
+        ] {
+            not_handled.note(what);
+        }
+        let e = Endpoint::start(
+            SocketAddr::from(([127, 0, 0, 1], 0)),
+            Snapshot {
+                world: crate::world::Served {
+                    key: "mine".into(),
+                    era: "eor".into(),
+                    release: None,
+                    base: Some(crate::world::ServedBase {
+                        key: "yalain-world".into(),
+                        release: Some("v0.34.0".into()),
+                    }),
+                    overlay: Some("mine".into()),
+                },
+                not_handled: (
+                    not_handled.requests(),
+                    Arc::new(not_handled.counts().clone()),
+                ),
+                ..Snapshot::default()
+            },
+            Vec::new(),
+        )
+        .expect("listens");
+        let text = get(e.addr(), "/status");
+        let body = text.split("\r\n\r\n").nth(1).expect("a body");
+        let v: serde_json::Value = serde_json::from_str(body).expect("JSON");
+        let w = &v["world_database"];
+        assert_eq!((&w["key"], &w["era"]), (&"mine".into(), &"eor".into()));
+        assert_eq!(w["release"], serde_json::Value::Null);
+        assert_eq!(w["base"]["key"], "yalain-world");
+        assert_eq!(w["base"]["release"], "v0.34.0");
+        assert_eq!(w["overlay"], "mine");
+        let n = &v["not_handled"];
+        assert_eq!(n["requests"], 3);
+        assert_eq!(n["kinds"]["script call 0x82120046"], 2);
+        assert_eq!(n["kinds"]["a pet's name"], 1);
+        assert_eq!(n["kinds"].as_object().map(serde_json::Map::len), Some(2));
+        e.stop();
+        let quiet = Snapshot::default().json();
+        let v: serde_json::Value = serde_json::from_str(&quiet).expect("JSON");
+        assert_eq!(v["world_database"]["base"], serde_json::Value::Null);
+        assert_eq!(v["not_handled"]["requests"], 0);
     }
 
     /// `/status` reports the WebSocket endpoint's address, and a page from an origin the endpoint

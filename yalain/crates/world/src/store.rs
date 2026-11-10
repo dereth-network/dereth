@@ -42,6 +42,8 @@ pub mod function {
     pub const PREV_SALES: u32 = 0x9B5E_0024;
     pub const LEAVE_STORE: u32 = 0x9B5E_000C;
     pub const PURCHASE: u32 = 0x9B5E_0031;
+    /// `Store_RequestUpdateSales`, of a storekeeper.
+    pub const UPDATE_SALES: u32 = 0x9B5E_0042;
 }
 
 /// Script packages and native types of a store's view.
@@ -324,6 +326,26 @@ pub fn turn_page<S: Store>(
     if let Some(p) = s.players.get_mut(&world) {
         p.shopping = Some((keeper, store, pos));
     }
+}
+
+/// The client asks for its store's sales again, as its scripts do when the player's experience or
+/// quests change while it shops, since a level or a quest may gate a sale: the page it is on, as it
+/// now stands. A broker's consignments, gated by neither, and a storekeeper the player isn't
+/// shopping with are not answered.
+pub fn update_sales<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v: &[Value]) {
+    let Some(Value::Long(asked)) = v.first() else {
+        s.unhandled
+            .note("a store's sales asked for that do not read");
+        return;
+    };
+    let Some((keeper, store, pos)) = s.players.get(&world).and_then(|p| p.shopping) else {
+        return;
+    };
+    if keeper != *asked || crate::market::is_broker(s, keeper) {
+        return;
+    }
+    let m = page(s, world, keeper, store, pos, function::UPDATE_STORE);
+    progress::private(net, world, &m);
 }
 
 /// The client leaves the store (not answered): a vendor's store is no longer sent again.

@@ -156,6 +156,15 @@ impl Store for MemoryStore {
         Ok(v)
     }
 
+    fn deleted_by(&mut self, at: i64) -> StoreResult<Vec<Character>> {
+        Ok(self
+            .characters
+            .iter()
+            .filter(|c| c.deleted_at.is_some_and(|d| d <= at))
+            .cloned()
+            .collect())
+    }
+
     fn character(&mut self, id: u64) -> StoreResult<Option<Character>> {
         Ok(self.characters.iter().find(|c| c.id == id).cloned())
     }
