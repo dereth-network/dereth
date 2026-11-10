@@ -28,7 +28,9 @@
 //! 104 and 3 uses) the quest steps run, an item kept wears (its durability falls by one, 101 of
 //! 101 cans and bags), an item used up goes one off its stack or out of the pack, and the use is
 //! answered as one at once is (316 kept, 101 of 101; 319 used up, 6 of 6). While it plays any
-//! other use is refused as one made while the player's actions are locked (7 of 7).
+//! other use is refused as one made while the player's actions are locked (7 of 7). A dye plant
+//! is cared for by its planter alone: anyone else's can, bag or pollen is answered kept (316), not
+//! worn or used up, and its quest steps don't run.
 //!
 //! **What it may be used on.** A table names its objects by template, or by class: a class is a
 //! script package, and an object of any template whose package is it or derives from it is one
@@ -400,6 +402,14 @@ fn carry_out<S: Store>(
         .get(&world)
         .and_then(|p| places::reach(&p.position, at.cell, at.origin))
         .unwrap_or(0.0);
+    // A dye plant is cared for by its planter alone: anyone else leaves it alone, the item kept
+    // and unworn.
+    if crate::plants::not_planted_by(s, world, u.target) {
+        let m = places::use_answer_on(u, FLAGS_KEPT, distance, 0);
+        progress::private(net, world, &m);
+        crate::plants::left_alone(s, net, world);
+        return;
+    }
     let trigger = Trigger::UseOn(item, target);
     crate::quests::triggered(s, net, world, trigger, None, clock);
     let item_name = s.things.get(u.item).and_then(|t| t.facts.name);

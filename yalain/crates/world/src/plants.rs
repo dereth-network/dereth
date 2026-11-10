@@ -24,6 +24,11 @@
 //! breeze blows it away). Examining a plant shows its needs, its pollen and the time until it is
 //! ripe, or that it is ripe.
 //!
+//! **Only its planter cares for it.** A can, a bag or a pollen used on a plant by anyone else plays
+//! its use as ever, and when that has played out the use is answered with the item kept and unworn,
+//! and the player told, as at a harvest, that it did not plant this plant and leaves it alone: its
+//! needs and its pollen stay as they were.
+//!
 //! **Harvesting.** A player uses the plant (walking to it first when it is farther than 4 m): it
 //! plays the plants' behavior, and when that has played out the use is answered, with a text: a
 //! plant not yet ripe "is not mature yet" and stays; one the player did not plant is left alone; a
@@ -439,6 +444,27 @@ fn withers<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, why: u32) 
         progress::private(net, world, &crate::pets::removed(id));
     }
     crate::death::vanish(s, net, id);
+}
+
+/// Whether an object is a plant another player planted: caring for it is left to its planter.
+#[must_use]
+pub fn not_planted_by<S: Store>(s: &Server<S>, world: ConnId, target: u64) -> bool {
+    let me = s.players.get(&world).map(|p| p.character);
+    s.plants
+        .by_id
+        .get(&target)
+        .is_some_and(|p| Some(p.owner) != me)
+}
+
+/// A player leaves alone a plant it did not plant: it is told so, as at a harvest.
+pub fn left_alone<S: Store>(s: &Server<S>, net: &mut ServerNet, world: ConnId) {
+    if let Some(name) = s
+        .players
+        .get(&world)
+        .map(|q| crate::player::world_name(&q.name, q.sex))
+    {
+        progress::private(net, world, &told(text::NOT_YOURS, &name));
+    }
 }
 
 /// An item used on an object has been carried out and answered: when the object is a plant, a

@@ -11526,6 +11526,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.plants.cared-for-by-their-planter",
+        says: "A watering can, a bag of fertilizer or a pollen used on another player's dye plant \
+               plays its use, and is answered when it has played out with the item kept (316), \
+               unworn and not used up, and the harvest's line that the player did not plant it and \
+               leaves it alone; the plant's needs and pollen stay. This server's own: no recorded \
+               session shows one player caring for another's plant.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-DYE-PLANT-PLANTER-ONLY"),
+        station: "yalain-testkit::cpu::play::dye_plants::only_its_planter_waters_fertilizes_or_pollinates_a_plant",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.plants.cross",
         says: "A ripe dye plant pollinated with a pollen of a known cross gives so many seeds of \
                the cross's species and nothing else (Berimphur with Hennacin pollen: three Siennan \

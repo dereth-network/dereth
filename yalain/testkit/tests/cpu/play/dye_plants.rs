@@ -2,8 +2,8 @@
 //! planting has played; the plant takes its growing looks and its species' ripe look as it ages;
 //! its needs grow, a watering can and a bag of fertilizer each lower theirs by a level, and a need
 //! past either end withers it; pollen brushes onto it once; examined it shows its needs, its pollen
-//! and when it is ripe; harvested by its planter when ripe it gives its plant and a pollen, or the
-//! seeds of a known cross; it leaves the world with its planter.
+//! and when it is ripe; only its planter cares for it; harvested by its planter when ripe it gives
+//! its plant and a pollen, or the seeds of a known cross; it leaves the world with its planter.
 //! Fixture: the test hall, its start a Berimphur garden; the Berimphur seed, plant, plant item and
 //! pollen, the Hennacin pollen, the Siennan seed, a watering can and a bag of fertilizer.
 
@@ -576,6 +576,57 @@ fn pollen_brushes_onto_a_plant_once_and_is_blown_away_from_one_already_pollinate
         "the first kept"
     );
     assert_eq!(held(&h, world, POLLEN), None, "used up all the same");
+}
+
+/// A watering can, a bag of fertilizer and a pollen used on another player's plant play their use
+/// as ever, and when it has played out the use is answered with the item kept (316), unworn and
+/// not used up, and the player told, as at a harvest, that it did not plant it and leaves it
+/// alone: its needs and its pollen stay. Its planter's own care still counts.
+/// Behaviour: server.plants.cared-for-by-their-planter
+#[test]
+fn only_its_planter_waters_fertilizes_or_pollinates_a_plant() {
+    let mut h = garden();
+    let (a, me, world) = gardener(&mut h, "one", &[(SEED, 1), (CAN, 1)]);
+    let plant = planted(&mut h, a, me, world);
+    let (b, you, your_world) = gardener(&mut h, "two", &[(CAN, 1), (BAG, 1), (HENNACIN_POLLEN, 1)]);
+    stand(&mut h, your_world, [1.0, 2.0]);
+    let state = |h: &Harness| {
+        let p = &h.server.plants.by_id[&plant];
+        (p.water, p.fertilizer, p.pollen)
+    };
+    assert_eq!(state(&h), (5, 5, None));
+    for template in [CAN, BAG, HENNACIN_POLLEN] {
+        let (item, _) = held(&h, your_world, template).expect("held");
+        let worn = h.server.things.get(item).and_then(|t| t.durability);
+        let from = h.bots[b].inbox.len();
+        send_use(&mut h, b, you, item, plant);
+        assert_eq!(played(&h, b, from, you).len(), 1, "its use plays as ever");
+        run_for(&mut h, 2.0);
+        assert_eq!(state(&h), (5, 5, None), "left alone");
+        assert_eq!(
+            answers(&h, b, from),
+            [(0, interactions::FLAGS_KEPT, 0)],
+            "answered, the item kept"
+        );
+        assert_eq!(plant_texts(&h, b, from), [text::NOT_YOURS]);
+        let (answer, said) = answer_then_text(&h, b, from);
+        assert!(answer < said, "the text after the answer");
+        assert_eq!(
+            held(&h, your_world, template).map(|x| x.0),
+            Some(item),
+            "kept"
+        );
+        assert_eq!(
+            h.server.things.get(item).and_then(|t| t.durability),
+            worn,
+            "unworn"
+        );
+    }
+    // Its planter's own can still waters it.
+    let (can, _) = held(&h, world, CAN).expect("a can");
+    send_use(&mut h, a, me, can, plant);
+    run_for(&mut h, 2.0);
+    assert_eq!(state(&h), (4, 5, None), "watered by its planter");
 }
 
 /// A plant used plays the plants' behavior (bits 0x400121) and is answered when it has played out
